@@ -31,12 +31,12 @@ import {
   SectionSpacer,
 } from './styled/ShopTabComponents';
 import {useNavigation} from '@react-navigation/native';
-import {GiftCardScreens} from '../gift-card/GiftCardStack';
 import MyGiftCards from './MyGiftCards';
 import FilterSheet, {initializeCategoryMap} from './FilterSheet';
 import {useAppSelector} from '../../../../utils/hooks';
 import {APP_NETWORK} from '../../../../constants/config';
 import GhostSvg from '../../../../../assets/img/ghost-cheeky.svg';
+import {ShopScreens} from '../ShopStack';
 
 const Curations = ({
   curations,
@@ -63,8 +63,8 @@ const Curations = ({
             maxItemsPerColumn={3}
             screenWidth={WIDTH}
             onItemPress={item => {
-              navigation.navigate('GiftCard', {
-                screen: GiftCardScreens.BUY_GIFT_CARD,
+              navigation.navigate('Shop', {
+                screen: ShopScreens.BUY_GIFT_CARD,
                 params: {cardConfig: item as CardConfig},
               });
             }}
@@ -249,8 +249,8 @@ export default ({
                 <ListItemTouchableHighlight
                   key={cardConfig.name}
                   onPress={() => {
-                    navigation.navigate('GiftCard', {
-                      screen: GiftCardScreens.BUY_GIFT_CARD,
+                    navigation.navigate('Shop', {
+                      screen: ShopScreens.BUY_GIFT_CARD,
                       params: {cardConfig},
                     });
                   }}
@@ -291,8 +291,8 @@ export default ({
               <ListItemTouchableHighlight
                 key={cardConfig.name}
                 onPress={() => {
-                  navigation.navigate('GiftCard', {
-                    screen: GiftCardScreens.BUY_GIFT_CARD,
+                  navigation.navigate('Shop', {
+                    screen: ShopScreens.BUY_GIFT_CARD,
                     params: {cardConfig},
                   });
                 }}

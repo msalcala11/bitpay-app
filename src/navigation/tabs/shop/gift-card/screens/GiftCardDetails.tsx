@@ -30,7 +30,6 @@ import {
   White,
 } from '../../../../../styles/colors';
 import RemoteImage from '../../components/RemoteImage';
-import {GiftCardStackParamList} from '../GiftCardStack';
 import {
   horizontalPadding,
   NavIconButtonContainer,
@@ -57,6 +56,7 @@ import {ShopActions, ShopEffects} from '../../../../../store/shop';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {DeviceEmitterEvents} from '../../../../../constants/device-emitter-events';
 import Icons from '../../../../wallet/components/WalletIcons';
+import {ShopStackParamList} from '../../ShopStack';
 
 const maxWidth = 320;
 
@@ -149,7 +149,7 @@ const showCopiedNotification = (copiedValue: string, cardConfig: CardConfig) =>
 const GiftCardDetails = ({
   route,
   navigation,
-}: StackScreenProps<GiftCardStackParamList, 'GiftCardDetails'>) => {
+}: StackScreenProps<ShopStackParamList, 'GiftCardDetails'>) => {
   const dispatch = useAppDispatch();
   const theme = useTheme();
   const [refreshing, setRefreshing] = useState(false);

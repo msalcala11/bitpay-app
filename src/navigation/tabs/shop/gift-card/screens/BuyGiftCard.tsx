@@ -3,7 +3,6 @@ import {Platform, ScrollView, View} from 'react-native';
 import {StackScreenProps} from '@react-navigation/stack';
 import LinearGradient from 'react-native-linear-gradient';
 import Markdown from 'react-native-markdown-display';
-import {GiftCardScreens, GiftCardStackParamList} from '../GiftCardStack';
 import RemoteImage from '../../components/RemoteImage';
 import TagsSvg from '../../../../../../assets/img/tags-stack.svg';
 import {
@@ -43,6 +42,7 @@ import {ShopActions} from '../../../../../store/shop';
 import {APP_NETWORK} from '../../../../../constants/config';
 import {useAppSelector} from '../../../../../utils/hooks';
 import {TouchableWithoutFeedback} from 'react-native-gesture-handler';
+import {ShopScreens, ShopStackParamList} from '../../ShopStack';
 
 const GradientBox = styled(LinearGradient)`
   width: ${WIDTH}px;
@@ -109,7 +109,7 @@ const getMiddleIndex = (arr: number[]) => arr && Math.floor(arr.length / 2);
 const BuyGiftCard = ({
   route,
   navigation,
-}: StackScreenProps<GiftCardStackParamList, 'BuyGiftCard'>) => {
+}: StackScreenProps<ShopStackParamList, 'BuyGiftCard'>) => {
   const navigator = useNavigation();
   const dispatch = useDispatch();
   const theme = useTheme();
@@ -232,8 +232,8 @@ const BuyGiftCard = ({
   };
 
   const requestPhone = (amount: number) => {
-    navigator.navigate('GiftCard', {
-      screen: GiftCardScreens.ENTER_PHONE,
+    navigator.navigate('Shop', {
+      screen: ShopScreens.ENTER_PHONE,
       params: {
         cardConfig,
         initialPhone: savedPhone,
@@ -258,8 +258,8 @@ const BuyGiftCard = ({
 
   const next = (amount: number, phone?: string) => {
     if (cardConfig.emailRequired && !shouldSync) {
-      return navigator.navigate('GiftCard', {
-        screen: GiftCardScreens.ENTER_EMAIL,
+      return navigator.navigate('Shop', {
+        screen: ShopScreens.ENTER_EMAIL,
         params: {
           cardConfig,
           initialEmail: savedEmail,

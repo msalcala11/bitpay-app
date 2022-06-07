@@ -4,7 +4,6 @@ import {TouchableWithoutFeedback} from 'react-native-gesture-handler';
 import {Carousel} from 'react-native-snap-carousel';
 import styled from 'styled-components/native';
 import {CardConfig, GiftCard} from '../../../../store/shop/shop.models';
-import {GiftCardScreens} from '../gift-card/GiftCardStack';
 import GiftCardCreditsItem from './GiftCardCreditsItem';
 import {
   horizontalPadding,
@@ -142,8 +141,8 @@ const MyGiftCards = ({
                       <TouchableWithoutFeedback
                         key={giftCard.invoiceId}
                         onPress={() => {
-                          navigation.navigate('GiftCard', {
-                            screen: GiftCardScreens.GIFT_CARD_DETAILS,
+                          navigation.navigate('Shop', {
+                            screen: ShopScreens.GIFT_CARD_DETAILS,
                             params: {
                               cardConfig,
                               giftCard,

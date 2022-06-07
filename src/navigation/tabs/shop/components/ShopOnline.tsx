@@ -11,7 +11,6 @@ import {
   Category,
   DirectIntegrationApiObject,
 } from '../../../../store/shop/shop.models';
-import {MerchantScreens} from '../merchant/MerchantStack';
 import MerchantItem from './MerchantItem';
 import ShopCarouselList, {ShopCarouselItem} from './ShopCarouselList';
 import {
@@ -27,6 +26,7 @@ import {
   SectionSpacer,
 } from './styled/ShopTabComponents';
 import GhostSvg from '../../../../../assets/img/ghost-cheeky.svg';
+import {ShopScreens} from '../ShopStack';
 
 const SearchResults = styled.View`
   display: flex;
@@ -72,7 +72,7 @@ export const ShopOnline = ({
               <TouchableWithoutFeedback
                 onPress={() => {
                   navigation.navigate('Merchant', {
-                    screen: MerchantScreens.MERCHANT_CATEGORY,
+                    screen: ShopScreens.MERCHANT_CATEGORY,
                     params: {
                       category,
                       integrations: category.integrations,
@@ -104,7 +104,7 @@ export const ShopOnline = ({
             screenWidth={WIDTH}
             onItemPress={item =>
               navigation.navigate('Merchant', {
-                screen: MerchantScreens.MERCHANT_DETAILS,
+                screen: ShopScreens.MERCHANT_DETAILS,
                 params: {
                   directIntegration: item as DirectIntegrationApiObject,
                 },
@@ -177,7 +177,7 @@ export const ShopOnline = ({
                 key={integration.displayName}
                 onPress={() =>
                   navigation.navigate('Merchant', {
-                    screen: MerchantScreens.MERCHANT_DETAILS,
+                    screen: ShopScreens.MERCHANT_DETAILS,
                     params: {
                       directIntegration: integration,
                     },

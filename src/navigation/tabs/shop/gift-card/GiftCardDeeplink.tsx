@@ -27,7 +27,7 @@ const GiftCardDeeplinkScreen: React.FC<
 
   useEffect(() => {
     if (targetedGiftCardRef.current) {
-      navigation.replace('GiftCard', {
+      navigation.replace('Shop', {
         screen: 'BuyGiftCard',
         params: {
           cardConfig: targetedGiftCardRef.current,

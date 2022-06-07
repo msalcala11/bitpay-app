@@ -119,7 +119,7 @@ export enum RootStacks {
   CARD_ACTIVATION = 'CardActivation',
   SCAN = 'Scan',
   CONTACTS = 'Contacts',
-  GIFT_CARD = 'GiftCard',
+  //GIFT_CARD = 'GiftCard',
   GIFT_CARD_DEEPLINK = 'GiftCardDeeplink',
   MERCHANT = 'Merchant',
   // SETTINGS
@@ -379,10 +379,10 @@ export default () => {
               }}
             />
             <Root.Screen name={RootStacks.SCAN} component={ScanStack} />
-            <Root.Screen
+            {/* <Root.Screen
               name={RootStacks.GIFT_CARD}
               component={GiftCardStack}
-            />
+            /> */}
             <Root.Screen
               name={RootStacks.GIFT_CARD_DEEPLINK}
               component={GiftCardDeeplinkScreen}

@@ -52,6 +52,7 @@ import {
 } from '../../../../../api/coinbase/coinbase.types';
 import {startGetRates} from '../../../../../store/wallet/effects';
 import {coinbasePayInvoice} from '../../../../../store/coinbase';
+import {ShopScreens} from '../../../../tabs/shop/ShopStack';
 export interface GiftCardConfirmParamList {
   amount: number;
   cardConfig: CardConfig;
@@ -283,8 +284,8 @@ const Confirm = () => {
     }
     navigation.dispatch(StackActions.popToTop());
     navigation.dispatch(StackActions.pop(3));
-    navigation.navigate('GiftCard', {
-      screen: 'GiftCardDetails',
+    navigation.navigate('Shop', {
+      screen: ShopScreens.GIFT_CARD_DETAILS,
       params: {
         giftCard,
         cardConfig,

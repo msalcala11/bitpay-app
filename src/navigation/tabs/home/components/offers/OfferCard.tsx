@@ -82,7 +82,7 @@ const OfferCard: React.FC<OfferCardProps> = props => {
         );
 
         if (cardConfig) {
-          navigation.navigate('GiftCard', {
+          navigation.navigate('Shop', {
             screen: 'BuyGiftCard',
             params: {
               cardConfig,
