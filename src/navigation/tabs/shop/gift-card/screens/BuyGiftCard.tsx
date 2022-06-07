@@ -47,7 +47,7 @@ import {ShopScreens, ShopStackParamList} from '../../ShopStack';
 const GradientBox = styled(LinearGradient)`
   width: ${WIDTH}px;
   align-items: center;
-  padding-top: 40px;
+  padding-top: 30px;
   flex-grow: 1;
   justify-content: center;
 `;
@@ -288,7 +288,7 @@ const BuyGiftCard = ({
       <ScrollView
         contentContainerStyle={{
           alignItems: 'center',
-          minHeight: HEIGHT - (Platform.OS === 'android' ? 80 : 110),
+          minHeight: HEIGHT - (Platform.OS === 'android' ? 160 : 190),
         }}>
         <GradientBox colors={getMastheadGradient(theme)}>
           <View
