@@ -4,13 +4,15 @@ import {useTranslation} from 'react-i18next';
 import {useDispatch, useSelector} from 'react-redux';
 import styled from 'styled-components/native';
 import Avatar from '../../../components/avatar/BitPayIdAvatar';
-import {Hr, ScreenGutter} from '../../../components/styled/Containers';
-import {BaseText, H3, Paragraph} from '../../../components/styled/Text';
+import {ScreenGutter} from '../../../components/styled/Containers';
+import {BaseText, H3, H5, Paragraph} from '../../../components/styled/Text';
 import ToggleSwitch from '../../../components/toggle-switch/ToggleSwitch';
 import {Network} from '../../../constants';
 import {RootState} from '../../../store';
 import {User} from '../../../store/bitpay-id/bitpay-id.models';
 import {ShopActions, ShopEffects} from '../../../store/shop';
+import {LightBlack, SlateDark} from '../../../styles/colors';
+import ChevronRightSvg from '../../../../assets/img/angle-right.svg';
 import {BitpayIdStackParamList} from '../BitpayIdStack';
 
 type ProfileProps = StackScreenProps<BitpayIdStackParamList, 'Profile'>;
@@ -32,11 +34,25 @@ const UserNameHeading = styled(H3)`
 const SettingsSection = styled.View`
   flex-direction: row;
   padding: 20px 0;
+  border: 1px solid ${SlateDark};
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 16px;
+  margin-bottom: 8px;
+`;
+
+const SettingsItem = styled(SettingsSection)`
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  background-color: ${LightBlack};
+  border: none;
 `;
 
 const SettingsSectionBody = styled.View`
   flex-shrink: 1;
   padding-right: 40px;
+  flex-grow: 1;
 `;
 
 const SettingsSectionHeader = styled(BaseText)`
@@ -77,7 +93,19 @@ export const ProfileSettingsScreen: React.FC<ProfileProps> = () => {
         <Paragraph>{user.email}</Paragraph>
       </ProfileInfoContainer>
 
-      <Hr />
+      <H5>Receive Settings</H5>
+
+      <SettingsItem>
+        <SettingsSectionBody>
+          <SettingsSectionHeader>
+            {t('Receive via BitPay ID')}
+          </SettingsSectionHeader>
+          <SettingsSectionDescription>
+            {t('Simply receive tokens/coins to your BitPay ID.')}
+          </SettingsSectionDescription>
+        </SettingsSectionBody>
+        <ChevronRightSvg height={16} />
+      </SettingsItem>
 
       <SettingsSection>
         <SettingsSectionBody>
