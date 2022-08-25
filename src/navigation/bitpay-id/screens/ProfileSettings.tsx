@@ -11,7 +11,12 @@ import {Network} from '../../../constants';
 import {RootState} from '../../../store';
 import {User} from '../../../store/bitpay-id/bitpay-id.models';
 import {ShopActions, ShopEffects} from '../../../store/shop';
-import {LightBlack, Slate, SlateDark, White} from '../../../styles/colors';
+import {
+  LightBlack,
+  NeutralSlate,
+  Slate,
+  SlateDark,
+} from '../../../styles/colors';
 import ChevronRightSvg from '../../../../assets/img/angle-right.svg';
 import {BitpayIdScreens, BitpayIdStackParamList} from '../BitpayIdStack';
 import {TouchableOpacity} from 'react-native-gesture-handler';
@@ -27,7 +32,7 @@ const ProfileInfoContainer = styled.View`
   display: flex;
   align-items: center;
   margin: 50px 0 36px;
-  background-color: ${LightBlack};
+  background-color: ${({theme: {dark}}) => (dark ? LightBlack : NeutralSlate)};
   border-radius: 12px;
   padding: 20px;
   padding-bottom: 25px;
@@ -39,13 +44,13 @@ const AvatarContainer = styled.View`
 `;
 
 const EmailAddress = styled(Paragraph)`
-  color: ${Slate};
+  color: ${({theme: {dark}}) => (dark ? Slate : SlateDark)};
 `;
 
 const SettingsSection = styled.View`
   flex-direction: row;
   padding: 20px 0;
-  border: 1px solid ${SlateDark};
+  border: ${({theme: {dark}}) => (dark ? SlateDark : '#E5E5E5')};
   border-radius: 12px;
   padding: 16px;
   margin-top: 16px;
@@ -56,7 +61,7 @@ const SettingsItem = styled(SettingsSection)`
   display: flex;
   flex-direction: row;
   align-items: center;
-  background-color: ${LightBlack};
+  background-color: ${({theme: {dark}}) => (dark ? LightBlack : NeutralSlate)};
   border: none;
 `;
 
@@ -89,6 +94,9 @@ export const ProfileSettingsScreen: React.FC<ProfileProps> = () => {
     ({BITPAY_ID}) => BITPAY_ID.user[network],
   );
 
+  user.givenName = 'Marty';
+  user.familyName = 'Alcala';
+
   const hasName = user?.givenName || user?.familyName;
 
   if (!user) {
@@ -108,9 +116,7 @@ export const ProfileSettingsScreen: React.FC<ProfileProps> = () => {
           </H3>
         ) : null}
 
-        <EmailAddress style={{color: hasName ? Slate : White}}>
-          {user.email}
-        </EmailAddress>
+        <EmailAddress>{user.email}</EmailAddress>
       </ProfileInfoContainer>
 
       <H5>Receive Settings</H5>

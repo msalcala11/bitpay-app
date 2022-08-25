@@ -1,6 +1,6 @@
 import React from 'react';
 import styled from 'styled-components/native';
-import {Action, White} from '../../styles/colors';
+import {Action, LinkBlue, Midnight, White} from '../../styles/colors';
 import {BaseText} from '../styled/Text';
 import ProfileIcon from './ProfileIcon';
 
@@ -28,7 +28,7 @@ const BadgeContainer = styled.View<{size: number}>`
 `;
 
 const InitialsCircle = styled.View`
-  background-color: ${Action};
+  background-color: ${({theme: {dark}}) => (dark ? Action : Midnight)};
   height: ${77}px;
   width: ${77}px;
   border-radius: 50px;
@@ -37,7 +37,7 @@ const InitialsCircle = styled.View`
 `;
 
 const InitialsText = styled(BaseText)`
-  color: ${White};
+  color: ${({theme: {dark}}) => (dark ? White : LinkBlue)};
   font-size: 32px;
   font-weight: 500;
 `;
