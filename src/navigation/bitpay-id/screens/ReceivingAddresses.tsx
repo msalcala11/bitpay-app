@@ -1,6 +1,5 @@
 import React from 'react';
 import styled from 'styled-components/native';
-import {View} from 'react-native';
 import {useTheme} from '@react-navigation/native';
 import {Br, HEIGHT} from '../../../components/styled/Containers';
 import {CurrencyListIcons} from '../../../constants/SupportedCurrencyOptions';
@@ -72,7 +71,7 @@ const ReceivingAddresses = () => {
         <H5>Receiving Addresses</H5>
         <TouchableOpacity activeOpacity={0.8}>
           <AddressItem>
-            {CurrencyListIcons.btc({height: 25})}
+            {<CurrencyListIcons.btc height="25" />}
             <AddressItemText>
               Select a <WalletName>BTC Wallet</WalletName>
             </AddressItemText>
@@ -81,7 +80,7 @@ const ReceivingAddresses = () => {
         </TouchableOpacity>
         <TouchableOpacity activeOpacity={0.8}>
           <AddressItem>
-            {CurrencyListIcons.bch({height: 25})}
+            {<CurrencyListIcons.bch height="25" />}
             <AddressItemText>
               Select a <WalletName>BCH Wallet</WalletName>
             </AddressItemText>
@@ -90,7 +89,7 @@ const ReceivingAddresses = () => {
         </TouchableOpacity>
         <TouchableOpacity activeOpacity={0.8}>
           <AddressItem>
-            {CurrencyListIcons.eth({height: 25})}
+            {<CurrencyListIcons.eth height="25" />}
             <AddressItemText>
               Select a <WalletName>ETH Wallet</WalletName>
             </AddressItemText>
