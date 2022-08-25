@@ -1,12 +1,13 @@
 import React from 'react';
 import styled from 'styled-components/native';
-import Icons from '../../wallet/components/WalletIcons';
 import {View} from 'react-native';
 import {Br} from '../../../components/styled/Containers';
 import {H3, H5, Paragraph} from '../../../components/styled/Text';
 import {BaseText} from '../../wallet/components/KeyDropdownOption';
-import {Slate} from '../../../styles/colors';
+import {LightBlack, Slate} from '../../../styles/colors';
 import ChevronRightSvg from '../../../../assets/img/angle-right.svg';
+import AddSvg from '../../../../assets/img/add.svg';
+import {TouchableOpacity} from 'react-native-gesture-handler';
 
 const AddressItem = styled.View`
   align-items: center;
@@ -22,6 +23,15 @@ const AddressItemText = styled(Paragraph)`
   margin-left: 8px;
 `;
 
+const AddButton = styled.View`
+  height: 30px;
+  width: 30px;
+  background-color: ${LightBlack};
+  border-radius: 8px;
+  align-items: center;
+  justify-content: center;
+`;
+
 const ReceivingAddresses = () => (
   <View style={{padding: 16}}>
     <H3>Choose your BitPay ID Receiving Addresses</H3>
@@ -33,28 +43,39 @@ const ReceivingAddresses = () => (
     </Paragraph>
     <Br />
     <H5>Receiving Addresses</H5>
-    <AddressItem>
-      <AddressItemText>
-        Select a <BaseText style={{fontSize: 16}}>BTC Wallet</BaseText>
-      </AddressItemText>
-      <ChevronRightSvg height={16} />
-    </AddressItem>
-    <AddressItem>
-      <AddressItemText>
-        Select a <BaseText style={{fontSize: 16}}>BCH Wallet</BaseText>
-      </AddressItemText>
-      <ChevronRightSvg height={16} />
-    </AddressItem>
-    <AddressItem>
-      <AddressItemText>
-        Select a <BaseText style={{fontSize: 16}}>ETH Wallet</BaseText>
-      </AddressItemText>
-      <ChevronRightSvg height={16} />
-    </AddressItem>
-    <AddressItem>
-      <AddressItemText>Add Wallet</AddressItemText>
-      <ChevronRightSvg height={16} />
-    </AddressItem>
+    <TouchableOpacity activeOpacity={0.8}>
+      <AddressItem>
+        <AddressItemText>
+          Select a <BaseText style={{fontSize: 16}}>BTC Wallet</BaseText>
+        </AddressItemText>
+        <ChevronRightSvg height={16} />
+      </AddressItem>
+    </TouchableOpacity>
+    <TouchableOpacity activeOpacity={0.8}>
+      <AddressItem>
+        <AddressItemText>
+          Select a <BaseText style={{fontSize: 16}}>BCH Wallet</BaseText>
+        </AddressItemText>
+        <ChevronRightSvg height={16} />
+      </AddressItem>
+    </TouchableOpacity>
+    <TouchableOpacity activeOpacity={0.8}>
+      <AddressItem>
+        <AddressItemText>
+          Select a <BaseText style={{fontSize: 16}}>ETH Wallet</BaseText>
+        </AddressItemText>
+        <ChevronRightSvg height={16} />
+      </AddressItem>
+    </TouchableOpacity>
+    <TouchableOpacity activeOpacity={0.8}>
+      <AddressItem>
+        <AddButton>
+          <AddSvg />
+        </AddButton>
+        <AddressItemText>Add Wallet</AddressItemText>
+        <ChevronRightSvg height={16} />
+      </AddressItem>
+    </TouchableOpacity>
   </View>
 );
 
