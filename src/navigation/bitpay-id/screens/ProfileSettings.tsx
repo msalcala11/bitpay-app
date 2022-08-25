@@ -21,6 +21,7 @@ import ChevronRightSvg from '../../../../assets/img/angle-right.svg';
 import {BitpayIdScreens, BitpayIdStackParamList} from '../BitpayIdStack';
 import {TouchableOpacity} from 'react-native-gesture-handler';
 import {useNavigation} from '@react-navigation/native';
+import ChevronRight from '../components/ChevronRight';
 
 type ProfileProps = StackScreenProps<BitpayIdStackParamList, 'Profile'>;
 
@@ -137,7 +138,7 @@ export const ProfileSettingsScreen: React.FC<ProfileProps> = () => {
               {t('Simply receive tokens/coins to your BitPay ID.')}
             </SettingsSectionDescription>
           </SettingsSectionBody>
-          <ChevronRightSvg height={16} />
+          <ChevronRight />
         </SettingsItem>
       </TouchableOpacity>
 
