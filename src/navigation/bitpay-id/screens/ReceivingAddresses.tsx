@@ -14,6 +14,16 @@ import Button from '../../../components/button/Button';
 import {t} from 'i18next';
 import ChevronRight from '../components/ChevronRight';
 
+const ViewContainer = styled.View`
+  padding: 16px;
+  flex-direction: column;
+  height: ${HEIGHT - 110}px;
+`;
+
+const ViewBody = styled.View`
+  flex-grow: 1;
+`;
+
 const AddressItem = styled.View`
   align-items: center;
   border: 0.75px solid ${Slate};
@@ -48,8 +58,8 @@ const AddButton = styled.View`
 const ReceivingAddresses = () => {
   const theme = useTheme();
   return (
-    <View style={{padding: 16, flexDirection: 'column', height: HEIGHT - 110}}>
-      <View style={{flexGrow: 1}}>
+    <ViewContainer>
+      <ViewBody>
         <H3>Choose your BitPay ID Receiving Addresses</H3>
         <Br />
         <Paragraph>
@@ -94,7 +104,7 @@ const ReceivingAddresses = () => {
             <ChevronRight />
           </AddressItem>
         </TouchableOpacity>
-      </View>
+      </ViewBody>
       <Button buttonStyle={'primary'} onPress={() => console.log('save')}>
         {t('Save Defaults')}
       </Button>
@@ -104,7 +114,7 @@ const ReceivingAddresses = () => {
         onPress={() => console.log('save')}>
         {t('Add Custom Address')}
       </Button>
-    </View>
+    </ViewContainer>
   );
 };
 
