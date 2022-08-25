@@ -11,7 +11,7 @@ import {Network} from '../../../constants';
 import {RootState} from '../../../store';
 import {User} from '../../../store/bitpay-id/bitpay-id.models';
 import {ShopActions, ShopEffects} from '../../../store/shop';
-import {LightBlack, SlateDark} from '../../../styles/colors';
+import {LightBlack, Slate, SlateDark, White} from '../../../styles/colors';
 import ChevronRightSvg from '../../../../assets/img/angle-right.svg';
 import {BitpayIdStackParamList} from '../BitpayIdStack';
 
@@ -24,11 +24,20 @@ const ProfileSettingsScreenContainer = styled.View`
 const ProfileInfoContainer = styled.View`
   display: flex;
   align-items: center;
-  margin: 30px 0 36px;
+  margin: 50px 0 36px;
+  background-color: ${LightBlack};
+  border-radius: 12px;
+  padding: 20px;
+  padding-bottom: 25px;
 `;
 
-const UserNameHeading = styled(H3)`
-  margin-top: 22px;
+const AvatarContainer = styled.View`
+  margin-top: -58px;
+  padding-bottom: 18px;
+`;
+
+const EmailAddress = styled(Paragraph)`
+  color: ${Slate};
 `;
 
 const SettingsSection = styled.View`
@@ -77,6 +86,8 @@ export const ProfileSettingsScreen: React.FC<ProfileProps> = () => {
     ({BITPAY_ID}) => BITPAY_ID.user[network],
   );
 
+  const hasName = user?.givenName || user?.familyName;
+
   if (!user) {
     return <></>;
   }
@@ -84,13 +95,19 @@ export const ProfileSettingsScreen: React.FC<ProfileProps> = () => {
   return (
     <ProfileSettingsScreenContainer>
       <ProfileInfoContainer>
-        <Avatar size={77} />
+        <AvatarContainer>
+          <Avatar size={77} />
+        </AvatarContainer>
 
-        <UserNameHeading>
-          {user.givenName} {user.familyName}
-        </UserNameHeading>
+        {hasName ? (
+          <H3>
+            {user.givenName} {user.familyName}
+          </H3>
+        ) : null}
 
-        <Paragraph>{user.email}</Paragraph>
+        <EmailAddress style={{color: hasName ? Slate : White}}>
+          {user.email}
+        </EmailAddress>
       </ProfileInfoContainer>
 
       <H5>Receive Settings</H5>

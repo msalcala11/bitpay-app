@@ -42,7 +42,13 @@ const BitPayIdAvatar: React.FC<BitPayIdAvatarProps> = ({size}) => {
   const isVerified = false; // TODO
   const badge = isVerified ? <CheckIcon /> : null;
 
-  return <Avatar size={size} initials={initials} badge={() => badge} />;
+  return (
+    <Avatar
+      size={size}
+      initials={size > 50 ? initials : undefined}
+      badge={() => badge}
+    />
+  );
 };
 
 export default BitPayIdAvatar;
