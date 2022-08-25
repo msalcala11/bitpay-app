@@ -17,7 +17,6 @@ import {
   Slate,
   SlateDark,
 } from '../../../styles/colors';
-import ChevronRightSvg from '../../../../assets/img/angle-right.svg';
 import {BitpayIdScreens, BitpayIdStackParamList} from '../BitpayIdStack';
 import {TouchableOpacity} from 'react-native-gesture-handler';
 import {useNavigation} from '@react-navigation/native';
@@ -94,9 +93,6 @@ export const ProfileSettingsScreen: React.FC<ProfileProps> = () => {
   const user = useSelector<RootState, User | null>(
     ({BITPAY_ID}) => BITPAY_ID.user[network],
   );
-
-  user.givenName = 'Marty';
-  user.familyName = 'Alcala';
 
   const hasName = user?.givenName || user?.familyName;
 
