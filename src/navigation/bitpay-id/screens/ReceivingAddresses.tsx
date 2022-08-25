@@ -7,12 +7,12 @@ import {CurrencyListIcons} from '../../../constants/SupportedCurrencyOptions';
 import {H3, H5, Paragraph} from '../../../components/styled/Text';
 import {BaseText} from '../../wallet/components/KeyDropdownOption';
 import {LightBlack, Slate, Slate10, Slate30} from '../../../styles/colors';
-import ChevronRightSvg from '../../../../assets/img/angle-right.svg';
 import AddSvg from '../../../../assets/img/add.svg';
 import AddWhiteSvg from '../../../../assets/img/add-white.svg';
 import {TouchableOpacity} from 'react-native-gesture-handler';
 import Button from '../../../components/button/Button';
 import {t} from 'i18next';
+import ChevronRight from '../components/ChevronRight';
 
 const AddressItem = styled.View`
   align-items: center;
@@ -62,7 +62,7 @@ const ReceivingAddresses = () => {
             <AddressItemText>
               Select a <BaseText style={{fontSize: 16}}>BTC Wallet</BaseText>
             </AddressItemText>
-            <ChevronRightSvg height={16} />
+            <ChevronRight />
           </AddressItem>
         </TouchableOpacity>
         <TouchableOpacity activeOpacity={0.8}>
@@ -71,7 +71,7 @@ const ReceivingAddresses = () => {
             <AddressItemText>
               Select a <BaseText style={{fontSize: 16}}>BCH Wallet</BaseText>
             </AddressItemText>
-            <ChevronRightSvg height={16} />
+            <ChevronRight />
           </AddressItem>
         </TouchableOpacity>
         <TouchableOpacity activeOpacity={0.8}>
@@ -80,14 +80,14 @@ const ReceivingAddresses = () => {
             <AddressItemText>
               Select a <BaseText style={{fontSize: 16}}>ETH Wallet</BaseText>
             </AddressItemText>
-            <ChevronRightSvg height={16} />
+            <ChevronRight />
           </AddressItem>
         </TouchableOpacity>
         <TouchableOpacity activeOpacity={0.8}>
           <AddressItem>
             <AddButton>{theme.dark ? <AddWhiteSvg /> : <AddSvg />}</AddButton>
             <AddressItemText>Add Wallet</AddressItemText>
-            <ChevronRightSvg height={16} />
+            <ChevronRight />
           </AddressItem>
         </TouchableOpacity>
       </View>
