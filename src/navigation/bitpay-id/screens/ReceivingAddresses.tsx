@@ -30,6 +30,10 @@ const AddressItemText = styled(Paragraph)`
   margin-left: 0px;
 `;
 
+const WalletName = styled(BaseText)`
+  font-size: 16px;
+`;
+
 const AddButton = styled.View`
   height: 30px;
   width: 30px;
@@ -60,7 +64,7 @@ const ReceivingAddresses = () => {
           <AddressItem>
             {CurrencyListIcons.btc({height: 25})}
             <AddressItemText>
-              Select a <BaseText style={{fontSize: 16}}>BTC Wallet</BaseText>
+              Select a <WalletName>BTC Wallet</WalletName>
             </AddressItemText>
             <ChevronRight />
           </AddressItem>
@@ -69,7 +73,7 @@ const ReceivingAddresses = () => {
           <AddressItem>
             {CurrencyListIcons.bch({height: 25})}
             <AddressItemText>
-              Select a <BaseText style={{fontSize: 16}}>BCH Wallet</BaseText>
+              Select a <WalletName>BCH Wallet</WalletName>
             </AddressItemText>
             <ChevronRight />
           </AddressItem>
@@ -78,7 +82,7 @@ const ReceivingAddresses = () => {
           <AddressItem>
             {CurrencyListIcons.eth({height: 25})}
             <AddressItemText>
-              Select a <BaseText style={{fontSize: 16}}>ETH Wallet</BaseText>
+              Select a <WalletName>ETH Wallet</WalletName>
             </AddressItemText>
             <ChevronRight />
           </AddressItem>
