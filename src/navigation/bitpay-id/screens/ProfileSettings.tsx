@@ -13,7 +13,9 @@ import {User} from '../../../store/bitpay-id/bitpay-id.models';
 import {ShopActions, ShopEffects} from '../../../store/shop';
 import {LightBlack, Slate, SlateDark, White} from '../../../styles/colors';
 import ChevronRightSvg from '../../../../assets/img/angle-right.svg';
-import {BitpayIdStackParamList} from '../BitpayIdStack';
+import {BitpayIdScreens, BitpayIdStackParamList} from '../BitpayIdStack';
+import {TouchableOpacity} from 'react-native-gesture-handler';
+import {useNavigation} from '@react-navigation/native';
 
 type ProfileProps = StackScreenProps<BitpayIdStackParamList, 'Profile'>;
 
@@ -78,6 +80,7 @@ const SettingsSectionDescription = styled(BaseText)`
 export const ProfileSettingsScreen: React.FC<ProfileProps> = () => {
   const {t} = useTranslation();
   const dispatch = useDispatch();
+  const navigation = useNavigation();
   const network = useSelector<RootState, Network>(({APP}) => APP.network);
   const syncGiftCardPurchasesWithBitPayId = useSelector<RootState, boolean>(
     ({SHOP}) => SHOP.syncGiftCardPurchasesWithBitPayId,
@@ -112,17 +115,25 @@ export const ProfileSettingsScreen: React.FC<ProfileProps> = () => {
 
       <H5>Receive Settings</H5>
 
-      <SettingsItem>
-        <SettingsSectionBody>
-          <SettingsSectionHeader>
-            {t('Receive via BitPay ID')}
-          </SettingsSectionHeader>
-          <SettingsSectionDescription>
-            {t('Simply receive tokens/coins to your BitPay ID.')}
-          </SettingsSectionDescription>
-        </SettingsSectionBody>
-        <ChevronRightSvg height={16} />
-      </SettingsItem>
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={() =>
+          navigation.navigate('BitpayId', {
+            screen: BitpayIdScreens.RECEIVING_ADDRESSES,
+          })
+        }>
+        <SettingsItem>
+          <SettingsSectionBody>
+            <SettingsSectionHeader>
+              {t('Receive via BitPay ID')}
+            </SettingsSectionHeader>
+            <SettingsSectionDescription>
+              {t('Simply receive tokens/coins to your BitPay ID.')}
+            </SettingsSectionDescription>
+          </SettingsSectionBody>
+          <ChevronRightSvg height={16} />
+        </SettingsItem>
+      </TouchableOpacity>
 
       <SettingsSection>
         <SettingsSectionBody>
