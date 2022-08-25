@@ -2,6 +2,7 @@ import React from 'react';
 import styled from 'styled-components/native';
 import {View} from 'react-native';
 import {Br} from '../../../components/styled/Containers';
+import {CurrencyListIcons} from '../../../constants/SupportedCurrencyOptions';
 import {H3, H5, Paragraph} from '../../../components/styled/Text';
 import {BaseText} from '../../wallet/components/KeyDropdownOption';
 import {LightBlack, Slate} from '../../../styles/colors';
@@ -16,11 +17,12 @@ const AddressItem = styled.View`
   flex-direction: row;
   padding: 12px 15px;
   margin-top: 10px;
+  padding-left: 2px;
 `;
 
 const AddressItemText = styled(Paragraph)`
   flex-grow: 1;
-  margin-left: 8px;
+  margin-left: 0px;
 `;
 
 const AddButton = styled.View`
@@ -30,6 +32,8 @@ const AddButton = styled.View`
   border-radius: 8px;
   align-items: center;
   justify-content: center;
+  margin-left: 11px;
+  margin-right: 9px;
 `;
 
 const ReceivingAddresses = () => (
@@ -45,6 +49,7 @@ const ReceivingAddresses = () => (
     <H5>Receiving Addresses</H5>
     <TouchableOpacity activeOpacity={0.8}>
       <AddressItem>
+        {CurrencyListIcons.btc({height: 25})}
         <AddressItemText>
           Select a <BaseText style={{fontSize: 16}}>BTC Wallet</BaseText>
         </AddressItemText>
@@ -53,6 +58,7 @@ const ReceivingAddresses = () => (
     </TouchableOpacity>
     <TouchableOpacity activeOpacity={0.8}>
       <AddressItem>
+        {CurrencyListIcons.bch({height: 25})}
         <AddressItemText>
           Select a <BaseText style={{fontSize: 16}}>BCH Wallet</BaseText>
         </AddressItemText>
@@ -61,6 +67,7 @@ const ReceivingAddresses = () => (
     </TouchableOpacity>
     <TouchableOpacity activeOpacity={0.8}>
       <AddressItem>
+        {CurrencyListIcons.eth({height: 25})}
         <AddressItemText>
           Select a <BaseText style={{fontSize: 16}}>ETH Wallet</BaseText>
         </AddressItemText>
