@@ -2,10 +2,19 @@ import React from 'react';
 import styled from 'styled-components/native';
 import {useTheme} from '@react-navigation/native';
 import {Br, HEIGHT} from '../../../components/styled/Containers';
-import {CurrencyListIcons} from '../../../constants/SupportedCurrencyOptions';
+import {
+  CurrencyListIcons,
+  SupportedCurrencyOptions,
+} from '../../../constants/SupportedCurrencyOptions';
 import {H3, H5, Paragraph} from '../../../components/styled/Text';
 import {BaseText} from '../../wallet/components/KeyDropdownOption';
-import {LightBlack, Slate, Slate10, Slate30} from '../../../styles/colors';
+import {
+  LightBlack,
+  Slate,
+  Slate10,
+  Slate30,
+  SlateDark,
+} from '../../../styles/colors';
 import AddSvg from '../../../../assets/img/add.svg';
 import AddWhiteSvg from '../../../../assets/img/add-white.svg';
 import {TouchableOpacity} from 'react-native-gesture-handler';
@@ -54,6 +63,22 @@ const AddButton = styled.View`
   margin-right: 9px;
 `;
 
+const MoreCurrenciesText = styled(Paragraph)`
+  color: ${SlateDark};
+  font-size: 14px;
+  margin-left: 30px;
+`;
+
+const UnusedCurrencyIcons = styled.View`
+  flex-direction: row;
+`;
+
+const usedCurrencies = ['BTC', 'BCH', 'ETH'];
+const unusedCurrencyOptions = SupportedCurrencyOptions.filter(
+  currencyOption =>
+    !usedCurrencies.includes(currencyOption.currencyAbbreviation),
+);
+
 const ReceivingAddresses = () => {
   const theme = useTheme();
   return (
@@ -100,7 +125,14 @@ const ReceivingAddresses = () => {
           <AddressItem>
             <AddButton>{theme.dark ? <AddWhiteSvg /> : <AddSvg />}</AddButton>
             <AddressItemText>Add Wallet</AddressItemText>
-            <ChevronRight />
+            <UnusedCurrencyIcons>
+              {unusedCurrencyOptions.slice(0, 3).map(currencyOption => (
+                <currencyOption.img height="25" style={{marginRight: -35}} />
+              ))}
+              <MoreCurrenciesText>
+                +{unusedCurrencyOptions.length} More
+              </MoreCurrenciesText>
+            </UnusedCurrencyIcons>
           </AddressItem>
         </TouchableOpacity>
       </ViewBody>
