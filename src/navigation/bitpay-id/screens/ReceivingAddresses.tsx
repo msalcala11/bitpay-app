@@ -129,7 +129,7 @@ const ReceivingAddresses = () => {
         <TouchableOpacity activeOpacity={0.8}>
           <AddressItem>
             <AddButton>{theme.dark ? <AddWhiteSvg /> : <AddSvg />}</AddButton>
-            <AddressItemText>Add Wallet</AddressItemText>
+            <AddressItemText>{t('Add Wallet')}</AddressItemText>
             <UnusedCurrencies>
               <UnusedCurrencyIcons>
                 {unusedCurrencyOptions
