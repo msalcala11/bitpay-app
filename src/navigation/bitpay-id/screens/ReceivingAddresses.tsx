@@ -21,6 +21,7 @@ import {TouchableOpacity} from 'react-native-gesture-handler';
 import Button from '../../../components/button/Button';
 import {t} from 'i18next';
 import ChevronRight from '../components/ChevronRight';
+import {View} from 'react-native';
 
 const ViewContainer = styled.View`
   padding: 16px;
@@ -66,11 +67,15 @@ const AddButton = styled.View`
 const MoreCurrenciesText = styled(Paragraph)`
   color: ${({theme: {dark}}) => (dark ? Slate30 : SlateDark)};
   font-size: 14px;
-  margin-left: 30px;
+`;
+
+const UnusedCurrencies = styled.View`
+  flex-direction: row;
 `;
 
 const UnusedCurrencyIcons = styled.View`
   flex-direction: row;
+  margin-right: 30px;
 `;
 
 const usedCurrencies = ['BTC', 'BCH', 'ETH'];
@@ -78,6 +83,7 @@ const unusedCurrencyOptions = SupportedCurrencyOptions.filter(
   currencyOption =>
     !usedCurrencies.includes(currencyOption.currencyAbbreviation),
 );
+const numVisibleCurrencyIcons = 3;
 
 const ReceivingAddresses = () => {
   const theme = useTheme();
@@ -125,14 +131,23 @@ const ReceivingAddresses = () => {
           <AddressItem>
             <AddButton>{theme.dark ? <AddWhiteSvg /> : <AddSvg />}</AddButton>
             <AddressItemText>Add Wallet</AddressItemText>
-            <UnusedCurrencyIcons>
-              {unusedCurrencyOptions.slice(0, 3).map(currencyOption => (
-                <currencyOption.img height="25" style={{marginRight: -35}} />
-              ))}
-              <MoreCurrenciesText>
-                +{unusedCurrencyOptions.length} More
-              </MoreCurrenciesText>
-            </UnusedCurrencyIcons>
+            <UnusedCurrencies>
+              <UnusedCurrencyIcons>
+                {unusedCurrencyOptions
+                  .slice(0, numVisibleCurrencyIcons)
+                  .map(currencyOption => (
+                    <currencyOption.img
+                      height="25"
+                      style={{marginRight: -35}}
+                    />
+                  ))}
+              </UnusedCurrencyIcons>
+              {unusedCurrencyOptions.length > numVisibleCurrencyIcons ? (
+                <MoreCurrenciesText>
+                  +{unusedCurrencyOptions.length - numVisibleCurrencyIcons} More
+                </MoreCurrenciesText>
+              ) : null}
+            </UnusedCurrencies>
           </AddressItem>
         </TouchableOpacity>
       </ViewBody>
