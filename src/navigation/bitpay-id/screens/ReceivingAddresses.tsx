@@ -92,9 +92,9 @@ const ReceivingAddresses = () => {
         <H3>{t('Choose your BitPay ID Receiving Addresses')}</H3>
         <Br />
         <Paragraph>
-          {t(`Decide what wallets you would like to receive to when a friend sends
-          crypto to your email address. Each incoming payment will be sent to a
-          newly generated address.`)}
+          {t(
+            'Decide what wallets you would like to receive to when a friend sends crypto to your email address. Each incoming payment will be sent to a newly generated address.',
+          )}
         </Paragraph>
         <Br />
         <Br />
