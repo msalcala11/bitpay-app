@@ -64,7 +64,7 @@ const AddButton = styled.View`
 `;
 
 const MoreCurrenciesText = styled(Paragraph)`
-  color: ${SlateDark};
+  color: ${({theme: {dark}}) => (dark ? Slate30 : SlateDark)};
   font-size: 14px;
   margin-left: 30px;
 `;
