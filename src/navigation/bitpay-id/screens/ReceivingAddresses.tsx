@@ -21,7 +21,6 @@ import {TouchableOpacity} from 'react-native-gesture-handler';
 import Button from '../../../components/button/Button';
 import {t} from 'i18next';
 import ChevronRight from '../components/ChevronRight';
-import {View} from 'react-native';
 
 const ViewContainer = styled.View`
   padding: 16px;
