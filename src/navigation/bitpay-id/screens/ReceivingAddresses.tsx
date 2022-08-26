@@ -89,16 +89,16 @@ const ReceivingAddresses = () => {
   return (
     <ViewContainer>
       <ViewBody>
-        <H3>Choose your BitPay ID Receiving Addresses</H3>
+        <H3>{t('Choose your BitPay ID Receiving Addresses')}</H3>
         <Br />
         <Paragraph>
-          Decide what wallets you would like to receive to when a friend sends
+          {t(`Decide what wallets you would like to receive to when a friend sends
           crypto to your email address. Each incoming payment will be sent to a
-          newly generated address.
+          newly generated address.`)}
         </Paragraph>
         <Br />
         <Br />
-        <H5>Receiving Addresses</H5>
+        <H5>{t('Receiving Addresses')}</H5>
         <TouchableOpacity activeOpacity={0.8}>
           <AddressItem>
             {<CurrencyListIcons.btc height="25" />}

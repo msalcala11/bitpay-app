@@ -116,7 +116,7 @@ export const ProfileSettingsScreen: React.FC<ProfileProps> = () => {
         <EmailAddress>{user.email}</EmailAddress>
       </ProfileInfoContainer>
 
-      <H5>Receive Settings</H5>
+      <H5>{t('Receive Settings')}</H5>
 
       <TouchableOpacity
         activeOpacity={0.8}
