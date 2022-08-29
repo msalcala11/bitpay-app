@@ -114,6 +114,7 @@ const ReceivingAddresses = () => {
             </AddressItemText>
             <AddressPillContainer>
               <SendToPill
+                accent="action"
                 onPress={() => console.log('hi')}
                 description={'qzv4c2gufsgqmctv4e4u6mvmkhftmv38cg3jrxynmy'}
               />
