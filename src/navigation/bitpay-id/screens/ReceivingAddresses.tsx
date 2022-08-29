@@ -1,6 +1,6 @@
 import React from 'react';
 import styled from 'styled-components/native';
-import {useTheme} from '@react-navigation/native';
+import {useNavigation, useTheme} from '@react-navigation/native';
 import {Br, HEIGHT} from '../../../components/styled/Containers';
 import {
   CurrencyListIcons,
@@ -22,6 +22,7 @@ import Button from '../../../components/button/Button';
 import {t} from 'i18next';
 import ChevronRight from '../components/ChevronRight';
 import SendToPill from '../../wallet/components/SendToPill';
+import {BitpayIdScreens} from '../BitpayIdStack';
 
 const ViewContainer = styled.View`
   padding: 16px;
@@ -97,6 +98,7 @@ const unusedCurrencyOptions = SupportedCurrencyOptions.filter(
 const numVisibleCurrencyIcons = 3;
 
 const ReceivingAddresses = () => {
+  const navigation = useNavigation();
   const theme = useTheme();
   return (
     <ViewContainer>
@@ -168,7 +170,13 @@ const ReceivingAddresses = () => {
           </AddressItem>
         </TouchableOpacity>
       </ViewBody>
-      <Button buttonStyle={'primary'} onPress={() => console.log('save')}>
+      <Button
+        buttonStyle={'primary'}
+        onPress={() => {
+          navigation.navigate('BitpayId', {
+            screen: BitpayIdScreens.RECEIVING_ENABLED,
+          });
+        }}>
         {t('Save Defaults')}
       </Button>
       <Br />

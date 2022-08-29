@@ -20,17 +20,20 @@ import PairingScreen, {
 import Profile from './screens/ProfileSettings';
 import ReceivingAddresses from './screens/ReceivingAddresses';
 import {useTranslation} from 'react-i18next';
+import ReceivingEnabled from './screens/RecevingEnabled';
 
 export type BitpayIdStackParamList = {
   BitPayIdPairingScreen: BitPayIdPairingScreenParamList;
   Profile: undefined;
   ReceivingAddresses: undefined;
+  ReceivingEnabled: undefined;
 };
 
 export enum BitpayIdScreens {
   PAIRING = 'BitPayIdPairingScreen',
   PROFILE = 'Profile',
   RECEIVING_ADDRESSES = 'ReceivingAddresses',
+  RECEIVING_ENABLED = 'ReceivingEnabled',
 }
 
 const BitpayId = createStackNavigator<BitpayIdStackParamList>();
@@ -89,6 +92,13 @@ const BitpayIdStack = () => {
       <BitpayId.Screen
         name={BitpayIdScreens.RECEIVING_ADDRESSES}
         component={ReceivingAddresses}
+        options={{
+          ...baseScreenOptions,
+        }}
+      />
+      <BitpayId.Screen
+        name={BitpayIdScreens.RECEIVING_ENABLED}
+        component={ReceivingEnabled}
         options={{
           ...baseScreenOptions,
         }}
