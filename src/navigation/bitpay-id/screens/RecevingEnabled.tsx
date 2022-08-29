@@ -11,6 +11,7 @@ import {
   TextAlign,
 } from '../../../components/styled/Text';
 import {Action, White} from '../../../styles/colors';
+import {useAppSelector} from '../../../utils/hooks';
 
 const ViewContainer = styled.View`
   padding: 16px;
@@ -50,6 +51,9 @@ const EmailText = styled(BaseText)`
 `;
 
 const ReceivingEnabled = () => {
+  const user = useAppSelector(
+    ({APP, BITPAY_ID}) => BITPAY_ID.user[APP.network],
+  );
   return (
     <ViewContainer>
       <ViewBody>
@@ -64,7 +68,7 @@ const ReceivingEnabled = () => {
           </Paragraph>
         </TextAlign>
         <EmailContainer>
-          <EmailText style={{flexGrow: 1}}>satoshi@nakamoto.com</EmailText>
+          <EmailText style={{flexGrow: 1}}>{user!.email}</EmailText>
           <SuccessSvg height={20} width={20} />
         </EmailContainer>
       </ViewBody>
