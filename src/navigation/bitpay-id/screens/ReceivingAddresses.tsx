@@ -22,7 +22,6 @@ import Button from '../../../components/button/Button';
 import {t} from 'i18next';
 import ChevronRight from '../components/ChevronRight';
 import SendToPill from '../../wallet/components/SendToPill';
-import { View } from 'react-native';
 
 const ViewContainer = styled.View`
   padding: 16px;
@@ -48,6 +47,12 @@ const AddressItem = styled.View`
 const AddressItemText = styled(Paragraph)`
   flex-grow: 1;
   margin-left: 0px;
+`;
+
+const AddressPillContainer = styled.View`
+  height: 37px;
+  margin-right: 20px;
+  width: 100px;
 `;
 
 const WalletName = styled(BaseText)`
@@ -107,12 +112,12 @@ const ReceivingAddresses = () => {
             <AddressItemText>
               <WalletName>BeCash</WalletName>
             </AddressItemText>
-            <View style={{marginRight: 20, width: 100, height: 37}}>
+            <AddressPillContainer>
               <SendToPill
                 onPress={() => console.log('hi')}
                 description={'qzv4c2gufsgqmctv4e4u6mvmkhftmv38cg3jrxynmy'}
               />
-            </View>
+            </AddressPillContainer>
             <ChevronRight />
           </AddressItem>
         </TouchableOpacity>
