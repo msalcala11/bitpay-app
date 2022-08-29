@@ -39,7 +39,8 @@ const AddressItem = styled.View`
   border-color: ${({theme: {dark}}) => (dark ? Slate : Slate30)};
   border-radius: 8px;
   flex-direction: row;
-  padding: 12px 15px;
+  height: 55px;
+  padding: 0 15px;
   margin-top: 10px;
   padding-left: 2px;
 `;
