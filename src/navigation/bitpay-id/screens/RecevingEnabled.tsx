@@ -1,5 +1,6 @@
 import React from 'react';
 import styled from 'styled-components/native';
+import {t} from 'i18next';
 import Button from '../../../components/button/Button';
 import {Br, HEIGHT} from '../../../components/styled/Containers';
 import SuccessSvg from '../../../../assets/img/success.svg';
@@ -9,7 +10,7 @@ import {
   Paragraph,
   TextAlign,
 } from '../../../components/styled/Text';
-import {t} from 'i18next';
+import {Action, White} from '../../../styles/colors';
 
 const ViewContainer = styled.View`
   padding: 16px;
@@ -22,10 +23,16 @@ const ViewBody = styled.View`
   align-items: center;
   justify-content: center;
   padding: 20px;
+  padding-bottom: 100px;
 `;
 
 const EmailContainer = styled.View`
-  background-color: rgba(34, 64, 196, 0.35);
+  background-color: rgba(
+    34,
+    64,
+    196,
+    ${({theme}) => (theme.dark ? 0.35 : 0.05)}
+  );
   align-items: center;
   height: 48px;
   padding: 0 14px 0 17px;
@@ -37,6 +44,7 @@ const EmailContainer = styled.View`
 `;
 
 const EmailText = styled(BaseText)`
+  color: ${({theme}) => (theme.dark ? White : Action)};
   font-size: 16px;
   font-weight: 500;
 `;
