@@ -18,7 +18,8 @@ const PillContainer = styled.Pressable`
   border-radius: 40px;
   align-items: center;
   justify-content: center;
-  padding: 10px 15px;
+  padding: 0 15px;
+  height: 100%;
   max-width: 150px;
 `;
 

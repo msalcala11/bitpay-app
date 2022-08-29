@@ -21,6 +21,8 @@ import {TouchableOpacity} from 'react-native-gesture-handler';
 import Button from '../../../components/button/Button';
 import {t} from 'i18next';
 import ChevronRight from '../components/ChevronRight';
+import SendToPill from '../../wallet/components/SendToPill';
+import { View } from 'react-native';
 
 const ViewContainer = styled.View`
   padding: 16px;
@@ -105,6 +107,12 @@ const ReceivingAddresses = () => {
             <AddressItemText>
               <WalletName>BeCash</WalletName>
             </AddressItemText>
+            <View style={{marginRight: 20, width: 100, height: 37}}>
+              <SendToPill
+                onPress={() => console.log('hi')}
+                description={'qzv4c2gufsgqmctv4e4u6mvmkhftmv38cg3jrxynmy'}
+              />
+            </View>
             <ChevronRight />
           </AddressItem>
         </TouchableOpacity>
