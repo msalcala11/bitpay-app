@@ -98,21 +98,23 @@ const ReceivingAddresses = () => {
         </Paragraph>
         <Br />
         <Br />
+        <H5>{t('Active Addresses')}</H5>
+        <TouchableOpacity activeOpacity={0.8}>
+          <AddressItem>
+            {<CurrencyListIcons.bch height="25" />}
+            <AddressItemText>
+              <WalletName>BeCash</WalletName>
+            </AddressItemText>
+            <ChevronRight />
+          </AddressItem>
+        </TouchableOpacity>
+        <Br />
         <H5>{t('Receiving Addresses')}</H5>
         <TouchableOpacity activeOpacity={0.8}>
           <AddressItem>
             {<CurrencyListIcons.btc height="25" />}
             <AddressItemText>
               Select a <WalletName>BTC Wallet</WalletName>
-            </AddressItemText>
-            <ChevronRight />
-          </AddressItem>
-        </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.8}>
-          <AddressItem>
-            {<CurrencyListIcons.bch height="25" />}
-            <AddressItemText>
-              Select a <WalletName>BCH Wallet</WalletName>
             </AddressItemText>
             <ChevronRight />
           </AddressItem>
@@ -153,6 +155,7 @@ const ReceivingAddresses = () => {
       <Button buttonStyle={'primary'} onPress={() => console.log('save')}>
         {t('Save Defaults')}
       </Button>
+      <Br />
       <Button
         buttonStyle={'primary'}
         buttonType={'link'}

@@ -196,6 +196,8 @@ const LinkText = styled(ButtonBaseText)<ButtonOptionProps>`
 
     return Action;
   }};
+  font-size: 18px;
+  font-weight: 500;
 `;
 
 const Button: React.FC<React.PropsWithChildren<ButtonProps>> = props => {
