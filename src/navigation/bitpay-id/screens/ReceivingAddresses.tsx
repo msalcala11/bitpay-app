@@ -33,6 +33,10 @@ const ViewBody = styled.View`
   flex-grow: 1;
 `;
 
+const SectionHeader = styled(H5)`
+  margin-top: 20px;
+`;
+
 const AddressItem = styled.View`
   align-items: center;
   border: 0.75px solid ${Slate};
@@ -104,9 +108,7 @@ const ReceivingAddresses = () => {
             'Decide what wallets you would like to receive to when a friend sends crypto to your email address. Each incoming payment will be sent to a newly generated address.',
           )}
         </Paragraph>
-        <Br />
-        <Br />
-        <H5>{t('Active Addresses')}</H5>
+        <SectionHeader>{t('Active Addresses')}</SectionHeader>
         <TouchableOpacity activeOpacity={0.8}>
           <AddressItem>
             {<CurrencyListIcons.bch height="25" />}
@@ -123,8 +125,7 @@ const ReceivingAddresses = () => {
             <ChevronRight />
           </AddressItem>
         </TouchableOpacity>
-        <Br />
-        <H5>{t('Receiving Addresses')}</H5>
+        <SectionHeader>{t('Receiving Addresses')}</SectionHeader>
         <TouchableOpacity activeOpacity={0.8}>
           <AddressItem>
             {<CurrencyListIcons.btc height="25" />}
