@@ -1,6 +1,7 @@
 import React from 'react';
 import styled from 'styled-components/native';
 import {useNavigation, useTheme} from '@react-navigation/native';
+import _ from 'lodash';
 import {Br, HEIGHT} from '../../../components/styled/Containers';
 import {
   CurrencyListIcons,
@@ -23,8 +24,9 @@ import {t} from 'i18next';
 import ChevronRight from '../components/ChevronRight';
 import SendToPill from '../../wallet/components/SendToPill';
 import {BitpayIdScreens} from '../BitpayIdStack';
+import {useAppSelector} from '../../../utils/hooks';
 
-const ViewContainer = styled.View`
+const ViewContainer = styled.ScrollView`
   padding: 16px;
   flex-direction: column;
   height: ${HEIGHT - 110}px;
@@ -32,6 +34,7 @@ const ViewContainer = styled.View`
 
 const ViewBody = styled.View`
   flex-grow: 1;
+  padding-bottom: 20px;
 `;
 
 const SectionHeader = styled(H5)`
@@ -90,16 +93,24 @@ const UnusedCurrencyIcons = styled.View`
   margin-right: 30px;
 `;
 
-const usedCurrencies = ['BTC', 'BCH', 'ETH'];
-const unusedCurrencyOptions = SupportedCurrencyOptions.filter(
-  currencyOption =>
-    !usedCurrencies.includes(currencyOption.currencyAbbreviation),
-);
 const numVisibleCurrencyIcons = 3;
 
 const ReceivingAddresses = () => {
   const navigation = useNavigation();
   const theme = useTheme();
+  const keys = useAppSelector(({WALLET}) => WALLET.keys);
+  const uniqueActiveCurrencies = _.uniq(
+    Object.values(keys)
+      .flatMap(k => k.wallets)
+      .map(wallet => wallet.currencyAbbreviation),
+  );
+  const unusedCurrencyOptions = SupportedCurrencyOptions.filter(
+    currencyOption =>
+      !uniqueActiveCurrencies.includes(
+        currencyOption.currencyAbbreviation.toLowerCase(),
+      ),
+  );
+  console.log('zzz uniqueCurrencies', uniqueActiveCurrencies);
   return (
     <ViewContainer>
       <ViewBody>
@@ -128,24 +139,23 @@ const ReceivingAddresses = () => {
           </AddressItem>
         </TouchableOpacity>
         <SectionHeader>{t('Receiving Addresses')}</SectionHeader>
-        <TouchableOpacity activeOpacity={0.8}>
-          <AddressItem>
-            {<CurrencyListIcons.btc height="25" />}
-            <AddressItemText>
-              Select a <WalletName>BTC Wallet</WalletName>
-            </AddressItemText>
-            <ChevronRight />
-          </AddressItem>
-        </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.8}>
-          <AddressItem>
-            {<CurrencyListIcons.eth height="25" />}
-            <AddressItemText>
-              Select a <WalletName>ETH Wallet</WalletName>
-            </AddressItemText>
-            <ChevronRight />
-          </AddressItem>
-        </TouchableOpacity>
+        {uniqueActiveCurrencies.map(currencyAbbreviation => {
+          const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
+          return (
+            <TouchableOpacity activeOpacity={0.8}>
+              <AddressItem>
+                <CurrencyIcon height="25" />
+                <AddressItemText>
+                  Select a{' '}
+                  <WalletName>
+                    {currencyAbbreviation.toUpperCase()} Wallet
+                  </WalletName>
+                </AddressItemText>
+                <ChevronRight />
+              </AddressItem>
+            </TouchableOpacity>
+          );
+        })}
         <TouchableOpacity activeOpacity={0.8}>
           <AddressItem>
             <AddButton>{theme.dark ? <AddWhiteSvg /> : <AddSvg />}</AddButton>
