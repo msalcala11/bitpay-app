@@ -28,7 +28,6 @@ import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {BuildKeysAndWalletsList} from '../../../store/wallet/utils/wallet';
 import {Network} from '../../../constants';
 import {WalletSelector} from '../../wallet/screens/send/confirm/Shared';
-import { KeyWallet } from '../../../components/list/KeyWalletsRow';
 
 const ViewContainer = styled.ScrollView`
   padding: 16px;
