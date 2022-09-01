@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useState} from 'react';
 import styled from 'styled-components/native';
 import {useNavigation, useTheme} from '@react-navigation/native';
 import _ from 'lodash';
@@ -24,7 +24,11 @@ import {t} from 'i18next';
 import ChevronRight from '../components/ChevronRight';
 import SendToPill from '../../wallet/components/SendToPill';
 import {BitpayIdScreens} from '../BitpayIdStack';
-import {useAppSelector} from '../../../utils/hooks';
+import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
+import {BuildKeysAndWalletsList} from '../../../store/wallet/utils/wallet';
+import {Network} from '../../../constants';
+import {WalletSelector} from '../../wallet/screens/send/confirm/Shared';
+import { KeyWallet } from '../../../components/list/KeyWalletsRow';
 
 const ViewContainer = styled.ScrollView`
   padding: 16px;
@@ -96,12 +100,17 @@ const UnusedCurrencyIcons = styled.View`
 const numVisibleCurrencyIcons = 3;
 
 const ReceivingAddresses = () => {
+  const dispatch = useAppDispatch();
   const navigation = useNavigation();
   const theme = useTheme();
   const keys = useAppSelector(({WALLET}) => WALLET.keys);
+  const rates = useAppSelector(({RATE}) => RATE.rates);
+  const [walletSelectorVisible, setWalletSelectorVisible] = useState(false);
+  const [walletSelectCurrency, setWalletSelectorCurrency] = useState('btc');
   const uniqueActiveCurrencies = _.uniq(
     Object.values(keys)
-      .flatMap(k => k.wallets)
+      .flatMap(key => key.wallets)
+      .filter(wallet => wallet.network === Network.mainnet)
       .map(wallet => wallet.currencyAbbreviation),
   );
   const unusedCurrencyOptions = SupportedCurrencyOptions.filter(
@@ -111,6 +120,28 @@ const ReceivingAddresses = () => {
       ),
   );
   console.log('zzz uniqueCurrencies', uniqueActiveCurrencies);
+  const keyWallets = BuildKeysAndWalletsList({
+    keys,
+    network: Network.mainnet,
+    defaultAltCurrencyIsoCode: 'USD',
+    rates,
+    dispatch,
+  });
+
+  const keyWalletsByCurrency = uniqueActiveCurrencies.reduce(
+    (keyWalletMap, currency) => ({
+      ...keyWalletMap,
+      [currency]: keyWallets.map(keyWallet => ({
+        ...keyWallet,
+        wallets: keyWallet.wallets.filter(
+          wallet => wallet.currencyAbbreviation === walletSelectCurrency,
+        ),
+      })),
+    }),
+    {} as {[key: string]: any[]},
+  );
+
+  console.log('zzz keyWallets', keyWallets);
   return (
     <ViewContainer>
       <ViewBody>
@@ -142,7 +173,12 @@ const ReceivingAddresses = () => {
         {uniqueActiveCurrencies.map(currencyAbbreviation => {
           const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
           return (
-            <TouchableOpacity activeOpacity={0.8}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => {
+                setWalletSelectorCurrency(currencyAbbreviation);
+                setWalletSelectorVisible(true);
+              }}>
               <AddressItem>
                 <CurrencyIcon height="25" />
                 <AddressItemText>
@@ -196,6 +232,20 @@ const ReceivingAddresses = () => {
         onPress={() => console.log('save')}>
         {t('Add Custom Address')}
       </Button>
+
+      <WalletSelector
+        isVisible={walletSelectorVisible}
+        setWalletSelectorVisible={setWalletSelectorVisible}
+        walletsAndAccounts={{
+          keyWallets: keyWalletsByCurrency[walletSelectCurrency],
+          coinbaseWallets: [],
+        }}
+        onWalletSelect={() => console.log('hi')}
+        onCoinbaseAccountSelect={() => console.log('noop')}
+        onBackdropPress={async () => {
+          setWalletSelectorVisible(false);
+        }}
+      />
     </ViewContainer>
   );
 };
