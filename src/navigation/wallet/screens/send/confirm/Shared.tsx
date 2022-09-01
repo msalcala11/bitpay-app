@@ -418,6 +418,7 @@ export const WalletSelector = ({
   onBackdropPress,
   isVisible,
   setWalletSelectorVisible,
+  autoSelectIfOnlyOneWallet,
 }: {
   walletsAndAccounts: WalletsAndAccounts;
   onWalletSelect: (wallet: KeyWallet) => void;
@@ -425,12 +426,17 @@ export const WalletSelector = ({
   onBackdropPress: () => void;
   isVisible: boolean;
   setWalletSelectorVisible: React.Dispatch<React.SetStateAction<boolean>>;
+  autoSelectIfOnlyOneWallet?: boolean;
 }) => {
   const {t} = useTranslation();
   const dispatch = useAppDispatch();
   const navigation = useNavigation();
   const [selectorVisible, setSelectorVisible] = useState(false);
-  const [autoSelectSingleWallet, setAutoSelectSingleWallet] = useState(true);
+  const [autoSelectSingleWallet, setAutoSelectSingleWallet] = useState(
+    typeof autoSelectIfOnlyOneWallet === 'undefined'
+      ? true
+      : autoSelectIfOnlyOneWallet,
+  );
 
   const selectOption = useCallback(
     async (onSelect: () => void, waitForClose?: boolean) => {

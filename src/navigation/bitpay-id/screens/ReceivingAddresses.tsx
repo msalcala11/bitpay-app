@@ -270,6 +270,7 @@ const ReceivingAddresses = () => {
       <WalletSelector
         isVisible={walletSelectorVisible}
         setWalletSelectorVisible={setWalletSelectorVisible}
+        autoSelectIfOnlyOneWallet={false}
         walletsAndAccounts={{
           keyWallets: keyWalletsByCurrency[walletSelectCurrency],
           coinbaseWallets: [],
