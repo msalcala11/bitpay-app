@@ -28,6 +28,11 @@ import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {BuildKeysAndWalletsList} from '../../../store/wallet/utils/wallet';
 import {Network} from '../../../constants';
 import {WalletSelector} from '../../wallet/screens/send/confirm/Shared';
+import {createWalletAddress} from '../../../store/wallet/effects/address/address';
+import {startOnGoingProcessModal} from '../../../store/app/app.effects';
+import {OnGoingProcessMessages} from '../../../components/modal/ongoing-process/OngoingProcess';
+import {dismissOnGoingProcessModal} from '../../../store/app/app.actions';
+import {sleep} from '../../../utils/helper-methods';
 
 const ViewContainer = styled.ScrollView`
   padding: 16px;
@@ -98,6 +103,11 @@ const UnusedCurrencyIcons = styled.View`
 
 const numVisibleCurrencyIcons = 3;
 
+interface ActiveAddress {
+  walletName: string;
+  address: string;
+}
+
 const ReceivingAddresses = () => {
   const dispatch = useAppDispatch();
   const navigation = useNavigation();
@@ -106,6 +116,9 @@ const ReceivingAddresses = () => {
   const rates = useAppSelector(({RATE}) => RATE.rates);
   const [walletSelectorVisible, setWalletSelectorVisible] = useState(false);
   const [walletSelectCurrency, setWalletSelectorCurrency] = useState('btc');
+  const [activeAddresses, setActiveAddresses] = useState(
+    {} as {[currency: string]: ActiveAddress},
+  );
   const uniqueActiveCurrencies = _.uniq(
     Object.values(keys)
       .flatMap(key => key.wallets)
@@ -152,22 +165,28 @@ const ReceivingAddresses = () => {
           )}
         </Paragraph>
         <SectionHeader>{t('Active Addresses')}</SectionHeader>
-        <TouchableOpacity activeOpacity={0.8}>
-          <AddressItem>
-            {<CurrencyListIcons.bch height="25" />}
-            <AddressItemText>
-              <WalletName>BeCash</WalletName>
-            </AddressItemText>
-            <AddressPillContainer>
-              <SendToPill
-                accent="action"
-                onPress={() => console.log('hi')}
-                description={'qzv4c2gufsgqmctv4e4u6mvmkhftmv38cg3jrxynmy'}
-              />
-            </AddressPillContainer>
-            <ChevronRight />
-          </AddressItem>
-        </TouchableOpacity>
+        {Object.keys(activeAddresses).map(currencyAbbreviation => {
+          const activeAddress = activeAddresses[currencyAbbreviation];
+          const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
+          return (
+            <TouchableOpacity activeOpacity={0.8}>
+              <AddressItem>
+                <CurrencyIcon height="25" />
+                <AddressItemText>
+                  <WalletName>{activeAddress.walletName}</WalletName>
+                </AddressItemText>
+                <AddressPillContainer>
+                  <SendToPill
+                    accent="action"
+                    onPress={() => console.log('hi')}
+                    description={activeAddress.address}
+                  />
+                </AddressPillContainer>
+                <ChevronRight />
+              </AddressItem>
+            </TouchableOpacity>
+          );
+        })}
         <SectionHeader>{t('Receiving Addresses')}</SectionHeader>
         {uniqueActiveCurrencies.map(currencyAbbreviation => {
           const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
@@ -239,7 +258,35 @@ const ReceivingAddresses = () => {
           keyWallets: keyWalletsByCurrency[walletSelectCurrency],
           coinbaseWallets: [],
         }}
-        onWalletSelect={() => console.log('hi')}
+        onWalletSelect={async wallet => {
+          console.log('zzz wallet selected', wallet);
+          dispatch(
+            startOnGoingProcessModal(
+              t(OnGoingProcessMessages.GENERATING_ADDRESS),
+            ),
+          );
+          const address = await dispatch(
+            createWalletAddress({wallet, newAddress: true}),
+          );
+          await dispatch(dismissOnGoingProcessModal());
+          setActiveAddresses({
+            ...activeAddresses,
+            [wallet.currencyAbbreviation]: {
+              walletName:
+                wallet.walletName || wallet.currencyAbbreviation.toUpperCase(),
+              address,
+            },
+          });
+          console.log('zzz new address', address);
+          console.log('zzz activeAddresses', {
+            ...activeAddresses,
+            [wallet.currencyAbbreviation]: {
+              walletName:
+                wallet.walletName || wallet.currencyAbbreviation.toUpperCase(),
+              address,
+            },
+          });
+        }}
         onCoinbaseAccountSelect={() => console.log('noop')}
         onBackdropPress={async () => {
           setWalletSelectorVisible(false);
