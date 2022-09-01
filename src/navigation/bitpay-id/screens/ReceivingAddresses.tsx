@@ -32,7 +32,6 @@ import {createWalletAddress} from '../../../store/wallet/effects/address/address
 import {startOnGoingProcessModal} from '../../../store/app/app.effects';
 import {OnGoingProcessMessages} from '../../../components/modal/ongoing-process/OngoingProcess';
 import {dismissOnGoingProcessModal} from '../../../store/app/app.actions';
-import {sleep} from '../../../utils/helper-methods';
 
 const ViewContainer = styled.ScrollView`
   padding: 16px;
@@ -114,6 +113,7 @@ const ReceivingAddresses = () => {
   const theme = useTheme();
   const keys = useAppSelector(({WALLET}) => WALLET.keys);
   const rates = useAppSelector(({RATE}) => RATE.rates);
+  const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const [walletSelectorVisible, setWalletSelectorVisible] = useState(false);
   const [walletSelectCurrency, setWalletSelectorCurrency] = useState('btc');
   const [activeAddresses, setActiveAddresses] = useState(
@@ -135,7 +135,7 @@ const ReceivingAddresses = () => {
   const keyWallets = BuildKeysAndWalletsList({
     keys,
     network: Network.mainnet,
-    defaultAltCurrencyIsoCode: 'USD',
+    defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
     rates,
     dispatch,
   });
@@ -164,29 +164,33 @@ const ReceivingAddresses = () => {
             'Decide what wallets you would like to receive to when a friend sends crypto to your email address. Each incoming payment will be sent to a newly generated address.',
           )}
         </Paragraph>
-        <SectionHeader>{t('Active Addresses')}</SectionHeader>
-        {Object.keys(activeAddresses).map(currencyAbbreviation => {
-          const activeAddress = activeAddresses[currencyAbbreviation];
-          const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
-          return (
-            <TouchableOpacity activeOpacity={0.8}>
-              <AddressItem>
-                <CurrencyIcon height="25" />
-                <AddressItemText>
-                  <WalletName>{activeAddress.walletName}</WalletName>
-                </AddressItemText>
-                <AddressPillContainer>
-                  <SendToPill
-                    accent="action"
-                    onPress={() => console.log('hi')}
-                    description={activeAddress.address}
-                  />
-                </AddressPillContainer>
-                <ChevronRight />
-              </AddressItem>
-            </TouchableOpacity>
-          );
-        })}
+        {Object.keys(activeAddresses).length ? (
+          <>
+            <SectionHeader>{t('Active Addresses')}</SectionHeader>
+            {Object.keys(activeAddresses).map(currencyAbbreviation => {
+              const activeAddress = activeAddresses[currencyAbbreviation];
+              const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
+              return (
+                <TouchableOpacity activeOpacity={0.8}>
+                  <AddressItem>
+                    <CurrencyIcon height="25" />
+                    <AddressItemText>
+                      <WalletName>{activeAddress.walletName}</WalletName>
+                    </AddressItemText>
+                    <AddressPillContainer>
+                      <SendToPill
+                        accent="action"
+                        onPress={() => console.log('hi')}
+                        description={activeAddress.address}
+                      />
+                    </AddressPillContainer>
+                    <ChevronRight />
+                  </AddressItem>
+                </TouchableOpacity>
+              );
+            })}
+          </>
+        ) : null}
         <SectionHeader>{t('Receiving Addresses')}</SectionHeader>
         {uniqueActiveCurrencies.map(currencyAbbreviation => {
           const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
