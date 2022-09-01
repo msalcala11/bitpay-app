@@ -1,7 +1,7 @@
 import React, {useState} from 'react';
+import _ from 'lodash';
 import styled from 'styled-components/native';
 import {useNavigation, useTheme} from '@react-navigation/native';
-import _ from 'lodash';
 import {Br, HEIGHT} from '../../../components/styled/Containers';
 import {
   CurrencyListIcons,
@@ -131,7 +131,6 @@ const ReceivingAddresses = () => {
         currencyOption.currencyAbbreviation.toLowerCase(),
       ),
   );
-  console.log('zzz uniqueCurrencies', uniqueActiveCurrencies);
   const keyWallets = BuildKeysAndWalletsList({
     keys,
     network: Network.mainnet,
@@ -139,12 +138,10 @@ const ReceivingAddresses = () => {
     rates,
     dispatch,
   });
-
   const unusedActiveCurrencies = uniqueActiveCurrencies.filter(
     currencyAbbreviation =>
       !Object.keys(activeAddresses).includes(currencyAbbreviation),
   );
-
   const keyWalletsByCurrency = uniqueActiveCurrencies.reduce(
     (keyWalletMap, currency) => ({
       ...keyWalletMap,
@@ -158,7 +155,6 @@ const ReceivingAddresses = () => {
     {} as {[key: string]: any[]},
   );
 
-  console.log('zzz keyWallets', keyWallets);
   return (
     <ViewContainer>
       <ViewBody>
@@ -266,7 +262,6 @@ const ReceivingAddresses = () => {
         onPress={() => console.log('save')}>
         {t('Add Custom Address')}
       </Button>
-
       <WalletSelector
         isVisible={walletSelectorVisible}
         setWalletSelectorVisible={setWalletSelectorVisible}
@@ -276,7 +271,6 @@ const ReceivingAddresses = () => {
           coinbaseWallets: [],
         }}
         onWalletSelect={async wallet => {
-          console.log('zzz wallet selected', wallet);
           dispatch(
             startOnGoingProcessModal(
               t(OnGoingProcessMessages.GENERATING_ADDRESS),
@@ -294,17 +288,8 @@ const ReceivingAddresses = () => {
               address,
             },
           });
-          console.log('zzz new address', address);
-          console.log('zzz activeAddresses', {
-            ...activeAddresses,
-            [wallet.currencyAbbreviation]: {
-              walletName:
-                wallet.walletName || wallet.currencyAbbreviation.toUpperCase(),
-              address,
-            },
-          });
         }}
-        onCoinbaseAccountSelect={() => console.log('noop')}
+        onCoinbaseAccountSelect={() => {}}
         onBackdropPress={async () => {
           setWalletSelectorVisible(false);
         }}
