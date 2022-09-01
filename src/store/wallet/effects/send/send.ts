@@ -766,14 +766,21 @@ export const startSendPayment =
   async dispatch => {
     return new Promise(async (resolve, reject) => {
       try {
+        const paymentStart = Date.now();
         wallet.createTxProposal(
           {...txp, dryRun: false},
           async (err: Error, proposal: TransactionProposal) => {
+            dispatch(
+              LogActions.debug(
+                `createTxProposal duration: ${Date.now() - paymentStart}`,
+              ),
+            );
             if (err) {
               return reject(err);
             }
 
             try {
+              const publishAndSignStart = Date.now();
               const broadcastedTx = await dispatch(
                 publishAndSign({
                   txp: proposal,
@@ -781,6 +788,13 @@ export const startSendPayment =
                   wallet,
                   recipient,
                 }),
+              );
+              dispatch(
+                LogActions.debug(
+                  `publishAndSign duration: ${
+                    Date.now() - publishAndSignStart
+                  }`,
+                ),
               );
               return resolve(broadcastedTx);
             } catch (e) {
@@ -853,7 +867,13 @@ export const publishAndSign =
 
         // Already published?
         if (txp.status !== 'pending') {
+          const publishTxStart = Date.now();
           publishedTx = await publishTx(wallet, txp);
+          dispatch(
+            LogActions.debug(
+              `publishTx duration: ${Date.now() - publishTxStart}`,
+            ),
+          );
           dispatch(LogActions.debug('success publish [publishAndSign]'));
         }
 
@@ -862,15 +882,25 @@ export const publishAndSign =
           return resolve(publishedTx);
         }
 
+        const signTxStart = Date.now();
         const signedTx: any = await signTx(
           wallet,
           key,
           publishedTx || txp,
           password,
         );
+        dispatch(
+          LogActions.debug(`signTx duration: ${Date.now() - signTxStart}`),
+        );
         dispatch(LogActions.debug('success sign [publishAndSign]'));
         if (signedTx.status === 'accepted') {
+          const broadcastTxStart = Date.now();
           broadcastedTx = await broadcastTx(wallet, signedTx);
+          dispatch(
+            LogActions.debug(
+              `broadcastTx duration: ${Date.now() - broadcastTxStart}`,
+            ),
+          );
           dispatch(LogActions.debug('success broadcast [publishAndSign]'));
           const {fee, amount} = broadcastedTx as {
             fee: number;
