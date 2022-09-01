@@ -140,6 +140,11 @@ const ReceivingAddresses = () => {
     dispatch,
   });
 
+  const unusedActiveCurrencies = uniqueActiveCurrencies.filter(
+    currencyAbbreviation =>
+      !Object.keys(activeAddresses).includes(currencyAbbreviation),
+  );
+
   const keyWalletsByCurrency = uniqueActiveCurrencies.reduce(
     (keyWalletMap, currency) => ({
       ...keyWalletMap,
@@ -191,52 +196,59 @@ const ReceivingAddresses = () => {
             })}
           </>
         ) : null}
-        <SectionHeader>{t('Receiving Addresses')}</SectionHeader>
-        {uniqueActiveCurrencies.map(currencyAbbreviation => {
-          const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
-          return (
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => {
-                setWalletSelectorCurrency(currencyAbbreviation);
-                setWalletSelectorVisible(true);
-              }}>
+        {unusedActiveCurrencies.length + unusedCurrencyOptions.length > 0 ? (
+          <>
+            <SectionHeader>{t('Receiving Addresses')}</SectionHeader>
+            {unusedActiveCurrencies.map(currencyAbbreviation => {
+              const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
+              return (
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    setWalletSelectorCurrency(currencyAbbreviation);
+                    setWalletSelectorVisible(true);
+                  }}>
+                  <AddressItem>
+                    <CurrencyIcon height="25" />
+                    <AddressItemText>
+                      Select a{' '}
+                      <WalletName>
+                        {currencyAbbreviation.toUpperCase()} Wallet
+                      </WalletName>
+                    </AddressItemText>
+                    <ChevronRight />
+                  </AddressItem>
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity activeOpacity={0.8}>
               <AddressItem>
-                <CurrencyIcon height="25" />
-                <AddressItemText>
-                  Select a{' '}
-                  <WalletName>
-                    {currencyAbbreviation.toUpperCase()} Wallet
-                  </WalletName>
-                </AddressItemText>
-                <ChevronRight />
+                <AddButton>
+                  {theme.dark ? <AddWhiteSvg /> : <AddSvg />}
+                </AddButton>
+                <AddressItemText>{t('Add Wallet')}</AddressItemText>
+                <UnusedCurrencies>
+                  <UnusedCurrencyIcons>
+                    {unusedCurrencyOptions
+                      .slice(0, numVisibleCurrencyIcons)
+                      .map(currencyOption => (
+                        <currencyOption.img
+                          height="25"
+                          style={{marginRight: -35}}
+                        />
+                      ))}
+                  </UnusedCurrencyIcons>
+                  {unusedCurrencyOptions.length > numVisibleCurrencyIcons ? (
+                    <MoreCurrenciesText>
+                      +{unusedCurrencyOptions.length - numVisibleCurrencyIcons}{' '}
+                      More
+                    </MoreCurrenciesText>
+                  ) : null}
+                </UnusedCurrencies>
               </AddressItem>
             </TouchableOpacity>
-          );
-        })}
-        <TouchableOpacity activeOpacity={0.8}>
-          <AddressItem>
-            <AddButton>{theme.dark ? <AddWhiteSvg /> : <AddSvg />}</AddButton>
-            <AddressItemText>{t('Add Wallet')}</AddressItemText>
-            <UnusedCurrencies>
-              <UnusedCurrencyIcons>
-                {unusedCurrencyOptions
-                  .slice(0, numVisibleCurrencyIcons)
-                  .map(currencyOption => (
-                    <currencyOption.img
-                      height="25"
-                      style={{marginRight: -35}}
-                    />
-                  ))}
-              </UnusedCurrencyIcons>
-              {unusedCurrencyOptions.length > numVisibleCurrencyIcons ? (
-                <MoreCurrenciesText>
-                  +{unusedCurrencyOptions.length - numVisibleCurrencyIcons} More
-                </MoreCurrenciesText>
-              ) : null}
-            </UnusedCurrencies>
-          </AddressItem>
-        </TouchableOpacity>
+          </>
+        ) : null}
       </ViewBody>
       <Button
         buttonStyle={'primary'}
