@@ -245,15 +245,21 @@ const ReceivingAddresses = () => {
           if (res?.data?.error) {
             throw new Error(res.data.error);
           }
-          return res.data.data;
+          return res.data.data as ActiveAddress[];
         })
         .catch(err => {
           console.log('zzz in findWallets err', err);
+          throw err;
         });
       console.log('zzz got wallets', wallets);
+      const addresses = _.keyBy(wallets, (activeAddress: ActiveAddress) =>
+        activeAddress.currency.toLowerCase(),
+      );
+      console.log('zzz addresses', addresses);
+      setActiveAddresses(addresses);
     };
     getWallets();
-  }, []);
+  }, [apiToken]);
 
   return (
     <ViewContainer>
