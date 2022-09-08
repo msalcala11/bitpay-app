@@ -37,6 +37,7 @@ import {APP_NETWORK} from '../../../constants/config';
 import {CustomErrorMessage} from '../../wallet/components/ErrorMessages';
 import {AppActions} from '../../../store/app';
 import { Wallet } from '../../../store/wallet/wallet.models';
+import { sleep } from '../../../utils/helper-methods';
 
 const ViewContainer = styled.ScrollView`
   padding: 16px;
@@ -190,7 +191,7 @@ const ReceivingAddresses = () => {
     let address = await dispatch(
       createWalletAddress({wallet, newAddress: true}),
     );
-    // address = 'qqcf5vkh3f7rg4yd6njyeaaa23njc70cdqrt94ypls';
+    address = 'qqcf5vkh3f7rg4yd6njyeaaa23njc70cdqrt94ypls';
     const newWallet = await BitPayIdApi.getInstance()
       .request('createWallet', apiToken, {
         address,
@@ -356,6 +357,7 @@ const ReceivingAddresses = () => {
         onWalletSelect={async wallet => {
           await generateAndUploadAddress(wallet).catch(async error => {
             await dispatch(dismissOnGoingProcessModal());
+            await sleep(400);
             showError({error, defaultErrorMessage: 'Could not save address'});
           });
         }}
