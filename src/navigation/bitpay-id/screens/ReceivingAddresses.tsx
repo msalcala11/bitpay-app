@@ -110,19 +110,9 @@ const UnusedCurrencyIcons = styled.View`
 
 const numVisibleCurrencyIcons = 3;
 
-// interface ActiveAddress {
-//   // id: string;
-//   currency: string;
-//   label: string;
-//   address: string;
-//   provider: String;
-//   status: {
-//     isActive: boolean;
-//   };
-//   usedFor: {
-//     payToEmail: boolean;
-//   };
-// }
+const createAddressMap = (receivingAddresses: ReceivingAddress[]) => {
+  return _.keyBy(receivingAddresses, address => address.currency.toLowerCase());
+};
 
 const ReceivingAddresses = () => {
   const dispatch = useAppDispatch();
@@ -133,11 +123,15 @@ const ReceivingAddresses = () => {
   const apiToken = useAppSelector(
     ({BITPAY_ID}) => BITPAY_ID.apiToken[APP_NETWORK],
   );
+  const receivingAddresses = useAppSelector(
+    ({BITPAY_ID}) => BITPAY_ID.receivingAddresses[APP_NETWORK],
+  );
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const [walletSelectorVisible, setWalletSelectorVisible] = useState(false);
   const [walletSelectCurrency, setWalletSelectorCurrency] = useState('btc');
+  console.log('zzz initial addresses', receivingAddresses);
   const [activeAddresses, setActiveAddresses] = useState(
-    {} as {[currency: string]: ReceivingAddress},
+    createAddressMap(receivingAddresses),
   );
   const uniqueActiveCurrencies = _.uniq(
     Object.values(keys)
@@ -240,13 +234,10 @@ const ReceivingAddresses = () => {
 
   useEffect(() => {
     const getWallets = async () => {
-      const receivingAddresses = await dispatch(
+      const latestReceivingAddresses = await dispatch(
         BitPayIdEffects.startFetchReceivingAddresses(),
       );
-      const addresses = _.keyBy(receivingAddresses, address =>
-        address.currency.toLowerCase(),
-      );
-      setActiveAddresses(addresses);
+      setActiveAddresses(createAddressMap(latestReceivingAddresses));
     };
     getWallets();
   }, [apiToken, dispatch]);
