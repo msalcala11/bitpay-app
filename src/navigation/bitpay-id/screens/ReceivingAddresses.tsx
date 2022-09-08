@@ -238,29 +238,13 @@ const ReceivingAddresses = () => {
 
   useEffect(() => {
     const getWallets = async () => {
-      console.log('zzz getting wallets');
-      // const wallets = await BitPayIdApi.getInstance()
-      //   .request('findWallets', apiToken)
-      //   .then(res => {
-      //     console.log('zzz in findWallets response');
-      //     if (res?.data?.error) {
-      //       throw new Error(res.data.error);
-      //     }
-      //     return res.data.data as ActiveAddress[];
-      //   })
-      //   .catch(err => {
-      //     console.log('zzz in findWallets err', err);
-      //     throw err;
-      //   });
       const receivingAddresses = await dispatch(
         BitPayIdEffects.startFetchReceivingAddresses(),
       );
-      console.log('zzz got wallets', receivingAddresses);
       const addresses = _.keyBy(
         receivingAddresses,
         (activeAddress: ActiveAddress) => activeAddress.currency.toLowerCase(),
       );
-      console.log('zzz addresses', addresses);
       setActiveAddresses(addresses);
     };
     getWallets();
