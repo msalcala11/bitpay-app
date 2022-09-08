@@ -20,6 +20,8 @@ import {LogActions} from '../log';
 import {ShopEffects} from '../shop';
 import {BitPayIdActions} from './index';
 import {t} from 'i18next';
+import BitPayIdApi from '../../api/bitpay';
+import {ReceivingAddress} from './bitpay-id.models';
 
 interface StartLoginParams {
   email: string;
@@ -502,6 +504,40 @@ export const startFetchDoshToken = (): Effect => async (dispatch, getState) => {
     });
   }
 };
+
+export const startFetchReceivingAddresses =
+  (): Effect<Promise<ReceivingAddress[]>> => async (dispatch, getState) => {
+    const fetchReceivingAddresses = async () => {
+      try {
+        const {APP, BITPAY_ID} = getState();
+
+        const receivingAddresses = await BitPayIdApi.getInstance()
+          .request('findWallets', BITPAY_ID.apiToken[APP.network])
+          .then(res => {
+            console.log('zzz in findWallets response');
+            if (res?.data?.error) {
+              throw new Error(res.data.error);
+            }
+            return res.data.data as ReceivingAddress[];
+          });
+
+        dispatch(
+          BitPayIdActions.successFetchReceivingAddresses(
+            APP.network,
+            receivingAddresses,
+          ),
+        );
+        return receivingAddresses;
+      } catch (err) {
+        batch(() => {
+          dispatch(LogActions.error('Failed to fetch receiving addresses.'));
+          dispatch(LogActions.error(JSON.stringify(err)));
+        });
+        throw err;
+      }
+    };
+    return fetchReceivingAddresses();
+  };
 
 export const startSubmitForgotPasswordEmail =
   ({

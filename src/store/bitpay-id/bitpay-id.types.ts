@@ -1,5 +1,5 @@
 import {Network} from '../../constants';
-import {Session, User} from './bitpay-id.models';
+import {ReceivingAddress, Session, User} from './bitpay-id.models';
 import {
   EmailPairingStatus,
   FetchBasicInfoStatus,
@@ -48,6 +48,7 @@ export enum BitPayIdActionTypes {
   UPDATE_FETCH_DOSH_TOKEN_STATUS = 'BitPayId/UPDATE_FETCH_DOSH_TOKEN_STATUS',
   FORGOT_PASSWORD_EMAIL_STATUS = 'BitPayId/FORGOT_PASSWORD_EMAIL_STATUS',
   RESET_FORGOT_PASSWORD_EMAIL_STATUS = 'BitPayId/RESET_FORGOT_PASSWORD_EMAIL_STATUS',
+  SUCCESS_FETCH_RECEIVING_ADDRESSES = 'BitPayId/SUCCESS_FETCH_RECEIVING_ADDRESSES',
 }
 
 interface SuccessFetchSession {
@@ -213,6 +214,14 @@ interface ResetForgotPasswordEmailStatus {
   type: typeof BitPayIdActionTypes.RESET_FORGOT_PASSWORD_EMAIL_STATUS;
 }
 
+interface SuccessFetchReceivingAddresses {
+  type: typeof BitPayIdActionTypes.SUCCESS_FETCH_RECEIVING_ADDRESSES;
+  payload: {
+    network: Network;
+    receivingAddresses: ReceivingAddress[];
+  };
+}
+
 export type BitPayIdActionType =
   | SuccessFetchSession
   | FailedFetchSession
@@ -258,6 +267,7 @@ export type BitPayIdActionType =
   | SuccessFetchDoshToken
   | FailedFetchDoshToken
   | UpdateFetchDoshTokenStatus
+  | SuccessFetchReceivingAddresses
   // Reset Password
   | ForgotPasswordEmailStatus
   | ResetForgotPasswordEmailStatus;
