@@ -39,6 +39,7 @@ import {AppActions} from '../../../store/app';
 import {Wallet} from '../../../store/wallet/wallet.models';
 import {sleep} from '../../../utils/helper-methods';
 import {BitPayIdEffects} from '../../../store/bitpay-id';
+import {ReceivingAddress} from '../../../store/bitpay-id/bitpay-id.models';
 
 const ViewContainer = styled.ScrollView`
   padding: 16px;
@@ -109,19 +110,19 @@ const UnusedCurrencyIcons = styled.View`
 
 const numVisibleCurrencyIcons = 3;
 
-interface ActiveAddress {
-  // id: string;
-  currency: string;
-  label: string;
-  address: string;
-  provider: String;
-  status: {
-    isActive: boolean;
-  };
-  usedFor: {
-    payToEmail: boolean;
-  };
-}
+// interface ActiveAddress {
+//   // id: string;
+//   currency: string;
+//   label: string;
+//   address: string;
+//   provider: String;
+//   status: {
+//     isActive: boolean;
+//   };
+//   usedFor: {
+//     payToEmail: boolean;
+//   };
+// }
 
 const ReceivingAddresses = () => {
   const dispatch = useAppDispatch();
@@ -136,7 +137,7 @@ const ReceivingAddresses = () => {
   const [walletSelectorVisible, setWalletSelectorVisible] = useState(false);
   const [walletSelectCurrency, setWalletSelectorCurrency] = useState('btc');
   const [activeAddresses, setActiveAddresses] = useState(
-    {} as {[currency: string]: ActiveAddress},
+    {} as {[currency: string]: ReceivingAddress},
   );
   const uniqueActiveCurrencies = _.uniq(
     Object.values(keys)
@@ -222,6 +223,7 @@ const ReceivingAddresses = () => {
     setActiveAddresses({
       ...activeAddresses,
       [wallet.currencyAbbreviation]: {
+        id: '',
         label: wallet.walletName || wallet.currencyAbbreviation.toUpperCase(),
         address,
         provider: 'BitPay',
@@ -241,9 +243,8 @@ const ReceivingAddresses = () => {
       const receivingAddresses = await dispatch(
         BitPayIdEffects.startFetchReceivingAddresses(),
       );
-      const addresses = _.keyBy(
-        receivingAddresses,
-        (activeAddress: ActiveAddress) => activeAddress.currency.toLowerCase(),
+      const addresses = _.keyBy(receivingAddresses, address =>
+        address.currency.toLowerCase(),
       );
       setActiveAddresses(addresses);
     };
