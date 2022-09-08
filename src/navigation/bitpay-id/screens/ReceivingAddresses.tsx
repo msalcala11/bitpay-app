@@ -259,7 +259,9 @@ const ReceivingAddresses = () => {
               const activeAddress = activeAddresses[currencyAbbreviation];
               const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
               return (
-                <TouchableOpacity activeOpacity={0.8}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  key={activeAddress.currency}>
                   <AddressItem>
                     <CurrencyIcon height="25" />
                     <AddressItemText>
@@ -287,6 +289,7 @@ const ReceivingAddresses = () => {
               return (
                 <TouchableOpacity
                   activeOpacity={0.8}
+                  key={currencyAbbreviation}
                   onPress={() => {
                     setWalletSelectorCurrency(currencyAbbreviation);
                     setWalletSelectorVisible(true);

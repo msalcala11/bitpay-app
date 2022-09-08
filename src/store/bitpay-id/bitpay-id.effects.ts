@@ -514,7 +514,6 @@ export const startFetchReceivingAddresses =
         const receivingAddresses = await BitPayIdApi.getInstance()
           .request('findWallets', BITPAY_ID.apiToken[APP.network])
           .then(res => {
-            console.log('zzz in findWallets response');
             if (res?.data?.error) {
               throw new Error(res.data.error);
             }
