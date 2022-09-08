@@ -36,8 +36,8 @@ import BitPayIdApi from '../../../api/bitpay';
 import {APP_NETWORK} from '../../../constants/config';
 import {CustomErrorMessage} from '../../wallet/components/ErrorMessages';
 import {AppActions} from '../../../store/app';
-import { Wallet } from '../../../store/wallet/wallet.models';
-import { sleep } from '../../../utils/helper-methods';
+import {Wallet} from '../../../store/wallet/wallet.models';
+import {sleep} from '../../../utils/helper-methods';
 
 const ViewContainer = styled.ScrollView`
   padding: 16px;
@@ -109,8 +109,17 @@ const UnusedCurrencyIcons = styled.View`
 const numVisibleCurrencyIcons = 3;
 
 interface ActiveAddress {
-  walletName: string;
+  // id: string;
+  currency: string;
+  label: string;
   address: string;
+  provider: String;
+  status: {
+    isActive: boolean;
+  };
+  usedFor: {
+    payToEmail: boolean;
+  };
 }
 
 const ReceivingAddresses = () => {
@@ -191,7 +200,7 @@ const ReceivingAddresses = () => {
     let address = await dispatch(
       createWalletAddress({wallet, newAddress: true}),
     );
-    address = 'qqcf5vkh3f7rg4yd6njyeaaa23njc70cdqrt94ypls';
+    // address = 'qqcf5vkh3f7rg4yd6njyeaaa23njc70cdqrt94ypls';
     const newWallet = await BitPayIdApi.getInstance()
       .request('createWallet', apiToken, {
         address,
@@ -212,9 +221,16 @@ const ReceivingAddresses = () => {
     setActiveAddresses({
       ...activeAddresses,
       [wallet.currencyAbbreviation]: {
-        walletName:
-          wallet.walletName || wallet.currencyAbbreviation.toUpperCase(),
+        label: wallet.walletName || wallet.currencyAbbreviation.toUpperCase(),
         address,
+        provider: 'BitPay',
+        currency: wallet.currencyAbbreviation.toUpperCase(),
+        status: {
+          isActive: true,
+        },
+        usedFor: {
+          payToEmail: true,
+        },
       },
     });
   };
@@ -229,7 +245,7 @@ const ReceivingAddresses = () => {
           if (res?.data?.error) {
             throw new Error(res.data.error);
           }
-          return res.data;
+          return res.data.data;
         })
         .catch(err => {
           console.log('zzz in findWallets err', err);
@@ -260,7 +276,7 @@ const ReceivingAddresses = () => {
                   <AddressItem>
                     <CurrencyIcon height="25" />
                     <AddressItemText>
-                      <WalletName>{activeAddress.walletName}</WalletName>
+                      <WalletName>{activeAddress.label}</WalletName>
                     </AddressItemText>
                     <AddressPillContainer>
                       <SendToPill
