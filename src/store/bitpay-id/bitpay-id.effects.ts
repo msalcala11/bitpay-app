@@ -1,5 +1,6 @@
 import {upperFirst} from 'lodash';
 import {batch} from 'react-redux';
+import _ from 'lodash';
 import AuthApi from '../../api/auth';
 import {
   LoginErrorResponse,
@@ -511,14 +512,10 @@ export const startFetchReceivingAddresses =
       try {
         const {APP, BITPAY_ID} = getState();
 
-        const receivingAddresses = await BitPayIdApi.getInstance()
-          .request('findWallets', BITPAY_ID.apiToken[APP.network])
-          .then(res => {
-            if (res?.data?.error) {
-              throw new Error(res.data.error);
-            }
-            return res.data.data as ReceivingAddress[];
-          });
+        const receivingAddresses = await BitPayIdApi.apiCall(
+          BITPAY_ID.apiToken[APP.network],
+          'findWallets',
+        );
 
         dispatch(
           BitPayIdActions.successFetchReceivingAddresses(
@@ -536,6 +533,41 @@ export const startFetchReceivingAddresses =
       }
     };
     return fetchReceivingAddresses();
+  };
+
+export const startUpdateReceivingAddresses =
+  (newReceivingAddresses: ReceivingAddress[]): Effect<Promise<void>> =>
+  async (dispatch, getState) => {
+    const updateReceivingAddresses = async () => {
+      try {
+        const {APP, BITPAY_ID} = getState();
+
+        const currentReceivingAddresses = await dispatch(
+          startFetchReceivingAddresses(),
+        );
+
+        const addressesToDelete = _.differenceWith(
+          currentReceivingAddresses,
+          newReceivingAddresses,
+          _.isEqual,
+        );
+
+        const addressesToCreate = _.differenceWith(
+          newReceivingAddresses,
+          currentReceivingAddresses,
+          _.isEqual,
+        );
+
+        const deletePromises;
+      } catch (err) {
+        batch(() => {
+          dispatch(LogActions.error('Failed to fetch receiving addresses.'));
+          dispatch(LogActions.error(JSON.stringify(err)));
+        });
+        throw err;
+      }
+    };
+    return updateReceivingAddresses();
   };
 
 export const startSubmitForgotPasswordEmail =

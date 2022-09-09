@@ -32,7 +32,6 @@ import {createWalletAddress} from '../../../store/wallet/effects/address/address
 import {startOnGoingProcessModal} from '../../../store/app/app.effects';
 import {OnGoingProcessMessages} from '../../../components/modal/ongoing-process/OngoingProcess';
 import {dismissOnGoingProcessModal} from '../../../store/app/app.actions';
-import BitPayIdApi from '../../../api/bitpay';
 import {APP_NETWORK} from '../../../constants/config';
 import {CustomErrorMessage} from '../../wallet/components/ErrorMessages';
 import {AppActions} from '../../../store/app';
@@ -189,30 +188,30 @@ const ReceivingAddresses = () => {
     );
   };
 
-  const generateAndUploadAddress = async (wallet: Wallet) => {
+  const generateAddress = async (wallet: Wallet) => {
     dispatch(
       startOnGoingProcessModal(t(OnGoingProcessMessages.GENERATING_ADDRESS)),
     );
-    let address = await dispatch(
+    const address = await dispatch(
       createWalletAddress({wallet, newAddress: true}),
     );
     // address = 'qqcf5vkh3f7rg4yd6njyeaaa23njc70cdqrt94ypls';
-    const newWallet = await BitPayIdApi.getInstance()
-      .request('createWallet', apiToken, {
-        address,
-        currency: wallet.currencyAbbreviation.toUpperCase(),
-        provider: 'BitPay',
-        label: wallet.walletName,
-        use: 'payToEmail',
-      })
-      .then(res => {
-        console.log('zzz in createWallet response');
-        if (res?.data?.error) {
-          throw new Error(res.data.error);
-        }
-        return res.data;
-      });
-    console.log('zzz newWallet', newWallet);
+    // const newWallet = await BitPayIdApi.getInstance()
+    //   .request('createWallet', apiToken, {
+    //     address,
+    //     currency: wallet.currencyAbbreviation.toUpperCase(),
+    //     provider: 'BitPay',
+    //     label: wallet.walletName,
+    //     use: 'payToEmail',
+    //   })
+    //   .then(res => {
+    //     console.log('zzz in createWallet response');
+    //     if (res?.data?.error) {
+    //       throw new Error(res.data.error);
+    //     }
+    //     return res.data;
+    //   });
+    // console.log('zzz newWallet', newWallet);
     await dispatch(dismissOnGoingProcessModal());
     setActiveAddresses({
       ...activeAddresses,
@@ -319,6 +318,7 @@ const ReceivingAddresses = () => {
                       .slice(0, numVisibleCurrencyIcons)
                       .map(currencyOption => (
                         <currencyOption.img
+                          key={currencyOption.currencyAbbreviation}
                           height="25"
                           style={{marginRight: -35}}
                         />
@@ -361,7 +361,7 @@ const ReceivingAddresses = () => {
           coinbaseWallets: [],
         }}
         onWalletSelect={async wallet => {
-          await generateAndUploadAddress(wallet).catch(async error => {
+          await generateAddress(wallet).catch(async error => {
             await dispatch(dismissOnGoingProcessModal());
             await sleep(400);
             showError({error, defaultErrorMessage: 'Could not save address'});
