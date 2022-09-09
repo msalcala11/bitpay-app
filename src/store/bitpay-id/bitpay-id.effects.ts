@@ -507,8 +507,8 @@ export const startFetchDoshToken = (): Effect => async (dispatch, getState) => {
 };
 
 export const startFetchReceivingAddresses =
-  (): Effect<Promise<ReceivingAddress[]>> => async (dispatch, getState) => {
-    const fetchReceivingAddresses = async () => {
+  (): Effect<Promise<ReceivingAddress[]>> => async (dispatch, getState) =>
+    (async () => {
       try {
         const {APP, BITPAY_ID} = getState();
 
@@ -531,14 +531,12 @@ export const startFetchReceivingAddresses =
         });
         throw err;
       }
-    };
-    return fetchReceivingAddresses();
-  };
+    })();
 
 export const startUpdateReceivingAddresses =
   (newReceivingAddresses: ReceivingAddress[]): Effect<Promise<void>> =>
-  async (dispatch, getState) => {
-    const updateReceivingAddresses = async () => {
+  async (dispatch, getState) =>
+    (async () => {
       try {
         const {APP, BITPAY_ID} = getState();
         const currentReceivingAddresses = await dispatch(
@@ -579,9 +577,7 @@ export const startUpdateReceivingAddresses =
         });
         throw err;
       }
-    };
-    return updateReceivingAddresses();
-  };
+    })();
 
 export const startSubmitForgotPasswordEmail =
   ({
