@@ -231,6 +231,20 @@ const ReceivingAddresses = () => {
     });
   };
 
+  const saveAddresses = async () => {
+    dispatch(
+      startOnGoingProcessModal(t(OnGoingProcessMessages.SAVING_ADDRESSES)),
+    );
+    const newReceivingAddresses = Object.values(activeAddresses);
+    await dispatch(
+      BitPayIdEffects.startUpdateReceivingAddresses(newReceivingAddresses),
+    );
+    await dispatch(dismissOnGoingProcessModal());
+    navigation.navigate('BitpayId', {
+      screen: BitpayIdScreens.RECEIVING_ENABLED,
+    });
+  };
+
   useEffect(() => {
     const getWallets = async () => {
       const latestReceivingAddresses = await dispatch(
@@ -336,13 +350,7 @@ const ReceivingAddresses = () => {
           </>
         ) : null}
       </ViewBody>
-      <Button
-        buttonStyle={'primary'}
-        onPress={() => {
-          navigation.navigate('BitpayId', {
-            screen: BitpayIdScreens.RECEIVING_ENABLED,
-          });
-        }}>
+      <Button buttonStyle={'primary'} onPress={() => saveAddresses()}>
         {t('Save Defaults')}
       </Button>
       <Br />

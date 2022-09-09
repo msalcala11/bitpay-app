@@ -553,7 +553,10 @@ export const startUpdateReceivingAddresses =
           currentReceivingAddresses,
           _.isEqual,
         );
-        console.log('zzz addressesToCreate', addressesToCreate);
+        setTimeout(
+          () => console.log('zzz addressesToCreate', addressesToCreate),
+          5000,
+        );
         const deletePromises = addressesToDelete.map(address =>
           BitPayIdApi.apiCall(BITPAY_ID.apiToken[APP.network], 'deleteWallet', {
             walletId: address.id,
@@ -564,12 +567,14 @@ export const startUpdateReceivingAddresses =
         );
         const createPromises = addressesToCreate.map(address =>
           BitPayIdApi.apiCall(BITPAY_ID.apiToken[APP.network], 'createWallet', {
-            walletId: address.id,
+            ...address,
+            use: 'payToEmail',
           }),
         );
         await Promise.all(createPromises).catch(err =>
-          console.log('zzz error creating', err),
+          setTimeout(() => console.log('zzz error creating', err), 5000),
         );
+        await dispatch(startFetchReceivingAddresses());
       } catch (err) {
         batch(() => {
           dispatch(LogActions.error('Failed to fetch receiving addresses.'));
