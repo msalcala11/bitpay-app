@@ -129,9 +129,9 @@ const ReceivingAddresses = () => {
   const [walletSelectorVisible, setWalletSelectorVisible] = useState(false);
   const [walletSelectCurrency, setWalletSelectorCurrency] = useState('btc');
   console.log('zzz initial addresses', receivingAddresses);
-  const [activeAddresses, setActiveAddresses] = useState(
-    createAddressMap(receivingAddresses),
-  );
+  const [activeAddresses, setActiveAddresses] = useState<
+    _.Dictionary<ReceivingAddress>
+  >({});
   const uniqueActiveCurrencies = _.uniq(
     Object.values(keys)
       .flatMap(key => key.wallets)
@@ -192,26 +192,12 @@ const ReceivingAddresses = () => {
     dispatch(
       startOnGoingProcessModal(t(OnGoingProcessMessages.GENERATING_ADDRESS)),
     );
-    const address = await dispatch(
+    let address = await dispatch(
       createWalletAddress({wallet, newAddress: true}),
     );
-    // address = 'qqcf5vkh3f7rg4yd6njyeaaa23njc70cdqrt94ypls';
-    // const newWallet = await BitPayIdApi.getInstance()
-    //   .request('createWallet', apiToken, {
-    //     address,
-    //     currency: wallet.currencyAbbreviation.toUpperCase(),
-    //     provider: 'BitPay',
-    //     label: wallet.walletName,
-    //     use: 'payToEmail',
-    //   })
-    //   .then(res => {
-    //     console.log('zzz in createWallet response');
-    //     if (res?.data?.error) {
-    //       throw new Error(res.data.error);
-    //     }
-    //     return res.data;
-    //   });
-    // console.log('zzz newWallet', newWallet);
+    if (wallet.currencyAbbreviation === 'bch') {
+      address = 'qqcf5vkh3f7rg4yd6njyeaaa23njc70cdqrt94ypls';
+    }
     await dispatch(dismissOnGoingProcessModal());
     setActiveAddresses({
       ...activeAddresses,
@@ -246,6 +232,7 @@ const ReceivingAddresses = () => {
   };
 
   useEffect(() => {
+    setActiveAddresses(createAddressMap(receivingAddresses));
     const getWallets = async () => {
       const latestReceivingAddresses = await dispatch(
         BitPayIdEffects.startFetchReceivingAddresses(),
@@ -253,6 +240,7 @@ const ReceivingAddresses = () => {
       setActiveAddresses(createAddressMap(latestReceivingAddresses));
     };
     getWallets();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiToken, dispatch]);
 
   return (
@@ -274,7 +262,14 @@ const ReceivingAddresses = () => {
               return (
                 <TouchableOpacity
                   activeOpacity={0.8}
-                  key={activeAddress.currency}>
+                  key={activeAddress.currency}
+                  onPress={() => {
+                    delete activeAddresses[
+                      activeAddress.currency.toLowerCase()
+                    ];
+                    console.log('zzz activeAddresses', activeAddresses);
+                    setActiveAddresses({...activeAddresses});
+                  }}>
                   <AddressItem>
                     <CurrencyIcon height="25" />
                     <AddressItemText>

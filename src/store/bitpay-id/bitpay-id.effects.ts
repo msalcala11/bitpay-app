@@ -563,7 +563,7 @@ export const startUpdateReceivingAddresses =
           }),
         );
         await Promise.all(deletePromises).catch(err =>
-          console.log('zzz error deleting', err),
+          setTimeout(() => console.log('zzz error creating', err), 5000),
         );
         const createPromises = addressesToCreate.map(address =>
           BitPayIdApi.apiCall(BITPAY_ID.apiToken[APP.network], 'createWallet', {
