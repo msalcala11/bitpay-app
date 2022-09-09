@@ -541,24 +541,37 @@ export const startUpdateReceivingAddresses =
     const updateReceivingAddresses = async () => {
       try {
         const {APP, BITPAY_ID} = getState();
-
         const currentReceivingAddresses = await dispatch(
           startFetchReceivingAddresses(),
         );
-
         const addressesToDelete = _.differenceWith(
           currentReceivingAddresses,
           newReceivingAddresses,
           _.isEqual,
         );
-
+        console.log('zzz addressesToDelete', addressesToDelete);
         const addressesToCreate = _.differenceWith(
           newReceivingAddresses,
           currentReceivingAddresses,
           _.isEqual,
         );
-
-        const deletePromises;
+        console.log('zzz addressesToCreate', addressesToCreate);
+        const deletePromises = addressesToDelete.map(address =>
+          BitPayIdApi.apiCall(BITPAY_ID.apiToken[APP.network], 'deleteWallet', {
+            walletId: address.id,
+          }),
+        );
+        await Promise.all(deletePromises).catch(err =>
+          console.log('zzz error deleting', err),
+        );
+        const createPromises = addressesToCreate.map(address =>
+          BitPayIdApi.apiCall(BITPAY_ID.apiToken[APP.network], 'createWallet', {
+            walletId: address.id,
+          }),
+        );
+        await Promise.all(createPromises).catch(err =>
+          console.log('zzz error creating', err),
+        );
       } catch (err) {
         batch(() => {
           dispatch(LogActions.error('Failed to fetch receiving addresses.'));
