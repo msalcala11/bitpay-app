@@ -104,6 +104,13 @@ export const WalletSelectMenuContainer = styled.View`
 
 export const WalletSelectMenuHeaderContainer = styled.View`
   padding: 20px;
+  padding-left: 0;
+  flex-direction: row;
+  align-items: center;
+`;
+
+export const WalletSelectMenuHeaderIconContainer = styled.View`
+  padding-right: 5px;
 `;
 
 export const WalletSelectMenuBodyContainer = styled.ScrollView`

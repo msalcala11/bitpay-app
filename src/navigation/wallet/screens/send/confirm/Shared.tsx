@@ -29,6 +29,7 @@ import {
   WalletSelectMenuBodyContainer,
   WalletSelectMenuContainer,
   WalletSelectMenuHeaderContainer,
+  WalletSelectMenuHeaderIconContainer,
 } from '../../GlobalSelect';
 import CoinbaseSmall from '../../../../../../assets/img/logos/coinbase-small.svg';
 import {useNavigation} from '@react-navigation/native';
@@ -41,6 +42,7 @@ import {useTranslation} from 'react-i18next';
 import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view';
 import AddressCard from '../../../components/AddressCard';
 import {LuckySevens} from '../../../../../styles/colors';
+import {CurrencyListIcons} from '../../../../../constants/SupportedCurrencyOptions';
 
 // Styled
 export const ConfirmContainer = styled.SafeAreaView`
@@ -419,6 +421,7 @@ export const WalletSelector = ({
   isVisible,
   setWalletSelectorVisible,
   autoSelectIfOnlyOneWallet,
+  currency,
 }: {
   walletsAndAccounts: WalletsAndAccounts;
   onWalletSelect: (wallet: KeyWallet) => void;
@@ -427,6 +430,7 @@ export const WalletSelector = ({
   isVisible: boolean;
   setWalletSelectorVisible: React.Dispatch<React.SetStateAction<boolean>>;
   autoSelectIfOnlyOneWallet?: boolean;
+  currency?: string;
 }) => {
   const {t} = useTranslation();
   const dispatch = useAppDispatch();
@@ -494,12 +498,17 @@ export const WalletSelector = ({
       : setSelectorVisible(false);
   }, [autoSelectSingleWallet, isVisible, showSelector]);
 
+  const CurrencyIcon = CurrencyListIcons[currency || ''];
+
   return (
     <SheetModal isVisible={selectorVisible} onBackdropPress={onBackdropPress}>
       <WalletSelectMenuContainer>
         <WalletSelectMenuHeaderContainer>
-          <TextAlign align={'center'}>
-            <H4>{t('Select a wallet')}</H4>
+          <WalletSelectMenuHeaderIconContainer>
+            <CurrencyIcon height={35} />
+          </WalletSelectMenuHeaderIconContainer>
+          <TextAlign align={currency ? 'left' : 'center'}>
+            <H4>{t('Select a Wallet')}</H4>
           </TextAlign>
         </WalletSelectMenuHeaderContainer>
         <WalletSelectMenuBodyContainer>
