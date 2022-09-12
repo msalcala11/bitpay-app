@@ -104,7 +104,7 @@ const WalletRow = ({wallet, hideIcon, onPress}: Props) => {
           <NestedArrowIcon />
         </NestedArrowContainer>
       )}
-      {hideIcon ? (
+      {!hideIcon ? (
         <CurrencyImageContainer>
           <CurrencyImage img={img} size={45} />
         </CurrencyImageContainer>

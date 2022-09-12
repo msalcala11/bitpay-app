@@ -61,16 +61,19 @@ const KeyWalletsRow = <T extends WalletRowType>({
     <View>
       {keyWallets.map(key => (
         <RowContainer key={key.key}>
-          <KeyNameContainer style={{borderBottomWidth: currency ? 0 : 1}}>
-            {keySvg({})}
-            <KeyName>{key.keyName || 'My Key'}</KeyName>
-          </KeyNameContainer>
+          {keyWallets.length > 1 ? (
+            <KeyNameContainer style={{borderBottomWidth: currency ? 0 : 1}}>
+              {keySvg({})}
+              <KeyName>{key.keyName || 'My Key'}</KeyName>
+            </KeyNameContainer>
+          ) : null}
 
           {key.wallets.map(w => (
             <NoGutter key={w.id}>
               <WalletRow
                 wallet={w}
                 id={w.id}
+                hideIcon={!!currency}
                 onPress={() => {
                   onPress(w);
                 }}

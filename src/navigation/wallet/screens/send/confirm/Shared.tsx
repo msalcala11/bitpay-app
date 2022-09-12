@@ -505,7 +505,7 @@ export const WalletSelector = ({
       <WalletSelectMenuContainer>
         <WalletSelectMenuHeaderContainer>
           <WalletSelectMenuHeaderIconContainer>
-            <CurrencyIcon height={35} />
+            <CurrencyIcon height={30} />
           </WalletSelectMenuHeaderIconContainer>
           <TextAlign align={currency ? 'left' : 'center'}>
             <H4>{t('Select a Wallet')}</H4>

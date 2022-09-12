@@ -105,7 +105,6 @@ export const WalletSelectMenuHeaderContainer = styled.View`
   padding: 20px;
   padding-left: 12px;
   padding-bottom: 14px;
-  margin-bottom: 20px;
   flex-direction: row;
   align-items: center;
   border-bottom-color: ${({theme: {dark}}) => (dark ? LightBlack : '#ECEFFD')};
@@ -113,7 +112,7 @@ export const WalletSelectMenuHeaderContainer = styled.View`
 `;
 
 export const WalletSelectMenuHeaderIconContainer = styled.View`
-  padding-right: 5px;
+  padding-right: 0px;
 `;
 
 export const WalletSelectMenuBodyContainer = styled.ScrollView`
