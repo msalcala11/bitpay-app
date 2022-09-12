@@ -58,6 +58,7 @@ export interface WalletRowProps {
 interface Props {
   id: string;
   wallet: WalletRowProps;
+  hideIcon?: boolean;
   onPress: () => void;
 }
 
@@ -79,7 +80,7 @@ export const buildTestBadge = (
   );
 };
 
-const WalletRow = ({wallet, onPress}: Props) => {
+const WalletRow = ({wallet, hideIcon, onPress}: Props) => {
   const {
     currencyName,
     currencyAbbreviation,
@@ -103,9 +104,11 @@ const WalletRow = ({wallet, onPress}: Props) => {
           <NestedArrowIcon />
         </NestedArrowContainer>
       )}
-      <CurrencyImageContainer>
-        <CurrencyImage img={img} size={45} />
-      </CurrencyImageContainer>
+      {hideIcon ? (
+        <CurrencyImageContainer>
+          <CurrencyImage img={img} size={45} />
+        </CurrencyImageContainer>
+      ) : null}
       <CurrencyColumn>
         <Row>
           <H5 ellipsizeMode="tail" numberOfLines={1}>

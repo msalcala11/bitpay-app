@@ -96,8 +96,10 @@ export const ListContainer = styled.View`
 export const RowContainer = styled.TouchableOpacity`
   flex-direction: row;
   align-items: center;
-  margin: 10px 0;
-  padding: 0 10px;
+  padding: 16px 4px;
+  margin: 0 6px;
+  border-bottom-color: ${({theme: {dark}}) => (dark ? LightBlack : '#ECEFFD')};
+  border-bottom-width: 1px;
 `;
 
 export const CurrencyColumn = styled(Column)`

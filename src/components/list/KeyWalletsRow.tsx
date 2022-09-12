@@ -8,18 +8,18 @@ import {Wallet} from '../../store/wallet/wallet.models';
 import {WalletRowProps} from './WalletRow';
 import WalletRow from './WalletRow';
 import {SvgProps} from 'react-native-svg';
+import {ScreenGutter} from '../styled/Containers';
 
 const RowContainer = styled.View`
   margin-bottom: 20px;
+  padding: 0 ${ScreenGutter};
 `;
 
 const KeyNameContainer = styled.View`
   flex-direction: row;
   align-items: center;
-  padding-bottom: 10px;
   border-bottom-color: ${({theme: {dark}}) => (dark ? LightBlack : '#ECEFFD')};
   border-bottom-width: 1px;
-  margin-bottom: 10px;
 `;
 
 const KeyName = styled(BaseText)`
@@ -48,18 +48,20 @@ interface KeyWalletProps<T extends WalletRowType> {
   keyWallets: KeyWalletsRowProps<T>[];
   keySvg?: React.FC<SvgProps>;
   onPress: (wallet: T) => void;
+  currency?: string;
 }
 
 const KeyWalletsRow = <T extends WalletRowType>({
   keyWallets,
   keySvg = KeySvg,
   onPress,
+  currency,
 }: KeyWalletProps<T>) => {
   return (
     <View>
       {keyWallets.map(key => (
         <RowContainer key={key.key}>
-          <KeyNameContainer>
+          <KeyNameContainer style={{borderBottomWidth: currency ? 0 : 1}}>
             {keySvg({})}
             <KeyName>{key.keyName || 'My Key'}</KeyName>
           </KeyNameContainer>

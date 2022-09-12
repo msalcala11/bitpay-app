@@ -95,7 +95,6 @@ const GlobalSelectContainer = styled.View`
 `;
 
 export const WalletSelectMenuContainer = styled.View`
-  padding: 0 ${ScreenGutter};
   background: ${({theme: {dark}}) => (dark ? LightBlack : White)};
   border-top-left-radius: 12px;
   border-top-right-radius: 12px;
@@ -104,9 +103,13 @@ export const WalletSelectMenuContainer = styled.View`
 
 export const WalletSelectMenuHeaderContainer = styled.View`
   padding: 20px;
-  padding-left: 0;
+  padding-left: 12px;
+  padding-bottom: 14px;
+  margin-bottom: 20px;
   flex-direction: row;
   align-items: center;
+  border-bottom-color: ${({theme: {dark}}) => (dark ? LightBlack : '#ECEFFD')};
+  border-bottom-width: 1px;
 `;
 
 export const WalletSelectMenuHeaderIconContainer = styled.View`

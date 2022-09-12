@@ -513,6 +513,7 @@ export const WalletSelector = ({
         </WalletSelectMenuHeaderContainer>
         <WalletSelectMenuBodyContainer>
           <KeyWalletsRow<KeyWallet>
+            currency={currency}
             keyWallets={walletsAndAccounts.keyWallets}
             onPress={wallet => selectOption(() => onWalletSelect(wallet), true)}
           />
