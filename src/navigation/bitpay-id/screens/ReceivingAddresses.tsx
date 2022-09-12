@@ -246,11 +246,11 @@ const ReceivingAddresses = () => {
   return (
     <ViewContainer>
       <ViewBody>
-        <H3>{t('Choose your BitPay ID Receiving Addresses')}</H3>
+        <H3>{t('Choose your Primary Wallet to Receive Payments')}</H3>
         <Br />
         <Paragraph>
           {t(
-            'Decide what wallets you would like to receive to when a friend sends crypto to your email address. Each incoming payment will be sent to a newly generated address.',
+            "Decide which wallets you'd like to receive funds when crypto is sent to your email address.",
           )}
         </Paragraph>
         {Object.keys(activeAddresses).length ? (
