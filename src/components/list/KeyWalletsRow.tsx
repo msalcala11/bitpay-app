@@ -10,16 +10,28 @@ import WalletRow from './WalletRow';
 import {SvgProps} from 'react-native-svg';
 import {ScreenGutter} from '../styled/Containers';
 
-const RowContainer = styled.View`
-  margin-bottom: 20px;
+interface RowContainerProps {
+  isLast?: boolean;
+}
+
+const RowContainer = styled.View<RowContainerProps>`
+  margin-bottom: 0px;
   padding: 0 ${ScreenGutter};
+  border-bottom-width: ${({isLast}) => (isLast ? 0 : 1)}px;
+  border-bottom-color: ${({theme: {dark}}) => (dark ? LightBlack : '#ECEFFD')};
+  border-bottom-width: 0;
 `;
 
-const KeyNameContainer = styled.View`
+interface KeyNameContainerProps {
+  noBorder?: boolean;
+}
+
+const KeyNameContainer = styled.View<KeyNameContainerProps>`
   flex-direction: row;
   align-items: center;
   border-bottom-color: ${({theme: {dark}}) => (dark ? LightBlack : '#ECEFFD')};
-  border-bottom-width: 1px;
+  border-bottom-width: ${({noBorder}) => (noBorder ? 0 : 1)}px;
+  margin-top: 20px;
 `;
 
 const KeyName = styled(BaseText)`
@@ -59,21 +71,25 @@ const KeyWalletsRow = <T extends WalletRowType>({
 }: KeyWalletProps<T>) => {
   return (
     <View>
-      {keyWallets.map(key => (
-        <RowContainer key={key.key}>
+      {keyWallets.map((key, keyIndex) => (
+        <RowContainer key={key.key} isLast={keyIndex === keyWallets.length - 1}>
           {keyWallets.length > 1 ? (
-            <KeyNameContainer style={{borderBottomWidth: currency ? 0 : 1}}>
+            <KeyNameContainer noBorder={!!currency}>
               {keySvg({})}
               <KeyName>{key.keyName || 'My Key'}</KeyName>
             </KeyNameContainer>
           ) : null}
 
-          {key.wallets.map(w => (
+          {key.wallets.map((w, walletIndex) => (
             <NoGutter key={w.id}>
               <WalletRow
                 wallet={w}
                 id={w.id}
                 hideIcon={!!currency}
+                isLast={
+                  walletIndex === key.wallets.length - 1 &&
+                  keyIndex === keyWallets.length - 1
+                }
                 onPress={() => {
                   onPress(w);
                 }}

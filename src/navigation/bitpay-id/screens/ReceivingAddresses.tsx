@@ -158,12 +158,14 @@ const ReceivingAddresses = () => {
   const keyWalletsByCurrency = uniqueActiveCurrencies.reduce(
     (keyWalletMap, currency) => ({
       ...keyWalletMap,
-      [currency]: keyWallets.map(keyWallet => ({
-        ...keyWallet,
-        wallets: keyWallet.wallets.filter(
-          wallet => wallet.currencyAbbreviation === walletSelectCurrency,
-        ),
-      })),
+      [currency]: keyWallets
+        .map(keyWallet => ({
+          ...keyWallet,
+          wallets: keyWallet.wallets.filter(
+            wallet => wallet.currencyAbbreviation === walletSelectCurrency,
+          ),
+        }))
+        .filter(keyWallet => keyWallet.wallets.length),
     }),
     {} as {[key: string]: any[]},
   );

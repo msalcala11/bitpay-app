@@ -503,7 +503,7 @@ export const WalletSelector = ({
   return (
     <SheetModal isVisible={selectorVisible} onBackdropPress={onBackdropPress}>
       <WalletSelectMenuContainer>
-        <WalletSelectMenuHeaderContainer>
+        <WalletSelectMenuHeaderContainer currency={currency}>
           <WalletSelectMenuHeaderIconContainer>
             <CurrencyIcon height={30} />
           </WalletSelectMenuHeaderIconContainer>
