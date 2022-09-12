@@ -102,7 +102,7 @@ const WalletRow = ({wallet, hideIcon, onPress, isLast}: Props) => {
     <RowContainer
       activeOpacity={ActiveOpacity}
       onPress={onPress}
-      style={{borderBottomWidth: isLast ? 0 : 1}}>
+      style={{borderBottomWidth: isLast || !hideIcon ? 0 : 1}}>
       {isToken && (
         <NestedArrowContainer>
           <NestedArrowIcon />
