@@ -101,11 +101,16 @@ export const WalletSelectMenuContainer = styled.View`
   max-height: 75%;
 `;
 
-export const WalletSelectMenuHeaderContainer = styled.View`
+export interface WalletSelectMenuHeaderContainerParams {
+  currency?: string;
+}
+
+export const WalletSelectMenuHeaderContainer = styled.View<WalletSelectMenuHeaderContainerParams>`
   padding: 20px;
   padding-left: 12px;
   padding-bottom: 14px;
   flex-direction: row;
+  justify-content: ${({currency}) => (currency ? 'flex-start' : 'center')};
   align-items: center;
   border-bottom-color: ${({theme: {dark}}) => (dark ? LightBlack : '#ECEFFD')};
   border-bottom-width: 1px;
