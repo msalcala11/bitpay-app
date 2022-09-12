@@ -108,12 +108,12 @@ export interface WalletSelectMenuHeaderContainerParams {
 export const WalletSelectMenuHeaderContainer = styled.View<WalletSelectMenuHeaderContainerParams>`
   padding: 20px;
   padding-left: 12px;
-  padding-bottom: 14px;
+  padding-bottom: ${({currency}) => (currency ? 14 : 0)}px;
   flex-direction: row;
   justify-content: ${({currency}) => (currency ? 'flex-start' : 'center')};
   align-items: center;
   border-bottom-color: ${({theme: {dark}}) => (dark ? LightBlack : '#ECEFFD')};
-  border-bottom-width: 1px;
+  border-bottom-width: ${({currency}) => (currency ? 1 : 0)}px;
 `;
 
 export const WalletSelectMenuHeaderIconContainer = styled.View`
