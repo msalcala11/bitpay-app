@@ -94,6 +94,7 @@ const BitpayIdStack = () => {
         component={ReceivingAddresses}
         options={{
           ...baseScreenOptions,
+          headerTitle: () => <HeaderTitle>{t('Receive Settings')}</HeaderTitle>,
         }}
       />
       <BitpayId.Screen
