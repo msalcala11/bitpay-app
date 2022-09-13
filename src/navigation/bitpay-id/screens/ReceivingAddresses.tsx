@@ -2,7 +2,7 @@ import React, {useEffect, useState} from 'react';
 import _ from 'lodash';
 import styled from 'styled-components/native';
 import {useNavigation, useTheme} from '@react-navigation/native';
-import {Br, CtaContainerAbsolute, HEIGHT} from '../../../components/styled/Containers';
+import {ActiveOpacity, Br, CtaContainerAbsolute} from '../../../components/styled/Containers';
 import {
   CurrencyListIcons,
   SupportedCurrencyOptions,
@@ -267,7 +267,7 @@ const ReceivingAddresses = () => {
                 const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
                 return (
                   <TouchableOpacity
-                    activeOpacity={0.8}
+                    activeOpacity={ActiveOpacity}
                     key={activeAddress.currency}
                     onPress={() => {
                       delete activeAddresses[
@@ -302,7 +302,7 @@ const ReceivingAddresses = () => {
                 const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
                 return (
                   <TouchableOpacity
-                    activeOpacity={0.8}
+                    activeOpacity={ActiveOpacity}
                     key={currencyAbbreviation}
                     onPress={() => {
                       setWalletSelectorCurrency(currencyAbbreviation);
@@ -322,12 +322,23 @@ const ReceivingAddresses = () => {
                 );
               })}
               <TouchableOpacity
-                activeOpacity={0.8}
+                activeOpacity={ActiveOpacity}
                 onPress={() => {
+                  const keyList = Object.values(keys);
+                  if (keyList.length === 1) {
+                    navigation.navigate('Wallet', {
+                      screen: 'AddingOptions',
+                      params: {
+                        key: keyList[0],
+                      },
+                    });
+                    return;
+                  }
                   navigation.navigate('Wallet', {
-                    screen: 'AddingOptions',
+                    screen: 'KeyGlobalSelect',
                     params: {
-                      key: Object.values(keys)[0],
+                      context: 'join',
+                      // invitationCode: data,
                     },
                   });
                 }}>

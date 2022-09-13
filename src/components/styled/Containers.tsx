@@ -100,10 +100,10 @@ interface RowContainerProps {
 export const RowContainer = styled.TouchableOpacity<RowContainerProps>`
   flex-direction: row;
   align-items: center;
-  padding: 16px 4px;
+  padding: 10px 4px;
   margin: 0 6px;
   border-bottom-color: ${({theme: {dark}}) => (dark ? LightBlack : '#ECEFFD')};
-  border-bottom-width: ${({isLast}) => (isLast ? 0 : 1)}px;
+  border-bottom-width: ${({isLast}) => (isLast || true ? 0 : 1)}px;
 `;
 
 export const CurrencyColumn = styled(Column)`
