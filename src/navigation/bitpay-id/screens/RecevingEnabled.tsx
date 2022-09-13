@@ -12,6 +12,13 @@ import {
 } from '../../../components/styled/Text';
 import {Action, White} from '../../../styles/colors';
 import {useAppSelector} from '../../../utils/hooks';
+import {StackScreenProps} from '@react-navigation/stack';
+import {BitpayIdStackParamList} from '../BitpayIdStack';
+
+type ReceivingEnabledProps = StackScreenProps<
+  BitpayIdStackParamList,
+  'ReceivingEnabled'
+>;
 
 const ViewContainer = styled.View`
   padding: 16px;
@@ -50,7 +57,7 @@ const EmailText = styled(BaseText)`
   font-weight: 500;
 `;
 
-const ReceivingEnabled = () => {
+const ReceivingEnabled: React.FC<ReceivingEnabledProps> = ({navigation}) => {
   const user = useAppSelector(
     ({APP, BITPAY_ID}) => BITPAY_ID.user[APP.network],
   );
@@ -72,7 +79,7 @@ const ReceivingEnabled = () => {
           <SuccessSvg height={20} width={20} />
         </EmailContainer>
       </ViewBody>
-      <Button buttonStyle={'primary'} onPress={() => console.log('hi')}>
+      <Button buttonStyle={'primary'} onPress={() => navigation.popToTop()}>
         {t('Go back to settings')}
       </Button>
       <Br />
