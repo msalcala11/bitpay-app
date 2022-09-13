@@ -314,7 +314,7 @@ const AddWallet: React.FC<AddWalletScreenProps> = ({navigation, route}) => {
         password = await dispatch(getDecryptPassword(key));
       }
 
-      navigation.popToTop();
+      // navigation.popToTop();
 
       await dispatch(
         startOnGoingProcessModal(
@@ -347,11 +347,14 @@ const AddWallet: React.FC<AddWalletScreenProps> = ({navigation, route}) => {
         }),
       );
 
-      navigation.navigate('WalletDetails', {
-        walletId: wallet.id,
-        key,
-        skipInitializeHistory: true,
-      });
+      navigation.popToTop();
+      navigation.pop();
+
+      // navigation.navigate('WalletDetails', {
+      //   walletId: wallet.id,
+      //   key,
+      //   skipInitializeHistory: true,
+      // });
 
       dispatch(dismissOnGoingProcessModal());
     } catch (err: any) {

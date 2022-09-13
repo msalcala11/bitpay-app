@@ -317,7 +317,16 @@ const ReceivingAddresses = () => {
                 </TouchableOpacity>
               );
             })}
-            <TouchableOpacity activeOpacity={0.8}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => {
+                navigation.navigate('Wallet', {
+                  screen: 'AddingOptions',
+                  params: {
+                    key: Object.values(keys)[0],
+                  },
+                });
+              }}>
               <AddressItem>
                 <AddButton>
                   {theme.dark ? <AddWhiteSvg /> : <AddSvg />}
