@@ -325,8 +325,9 @@ const AddWallet: React.FC<AddWalletScreenProps> = ({navigation, route}) => {
         password = await dispatch(getDecryptPassword(key));
       }
 
-      if (!withinReceiveSettings) {
-        navigation.popToTop();
+      navigation.popToTop();
+      if (withinReceiveSettings) {
+        navigation.pop();
       }
 
       await dispatch(
@@ -360,10 +361,7 @@ const AddWallet: React.FC<AddWalletScreenProps> = ({navigation, route}) => {
         }),
       );
 
-      if (withinReceiveSettings) {
-        navigation.popToTop();
-        navigation.pop();
-      } else {
+      if (!withinReceiveSettings) {
         navigation.navigate('WalletDetails', {
           walletId: wallet.id,
           key,
