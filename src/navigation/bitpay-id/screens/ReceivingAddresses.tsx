@@ -2,7 +2,11 @@ import React, {useEffect, useState} from 'react';
 import _ from 'lodash';
 import styled from 'styled-components/native';
 import {useNavigation, useTheme} from '@react-navigation/native';
-import {ActiveOpacity, Br, CtaContainerAbsolute} from '../../../components/styled/Containers';
+import {
+  ActiveOpacity,
+  Br,
+  CtaContainerAbsolute,
+} from '../../../components/styled/Containers';
 import {
   CurrencyListIcons,
   SupportedCurrencyOptions,
@@ -35,10 +39,11 @@ import {dismissOnGoingProcessModal} from '../../../store/app/app.actions';
 import {APP_NETWORK} from '../../../constants/config';
 import {CustomErrorMessage} from '../../wallet/components/ErrorMessages';
 import {AppActions} from '../../../store/app';
-import {Wallet} from '../../../store/wallet/wallet.models';
+import {Key, Wallet} from '../../../store/wallet/wallet.models';
 import {sleep} from '../../../utils/helper-methods';
 import {BitPayIdEffects} from '../../../store/bitpay-id';
 import {ReceivingAddress} from '../../../store/bitpay-id/bitpay-id.models';
+import {WalletScreens} from '../../wallet/WalletStack';
 
 const ViewContainer = styled.ScrollView`
   padding: 16px;
@@ -248,6 +253,15 @@ const ReceivingAddresses = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiToken, dispatch]);
 
+  const addWallet = (key: Key) => {
+    navigation.navigate('Wallet', {
+      screen: 'AddingOptions',
+      params: {
+        key,
+      },
+    });
+  };
+
   return (
     <>
       <ViewContainer>
@@ -326,19 +340,13 @@ const ReceivingAddresses = () => {
                 onPress={() => {
                   const keyList = Object.values(keys);
                   if (keyList.length === 1) {
-                    navigation.navigate('Wallet', {
-                      screen: 'AddingOptions',
-                      params: {
-                        key: keyList[0],
-                      },
-                    });
+                    addWallet(keyList[0]);
                     return;
                   }
                   navigation.navigate('Wallet', {
-                    screen: 'KeyGlobalSelect',
+                    screen: WalletScreens.KEY_GLOBAL_SELECT,
                     params: {
-                      context: 'join',
-                      // invitationCode: data,
+                      onKeySelect: (selectedKey: Key) => addWallet(selectedKey),
                     },
                   });
                 }}>

@@ -999,10 +999,17 @@ const goToJoinWallet =
       });
     } else {
       navigationRef.navigate('Wallet', {
-        screen: 'KeyGlobalSelect',
+        screen: WalletScreens.KEY_GLOBAL_SELECT,
         params: {
-          context: 'join',
-          invitationCode: data,
+          onKeySelect: (selectedKey: Key) => {
+            navigationRef.navigate('Wallet', {
+              screen: WalletScreens.JOIN_MULTISIG,
+              params: {
+                key: selectedKey,
+                invitationCode: data,
+              },
+            });
+          },
         },
       });
     }

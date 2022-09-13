@@ -5,7 +5,7 @@ import {
   TxDetailsSendingFrom,
   TxDetailsSendingTo,
 } from '../../../../../store/wallet/wallet.models';
-import {H4, H5, H6, H7, TextAlign} from '../../../../../components/styled/Text';
+import {H4, H5, H6, H7} from '../../../../../components/styled/Text';
 import SendToPill from '../../../components/SendToPill';
 import {
   Column,
