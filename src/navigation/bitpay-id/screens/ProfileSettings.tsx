@@ -128,10 +128,10 @@ export const ProfileSettingsScreen: React.FC<ProfileProps> = () => {
         <SettingsItem>
           <SettingsSectionBody>
             <SettingsSectionHeader>
-              {t('Receive via BitPay ID')}
+              {t('Receive via Email Address')}
             </SettingsSectionHeader>
             <SettingsSectionDescription>
-              {t('Simply receive tokens/coins to your BitPay ID.')}
+              {t('Receive crypto without wallet addresses or QR codes.')}
             </SettingsSectionDescription>
           </SettingsSectionBody>
           <ChevronRight />
