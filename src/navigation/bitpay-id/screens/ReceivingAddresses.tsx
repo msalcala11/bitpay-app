@@ -2,7 +2,7 @@ import React, {useEffect, useState} from 'react';
 import _ from 'lodash';
 import styled from 'styled-components/native';
 import {useNavigation, useTheme} from '@react-navigation/native';
-import {Br, HEIGHT} from '../../../components/styled/Containers';
+import {Br, CtaContainerAbsolute, HEIGHT} from '../../../components/styled/Containers';
 import {
   CurrencyListIcons,
   SupportedCurrencyOptions,
@@ -105,6 +105,10 @@ const UnusedCurrencies = styled.View`
 const UnusedCurrencyIcons = styled.View`
   flex-direction: row;
   margin-right: 30px;
+`;
+
+const FooterButton = styled(CtaContainerAbsolute)`
+  box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.1);
 `;
 
 const numVisibleCurrencyIcons = 3;
@@ -246,148 +250,171 @@ const ReceivingAddresses = () => {
   }, [apiToken, dispatch]);
 
   return (
-    <ViewContainer>
-      <ViewBody>
-        <H3>{t('Choose your Primary Wallet to Receive Payments')}</H3>
-        <Br />
-        <Paragraph>
-          {t(
-            "Decide which wallets you'd like to receive funds when crypto is sent to your email address.",
-          )}
-        </Paragraph>
-        {Object.keys(activeAddresses).length ? (
-          <>
-            <SectionHeader>{t('Active Addresses')}</SectionHeader>
-            {Object.keys(activeAddresses).map(currencyAbbreviation => {
-              const activeAddress = activeAddresses[currencyAbbreviation];
-              const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
-              return (
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  key={activeAddress.currency}
-                  onPress={() => {
-                    delete activeAddresses[
-                      activeAddress.currency.toLowerCase()
-                    ];
-                    console.log('zzz activeAddresses', activeAddresses);
-                    setActiveAddresses({...activeAddresses});
-                  }}>
-                  <AddressItem>
-                    <CurrencyIcon height="25" />
-                    <AddressItemText>
-                      <WalletName>{activeAddress.label}</WalletName>
-                    </AddressItemText>
-                    <AddressPillContainer>
-                      <SendToPill
-                        accent="action"
-                        onPress={() => console.log('hi')}
-                        description={activeAddress.address}
-                      />
-                    </AddressPillContainer>
-                    <ChevronRight />
-                  </AddressItem>
-                </TouchableOpacity>
-              );
-            })}
-          </>
-        ) : null}
-        {unusedActiveCurrencies.length + unusedCurrencyOptions.length > 0 ? (
-          <>
-            <SectionHeader>{t('Receiving Addresses')}</SectionHeader>
-            {unusedActiveCurrencies.map(currencyAbbreviation => {
-              const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
-              return (
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  key={currencyAbbreviation}
-                  onPress={() => {
-                    setWalletSelectorCurrency(currencyAbbreviation);
-                    setWalletSelectorVisible(true);
-                  }}>
-                  <AddressItem>
-                    <CurrencyIcon height="25" />
-                    <AddressItemText>
-                      Select a{' '}
-                      <WalletName>
-                        {currencyAbbreviation.toUpperCase()} Wallet
-                      </WalletName>
-                    </AddressItemText>
-                    <ChevronRight />
-                  </AddressItem>
-                </TouchableOpacity>
-              );
-            })}
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => {
-                navigation.navigate('Wallet', {
-                  screen: 'AddingOptions',
-                  params: {
-                    key: Object.values(keys)[0],
-                  },
-                });
-              }}>
-              <AddressItem>
-                <AddButton>
-                  {theme.dark ? <AddWhiteSvg /> : <AddSvg />}
-                </AddButton>
-                <AddressItemText>{t('Add Wallet')}</AddressItemText>
-                <UnusedCurrencies>
-                  <UnusedCurrencyIcons>
-                    {unusedCurrencyOptions
-                      .slice(0, numVisibleCurrencyIcons)
-                      .map(currencyOption => (
-                        <currencyOption.img
-                          key={currencyOption.currencyAbbreviation}
-                          height="25"
-                          style={{marginRight: -35}}
+    <>
+      <ViewContainer>
+        <ViewBody>
+          <H3>{t('Choose your Primary Wallet to Receive Payments')}</H3>
+          <Br />
+          <Paragraph>
+            {t(
+              "Decide which wallets you'd like to receive funds when crypto is sent to your email address.",
+            )}
+          </Paragraph>
+          {Object.keys(activeAddresses).length ? (
+            <>
+              <SectionHeader>{t('Active Addresses')}</SectionHeader>
+              {Object.keys(activeAddresses).map(currencyAbbreviation => {
+                const activeAddress = activeAddresses[currencyAbbreviation];
+                const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
+                return (
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    key={activeAddress.currency}
+                    onPress={() => {
+                      delete activeAddresses[
+                        activeAddress.currency.toLowerCase()
+                      ];
+                      console.log('zzz activeAddresses', activeAddresses);
+                      setActiveAddresses({...activeAddresses});
+                    }}>
+                    <AddressItem>
+                      <CurrencyIcon height="25" />
+                      <AddressItemText>
+                        <WalletName>{activeAddress.label}</WalletName>
+                      </AddressItemText>
+                      <AddressPillContainer>
+                        <SendToPill
+                          accent="action"
+                          onPress={() => console.log('hi')}
+                          description={activeAddress.address}
                         />
-                      ))}
-                  </UnusedCurrencyIcons>
-                  {unusedCurrencyOptions.length > numVisibleCurrencyIcons ? (
-                    <MoreCurrenciesText>
-                      +{unusedCurrencyOptions.length - numVisibleCurrencyIcons}{' '}
-                      More
-                    </MoreCurrenciesText>
-                  ) : null}
-                </UnusedCurrencies>
-              </AddressItem>
-            </TouchableOpacity>
-          </>
-        ) : null}
-      </ViewBody>
-      <Button buttonStyle={'primary'} onPress={() => saveAddresses()}>
-        {t('Save Defaults')}
-      </Button>
-      <Br />
-      <Button
-        buttonStyle={'primary'}
-        buttonType={'link'}
-        onPress={() => console.log('save')}>
-        {t('Add Custom Address')}
-      </Button>
-      <WalletSelector
-        isVisible={walletSelectorVisible}
-        setWalletSelectorVisible={setWalletSelectorVisible}
-        autoSelectIfOnlyOneWallet={false}
-        currency={walletSelectCurrency}
-        walletsAndAccounts={{
-          keyWallets: keyWalletsByCurrency[walletSelectCurrency],
-          coinbaseWallets: [],
-        }}
-        onWalletSelect={async wallet => {
-          await generateAddress(wallet).catch(async error => {
-            await dispatch(dismissOnGoingProcessModal());
-            await sleep(400);
-            showError({error, defaultErrorMessage: 'Could not save address'});
-          });
-        }}
-        onCoinbaseAccountSelect={() => {}}
-        onBackdropPress={async () => {
-          setWalletSelectorVisible(false);
-        }}
-      />
-    </ViewContainer>
+                      </AddressPillContainer>
+                      <ChevronRight />
+                    </AddressItem>
+                  </TouchableOpacity>
+                );
+              })}
+            </>
+          ) : null}
+          {unusedActiveCurrencies.length + unusedCurrencyOptions.length > 0 ? (
+            <>
+              <SectionHeader>{t('Receiving Addresses')}</SectionHeader>
+              {unusedActiveCurrencies.map(currencyAbbreviation => {
+                const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
+                return (
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    key={currencyAbbreviation}
+                    onPress={() => {
+                      setWalletSelectorCurrency(currencyAbbreviation);
+                      setWalletSelectorVisible(true);
+                    }}>
+                    <AddressItem>
+                      <CurrencyIcon height="25" />
+                      <AddressItemText>
+                        Select a{' '}
+                        <WalletName>
+                          {currencyAbbreviation.toUpperCase()} Wallet
+                        </WalletName>
+                      </AddressItemText>
+                      <ChevronRight />
+                    </AddressItem>
+                  </TouchableOpacity>
+                );
+              })}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => {
+                  navigation.navigate('Wallet', {
+                    screen: 'AddingOptions',
+                    params: {
+                      key: Object.values(keys)[0],
+                    },
+                  });
+                }}>
+                <AddressItem>
+                  <AddButton>
+                    {theme.dark ? <AddWhiteSvg /> : <AddSvg />}
+                  </AddButton>
+                  <AddressItemText>{t('Add Wallet')}</AddressItemText>
+                  <UnusedCurrencies>
+                    <UnusedCurrencyIcons>
+                      {unusedCurrencyOptions
+                        .slice(0, numVisibleCurrencyIcons)
+                        .map(currencyOption => (
+                          <currencyOption.img
+                            key={currencyOption.currencyAbbreviation}
+                            height="25"
+                            style={{marginRight: -35}}
+                          />
+                        ))}
+                    </UnusedCurrencyIcons>
+                    {unusedCurrencyOptions.length > numVisibleCurrencyIcons ? (
+                      <MoreCurrenciesText>
+                        +
+                        {unusedCurrencyOptions.length - numVisibleCurrencyIcons}{' '}
+                        More
+                      </MoreCurrenciesText>
+                    ) : null}
+                  </UnusedCurrencies>
+                </AddressItem>
+              </TouchableOpacity>
+            </>
+          ) : null}
+        </ViewBody>
+        {/* <Button buttonStyle={'primary'} onPress={() => saveAddresses()}>
+          {t('Save Defaults')}
+        </Button>
+        <Br />
+        <Button
+          buttonStyle={'primary'}
+          buttonType={'link'}
+          onPress={() => console.log('save')}>
+          {t('Add Custom Address')}
+        </Button> */}
+        <WalletSelector
+          isVisible={walletSelectorVisible}
+          setWalletSelectorVisible={setWalletSelectorVisible}
+          autoSelectIfOnlyOneWallet={false}
+          currency={walletSelectCurrency}
+          walletsAndAccounts={{
+            keyWallets: keyWalletsByCurrency[walletSelectCurrency],
+            coinbaseWallets: [],
+          }}
+          onWalletSelect={async wallet => {
+            await generateAddress(wallet).catch(async error => {
+              await dispatch(dismissOnGoingProcessModal());
+              await sleep(400);
+              showError({error, defaultErrorMessage: 'Could not save address'});
+            });
+          }}
+          onCoinbaseAccountSelect={() => {}}
+          onBackdropPress={async () => {
+            setWalletSelectorVisible(false);
+          }}
+        />
+      </ViewContainer>
+      <FooterButton
+        background={true}
+        style={{
+          shadowColor: '#000',
+          shadowOffset: {width: 0, height: 4},
+          shadowOpacity: 0.1,
+          shadowRadius: 12,
+          elevation: 5,
+        }}>
+        <Button onPress={() => saveAddresses()} buttonStyle={'primary'}>
+          {t('Save Defaults')}
+        </Button>
+        <Br />
+        {/* <Button
+          buttonStyle={'primary'}
+          buttonType={'link'}
+          onPress={() => console.log('save')}>
+          {t('Add Custom Address')}
+        </Button> */}
+      </FooterButton>
+    </>
   );
 };
 
