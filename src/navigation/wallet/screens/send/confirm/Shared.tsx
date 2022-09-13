@@ -504,9 +504,11 @@ export const WalletSelector = ({
     <SheetModal isVisible={selectorVisible} onBackdropPress={onBackdropPress}>
       <WalletSelectMenuContainer>
         <WalletSelectMenuHeaderContainer currency={currency}>
-          <WalletSelectMenuHeaderIconContainer>
-            <CurrencyIcon height={30} />
-          </WalletSelectMenuHeaderIconContainer>
+          {currency ? (
+            <WalletSelectMenuHeaderIconContainer>
+              <CurrencyIcon height={30} />
+            </WalletSelectMenuHeaderIconContainer>
+          ) : null}
           <H4>{t('Select a Wallet')}</H4>
         </WalletSelectMenuHeaderContainer>
         <WalletSelectMenuBodyContainer>
