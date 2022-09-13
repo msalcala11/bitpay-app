@@ -66,12 +66,13 @@ const ReceivingEnabled: React.FC<ReceivingEnabledProps> = ({navigation}) => {
       <ViewBody>
         <SuccessSvg height={50} width={50} style={{marginBottom: 24}} />
         <TextAlign align="center">
-          <H3>Receiving to BitPay ID has been enabled!</H3>
+          <H3>Email payments has been enabled!</H3>
         </TextAlign>
         <Br />
         <TextAlign align="center">
           <Paragraph>
-            Your friends and family can now send you crypto to your BitPay ID.
+            Your friends and family can now send crypto straight to your email
+            address.
           </Paragraph>
         </TextAlign>
         <EmailContainer>
