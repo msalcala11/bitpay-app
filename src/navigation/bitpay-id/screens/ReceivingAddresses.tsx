@@ -43,12 +43,11 @@ import {ReceivingAddress} from '../../../store/bitpay-id/bitpay-id.models';
 const ViewContainer = styled.ScrollView`
   padding: 16px;
   flex-direction: column;
-  height: ${HEIGHT - 110}px;
 `;
 
 const ViewBody = styled.View`
   flex-grow: 1;
-  padding-bottom: 20px;
+  padding-bottom: 150px;
 `;
 
 const SectionHeader = styled(H5)`
