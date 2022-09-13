@@ -80,6 +80,7 @@ import {TouchableOpacity} from 'react-native-gesture-handler';
 import InfoSvg from '../../../../assets/img/info.svg';
 import {URL} from '../../../constants';
 import {useTranslation} from 'react-i18next';
+import {BitpayIdScreens} from '../../bitpay-id/BitpayIdStack';
 
 type AddWalletScreenProps = StackScreenProps<WalletStackParamList, 'AddWallet'>;
 
@@ -167,6 +168,14 @@ const VerticalPadding = styled.View`
   padding: ${ScreenGutter} 0;
 `;
 
+const isWithinReceiveSettings = (parent: any): boolean => {
+  return parent
+    ?.getState()
+    .routes.some(
+      (r: any) => r.params?.screen === BitpayIdScreens.RECEIVING_ADDRESSES,
+    );
+};
+
 const AddWallet: React.FC<AddWalletScreenProps> = ({navigation, route}) => {
   const {t} = useTranslation();
   const dispatch = useAppDispatch();
@@ -200,6 +209,8 @@ const AddWallet: React.FC<AddWalletScreenProps> = ({navigation, route}) => {
     : false;
 
   const [useNativeSegwit, setUseNativeSegwit] = useState(nativeSegwitCurrency);
+
+  const withinReceiveSettings = isWithinReceiveSettings(navigation.getParent());
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -314,7 +325,9 @@ const AddWallet: React.FC<AddWalletScreenProps> = ({navigation, route}) => {
         password = await dispatch(getDecryptPassword(key));
       }
 
-      // navigation.popToTop();
+      if (!withinReceiveSettings) {
+        navigation.popToTop();
+      }
 
       await dispatch(
         startOnGoingProcessModal(
@@ -347,14 +360,16 @@ const AddWallet: React.FC<AddWalletScreenProps> = ({navigation, route}) => {
         }),
       );
 
-      navigation.popToTop();
-      navigation.pop();
-
-      // navigation.navigate('WalletDetails', {
-      //   walletId: wallet.id,
-      //   key,
-      //   skipInitializeHistory: true,
-      // });
+      if (withinReceiveSettings) {
+        navigation.popToTop();
+        navigation.pop();
+      } else {
+        navigation.navigate('WalletDetails', {
+          walletId: wallet.id,
+          key,
+          skipInitializeHistory: true,
+        });
+      }
 
       dispatch(dismissOnGoingProcessModal());
     } catch (err: any) {
