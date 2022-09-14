@@ -8,15 +8,13 @@ import {Wallet} from '../../store/wallet/wallet.models';
 import {WalletRowProps} from './WalletRow';
 import WalletRow from './WalletRow';
 import {SvgProps} from 'react-native-svg';
-import {ScreenGutter} from '../styled/Containers';
 
-interface RowContainerProps {
+interface KeyWalletsRowContainerProps {
   isLast?: boolean;
 }
 
-const RowContainer = styled.View<RowContainerProps>`
+const KeyWalletsRowContainer = styled.View<KeyWalletsRowContainerProps>`
   margin-bottom: 0px;
-  padding: 0 ${ScreenGutter};
   border-bottom-width: ${({isLast}) => (isLast ? 0 : 1)}px;
   border-bottom-color: ${({theme: {dark}}) => (dark ? LightBlack : '#ECEFFD')};
   border-bottom-width: 0;
@@ -73,10 +71,9 @@ const KeyWalletsRow = <T extends WalletRowType>({
   return (
     <View>
       {keyWallets.map((key, keyIndex) => (
-        <RowContainer
+        <KeyWalletsRowContainer
           key={key.key}
-          isLast={keyIndex === keyWallets.length - 1}
-          style={{paddingVertical: 16}}>
+          isLast={keyIndex === keyWallets.length - 1}>
           {keyWallets.length > 1 ? (
             <KeyNameContainer noBorder={!!currency}>
               {keySvg({})}
@@ -100,7 +97,7 @@ const KeyWalletsRow = <T extends WalletRowType>({
               />
             </NoGutter>
           ))}
-        </RowContainer>
+        </KeyWalletsRowContainer>
       ))}
     </View>
   );
