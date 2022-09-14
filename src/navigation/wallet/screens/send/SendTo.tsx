@@ -9,6 +9,7 @@ import {useNavigation, useRoute, useTheme} from '@react-navigation/native';
 import styled from 'styled-components/native';
 import Clipboard from '@react-native-community/clipboard';
 import {
+  ActiveOpacity,
   ScreenGutter,
   SearchContainer,
   SearchInput,
@@ -18,6 +19,7 @@ import SendLightSvg from '../../../../../assets/img/send-icon-light.svg';
 import ContactsSvg from '../../../../../assets/img/tab-icons/contacts.svg';
 import {
   LightBlack,
+  Midnight,
   NeutralSlate,
   SlateDark,
   White,
@@ -143,7 +145,7 @@ const EmailContainer = styled.View`
 
 const EmailIconContainer = styled.View`
   align-items: center;
-  background-color: #edf0fe;
+  background-color: ${({theme}) => (theme.dark ? Midnight : '#EDF0FE')};
   border-radius: 50px;
   justify-content: center;
   margin-right: 13px;
@@ -540,14 +542,18 @@ const SendTo = () => {
           </TouchableOpacity>
         </SearchContainer>
 
-        <EmailContainer>
-          <EmailIconContainer>
-            <SendLightSvg />
-          </EmailIconContainer>
-          <Paragraph>
-            Send to <EmailText>nate_s@gmail.com</EmailText>
-          </Paragraph>
-        </EmailContainer>
+        <TouchableOpacity
+          activeOpacity={ActiveOpacity}
+          onPress={() => console.log('hi')}>
+          <EmailContainer>
+            <EmailIconContainer>
+              <SendLightSvg />
+            </EmailIconContainer>
+            <Paragraph>
+              Send to <EmailText>nate_s@gmail.com</EmailText>
+            </Paragraph>
+          </EmailContainer>
+        </TouchableOpacity>
 
         {clipboardData ? (
           <PasteClipboardContainer
