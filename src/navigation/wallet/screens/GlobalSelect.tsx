@@ -99,6 +99,7 @@ export const WalletSelectMenuContainer = styled.View`
   border-top-left-radius: 12px;
   border-top-right-radius: 12px;
   max-height: 75%;
+  padding-bottom: 20px;
 `;
 
 export interface WalletSelectMenuHeaderContainerParams {
@@ -122,6 +123,7 @@ export const WalletSelectMenuHeaderIconContainer = styled.View`
 
 export const WalletSelectMenuBodyContainer = styled.ScrollView`
   padding: 0 ${ScreenGutter} 2px;
+  
 `;
 
 const NoWalletsMsg = styled(BaseText)`
