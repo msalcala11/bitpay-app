@@ -1,5 +1,10 @@
 import React, {useEffect, useLayoutEffect, useMemo, useState} from 'react';
-import {BaseText, HeaderTitle, Link} from '../../../../components/styled/Text';
+import {
+  BaseText,
+  HeaderTitle,
+  Link,
+  Paragraph,
+} from '../../../../components/styled/Text';
 import {useNavigation, useRoute, useTheme} from '@react-navigation/native';
 import styled from 'styled-components/native';
 import Clipboard from '@react-native-community/clipboard';
@@ -9,6 +14,7 @@ import {
   SearchInput,
 } from '../../../../components/styled/Containers';
 import ScanSvg from '../../../../../assets/img/onboarding/scan.svg';
+import SendLightSvg from '../../../../../assets/img/send-icon-light.svg';
 import ContactsSvg from '../../../../../assets/img/tab-icons/contacts.svg';
 import {
   LightBlack,
@@ -127,6 +133,26 @@ export const ContactTitleContainer = styled.View`
 export const ContactTitle = styled(BaseText)`
   color: ${({theme: {dark}}) => (dark ? White : SlateDark)};
   margin-left: 10px;
+`;
+
+const EmailContainer = styled.View`
+  align-items: center;
+  flex-direction: row;
+  padding: 20px;
+`;
+
+const EmailIconContainer = styled.View`
+  align-items: center;
+  background-color: #edf0fe;
+  border-radius: 50px;
+  justify-content: center;
+  margin-right: 13px;
+  height: 50px;
+  width: 50px;
+`;
+
+const EmailText = styled(Paragraph)`
+  font-weight: 600;
 `;
 
 export const BuildKeyWalletRow = (
@@ -513,6 +539,15 @@ const SendTo = () => {
             <ScanSvg />
           </TouchableOpacity>
         </SearchContainer>
+
+        <EmailContainer>
+          <EmailIconContainer>
+            <SendLightSvg />
+          </EmailIconContainer>
+          <Paragraph>
+            Send to <EmailText>nate_s@gmail.com</EmailText>
+          </Paragraph>
+        </EmailContainer>
 
         {clipboardData ? (
           <PasteClipboardContainer

@@ -121,7 +121,7 @@ export const WalletSelectMenuHeaderIconContainer = styled.View`
 `;
 
 export const WalletSelectMenuBodyContainer = styled.ScrollView`
-  padding-bottom: 20px;
+  padding: 0 ${ScreenGutter} 2px;
 `;
 
 const NoWalletsMsg = styled(BaseText)`
