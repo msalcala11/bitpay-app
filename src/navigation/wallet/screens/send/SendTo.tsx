@@ -59,6 +59,7 @@ import {
 } from '../../../../store/app/app.effects';
 import {OnGoingProcessMessages} from '../../../../components/modal/ongoing-process/OngoingProcess';
 import {
+  dismissBottomNotificationModal,
   dismissOnGoingProcessModal,
   showBottomNotificationModal,
 } from '../../../../store/app/app.actions';
@@ -155,6 +156,10 @@ const EmailIconContainer = styled.View`
 
 const EmailText = styled(Paragraph)`
   font-weight: 600;
+`;
+
+const InfoSheetMessage = styled.View`
+  padding: 20px 0;
 `;
 
 const isEmailAddress = (text: string) => {
@@ -556,7 +561,33 @@ const SendTo = () => {
         {searchIsEmailAddress ? (
           <TouchableOpacity
             activeOpacity={ActiveOpacity}
-            onPress={() => console.log('hi')}>
+            onPress={() => {
+              dispatch(
+                showBottomNotificationModal({
+                  type: 'warning',
+                  title: 'Unable to Send to Contact',
+                  message: '',
+                  message2: (
+                    <InfoSheetMessage>
+                      <Paragraph>
+                        <EmailText>{searchInput.toLowerCase()}</EmailText> is
+                        not yet able to receive crypto to their email.
+                      </Paragraph>
+                    </InfoSheetMessage>
+                  ),
+                  enableBackdropDismiss: true,
+                  actions: [
+                    {
+                      text: 'OK',
+                      action: async () => {
+                        dispatch(dismissBottomNotificationModal());
+                      },
+                      primary: true,
+                    },
+                  ],
+                }),
+              );
+            }}>
             <EmailContainer>
               <EmailIconContainer>
                 <SendLightSvg />
