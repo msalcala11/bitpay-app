@@ -157,6 +157,11 @@ const EmailText = styled(Paragraph)`
   font-weight: 600;
 `;
 
+const isEmailAddress = (text: string) => {
+  const reg = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w\w+)+$/;
+  return reg.test(text);
+};
+
 export const BuildKeyWalletRow = (
   keys: {[key in string]: Key},
   currentWalletId: string,
@@ -237,6 +242,7 @@ const SendTo = () => {
   const [searchInput, setSearchInput] = useState('');
   const [clipboardData, setClipboardData] = useState('');
   const [showWalletOptions, setShowWalletOptions] = useState(false);
+  const [searchIsEmailAddress, setSearchIsEmailAddress] = useState(false);
 
   const {wallet} = route.params;
   const {
@@ -387,6 +393,11 @@ const SendTo = () => {
     name?: string,
     destinationTag?: number,
   ) => {
+    if (isEmailAddress(text)) {
+      setSearchIsEmailAddress(true);
+      return;
+    }
+    setSearchIsEmailAddress(false);
     const data = ValidateURI(text);
     if (data?.type === 'PayPro' || data?.type === 'InvoiceUri') {
       try {
@@ -542,18 +553,20 @@ const SendTo = () => {
           </TouchableOpacity>
         </SearchContainer>
 
-        <TouchableOpacity
-          activeOpacity={ActiveOpacity}
-          onPress={() => console.log('hi')}>
-          <EmailContainer>
-            <EmailIconContainer>
-              <SendLightSvg />
-            </EmailIconContainer>
-            <Paragraph>
-              Send to <EmailText>nate_s@gmail.com</EmailText>
-            </Paragraph>
-          </EmailContainer>
-        </TouchableOpacity>
+        {searchIsEmailAddress ? (
+          <TouchableOpacity
+            activeOpacity={ActiveOpacity}
+            onPress={() => console.log('hi')}>
+            <EmailContainer>
+              <EmailIconContainer>
+                <SendLightSvg />
+              </EmailIconContainer>
+              <Paragraph>
+                Send to <EmailText>{searchInput.toLowerCase()}</EmailText>
+              </Paragraph>
+            </EmailContainer>
+          </TouchableOpacity>
+        ) : null}
 
         {clipboardData ? (
           <PasteClipboardContainer
