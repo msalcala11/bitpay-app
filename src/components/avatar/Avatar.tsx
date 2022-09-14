@@ -1,5 +1,6 @@
 import React from 'react';
-import styled from 'styled-components/native';
+import * as Svg from 'react-native-svg';
+import styled, {useTheme} from 'styled-components/native';
 import {Action, LinkBlue, Midnight, White} from '../../styles/colors';
 import {BaseText} from '../styled/Text';
 import ProfileIcon from './ProfileIcon';
@@ -8,11 +9,13 @@ export interface AvatarProps {
   size: number;
   initials?: string;
   badge?: () => JSX.Element | null;
+  bright?: boolean;
 }
 
 interface InitialsProps {
   size?: number;
   initials: string;
+  bright?: boolean;
 }
 
 const AvatarContainer = styled.View`
@@ -42,21 +45,52 @@ const InitialsText = styled(BaseText)`
   font-weight: 500;
 `;
 
-const Initials: React.FC<InitialsProps> = ({initials}) => {
+const Initials: React.FC<InitialsProps> = ({
+  size = 24,
+  initials,
+  bright = false,
+}) => {
+  // const theme = useTheme();
   return (
-    <InitialsCircle>
-      <InitialsText>{(initials || '').substring(0, 2)}</InitialsText>
-    </InitialsCircle>
+    <>
+      {bright ? (
+        <InitialsCircle>
+          <InitialsText>{(initials || '').substring(0, 2)}</InitialsText>
+        </InitialsCircle>
+      ) : (
+        <Svg.Svg height={size} width={size} viewBox="0 0 24 24">
+          <Svg.Circle
+            id="initials-background"
+            // fill={theme.dark ? Action : Midnight}
+            fill={Midnight}
+            r="12"
+            cx="50%"
+            cy="50%"
+          />
+          <Svg.Text
+            id="initials-text"
+            // fill={theme.dark ? White : LinkBlue}
+            fill={LinkBlue}
+            fontSize="11"
+            fontWeight="600"
+            x="12"
+            y="16"
+            textAnchor="middle">
+            {(initials || '').substring(0, 2)}
+          </Svg.Text>
+        </Svg.Svg>
+      )}
+    </>
   );
 };
 
 export const Avatar: React.FC<AvatarProps> = props => {
-  const {initials = '', size = 35, badge} = props;
+  const {initials = '', size = 35, badge, bright} = props;
 
   return (
     <AvatarContainer>
       {initials.length ? (
-        <Initials size={size} initials={initials} />
+        <Initials size={size} initials={initials} bright={bright} />
       ) : (
         <ProfileIcon size={size} />
       )}

@@ -9,7 +9,7 @@ interface CheckIconProps {
   background?: string;
 }
 
-interface BitPayIdAvatarProps extends Pick<AvatarProps, 'size'> {}
+interface BitPayIdAvatarProps extends Pick<AvatarProps, 'size' | 'bright'> {}
 
 const CheckIcon: React.FC<CheckIconProps> = ({
   size = '100%',
@@ -30,7 +30,10 @@ const CheckIcon: React.FC<CheckIconProps> = ({
   );
 };
 
-const BitPayIdAvatar: React.FC<BitPayIdAvatarProps> = ({size}) => {
+const BitPayIdAvatar: React.FC<BitPayIdAvatarProps> = ({
+  size,
+  bright = false,
+}) => {
   const initials = useAppSelector(({APP, BITPAY_ID}) => {
     const user = BITPAY_ID.user[APP.network];
     const firstInitial = (user?.givenName || '').trim().charAt(0);
@@ -45,6 +48,7 @@ const BitPayIdAvatar: React.FC<BitPayIdAvatarProps> = ({size}) => {
   return (
     <Avatar
       size={size}
+      bright={bright}
       initials={size > 50 ? initials : undefined}
       badge={() => badge}
     />

@@ -104,7 +104,7 @@ export const ProfileSettingsScreen: React.FC<ProfileProps> = () => {
     <ProfileSettingsScreenContainer>
       <ProfileInfoContainer>
         <AvatarContainer>
-          <Avatar size={77} />
+          <Avatar size={77} bright={true} />
         </AvatarContainer>
 
         {hasName ? (
