@@ -139,7 +139,7 @@ const ReceivingAddresses = () => {
   console.log('zzz initial addresses', receivingAddresses);
   const [activeAddresses, setActiveAddresses] = useState<
     _.Dictionary<ReceivingAddress>
-  >({});
+  >(createAddressMap(receivingAddresses));
   const uniqueActiveCurrencies = _.uniq(
     Object.values(keys)
       .flatMap(key => key.wallets)
@@ -242,7 +242,6 @@ const ReceivingAddresses = () => {
   };
 
   useEffect(() => {
-    setActiveAddresses(createAddressMap(receivingAddresses));
     const getWallets = async () => {
       const latestReceivingAddresses = await dispatch(
         BitPayIdEffects.startFetchReceivingAddresses(),
@@ -250,7 +249,6 @@ const ReceivingAddresses = () => {
       setActiveAddresses(createAddressMap(latestReceivingAddresses));
     };
     getWallets();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiToken, dispatch]);
 
   const addWallet = (key: Key) => {
