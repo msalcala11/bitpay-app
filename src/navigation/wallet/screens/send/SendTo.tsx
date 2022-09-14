@@ -138,7 +138,7 @@ export const ContactTitle = styled(BaseText)`
 const EmailContainer = styled.View`
   align-items: center;
   flex-direction: row;
-  padding: 20px;
+  margin-top: 10px;
 `;
 
 const EmailIconContainer = styled.View`
