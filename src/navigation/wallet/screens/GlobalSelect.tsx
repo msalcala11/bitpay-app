@@ -123,7 +123,6 @@ export const WalletSelectMenuHeaderIconContainer = styled.View`
 
 export const WalletSelectMenuBodyContainer = styled.ScrollView`
   padding: 0 ${ScreenGutter} 2px;
-  
 `;
 
 const NoWalletsMsg = styled(BaseText)`
