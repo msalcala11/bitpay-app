@@ -1,6 +1,5 @@
-import React, {useEffect} from 'react';
+import React, {useEffect, useState} from 'react';
 import Modal from 'react-native-modal';
-import {useDispatch} from 'react-redux';
 import styled, {useTheme} from 'styled-components/native';
 import {ActionContainer, WIDTH} from '../../../components/styled/Containers';
 import {
@@ -46,6 +45,10 @@ const AddressContainer = styled.View`
 
 const AddressTextContainer = styled.View`
   flex-shrink: 1;
+  border-right-width: 1px;
+  border-right-color: ${({theme: {dark}}) =>
+    dark ? 'rgba(73, 137, 255, 0.25)' : 'rgba(34, 64, 196, 0.25)'};
+  padding-right: 12px;
 `;
 const AddressText = styled(Paragraph)`
   color: ${({theme: {dark}}) => (dark ? White : BitPay)};
@@ -54,14 +57,10 @@ const AddressText = styled(Paragraph)`
   letter-spacing: -0.5px;
 `;
 
-const CopyContainer = styled.View`
+const CopyContainer = styled.TouchableOpacity`
   width: 50px;
-  border-left-width: 1px;
-  border-left-color: ${({theme: {dark}}) =>
-    dark ? 'rgba(73, 137, 255, 0.25)' : 'rgba(34, 64, 196, 0.25)'};
   height: 100%;
   flex-shrink: 0;
-  margin-left: 12px;
   align-items: center;
   flex-direction: row;
   justify-content: center;
@@ -84,9 +83,21 @@ const AddressModal = ({
 }) => {
   const theme = useTheme();
   const {t} = useTranslation();
-  const dispatch = useDispatch();
+
+  const [copied, setCopied] = useState(false);
   const CurrencyIcon =
     CurrencyListIcons[receivingAddress?.currency.toLowerCase() || ''];
+
+  useEffect(() => {
+    if (!copied) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      setCopied(false);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [copied]);
 
   return (
     <Modal
@@ -112,9 +123,8 @@ const AddressModal = ({
           <AddressTextContainer>
             <AddressText>{receivingAddress?.address}</AddressText>
           </AddressTextContainer>
-          <CopyContainer>
-            <CopySvg />
-            {/* <CopiedSvg></CopiedSvg> */}
+          <CopyContainer onPress={() => setCopied(true)}>
+            {copied ? <CopiedSvg /> : <CopySvg />}
           </CopyContainer>
         </AddressContainer>
         <Divider />
