@@ -44,6 +44,7 @@ import {sleep} from '../../../utils/helper-methods';
 import {BitPayIdEffects} from '../../../store/bitpay-id';
 import {ReceivingAddress} from '../../../store/bitpay-id/bitpay-id.models';
 import {WalletScreens} from '../../wallet/WalletStack';
+import AddressModal from '../components/AddressModal';
 
 const ViewContainer = styled.ScrollView`
   padding: 16px;
@@ -135,6 +136,7 @@ const ReceivingAddresses = () => {
   );
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const [walletSelectorVisible, setWalletSelectorVisible] = useState(false);
+  const [addressModalVisible, setAddressModalVisible] = useState(false);
   const [walletSelectCurrency, setWalletSelectorCurrency] = useState('btc');
   console.log('zzz initial addresses', receivingAddresses);
   const [activeAddresses, setActiveAddresses] = useState<
@@ -260,6 +262,12 @@ const ReceivingAddresses = () => {
     });
   };
 
+  const removeAddress = (activeAddress: ReceivingAddress) => {
+    delete activeAddresses[activeAddress.currency.toLowerCase()];
+    console.log('zzz activeAddresses', activeAddresses);
+    setActiveAddresses({...activeAddresses});
+  };
+
   return (
     <>
       <ViewContainer>
@@ -282,11 +290,8 @@ const ReceivingAddresses = () => {
                     activeOpacity={ActiveOpacity}
                     key={activeAddress.currency}
                     onPress={() => {
-                      delete activeAddresses[
-                        activeAddress.currency.toLowerCase()
-                      ];
-                      console.log('zzz activeAddresses', activeAddresses);
-                      setActiveAddresses({...activeAddresses});
+                      // removeAddress(activeAddress);
+                      setAddressModalVisible(true);
                     }}>
                     <AddressItem>
                       <CurrencyIcon height="25" />
@@ -430,6 +435,10 @@ const ReceivingAddresses = () => {
           {t('Add Custom Address')}
         </Button> */}
       </FooterButton>
+      <AddressModal
+        isVisible={addressModalVisible}
+        onClose={() => setAddressModalVisible(false)}
+      />
     </>
   );
 };
