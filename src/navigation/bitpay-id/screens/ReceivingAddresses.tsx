@@ -137,6 +137,8 @@ const ReceivingAddresses = () => {
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const [walletSelectorVisible, setWalletSelectorVisible] = useState(false);
   const [addressModalVisible, setAddressModalVisible] = useState(false);
+  const [addressModalActiveAddress, setAddressModalActiveAddress] =
+    useState<ReceivingAddress>();
   const [walletSelectCurrency, setWalletSelectorCurrency] = useState('btc');
   console.log('zzz initial addresses', receivingAddresses);
   const [activeAddresses, setActiveAddresses] = useState<
@@ -291,6 +293,7 @@ const ReceivingAddresses = () => {
                     key={activeAddress.currency}
                     onPress={() => {
                       // removeAddress(activeAddress);
+                      setAddressModalActiveAddress(activeAddress);
                       setAddressModalVisible(true);
                     }}>
                     <AddressItem>
@@ -437,7 +440,11 @@ const ReceivingAddresses = () => {
       </FooterButton>
       <AddressModal
         isVisible={addressModalVisible}
-        onClose={() => setAddressModalVisible(false)}
+        receivingAddress={addressModalActiveAddress}
+        onClose={() => {
+          setAddressModalVisible(false);
+          setAddressModalActiveAddress(undefined);
+        }}
       />
     </>
   );

@@ -1,110 +1,64 @@
 import React, {useEffect} from 'react';
 import Modal from 'react-native-modal';
-import {useDispatch, useSelector} from 'react-redux';
-import {RootState} from '../../../store';
+import {useDispatch} from 'react-redux';
 import styled from 'styled-components/native';
-import {AppActions} from '../../../store/app';
 import {
   ActionContainer,
   ScreenGutter,
   WIDTH,
 } from '../../../components/styled/Containers';
-import {LightBlack, White} from '../../../styles/colors';
-import yup from '../../../lib/yup';
-import {yupResolver} from '@hookform/resolvers/yup';
-import {Controller, useForm} from 'react-hook-form';
-import BoxInput from '../../../components/form/BoxInput';
+import {BitPay, LightBlack, White} from '../../../styles/colors';
 import Button from '../../../components/button/Button';
 import {HeaderTitle, Paragraph} from '../../../components/styled/Text';
-import {Keyboard} from 'react-native';
-import {sleep} from '../../../utils/helper-methods';
 import {useTranslation} from 'react-i18next';
+import {ReceivingAddress} from '../../../store/bitpay-id/bitpay-id.models';
 
-const DecryptFormContainer = styled.View`
+const ModalContainer = styled.View`
   justify-content: center;
-  width: ${WIDTH - 16}px;
+  width: ${WIDTH - 30}px;
   background-color: ${({theme: {dark}}) => (dark ? LightBlack : White)};
   border-radius: 10px;
   padding: ${ScreenGutter};
 `;
 
-const schema = yup.object().shape({
-  password: yup.string().required(),
-});
-
-const PasswordFormContainer = styled.View`
-  margin: 15px 0;
+const AddressContainer = styled.View`
+  background-color: #eceffd;
+  border-radius: 8px;
+  margin: 20px 0;
+  padding: 12px;
+  flex-direction: row;
 `;
 
-const PasswordInputContainer = styled.View`
-  margin: 15px 0;
+const AddressTextContainer = styled.View`
+  flex-shrink: 1;
+`;
+const AddressText = styled(Paragraph)`
+  color: ${BitPay};
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: -0.5px;
 `;
 
-const PasswordFormDescription = styled(Paragraph)`
-  color: ${({theme}) => theme.colors.text};
-  margin: 10px 0;
+const CopyContainer = styled.View`
+  width: 40px;
+  border-left-width: 1px;
+  border-left-color: rgba(34, 64, 196, 0.25);
+  height: 100%;
+  flex-shrink: 0;
+  margin-left: 12px;
 `;
-
-interface DecryptPasswordFieldValues {
-  password: string;
-}
-
-export interface DecryptPasswordConfig {
-  onSubmitHandler: (data: string) => void;
-  onCancelHandler?: () => void;
-  description?: string;
-}
 
 const AddressModal = ({
   isVisible,
   onClose,
+  receivingAddress,
 }: {
   isVisible: boolean;
   onClose: () => void;
+  receivingAddress?: ReceivingAddress;
 }) => {
   const {t} = useTranslation();
   const dispatch = useDispatch();
-  //   const isVisible = useSelector(
-  //     ({APP}: RootState) => APP.showDecryptPasswordModal,
-  //   );
-  //   const decryptPasswordConfig = useSelector(
-  //     ({APP}: RootState) => APP.decryptPasswordConfig,
-  //   );
-
-  //   const {onSubmitHandler, onCancelHandler, description} =
-  //     decryptPasswordConfig || {};
-
-  //   const {
-  //     control,
-  //     handleSubmit,
-  //     reset,
-  //     formState: {errors},
-  //   } = useForm<DecryptPasswordFieldValues>({
-  //     resolver: yupResolver(schema),
-  //   });
-
-  //   useEffect(() => {
-  //     if (!isVisible) {
-  //       reset();
-  //     }
-  //     // eslint-disable-next-line react-hooks/exhaustive-deps
-  //   }, [isVisible]);
-
-  //   const dismissModal = () => {
-  //     dispatch(AppActions.dismissDecryptPasswordModal());
-  //     setTimeout(() => {
-  //       dispatch(AppActions.resetDecryptPasswordConfig());
-  //     }, 500); // Wait for modal to close
-  //     onCancelHandler && onCancelHandler();
-  //   };
-
-  //   const onSubmit = async ({password}: {password: string}) => {
-  //     Keyboard.dismiss();
-  //     await sleep(0);
-  //     onSubmitHandler && onSubmitHandler(password);
-  //   };
-
-  const description = 'Lorem ipsum dolor samet';
 
   return (
     <Modal
@@ -120,44 +74,25 @@ const AddressModal = ({
       style={{
         alignItems: 'center',
       }}>
-      <DecryptFormContainer>
-        <PasswordFormContainer>
-          <HeaderTitle>{t('Enter encryption password')}</HeaderTitle>
-
-          {description ? (
-            <PasswordFormDescription>{description}</PasswordFormDescription>
-          ) : null}
-          {/* <PasswordInputContainer>
-            <Controller
-              control={control}
-              render={({field: {onChange, onBlur, value}}) => (
-                <BoxInput
-                  placeholder={'strongPassword123'}
-                  label={'ENCRYPTION PASSWORD'}
-                  type={'password'}
-                  onBlur={onBlur}
-                  onChangeText={(text: string) => onChange(text)}
-                  error={errors.password?.message}
-                  value={value}
-                />
-              )}
-              name="password"
-              defaultValue=""
-            />
-          </PasswordInputContainer> */}
-
-          <ActionContainer>
-            <Button onPress={() => console.log('continue')}>
-              {t('Remove Address')}
-            </Button>
-          </ActionContainer>
-          <ActionContainer>
-            <Button onPress={() => onClose()} buttonStyle={'secondary'}>
-              {t('Close')}
-            </Button>
-          </ActionContainer>
-        </PasswordFormContainer>
-      </DecryptFormContainer>
+      <ModalContainer>
+        <HeaderTitle>{receivingAddress?.label}</HeaderTitle>
+        <AddressContainer>
+          <AddressTextContainer>
+            <AddressText>{receivingAddress?.address}</AddressText>
+          </AddressTextContainer>
+          <CopyContainer></CopyContainer>
+        </AddressContainer>
+        <ActionContainer>
+          <Button onPress={() => console.log('continue')}>
+            {t('Remove Address')}
+          </Button>
+        </ActionContainer>
+        <ActionContainer>
+          <Button onPress={() => onClose()} buttonStyle={'secondary'}>
+            {t('Close')}
+          </Button>
+        </ActionContainer>
+      </ModalContainer>
     </Modal>
   );
 };
