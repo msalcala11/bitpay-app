@@ -49,6 +49,9 @@ const AddressTextContainer = styled.View`
   border-right-color: ${({theme: {dark}}) =>
     dark ? 'rgba(73, 137, 255, 0.25)' : 'rgba(34, 64, 196, 0.25)'};
   padding-right: 12px;
+  min-height: 20px;
+  flex-direction: row;
+  align-items: center;
 `;
 const AddressText = styled(Paragraph)`
   color: ${({theme: {dark}}) => (dark ? White : BitPay)};
