@@ -8,6 +8,7 @@ import {
   Black,
   LightBlack,
   Midnight,
+  Slate30,
   White,
 } from '../../../styles/colors';
 import Button from '../../../components/button/Button';
@@ -66,7 +67,7 @@ const CopyContainer = styled.View`
 `;
 
 const Divider = styled.View`
-  background-color: ${LightBlack};
+  background-color: ${({theme: {dark}}) => (dark ? LightBlack : Slate30)};
   height: 1px;
   margin: 24px -24px 19px;
 `;
@@ -89,8 +90,8 @@ const AddressModal = ({
   return (
     <Modal
       isVisible={isVisible}
-      backdropOpacity={theme.dark ? 0.8 : 0.4}
-      backdropColor={theme.dark ? LightBlack : undefined}
+      backdropOpacity={theme.dark ? 0.8 : 0.6}
+      backdropColor={theme.dark ? LightBlack : Black}
       animationIn={'fadeInUp'}
       animationOut={'fadeOutDown'}
       backdropTransitionOutTiming={0}
