@@ -57,7 +57,8 @@ const AddressText = styled(Paragraph)`
 const CopyContainer = styled.View`
   width: 50px;
   border-left-width: 1px;
-  border-left-color: rgba(34, 64, 196, 0.25);
+  border-left-color: ${({theme: {dark}}) =>
+    dark ? 'rgba(73, 137, 255, 0.25)' : 'rgba(34, 64, 196, 0.25)'};
   height: 100%;
   flex-shrink: 0;
   margin-left: 12px;
