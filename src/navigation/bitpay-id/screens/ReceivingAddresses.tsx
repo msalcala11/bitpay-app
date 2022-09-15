@@ -297,7 +297,7 @@ const ReceivingAddresses = () => {
                       setAddressModalVisible(true);
                     }}>
                     <AddressItem>
-                      <CurrencyIcon height="25" />
+                      <CurrencyIcon height={25} />
                       <AddressItemText>
                         <WalletName>{activeAddress.label}</WalletName>
                       </AddressItemText>
