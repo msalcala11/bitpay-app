@@ -240,9 +240,11 @@ const ReceivingAddresses = () => {
       BitPayIdEffects.startUpdateReceivingAddresses(newReceivingAddresses),
     );
     await dispatch(dismissOnGoingProcessModal());
-    navigation.navigate('BitpayId', {
-      screen: BitpayIdScreens.RECEIVING_ENABLED,
-    });
+    return newReceivingAddresses.length
+      ? navigation.navigate('BitpayId', {
+          screen: BitpayIdScreens.RECEIVING_ENABLED,
+        })
+      : navigation.goBack();
   };
 
   useEffect(() => {
