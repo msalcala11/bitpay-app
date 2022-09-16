@@ -16,7 +16,15 @@ import {
   White,
 } from '../../../styles/colors';
 import Button from '../../../components/button/Button';
-import {HeaderTitle, Paragraph} from '../../../components/styled/Text';
+import {
+  Disclaimer,
+  H1,
+  H2,
+  H3,
+  HeaderTitle,
+  Paragraph,
+  TextAlign,
+} from '../../../components/styled/Text';
 import {useTranslation} from 'react-i18next';
 import {ReceivingAddress} from '../../../store/bitpay-id/bitpay-id.models';
 import CopySvg from '../../../../assets/img/copy.svg';
@@ -79,6 +87,10 @@ const Divider = styled.View`
   background-color: ${({theme: {dark}}) => (dark ? LightBlack : Slate30)};
   height: 1px;
   margin: 24px -24px 19px;
+`;
+
+const ConfirmText = styled.View`
+  margin-bottom: 24px;
 `;
 
 const AddressModal = ({
@@ -158,10 +170,22 @@ const AddressModal = ({
           </>
         ) : null}
         <Divider />
+        {removalStarted ? (
+          <ConfirmText>
+            <TextAlign align={'center'} style={{marginBottom: 8}}>
+              <H3>Are you sure?</H3>
+            </TextAlign>
+            <TextAlign align={'center'}>
+              <Disclaimer>
+                Your BitPay ID will no longer be associated to this wallet, and
+                senders will have to enter the address to send funds.
+              </Disclaimer>
+            </TextAlign>
+          </ConfirmText>
+        ) : null}
         <ActionContainer>
           <Button
             onPress={() => {
-              console.log('hi');
               setRemovalStarted(true);
             }}
             height={50}
