@@ -30,6 +30,7 @@ const KeyNameContainer = styled.View<KeyNameContainerProps>`
   border-bottom-color: ${({theme: {dark}}) => (dark ? LightBlack : '#ECEFFD')};
   border-bottom-width: ${({noBorder}) => (noBorder ? 0 : 1)}px;
   margin-top: 20px;
+  ${({noBorder}) => (noBorder ? 'margin-left: 10px;' : '')}
   padding-bottom: ${({noBorder}) => (noBorder ? 0 : 10)}px;
 `;
 
