@@ -175,8 +175,9 @@ const AddressModal = ({
             </TextAlign>
             <TextAlign align={'center'}>
               <Disclaimer>
-                Your BitPay ID will no longer be associated to this wallet, and
-                senders will have to enter the address to send funds.
+                {t(
+                  'Your BitPay ID will no longer be associated to this wallet, and senders will have to enter the address to send funds.',
+                )}
               </Disclaimer>
             </TextAlign>
           </ConfirmText>

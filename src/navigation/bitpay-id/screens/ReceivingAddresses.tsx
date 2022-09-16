@@ -268,7 +268,6 @@ const ReceivingAddresses = () => {
 
   const removeAddress = (activeAddress: ReceivingAddress) => {
     delete activeAddresses[activeAddress.currency.toLowerCase()];
-    console.log('zzz activeAddresses', activeAddresses);
     setActiveAddresses({...activeAddresses});
   };
 
@@ -294,7 +293,6 @@ const ReceivingAddresses = () => {
                     activeOpacity={ActiveOpacity}
                     key={activeAddress.currency}
                     onPress={() => {
-                      // removeAddress(activeAddress);
                       setAddressModalActiveAddress(activeAddress);
                       setAddressModalVisible(true);
                     }}>
@@ -445,10 +443,10 @@ const ReceivingAddresses = () => {
         receivingAddress={addressModalActiveAddress}
         onClose={(remove?: boolean) => {
           setAddressModalVisible(false);
-          setAddressModalActiveAddress(undefined);
           if (remove) {
             removeAddress(addressModalActiveAddress!);
           }
+          setAddressModalActiveAddress(undefined);
         }}
       />
     </>
