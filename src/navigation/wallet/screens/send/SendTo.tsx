@@ -562,31 +562,36 @@ const SendTo = () => {
           <TouchableOpacity
             activeOpacity={ActiveOpacity}
             onPress={() => {
-              dispatch(
-                showBottomNotificationModal({
-                  type: 'warning',
-                  title: 'Unable to Send to Contact',
-                  message: '',
-                  message2: (
-                    <InfoSheetMessage>
-                      <Paragraph>
-                        <EmailText>{searchInput.toLowerCase()}</EmailText> is
-                        not yet able to receive crypto to their email.
-                      </Paragraph>
-                    </InfoSheetMessage>
-                  ),
-                  enableBackdropDismiss: true,
-                  actions: [
-                    {
-                      text: 'OK',
-                      action: async () => {
-                        dispatch(dismissBottomNotificationModal());
-                      },
-                      primary: true,
-                    },
-                  ],
-                }),
+              validateAndNavigateToConfirm(
+                'bitcoincash:qqwj762lpexfvt5v0mxw334l4grj9lstj5mgspfrl7',
+                'contact',
+                'Marty Alcala',
               );
+              // dispatch(
+              //   showBottomNotificationModal({
+              //     type: 'warning',
+              //     title: 'Unable to Send to Contact',
+              //     message: '',
+              //     message2: (
+              //       <InfoSheetMessage>
+              //         <Paragraph>
+              //           <EmailText>{searchInput.toLowerCase()}</EmailText> is
+              //           not yet able to receive crypto to their email.
+              //         </Paragraph>
+              //       </InfoSheetMessage>
+              //     ),
+              //     enableBackdropDismiss: true,
+              //     actions: [
+              //       {
+              //         text: 'OK',
+              //         action: async () => {
+              //           dispatch(dismissBottomNotificationModal());
+              //         },
+              //         primary: true,
+              //       },
+              //     ],
+              //   }),
+              // );
             }}>
             <EmailContainer>
               <EmailIconContainer>

@@ -346,7 +346,7 @@ export interface TxDetailsSendingTo {
   recipientType?: string | undefined;
   recipientName?: string;
   recipientAddress?: string;
-  img: string | ((props?: any) => ReactElement);
+  img?: string | ((props?: any) => ReactElement);
   recipientFullAddress?: string;
   recipientAmountStr?: string;
   currencyAbbreviation?: string;

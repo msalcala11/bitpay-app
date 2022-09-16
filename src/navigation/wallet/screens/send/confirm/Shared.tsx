@@ -43,6 +43,7 @@ import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view';
 import AddressCard from '../../../components/AddressCard';
 import {LuckySevens} from '../../../../../styles/colors';
 import {CurrencyListIcons} from '../../../../../constants/SupportedCurrencyOptions';
+import ContactIcon from '../../../../tabs/contacts/components/ContactIcon';
 
 // Styled
 export const ConfirmContainer = styled.SafeAreaView`
@@ -179,6 +180,8 @@ export const SendingTo: React.VFC<SendingToProps> = ({
             icon={
               copied ? (
                 <CopiedSvg width={18} />
+              ) : recipientName ? (
+                <ContactIcon name={description} size={20} />
               ) : (
                 <CurrencyImage img={img} size={18} />
               )
