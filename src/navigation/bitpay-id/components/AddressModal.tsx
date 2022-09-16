@@ -18,8 +18,6 @@ import {
 import Button from '../../../components/button/Button';
 import {
   Disclaimer,
-  H1,
-  H2,
   H3,
   HeaderTitle,
   Paragraph,
@@ -99,7 +97,7 @@ const AddressModal = ({
   receivingAddress,
 }: {
   isVisible: boolean;
-  onClose: () => void;
+  onClose: (remove?: boolean) => void;
   receivingAddress?: ReceivingAddress;
 }) => {
   const theme = useTheme();
@@ -118,10 +116,10 @@ const AddressModal = ({
     }
   };
 
-  const close = () => {
+  const close = (remove?: boolean) => {
     setRemovalStarted(false);
     setCopied(false);
-    onClose();
+    onClose(remove);
   };
 
   useEffect(() => {
@@ -186,7 +184,7 @@ const AddressModal = ({
         <ActionContainer>
           <Button
             onPress={() => {
-              setRemovalStarted(true);
+              removalStarted ? close(true) : setRemovalStarted(true);
             }}
             height={50}
             buttonType={'button'}

@@ -441,9 +441,12 @@ const ReceivingAddresses = () => {
       <AddressModal
         isVisible={addressModalVisible}
         receivingAddress={addressModalActiveAddress}
-        onClose={() => {
+        onClose={(remove?: boolean) => {
           setAddressModalVisible(false);
           setAddressModalActiveAddress(undefined);
+          if (remove) {
+            removeAddress(addressModalActiveAddress!);
+          }
         }}
       />
     </>
