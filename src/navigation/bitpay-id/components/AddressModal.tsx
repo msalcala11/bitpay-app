@@ -56,7 +56,7 @@ const AddressContainer = styled.TouchableOpacity`
 `;
 
 const AddressTextContainer = styled.View`
-  flex-shrink: 1;
+  flex: 1 1 auto;
   border-right-width: 1px;
   border-right-color: ${({theme: {dark}}) =>
     dark ? 'rgba(73, 137, 255, 0.25)' : 'rgba(34, 64, 196, 0.25)'};
@@ -75,7 +75,6 @@ const AddressText = styled(Paragraph)`
 const CopyContainer = styled.View`
   width: 50px;
   height: 100%;
-  flex-shrink: 0;
   align-items: center;
   flex-direction: row;
   justify-content: center;
