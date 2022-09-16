@@ -140,7 +140,6 @@ const ReceivingAddresses = () => {
   const [addressModalActiveAddress, setAddressModalActiveAddress] =
     useState<ReceivingAddress>();
   const [walletSelectCurrency, setWalletSelectorCurrency] = useState('btc');
-  console.log('zzz initial addresses', receivingAddresses);
   const [activeAddresses, setActiveAddresses] = useState<
     _.Dictionary<ReceivingAddress>
   >(createAddressMap(receivingAddresses));

@@ -26,7 +26,7 @@ const PillContainer = styled.Pressable<StyleProps>`
   justify-content: center;
   padding: 0 15px;
   height: 100%;
-  max-width: 150px;
+  max-width: 200px;
 `;
 
 const PillText = styled(H7)<StyleProps>`
