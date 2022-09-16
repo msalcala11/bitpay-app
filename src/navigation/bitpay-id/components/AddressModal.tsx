@@ -106,13 +106,19 @@ const AddressModal = ({
     }
   };
 
+  const close = () => {
+    setRemovalStarted(false);
+    setCopied(false);
+    onClose();
+  };
+
   useEffect(() => {
     if (!copied) {
       return;
     }
     const timer = setTimeout(() => {
       setCopied(false);
-    }, 2000);
+    }, 3000);
 
     return () => clearTimeout(timer);
   }, [copied]);
@@ -128,7 +134,7 @@ const AddressModal = ({
       hideModalContentWhileAnimating={true}
       useNativeDriverForBackdrop={true}
       useNativeDriver={true}
-      onBackdropPress={() => onClose()}
+      onBackdropPress={() => close()}
       style={{
         alignItems: 'center',
       }}>
@@ -160,15 +166,12 @@ const AddressModal = ({
             }}
             height={50}
             buttonType={'button'}
-            buttonStyle={'danger'}>
-            {t('Remove Address')}
+            buttonStyle={removalStarted ? 'danger' : 'primary'}>
+            {removalStarted ? t('Confirm') : t('Remove Address')}
           </Button>
         </ActionContainer>
         <ActionContainer>
-          <Button
-            onPress={() => onClose()}
-            buttonStyle={'secondary'}
-            height={50}>
+          <Button onPress={() => close()} buttonStyle={'secondary'} height={50}>
             {t('Close')}
           </Button>
         </ActionContainer>

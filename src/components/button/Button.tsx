@@ -93,7 +93,7 @@ const ButtonContent = styled.View<ButtonOptionProps>`
     }
 
     if (danger) {
-      return '#8B1C1C';
+      return theme.dark ? '#8B1C1C' : '#FFCDCD';
     }
 
     return Action;
@@ -109,7 +109,7 @@ const ButtonContent = styled.View<ButtonOptionProps>`
       }
 
       if (danger) {
-        return '#8B1C1C';
+        return theme.dark ? '#8B1C1C' : '#FFCDCD';
       }
 
       return Action;
@@ -123,13 +123,17 @@ const ButtonText = styled(ButtonBaseText)<ButtonOptionProps>`
   font-size: 18px;
   font-weight: 500;
 
-  color: ${({disabled, secondary, theme}) => {
+  color: ${({danger, disabled, secondary, theme}) => {
     if (disabled) {
       return theme.dark ? '#656565' : '#bebec0';
     }
 
     if (secondary) {
       return theme?.dark ? theme.colors.text : Action;
+    }
+
+    if (danger) {
+      return theme.dark ? White : '#8B1C1C';
     }
 
     return White;
