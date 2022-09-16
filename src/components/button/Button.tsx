@@ -46,6 +46,7 @@ interface ButtonProps extends BaseButtonProps {
   onPress?: () => any;
   disabled?: boolean;
   debounceTime?: number;
+  height?: number;
   state?: ButtonState;
   style?: StyleProp<ViewStyle>;
 }
@@ -56,10 +57,12 @@ interface ButtonOptionProps {
   cancel?: boolean;
   danger?: boolean;
   disabled?: boolean;
+  height?: number;
 }
 
 export const DURATION = 100;
 export const BUTTON_RADIUS = 6;
+export const BUTTON_HEIGHT = 63;
 export const PILL_RADIUS = 50;
 export const LINK_RADIUS = 0;
 
@@ -80,7 +83,7 @@ const ButtonContainer = styled.TouchableOpacity<ButtonProps>`
 `;
 
 const ButtonContent = styled.View<ButtonOptionProps>`
-  background: ${({disabled, theme, secondary}) => {
+  background: ${({danger, disabled, theme, secondary}) => {
     if (secondary) {
       return 'transparent';
     }
@@ -89,10 +92,14 @@ const ButtonContent = styled.View<ButtonOptionProps>`
       return theme.dark ? DisabledDark : Disabled;
     }
 
+    if (danger) {
+      return '#8B1C1C';
+    }
+
     return Action;
   }};
   border: 2px solid
-    ${({disabled, secondary, theme}) => {
+    ${({danger, disabled, secondary, theme}) => {
       if (disabled) {
         return theme.dark ? DisabledDark : Disabled;
       }
@@ -101,10 +108,15 @@ const ButtonContent = styled.View<ButtonOptionProps>`
         return Action;
       }
 
+      if (danger) {
+        return '#8B1C1C';
+      }
+
       return Action;
     }};
   border-radius: ${BUTTON_RADIUS}px;
-  padding: 18px;
+  height: ${({height}) => height || BUTTON_HEIGHT}px;
+  justify-content: center;
 `;
 
 const ButtonText = styled(ButtonBaseText)<ButtonOptionProps>`
@@ -209,6 +221,7 @@ const Button: React.FC<React.PropsWithChildren<ButtonProps>> = props => {
     children,
     disabled,
     debounceTime,
+    height,
     state,
     style,
   } = props;
@@ -281,6 +294,8 @@ const Button: React.FC<React.PropsWithChildren<ButtonProps>> = props => {
       activeOpacity={disabled ? 1 : ActiveOpacity}
       testID={'button'}>
       <ButtonTypeContainer
+        height={height}
+        danger={danger}
         secondary={secondary}
         outline={outline}
         cancel={cancel}

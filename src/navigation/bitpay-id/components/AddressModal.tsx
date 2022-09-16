@@ -1,7 +1,12 @@
 import React, {useEffect, useState} from 'react';
 import Modal from 'react-native-modal';
 import styled, {useTheme} from 'styled-components/native';
-import {ActionContainer, WIDTH} from '../../../components/styled/Containers';
+import Clipboard from '@react-native-community/clipboard';
+import {
+  ActionContainer,
+  ActiveOpacity,
+  WIDTH,
+} from '../../../components/styled/Containers';
 import {
   BitPay,
   Black,
@@ -17,6 +22,7 @@ import {ReceivingAddress} from '../../../store/bitpay-id/bitpay-id.models';
 import CopySvg from '../../../../assets/img/copy.svg';
 import CopiedSvg from '../../../../assets/img/copied-success.svg';
 import {CurrencyListIcons} from '../../../constants/SupportedCurrencyOptions';
+import haptic from '../../../components/haptic-feedback/haptic';
 
 const ModalContainer = styled.View`
   justify-content: center;
@@ -34,7 +40,7 @@ const HeaderContainer = styled.View`
   margin-left: -9px;
 `;
 
-const AddressContainer = styled.View`
+const AddressContainer = styled.TouchableOpacity`
   background-color: ${({theme: {dark}}) => (dark ? Midnight : '#eceffd')};
   border-radius: 8px;
   margin: 0;
@@ -60,7 +66,7 @@ const AddressText = styled(Paragraph)`
   letter-spacing: -0.5px;
 `;
 
-const CopyContainer = styled.TouchableOpacity`
+const CopyContainer = styled.View`
   width: 50px;
   height: 100%;
   flex-shrink: 0;
@@ -88,8 +94,17 @@ const AddressModal = ({
   const {t} = useTranslation();
 
   const [copied, setCopied] = useState(false);
+  const [removalStarted, setRemovalStarted] = useState(false);
   const CurrencyIcon =
     CurrencyListIcons[receivingAddress?.currency.toLowerCase() || ''];
+
+  const copyToClipboard = (address: string) => {
+    haptic('impactLight');
+    if (!copied) {
+      Clipboard.setString(address);
+      setCopied(true);
+    }
+  };
 
   useEffect(() => {
     if (!copied) {
@@ -97,7 +112,7 @@ const AddressModal = ({
     }
     const timer = setTimeout(() => {
       setCopied(false);
-    }, 3000);
+    }, 2000);
 
     return () => clearTimeout(timer);
   }, [copied]);
@@ -118,26 +133,42 @@ const AddressModal = ({
         alignItems: 'center',
       }}>
       <ModalContainer>
-        <HeaderContainer>
-          {receivingAddress ? <CurrencyIcon height={30} /> : null}
-          <HeaderTitle>{receivingAddress?.label}</HeaderTitle>
-        </HeaderContainer>
-        <AddressContainer>
-          <AddressTextContainer>
-            <AddressText>{receivingAddress?.address}</AddressText>
-          </AddressTextContainer>
-          <CopyContainer onPress={() => setCopied(true)}>
-            {copied ? <CopiedSvg /> : <CopySvg />}
-          </CopyContainer>
-        </AddressContainer>
+        {receivingAddress ? (
+          <>
+            <HeaderContainer>
+              <CurrencyIcon height={30} />
+              <HeaderTitle>{receivingAddress.label}</HeaderTitle>
+            </HeaderContainer>
+            <AddressContainer
+              onPress={() => copyToClipboard(receivingAddress.address)}
+              activeOpacity={ActiveOpacity}>
+              <AddressTextContainer>
+                <AddressText>{receivingAddress.address}</AddressText>
+              </AddressTextContainer>
+              <CopyContainer>
+                {copied ? <CopiedSvg /> : <CopySvg />}
+              </CopyContainer>
+            </AddressContainer>
+          </>
+        ) : null}
         <Divider />
         <ActionContainer>
-          <Button onPress={() => console.log('continue')}>
+          <Button
+            onPress={() => {
+              console.log('hi');
+              setRemovalStarted(true);
+            }}
+            height={50}
+            buttonType={'button'}
+            buttonStyle={'danger'}>
             {t('Remove Address')}
           </Button>
         </ActionContainer>
         <ActionContainer>
-          <Button onPress={() => onClose()} buttonStyle={'secondary'}>
+          <Button
+            onPress={() => onClose()}
+            buttonStyle={'secondary'}
+            height={50}>
             {t('Close')}
           </Button>
         </ActionContainer>
