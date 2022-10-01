@@ -58,6 +58,8 @@ export interface WalletRowProps {
 interface Props {
   id: string;
   wallet: WalletRowProps;
+  hideIcon?: boolean;
+  isLast?: boolean;
   onPress: () => void;
 }
 
@@ -79,7 +81,7 @@ export const buildTestBadge = (
   );
 };
 
-const WalletRow = ({wallet, onPress}: Props) => {
+const WalletRow = ({wallet, hideIcon, onPress, isLast}: Props) => {
   const {
     currencyName,
     currencyAbbreviation,
@@ -97,15 +99,20 @@ const WalletRow = ({wallet, onPress}: Props) => {
   const showFiatBalance = Number(cryptoBalance.replaceAll(',', '')) > 0;
 
   return (
-    <RowContainer activeOpacity={ActiveOpacity} onPress={onPress}>
+    <RowContainer
+      activeOpacity={ActiveOpacity}
+      onPress={onPress}
+      style={{borderBottomWidth: isLast || !hideIcon ? 0 : 1}}>
       {isToken && (
         <NestedArrowContainer>
           <NestedArrowIcon />
         </NestedArrowContainer>
       )}
-      <CurrencyImageContainer>
-        <CurrencyImage img={img} size={45} />
-      </CurrencyImageContainer>
+      {!hideIcon ? (
+        <CurrencyImageContainer>
+          <CurrencyImage img={img} size={45} />
+        </CurrencyImageContainer>
+      ) : null}
       <CurrencyColumn>
         <Row>
           <H5 ellipsizeMode="tail" numberOfLines={1}>

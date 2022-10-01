@@ -1,6 +1,6 @@
 import React, {ReactElement, useState} from 'react';
 import styled from 'styled-components/native';
-import {LightBlack, NeutralSlate} from '../../../styles/colors';
+import {BitPay, LightBlack, NeutralSlate} from '../../../styles/colors';
 import {H7} from '../../../components/styled/Text';
 import ArrowDownSvg from '../../../../assets/img/chevron-down.svg';
 import ArrowUpSvg from '../../../../assets/img/chevron-up.svg';
@@ -10,19 +10,29 @@ interface Props {
   description: string;
   onPress?: () => void;
   dropDown?: boolean;
+  accent?: 'action';
 }
 
-const PillContainer = styled.Pressable`
-  background-color: ${({theme: {dark}}) => (dark ? LightBlack : NeutralSlate)};
+interface StyleProps {
+  accent?: 'action';
+}
+
+const PillContainer = styled.Pressable<StyleProps>`
+  background-color: ${({theme: {dark}, accent}) =>
+    dark ? LightBlack : accent === 'action' ? '#ECEFFD' : NeutralSlate};
   flex-direction: row;
   border-radius: 40px;
   align-items: center;
   justify-content: center;
-  padding: 10px 15px;
-  max-width: 150px;
+  padding: 0 15px;
+  height: 100%;
+  max-width: 200px;
 `;
 
-const PillText = styled(H7)`
+const PillText = styled(H7)<StyleProps>`
+  ${({theme: {dark}, accent}) =>
+    !dark && accent === 'action' ? `color: ${BitPay};` : ''};
+  flex-direction: row;
   margin-left: 5px;
 `;
 
@@ -30,7 +40,7 @@ const ArrowContainer = styled.View`
   margin-left: 8px;
 `;
 
-const SendToPill = ({icon, description, onPress, dropDown}: Props) => {
+const SendToPill = ({icon, description, onPress, dropDown, accent}: Props) => {
   const [toggleArrow, setToggleArrow] = useState(false);
   const _onPress = () => {
     setToggleArrow(!toggleArrow);
@@ -39,9 +49,9 @@ const SendToPill = ({icon, description, onPress, dropDown}: Props) => {
     }
   };
   return (
-    <PillContainer disabled={!onPress} onPress={_onPress}>
+    <PillContainer disabled={!onPress} onPress={_onPress} accent={accent}>
       {icon}
-      <PillText numberOfLines={1} ellipsizeMode={'tail'}>
+      <PillText numberOfLines={1} ellipsizeMode={'tail'} accent={accent}>
         {description}
       </PillText>
 

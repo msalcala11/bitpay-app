@@ -13,7 +13,7 @@ import {BitpaySupportedTokenOpts} from '../../../../constants/tokens';
 interface ContactIconProps {
   size?: number;
   name?: string;
-  coin: string;
+  coin?: string;
 }
 
 interface BadgeProps {
@@ -47,13 +47,15 @@ const ContactIcon: React.FC<ContactIconProps> = ({coin, size = 50, name}) => {
       ...WALLET.customTokenOptions,
     };
   });
-  const img = SUPPORTED_CURRENCIES.includes(coin)
-    ? CurrencyListIcons[coin]
-    : tokenOptions && tokenOptions[coin]?.logoURI
-    ? (tokenOptions[coin].logoURI as string)
-    : '';
+  const img =
+    coin &&
+    (SUPPORTED_CURRENCIES.includes(coin)
+      ? CurrencyListIcons[coin]
+      : tokenOptions && tokenOptions[coin]?.logoURI
+      ? (tokenOptions[coin].logoURI as string)
+      : '');
 
-  const badge = coin ? <CoinBadge size={size / 2.5} img={img} /> : null;
+  const badge = img ? <CoinBadge size={size / 2.5} img={img} /> : null;
   const initials = name
     ? name
         .trim()

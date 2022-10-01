@@ -5,7 +5,7 @@ import {
   TxDetailsSendingFrom,
   TxDetailsSendingTo,
 } from '../../../../../store/wallet/wallet.models';
-import {H4, H5, H6, H7, TextAlign} from '../../../../../components/styled/Text';
+import {H4, H5, H6, H7} from '../../../../../components/styled/Text';
 import SendToPill from '../../../components/SendToPill';
 import {
   Column,
@@ -29,6 +29,7 @@ import {
   WalletSelectMenuBodyContainer,
   WalletSelectMenuContainer,
   WalletSelectMenuHeaderContainer,
+  WalletSelectMenuHeaderIconContainer,
 } from '../../GlobalSelect';
 import CoinbaseSmall from '../../../../../../assets/img/logos/coinbase-small.svg';
 import {useNavigation} from '@react-navigation/native';
@@ -41,6 +42,8 @@ import {useTranslation} from 'react-i18next';
 import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view';
 import AddressCard from '../../../components/AddressCard';
 import {LuckySevens} from '../../../../../styles/colors';
+import {CurrencyListIcons} from '../../../../../constants/SupportedCurrencyOptions';
+import ContactIcon from '../../../../tabs/contacts/components/ContactIcon';
 
 // Styled
 export const ConfirmContainer = styled.SafeAreaView`
@@ -177,6 +180,8 @@ export const SendingTo: React.VFC<SendingToProps> = ({
             icon={
               copied ? (
                 <CopiedSvg width={18} />
+              ) : recipientName ? (
+                <ContactIcon name={description} size={20} />
               ) : (
                 <CurrencyImage img={img} size={18} />
               )
@@ -418,6 +423,8 @@ export const WalletSelector = ({
   onBackdropPress,
   isVisible,
   setWalletSelectorVisible,
+  autoSelectIfOnlyOneWallet,
+  currency,
 }: {
   walletsAndAccounts: WalletsAndAccounts;
   onWalletSelect: (wallet: KeyWallet) => void;
@@ -425,12 +432,18 @@ export const WalletSelector = ({
   onBackdropPress: () => void;
   isVisible: boolean;
   setWalletSelectorVisible: React.Dispatch<React.SetStateAction<boolean>>;
+  autoSelectIfOnlyOneWallet?: boolean;
+  currency?: string;
 }) => {
   const {t} = useTranslation();
   const dispatch = useAppDispatch();
   const navigation = useNavigation();
   const [selectorVisible, setSelectorVisible] = useState(false);
-  const [autoSelectSingleWallet, setAutoSelectSingleWallet] = useState(true);
+  const [autoSelectSingleWallet, setAutoSelectSingleWallet] = useState(
+    typeof autoSelectIfOnlyOneWallet === 'undefined'
+      ? true
+      : autoSelectIfOnlyOneWallet,
+  );
 
   const selectOption = useCallback(
     async (onSelect: () => void, waitForClose?: boolean) => {
@@ -488,16 +501,22 @@ export const WalletSelector = ({
       : setSelectorVisible(false);
   }, [autoSelectSingleWallet, isVisible, showSelector]);
 
+  const CurrencyIcon = CurrencyListIcons[currency || ''];
+
   return (
     <SheetModal isVisible={selectorVisible} onBackdropPress={onBackdropPress}>
       <WalletSelectMenuContainer>
-        <WalletSelectMenuHeaderContainer>
-          <TextAlign align={'center'}>
-            <H4>{t('Select a wallet')}</H4>
-          </TextAlign>
+        <WalletSelectMenuHeaderContainer currency={currency}>
+          {currency ? (
+            <WalletSelectMenuHeaderIconContainer>
+              <CurrencyIcon height={30} />
+            </WalletSelectMenuHeaderIconContainer>
+          ) : null}
+          <H4>{t('Select a Wallet')}</H4>
         </WalletSelectMenuHeaderContainer>
         <WalletSelectMenuBodyContainer>
           <KeyWalletsRow<KeyWallet>
+            currency={currency}
             keyWallets={walletsAndAccounts.keyWallets}
             onPress={wallet => selectOption(() => onWalletSelect(wallet), true)}
           />
