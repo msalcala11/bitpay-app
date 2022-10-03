@@ -79,7 +79,6 @@ export const incomingData =
   async dispatch => {
     // wait to close blur
     await sleep(200);
-
     const coin = opts?.wallet?.currencyAbbreviation?.toLowerCase();
     const chain = opts?.wallet?.credentials?.chain.toLowerCase();
     try {
@@ -89,6 +88,26 @@ export const incomingData =
       // Paypro
       else if (IsValidPayPro(data)) {
         dispatch(goToPayPro(data));
+        // Plain Address (Bitcoin)
+      } else if (IsValidBitcoinAddress(data)) {
+        dispatch(handlePlainAddress(data, coin || 'btc', chain || 'btc', opts));
+        // Plain Address (Bitcoin Cash)
+      } else if (IsValidBitcoinCashAddress(data)) {
+        dispatch(handlePlainAddress(data, coin || 'bch', chain || 'bch', opts));
+        // Address (Ethereum)
+      } else if (IsValidEthereumAddress(data)) {
+        dispatch(handlePlainAddress(data, coin || 'eth', chain || 'eth', opts));
+        // Address (Ripple)
+      } else if (IsValidRippleAddress(data)) {
+        dispatch(handlePlainAddress(data, coin || 'xrp', chain || 'xrp', opts));
+        // Plain Address (Doge)
+      } else if (IsValidDogecoinAddress(data)) {
+        dispatch(
+          handlePlainAddress(data, coin || 'doge', chain || 'doge', opts),
+        );
+        // Plain Address (Litecoin)
+      } else if (IsValidLitecoinAddress(data)) {
+        dispatch(handlePlainAddress(data, coin || 'ltc', chain || 'ltc', opts));
         // Bitcoin  URI
       } else if (IsValidBitcoinUri(data)) {
         dispatch(handleBitcoinUri(data, opts?.wallet));
@@ -122,26 +141,6 @@ export const incomingData =
         // BitPay URI
       } else if (IsValidBitPayUri(data)) {
         dispatch(handleBitPayUri(data, opts?.wallet));
-        // Plain Address (Bitcoin)
-      } else if (IsValidBitcoinAddress(data)) {
-        dispatch(handlePlainAddress(data, coin || 'btc', chain || 'btc', opts));
-        // Plain Address (Bitcoin Cash)
-      } else if (IsValidBitcoinCashAddress(data)) {
-        dispatch(handlePlainAddress(data, coin || 'bch', chain || 'bch', opts));
-        // Address (Ethereum)
-      } else if (IsValidEthereumAddress(data)) {
-        dispatch(handlePlainAddress(data, coin || 'eth', chain || 'eth', opts));
-        // Address (Ripple)
-      } else if (IsValidRippleAddress(data)) {
-        dispatch(handlePlainAddress(data, coin || 'xrp', chain || 'xrp', opts));
-        // Plain Address (Doge)
-      } else if (IsValidDogecoinAddress(data)) {
-        dispatch(
-          handlePlainAddress(data, coin || 'doge', chain || 'doge', opts),
-        );
-        // Plain Address (Litecoin)
-      } else if (IsValidLitecoinAddress(data)) {
-        dispatch(handlePlainAddress(data, coin || 'ltc', chain || 'ltc', opts));
         // Import Private Key
       } else if (IsValidImportPrivateKey(data)) {
         goToImport(data);
@@ -1054,10 +1053,17 @@ const goToJoinWallet =
       });
     } else {
       navigationRef.navigate('Wallet', {
-        screen: 'KeyGlobalSelect',
+        screen: WalletScreens.KEY_GLOBAL_SELECT,
         params: {
-          context: 'join',
-          invitationCode: data,
+          onKeySelect: (selectedKey: Key) => {
+            navigationRef.navigate('Wallet', {
+              screen: WalletScreens.JOIN_MULTISIG,
+              params: {
+                key: selectedKey,
+                invitationCode: data,
+              },
+            });
+          },
         },
       });
     }

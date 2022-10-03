@@ -15,7 +15,7 @@ import {getCurrencyAbbreviation} from '../../../../utils/helper-methods';
 interface ContactIconProps {
   size?: number;
   name?: string;
-  coin: string;
+  coin?: string;
   chain: string;
 }
 
@@ -56,15 +56,18 @@ const ContactIcon: React.FC<ContactIconProps> = ({
     };
   }) as {[key in string]: Token};
 
-  const img = SUPPORTED_CURRENCIES.includes(coin)
-    ? CurrencyListIcons[coin]
-    : tokenOptions &&
-      tokenOptions[getCurrencyAbbreviation(coin, chain)] &&
-      tokenOptions[getCurrencyAbbreviation(coin, chain)]?.logoURI
-    ? (tokenOptions[getCurrencyAbbreviation(coin, chain)].logoURI as string)
-    : '';
+  const img =
+    coin &&
+    chain &&
+    (SUPPORTED_CURRENCIES.includes(coin)
+      ? CurrencyListIcons[coin]
+      : tokenOptions &&
+        tokenOptions[getCurrencyAbbreviation(coin, chain)] &&
+        tokenOptions[getCurrencyAbbreviation(coin, chain)]?.logoURI
+      ? (tokenOptions[getCurrencyAbbreviation(coin, chain)].logoURI as string)
+      : '');
 
-  const badge = coin ? <CoinBadge size={size / 2.5} img={img} /> : null;
+  const badge = img ? <CoinBadge size={size / 2.5} img={img} /> : null;
   const initials = name
     ? name
         .trim()
