@@ -522,15 +522,13 @@ export const WalletSelector = ({
       : setSelectorVisible(false);
   }, [autoSelectSingleWallet, isVisible, showSelector]);
 
-  const CurrencyIcon = CurrencyListIcons[currency || ''];
-
   return (
     <SheetModal isVisible={selectorVisible} onBackdropPress={onBackdropPress}>
       <WalletSelectMenuContainer>
         <WalletSelectMenuHeaderContainer currency={currency}>
           {currency ? (
             <WalletSelectMenuHeaderIconContainer>
-              <CurrencyIcon height={30} />
+              <CurrencyIconAndBadge coin={currency} size={30} />
             </WalletSelectMenuHeaderIconContainer>
           ) : null}
           <H4>{t('Select a Wallet')}</H4>

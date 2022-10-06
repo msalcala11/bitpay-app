@@ -29,6 +29,7 @@ import CopySvg from '../../../../assets/img/copy.svg';
 import CopiedSvg from '../../../../assets/img/copied-success.svg';
 import {CurrencyListIcons} from '../../../constants/SupportedCurrencyOptions';
 import haptic from '../../../components/haptic-feedback/haptic';
+import { CurrencyIconAndBadge } from '../../wallet/screens/send/confirm/Shared';
 
 const ModalContainer = styled.View`
   justify-content: center;
@@ -103,8 +104,8 @@ const AddressModal = ({
 
   const [copied, setCopied] = useState(false);
   const [removalStarted, setRemovalStarted] = useState(false);
-  const CurrencyIcon =
-    CurrencyListIcons[receivingAddress?.currency.toLowerCase() || ''];
+
+  const coin = receivingAddress?.currency.toLowerCase();
 
   const copyToClipboard = (address: string) => {
     haptic('impactLight');
@@ -150,7 +151,7 @@ const AddressModal = ({
         {receivingAddress ? (
           <>
             <HeaderContainer>
-              <CurrencyIcon height={30} />
+              <CurrencyIconAndBadge coin={coin!} size={30} />
               <HeaderTitle>{receivingAddress.label}</HeaderTitle>
             </HeaderContainer>
             <AddressContainer
