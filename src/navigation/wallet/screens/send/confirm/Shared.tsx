@@ -553,3 +553,32 @@ export const WalletSelector = ({
     </SheetModal>
   );
 };
+
+const CurrencyImageAndBadgeContainer = styled.View<{height: number}>`
+  height: ${({height}) => height}px;
+`;
+
+export const CurrencyIconAndBadge = ({
+  coin,
+  chain,
+  size,
+}: {
+  coin: string;
+  chain?: string;
+  size: number;
+}) => {
+  chain = chain || 'eth';
+  const fullCurrencyAbbreviation = getCurrencyAbbreviation(coin, chain);
+  const badgeImg = IsERCToken(coin) ? getBadgeImg(coin, chain) : undefined;
+  const CurrencyIcon = CurrencyListIcons[fullCurrencyAbbreviation];
+
+  return (
+    <CurrencyImageAndBadgeContainer height={size}>
+      <CurrencyImage
+        img={() => <CurrencyIcon height={size} />}
+        badgeUri={badgeImg}
+        size={size}
+      />
+    </CurrencyImageAndBadgeContainer>
+  );
+};

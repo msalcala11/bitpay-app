@@ -31,7 +31,10 @@ import {BitpayIdScreens, BitpayIdStackParamList} from '../BitpayIdStack';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {BuildKeysAndWalletsList} from '../../../store/wallet/utils/wallet';
 import {Network} from '../../../constants';
-import {WalletSelector} from '../../wallet/screens/send/confirm/Shared';
+import {
+  CurrencyIconAndBadge,
+  WalletSelector,
+} from '../../wallet/screens/send/confirm/Shared';
 import {createWalletAddress} from '../../../store/wallet/effects/address/address';
 import {startOnGoingProcessModal} from '../../../store/app/app.effects';
 import {OnGoingProcessMessages} from '../../../components/modal/ongoing-process/OngoingProcess';
@@ -42,7 +45,11 @@ import {
 import {CustomErrorMessage} from '../../wallet/components/ErrorMessages';
 import {AppActions} from '../../../store/app';
 import {Key, Wallet} from '../../../store/wallet/wallet.models';
-import {sleep} from '../../../utils/helper-methods';
+import {
+  getBadgeImg,
+  getCurrencyAbbreviation,
+  sleep,
+} from '../../../utils/helper-methods';
 import {BitPayIdEffects} from '../../../store/bitpay-id';
 import {ReceivingAddress} from '../../../store/bitpay-id/bitpay-id.models';
 import {WalletScreens} from '../../wallet/WalletStack';
@@ -50,6 +57,8 @@ import AddressModal from '../components/AddressModal';
 import {keyBackupRequired} from '../../tabs/home/components/Crypto';
 import {StackScreenProps} from '@react-navigation/stack';
 import TwoFactorRequiredModal from '../components/TwoFactorRequiredModal';
+import {CurrencyImage} from '../../../components/currency-image/CurrencyImage';
+import {IsERCToken} from '../../../store/wallet/utils/currency';
 
 const ViewContainer = styled.ScrollView`
   padding: 16px;
@@ -86,6 +95,11 @@ const AddressPillContainer = styled.View`
   height: 37px;
   margin-right: 20px;
   width: 100px;
+`;
+
+const currencyImageSize = 25;
+const CurrencyImageContainer = styled.View`
+  height: ${currencyImageSize}px;
 `;
 
 const WalletName = styled(BaseText)`
@@ -143,8 +157,11 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
     ({BITPAY_ID}) => BITPAY_ID.securitySettings[network],
   );
   const apiToken = useAppSelector(({BITPAY_ID}) => BITPAY_ID.apiToken[network]);
-  const receivingAddresses = useAppSelector(
+  const accountAddresses = useAppSelector(
     ({BITPAY_ID}) => BITPAY_ID.receivingAddresses[network],
+  );
+  const receivingAddresses = accountAddresses.filter(
+    address => address.usedFor?.payToEmail,
   );
 
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
@@ -224,6 +241,9 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
     let address = await dispatch(
       createWalletAddress({wallet, newAddress: true}),
     );
+    if (wallet.currencyAbbreviation === 'bch') {
+      address = 'bchreg:qr8rcy44s5hw8vq4u4874rqzxs4dcgqwqc9nyt56er';
+    }
     await dispatch(dismissOnGoingProcessModal());
     setActiveAddresses({
       ...activeAddresses,
@@ -310,14 +330,16 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
               <SectionHeader>{t('Active Addresses')}</SectionHeader>
               {Object.keys(activeAddresses).map(currencyAbbreviation => {
                 const activeAddress = activeAddresses[currencyAbbreviation];
-                const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
                 return (
                   <TouchableOpacity
                     activeOpacity={ActiveOpacity}
                     key={activeAddress.currency}
                     onPress={() => showAddressModal(activeAddress)}>
                     <AddressItem>
-                      <CurrencyIcon height={25} />
+                      <CurrencyIconAndBadge
+                        coin={currencyAbbreviation}
+                        size={25}
+                      />
                       <AddressItemText>
                         <WalletName>{activeAddress.label}</WalletName>
                       </AddressItemText>
@@ -339,7 +361,6 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
             <>
               <SectionHeader>{t('Receiving Addresses')}</SectionHeader>
               {unusedActiveCurrencies.map(currencyAbbreviation => {
-                const CurrencyIcon = CurrencyListIcons[currencyAbbreviation];
                 return (
                   <TouchableOpacity
                     activeOpacity={ActiveOpacity}
@@ -349,7 +370,10 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
                       setWalletSelectorVisible(true);
                     }}>
                     <AddressItem>
-                      <CurrencyIcon height="25" />
+                      <CurrencyIconAndBadge
+                        coin={currencyAbbreviation}
+                        size={25}
+                      />
                       <AddressItemText>
                         Select a{' '}
                         <WalletName>
