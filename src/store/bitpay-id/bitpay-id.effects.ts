@@ -570,16 +570,13 @@ export const startFetchReceivingAddresses =
             params ? 'findWalletsByEmail' : 'findWallets',
             params,
           );
-        const payToEmailAddresses = receivingAddresses.filter(
-          ({usedFor}) => usedFor?.payToEmail,
-        );
         dispatch(
           BitPayIdActions.successFetchReceivingAddresses(
             APP.network,
-            payToEmailAddresses,
+            receivingAddresses,
           ),
         );
-        return payToEmailAddresses;
+        return receivingAddresses;
       } catch (err) {
         batch(() => {
           dispatch(LogActions.error('Failed to fetch receiving addresses.'));
@@ -601,31 +598,47 @@ export const startUpdateReceivingAddresses =
         const currentReceivingAddresses = await dispatch(
           startFetchReceivingAddresses(),
         );
-        const addressesToDelete = _.differenceWith(
-          currentReceivingAddresses,
-          newReceivingAddresses,
-          _.isEqual,
+        // const addressesToDelete = _.differenceWith(
+        //   currentReceivingAddresses,
+        //   newReceivingAddresses,
+        //   _.isEqual,
+        // );
+        // const addressesToCreate = _.differenceWith(
+        //   newReceivingAddresses,
+        //   currentReceivingAddresses,
+        //   _.isEqual,
+        // );
+        // const deletePromises = addressesToDelete.map(address =>
+        //   BitPayIdApi.apiCall(BITPAY_ID.apiToken[APP.network], 'deleteWallet', {
+        //     walletId: address.id,
+        //     twoFactorCode,
+        //   }),
+        // );
+        // await Promise.all(deletePromises);
+        // const createPromises = addressesToCreate.map(address =>
+        //   BitPayIdApi.apiCall(BITPAY_ID.apiToken[APP.network], 'createWallet', {
+        //     ...address,
+        //     use: 'payToEmail',
+        //     twoFactorCode,
+        //   }),
+        // );
+        // await Promise.all(createPromises);
+        const nonPayToEmailWallets = currentReceivingAddresses.filter(
+          address => !address.usedFor?.payToEmail,
         );
-        const addressesToCreate = _.differenceWith(
-          newReceivingAddresses,
-          currentReceivingAddresses,
-          _.isEqual,
-        );
-        const deletePromises = addressesToDelete.map(address =>
-          BitPayIdApi.apiCall(BITPAY_ID.apiToken[APP.network], 'deleteWallet', {
-            walletId: address.id,
+        const payToEmailWallets = newReceivingAddresses.map(address => ({
+          ...address,
+          use: 'payToEmail',
+        }));
+        const wallets = [...nonPayToEmailWallets, ...payToEmailWallets];
+        await BitPayIdApi.apiCall(
+          BITPAY_ID.apiToken[APP.network],
+          'setWallets',
+          {
+            wallets,
             twoFactorCode,
-          }),
+          },
         );
-        await Promise.all(deletePromises);
-        const createPromises = addressesToCreate.map(address =>
-          BitPayIdApi.apiCall(BITPAY_ID.apiToken[APP.network], 'createWallet', {
-            ...address,
-            use: 'payToEmail',
-            twoFactorCode,
-          }),
-        );
-        await Promise.all(createPromises);
         await dispatch(startFetchReceivingAddresses());
       } catch (err) {
         batch(() => {
