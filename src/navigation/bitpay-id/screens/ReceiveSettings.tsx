@@ -157,13 +157,9 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
     ({BITPAY_ID}) => BITPAY_ID.securitySettings[network],
   );
   const apiToken = useAppSelector(({BITPAY_ID}) => BITPAY_ID.apiToken[network]);
-  const accountAddresses = useAppSelector(
+  const receivingAddresses = useAppSelector(
     ({BITPAY_ID}) => BITPAY_ID.receivingAddresses[network],
   );
-  const receivingAddresses = accountAddresses.filter(
-    address => address.usedFor?.payToEmail,
-  );
-
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const [walletSelectorVisible, setWalletSelectorVisible] = useState(false);
   const [twoFactorModalRequiredVisible, setTwoFactorModalRequiredVisible] =
