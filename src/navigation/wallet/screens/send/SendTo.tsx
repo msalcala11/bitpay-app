@@ -609,11 +609,7 @@ const SendTo = () => {
               );
               addressMatchingCurrency
                 ? validateAndNavigateToConfirm(
-                    `${
-                      addressMatchingCurrency.currency === 'BCH'
-                        ? 'bitcoincash:' // TODO: remove the need for this prefix
-                        : ''
-                    }${addressMatchingCurrency.address}`,
+                    addressMatchingCurrency.address,
                     {email},
                   )
                 : dispatch(
