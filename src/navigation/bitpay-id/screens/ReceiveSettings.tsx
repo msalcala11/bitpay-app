@@ -7,10 +7,7 @@ import {
   Br,
   CtaContainerAbsolute,
 } from '../../../components/styled/Containers';
-import {
-  CurrencyListIcons,
-  SupportedCurrencyOptions,
-} from '../../../constants/SupportedCurrencyOptions';
+import {SupportedCurrencyOptions} from '../../../constants/SupportedCurrencyOptions';
 import {H3, H5, Paragraph} from '../../../components/styled/Text';
 import {BaseText} from '../../wallet/components/KeyDropdownOption';
 import {
@@ -45,11 +42,7 @@ import {
 import {CustomErrorMessage} from '../../wallet/components/ErrorMessages';
 import {AppActions} from '../../../store/app';
 import {Key, Wallet} from '../../../store/wallet/wallet.models';
-import {
-  getBadgeImg,
-  getCurrencyAbbreviation,
-  sleep,
-} from '../../../utils/helper-methods';
+import {sleep} from '../../../utils/helper-methods';
 import {BitPayIdEffects} from '../../../store/bitpay-id';
 import {ReceivingAddress} from '../../../store/bitpay-id/bitpay-id.models';
 import {WalletScreens} from '../../wallet/WalletStack';
@@ -57,8 +50,6 @@ import AddressModal from '../components/AddressModal';
 import {keyBackupRequired} from '../../tabs/home/components/Crypto';
 import {StackScreenProps} from '@react-navigation/stack';
 import TwoFactorRequiredModal from '../components/TwoFactorRequiredModal';
-import {CurrencyImage} from '../../../components/currency-image/CurrencyImage';
-import {IsERCToken} from '../../../store/wallet/utils/currency';
 
 const ViewContainer = styled.ScrollView`
   padding: 16px;
@@ -95,11 +86,6 @@ const AddressPillContainer = styled.View`
   height: 37px;
   margin-right: 20px;
   width: 100px;
-`;
-
-const currencyImageSize = 25;
-const CurrencyImageContainer = styled.View`
-  height: ${currencyImageSize}px;
 `;
 
 const WalletName = styled(BaseText)`
