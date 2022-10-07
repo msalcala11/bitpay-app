@@ -446,6 +446,7 @@ export const WalletSelector = ({
   setWalletSelectorVisible,
   autoSelectIfOnlyOneWallet,
   currency,
+  chain,
 }: {
   walletsAndAccounts: WalletsAndAccounts;
   onWalletSelect: (wallet: KeyWallet) => void;
@@ -455,6 +456,7 @@ export const WalletSelector = ({
   setWalletSelectorVisible: React.Dispatch<React.SetStateAction<boolean>>;
   autoSelectIfOnlyOneWallet?: boolean;
   currency?: string;
+  chain?: string;
 }) => {
   const {t} = useTranslation();
   const dispatch = useAppDispatch();
@@ -528,7 +530,7 @@ export const WalletSelector = ({
         <WalletSelectMenuHeaderContainer currency={currency}>
           {currency ? (
             <WalletSelectMenuHeaderIconContainer>
-              <CurrencyIconAndBadge coin={currency} size={30} />
+              <CurrencyIconAndBadge coin={currency} chain={chain} size={30} />
             </WalletSelectMenuHeaderIconContainer>
           ) : null}
           <H4>{t('Select a Wallet')}</H4>

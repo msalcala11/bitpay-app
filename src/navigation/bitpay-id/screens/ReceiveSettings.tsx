@@ -145,24 +145,41 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
   const apiToken = useAppSelector(({BITPAY_ID}) => BITPAY_ID.apiToken[network]);
   const receivingAddresses = useAppSelector(
     ({BITPAY_ID}) => BITPAY_ID.receivingAddresses[network],
-  );
+  ).map(address => ({
+    ...address,
+    chain: address.chain || address.currency,
+  }));
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const [walletSelectorVisible, setWalletSelectorVisible] = useState(false);
   const [twoFactorModalRequiredVisible, setTwoFactorModalRequiredVisible] =
     useState(false);
   const [addressModalActiveAddress, setAddressModalActiveAddress] =
     useState<ReceivingAddress>();
-  const [walletSelectCurrency, setWalletSelectorCurrency] = useState('btc');
+  const [walletSelectorCurrency, setWalletSelectorCurrency] = useState('btc');
+  const [walletSelectorChain, setWalletSelectorChain] = useState<
+    string | undefined
+  >();
   const [activeAddresses, setActiveAddresses] = useState<
     _.Dictionary<ReceivingAddress>
   >(createAddressMap(receivingAddresses));
-  const uniqueActiveCurrencies = _.uniq(
+  const uniqueActiveWallets = _.uniqBy(
     Object.values(keys)
       .flatMap(key => key.wallets)
-      .filter(wallet => wallet.network === Network.mainnet)
-      .map(wallet => wallet.currencyAbbreviation),
+      .filter(wallet => wallet.network === Network.mainnet),
+    wallet => `${wallet.currencyAbbreviation}_${wallet.chain}`,
   );
-  const unusedCurrencyOptions = SupportedCurrencyOptions.filter(
+  const uniqueActiveCurrencies = uniqueActiveWallets.map(
+    wallet => wallet.currencyAbbreviation,
+  );
+  const unusedActiveWallets = uniqueActiveWallets.filter(
+    wallet =>
+      !Object.values(activeAddresses).some(
+        ({chain, currency}) =>
+          wallet.currencyAbbreviation === currency.toLowerCase() &&
+          wallet.chain === chain?.toLowerCase(),
+      ),
+  );
+  const inactiveCurrencyOptions = SupportedCurrencyOptions.filter(
     currencyOption =>
       !uniqueActiveCurrencies.includes(
         currencyOption.currencyAbbreviation.toLowerCase(),
@@ -175,10 +192,7 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
     rates,
     dispatch,
   });
-  const unusedActiveCurrencies = uniqueActiveCurrencies.filter(
-    currencyAbbreviation =>
-      !Object.keys(activeAddresses).includes(currencyAbbreviation),
-  );
+
   const keyWalletsByCurrency = uniqueActiveCurrencies.reduce(
     (keyWalletMap, currency) => ({
       ...keyWalletMap,
@@ -186,7 +200,7 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
         .map(keyWallet => ({
           ...keyWallet,
           wallets: keyWallet.wallets.filter(
-            wallet => wallet.currencyAbbreviation === walletSelectCurrency,
+            wallet => wallet.currencyAbbreviation === walletSelectorCurrency,
           ),
         }))
         .filter(keyWallet => keyWallet.wallets.length),
@@ -336,21 +350,23 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
               })}
             </>
           ) : null}
-          {unusedActiveCurrencies.length + unusedCurrencyOptions.length > 0 ? (
+          {unusedActiveWallets.length + inactiveCurrencyOptions.length > 0 ? (
             <>
               <SectionHeader>{t('Receiving Addresses')}</SectionHeader>
-              {unusedActiveCurrencies.map(currencyAbbreviation => {
+              {unusedActiveWallets.map(({currencyAbbreviation, chain}) => {
                 return (
                   <TouchableOpacity
                     activeOpacity={ActiveOpacity}
                     key={currencyAbbreviation}
                     onPress={() => {
                       setWalletSelectorCurrency(currencyAbbreviation);
+                      setWalletSelectorChain(chain);
                       setWalletSelectorVisible(true);
                     }}>
                     <AddressItem>
                       <CurrencyIconAndBadge
                         coin={currencyAbbreviation}
+                        chain={chain}
                         size={25}
                       />
                       <AddressItemText>
@@ -390,7 +406,7 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
                   <AddressItemText>{t('Add Wallet')}</AddressItemText>
                   <UnusedCurrencies>
                     <UnusedCurrencyIcons>
-                      {unusedCurrencyOptions
+                      {inactiveCurrencyOptions
                         .slice(0, numVisibleCurrencyIcons)
                         .map(currencyOption => (
                           <currencyOption.img
@@ -400,10 +416,12 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
                           />
                         ))}
                     </UnusedCurrencyIcons>
-                    {unusedCurrencyOptions.length > numVisibleCurrencyIcons ? (
+                    {inactiveCurrencyOptions.length >
+                    numVisibleCurrencyIcons ? (
                       <MoreCurrenciesText>
                         +
-                        {unusedCurrencyOptions.length - numVisibleCurrencyIcons}{' '}
+                        {inactiveCurrencyOptions.length -
+                          numVisibleCurrencyIcons}{' '}
                         {t('More')}
                       </MoreCurrenciesText>
                     ) : null}
@@ -417,9 +435,10 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
           isVisible={walletSelectorVisible}
           setWalletSelectorVisible={setWalletSelectorVisible}
           autoSelectIfOnlyOneWallet={false}
-          currency={walletSelectCurrency}
+          currency={walletSelectorCurrency}
+          chain={walletSelectorChain}
           walletsAndAccounts={{
-            keyWallets: keyWalletsByCurrency[walletSelectCurrency],
+            keyWallets: keyWalletsByCurrency[walletSelectorCurrency],
             coinbaseWallets: [],
           }}
           onWalletSelect={async wallet => {
