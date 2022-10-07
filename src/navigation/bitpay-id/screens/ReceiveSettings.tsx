@@ -234,12 +234,9 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
     dispatch(
       startOnGoingProcessModal(t(OnGoingProcessMessages.GENERATING_ADDRESS)),
     );
-    let address = await dispatch(
+    const address = await dispatch(
       createWalletAddress({wallet, newAddress: true}),
     );
-    if (wallet.currencyAbbreviation === 'bch') {
-      address = 'bchreg:qr8rcy44s5hw8vq4u4874rqzxs4dcgqwqc9nyt56er';
-    }
     await dispatch(dismissOnGoingProcessModal());
     setActiveAddresses({
       ...activeAddresses,
