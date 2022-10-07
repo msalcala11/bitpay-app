@@ -321,7 +321,8 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
           {Object.keys(activeAddresses).length ? (
             <>
               <SectionHeader>{t('Active Addresses')}</SectionHeader>
-              {Object.keys(activeAddresses).map(currencyAbbreviation => {
+              {Object.values(activeAddresses).map(({currency, chain}) => {
+                const currencyAbbreviation = currency.toLowerCase();
                 const activeAddress = activeAddresses[currencyAbbreviation];
                 return (
                   <TouchableOpacity
@@ -330,7 +331,8 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
                     onPress={() => showAddressModal(activeAddress)}>
                     <AddressItem>
                       <CurrencyIconAndBadge
-                        coin={currencyAbbreviation}
+                        coin={currency}
+                        chain={chain}
                         size={25}
                       />
                       <AddressItemText>

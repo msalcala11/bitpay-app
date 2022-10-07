@@ -27,9 +27,8 @@ import {useTranslation} from 'react-i18next';
 import {ReceivingAddress} from '../../../store/bitpay-id/bitpay-id.models';
 import CopySvg from '../../../../assets/img/copy.svg';
 import CopiedSvg from '../../../../assets/img/copied-success.svg';
-import {CurrencyListIcons} from '../../../constants/SupportedCurrencyOptions';
 import haptic from '../../../components/haptic-feedback/haptic';
-import { CurrencyIconAndBadge } from '../../wallet/screens/send/confirm/Shared';
+import {CurrencyIconAndBadge} from '../../wallet/screens/send/confirm/Shared';
 
 const ModalContainer = styled.View`
   justify-content: center;
@@ -105,8 +104,6 @@ const AddressModal = ({
   const [copied, setCopied] = useState(false);
   const [removalStarted, setRemovalStarted] = useState(false);
 
-  const coin = receivingAddress?.currency.toLowerCase();
-
   const copyToClipboard = (address: string) => {
     haptic('impactLight');
     if (!copied) {
@@ -151,7 +148,11 @@ const AddressModal = ({
         {receivingAddress ? (
           <>
             <HeaderContainer>
-              <CurrencyIconAndBadge coin={coin!} size={30} />
+              <CurrencyIconAndBadge
+                coin={receivingAddress.currency}
+                chain={receivingAddress.chain}
+                size={30}
+              />
               <HeaderTitle>{receivingAddress.label}</HeaderTitle>
             </HeaderContainer>
             <AddressContainer
