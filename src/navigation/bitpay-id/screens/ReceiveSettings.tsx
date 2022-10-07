@@ -193,14 +193,16 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
     dispatch,
   });
 
-  const keyWalletsByCurrency = uniqueActiveCurrencies.reduce(
-    (keyWalletMap, currency) => ({
+  const keyWalletsByCurrency = uniqueActiveWallets.reduce(
+    (keyWalletMap, {currencyAbbreviation, chain}) => ({
       ...keyWalletMap,
-      [currency]: keyWallets
+      [`${currencyAbbreviation}_${chain}`]: keyWallets
         .map(keyWallet => ({
           ...keyWallet,
           wallets: keyWallet.wallets.filter(
-            wallet => wallet.currencyAbbreviation === walletSelectorCurrency,
+            wallet =>
+              wallet.currencyAbbreviation === walletSelectorCurrency &&
+              wallet.chain === walletSelectorChain,
           ),
         }))
         .filter(keyWallet => keyWallet.wallets.length),
@@ -440,7 +442,10 @@ const ReceiveSettings: React.FC<ReceiveSettingsProps> = ({navigation}) => {
           currency={walletSelectorCurrency}
           chain={walletSelectorChain}
           walletsAndAccounts={{
-            keyWallets: keyWalletsByCurrency[walletSelectorCurrency],
+            keyWallets:
+              keyWalletsByCurrency[
+                `${walletSelectorCurrency}_${walletSelectorChain}`
+              ],
             coinbaseWallets: [],
           }}
           onWalletSelect={async wallet => {
