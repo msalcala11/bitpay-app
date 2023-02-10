@@ -408,6 +408,7 @@ export default () => {
         );
         recoverKeys({backupKeys, keys});
       }
+      return;
     }
     if (keyLengthChange >= 1) {
       dispatch(
