@@ -41,6 +41,7 @@ import {useTheme} from 'styled-components';
 import {SlateDark, White} from '../../../styles/colors';
 import {sleep} from '../../../utils/helper-methods';
 import {Analytics} from '../../../store/analytics/analytics.effects';
+import {Bills} from './components/Bills';
 
 export enum ShopTabs {
   GIFT_CARDS = 'Gift Cards',
@@ -220,6 +221,12 @@ const ShopHome: React.FC<
     [integrations].map(obj => JSON.stringify(obj)),
   );
 
+  const memoizedBills = useCallback(
+    () => <Bills />,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const dispatch = useDispatch();
 
   useEffect(() => {
@@ -323,7 +330,7 @@ const ShopHome: React.FC<
               name={ShopTabs.SHOP_ONLINE}
               component={memoizedShopOnline}
             />
-            <Tab.Screen name={ShopTabs.BILLS} component={() => <></>} />
+            <Tab.Screen name={ShopTabs.BILLS} component={memoizedBills} />
           </Tab.Navigator>
         </ShopInnerContainer>
       </ScrollView>

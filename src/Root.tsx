@@ -7,7 +7,7 @@ import {
 import {createStackNavigator} from '@react-navigation/stack';
 import debounce from 'lodash.debounce';
 import Braze from 'react-native-appboy-sdk';
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {
   Appearance,
   AppState,
@@ -119,6 +119,7 @@ import {Keys} from './store/wallet/wallet.reducer';
 import NetworkFeePolicySettingsStack, {
   NetworkFeePolicySettingsStackParamsList,
 } from './navigation/tabs/settings/NetworkFeePolicy/NetworkFeePolicyStack';
+import BillStack, {BillStackParamList} from './navigation/tabs/shop/bill/BillStack';
 
 // ROOT NAVIGATION CONFIG
 export type RootStackParamList = {
@@ -134,6 +135,7 @@ export type RootStackParamList = {
   GiftCard: NavigatorScreenParams<GiftCardStackParamList>;
   GiftCardDeeplink: GiftCardDeeplinkScreenParamList;
   Merchant: NavigatorScreenParams<MerchantStackParamList>;
+  Bill: NavigatorScreenParams<BillStackParamList>;
   GeneralSettings: NavigatorScreenParams<GeneralSettingsStackParamList>;
   Contacts: NavigatorScreenParams<ContactsStackParamList>;
   ExternalServicesSettings: NavigatorScreenParams<ExternalServicesSettingsStackParamList>;
@@ -162,6 +164,7 @@ export enum RootStacks {
   GIFT_CARD = 'GiftCard',
   GIFT_CARD_DEEPLINK = 'GiftCardDeeplink',
   MERCHANT = 'Merchant',
+  BILL = 'Bill',
   // SETTINGS
   GENERAL_SETTINGS = 'GeneralSettings',
   EXTERNAL_SERVICES_SETTINGS = 'ExternalServicesSettings',
@@ -185,6 +188,7 @@ export type NavScreenParams = NavigatorScreenParams<
     CardActivationStackParamList &
     GiftCardStackParamList &
     MerchantStackParamList &
+    BillStackParamList &
     GeneralSettingsStackParamList &
     ContactsStackParamList &
     ExternalServicesSettingsStackParamList &
@@ -678,6 +682,7 @@ export default () => {
               component={GiftCardDeeplinkScreen}
             />
             <Root.Screen name={RootStacks.MERCHANT} component={MerchantStack} />
+            <Root.Screen name={RootStacks.BILL} component={BillStack} />
             {/* SETTINGS */}
             <Root.Screen
               name={RootStacks.GENERAL_SETTINGS}
