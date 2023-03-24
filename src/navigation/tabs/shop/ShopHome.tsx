@@ -45,11 +45,13 @@ import {Analytics} from '../../../store/analytics/analytics.effects';
 export enum ShopTabs {
   GIFT_CARDS = 'Gift Cards',
   SHOP_ONLINE = 'Shop Online',
+  BILLS = 'Bills',
 }
 
 export type ShopHomeParamList = {
   [ShopTabs.GIFT_CARDS]: undefined;
   [ShopTabs.SHOP_ONLINE]: undefined;
+  [ShopTabs.BILLS]: undefined;
 };
 
 const Tab = createMaterialTopTabNavigator();
@@ -296,7 +298,12 @@ const ShopHome: React.FC<
             style={{
               height: scrollViewHeight,
             }}
-            screenOptions={ScreenOptions(120)}
+            screenOptions={ScreenOptions({
+              fontSize: 15,
+              marginHorizontal: 3,
+              numTabs: 3,
+              tabWidth: 111,
+            })}
             screenListeners={{
               tabPress: tab => {
                 if (tab.target) {
@@ -316,6 +323,7 @@ const ShopHome: React.FC<
               name={ShopTabs.SHOP_ONLINE}
               component={memoizedShopOnline}
             />
+            <Tab.Screen name={ShopTabs.BILLS} component={() => <></>} />
           </Tab.Navigator>
         </ShopInnerContainer>
       </ScrollView>
