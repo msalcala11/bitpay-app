@@ -29,7 +29,11 @@ const BillStack = () => {
         ...baseNavigatorOptions,
         ...baseScreenOptions,
       }}>
-      <Bill.Screen name={BillScreens.CONNECT_BILLS} component={ConnectBills} />
+      <Bill.Screen
+        options={{headerShown: false}}
+        name={BillScreens.CONNECT_BILLS}
+        component={ConnectBills}
+      />
     </Bill.Navigator>
   );
 };

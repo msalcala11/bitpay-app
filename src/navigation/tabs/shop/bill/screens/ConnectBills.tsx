@@ -2,14 +2,16 @@ import React, {useState} from 'react';
 import {StackScreenProps} from '@react-navigation/stack';
 import {BillStackParamList} from '../BillStack';
 import WebView from 'react-native-webview';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
 const ConnectBills = ({
   navigation,
 }: //   route,
 //   navigation,
 StackScreenProps<BillStackParamList, 'ConnectBills'>) => {
+  const insets = useSafeAreaInsets();
   const props = {
-    token: 'pk_elem_mE6EGdCEkjmQDdbKcp7WUPma4Ppe8VzR',
+    token: 'pk_elem_7P9NFNcmTpAfXV6RtWn8N8WRCeK3Fz37',
     onExit: () => {
       navigation.pop();
     },
@@ -66,6 +68,7 @@ StackScreenProps<BillStackParamList, 'ConnectBills'>) => {
     <>
       {isWebViewShown ? (
         <WebView
+          style={{marginTop: insets.top}}
           source={{uri: `https://elements.${env}.methodfi.com/?token=${token}`}}
           originWhitelist={['https://*', 'methodelements://*']}
           onShouldStartLoadWithRequest={handleNavigationStateChange}
