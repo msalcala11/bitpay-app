@@ -42,6 +42,7 @@ import {SlateDark, White} from '../../../styles/colors';
 import {sleep} from '../../../utils/helper-methods';
 import {Analytics} from '../../../store/analytics/analytics.effects';
 import {Bills} from './components/Bills';
+import {HEIGHT} from '../../../components/styled/Containers';
 
 export enum ShopTabs {
   GIFT_CARDS = 'Gift Cards',
@@ -89,6 +90,10 @@ const getShopOnlineScrollViewHeight = (categories: Category[]) => {
   return categories.length * 273 + 350;
 };
 
+const getBillsScrollViewHeight = () => {
+  return HEIGHT;
+};
+
 const getScrollViewHeight = (
   activeTab: string,
   integrationsCategories: Category[],
@@ -104,6 +109,8 @@ const getScrollViewHeight = (
         purchasedCards,
         curations,
       )
+    : activeTab === ShopTabs.BILLS
+    ? getBillsScrollViewHeight()
     : getShopOnlineScrollViewHeight(integrationsCategories);
 };
 
@@ -317,6 +324,8 @@ const ShopHome: React.FC<
                   setActiveTab(
                     tab.target.includes(ShopTabs.GIFT_CARDS)
                       ? t('Gift Cards')
+                      : tab.target.includes(ShopTabs.BILLS)
+                      ? t('Bills')
                       : t('Shop Online'),
                   );
                 }
