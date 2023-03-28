@@ -55,7 +55,7 @@ const CautionIcon = styled(CautionIconSvg)`
 
 export const Bills = () => {
   const navigation = useNavigation();
-  const [available, setAvailable] = useState(false);
+  const [available, setAvailable] = useState(true);
 
   return (
     <>
