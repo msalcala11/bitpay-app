@@ -9,6 +9,7 @@ import {BaseText} from '../../../wallet/components/KeyDropdownOption';
 import {BillScreens} from '../bill/BillStack';
 import {SectionContainer} from './styled/ShopTabComponents';
 import {SlateDark} from '../../../../styles/colors';
+import CautionIconSvg from '../../../../../assets/img/bills/caution.svg';
 const BillsZeroState = require('../../../../../assets/img/bills/bills-zero-state.png');
 
 const Title = styled(BaseText)`
@@ -46,6 +47,10 @@ const BillsValueProp = styled.View`
 const BillsImage = styled.Image`
   width: 292px;
   height: 279px;
+`;
+
+const CautionIcon = styled(CautionIconSvg)`
+  margin-bottom: 24px;
 `;
 
 export const Bills = () => {
@@ -86,6 +91,7 @@ export const Bills = () => {
       ) : (
         <SectionContainer style={{height: HEIGHT - 270}}>
           <BillsValueProp>
+            <CautionIcon />
             <H5>Bill Pay isn't available in your area</H5>
             <Subtitle>
               Currently Bill Pay is only supported within the United States.
