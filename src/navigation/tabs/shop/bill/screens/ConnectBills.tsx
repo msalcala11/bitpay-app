@@ -11,7 +11,7 @@ const ConnectBills = ({
 StackScreenProps<BillStackParamList, 'ConnectBills'>) => {
   const insets = useSafeAreaInsets();
   const props = {
-    token: 'pk_elem_7P9NFNcmTpAfXV6RtWn8N8WRCeK3Fz37',
+    token: 'pk_elem_xhFADrPQpzbYTCHWxKWURnCLHzemKKKW',
     onExit: () => {
       navigation.pop();
     },
