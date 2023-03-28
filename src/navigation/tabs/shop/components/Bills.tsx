@@ -1,10 +1,10 @@
 import {useNavigation} from '@react-navigation/native';
-import React from 'react';
+import React, {useState} from 'react';
 import styled from 'styled-components/native';
 import {View} from 'react-native';
 import Button from '../../../../components/button/Button';
 import {HEIGHT} from '../../../../components/styled/Containers';
-import {Paragraph} from '../../../../components/styled/Text';
+import {H5, Paragraph} from '../../../../components/styled/Text';
 import {BaseText} from '../../../wallet/components/KeyDropdownOption';
 import {BillScreens} from '../bill/BillStack';
 import {SectionContainer} from './styled/ShopTabComponents';
@@ -27,7 +27,7 @@ const BoldTitle = styled(Title)`
 const Subtitle = styled(Paragraph)`
   font-size: 14px;
   line-height: 21px;
-  width: 380px;
+  width: 310px;
   margin-top: 10px;
   color: ${SlateDark};
   text-align: center;
@@ -50,34 +50,62 @@ const BillsImage = styled.Image`
 
 export const Bills = () => {
   const navigation = useNavigation();
+  const [available, setAvailable] = useState(false);
 
   return (
-    <SectionContainer style={{height: HEIGHT - 270}}>
-      <BillsValueProp>
-        <BillsImage source={BillsZeroState} />
-        <TitleContainer>
-          <Title>
-            Pay bills straight from your <BoldTitle>BitPay wallet</BoldTitle>
-          </Title>
-          <Subtitle>
-            Make payments on everything from credit cards to mortgages.
-          </Subtitle>
-        </TitleContainer>
-      </BillsValueProp>
-      <Button
-        height={50}
-        onPress={() => {
-          navigation.navigate('Bill', {
-            screen: BillScreens.CONNECT_BILLS,
-            params: {},
-          });
-        }}>
-        Connect My Bills
-      </Button>
-      <View style={{height: 10}} />
-      <Button buttonStyle={'secondary'} height={50}>
-        Login
-      </Button>
-    </SectionContainer>
+    <>
+      {available ? (
+        <SectionContainer style={{height: HEIGHT - 270}}>
+          <BillsValueProp>
+            <BillsImage source={BillsZeroState} />
+            <TitleContainer>
+              <Title>
+                Pay bills straight from your{' '}
+                <BoldTitle>BitPay wallet</BoldTitle>
+              </Title>
+              <Subtitle>
+                Make payments on everything from credit cards to mortgages.
+              </Subtitle>
+            </TitleContainer>
+          </BillsValueProp>
+          <Button
+            height={50}
+            onPress={() => {
+              navigation.navigate('Bill', {
+                screen: BillScreens.CONNECT_BILLS,
+                params: {},
+              });
+            }}>
+            Connect My Bills
+          </Button>
+          <View style={{height: 10}} />
+          <Button buttonStyle={'secondary'} height={50}>
+            Login
+          </Button>
+        </SectionContainer>
+      ) : (
+        <SectionContainer style={{height: HEIGHT - 270}}>
+          <BillsValueProp>
+            <H5>Bill Pay isn't available in your area</H5>
+            <Subtitle>
+              Currently Bill Pay is only supported within the United States.
+              However, we are constantly adding support for new locations. Check
+              back soon.
+            </Subtitle>
+          </BillsValueProp>
+          <Button
+            height={50}
+            disabled
+            onPress={() => {
+              navigation.navigate('Bill', {
+                screen: BillScreens.CONNECT_BILLS,
+                params: {},
+              });
+            }}>
+            Connect My Bills
+          </Button>
+        </SectionContainer>
+      )}
+    </>
   );
 };
