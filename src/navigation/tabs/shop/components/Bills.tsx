@@ -1,14 +1,14 @@
 import {useNavigation} from '@react-navigation/native';
 import React, {useState} from 'react';
 import styled from 'styled-components/native';
-import {View} from 'react-native';
+import {View, Image} from 'react-native';
 import Button from '../../../../components/button/Button';
 import {ActiveOpacity, HEIGHT} from '../../../../components/styled/Containers';
 import {H5, Paragraph} from '../../../../components/styled/Text';
 import {BaseText} from '../../../wallet/components/KeyDropdownOption';
 import {BillScreens} from '../bill/BillStack';
 import {SectionContainer} from './styled/ShopTabComponents';
-import {SlateDark} from '../../../../styles/colors';
+import {NeutralSlate, SlateDark} from '../../../../styles/colors';
 import CautionIconSvg from '../../../../../assets/img/bills/caution.svg';
 import AddSvg from '../../../../../assets/img/bills/add.svg';
 import RemoteImage from './RemoteImage';
@@ -81,6 +81,12 @@ const Accounts = styled.View`
 const AccountIcon = styled.View`
   height: 50px;
   width: 50px;
+  border: 1px solid #e1e4e7;
+  // border: 1px solid gray;
+  border-radius: 50px;
+  align-items: center;
+  justify-content: center;
+  padding: 1px;
 `;
 
 const AccountName = styled(BaseText)`
@@ -100,8 +106,7 @@ const Account = styled(View)`
 const AddAccountIcon = styled(AccountIcon)`
   background-color: #eceffd;
   border-radius: 50px;
-  align-items: center;
-  justify-content: center;
+  border: 0;
 `;
 
 export const Bills = () => {
@@ -122,6 +127,18 @@ export const Bills = () => {
     {
       merchantName: 'Citi',
       merchantIcon: 'https://static.methodfi.com/mch_logos/mch_302211.png',
+    },
+    {
+      merchantName: 'Capital One',
+      merchantIcon: 'https://static.methodfi.com/mch_logos/mch_301760.png',
+    },
+    {
+      merchantName: 'Credit One Bank',
+      merchantIcon: 'https://static.methodfi.com/mch_logos/mch_303534.png',
+    },
+    {
+      merchantName: 'Chase',
+      merchantIcon: 'https://static.methodfi.com/mch_logos/mch_302085.png',
     },
   ]);
 
@@ -169,22 +186,18 @@ export const Bills = () => {
               </TotalBillsBox>
               <SectionTitle>Connected accounts</SectionTitle>
               <Accounts>
-                {[...accounts, ...accounts].map(
-                  ({merchantIcon, merchantName}) => (
-                    <Account>
-                      <AccountIcon>
-                        <RemoteImage
-                          borderRadius={50}
-                          height={50}
-                          uri={merchantIcon}
-                        />
-                      </AccountIcon>
-                      <AccountName numberOfLines={1}>
-                        {merchantName}
-                      </AccountName>
-                    </Account>
-                  ),
-                )}
+                {accounts.map(({merchantIcon, merchantName}) => (
+                  <Account>
+                    <AccountIcon>
+                      <Image
+                        style={{height: 48, width: 48}}
+                        resizeMode={'contain'}
+                        source={{uri: merchantIcon}}
+                      />
+                    </AccountIcon>
+                    <AccountName numberOfLines={1}>{merchantName}</AccountName>
+                  </Account>
+                ))}
                 <TouchableOpacity
                   activeOpacity={ActiveOpacity}
                   onPress={() => console.log('hii')}>
