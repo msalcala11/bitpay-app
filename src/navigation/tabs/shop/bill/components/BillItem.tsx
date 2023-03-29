@@ -7,6 +7,7 @@ import {ActiveOpacity} from '../../../../../components/styled/Containers';
 import {H6, Paragraph} from '../../../../../components/styled/Text';
 import {Action, SlateDark, White} from '../../../../../styles/colors';
 import {BaseText} from '../../../../wallet/components/KeyDropdownOption';
+import BillStatus from './BillStatus';
 
 const ItemContainer = styled.View`
   border-radius: 8px;
@@ -37,13 +38,18 @@ const AccountBalance = styled(BaseText)`
 
 const AccountActions = styled.View`
   margin-top: 9px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
 `;
 
 const PayButton = styled.View`
   height: 32px;
   background-color: ${Action};
   border-radius: 50px;
-  max-width: 80px;
+  max-width: 90px;
+  min-width: 50px;
+  padding: 0 20px;
   align-items: center;
   justify-content: center;
 `;
@@ -51,6 +57,10 @@ const PayButton = styled.View`
 const PayButtonText = styled(Paragraph)`
   font-size: 14px;
   color: ${White};
+`;
+
+const ViewAccountLink = styled(Paragraph)`
+  color: ${Action};
 `;
 
 interface BillItemProps {
@@ -81,6 +91,10 @@ export default ({variation}: BillItemProps = {variation: 'large'}) => {
             <PayButtonText>{t('Pay Bill')}</PayButtonText>
           </PayButton>
         </TouchableOpacity>
+        <TouchableOpacity activeOpacity={ActiveOpacity} onPress={() => {}}>
+          <ViewAccountLink>View Account</ViewAccountLink>
+        </TouchableOpacity>
+        <BillStatus />
       </AccountActions>
     </ItemContainer>
   );

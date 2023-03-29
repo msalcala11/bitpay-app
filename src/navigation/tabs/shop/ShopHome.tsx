@@ -162,7 +162,7 @@ const ShopHome: React.FC<
   useLayoutEffect(() => {
     navigation.setOptions({
       headerLeft: () => null,
-      headerTitle: () => <HeaderTitle>{t('Shop with crypto')}</HeaderTitle>,
+      headerTitle: () => <HeaderTitle>{t('Pay with Crypto')}</HeaderTitle>,
     });
   }, [navigation, t]);
   const integrations = useAppSelector(selectIntegrations);
