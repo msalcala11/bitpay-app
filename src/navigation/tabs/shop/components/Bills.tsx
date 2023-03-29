@@ -7,12 +7,20 @@ import {ActiveOpacity, HEIGHT} from '../../../../components/styled/Containers';
 import {H5, Paragraph} from '../../../../components/styled/Text';
 import {BaseText} from '../../../wallet/components/KeyDropdownOption';
 import {BillScreens} from '../bill/BillStack';
-import {SectionContainer} from './styled/ShopTabComponents';
-import {NeutralSlate, SlateDark} from '../../../../styles/colors';
+import {
+  SectionContainer,
+  SectionHeader,
+  SectionHeaderButton,
+  SectionHeaderContainer,
+} from './styled/ShopTabComponents';
+import {SlateDark} from '../../../../styles/colors';
 import CautionIconSvg from '../../../../../assets/img/bills/caution.svg';
 import AddSvg from '../../../../../assets/img/bills/add.svg';
-import RemoteImage from './RemoteImage';
-import {TouchableOpacity} from 'react-native-gesture-handler';
+import {
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+} from 'react-native-gesture-handler';
+import {t} from 'i18next';
 const BillsZeroState = require('../../../../../assets/img/bills/bills-zero-state.png');
 
 const Title = styled(BaseText)`
@@ -61,6 +69,7 @@ const TotalBillsBox = styled.View`
   border-radius: 16px;
   margin-top: 16px;
   padding: 24px;
+  margin-bottom: -10px;
 `;
 
 const TotalDue = styled(BaseText)`
@@ -69,20 +78,17 @@ const TotalDue = styled(BaseText)`
   margin-bottom: 32px;
 `;
 
-const SectionTitle = styled(H5)`
-  margin-top: 32px;
-`;
-
 const Accounts = styled.View`
   flex-direction: row;
   flex-wrap: wrap;
+  margin-top: -15px;
+  padding-left: 3px;
 `;
 
 const AccountIcon = styled.View`
   height: 50px;
   width: 50px;
   border: 1px solid #e1e4e7;
-  // border: 1px solid gray;
   border-radius: 50px;
   align-items: center;
   justify-content: center;
@@ -132,14 +138,14 @@ export const Bills = () => {
       merchantName: 'Capital One',
       merchantIcon: 'https://static.methodfi.com/mch_logos/mch_301760.png',
     },
-    {
-      merchantName: 'Credit One Bank',
-      merchantIcon: 'https://static.methodfi.com/mch_logos/mch_303534.png',
-    },
-    {
-      merchantName: 'Chase',
-      merchantIcon: 'https://static.methodfi.com/mch_logos/mch_302085.png',
-    },
+    // {
+    //   merchantName: 'Credit One Bank',
+    //   merchantIcon: 'https://static.methodfi.com/mch_logos/mch_303534.png',
+    // },
+    // {
+    //   merchantName: 'Chase',
+    //   merchantIcon: 'https://static.methodfi.com/mch_logos/mch_302085.png',
+    // },
   ]);
 
   return (
@@ -184,7 +190,9 @@ export const Bills = () => {
                   View All Bills
                 </Button>
               </TotalBillsBox>
-              <SectionTitle>Connected accounts</SectionTitle>
+              <SectionHeaderContainer>
+                <SectionHeader> {t('Connected Accounts')}</SectionHeader>
+              </SectionHeaderContainer>
               <Accounts>
                 {accounts.map(({merchantIcon, merchantName}) => (
                   <Account>
@@ -201,7 +209,7 @@ export const Bills = () => {
                 <TouchableOpacity
                   activeOpacity={ActiveOpacity}
                   onPress={() => console.log('hii')}>
-                  <Account>
+                  <Account style={{marginRight: 0}}>
                     <AddAccountIcon>
                       <AddSvg />
                     </AddAccountIcon>
@@ -209,7 +217,24 @@ export const Bills = () => {
                   </Account>
                 </TouchableOpacity>
               </Accounts>
-              <SectionTitle>Upcoming Bills</SectionTitle>
+              <SectionHeaderContainer>
+                <SectionHeader> {t('Upcoming Bills')}</SectionHeader>
+                <TouchableWithoutFeedback
+                  onPress={() => {
+                    console.log('hi');
+                    // navigation.navigate('Merchant', {
+                    //   screen: MerchantScreens.MERCHANT_CATEGORY,
+                    //   params: {
+                    //     category,
+                    //     integrations: category.integrations,
+                    //   },
+                    // });
+                  }}>
+                  <SectionHeaderButton>
+                    {t('View All Bills')}
+                  </SectionHeaderButton>
+                </TouchableWithoutFeedback>
+              </SectionHeaderContainer>
             </>
           )}
         </SectionContainer>
