@@ -84,6 +84,7 @@ const Accounts = styled.View`
   flex-wrap: wrap;
   margin-top: -15px;
   padding-left: 3px;
+  margin-bottom: -15px;
 `;
 
 const AccountIcon = styled.View`
