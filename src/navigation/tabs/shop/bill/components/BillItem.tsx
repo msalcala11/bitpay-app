@@ -1,8 +1,11 @@
+import {t} from 'i18next';
 import React from 'react';
 import {Image, View} from 'react-native';
+import {TouchableOpacity} from 'react-native-gesture-handler';
 import styled from 'styled-components/native';
+import {ActiveOpacity} from '../../../../../components/styled/Containers';
 import {H6, Paragraph} from '../../../../../components/styled/Text';
-import {SlateDark} from '../../../../../styles/colors';
+import {Action, SlateDark, White} from '../../../../../styles/colors';
 import {BaseText} from '../../../../wallet/components/KeyDropdownOption';
 
 const ItemContainer = styled.View`
@@ -32,6 +35,24 @@ const AccountBalance = styled(BaseText)`
   font-size: 20px;
 `;
 
+const AccountActions = styled.View`
+  margin-top: 9px;
+`;
+
+const PayButton = styled.View`
+  height: 32px;
+  background-color: ${Action};
+  border-radius: 50px;
+  max-width: 80px;
+  align-items: center;
+  justify-content: center;
+`;
+
+const PayButtonText = styled(Paragraph)`
+  font-size: 14px;
+  color: ${White};
+`;
+
 interface BillItemProps {
   variation: 'small' | 'large';
 }
@@ -54,6 +75,13 @@ export default ({variation}: BillItemProps = {variation: 'large'}) => {
         </AccountDetails>
         <AccountBalance>$103.64</AccountBalance>
       </AccountBody>
+      <AccountActions>
+        <TouchableOpacity activeOpacity={ActiveOpacity} onPress={() => {}}>
+          <PayButton>
+            <PayButtonText>{t('Pay Bill')}</PayButtonText>
+          </PayButton>
+        </TouchableOpacity>
+      </AccountActions>
     </ItemContainer>
   );
 };
