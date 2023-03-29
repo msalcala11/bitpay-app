@@ -21,6 +21,7 @@ import {
   TouchableWithoutFeedback,
 } from 'react-native-gesture-handler';
 import {t} from 'i18next';
+import BillItem from '../bill/components/BillItem';
 const BillsZeroState = require('../../../../../assets/img/bills/bills-zero-state.png');
 
 const Title = styled(BaseText)`
@@ -235,6 +236,7 @@ export const Bills = () => {
                   </SectionHeaderButton>
                 </TouchableWithoutFeedback>
               </SectionHeaderContainer>
+              <BillItem variation="large" />
             </>
           )}
         </SectionContainer>
