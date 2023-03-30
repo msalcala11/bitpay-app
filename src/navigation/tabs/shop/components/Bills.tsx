@@ -240,7 +240,7 @@ export const Bills = () => {
               <TouchableOpacity
                 activeOpacity={ActiveOpacity}
                 onPress={() => console.log('outer')}>
-                <BillItem variation="large" />
+                <BillItem variation="small" />
               </TouchableOpacity>
             </>
           )}

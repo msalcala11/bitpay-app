@@ -32,6 +32,7 @@ const AccountDetailsLeft = styled.View`
   flex-direction: row;
   align-items: center;
   flex-grow: 1;
+  flex-shrink: 1;
 `;
 
 const AccountDetailsRight = styled.View`
@@ -86,8 +87,10 @@ export default ({variation}: BillItemProps = {variation: 'large'}) => {
             source={{uri: merchantIcon}}
           />
           <View>
-            <H6>AT&T</H6>
-            <AccountType>Cell Phone</AccountType>
+            <H6 style={{maxWidth: '88%'}} numberOfLines={1}>
+              United Airlines Visa Credit Card
+            </H6>
+            <AccountType>Credit Card</AccountType>
           </View>
         </AccountDetailsLeft>
         <AccountDetailsRight>
