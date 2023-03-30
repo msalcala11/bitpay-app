@@ -5,9 +5,11 @@ import {
   baseScreenOptions,
 } from '../../../../constants/NavigationOptions';
 import ConnectBills from './screens/ConnectBills';
+import Payments from './screens/Payments';
 
 export type BillStackParamList = {
   ConnectBills: {};
+  Payments: {merchant?: any};
   //   MerchantCategory: {
   //     category: Category;
   //     integrations: DirectIntegrationApiObject[];
@@ -17,6 +19,7 @@ export type BillStackParamList = {
 
 export enum BillScreens {
   CONNECT_BILLS = 'ConnectBills',
+  PAYMENTS = 'Payments',
 }
 
 const Bill = createStackNavigator<BillStackParamList>();
@@ -34,6 +37,7 @@ const BillStack = () => {
         name={BillScreens.CONNECT_BILLS}
         component={ConnectBills}
       />
+      <Bill.Screen name={BillScreens.PAYMENTS} component={Payments} />
     </Bill.Navigator>
   );
 };

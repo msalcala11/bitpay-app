@@ -87,8 +87,8 @@ export default ({variation}: BillItemProps = {variation: 'large'}) => {
             source={{uri: merchantIcon}}
           />
           <View>
-            <H6 style={{maxWidth: '88%'}} numberOfLines={1}>
-              United Airlines Visa Credit Card
+            <H6 style={{maxWidth: 175}} numberOfLines={1}>
+              American Express
             </H6>
             <AccountType>Credit Card</AccountType>
           </View>

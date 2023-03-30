@@ -220,17 +220,13 @@ export const Bills = () => {
                 </TouchableOpacity>
               </Accounts>
               <SectionHeaderContainer>
-                <SectionHeader> {t('Upcoming Bills')}</SectionHeader>
+                <SectionHeader>{t('Upcoming Bills')}</SectionHeader>
                 <TouchableWithoutFeedback
                   onPress={() => {
-                    console.log('hi');
-                    // navigation.navigate('Merchant', {
-                    //   screen: MerchantScreens.MERCHANT_CATEGORY,
-                    //   params: {
-                    //     category,
-                    //     integrations: category.integrations,
-                    //   },
-                    // });
+                    navigation.navigate('Bill', {
+                      screen: BillScreens.PAYMENTS,
+                      params: {},
+                    });
                   }}>
                   <SectionHeaderButton>
                     {t('View All Bills')}
@@ -239,7 +235,12 @@ export const Bills = () => {
               </SectionHeaderContainer>
               <TouchableOpacity
                 activeOpacity={ActiveOpacity}
-                onPress={() => console.log('outer')}>
+                onPress={() => {
+                  navigation.navigate('Bill', {
+                    screen: BillScreens.PAYMENTS,
+                    params: {merchant: {merchantName: 'American Express'}},
+                  });
+                }}>
                 <BillItem variation="small" />
               </TouchableOpacity>
             </>
