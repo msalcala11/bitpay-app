@@ -9,11 +9,17 @@ import {Action, SlateDark, White} from '../../../../../styles/colors';
 import {BaseText} from '../../../../wallet/components/KeyDropdownOption';
 import BillStatus from './BillStatus';
 
-const ItemContainer = styled.View`
+interface BillItemProps {
+  variation: 'small' | 'large';
+}
+
+const ItemContainer = styled.View<BillItemProps>`
   border-radius: 8px;
   border: 1px solid #e1e4e7;
-  height: 116px;
   padding: 16px;
+  padding-bottom: ${({variation}) => (variation === 'large' ? 16 : 12)}px;
+  padding-top: ${({variation}) => (variation === 'large' ? 16 : 12)}px;
+  padding-right: ${({variation}) => (variation === 'large' ? 16 : 12)}px;
 `;
 
 const AccountType = styled(Paragraph)`
@@ -22,18 +28,18 @@ const AccountType = styled(Paragraph)`
   margin-top: -5px;
 `;
 
-const AccountDetails = styled.View`
+const AccountDetailsLeft = styled.View`
   flex-direction: row;
   align-items: center;
   flex-grow: 1;
 `;
 
-const AccountBody = styled.View`
-  flex-direction: row;
+const AccountDetailsRight = styled.View`
+  align-items: flex-end;
 `;
 
-const AccountBalance = styled(BaseText)`
-  font-size: 20px;
+const AccountBody = styled.View`
+  flex-direction: row;
 `;
 
 const AccountActions = styled.View`
@@ -63,16 +69,17 @@ const ViewAccountLink = styled(Paragraph)`
   color: ${Action};
 `;
 
-interface BillItemProps {
-  variation: 'small' | 'large';
-}
+const AccountBalance = styled(BaseText)<BillItemProps>`
+  font-size: ${({variation}) => (variation === 'large' ? 20 : 16)}px;
+  margin-top: ${({variation}) => (variation === 'large' ? -1 : 3)}px;
+`;
 
 export default ({variation}: BillItemProps = {variation: 'large'}) => {
   const merchantIcon = 'https://static.methodfi.com/mch_logos/mch_300485.png';
   return (
-    <ItemContainer>
+    <ItemContainer variation={variation}>
       <AccountBody>
-        <AccountDetails>
+        <AccountDetailsLeft>
           <Image
             style={{height: 30, width: 30, marginRight: 8, marginTop: -4}}
             resizeMode={'contain'}
@@ -82,20 +89,29 @@ export default ({variation}: BillItemProps = {variation: 'large'}) => {
             <H6>AT&T</H6>
             <AccountType>Cell Phone</AccountType>
           </View>
-        </AccountDetails>
-        <AccountBalance>$103.64</AccountBalance>
+        </AccountDetailsLeft>
+        <AccountDetailsRight>
+          {variation === 'small' ? <BillStatus /> : null}
+          <AccountBalance variation={variation}>$103.64</AccountBalance>
+        </AccountDetailsRight>
       </AccountBody>
-      <AccountActions>
-        <TouchableOpacity activeOpacity={ActiveOpacity} onPress={() => {}}>
-          <PayButton>
-            <PayButtonText>{t('Pay Bill')}</PayButtonText>
-          </PayButton>
-        </TouchableOpacity>
-        <TouchableOpacity activeOpacity={ActiveOpacity} onPress={() => {}}>
-          <ViewAccountLink>View Account</ViewAccountLink>
-        </TouchableOpacity>
-        <BillStatus />
-      </AccountActions>
+      {variation === 'large' ? (
+        <AccountActions>
+          <TouchableOpacity
+            activeOpacity={ActiveOpacity}
+            onPress={() => console.log('pay bill')}>
+            <PayButton>
+              <PayButtonText>{t('Pay Bill')}</PayButtonText>
+            </PayButton>
+          </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={ActiveOpacity}
+            onPress={() => console.log('view account')}>
+            <ViewAccountLink>View Account</ViewAccountLink>
+          </TouchableOpacity>
+          <BillStatus />
+        </AccountActions>
+      ) : null}
     </ItemContainer>
   );
 };

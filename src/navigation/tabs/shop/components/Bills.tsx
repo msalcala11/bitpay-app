@@ -197,7 +197,7 @@ export const Bills = () => {
               </SectionHeaderContainer>
               <Accounts>
                 {accounts.map(({merchantIcon, merchantName}) => (
-                  <Account>
+                  <Account key={merchantName}>
                     <AccountIcon>
                       <Image
                         style={{height: 48, width: 48}}
@@ -237,7 +237,11 @@ export const Bills = () => {
                   </SectionHeaderButton>
                 </TouchableWithoutFeedback>
               </SectionHeaderContainer>
-              <BillItem variation="large" />
+              <TouchableOpacity
+                activeOpacity={ActiveOpacity}
+                onPress={() => console.log('outer')}>
+                <BillItem variation="large" />
+              </TouchableOpacity>
             </>
           )}
         </SectionContainer>
