@@ -188,7 +188,15 @@ export const Bills = () => {
               <TotalBillsBox>
                 <Paragraph>Total Bills Due</Paragraph>
                 <TotalDue>$1462.14</TotalDue>
-                <Button buttonStyle={'secondary'} height={50}>
+                <Button
+                  buttonStyle={'secondary'}
+                  height={50}
+                  onPress={() => {
+                    navigation.navigate('Bill', {
+                      screen: BillScreens.PAYMENTS,
+                      params: {},
+                    });
+                  }}>
                   View All Bills
                 </Button>
               </TotalBillsBox>
