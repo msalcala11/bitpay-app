@@ -250,6 +250,7 @@ export const Bills = () => {
                 accounts={accounts}
                 variation={'large'}
                 navigation={navigation}
+                billStatus={'dueSoon'}
                 onPress={(account: any) => {
                   navigation.navigate('Bill', {
                     screen: BillScreens.PAYMENTS,

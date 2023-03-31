@@ -7,12 +7,13 @@ import {ActiveOpacity} from '../../../../../components/styled/Containers';
 import {H6, Paragraph} from '../../../../../components/styled/Text';
 import {Action, SlateDark, White} from '../../../../../styles/colors';
 import {BaseText} from '../../../../wallet/components/KeyDropdownOption';
-import BillStatus from './BillStatus';
+import BillStatus, {BillStatusString} from './BillStatus';
 
 interface BillItemProps {
   account: any;
   variation: 'small' | 'large';
   onViewAccount: (account: any) => void;
+  billStatus: BillStatusString;
 }
 
 const ItemContainer = styled.View<Partial<BillItemProps>>`
@@ -79,10 +80,11 @@ const AccountBalance = styled(BaseText)<Partial<BillItemProps>>`
 `;
 
 export default (
-  {account, variation, onViewAccount}: BillItemProps = {
+  {account, variation, onViewAccount, billStatus}: BillItemProps = {
     account: {},
     variation: 'large',
     onViewAccount: (_: any) => {},
+    billStatus: 'dueSoon',
   },
 ) => {
   return (
@@ -102,7 +104,7 @@ export default (
           </View>
         </AccountDetailsLeft>
         <AccountDetailsRight>
-          {variation === 'small' ? <BillStatus /> : null}
+          {variation === 'small' ? <BillStatus status={billStatus} /> : null}
           <AccountBalance variation={variation}>$103.64</AccountBalance>
         </AccountDetailsRight>
       </AccountBody>
@@ -120,7 +122,7 @@ export default (
             onPress={() => onViewAccount(account)}>
             <ViewAccountLink>View Account</ViewAccountLink>
           </TouchableOpacity>
-          <BillStatus />
+          <BillStatus status={billStatus} />
         </AccountActions>
       ) : null}
     </ItemContainer>

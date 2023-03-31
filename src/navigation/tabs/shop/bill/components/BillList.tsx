@@ -3,7 +3,7 @@ import {TouchableOpacity} from 'react-native-gesture-handler';
 import {ActiveOpacity} from '../../../../../components/styled/Containers';
 import BillItem from './BillItem';
 
-export const BillList = ({accounts, variation, onPress}: any) => {
+export const BillList = ({accounts, variation, onPress, billStatus}: any) => {
   return accounts.map((account: any) => (
     <TouchableOpacity
       key={account.merchantName}
@@ -15,6 +15,7 @@ export const BillList = ({accounts, variation, onPress}: any) => {
         account={account}
         variation={variation}
         onViewAccount={() => onPress(account)}
+        billStatus={billStatus}
       />
     </TouchableOpacity>
   ));

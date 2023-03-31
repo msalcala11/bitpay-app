@@ -134,6 +134,7 @@ StackScreenProps<BillStackParamList, 'Payments'>) => {
               <BillList
                 accounts={account ? [account] : accounts}
                 variation={'small'}
+                billStatus={'dueSoon'}
               />
             </View>
           )}
@@ -143,7 +144,15 @@ StackScreenProps<BillStackParamList, 'Payments'>) => {
         />
         <Tab.Screen
           name="Past"
-          component={() => <></>}
+          component={() => (
+            <View style={{padding: 16}}>
+              <BillList
+                accounts={account ? [account] : accounts}
+                variation={'small'}
+                billStatus={'complete'}
+              />
+            </View>
+          )}
           options={{tabBarLabel: 'Past Payments'}}
         />
       </Tab.Navigator>
