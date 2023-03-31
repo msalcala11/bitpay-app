@@ -65,7 +65,7 @@ const Payments = ({
 }: //   route,
 //   navigation,
 StackScreenProps<BillStackParamList, 'Payments'>) => {
-  const {merchant} = route.params;
+  const {account, accounts} = route.params;
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -73,8 +73,8 @@ StackScreenProps<BillStackParamList, 'Payments'>) => {
       headerTitle: () => {
         return (
           <HeaderTitle>
-            {merchant
-              ? t(`${merchant.merchantName} Payments`)
+            {account
+              ? t(`${account.merchantName} Payments`)
               : t('All Payments')}
           </HeaderTitle>
         );
@@ -87,20 +87,20 @@ StackScreenProps<BillStackParamList, 'Payments'>) => {
         <AmountDue>$103.64</AmountDue>
         <DueDate>Amount due: 01/31/23</DueDate>
         <Button height={50} onPress={() => console.log('hi')}>
-          {merchant ? t('Pay Bill') : t('Pay All Bills')}
+          {account ? t('Pay Bill') : t('Pay All Bills')}
         </Button>
       </HeroSection>
-      {merchant ? (
+      {account ? (
         <AccountDetails>
           <AccountIcon>
             <Image
               style={{height: 40, width: 40}}
               resizeMode={'contain'}
-              source={{uri: merchant.merchantIcon}}
+              source={{uri: account.merchantIcon}}
             />
           </AccountIcon>
           <View>
-            <H6>{merchant.merchantName}</H6>
+            <H6>{account.merchantName}</H6>
             <Paragraph style={{color: SlateDark}}>
               Credit Card ****1234
             </Paragraph>
@@ -131,11 +131,14 @@ StackScreenProps<BillStackParamList, 'Payments'>) => {
           name="Current"
           component={() => (
             <View style={{padding: 16}}>
-              <BillList accounts={[1]} variation={'small'} />
+              <BillList
+                accounts={account ? [account] : accounts}
+                variation={'small'}
+              />
             </View>
           )}
           options={{
-            tabBarLabel: merchant ? t('Current Bill') : t('Current Bills'),
+            tabBarLabel: account ? t('Current Bill') : t('Current Bills'),
           }}
         />
         <Tab.Screen

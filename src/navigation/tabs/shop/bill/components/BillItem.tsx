@@ -10,10 +10,11 @@ import {BaseText} from '../../../../wallet/components/KeyDropdownOption';
 import BillStatus from './BillStatus';
 
 interface BillItemProps {
+  account: any;
   variation: 'small' | 'large';
 }
 
-const ItemContainer = styled.View<BillItemProps>`
+const ItemContainer = styled.View<Partial<BillItemProps>>`
   border-radius: 8px;
   border: 1px solid #e1e4e7;
   padding: 16px;
@@ -71,13 +72,14 @@ const ViewAccountLink = styled(Paragraph)`
   color: ${Action};
 `;
 
-const AccountBalance = styled(BaseText)<BillItemProps>`
+const AccountBalance = styled(BaseText)<Partial<BillItemProps>>`
   font-size: ${({variation}) => (variation === 'large' ? 20 : 16)}px;
   margin-top: ${({variation}) => (variation === 'large' ? -1 : 3)}px;
 `;
 
-export default ({variation}: BillItemProps = {variation: 'large'}) => {
-  const merchantIcon = 'https://static.methodfi.com/mch_logos/mch_300485.png';
+export default (
+  {account, variation}: BillItemProps = {account: {}, variation: 'large'},
+) => {
   return (
     <ItemContainer variation={variation}>
       <AccountBody>
@@ -85,11 +87,11 @@ export default ({variation}: BillItemProps = {variation: 'large'}) => {
           <Image
             style={{height: 30, width: 30, marginRight: 8, marginTop: -4}}
             resizeMode={'contain'}
-            source={{uri: merchantIcon}}
+            source={{uri: account.merchantIcon}}
           />
           <View>
             <H6 style={{maxWidth: 175}} numberOfLines={1}>
-              American Express
+              {account.merchantName}
             </H6>
             <AccountType>Credit Card</AccountType>
           </View>

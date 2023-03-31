@@ -91,7 +91,7 @@ const getShopOnlineScrollViewHeight = (categories: Category[]) => {
 };
 
 const getBillsScrollViewHeight = () => {
-  return HEIGHT;
+  return HEIGHT + 300;
 };
 
 const getScrollViewHeight = (

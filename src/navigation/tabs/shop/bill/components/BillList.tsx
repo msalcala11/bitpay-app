@@ -10,7 +10,7 @@ export const BillList = ({accounts, variation, onPress}: any) => {
       onPress={() => {
         onPress(account);
       }}>
-      <BillItem variation={variation} />
+      <BillItem account={account} variation={variation} />
     </TouchableOpacity>
   ));
 };

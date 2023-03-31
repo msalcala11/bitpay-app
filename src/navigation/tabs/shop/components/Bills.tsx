@@ -21,7 +21,6 @@ import {
   TouchableWithoutFeedback,
 } from 'react-native-gesture-handler';
 import {t} from 'i18next';
-import BillItem from '../bill/components/BillItem';
 import {BillList} from '../bill/components/BillList';
 const BillsZeroState = require('../../../../../assets/img/bills/bills-zero-state.png');
 
@@ -195,7 +194,7 @@ export const Bills = () => {
                   onPress={() => {
                     navigation.navigate('Bill', {
                       screen: BillScreens.PAYMENTS,
-                      params: {},
+                      params: {accounts},
                     });
                   }}>
                   View All Bills
@@ -219,7 +218,12 @@ export const Bills = () => {
                 ))}
                 <TouchableOpacity
                   activeOpacity={ActiveOpacity}
-                  onPress={() => console.log('hii')}>
+                  onPress={() =>
+                    navigation.navigate('Bill', {
+                      screen: BillScreens.CONNECT_BILLS,
+                      params: {},
+                    })
+                  }>
                   <Account style={{marginRight: 0}}>
                     <AddAccountIcon>
                       <AddSvg />
@@ -249,20 +253,10 @@ export const Bills = () => {
                 onPress={(account: any) => {
                   navigation.navigate('Bill', {
                     screen: BillScreens.PAYMENTS,
-                    params: {merchant: account},
+                    params: {account},
                   });
                 }}
               />
-              {/* <TouchableOpacity
-                activeOpacity={ActiveOpacity}
-                onPress={() => {
-                  navigation.navigate('Bill', {
-                    screen: BillScreens.PAYMENTS,
-                    params: {merchant: accounts[0]},
-                  });
-                }}>
-                <BillItem variation="small" />
-              </TouchableOpacity> */}
             </>
           )}
         </SectionContainer>
