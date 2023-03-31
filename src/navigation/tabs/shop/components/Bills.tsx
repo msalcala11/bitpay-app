@@ -246,7 +246,7 @@ export const Bills = () => {
                 onPress={() => {
                   navigation.navigate('Bill', {
                     screen: BillScreens.PAYMENTS,
-                    params: {merchant: {merchantName: 'American Express'}},
+                    params: {merchant: accounts[0]},
                   });
                 }}>
                 <BillItem variation="small" />

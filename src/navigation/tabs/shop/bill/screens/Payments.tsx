@@ -2,10 +2,16 @@ import React, {useLayoutEffect} from 'react';
 import {StackScreenProps} from '@react-navigation/stack';
 import {BillStackParamList} from '../BillStack';
 import {t} from 'i18next';
-import {HeaderTitle, Paragraph} from '../../../../../components/styled/Text';
+import {
+  H6,
+  HeaderTitle,
+  Paragraph,
+} from '../../../../../components/styled/Text';
 import styled from 'styled-components/native';
 import Button from '../../../../../components/button/Button';
 import {BaseText} from '../../../../wallet/components/KeyDropdownOption';
+import {Image, View} from 'react-native';
+import {SlateDark} from '../../../../../styles/colors';
 
 const HeroSection = styled.View`
   background-color: #eceffd;
@@ -23,6 +29,24 @@ const AmountDue = styled(BaseText)`
 const DueDate = styled(Paragraph)`
   margin-bottom: 20px;
   text-align: center;
+`;
+
+const AccountDetails = styled.View`
+  background-color: #fbfbff;
+  flex-direction: row;
+  align-items: center;
+  padding: 16px;
+`;
+
+const AccountIcon = styled.View`
+  height: 40px;
+  width: 40px;
+  //   border: 1px solid #e1e4e7;
+  border-radius: 40px;
+  align-items: center;
+  justify-content: center;
+  margin-right: 16px;
+  //   padding: 1px;
 `;
 
 const Payments = ({
@@ -48,13 +72,32 @@ StackScreenProps<BillStackParamList, 'Payments'>) => {
     });
   });
   return (
-    <HeroSection>
-      <AmountDue>$103.64</AmountDue>
-      <DueDate>Amount due: 01/31/23</DueDate>
-      <Button height={50} onPress={() => console.log('hi')}>
-        Pay Bill
-      </Button>
-    </HeroSection>
+    <>
+      <HeroSection>
+        <AmountDue>$103.64</AmountDue>
+        <DueDate>Amount due: 01/31/23</DueDate>
+        <Button height={50} onPress={() => console.log('hi')}>
+          {merchant ? t('Pay Bill') : t('Pay All Bills')}
+        </Button>
+      </HeroSection>
+      {merchant ? (
+        <AccountDetails>
+          <AccountIcon>
+            <Image
+              style={{height: 40, width: 40}}
+              resizeMode={'contain'}
+              source={{uri: merchant.merchantIcon}}
+            />
+          </AccountIcon>
+          <View>
+            <H6>{merchant.merchantName}</H6>
+            <Paragraph style={{color: SlateDark}}>
+              Credit Card ****1234
+            </Paragraph>
+          </View>
+        </AccountDetails>
+      ) : null}
+    </>
   );
 };
 
