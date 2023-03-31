@@ -11,7 +11,10 @@ import styled from 'styled-components/native';
 import Button from '../../../../../components/button/Button';
 import {BaseText} from '../../../../wallet/components/KeyDropdownOption';
 import {Image, View} from 'react-native';
-import {SlateDark} from '../../../../../styles/colors';
+import {Action, Black, LightBlack, SlateDark, White} from '../../../../../styles/colors';
+import {createMaterialTopTabNavigator} from '@react-navigation/material-top-tabs';
+
+const Tab = createMaterialTopTabNavigator();
 
 const HeroSection = styled.View`
   background-color: #eceffd;
@@ -97,6 +100,39 @@ StackScreenProps<BillStackParamList, 'Payments'>) => {
           </View>
         </AccountDetails>
       ) : null}
+      <Tab.Navigator
+        initialRouteName="Current"
+        screenOptions={{
+          tabBarActiveTintColor: Black,
+          tabBarInactiveTintColor: LightBlack,
+          tabBarLabelStyle: {
+            fontSize: 16,
+            textTransform: 'none',
+            fontWeight: '500',
+            // paddingVertical: Platform.select({
+            //   ios: 4,
+            //   android: 2,
+            // }),
+          },
+          tabBarIndicatorStyle: {
+            backgroundColor: Action,
+            height: 3,
+          },
+          tabBarStyle: {backgroundColor: White, height: 63, paddingTop: 6},
+        }}>
+        <Tab.Screen
+          name="Current"
+          component={() => <></>}
+          options={{
+            tabBarLabel: merchant ? t('Current Bill') : t('Current Bills'),
+          }}
+        />
+        <Tab.Screen
+          name="Past"
+          component={() => <></>}
+          options={{tabBarLabel: 'Past Payments'}}
+        />
+      </Tab.Navigator>
     </>
   );
 };
