@@ -59,6 +59,10 @@ const AccountIcon = styled.View`
   //   padding: 1px;
 `;
 
+const BillListContainer = styled.View`
+  padding: 16px;
+`;
+
 const Payments = ({
   navigation,
   route,
@@ -130,13 +134,13 @@ StackScreenProps<BillStackParamList, 'Payments'>) => {
         <Tab.Screen
           name="Current"
           component={() => (
-            <View style={{padding: 16}}>
+            <BillListContainer>
               <BillList
                 accounts={account ? [account] : accounts}
                 variation={'small'}
                 billStatus={'dueSoon'}
               />
-            </View>
+            </BillListContainer>
           )}
           options={{
             tabBarLabel: account ? t('Current Bill') : t('Current Bills'),
@@ -145,13 +149,13 @@ StackScreenProps<BillStackParamList, 'Payments'>) => {
         <Tab.Screen
           name="Past"
           component={() => (
-            <View style={{padding: 16}}>
+            <BillListContainer>
               <BillList
                 accounts={account ? [account] : accounts}
                 variation={'small'}
                 billStatus={'complete'}
               />
-            </View>
+            </BillListContainer>
           )}
           options={{tabBarLabel: 'Past Payments'}}
         />
