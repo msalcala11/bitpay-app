@@ -12,16 +12,19 @@ import styled from 'styled-components/native';
 import Button from '../../../../../components/button/Button';
 import {BaseText} from '../../../../wallet/components/KeyDropdownOption';
 import {Image, View} from 'react-native';
-import {SlateDark} from '../../../../../styles/colors';
+import {Black, SlateDark} from '../../../../../styles/colors';
 import {SectionContainer} from '../../components/styled/ShopTabComponents';
+import {BillStatusString} from '../components/BillStatus';
 
-const HeroSection = styled.View`
-  background-color: #eceffd;
+const HeroSection = styled.View<{status: BillStatusString}>`
+  background-color: ${({status}) =>
+    status === 'complete' ? '#CBF3E880' : '#eceffd'};
   width: 100%;
   padding: 16px;
 `;
 
-const AmountDue = styled(BaseText)`
+const AmountDue = styled(BaseText)<{status: BillStatusString}>`
+  color: ${({status}) => (status === 'complete' ? '#0B754A' : Black)};
   font-size: 50px;
   font-weight: 500;
   text-align: center;
@@ -70,8 +73,8 @@ const LineItemLabel = styled(H7)`
 const Payment = ({
   navigation,
   route,
-}: StackScreenProps<BillStackParamList, 'Payments'>) => {
-  const {account, accounts} = route.params;
+}: StackScreenProps<BillStackParamList, 'Payment'>) => {
+  const {account, billStatus} = route.params;
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -83,11 +86,12 @@ const Payment = ({
   });
   return (
     <>
-      <HeroSection>
-        <AmountDue>$103.64</AmountDue>
-        <DueDate>Current Balance</DueDate>
+      <HeroSection status={billStatus}>
+        <AmountDue status={billStatus}>$103.64</AmountDue>
+        <DueDate>
+          {billStatus === 'complete' ? t('Amount Paid') : t('Current Balance')}
+        </DueDate>
       </HeroSection>
-      {/* {account ? ( */}
       <AccountDetails>
         <AccountIcon>
           <Image
@@ -103,16 +107,25 @@ const Payment = ({
       </AccountDetails>
       <SectionContainer style={{marginTop: 20, flexGrow: 1}}>
         <LineItems>
+          {billStatus === 'complete' ? (
+            <LineItem>
+              <LineItemLabel>Payment completed on</LineItemLabel>
+              <Paragraph>Mar 3, 2023</Paragraph>
+            </LineItem>
+          ) : (
+            <LineItem>
+              <LineItemLabel>Amount due</LineItemLabel>
+              <Paragraph>$25.00</Paragraph>
+            </LineItem>
+          )}
           <LineItem>
-            <LineItemLabel>Amount due</LineItemLabel>
-            <Paragraph>$25.00</Paragraph>
-          </LineItem>
-          <LineItem>
-            <LineItemLabel>Next Payment Date</LineItemLabel>
-            <Paragraph>April 01, 2023</Paragraph>
+            <LineItemLabel>Next payment date</LineItemLabel>
+            <Paragraph>April 1, 2023</Paragraph>
           </LineItem>
         </LineItems>
-        <Button style={{marginBottom: 40}}>Pay Bill</Button>
+        {billStatus === 'dueSoon' ? (
+          <Button style={{marginBottom: 40}}>Pay Bill</Button>
+        ) : null}
       </SectionContainer>
     </>
   );

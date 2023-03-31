@@ -136,6 +136,7 @@ const Payments = ({
                 onPress={accountObj => {
                   navigation.navigate(BillScreens.PAYMENT, {
                     account: accountObj,
+                    billStatus: 'dueSoon',
                   });
                 }}
               />
@@ -156,6 +157,7 @@ const Payments = ({
                 onPress={accountObj => {
                   navigation.navigate(BillScreens.PAYMENT, {
                     account: accountObj,
+                    billStatus: 'complete',
                   });
                 }}
               />

@@ -7,10 +7,11 @@ import {
 import ConnectBills from './screens/ConnectBills';
 import Payments from './screens/Payments';
 import Payment from './screens/Payment';
+import {BillStatusString} from './components/BillStatus';
 
 export type BillStackParamList = {
   ConnectBills: {};
-  Payment: {account: any};
+  Payment: {account: any; billStatus: BillStatusString};
   Payments: {account?: any; accounts?: any[]};
 };
 
