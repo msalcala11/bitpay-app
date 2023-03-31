@@ -88,7 +88,14 @@ const Payments = ({
       <HeroSection>
         <AmountDue>$103.64</AmountDue>
         <DueDate>Amount due: 01/31/23</DueDate>
-        <Button height={50} onPress={() => console.log('hi')}>
+        <Button
+          height={50}
+          onPress={() => {
+            navigation.navigate(BillScreens.PAYMENT, {
+              account,
+              billStatus: 'dueSoon',
+            });
+          }}>
           {account ? t('Pay Bill') : t('Pay All Bills')}
         </Button>
       </HeroSection>
