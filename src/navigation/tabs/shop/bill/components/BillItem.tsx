@@ -20,6 +20,7 @@ const ItemContainer = styled.View<BillItemProps>`
   padding-bottom: ${({variation}) => (variation === 'large' ? 16 : 12)}px;
   padding-top: ${({variation}) => (variation === 'large' ? 16 : 12)}px;
   padding-right: ${({variation}) => (variation === 'large' ? 16 : 12)}px;
+  margin-bottom: 10px;
 `;
 
 const AccountType = styled(Paragraph)`

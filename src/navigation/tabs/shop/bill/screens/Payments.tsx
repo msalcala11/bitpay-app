@@ -11,8 +11,15 @@ import styled from 'styled-components/native';
 import Button from '../../../../../components/button/Button';
 import {BaseText} from '../../../../wallet/components/KeyDropdownOption';
 import {Image, View} from 'react-native';
-import {Action, Black, LightBlack, SlateDark, White} from '../../../../../styles/colors';
+import {
+  Action,
+  Black,
+  LightBlack,
+  SlateDark,
+  White,
+} from '../../../../../styles/colors';
 import {createMaterialTopTabNavigator} from '@react-navigation/material-top-tabs';
+import {BillList} from '../components/BillList';
 
 const Tab = createMaterialTopTabNavigator();
 
@@ -122,7 +129,11 @@ StackScreenProps<BillStackParamList, 'Payments'>) => {
         }}>
         <Tab.Screen
           name="Current"
-          component={() => <></>}
+          component={() => (
+            <View style={{padding: 16}}>
+              <BillList accounts={[1]} variation={'small'} />
+            </View>
+          )}
           options={{
             tabBarLabel: merchant ? t('Current Bill') : t('Current Bills'),
           }}

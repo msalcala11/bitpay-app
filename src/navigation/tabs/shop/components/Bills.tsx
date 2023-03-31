@@ -22,6 +22,7 @@ import {
 } from 'react-native-gesture-handler';
 import {t} from 'i18next';
 import BillItem from '../bill/components/BillItem';
+import {BillList} from '../bill/components/BillList';
 const BillsZeroState = require('../../../../../assets/img/bills/bills-zero-state.png');
 
 const Title = styled(BaseText)`
@@ -241,7 +242,18 @@ export const Bills = () => {
                   </SectionHeaderButton>
                 </TouchableWithoutFeedback>
               </SectionHeaderContainer>
-              <TouchableOpacity
+              <BillList
+                accounts={accounts}
+                variation={'large'}
+                navigation={navigation}
+                onPress={(account: any) => {
+                  navigation.navigate('Bill', {
+                    screen: BillScreens.PAYMENTS,
+                    params: {merchant: account},
+                  });
+                }}
+              />
+              {/* <TouchableOpacity
                 activeOpacity={ActiveOpacity}
                 onPress={() => {
                   navigation.navigate('Bill', {
@@ -250,7 +262,7 @@ export const Bills = () => {
                   });
                 }}>
                 <BillItem variation="small" />
-              </TouchableOpacity>
+              </TouchableOpacity> */}
             </>
           )}
         </SectionContainer>
