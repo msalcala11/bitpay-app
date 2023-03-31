@@ -9,12 +9,7 @@ import Payments from './screens/Payments';
 
 export type BillStackParamList = {
   ConnectBills: {};
-  Payments: {account?: any; accounts: any[]};
-  //   MerchantCategory: {
-  //     category: Category;
-  //     integrations: DirectIntegrationApiObject[];
-  //   };
-  //   MerchantDetails: {directIntegration: DirectIntegrationApiObject};
+  Payments: {account?: any; accounts?: any[]};
 };
 
 export enum BillScreens {

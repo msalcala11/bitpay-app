@@ -12,6 +12,7 @@ import BillStatus from './BillStatus';
 interface BillItemProps {
   account: any;
   variation: 'small' | 'large';
+  onViewAccount: (account: any) => void;
 }
 
 const ItemContainer = styled.View<Partial<BillItemProps>>`
@@ -78,7 +79,11 @@ const AccountBalance = styled(BaseText)<Partial<BillItemProps>>`
 `;
 
 export default (
-  {account, variation}: BillItemProps = {account: {}, variation: 'large'},
+  {account, variation, onViewAccount}: BillItemProps = {
+    account: {},
+    variation: 'large',
+    onViewAccount: (_: any) => {},
+  },
 ) => {
   return (
     <ItemContainer variation={variation}>
@@ -112,7 +117,7 @@ export default (
           </TouchableOpacity>
           <TouchableOpacity
             activeOpacity={ActiveOpacity}
-            onPress={() => console.log('view account')}>
+            onPress={() => onViewAccount(account)}>
             <ViewAccountLink>View Account</ViewAccountLink>
           </TouchableOpacity>
           <BillStatus />

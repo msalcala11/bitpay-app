@@ -238,7 +238,7 @@ export const Bills = () => {
                   onPress={() => {
                     navigation.navigate('Bill', {
                       screen: BillScreens.PAYMENTS,
-                      params: {},
+                      params: {accounts},
                     });
                   }}>
                   <SectionHeaderButton>
