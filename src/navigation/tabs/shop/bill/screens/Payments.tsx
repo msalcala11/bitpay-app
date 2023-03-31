@@ -1,6 +1,6 @@
 import React, {useLayoutEffect} from 'react';
 import {StackScreenProps} from '@react-navigation/stack';
-import {BillStackParamList} from '../BillStack';
+import {BillScreens, BillStackParamList} from '../BillStack';
 import {t} from 'i18next';
 import {
   H6,
@@ -133,6 +133,11 @@ const Payments = ({
                 accounts={account ? [account] : accounts}
                 variation={'small'}
                 billStatus={'dueSoon'}
+                onPress={accountObj => {
+                  navigation.navigate(BillScreens.PAYMENT, {
+                    account: accountObj,
+                  });
+                }}
               />
             </BillListContainer>
           )}
@@ -148,6 +153,11 @@ const Payments = ({
                 accounts={account ? [account] : accounts}
                 variation={'small'}
                 billStatus={'complete'}
+                onPress={accountObj => {
+                  navigation.navigate(BillScreens.PAYMENT, {
+                    account: accountObj,
+                  });
+                }}
               />
             </BillListContainer>
           )}

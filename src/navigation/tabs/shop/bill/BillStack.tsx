@@ -6,14 +6,17 @@ import {
 } from '../../../../constants/NavigationOptions';
 import ConnectBills from './screens/ConnectBills';
 import Payments from './screens/Payments';
+import Payment from './screens/Payment';
 
 export type BillStackParamList = {
   ConnectBills: {};
+  Payment: {account: any};
   Payments: {account?: any; accounts?: any[]};
 };
 
 export enum BillScreens {
   CONNECT_BILLS = 'ConnectBills',
+  PAYMENT = 'Payment',
   PAYMENTS = 'Payments',
 }
 
@@ -33,6 +36,7 @@ const BillStack = () => {
         component={ConnectBills}
       />
       <Bill.Screen name={BillScreens.PAYMENTS} component={Payments} />
+      <Bill.Screen name={BillScreens.PAYMENT} component={Payment} />
     </Bill.Navigator>
   );
 };
