@@ -66,9 +66,7 @@ const BillListContainer = styled.View`
 const Payments = ({
   navigation,
   route,
-}: //   route,
-//   navigation,
-StackScreenProps<BillStackParamList, 'Payments'>) => {
+}: StackScreenProps<BillStackParamList, 'Payments'>) => {
   const {account, accounts} = route.params;
 
   useLayoutEffect(() => {
@@ -120,10 +118,6 @@ StackScreenProps<BillStackParamList, 'Payments'>) => {
             fontSize: 16,
             textTransform: 'none',
             fontWeight: '500',
-            // paddingVertical: Platform.select({
-            //   ios: 4,
-            //   android: 2,
-            // }),
           },
           tabBarIndicatorStyle: {
             backgroundColor: Action,
