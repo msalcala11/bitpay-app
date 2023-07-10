@@ -210,7 +210,7 @@ const PayBill = ({
                   />
                 </CheckboxContainer>
                 <LineItemLabelContainer>
-                  <Paragraph>Minimum Payment</Paragraph>
+                  <Paragraph>Minimum Payment Due</Paragraph>
                   {account[account.type].paddedNextPaymentDueDate ? (
                     <LineItemSublabel>
                       Due{' '}
