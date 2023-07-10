@@ -166,7 +166,7 @@ export const Bills = () => {
                   </SectionHeaderContainer>
                   <BillList
                     accounts={accounts}
-                    variation={'large'}
+                    variation={'pay'}
                     onPress={(account: any) =>
                       navigation.navigate('Bill', {
                         screen: BillScreens.PAY_BILL,

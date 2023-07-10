@@ -95,7 +95,7 @@ const getShopOnlineScrollViewHeight = (categories: Category[]) => {
 };
 
 const getBillsScrollViewHeight = (billPayAccounts: BillPayAccount[]) => {
-  const billsListHeight = 130 * billPayAccounts.length + 300;
+  const billsListHeight = 90 * billPayAccounts.length + 300;
   const topShopTabsHeight = 80;
   const max = Math.max(HEIGHT - topShopTabsHeight, billsListHeight);
   return max;

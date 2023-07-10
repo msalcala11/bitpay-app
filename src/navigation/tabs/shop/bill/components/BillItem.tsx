@@ -30,7 +30,7 @@ import {CustomErrorMessage} from '../../../../wallet/components/ErrorMessages';
 interface BillItemProps {
   account: BillPayAccount;
   payment?: BillPayment;
-  variation: 'small' | 'large' | 'header';
+  variation: 'small' | 'large' | 'header' | 'pay';
   expanded?: boolean;
   selectedAmount?: number;
 }
@@ -63,7 +63,7 @@ const AccountDetailsLeft = styled.View`
 
 const AccountDetailsRight = styled.View<Partial<BillItemProps>>`
   ${({variation}) =>
-    variation === 'header'
+    variation === 'header' || variation === 'pay'
       ? 'align-items: center; flex-direction:row;'
       : 'align-items: flex-end;'}
 `;
@@ -175,23 +175,33 @@ export default ({
             <>
               {account.isPayable || !!payment ? (
                 <>
-                  <AccountBalance variation={variation}>
-                    {formatFiatAmount(
-                      payment ? payment.amount : account[account.type].balance,
-                      'USD',
-                    )}
-                  </AccountBalance>
-                  {variation === 'small' ? (
-                    <BillStatus account={account} payment={payment} />
-                  ) : null}
+                  {variation === 'pay' ? (
+                    <PayButton>
+                      <PayButtonText>{t('Pay Bill')}</PayButtonText>
+                    </PayButton>
+                  ) : (
+                    <>
+                      <AccountBalance variation={variation}>
+                        {formatFiatAmount(
+                          payment
+                            ? payment.amount
+                            : account[account.type].balance,
+                          'USD',
+                        )}
+                      </AccountBalance>
+                      {variation === 'small' ? (
+                        <BillStatus account={account} payment={payment} />
+                      ) : null}
+                    </>
+                  )}
                 </>
               ) : null}
             </>
           )}
         </AccountDetailsRight>
       </AccountBody>
-      {variation === 'large' ? (
-        account.isPayable ? (
+      {variation === 'large' || variation === 'pay' ? (
+        account.isPayable && variation === 'large' ? (
           <AccountActions>
             <BillStatus account={account} payment={payment} />
             <PayButton>
@@ -199,25 +209,29 @@ export default ({
             </PayButton>
           </AccountActions>
         ) : (
-          <AccountFooter>
-            <AccountFooterText>Unable to pay bill</AccountFooterText>
-            <TouchableOpacity
-              activeOpacity={ActiveOpacity}
-              onPress={() => {
-                dispatch(
-                  AppActions.showBottomNotificationModal(
-                    CustomErrorMessage({
-                      title: t('Unable to pay bill'),
-                      errMsg: t(
-                        'We are currently unable to process payments for this bill. We are actively working on a solution.',
+          <>
+            {!account.isPayable ? (
+              <AccountFooter>
+                <AccountFooterText>Unable to pay bill</AccountFooterText>
+                <TouchableOpacity
+                  activeOpacity={ActiveOpacity}
+                  onPress={() => {
+                    dispatch(
+                      AppActions.showBottomNotificationModal(
+                        CustomErrorMessage({
+                          title: t('Unable to pay bill'),
+                          errMsg: t(
+                            'We are currently unable to process payments for this bill. We are actively working on a solution.',
+                          ),
+                        }),
                       ),
-                    }),
-                  ),
-                );
-              }}>
-              <AccountFooterActionText>Learn More</AccountFooterActionText>
-            </TouchableOpacity>
-          </AccountFooter>
+                    );
+                  }}>
+                  <AccountFooterActionText>Learn More</AccountFooterActionText>
+                </TouchableOpacity>
+              </AccountFooter>
+            ) : null}
+          </>
         )
       ) : null}
     </ItemContainer>
