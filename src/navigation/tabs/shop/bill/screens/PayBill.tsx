@@ -130,7 +130,6 @@ const PayBill = ({
 
   const onAmountScreenSubmit = (amount: number) => {
     const minAmount = 1;
-    const maxAmount = account[account.type].balance;
     if (amount < minAmount) {
       dispatch(
         AppActions.showBottomNotificationModal(
@@ -143,21 +142,6 @@ const PayBill = ({
                 customPrecision: 'minimal',
                 currencyDisplay: 'symbol',
               },
-            )}. Please modify your amount.`,
-          }),
-        ),
-      );
-      return;
-    }
-    if (amount > maxAmount) {
-      dispatch(
-        AppActions.showBottomNotificationModal(
-          CustomErrorMessage({
-            title: t('Payment Limit Exceeded'),
-            errMsg: `The payment amount is limited to ${formatFiatAmount(
-              account[account.type].balance,
-              'USD',
-              {customPrecision: 'minimal', currencyDisplay: 'symbol'},
             )}. Please modify your amount.`,
           }),
         ),
