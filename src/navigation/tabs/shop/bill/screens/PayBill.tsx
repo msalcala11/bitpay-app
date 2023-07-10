@@ -307,6 +307,15 @@ const PayBill = ({
                 </LineItemLabelContainer>
               </BillPayOption>
             </TouchableOpacity>
+            <LineItemSublabel style={{textAlign: 'right', marginTop: 10}}>
+              {account[account.type].lastSuccessfulSync
+                ? `Last synced: ${moment(
+                    new Date(account[account.type].lastSuccessfulSync),
+                  )
+                    .utc()
+                    .format('l, h:mm a')}`
+                : 'Balance may be out of date'}
+            </LineItemSublabel>
           </View>
         </SectionContainer>
       </ScrollView>
