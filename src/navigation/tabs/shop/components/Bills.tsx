@@ -187,6 +187,18 @@ export const Bills = () => {
                     {t('Pay All Bills')}
                   </Button> */}
                   <Button
+                    style={{marginTop: 20, marginBottom: 10}}
+                    height={50}
+                    buttonStyle="secondary"
+                    onPress={() =>
+                      navigation.navigate('Bill', {
+                        screen: BillScreens.PAY_ALL_BILLS,
+                        params: {accounts},
+                      })
+                    }>
+                    {t('Connect More Bills')}
+                  </Button>
+                  {/* <Button
                     buttonType={'link'}
                     onPress={() => {
                       navigation.navigate('Bill', {
@@ -194,8 +206,8 @@ export const Bills = () => {
                         params: {},
                       });
                     }}>
-                    {t('Add Another Bill')}
-                  </Button>
+                    {t('Connect More Bills')}
+                  </Button> */}
                 </>
               )}
             </>
