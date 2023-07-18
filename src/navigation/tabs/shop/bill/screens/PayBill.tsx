@@ -268,29 +268,27 @@ const PayBill = ({
                 </BillPayOption>
               </TouchableOpacity>
             ) : null}
-            {account[account.type].balance ? (
-              <TouchableOpacity
-                activeOpacity={ActiveOpacity}
-                onPress={() => setSelectedAmount('balance')}>
-                <BillPayOption>
-                  <CheckboxContainer>
-                    <Checkbox
-                      checked={selectedAmount === 'balance'}
-                      radio={true}
-                      onPress={() => setSelectedAmount('balance')}
-                    />
-                  </CheckboxContainer>
-                  <LineItemLabelContainer>
-                    <Paragraph>Current Balance</Paragraph>
-                  </LineItemLabelContainer>
-                  <BillPayOptionAmount>
-                    {formatFiatAmount(account[account.type].balance, 'USD', {
-                      customPrecision: 'minimal',
-                    })}
-                  </BillPayOptionAmount>
-                </BillPayOption>
-              </TouchableOpacity>
-            ) : null}
+            <TouchableOpacity
+              activeOpacity={ActiveOpacity}
+              onPress={() => setSelectedAmount('balance')}>
+              <BillPayOption>
+                <CheckboxContainer>
+                  <Checkbox
+                    checked={selectedAmount === 'balance'}
+                    radio={true}
+                    onPress={() => setSelectedAmount('balance')}
+                  />
+                </CheckboxContainer>
+                <LineItemLabelContainer>
+                  <Paragraph>Current Balance</Paragraph>
+                </LineItemLabelContainer>
+                <BillPayOptionAmount>
+                  {formatFiatAmount(account[account.type].balance || 0, 'USD', {
+                    customPrecision: 'minimal',
+                  })}
+                </BillPayOptionAmount>
+              </BillPayOption>
+            </TouchableOpacity>
             <TouchableOpacity
               activeOpacity={ActiveOpacity}
               onPress={() => setSelectedAmount('other')}>

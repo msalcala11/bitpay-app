@@ -6,7 +6,6 @@ import {View} from 'react-native';
 import Button from '../../../../components/button/Button';
 import {HEIGHT, WIDTH} from '../../../../components/styled/Containers';
 import {H5, Paragraph} from '../../../../components/styled/Text';
-import {BaseText} from '../../../wallet/components/KeyDropdownOption';
 import {BillScreens} from '../bill/BillStack';
 import {
   SectionContainer,
@@ -23,20 +22,7 @@ import {BillPayAccount} from '../../../../store/shop/shop.models';
 import {APP_NETWORK} from '../../../../constants/config';
 import {ShopEffects} from '../../../../store/shop';
 import {AppActions} from '../../../../store/app';
-const BillsZeroState = require('../../../../../assets/img/bills/bills-zero-state.png');
-
-const Title = styled(BaseText)`
-  font-size: 24px;
-  font-weight: 400;
-  line-height: 28px;
-  text-align: center;
-  margin-top: 20px;
-  width: 341px;
-`;
-
-const BoldTitle = styled(Title)`
-  font-weight: 600;
-`;
+import BillPitch from '../bill/components/BillPitch';
 
 const Subtitle = styled(Paragraph)`
   font-size: 14px;
@@ -48,43 +34,15 @@ const Subtitle = styled(Paragraph)`
   margin-bottom: 20px;
 `;
 
-const TitleContainer = styled.View`
-  align-items: center;
-`;
-
 const BillsValueProp = styled.View`
   flex-grow: 1;
   align-items: center;
   justify-content: center;
 `;
 
-const BillsImage = styled.Image`
-  width: 317px;
-  height: 242px;
-  margin-top: 20px;
-`;
-
 const CautionIcon = styled(CautionIconSvg)`
   margin-bottom: 24px;
 `;
-
-const WhyUseThis = () => {
-  const {t} = useTranslation();
-  return (
-    <BillsValueProp>
-      <BillsImage source={BillsZeroState} />
-      <TitleContainer>
-        <Title>
-          {t('Pay bills straight from your')}{' '}
-          <BoldTitle>{t('BitPay wallet')}</BoldTitle>
-        </Title>
-        <Subtitle>
-          {t('Make payments on everything from credit cards to mortgages.')}
-        </Subtitle>
-      </TitleContainer>
-    </BillsValueProp>
-  );
-};
 
 export const Bills = () => {
   const dispatch = useAppDispatch();
@@ -105,7 +63,7 @@ export const Bills = () => {
   const [available, setAvailable] = useState(user && user.country === 'US');
 
   useEffect(() => {
-    const billsConnected = !!accounts.length;
+    const billsConnected = !!accounts.length && !!user?.methodEntityId;
     setConnected(billsConnected);
     const isAvailable = async () => {
       if (user && user.country === 'US' && !connected) {
@@ -122,7 +80,7 @@ export const Bills = () => {
     <SectionContainer style={{height: HEIGHT - 270}}>
       {!isVerified ? (
         <>
-          <WhyUseThis />
+          <BillPitch />
           <Button height={50} onPress={() => {}}>
             {t('Sign Up')}
           </Button>
@@ -137,7 +95,7 @@ export const Bills = () => {
             <>
               {!connected ? (
                 <>
-                  <WhyUseThis />
+                  <BillPitch />
                   <Button
                     height={50}
                     onPress={() => {
@@ -193,7 +151,7 @@ export const Bills = () => {
                     buttonStyle="secondary"
                     onPress={() =>
                       navigation.navigate('Bill', {
-                        screen: BillScreens.PAY_ALL_BILLS,
+                        screen: BillScreens.CONNECT_BILLS,
                         params: {accounts},
                       })
                     }>
