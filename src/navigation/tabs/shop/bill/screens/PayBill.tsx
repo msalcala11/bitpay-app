@@ -33,6 +33,8 @@ import {BillPayAccount} from '../../../../../store/shop/shop.models';
 import {AppActions} from '../../../../../store/app';
 import {CustomErrorMessage} from '../../../../wallet/components/ErrorMessages';
 import {BillAccountPill} from '../components/BillAccountPill';
+import {Analytics} from '../../../../../store/analytics/analytics.effects';
+import {getBillAccountEventParams} from '../utils';
 
 const BillPayOption = styled.View<{hasBorderTop?: boolean}>`
   flex-direction: row;
@@ -107,12 +109,20 @@ const PayBill = ({
     : 'balance';
   const [selectedAmount, setSelectedAmount] = useState(initialSelectedAmount);
 
+  const baseEventParams = getBillAccountEventParams(account);
+
   const sheetOptions: Array<Option> = [
     {
       onPress: () => {
         navigation.navigate(BillScreens.PAYMENTS, {
           account,
         });
+        dispatch(
+          Analytics.track(
+            'Bill Pay — Viewed Bill Payment History',
+            baseEventParams,
+          ),
+        );
       },
       optionElement: () => {
         return (
@@ -123,7 +133,15 @@ const PayBill = ({
       },
     },
     {
-      onPress: () => Linking.openURL('https://bitpay.com/request-help/wizard'),
+      onPress: () => {
+        Linking.openURL('https://bitpay.com/request-help/wizard');
+        dispatch(
+          Analytics.track('Bill Pay — Clicked Contact Support', {
+            ...baseEventParams,
+            context: 'Pay Bill',
+          }),
+        );
+      },
       optionElement: () => {
         return (
           <BillOption isLast={true}>
@@ -154,12 +172,19 @@ const PayBill = ({
       );
       return;
     }
+    dispatch(
+      Analytics.track('Bill Pay — Submitted Custom Bill Amount', {
+        ...baseEventParams,
+        amount,
+      }),
+    );
     goToConfirmScreen(amount);
   };
 
   const goToConfirmScreen = async (amount: number) => {
     navigation.navigate(BillScreens.BILL_CONFIRM, {
       amount,
+      amountType: selectedAmount,
       billPayAccount: account,
     });
   };
@@ -173,8 +198,19 @@ const PayBill = ({
       headerTitle,
       fiatCurrencyAbbreviation: 'USD',
       customAmountSublabel: getCustomAmountSublabel(account),
-      onAmountSelected: selectedAmount => onAmountScreenSubmit(+selectedAmount),
+      onAmountSelected: submittedAmount =>
+        onAmountScreenSubmit(+submittedAmount),
     });
+  };
+
+  const selectPaymentOption = (option: string) => {
+    setSelectedAmount(option);
+    dispatch(
+      Analytics.track('Bill Pay — Selected Amount Type', {
+        ...baseEventParams,
+        amountType: option,
+      }),
+    );
   };
 
   useLayoutEffect(() => {
@@ -207,14 +243,14 @@ const PayBill = ({
             {account[account.type].nextPaymentMinimumAmount ? (
               <TouchableOpacity
                 activeOpacity={ActiveOpacity}
-                onPress={() => setSelectedAmount('nextPaymentMinimumAmount')}>
+                onPress={() => selectPaymentOption('nextPaymentMinimumAmount')}>
                 <BillPayOption hasBorderTop={true}>
                   <CheckboxContainer>
                     <Checkbox
                       checked={selectedAmount === 'nextPaymentMinimumAmount'}
                       radio={true}
                       onPress={() =>
-                        setSelectedAmount('nextPaymentMinimumAmount')
+                        selectPaymentOption('nextPaymentMinimumAmount')
                       }
                     />
                   </CheckboxContainer>
@@ -246,13 +282,15 @@ const PayBill = ({
             {account[account.type].lastStatementBalance ? (
               <TouchableOpacity
                 activeOpacity={ActiveOpacity}
-                onPress={() => setSelectedAmount('lastStatementBalance')}>
+                onPress={() => selectPaymentOption('lastStatementBalance')}>
                 <BillPayOption>
                   <CheckboxContainer>
                     <Checkbox
                       checked={selectedAmount === 'lastStatementBalance'}
                       radio={true}
-                      onPress={() => setSelectedAmount('lastStatementBalance')}
+                      onPress={() =>
+                        selectPaymentOption('lastStatementBalance')
+                      }
                     />
                   </CheckboxContainer>
                   <LineItemLabelContainer>
@@ -270,13 +308,13 @@ const PayBill = ({
             ) : null}
             <TouchableOpacity
               activeOpacity={ActiveOpacity}
-              onPress={() => setSelectedAmount('balance')}>
+              onPress={() => selectPaymentOption('balance')}>
               <BillPayOption>
                 <CheckboxContainer>
                   <Checkbox
                     checked={selectedAmount === 'balance'}
                     radio={true}
-                    onPress={() => setSelectedAmount('balance')}
+                    onPress={() => selectPaymentOption('balance')}
                   />
                 </CheckboxContainer>
                 <LineItemLabelContainer>
@@ -291,13 +329,13 @@ const PayBill = ({
             </TouchableOpacity>
             <TouchableOpacity
               activeOpacity={ActiveOpacity}
-              onPress={() => setSelectedAmount('other')}>
+              onPress={() => selectPaymentOption('other')}>
               <BillPayOption>
                 <CheckboxContainer>
                   <Checkbox
                     checked={selectedAmount === 'other'}
                     radio={true}
-                    onPress={() => setSelectedAmount('other')}
+                    onPress={() => selectPaymentOption('other')}
                   />
                 </CheckboxContainer>
                 <LineItemLabelContainer>
@@ -333,6 +371,12 @@ const PayBill = ({
               : onAmountScreenSubmit(
                   account[account.type][selectedAmount] as number,
                 );
+            dispatch(
+              Analytics.track('Bill Pay — Submitted Amount Type', {
+                ...baseEventParams,
+                paymentOption: selectedAmount,
+              }),
+            );
           }}
           buttonStyle={'primary'}>
           {t('Continue')}

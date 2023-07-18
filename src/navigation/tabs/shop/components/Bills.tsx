@@ -1,4 +1,4 @@
-import {useNavigation} from '@react-navigation/native';
+import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import React, {useEffect, useState} from 'react';
 import styled from 'styled-components/native';
 import {Trans, useTranslation} from 'react-i18next';
@@ -23,6 +23,8 @@ import {APP_NETWORK} from '../../../../constants/config';
 import {ShopEffects} from '../../../../store/shop';
 import {AppActions} from '../../../../store/app';
 import BillPitch from '../bill/components/BillPitch';
+import {Analytics} from '../../../../store/analytics/analytics.effects';
+import {getBillAccountEventParams} from '../bill/utils';
 
 const Subtitle = styled(Paragraph)`
   font-size: 14px;
@@ -76,6 +78,10 @@ export const Bills = () => {
     isAvailable();
   }, [accounts.length, connected, dispatch, user]);
 
+  useFocusEffect(() => {
+    dispatch(Analytics.track('Bill Pay — Viewed Bills Page'));
+  });
+
   return (
     <SectionContainer style={{height: HEIGHT - 270}}>
       {!isVerified ? (
@@ -103,6 +109,9 @@ export const Bills = () => {
                         screen: BillScreens.CONNECT_BILLS,
                         params: {},
                       });
+                      dispatch(
+                        Analytics.track('Bill Pay — Clicked Connect My Bills'),
+                      );
                     }}>
                     {t('Connect My Bills')}
                   </Button>
@@ -117,6 +126,11 @@ export const Bills = () => {
                           screen: BillScreens.PAYMENTS,
                           params: {},
                         });
+                        dispatch(
+                          Analytics.track(
+                            'Bill Pay — Clicked View All Payments',
+                          ),
+                        );
                       }}>
                       <SectionHeaderButton>
                         {t('View All Payments')}
@@ -126,12 +140,18 @@ export const Bills = () => {
                   <BillList
                     accounts={accounts}
                     variation={'pay'}
-                    onPress={(account: any) =>
+                    onPress={account => {
                       navigation.navigate('Bill', {
                         screen: BillScreens.PAY_BILL,
                         params: {account},
-                      })
-                    }
+                      });
+                      dispatch(
+                        Analytics.track(
+                          'Bill Pay — Clicked Pay Bill',
+                          getBillAccountEventParams(account),
+                        ),
+                      );
+                    }}
                   />
                   {/* <Button
                     style={{marginTop: 20, marginBottom: 10}}
@@ -149,12 +169,17 @@ export const Bills = () => {
                     style={{marginTop: 20, marginBottom: 10}}
                     height={50}
                     buttonStyle="secondary"
-                    onPress={() =>
+                    onPress={() => {
                       navigation.navigate('Bill', {
                         screen: BillScreens.CONNECT_BILLS,
                         params: {accounts},
-                      })
-                    }>
+                      });
+                      dispatch(
+                        Analytics.track(
+                          'Bill Pay — Clicked Connect More Bills',
+                        ),
+                      );
+                    }}>
                     {t('Connect More Bills')}
                   </Button>
                   {/* <Button
