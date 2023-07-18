@@ -10,6 +10,7 @@ export const basicInfoFields = `
   incentiveLevel
   incentiveLevelId
   methodEntityId
+  phone
   name
   country
   state

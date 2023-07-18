@@ -45,6 +45,16 @@ const UnlinkButton = styled(BaseText)`
   color: ${LinkBlue};
 `;
 
+const formatUSPhone = (unformattedPhone: string) => {
+  if (!unformattedPhone.startsWith('+1') || unformattedPhone.length !== 12) {
+    return unformattedPhone;
+  }
+  const areaCode = unformattedPhone.substring(2, 5);
+  const nextThree = unformattedPhone.substring(5, 8);
+  const lastFour = unformattedPhone.substring(8, 12);
+  return `(${areaCode}) ${nextThree}-${lastFour}`;
+};
+
 const BillSettings = ({
   navigation,
 }: StackScreenProps<BillStackParamList, 'BillSettings'>) => {
@@ -62,7 +72,9 @@ const BillSettings = ({
       <AccountBox>
         <AccountBoxBody>
           <AccountName>{user?.name}</AccountName>
-          {user?.phone ? <AccountPhone>{user.phone}</AccountPhone> : null}
+          {user?.phone ? (
+            <AccountPhone>{formatUSPhone(user.phone)}</AccountPhone>
+          ) : null}
         </AccountBoxBody>
         <TouchableOpacity
           activeOpacity={ActiveOpacity}
