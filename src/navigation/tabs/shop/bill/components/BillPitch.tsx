@@ -1,6 +1,6 @@
 import React from 'react';
 import styled from 'styled-components/native';
-import {useTranslation} from 'react-i18next';
+import {Trans, useTranslation} from 'react-i18next';
 import {BaseText, Paragraph} from '../../../../../components/styled/Text';
 import {Slate30, SlateDark} from '../../../../../styles/colors';
 const BillsZeroState = require('../../../../../../assets/img/bills/bills-zero-state.png');
@@ -51,8 +51,11 @@ export default () => {
       <BillsImage source={BillsZeroState} />
       <TitleContainer>
         <Title>
-          {t('Pay bills straight from your')}{' '}
-          <BoldTitle>{t('BitPay wallet')}</BoldTitle>
+          <Trans
+            i18nKey="BillPayPitch"
+            values={{wallet: t('BitPay wallet')}}
+            components={[<BoldTitle />]}
+          />
         </Title>
         <Subtitle>
           {t('Make payments on everything from credit cards to mortgages.')}

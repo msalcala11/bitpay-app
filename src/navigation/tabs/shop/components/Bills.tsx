@@ -203,7 +203,7 @@ export const Bills = () => {
                 <Subtitle>
                   <Trans
                     i18nKey="BillPayUnavailableInYourLocation"
-                    values={{states: 'states'}}
+                    values={{states: t('states')}}
                     components={[
                       <Subtitle
                         style={{color: LinkBlue}}
