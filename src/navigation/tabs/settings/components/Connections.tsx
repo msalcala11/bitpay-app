@@ -99,6 +99,11 @@ const Connections: React.VFC<ConnectionsProps> = props => {
         },
       });
     }
+    dispatch(
+      Analytics.track('BillPay — Clicked Bill Pay', {
+        context: 'Settings Connections',
+      }),
+    );
   };
 
   useEffect(() => {

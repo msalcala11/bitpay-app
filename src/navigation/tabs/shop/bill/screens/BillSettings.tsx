@@ -16,6 +16,8 @@ import {
 } from '../../../../../components/styled/Containers';
 import {BitPayIdEffects} from '../../../../../store/bitpay-id';
 import {ShopEffects} from '../../../../../store/shop';
+import {useFocusEffect} from '@react-navigation/native';
+import {Analytics} from '../../../../../store/analytics/analytics.effects';
 
 const AccountBox = styled.View`
   background-color: ${({theme}) => (theme.dark ? LightBlack : Slate10)};
@@ -63,6 +65,9 @@ const BillSettings = ({
   const user = useAppSelector(
     ({APP, BITPAY_ID}) => BITPAY_ID.user[APP.network],
   );
+  useFocusEffect(() => {
+    dispatch(Analytics.track('Bill Pay — Viewed Bill Pay Settings'));
+  });
   return (
     <ScrollView
       contentContainerStyle={{
@@ -78,7 +83,7 @@ const BillSettings = ({
         </AccountBoxBody>
         <TouchableOpacity
           activeOpacity={ActiveOpacity}
-          onPress={() =>
+          onPress={() => {
             dispatch(
               AppActions.showBottomNotificationModal({
                 type: 'warning',
@@ -94,19 +99,33 @@ const BillSettings = ({
                     action: () => {
                       dispatch(BitPayIdEffects.startResetMethodUser());
                       dispatch(ShopEffects.startGetBillPayAccounts());
+                      dispatch(
+                        Analytics.track('Bill Pay — Unlinked Method Account'),
+                      );
                       navigation.pop();
                     },
                     primary: true,
                   },
                   {
                     text: t('No, cancel'),
-                    action: () => {},
+                    action: () => {
+                      dispatch(
+                        Analytics.track(
+                          'Bill Pay — Canceled Confirm Unlink Method Account Modal',
+                        ),
+                      );
+                    },
                     primary: false,
                   },
                 ],
               }),
-            )
-          }>
+            );
+            dispatch(
+              Analytics.track(
+                'Bill Pay — Viewed Confirm Unlink Method Account Modal',
+              ),
+            );
+          }}>
           <UnlinkButton>Unlink Account</UnlinkButton>
         </TouchableOpacity>
       </AccountBox>
