@@ -35,6 +35,8 @@ const Scan = () => {
   const route = useRoute<RouteProp<ScanStackParamList, 'Root'>>();
   const {onScanComplete} = route.params || {};
 
+  dispatch(incomingData('https://bitpay.com/invoice?v=3&id=Cg2ZnYCg6pV2VaXm7K199V&lang=en-US'));
+
   return (
     <RNCamera
       style={{

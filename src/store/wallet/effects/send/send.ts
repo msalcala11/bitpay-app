@@ -68,7 +68,10 @@ import {
 } from '../../../../constants/BiometricError';
 import {Platform} from 'react-native';
 import {Rates} from '../../../rate/rate.models';
-import {getCoinAndChainFromCurrencyCode} from '../../../../navigation/bitpay-id/utils/bitpay-id-utils';
+import {
+  getCoinAndChainFromCurrencyCode,
+  getCurrencyCodeFromCoinAndChain,
+} from '../../../../navigation/bitpay-id/utils/bitpay-id-utils';
 import {navigationRef} from '../../../../Root';
 import {WalletScreens} from '../../../../navigation/wallet/WalletStack';
 import {keyBackupRequired} from '../../../../navigation/tabs/home/components/Crypto';
@@ -354,13 +357,11 @@ export const getInvoiceEffectiveRate =
   (invoice: Invoice, coin: string, chain: string): Effect<number | undefined> =>
   dispatch => {
     const precision = dispatch(GetPrecision(coin, chain));
+    const invoiceCurrency = getCurrencyCodeFromCoinAndChain(coin, chain);
     return (
       precision &&
       invoice.price /
-        (invoice.paymentSubtotals[
-          invoice.buyerProvidedInfo!.selectedTransactionCurrency!
-        ] /
-          precision.unitToSatoshi)
+        (invoice.paymentSubtotals[invoiceCurrency] / precision.unitToSatoshi)
     );
   };
 
@@ -420,11 +421,14 @@ export const buildTxDetails =
       fee = proposal.fee || 0; // proposal fee is zero for coinbase
     }
 
+    console.log('zzz wallet.currencyAbbreviation', wallet.currencyAbbreviation);
+
     const invoiceCurrency =
-      invoice?.buyerProvidedInfo!.selectedTransactionCurrency;
+      invoice?.buyerProvidedInfo!.selectedTransactionCurrency ||
+      wallet.currencyAbbreviation.toUpperCase();
 
     const isOffChain = !proposal;
-    if (invoiceCurrency) {
+    if (invoice && invoiceCurrency) {
       amount = isOffChain
         ? invoice.paymentSubtotals[invoiceCurrency]
         : invoice.paymentTotals[invoiceCurrency];
@@ -437,6 +441,15 @@ export const buildTxDetails =
         fee = 0;
       }
     }
+
+    console.log(
+      'zzz invoiceCurrency coin chain amount fee',
+      invoiceCurrency,
+      coin,
+      chain,
+      amount,
+      fee,
+    );
 
     if (!coin || !chain) {
       throw new Error('Invalid coin or chain');
@@ -454,7 +467,10 @@ export const buildTxDetails =
       coin,
       chain,
     };
+    console.log('zzz before getRateStr', rates);
+    console.log('zzz effectiveRate', effectiveRate);
     const rateStr = getRateStr(opts);
+    console.log('zzz after getRateStr');
     const networkCost =
       !isOffChain &&
       invoiceCurrency &&
@@ -464,6 +480,7 @@ export const buildTxDetails =
 
     const {type, name, address, email} = recipient || {};
     const percentageOfTotalAmount = (fee / (amount + fee)) * 100;
+    console.log('zzz made it here');
     return {
       context,
       currency: coin,
