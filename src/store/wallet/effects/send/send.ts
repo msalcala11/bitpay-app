@@ -360,7 +360,7 @@ export const getInvoiceEffectiveRate =
     const invoiceCurrency = getCurrencyCodeFromCoinAndChain(coin, chain);
     return (
       precision &&
-      invoice.price /
+      invoice.usdAmount /
         (invoice.paymentSubtotals[invoiceCurrency] / precision.unitToSatoshi)
     );
   };
@@ -445,11 +445,12 @@ export const buildTxDetails =
     }
 
     amount = Number(amount); // Support BN (use number instead string only for view)
-    const effectiveRate =
-      (invoice &&
-        invoiceCurrency &&
-        dispatch(getInvoiceEffectiveRate(invoice, invoiceCurrency, chain))) ||
-      undefined;
+    let effectiveRate;
+    if (invoice && invoiceCurrency && defaultAltCurrencyIsoCode === 'USD') {
+      effectiveRate = dispatch(
+        getInvoiceEffectiveRate(invoice, invoiceCurrency, chain),
+      );
+    }
     const opts = {
       effectiveRate,
       defaultAltCurrencyIsoCode,
