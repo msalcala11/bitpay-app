@@ -357,11 +357,11 @@ export const getInvoiceEffectiveRate =
   (invoice: Invoice, coin: string, chain: string): Effect<number | undefined> =>
   dispatch => {
     const precision = dispatch(GetPrecision(coin, chain));
-    const invoiceCurrency = getCurrencyCodeFromCoinAndChain(coin, chain);
+    const invoiceTransactionCurrency = getCurrencyCodeFromCoinAndChain(coin, chain);
     return (
       precision &&
-      invoice.usdAmount /
-        (invoice.paymentSubtotals[invoiceCurrency] / precision.unitToSatoshi)
+      invoice.price /
+        (invoice.paymentSubtotals[invoiceTransactionCurrency] / precision.unitToSatoshi)
     );
   };
 
@@ -421,17 +421,17 @@ export const buildTxDetails =
       fee = proposal.fee || 0; // proposal fee is zero for coinbase
     }
 
-    const invoiceCurrency =
+    const invoiceTransactionCurrency =
       invoice?.buyerProvidedInfo!.selectedTransactionCurrency ||
       wallet.currencyAbbreviation.toUpperCase();
 
     const isOffChain = !proposal;
-    if (invoice && invoiceCurrency) {
+    if (invoice && invoiceTransactionCurrency) {
       amount = isOffChain
-        ? invoice.paymentSubtotals[invoiceCurrency]
-        : invoice.paymentTotals[invoiceCurrency];
+        ? invoice.paymentSubtotals[invoiceTransactionCurrency]
+        : invoice.paymentTotals[invoiceTransactionCurrency];
       const coinAndChain = getCoinAndChainFromCurrencyCode(
-        invoiceCurrency.toLowerCase(),
+        invoiceTransactionCurrency.toLowerCase(),
       );
       coin = coinAndChain.coin;
       chain = coinAndChain.chain;
@@ -446,9 +446,13 @@ export const buildTxDetails =
 
     amount = Number(amount); // Support BN (use number instead string only for view)
     let effectiveRate;
-    if (invoice && invoiceCurrency && defaultAltCurrencyIsoCode === 'USD') {
+    if (
+      invoice &&
+      invoiceTransactionCurrency &&
+      defaultAltCurrencyIsoCode === invoice.currency
+    ) {
       effectiveRate = dispatch(
-        getInvoiceEffectiveRate(invoice, invoiceCurrency, chain),
+        getInvoiceEffectiveRate(invoice, invoiceTransactionCurrency, chain),
       );
     }
     const opts = {
@@ -461,8 +465,8 @@ export const buildTxDetails =
     const rateStr = getRateStr(opts);
     const networkCost =
       !isOffChain &&
-      invoiceCurrency &&
-      invoice?.minerFees[invoiceCurrency]?.totalFee;
+      invoiceTransactionCurrency &&
+      invoice?.minerFees[invoiceTransactionCurrency]?.totalFee;
     const isERC20 = IsERCToken(coin, chain);
     const effectiveRateForFee = isERC20 ? undefined : effectiveRate; // always use chain rates for fee values
 
