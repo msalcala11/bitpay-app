@@ -113,7 +113,7 @@ const BillConfirm: React.VFC<
       : []),
     amount,
     amountType:
-      billPayments.length === 1 ? billPayments[0].billPayAccount : 'multiple',
+      billPayments.length === 1 ? billPayments[0].amountType : 'multiple',
     numAccounts: billPayments.length,
     ...((wallet || coinbaseAccount) && {
       coin: wallet ? wallet.currencyAbbreviation : coinbaseAccount?.currency,

@@ -168,7 +168,7 @@ const Payment = ({
         </LineItem>
         {payment.estimatedCompletionDate ? (
           <LineItem>
-            <LineItemLabel>{t('Estimated Completion Date')}</LineItemLabel>
+            <LineItemLabel>{t('Estimated Posting Date')}</LineItemLabel>
             <Paragraph>
               {moment(payment.estimatedCompletionDate).format('MM/DD/YY')}
             </Paragraph>
