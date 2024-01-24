@@ -291,7 +291,6 @@ const ShopHome: React.FC<
   ]);
 
   useFocusEffect(() => {
-    dispatch(Analytics.track('Viewed Shop Tab', undefined));
     if (!initialSyncComplete) {
       dispatch(ShopEffects.startSyncGiftCards());
       dispatch(ShopEffects.startGetBillPayAccounts()).catch(_ => {});
