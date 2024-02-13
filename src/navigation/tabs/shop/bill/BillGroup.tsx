@@ -22,12 +22,14 @@ import {
 } from '../../../../constants/NavigationOptions';
 import {HeaderBackButton} from '@react-navigation/elements';
 import {PayProConfirmTwoFactorParamList} from '../../../../navigation/wallet/screens/send/confirm/PayProConfirmTwoFactor';
+import BillsHome from './screens/BillsHome';
 
 interface BillProps {
   Bill: typeof Root;
 }
 
 export type BillGroupParamList = {
+  BillsHome: {};
   BillAmount: AmountScreenParamList;
   BillConfirm: BillConfirmParamList;
   BillConfirmTwoFactor: PayProConfirmTwoFactorParamList;
@@ -41,6 +43,7 @@ export type BillGroupParamList = {
 };
 
 export enum BillScreens {
+  BILLS_HOME = 'BillsHome',
   BILL_AMOUNT = 'BillAmount',
   BILL_CONFIRM = 'BillConfirm',
   BILL_SETTINGS = 'BillSettings',
@@ -94,6 +97,7 @@ const BillGroup: React.FC<BillProps> = ({Bill}) => {
       />
       <Bill.Screen name={BillScreens.BILL_AMOUNT} component={AmountScreen} />
       <Bill.Screen name={BillScreens.PAY_BILL} component={PayBill} />
+      <Bill.Screen name={BillScreens.BILLS_HOME} component={BillsHome} />
       <Bill.Screen name={BillScreens.PAY_ALL_BILLS} component={PayAllBills} />
       <Bill.Screen name={BillScreens.PAYMENTS} component={Payments} />
       <Bill.Screen name={BillScreens.PAYMENT} component={Payment} />
