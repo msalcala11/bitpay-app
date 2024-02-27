@@ -99,8 +99,11 @@ const BillSettings = ({
                         );
                         navigation.pop();
                         await dispatch(BitPayIdEffects.startResetMethodUser());
+                        console.log('about to fetch basic info');
                         await dispatch(
-                          BitPayIdEffects.startFetchBasicInfo(apiToken),
+                          BitPayIdEffects.startFetchBasicInfo(apiToken, {
+                            includeMethodData: true,
+                          }),
                         );
                         await dispatch(ShopEffects.startGetBillPayAccounts());
                       },

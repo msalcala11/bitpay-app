@@ -172,7 +172,7 @@ export const Bills = () => {
                 tokenType: 'auth',
               });
               dispatch(Analytics.track('Bill Pay - Confirmed User Info'));
-              if (!user?.methodEntityId) {
+              if (!user?.methodVerified) {
                 dispatch(Analytics.track('Bill Pay - Started Application'));
               }
             },
