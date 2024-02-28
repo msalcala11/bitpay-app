@@ -149,14 +149,15 @@ export const Bills = () => {
   };
 
   const connectBills = async () => {
-    console.log('user in connect bills', user);
     if (user?.methodVerified) {
       navigation.navigate(BillScreens.CONNECT_BILLS_OPTIONS, {});
       return;
     }
     setConnectButtonState('loading');
     const userInfo = await dispatch(
-      BitPayIdEffects.startFetchBasicInfo(apiToken),
+      BitPayIdEffects.startFetchBasicInfo(apiToken, {
+        includeExternalData: true,
+      }),
     );
     setConnectButtonState(undefined);
     if (userInfo.methodVerified) {
@@ -167,13 +168,6 @@ export const Bills = () => {
   };
 
   const verifyUserInfo = async () => {
-    // setConnectButtonState('loading');
-    // await dispatch(
-    //   BitPayIdEffects.startFetchBasicInfo(apiToken, {
-    //     includeExternalData: true,
-    //   }),
-    // );
-    // setConnectButtonState(undefined);
     dispatch(
       AppActions.showBottomNotificationModal({
         type: 'info',

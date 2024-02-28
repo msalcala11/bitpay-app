@@ -525,21 +525,20 @@ export const startDisconnectBitPayId =
 export const startFetchBasicInfo =
   (
     token: string,
-    params: {includeExternalData?: boolean; includeMethodData?: boolean} = {
-      includeExternalData: true,
-      includeMethodData: true,
+    params: {includeExternalData?: boolean} = {
+      includeExternalData: false,
     },
   ): Effect<Promise<BasicUserInfo>> =>
   async (dispatch, getState) => {
     try {
       const {APP} = getState();
-      console.log('fetcihing basic info', params);
-      const user = await UserApi.fetchBasicInfo(token, params);
-      console.log('userz', user);
+      const user = await UserApi.fetchBasicInfo(token, {
+        ...params,
+        includeMethodData: true,
+      });
       dispatch(BitPayIdActions.successFetchBasicInfo(APP.network, user));
       return user;
     } catch (err) {
-      console.log('failed to fetch basic info', err);
       dispatch(LogActions.error('Failed to fetch basic user info'));
       dispatch(LogActions.error(JSON.stringify(err)));
       dispatch(BitPayIdActions.failedFetchBasicInfo());
