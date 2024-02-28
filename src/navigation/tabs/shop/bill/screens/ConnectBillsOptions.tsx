@@ -138,11 +138,7 @@ const ConnectBillsOptions = ({
 
   const verifyUserInfo = async () => {
     setContinueButtonState('loading');
-    await dispatch(
-      BitPayIdEffects.startFetchBasicInfo(apiToken, {
-        includeExternalData: true,
-      }),
-    );
+    await dispatch(BitPayIdEffects.startFetchBasicInfo(apiToken));
     setContinueButtonState(undefined);
     dispatch(
       AppActions.showBottomNotificationModal({

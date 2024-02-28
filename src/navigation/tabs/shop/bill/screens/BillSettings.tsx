@@ -101,10 +101,8 @@ const BillSettings = ({
                         await dispatch(BitPayIdEffects.startResetMethodUser());
                         console.log('about to fetch basic info');
                         await dispatch(
-                          BitPayIdEffects.startFetchBasicInfo(apiToken, {
-                            includeMethodData: true,
-                          }),
-                        );
+                          BitPayIdEffects.startFetchBasicInfo(apiToken),
+                        ).catch(() => {});
                         await dispatch(ShopEffects.startGetBillPayAccounts());
                       },
                       primary: true,

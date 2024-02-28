@@ -289,6 +289,7 @@ export const bitPayIdReducer = (
       };
 
     case BitPayIdActionTypes.SUCCESS_INITIALIZE_STORE:
+      console.log('in success initialize store', action.payload.user);
       return {
         ...state,
         user: {
@@ -302,6 +303,7 @@ export const bitPayIdReducer = (
       };
 
     case BitPayIdActionTypes.SUCCESS_FETCH_BASIC_INFO:
+      console.log('SAVING USER', action.payload.user);
       return {
         ...state,
         fetchBasicInfoStatus: 'success',

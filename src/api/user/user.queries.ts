@@ -45,8 +45,9 @@ export const FETCH_ALL_USER_DATA = (token: string): GqlQueryParams => {
     query: `
       query FETCH_ALL_USER_DATA ($token:String!) {
         user:bitpayUser(token:$token) {
-          basicInfo: user {
+          basicInfo: user(includeMethodData:true) {
             ${basicInfoFields}
+            ${basicInfoMethodFields}
           }
           cards:debitCards {
             ${cardFields}
