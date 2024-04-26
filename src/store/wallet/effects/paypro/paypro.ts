@@ -32,6 +32,7 @@ export const GetPayProOptions =
     const bwc = BWC.getPayProV2();
     const options: any = {
       paymentUrl,
+      unsafeBypassValidation: true,
     };
     const payOpts = await bwc.getPaymentOptions(options).catch(async err => {
       let errorStr;
@@ -41,7 +42,7 @@ export const GetPayProOptions =
         errorStr = JSON.stringify(err);
       }
       dispatch(LogActions.error(`PayPro Options ERR: ${errorStr}`));
-      if (attempt <= 3) {
+      if (attempt <= 0) {
         await new Promise(resolve => setTimeout(resolve, 5000 * attempt));
         return dispatch(GetPayProOptions(paymentUrl, ++attempt));
       } else {
@@ -51,6 +52,7 @@ export const GetPayProOptions =
     dispatch(
       LogActions.info('PayPro Options: SUCCESS', JSON.stringify(payOpts)),
     );
+    console.log('payOpts', JSON.stringify(payOpts, null, 4));
     return payOpts;
   };
 
@@ -71,6 +73,7 @@ export const GetPayProDetails =
       chain: chain.toUpperCase(),
       currency: getCurrencyCodeFromCoinAndChain(coin.toLowerCase(), chain),
       payload,
+      unsafeBypassValidation: true,
     };
 
     const payDetails = await bwc
@@ -83,7 +86,7 @@ export const GetPayProDetails =
           errorStr = JSON.stringify(err);
         }
         dispatch(LogActions.error(`PayPro Details ERR: ${errorStr}`));
-        if (attempt <= 3) {
+        if (attempt <= 0) {
           await new Promise(resolve => setTimeout(resolve, 5000 * attempt));
           return dispatch(
             GetPayProDetails({
@@ -101,6 +104,7 @@ export const GetPayProDetails =
     dispatch(
       LogActions.info('PayPro Details: SUCCESS', JSON.stringify(payDetails)),
     );
+    console.log('payDetails', JSON.stringify(payDetails, null, 4));
     return payDetails;
   };
 
@@ -137,6 +141,7 @@ export const HandlePayPro =
       if (!payProOptions) {
         payProOptions = await dispatch(GetPayProOptions(url));
       }
+      console.log('payProOptions', JSON.stringify(payProOptions, null, 4));
       const invoiceCurrency = getCurrencyCodeFromCoinAndChain(
         GetInvoiceCurrency(coin).toLowerCase(),
         chain,

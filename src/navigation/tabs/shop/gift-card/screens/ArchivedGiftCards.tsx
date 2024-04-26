@@ -36,7 +36,7 @@ const ArchivedGiftCards = ({
   }, [giftCards.length, navigation]);
   const renderItem = useCallback(
     ({item: giftCard}: {item: GiftCard}) => {
-      const cardConfig = supportedGiftCardMap[giftCard.name];
+      const cardConfig = supportedGiftCardMap['Dymocks' || giftCard.name];
       return (
         <TouchableOpacity
           activeOpacity={0.8}

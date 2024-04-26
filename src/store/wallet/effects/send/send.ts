@@ -1899,6 +1899,7 @@ export const createPayProTxProposal =
         chain: wallet!.chain,
       }),
     );
+    console.log('payProDetails', JSON.stringify(payProDetails, null, 4));
     const confirmScreenParams = await dispatch(
       HandlePayPro({
         payProDetails,
@@ -1908,6 +1909,7 @@ export const createPayProTxProposal =
         chain: wallet!.chain,
       }),
     );
+    console.log('confirmScreenParams', JSON.stringify(confirmScreenParams, null, 4));
     const {
       toAddress: address,
       requiredFeeRate: feePerKb,

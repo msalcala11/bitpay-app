@@ -592,6 +592,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
       } catch (e) {
         setLoadMore(false);
         setIsLoading(false);
+        console.log('error loading txs', e);
         setErrorLoadingTxs(true);
 
         console.log('Transaction Update: ', e);

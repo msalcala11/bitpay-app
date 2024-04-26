@@ -13,6 +13,7 @@ export const APP_VERSION = version;
 export const BASE_BITPAY_URLS = {
   [Network.mainnet]: 'https://bitpay.com',
   [Network.testnet]: 'https://test.bitpay.com',
+  [Network.regtest]: 'https://marty.bp:8088',
 };
 // BITCORE
 export const BASE_BITCORE_URL = {
@@ -41,7 +42,7 @@ export const APP_CRYPTO_PREFIX = [
 ];
 
 // BWC
-export const BASE_BWS_URL = 'https://bws.bitpay.com/bws/api';
+export const BASE_BWS_URL = 'http://localhost:3232/bws/api';
 export const BWC_TIMEOUT = 100000;
 
 // Storybook

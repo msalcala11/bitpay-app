@@ -36,7 +36,7 @@ export const startFetchCatalog = (): Effect => async (dispatch, getState) => {
     const [catalogResponse, directoryResponse, integrationsResponse] =
       await Promise.all([
         axios.get(
-          `${baseUrl}/gift-cards/catalog/${country}${
+          `${baseUrl}/gift-cards/catalog/${'US' || country}${
             incentiveLevelId && SHOP.syncGiftCardPurchasesWithBitPayId
               ? `/${incentiveLevelId}`
               : ''

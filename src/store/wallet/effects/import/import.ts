@@ -1495,7 +1495,7 @@ export const serverAssistedImport = async (
     try {
       BwcProvider.API.serverAssistedImport(
         opts,
-        {baseUrl: 'https://bws.bitpay.com/bws/api'}, // 'http://localhost:3232/bws/api', uncomment for local testing
+        {baseUrl: 'http://localhost:3232/bws/api'}, // 'http://localhost:3232/bws/api', uncomment for local testing 
         // @ts-ignore
         async (err, key, wallets) => {
           if (err) {

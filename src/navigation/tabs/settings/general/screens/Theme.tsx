@@ -37,13 +37,13 @@ const ThemeSettings: React.FC = () => {
     setClickCount(_clickCount);
     if (_clickCount >= 10) {
       const changeNetwork =
-        network === Network.mainnet ? Network.testnet : Network.mainnet;
+        network === Network.mainnet ? Network.regtest : Network.mainnet;
 
       dispatch(
         showBottomNotificationModal({
           type: 'info',
           title: `${
-            network === Network.testnet ? 'Disable' : 'Enable'
+            network === Network.regtest ? 'Disable' : 'Enable'
           } Test Mode`,
           message:
             'Tap continue to switch networks. Your app will restart to enable the new network.',
