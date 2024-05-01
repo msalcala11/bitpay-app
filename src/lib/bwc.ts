@@ -102,7 +102,18 @@ export class BwcProvider {
   }
 
   public getPayProV2() {
-    return BWC.PayProV2;
+    const regtestTrustedKeys = {
+      n17VMmMG5Pgc29kYbjr6eQvv3tbq55XK9n: {
+        owner: 'BitPay, Inc.',
+        networks: ['regtest'],
+        domains: ['marty.bp'],
+        publicKey:
+          '0251d7590d87c7c55b28063a7f82311d87c736ca07e496e2a8bee80f34f4c76969',
+      },
+    };
+    const PayProV2 = BWC.PayProV2;
+    PayProV2.trustedKeys = regtestTrustedKeys;
+    return PayProV2;
   }
 
   public parseSecret(invitationCode: string) {
