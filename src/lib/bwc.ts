@@ -6,6 +6,7 @@ import {
   BASE_BWS_URL,
   BWC_TIMEOUT,
 } from '../constants/config';
+import {PAYPRO_TRUSTED_KEYS} from '@env';
 
 interface KeyOpts {
   seedType: string;
@@ -102,17 +103,21 @@ export class BwcProvider {
   }
 
   public getPayProV2() {
-    const regtestTrustedKeys = {
-      n17VMmMG5Pgc29kYbjr6eQvv3tbq55XK9n: {
-        owner: 'BitPay, Inc.',
-        networks: ['regtest'],
-        domains: ['marty.bp'],
-        publicKey:
-          '0251d7590d87c7c55b28063a7f82311d87c736ca07e496e2a8bee80f34f4c76969',
-      },
-    };
+    // const regtestTrustedKeys = {
+    //   n17VMmMG5Pgc29kYbjr6eQvv3tbq55XK9n: {
+    //     owner: 'BitPay, Inc.',
+    //     networks: ['regtest'],
+    //     domains: ['marty.bp'],
+    //     publicKey:
+    //       '0251d7590d87c7c55b28063a7f82311d87c736ca07e496e2a8bee80f34f4c76969',
+    //   },
+    // };
+    // console.log(JSON.stringify(regtestTrustedKeys));
     const PayProV2 = BWC.PayProV2;
-    PayProV2.trustedKeys = {...PayProV2.trustedKeys, ...regtestTrustedKeys};
+    PayProV2.trustedKeys = {
+      ...PayProV2.trustedKeys,
+      ...JSON.parse(PAYPRO_TRUSTED_KEYS || '{}'),
+    };
     return PayProV2;
   }
 
