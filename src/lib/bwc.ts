@@ -112,7 +112,7 @@ export class BwcProvider {
       },
     };
     const PayProV2 = BWC.PayProV2;
-    PayProV2.trustedKeys = regtestTrustedKeys;
+    PayProV2.trustedKeys = {...PayProV2.trustedKeys, ...regtestTrustedKeys};
     return PayProV2;
   }
 
