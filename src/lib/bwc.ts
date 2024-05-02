@@ -112,7 +112,6 @@ export class BwcProvider {
     //       '0251d7590d87c7c55b28063a7f82311d87c736ca07e496e2a8bee80f34f4c76969',
     //   },
     // };
-    // console.log(JSON.stringify(regtestTrustedKeys));
     const PayProV2 = BWC.PayProV2;
     PayProV2.trustedKeys = {
       ...PayProV2.trustedKeys,
