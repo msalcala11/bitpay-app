@@ -8,7 +8,7 @@ import React, {
   useState,
 } from 'react';
 import styled from 'styled-components/native';
-import {Keyboard, RefreshControl, ScrollView} from 'react-native';
+import {Keyboard, Platform, RefreshControl, ScrollView} from 'react-native';
 import GiftCardCatalog from './components/GiftCardCatalog';
 import {
   getGiftCardConfigList,
@@ -41,6 +41,7 @@ import {SlateDark, White} from '../../../styles/colors';
 import {sleep} from '../../../utils/helper-methods';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {withErrorFallback} from '../TabScreenErrorFallback';
+import TabContainer from '../TabContainer';
 
 export enum ShopTabs {
   GIFT_CARDS = 'Gift Cards',
@@ -53,10 +54,6 @@ export type ShopHomeParamList = {
 };
 
 const Tab = createMaterialTopTabNavigator();
-
-const ShopContainer = styled.SafeAreaView`
-  flex: 1;
-`;
 
 const ShopInnerContainer = styled.View`
   margin-top: 15px;
@@ -275,12 +272,13 @@ const ShopHome: React.FC<
 
   return (
     <GestureHandlerRootView style={{flex: 1}}>
-      <ShopContainer>
+      <TabContainer>
         <ScrollView
           ref={scrollViewRef}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           onScrollBeginDrag={Keyboard.dismiss}
+          style={{marginTop: Platform.OS === 'ios' ? 50 : 0}}
           refreshControl={
             user ? (
               <RefreshControl
@@ -331,7 +329,7 @@ const ShopHome: React.FC<
             </Tab.Navigator>
           </ShopInnerContainer>
         </ScrollView>
-      </ShopContainer>
+      </TabContainer>
     </GestureHandlerRootView>
   );
 };

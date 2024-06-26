@@ -6,14 +6,7 @@ import {
 import {each} from 'lodash';
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslation} from 'react-i18next';
-import {
-  Platform,
-  RefreshControl,
-  ScrollView,
-  TouchableOpacity,
-} from 'react-native';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import styled from 'styled-components/native';
+import {RefreshControl, ScrollView, TouchableOpacity} from 'react-native';
 import {STATIC_CONTENT_CARDS_ENABLED} from '../../../constants/config';
 import {SupportedCurrencyOptions} from '../../../constants/SupportedCurrencyOptions';
 import {
@@ -59,10 +52,7 @@ import QuickLinksCarousel from './components/quick-links/QuickLinksCarousel';
 import {HeaderContainer, HeaderLeftContainer} from './components/Styled';
 import KeyMigrationFailureModal from './components/KeyMigrationFailureModal';
 import {useThemeType} from '../../../utils/hooks/useThemeType';
-import {
-  ProposalBadgeContainer,
-  ScreenContainer,
-} from '../../../components/styled/Containers';
+import {ProposalBadgeContainer} from '../../../components/styled/Containers';
 import {ProposalBadge} from '../../../components/styled/Text';
 import {
   receiveCrypto,
@@ -71,23 +61,11 @@ import {
 import {Analytics} from '../../../store/analytics/analytics.effects';
 import Icons from '../../wallet/components/WalletIcons';
 import {withErrorFallback} from '../TabScreenErrorFallback';
-
-const HomeRootContainerFactory = (insetsTop: number) => {
-  const platformSpecificContainer = Platform.select({
-    ios: () => styled.View`
-      flex: 1;
-      margin-top: ${insetsTop}px;
-    `,
-  });
-  return platformSpecificContainer
-    ? platformSpecificContainer()
-    : ScreenContainer;
-};
+import TabContainer from '../TabContainer';
 
 const HomeRoot = () => {
   const {t} = useTranslation();
   const dispatch = useAppDispatch();
-  const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const theme = useTheme();
   const themeType = useThemeType();
@@ -238,13 +216,8 @@ const HomeRoot = () => {
   const scrollViewRef = useRef<ScrollView>(null);
   useScrollToTop(scrollViewRef);
 
-  const HomeRootContainer = useMemo(
-    () => HomeRootContainerFactory(insets.top),
-    [insets.top],
-  );
-
   return (
-    <HomeRootContainer>
+    <TabContainer>
       {appIsLoading ? null : (
         <ScrollView
           ref={scrollViewRef}
@@ -340,7 +313,7 @@ const HomeRoot = () => {
         </ScrollView>
       )}
       <KeyMigrationFailureModal />
-    </HomeRootContainer>
+    </TabContainer>
   );
 };
 

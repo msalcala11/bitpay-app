@@ -207,7 +207,7 @@ export const Bills = () => {
   };
 
   return (
-    <SectionContainer style={{minHeight: HEIGHT - 200}}>
+    <SectionContainer style={{minHeight: HEIGHT - 175}}>
       {!isVerified ? (
         <>
           <BillPitch />

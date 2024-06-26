@@ -2,7 +2,6 @@ import React, {useState} from 'react';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {BillGroupParamList, BillScreens} from '../BillGroup';
 import {RefreshControl, ScrollView} from 'react-native';
-import {ScreenContainer} from '../../components/styled/ShopTabComponents';
 import {Bills} from '../../components/Bills';
 import {useTheme} from 'styled-components/native';
 import {SlateDark, White} from '../../../../../styles/colors';
@@ -10,6 +9,7 @@ import {ShopEffects} from '../../../../../store/shop';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {sleep} from '../../../../../utils/helper-methods';
 import {withErrorFallback} from '../../../../../navigation/tabs/TabScreenErrorFallback';
+import TabContainer from '../../../../../navigation/tabs/TabContainer';
 
 const BillsHome = ({}: NativeStackScreenProps<
   BillGroupParamList,
@@ -21,8 +21,9 @@ const BillsHome = ({}: NativeStackScreenProps<
     ({APP, BITPAY_ID}) => BITPAY_ID.user[APP.network],
   );
   const [refreshing, setRefreshing] = useState(false);
+
   return (
-    <ScreenContainer>
+    <TabContainer>
       <ScrollView
         refreshControl={
           user ? (
@@ -44,7 +45,7 @@ const BillsHome = ({}: NativeStackScreenProps<
         }>
         <Bills />
       </ScrollView>
-    </ScreenContainer>
+    </TabContainer>
   );
 };
 
