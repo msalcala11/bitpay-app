@@ -588,7 +588,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
               console.log(section);
               return [...allTransactions, section.title, ...section.data];
             }, [] as any[]);
-            console.log('flattened', JSON.stringify(flattened, null, 4));
+            // console.log('flattened', JSON.stringify(flattened, null, 4));
             setFlattenedHistory(flattened);
             setGroupedHistory(grouped);
           }
@@ -1329,6 +1329,17 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
             debouncedLoadHistory();
           }
         }}
+        stickyHeaderIndices={
+          flattenedHistory
+            .map((item, index) => {
+              if (typeof item === 'string') {
+                return index;
+              } else {
+                return null;
+              }
+            })
+            .filter(item => item !== null) as number[]
+        }
         onEndReachedThreshold={0.3}
         ListEmptyComponent={listEmptyComponent}
         // maxToRenderPerBatch={15}
