@@ -514,6 +514,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const [groupedHistory, setGroupedHistory] = useState<
     {title: string; data: any[]; time: number}[]
   >([]);
+  const [flattenedHistory, setFlattenedHistory] = useState<any[]>([]);
   const [loadMore, setLoadMore] = useState(true);
   const [isLoading, setIsLoading] = useState<boolean>();
   const [errorLoadingTxs, setErrorLoadingTxs] = useState<boolean>();
@@ -580,7 +581,14 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
 
           if (_history?.length) {
             setHistory(_history);
+            // console.log('_history', JSON.stringify(_history, null, 4));
             const grouped = GroupTransactionHistory(_history);
+            const flattened = grouped.reduce((allTransactions, section) => {
+              console.log(section);
+              return [...allTransactions, section.title, ...section.data];
+            }, [] as any[]);
+            console.log('flattened', JSON.stringify(flattened, null, 4));
+            setFlattenedHistory(flattened);
             setGroupedHistory(grouped);
           }
 
