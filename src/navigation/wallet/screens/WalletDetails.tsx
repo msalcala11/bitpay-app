@@ -1,5 +1,6 @@
 import {useNavigation, useTheme} from '@react-navigation/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {FlashList} from '@shopify/flash-list';
 import i18next from 'i18next';
 import _ from 'lodash';
 import React, {
@@ -1030,7 +1031,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
 
   return (
     <WalletDetailsContainer>
-      <SectionList
+      <FlashList
         refreshControl={
           <RefreshControl
             tintColor={theme.dark ? White : SlateDark}
@@ -1298,12 +1299,27 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
             </>
           );
         }}
-        sections={groupedHistory}
-        stickyHeaderIndices={[groupedHistory?.length]}
-        stickySectionHeadersEnabled={true}
-        keyExtractor={keyExtractor}
-        renderItem={renderTransaction}
-        renderSectionHeader={renderSectionHeader}
+        data={flattenedHistory}
+        // stickyHeaderIndices={[groupedHistory?.length]}
+        // stickySectionHeadersEnabled={true}
+        //keyExtractor={keyExtractor}
+        // renderItem={renderTransaction}
+        renderItem={({item}) => {
+          if (typeof item === 'string') {
+            return (
+              <TransactionSectionHeaderContainer>
+                <H5>{item}</H5>
+              </TransactionSectionHeaderContainer>
+            );
+            // // Rendering header
+            // return <BaseText>{item}</BaseText>;
+          } else {
+            // Render item
+            return renderTransaction({item});
+            //return <BaseText>{item.id}</BaseText>;
+          }
+        }}
+        // renderSectionHeader={renderSectionHeader}
         ItemSeparatorComponent={itemSeparatorComponent}
         ListFooterComponent={listFooterComponent}
         onMomentumScrollBegin={() => setIsScrolling(true)}
@@ -1315,8 +1331,9 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
         }}
         onEndReachedThreshold={0.3}
         ListEmptyComponent={listEmptyComponent}
-        maxToRenderPerBatch={15}
-        getItemLayout={getItemLayout}
+        // maxToRenderPerBatch={15}
+        // getItemLayout={getItemLayout}
+        estimatedItemSize={TRANSACTION_ROW_HEIGHT}
       />
 
       <OptionsSheet
