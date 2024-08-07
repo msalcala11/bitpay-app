@@ -1340,6 +1340,10 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
             })
             .filter(item => item !== null) as number[]
         }
+        getItemType={item => {
+          // To achieve better performance, specify the type based on the item
+          return typeof item === 'string' ? 'sectionHeader' : 'row';
+        }}
         onEndReachedThreshold={0.3}
         ListEmptyComponent={listEmptyComponent}
         // maxToRenderPerBatch={15}
