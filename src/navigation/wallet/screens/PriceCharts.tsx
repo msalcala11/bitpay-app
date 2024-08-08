@@ -1,10 +1,16 @@
 import {RouteProp, useNavigation, useRoute} from '@react-navigation/native';
 import React, {useCallback, useEffect, useLayoutEffect, useState} from 'react';
-import {ActivityIndicator, Platform} from 'react-native';
+import {ActivityIndicator, Dimensions, Platform, View} from 'react-native';
 import styled, {useTheme} from 'styled-components/native';
 import Button from '../../../components/button/Button';
 import {CtaContainer, WIDTH} from '../../../components/styled/Containers';
-import {Badge, H2, H5, HeaderTitle} from '../../../components/styled/Text';
+import {
+  Badge,
+  BaseText,
+  H2,
+  H5,
+  HeaderTitle,
+} from '../../../components/styled/Text';
 import {
   SlateDark,
   White,
@@ -41,6 +47,7 @@ import {Analytics} from '../../../store/analytics/analytics.effects';
 import {GraphPoint, LineGraph} from 'react-native-graph';
 import haptic from '../../../components/haptic-feedback/haptic';
 import {gestureHandlerRootHOC} from 'react-native-gesture-handler';
+import {findIndex, maxBy, minBy} from 'lodash';
 
 export type PriceChartsParamList = {
   item: ExchangeRateItemProps;
@@ -54,6 +61,10 @@ interface ChartDataType {
   data: ChartDisplayDataType[];
   percentChange: number;
   priceChange: number;
+  maxIndex?: number;
+  maxPoint?: ChartDisplayDataType;
+  minIndex?: number;
+  minPoint?: ChartDisplayDataType;
 }
 
 const defaultDisplayData: ChartDataType = {
@@ -158,8 +169,17 @@ const getFormattedData = (
     })),
     targetLength,
   );
+
+  const maxPoint = maxBy(scaledData, point => point.value);
+  const minPoint = minBy(scaledData, point => point.value);
+  const maxIndex = findIndex(scaledData, maxPoint);
+  const minIndex = findIndex(scaledData, minPoint);
   return {
     data: scaledData,
+    maxIndex,
+    maxPoint,
+    minIndex,
+    minPoint,
     percentChange,
     priceChange: data[data.length - 1].rate - data[0].rate,
   };
@@ -174,6 +194,33 @@ const PriceChartHeader = ({currencyName, currencyAbbreviation, img}: any) => {
       </HeaderTitle>
       <Badge>{currencyAbbreviation.toUpperCase()}</Badge>
     </RowContainer>
+  );
+};
+
+// const AxisLabelText = styled(BaseText)`
+//   color: white;
+// `;
+
+// const AxisLabel = ({point}: {point: ChartDisplayDataType}) => (
+//   <AxisLabelText>{point.value}</AxisLabelText>
+// );
+
+export const AxisLabel = ({
+  value,
+  index,
+  arrayLength,
+}: {
+  value: number;
+  index: number;
+  arrayLength: number;
+}): JSX.Element => {
+  // const textColor = useColorScheme() === 'dark' ? '#fff' : '#000';
+  const location =
+    (index / arrayLength) * (Dimensions.get('window').width - 40) || 0;
+  return (
+    <View style={{transform: [{translateX: Math.max(location - 40, 5)}]}}>
+      <BaseText>{`$${value.toFixed(2)}`}</BaseText>
+    </View>
   );
 };
 
@@ -248,7 +295,7 @@ const PriceCharts = () => {
       const historicFiatRates = await rateFetchPromises[dateRange]!;
       const formattedRates = getFormattedData(
         historicFiatRates.sort((a, b) => a.ts - b.ts),
-        maxPoints || targetLength || historicFiatRates.length,
+        Math.min(maxPoints, targetLength || historicFiatRates.length),
       );
       setCachedRates(previous => ({
         ...previous,
@@ -417,6 +464,22 @@ const PriceCharts = () => {
             onGestureStart={onGestureStarted}
             onPointSelected={onPointSelected}
             onGestureEnd={onGestureEnd}
+            TopAxisLabel={() => (
+              <AxisLabel
+                // x={displayData.maxPoint?.date!}
+                value={displayData.maxPoint?.value!}
+                index={displayData.maxIndex!}
+                arrayLength={displayData.data.length}
+              />
+            )}
+            BottomAxisLabel={() => (
+              <AxisLabel
+                // x={displayData.maxPoint?.date!}
+                value={displayData.minPoint?.value!}
+                index={displayData.minIndex!}
+                arrayLength={displayData.data.length}
+              />
+            )}
             color={theme.dark && coinColor === Black ? White : coinColor}
             style={{width: WIDTH, height: chartRowHeight, marginTop: 20}}
           />
