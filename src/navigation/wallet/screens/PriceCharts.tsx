@@ -1,6 +1,6 @@
 import {RouteProp, useNavigation, useRoute} from '@react-navigation/native';
 import React, {useCallback, useEffect, useLayoutEffect, useState} from 'react';
-import {ActivityIndicator, Dimensions, Platform, View} from 'react-native';
+import {ActivityIndicator, Platform} from 'react-native';
 import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 import styled, {useTheme} from 'styled-components/native';
 import Button from '../../../components/button/Button';
@@ -19,8 +19,6 @@ import {
   LuckySevens,
   ProgressBlue,
   LightBlack,
-  Slate,
-  NeutralSlate,
 } from '../../../styles/colors';
 import {
   calculatePercentageDifference,
@@ -53,9 +51,6 @@ import haptic from '../../../components/haptic-feedback/haptic';
 import {gestureHandlerRootHOC} from 'react-native-gesture-handler';
 import {findIndex, maxBy, minBy} from 'lodash';
 import Animated, {
-  Extrapolation,
-  interpolate,
-  useAnimatedStyle,
   useSharedValue,
   withSpring,
   withTiming,
