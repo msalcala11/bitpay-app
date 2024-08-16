@@ -52,6 +52,7 @@ import {GraphPoint, LineGraph} from 'react-native-graph';
 import haptic from '../../../components/haptic-feedback/haptic';
 import {gestureHandlerRootHOC} from 'react-native-gesture-handler';
 import {findIndex, maxBy, minBy} from 'lodash';
+import Animated, {useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
 
 export type PriceChartsParamList = {
   item: ExchangeRateItemProps;
@@ -222,17 +223,26 @@ export const AxisLabel = ({
   currencyAbbreviation: string;
   type: 'min' | 'max';
 }): JSX.Element => {
+  console.log('reredering axislabelzz');
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const theme = useTheme();
-  const [textWidth, setTextWidth] = useState(80);
+  const [textWidth, setTextWidth] = useState(50);
+  console.log('textWidth', textWidth);
   const location = (index / arrayLength) * WIDTH - textWidth / 2;
   const minLocation = 5;
   const maxLocation = WIDTH - textWidth;
   const translateX = Math.min(Math.max(location, minLocation), maxLocation);
+  const opacity = useSharedValue(0);
+  opacity.value = withTiming(1, {duration: 500});
   const translateY = type === 'min' ? 5 : -5;
   return (
-    <View style={{flexDirection: 'row', transform: [{translateY}]}}>
-      <View
+    <Animated.View
+      style={{
+        flexDirection: 'row',
+        transform: [{translateY}],
+        opacity,
+      }}>
+      <Animated.View
         style={{transform: [{translateX}]}}
         onLayout={event => setTextWidth(event.nativeEvent.layout.width)}>
         <BaseText
@@ -245,8 +255,8 @@ export const AxisLabel = ({
             currencyAbbreviation,
           })}
         </BaseText>
-      </View>
-    </View>
+      </Animated.View>
+    </Animated.View>
   );
 };
 
@@ -437,6 +447,42 @@ const PriceCharts = () => {
     return selectedPoint?.percentChange ?? displayData.percentChange;
   };
 
+  const MinAxisLabel = useCallback(
+    () => (
+      <AxisLabel
+        value={displayData.minPoint?.value!}
+        index={displayData.minIndex!}
+        arrayLength={displayData.data.length}
+        currencyAbbreviation={currencyAbbreviation}
+        type="min"
+      />
+    ),
+    [
+      currencyAbbreviation,
+      displayData.data.length,
+      displayData.minIndex,
+      displayData.minPoint?.value,
+    ],
+  );
+
+  const MaxAxisLabel = useCallback(
+    () => (
+      <AxisLabel
+        value={displayData.maxPoint?.value!}
+        index={displayData.maxIndex!}
+        arrayLength={displayData.data.length}
+        currencyAbbreviation={currencyAbbreviation}
+        type="max"
+      />
+    ),
+    [
+      currencyAbbreviation,
+      displayData.data.length,
+      displayData.maxIndex,
+      displayData.maxPoint?.value,
+    ],
+  );
+
   return (
     <SafeAreaView>
       <HeaderContainer>
@@ -512,26 +558,8 @@ const PriceCharts = () => {
             onGestureStart={onGestureStarted}
             onPointSelected={onPointSelected}
             onGestureEnd={onGestureEnd}
-            // eslint-disable-next-line react/no-unstable-nested-components
-            TopAxisLabel={() => (
-              <AxisLabel
-                value={displayData.maxPoint?.value!}
-                index={displayData.maxIndex!}
-                arrayLength={displayData.data.length}
-                currencyAbbreviation={currencyAbbreviation}
-                type="max"
-              />
-            )}
-            // eslint-disable-next-line react/no-unstable-nested-components
-            BottomAxisLabel={() => (
-              <AxisLabel
-                value={displayData.minPoint?.value!}
-                index={displayData.minIndex!}
-                arrayLength={displayData.data.length}
-                currencyAbbreviation={currencyAbbreviation}
-                type="min"
-              />
-            )}
+            TopAxisLabel={MaxAxisLabel}
+            BottomAxisLabel={MinAxisLabel}
             color={theme.dark && coinColor === Black ? White : coinColor}
             style={{width: WIDTH, height: chartRowHeight, marginTop: 20}}
           />
