@@ -52,7 +52,14 @@ import {GraphPoint, LineGraph} from 'react-native-graph';
 import haptic from '../../../components/haptic-feedback/haptic';
 import {gestureHandlerRootHOC} from 'react-native-gesture-handler';
 import {findIndex, maxBy, minBy} from 'lodash';
-import Animated, {useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 
 export type PriceChartsParamList = {
   item: ExchangeRateItemProps;
@@ -202,48 +209,51 @@ const PriceChartHeader = ({currencyName, currencyAbbreviation, img}: any) => {
   );
 };
 
-// const AxisLabelText = styled(BaseText)`
-//   color: white;
-// `;
-
-// const AxisLabel = ({point}: {point: ChartDisplayDataType}) => (
-//   <AxisLabelText>{point.value}</AxisLabelText>
-// );
-
 export const AxisLabel = ({
   value,
   index,
+  prevIndex,
   arrayLength,
   currencyAbbreviation,
   type,
 }: {
   value: number;
   index: number;
+  prevIndex: number;
   arrayLength: number;
   currencyAbbreviation: string;
   type: 'min' | 'max';
 }): JSX.Element => {
-  console.log('reredering axislabelzz');
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const theme = useTheme();
   const [textWidth, setTextWidth] = useState(50);
-  console.log('textWidth', textWidth);
+  const prevLocation = (prevIndex / arrayLength) * WIDTH - textWidth / 2;
   const location = (index / arrayLength) * WIDTH - textWidth / 2;
-  const minLocation = 5;
-  const maxLocation = WIDTH - textWidth;
-  const translateX = Math.min(Math.max(location, minLocation), maxLocation);
+  const getTranslateX = (loc: number) => {
+    const minLocation = 5;
+    const maxLocation = WIDTH - textWidth;
+    return Math.min(Math.max(loc, minLocation), maxLocation);
+  };
+  const translateX = getTranslateX(location);
+  const prevTranslateX = getTranslateX(prevLocation);
+  const translateSv = useSharedValue(prevTranslateX);
   const opacity = useSharedValue(0);
-  opacity.value = withTiming(1, {duration: 500});
+  opacity.value = withTiming(1, {duration: 1000});
+  translateSv.value = withSpring(translateX, {
+    mass: 1,
+    stiffness: 500,
+    damping: 400,
+    velocity: 0,
+  });
   const translateY = type === 'min' ? 5 : -5;
   return (
     <Animated.View
       style={{
         flexDirection: 'row',
         transform: [{translateY}],
-        opacity,
       }}>
       <Animated.View
-        style={{transform: [{translateX}]}}
+        style={{transform: [{translateX: translateSv}]}}
         onLayout={event => setTextWidth(event.nativeEvent.layout.width)}>
         <BaseText
           style={{
@@ -306,6 +316,7 @@ const PriceCharts = () => {
   const [loading, setLoading] = useState(true);
   const [showRageDateSelector, setShowRageDateSelector] = useState(true);
   const [displayData, setDisplayData] = useState(defaultDisplayData);
+  const [prevDisplayData, setPrevDisplayData] = useState(defaultDisplayData);
   const [cachedRates, setCachedRates] = useState(defaultCachedRates);
   const [chartRowHeight, setChartRowHeight] = useState(-1);
   const [selectedPoint, setSelectedPoint] = useState(
@@ -364,13 +375,18 @@ const PriceCharts = () => {
     return rates;
   };
 
+  const setNewDisplayData = (data: ChartDataType) => {
+    setPrevDisplayData(displayData);
+    setDisplayData(data);
+  };
+
   const redrawChart = async (dateRange: DateRanges) => {
     if (cachedRates[dateRange].data.length) {
-      setDisplayData(cachedRates[dateRange]);
+      setNewDisplayData(cachedRates[dateRange]);
     } else {
       try {
         const rates = await getHistoricalFiatRates(dateRange);
-        setDisplayData(rates);
+        setNewDisplayData(rates);
         // await sleep(3000);
         setLoading(false);
       } catch (e) {
@@ -452,6 +468,7 @@ const PriceCharts = () => {
       <AxisLabel
         value={displayData.minPoint?.value!}
         index={displayData.minIndex!}
+        prevIndex={prevDisplayData.minIndex ?? displayData.minIndex!}
         arrayLength={displayData.data.length}
         currencyAbbreviation={currencyAbbreviation}
         type="min"
@@ -462,6 +479,7 @@ const PriceCharts = () => {
       displayData.data.length,
       displayData.minIndex,
       displayData.minPoint?.value,
+      prevDisplayData.minIndex,
     ],
   );
 
@@ -470,6 +488,7 @@ const PriceCharts = () => {
       <AxisLabel
         value={displayData.maxPoint?.value!}
         index={displayData.maxIndex!}
+        prevIndex={prevDisplayData.maxIndex ?? displayData.maxIndex!}
         arrayLength={displayData.data.length}
         currencyAbbreviation={currencyAbbreviation}
         type="max"
@@ -480,6 +499,7 @@ const PriceCharts = () => {
       displayData.data.length,
       displayData.maxIndex,
       displayData.maxPoint?.value,
+      prevDisplayData.maxIndex,
     ],
   );
 
