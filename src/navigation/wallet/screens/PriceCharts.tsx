@@ -230,18 +230,18 @@ export const AxisLabel = ({
     const maxLocation = WIDTH - textWidth;
     return Math.min(Math.max(loc, minLocation), maxLocation);
   };
-  const translateX = getTranslateX(location);
   const prevTranslateX = getTranslateX(prevLocation);
-  const translateSv = useSharedValue(prevTranslateX);
-  const opacity = useSharedValue(prevIndex ? 1 : 0);
-  opacity.value = withTiming(1, {duration: 800});
-  translateSv.value = withSpring(translateX, {
+  const newTranslateX = getTranslateX(location);
+  const translateX = useSharedValue(prevTranslateX);
+  translateX.value = withSpring(newTranslateX, {
     mass: 1,
     stiffness: 500,
     damping: 400,
     velocity: 0,
   });
   const translateY = type === 'min' ? 5 : -5;
+  const opacity = useSharedValue(prevIndex ? 1 : 0);
+  opacity.value = withTiming(1, {duration: 800});
   return (
     <Animated.View
       style={{
@@ -250,7 +250,7 @@ export const AxisLabel = ({
         opacity,
       }}>
       <Animated.View
-        style={{transform: [{translateX: translateSv}]}}
+        style={{transform: [{translateX}]}}
         onLayout={event => setTextWidth(event.nativeEvent.layout.width)}>
         <BaseText
           style={{
