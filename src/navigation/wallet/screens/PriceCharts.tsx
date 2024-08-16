@@ -19,6 +19,8 @@ import {
   LuckySevens,
   ProgressBlue,
   LightBlack,
+  Slate,
+  NeutralSlate,
 } from '../../../styles/colors';
 import {
   calculatePercentageDifference,
@@ -50,7 +52,7 @@ import {GraphPoint, LineGraph} from 'react-native-graph';
 import haptic from '../../../components/haptic-feedback/haptic';
 import {gestureHandlerRootHOC} from 'react-native-gesture-handler';
 import {findIndex, maxBy, minBy} from 'lodash';
-import { AltCurrenciesRowProps } from '@/components/list/AltCurrenciesRow';
+import {AltCurrenciesRowProps} from '@/components/list/AltCurrenciesRow';
 
 export type PriceChartsParamList = {
   item: ExchangeRateItemProps;
@@ -213,25 +215,35 @@ export const AxisLabel = ({
   index,
   arrayLength,
   currencyAbbreviation,
-  defaultAltCurrency,
 }: {
   value: number;
   index: number;
   arrayLength: number;
   currencyAbbreviation: string;
-  defaultAltCurrency: AltCurrenciesRowProps;
 }): JSX.Element => {
-  // const textColor = useColorScheme() === 'dark' ? '#fff' : '#000';
-  const location =
-    (index / arrayLength) * (Dimensions.get('window').width - 40) || 0;
+  const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
+  const theme = useTheme();
+  const [textWidth, setTextWidth] = useState(80);
+  const location = (index / arrayLength) * WIDTH - textWidth / 2;
+  const minLocation = 5;
+  const maxLocation = WIDTH - textWidth;
+  const translateX = Math.min(Math.max(location, minLocation), maxLocation);
   return (
-    <View style={{transform: [{translateX: Math.max(location - 40, 5)}]}}>
-      <BaseText>
-        {formatFiatAmount(value, defaultAltCurrency.isoCode, {
-          customPrecision: 'minimal',
-          currencyAbbreviation,
-        })}
-      </BaseText>
+    <View style={{flexDirection: 'row'}}>
+      <View
+        style={{transform: [{translateX}]}}
+        onLayout={event => setTextWidth(event.nativeEvent.layout.width)}>
+        <BaseText
+          style={{
+            color: theme.dark ? LuckySevens : SlateDark,
+            fontWeight: '500',
+            fontSize: 13,
+          }}>
+          {formatFiatAmount(value, defaultAltCurrency.isoCode, {
+            currencyAbbreviation,
+          })}
+        </BaseText>
+      </View>
     </View>
   );
 };
@@ -498,23 +510,22 @@ const PriceCharts = () => {
             onGestureStart={onGestureStarted}
             onPointSelected={onPointSelected}
             onGestureEnd={onGestureEnd}
+            // eslint-disable-next-line react/no-unstable-nested-components
             TopAxisLabel={() => (
               <AxisLabel
-                // x={displayData.maxPoint?.date!}
                 value={displayData.maxPoint?.value!}
                 index={displayData.maxIndex!}
                 arrayLength={displayData.data.length}
                 currencyAbbreviation={currencyAbbreviation}
-                defaultAltCurrency={defaultAltCurrency}
               />
             )}
+            // eslint-disable-next-line react/no-unstable-nested-components
             BottomAxisLabel={() => (
               <AxisLabel
                 value={displayData.minPoint?.value!}
                 index={displayData.minIndex!}
                 arrayLength={displayData.data.length}
                 currencyAbbreviation={currencyAbbreviation}
-                defaultAltCurrency={defaultAltCurrency}
               />
             )}
             color={theme.dark && coinColor === Black ? White : coinColor}
