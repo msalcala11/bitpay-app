@@ -50,6 +50,7 @@ import {GraphPoint, LineGraph} from 'react-native-graph';
 import haptic from '../../../components/haptic-feedback/haptic';
 import {gestureHandlerRootHOC} from 'react-native-gesture-handler';
 import {findIndex, maxBy, minBy} from 'lodash';
+import { AltCurrenciesRowProps } from '@/components/list/AltCurrenciesRow';
 
 export type PriceChartsParamList = {
   item: ExchangeRateItemProps;
@@ -211,17 +212,26 @@ export const AxisLabel = ({
   value,
   index,
   arrayLength,
+  currencyAbbreviation,
+  defaultAltCurrency,
 }: {
   value: number;
   index: number;
   arrayLength: number;
+  currencyAbbreviation: string;
+  defaultAltCurrency: AltCurrenciesRowProps;
 }): JSX.Element => {
   // const textColor = useColorScheme() === 'dark' ? '#fff' : '#000';
   const location =
     (index / arrayLength) * (Dimensions.get('window').width - 40) || 0;
   return (
     <View style={{transform: [{translateX: Math.max(location - 40, 5)}]}}>
-      <BaseText>{`$${value.toFixed(2)}`}</BaseText>
+      <BaseText>
+        {formatFiatAmount(value, defaultAltCurrency.isoCode, {
+          customPrecision: 'minimal',
+          currencyAbbreviation,
+        })}
+      </BaseText>
     </View>
   );
 };
@@ -494,14 +504,17 @@ const PriceCharts = () => {
                 value={displayData.maxPoint?.value!}
                 index={displayData.maxIndex!}
                 arrayLength={displayData.data.length}
+                currencyAbbreviation={currencyAbbreviation}
+                defaultAltCurrency={defaultAltCurrency}
               />
             )}
             BottomAxisLabel={() => (
               <AxisLabel
-                // x={displayData.maxPoint?.date!}
                 value={displayData.minPoint?.value!}
                 index={displayData.minIndex!}
                 arrayLength={displayData.data.length}
+                currencyAbbreviation={currencyAbbreviation}
+                defaultAltCurrency={defaultAltCurrency}
               />
             )}
             color={theme.dark && coinColor === Black ? White : coinColor}
