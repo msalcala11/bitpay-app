@@ -214,7 +214,7 @@ export const AxisLabel = ({
 }: {
   value: number;
   index: number;
-  prevIndex: number;
+  prevIndex?: number;
   arrayLength: number;
   currencyAbbreviation: string;
   type: 'min' | 'max';
@@ -222,7 +222,8 @@ export const AxisLabel = ({
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const theme = useTheme();
   const [textWidth, setTextWidth] = useState(50);
-  const prevLocation = (prevIndex / arrayLength) * WIDTH - textWidth / 2;
+  const prevLocation =
+    ((prevIndex ?? index) / arrayLength) * WIDTH - textWidth / 2;
   const location = (index / arrayLength) * WIDTH - textWidth / 2;
   const getTranslateX = (loc: number) => {
     const minLocation = 5;
@@ -463,7 +464,7 @@ const PriceCharts = () => {
       <AxisLabel
         value={displayData.minPoint?.value!}
         index={displayData.minIndex!}
-        prevIndex={prevDisplayData.minIndex ?? displayData.minIndex!}
+        prevIndex={prevDisplayData.minIndex}
         arrayLength={displayData.data.length}
         currencyAbbreviation={currencyAbbreviation}
         type="min"
@@ -483,7 +484,7 @@ const PriceCharts = () => {
       <AxisLabel
         value={displayData.maxPoint?.value!}
         index={displayData.maxIndex!}
-        prevIndex={prevDisplayData.maxIndex ?? displayData.maxIndex!}
+        prevIndex={prevDisplayData.maxIndex}
         arrayLength={displayData.data.length}
         currencyAbbreviation={currencyAbbreviation}
         type="max"
