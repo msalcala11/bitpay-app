@@ -233,8 +233,8 @@ export const AxisLabel = ({
   const translateX = getTranslateX(location);
   const prevTranslateX = getTranslateX(prevLocation);
   const translateSv = useSharedValue(prevTranslateX);
-  const opacity = useSharedValue(0);
-  opacity.value = withTiming(1, {duration: 1000});
+  const opacity = useSharedValue(prevIndex ? 1 : 0);
+  opacity.value = withTiming(1, {duration: 800});
   translateSv.value = withSpring(translateX, {
     mass: 1,
     stiffness: 500,
@@ -247,6 +247,7 @@ export const AxisLabel = ({
       style={{
         flexDirection: 'row',
         transform: [{translateY}],
+        opacity,
       }}>
       <Animated.View
         style={{transform: [{translateX: translateSv}]}}
