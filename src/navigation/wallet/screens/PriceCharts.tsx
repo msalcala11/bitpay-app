@@ -1,6 +1,7 @@
 import {RouteProp, useNavigation, useRoute} from '@react-navigation/native';
 import React, {useCallback, useEffect, useLayoutEffect, useState} from 'react';
 import {ActivityIndicator, Dimensions, Platform, View} from 'react-native';
+import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 import styled, {useTheme} from 'styled-components/native';
 import Button from '../../../components/button/Button';
 import {CtaContainer, WIDTH} from '../../../components/styled/Containers';
@@ -17,6 +18,7 @@ import {
   Black,
   LuckySevens,
   ProgressBlue,
+  LightBlack,
 } from '../../../styles/colors';
 import {
   calculatePercentageDifference,
@@ -335,6 +337,7 @@ const PriceCharts = () => {
       try {
         const rates = await getHistoricalFiatRates(dateRange);
         setDisplayData(rates);
+        // await sleep(3000);
         setLoading(false);
       } catch (e) {
         dispatch(dismissOnGoingProcessModal());
@@ -413,38 +416,59 @@ const PriceCharts = () => {
   return (
     <SafeAreaView>
       <HeaderContainer>
-        {currentPrice ? (
-          <H2>
-            {formatFiatAmount(
-              selectedPoint?.price ?? currentPrice,
-              defaultAltCurrency.isoCode,
-              {
-                customPrecision: 'minimal',
-                currencyAbbreviation,
-              },
-            )}
-          </H2>
-        ) : null}
-        <RowContainer>
-          {showLossGainOrNeutralArrow(getPercentChange())}
-          <CurrencyAverageText>
-            {selectedPoint?.priceChange ?? displayData.priceChange
-              ? formatFiatAmount(
-                  selectedPoint?.priceChange ?? displayData.priceChange ?? 0,
+        {loading ? (
+          <SkeletonPlaceholder
+            backgroundColor={theme.dark ? LightBlack : '#E1E9EE'}
+            highlightColor={theme.dark ? '#333333' : '#F2F8FC'}>
+            <SkeletonPlaceholder.Item flexDirection="row" alignItems="center">
+              <SkeletonPlaceholder.Item>
+                <SkeletonPlaceholder.Item width={150} height={30} />
+                <SkeletonPlaceholder.Item
+                  marginTop={15}
+                  width={120}
+                  height={15}
+                />
+              </SkeletonPlaceholder.Item>
+            </SkeletonPlaceholder.Item>
+          </SkeletonPlaceholder>
+        ) : (
+          <>
+            {currentPrice ? (
+              <H2>
+                {formatFiatAmount(
+                  selectedPoint?.price ?? currentPrice,
                   defaultAltCurrency.isoCode,
-                  {customPrecision: 'minimal', currencyAbbreviation},
-                )
-              : ''}
-            <>
-              {percentChange ? (
+                  {
+                    customPrecision: 'minimal',
+                    currencyAbbreviation,
+                  },
+                )}
+              </H2>
+            ) : null}
+            <RowContainer>
+              {showLossGainOrNeutralArrow(getPercentChange())}
+              <CurrencyAverageText>
+                {selectedPoint?.priceChange ?? displayData.priceChange
+                  ? formatFiatAmount(
+                      selectedPoint?.priceChange ??
+                        displayData.priceChange ??
+                        0,
+                      defaultAltCurrency.isoCode,
+                      {customPrecision: 'minimal', currencyAbbreviation},
+                    )
+                  : ''}
                 <>
-                  {!loading ? ' (' : ''}
-                  {Math.abs(getPercentChange())}%{!loading ? ')' : ''}
+                  {percentChange ? (
+                    <>
+                      {!loading ? ' (' : ''}
+                      {Math.abs(getPercentChange())}%{!loading ? ')' : ''}
+                    </>
+                  ) : null}
                 </>
-              ) : null}
-            </>
-          </CurrencyAverageText>
-        </RowContainer>
+              </CurrencyAverageText>
+            </RowContainer>
+          </>
+        )}
       </HeaderContainer>
 
       <PriceChartContainer
