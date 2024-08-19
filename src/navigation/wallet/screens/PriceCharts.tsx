@@ -240,7 +240,7 @@ export const AxisLabel = ({
     velocity: 0,
   });
   const translateY = type === 'min' ? 5 : -5;
-  const opacity = useSharedValue(prevIndex ? 1 : 0);
+  const opacity = useSharedValue(typeof prevIndex !== 'undefined' ? 1 : 0);
   opacity.value = withTiming(1, {duration: 800});
   return (
     <Animated.View
