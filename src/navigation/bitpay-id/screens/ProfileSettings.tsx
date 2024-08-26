@@ -151,7 +151,7 @@ export const ProfileSettingsScreen = ({route}: ProfileProps) => {
       <BottomSheetBackdrop
         {...props}
         pressBehavior={'close'}
-        //disappearsOnIndex={1}
+        disappearsOnIndex={-1}
         appearsOnIndex={0}
       />
     ),
@@ -317,11 +317,14 @@ export const ProfileSettingsScreen = ({route}: ProfileProps) => {
           backgroundStyle={{backgroundColor: LightBlack}}
           backdropComponent={renderBackdrop}
           ref={bottomSheetModalRef}
-          index={1}
-          snapPoints={snapPoints}
+          index={0}
+          enableDynamicSizing={true}
+          // snapPoints={snapPoints}
           onChange={handleModalSheetChanges}>
-          <BottomSheetView style={{backgroundColor: LightBlack, height: 300}}>
-            <BaseText>Awesome 🎉</BaseText>
+          <BottomSheetView style={{backgroundColor: LightBlack}}>
+            <View style={{height: 100}}>
+              <BaseText>Awesome 🎉</BaseText>
+            </View>
           </BottomSheetView>
         </BottomSheetModal>
         {/* </View> */}
