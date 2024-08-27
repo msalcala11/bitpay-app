@@ -87,6 +87,7 @@ const SheetModal: React.FC<SheetModalProps> = ({
     props => (
       <BottomSheetBackdrop
         {...props}
+        onPress={onBackdropPress}
         pressBehavior={'close'}
         disappearsOnIndex={-1}
         appearsOnIndex={0}
