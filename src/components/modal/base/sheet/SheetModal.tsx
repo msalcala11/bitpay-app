@@ -41,6 +41,8 @@ const SheetModal: React.FC<SheetModalProps> = ({
     setModalVisible(isVisible);
     if (isVisible) {
       bottomSheetModalRef.current?.present();
+    } else {
+      bottomSheetModalRef.current?.close();
     }
 
     const subscriptionAppStateChange = AppState.addEventListener(
@@ -78,7 +80,6 @@ const SheetModal: React.FC<SheetModalProps> = ({
   //   </BaseModal>
   // );
 
-
   const handleModalSheetChanges = useCallback((index: number) => {
     console.log('handleModalSheetChanges', index);
   }, []);
@@ -112,12 +113,12 @@ const SheetModal: React.FC<SheetModalProps> = ({
         ref={bottomSheetModalRef}
         index={0}
         enableDynamicSizing={true}
+        handleComponent={() => <></>}
         // snapPoints={snapPoints}
         onChange={handleModalSheetChanges}>
         <BottomSheetView style={{backgroundColor: LightBlack}}>
-          <View style={{height: 100}}>
-            {/* <BaseText>Awesome 🎉</BaseText> */}
-          </View>
+          {children}
+          {/* <View style={{height: 100}} /> */}
         </BottomSheetView>
       </BottomSheetModal>
       {/* </View> */}
