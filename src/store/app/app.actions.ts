@@ -110,6 +110,14 @@ export const showBottomNotificationModal = (
   payload: config,
 });
 
+export const showTransactMenu = (): AppActionType => ({
+  type: AppActionTypes.SHOW_TRANSACT_MENU,
+});
+
+export const dismissTransactMenu = (): AppActionType => ({
+  type: AppActionTypes.DISMISS_TRANSACT_MENU,
+});
+
 export const dismissBottomNotificationModal = (): AppActionType => ({
   type: AppActionTypes.DISMISS_BOTTOM_NOTIFICATION_MODAL,
 });

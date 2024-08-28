@@ -1,5 +1,5 @@
 import React from 'react';
-import {View} from 'react-native';
+import {View, TouchableOpacity} from 'react-native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {NavigatorScreenParams, useTheme} from '@react-navigation/native';
 
@@ -28,6 +28,7 @@ import BillStack from './shop/bill/BillStack';
 import styled from 'styled-components/native';
 import {useAppDispatch, useAppSelector} from '../../utils/hooks';
 import {Analytics} from '../../store/analytics/analytics.effects';
+import {AppActions} from '../../store/app';
 
 const Icons: Record<string, React.FC<SvgProps>> = {
   Home: HomeIcon,
@@ -54,6 +55,12 @@ const UntappedIconDot = styled.View`
   right: -7px;
   top: -4px;
   border-radius: 5px;
+`;
+
+const TransactButton = styled.View`
+  justify-content: center;
+  align-items: center;
+  flex: 1;
 `;
 
 export enum TabsScreens {
@@ -131,7 +138,18 @@ const TabsStack = () => {
         name={TabsScreens.TRANSACT_BUTTON}
         component={TransactionButton}
         options={{
-          tabBarIcon: () => <TransactModal />,
+          // tabBarIcon: () => <TransactModal />,
+          tabBarIcon: () => (
+            <TransactButton>
+              <TouchableOpacity
+                onPress={() => {
+                  console.log('pressed');
+                  dispatch(AppActions.showTransactMenu());
+                }}>
+                <TransactButtonIcon />
+              </TouchableOpacity>
+            </TransactButton>
+          ),
           tabBarButton: props => <View {...props} />,
         }}
       />

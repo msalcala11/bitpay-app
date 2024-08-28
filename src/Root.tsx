@@ -127,6 +127,7 @@ import SettingsGroup, {
   SettingsGroupParamList,
 } from './navigation/tabs/settings/SettingsGroup';
 import {ImportLedgerWalletModal} from './components/modal/import-ledger-wallet/ImportLedgerWalletModal';
+import TransactModal from './components/modal/transact-menu/TransactMenu';
 
 // ROOT NAVIGATION CONFIG
 export type RootStackParamList = {
@@ -578,6 +579,7 @@ export default () => {
           <PinModal />
           <BiometricModal />
           <ImportLedgerWalletModal />
+          <TransactModal />
         </NavigationContainer>
       </ThemeProvider>
     </SafeAreaProvider>

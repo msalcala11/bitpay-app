@@ -20,6 +20,8 @@ import {WalletScreens} from '../../../navigation/wallet/WalletGroup';
 import {Analytics} from '../../../store/analytics/analytics.effects';
 import {sleep} from '../../../utils/helper-methods';
 import {css} from 'styled-components';
+import {RootState} from '../../../store';
+import {AppActions} from '../../../store/app';
 
 const TransactButton = styled.View`
   justify-content: center;
@@ -99,8 +101,12 @@ interface TransactMenuItemProps {
 const TransactModal = () => {
   const {t} = useTranslation();
   const navigation = useNavigation();
-  const [modalVisible, setModalVisible] = useState(false);
-  const hideModal = () => setModalVisible(false);
+  // const [modalVisible, setModalVisible] = useState(false);
+  const modalVisible = useAppSelector(
+    ({APP}: RootState) => APP.showTransactMenu,
+  );
+  // const hideModal = () => setModalVisible(false);
+  const hideModal = () => dispatch(AppActions.dismissTransactMenu());
   const showModal = () => setModalVisible(true);
   const {keys} = useAppSelector(({WALLET}) => WALLET);
   const availableWallets = Object.values(keys)
@@ -244,11 +250,11 @@ const TransactModal = () => {
 
   return (
     <>
-      <TransactButton>
+      {/* <TransactButton>
         <TouchableOpacity onPress={showModal}>
           <TransactButtonIcon />
         </TouchableOpacity>
-      </TransactButton>
+      </TransactButton> */}
       <SheetModal isVisible={modalVisible} onBackdropPress={hideModal}>
         <ModalContainer>
           <FlatList
