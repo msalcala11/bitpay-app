@@ -41,7 +41,7 @@ const SheetModal: React.FC<SheetModalProps> = ({
     if (isVisible) {
       bottomSheetModalRef.current?.present();
     } else {
-      bottomSheetModalRef.current?.close();
+      bottomSheetModalRef.current?.dismiss();
     }
 
     const subscriptionAppStateChange = AppState.addEventListener(
