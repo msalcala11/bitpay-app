@@ -9,7 +9,6 @@ import {
   BottomSheetModalProvider,
   BottomSheetView,
 } from '@gorhom/bottom-sheet';
-import {LightBlack} from '../../../../styles/colors';
 
 interface Props extends SheetParams {
   isVisible: boolean;
@@ -99,29 +98,16 @@ const SheetModal: React.FC<SheetModalProps> = ({
 
   return (
     <BottomSheetModalProvider>
-      {/* <View style={styles.container}>
-    <Button
-      onPress={handlePresentModalPress}
-      title="Present Modal"
-      color="black"
-    /> */}
       <BottomSheetModal
         enableDismissOnClose={true}
-        style={{backgroundColor: LightBlack}}
-        backgroundStyle={{backgroundColor: LightBlack}}
         backdropComponent={renderBackdrop}
         ref={bottomSheetModalRef}
         index={0}
         enableDynamicSizing={true}
         handleComponent={null}
-        // snapPoints={snapPoints}
         onChange={handleModalSheetChanges}>
-        <BottomSheetView style={{backgroundColor: LightBlack}}>
-          {children}
-          {/* <View style={{height: 100}} /> */}
-        </BottomSheetView>
+        <BottomSheetView>{children}</BottomSheetView>
       </BottomSheetModal>
-      {/* </View> */}
     </BottomSheetModalProvider>
   );
 };
