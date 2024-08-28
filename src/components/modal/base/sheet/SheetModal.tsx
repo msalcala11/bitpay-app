@@ -81,13 +81,17 @@ const SheetModal: React.FC<SheetModalProps> = ({
 
   const handleModalSheetChanges = useCallback((index: number) => {
     console.log('handleModalSheetChanges', index);
+    if (index === -1) {
+      console.log('calling on backdrop press');
+      onBackdropPress();
+    }
   }, []);
 
   const renderBackdrop = useCallback(
     props => (
       <BottomSheetBackdrop
         {...props}
-        onPress={onBackdropPress}
+        //onPress={onBackdropPress}
         pressBehavior={'close'}
         disappearsOnIndex={-1}
         appearsOnIndex={0}
