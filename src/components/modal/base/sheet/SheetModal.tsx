@@ -113,7 +113,7 @@ const SheetModal: React.FC<SheetModalProps> = ({
         ref={bottomSheetModalRef}
         index={0}
         enableDynamicSizing={true}
-        handleComponent={() => <></>}
+        handleComponent={null}
         // snapPoints={snapPoints}
         onChange={handleModalSheetChanges}>
         <BottomSheetView style={{backgroundColor: LightBlack}}>
