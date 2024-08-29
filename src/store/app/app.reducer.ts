@@ -110,7 +110,6 @@ export interface AppState {
       }
     | undefined;
   showBottomNotificationModal: boolean;
-  showTransactMenu: boolean;
   bottomNotificationModalConfig: BottomNotificationConfig | undefined;
   showChainSelectorModal: boolean;
   chainSelectorModalConfig: ChainSelectorConfig | undefined;
@@ -207,7 +206,6 @@ const initialState: AppState = {
   showInAppNotification: false,
   inAppNotificationData: undefined,
   showBottomNotificationModal: false,
-  showTransactMenu: false,
   bottomNotificationModalConfig: undefined,
   showChainSelectorModal: false,
   chainSelectorModalConfig: undefined,
@@ -393,17 +391,6 @@ export const appReducer = (
       return {
         ...state,
         showBottomNotificationModal: false,
-      };
-    case AppActionTypes.SHOW_TRANSACT_MENU:
-      return {
-        ...state,
-        showTransactMenu: true,
-      };
-
-    case AppActionTypes.DISMISS_TRANSACT_MENU:
-      return {
-        ...state,
-        showTransactMenu: false,
       };
 
     case AppActionTypes.RESET_BOTTOM_NOTIFICATION_MODAL_CONFIG:
