@@ -75,7 +75,7 @@ const OptionsSheet = ({
   options,
   paddingHorizontal,
 }: Props) => {
-  const sheetPlacement = placement || 'bottom';
+  const sheetPlacement = 'bottom'; // || 'bottom';
   const topStyles = {
     paddingTop: Platform.OS === 'android' ? 0 : 31,
   };
@@ -108,7 +108,7 @@ const OptionsSheet = ({
           ) => {
             return (
               <OptionContainer
-                style={index === 0 && placement === 'top' && topStyles}
+                style={index === 0 && sheetPlacement === 'top' && topStyles}
                 placement={sheetPlacement}
                 key={index}
                 activeOpacity={ActiveOpacity}

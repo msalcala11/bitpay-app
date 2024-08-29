@@ -343,7 +343,7 @@ const GiftCardDetails = ({
       img: <ExternalLinkSvg theme={theme} />,
       description: t('Share Claim Code'),
       onPress: async () => {
-        await sleep(500);
+        // await sleep(500);
         const dataToShare =
           Platform.OS === 'ios' && giftCard.claimLink
             ? {url: giftCard.claimLink}
