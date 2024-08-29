@@ -6,7 +6,6 @@ import {AppState, AppStateStatus, View} from 'react-native';
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
-  BottomSheetModalProvider,
   BottomSheetView,
 } from '@gorhom/bottom-sheet';
 
@@ -101,20 +100,18 @@ const SheetModal: React.FC<SheetModalProps> = ({
   );
 
   return (
-    <BottomSheetModalProvider>
-      <BottomSheetModal
-        backgroundStyle={{borderRadius: 18}}
-        enableDismissOnClose={true}
-        enableOverDrag={false}
-        backdropComponent={renderBackdrop}
-        ref={bottomSheetModalRef}
-        index={0}
-        enableDynamicSizing={true}
-        handleComponent={null}
-        onChange={handleModalSheetChanges}>
-        <BottomSheetView>{children}</BottomSheetView>
-      </BottomSheetModal>
-    </BottomSheetModalProvider>
+    <BottomSheetModal
+      backgroundStyle={{borderRadius: 18}}
+      enableDismissOnClose={true}
+      enableOverDrag={false}
+      backdropComponent={renderBackdrop}
+      ref={bottomSheetModalRef}
+      index={0}
+      enableDynamicSizing={true}
+      handleComponent={null}
+      onChange={handleModalSheetChanges}>
+      <BottomSheetView>{children}</BottomSheetView>
+    </BottomSheetModal>
   );
 };
 
