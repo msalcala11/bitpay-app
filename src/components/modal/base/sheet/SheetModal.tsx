@@ -82,7 +82,7 @@ const SheetModal: React.FC<SheetModalProps> = ({
     console.log('handleModalSheetChanges', index);
     if (index === -1) {
       console.log('calling on backdrop press');
-      onBackdropPress();
+      //onBackdropPress();
     }
   }, []);
 
