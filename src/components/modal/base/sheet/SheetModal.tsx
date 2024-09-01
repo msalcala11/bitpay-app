@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {BlurContainer} from '../../../blur/Blur';
-import {SheetParams} from '../../../styled/Containers';
+import {HEIGHT, SheetParams} from '../../../styled/Containers';
 import BaseModal from '../BaseModal';
 import {AppState, AppStateStatus, View} from 'react-native';
 import {
@@ -11,6 +11,7 @@ import {
 
 interface Props extends SheetParams {
   isVisible: boolean;
+  fullscreen: boolean;
   onBackdropPress: (props?: any) => void;
   onModalHide?: () => void;
   children?: any;
@@ -21,6 +22,7 @@ type SheetModalProps = React.PropsWithChildren<Props>;
 const SheetModal: React.FC<SheetModalProps> = ({
   children,
   isVisible,
+  fullscreen,
   onBackdropPress,
   onModalHide,
   placement,
@@ -107,10 +109,13 @@ const SheetModal: React.FC<SheetModalProps> = ({
       backdropComponent={renderBackdrop}
       ref={bottomSheetModalRef}
       index={0}
+      // snapPoints={['100%']}
       enableDynamicSizing={true}
       handleComponent={null}
       onChange={handleModalSheetChanges}>
-      <BottomSheetView>{children}</BottomSheetView>
+      <BottomSheetView style={{height: fullscreen ? HEIGHT : undefined}}>
+        {children}
+      </BottomSheetView>
     </BottomSheetModal>
   );
 };
