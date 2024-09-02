@@ -284,6 +284,7 @@ const ChainSelector = ({
 
   return (
     <SheetModal
+      useLegacyModal
       isVisible={isVisible}
       onModalHide={onModalHide}
       onBackdropPress={() => {

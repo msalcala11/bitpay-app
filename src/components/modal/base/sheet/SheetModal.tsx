@@ -11,10 +11,11 @@ import {
 
 interface Props extends SheetParams {
   isVisible: boolean;
-  fullscreen: boolean;
+  fullscreen?: boolean;
   onBackdropPress: (props?: any) => void;
   onModalHide?: () => void;
   children?: any;
+  useLegacyModal?: boolean;
 }
 
 type SheetModalProps = React.PropsWithChildren<Props>;
@@ -26,6 +27,7 @@ const SheetModal: React.FC<SheetModalProps> = ({
   onBackdropPress,
   onModalHide,
   placement,
+  useLegacyModal,
 }) => {
   const bottomSheetModalRef = useRef<BottomSheetModal>(null);
 
@@ -101,7 +103,33 @@ const SheetModal: React.FC<SheetModalProps> = ({
     [],
   );
 
-  return (
+  return useLegacyModal ? (
+    <BaseModal
+      id={'sheetModal'}
+      isVisible={isModalVisible}
+      backdropOpacity={0.4}
+      backdropTransitionOutTiming={0}
+      hideModalContentWhileAnimating={true}
+      useNativeDriverForBackdrop={true}
+      useNativeDriver={true}
+      testID="modalBackdrop"
+      onBackdropPress={onBackdropPress}
+      animationIn={placement === 'top' ? 'slideInDown' : 'slideInUp'}
+      animationOut={placement === 'top' ? 'slideOutUp' : 'slideOutDown'}
+      onModalHide={onModalHide}
+      // swipeDirection={'down'}
+      // onSwipeComplete={hideModal}
+      style={{
+        position: 'relative',
+        justifyContent: placement === 'top' ? 'flex-start' : 'flex-end',
+        margin: 0,
+      }}>
+      <>
+        {children}
+        <BlurContainer />
+      </>
+    </BaseModal>
+  ) : (
     <BottomSheetModal
       backgroundStyle={{borderRadius: 18}}
       enableDismissOnClose={true}
