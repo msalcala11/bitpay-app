@@ -98,6 +98,7 @@ const SheetModal: React.FC<SheetModalProps> = ({
     <BottomSheetModal
       backgroundStyle={{borderRadius: 18}}
       enableDismissOnClose={true}
+      enablePanDownToClose={false}
       enableOverDrag={false}
       backdropComponent={renderBackdrop}
       ref={bottomSheetModalRef}
