@@ -1,5 +1,5 @@
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {useEffect} from 'react';
 import {useTranslation} from 'react-i18next';
 import {useSelector} from 'react-redux';
 import styled from 'styled-components/native';
@@ -27,19 +27,12 @@ import {
   SlateDark,
 } from '../../../styles/colors';
 import {BitpayIdScreens, BitpayIdGroupParamList} from '../BitpayIdGroup';
-import {StyleSheet, TouchableOpacity, View} from 'react-native';
+import {TouchableOpacity} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import ChevronRight from '../components/ChevronRight';
 import {BitPayIdEffects} from '../../../store/bitpay-id';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {SectionSpacer} from '../../tabs/shop/components/styled/ShopTabComponents';
-import BottomSheet, {
-  BottomSheetBackdrop,
-  BottomSheetModal,
-  BottomSheetModalProvider,
-  BottomSheetView,
-} from '@gorhom/bottom-sheet';
-import Button from '@/components/button/Button';
 
 type ProfileProps = NativeStackScreenProps<
   BitpayIdGroupParamList,
@@ -126,53 +119,6 @@ export const ProfileSettingsScreen = ({route}: ProfileProps) => {
     ({APP, BITPAY_ID}) => BITPAY_ID.apiToken[APP.network],
   );
 
-  const [isModalShown, setIsModalShown] = useState(false);
-
-  // const styles = StyleSheet.create({
-  //   container: {
-  //     flex: 1,
-  //     padding: 24,
-  //     backgroundColor: LightBlack,
-  //   },
-  //   contentContainer: {
-  //     flex: 1,
-  //     alignItems: 'center',
-  //     // backgroundColor: LightBlack,
-  //   },
-  // });
-
-  const bottomSheetRef = useRef<BottomSheet>(null);
-
-  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
-  const snapPoints = useMemo(() => ['25%', '50%'], []);
-
-  const renderBackdrop = useCallback(
-    props => (
-      <BottomSheetBackdrop
-        {...props}
-        pressBehavior={'close'}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-      />
-    ),
-    [],
-  );
-
-  // callbacks
-  const handlePresentModalPress = useCallback(() => {
-    bottomSheetModalRef.current?.present();
-  }, []);
-  const handleModalSheetChanges = useCallback((index: number) => {
-    console.log('handleModalSheetChanges', index);
-  }, []);
-
-  // callbacks
-  const handleSheetChanges = useCallback((index: number) => {
-    console.log('handleSheetChanges', index);
-  }, []);
-
-  bottomSheetRef.current;
-
   useEffect(() => {
     dispatch(BitPayIdEffects.startFetchSession());
     if (apiToken) {
@@ -201,20 +147,7 @@ export const ProfileSettingsScreen = ({route}: ProfileProps) => {
             </H3>
           ) : null}
 
-          <EmailAddress
-            onPress={() => {
-              bottomSheetModalRef.current?.present();
-              // if (!isModalShown) {
-              //   setIsModalShown(true);
-              // } else {
-              //   bottomSheetRef.current?.close();
-              //   setTimeout(() => {
-              //     setIsModalShown(false);
-              //   }, 500);
-              // }
-            }}>
-            {user.email}
-          </EmailAddress>
+          <EmailAddress>{user.email}</EmailAddress>
           {!user.verified ? (
             <EmailAddressNotVerified>
               <Link
@@ -291,44 +224,6 @@ export const ProfileSettingsScreen = ({route}: ProfileProps) => {
         </SettingsSection>
         <SectionSpacer />
       </ScrollView>
-      {isModalShown ? (
-        <BottomSheet
-          ref={bottomSheetRef}
-          onChange={handleSheetChanges}
-          enablePanDownToClose
-          style={{backgroundColor: LightBlack}}
-          backgroundStyle={{backgroundColor: LightBlack}}>
-          <BottomSheetView style={{backgroundColor: LightBlack, height: 300}}>
-            <BaseText>Awesome 🎉</BaseText>
-          </BottomSheetView>
-        </BottomSheet>
-      ) : null}
-
-      <BottomSheetModalProvider>
-        {/* <View style={styles.container}>
-          <Button
-            onPress={handlePresentModalPress}
-            title="Present Modal"
-            color="black"
-          /> */}
-        <BottomSheetModal
-          enableDismissOnClose={true}
-          style={{backgroundColor: LightBlack}}
-          backgroundStyle={{backgroundColor: LightBlack}}
-          backdropComponent={renderBackdrop}
-          ref={bottomSheetModalRef}
-          index={0}
-          enableDynamicSizing={true}
-          // snapPoints={snapPoints}
-          onChange={handleModalSheetChanges}>
-          <BottomSheetView style={{backgroundColor: LightBlack}}>
-            <View style={{height: 100}}>
-              <BaseText>Awesome 🎉</BaseText>
-            </View>
-          </BottomSheetView>
-        </BottomSheetModal>
-        {/* </View> */}
-      </BottomSheetModalProvider>
     </ProfileSettingsScreenContainer>
   );
 };
