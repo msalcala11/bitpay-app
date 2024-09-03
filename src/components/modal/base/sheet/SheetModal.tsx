@@ -16,7 +16,7 @@ interface Props extends SheetParams {
   onBackdropPress: (props?: any) => void;
   onModalHide?: () => void;
   children?: any;
-  useLegacyModal?: boolean;
+  modalLibrary?: 'bottom-sheet' | 'react-native-modal';
 }
 
 type SheetModalProps = React.PropsWithChildren<Props>;
@@ -28,7 +28,7 @@ const SheetModal: React.FC<SheetModalProps> = ({
   onBackdropPress,
   onModalHide,
   placement,
-  useLegacyModal,
+  modalLibrary = 'react-native-modal',
 }) => {
   const bottomSheetModalRef = useRef<BottomSheetModal>(null);
 
@@ -68,7 +68,22 @@ const SheetModal: React.FC<SheetModalProps> = ({
     [onBackdropPress],
   );
 
-  return useLegacyModal ? (
+  return modalLibrary === 'bottom-sheet' ? (
+    <BottomSheetModal
+      backdropComponent={renderBackdrop}
+      backgroundStyle={{borderRadius: 18}}
+      enableDismissOnClose={true}
+      enableDynamicSizing={true}
+      enableOverDrag={false}
+      enablePanDownToClose={false}
+      handleComponent={null}
+      index={0}
+      ref={bottomSheetModalRef}>
+      <BottomSheetView style={{height: fullscreen ? HEIGHT - 20 : undefined}}>
+        {children}
+      </BottomSheetView>
+    </BottomSheetModal>
+  ) : (
     <BaseModal
       id={'sheetModal'}
       isVisible={isModalVisible}
@@ -94,21 +109,6 @@ const SheetModal: React.FC<SheetModalProps> = ({
         <BlurContainer />
       </>
     </BaseModal>
-  ) : (
-    <BottomSheetModal
-      backgroundStyle={{borderRadius: 18}}
-      enableDismissOnClose={true}
-      enablePanDownToClose={false}
-      enableOverDrag={false}
-      backdropComponent={renderBackdrop}
-      ref={bottomSheetModalRef}
-      index={0}
-      enableDynamicSizing={true}
-      handleComponent={null}>
-      <BottomSheetView style={{height: fullscreen ? HEIGHT - 20 : undefined}}>
-        {children}
-      </BottomSheetView>
-    </BottomSheetModal>
   );
 };
 
