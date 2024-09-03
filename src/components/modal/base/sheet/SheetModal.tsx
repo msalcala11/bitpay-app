@@ -104,7 +104,7 @@ const SheetModal: React.FC<SheetModalProps> = ({
       index={0}
       enableDynamicSizing={true}
       handleComponent={null}>
-      <BottomSheetView style={{height: fullscreen ? HEIGHT : undefined}}>
+      <BottomSheetView style={{height: fullscreen ? HEIGHT - 20 : undefined}}>
         {children}
       </BottomSheetView>
     </BottomSheetModal>
