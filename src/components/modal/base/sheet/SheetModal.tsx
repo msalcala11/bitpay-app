@@ -1,13 +1,14 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {BlurContainer} from '../../../blur/Blur';
-import {HEIGHT, SheetParams} from '../../../styled/Containers';
-import BaseModal from '../BaseModal';
-import {AppState, AppStateStatus, View} from 'react-native';
+import {AppState, AppStateStatus} from 'react-native';
 import {
   BottomSheetBackdrop,
+  BottomSheetBackdropProps,
   BottomSheetModal,
   BottomSheetView,
 } from '@gorhom/bottom-sheet';
+import {BlurContainer} from '../../../blur/Blur';
+import {HEIGHT, SheetParams} from '../../../styled/Containers';
+import BaseModal from '../BaseModal';
 
 interface Props extends SheetParams {
   isVisible: boolean;
@@ -33,7 +34,6 @@ const SheetModal: React.FC<SheetModalProps> = ({
 
   const [isModalVisible, setModalVisible] = useState(isVisible);
   useEffect(() => {
-    console.log('isVisible changed', isVisible);
     function onAppStateChange(status: AppStateStatus) {
       if (isVisible && status === 'background') {
         setModalVisible(false);
@@ -53,45 +53,10 @@ const SheetModal: React.FC<SheetModalProps> = ({
     );
 
     return () => subscriptionAppStateChange.remove();
-  }, [isVisible]);
-  // return (
-  //   <BaseModal
-  //     id={'sheetModal'}
-  //     isVisible={isModalVisible}
-  //     backdropOpacity={0.4}
-  //     backdropTransitionOutTiming={0}
-  //     hideModalContentWhileAnimating={true}
-  //     useNativeDriverForBackdrop={true}
-  //     useNativeDriver={true}
-  //     testID="modalBackdrop"
-  //     onBackdropPress={onBackdropPress}
-  //     animationIn={placement === 'top' ? 'slideInDown' : 'slideInUp'}
-  //     animationOut={placement === 'top' ? 'slideOutUp' : 'slideOutDown'}
-  //     onModalHide={onModalHide}
-  //     // swipeDirection={'down'}
-  //     // onSwipeComplete={hideModal}
-  //     style={{
-  //       position: 'relative',
-  //       justifyContent: placement === 'top' ? 'flex-start' : 'flex-end',
-  //       margin: 0,
-  //     }}>
-  //     <>
-  //       {children}
-  //       <BlurContainer />
-  //     </>
-  //   </BaseModal>
-  // );
-
-  const handleModalSheetChanges = useCallback((index: number) => {
-    console.log('handleModalSheetChanges', index);
-    if (index === -1) {
-      console.log('calling on backdrop press');
-      //onBackdropPress();
-    }
-  }, []);
+  }, [isVisible, onBackdropPress]);
 
   const renderBackdrop = useCallback(
-    props => (
+    (props: BottomSheetBackdropProps) => (
       <BottomSheetBackdrop
         {...props}
         onPress={onBackdropPress}
@@ -100,7 +65,7 @@ const SheetModal: React.FC<SheetModalProps> = ({
         appearsOnIndex={0}
       />
     ),
-    [],
+    [onBackdropPress],
   );
 
   return useLegacyModal ? (
@@ -137,10 +102,8 @@ const SheetModal: React.FC<SheetModalProps> = ({
       backdropComponent={renderBackdrop}
       ref={bottomSheetModalRef}
       index={0}
-      // snapPoints={['100%']}
       enableDynamicSizing={true}
-      handleComponent={null}
-      onChange={handleModalSheetChanges}>
+      handleComponent={null}>
       <BottomSheetView style={{height: fullscreen ? HEIGHT : undefined}}>
         {children}
       </BottomSheetView>
