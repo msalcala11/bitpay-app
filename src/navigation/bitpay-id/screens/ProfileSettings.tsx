@@ -18,7 +18,6 @@ import {
 import ToggleSwitch from '../../../components/toggle-switch/ToggleSwitch';
 import {Network} from '../../../constants';
 import {RootState} from '../../../store';
-import {User} from '../../../store/bitpay-id/bitpay-id.models';
 import {ShopActions, ShopEffects} from '../../../store/shop';
 import {
   LightBlack,
@@ -33,6 +32,8 @@ import ChevronRight from '../components/ChevronRight';
 import {BitPayIdEffects} from '../../../store/bitpay-id';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {SectionSpacer} from '../../tabs/shop/components/styled/ShopTabComponents';
+import {startOnGoingProcessModal} from '../../../store/app/app.effects';
+import {dismissOnGoingProcessModal} from '../../../store/app/app.actions';
 
 type ProfileProps = NativeStackScreenProps<
   BitpayIdGroupParamList,
@@ -126,6 +127,13 @@ export const ProfileSettingsScreen = ({route}: ProfileProps) => {
       dispatch(BitPayIdEffects.startFetchBasicInfo(apiToken));
     }
   }, [apiToken, dispatch]);
+
+  useEffect(() => {
+    dispatch(startOnGoingProcessModal('GENERATING_ADDRESS'));
+    setTimeout(() => {
+      dispatch(dismissOnGoingProcessModal());
+    }, 2000);
+  }, [dispatch]);
 
   const hasName = user?.givenName || user?.familyName;
 

@@ -12,6 +12,15 @@ import {
   BottomSheetView,
 } from '@gorhom/bottom-sheet';
 import {HEIGHT} from '../../../components/styled/Containers';
+import Animated, {
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
+import {Extrapolate} from '@shopify/react-native-skia';
 
 export type OnGoingProcessMessages =
   | 'GENERAL_AWAITING'
@@ -83,11 +92,26 @@ const OnGoingProcessModal: React.FC = () => {
 
   const bottomSheetModalRef = useRef<BottomSheetModal>(null);
 
+  const opacity = useSharedValue(0);
+
+  const animatedStyles = useAnimatedStyle(() => {
+    return {
+      opacity: opacity.value,
+    };
+  });
+
   useEffect(() => {
     if (isVisible && appWasInit) {
       bottomSheetModalRef.current?.present();
+      setTimeout(() => {
+        opacity.value = withTiming(1, {duration: 300});
+      }, 300);
     } else {
-      bottomSheetModalRef.current?.dismiss();
+      console.log('trying to dismiss');
+      opacity.value = withTiming(0, {duration: 300});
+      setTimeout(() => {
+        bottomSheetModalRef.current?.dismiss();
+      }, 250);
     }
   }, [appWasInit, isVisible]);
 
@@ -101,6 +125,29 @@ const OnGoingProcessModal: React.FC = () => {
     ),
     [],
   );
+
+  const angle = useSharedValue(0);
+  angle.value = withRepeat(
+    withTiming(180, {duration: 250, easing: Easing.linear}),
+    -1,
+    false,
+  );
+
+  const spin = useAnimatedStyle(() => ({
+    transform: [{rotate: `${angle.value}deg`}],
+  }));
+
+  // opacity.value = withTiming(1, {duration: 3000});
+
+  // const opacity = useSharedValue(0);
+  // const newStyles = useAnimatedStyle(() => ({
+  //   opacity: interpolate(
+  //     opacity.value,
+  //     [0, 1, 2, 3],
+  //     [0, 0.3, 0.5, 1],
+  //     Extrapolate.CLAMP,
+  //   ),
+  // }));
 
   return (
     // <BaseModal
@@ -126,7 +173,6 @@ const OnGoingProcessModal: React.FC = () => {
     //     </Row>
     //   </OnGoingProcessContainer>
     // </BaseModal>
-
     <BottomSheetModal
       detached={true}
       bottomInset={HEIGHT / 2}
@@ -139,20 +185,32 @@ const OnGoingProcessModal: React.FC = () => {
       handleComponent={null}
       backgroundComponent={null}
       index={0}
+      // onAnimate={(a, b) => {
+      //   console.log('on animate called from ', a, 'to', b);
+      //   if (b === 0) {
+      //     opacity.value = withTiming(1, {duration: 100});
+      //   }
+      //   if (b === -1) {
+      //     opacity.value = withTiming(0, {duration: 90});
+      //   }
+      // }}
       ref={bottomSheetModalRef}>
       <BottomSheetView
         style={{
           alignItems: 'center',
         }}>
-        <OnGoingProcessContainer>
-          <Row>
-            <ActivityIndicatorContainer>
-              <ActivityIndicator color={SlateDark} />
-            </ActivityIndicatorContainer>
-            <Message>{message}</Message>
-            <BlurContainer />
-          </Row>
-        </OnGoingProcessContainer>
+        <Animated.View style={[animatedStyles]}>
+          <OnGoingProcessContainer>
+            <Row>
+              <ActivityIndicatorContainer>
+                <ActivityIndicator color={SlateDark} />
+              </ActivityIndicatorContainer>
+              <Message>{message}</Message>
+
+              <BlurContainer />
+            </Row>
+          </OnGoingProcessContainer>
+        </Animated.View>
       </BottomSheetView>
     </BottomSheetModal>
   );
