@@ -1,11 +1,17 @@
-import React from 'react';
+import React, {useCallback, useEffect, useRef} from 'react';
 import {ActivityIndicator} from 'react-native';
 import styled from 'styled-components/native';
 import {LightBlack, SlateDark, White} from '../../../styles/colors';
 import {useAppSelector} from '../../../utils/hooks';
 import {BlurContainer} from '../../blur/Blur';
 import {BaseText} from '../../styled/Text';
-import BaseModal from '../base/BaseModal';
+import {
+  BottomSheetBackdrop,
+  BottomSheetBackdropProps,
+  BottomSheetModal,
+  BottomSheetView,
+} from '@gorhom/bottom-sheet';
+import {HEIGHT} from '../../../components/styled/Containers';
 
 export type OnGoingProcessMessages =
   | 'GENERAL_AWAITING'
@@ -75,30 +81,80 @@ const OnGoingProcessModal: React.FC = () => {
   const isVisible = useAppSelector(({APP}) => APP.showOnGoingProcessModal);
   const appWasInit = useAppSelector(({APP}) => APP.appWasInit);
 
+  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
+
+  useEffect(() => {
+    if (isVisible && appWasInit) {
+      bottomSheetModalRef.current?.present();
+    } else {
+      bottomSheetModalRef.current?.dismiss();
+    }
+  }, [appWasInit, isVisible]);
+
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        disappearsOnIndex={-1}
+        appearsOnIndex={0}
+      />
+    ),
+    [],
+  );
+
   return (
-    <BaseModal
-      id={'ongoingProcess'}
-      isVisible={appWasInit && isVisible}
-      backdropOpacity={0.4}
-      animationIn={'fadeInRight'}
-      animationOut={'fadeOutLeft'}
-      backdropTransitionOutTiming={0}
-      hideModalContentWhileAnimating={true}
-      useNativeDriverForBackdrop={true}
-      useNativeDriver={true}
-      style={{
-        alignItems: 'center',
-      }}>
-      <OnGoingProcessContainer>
-        <Row>
-          <ActivityIndicatorContainer>
-            <ActivityIndicator color={SlateDark} />
-          </ActivityIndicatorContainer>
-          <Message>{message}</Message>
-          <BlurContainer />
-        </Row>
-      </OnGoingProcessContainer>
-    </BaseModal>
+    // <BaseModal
+    //   id={'ongoingProcess'}
+    //   isVisible={appWasInit && isVisible}
+    //   backdropOpacity={0.4}
+    //   animationIn={'fadeInRight'}
+    //   animationOut={'fadeOutLeft'}
+    //   backdropTransitionOutTiming={0}
+    //   hideModalContentWhileAnimating={true}
+    //   useNativeDriverForBackdrop={true}
+    //   useNativeDriver={true}
+    //   style={{
+    //     alignItems: 'center',
+    //   }}>
+    //   <OnGoingProcessContainer>
+    //     <Row>
+    //       <ActivityIndicatorContainer>
+    //         <ActivityIndicator color={SlateDark} />
+    //       </ActivityIndicatorContainer>
+    //       <Message>{message}</Message>
+    //       <BlurContainer />
+    //     </Row>
+    //   </OnGoingProcessContainer>
+    // </BaseModal>
+
+    <BottomSheetModal
+      detached={true}
+      bottomInset={HEIGHT / 2}
+      backdropComponent={renderBackdrop}
+      backgroundStyle={{borderRadius: 18}}
+      enableDismissOnClose={true}
+      enableDynamicSizing={true}
+      enableOverDrag={false}
+      enablePanDownToClose={false}
+      handleComponent={null}
+      backgroundComponent={null}
+      index={0}
+      ref={bottomSheetModalRef}>
+      <BottomSheetView
+        style={{
+          alignItems: 'center',
+        }}>
+        <OnGoingProcessContainer>
+          <Row>
+            <ActivityIndicatorContainer>
+              <ActivityIndicator color={SlateDark} />
+            </ActivityIndicatorContainer>
+            <Message>{message}</Message>
+            <BlurContainer />
+          </Row>
+        </OnGoingProcessContainer>
+      </BottomSheetView>
+    </BottomSheetModal>
   );
 };
 
