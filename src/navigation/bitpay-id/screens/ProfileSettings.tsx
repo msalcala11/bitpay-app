@@ -34,6 +34,7 @@ import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {SectionSpacer} from '../../tabs/shop/components/styled/ShopTabComponents';
 import {startOnGoingProcessModal} from '../../../store/app/app.effects';
 import {dismissOnGoingProcessModal} from '../../../store/app/app.actions';
+import {sleep} from '../../../utils/helper-methods';
 
 type ProfileProps = NativeStackScreenProps<
   BitpayIdGroupParamList,
@@ -128,11 +129,17 @@ export const ProfileSettingsScreen = ({route}: ProfileProps) => {
     }
   }, [apiToken, dispatch]);
 
-  useEffect(() => {
+  const showIt = async (delay: number) => {
+    await sleep(delay);
     dispatch(startOnGoingProcessModal('GENERATING_ADDRESS'));
     setTimeout(() => {
       dispatch(dismissOnGoingProcessModal());
     }, 2000);
+  };
+
+  useEffect(() => {
+    showIt(0);
+    showIt(2000 - 500);
   }, [dispatch]);
 
   const hasName = user?.givenName || user?.familyName;

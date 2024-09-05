@@ -88,7 +88,7 @@ const OnGoingProcessModal: React.FC = () => {
   const isVisible = useAppSelector(({APP}) => APP.showOnGoingProcessModal);
   const appWasInit = useAppSelector(({APP}) => APP.appWasInit);
 
-  const modalLibrary: 'bottom-sheet' | 'modal' = 'bottom-sheet';
+  const modalLibrary: 'bottom-sheet' | 'modal' = 'modal';
 
   const bottomSheetModalRef = useRef<BottomSheetModal>(null);
 
@@ -101,16 +101,21 @@ const OnGoingProcessModal: React.FC = () => {
   });
 
   useEffect(() => {
-    if (isVisible && appWasInit) {
+    if (!appWasInit) {
+      return;
+    }
+    if (isVisible) {
+      console.log('launching');
       bottomSheetModalRef.current?.present();
       setTimeout(() => {
         opacity.value = withTiming(1, {duration: opacityFadeDuration});
       }, 300);
     } else {
+      console.log('dismissing');
       opacity.value = withTiming(0, {duration: opacityFadeDuration});
-      setTimeout(() => {
-        bottomSheetModalRef.current?.dismiss();
-      }, opacityFadeDuration - 50);
+      // setTimeout(() => {
+      bottomSheetModalRef.current?.dismiss();
+      // }, opacityFadeDuration - opacityFadeDuration);
     }
   }, [appWasInit, isVisible, opacity]);
 
