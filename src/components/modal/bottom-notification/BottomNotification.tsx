@@ -145,6 +145,7 @@ const BottomNotification = () => {
 
   return (
     <SheetModal
+      modalLibrary={'bottom-sheet'}
       isVisible={isVisible}
       onBackdropPress={() => {
         if (enableBackdropDismiss) {
