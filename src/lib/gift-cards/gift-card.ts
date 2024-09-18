@@ -285,16 +285,51 @@ export function getPhoneCountryCodes(
     .filter(country => country.name !== 'Antarctica');
 }
 
-export function isSupportedDiscountType(discountType: string) {
-  return ['percentage', 'flatrate'].includes(discountType);
+export function isSupportedCouponType(couponType: string) {
+  return ['percentage', 'flatrate'].includes(couponType);
 }
 
-export function getVisibleDiscount(cardConfig: CardConfig) {
-  const discounts = cardConfig.discounts;
+export function getVisibleCoupon(cardConfig: CardConfig) {
+  const coupons = cardConfig.coupons;
   return (
-    discounts &&
-    discounts.find(d => isSupportedDiscountType(d.type) && !d.hidden)
+    coupons && coupons.find(c => isSupportedCouponType(c.type) && !c.hidden)
   );
+}
+
+export function hasVisibleBoost(cardConfig: CardConfig) {
+  const coupon = getVisibleCoupon(cardConfig);
+  return coupon && coupon.displayType === 'boost';
+}
+
+export function getBoostPercentage(couponAmount: number) {
+  const couponPercentage = couponAmount / 100;
+  const displayBoostPercentage = couponPercentage / (1 - couponPercentage);
+  return displayBoostPercentage;
+}
+
+export function getBoostAmount(cardConfig: CardConfig, enteredAmount: number) {
+  const coupon = getVisibleCoupon(cardConfig);
+  if (!coupon || coupon.displayType !== 'boost') {
+    return 0;
+  }
+  return coupon.type === 'percentage'
+    ? enteredAmount * getBoostPercentage(coupon.amount)
+    : enteredAmount + coupon.amount;
+}
+
+export function getBoostedAmount(
+  cardConfig: CardConfig,
+  enteredAmount: number,
+) {
+  const boostedAmount =
+    enteredAmount + getBoostAmount(cardConfig, enteredAmount);
+  const roundedBoostedAmount = parseFloat(
+    formatFiatAmount(boostedAmount, cardConfig.currency).replace(
+      /[^\d.-]/g,
+      '',
+    ),
+  );
+  return roundedBoostedAmount;
 }
 
 export function getGiftCardIcons(supportedCardMap: CardConfigMap) {
