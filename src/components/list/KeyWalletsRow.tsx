@@ -135,6 +135,7 @@ export interface KeyWalletsRowProps extends SearchableItem {
     checked?: boolean;
   })[];
   mergedUtxoAccounts: WalletRowProps[][];
+  coinbaseAccounts: any[];
 }
 
 interface KeyWalletProps<T extends WalletRowType> {
@@ -169,24 +170,29 @@ const KeyWalletsRow = <T extends WalletRowType>({
     });
   };
 
+  console.log('keyAccounts', keyAccounts);
+  if (keyAccounts[0]?.coinbaseAccounts) {
+    console.log('coinbaseAccounts', keyAccounts[0].coinbaseAccounts);
+  }
+
   return (
-    <View>
+    <View style={{paddingBottom: 10}}>
       {keyAccounts.map((key, keyIndex) => (
         <KeyWalletsRowContainer
           key={key.key}
           isLast={keyIndex === keyAccounts.length - 1}>
-          {(key.accounts.length > 0 ||
-            Object.values(key?.mergedUtxoAccounts).length > 0) && (
+          {(key.accounts?.length > 0 ||
+            key.coinbaseAccounts?.length > 0 ||
+            Object.values(key?.mergedUtxoAccounts ?? {})?.length > 0) && (
             <KeyNameContainer noBorder={!!currency}>
               {keySvg({})}
               <KeyName>{key.keyName || 'My Key'}</KeyName>
-              {!key.backupComplete &&
-                !key?.accounts?.[0]?.wallets?.[0]?.coinbaseAccount && (
-                  <NeedBackupText>{t('Needs Backup')}</NeedBackupText>
-                )}
+              {!key.backupComplete && !key?.coinbaseAccounts && (
+                <NeedBackupText>{t('Needs Backup')}</NeedBackupText>
+              )}
             </KeyNameContainer>
           )}
-          {key.accounts.map((account, index) =>
+          {key.accounts?.map((account, index) =>
             IsEVMChain(account.chains[0]) ? (
               <AccountContainer
                 key={account.id}
@@ -270,7 +276,6 @@ const KeyWalletsRow = <T extends WalletRowType>({
               </AccountContainer>
             ) : null,
           )}
-
           {key?.mergedUtxoAccounts
             ? Object.values(key?.mergedUtxoAccounts).map(
                 (mergedUtxoAccount, index) => (
@@ -345,6 +350,22 @@ const KeyWalletsRow = <T extends WalletRowType>({
                 ),
               )
             : null}
+
+          {key?.coinbaseAccounts?.map(wallet => (
+            <View
+              style={{marginLeft: -10, marginBottom: -15, marginTop: -10}}
+              key={wallet.key}>
+              <WalletRow
+                id={wallet.id}
+                hideBalance={hideBalance}
+                isLast={false}
+                onPress={() => {
+                  onPress(wallet);
+                }}
+                wallet={wallet}
+              />
+            </View>
+          ))}
         </KeyWalletsRowContainer>
       ))}
     </View>

@@ -493,13 +493,14 @@ export const coinbaseAccountToWalletRow = (
     img: currencyImg,
     cryptoBalance: cryptoAmount,
     cryptoLockedBalance: '',
-    fiatBalance: formatFiatAmount(fiatAmount, defaultAltCurrencyIsoCode),
+    fiatBalance: fiatAmount,
+    fiatBalanceFormat: formatFiatAmount(fiatAmount, defaultAltCurrencyIsoCode),
     fiatLockedBalance: '',
     isToken: false,
     network: Network.mainnet,
     pendingTxps: [],
     chain: _chain,
-    badgeImg,
+    // badgeImg,
     isComplete: true,
   };
   return walletItem as WalletRowProps;
@@ -514,6 +515,8 @@ export const BuildCoinbaseWalletsList = ({
   payProOptions,
   invoice,
   skipThreshold = false,
+  rates,
+  dispatch,
 }: {
   coinbaseAccounts: CoinbaseAccountProps[] | null;
   coinbaseExchangeRates: CoinbaseExchangeRatesProps | null;
@@ -523,6 +526,8 @@ export const BuildCoinbaseWalletsList = ({
   payProOptions?: PayProOptions;
   invoice?: Invoice;
   skipThreshold?: boolean;
+  rates: Rates;
+  dispatch: AppDispatch;
 }) => {
   const price = invoice?.price || 0;
   const threshold = invoice?.oauth?.coinbase?.threshold || 0;
@@ -564,13 +569,32 @@ export const BuildCoinbaseWalletsList = ({
         defaultAltCurrencyIsoCode,
       ),
     );
-  return [
+
+  const coinbaseKeys = [
     {
       key: coinbaseUser.data.id,
       keyName: `${coinbaseUser.data.name}'s Coinbase Account`,
-      wallets,
+      // accounts: [
+      //   {
+      //     chains: ['bch'],
+      //     wallets,
+      //   },
+      // ],
+      // mergedUtxoAccounts: wallets.map(wallet => [wallet]),
+      // wallets,
+      coinbaseAccounts: wallets,
     },
-  ].filter(key => key.wallets.length);
+  ].filter(key => key.coinbaseAccounts.length);
+
+  // const accountList = buildAccountList(
+  //   coinbaseKeys[0] as any as Key,
+  //   defaultAltCurrencyIsoCode,
+  //   rates,
+  //   dispatch,
+  // );
+
+  // console.log('coinbase accountList', accountList);
+  return coinbaseKeys;
 };
 
 export const BuildKeysAndWalletsList = ({
@@ -697,6 +721,7 @@ export const BuildPayProWalletSelectorList =
       defaultAltCurrencyIsoCode,
       invoice,
       skipThreshold,
+      rates,
     });
     return {keyWallets, coinbaseWallets};
   };

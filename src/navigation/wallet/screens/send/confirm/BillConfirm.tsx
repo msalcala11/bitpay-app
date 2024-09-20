@@ -319,6 +319,7 @@ const BillConfirm: React.VFC<
       );
       updateTxDetails(newTxDetails);
       setInvoice(newInvoice);
+      console.log('setting coinbase account', selectedCoinbaseAccount);
       setCoinbaseAccount(selectedCoinbaseAccount);
       setWallet(undefined);
       setConvenienceFee(serviceFee);
@@ -398,7 +399,7 @@ const BillConfirm: React.VFC<
 
   const sendPayment = async (twoFactorCode?: string) => {
     dispatch(startOnGoingProcessModal('SENDING_PAYMENT'));
-    return txp && wallet && recipient
+    return txp && wallet && recipient && !coinbaseAccount
       ? await dispatch(startSendPayment({txp, key, wallet, recipient}))
       : await dispatch(
           coinbasePayInvoice(
@@ -561,7 +562,7 @@ const BillConfirm: React.VFC<
   };
 
   const onSwipeComplete = async () => {
-    if (key.hardwareSource) {
+    if (key?.hardwareSource) {
       await onSwipeCompleteHardwareWallet(key);
     } else {
       await startSendingPayment();
