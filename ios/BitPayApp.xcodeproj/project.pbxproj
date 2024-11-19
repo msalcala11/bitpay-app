@@ -539,7 +539,7 @@
 					"$(inherited)",
 				);
 				INFOPLIST_FILE = BitPayAppTests/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 13;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -568,7 +568,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				COPY_PHASE_STRIP = NO;
 				INFOPLIST_FILE = BitPayAppTests/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 13;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -606,7 +606,7 @@
 				INFOPLIST_FILE = BitPayApp/Info.plist;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "This app requires permanent access to Bluetooth for establishing secure connections with Ledger Nano devices.";
 				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "This app requires access to Bluetooth for establishing secure connections with Ledger Nano devices, enabling seamless interaction and management of cryptocurrency transactions.";
-				IPHONEOS_DEPLOYMENT_TARGET = 13;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -646,7 +646,7 @@
 				DEVELOPMENT_TEAM = 884JRH5R93;
 				INFOPLIST_FILE = BitPayApp/Info.plist;
 				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "This app requires access to Bluetooth for establishing secure connections with Ledger Nano devices, enabling seamless interaction and management of cryptocurrency transactions.";
-				IPHONEOS_DEPLOYMENT_TARGET = 13;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -721,7 +721,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 13;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					/usr/lib/swift,
 					"$(inherited)",
@@ -785,7 +785,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 13;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					/usr/lib/swift,
 					"$(inherited)",
