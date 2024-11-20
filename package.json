@@ -234,6 +234,7 @@
     "jest-styled-components": "^7.0.8",
     "jest-svg-transformer": "^1.0.0",
     "jest-transform-stub": "^2.0.0",
+    "metro-react-native-babel-transformer": "^0.77.0",
     "patch-package": "6.4.7",
     "prettier": "2.8.8",
     "react-dom": "17.0.1",
