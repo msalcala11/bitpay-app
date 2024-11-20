@@ -69,38 +69,88 @@ target 'BitPayApp' do
   end
 
   post_install do |installer|
-    # Add React Native post install
-    react_native_post_install(
-      installer,
-      config[:reactNativePath],
-      :mac_catalyst_enabled => false
-    )
-
-    installer.pods_project.targets.each do |target|
-      target.build_configurations.each do |config|
-        # Enable modules
-        config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
-        config.build_settings['DEFINES_MODULE'] = 'YES'
-        
-        # C++ Settings
-        config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++20'
-        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)', '_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION']
-        config.build_settings.delete 'IPHONEOS_DEPLOYMENT_TARGET'
-        
-        # Other settings
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.4'
-        config.build_settings['ENABLE_BITCODE'] = 'NO'
-        
-        # # Add Reanimated version string definition
-        # if target.name == 'RNReanimated'
-        #   config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
-        #   config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'REANIMATED_VERSION_STRING=\"3.3.0\"'
-        # end
-        
-        # config.build_settings['OTHER_CFLAGS'] = '-DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1 -DFOLLY_HAVE_COROUTINES=1'
-        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'RCT_NEW_ARCH_ENABLED=1'
+    # Workaround for Xcode 16 and iOS 18
+      bitcode_strip_path = `xcrun --find bitcode_strip`.chop!
+      def strip_bitcode_from_framework(bitcode_strip_path, framework_relative_path)
+        framework_path = File.join(Dir.pwd, framework_relative_path)
+        command = "#{bitcode_strip_path} #{framework_path} -r -o #{framework_path}"
+        puts "Stripping bitcode: #{command}"
+        system(command)
       end
+
+      framework_paths = [
+        "Pods/LogRocket/LogRocket.xcframework/ios-arm64/LogRocket.framework/LogRocket",
+        "Pods/hermes-engine/destroot/Library/Frameworks/macosx/hermes.framework/hermes",
+        "Pods/hermes-engine/destroot/Library/Frameworks/macosx/hermes.framework/Versions/Current/hermes",
+        "Pods/hermes-engine/destroot/Library/Frameworks/universal/hermes.xcframework/ios-arm64/hermes.framework/hermes",
+        "Pods/hermes-engine/destroot/Library/Frameworks/universal/hermes.xcframework/ios-arm64_x86_64-maccatalyst/hermes.framework/hermes"
+      ]
+
+      framework_paths.each do |framework_relative_path|
+        strip_bitcode_from_framework(bitcode_strip_path, framework_relative_path)
+      end
+      installer.pods_project.targets.each do |target|
+        if target.name == 'InputMask' || target.name == 'YogaKit' || target.name == 'Yoga' || target.name == 'Mixpanel-swift' || target.name == 'MultiplarformBleAdapter' || target.name == 'MultiplatformBleAdapter' || target.name == 'react-native-in-app-review' || target.name == 'MixpanelReactNative' || target.name == 'react-native-text-input-mask'
+          puts "Found #{target.name}. Adding Swift Flag..."
+          target.build_configurations.each do |config|
+            config.build_settings['OTHER_SWIFT_FLAGS'] ||= ['$(inherited)']
+            config.build_settings['OTHER_SWIFT_FLAGS'] << '-no-verify-emitted-module-interface'
+          end
+        end
+        # if target.name == 'Flipper'
+        #   file_path = 'Pods/Flipper/xplat/Flipper/FlipperTransportTypes.h'
+        #   contents = File.read(file_path)
+        #   unless contents.include?('#include <functional>')
+        #     File.open(file_path, 'w') do |file|
+        #       file.puts('#include <functional>')
+        #       file.puts(contents)
+        #     end
+        #   end
+        # end
+      end
+      react_native_post_install(
+        installer,
+        # Set `mac_catalyst_enabled` to `true` in order to apply patches
+        # necessary for Mac Catalyst builds
+        :mac_catalyst_enabled => false
+      )
+      # __apply_Xcode_12_5_M1_post_install_workaround(installer)
     end
+  end
+
+  # post_install do |installer|
+  #   # Add React Native post install
+  #   react_native_post_install(
+  #     installer,
+  #     config[:reactNativePath],
+  #     :mac_catalyst_enabled => false
+  #   )
+
+  #   installer.pods_project.targets.each do |target|
+  #     target.build_configurations.each do |config|
+  #       # Enable modules
+  #       config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+  #       config.build_settings['DEFINES_MODULE'] = 'YES'
+        
+  #       # C++ Settings
+  #       config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++20'
+  #       config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)', '_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION']
+  #       config.build_settings.delete 'IPHONEOS_DEPLOYMENT_TARGET'
+        
+  #       # Other settings
+  #       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.4'
+  #       config.build_settings['ENABLE_BITCODE'] = 'NO'
+        
+  #       # # Add Reanimated version string definition
+  #       # if target.name == 'RNReanimated'
+  #       #   config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+  #       #   config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'REANIMATED_VERSION_STRING=\"3.3.0\"'
+  #       # end
+        
+  #       # config.build_settings['OTHER_CFLAGS'] = '-DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1 -DFOLLY_HAVE_COROUTINES=1'
+  #       config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'RCT_NEW_ARCH_ENABLED=1'
+  #     end
+  #   end
 
     # Modify RCT-Folly Portability.h to disable coroutines
     # Dir.glob(installer.sandbox.root + "RCT-Folly/folly/Portability.h") do |file|
@@ -124,8 +174,8 @@ target 'BitPayApp' do
     #     Pod::UI.warn "Failed to modify Portability.h: #{e.message}"
     #   end
     # end
-  end
+  #end
 
-  pod 'RCT-Folly', :podspec => '../node_modules/react-native/third-party-podspecs/RCT-Folly.podspec', :modular_headers => true
-  pod 'boost', :podspec => '../node_modules/react-native/third-party-podspecs/boost.podspec', :modular_headers => true
-end
+#   pod 'RCT-Folly', :podspec => '../node_modules/react-native/third-party-podspecs/RCT-Folly.podspec', :modular_headers => true
+#   pod 'boost', :podspec => '../node_modules/react-native/third-party-podspecs/boost.podspec', :modular_headers => true
+# end

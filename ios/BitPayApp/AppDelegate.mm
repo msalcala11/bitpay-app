@@ -14,9 +14,13 @@
 #import <RNKeyEvent.h>
 
 // Braze SDK
+// #import <UserNotifications/UserNotifications.h>
+// #import <BrazeKit/BrazeKit-Swift.h>
+// #import "BrazeReactBridge.h"
 #import <UserNotifications/UserNotifications.h>
 #import <BrazeKit/BrazeKit-Swift.h>
 #import "BrazeReactBridge.h"
+@import BrazeUI;
 
 @interface AppDelegate () <BRZInAppMessageUIDelegate>
 @end
