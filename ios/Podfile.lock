@@ -63,7 +63,7 @@ PODS:
   - MMKV (1.3.9):
     - MMKVCore (~> 1.3.9)
   - MMKVCore (1.3.9)
-  - MultiplatformBleAdapter (0.1.9)
+  - MultiplatformBleAdapter (0.2.0)
   - RCT-Folly (2024.01.01.00):
     - boost
     - DoubleConversion
@@ -997,9 +997,28 @@ PODS:
     - React
   - react-native-biometrics (3.0.1):
     - React-Core
-  - react-native-ble-plx (2.0.3):
-    - MultiplatformBleAdapter (= 0.1.9)
+  - react-native-ble-plx (3.1.2):
+    - DoubleConversion
+    - glog
+    - hermes-engine
+    - MultiplatformBleAdapter (= 0.2.0)
+    - RCT-Folly (= 2024.01.01.00)
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Codegen
     - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-rendererdebug
+    - React-utils
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - Yoga
   - react-native-blur (4.4.1):
     - DoubleConversion
     - glog
@@ -1060,13 +1079,48 @@ PODS:
   - react-native-netinfo (11.3.2):
     - React-Core
   - react-native-pager-view (6.5.1):
-    - RCT-Folly
+    - DoubleConversion
+    - glog
+    - hermes-engine
+    - RCT-Folly (= 2024.01.01.00)
     - RCTRequired
     - RCTTypeSafety
     - React-Codegen
     - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - react-native-pager-view/common (= 6.5.1)
+    - React-NativeModulesApple
     - React-RCTFabric
+    - React-rendererdebug
+    - React-utils
+    - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
+    - Yoga
+  - react-native-pager-view/common (6.5.1):
+    - DoubleConversion
+    - glog
+    - hermes-engine
+    - RCT-Folly (= 2024.01.01.00)
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Codegen
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-rendererdebug
+    - React-utils
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - Yoga
   - react-native-print (0.11.0):
     - React-Core
   - react-native-randombytes (3.6.1):
@@ -1988,7 +2042,7 @@ SPEC CHECKSUMS:
   MixpanelReactNative: 07c808338a1eb69b0c9077668e3acfb0b2dd6689
   MMKV: 817ba1eea17421547e01e087285606eb270a8dcb
   MMKVCore: af055b00e27d88cd92fad301c5fecd1ff9b26dd9
-  MultiplatformBleAdapter: 5a6a897b006764392f9cef785e4360f54fb9477d
+  MultiplatformBleAdapter: b1fddd0d499b96b607e00f0faa8e60648343dc1d
   RCT-Folly: 02617c592a293bd6d418e0a88ff4ee1f88329b47
   RCTDeprecation: 5f1d7e1f8ef6c53f0207e3ac0d0ca23575e8a6ab
   RCTRequired: dcfd24ece09940bbf24b7c2974f4eb68a9baee55
@@ -2015,7 +2069,7 @@ SPEC CHECKSUMS:
   React-Mapbuffer: 766bb4d8f655d816913325b353d800debbde7209
   react-native-appsflyer: fac6d94b40ce52dc69a07c242317b83c7b9e0cc2
   react-native-biometrics: 352e5a794bfffc46a0c86725ea7dc62deb085bdc
-  react-native-ble-plx: f10240444452dfb2d2a13a0e4f58d7783e92d76e
+  react-native-ble-plx: f9cbdc82389b4e713e9c7c69cb83877f86698385
   react-native-blur: 592ccb8ba054d9c103e61847307b946361736bd4
   react-native-compat: 4bbdd1c0e3f6cfb8147f2d3ca95a0bc7d3d3c4c3
   react-native-config: 5330c8258265c1e5fdb8c009d2cabd6badd96727
@@ -2025,7 +2079,7 @@ SPEC CHECKSUMS:
   react-native-mail: 8fdcd3aef007c33a6877a18eb4cf7447a1d4ce4a
   react-native-mmkv: dea675cf9697ad35940f1687e98e133e1358ef9f
   react-native-netinfo: 076df4f9b07f6670acf4ce9a75aac8d34c2e2ccc
-  react-native-pager-view: 4d045a8d6594338094b3624acaec6fd01fdb845b
+  react-native-pager-view: a06b47ec30a99b1e79d87a2552ed8b861a86db58
   react-native-print: f704aef52d931bfce6d1d84351dbb5232d7ecb89
   react-native-randombytes: 421f1c7d48c0af8dbcd471b0324393ebf8fe7846
   react-native-render-html: 984dfe2294163d04bf5fe25d7c9f122e60e05ebe
