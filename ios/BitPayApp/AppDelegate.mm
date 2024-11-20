@@ -9,7 +9,6 @@
 #import "RNBootSplash.h"
 #import "RNQuickActionManager.h"
 #import <React/RCTLinkingManager.h>
-#import <React/RCTAppSetupUtils.h>
 
 // react-native-keyevent
 #import <RNKeyEvent.h>
