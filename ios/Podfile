@@ -84,7 +84,7 @@ target 'BitPayApp' do
         config.build_settings.delete 'IPHONEOS_DEPLOYMENT_TARGET'
         
         # Other settings
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.4'
         config.build_settings['ENABLE_BITCODE'] = 'NO'
         
         # React Native settings (old architecture)
