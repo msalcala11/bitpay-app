@@ -23,6 +23,7 @@
 		5BCF1C352740B8B2006D872E /* BootSplash.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 5BCF1C342740B8B2006D872E /* BootSplash.storyboard */; };
 		5BEA4BF02838402700AB2121 /* RCTPaymentPass.m in Sources */ = {isa = PBXBuildFile; fileRef = 5BEA4BEF2838402700AB2121 /* RCTPaymentPass.m */; };
 		5BEA4BF12838402700AB2121 /* RCTPaymentPass.m in Sources */ = {isa = PBXBuildFile; fileRef = 5BEA4BEF2838402700AB2121 /* RCTPaymentPass.m */; };
+		6A1910B3F8B265881BC53157 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 0C420A205C573CCF342D23C3 /* PrivacyInfo.xcprivacy */; };
 		6D615C4929725FD70063DB8E /* RCTTimer.m in Sources */ = {isa = PBXBuildFile; fileRef = 6D615C4729725FD70063DB8E /* RCTTimer.m */; };
 		71BABDA4524A43E98A190C87 /* Heebo-Light.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6D649751C2644FDCA18A5547 /* Heebo-Light.ttf */; };
 		811ABAC8AE8655497D73EE3E /* libPods-BitPayApp-BitPayAppTests.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BAE975BCDFD0F5C27CFCB9C7 /* libPods-BitPayApp-BitPayAppTests.a */; };
@@ -49,6 +50,7 @@
 		00E356EE1AD99517003FC87E /* BitPayAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BitPayAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		00E356F11AD99517003FC87E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		00E356F21AD99517003FC87E /* BitPayAppTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BitPayAppTests.m; sourceTree = "<group>"; };
+		0C420A205C573CCF342D23C3 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = BitPayApp/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* BitPayApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BitPayApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FAF1A68108700A75B9A /* AppDelegate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = AppDelegate.h; path = BitPayApp/AppDelegate.h; sourceTree = "<group>"; };
 		13B07FB01A68108700A75B9A /* AppDelegate.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = AppDelegate.m; path = BitPayApp/AppDelegate.m; sourceTree = "<group>"; };
@@ -155,6 +157,7 @@
 				5BC1477C27B490FA004A8EEA /* BitPayAppTests-Bridging-Header.h */,
 				5BEA4BEE2838400700AB2121 /* RCTPaymentPass.h */,
 				5BEA4BEF2838402700AB2121 /* RCTPaymentPass.m */,
+				0C420A205C573CCF342D23C3 /* PrivacyInfo.xcprivacy */,
 			);
 			name = BitPayApp;
 			sourceTree = "<group>";
@@ -332,6 +335,7 @@
 				03632D4B8959429DA3B141C2 /* Heebo-Medium.ttf in Resources */,
 				F64C0BF216CE4402A51A5ACC /* Heebo-Regular.ttf in Resources */,
 				E6807D9059A643129784A5C3 /* Heebo-Thin.ttf in Resources */,
+				6A1910B3F8B265881BC53157 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -653,6 +657,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				BUILD_LIBRARY_FOR_DISTRIBUTION = NO;
+				CC = "";
 				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
 				CLANG_CXX_LIBRARY = "libc++";
@@ -680,6 +685,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				COPY_PHASE_STRIP = NO;
+				CXX = "";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = i386;
@@ -700,6 +706,8 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
+				LD = "";
+				LDPLUSPLUS = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					/usr/lib/swift,
 					"$(inherited)",
@@ -713,6 +721,7 @@
 				OTHER_SWIFT_FLAGS = "-no-verify-emitted-module-interface";
 				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/react-native";
 				SDKROOT = iphoneos;
+				USE_HERMES = true;
 			};
 			name = Debug;
 		};
@@ -721,6 +730,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				BUILD_LIBRARY_FOR_DISTRIBUTION = NO;
+				CC = "";
 				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
 				CLANG_CXX_LIBRARY = "libc++";
@@ -748,6 +758,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				COPY_PHASE_STRIP = YES;
+				CXX = "";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = i386;
@@ -764,6 +775,8 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
+				LD = "";
+				LDPLUSPLUS = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					/usr/lib/swift,
 					"$(inherited)",
@@ -776,6 +789,7 @@
 				OTHER_SWIFT_FLAGS = "-no-verify-emitted-module-interface";
 				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/react-native";
 				SDKROOT = iphoneos;
+				USE_HERMES = true;
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
