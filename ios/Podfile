@@ -91,35 +91,39 @@ target 'BitPayApp' do
         config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.4'
         config.build_settings['ENABLE_BITCODE'] = 'NO'
         
-        # React Native settings (new architecture)
-        config.build_settings['OTHER_CPLUSPLUSFLAGS'] = '-DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1 -DFOLLY_HAVE_COROUTINES=1 -DRCT_NEW_ARCH_ENABLED=1'
+        # Add Reanimated version string definition
+        if target.name == 'RNReanimated'
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'REANIMATED_VERSION_STRING=\"3.3.0\"'
+        end
+        
         config.build_settings['OTHER_CFLAGS'] = '-DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1 -DFOLLY_HAVE_COROUTINES=1'
         config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'RCT_NEW_ARCH_ENABLED=1'
       end
     end
 
     # Modify RCT-Folly Portability.h to disable coroutines
-    Dir.glob(installer.sandbox.root + "RCT-Folly/folly/Portability.h") do |file|
-      begin
-        # First try to make the file writable
-        system "chmod +w #{file}"
+    # Dir.glob(installer.sandbox.root + "RCT-Folly/folly/Portability.h") do |file|
+    #   begin
+    #     # First try to make the file writable
+    #     system "chmod +w #{file}"
         
-        contents = File.read(file)
-        modified_contents = contents.gsub(/#define FOLLY_HAS_COROUTINES 1/, '#define FOLLY_HAS_COROUTINES 0')
+    #     contents = File.read(file)
+    #     modified_contents = contents.gsub(/#define FOLLY_HAS_COROUTINES 1/, '#define FOLLY_HAS_COROUTINES 0')
         
-        # Try writing with elevated privileges if needed
-        if !File.writable?(file)
-          system "sudo chmod +w #{file}"
-        end
+    #     # Try writing with elevated privileges if needed
+    #     if !File.writable?(file)
+    #       system "sudo chmod +w #{file}"
+    #     end
         
-        File.write(file, modified_contents)
+    #     File.write(file, modified_contents)
         
-        # Optionally restore original permissions
-        system "chmod -w #{file}"
-      rescue => e
-        Pod::UI.warn "Failed to modify Portability.h: #{e.message}"
-      end
-    end
+    #     # Optionally restore original permissions
+    #     system "chmod -w #{file}"
+    #   rescue => e
+    #     Pod::UI.warn "Failed to modify Portability.h: #{e.message}"
+    #   end
+    # end
   end
 
   pod 'RCT-Folly', :podspec => '../node_modules/react-native/third-party-podspecs/RCT-Folly.podspec', :modular_headers => true
