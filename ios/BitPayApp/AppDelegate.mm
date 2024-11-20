@@ -17,9 +17,8 @@
 #import <UserNotifications/UserNotifications.h>
 #import <BrazeKit/BrazeKit-Swift.h>
 #import "BrazeReactBridge.h"
-@import BrazeUI;
 
-@interface AppDelegate () <BrazeInAppMessageUIDelegate>
+@interface AppDelegate () <BRZInAppMessageUIDelegate>
 @end
 
 @implementation AppDelegate
@@ -42,9 +41,12 @@
 
   Braze *braze = [BrazeReactBridge initBraze:configuration];
   AppDelegate.braze = braze;
-  BrazeInAppMessageUI *inAppMessageUI = [[BrazeInAppMessageUI alloc] init];
+  
+  // Initialize Braze UI
+  BRZInAppMessageUI *inAppMessageUI = [[BRZInAppMessageUI alloc] init];
   inAppMessageUI.delegate = self;
-  AppDelegate.braze.inAppMessagePresenter = inAppMessageUI;
+  braze.inAppMessagePresenter = inAppMessageUI;
+  
   self.isBitPayAppLoaded = NO;
   self.cachedInAppMessage = nil;
 
