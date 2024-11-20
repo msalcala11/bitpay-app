@@ -9,6 +9,8 @@
 #import "RNBootSplash.h"
 #import "RNQuickActionManager.h"
 #import <React/RCTLinkingManager.h>
+#import <React/RCTAppSetupUtils.h>
+
 // react-native-keyevent
 #import <RNKeyEvent.h>
 
@@ -22,6 +24,7 @@
 @end
 
 @implementation AppDelegate
+
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
   self.moduleName = @"BitPay";
@@ -71,6 +74,16 @@
 #endif
 }
 
+/// This method controls whether the `concurrentRoot`feature of React18 is turned on or off.
+///
+/// @see: https://reactjs.org/blog/2022/03/29/react-v18.html
+/// @note: This requires to be rendering on Fabric (i.e. on the New Architecture).
+/// @return: `true` if the `concurrentRoot` feature is enabled. Otherwise, it returns `false`.
+- (BOOL)concurrentRootEnabled
+{
+  return true;
+}
+
 // Deep linking
 // Open URI-scheme for iOS 9 and above
 - (BOOL)application:(UIApplication *)application
@@ -102,22 +115,9 @@
                        restorationHandler:restorationHandler];
   [[AppsFlyerAttribution shared] continueUserActivity:userActivity restorationHandler:restorationHandler];
   return YES;
-} 
-/// This method controls whether the `concurrentRoot`feature of React18 is turned on or off.
-///
-/// @see: https://reactjs.org/blog/2022/03/29/react-v18.html
-/// @note: This requires to be rendering on Fabric (i.e. on the New Architecture).
-/// @return: `true` if the `concurrentRoot` feature is enabled. Otherwise, it returns `false`.
-- (BOOL)concurrentRootEnabled
-{
-  return true;
 }
 
-/*!
- * react-native-keyevent support
- */
-RNKeyEvent *keyEvent = nil;
-
+// react-native-keyevent
 - (NSMutableArray<UIKeyCommand *> *)keyCommands {
   NSMutableArray *keys = [NSMutableArray new];
   
@@ -125,84 +125,52 @@ RNKeyEvent *keyEvent = nil;
     keyEvent = [[RNKeyEvent alloc] init];
   }
   
-  if ([keyEvent isListening]) {
-    
-    NSArray *namesArray = [[keyEvent getKeys] componentsSeparatedByString:@","];
-    
-    for (NSString* names in namesArray) {
-      [keys addObject: [UIKeyCommand keyCommandWithInput:names modifierFlags:0 action:@selector(keyInput:)]];
-    }
+  if (self.bridge) {
+    [keyEvent setRCTBridge:self.bridge];
   }
+  
+  UIKeyCommand *upArrow = [UIKeyCommand keyCommandWithInput: UIKeyInputUpArrow
+                                           modifierFlags: 0
+                                           action: @selector(keyInput:)];
+  
+  UIKeyCommand *downArrow = [UIKeyCommand keyCommandWithInput: UIKeyInputDownArrow
+                                             modifierFlags: 0
+                                             action: @selector(keyInput:)];
+  
+  [keys addObject: upArrow];
+  [keys addObject: downArrow];
   
   return keys;
 }
 
 - (void)keyInput:(UIKeyCommand *)sender {
   NSString *selected = sender.input;
-  [keyEvent sendKeyEvent:selected];
+  
+  if (keyEvent != nil) {
+    [keyEvent sendKeyEvent:selected];
+  }
 }
 
-- (void)application:(UIApplication *)application
-didReceiveRemoteNotification:(NSDictionary *)userInfo
-fetchCompletionHandler:(void (^)(UIBackgroundFetchResult))completionHandler
-{
-  [SilentPushEvent emitEventWithName:@"SilentPushNotification" andPayload:userInfo];
-  BOOL processedByBraze = AppDelegate.braze != nil && [AppDelegate.braze.notifications handleBackgroundNotificationWithUserInfo:userInfo fetchCompletionHandler:completionHandler];
-  if (processedByBraze) {
+// Braze
+- (void)before:(BRZInAppMessageUI *)ui willPresent:(id<BRZInAppMessage>)message {
+  if (!self.isBitPayAppLoaded) {
+    self.cachedInAppMessage = message;
     return;
   }
-  completionHandler(UIBackgroundFetchResultNoData);
+  
+  SilentPushEvent *event = [[SilentPushEvent alloc] init];
+  [event sendEventWithName:@"onBeforeInAppMessageDisplayed" body:@{@"message": @"Braze in-app message will be displayed"}];
 }
 
-- (void)application:(UIApplication *)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
-{
-  [AppDelegate.braze.notifications registerDeviceToken:deviceToken];
+- (void)after:(BRZInAppMessageUI *)ui didPresent:(id<BRZInAppMessage>)message {
+  SilentPushEvent *event = [[SilentPushEvent alloc] init];
+  [event sendEventWithName:@"onAfterInAppMessageDisplayed" body:@{@"message": @"Braze in-app message was displayed"}];
 }
 
-- (void)userNotificationCenter:(UNUserNotificationCenter *)center
-       willPresentNotification:(UNNotification *)notification
-         withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler {
-  // Check if the app is in the foreground
-  if ([UIApplication sharedApplication].applicationState == UIApplicationStateActive) {
-    // App is in the foreground, do not show the notification banner
-    completionHandler(UNNotificationPresentationOptionNone);
-  } else {
-    // App is in the background, show the notification banner as usual
-    completionHandler(UNNotificationPresentationOptionAlert | UNNotificationPresentationOptionSound | UNNotificationPresentationOptionBadge);
-  }
-}
-
-#pragma mark - AppDelegate.braze
-
-static Braze *_braze = nil;
-
-+ (Braze *)braze {
-  return _braze;
-}
-
-+ (void)setBraze:(Braze *)braze {
-  _braze = braze;
-}
-
-#pragma mark - inAppMessage
-
-- (enum BRZInAppMessageUIDisplayChoice)inAppMessage:(BrazeInAppMessageUI *)ui displayChoiceForMessage:(BRZInAppMessageRaw *)message {
-  if (!self.isBitPayAppLoaded) {
-    NSLog(@"BitPay App not ready, caching the in-app message.");
-    self.cachedInAppMessage = message;
-    return BRZInAppMessageUIDisplayChoiceReenqueue;
-  } else {
-    return BRZInAppMessageUIDisplayChoiceNow;
-  }
-}
-
-#pragma mark - Handling App Load State
-
-- (void)setBitPayAppLoaded:(BOOL)loaded {
-  self.isBitPayAppLoaded = loaded;
-
-  if (loaded && self.cachedInAppMessage != nil) {
-    NSLog(@"BitPay App is ready, displaying cached IAM.");
+- (void)setBitPayAppLoaded {
+  self.isBitPayAppLoaded = YES;
+  
+  if (self.cachedInAppMessage != nil) {
     [AppDelegate.braze.inAppMessagePresenter presentMessage:self.cachedInAppMessage];
     self.cachedInAppMessage = nil;
   }
