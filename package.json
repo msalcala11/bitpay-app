@@ -41,7 +41,6 @@
     "translation:download": "crowdin download --identity crowdin-credentials.yml"
   },
   "dependencies": {
-    "@braze/react-native-sdk": "12.2.0",
     "@ethersproject/shims": "5.7.0",
     "@freakycoder/react-native-bounceable": "0.2.5",
     "@gorhom/bottom-sheet": "5.0.5",
@@ -148,7 +147,7 @@
     "react-native-rounded-checkbox": "0.3.3",
     "react-native-safe-area-context": "4.14.0",
     "react-native-screens": "3.27.0",
-    "react-native-share": "9.4.1",
+    "react-native-share": "11.1.0",
     "react-native-shared-element": "0.8.8",
     "react-native-skeleton-placeholder": "5.2.4",
     "react-native-svg": "13.8.0",
