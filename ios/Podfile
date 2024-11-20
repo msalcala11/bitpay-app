@@ -22,6 +22,10 @@ project = Xcodeproj::Project.open(project_path)
 min_ios_version_supported = project.build_configurations.first.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
 ######
 
+# Fabric configuration
+ENV['RCT_NEW_ARCH_ENABLED'] = '1'
+ENV['USE_HERMES'] = '1'
+
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
 
@@ -80,17 +84,21 @@ target 'BitPayApp' do
         
         # C++ Settings
         config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++20'
-        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)', '_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION']
         config.build_settings.delete 'IPHONEOS_DEPLOYMENT_TARGET'
         
         # Other settings
         config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.4'
         config.build_settings['ENABLE_BITCODE'] = 'NO'
         
-        # React Native settings (old architecture)
-        config.build_settings['OTHER_CPLUSPLUSFLAGS'] = '-DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1'
-        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'RCT_NEW_ARCH_ENABLED=0'
+        # React Native settings (new architecture)
+        config.build_settings['OTHER_CPLUSPLUSFLAGS'] = '-DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1 -DFOLLY_HAVE_COROUTINES=1 -DRCT_NEW_ARCH_ENABLED=1'
+        config.build_settings['OTHER_CFLAGS'] = '-DFOLLY_NO_CONFIG -DFOLLY_MOBILE=1 -DFOLLY_USE_LIBCPP=1 -DFOLLY_HAVE_COROUTINES=1'
+        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'RCT_NEW_ARCH_ENABLED=1'
       end
     end
   end
+
+  pod 'RCT-Folly', :podspec => '../node_modules/react-native/third-party-podspecs/RCT-Folly.podspec', :modular_headers => true
+  pod 'boost', :podspec => '../node_modules/react-native/third-party-podspecs/boost.podspec', :modular_headers => true
 end
