@@ -35,11 +35,7 @@ setup_permissions([
 'Notifications',
 ])
 
-linkage = ENV['USE_FRAMEWORKS']
-if linkage != nil
-  Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
-  use_frameworks! :linkage => linkage.to_sym
-end
+use_frameworks! :linkage => :static
 
 # Disable Location APIs so we compile out any privacy sensitive APIs
 $VCEnableLocation=false
@@ -48,6 +44,12 @@ target 'BitPayApp' do
   pod 'React-RCTText', :path => '../node_modules/react-native/Libraries/Text', :modular_headers => true
 
   config = use_native_modules!
+
+  # Resolve 'optional' and 'utility' file not found errors
+  # pod 'React-Core', :path => '../node_modules/react-native/', :modular_headers => true
+  # pod 'React-RCTAppDelegate', :path => '../node_modules/react-native/Libraries/AppDelegate', :modular_headers => true
+  # pod 'React-utils', :path => '../node_modules/react-native/ReactCommon/react/utils', :modular_headers => true
+  # pod 'React-cxxreact', :path => '../node_modules/react-native/ReactCommon/cxxreact', :modular_headers => true
 
   use_react_native!(
     :path => config[:reactNativePath],
