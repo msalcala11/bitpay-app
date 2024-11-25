@@ -16,6 +16,7 @@ import {
   BottomNotificationCta,
   BottomNotificationHr,
 } from '../../../../components/modal/bottom-notification/BottomNotification';
+import { ScrollView } from 'react-native-gesture-handler';
 
 const SheetTitleContainer = styled.View`
   margin-bottom: 25px;
@@ -90,14 +91,14 @@ const FilterSheet = ({
   const [categoryMap, setCategoryMap] = useState(categories);
   return (
     <SheetModal
-      modalLibrary={'bottom-sheet'}
+      modalLibrary={'modal'}
       isVisible={isVisible}
       onBackdropPress={() => {
         setCategoryMap(initialCategoryMap);
         closeModal();
       }}>
       <PillSheetContainer>
-        <BottomSheetScrollView>
+        <ScrollView>
           <SheetTitleContainer>
             <TextAlign align={'left'}>
               <H4>{t('Filter Gift Cards')}</H4>
@@ -119,7 +120,7 @@ const FilterSheet = ({
               </Pill>
             ))}
           </Pills>
-        </BottomSheetScrollView>
+        </ScrollView>
         <BottomNotificationHr />
         <CtaContainer platform={Platform.OS}>
           <BottomNotificationCta
