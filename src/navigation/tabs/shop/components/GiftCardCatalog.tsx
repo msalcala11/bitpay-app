@@ -50,10 +50,16 @@ const Curations = ({
   const navigation = useNavigation();
   const itemHeight = 85;
   const maxItemsPerColumn = 3;
+  const getNumRows = (giftCards: CardConfig[]) => {
+    if (giftCards.length > maxItemsPerColumn) {
+      return maxItemsPerColumn;
+    }
+    return giftCards.length;
+  };
   return (
     <>
       {curations.map(curation => (
-        <View key={curation.displayName} style={{height: itemHeight * maxItemsPerColumn + 70}}>
+        <View key={curation.displayName} style={{height: itemHeight * getNumRows(curation.giftCards) + 70}}>
           <SectionContainer>
             <SectionHeader>{curation.displayName}</SectionHeader>
           </SectionContainer>
