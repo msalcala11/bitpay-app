@@ -70,7 +70,7 @@
 
         <meta-data
             android:name="AllowedUrlPrefixes"
-            android:value="ALLOWED-URL-PREFIXES-REPLACE-ME" />
+            android:value="https://bitpay.com/,https://test.bitpay.com/,https://staging.bitpay.com/,https://bws.bitpay.com/,https://www.coinbase.com/,https://api.coinbase.com/,https://api.1inch.dev/swap/v5.2/,https://api.coingecko.com/api/v3/simple/token_price/,https://checkout.simplexcc.com/,https://sandbox.test-simplexcc.com,https://api.zenledger.io/bitpay/wallets/,https://rest.iad-05.braze.com/,https://sdk.iad-05.braze.com/,https://cloudflare-eth.com/,https://sepolia.infura.io/v3/,https://polygon-rpc.com/,https://polygon-amoy.core.chainstack.com/,https://static.methodfi.com/,https://api.zenledger.io/,https://api.blockcypher.com/v1/,https://api.fullstack.cash/v5/,https://deep-index.moralis.io/api/v2.2/,https://api.bitcore.io/api,https://api-eth.bitcore.io/api,https://api-matic.bitcore.io/api,https://api-arb.bitcore.io/api,https://api-base.bitcore.io/api,https://api-op.bitcore.io/api,https://api-xrp.bitcore.io/api,https://portal.polygon.technology/bridge,https://bridge.arbitrum.io/,https://bridge.base.org/,https://app.optimism.io/bridge/,https://mainnet.optimism.io/,https://arb1.arbitrum.io/rpc,https://mainnet.base.org/,https://goerli.optimism.io,https://goerli-rollup.arbitrum.io/rpc,https://goerli.base.org,https://verify.walletconnect.com/,https://verify.walletconnect.org/,https://api.etherscan.io/v2/api,https://marty.bp:8088/,http://localhost:3232/,http://localhost:8081" />
 
         <activity
             android:screenOrientation="portrait"
