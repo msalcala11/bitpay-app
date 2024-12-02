@@ -69,4 +69,26 @@ class MainApplication : Application(), ReactApplication {
         BrazeInAppMessageManager.getInstance().setCustomInAppMessageManagerListener(customInAppMessageManagerListener)
         registerActivityLifecycleCallbacks(BrazeActivityLifecycleCallbackListener())
     }
+
+    fun notifyReactNativeAppLoaded() {
+        customInAppMessageManagerListener?.setReactNativeAppLoaded(true)
+    }
+
+    fun notifyReactNativeAppPaused() {
+        customInAppMessageManagerListener?.setReactNativeAppLoaded(false)
+    }
+
+    fun addActivityToStack(activityClass: Class<*>) {
+        if (!runningActivities.contains(activityClass)) {
+            runningActivities.add(activityClass)
+        }
+    }
+
+    fun removeActivityFromStack(activityClass: Class<*>) {
+        runningActivities.remove(activityClass)
+    }
+
+    fun isActivityInBackStack(activityClass: Class<*>): Boolean {
+        return runningActivities.contains(activityClass)
+    }
 }

@@ -31,6 +31,7 @@ class MainActivity : ReactActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(null)
+        (application as MainApplication).addActivityToStack(this.javaClass)
         RNBootSplash.init(this, R.drawable.bootsplash)
         
         window.apply {
@@ -89,6 +90,7 @@ class MainActivity : ReactActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        (application as MainApplication).removeActivityFromStack(this.javaClass)
     }
 
     companion object {
