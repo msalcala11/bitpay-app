@@ -3,7 +3,7 @@
   "version": "14.27.0",
   "private": true,
   "scripts": {
-    "android": "react-native run-android --verbose",
+    "android": "react-native run-android",
     "android:release": "react-native run-android --variant release",
     "ios": "react-native run-ios",
     "ios:device": "export NODE_OPTIONS=--openssl-legacy-provider && react-native run-ios --device",
