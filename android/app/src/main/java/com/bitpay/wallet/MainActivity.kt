@@ -1,112 +1,118 @@
-package com.bitpay.wallet;
+package com.bitpay.wallet
 
-import com.braze.ui.inappmessage.BrazeInAppMessageManager;
-import com.facebook.react.ReactActivity;
-import android.content.Intent;
-import android.os.Bundle;
-import android.os.Build;
-import android.app.Activity;
-import android.view.View;
-import com.facebook.react.ReactActivityDelegate;
-// import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint;
+import android.app.Activity
+import android.content.Intent
+import android.graphics.Color
+import android.os.Build
+import android.os.Bundle
+import android.view.View
+import android.view.Window
+import android.view.WindowManager
+import com.braze.ui.inappmessage.BrazeInAppMessageManager
+import com.facebook.react.ReactActivity
+import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
-import com.facebook.react.defaults.DefaultReactActivityDelegate;
-import android.graphics.Color;
-import android.view.Window;
-import android.view.WindowManager;
-import com.zoontek.rnbootsplash.RNBootSplash;
+import com.facebook.react.defaults.DefaultReactActivityDelegate
+import com.zoontek.rnbootsplash.RNBootSplash
 
 class MainActivity : ReactActivity() {
 
-  /**
-   * Returns the name of the main component registered from JavaScript. This is used to schedule
-   * rendering of the component.
-   */
-  // @Override
-  // protected String getMainComponentName() {
-  //   return "BitPay";
-  // }
-  override fun getMainComponentName(): String = "BitPay"
+    /**
+     * Returns the name of the main component registered from JavaScript. This is used to schedule
+     * rendering of the component.
+     */
+    override fun getMainComponentName(): String = "BitPay"
 
-  /**
-   * Returns the instance of the [ReactActivityDelegate]. We use [DefaultReactActivityDelegate]
-   * which allows you to enable New Architecture with a single boolean flags [fabricEnabled]
-   */
-  override fun createReactActivityDelegate(): ReactActivityDelegate =
+    /**
+     * Returns the instance of the [ReactActivityDelegate]. Here we use a util class [DefaultReactActivityDelegate]
+     * which allows you to easily enable Fabric and Concurrent React (aka React 18) with two boolean flags.
+     */
+    // override fun createReactActivityDelegate(): ReactActivityDelegate =
+    //     DefaultReactActivityDelegate(
+    //         this,
+    //         mainComponentName,
+    //         // If you opted-in for the New Architecture, we enable the Fabric Renderer.
+    //         DefaultNewArchitectureEntryPoint.getFabricEnabled(), // fabricEnabled
+    //         // If you opted-in for the New Architecture, we enable Concurrent React (i.e. React 18).
+    //         DefaultNewArchitectureEntryPoint.getConcurrentReactEnabled() // concurrentRootEnabled
+    //     )
+    override fun createReactActivityDelegate(): ReactActivityDelegate =
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
-  // @Override
-  // protected ReactActivityDelegate createReactActivityDelegate() {
-  //   return new DefaultReactActivityDelegate(
-  //       this,
-  //       getMainComponentName(),
-  //       // If you opted-in for the New Architecture, we enable the Fabric Renderer.
-  //       DefaultNewArchitectureEntryPoint.getFabricEnabled(), // fabricEnabled
-  //       // If you opted-in for the New Architecture, we enable Concurrent React (i.e. React 18).
-  //       DefaultNewArchitectureEntryPoint.getConcurrentReactEnabled() // concurrentRootEnabled
-  //       );
-  // }
 
-  protected void onCreate(Bundle savedInstanceState) {
-      super.onCreate(null);
-      ((MainApplication) getApplication()).addActivityToStack(this.getClass());
-      RNBootSplash.init(R.drawable.bootsplash, MainActivity.this);
-      Window win = getWindow();
-      win.setFlags(
-        WindowManager.LayoutParams.FLAG_SECURE,
-        WindowManager.LayoutParams.FLAG_SECURE
-      );
-      if (Build.VERSION.SDK_INT >= 19 && Build.VERSION.SDK_INT < 21) {
-        setWindowFlag(this, WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS, true);
-      }
-      if (Build.VERSION.SDK_INT >= 19) {
-        win.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
-      }
-      //make fully Android Transparent Status bar
-      if (Build.VERSION.SDK_INT >= 21) {
-        setWindowFlag(this, WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS, false);
-        win.setStatusBarColor(Color.TRANSPARENT);
-      }
-  }
-
-  public static void setWindowFlag(Activity activity, final int bits, boolean on) {
-    Window win = activity.getWindow();
-    WindowManager.LayoutParams winParams = win.getAttributes();
-    if (on) {
-      winParams.flags |= bits;
-    } else {
-      winParams.flags &= ~bits;
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(null)
+        (application as MainApplication).addActivityToStack(this.javaClass)
+        RNBootSplash.init(R.drawable.bootsplash, this)
+        
+        window.apply {
+            setFlags(
+                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE
+            )
+            
+            if (Build.VERSION.SDK_INT in 19..20) {
+                setWindowFlag(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS, true)
+            }
+            
+            if (Build.VERSION.SDK_INT >= 19) {
+                decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            }
+            
+            // make fully Android Transparent Status bar
+            if (Build.VERSION.SDK_INT >= 21) {
+                setWindowFlag(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS, false)
+                statusBarColor = Color.TRANSPARENT
+            }
+        }
     }
-    win.setAttributes(winParams);
-  }
 
-  @Override
-  public void onNewIntent(Intent intent) {
-    super.onNewIntent(intent);
-    setIntent(intent);
-    // Clear the intent data so that the next time the Activity is opened,
-    // it will not be opened with old deeplink
-    Intent clonedIntent = getIntent();
-    clonedIntent.setData(null);
-  }
+    private fun setWindowFlag(bits: Int, on: Boolean) {
+        val win = window
+        val winParams = win.attributes
+        if (on) {
+            winParams.flags = winParams.flags or bits
+        } else {
+            winParams.flags = winParams.flags and bits.inv()
+        }
+        win.attributes = winParams
+    }
 
-  @Override
-  public void onResume() {
-    super.onResume();
-    // Registers the BrazeInAppMessageManager for the current Activity. This Activity will now listen for
-    // in-app messages from Braze.
-    BrazeInAppMessageManager.getInstance().registerInAppMessageManager(MainActivity.this);
-  }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // Clear the intent data so that the next time the Activity is opened,
+        // it will not be opened with old deeplink
+        getIntent().data = null
+    }
 
-  @Override
-  public void onPause() {
-    super.onPause();
-    // Unregisters the BrazeInAppMessageManager for the current Activity.
-    BrazeInAppMessageManager.getInstance().unregisterInAppMessageManager(MainActivity.this);
-  }
+    override fun onResume() {
+        super.onResume()
+        // Registers the BrazeInAppMessageManager for the current Activity. This Activity will now listen for
+        // in-app messages from Braze.
+        BrazeInAppMessageManager.getInstance().registerInAppMessageManager(this)
+    }
 
-  @Override
-  protected void onDestroy() {
-    super.onDestroy();
-    ((MainApplication) getApplication()).removeActivityFromStack(this.getClass());
-  }
+    override fun onPause() {
+        super.onPause()
+        // Unregisters the BrazeInAppMessageManager for the current Activity.
+        BrazeInAppMessageManager.getInstance().unregisterInAppMessageManager(this)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        (application as MainApplication).removeActivityFromStack(this.javaClass)
+    }
+
+    companion object {
+        private fun setWindowFlag(activity: Activity, bits: Int, on: Boolean) {
+            val win = activity.window
+            val winParams = win.attributes
+            if (on) {
+                winParams.flags = winParams.flags or bits
+            } else {
+                winParams.flags = winParams.flags and bits.inv()
+            }
+            win.attributes = winParams
+        }
+    }
 }
