@@ -57,7 +57,7 @@
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = BitPayApp/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = BitPayApp/Info.plist; sourceTree = "<group>"; };
 		13B07FB71A68108700A75B9A /* main.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = main.m; path = BitPayApp/main.m; sourceTree = "<group>"; };
-		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = RnDiffApp/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = BitPayApp/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		256B92C72AC0ED0D00C1DF97 /* bitpay-recovery-phrase-template.pdf */ = {isa = PBXFileReference; lastKnownFileType = image.pdf; name = "bitpay-recovery-phrase-template.pdf"; path = "../assets/files/bitpay-recovery-phrase-template.pdf"; sourceTree = "<group>"; };
 		4054F0E529AEFAEF009BBC9C /* AllowedUrlPrefixProtocol.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AllowedUrlPrefixProtocol.mm; sourceTree = "<group>"; };
 		4054F0E629AEFAF0009BBC9C /* AllowedUrlPrefixProtocol.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AllowedUrlPrefixProtocol.h; sourceTree = "<group>"; };

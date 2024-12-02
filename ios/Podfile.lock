@@ -1416,7 +1416,7 @@ PODS:
     - React-Core
   - react-native-safe-area-context (4.14.0):
     - React-Core
-  - react-native-skia (1.3.7):
+  - react-native-skia (1.6.0):
     - DoubleConversion
     - glog
     - hermes-engine
@@ -1950,11 +1950,11 @@ PODS:
     - libwebp (~> 1.0)
     - SDWebImage/Core (~> 5.10)
   - SocketRocket (0.7.1)
-  - VisionCamera (4.0.1):
-    - VisionCamera/Core (= 4.0.1)
-    - VisionCamera/React (= 4.0.1)
-  - VisionCamera/Core (4.0.1)
-  - VisionCamera/React (4.0.1):
+  - VisionCamera (4.6.3):
+    - VisionCamera/Core (= 4.6.3)
+    - VisionCamera/React (= 4.6.3)
+  - VisionCamera/Core (4.6.3)
+  - VisionCamera/React (4.6.3):
     - React-Core
   - Yoga (0.0.0)
 
@@ -2384,7 +2384,7 @@ SPEC CHECKSUMS:
   react-native-render-html: 984dfe2294163d04bf5fe25d7c9f122e60e05ebe
   react-native-restart: 7595693413fe3ca15893702f2c8306c62a708162
   react-native-safe-area-context: 4532f1a0c5d34a46b9324ccaaedcb5582a302b7d
-  react-native-skia: a5688558d08b258574702b8b4b8b623530abbf4d
+  react-native-skia: 97ee91100acc4f2498d9092ef6f13947d502b617
   react-native-slider: 552edab18aa6e2a52e220a066cc6bf28b6181ac9
   react-native-text-input-mask: 36a546b378fadd2efe1b7484a859d34bc2c80395
   react-native-tracking-transparency: 25ff1ff866e338c137c818bdec20526bb05ffcc1
@@ -2441,9 +2441,9 @@ SPEC CHECKSUMS:
   SDWebImage: a7f831e1a65eb5e285e3fb046a23fcfbf08e696d
   SDWebImageWebPCoder: 908b83b6adda48effe7667cd2b7f78c897e5111d
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
-  VisionCamera: 6745d27c1ddb33dc8efe85202b7ca67a78a0e5ef
+  VisionCamera: 1fcf8b7952080132a6c06df1ff32187d1774e1de
   Yoga: b31c16dc8150acf90019a65ce2da4b47fab913cb
 
-PODFILE CHECKSUM: 2d27b51ea9ded0a26007d04b27ec6a60f0961f25
+PODFILE CHECKSUM: 8221131b4f586bea31ad8fefbbc533f9bab9fd39
 
 COCOAPODS: 1.15.2
