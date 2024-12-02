@@ -14400,10 +14400,9 @@ react-native-os@1.2.6:
   resolved "https://registry.yarnpkg.com/react-native-os/-/react-native-os-1.2.6.tgz#1bb16d78ccad1143972183a04f443cf1af9fbefa"
   integrity sha512-OlT+xQAcvkcnf7imgXiu+myMkqDt4xw2bP5SlVo19hEn5XHBkPMLX7dk3sSGxxncH/ToMDsf1KLyrPabNVtadA==
 
-react-native-pager-view@6.6.0:
-  version "6.6.0"
-  resolved "https://registry.yarnpkg.com/react-native-pager-view/-/react-native-pager-view-6.6.0.tgz#5bf04ed469e635c3a9f95fed46d17b93bdad1a86"
-  integrity sha512-LmgZs9ihypMEot82u22n98nKGP4E3ixg6Q/VwS7lbrpVZw7pmC9cdplh10PqlyGMBwPHYt875y5n+3sIzQvUkg==
+"react-native-pager-view@git+https://github.com/callstack/react-native-pager-view#7925a260300232ede611f9fa7a99ce5751e29d6a":
+  version "6.5.1"
+  resolved "git+https://github.com/callstack/react-native-pager-view#7925a260300232ede611f9fa7a99ce5751e29d6a"
 
 react-native-permissions@5.1.0:
   version "5.1.0"
