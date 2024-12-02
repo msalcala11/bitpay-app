@@ -6,7 +6,6 @@ import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.view.View
-import android.view.Window
 import android.view.WindowManager
 import com.braze.ui.inappmessage.BrazeInAppMessageManager
 import com.facebook.react.ReactActivity
@@ -27,22 +26,12 @@ class MainActivity : ReactActivity() {
      * Returns the instance of the [ReactActivityDelegate]. Here we use a util class [DefaultReactActivityDelegate]
      * which allows you to easily enable Fabric and Concurrent React (aka React 18) with two boolean flags.
      */
-    // override fun createReactActivityDelegate(): ReactActivityDelegate =
-    //     DefaultReactActivityDelegate(
-    //         this,
-    //         mainComponentName,
-    //         // If you opted-in for the New Architecture, we enable the Fabric Renderer.
-    //         DefaultNewArchitectureEntryPoint.getFabricEnabled(), // fabricEnabled
-    //         // If you opted-in for the New Architecture, we enable Concurrent React (i.e. React 18).
-    //         DefaultNewArchitectureEntryPoint.getConcurrentReactEnabled() // concurrentRootEnabled
-    //     )
     override fun createReactActivityDelegate(): ReactActivityDelegate =
-      DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
+        DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(null)
-        (application as MainApplication).addActivityToStack(this.javaClass)
-        RNBootSplash.init(R.drawable.bootsplash, this)
+        RNBootSplash.init(this, R.drawable.bootsplash)
         
         window.apply {
             setFlags(
@@ -100,7 +89,6 @@ class MainActivity : ReactActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        (application as MainApplication).removeActivityFromStack(this.javaClass)
     }
 
     companion object {

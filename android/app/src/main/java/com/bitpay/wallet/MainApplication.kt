@@ -16,7 +16,6 @@ import com.facebook.react.modules.network.OkHttpClientProvider
 import com.facebook.react.views.text.ReactFontManager
 import com.braze.ui.inappmessage.BrazeInAppMessageManager
 import com.braze.BrazeActivityLifecycleCallbackListener
-import okhttp3.OkHttpClient
 
 class MainApplication : Application(), ReactApplication {
     private val runningActivities = ArrayList<Class<*>>()
@@ -66,7 +65,7 @@ class MainApplication : Application(), ReactApplication {
 
         // Initialize Braze
         BrazeInAppMessageManager.getInstance().ensureSubscribedToInAppMessageEvents(this)
-        customInAppMessageManagerListener = CustomInAppMessageManagerListener(runningActivities)
+        customInAppMessageManagerListener = CustomInAppMessageManagerListener()
         BrazeInAppMessageManager.getInstance().setCustomInAppMessageManagerListener(customInAppMessageManagerListener)
         registerActivityLifecycleCallbacks(BrazeActivityLifecycleCallbackListener())
     }
