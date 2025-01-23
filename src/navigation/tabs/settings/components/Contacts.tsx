@@ -3,7 +3,7 @@ import {H6, Link} from '../../../../components/styled/Text';
 import {RootState} from '../../../../store';
 import {useAppSelector} from '../../../../utils/hooks';
 import {SettingsComponent} from '../SettingsRoot';
-import {useNavigation} from '@react-navigation/native';
+import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {
   ActiveOpacity,
   Hr,
@@ -11,9 +11,11 @@ import {
 } from '../../../../components/styled/Containers';
 import {View} from 'react-native';
 import styled from 'styled-components/native';
-import Icons from '../../../wallet/components/WalletIcons';
 import {useTranslation} from 'react-i18next';
 import ContactRow from '../../../../components/list/ContactRow';
+import {SettingsDetailsParamList} from '../SettingsDetails';
+import * as Svg from 'react-native-svg';
+import {useTheme} from 'styled-components/native';
 
 const SeeAllLink = styled(Link)`
   font-weight: 500;
@@ -24,10 +26,32 @@ const PlusIconContainer = styled.View`
   margin-right: 15px;
 `;
 
-const Contacts = () => {
+const AddIcon = () => {
+  const theme = useTheme();
+  return (
+    <Svg.Svg width="43px" height="43px" fill="none">
+      <Svg.Rect
+        width="43"
+        height="43"
+        rx="12"
+        fill={theme.dark ? '#383838' : '#edf0f4'}
+      />
+      <Svg.Path
+        fill={theme.dark ? '#fff' : '#434d5a'}
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M22.5 21.5V27H20.5V21.5H15V19.5H20.5V14H22.5V19.5H28V21.5H22.5Z"
+      />
+    </Svg.Svg>
+  );
+};
+
+type Props = NativeStackScreenProps<SettingsDetailsParamList, 'Contacts'>;
+
+const Contacts: React.FC<Props> = ({navigation}) => {
   const {t} = useTranslation();
   const contacts = useAppSelector(({CONTACT}: RootState) => CONTACT.list);
-  const navigation = useNavigation();
+  
   return (
     <SettingsComponent>
       {contacts.length
@@ -50,7 +74,7 @@ const Contacts = () => {
           navigation.navigate('ContactsAdd');
         }}>
         <PlusIconContainer>
-          <Icons.Add />
+          <AddIcon />
         </PlusIconContainer>
 
         <H6 medium={true}>{t('Add Contact')}</H6>

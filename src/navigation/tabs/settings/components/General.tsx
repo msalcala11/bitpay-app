@@ -6,41 +6,32 @@ import {AppActions} from '../../../../store/app';
 import {showBottomNotificationModal} from '../../../../store/app/app.actions';
 import {resetAllSettings} from '../../../../store/app/app.effects';
 import {sleep} from '../../../../utils/helper-methods';
-import {useNavigation, useTheme} from '@react-navigation/native';
+import {useTheme} from '@react-navigation/native';
+import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useAppSelector} from '../../../../utils/hooks/useAppSelector';
 import {RootState} from '../../../../store';
 import {useAppDispatch} from '../../../../utils/hooks/useAppDispatch';
 import {useTranslation} from 'react-i18next';
-import {SettingsComponent} from '../SettingsRoot';
+import {SettingsContainer} from '../SettingsRoot';
 import {LanguageList} from '../../../../constants/LanguageSelectionList';
 import {
   ActiveOpacity,
   Hr,
   Setting,
   SettingTitle,
-  HeaderRightContainer,
 } from '../../../../components/styled/Containers';
 import styled from 'styled-components/native';
-import CloseIcon from '../../../../components/modal/close/Close';
+import {HeaderBackButton} from '@react-navigation/elements';
+import {baseNativeHeaderBackButtonProps} from '../../../../constants/NavigationOptions';
+import {SettingsDetailsParamList} from '../SettingsDetails';
 
-const CloseModalButtonContainer = styled.View`
-  position: absolute;
-  left: 0;
+const SettingsComponent = styled.ScrollView`
+  padding: 10px 0;
 `;
 
-const CloseModalButton = styled.TouchableOpacity`
-  padding: 5px;
-  height: 41px;
-  width: 41px;
-  border-radius: 50px;
-  background-color: #9ba3ae33;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-`;
+type Props = NativeStackScreenProps<SettingsDetailsParamList, 'General'>;
 
-const General = () => {
-  const navigation = useNavigation();
+const General: React.FC<Props> = ({navigation}) => {
   const colorScheme = useAppSelector(({APP}: RootState) => APP.colorScheme);
   const theme = useTheme();
   const showPortfolioValue = useAppSelector(
@@ -69,13 +60,10 @@ const General = () => {
   useLayoutEffect(() => {
     navigation.setOptions({
       headerLeft: () => (
-        <HeaderRightContainer>
-          <CloseModalButtonContainer>
-            <CloseModalButton onPressOut={() => navigation.goBack()}>
-              <CloseIcon />
-            </CloseModalButton>
-          </CloseModalButtonContainer>
-        </HeaderRightContainer>
+        <HeaderBackButton
+          onPress={() => navigation.goBack()}
+          {...baseNativeHeaderBackButtonProps}
+        />
       ),
     });
   }, [navigation, theme, t]);
@@ -100,7 +88,7 @@ const General = () => {
       {/*----------------------------------------------------------------------*/}
       <Setting
         activeOpacity={ActiveOpacity}
-        onPress={() => navigation.navigate('CustomizeHomeSettings')}>
+        onPress={() => navigation.navigate('Customize Home')}>
         <SettingTitle>{t('Customize Home')}</SettingTitle>
         <AngleRight />
       </Setting>
@@ -126,23 +114,23 @@ const General = () => {
       {/*----------------------------------------------------------------------*/}
       <Setting
         activeOpacity={ActiveOpacity}
-        onPress={() => navigation.navigate('AltCurrencySettings')}>
+        onPress={() => navigation.navigate('Display Currency')}>
         <SettingTitle>{t('Display Currency')}</SettingTitle>
         <Button
           buttonType={'pill'}
-          onPress={() => navigation.navigate('AltCurrencySettings')}>
+          onPress={() => navigation.navigate('Display Currency')}>
           {selectedAltCurrency.name}
         </Button>
       </Setting>
-      <Hr />
+      <Hr /> 
       {/*----------------------------------------------------------------------*/}
       <Setting
         activeOpacity={ActiveOpacity}
-        onPress={() => navigation.navigate('LanguageSettings')}>
+        onPress={() => navigation.navigate('Language')}>
         <SettingTitle>{t('Language')}</SettingTitle>
         <Button
           buttonType={'pill'}
-          onPress={() => navigation.navigate('LanguageSettings')}>
+          onPress={() => navigation.navigate('Language')}>
           {appLanguageName}
         </Button>
       </Setting>
