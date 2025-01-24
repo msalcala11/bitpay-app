@@ -593,6 +593,188 @@ export const startUpdateAllWalletStatusForKeys =
     });
   };
 
+export const startUpdateAllWalletStatusForKeysNoUI =
+  ({
+    keys,
+    accountAddress,
+    force,
+  }: {
+    keys: Key[];
+    accountAddress?: string;
+    force?: boolean;
+  }): Effect<
+    Promise<{
+      keyUpdates: Array<{
+        keyId: string;
+        totalBalance: number;
+        totalBalanceLastDay: number;
+      }>;
+      walletUpdates: Array<{
+        wallet: Wallet;
+        balance: any;
+        pendingTxps: any[];
+        singleAddress?: boolean;
+      }>;
+    }>
+  > =>
+  async (dispatch, getState) => {
+    try {
+      console.time('wallet-status-update-no-ui');
+      const {APP, RATE} = getState();
+      const {defaultAltCurrency} = APP;
+      const {rates, lastDayRates} = RATE;
+
+      const walletUpdates: Array<{
+        wallet: Wallet;
+        balance: any;
+        pendingTxps: any[];
+        singleAddress?: boolean;
+      }> = [];
+
+      // Process all keys in parallel but skip UI updates
+      const keyUpdatesPromises = keys.map(async key => {
+        let filteredWallets = key.wallets;
+        let totalBalance = 0;
+        let totalBalanceLastDay = 0;
+        
+        // Filter out token wallets
+        const noTokenWallets = filteredWallets.filter(wallet => {
+          return (
+            !wallet.credentials.token &&
+            !wallet.credentials.multisigEthInfo &&
+            wallet.credentials.isComplete()
+          );
+        });
+
+        if (!noTokenWallets.length) {
+          return null;
+        }
+
+        // Prepare wallet options
+        const walletOptions = {} as Record<
+          string,
+          {
+            tokenAddresses: string[] | undefined;
+          }
+        >;
+
+        const credentials = noTokenWallets.map(wallet => {
+          const tokenAddresses = wallet.tokens?.map(
+            address => '0x' + address.split('0x')[1],
+          );
+
+          walletOptions[wallet.credentials.copayerId] = {
+            tokenAddresses,
+          };
+          return wallet.credentials;
+        });
+
+        const {bulkClient} = BwcProvider.getInstance().getClient();
+
+        // Get all statuses but don't update UI
+        const bulkStatus = await getBulkStatus(
+          bulkClient,
+          credentials,
+          walletOptions,
+        );
+
+        if (!bulkStatus) return null;
+
+        // Process all wallets but don't update state
+        const balances = await Promise.all(filteredWallets.map(async wallet => {
+          const {balance: cachedBalance, pendingTxps} = wallet;
+          const status = bulkStatus.find(bStatus => {
+            if (typeof bStatus.tokenAddress === 'string') {
+              return (
+                bStatus.tokenAddress === wallet.credentials.token?.address &&
+                `${bStatus.walletId}-${bStatus.tokenAddress}` === wallet.id
+              );
+            }
+            return bStatus.walletId === wallet.id;
+          });
+
+          if (!status || !status.success) {
+            const fiatBalance = buildFiatBalance({
+              wallet,
+              cryptoBalance: cachedBalance,
+              defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
+              rates,
+              lastDayRates,
+            });
+            return {
+              ...cachedBalance,
+              ...fiatBalance,
+            };
+          }
+
+          const amountHasChanged =
+            status.status?.balance.availableAmount !== cachedBalance?.satAvailable;
+          const hasNewPendingTxps =
+            status.status?.pendingTxps && status.status?.pendingTxps.length > 0;
+          const hasPendingTxps = pendingTxps?.length > 0;
+
+          if (amountHasChanged || hasNewPendingTxps || hasPendingTxps) {
+            const cryptoBalance = buildBalance({wallet, status: status.status});
+            const fiatBalance = buildFiatBalance({
+              wallet,
+              cryptoBalance,
+              defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
+              rates,
+              lastDayRates,
+            });
+            const newPendingTxps = buildPendingTxps({wallet, status: status.status});
+
+            walletUpdates.push({
+              wallet,
+              balance: cryptoBalance,
+              pendingTxps: newPendingTxps,
+              singleAddress: status.status.wallet?.singleAddress,
+            });
+
+            return {
+              ...cryptoBalance,
+              ...fiatBalance,
+            };
+          }
+
+          return {
+            ...cachedBalance,
+            ...buildFiatBalance({
+              wallet,
+              cryptoBalance: cachedBalance,
+              defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
+              rates,
+              lastDayRates,
+            }),
+          };
+        }));
+
+        // Calculate totals for this key
+        totalBalance = getTotalFiatBalance(balances);
+        totalBalanceLastDay = getTotalFiatLastDayBalance(balances);
+
+        return {
+          keyId: key.id,
+          totalBalance,
+          totalBalanceLastDay,
+        };
+      });
+
+      // Wait for all processing to complete
+      const keyUpdates = (await Promise.all(keyUpdatesPromises)).filter(Boolean);
+      console.timeEnd('wallet-status-update-no-ui');
+      
+      return {
+        keyUpdates,
+        walletUpdates,
+      };
+    } catch (err) {
+      const errorStr = err instanceof Error ? err.message : JSON.stringify(err);
+      console.error(`Test run failed: ${errorStr}`);
+      throw err;
+    }
+  };
+
 export const startUpdateAllWalletStatusForReadOnlyKeys =
   ({
     readOnlyKeys,

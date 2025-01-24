@@ -2,8 +2,9 @@ import {Effect, RootState} from '../../../index';
 import {WalletActions} from '../../index';
 import {startGetRates} from '../rates/rates';
 import {startGetTokenOptions} from '../currencies/currencies';
-import {startUpdateAllKeyAndWalletStatus} from '../status/status';
+import {startUpdateAllWalletStatusForKeysNoUI} from '../status/status';
 import {LogActions} from '../../../log';
+import {successUpdateKeysTotalBalance} from '../../wallet.actions';
 
 export const startWalletStoreInit =
   (): Effect<Promise<void>> => async (dispatch, getState: () => RootState) => {
@@ -16,7 +17,26 @@ export const startWalletStoreInit =
       await dispatch(startGetRates({init: true})); // populate rates and alternative currency list
 
       if (Object.keys(WALLET.keys).length) {
-        dispatch(startUpdateAllKeyAndWalletStatus({context: 'init'}));
+        // Use the no-UI version and collect all updates
+        const {keyUpdates, walletUpdates} = await dispatch(
+          startUpdateAllWalletStatusForKeysNoUI({
+            keys: Object.values(WALLET.keys),
+            force: true,
+          }),
+        );
+
+        // Apply all wallet updates in one batch
+        walletUpdates.forEach(({wallet, balance, pendingTxps, singleAddress}) => {
+          wallet.balance = balance;
+          wallet.pendingTxps = pendingTxps;
+          wallet.isRefreshing = false;
+          wallet.singleAddress = singleAddress;
+        });
+
+        // Single dispatch for all key updates
+        if (keyUpdates.length > 0) {
+          dispatch(successUpdateKeysTotalBalance(keyUpdates));
+        }
       }
 
       dispatch(WalletActions.successWalletStoreInit());
