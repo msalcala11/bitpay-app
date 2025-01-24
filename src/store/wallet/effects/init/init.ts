@@ -4,7 +4,7 @@ import {startGetRates} from '../rates/rates';
 import {startGetTokenOptions} from '../currencies/currencies';
 import {startUpdateAllWalletStatusForKeysNoUI} from '../status/status';
 import {LogActions} from '../../../log';
-import {successUpdateKeysTotalBalance} from '../../wallet.actions';
+import {successUpdateKeysTotalBalance, successUpdateWalletStatus} from '../../wallet.actions';
 
 export const startWalletStoreInit =
   (): Effect<Promise<void>> => async (dispatch, getState: () => RootState) => {
@@ -25,12 +25,19 @@ export const startWalletStoreInit =
           }),
         );
 
-        // Apply all wallet updates in one batch
+        // Batch dispatch all wallet updates
         walletUpdates.forEach(({wallet, balance, pendingTxps, singleAddress}) => {
-          wallet.balance = balance;
-          wallet.pendingTxps = pendingTxps;
-          wallet.isRefreshing = false;
-          wallet.singleAddress = singleAddress;
+          dispatch(
+            successUpdateWalletStatus({
+              keyId: wallet.credentials.keyId,
+              walletId: wallet.id,
+              status: {
+                balance,
+                pendingTxps,
+                singleAddress: !!singleAddress,
+              },
+            }),
+          );
         });
 
         // Single dispatch for all key updates
