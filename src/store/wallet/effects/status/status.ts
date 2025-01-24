@@ -1324,3 +1324,135 @@ export const clearWalletBalances =
 
     dispatch(LogActions.info('success [clearWalletBalances]: all balances cleared'));
   };
+
+export const getUpdatedWalletBalances = ({
+  context,
+  force,
+  createTokenWalletWithFunds,
+  chain,
+  tokenAddress,
+}: {
+  context?: UpdateAllKeyAndWalletStatusContext;
+  force?: boolean;
+  createTokenWalletWithFunds?: boolean;
+  chain?: string;
+  tokenAddress?: string;
+}): Effect<Promise<{
+  keyBalances: {
+    keyId: string;
+    totalBalance: number;
+    totalBalanceLastDay: number;
+  }[];
+  walletBalances: {
+    keyId: string;
+    walletId: string;
+    status: WalletStatus;
+  }[];
+}>> =>
+  async (dispatch, getState) => {
+    const {
+      WALLET: {keys: _keys},
+      APP: {defaultAltCurrency},
+      RATE: {rates, lastDayRates},
+    } = getState();
+
+    const [readOnlyKeys, keys] = _.partition(_keys, 'isReadOnly');
+    const keyBalances: {
+      keyId: string;
+      totalBalance: number;
+      totalBalanceLastDay: number;
+    }[] = [];
+    const walletBalances: {
+      keyId: string;
+      walletId: string;
+      status: WalletStatus;
+    }[] = [];
+
+    if (createTokenWalletWithFunds) {
+      for (const k of keys) {
+        try {
+          await dispatch(
+            detectAndCreateTokensForEachEvmWallet({
+              key: k,
+              chain,
+              tokenAddress,
+            }),
+          );
+        } catch (error) {
+          dispatch(
+            LogActions.info(
+              'Error trying to detectAndCreateTokensForEachEvmWallet. Continue anyway.',
+            ),
+          );
+        }
+      }
+    }
+
+    // Process regular keys
+    for (const key of keys) {
+      const keyBalance = await dispatch(updateKeyStatus({
+        key,
+        force,
+      }));
+      if (keyBalance) {
+        keyBalances.push(keyBalance);
+      }
+
+      // Update each wallet's status
+      for (const wallet of key.wallets) {
+        try {
+          const status = await dispatch(
+            updateWalletStatus({
+              wallet,
+              defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
+              rates,
+              lastDayRates,
+            }),
+          );
+          walletBalances.push({
+            keyId: key.id,
+            walletId: wallet.id,
+            status,
+          });
+        } catch (error) {
+          dispatch(
+            LogActions.error(
+              `Error updating wallet status for wallet ${wallet.id}: ${error}`,
+            ),
+          );
+        }
+      }
+    }
+
+    // Process read-only keys
+    for (const key of readOnlyKeys) {
+      for (const wallet of key.wallets) {
+        try {
+          const status = await dispatch(
+            updateWalletStatus({
+              wallet,
+              defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
+              rates,
+              lastDayRates,
+            }),
+          );
+          walletBalances.push({
+            keyId: key.id,
+            walletId: wallet.id,
+            status,
+          });
+        } catch (error) {
+          dispatch(
+            LogActions.error(
+              `Error updating wallet status for read-only wallet ${wallet.id}: ${error}`,
+            ),
+          );
+        }
+      }
+    }
+
+    return {
+      keyBalances,
+      walletBalances,
+    };
+  };
