@@ -1,4 +1,4 @@
-import {Effect} from '../../../index';
+import {Effect, RootState} from '../../../index';
 import {
   Wallet,
   Key,
@@ -38,6 +38,7 @@ import {LogActions} from '../../../log';
 import _ from 'lodash';
 import {createWalletAddress} from '../address/address';
 import {detectAndCreateTokensForEachEvmWallet} from '../create/create';
+import { WalletActions } from '../..';
 
 /*
  * post broadcasting of payment
@@ -174,13 +175,13 @@ export const startUpdateWalletStatus =
 
         const {id, currencyAbbreviation, network} = wallet;
 
-        if (
-          !isCacheKeyStale(balanceCacheKey[id], BALANCE_CACHE_DURATION) &&
-          !force
-        ) {
-          console.log(`Wallet: ${id} - skipping balance update`);
-          return resolve();
-        }
+        // if (
+        //   !isCacheKeyStale(balanceCacheKey[id], BALANCE_CACHE_DURATION) &&
+        //   !force
+        // ) {
+        //   console.log(`Wallet: ${id} - skipping balance update`);
+        //   return resolve();
+        // }
 
         const status = await dispatch(
           updateWalletStatus({
@@ -326,13 +327,13 @@ const updateKeyStatus =
       const {defaultAltCurrency} = APP;
       const {balanceCacheKey} = WALLET;
       const {rates, lastDayRates} = RATE;
-      if (
-        !isCacheKeyStale(balanceCacheKey[key.id], BALANCE_CACHE_DURATION) &&
-        !force
-      ) {
-        console.log(`Key: ${key.id} - skipping balance update`);
-        return;
-      }
+      // if (
+      //   !isCacheKeyStale(balanceCacheKey[key.id], BALANCE_CACHE_DURATION) &&
+      //   !force
+      // ) {
+      //   console.log(`Key: ${key.id} - skipping balance update`);
+      //   return;
+      // }
 
       const walletOptions = {} as Record<
         string,
@@ -660,15 +661,15 @@ export const startUpdateAllKeyAndWalletStatus =
           WALLET: {keys: _keys, balanceCacheKey},
         } = getState();
 
-        if (
-          !isCacheKeyStale(balanceCacheKey.all, BALANCE_CACHE_DURATION) &&
-          !force
-        ) {
-          console.log(
-            '[startUpdateAllKeyAndWalletStatus] All: skipping balance update',
-          );
-          return resolve();
-        }
+        // if (
+        //   !isCacheKeyStale(balanceCacheKey.all, BALANCE_CACHE_DURATION) &&
+        //   !force
+        // ) {
+        //   console.log(
+        //     '[startUpdateAllKeyAndWalletStatus] All: skipping balance update',
+        //   );
+        //   return resolve();
+        // }
 
         const [readOnlyKeys, keys] = _.partition(_keys, 'isReadOnly');
 
@@ -727,7 +728,7 @@ export const startUpdateAllKeyAndWalletStatus =
     });
   };
 
-const updateWalletStatus =
+export const updateWalletStatus =
   ({
     wallet,
     defaultAltCurrencyIsoCode,
@@ -816,12 +817,11 @@ const updateWalletStatus =
             } as WalletBalance;
 
             const newPendingTxps = dispatch(buildPendingTxps({wallet, status}));
-            const singleAddress = status.wallet?.singleAddress;
 
             resolve({
               balance: newBalance,
               pendingTxps: newPendingTxps,
-              singleAddress,
+              singleAddress: status.wallet?.singleAddress,
             });
           } catch (err2) {
             resolve({
@@ -1269,3 +1269,58 @@ const getTotalFiatLastDayBalance = (balances: {fiatLastDay: number}[]) =>
     (acc, {fiatLastDay}) => (fiatLastDay ? acc + fiatLastDay : acc),
     0,
   );
+
+export const clearWalletBalances =
+  (): Effect<Promise<void>> => async (dispatch, getState) => {
+    dispatch(LogActions.info('starting [clearWalletBalances]'));
+
+    const {WALLET} = getState();
+    const keys = WALLET.keys;
+
+    // Update each key and its wallets
+    for (const keyId of Object.keys(keys)) {
+      const key = keys[keyId];
+      const wallets = key.wallets;
+
+      // Update each wallet's balance to 0
+      for (const wallet of wallets) {
+        dispatch(
+          WalletActions.successUpdateWalletStatus({
+            keyId,
+            walletId: wallet.id,
+            status: {
+              balance: {
+                sat: 0,
+                crypto: '0',
+                fiat: 0,
+              },
+              pendingTxps: wallet.pendingTxps,
+              singleAddress: wallet.singleAddress,
+            },
+          }),
+        );
+      }
+
+      // Update key's total balance to 0
+      dispatch(
+        WalletActions.successUpdateKeysTotalBalance([
+          {
+            keyId,
+            totalBalance: 0,
+            totalBalanceLastDay: 0,
+          },
+        ]),
+      );
+    }
+
+    // Update portfolio balance
+    dispatch(
+      WalletActions.updatePortfolioBalance({
+        current: 0,
+        lastDay: 0,
+        previous: 0,
+      }),
+    );
+
+    dispatch(LogActions.info('success [clearWalletBalances]: all balances cleared'));
+  };

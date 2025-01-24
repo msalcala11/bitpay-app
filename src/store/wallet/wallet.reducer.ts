@@ -208,6 +208,7 @@ export const walletReducer = (
     case WalletActionTypes.UPDATE_PORTFOLIO_BALANCE: {
       let current = 0;
       let lastDay = 0;
+      Object.values(state.keys).forEach(key => console.log('keyTotalBalance',key.id, key.totalBalance));
       Object.values(state.keys).forEach(key => (current += key.totalBalance));
       Object.values(state.keys).forEach(
         key => (lastDay += key.totalBalanceLastDay),

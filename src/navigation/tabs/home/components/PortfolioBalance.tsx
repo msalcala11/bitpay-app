@@ -19,6 +19,8 @@ import Percentage from '../../../../components/percentage/Percentage';
 import {COINBASE_ENV} from '../../../../api/coinbase/coinbase.constants';
 import {useTranslation} from 'react-i18next';
 import {TouchableOpacity} from 'react-native';
+import {clearWalletBalances} from '../../../../store/wallet/effects/status/status';
+import {LogActions} from '../../../../store/log';
 
 const PortfolioContainer = styled.View`
   justify-content: center;
@@ -92,11 +94,17 @@ const PortfolioBalance = () => {
     );
   };
 
+  const handlePortfolioBalancePress = () => {
+    dispatch(LogActions.info('Portfolio Balance pressed: clearing all balances'));
+    console.log('pressed');
+    dispatch(clearWalletBalances());
+  };
+
   return (
     <PortfolioContainer>
       <PortfolioBalanceHeader
         activeOpacity={ActiveOpacity}
-        onPress={showPortfolioBalanceInfoModal}>
+        onPress={handlePortfolioBalancePress}>
         <PortfolioBalanceTitle>{t('Portfolio Balance')}</PortfolioBalanceTitle>
         <InfoSvg width={12} height={12} />
       </PortfolioBalanceHeader>
