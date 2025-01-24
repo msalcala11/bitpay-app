@@ -38,7 +38,8 @@ import {LogActions} from '../../../log';
 import _ from 'lodash';
 import {createWalletAddress} from '../address/address';
 import {detectAndCreateTokensForEachEvmWallet} from '../create/create';
-import { WalletActions } from '../..';
+import {WalletActions} from '../..';
+import {startGetRates} from '../rates/rates';
 
 /*
  * post broadcasting of payment
@@ -1455,4 +1456,72 @@ export const getUpdatedWalletBalances = ({
       keyBalances,
       walletBalances,
     };
+  };
+
+export const getAndDispatchUpdatedWalletBalances = ({
+  context,
+  force = true,
+  createTokenWalletWithFunds = false,
+  chain,
+  tokenAddress,
+  skipRateUpdate = false,
+}: {
+  context?: UpdateAllKeyAndWalletStatusContext;
+  force?: boolean;
+  createTokenWalletWithFunds?: boolean;
+  chain?: string;
+  tokenAddress?: string;
+  skipRateUpdate?: boolean;
+}): Effect<Promise<void>> =>
+  async (dispatch, getState) => {
+    try {
+      dispatch(
+        LogActions.info(
+          `Starting [getAndDispatchUpdatedWalletBalances]. Context: ${context}`,
+        ),
+      );
+
+      // Update rates if needed
+      if (!skipRateUpdate) {
+        await dispatch(startGetRates({}));
+      }
+
+      // Get updated balances
+      const balances = await dispatch(
+        getUpdatedWalletBalances({
+          context,
+          force,
+          createTokenWalletWithFunds,
+          chain,
+          tokenAddress,
+        }),
+      );
+
+      // Update UI with collected balance data
+      dispatch(successUpdateKeysTotalBalance(balances.keyBalances));
+
+      balances.walletBalances.forEach(walletBalance => {
+        dispatch(
+          successUpdateWalletStatus({
+            keyId: walletBalance.keyId,
+            walletId: walletBalance.walletId,
+            status: walletBalance.status,
+          }),
+        );
+      });
+
+      // Update portfolio balance and mark update as complete
+      dispatch(updatePortfolioBalance());
+      dispatch(successUpdateAllKeysAndStatus());
+      
+      dispatch(LogActions.info('success [getAndDispatchUpdatedWalletBalances]'));
+    } catch (err) {
+      const errorStr = err instanceof Error ? err.message : JSON.stringify(err);
+      dispatch(
+        LogActions.error(
+          `failed [getAndDispatchUpdatedWalletBalances]: ${errorStr}`,
+        ),
+      );
+      throw err;
+    }
   };

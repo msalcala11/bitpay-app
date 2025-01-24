@@ -21,8 +21,8 @@ import {
 } from '../../../store/app/app.selectors';
 import {selectCardGroups} from '../../../store/card/card.selectors';
 import {startGetRates} from '../../../store/wallet/effects';
-import {getUpdatedWalletBalances, startUpdateAllKeyAndWalletStatus} from '../../../store/wallet/effects/status/status';
-import {successUpdateAllKeysAndStatus, successUpdateKeysTotalBalance, successUpdateWalletStatus, updatePortfolioBalance} from '../../../store/wallet/wallet.actions';
+import {getAndDispatchUpdatedWalletBalances} from '../../../store/wallet/effects/status/status';
+import {successUpdateAllKeysAndStatus, updatePortfolioBalance} from '../../../store/wallet/wallet.actions';
 import {SlateDark, White} from '../../../styles/colors';
 import {
   calculatePercentageDifference,
@@ -191,49 +191,19 @@ const HomeRoot = () => {
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      // Get updated rates first
-      await dispatch(startGetRates({}));
-
-      // Fetch all wallet and key balances
-      const [balances] = await Promise.all([
+      await Promise.all([
         dispatch(
-          getUpdatedWalletBalances({
+          getAndDispatchUpdatedWalletBalances({
             context: 'homeRootOnRefresh',
-            force: true,
             createTokenWalletWithFunds: true,
           }),
         ),
         dispatch(requestBrazeContentRefresh()),
         sleep(1000),
-      ]).catch(err => {
-        console.log('getUpdatedWalletBalances err', err);
-        throw err;
-      });
-
-      console.log('balances', balances);
-
-      try {
-        // Update UI with collected balance data
-        dispatch(successUpdateKeysTotalBalance(balances.keyBalances));
-
-        balances.walletBalances.forEach(walletBalance => {
-          dispatch(
-            successUpdateWalletStatus({
-              keyId: walletBalance.keyId,
-              walletId: walletBalance.walletId,
-              status: walletBalance.status,
-            }),
-          );
-        });
-      } catch (err) {
-        console.log('balance update err', err);
-        throw err;
-      }
-
+      ]);
       await sleep(2000);
-      dispatch(updatePortfolioBalance());
-      // dispatch(successUpdateAllKeysAndStatus());
     } catch (err) {
+      console.log('error updating balances', err);
       dispatch(showBottomNotificationModal(BalanceUpdateError()));
     }
     setRefreshing(false);
