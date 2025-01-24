@@ -336,11 +336,11 @@ const updateKeyStatus =
 
     // Filter wallets first to avoid unnecessary processing
     let filteredWallets = key.wallets;
-    if (accountAddress) {
-      filteredWallets = filteredWallets.filter(
-        wallet => wallet.receiveAddress === accountAddress,
-      );
-    }
+    // if (accountAddress) {
+    //   filteredWallets = filteredWallets.filter(
+    //     wallet => wallet.receiveAddress === accountAddress,
+    //   );
+    // }
 
     // Filter out token wallets
     const noTokenWallets = filteredWallets.filter(wallet => {
