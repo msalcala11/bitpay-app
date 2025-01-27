@@ -27,6 +27,7 @@ export enum WalletActionTypes {
   SUCCESS_ADD_WALLET = 'WALLET/SUCCESS_ADD_WALLET',
   FAILED_ADD_WALLET = 'WALLET/FAILED_ADD_WALLET',
   SUCCESS_UPDATE_WALLET_STATUS = 'WALLET/SUCCESS_UPDATE_WALLET_STATUS',
+  SUCCESS_UPDATE_WALLET_STATUSES = 'WALLET/SUCCESS_UPDATE_WALLET_STATUSES',
   FAILED_UPDATE_WALLET_STATUS = 'WALLET/FAILED_UPDATE_WALLET_STATUS',
   SUCCESS_UPDATE_KEY_TOTAL_BALANCE = 'WALLET/SUCCESS_UPDATE_KEY_TOTAL_BALANCE',
   SUCCESS_UPDATE_KEYS_TOTAL_BALANCE = 'WALLET/SUCCESS_UPDATE_KEYS_TOTAL_BALANCE',
@@ -163,6 +164,19 @@ interface successUpdateWalletStatus {
       singleAddress: boolean;
     };
   };
+}
+
+interface successUpdateWalletStatuses {
+  type: typeof WalletActionTypes.SUCCESS_UPDATE_WALLET_STATUSES;
+  payload: {
+    keyId: string;
+    walletId: string;
+    status: {
+      balance: CryptoBalance;
+      pendingTxps: TransactionProposal[];
+      singleAddress: boolean;
+    };
+  }[];
 }
 
 interface failedUpdateWalletStatus {
@@ -348,13 +362,14 @@ export type WalletActionType =
   | successImport
   | failedImport
   | setBackupComplete
-  | deleteKey
   | successEncryptOrDecryptPassword
+  | deleteKey
   | successGetTokenOptions
   | successGetCustomTokenOptions
   | failedGetTokenOptions
   | setWalletTermsAccepted
   | successUpdateWalletStatus
+  | successUpdateWalletStatuses
   | failedUpdateWalletStatus
   | successUpdateKeysTotalBalance
   | failedUpdateKeyTotalBalance

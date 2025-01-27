@@ -6,6 +6,7 @@ import {
   Token,
   TransactionProposal,
   Wallet,
+  WalletStatus,
 } from './wallet.models';
 import {CurrencyOpts} from '../../constants/currencies';
 
@@ -97,13 +98,22 @@ export const setWalletTermsAccepted = (): WalletActionType => ({
 export const successUpdateWalletStatus = (payload: {
   keyId: string;
   walletId: string;
+  status: WalletStatus;
+}): WalletActionType => ({
+  type: WalletActionTypes.SUCCESS_UPDATE_WALLET_STATUS,
+  payload,
+});
+
+export const successUpdateWalletStatuses = (payload: Array<{
+  keyId: string;
+  walletId: string;
   status: {
     balance: CryptoBalance;
     pendingTxps: TransactionProposal[];
     singleAddress: boolean;
   };
-}): WalletActionType => ({
-  type: WalletActionTypes.SUCCESS_UPDATE_WALLET_STATUS,
+}>): WalletActionType => ({
+  type: WalletActionTypes.SUCCESS_UPDATE_WALLET_STATUSES,
   payload,
 });
 

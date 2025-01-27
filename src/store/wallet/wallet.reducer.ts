@@ -142,6 +142,50 @@ export const walletReducer = (
       };
     }
 
+    case WalletActionTypes.SUCCESS_UPDATE_WALLET_STATUSES: {
+      const updatedKeys: {[key: string]: Key} = {};
+      const updatedBalanceCacheKey: {[key: string]: number} = {};
+      const dateNow = Date.now();
+
+      action.payload.forEach(({keyId, walletId, status}) => {
+        const keyToUpdate = state.keys[keyId];
+        if (!keyToUpdate) {
+          return;
+        }
+
+        // Only create a new key object if we haven't already
+        const key = updatedKeys[keyId] || {...keyToUpdate};
+        updatedKeys[keyId] = key;
+
+        key.wallets = key.wallets.map(wallet => {
+          if (wallet.id === walletId) {
+            return {
+              ...wallet,
+              balance: status.balance,
+              pendingTxps: status.pendingTxps,
+              isRefreshing: false,
+              singleAddress: status.singleAddress,
+            };
+          }
+          return wallet;
+        });
+
+        updatedBalanceCacheKey[walletId] = dateNow;
+      });
+
+      return {
+        ...state,
+        keys: {
+          ...state.keys,
+          ...updatedKeys,
+        },
+        balanceCacheKey: {
+          ...state.balanceCacheKey,
+          ...updatedBalanceCacheKey,
+        },
+      };
+    }
+
     case WalletActionTypes.FAILED_UPDATE_WALLET_STATUS: {
       const {keyId, walletId} = action.payload;
       const keyToUpdate = state.keys[keyId];
