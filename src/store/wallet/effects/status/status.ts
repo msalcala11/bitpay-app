@@ -1475,18 +1475,21 @@ export const getAndDispatchUpdatedWalletBalances = ({
   skipRateUpdate?: boolean;
 }): Effect<Promise<void>> =>
   async (dispatch, getState) => {
+    console.log('starting wallet status update');
     try {
       dispatch(
         LogActions.info(
           `Starting [getAndDispatchUpdatedWalletBalances]. Context: ${context}`,
-        ),
+        ), 
       );
 
       // Update rates if needed
-      if (!skipRateUpdate) {
-        await dispatch(startGetRates({}));
-      }
+      // if (!skipRateUpdate) {
+      //   console.log('getting rates');
+      //   await dispatch(startGetRates({}));
+      // }
 
+      console.log('getting updated balances');
       // Get updated balances
       const balances = await dispatch(
         getUpdatedWalletBalances({
@@ -1497,10 +1500,11 @@ export const getAndDispatchUpdatedWalletBalances = ({
           tokenAddress,
         }),
       );
-
+      console.log('updating UI with collected balance data');
       // Update UI with collected balance data
       dispatch(successUpdateKeysTotalBalance(balances.keyBalances));
 
+      console.log('batching all wallet status updates into a single dispatch');
       // Batch all wallet status updates into a single dispatch
       dispatch(
         successUpdateWalletStatuses(balances.walletBalances),
@@ -1508,9 +1512,10 @@ export const getAndDispatchUpdatedWalletBalances = ({
 
       // Update portfolio balance and mark update as complete
       dispatch(updatePortfolioBalance());
-      dispatch(successUpdateAllKeysAndStatus());
+      // dispatch(successUpdateAllKeysAndStatus());
       
       dispatch(LogActions.info('success [getAndDispatchUpdatedWalletBalances]'));
+      console.log('finished wallet status update');
     } catch (err) {
       const errorStr = err instanceof Error ? err.message : JSON.stringify(err);
       dispatch(
