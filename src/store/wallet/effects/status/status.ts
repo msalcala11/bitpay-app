@@ -23,6 +23,7 @@ import {
   successUpdateKeysTotalBalance,
   successUpdateWalletStatus,
   successUpdateWalletStatuses,
+  successUpdateWalletBalancesAndStatus,
   updatePortfolioBalance,
 } from '../../wallet.actions';
 import {findWalletById, isCacheKeyStale, toFiat} from '../../utils/wallet';
@@ -708,7 +709,6 @@ export const startUpdateAllKeyAndWalletStatus =
           ),
         ]);
 
-        dispatch(updatePortfolioBalance()); // update portfolio balance after updating all keys balances
         dispatch(successUpdateAllKeysAndStatus());
         dispatch(LogActions.info('success [startUpdateAllKeyAndWalletStatus]'));
         resolve();
@@ -1500,19 +1500,14 @@ export const getAndDispatchUpdatedWalletBalances = ({
           tokenAddress,
         }),
       );
-      console.log('updating UI with collected balance data');
-      // Update UI with collected balance data
-      dispatch(successUpdateKeysTotalBalance(balances.keyBalances));
-
-      console.log('batching all wallet status updates into a single dispatch');
-      // Batch all wallet status updates into a single dispatch
+      console.log('updating UI with collected balance and wallet status data');
+      // Update UI with collected balance data and wallet statuses in a single dispatch
       dispatch(
-        successUpdateWalletStatuses(balances.walletBalances),
+        successUpdateWalletBalancesAndStatus({
+          keyBalances: balances.keyBalances,
+          walletBalances: balances.walletBalances,
+        }),
       );
-
-      // Update portfolio balance and mark update as complete
-      dispatch(updatePortfolioBalance());
-      // dispatch(successUpdateAllKeysAndStatus());
       
       dispatch(LogActions.info('success [getAndDispatchUpdatedWalletBalances]'));
       console.log('finished wallet status update');

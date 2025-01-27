@@ -294,3 +294,23 @@ export const setPolygonMigrationComplete = (): WalletActionType => ({
 export const setAccountEVMCreationMigrationComplete = (): WalletActionType => ({
   type: WalletActionTypes.SET_ACCOUNT_EVM_CREATION_MIGRATION_COMPLETE,
 });
+
+export const successUpdateWalletBalancesAndStatus = (payload: {
+  keyBalances: {
+    keyId: string;
+    totalBalance: number;
+    totalBalanceLastDay: number;
+  }[];
+  walletBalances: Array<{
+    keyId: string;
+    walletId: string;
+    status: {
+      balance: CryptoBalance;
+      pendingTxps: TransactionProposal[];
+      singleAddress: boolean;
+    };
+  }>;
+}): WalletActionType => ({
+  type: WalletActionTypes.SUCCESS_UPDATE_WALLET_BALANCES_AND_STATUS,
+  payload,
+});
