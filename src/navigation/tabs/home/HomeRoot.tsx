@@ -74,10 +74,7 @@ const HomeRoot = () => {
   const brazeShopWithCrypto = useAppSelector(selectBrazeShopWithCrypto);
   const brazeDoMore = useAppSelector(selectBrazeDoMore);
   const brazeQuickLinks = useAppSelector(selectBrazeQuickLinks);
-  const keys = useAppSelector(({WALLET}) => {
-    console.log('[HomeRoot] WALLET.keys changed');
-    return WALLET.keys;
-  });
+  const keys = useAppSelector(({WALLET}) => WALLET.keys);
   const wallets = Object.values(keys).flatMap(k => k.wallets);
   let pendingTxps: any = [];
   each(wallets, x => {
@@ -97,14 +94,19 @@ const HomeRoot = () => {
   const keyMigrationFailureModalHasBeenShown = useAppSelector(
     ({APP}) => APP.keyMigrationFailureModalHasBeenShown,
   );
-  const showPortfolioValue = useAppSelector(({APP}) => {
-    console.log('[HomeRoot] APP.showPortfolioValue changed');
-    return APP.showPortfolioValue;
-  });
+  const showPortfolioValue = useAppSelector(({APP}) => APP.showPortfolioValue);
   const hasKeys = Object.values(keys).length;
   const cardGroups = useAppSelector(selectCardGroups);
   const hasCards = cardGroups.length > 0;
   useBrazeRefreshOnFocus();
+
+  useEffect(() => {
+    console.log('[HomeRoot] WALLET.keys changed');
+  }, [keys]);
+
+  useEffect(() => {
+    console.log('[HomeRoot] APP.showPortfolioValue changed');
+  }, [showPortfolioValue]);
 
   // Shop with Crypto
   const memoizedShopWithCryptoCards = useMemo(() => {
