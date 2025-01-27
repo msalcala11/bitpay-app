@@ -320,6 +320,13 @@ const updateKeyStatus =
           keyId: string;
           totalBalance: number;
           totalBalanceLastDay: number;
+          walletUpdates: Array<{
+            walletId: string;
+            balance: any;
+            pendingTxps: any[];
+            isRefreshing: boolean;
+            singleAddress: boolean;
+          }>;
         }
       | undefined
     >
@@ -330,13 +337,6 @@ const updateKeyStatus =
       const {defaultAltCurrency} = APP;
       const {balanceCacheKey} = WALLET;
       const {rates, lastDayRates} = RATE;
-      // if (
-      //   !isCacheKeyStale(balanceCacheKey[key.id], BALANCE_CACHE_DURATION) &&
-      //   !force
-      // ) {
-      //   console.log(`Key: ${key.id} - skipping balance update`);
-      //   return;
-      // }
 
       const walletOptions = {} as Record<
         string,
@@ -383,6 +383,15 @@ const updateKeyStatus =
           credentials,
           walletOptions,
         )) as BulkStatus[];
+
+        const walletUpdates: Array<{
+          walletId: string;
+          balance: any;
+          pendingTxps: any[];
+          isRefreshing: boolean;
+          singleAddress: boolean;
+        }> = [];
+
         const balances = key.wallets.map(wallet => {
           const {balance: cachedBalance, pendingTxps} = wallet;
 
@@ -420,6 +429,7 @@ const updateKeyStatus =
           const hasPendingTxps = pendingTxps?.length > 0;
           const shouldUpdateStatus =
             amountHasChanged || hasNewPendingTxps || hasPendingTxps;
+
           if (status && success && shouldUpdateStatus) {
             const cryptoBalance = dispatch(
               buildBalance({
@@ -443,11 +453,14 @@ const updateKeyStatus =
 
             const newPendingTxps = dispatch(buildPendingTxps({wallet, status}));
 
-            // properties to update
-            wallet.balance = cryptoBalance;
-            wallet.pendingTxps = newPendingTxps;
-            wallet.isRefreshing = false;
-            wallet.singleAddress = status.wallet?.singleAddress;
+            // Collect wallet updates instead of applying them
+            walletUpdates.push({
+              walletId: wallet.id,
+              balance: cryptoBalance,
+              pendingTxps: newPendingTxps,
+              isRefreshing: false,
+              singleAddress: status.wallet?.singleAddress,
+            });
 
             dispatch(
               LogActions.info(
@@ -474,15 +487,11 @@ const updateKeyStatus =
 
         dispatch(LogActions.info(`Key: ${key.id} - status updated`));
 
-        dispatch(
-          successUpdateKey({
-            key,
-          }),
-        );
         return resolve({
           keyId: key.id,
           totalBalance: getTotalFiatBalance(balances),
           totalBalanceLastDay: getTotalFiatLastDayBalance(balances),
+          walletUpdates,
         });
       } catch (err) {
         if (err) {
@@ -528,9 +537,35 @@ export const startUpdateAllWalletStatusForKeys =
           keyId: string;
           totalBalance: number;
           totalBalanceLastDay: number;
+          walletUpdates: Array<{
+            walletId: string;
+            balance: any;
+            pendingTxps: any[];
+            isRefreshing: boolean;
+            singleAddress: boolean;
+          }>;
         }[];
         if (keyUpdates.length > 0) {
-          dispatch(successUpdateKeysTotalBalance(keyUpdates));
+          dispatch(successUpdateKeysTotalBalance(keyUpdates.map(update => ({
+            keyId: update.keyId,
+            totalBalance: update.totalBalance,
+            totalBalanceLastDay: update.totalBalanceLastDay,
+          }))));
+          keyUpdates.forEach(update => {
+            update.walletUpdates.forEach(walletUpdate => {
+              dispatch(
+                successUpdateWalletStatus({
+                  keyId: update.keyId,
+                  walletId: walletUpdate.walletId,
+                  status: {
+                    balance: walletUpdate.balance,
+                    pendingTxps: walletUpdate.pendingTxps,
+                    singleAddress: walletUpdate.singleAddress,
+                  },
+                }),
+              );
+            });
+          });
         }
         dispatch(
           LogActions.info('success [startUpdateAllWalletStatusForKeys]'),
@@ -1397,33 +1432,27 @@ export const getUpdatedWalletBalances = ({
         force,
       }));
       if (keyBalance) {
-        keyBalances.push(keyBalance);
-      }
-
-      // Update each wallet's status
-      for (const wallet of key.wallets) {
-        try {
-          const status = await dispatch(
-            updateWalletStatus({
-              wallet,
-              defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
-              rates,
-              lastDayRates,
-            }),
-          );
+        keyBalances.push({
+          keyId: keyBalance.keyId,
+          totalBalance: keyBalance.totalBalance,
+          totalBalanceLastDay: keyBalance.totalBalanceLastDay,
+        });
+        keyBalance.walletUpdates.forEach(walletUpdate => {
           walletBalances.push({
             keyId: key.id,
-            walletId: wallet.id,
-            status,
+            walletId: walletUpdate.walletId,
+            status: {
+              balance: walletUpdate.balance,
+              pendingTxps: walletUpdate.pendingTxps,
+              singleAddress: walletUpdate.singleAddress,
+            },
           });
-        } catch (error) {
-          dispatch(
-            LogActions.error(
-              `Error updating wallet status for wallet ${wallet.id}: ${error}`,
-            ),
-          );
-        }
+        });
       }
+      return {
+        keyBalances,
+        walletBalances,
+      };
     }
 
     // Process read-only keys
@@ -1475,7 +1504,7 @@ export const getAndDispatchUpdatedWalletBalances = ({
   skipRateUpdate?: boolean;
 }): Effect<Promise<void>> =>
   async (dispatch, getState) => {
-    console.log('starting wallet status update');
+    console.log('------------------STARTING WALLET STATUS UPDATE--------------------');
     try {
       dispatch(
         LogActions.info(
@@ -1484,12 +1513,12 @@ export const getAndDispatchUpdatedWalletBalances = ({
       );
 
       // Update rates if needed
-      // if (!skipRateUpdate) {
-      //   console.log('getting rates');
-      //   await dispatch(startGetRates({}));
-      // }
+      if (!skipRateUpdate) {
+        console.log('-----------------GETTING RATES--------------');
+        await dispatch(startGetRates({}));
+      }
 
-      console.log('getting updated balances');
+      console.log('-----------------GETTING UPDATED BALANCES--------------');
       // Get updated balances
       const balances = await dispatch(
         getUpdatedWalletBalances({
@@ -1500,7 +1529,7 @@ export const getAndDispatchUpdatedWalletBalances = ({
           tokenAddress,
         }),
       );
-      console.log('updating UI with collected balance and wallet status data');
+      console.log('----------UPDATING UI WITH COLLECTED BALANCE AND WALLET STATUS DATA--------------');
       // Update UI with collected balance data and wallet statuses in a single dispatch
       dispatch(
         successUpdateWalletBalancesAndStatus({
