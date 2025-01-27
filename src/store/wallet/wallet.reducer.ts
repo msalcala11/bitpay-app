@@ -124,6 +124,7 @@ export const walletReducer = (
           wallet.pendingTxps = status.pendingTxps;
           wallet.isRefreshing = false;
           wallet.singleAddress = status.singleAddress;
+          return wallet;
         }
         return wallet;
       });
@@ -159,13 +160,11 @@ export const walletReducer = (
 
         key.wallets = key.wallets.map(wallet => {
           if (wallet.id === walletId) {
-            return {
-              ...wallet,
-              balance: status.balance,
-              pendingTxps: status.pendingTxps,
-              isRefreshing: false,
-              singleAddress: status.singleAddress,
-            };
+            wallet.balance = status.balance;
+            wallet.pendingTxps = status.pendingTxps;
+            wallet.isRefreshing = false;
+            wallet.singleAddress = status.singleAddress;
+            return wallet;
           }
           return wallet;
         });
