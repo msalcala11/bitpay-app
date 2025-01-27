@@ -1449,10 +1449,6 @@ export const getUpdatedWalletBalances = ({
           });
         });
       }
-      return {
-        keyBalances,
-        walletBalances,
-      };
     }
 
     // Process read-only keys
