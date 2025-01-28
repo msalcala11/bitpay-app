@@ -1269,4 +1269,3 @@ const getTotalFiatLastDayBalance = (balances: {fiatLastDay: number}[]) =>
     (acc, {fiatLastDay}) => (fiatLastDay ? acc + fiatLastDay : acc),
     0,
   );
-  
