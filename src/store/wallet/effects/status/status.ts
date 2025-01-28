@@ -773,7 +773,7 @@ export const startUpdateAllKeyAndWalletStatus =
     });
   };
 
-export const updateWalletStatus =
+const updateWalletStatus =
   ({
     wallet,
     defaultAltCurrencyIsoCode,
