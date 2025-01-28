@@ -1,4 +1,4 @@
-import {Effect, RootState} from '../../../index';
+import {Effect} from '../../../index';
 import {
   Wallet,
   Key,
@@ -22,8 +22,6 @@ import {
   successUpdateKey,
   successUpdateKeysTotalBalance,
   successUpdateWalletStatus,
-  successUpdateWalletStatuses,
-  successUpdateWalletBalancesAndStatus,
   updatePortfolioBalance,
 } from '../../wallet.actions';
 import {findWalletById, isCacheKeyStale, toFiat} from '../../utils/wallet';
@@ -40,8 +38,6 @@ import {LogActions} from '../../../log';
 import _ from 'lodash';
 import {createWalletAddress} from '../address/address';
 import {detectAndCreateTokensForEachEvmWallet} from '../create/create';
-import {WalletActions} from '../..';
-import {startGetRates} from '../rates/rates';
 
 /*
  * post broadcasting of payment
@@ -178,13 +174,13 @@ export const startUpdateWalletStatus =
 
         const {id, currencyAbbreviation, network} = wallet;
 
-        // if (
-        //   !isCacheKeyStale(balanceCacheKey[id], BALANCE_CACHE_DURATION) &&
-        //   !force
-        // ) {
-        //   console.log(`Wallet: ${id} - skipping balance update`);
-        //   return resolve();
-        // }
+        if (
+          !isCacheKeyStale(balanceCacheKey[id], BALANCE_CACHE_DURATION) &&
+          !force
+        ) {
+          console.log(`Wallet: ${id} - skipping balance update`);
+          return resolve();
+        }
 
         const status = await dispatch(
           updateWalletStatus({
@@ -320,13 +316,6 @@ const updateKeyStatus =
           keyId: string;
           totalBalance: number;
           totalBalanceLastDay: number;
-          walletUpdates: Array<{
-            walletId: string;
-            balance: any;
-            pendingTxps: any[];
-            isRefreshing: boolean;
-            singleAddress: boolean;
-          }>;
         }
       | undefined
     >
@@ -337,14 +326,13 @@ const updateKeyStatus =
       const {defaultAltCurrency} = APP;
       const {balanceCacheKey} = WALLET;
       const {rates, lastDayRates} = RATE;
-
-      // if (
-      //   !isCacheKeyStale(balanceCacheKey[key.id], BALANCE_CACHE_DURATION) &&
-      //   !force
-      // ) {
-      //   console.log(`Key: ${key.id} - skipping balance update`);
-      //   return;
-      // }
+      if (
+        !isCacheKeyStale(balanceCacheKey[key.id], BALANCE_CACHE_DURATION) &&
+        !force
+      ) {
+        console.log(`Key: ${key.id} - skipping balance update`);
+        return;
+      }
 
       const walletOptions = {} as Record<
         string,
@@ -391,15 +379,6 @@ const updateKeyStatus =
           credentials,
           walletOptions,
         )) as BulkStatus[];
-
-        const walletUpdates: Array<{
-          walletId: string;
-          balance: any;
-          pendingTxps: any[];
-          isRefreshing: boolean;
-          singleAddress: boolean;
-        }> = [];
-
         const balances = key.wallets.map(wallet => {
           const {balance: cachedBalance, pendingTxps} = wallet;
 
@@ -437,7 +416,6 @@ const updateKeyStatus =
           const hasPendingTxps = pendingTxps?.length > 0;
           const shouldUpdateStatus =
             amountHasChanged || hasNewPendingTxps || hasPendingTxps;
-
           if (status && success && shouldUpdateStatus) {
             const cryptoBalance = dispatch(
               buildBalance({
@@ -461,14 +439,11 @@ const updateKeyStatus =
 
             const newPendingTxps = dispatch(buildPendingTxps({wallet, status}));
 
-            // Collect wallet updates instead of applying them
-            walletUpdates.push({
-              walletId: wallet.id,
-              balance: cryptoBalance,
-              pendingTxps: newPendingTxps,
-              isRefreshing: false,
-              singleAddress: status.wallet?.singleAddress,
-            });
+            // properties to update
+            wallet.balance = cryptoBalance;
+            wallet.pendingTxps = newPendingTxps;
+            wallet.isRefreshing = false;
+            wallet.singleAddress = status.wallet?.singleAddress;
 
             dispatch(
               LogActions.info(
@@ -495,11 +470,15 @@ const updateKeyStatus =
 
         dispatch(LogActions.info(`Key: ${key.id} - status updated`));
 
+        dispatch(
+          successUpdateKey({
+            key,
+          }),
+        );
         return resolve({
           keyId: key.id,
           totalBalance: getTotalFiatBalance(balances),
           totalBalanceLastDay: getTotalFiatLastDayBalance(balances),
-          walletUpdates,
         });
       } catch (err) {
         if (err) {
@@ -545,35 +524,9 @@ export const startUpdateAllWalletStatusForKeys =
           keyId: string;
           totalBalance: number;
           totalBalanceLastDay: number;
-          walletUpdates: Array<{
-            walletId: string;
-            balance: any;
-            pendingTxps: any[];
-            isRefreshing: boolean;
-            singleAddress: boolean;
-          }>;
         }[];
         if (keyUpdates.length > 0) {
-          dispatch(successUpdateKeysTotalBalance(keyUpdates.map(update => ({
-            keyId: update.keyId,
-            totalBalance: update.totalBalance,
-            totalBalanceLastDay: update.totalBalanceLastDay,
-          }))));
-          keyUpdates.forEach(update => {
-            update.walletUpdates.forEach(walletUpdate => {
-              dispatch(
-                successUpdateWalletStatus({
-                  keyId: update.keyId,
-                  walletId: walletUpdate.walletId,
-                  status: {
-                    balance: walletUpdate.balance,
-                    pendingTxps: walletUpdate.pendingTxps,
-                    singleAddress: walletUpdate.singleAddress,
-                  },
-                }),
-              );
-            });
-          });
+          dispatch(successUpdateKeysTotalBalance(keyUpdates));
         }
         dispatch(
           LogActions.info('success [startUpdateAllWalletStatusForKeys]'),
@@ -707,15 +660,15 @@ export const startUpdateAllKeyAndWalletStatus =
           WALLET: {keys: _keys, balanceCacheKey},
         } = getState();
 
-        // if (
-        //   !isCacheKeyStale(balanceCacheKey.all, BALANCE_CACHE_DURATION) &&
-        //   !force
-        // ) {
-        //   console.log(
-        //     '[startUpdateAllKeyAndWalletStatus] All: skipping balance update',
-        //   );
-        //   return resolve();
-        // }
+        if (
+          !isCacheKeyStale(balanceCacheKey.all, BALANCE_CACHE_DURATION) &&
+          !force
+        ) {
+          console.log(
+            '[startUpdateAllKeyAndWalletStatus] All: skipping balance update',
+          );
+          return resolve();
+        }
 
         const [readOnlyKeys, keys] = _.partition(_keys, 'isReadOnly');
 
@@ -752,6 +705,7 @@ export const startUpdateAllKeyAndWalletStatus =
           ),
         ]);
 
+        dispatch(updatePortfolioBalance()); // update portfolio balance after updating all keys balances
         dispatch(successUpdateAllKeysAndStatus());
         dispatch(LogActions.info('success [startUpdateAllKeyAndWalletStatus]'));
         resolve();
@@ -862,11 +816,12 @@ const updateWalletStatus =
             } as WalletBalance;
 
             const newPendingTxps = dispatch(buildPendingTxps({wallet, status}));
+            const singleAddress = status.wallet?.singleAddress;
 
             resolve({
               balance: newBalance,
               pendingTxps: newPendingTxps,
-              singleAddress: status.wallet?.singleAddress,
+              singleAddress,
             });
           } catch (err2) {
             resolve({
@@ -1314,243 +1269,3 @@ const getTotalFiatLastDayBalance = (balances: {fiatLastDay: number}[]) =>
     (acc, {fiatLastDay}) => (fiatLastDay ? acc + fiatLastDay : acc),
     0,
   );
-
-export const clearWalletBalances =
-  (): Effect<Promise<void>> => async (dispatch, getState) => {
-    dispatch(LogActions.info('starting [clearWalletBalances]'));
-
-    const {WALLET} = getState();
-    const keys = WALLET.keys;
-
-    // Update each key and its wallets
-    for (const keyId of Object.keys(keys)) {
-      const key = keys[keyId];
-      const wallets = key.wallets;
-
-      // Update each wallet's balance to 0
-      for (const wallet of wallets) {
-        dispatch(
-          WalletActions.successUpdateWalletStatus({
-            keyId,
-            walletId: wallet.id,
-            status: {
-              balance: {
-                sat: 0,
-                crypto: '0',
-                fiat: 0,
-              },
-              pendingTxps: wallet.pendingTxps,
-              singleAddress: wallet.singleAddress,
-            },
-          }),
-        );
-      }
-
-      // Update key's total balance to 0
-      dispatch(
-        WalletActions.successUpdateKeysTotalBalance([
-          {
-            keyId,
-            totalBalance: 0,
-            totalBalanceLastDay: 0,
-          },
-        ]),
-      );
-    }
-
-    // Update portfolio balance
-    dispatch(
-      WalletActions.updatePortfolioBalance({
-        current: 0,
-        lastDay: 0,
-        previous: 0,
-      }),
-    );
-
-    dispatch(LogActions.info('success [clearWalletBalances]: all balances cleared'));
-  };
-
-export const getUpdatedWalletBalances = ({
-  context,
-  force,
-  createTokenWalletWithFunds,
-  chain,
-  tokenAddress,
-}: {
-  context?: UpdateAllKeyAndWalletStatusContext;
-  force?: boolean;
-  createTokenWalletWithFunds?: boolean;
-  chain?: string;
-  tokenAddress?: string;
-}): Effect<Promise<{
-  keyBalances: {
-    keyId: string;
-    totalBalance: number;
-    totalBalanceLastDay: number;
-  }[];
-  walletBalances: {
-    keyId: string;
-    walletId: string;
-    status: WalletStatus;
-  }[];
-}>> =>
-  async (dispatch, getState) => {
-    const {
-      WALLET: {keys: _keys},
-      APP: {defaultAltCurrency},
-      RATE: {rates, lastDayRates},
-    } = getState();
-
-    const [readOnlyKeys, keys] = _.partition(_keys, 'isReadOnly');
-    const keyBalances: {
-      keyId: string;
-      totalBalance: number;
-      totalBalanceLastDay: number;
-    }[] = [];
-    const walletBalances: {
-      keyId: string;
-      walletId: string;
-      status: WalletStatus;
-    }[] = [];
-
-    if (createTokenWalletWithFunds) {
-      for (const k of keys) {
-        try {
-          await dispatch(
-            detectAndCreateTokensForEachEvmWallet({
-              key: k,
-              chain,
-              tokenAddress,
-            }),
-          );
-        } catch (error) {
-          dispatch(
-            LogActions.info(
-              'Error trying to detectAndCreateTokensForEachEvmWallet. Continue anyway.',
-            ),
-          );
-        }
-      }
-    }
-
-    // Process regular keys
-    for (const key of keys) {
-      const keyBalance = await dispatch(updateKeyStatus({
-        key,
-        force,
-      }));
-      if (keyBalance) {
-        keyBalances.push({
-          keyId: keyBalance.keyId,
-          totalBalance: keyBalance.totalBalance,
-          totalBalanceLastDay: keyBalance.totalBalanceLastDay,
-        });
-        keyBalance.walletUpdates.forEach(walletUpdate => {
-          walletBalances.push({
-            keyId: key.id,
-            walletId: walletUpdate.walletId,
-            status: {
-              balance: walletUpdate.balance,
-              pendingTxps: walletUpdate.pendingTxps,
-              singleAddress: walletUpdate.singleAddress,
-            },
-          });
-        });
-      }
-    }
-
-    // Process read-only keys
-    for (const key of readOnlyKeys) {
-      for (const wallet of key.wallets) {
-        try {
-          const status = await dispatch(
-            updateWalletStatus({
-              wallet,
-              defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
-              rates,
-              lastDayRates,
-            }),
-          );
-          walletBalances.push({
-            keyId: key.id,
-            walletId: wallet.id,
-            status,
-          });
-        } catch (error) {
-          dispatch(
-            LogActions.error(
-              `Error updating wallet status for read-only wallet ${wallet.id}: ${error}`,
-            ),
-          );
-        }
-      }
-    }
-
-    return {
-      keyBalances,
-      walletBalances,
-    };
-  };
-
-export const getAndDispatchUpdatedWalletBalances = ({
-  context,
-  force = true,
-  createTokenWalletWithFunds = false,
-  chain,
-  tokenAddress,
-  skipRateUpdate = false,
-}: {
-  context?: UpdateAllKeyAndWalletStatusContext;
-  force?: boolean;
-  createTokenWalletWithFunds?: boolean;
-  chain?: string;
-  tokenAddress?: string;
-  skipRateUpdate?: boolean;
-}): Effect<Promise<void>> =>
-  async (dispatch, getState) => {
-    console.log('------------------STARTING WALLET STATUS UPDATE--------------------');
-    try {
-      dispatch(
-        LogActions.info(
-          `Starting [getAndDispatchUpdatedWalletBalances]. Context: ${context}`,
-        ), 
-      );
-
-      // Update rates if needed
-      if (!skipRateUpdate) {
-        console.log('-----------------GETTING RATES--------------');
-        await dispatch(startGetRates({}));
-      }
-
-      console.log('-----------------GETTING UPDATED BALANCES--------------');
-      // Get updated balances
-      const balances = await dispatch(
-        getUpdatedWalletBalances({
-          context,
-          force,
-          createTokenWalletWithFunds,
-          chain,
-          tokenAddress,
-        }),
-      );
-      console.log('----------UPDATING UI WITH COLLECTED BALANCE AND WALLET STATUS DATA--------------');
-      // Update UI with collected balance data and wallet statuses in a single dispatch
-      dispatch(
-        successUpdateWalletBalancesAndStatus({
-          keyBalances: balances.keyBalances,
-          walletBalances: balances.walletBalances,
-        }),
-      );
-      
-      dispatch(LogActions.info('success [getAndDispatchUpdatedWalletBalances]'));
-      console.log('finished wallet status update');
-    } catch (err) {
-      const errorStr = err instanceof Error ? err.message : JSON.stringify(err);
-      dispatch(
-        LogActions.error(
-          `failed [getAndDispatchUpdatedWalletBalances]: ${errorStr}`,
-        ),
-      );
-      throw err;
-    }
-  };
