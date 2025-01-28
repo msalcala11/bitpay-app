@@ -1,7 +1,7 @@
 import {Effect, RootState} from '../../../index';
 import {WalletActions} from '../../index';
 import {startGetTokenOptions} from '../currencies/currencies';
-import {getAndDispatchUpdatedWalletBalances} from '../status/status';
+import {getAndDispatchUpdatedWalletBalances} from '../status/statusv2';
 import {LogActions} from '../../../log';
 
 export const startWalletStoreInit =

@@ -21,7 +21,7 @@ import {
 } from '../../../store/app/app.selectors';
 import {selectCardGroups} from '../../../store/card/card.selectors';
 import {startGetRates} from '../../../store/wallet/effects';
-import {getAndDispatchUpdatedWalletBalances} from '../../../store/wallet/effects/status/status';
+import {getAndDispatchUpdatedWalletBalances} from '../../../store/wallet/effects/status/statusv2';
 import {successUpdateAllKeysAndStatus, updatePortfolioBalance} from '../../../store/wallet/wallet.actions';
 import {SlateDark, White} from '../../../styles/colors';
 import {
