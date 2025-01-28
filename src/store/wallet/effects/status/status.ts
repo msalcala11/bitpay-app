@@ -338,6 +338,14 @@ const updateKeyStatus =
       const {balanceCacheKey} = WALLET;
       const {rates, lastDayRates} = RATE;
 
+      // if (
+      //   !isCacheKeyStale(balanceCacheKey[key.id], BALANCE_CACHE_DURATION) &&
+      //   !force
+      // ) {
+      //   console.log(`Key: ${key.id} - skipping balance update`);
+      //   return;
+      // }
+
       const walletOptions = {} as Record<
         string,
         {
