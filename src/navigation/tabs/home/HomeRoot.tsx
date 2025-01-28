@@ -196,13 +196,13 @@ const HomeRoot = () => {
         dispatch(
           getAndDispatchUpdatedWalletBalances({
             context: 'homeRootOnRefresh',
+            force: true,
             createTokenWalletWithFunds: true,
           }),
         ),
         dispatch(requestBrazeContentRefresh()),
         sleep(1000),
       ]);
-      await sleep(2000);
     } catch (err) {
       dispatch(showBottomNotificationModal(BalanceUpdateError()));
     }
