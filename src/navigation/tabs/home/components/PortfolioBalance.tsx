@@ -19,7 +19,7 @@ import Percentage from '../../../../components/percentage/Percentage';
 import {COINBASE_ENV} from '../../../../api/coinbase/coinbase.constants';
 import {useTranslation} from 'react-i18next';
 import {TouchableOpacity} from 'react-native';
-import {clearWalletBalances} from '../../../../store/wallet/effects/status/status';
+import {clearWalletBalances} from '../../../../store/wallet/effects/status/statusv2';
 import {LogActions} from '../../../../store/log';
 
 const PortfolioContainer = styled.View`
