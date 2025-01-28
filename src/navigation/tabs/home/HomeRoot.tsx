@@ -100,14 +100,6 @@ const HomeRoot = () => {
   const hasCards = cardGroups.length > 0;
   useBrazeRefreshOnFocus();
 
-  useEffect(() => {
-    console.log('[HomeRoot] WALLET.keys changed');
-  }, [keys]);
-
-  useEffect(() => {
-    console.log('[HomeRoot] APP.showPortfolioValue changed');
-  }, [showPortfolioValue]);
-
   // Shop with Crypto
   const memoizedShopWithCryptoCards = useMemo(() => {
     if (STATIC_CONTENT_CARDS_ENABLED && !brazeShopWithCrypto.length) {
@@ -190,17 +182,14 @@ const HomeRoot = () => {
   }, [brazeQuickLinks]);
 
   useEffect(() => {
-    console.log('[HomeRoot] Navigation focus effect running');
     return navigation.addListener('focus', () => {
       if (!appIsLoading) {
-        console.log('[HomeRoot] Updating portfolio balance on navigation focus');
         dispatch(updatePortfolioBalance());
       } // portfolio balance is updated in app init
     });
   }, [dispatch, navigation, appIsLoading]);
 
   const onRefresh = async () => {
-    console.log('[HomeRoot] Pull-to-refresh triggered');
     setRefreshing(true);
     try {
       await Promise.all([
@@ -215,7 +204,6 @@ const HomeRoot = () => {
       ]);
       await sleep(2000);
     } catch (err) {
-      console.log('error updating balances', err);
       dispatch(showBottomNotificationModal(BalanceUpdateError()));
     }
     setRefreshing(false);
