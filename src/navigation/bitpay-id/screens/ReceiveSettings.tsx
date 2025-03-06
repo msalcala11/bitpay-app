@@ -223,11 +223,21 @@ const ReceiveSettings = ({navigation}: ReceiveSettingsProps) => {
       [getReceivingAddressKey(currencyAbbreviation, chain)]: keyWallets.filter(
         keyWallet => {
           console.log('keyWallet', JSON.stringify(keyWallet, null, 2));
-          return keyWallet.mergedUtxoAndEvmAccounts?.some(
+          const filteredKeyWallets = keyWallet.mergedUtxoAndEvmAccounts?.some(
             account =>
               account.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
               account.chain === chain,
           );
+          return filteredKeyWallets;
+        }).map(keyWallet => {
+          return {
+            ...keyWallet,
+            mergedUtxoAndEvmAccounts: keyWallet.mergedUtxoAndEvmAccounts?.filter(
+              account =>
+                account.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
+                account.chain === chain,
+            ) || [],
+          };
         })
         // .map(keyWallet => { 
         //   console.log('keyWallet.accounts', keyWallet.accounts);
