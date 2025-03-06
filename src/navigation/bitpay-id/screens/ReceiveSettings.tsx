@@ -241,10 +241,23 @@ const ReceiveSettings = ({navigation}: ReceiveSettingsProps) => {
           return {
             ...keyWallet,
             mergedUtxoAndEvmAccounts: keyWallet.mergedUtxoAndEvmAccounts?.filter(
-              account => 
-                account.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
-                account.chain === chain,
-            ) || [],
+              account => {
+                if (!account.currencyAbbreviation) {
+                  console.log('account', JSON.stringify(account, null, 2));
+                  return account.wallets?.some(
+                    wallet =>
+                      wallet.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
+                      wallet.chain === chain,
+                  );
+                }
+                return account.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
+                account.chain === chain;
+              }).map(account => {
+                return {
+                  ...account,
+                  mergedUtxoAndEvmAccounts: account.mergedUtxoAndEvmAccounts
+                }
+              }),
           };
         })
         // .map(keyWallet => { 
@@ -272,7 +285,7 @@ const ReceiveSettings = ({navigation}: ReceiveSettingsProps) => {
     {} as {[key: string]: any[]},
   );
 
-  // console.log('keyWalletsByCurrency', JSON.stringify(keyWalletsByCurrency, null, 2));
+  console.log('keyWalletsByCurrency', JSON.stringify(keyWalletsByCurrency, null, 2));
 
   const {otpEnabled} = securitySettings || {};
 
