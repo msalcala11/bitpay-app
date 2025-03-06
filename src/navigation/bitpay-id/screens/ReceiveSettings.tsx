@@ -559,6 +559,7 @@ const ReceiveSettings = ({navigation}: ReceiveSettingsProps) => {
           shadowOpacity: 0.1,
           shadowRadius: 12,
           elevation: 5,
+          marginBottom: -10,
         }}>
         <Button
           onPress={() =>
