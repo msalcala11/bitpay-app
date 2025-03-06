@@ -222,11 +222,11 @@ const ReceiveSettings = ({navigation}: ReceiveSettingsProps) => {
       ...keyWalletMap,
       [getReceivingAddressKey(currencyAbbreviation, chain)]: keyWallets.filter(
         keyWallet => {
-          console.log('keyWallet', JSON.stringify(keyWallet, null, 2));
+          // console.log('keyWallet', JSON.stringify(keyWallet, null, 2));
           const filteredKeyWallets = keyWallet.mergedUtxoAndEvmAccounts?.some(
             account => {
               if (!account.currencyAbbreviation) {
-                console.log('account', JSON.stringify(account, null, 2));
+                // console.log('account', JSON.stringify(account, null, 2));
                 return account.wallets?.some(
                   wallet =>
                     wallet.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
@@ -253,9 +253,25 @@ const ReceiveSettings = ({navigation}: ReceiveSettingsProps) => {
                 return account.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
                 account.chain === chain;
               }).map(account => {
+                console.log('account in map', JSON.stringify(account, null, 2));
                 return {
                   ...account,
-                  mergedUtxoAndEvmAccounts: account.mergedUtxoAndEvmAccounts
+                  wallets: account.wallets?.filter(
+                    wallet => {
+                      console.log('wallet', wallet.chain, wallet.currencyAbbreviation, chain, currencyAbbreviation, JSON.stringify(wallet, null, 2));
+                      return wallet.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
+                      wallet.chain === chain;
+                    }),
+                  assetsByChain: account.assetsByChain?.map(chainAssets => {
+                    console.log('chainAssets', JSON.stringify(chainAssets, null, 2));
+                    return {
+                      ...chainAssets,
+                      chainAssetsList: chainAssets.chainAssetsList.filter(
+                        asset => asset.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
+                        asset.chain === chain,
+                      ),
+                    };
+                  })
                 }
               }),
           };
@@ -285,7 +301,7 @@ const ReceiveSettings = ({navigation}: ReceiveSettingsProps) => {
     {} as {[key: string]: any[]},
   );
 
-  console.log('keyWalletsByCurrency', JSON.stringify(keyWalletsByCurrency, null, 2));
+  // console.log('keyWalletsByCurrency', JSON.stringify(keyWalletsByCurrency, null, 2));
 
   const {otpEnabled} = securitySettings || {};
 
