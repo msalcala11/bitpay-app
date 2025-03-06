@@ -172,10 +172,12 @@ export interface WalletSelectMenuHeaderContainerParams {
 
 export const WalletSelectMenuHeaderContainer = styled.View<WalletSelectMenuHeaderContainerParams>`
   padding: 16px;
+  padding-left: 5;
   padding-bottom: ${({currency}) => (currency ? 14 : 0)}px;
   justify-content: ${({currency}) => (currency ? 'flex-start' : 'center')};
   border-bottom-color: ${({theme: {dark}}) => (dark ? LightBlack : '#ECEFFD')};
   border-bottom-width: ${({currency}) => (currency ? 1 : 0)}px;
+  flex-direction: row;
 `;
 
 export const WalletSelectBottomContainer = styled(TouchableOpacity)`

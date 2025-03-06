@@ -215,28 +215,46 @@ const ReceiveSettings = ({navigation}: ReceiveSettingsProps) => {
     rates,
     dispatch,
   });
-
+// console.log('uniqueActiveWallets', JSON.stringify(uniqueActiveWallets, null, 2));
+  console.log('keyWallets', JSON.stringify(keyWallets, null, 2));
   const keyWalletsByCurrency = uniqueActiveWallets.reduce(
     (keyWalletMap, {currencyAbbreviation, chain}) => ({
       ...keyWalletMap,
-      [getReceivingAddressKey(currencyAbbreviation, chain)]: keyWallets
-        .map(keyWallet => ({
-          ...keyWallet,
-          accounts: keyWallet.accounts
-            .map(account => ({
-              ...account,
-              wallets: account.wallets.filter(
-                wallet =>
-                  wallet.currencyAbbreviation === currencyAbbreviation &&
-                  wallet.chain === chain,
-              ),
-            }))
-            .filter(account => account.wallets.length > 0),
-        }))
-        .filter(keyWallet => keyWallet.accounts.length > 0),
+      [getReceivingAddressKey(currencyAbbreviation, chain)]: keyWallets.filter(
+        keyWallet => {
+          console.log('keyWallet', JSON.stringify(keyWallet, null, 2));
+          return keyWallet.mergedUtxoAndEvmAccounts?.some(
+            account =>
+              account.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
+              account.chain === chain,
+          );
+        })
+        // .map(keyWallet => { 
+        //   console.log('keyWallet.accounts', keyWallet.accounts);
+        //   return ({
+        //   ...keyWallet,
+        //   // accounts: []
+        //   // keyWallet.mergedUtxoAndEvmAccounts?.filter(
+        //   //       wallet => false
+        //   //         // wallet.currencyAbbreviation === currencyAbbreviation &&
+        //   //         // wallet.chain === chain,
+        //   //     ),
+        //     // .map(account => ({
+        //     //   ...account,
+        //     //   wallets: account.wallets.filter(
+        //     //     wallet =>
+        //     //       wallet.currencyAbbreviation === currencyAbbreviation &&
+        //     //       wallet.chain === chain,
+        //     //   ),
+        //     // }))
+        //     //.filter(account => account.wallets.length > 0),
+        // })})
+        //.filter(keyWallet => keyWallet.accounts.length > 0),
     }),
     {} as {[key: string]: any[]},
   );
+
+  // console.log('keyWalletsByCurrency', JSON.stringify(keyWalletsByCurrency, null, 2));
 
   const {otpEnabled} = securitySettings || {};
 
@@ -392,9 +410,20 @@ const ReceiveSettings = ({navigation}: ReceiveSettingsProps) => {
                       activeOpacity={ActiveOpacity}
                       key={getReceivingAddressKey(coin, chain)}
                       onPress={() => {
+                        console.log('coin', coin);
+                        console.log('chain', chain);
                         setWalletSelectorCurrency(coin);
                         setWalletSelectorChain(chain);
                         setWalletSelectorVisible(true);
+
+                        const keyWallets = keyWalletsByCurrency[
+                          getReceivingAddressKey(
+                            coin,
+                            chain,
+                          )
+                        ] || []
+                        console.log('keyWallets', keyWallets);
+                        console.log('keyWalletsByCurrency', keyWalletsByCurrency);
                       }}>
                       <AddressItem>
                         <CurrencyIconAndBadge
