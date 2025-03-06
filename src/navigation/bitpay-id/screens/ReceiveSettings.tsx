@@ -224,16 +224,24 @@ const ReceiveSettings = ({navigation}: ReceiveSettingsProps) => {
         keyWallet => {
           console.log('keyWallet', JSON.stringify(keyWallet, null, 2));
           const filteredKeyWallets = keyWallet.mergedUtxoAndEvmAccounts?.some(
-            account =>
-              account.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
-              account.chain === chain,
-          );
+            account => {
+              if (!account.currencyAbbreviation) {
+                console.log('account', JSON.stringify(account, null, 2));
+                return account.wallets?.some(
+                  wallet =>
+                    wallet.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
+                    wallet.chain === chain,
+                );
+              }
+              return account.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
+              account.chain === chain;
+          });
           return filteredKeyWallets;
         }).map(keyWallet => {
           return {
             ...keyWallet,
             mergedUtxoAndEvmAccounts: keyWallet.mergedUtxoAndEvmAccounts?.filter(
-              account =>
+              account => 
                 account.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
                 account.chain === chain,
             ) || [],
