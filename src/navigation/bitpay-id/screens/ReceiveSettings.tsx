@@ -212,21 +212,18 @@ const ReceiveSettings = ({navigation}: ReceiveSettingsProps) => {
     keys,
     network: Network.mainnet,
     defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
+    filterWalletsByBalance: false,
     rates,
     dispatch,
   });
-// console.log('uniqueActiveWallets', JSON.stringify(uniqueActiveWallets, null, 2));
-  console.log('keyWallets', JSON.stringify(keyWallets, null, 2));
   const keyWalletsByCurrency = uniqueActiveWallets.reduce(
     (keyWalletMap, {currencyAbbreviation, chain}) => ({
       ...keyWalletMap,
       [getReceivingAddressKey(currencyAbbreviation, chain)]: keyWallets.filter(
         keyWallet => {
-          // console.log('keyWallet', JSON.stringify(keyWallet, null, 2));
           const filteredKeyWallets = keyWallet.mergedUtxoAndEvmAccounts?.some(
             account => {
               if (!account.currencyAbbreviation) {
-                // console.log('account', JSON.stringify(account, null, 2));
                 return account.wallets?.some(
                   wallet =>
                     wallet.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
@@ -243,7 +240,6 @@ const ReceiveSettings = ({navigation}: ReceiveSettingsProps) => {
             mergedUtxoAndEvmAccounts: keyWallet.mergedUtxoAndEvmAccounts?.filter(
               account => {
                 if (!account.currencyAbbreviation) {
-                  console.log('account', JSON.stringify(account, null, 2));
                   return account.wallets?.some(
                     wallet =>
                       wallet.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
@@ -253,17 +249,14 @@ const ReceiveSettings = ({navigation}: ReceiveSettingsProps) => {
                 return account.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
                 account.chain === chain;
               }).map(account => {
-                console.log('account in map', JSON.stringify(account, null, 2));
                 return {
                   ...account,
                   wallets: account.wallets?.filter(
                     wallet => {
-                      console.log('wallet', wallet.chain, wallet.currencyAbbreviation, chain, currencyAbbreviation, JSON.stringify(wallet, null, 2));
                       return wallet.currencyAbbreviation?.toLowerCase() === currencyAbbreviation?.toLowerCase() &&
                       wallet.chain === chain;
                     }),
                   assetsByChain: account.assetsByChain?.map(chainAssets => {
-                    console.log('chainAssets', JSON.stringify(chainAssets, null, 2));
                     return {
                       ...chainAssets,
                       chainAssetsList: chainAssets.chainAssetsList.filter(
@@ -276,27 +269,6 @@ const ReceiveSettings = ({navigation}: ReceiveSettingsProps) => {
               }),
           };
         })
-        // .map(keyWallet => { 
-        //   console.log('keyWallet.accounts', keyWallet.accounts);
-        //   return ({
-        //   ...keyWallet,
-        //   // accounts: []
-        //   // keyWallet.mergedUtxoAndEvmAccounts?.filter(
-        //   //       wallet => false
-        //   //         // wallet.currencyAbbreviation === currencyAbbreviation &&
-        //   //         // wallet.chain === chain,
-        //   //     ),
-        //     // .map(account => ({
-        //     //   ...account,
-        //     //   wallets: account.wallets.filter(
-        //     //     wallet =>
-        //     //       wallet.currencyAbbreviation === currencyAbbreviation &&
-        //     //       wallet.chain === chain,
-        //     //   ),
-        //     // }))
-        //     //.filter(account => account.wallets.length > 0),
-        // })})
-        //.filter(keyWallet => keyWallet.accounts.length > 0),
     }),
     {} as {[key: string]: any[]},
   );
