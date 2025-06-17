@@ -2157,10 +2157,10 @@
   resolved "https://registry.yarnpkg.com/@freakycoder/react-native-bounceable/-/react-native-bounceable-0.2.5.tgz#ad61bdafbf68465e9c2145e99c09b500ae091f0e"
   integrity sha512-J8WBOYxbm/um7SqXYneduZ08T5Kin9z+ixsS3wOLtpeNvKscuqmDEgsgefTYydeSIoI5dOfWmklnRRgu5i/8nA==
 
-"@gorhom/bottom-sheet@5.0.6":
-  version "5.0.6"
-  resolved "https://registry.yarnpkg.com/@gorhom/bottom-sheet/-/bottom-sheet-5.0.6.tgz#f20736502399c7bcf8c73ea09e6b571dc07fe0eb"
-  integrity sha512-SI/AhPvgRfnCWN6/+wbE6TXwRE4X8F2fLyE4L/0bRwgE34Zenq585qLT139uEcfCIyovC2swC3ICqQpkmWEcFA==
+"@gorhom/bottom-sheet@5.1.6":
+  version "5.1.6"
+  resolved "https://registry.yarnpkg.com/@gorhom/bottom-sheet/-/bottom-sheet-5.1.6.tgz#92365894ae4d4eefdbaa577408cfaf62463a9490"
+  integrity sha512-0b5tQj4fTaZAjST1PnkCp0p7d8iRqMezibTcqc8Kkn3N23Vn6upORNTD1fH0bLfwRt6e0WnZ7DjAmq315lrcKQ==
   dependencies:
     "@gorhom/portal" "1.0.14"
     invariant "^2.2.4"
