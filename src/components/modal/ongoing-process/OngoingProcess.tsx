@@ -97,6 +97,8 @@ const OnGoingProcessModal: React.FC = () => {
   const modalLibrary: 'bottom-sheet' | 'modal' = 'bottom-sheet';
   const bottomSheetModalRef = useRef<BottomSheetModal>(null);
   const opacityFadeDuration = 200;
+  // Tracks whether the bottom sheet is currently presented to avoid overlapping present/dismiss calls
+  const presented = useRef(false);
   const opacity = useSharedValue(0);
   const animatedStyles = useAnimatedStyle(() => {
     return {
@@ -108,29 +110,33 @@ const OnGoingProcessModal: React.FC = () => {
     };
   });
   useEffect(() => {
-    let dismissTimeout: NodeJS.Timeout;
-    let opacityTimeout: NodeJS.Timeout;
+    let fadeOutTimer: NodeJS.Timeout;
 
-    if (isVisible && appWasInit) {
+    // Show the modal if not already presented
+    if (isVisible && appWasInit && !presented.current) {
       bottomSheetModalRef.current?.present();
-      opacityTimeout = setTimeout(() => {
+      presented.current = true;
+
+      // Fade-in the overlay slightly after the sheet opens
+      fadeOutTimer = setTimeout(() => {
         opacity.value = withTiming(1, {duration: opacityFadeDuration});
       }, 300);
-    } else {
+    }
+
+    // Hide the modal if it is currently presented
+    if ((!isVisible || !appWasInit) && presented.current) {
       opacity.value = withTiming(0, {duration: opacityFadeDuration});
-      dismissTimeout = setTimeout(() => {
-        if (bottomSheetModalRef.current) {
-          bottomSheetModalRef.current.dismiss();
-        }
-      }, opacityFadeDuration);
+
+      // Use requestAnimationFrame so dismiss never runs in the same frame as present
+      requestAnimationFrame(() => {
+        bottomSheetModalRef.current?.dismiss();
+        presented.current = false;
+      });
     }
 
     return () => {
-      if (dismissTimeout) {
-        clearTimeout(dismissTimeout);
-      }
-      if (opacityTimeout) {
-        clearTimeout(opacityTimeout);
+      if (fadeOutTimer) {
+        clearTimeout(fadeOutTimer);
       }
     };
   }, [appWasInit, isVisible, opacity, opacityFadeDuration]);
