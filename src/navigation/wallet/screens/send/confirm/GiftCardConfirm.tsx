@@ -1,6 +1,6 @@
 import Transport from '@ledgerhq/hw-transport';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {View} from 'react-native';
+import {View, InteractionManager} from 'react-native';
 import {
   useNavigation,
   useRoute,
@@ -158,6 +158,8 @@ const GiftCardHeader = ({
   );
 };
 
+const MemoizedGiftCardHeader = React.memo(GiftCardHeader);
+
 const Confirm = () => {
   const {t} = useTranslation();
   const dispatch = useAppDispatch();
@@ -229,9 +231,16 @@ const Confirm = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const openWalletSelector = async (delay: number = 700) => {
-    await sleep(delay);
-    setWalletSelectorVisible(true);
+  const openWalletSelector = (): Promise<void> => {
+    return new Promise<void>(resolve => {
+      InteractionManager.runAfterInteractions(() => {
+        // allow one more frame for heavy renders to settle
+        setTimeout(() => {
+          setWalletSelectorVisible(true);
+          resolve();
+        }, 300);
+      });
+    });
   };
 
   // use the ref when doing any work that could cause disconnects and cause a new transport to be passed in mid-function
@@ -650,7 +659,7 @@ const Confirm = () => {
   return (
     <ConfirmContainer>
       <DetailsList>
-        <GiftCardHeader amount={amount} cardConfig={cardConfig} />
+        <MemoizedGiftCardHeader amount={amount} cardConfig={cardConfig} />
         {wallet || coinbaseAccount ? (
           <>
             <Header hr>Summary</Header>
