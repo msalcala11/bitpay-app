@@ -53,6 +53,17 @@ const PercentageContainer = styled.View`
   justify-content: center;
 `;
 
+const TitleCounterRow = styled.View`
+  flex-direction: row;
+  align-items: center;
+`;
+
+const CounterText = styled(BaseText)`
+  margin-left: 4px;
+  font-size: 14px;
+  color: ${({theme: {dark}}) => (dark ? White : SlateDark)};
+`;
+
 const PortfolioBalance = () => {
   const {t} = useTranslation();
   const coinbaseBalance =
@@ -63,6 +74,17 @@ const PortfolioBalance = () => {
 
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
+
+  const [counter, setCounter] = React.useState(0);
+  React.useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      setCounter(prev => prev + 1);
+      timeoutId = setTimeout(tick, 1000);
+    };
+    timeoutId = setTimeout(tick, 1000);
+    return () => clearTimeout(timeoutId);
+  }, []);
 
   const totalBalance: number = portfolioBalance.current + coinbaseBalance;
 
@@ -97,7 +119,10 @@ const PortfolioBalance = () => {
       <PortfolioBalanceHeader
         activeOpacity={ActiveOpacity}
         onPress={showPortfolioBalanceInfoModal}>
-        <PortfolioBalanceTitle>{t('Portfolio Balance')}</PortfolioBalanceTitle>
+        <TitleCounterRow>
+          <PortfolioBalanceTitle>{t('Portfolio Balance')}</PortfolioBalanceTitle>
+          <CounterText>{counter}   </CounterText>
+        </TitleCounterRow>
         <InfoSvg width={12} height={12} />
       </PortfolioBalanceHeader>
       <TouchableOpacity
