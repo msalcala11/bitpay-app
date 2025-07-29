@@ -4,6 +4,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import styled, {css} from 'styled-components/native';
 import HeaderBackButton from '../back/HeaderBackButton';
 import {HeaderTitle as StyledHeaderTitle} from '../styled/Text';
+import { useAppSelector } from '../../utils/hooks';
 
 /*
   A lightweight custom header that replaces the default native-stack toolbar so
@@ -44,6 +45,7 @@ const TitleContainer = styled.View`
 const CustomHeader: React.FC<HeaderProps> = ({navigation, back, options}) => {
   const insets = useSafeAreaInsets();
   const bgColor = options.headerStyle?.backgroundColor || 'transparent';
+  const showArchaxBanner = useAppSelector(({APP}) => APP.showArchaxBanner);
 
   // Header title resolution logic from React-Navigation docs
   const title =
@@ -56,7 +58,7 @@ const CustomHeader: React.FC<HeaderProps> = ({navigation, back, options}) => {
   const lift = Platform.OS === 'android' ? 4: 0;
 
   return (
-    <Wrapper style={{paddingTop: Math.max(0, insets.top - lift)}} bg={bgColor}>
+    <Wrapper style={{paddingTop: showArchaxBanner ? 0 : Math.max(0, insets.top - lift)}} bg={bgColor}>
       <Container>
         {back ? <HeaderBackButton onPress={navigation.goBack} /> : <View />}
         <TitleContainer>

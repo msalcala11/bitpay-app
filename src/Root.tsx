@@ -31,6 +31,7 @@ import {LOCK_AUTHORIZED_TIME} from './constants/Lock';
 import BiometricModal from './components/modal/biometric/BiometricModal';
 import ArchaxBanner from './components/archax/archax-banner';
 import {AppEffects, AppActions} from './store/app';
+import {showArchaxBanner as setShowArchaxBanner} from './store/app/app.actions';
 import {BitPayDarkTheme, BitPayLightTheme} from './themes/bitpay';
 import {LogActions} from './store/log';
 import {
@@ -365,6 +366,13 @@ export default () => {
     }
   }, [dispatch, failedAppInit]);
 
+  // DEV: force Archax banner on
+  useEffect(() => {
+    if (__DEV__) {
+      dispatch(setShowArchaxBanner(true));
+    }
+  }, []);
+
   // LANGUAGE
   useEffect(() => {
     if (appLanguage && appLanguage !== i18n.language) {
@@ -374,6 +382,9 @@ export default () => {
 
   // LOCATION
   useEffect(() => {
+    if (__DEV__) {
+      return;
+    }
     if (currentLocation) {
       if (currentLocation.countryShortCode.toUpperCase() === 'GB') {
         dispatch(AppActions.showArchaxBanner(true));

@@ -4,6 +4,7 @@ import {ArchaxBannerText, ArchaxBannerLink} from '../styled/Text';
 import {openUrlWithInAppBrowser} from '../../store/app/app.effects';
 import {useAppDispatch} from '../../utils/hooks';
 import {ArchaxBannerContainer} from '../../components/styled/Containers';
+import { View } from 'react-native';
 
 interface ArchaxBannerProps {
   isSmallScreen?: boolean;
@@ -14,6 +15,7 @@ const ArchaxBanner: React.FC<ArchaxBannerProps> = ({isSmallScreen}) => {
   const insets = useSafeAreaInsets();
 
   return (
+    // <View style={{marginTop: insets.top}}></View>
     <ArchaxBannerContainer inset={insets} isSmallScreen={isSmallScreen}>
       <ArchaxBannerText isSmallScreen={isSmallScreen}>
         Don't invest unless you're prepared to lose all the money you invest.

@@ -23,6 +23,7 @@ import {useTranslation} from 'react-i18next';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import CustomHeader from '../../../components/navigation/CustomHeader';
 import {baseNavigatorOptions} from '../../../constants/NavigationOptions';
+import { useAppSelector } from '../../../utils/hooks';
 
 export type SettingsDetailsParamList = {
   General: undefined;
@@ -64,11 +65,12 @@ const SettingsDetails = ({
 > & {
   route: {params?: SettingsDetailsRouteProp};
 }) => {
+  const showArchaxBanner = useAppSelector(({APP}) => APP.showArchaxBanner);
   const theme = useTheme();
   const {t} = useTranslation();
   const {initialRoute, redirectTo} = route.params || {};
   const insets = useSafeAreaInsets();
-  const headerHeight = 56 + insets.top;
+  const headerHeight = showArchaxBanner ? 56 : 56 + insets.top;
 
   return (
     <Stack.Navigator
