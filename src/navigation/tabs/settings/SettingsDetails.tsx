@@ -20,6 +20,9 @@ import CustomizeHomeSettings from './general/screens/customize-home/CustomizeHom
 import AltCurrencySettings from './general/screens/AltCurrencySettings';
 import LanguageSettings from './general/screens/LanguageSettings';
 import {useTranslation} from 'react-i18next';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import CustomHeader from '../../../components/navigation/CustomHeader';
+import {baseNavigatorOptions} from '../../../constants/NavigationOptions';
 
 export type SettingsDetailsParamList = {
   General: undefined;
@@ -64,11 +67,18 @@ const SettingsDetails = ({
   const theme = useTheme();
   const {t} = useTranslation();
   const {initialRoute, redirectTo} = route.params || {};
+  const insets = useSafeAreaInsets();
+  const headerHeight = 56 + insets.top;
 
   return (
     <Stack.Navigator
       initialRouteName={initialRoute || 'General'}
       screenOptions={() => ({
+        ...baseNavigatorOptions,  
+        // safeAreaInsets: {top: 0},        // ← add this
+        // statusBarTranslucent: true,   // optional, keeps content under the status-bar
+        // headerStatusBarHeight: 0,     // ← remove the extra Android offset
+        // headerTopInsetEnabled: false, // already tried, keep it
         headerStyle: {
           backgroundColor: theme.colors.background,
         },
@@ -78,6 +88,8 @@ const SettingsDetails = ({
         headerTitle: props => <HeaderTitle {...props} />,
         headerBackTitleVisible: false,
         headerBackVisible: false,
+        contentStyle: {paddingTop: headerHeight},
+        header: props => <CustomHeader {...props} />,
         headerLeft: () => <HeaderBackButton />,
       })}>
       <Stack.Screen
