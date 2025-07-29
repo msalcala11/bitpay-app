@@ -53,8 +53,10 @@ const CustomHeader: React.FC<HeaderProps> = ({navigation, back, options}) => {
       ? options.title
       : options.route?.name;
 
+  const lift = Platform.OS === 'android' ? 4: 0;
+
   return (
-    <Wrapper style={{paddingTop: insets.top}} bg={bgColor}>
+    <Wrapper style={{paddingTop: Math.max(0, insets.top - lift)}} bg={bgColor}>
       <Container>
         {back ? <HeaderBackButton onPress={navigation.goBack} /> : <View />}
         <TitleContainer>
