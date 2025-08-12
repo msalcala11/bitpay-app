@@ -256,9 +256,7 @@ const getStore = async () => {
 
   // Flush any logs queued before the store was created
   if (preStoreLogs.length) {
-    preStoreLogs.forEach(addLog =>
-      store.dispatch(LogActions.persistLog(addLog)),
-    );
+    preStoreLogs.forEach(log => store.dispatch(log as unknown as any));
     preStoreLogs.length = 0;
   }
   const persistor = persistStore(store);
@@ -318,7 +316,9 @@ export async function getEncryptionKey(): Promise<string> {
   } catch (err) {
     const errStr = err instanceof Error ? err.message : JSON.stringify(err);
     queuePreStoreLog(
-      LogActions.error(`getEncryptionKey: Keychain get failed - ${errStr}`),
+      LogActions.persistLog(
+        LogActions.error(`getEncryptionKey: Keychain get failed - ${errStr}`),
+      ),
     );
   }
 
@@ -338,7 +338,9 @@ export async function getEncryptionKey(): Promise<string> {
   } catch (err) {
     const errStr = err instanceof Error ? err.message : JSON.stringify(err);
     queuePreStoreLog(
-      LogActions.error(`getEncryptionKey: Keychain set failed - ${errStr}`),
+      LogActions.persistLog(
+        LogActions.error(`getEncryptionKey: Keychain set failed - ${errStr}`),
+      ),
     );
   }
 
