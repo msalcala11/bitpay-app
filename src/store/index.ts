@@ -250,7 +250,7 @@ const getStore = async () => {
   const persistedReducer = persistReducer(rootPersistConfig, rootReducer);
   const store = createStore(persistedReducer, undefined, middlewareEnhancers);
 
-  // Clear current-session logs and immediately flush any pre-store logs
+  // Clear current-session logs, and immediately flush any pre-store logs
   store.dispatch(LogActions.clear());
   if (preStoreLogs.length) {
     preStoreLogs.forEach(action => store.dispatch(action));
