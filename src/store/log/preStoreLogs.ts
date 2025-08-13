@@ -1,16 +1,16 @@
 import type {AddLog} from '../log/log.types';
 
 // Simple shared pre-store log buffer
-const buffer: AddLog[] = [];
+const preStoreLogs: AddLog[] = [];
 
 export const add = (log: AddLog) => {
-  buffer.push(log);
+  preStoreLogs.push(log);
 };
 
 export const drainAndDispatch = (dispatch: (action: AddLog) => void) => {
-  if (buffer.length === 0) {
+  if (preStoreLogs.length === 0) {
     return;
   }
-  buffer.forEach(a => dispatch(a));
-  buffer.length = 0;
+  preStoreLogs.forEach(action => dispatch(action));
+  preStoreLogs.length = 0;
 };

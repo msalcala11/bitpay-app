@@ -75,7 +75,9 @@ export const bootstrapWallets = (
           }),
         );
       } catch (err: unknown) {
-        const errorLog = `Failed to bindWalletClient - ${wallet.id} - ${errorToString(err)}`;
+        const errorLog = `Failed to bindWalletClient - ${
+          wallet.id
+        } - ${errorToString(err)}`;
         if (logHandler) {
           logHandler(LogActions.persistLog(LogActions.error(errorLog)));
         }
@@ -107,7 +109,9 @@ export const bootstrapKey = (
       }
       return _key;
     } catch (err: unknown) {
-      const errorLog = `Failed to bindWalletKeys - ${id} - ${errorToString(err)}`;
+      const errorLog = `Failed to bindWalletKeys - ${id} - ${errorToString(
+        err,
+      )}`;
       if (logHandler) {
         logHandler(LogActions.persistLog(LogActions.error(errorLog)));
       }
