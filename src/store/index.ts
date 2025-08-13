@@ -252,10 +252,7 @@ const getStore = async () => {
 
   // Clear current-session logs, and immediately flush any pre-store logs
   store.dispatch(LogActions.clear());
-  if (preStoreLogs.length) {
-    preStoreLogs.forEach(action => store.dispatch(action));
-    preStoreLogs.length = 0;
-  }
+  preStoreLogs.forEach(action => store.dispatch(action));
 
   const persistor = persistStore(store);
 
@@ -300,7 +297,9 @@ export async function getEncryptionKey(): Promise<string> {
   try {
     preStoreLogs.push(
       LogActions.persistLog(
-        LogActions.info('getEncryptionKey: attempting to retrieve from Keychain'),
+        LogActions.info(
+          'getEncryptionKey: attempting to retrieve from Keychain',
+        ),
       ) as unknown as AnyAction,
     );
     const existingKey = await Keychain.getGenericPassword({
@@ -309,7 +308,9 @@ export async function getEncryptionKey(): Promise<string> {
 
     if (existingKey && existingKey.password) {
       preStoreLogs.push(
-        LogActions.info('getEncryptionKey: found existing key in Keychain') as unknown as AnyAction,
+        LogActions.info(
+          'getEncryptionKey: found existing key in Keychain',
+        ) as unknown as AnyAction,
       );
       return existingKey.password;
     }
@@ -323,7 +324,9 @@ export async function getEncryptionKey(): Promise<string> {
   }
 
   preStoreLogs.push(
-    LogActions.warn('getEncryptionKey: generating new key (no existing key)') as unknown as AnyAction,
+    LogActions.warn(
+      'getEncryptionKey: generating new key (no existing key)',
+    ) as unknown as AnyAction,
   );
   const newKey = getUniqueId();
 
@@ -333,7 +336,9 @@ export async function getEncryptionKey(): Promise<string> {
       service: encryptionKeyId,
     });
     preStoreLogs.push(
-      LogActions.info('getEncryptionKey: stored new key in Keychain') as unknown as AnyAction,
+      LogActions.info(
+        'getEncryptionKey: stored new key in Keychain',
+      ) as unknown as AnyAction,
     );
   } catch (err) {
     const errStr = err instanceof Error ? err.message : JSON.stringify(err);
