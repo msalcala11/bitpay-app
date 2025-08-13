@@ -1,6 +1,6 @@
 import type {AddLog} from './log.types';
 
-// Log array used for storing logs before the store is initialized
+// For storing logs before the store is initialized
 const initLogs: AddLog[] = [];
 
 export const add = (log: AddLog) => {
