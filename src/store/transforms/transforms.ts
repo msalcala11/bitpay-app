@@ -11,7 +11,6 @@ import {WalletState} from '../wallet/wallet.reducer';
 import {buildWalletObj} from '../wallet/utils/wallet';
 import {ContactRowProps} from '../../components/list/ContactRow';
 import {getErrorString} from '../../utils/helper-methods';
-import {AddLog} from '../log/log.types';
 import {LogActions} from '../log';
 import * as preStoreLogs from '../log/preStoreLogs';
 import {
@@ -24,7 +23,6 @@ import {
 } from './encrypt';
 
 const BWCProvider = BwcProvider.getInstance();
-const initLogs: AddLog[] = [];
 
 // Helper for logging transform failures before the store exists
 const logTransformFailure = (
@@ -45,7 +43,6 @@ const logTransformFailure = (
 
 export const bootstrapWallets = (
   wallets: Wallet[],
-  logHandler?: (addLog: AddLog) => {},
 ) => {
   return wallets
     .map(wallet => {
@@ -60,9 +57,7 @@ export const bootstrapWallets = (
           JSON.stringify(wallet.credentials),
         );
         const successLog = `bindWalletClient - ${wallet.id}`;
-        if (logHandler) {
-          logHandler(LogActions.info(successLog));
-        }
+        preStoreLogs.add(LogActions.info(successLog));
         // build wallet obj with bwc client credentials
         return merge(
           walletClient,
@@ -76,9 +71,9 @@ export const bootstrapWallets = (
         const errorLog = `Failed to bindWalletClient - ${
           wallet.id
         } - ${getErrorString(err)}`;
-        if (logHandler) {
-          logHandler(LogActions.persistLog(LogActions.error(errorLog)));
-        }
+        preStoreLogs.add(
+          LogActions.persistLog(LogActions.error(errorLog)),
+        );
       }
     })
     .filter((w): w is NonNullable<typeof w> => w !== undefined);
@@ -87,7 +82,6 @@ export const bootstrapWallets = (
 export const bootstrapKey = (
   key: Key,
   id: string,
-  logHandler?: (addLog: AddLog) => {},
 ) => {
   if (id === 'readonly') {
     return key;
@@ -102,17 +96,15 @@ export const bootstrapKey = (
         }),
       });
       const successLog = `bindKey - ${id}`;
-      if (logHandler) {
-        logHandler(LogActions.info(successLog));
-      }
+      preStoreLogs.add(LogActions.info(successLog));
       return _key;
     } catch (err: unknown) {
       const errorLog = `Failed to bindWalletKeys - ${id} - ${getErrorString(
         err,
       )}`;
-      if (logHandler) {
-        logHandler(LogActions.persistLog(LogActions.error(errorLog)));
-      }
+      preStoreLogs.add(
+        LogActions.persistLog(LogActions.error(errorLog)),
+      );
     }
   }
 };
@@ -137,19 +129,13 @@ export const bindWalletKeys = createTransform<WalletState, WalletState>(
     const keys = outboundState.keys || {};
     if (Object.keys(keys).length > 0) {
       for (const [id, key] of Object.entries(keys)) {
-        const bootstrappedKey = bootstrapKey(key, id, log =>
-          initLogs.push(log),
-        );
-        const wallets = bootstrapWallets(key.wallets, log =>
-          initLogs.push(log),
-        );
+        const bootstrappedKey = bootstrapKey(key, id);
+        const wallets = bootstrapWallets(key.wallets);
 
         if (bootstrappedKey) {
           outboundState.keys[id] = {...bootstrappedKey, wallets};
         }
       }
-
-      outboundState.initLogs = initLogs;
     }
     return outboundState;
   },
