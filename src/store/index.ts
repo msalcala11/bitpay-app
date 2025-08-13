@@ -229,7 +229,7 @@ const getStore = async () => {
 
         return inboundState;
       }),
-      encryptSpecificFields(secretKey),
+      encryptSpecificFields(secretKey, log => preStoreLogs.push(log)),
       encryptTransform({
         secretKey,
         onError: err => {

@@ -160,24 +160,65 @@ export const transformContacts = createTransform<ContactState, ContactState>(
   {whitelist: ['CONTACT']},
 );
 
-export const encryptSpecificFields = (secretKey: string) => {
+export const encryptSpecificFields = (
+  secretKey: string,
+  logHandler?: (addLog: AddLog) => void,
+) => {
   return createTransform(
     // Encrypt specified fields on inbound (saving to storage)
     (inboundState, key) => {
       if (key === 'WALLET') {
         try {
           return encryptWalletStore(inboundState, secretKey);
-        } catch (error) {}
+        } catch (error) {
+          try {
+            const errStr =
+              error instanceof Error ? error.message : JSON.stringify(error);
+            if (logHandler) {
+              logHandler(
+                LogActions.persistLog(
+                  LogActions.error(
+                    `encryptWalletStore failed - ${errStr}`,
+                  ),
+                ),
+              );
+            }
+          } catch (_) {}
+        }
       }
       if (key === 'APP') {
         try {
           return encryptAppStore(inboundState, secretKey);
-        } catch (error) {}
+        } catch (error) {
+          try {
+            const errStr =
+              error instanceof Error ? error.message : JSON.stringify(error);
+            if (logHandler) {
+              logHandler(
+                LogActions.persistLog(
+                  LogActions.error(`encryptAppStore failed - ${errStr}`),
+                ),
+              );
+            }
+          } catch (_) {}
+        }
       }
       if (key === 'SHOP') {
         try {
           return encryptShopStore(inboundState, secretKey);
-        } catch (error) {}
+        } catch (error) {
+          try {
+            const errStr =
+              error instanceof Error ? error.message : JSON.stringify(error);
+            if (logHandler) {
+              logHandler(
+                LogActions.persistLog(
+                  LogActions.error(`encryptShopStore failed - ${errStr}`),
+                ),
+              );
+            }
+          } catch (_) {}
+        }
       }
       return inboundState;
     },
@@ -186,17 +227,53 @@ export const encryptSpecificFields = (secretKey: string) => {
       if (key === 'WALLET') {
         try {
           return decryptWalletStore(outboundState, secretKey);
-        } catch (error) {}
+        } catch (error) {
+          try {
+            const errStr =
+              error instanceof Error ? error.message : JSON.stringify(error);
+            if (logHandler) {
+              logHandler(
+                LogActions.persistLog(
+                  LogActions.error(`decryptWalletStore failed - ${errStr}`),
+                ),
+              );
+            }
+          } catch (_) {}
+        }
       }
       if (key === 'APP') {
         try {
           return decryptAppStore(outboundState, secretKey);
-        } catch (error) {}
+        } catch (error) {
+          try {
+            const errStr =
+              error instanceof Error ? error.message : JSON.stringify(error);
+            if (logHandler) {
+              logHandler(
+                LogActions.persistLog(
+                  LogActions.error(`decryptAppStore failed - ${errStr}`),
+                ),
+              );
+            }
+          } catch (_) {}
+        }
       }
       if (key === 'SHOP') {
         try {
           return decryptShopStore(outboundState, secretKey);
-        } catch (error) {}
+        } catch (error) {
+          try {
+            const errStr =
+              error instanceof Error ? error.message : JSON.stringify(error);
+            if (logHandler) {
+              logHandler(
+                LogActions.persistLog(
+                  LogActions.error(`decryptShopStore failed - ${errStr}`),
+                ),
+              );
+            }
+          } catch (_) {}
+        }
       }
       return outboundState;
     },
