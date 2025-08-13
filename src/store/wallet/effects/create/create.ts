@@ -177,7 +177,9 @@ export const addWallet =
           } catch (err) {
             const errstring =
               err instanceof Error ? err.message : JSON.stringify(err);
-            dispatch(LogActions.error(`Error EDDSA key - addWallet: ${errstring}`));
+            dispatch(
+              LogActions.error(`Error EDDSA key - addWallet: ${errstring}`),
+            );
             throw err;
           }
         }

@@ -60,6 +60,7 @@ import {
 } from './coinbase/coinbase.reducer';
 import {rateReducer, rateReduxPersistBlackList} from './rate/rate.reducer';
 import {LogActions} from './log';
+import type {AddLog} from './log/log.types';
 import {
   walletConnectReducer,
   walletConnectV2Reducer,
@@ -75,7 +76,7 @@ import {
 } from './zenledger/zenledger.reducer';
 
 // Collect early logs before store exists
-const preStoreLogs: AnyAction[] = [];
+const preStoreLogs: AddLog[] = [];
 
 export const storage = new MMKV();
 
@@ -300,7 +301,7 @@ export async function getEncryptionKey(): Promise<string> {
         LogActions.info(
           'getEncryptionKey: attempting to retrieve from Keychain',
         ),
-      ) as unknown as AnyAction,
+      ),
     );
     const existingKey = await Keychain.getGenericPassword({
       service: encryptionKeyId,
@@ -308,9 +309,7 @@ export async function getEncryptionKey(): Promise<string> {
 
     if (existingKey && existingKey.password) {
       preStoreLogs.push(
-        LogActions.info(
-          'getEncryptionKey: found existing key in Keychain',
-        ) as unknown as AnyAction,
+        LogActions.info('getEncryptionKey: found existing key in Keychain'),
       );
       return existingKey.password;
     }
@@ -319,14 +318,12 @@ export async function getEncryptionKey(): Promise<string> {
     preStoreLogs.push(
       LogActions.persistLog(
         LogActions.error(`getEncryptionKey: Keychain get failed - ${errStr}`),
-      ) as unknown as AnyAction,
+      ),
     );
   }
 
   preStoreLogs.push(
-    LogActions.warn(
-      'getEncryptionKey: generating new key (no existing key)',
-    ) as unknown as AnyAction,
+    LogActions.warn('getEncryptionKey: generating new key (no existing key)'),
   );
   const newKey = getUniqueId();
 
@@ -336,16 +333,14 @@ export async function getEncryptionKey(): Promise<string> {
       service: encryptionKeyId,
     });
     preStoreLogs.push(
-      LogActions.info(
-        'getEncryptionKey: stored new key in Keychain',
-      ) as unknown as AnyAction,
+      LogActions.info('getEncryptionKey: stored new key in Keychain'),
     );
   } catch (err) {
     const errStr = err instanceof Error ? err.message : JSON.stringify(err);
     preStoreLogs.push(
       LogActions.persistLog(
         LogActions.error(`getEncryptionKey: Keychain set failed - ${errStr}`),
-      ) as unknown as AnyAction,
+      ),
     );
   }
 
