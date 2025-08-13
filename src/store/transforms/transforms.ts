@@ -28,6 +28,21 @@ const initLogs: AddLog[] = [];
 const errorToString = (error: unknown): string =>
   error instanceof Error ? error.message : JSON.stringify(error);
 
+// Helper for logging transform failures before the store exists
+const logTransformFailure = (
+  phase: 'encrypt' | 'decrypt',
+  store: 'Wallet' | 'App' | 'Shop',
+  error: unknown,
+) => {
+  preStoreLogs.add(
+    LogActions.persistLog(
+      LogActions.error(
+        `${phase}${store}Store failed - ${errorToString(error)}`,
+      ),
+    ),
+  );
+};
+
 export const bootstrapWallets = (
   wallets: Wallet[],
   logHandler?: (addLog: AddLog) => {},
@@ -173,13 +188,7 @@ export const encryptSpecificFields = (secretKey: string) => {
           return encryptWalletStore(inboundState, secretKey);
         } catch (error) {
           try {
-            preStoreLogs.add(
-              LogActions.persistLog(
-                LogActions.error(
-                  `encryptWalletStore failed - ${errorToString(error)}`,
-                ),
-              ),
-            );
+            logTransformFailure('encrypt', 'Wallet', error);
           } catch (_) {}
         }
       }
@@ -188,13 +197,7 @@ export const encryptSpecificFields = (secretKey: string) => {
           return encryptAppStore(inboundState, secretKey);
         } catch (error) {
           try {
-            preStoreLogs.add(
-              LogActions.persistLog(
-                LogActions.error(
-                  `encryptAppStore failed - ${errorToString(error)}`,
-                ),
-              ),
-            );
+            logTransformFailure('encrypt', 'App', error);
           } catch (_) {}
         }
       }
@@ -203,13 +206,7 @@ export const encryptSpecificFields = (secretKey: string) => {
           return encryptShopStore(inboundState, secretKey);
         } catch (error) {
           try {
-            preStoreLogs.add(
-              LogActions.persistLog(
-                LogActions.error(
-                  `encryptShopStore failed - ${errorToString(error)}`,
-                ),
-              ),
-            );
+            logTransformFailure('encrypt', 'Shop', error);
           } catch (_) {}
         }
       }
@@ -222,13 +219,7 @@ export const encryptSpecificFields = (secretKey: string) => {
           return decryptWalletStore(outboundState, secretKey);
         } catch (error) {
           try {
-            preStoreLogs.add(
-              LogActions.persistLog(
-                LogActions.error(
-                  `decryptWalletStore failed - ${errorToString(error)}`,
-                ),
-              ),
-            );
+            logTransformFailure('decrypt', 'Wallet', error);
           } catch (_) {}
         }
       }
@@ -237,13 +228,7 @@ export const encryptSpecificFields = (secretKey: string) => {
           return decryptAppStore(outboundState, secretKey);
         } catch (error) {
           try {
-            preStoreLogs.add(
-              LogActions.persistLog(
-                LogActions.error(
-                  `decryptAppStore failed - ${errorToString(error)}`,
-                ),
-              ),
-            );
+            logTransformFailure('decrypt', 'App', error);
           } catch (_) {}
         }
       }
@@ -252,13 +237,7 @@ export const encryptSpecificFields = (secretKey: string) => {
           return decryptShopStore(outboundState, secretKey);
         } catch (error) {
           try {
-            preStoreLogs.add(
-              LogActions.persistLog(
-                LogActions.error(
-                  `decryptShopStore failed - ${errorToString(error)}`,
-                ),
-              ),
-            );
+            logTransformFailure('decrypt', 'Shop', error);
           } catch (_) {}
         }
       }
