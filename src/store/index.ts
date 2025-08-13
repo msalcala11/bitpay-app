@@ -74,7 +74,7 @@ import {
   zenledgerReducer,
 } from './zenledger/zenledger.reducer';
 import {AddLog} from './log/log.types';
-import * as preStoreLogBuffer from './log/preStoreLogBuffer';
+import * as preStoreLogs from './log/preStoreLogs';
 
 // Pre-store logs are handled via a shared buffer so any module can enqueue
 // before the store exists and we can flush them deterministically later.
@@ -294,7 +294,7 @@ export async function getEncryptionKey(): Promise<string> {
   const encryptionKeyId = 'bitpay-app-encryption-key';
 
   try {
-    preStoreLogBuffer.enqueue(
+    preStoreLogs.enqueue(
       LogActions.persistLog(LogActions.error('getEncryptionKey: attempting to retrieve from Keychain')),
     );
     const existingKey = await Keychain.getGenericPassword({
@@ -302,21 +302,21 @@ export async function getEncryptionKey(): Promise<string> {
     });
 
     if (existingKey && existingKey.password) {
-      preStoreLogBuffer.enqueue(
+      preStoreLogs.enqueue(
         LogActions.info('getEncryptionKey: found existing key in Keychain'),
       );
       return existingKey.password;
     }
   } catch (err) {
     const errStr = err instanceof Error ? err.message : JSON.stringify(err);
-    preStoreLogBuffer.enqueue(
+    preStoreLogs.enqueue(
       LogActions.persistLog(
         LogActions.error(`getEncryptionKey: Keychain get failed - ${errStr}`),
       ),
     );
   }
 
-  preStoreLogBuffer.enqueue(
+  preStoreLogs.enqueue(
     LogActions.warn('getEncryptionKey: generating new key (no existing key)'),
   );
   const newKey = getUniqueId();
@@ -326,12 +326,12 @@ export async function getEncryptionKey(): Promise<string> {
     await Keychain.setGenericPassword(encryptionKeyId, newKey, {
       service: encryptionKeyId,
     });
-    preStoreLogBuffer.enqueue(
+    preStoreLogs.enqueue(
       LogActions.info('getEncryptionKey: stored new key in Keychain'),
     );
   } catch (err) {
     const errStr = err instanceof Error ? err.message : JSON.stringify(err);
-    preStoreLogBuffer.enqueue(
+    preStoreLogs.enqueue(
       LogActions.persistLog(
         LogActions.error(`getEncryptionKey: Keychain set failed - ${errStr}`),
       ),
