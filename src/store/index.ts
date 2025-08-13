@@ -69,6 +69,7 @@ import {
 
 import {Storage} from 'redux-persist';
 import {MMKV} from 'react-native-mmkv';
+import {getErrorString} from '../utils/helper-methods';
 import {AppDispatch} from '../utils/hooks';
 import {
   ZenledgerReduxPersistBlackList,
@@ -311,10 +312,11 @@ export async function getEncryptionKey(): Promise<string> {
       return existingKey.password;
     }
   } catch (err) {
-    const errStr = err instanceof Error ? err.message : JSON.stringify(err);
     preStoreLogs.add(
       LogActions.persistLog(
-        LogActions.error(`getEncryptionKey: Keychain get failed - ${errStr}`),
+        LogActions.error(
+          `getEncryptionKey: Keychain get failed - ${getErrorString(err)}`,
+        ),
       ),
     );
   }
@@ -333,10 +335,11 @@ export async function getEncryptionKey(): Promise<string> {
       LogActions.info('getEncryptionKey: stored new key in Keychain'),
     );
   } catch (err) {
-    const errStr = err instanceof Error ? err.message : JSON.stringify(err);
     preStoreLogs.add(
       LogActions.persistLog(
-        LogActions.error(`getEncryptionKey: Keychain set failed - ${errStr}`),
+        LogActions.error(
+          `getEncryptionKey: Keychain set failed - ${getErrorString(err)}`,
+        ),
       ),
     );
   }
