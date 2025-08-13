@@ -73,7 +73,6 @@ import {
   ZenledgerReduxPersistBlackList,
   zenledgerReducer,
 } from './zenledger/zenledger.reducer';
-import {AddLog} from './log/log.types';
 import * as preStoreLogs from './log/preStoreLogs';
 
 // Pre-store logs are handled via a shared buffer so any module can enqueue
