@@ -60,7 +60,7 @@ import {
 } from './coinbase/coinbase.reducer';
 import {rateReducer, rateReduxPersistBlackList} from './rate/rate.reducer';
 import {LogActions} from './log';
-import type {AddLog} from './log/log.types';
+import * as preStoreLogs from './log/preStoreLogs';
 import {
   walletConnectReducer,
   walletConnectV2Reducer,
@@ -75,8 +75,7 @@ import {
   zenledgerReducer,
 } from './zenledger/zenledger.reducer';
 
-// Collect early logs before store exists
-const preStoreLogs: AddLog[] = [];
+// Pre-store logs are collected via shared module
 
 export const storage = new MMKV();
 
@@ -229,7 +228,7 @@ const getStore = async () => {
 
         return inboundState;
       }),
-      encryptSpecificFields(secretKey, log => preStoreLogs.push(log)),
+      encryptSpecificFields(secretKey),
       encryptTransform({
         secretKey,
         onError: err => {
@@ -253,7 +252,7 @@ const getStore = async () => {
 
   // Clear current-session logs, and immediately flush any pre-store logs
   store.dispatch(LogActions.clear());
-  preStoreLogs.forEach(action => store.dispatch(action));
+  preStoreLogs.drainAndDispatch(store.dispatch);
 
   const persistor = persistStore(store);
 
@@ -296,7 +295,7 @@ export async function getEncryptionKey(): Promise<string> {
   const encryptionKeyId = 'bitpay-app-encryption-key';
 
   try {
-    preStoreLogs.push(
+    preStoreLogs.enqueue(
       LogActions.persistLog(
         LogActions.info(
           'getEncryptionKey: attempting to retrieve from Keychain',
@@ -308,21 +307,21 @@ export async function getEncryptionKey(): Promise<string> {
     });
 
     if (existingKey && existingKey.password) {
-      preStoreLogs.push(
+      preStoreLogs.enqueue(
         LogActions.info('getEncryptionKey: found existing key in Keychain'),
       );
       return existingKey.password;
     }
   } catch (err) {
     const errStr = err instanceof Error ? err.message : JSON.stringify(err);
-    preStoreLogs.push(
+    preStoreLogs.enqueue(
       LogActions.persistLog(
         LogActions.error(`getEncryptionKey: Keychain get failed - ${errStr}`),
       ),
     );
   }
 
-  preStoreLogs.push(
+  preStoreLogs.enqueue(
     LogActions.warn('getEncryptionKey: generating new key (no existing key)'),
   );
   const newKey = getUniqueId();
@@ -332,12 +331,12 @@ export async function getEncryptionKey(): Promise<string> {
     await Keychain.setGenericPassword(encryptionKeyId, newKey, {
       service: encryptionKeyId,
     });
-    preStoreLogs.push(
+    preStoreLogs.enqueue(
       LogActions.info('getEncryptionKey: stored new key in Keychain'),
     );
   } catch (err) {
     const errStr = err instanceof Error ? err.message : JSON.stringify(err);
-    preStoreLogs.push(
+    preStoreLogs.enqueue(
       LogActions.persistLog(
         LogActions.error(`getEncryptionKey: Keychain set failed - ${errStr}`),
       ),

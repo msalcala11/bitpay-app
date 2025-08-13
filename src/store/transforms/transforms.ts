@@ -12,6 +12,7 @@ import {buildWalletObj} from '../wallet/utils/wallet';
 import {ContactRowProps} from '../../components/list/ContactRow';
 import {AddLog} from '../log/log.types';
 import {LogActions} from '../log';
+import * as preStoreLogs from '../log/preStoreLogs';
 import {
   encryptAppStore,
   decryptAppStore,
@@ -160,10 +161,7 @@ export const transformContacts = createTransform<ContactState, ContactState>(
   {whitelist: ['CONTACT']},
 );
 
-export const encryptSpecificFields = (
-  secretKey: string,
-  logHandler?: (addLog: AddLog) => void,
-) => {
+export const encryptSpecificFields = (secretKey: string) => {
   return createTransform(
     // Encrypt specified fields on inbound (saving to storage)
     (inboundState, key) => {
@@ -174,15 +172,11 @@ export const encryptSpecificFields = (
           try {
             const errStr =
               error instanceof Error ? error.message : JSON.stringify(error);
-            if (logHandler) {
-              logHandler(
-                LogActions.persistLog(
-                  LogActions.error(
-                    `encryptWalletStore failed - ${errStr}`,
-                  ),
-                ),
-              );
-            }
+            preStoreLogs.enqueue(
+              LogActions.persistLog(
+                LogActions.error(`encryptWalletStore failed - ${errStr}`),
+              ),
+            );
           } catch (_) {}
         }
       }
@@ -193,13 +187,11 @@ export const encryptSpecificFields = (
           try {
             const errStr =
               error instanceof Error ? error.message : JSON.stringify(error);
-            if (logHandler) {
-              logHandler(
-                LogActions.persistLog(
-                  LogActions.error(`encryptAppStore failed - ${errStr}`),
-                ),
-              );
-            }
+            preStoreLogs.enqueue(
+              LogActions.persistLog(
+                LogActions.error(`encryptAppStore failed - ${errStr}`),
+              ),
+            );
           } catch (_) {}
         }
       }
@@ -210,13 +202,11 @@ export const encryptSpecificFields = (
           try {
             const errStr =
               error instanceof Error ? error.message : JSON.stringify(error);
-            if (logHandler) {
-              logHandler(
-                LogActions.persistLog(
-                  LogActions.error(`encryptShopStore failed - ${errStr}`),
-                ),
-              );
-            }
+            preStoreLogs.enqueue(
+              LogActions.persistLog(
+                LogActions.error(`encryptShopStore failed - ${errStr}`),
+              ),
+            );
           } catch (_) {}
         }
       }
@@ -231,13 +221,11 @@ export const encryptSpecificFields = (
           try {
             const errStr =
               error instanceof Error ? error.message : JSON.stringify(error);
-            if (logHandler) {
-              logHandler(
-                LogActions.persistLog(
-                  LogActions.error(`decryptWalletStore failed - ${errStr}`),
-                ),
-              );
-            }
+            preStoreLogs.enqueue(
+              LogActions.persistLog(
+                LogActions.error(`decryptWalletStore failed - ${errStr}`),
+              ),
+            );
           } catch (_) {}
         }
       }
@@ -248,13 +236,11 @@ export const encryptSpecificFields = (
           try {
             const errStr =
               error instanceof Error ? error.message : JSON.stringify(error);
-            if (logHandler) {
-              logHandler(
-                LogActions.persistLog(
-                  LogActions.error(`decryptAppStore failed - ${errStr}`),
-                ),
-              );
-            }
+            preStoreLogs.enqueue(
+              LogActions.persistLog(
+                LogActions.error(`decryptAppStore failed - ${errStr}`),
+              ),
+            );
           } catch (_) {}
         }
       }
@@ -265,13 +251,11 @@ export const encryptSpecificFields = (
           try {
             const errStr =
               error instanceof Error ? error.message : JSON.stringify(error);
-            if (logHandler) {
-              logHandler(
-                LogActions.persistLog(
-                  LogActions.error(`decryptShopStore failed - ${errStr}`),
-                ),
-              );
-            }
+            preStoreLogs.enqueue(
+              LogActions.persistLog(
+                LogActions.error(`decryptShopStore failed - ${errStr}`),
+              ),
+            );
           } catch (_) {}
         }
       }
