@@ -34,13 +34,15 @@ const logTransformFailure = (
   store: 'Wallet' | 'App' | 'Shop',
   error: unknown,
 ) => {
-  preStoreLogs.add(
-    LogActions.persistLog(
-      LogActions.error(
-        `${phase}${store}Store failed - ${errorToString(error)}`,
+  try {
+    preStoreLogs.add(
+      LogActions.persistLog(
+        LogActions.error(
+          `${phase}${store}Store failed - ${errorToString(error)}`,
+        ),
       ),
-    ),
-  );
+    );
+  } catch (_) {}
 };
 
 export const bootstrapWallets = (
@@ -187,27 +189,21 @@ export const encryptSpecificFields = (secretKey: string) => {
         try {
           return encryptWalletStore(inboundState, secretKey);
         } catch (error) {
-          try {
-            logTransformFailure('encrypt', 'Wallet', error);
-          } catch (_) {}
+          logTransformFailure('encrypt', 'Wallet', error);
         }
       }
       if (key === 'APP') {
         try {
           return encryptAppStore(inboundState, secretKey);
         } catch (error) {
-          try {
-            logTransformFailure('encrypt', 'App', error);
-          } catch (_) {}
+          logTransformFailure('encrypt', 'App', error);
         }
       }
       if (key === 'SHOP') {
         try {
           return encryptShopStore(inboundState, secretKey);
         } catch (error) {
-          try {
-            logTransformFailure('encrypt', 'Shop', error);
-          } catch (_) {}
+          logTransformFailure('encrypt', 'Shop', error);
         }
       }
       return inboundState;
@@ -218,27 +214,21 @@ export const encryptSpecificFields = (secretKey: string) => {
         try {
           return decryptWalletStore(outboundState, secretKey);
         } catch (error) {
-          try {
-            logTransformFailure('decrypt', 'Wallet', error);
-          } catch (_) {}
+          logTransformFailure('decrypt', 'Wallet', error);
         }
       }
       if (key === 'APP') {
         try {
           return decryptAppStore(outboundState, secretKey);
         } catch (error) {
-          try {
-            logTransformFailure('decrypt', 'App', error);
-          } catch (_) {}
+          logTransformFailure('decrypt', 'App', error);
         }
       }
       if (key === 'SHOP') {
         try {
           return decryptShopStore(outboundState, secretKey);
         } catch (error) {
-          try {
-            logTransformFailure('decrypt', 'Shop', error);
-          } catch (_) {}
+          logTransformFailure('decrypt', 'Shop', error);
         }
       }
       return outboundState;
