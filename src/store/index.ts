@@ -295,7 +295,7 @@ export async function getEncryptionKey(): Promise<string> {
   const encryptionKeyId = 'bitpay-app-encryption-key';
 
   try {
-    preStoreLogs.enqueue(
+    preStoreLogs.add(
       LogActions.persistLog(
         LogActions.info(
           'getEncryptionKey: attempting to retrieve from Keychain',
@@ -307,21 +307,21 @@ export async function getEncryptionKey(): Promise<string> {
     });
 
     if (existingKey && existingKey.password) {
-      preStoreLogs.enqueue(
+      preStoreLogs.add(
         LogActions.info('getEncryptionKey: found existing key in Keychain'),
       );
       return existingKey.password;
     }
   } catch (err) {
     const errStr = err instanceof Error ? err.message : JSON.stringify(err);
-    preStoreLogs.enqueue(
+    preStoreLogs.add(
       LogActions.persistLog(
         LogActions.error(`getEncryptionKey: Keychain get failed - ${errStr}`),
       ),
     );
   }
 
-  preStoreLogs.enqueue(
+  preStoreLogs.add(
     LogActions.warn('getEncryptionKey: generating new key (no existing key)'),
   );
   const newKey = getUniqueId();
@@ -331,12 +331,12 @@ export async function getEncryptionKey(): Promise<string> {
     await Keychain.setGenericPassword(encryptionKeyId, newKey, {
       service: encryptionKeyId,
     });
-    preStoreLogs.enqueue(
+    preStoreLogs.add(
       LogActions.info('getEncryptionKey: stored new key in Keychain'),
     );
   } catch (err) {
     const errStr = err instanceof Error ? err.message : JSON.stringify(err);
-    preStoreLogs.enqueue(
+    preStoreLogs.add(
       LogActions.persistLog(
         LogActions.error(`getEncryptionKey: Keychain set failed - ${errStr}`),
       ),

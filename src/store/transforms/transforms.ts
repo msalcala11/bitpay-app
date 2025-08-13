@@ -172,7 +172,7 @@ export const encryptSpecificFields = (secretKey: string) => {
           try {
             const errStr =
               error instanceof Error ? error.message : JSON.stringify(error);
-            preStoreLogs.enqueue(
+            preStoreLogs.add(
               LogActions.persistLog(
                 LogActions.error(`encryptWalletStore failed - ${errStr}`),
               ),
@@ -187,7 +187,7 @@ export const encryptSpecificFields = (secretKey: string) => {
           try {
             const errStr =
               error instanceof Error ? error.message : JSON.stringify(error);
-            preStoreLogs.enqueue(
+            preStoreLogs.add(
               LogActions.persistLog(
                 LogActions.error(`encryptAppStore failed - ${errStr}`),
               ),
@@ -202,7 +202,7 @@ export const encryptSpecificFields = (secretKey: string) => {
           try {
             const errStr =
               error instanceof Error ? error.message : JSON.stringify(error);
-            preStoreLogs.enqueue(
+            preStoreLogs.add(
               LogActions.persistLog(
                 LogActions.error(`encryptShopStore failed - ${errStr}`),
               ),
@@ -221,7 +221,7 @@ export const encryptSpecificFields = (secretKey: string) => {
           try {
             const errStr =
               error instanceof Error ? error.message : JSON.stringify(error);
-            preStoreLogs.enqueue(
+            preStoreLogs.add(
               LogActions.persistLog(
                 LogActions.error(`decryptWalletStore failed - ${errStr}`),
               ),
@@ -236,7 +236,7 @@ export const encryptSpecificFields = (secretKey: string) => {
           try {
             const errStr =
               error instanceof Error ? error.message : JSON.stringify(error);
-            preStoreLogs.enqueue(
+            preStoreLogs.add(
               LogActions.persistLog(
                 LogActions.error(`decryptAppStore failed - ${errStr}`),
               ),
@@ -251,7 +251,7 @@ export const encryptSpecificFields = (secretKey: string) => {
           try {
             const errStr =
               error instanceof Error ? error.message : JSON.stringify(error);
-            preStoreLogs.enqueue(
+            preStoreLogs.add(
               LogActions.persistLog(
                 LogActions.error(`decryptShopStore failed - ${errStr}`),
               ),
