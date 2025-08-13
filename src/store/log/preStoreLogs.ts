@@ -1,6 +1,6 @@
 import type {AddLog} from '../log/log.types';
 
-// Simple shared pre-store log buffer
+// Log array used for storing logs before the store is initialized
 const preStoreLogs: AddLog[] = [];
 
 export const add = (log: AddLog) => {
