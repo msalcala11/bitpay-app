@@ -41,9 +41,7 @@ const logTransformFailure = (
   } catch (_) {}
 };
 
-export const bootstrapWallets = (
-  wallets: Wallet[],
-) => {
+export const bootstrapWallets = (wallets: Wallet[]) => {
   return wallets
     .map(wallet => {
       try {
@@ -71,18 +69,13 @@ export const bootstrapWallets = (
         const errorLog = `Failed to bindWalletClient - ${
           wallet.id
         } - ${getErrorString(err)}`;
-        initLogs.add(
-          LogActions.persistLog(LogActions.error(errorLog)),
-        );
+        initLogs.add(LogActions.persistLog(LogActions.error(errorLog)));
       }
     })
     .filter((w): w is NonNullable<typeof w> => w !== undefined);
 };
 
-export const bootstrapKey = (
-  key: Key,
-  id: string,
-) => {
+export const bootstrapKey = (key: Key, id: string) => {
   if (id === 'readonly') {
     return key;
   } else if (key.hardwareSource) {
@@ -102,9 +95,7 @@ export const bootstrapKey = (
       const errorLog = `Failed to bindWalletKeys - ${id} - ${getErrorString(
         err,
       )}`;
-      initLogs.add(
-        LogActions.persistLog(LogActions.error(errorLog)),
-      );
+      initLogs.add(LogActions.persistLog(LogActions.error(errorLog)));
     }
   }
 };
