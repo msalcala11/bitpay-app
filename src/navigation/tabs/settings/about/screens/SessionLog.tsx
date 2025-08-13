@@ -161,12 +161,9 @@ const SessionLogs = ({}: SessionLogsScreenProps) => {
   const [filterLevel, setFilterLevel] = useState(LogLevel.Debug);
 
   const filteredLogs = logs.filter(log => log.level <= filterLevel);
-  // If there are no current-session logs yet, treat the session start as now,
-  // so that all persisted logs (earlier timestamps) are considered "previous sessions".
-  // const currentSessionStartTime = logs.length
-  //   ? new Date(logs[0].timestamp)
-  //   : new Date();
-  const currentSessionStartTime = new Date(logs[0].timestamp);
+  const currentSessionStartTime = logs.length
+    ? new Date(logs[0].timestamp)
+    : new Date();
   const [filteredPersistedLogs, setFilteredPersistedLogs] = useState(
     [] as LogEntry[],
   );
