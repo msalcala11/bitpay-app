@@ -259,7 +259,6 @@ const getStore = async () => {
     preStoreLogQueue.length = 0;
   }
 
-  // Create persistor (flushing of pre-store logs happens in app init after clear)
   const persistor = persistStore(store);
 
   if (__DEV__) {
