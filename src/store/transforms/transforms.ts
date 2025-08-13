@@ -12,7 +12,7 @@ import {buildWalletObj} from '../wallet/utils/wallet';
 import {ContactRowProps} from '../../components/list/ContactRow';
 import {getErrorString} from '../../utils/helper-methods';
 import {LogActions} from '../log';
-import * as preStoreLogs from '../log/preStoreLogs';
+import * as initLogs from '../log/initLogs';
 import {
   encryptAppStore,
   decryptAppStore,
@@ -31,7 +31,7 @@ const logTransformFailure = (
   error: unknown,
 ) => {
   try {
-    preStoreLogs.add(
+    initLogs.add(
       LogActions.persistLog(
         LogActions.error(
           `${phase}${store}Store failed - ${getErrorString(error)}`,
@@ -57,7 +57,7 @@ export const bootstrapWallets = (
           JSON.stringify(wallet.credentials),
         );
         const successLog = `bindWalletClient - ${wallet.id}`;
-        preStoreLogs.add(LogActions.info(successLog));
+        initLogs.add(LogActions.info(successLog));
         // build wallet obj with bwc client credentials
         return merge(
           walletClient,
@@ -71,7 +71,7 @@ export const bootstrapWallets = (
         const errorLog = `Failed to bindWalletClient - ${
           wallet.id
         } - ${getErrorString(err)}`;
-        preStoreLogs.add(
+        initLogs.add(
           LogActions.persistLog(LogActions.error(errorLog)),
         );
       }
@@ -96,13 +96,13 @@ export const bootstrapKey = (
         }),
       });
       const successLog = `bindKey - ${id}`;
-      preStoreLogs.add(LogActions.info(successLog));
+      initLogs.add(LogActions.info(successLog));
       return _key;
     } catch (err: unknown) {
       const errorLog = `Failed to bindWalletKeys - ${id} - ${getErrorString(
         err,
       )}`;
-      preStoreLogs.add(
+      initLogs.add(
         LogActions.persistLog(LogActions.error(errorLog)),
       );
     }

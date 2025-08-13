@@ -60,7 +60,7 @@ import {
 } from './coinbase/coinbase.reducer';
 import {rateReducer, rateReduxPersistBlackList} from './rate/rate.reducer';
 import {LogActions} from './log';
-import * as preStoreLogs from './log/preStoreLogs';
+import * as initLogs from './log/initLogs';
 import {
   walletConnectReducer,
   walletConnectV2Reducer,
@@ -251,7 +251,7 @@ const getStore = async () => {
 
   // Clear any stale logs, and immediately flush any pre-store logs
   store.dispatch(LogActions.clear());
-  preStoreLogs.drainAndDispatch(store.dispatch);
+  initLogs.drainAndDispatch(store.dispatch);
 
   const persistor = persistStore(store);
 
@@ -294,7 +294,7 @@ export async function getEncryptionKey(): Promise<string> {
   const encryptionKeyId = 'bitpay-app-encryption-key';
 
   try {
-    preStoreLogs.add(
+    initLogs.add(
       LogActions.persistLog(
         LogActions.info(
           'getEncryptionKey: attempting to retrieve from Keychain',
@@ -306,13 +306,13 @@ export async function getEncryptionKey(): Promise<string> {
     });
 
     if (existingKey && existingKey.password) {
-      preStoreLogs.add(
+      initLogs.add(
         LogActions.info('getEncryptionKey: found existing key in Keychain'),
       );
       return existingKey.password;
     }
   } catch (err) {
-    preStoreLogs.add(
+    initLogs.add(
       LogActions.persistLog(
         LogActions.error(
           `getEncryptionKey: Keychain get failed - ${getErrorString(err)}`,
@@ -321,7 +321,7 @@ export async function getEncryptionKey(): Promise<string> {
     );
   }
 
-  preStoreLogs.add(
+  initLogs.add(
     LogActions.warn('getEncryptionKey: generating new key (no existing key)'),
   );
   const newKey = getUniqueId();
@@ -331,11 +331,11 @@ export async function getEncryptionKey(): Promise<string> {
     await Keychain.setGenericPassword(encryptionKeyId, newKey, {
       service: encryptionKeyId,
     });
-    preStoreLogs.add(
+    initLogs.add(
       LogActions.info('getEncryptionKey: stored new key in Keychain'),
     );
   } catch (err) {
-    preStoreLogs.add(
+    initLogs.add(
       LogActions.persistLog(
         LogActions.error(
           `getEncryptionKey: Keychain set failed - ${getErrorString(err)}`,
