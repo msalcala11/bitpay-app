@@ -10,6 +10,7 @@ import {ContactState} from '../contact/contact.reducer';
 import {WalletState} from '../wallet/wallet.reducer';
 import {buildWalletObj} from '../wallet/utils/wallet';
 import {ContactRowProps} from '../../components/list/ContactRow';
+import {getErrorString} from '../../utils/helper-methods';
 import {AddLog} from '../log/log.types';
 import {LogActions} from '../log';
 import * as preStoreLogs from '../log/preStoreLogs';
@@ -25,8 +26,7 @@ import {
 const BWCProvider = BwcProvider.getInstance();
 const initLogs: AddLog[] = [];
 
-const errorToString = (error: unknown): string =>
-  error instanceof Error ? error.message : JSON.stringify(error);
+// Use shared error stringifier
 
 // Helper for logging transform failures before the store exists
 const logTransformFailure = (
@@ -38,7 +38,7 @@ const logTransformFailure = (
     preStoreLogs.add(
       LogActions.persistLog(
         LogActions.error(
-          `${phase}${store}Store failed - ${errorToString(error)}`,
+          `${phase}${store}Store failed - ${getErrorString(error)}`,
         ),
       ),
     );
@@ -77,7 +77,7 @@ export const bootstrapWallets = (
       } catch (err: unknown) {
         const errorLog = `Failed to bindWalletClient - ${
           wallet.id
-        } - ${errorToString(err)}`;
+        } - ${getErrorString(err)}`;
         if (logHandler) {
           logHandler(LogActions.persistLog(LogActions.error(errorLog)));
         }
@@ -109,7 +109,7 @@ export const bootstrapKey = (
       }
       return _key;
     } catch (err: unknown) {
-      const errorLog = `Failed to bindWalletKeys - ${id} - ${errorToString(
+      const errorLog = `Failed to bindWalletKeys - ${id} - ${getErrorString(
         err,
       )}`;
       if (logHandler) {
