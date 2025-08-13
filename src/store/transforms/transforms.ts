@@ -26,8 +26,6 @@ import {
 const BWCProvider = BwcProvider.getInstance();
 const initLogs: AddLog[] = [];
 
-// Use shared error stringifier
-
 // Helper for logging transform failures before the store exists
 const logTransformFailure = (
   phase: 'encrypt' | 'decrypt',
