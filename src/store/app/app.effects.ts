@@ -45,6 +45,7 @@ import {zenledgerInitialize} from '../zenledger';
 import {Effect, RootState} from '../index';
 import {LocationEffects} from '../location';
 import {LogActions} from '../log';
+import * as preStoreLogBuffer from '../log/preStoreLogBuffer';
 import {WalletActions} from '../wallet';
 import {
   startMigration,
@@ -154,6 +155,13 @@ const OFFERS_AND_PROMOTIONS_GROUP_ID = __DEV__
 export const startAppInit = (): Effect => async (dispatch, getState) => {
   try {
     dispatch(LogActions.clear());
+    // Flush any early pre-store logs right after clearing, so diagnostics remain visible
+    // and appear before the first initialization logs below.
+    const pendingPreLogs = preStoreLogBuffer.peek().length;
+    preStoreLogBuffer.drainAndDispatch(dispatch);
+    if (pendingPreLogs > 0) {
+      dispatch(LogActions.debug(`Flushed ${pendingPreLogs} pre-store logs`));
+    }
     dispatch(
       LogActions.info(
         `Initializing app (${__DEV__ ? 'Development' : 'Production'})...`,
