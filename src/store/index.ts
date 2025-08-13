@@ -75,8 +75,6 @@ import {
   zenledgerReducer,
 } from './zenledger/zenledger.reducer';
 
-// Pre-store logs are collected via shared module
-
 export const storage = new MMKV();
 
 export const reduxStorage: Storage = {
