@@ -41,6 +41,7 @@ export interface WalletState {
   polygonMigrationComplete: boolean;
   accountEvmCreationMigrationComplete: boolean;
   accountSvmCreationMigrationComplete: boolean;
+  solAddressRepairMigrationComplete: boolean;
 }
 
 export const initialState: WalletState = {
@@ -77,6 +78,7 @@ export const initialState: WalletState = {
   polygonMigrationComplete: false,
   accountEvmCreationMigrationComplete: false,
   accountSvmCreationMigrationComplete: false,
+  solAddressRepairMigrationComplete: false,
 };
 
 export const walletReducer = (
@@ -300,6 +302,13 @@ export const walletReducer = (
       return {
         ...state,
         walletTermsAccepted: true,
+      };
+    }
+
+    case WalletActionTypes.SET_SOL_ADDRESS_REPAIR_MIGRATION_COMPLETE: {
+      return {
+        ...state,
+        solAddressRepairMigrationComplete: true,
       };
     }
 

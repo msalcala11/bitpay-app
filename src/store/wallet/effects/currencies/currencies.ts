@@ -22,6 +22,8 @@ import {
 import {GetProtocolPrefix} from '../../utils/currency';
 import {AppActions} from '../../../app';
 import {buildWalletObj, mapAbbreviationAndName} from '../../utils/wallet';
+import {IsSVMChain} from '../../utils/currency';
+import {BwcProvider} from '../../../../lib/bwc';
 import merge from 'lodash.merge';
 import {BitpaySupportedTokenOptsByAddress} from '../../../../constants/tokens';
 
@@ -87,6 +89,81 @@ export const startGetTokenOptions =
       dispatch(LogActions.error(`failed [startGetTokenOptions]: ${errorStr}`));
       dispatch(AppActions.appTokensDataLoaded());
     }
+  };
+
+const BWC = BwcProvider.getInstance();
+
+export const startSolAddressRepairMigration =
+  (): Effect<Promise<void>> =>
+  async (dispatch, getState): Promise<void> => {
+    return new Promise(async resolve => {
+      try {
+        dispatch(
+          LogActions.info('[startSolAddressRepairMigration] - starting...'),
+        );
+        const {keys} = getState().WALLET;
+        const Core = BWC.getCore();
+        let repaired = 0;
+        for (const key of Object.values(keys)) {
+          const xPrivKeyHex = key?.properties?.xPrivKeyEDDSA;
+          if (!xPrivKeyHex) {
+            continue;
+          }
+          let changed = false;
+          key.wallets = key.wallets.map(wallet => {
+            try {
+              if (IsSVMChain(wallet.chain)) {
+                const kp = Core.Deriver.derivePrivateKeyWithPath(
+                  wallet.chain,
+                  wallet.network,
+                  xPrivKeyHex,
+                  wallet.getRootPath(),
+                  '',
+                );
+                const derivedAddress = kp?.address;
+                if (
+                  derivedAddress &&
+                  wallet.receiveAddress &&
+                  wallet.receiveAddress !== derivedAddress
+                ) {
+                  dispatch(
+                    LogActions.info(
+                      `Fixing SOL address for wallet ${wallet.id}: ${wallet.receiveAddress} -> ${derivedAddress}`,
+                    ),
+                  );
+                  wallet.receiveAddress = derivedAddress;
+                  changed = true;
+                  repaired += 1;
+                }
+              }
+            } catch (e) {
+              // Continue with next wallet
+            }
+            return wallet;
+          });
+          if (changed) {
+            await dispatch(
+              successImport({
+                key,
+              }),
+            );
+          }
+        }
+        dispatch(
+          LogActions.info(
+            `success [startSolAddressRepairMigration] - repaired: ${repaired}`,
+          ),
+        );
+      } catch (err) {
+        const errStr = err instanceof Error ? err.message : JSON.stringify(err);
+        dispatch(
+          LogActions.error(
+            `[startSolAddressRepairMigration] failed - ${errStr}`,
+          ),
+        );
+      }
+      return resolve();
+    });
   };
 
 export const addCustomTokenOption =

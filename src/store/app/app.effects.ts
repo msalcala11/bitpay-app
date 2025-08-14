@@ -136,7 +136,9 @@ import {clearedShopCatalogFields} from '../shop/shop.actions';
 import {
   startCustomTokensMigration,
   startPolMigration,
+  startSolAddressRepairMigration,
 } from '../wallet/effects/currencies/currencies';
+import {setSolAddressRepairMigrationComplete} from '../wallet/wallet.actions';
 import {WalletKitTypes} from '@reown/walletkit';
 import {Key, Wallet} from '../wallet/wallet.models';
 import {AppDispatch} from '../../utils/hooks';
@@ -172,7 +174,11 @@ export const startAppInit = (): Effect => async (dispatch, getState) => {
     dispatch(LogActions.debug(`Theme: ${colorScheme || 'system'}`));
 
     const {migrationComplete, EDDSAKeyMigrationCompleteV2} = APP;
-    const {customTokensMigrationComplete, polygonMigrationComplete} = WALLET;
+    const {
+      customTokensMigrationComplete,
+      polygonMigrationComplete,
+      solAddressRepairMigrationComplete,
+    } = WALLET;
     // init analytics -> post onboarding or migration
     dispatch(initAnalytics());
 
@@ -233,6 +239,14 @@ export const startAppInit = (): Effect => async (dispatch, getState) => {
       await dispatch(startContactPolMigration());
       dispatch(setPolygonMigrationComplete());
       dispatch(LogActions.info('success [setPolygonMigrationComplete]'));
+    }
+
+    if (!solAddressRepairMigrationComplete) {
+      await dispatch(startSolAddressRepairMigration());
+      dispatch(setSolAddressRepairMigrationComplete());
+      dispatch(
+        LogActions.info('success [setSolAddressRepairMigrationComplete]'),
+      );
     }
 
     dispatch(migrateShopCatalog());
