@@ -103,20 +103,42 @@ export const startSolAddressRepairMigration =
         );
         const {keys} = getState().WALLET;
         const Core = BWC.getCore();
-        let repaired = 0;
+        let addressRepairs = 0;
+        let keyRepairs = 0;
         for (const key of Object.values(keys)) {
           const xPrivKeyHex = key?.properties?.xPrivKeyEDDSA;
           if (!xPrivKeyHex) {
             continue;
           }
           let changed = false;
+          // Attempt to deterministically recover the correct EDDSA root xpriv for unencrypted keys
+          try {
+            if (!key.isPrivKeyEncrypted && key?.methods?.get) {
+              const eddsaData = key.methods.get(undefined, 'EDDSA');
+              const correctXPrivEddsa: string | undefined = eddsaData?.xPrivKey;
+              if (correctXPrivEddsa && correctXPrivEddsa !== xPrivKeyHex) {
+                dispatch(
+                  LogActions.info(
+                    `[startSolAddressRepairMigration] Fixing SOL xPrivKeyEDDSA for key ${key.id}`,
+                  ),
+                );
+                if (key.properties) {
+                  key.properties.xPrivKeyEDDSA = correctXPrivEddsa;
+                  keyRepairs += 1;
+                  changed = true;
+                }
+              }
+            }
+          } catch (e) {
+            // ignore and proceed with address checks
+          }
           key.wallets = key.wallets.map(wallet => {
             try {
               if (IsSVMChain(wallet.chain)) {
                 const kp = Core.Deriver.derivePrivateKeyWithPath(
                   wallet.chain,
                   wallet.network,
-                  xPrivKeyHex,
+                  key?.properties?.xPrivKeyEDDSA || xPrivKeyHex,
                   wallet.getRootPath(),
                   '',
                 );
@@ -133,7 +155,7 @@ export const startSolAddressRepairMigration =
                   );
                   wallet.receiveAddress = derivedAddress;
                   changed = true;
-                  repaired += 1;
+                  addressRepairs += 1;
                 }
               }
             } catch (e) {
@@ -151,7 +173,7 @@ export const startSolAddressRepairMigration =
         }
         dispatch(
           LogActions.info(
-            `success [startSolAddressRepairMigration] - repaired: ${repaired}`,
+            `success [startSolAddressRepairMigration] - address repairs: ${addressRepairs}, key repairs: ${keyRepairs}`,
           ),
         );
       } catch (err) {
