@@ -4,6 +4,9 @@ declare module '*.svg' {
   export default content;
 }
 
+// Third-party libs without bundled types
+declare module 'react-native-libsodium';
+
 declare module '@env' {
   export const BRAZE_EXPORT_API_KEY: string;
   export const BRAZE_MERGE_AND_DELETE_API_KEY: string;
@@ -27,4 +30,8 @@ declare module '@env' {
   export const OPSCAN_API_KEY: string;
   export const BASESCAN_API_KEY: string;
   export const TEST_MODE_NETWORK: string;
+  // Remote encrypted logging
+  export const LOG_PUBLIC_KEY: string;
+  export const LOG_UPLOAD_URL: string;
+  export const LOG_INGEST_TOKEN: string;
 }

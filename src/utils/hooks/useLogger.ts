@@ -16,6 +16,8 @@ export const useLogger: () => Logger = () => {
   const loggerRef = useRef({
     clear() {
       dispatch(LogActions.clear());
+      // Optionally record a remote event for clear; keep disabled to avoid noise
+      // Remote upload handled by middleware
     },
     debug(message: string) {
       dispatch(LogActions.debug(message));

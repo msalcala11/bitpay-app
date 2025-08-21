@@ -75,6 +75,7 @@ import {
   ZenledgerReduxPersistBlackList,
   zenledgerReducer,
 } from './zenledger/zenledger.reducer';
+import {logUploadMiddleware} from './log/log.middleware';
 
 export const storage = new MMKV();
 
@@ -184,7 +185,7 @@ const logger = createLogger({
 });
 
 const getStore = async () => {
-  const middlewares = [thunkMiddleware];
+  const middlewares = [thunkMiddleware, logUploadMiddleware];
 
   if (__DEV__ && !(DISABLE_DEVELOPMENT_LOGGING === 'true')) {
     // @ts-ignore
