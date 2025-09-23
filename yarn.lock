@@ -15072,10 +15072,10 @@ react-native-markdown-display@7.0.0-alpha.2:
     prop-types "^15.7.2"
     react-native-fit-image "^1.5.5"
 
-react-native-mmkv@3.3.1:
-  version "3.3.1"
-  resolved "https://registry.yarnpkg.com/react-native-mmkv/-/react-native-mmkv-3.3.1.tgz#854ec786d3951e4bbbaa6161d812c3345d071d85"
-  integrity sha512-LYamDWQirPTUJZ9Re+BkCD+zLRGNr+EVJDeIeblvoJXGatWy9PXnChtajDSLqwjX3EXVeUyjgrembs7wlBw9ug==
+react-native-mmkv@4.0.0-beta.11:
+  version "4.0.0-beta.11"
+  resolved "https://registry.yarnpkg.com/react-native-mmkv/-/react-native-mmkv-4.0.0-beta.11.tgz#f0eb99a4c07cd3995f82310ba0cfc76acac8a554"
+  integrity sha512-S96s9DvCa0gT3wl/Qp7XvwJX2Cp/QXlktqHG1rVnOWLF9nTg6Ztz+I/yKyNcXaN95Xozs6mWqx9ChVSb1IgOSg==
 
 react-native-modal-datetime-picker@^7.4.2:
   version "7.6.1"
@@ -15106,6 +15106,11 @@ react-native-modal@^11.0.2:
   dependencies:
     prop-types "^15.6.2"
     react-native-animatable "1.3.3"
+
+react-native-nitro-modules@^0.29.6:
+  version "0.29.6"
+  resolved "https://registry.yarnpkg.com/react-native-nitro-modules/-/react-native-nitro-modules-0.29.6.tgz#7e9bbb2d240c6c10f9fa1316b34efbc19a61135b"
+  integrity sha512-Zm7x7DPx2bYc/eMfJ4lg2CCyXRCEm6as1ZyVU/2vCqMskiQxQquL3INqjne+tEJw+/h+mrnKrb7z7PiUitzEQw==
 
 react-native-os@1.2.6:
   version "1.2.6"

@@ -44,6 +44,10 @@ target 'BitPayApp' do
   pod 'BrazeKit'
   pod 'BrazeUI'
 
+  # MMKV v4 (Nitro) requires MMKVCore to generate module maps when using static libraries
+  # See: https://github.com/mrousavy/react-native-mmkv/blob/main/docs/V4_UPGRADE_GUIDE.md
+  pod 'MMKVCore', :modular_headers => true
+
   use_react_native!(
     :path => config[:reactNativePath],
     # An absolute path to your application root.

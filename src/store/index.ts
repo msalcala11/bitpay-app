@@ -71,7 +71,7 @@ import {
 } from './wallet-connect-v2/wallet-connect-v2.reducer';
 
 import {Storage} from 'redux-persist';
-import {MMKV} from 'react-native-mmkv';
+import {createMMKV} from 'react-native-mmkv';
 import {getErrorString} from '../utils/helper-methods';
 import {AppDispatch} from '../utils/hooks';
 import {
@@ -79,7 +79,7 @@ import {
   zenledgerReducer,
 } from './zenledger/zenledger.reducer';
 
-export const storage = new MMKV();
+export const storage = createMMKV();
 
 // Module-scoped logger that safely logs before and after store initialization
 let storeDispatch: ((action: AnyAction) => void) | null = null;
@@ -128,7 +128,7 @@ export const reduxStorage: Storage = {
   },
   removeItem: key => {
     try {
-      storage.delete(key);
+      storage.remove(key);
     } catch (err) {
       addLog(
         LogActions.persistLog(
