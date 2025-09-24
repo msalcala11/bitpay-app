@@ -142,7 +142,7 @@
     "react-native-markdown-display": "7.0.0-alpha.2",
     "react-native-mmkv": "4.0.0-beta.11",
     "react-native-modal": "14.0.0-rc.1",
-    "react-native-nitro-modules": "^0.29.6",
+    "react-native-nitro-modules": "0.29.6",
     "react-native-os": "1.2.6",
     "react-native-pager-view": "6.7.1",
     "react-native-permissions": "5.4.2",
