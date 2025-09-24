@@ -7,7 +7,6 @@ import {
   combineReducers,
   legacy_createStore as createStore,
   Middleware,
-  StoreEnhancer,
 } from 'redux';
 import {composeWithDevTools} from 'redux-devtools-extension';
 import {createLogger} from 'redux-logger'; // https://github.com/LogRocket/redux-logger
