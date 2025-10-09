@@ -147,7 +147,7 @@ export const CogIconContainer = styled(TouchableOpacity)`
   width: 40px;
 `;
 
-const OverviewContainer = styled.SafeAreaView`
+const OverviewContainer = styled.View`
   flex: 1;
 `;
 

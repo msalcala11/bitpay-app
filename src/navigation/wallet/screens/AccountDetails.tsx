@@ -219,7 +219,7 @@ const BorderBottom = styled.View`
   border-bottom-color: ${({theme: {dark}}) => (dark ? LightBlack : Air)};
 `;
 
-const AccountDetailsContainer = styled.SafeAreaView`
+const AccountDetailsContainer = styled.View`
   flex: 1;
 `;
 
