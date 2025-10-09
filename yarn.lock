@@ -2919,6 +2919,13 @@
     bignumber.js "^9.1.2"
     rxjs "^7.8.1"
 
+"@legendapp/list@^2.0.11":
+  version "2.0.11"
+  resolved "https://registry.yarnpkg.com/@legendapp/list/-/list-2.0.11.tgz#5a635c40e61b78f8a92b545c0262168d7234a815"
+  integrity sha512-q760KJNcmhbBdScuPZ4nfmULKTjXJjU1BjCpoxD28jTiVHsYa6DbeUSqdx/2WEp13EjbmKwyP4kZMBb9ECidBQ==
+  dependencies:
+    use-sync-external-store "^1.5.0"
+
 "@moralisweb3/api-utils@^2.25.2", "@moralisweb3/api-utils@^2.27.2":
   version "2.27.2"
   resolved "https://registry.yarnpkg.com/@moralisweb3/api-utils/-/api-utils-2.27.2.tgz#ff984e4309d8218aef3f353edc91c6229249ada6"

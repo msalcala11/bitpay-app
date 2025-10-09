@@ -12,7 +12,7 @@ import {
   useRoute,
   useTheme,
 } from '@react-navigation/native';
-import {FlashList} from '@shopify/flash-list';
+import {LegendList} from '@legendapp/list';
 import {LogBox, RefreshControl, View} from 'react-native';
 import {TouchableOpacity} from 'react-native-gesture-handler';
 import styled from 'styled-components/native';
@@ -740,7 +740,7 @@ const KeyOverview = () => {
         </TouchableOpacity>
       </BalanceContainer>
 
-      <FlashList<AccountRowProps>
+      <LegendList<AccountRowProps>
         refreshControl={
           <RefreshControl
             tintColor={theme.dark ? White : SlateDark}
@@ -753,7 +753,9 @@ const KeyOverview = () => {
         data={renderDataComponent}
         renderItem={memoizedRenderItem}
         ListEmptyComponent={listEmptyComponent}
-        estimatedItemSize={70}
+        keyExtractor={(item) => item.id}
+        recycleItems={true}
+        maintainVisibleContentPosition
       />
 
       {keyOptions.length > 0 ? (
