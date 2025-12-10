@@ -1,9 +1,17 @@
 import {Effect} from '../index';
-import {EntityRef, Timeframe} from './portfolio.types';
+import {EntityRef, Timeframe, SeriesRefreshState} from './portfolio.types';
 import {buildSeriesKey} from './utils';
-import {fetchFullHistory, buildCryptoTimeline, buildQuoteSeries, mergeBalanceSeries, WalletSeriesWithMeta} from './services/history';
+import {
+  fetchFullHistory,
+  buildCryptoTimeline,
+  buildQuoteSeries,
+  buildIncrementalQuoteSeries,
+  mergeBalanceSeries,
+  getTimeframeDurationMs,
+  WalletSeriesWithMeta,
+} from './services/history';
 import {BalancePoint} from './portfolio.types';
-import {upsertPortfolioSeries, upsertPortfolioStatus, upsertCryptoTimeline} from './portfolio.actions';
+import {upsertPortfolioSeries, upsertPortfolioStatus, upsertCryptoTimeline, upsertSeriesRefreshState} from './portfolio.actions';
 import {Wallet} from '../wallet/wallet.models';
 import {findWalletById} from '../wallet/utils/wallet';
 import {getRateByCurrencyName} from '../../utils/helper-methods';
@@ -68,6 +76,11 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
           throw new Error('Wallet not found');
         }
 
+        // Check for existing data for incremental refresh
+        const existingSeries = state.PORTFOLIO.series[scopeKey];
+        const existingRefreshState = state.PORTFOLIO.seriesRefreshState[scopeKey];
+        const existingTimeline = state.PORTFOLIO.cryptoTimelines[scopeKey];
+
         // 1. Fetch full transaction history
         const transactions = await dispatch(fetchFullHistory({wallet}));
 
@@ -77,16 +90,57 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
         // 3. Get live rate for final data point
         const liveRate = getLiveRate(wallet, resolvedQuoteCurrency, rates);
 
-        // 4. Convert to fiat series (handles filtering, sampling, rate fetching)
-        points = await dispatch(
-          buildQuoteSeries({
-            wallet,
-            cryptoTimeline,
-            quoteCurrency: resolvedQuoteCurrency,
-            timeframe,
-            liveRate,
-          }),
-        );
+        // 4. Check if we can do incremental refresh
+        const canDoIncremental = 
+          existingSeries?.length > 0 &&
+          existingRefreshState &&
+          existingTimeline?.length > 0 &&
+          // Only incremental if no new transactions (same tx count)
+          // or if we have the same timeline structure
+          cryptoTimeline.length >= existingRefreshState.lastTxCount;
+
+        if (canDoIncremental) {
+          // Incremental refresh: left-shift and append new data
+          const {points: updatedPoints, refreshState: newRefreshState} = await dispatch(
+            buildIncrementalQuoteSeries({
+              wallet,
+              existingSeries,
+              existingRefreshState,
+              cryptoTimeline,
+              quoteCurrency: resolvedQuoteCurrency,
+              timeframe,
+              liveRate,
+            }),
+          );
+          points = updatedPoints;
+          dispatch(upsertSeriesRefreshState(scopeKey, newRefreshState));
+        } else {
+          // Full rebuild
+          points = await dispatch(
+            buildQuoteSeries({
+              wallet,
+              cryptoTimeline,
+              quoteCurrency: resolvedQuoteCurrency,
+              timeframe,
+              liveRate,
+            }),
+          );
+
+          // Store metadata for future incremental refreshes
+          const now = Date.now();
+          const timeframeDuration = getTimeframeDurationMs(timeframe);
+          const windowStart = timeframeDuration
+            ? now - timeframeDuration
+            : cryptoTimeline[0]?.timestamp || now;
+          
+          const newRefreshState: SeriesRefreshState = {
+            lastUpdated: now,
+            lastCryptoAmount: cryptoTimeline[cryptoTimeline.length - 1]?.amount || 0,
+            lastTxCount: cryptoTimeline.length,
+            windowStart,
+          };
+          dispatch(upsertSeriesRefreshState(scopeKey, newRefreshState));
+        }
 
         dispatch(upsertCryptoTimeline(scopeKey, cryptoTimeline));
       } else if (entity.type === 'key' && entity.id) {

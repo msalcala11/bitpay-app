@@ -6,6 +6,7 @@ import {
 
 const initialState: PortfolioAnalyticsState = {
   series: {},
+  seriesRefreshState: {},
   cryptoTimelines: {},
   gainLoss: {},
   allocations: {},
@@ -29,6 +30,7 @@ export const portfolioReducer = (
     case PortfolioActionTypes.CLEAR_SCOPE: {
       const {scope} = action.payload;
       const {[scope]: _series, ...seriesRest} = state.series;
+      const {[scope]: _refreshState, ...refreshStateRest} = state.seriesRefreshState;
       const {[scope]: _cryptoTimeline, ...cryptoTimelinesRest} = state.cryptoTimelines;
       const {[scope]: _gainLoss, ...gainLossRest} = state.gainLoss;
       const {[scope]: _allocations, ...allocationsRest} = state.allocations;
@@ -37,6 +39,7 @@ export const portfolioReducer = (
       return {
         ...state,
         series: seriesRest,
+        seriesRefreshState: refreshStateRest,
         cryptoTimelines: cryptoTimelinesRest,
         gainLoss: gainLossRest,
         allocations: allocationsRest,
@@ -62,6 +65,17 @@ export const portfolioReducer = (
         series: {
           ...state.series,
           [scope]: points,
+        },
+      };
+    }
+
+    case PortfolioActionTypes.UPSERT_SERIES_REFRESH_STATE: {
+      const {scope, refreshState} = action.payload;
+      return {
+        ...state,
+        seriesRefreshState: {
+          ...state.seriesRefreshState,
+          [scope]: refreshState,
         },
       };
     }

@@ -1,6 +1,6 @@
 import {Effect} from '../../index';
 import {Wallet} from '../../wallet/wallet.models';
-import {CryptoCheckpoint, BalancePoint, Timeframe, WalletContribution} from '../portfolio.types';
+import {CryptoCheckpoint, BalancePoint, SeriesRefreshState, Timeframe, WalletContribution} from '../portfolio.types';
 import {
   BWS_TX_HISTORY_LIMIT,
   GetTransactionHistory,
@@ -145,6 +145,17 @@ const TIMEFRAME_TO_MS: Record<Exclude<Timeframe, 'ALL'>, number> = {
   '3M': 90 * DAY_MS,
   '1Y': 365 * DAY_MS,
   '5Y': 1825 * DAY_MS,
+};
+
+/**
+ * Get the duration in milliseconds for a timeframe.
+ * Returns undefined for 'ALL' timeframe.
+ */
+export const getTimeframeDurationMs = (timeframe: Timeframe): number | undefined => {
+  if (timeframe === 'ALL') {
+    return undefined;
+  }
+  return TIMEFRAME_TO_MS[timeframe];
 };
 
 /** Target number of data points for chart rendering performance */
@@ -410,3 +421,151 @@ export const mergeBalanceSeries = (
     };
   });
 };
+
+export interface IncrementalRefreshOptions {
+  wallet: Wallet;
+  existingSeries: BalancePoint[];
+  existingRefreshState: SeriesRefreshState;
+  cryptoTimeline: CryptoCheckpoint[];
+  quoteCurrency: string;
+  timeframe: Timeframe;
+  liveRate?: number;
+}
+
+/**
+ * Performs an incremental (left-shift) refresh of a balance series.
+ * - Filters out stale points that fall outside the new time window
+ * - Builds new points only for the period since last update
+ * - Merges old valid points with new points
+ * 
+ * Returns the updated series and new metadata.
+ */
+export const buildIncrementalQuoteSeries = ({
+  wallet,
+  existingSeries,
+  existingRefreshState,
+  cryptoTimeline,
+  quoteCurrency,
+  timeframe,
+  liveRate,
+}: IncrementalRefreshOptions): Effect<Promise<{points: BalancePoint[]; refreshState: SeriesRefreshState}>> =>
+  async dispatch => {
+    const now = Date.now();
+    const timeframeDuration = getTimeframeDurationMs(timeframe);
+    
+    // For ALL timeframe, we don't left-shift, just append new data
+    const windowStart = timeframeDuration 
+      ? now - timeframeDuration 
+      : existingRefreshState.windowStart;
+    
+    // 1. Left-shift: filter out points that are now outside the window
+    const validPoints = existingSeries.filter(p => p.timestamp >= windowStart);
+    
+    // 2. Determine where to start building new points
+    const lastValidTimestamp = validPoints.length > 0 
+      ? validPoints[validPoints.length - 1].timestamp 
+      : windowStart;
+    
+    // 3. Calculate interval based on remaining gap to fill
+    const remainingDuration = now - lastValidTimestamp;
+    const totalDuration = now - windowStart;
+    const intervalMs = Math.max(
+      Math.floor(totalDuration / TARGET_DATA_POINTS),
+      60 * 1000, // minimum 1 minute interval
+    );
+    
+    // 4. Find starting crypto amount at lastValidTimestamp
+    let currentAmount = existingRefreshState.lastCryptoAmount;
+    let checkpointIndex = 0;
+    
+    // Advance to find the correct starting amount
+    while (
+      checkpointIndex < cryptoTimeline.length &&
+      cryptoTimeline[checkpointIndex].timestamp <= lastValidTimestamp
+    ) {
+      currentAmount = cryptoTimeline[checkpointIndex].amount;
+      checkpointIndex++;
+    }
+    
+    // 5. Sample new points from lastValidTimestamp to now
+    const newSampledPoints: {timestamp: number; amount: number}[] = [];
+    
+    // Start from the next interval after the last valid point
+    const startTs = lastValidTimestamp + intervalMs;
+    
+    for (let ts = startTs; ts <= now; ts += intervalMs) {
+      // Advance through checkpoints that fall before or at this interval
+      while (
+        checkpointIndex < cryptoTimeline.length &&
+        cryptoTimeline[checkpointIndex].timestamp <= ts
+      ) {
+        currentAmount = cryptoTimeline[checkpointIndex].amount;
+        checkpointIndex++;
+      }
+      newSampledPoints.push({timestamp: ts, amount: currentAmount});
+    }
+    
+    // 6. Get precision for this wallet's asset
+    const precision = dispatch(
+      GetPrecision(
+        wallet.currencyAbbreviation,
+        wallet.chain,
+        wallet.tokenAddress,
+      ),
+    );
+    const unitToSatoshi = precision?.unitToSatoshi;
+    
+    if (!unitToSatoshi) {
+      return {
+        points: existingSeries,
+        refreshState: existingRefreshState,
+      };
+    }
+    
+    // 7. Convert new sampled points to fiat
+    const newPoints: BalancePoint[] = [];
+    const lastIndex = newSampledPoints.length - 1;
+    
+    for (let i = 0; i < newSampledPoints.length; i++) {
+      const sample = newSampledPoints[i];
+      const assetUnits = getUnitAmount(sample.amount, unitToSatoshi);
+      
+      // Use live rate for the final data point if provided
+      const isLastPoint = i === lastIndex;
+      const rate =
+        isLastPoint && liveRate !== undefined
+          ? liveRate
+          : await getHistoricQuoteRate({
+              quoteCurrency,
+              currencyAbbreviation: wallet.currencyAbbreviation,
+              chain: wallet.chain,
+              tokenAddress: wallet.tokenAddress,
+              timestampMs: sample.timestamp,
+            });
+      
+      if (!rate && assetUnits !== 0) {
+        continue;
+      }
+      
+      newPoints.push({
+        timestamp: sample.timestamp,
+        quoteValue: assetUnits * (rate || 0),
+        quoteCurrency,
+        quoteRate: rate,
+        cryptoAmount: sample.amount,
+      });
+    }
+    
+    // 8. Merge valid old points with new points
+    const mergedPoints = [...validPoints, ...newPoints];
+    
+    // 9. Build new refresh state
+    const newRefreshState: SeriesRefreshState = {
+      lastUpdated: now,
+      lastCryptoAmount: currentAmount,
+      lastTxCount: cryptoTimeline.length,
+      windowStart,
+    };
+    
+    return {points: mergedPoints, refreshState: newRefreshState};
+  };

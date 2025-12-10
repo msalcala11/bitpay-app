@@ -81,8 +81,24 @@ export interface PortfolioLoadState {
   error?: string | null;
 }
 
+/**
+ * State for incremental refresh (left-shift strategy).
+ * Stored per scope key to enable efficient partial updates.
+ */
+export interface SeriesRefreshState {
+  /** Timestamp when series was last refreshed */
+  lastUpdated: number;
+  /** Final crypto balance for timeline continuity (satoshis) */
+  lastCryptoAmount: number;
+  /** Transaction count for delta fetching */
+  lastTxCount: number;
+  /** Window start timestamp for the current series */
+  windowStart: number;
+}
+
 export interface PortfolioAnalyticsState {
   series: Record<string, BalancePoint[]>;
+  seriesRefreshState: Record<string, SeriesRefreshState>;
   cryptoTimelines: Record<string, CryptoCheckpoint[]>;
   gainLoss: Record<string, GainLossResult>;
   allocations: Record<string, AllocationResult[]>;
@@ -95,6 +111,7 @@ export enum PortfolioActionTypes {
   CLEAR_SCOPE = 'PORTFOLIO/CLEAR_SCOPE',
   UPSERT_STATUS = 'PORTFOLIO/UPSERT_STATUS',
   UPSERT_SERIES = 'PORTFOLIO/UPSERT_SERIES',
+  UPSERT_SERIES_REFRESH_STATE = 'PORTFOLIO/UPSERT_SERIES_REFRESH_STATE',
   UPSERT_CRYPTO_TIMELINE = 'PORTFOLIO/UPSERT_CRYPTO_TIMELINE',
 }
 
@@ -108,6 +125,10 @@ export type PortfolioActionType =
   | {
       type: PortfolioActionTypes.UPSERT_SERIES;
       payload: {scope: string; points: BalancePoint[]};
+    }
+  | {
+      type: PortfolioActionTypes.UPSERT_SERIES_REFRESH_STATE;
+      payload: {scope: string; refreshState: SeriesRefreshState};
     }
   | {
       type: PortfolioActionTypes.UPSERT_CRYPTO_TIMELINE;

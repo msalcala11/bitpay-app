@@ -3,6 +3,7 @@ import {
   PortfolioActionTypes,
   PortfolioLoadState,
   BalancePoint,
+  SeriesRefreshState,
   CryptoCheckpoint,
 } from './portfolio.types';
 
@@ -29,6 +30,14 @@ export const upsertPortfolioSeries = (
 ): PortfolioActionType => ({
   type: PortfolioActionTypes.UPSERT_SERIES,
   payload: {scope, points},
+});
+
+export const upsertSeriesRefreshState = (
+  scope: string,
+  refreshState: SeriesRefreshState,
+): PortfolioActionType => ({
+  type: PortfolioActionTypes.UPSERT_SERIES_REFRESH_STATE,
+  payload: {scope, refreshState},
 });
 
 export const upsertCryptoTimeline = (
