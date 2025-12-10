@@ -49,6 +49,7 @@ const StorageUsage: React.FC = () => {
   const [ratesStorage, setRatesStorage] = useState<string>('');
   const [backupStorage, setBackupStorage] = useState<string>('');
   const [shopCatalogStorage, setShopCatalogStorage] = useState<string>('');
+  const [portfolioStorage, setPortfolioStorage] = useState<string>('');
 
   const giftCards = useAppSelector(
     ({APP, SHOP}) => SHOP.giftCards[APP.network],
@@ -57,6 +58,7 @@ const StorageUsage: React.FC = () => {
   const customTokens = useAppSelector(({WALLET}) => WALLET.customTokenData);
   const contacts = useAppSelector(({CONTACT}) => CONTACT.list);
   const rates = useAppSelector(({RATE}) => RATE.rates);
+  const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
 
   const formatBytes = (bytes: number, decimals = 2): string => {
     if (!+bytes) {
@@ -116,6 +118,18 @@ const StorageUsage: React.FC = () => {
       } catch (err) {
         const errStr = err instanceof Error ? err.message : JSON.stringify(err);
         logManager.error('[setShopCatalogStorage] Error ', errStr);
+      }
+    };
+    const _setPortfolioStorage = async () => {
+      try {
+        const _portfolioStorageSize = await getSize(
+          RNFS.TemporaryDirectoryPath + '/portfolio.txt',
+          JSON.stringify(portfolio),
+        );
+        setPortfolioStorage(formatBytes(_portfolioStorageSize));
+      } catch (err) {
+        const errStr = err instanceof Error ? err.message : JSON.stringify(err);
+        logManager.error('[setPortfolioStorage] Error ', errStr);
       }
     };
     const _setBackupStorage = async () => {
@@ -245,6 +259,7 @@ const StorageUsage: React.FC = () => {
     _setRatesStorage();
     _setBackupStorage();
     _setShopCatalogStorage();
+    _setPortfolioStorage();
   }, [dispatch]);
 
   return (
@@ -333,6 +348,13 @@ const StorageUsage: React.FC = () => {
             <SettingTitle>{t('Filesystem Backup')}</SettingTitle>
 
             <Button buttonType="pill">{backupStorage}</Button>
+          </Setting>
+
+          <Hr />
+          <Setting>
+            <SettingTitle>{t('Portfolio')}</SettingTitle>
+
+            <Button buttonType="pill">{portfolioStorage}</Button>
           </Setting>
         </SettingsComponent>
       </ScrollContainer>
