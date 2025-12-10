@@ -209,9 +209,52 @@ Components (graphs, summary cards) consume selectors; if data missing or stale t
 
 2. **Transaction cache:** Keep fetched histories in `wallet.transactionHistory` to avoid refetching; only pull deltas when new txs arrive.
 
-3. **Incremental recompute:**
-   - For rolling timeframes (1D/1W/1M/3M) reuse existing series by appending newest checkpoints rather than rebuilding from scratch.
-   - For 1Y/5Y/ALL recompute only when new tx enters range or fiat changes.
+3. **Incremental recompute (Left-Shift Strategy):**
+   
+   Instead of full reloads on refresh, use a "left-shift" approach:
+   
+   ```ts
+   interface BalanceSeriesMeta {
+     lastUpdated: number;        // When series was last refreshed
+     lastCryptoAmount: number;   // Final crypto balance for continuity
+     lastTxCount: number;        // For delta transaction fetching
+   }
+   
+   function incrementalRefresh(existingSeries, meta, timeframe) {
+     const now = Date.now();
+     const windowStart = now - timeframeToMs(timeframe);
+     
+     // 1. Left-shift: remove stale points outside new window
+     const validPoints = existingSeries.filter(p => p.timestamp >= windowStart);
+     
+     // 2. Fetch only NEW transactions since last update
+     const newTxs = await fetchTransactionsSince(meta.lastTxCount);
+     
+     // 3. Build new checkpoints starting from last known balance
+     const newCheckpoints = buildCryptoTimeline(newTxs, meta.lastCryptoAmount);
+     
+     // 4. Sample and fetch rates for new period only
+     const newPoints = await buildQuoteSeries({
+       startTs: meta.lastUpdated,
+       endTs: now,
+     });
+     
+     // 5. Merge and return
+     return [...validPoints, ...newPoints];
+   }
+   ```
+   
+   **When to use incremental vs full reload:**
+   | Scenario | Action |
+   |----------|--------|
+   | First load for timeframe | Full reload |
+   | Cache exists, refreshing | Incremental (left-shift) |
+   | Quote currency changed | Full reload (different cache key) |
+   | ALL timeframe | Incremental (append new txs only) |
+   
+   **Estimated savings** for 1D chart refreshed after 1 hour:
+   - Full reload: 45 rate requests + full tx history
+   - Incremental: ~2 rate requests + 1 tx history page
 
 4. **Background warm-up:** when app launches or fiat changes, kick off a background job to warm most-used scopes/timeframes so UI reads instantly.
 

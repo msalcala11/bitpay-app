@@ -43,11 +43,38 @@
 - [ ] Selector + refresh thunk.
 
 ### 4. Hooks
-- [ ] `src/store/portfolio/hooks.ts`
-  - [ ] `useBalanceSeries`
+- [x] `src/store/portfolio/hooks.ts`
+  - [x] `useBalanceSeries`
   - [ ] `useGainLoss`
   - [ ] `useAllocations`
-  - [ ] Each dispatches corresponding load thunk when data missing/stale.
+  - [x] Each dispatches corresponding load thunk when data missing/stale.
+
+### 5. Incremental Refresh (Left-Shift Strategy)
+- [ ] Add `BalanceSeriesMeta` to track refresh state per scope
+  ```ts
+  interface BalanceSeriesMeta {
+    lastUpdated: number;        // Timestamp of last refresh
+    lastCryptoAmount: number;   // Final crypto balance for timeline continuity
+    lastTxCount: number;        // Transaction count for delta fetching
+  }
+  ```
+- [ ] Store meta alongside series in Redux: `seriesMeta: Record<string, BalanceSeriesMeta>`
+- [ ] Implement `incrementalRefresh` in thunks:
+  - [ ] Left-shift: filter out points before new window start
+  - [ ] Delta fetch: get only new transactions since `lastTxCount`
+  - [ ] Partial build: construct checkpoints/rates for new period only
+  - [ ] Merge: combine valid old points with new points
+- [ ] Add `forceFullReload` option to `loadBalanceSeries` for manual full refresh
+- [ ] Detect when incremental is possible vs full reload required:
+  - First load → full
+  - Cache exists + same timeframe → incremental
+  - Quote currency changed → full (different cache key handles this)
+
+**Implementation Notes:**
+- Each timeframe has its own cache key, so switching timeframes doesn't invalidate other caches
+- Rate cache already memoizes by hour bucket, so overlapping periods won't re-fetch
+- For ALL timeframe: only append new transactions, no left-shift needed
+- Consider adding a staleness threshold (e.g., refresh if > 5 min old)
 
 ## Status Log
 - _2025-11-21_: Phase 2 outline created.
@@ -58,3 +85,4 @@
   - Simplified types for single-asset wallets: `CryptoCheckpoint` is now `{timestamp, amount}`, `BalancePoint` uses `cryptoAmount` instead of `cryptoBreakdown` Record
   - Updated `WalletBalanceSeries.tsx` to use new simplified types
 - _2025-12-02_: Optimized sampling to produce exactly 45 data points per timeframe (TARGET_DATA_POINTS constant). Replaced fixed hourly/daily intervals with dynamic interval calculation based on time range. This improves chart animation performance and reduces rate-fetching overhead.
+- _2025-12-10_: Added left-shift incremental refresh strategy to plan. Instead of full reloads, will filter stale points, fetch only new transactions/rates, and merge with existing data. Each timeframe maintains its own cache key so switching timeframes uses separate cached data.
