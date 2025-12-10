@@ -89,6 +89,8 @@ import BackupOnboarding, {
 import {Root} from '../../Root';
 import {AccountRowProps} from '../../components/list/AccountListRow';
 import KeyInformation from './screens/KeyInformation';
+import WalletBalanceSeries from './screens/WalletBalanceSeries';
+import {Timeframe} from '../../store/portfolio/portfolio.types';
 
 interface WalletProps {
   Wallet: typeof Root;
@@ -115,6 +117,16 @@ export type WalletGroupParamList = {
   };
   AccountDetails: AccountDetailsScreenParamList;
   WalletDetails: WalletDetailsScreenParamList;
+  WalletBalanceSeries: {
+    walletId?: string;
+    keyId?: string;
+    accountAddress?: string;
+    accountKeyId?: string;
+    timeframe?: Timeframe;
+    walletName?: string;
+    keyName?: string;
+    accountName?: string;
+  };
   WalletSettings: {walletId: string; key: Key; copayerId?: string};
   AccountSettings: {
     key: Key;
@@ -197,6 +209,7 @@ export enum WalletScreens {
   ACCOUNT_DETAILS = 'AccountDetails',
   ACCOUNT_SETTINGS = 'AccountSettings',
   WALLET_DETAILS = 'WalletDetails',
+  WALLET_BALANCE_SERIES = 'WalletBalanceSeries',
   WALLET_SETTINGS = 'WalletSettings',
   CREATION_OPTIONS = 'CreationOptions',
   IMPORT = 'Import',
@@ -302,6 +315,10 @@ const WalletGroup = ({Wallet, theme}: WalletProps) => {
       <Wallet.Screen
         name={WalletScreens.WALLET_DETAILS}
         component={WalletDetails}
+      />
+      <Wallet.Screen
+        name={WalletScreens.WALLET_BALANCE_SERIES}
+        component={WalletBalanceSeries}
       />
       <Wallet.Screen
         name={WalletScreens.WALLET_SETTINGS}

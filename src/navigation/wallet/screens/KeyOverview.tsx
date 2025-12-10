@@ -68,7 +68,8 @@ import {
 } from '../components/ErrorMessages';
 import OptionsSheet, {Option} from '../components/OptionsSheet';
 import Icons from '../components/WalletIcons';
-import {WalletGroupParamList} from '../WalletGroup';
+import {WalletGroupParamList, WalletScreens} from '../WalletGroup';
+import {Link} from '../../../components/styled/Text';
 import {useAppDispatch, useAppSelector, useLogger} from '../../../utils/hooks';
 import SheetModal from '../../../components/modal/base/sheet/SheetModal';
 import {
@@ -164,6 +165,17 @@ const PercentageWrapper = styled.View`
   align-self: center;
 `;
 
+const LinkText = styled(Link)`
+  font-weight: 500;
+  font-size: 18px;
+  text-align: center;
+`;
+
+const BalanceSeriesButton = styled(TouchableOpacity)`
+  margin-top: 12px;
+  align-self: center;
+`;
+
 const WalletListHeader = styled.View`
   padding: 10px;
   margin-top: 10px;
@@ -222,6 +234,7 @@ const KeyOverview = () => {
     ({COINBASE}) => !!COINBASE.token[COINBASE_ENV],
   );
   const [showKeyDropdown, setShowKeyDropdown] = useState(false);
+  const [showTimeframeSheet, setShowTimeframeSheet] = useState(false);
   const key = keys[id];
   const hasMultipleKeys =
     Object.values(keys).filter(k => k.backupComplete).length > 1;
@@ -767,6 +780,9 @@ const KeyOverview = () => {
             <H2>****</H2>
           )}
         </TouchableOpacity>
+        <BalanceSeriesButton onPress={() => setShowTimeframeSheet(true)}>
+          <LinkText>{t('View balance series list')}</LinkText>
+        </BalanceSeriesButton>
       </BalanceContainer>
 
       <FlashList<AccountRowProps>
@@ -793,6 +809,74 @@ const KeyOverview = () => {
           closeModal={() => setShowKeyOptions(false)}
         />
       ) : null}
+
+      <OptionsSheet
+        isVisible={showTimeframeSheet}
+        closeModal={() => setShowTimeframeSheet(false)}
+        title={t('Select Timeframe')}
+        options={[
+          {
+            title: t('1 Day'),
+            description: t('Last 24 hours'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                keyId: key.id,
+                timeframe: '1D',
+                keyName: key.keyName,
+              }),
+          },
+          {
+            title: t('1 Week'),
+            description: t('Last 7 days'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                keyId: key.id,
+                timeframe: '1W',
+                keyName: key.keyName,
+              }),
+          },
+          {
+            title: t('1 Month'),
+            description: t('Last 30 days'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                keyId: key.id,
+                timeframe: '1M',
+                keyName: key.keyName,
+              }),
+          },
+          {
+            title: t('3 Months'),
+            description: t('Last 90 days'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                keyId: key.id,
+                timeframe: '3M',
+                keyName: key.keyName,
+              }),
+          },
+          {
+            title: t('1 Year'),
+            description: t('Last 365 days'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                keyId: key.id,
+                timeframe: '1Y',
+                keyName: key.keyName,
+              }),
+          },
+          {
+            title: t('All Time'),
+            description: t('Full transaction history'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                keyId: key.id,
+                timeframe: 'ALL',
+                keyName: key.keyName,
+              }),
+          },
+        ]}
+      />
 
       <SheetModal
         isVisible={showKeyDropdown}

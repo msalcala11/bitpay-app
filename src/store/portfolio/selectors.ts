@@ -1,0 +1,22 @@
+import {RootState} from '../index';
+import {BalancePoint, CryptoCheckpoint, PortfolioLoadState} from './portfolio.types';
+
+export const selectPortfolioState = (state: RootState) => state.PORTFOLIO;
+
+export const selectPortfolioSeriesByKey = (
+  state: RootState,
+  scopeKey: string,
+): BalancePoint[] | undefined => state.PORTFOLIO.series[scopeKey];
+
+export const selectCryptoTimelineByKey = (
+  state: RootState,
+  scopeKey: string,
+): CryptoCheckpoint[] | undefined => state.PORTFOLIO.cryptoTimelines[scopeKey];
+
+export const selectPortfolioStatusByKey = (
+  state: RootState,
+  scopeKey: string,
+): PortfolioLoadState | undefined => state.PORTFOLIO.status[scopeKey];
+
+export const selectPortfolioQuoteCurrency = (state: RootState) =>
+  state.APP.defaultAltCurrency.isoCode;

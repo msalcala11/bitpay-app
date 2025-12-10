@@ -87,6 +87,7 @@ import BalanceDetailsModal from '../components/BalanceDetailsModal';
 import Icons from '../components/WalletIcons';
 import {WalletScreens, WalletGroupParamList} from '../WalletGroup';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
+import {useBalanceSeries} from '../../../store/portfolio/hooks';
 import {startGetRates} from '../../../store/wallet/effects';
 import {createWalletAddress} from '../../../store/wallet/effects/address/address';
 import {
@@ -270,6 +271,11 @@ const LinkText = styled(Link)`
   text-align: center;
 `;
 
+const BalanceSeriesButton = styled(TouchableOpacity)`
+  margin-top: 12px;
+  align-self: center;
+`;
+
 const getWalletType = (
   key: Key,
   wallet: Wallet,
@@ -305,6 +311,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const theme = useTheme();
   const {t} = useTranslation();
   const [showWalletOptions, setShowWalletOptions] = useState(false);
+  const [showTimeframeSheet, setShowTimeframeSheet] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const {walletId, skipInitializeHistory, copayerId} = route.params;
   const {keys} = useAppSelector(({WALLET}) => WALLET);
@@ -336,6 +343,26 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const [showBalanceDetailsModal, setShowBalanceDetailsModal] = useState(false);
   const walletType = getWalletType(key, fullWalletObj);
   const showArchaxBanner = useAppSelector(({APP}) => APP.showArchaxBanner);
+
+  const {data: balanceSeries, status: balanceStatus} = useBalanceSeries({
+    entity: {type: 'wallet', id: walletId},
+    timeframe: '1Y',
+  });
+
+  useEffect(() => {
+    if (balanceSeries) {
+      console.log(
+        `[WalletDetails] Balance series for wallet ${walletId}: ${JSON.stringify(
+          balanceSeries,
+        )}`,
+      );
+    }
+    if (balanceStatus?.state === 'failed') {
+      console.warn(
+        `[WalletDetails] Failed to load balance series for wallet ${walletId}: ${balanceStatus.error}`,
+      );
+    }
+  }, [balanceSeries, balanceStatus?.state, balanceStatus?.error, walletId]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -1152,6 +1179,11 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
                   </Row>
                 </BalanceContainer>
 
+                <BalanceSeriesButton
+                  onPress={() => setShowTimeframeSheet(true)}>
+                  <LinkText>{t('View balance series list')}</LinkText>
+                </BalanceSeriesButton>
+
                 {fullWalletObj ? (
                   <LinkingButtons
                     buy={{
@@ -1345,6 +1377,74 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
         closeModal={() => setShowWalletOptions(false)}
         title={t('WalletOptions')}
         options={getAssetOptions()}
+      />
+
+      <OptionsSheet
+        isVisible={showTimeframeSheet}
+        closeModal={() => setShowTimeframeSheet(false)}
+        title={t('Select Timeframe')}
+        options={[
+          {
+            title: t('1 Day'),
+            description: t('Last 24 hours'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                walletId,
+                timeframe: '1D',
+                walletName: uiFormattedWallet.walletName,
+              }),
+          },
+          {
+            title: t('1 Week'),
+            description: t('Last 7 days'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                walletId,
+                timeframe: '1W',
+                walletName: uiFormattedWallet.walletName,
+              }),
+          },
+          {
+            title: t('1 Month'),
+            description: t('Last 30 days'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                walletId,
+                timeframe: '1M',
+                walletName: uiFormattedWallet.walletName,
+              }),
+          },
+          {
+            title: t('3 Months'),
+            description: t('Last 90 days'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                walletId,
+                timeframe: '3M',
+                walletName: uiFormattedWallet.walletName,
+              }),
+          },
+          {
+            title: t('1 Year'),
+            description: t('Last 365 days'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                walletId,
+                timeframe: '1Y',
+                walletName: uiFormattedWallet.walletName,
+              }),
+          },
+          {
+            title: t('All Time'),
+            description: t('Full transaction history'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                walletId,
+                timeframe: 'ALL',
+                walletName: uiFormattedWallet.walletName,
+              }),
+          },
+        ]}
       />
 
       {fullWalletObj ? (

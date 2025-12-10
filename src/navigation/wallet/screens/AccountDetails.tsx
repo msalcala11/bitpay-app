@@ -289,6 +289,17 @@ const BalanceContainer = styled.View`
   flex-direction: column;
 `;
 
+const LinkText = styled(Link)`
+  font-weight: 500;
+  font-size: 18px;
+  text-align: center;
+`;
+
+const BalanceSeriesButton = styled(TouchableOpacity)`
+  margin-top: 12px;
+  align-self: center;
+`;
+
 const AssetsDataContainer = styled(Row)`
   display: flex;
   flex-direction: row;
@@ -370,6 +381,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     [] as AssetsByChainListProps[],
   );
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
+  const [showTimeframeSheet, setShowTimeframeSheet] = useState(false);
   const linkedCoinbase = useAppSelector(
     ({COINBASE}) => !!COINBASE.token[COINBASE_ENV],
   );
@@ -1286,6 +1298,9 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
                 {!copied ? <CopySvg width={10} /> : <CopiedSvg width={10} />}
               </CopyToClipboardContainer>
             </BadgeContainerTouchable>
+            <BalanceSeriesButton onPress={() => setShowTimeframeSheet(true)}>
+              <LinkText>{t('View balance series list')}</LinkText>
+            </BalanceSeriesButton>
           </BalanceContainer>
           <LinkingButtons
             buy={{
@@ -1542,6 +1557,80 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
           closeModal={() => setShowKeyOptions(false)}
         />
       ) : null}
+
+      <OptionsSheet
+        isVisible={showTimeframeSheet}
+        closeModal={() => setShowTimeframeSheet(false)}
+        title={t('Select Timeframe')}
+        options={[
+          {
+            title: t('1 Day'),
+            description: t('Last 24 hours'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                accountAddress: selectedAccountAddress,
+                accountKeyId: keyId,
+                timeframe: '1D',
+                accountName: accountItem?.accountName,
+              }),
+          },
+          {
+            title: t('1 Week'),
+            description: t('Last 7 days'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                accountAddress: selectedAccountAddress,
+                accountKeyId: keyId,
+                timeframe: '1W',
+                accountName: accountItem?.accountName,
+              }),
+          },
+          {
+            title: t('1 Month'),
+            description: t('Last 30 days'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                accountAddress: selectedAccountAddress,
+                accountKeyId: keyId,
+                timeframe: '1M',
+                accountName: accountItem?.accountName,
+              }),
+          },
+          {
+            title: t('3 Months'),
+            description: t('Last 90 days'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                accountAddress: selectedAccountAddress,
+                accountKeyId: keyId,
+                timeframe: '3M',
+                accountName: accountItem?.accountName,
+              }),
+          },
+          {
+            title: t('1 Year'),
+            description: t('Last 365 days'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                accountAddress: selectedAccountAddress,
+                accountKeyId: keyId,
+                timeframe: '1Y',
+                accountName: accountItem?.accountName,
+              }),
+          },
+          {
+            title: t('All Time'),
+            description: t('Full transaction history'),
+            onPress: () =>
+              navigation.navigate(WalletScreens.WALLET_BALANCE_SERIES, {
+                accountAddress: selectedAccountAddress,
+                accountKeyId: keyId,
+                timeframe: 'ALL',
+                accountName: accountItem?.accountName,
+              }),
+          },
+        ]}
+      />
 
       {keyFullWalletObjs[0] ? (
         <ReceiveAddress

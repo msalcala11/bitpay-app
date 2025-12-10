@@ -1,0 +1,243 @@
+import {Effect} from '../index';
+import {EntityRef, Timeframe} from './portfolio.types';
+import {buildSeriesKey} from './utils';
+import {fetchFullHistory, buildCryptoTimeline, buildQuoteSeries, mergeBalanceSeries, WalletSeriesWithMeta} from './services/history';
+import {BalancePoint} from './portfolio.types';
+import {upsertPortfolioSeries, upsertPortfolioStatus, upsertCryptoTimeline} from './portfolio.actions';
+import {Wallet} from '../wallet/wallet.models';
+import {findWalletById} from '../wallet/utils/wallet';
+import {getRateByCurrencyName} from '../../utils/helper-methods';
+import {Rates} from '../rate/rate.models';
+
+/**
+ * Get the live fiat rate for a wallet from Redux rates.
+ * Returns the rate per unit (e.g., USD per BTC).
+ */
+const getLiveRate = (
+  wallet: Wallet,
+  quoteCurrency: string,
+  rates: Rates,
+): number | undefined => {
+  const ratesPerCurrency = getRateByCurrencyName(
+    rates,
+    wallet.currencyAbbreviation,
+    wallet.chain,
+    wallet.tokenAddress,
+  );
+  if (!ratesPerCurrency) {
+    return undefined;
+  }
+  const rateObj = ratesPerCurrency.find(r => r.code === quoteCurrency);
+  return rateObj?.rate;
+};
+
+const getWalletFromState = (walletId: string, keysState: any): Wallet | undefined => {
+  const allWallets = Object.values(keysState).flatMap((key: any) => key.wallets || []);
+  return findWalletById(allWallets, walletId) as Wallet | undefined;
+};
+
+export interface LoadBalanceSeriesParams {
+  entity: EntityRef;
+  timeframe: Timeframe;
+  quoteCurrency?: string;
+}
+
+export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanceSeriesParams): Effect<Promise<void>> =>
+  async (dispatch, getState) => {
+    const state = getState();
+    const resolvedQuoteCurrency = quoteCurrency || state.PORTFOLIO.meta.quoteCurrency;
+    const scopeKey = buildSeriesKey(entity, timeframe, resolvedQuoteCurrency);
+
+    dispatch(
+      upsertPortfolioStatus(scopeKey, {
+        state: 'loading',
+        error: null,
+      }),
+    );
+
+    try {
+      let points: BalancePoint[] = [];
+
+      // Get live rates from Redux for final data point accuracy
+      const rates = state.RATE.rates;
+
+      if (entity.type === 'wallet' && entity.id) {
+        // === WALLET SCOPE ===
+        const wallet = getWalletFromState(entity.id, state.WALLET.keys);
+        if (!wallet) {
+          throw new Error('Wallet not found');
+        }
+
+        // 1. Fetch full transaction history
+        const transactions = await dispatch(fetchFullHistory({wallet}));
+
+        // 2. Build crypto-only timeline (pure, no fiat)
+        const cryptoTimeline = buildCryptoTimeline(transactions);
+
+        // 3. Get live rate for final data point
+        const liveRate = getLiveRate(wallet, resolvedQuoteCurrency, rates);
+
+        // 4. Convert to fiat series (handles filtering, sampling, rate fetching)
+        points = await dispatch(
+          buildQuoteSeries({
+            wallet,
+            cryptoTimeline,
+            quoteCurrency: resolvedQuoteCurrency,
+            timeframe,
+            liveRate,
+          }),
+        );
+
+        dispatch(upsertCryptoTimeline(scopeKey, cryptoTimeline));
+      } else if (entity.type === 'key' && entity.id) {
+        // === KEY SCOPE ===
+        const key = state.WALLET.keys[entity.id];
+        if (!key) {
+          throw new Error('Key not found');
+        }
+
+        // Skip keys that haven't been backed up yet
+        if (!key.backupComplete) {
+          throw new Error('Key needs backup before viewing balance history');
+        }
+
+        // Filter out testnet wallets
+        const wallets = (key.wallets || []).filter(
+          (w: Wallet) => w.network === 'livenet',
+        );
+        if (wallets.length === 0) {
+          throw new Error('Key has no mainnet wallets');
+        }
+
+        // 1. Load series for each wallet SEQUENTIALLY to avoid overwhelming BWS and React
+        const walletSeriesWithMeta: WalletSeriesWithMeta[] = [];
+        for (const wallet of wallets) {
+          const transactions = await dispatch(fetchFullHistory({wallet}));
+          const cryptoTimeline = buildCryptoTimeline(transactions);
+          const liveRate = getLiveRate(wallet, resolvedQuoteCurrency, rates);
+          const series = await dispatch(
+            buildQuoteSeries({
+              wallet,
+              cryptoTimeline,
+              quoteCurrency: resolvedQuoteCurrency,
+              timeframe,
+              liveRate,
+            }),
+          );
+          walletSeriesWithMeta.push({
+            series,
+            walletId: wallet.id,
+            walletName: wallet.walletName,
+            currencyAbbreviation: wallet.currencyAbbreviation,
+            chain: wallet.chain,
+          });
+        }
+
+        // 2. Merge wallet series into key series (with breakdown)
+        points = mergeBalanceSeries(walletSeriesWithMeta, resolvedQuoteCurrency);
+      } else if (entity.type === 'account' && entity.accountAddress && entity.accountKeyId) {
+        // === ACCOUNT SCOPE (EVM/SVM wallets sharing same address) ===
+        const key = state.WALLET.keys[entity.accountKeyId];
+        if (!key) {
+          throw new Error('Key not found for account');
+        }
+
+        // Skip keys that haven't been backed up yet
+        if (!key.backupComplete) {
+          throw new Error('Key needs backup before viewing balance history');
+        }
+
+        // Filter wallets by receive address and livenet
+        const wallets = (key.wallets || []).filter(
+          (w: Wallet) => w.receiveAddress === entity.accountAddress && w.network === 'livenet',
+        );
+        if (wallets.length === 0) {
+          throw new Error('Account has no mainnet wallets');
+        }
+
+        // 1. Load series for each wallet SEQUENTIALLY to avoid overwhelming BWS and React
+        const walletSeriesWithMeta: WalletSeriesWithMeta[] = [];
+        for (const wallet of wallets) {
+          const transactions = await dispatch(fetchFullHistory({wallet}));
+          const cryptoTimeline = buildCryptoTimeline(transactions);
+          const liveRate = getLiveRate(wallet, resolvedQuoteCurrency, rates);
+          const series = await dispatch(
+            buildQuoteSeries({
+              wallet,
+              cryptoTimeline,
+              quoteCurrency: resolvedQuoteCurrency,
+              timeframe,
+              liveRate,
+            }),
+          );
+          walletSeriesWithMeta.push({
+            series,
+            walletId: wallet.id,
+            walletName: wallet.walletName,
+            currencyAbbreviation: wallet.currencyAbbreviation,
+            chain: wallet.chain,
+          });
+        }
+
+        // 2. Merge wallet series into account series (with breakdown)
+        points = mergeBalanceSeries(walletSeriesWithMeta, resolvedQuoteCurrency);
+      } else if (entity.type === 'portfolio') {
+        // === PORTFOLIO SCOPE ===
+        // Filter out testnet wallets and wallets from keys that need backup
+        const allWallets = Object.values(state.WALLET.keys)
+          .filter((key: any) => key.backupComplete) // Skip keys that need backup
+          .flatMap((key: any) => key.wallets || [])
+          .filter((w: Wallet) => w.network === 'livenet');
+
+        if (allWallets.length === 0) {
+          throw new Error('No mainnet wallets found (keys may need backup)');
+        }
+
+        // 1. Load series for each wallet SEQUENTIALLY to avoid overwhelming BWS and React
+        // Processing in parallel causes 429 rate limits and "Maximum update depth exceeded" errors
+        const walletSeriesWithMeta: WalletSeriesWithMeta[] = [];
+        for (const wallet of allWallets) {
+          const transactions = await dispatch(fetchFullHistory({wallet}));
+          const cryptoTimeline = buildCryptoTimeline(transactions);
+          const liveRate = getLiveRate(wallet, resolvedQuoteCurrency, rates);
+          const series = await dispatch(
+            buildQuoteSeries({
+              wallet,
+              cryptoTimeline,
+              quoteCurrency: resolvedQuoteCurrency,
+              timeframe,
+              liveRate,
+            }),
+          );
+          walletSeriesWithMeta.push({
+            series,
+            walletId: wallet.id,
+            walletName: wallet.walletName,
+            currencyAbbreviation: wallet.currencyAbbreviation,
+            chain: wallet.chain,
+          });
+        }
+
+        // 2. Merge all wallet series into portfolio series (with breakdown)
+        points = mergeBalanceSeries(walletSeriesWithMeta, resolvedQuoteCurrency);
+      } else {
+        throw new Error('Invalid entity type or missing entity id');
+      }
+
+      dispatch(upsertPortfolioSeries(scopeKey, points));
+      dispatch(
+        upsertPortfolioStatus(scopeKey, {
+          state: 'succeeded',
+          lastUpdated: Date.now(),
+          error: null,
+        }),
+      );
+    } catch (err) {
+      dispatch(
+        upsertPortfolioStatus(scopeKey, {
+          state: 'failed',
+          error: err instanceof Error ? err.message : 'Unknown error',
+        }),
+      );
+    }
+  };

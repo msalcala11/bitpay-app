@@ -1,0 +1,83 @@
+import {
+  PortfolioActionType,
+  PortfolioActionTypes,
+  PortfolioAnalyticsState,
+} from './portfolio.types';
+
+const initialState: PortfolioAnalyticsState = {
+  series: {},
+  cryptoTimelines: {},
+  gainLoss: {},
+  allocations: {},
+  meta: {
+    lastUpdated: null,
+    warmingScopes: {},
+  },
+  status: {},
+};
+
+export const portfolioReduxPersistBlackList: (keyof PortfolioAnalyticsState)[] = [];
+
+export const portfolioReducer = (
+  state: PortfolioAnalyticsState = initialState,
+  action: PortfolioActionType,
+): PortfolioAnalyticsState => {
+  switch (action.type) {
+    case PortfolioActionTypes.RESET:
+      return initialState;
+
+    case PortfolioActionTypes.CLEAR_SCOPE: {
+      const {scope} = action.payload;
+      const {[scope]: _series, ...seriesRest} = state.series;
+      const {[scope]: _cryptoTimeline, ...cryptoTimelinesRest} = state.cryptoTimelines;
+      const {[scope]: _gainLoss, ...gainLossRest} = state.gainLoss;
+      const {[scope]: _allocations, ...allocationsRest} = state.allocations;
+      const {[scope]: _status, ...statusRest} = state.status;
+
+      return {
+        ...state,
+        series: seriesRest,
+        cryptoTimelines: cryptoTimelinesRest,
+        gainLoss: gainLossRest,
+        allocations: allocationsRest,
+        status: statusRest,
+      };
+    }
+
+    case PortfolioActionTypes.UPSERT_STATUS: {
+      const {scope, status} = action.payload;
+      return {
+        ...state,
+        status: {
+          ...state.status,
+          [scope]: status,
+        },
+      };
+    }
+
+    case PortfolioActionTypes.UPSERT_SERIES: {
+      const {scope, points} = action.payload;
+      return {
+        ...state,
+        series: {
+          ...state.series,
+          [scope]: points,
+        },
+      };
+    }
+
+    case PortfolioActionTypes.UPSERT_CRYPTO_TIMELINE: {
+      const {scope, checkpoints} = action.payload;
+      return {
+        ...state,
+        cryptoTimelines: {
+          ...state.cryptoTimelines,
+          [scope]: checkpoints,
+        },
+      };
+    }
+
+    default:
+      return state;
+  }
+};

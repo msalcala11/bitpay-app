@@ -80,6 +80,10 @@ import {
 import {WalletActionTypes} from './wallet/wallet.types';
 import {BitPayIdActionTypes} from './bitpay-id/bitpay-id.types';
 import {AppActionTypes} from './app/app.types';
+import {
+  portfolioReducer,
+  portfolioReduxPersistBlackList,
+} from './portfolio/portfolio.reducer';
 
 import {Storage} from 'redux-persist';
 import {MMKV} from 'react-native-mmkv';
@@ -253,6 +257,7 @@ const reducerPersistBlackLists: Record<keyof typeof reducers, string[]> = {
   ZENLEDGER: ZenledgerReduxPersistBlackList,
   WALLET_CONNECT: [],
   WALLET_CONNECT_V2: walletConnectV2ReduxPersistBlackList,
+  PORTFOLIO: portfolioReduxPersistBlackList,
 };
 
 /*
@@ -278,6 +283,7 @@ const reducers = {
   ZENLEDGER: zenledgerReducer,
   WALLET_CONNECT: walletConnectReducer,
   WALLET_CONNECT_V2: walletConnectV2Reducer,
+  PORTFOLIO: portfolioReducer,
 };
 
 const combinedReducer = combineReducers(reducers);
