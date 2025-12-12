@@ -295,13 +295,16 @@ export interface EnrichTimelineOptions {
   currencyAbbreviation: string;
   chain: string;
   tokenAddress?: string;
+  unitToSatoshi?: number;
+  method?: CostBasisMethod;
 }
 
 /**
- * Enriches a crypto timeline with fiat rates for each checkpoint.
+ * Enriches a crypto timeline with fiat rates and running breakeven for each checkpoint.
  * Uses the rate cache, so rates fetched during breakeven calculation will be reused.
+ * Also computes the cumulative cost basis at each point using the specified method.
  * 
- * @returns New array of CryptoCheckpoint with quoteRate populated
+ * @returns New array of CryptoCheckpoint with quoteRate and runningBreakeven populated
  */
 export const enrichTimelineWithRates = async ({
   timeline,
@@ -309,8 +312,14 @@ export const enrichTimelineWithRates = async ({
   currencyAbbreviation,
   chain,
   tokenAddress,
+  unitToSatoshi = 1e8,
+  method = 'AVG',
 }: EnrichTimelineOptions): Promise<CryptoCheckpoint[]> => {
   const enriched: CryptoCheckpoint[] = [];
+  
+  // Track lots for running breakeven calculation
+  const lots: CryptoLot[] = [];
+  let prevAmount = 0;
 
   for (const checkpoint of timeline) {
     const rate = await getHistoricQuoteRate({
@@ -321,10 +330,40 @@ export const enrichTimelineWithRates = async ({
       timestampMs: checkpoint.timestamp,
     });
 
+    // Calculate delta from previous checkpoint
+    const delta = checkpoint.amount - prevAmount;
+    
+    if (delta > 0 && rate > 0) {
+      // Received crypto - add a new lot
+      const cryptoUnits = delta / unitToSatoshi;
+      lots.push({
+        timestamp: checkpoint.timestamp,
+        amount: delta,
+        costBasis: cryptoUnits * rate,
+        quoteRate: rate,
+      });
+    } else if (delta < 0) {
+      // Sent crypto - remove from lots
+      removeCrypto(lots, Math.abs(delta), method);
+    }
+    
+    // Prune empty lots
+    for (let i = lots.length - 1; i >= 0; i--) {
+      if (lots[i].amount <= 0) {
+        lots.splice(i, 1);
+      }
+    }
+    
+    // Calculate running breakeven (total cost basis of remaining lots)
+    const runningBreakeven = lots.reduce((sum, lot) => sum + lot.costBasis, 0);
+    
     enriched.push({
       ...checkpoint,
       quoteRate: rate > 0 ? rate : undefined,
+      runningBreakeven,
     });
+    
+    prevAmount = checkpoint.amount;
   }
 
   return enriched;

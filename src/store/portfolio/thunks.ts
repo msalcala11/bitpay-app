@@ -169,7 +169,7 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
         const breakevenScopeKey = `wallet:${entity.id}:${resolvedQuoteCurrency}`;
         dispatch(upsertBreakeven(breakevenScopeKey, breakevenResult));
 
-        // 6. Enrich crypto timeline with fiat rates (debug only - reuses rate cache from breakeven)
+        // 6. Enrich crypto timeline with fiat rates and running breakeven (debug only)
         if (__DEV__) {
           const enrichedTimeline = await enrichTimelineWithRates({
             timeline: cryptoTimeline,
@@ -177,6 +177,8 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
             currencyAbbreviation: wallet.currencyAbbreviation,
             chain: wallet.chain,
             tokenAddress: wallet.tokenAddress,
+            unitToSatoshi,
+            method: costBasisMethod,
           });
           dispatch(upsertCryptoTimeline(scopeKey, enrichedTimeline));
         } else {

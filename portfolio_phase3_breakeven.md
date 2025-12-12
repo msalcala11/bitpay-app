@@ -183,22 +183,24 @@ function computeBreakeven(costBasisState: CostBasisState): number {
 ### Task Breakdown
 
 #### 1. Cost Basis Service
-- [ ] `src/store/portfolio/services/costBasis.ts`
-  - [ ] `buildCostBasis(transactions, method, getRate)` – compute lot-based cost basis
-  - [ ] `removeCrypto(lots, amount, method)` – FIFO/LIFO/AVG lot reduction
-  - [ ] `computeBreakeven(costBasisState)` – extract breakeven value
+- [x] `src/store/portfolio/services/costBasis.ts`
+  - [x] `buildCostBasis(transactions, method, getRate)` – compute lot-based cost basis
+  - [x] `removeCrypto(lots, amount, method)` – FIFO/LIFO/AVG lot reduction
+  - [x] `computeBreakeven(costBasisState)` – extract breakeven value
+  - [x] `aggregateBreakeven(results, method)` – aggregate multiple wallet breakevens
 
 #### 2. Redux Integration
-- [ ] Add `breakeven` and `costBasisMethod` to `PortfolioAnalyticsState`
-- [ ] Add actions: `UPSERT_BREAKEVEN`, `SET_COST_BASIS_METHOD`
-- [ ] Add selectors: `selectBreakeven(state, scope)`, `selectCostBasisMethod(state)`
+- [x] Add `breakeven` to `PortfolioAnalyticsState`
+- [x] Add actions: `UPSERT_BREAKEVEN`
+- [x] Add selectors: `selectBreakevenByKey(state, scope)`
+- [ ] Add `costBasisMethod` to APP settings (currently hardcoded to 'AVG')
 
 #### 3. Thunk Integration
-- [ ] Extend `loadBalanceSeries` to also compute breakeven (reuses rate cache)
-- [ ] Or create separate `loadBreakeven` thunk if decoupling preferred
+- [x] Extend `loadBalanceSeries` to compute breakeven for wallet scope
+- [ ] Add breakeven aggregation for key/portfolio scopes
 
 #### 4. Hook
-- [ ] `useBreakeven({entity, timeframe})` – returns `{breakeven, isLoading}`
+- [x] `useBreakeven({entity, quoteCurrency})` – returns `BreakevenResult | undefined`
 
 #### 5. Chart Integration
 - [ ] Add optional `breakevenLine` prop to chart components
@@ -255,3 +257,10 @@ For `react-native-graph`, this may require a custom overlay since it doesn't nat
 ## Status Log
 
 - _2025-12-09_: Phase 3 spec created. Defined cost basis model with FIFO/LIFO/AVG support, breakeven calculation, and integration plan.
+- _2025-12-11_: Implemented core cost basis calculation:
+  - Created `costBasis.ts` service with `computeBreakeven`, `removeCrypto`, `aggregateBreakeven`
+  - Added types: `CostBasisMethod`, `CryptoLot`, `CostBasisState`, `BreakevenResult`
+  - Added Redux: `breakeven` state, `UPSERT_BREAKEVEN` action, `selectBreakevenByKey` selector
+  - Integrated into `loadBalanceSeries` thunk (wallet scope only)
+  - Added `useBreakeven` hook for component consumption
+  - Remaining: Chart integration, settings UI, key/portfolio scope aggregation

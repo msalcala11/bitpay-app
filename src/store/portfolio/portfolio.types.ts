@@ -23,6 +23,7 @@ export interface CryptoCheckpoint {
   memo?: string; // transaction memo/message if available
   action?: 'sent' | 'received' | 'moved'; // transaction type
   quoteRate?: number; // fiat rate at this checkpoint (for debugging cost basis)
+  runningBreakeven?: number; // cumulative cost basis up to this point (for debugging)
 }
 
 /**

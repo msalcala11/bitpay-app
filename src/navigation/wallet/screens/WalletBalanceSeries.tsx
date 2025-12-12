@@ -422,6 +422,11 @@ const WalletBalanceSeriesScreen: React.FC<WalletBalanceSeriesScreenProps> = ({
             @ {formatQuoteValue(item.quoteRate, quoteCurrency)}
           </RateText>
         )}
+        {item.runningBreakeven != null && (
+          <RateText>
+            {t('Breakeven')}: {formatQuoteValue(item.runningBreakeven, quoteCurrency)}
+          </RateText>
+        )}
         {memoText && <RateText>{memoText}</RateText>}
       </SeriesItem>
     );
