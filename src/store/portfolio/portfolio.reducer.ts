@@ -10,6 +10,7 @@ const initialState: PortfolioAnalyticsState = {
   cryptoTimelines: {},
   gainLoss: {},
   allocations: {},
+  breakeven: {},
   meta: {
     lastUpdated: null,
     warmingScopes: {},
@@ -34,6 +35,7 @@ export const portfolioReducer = (
       const {[scope]: _cryptoTimeline, ...cryptoTimelinesRest} = state.cryptoTimelines;
       const {[scope]: _gainLoss, ...gainLossRest} = state.gainLoss;
       const {[scope]: _allocations, ...allocationsRest} = state.allocations;
+      const {[scope]: _breakeven, ...breakevenRest} = state.breakeven;
       const {[scope]: _status, ...statusRest} = state.status;
 
       return {
@@ -43,6 +45,7 @@ export const portfolioReducer = (
         cryptoTimelines: cryptoTimelinesRest,
         gainLoss: gainLossRest,
         allocations: allocationsRest,
+        breakeven: breakevenRest,
         status: statusRest,
       };
     }
@@ -87,6 +90,17 @@ export const portfolioReducer = (
         cryptoTimelines: {
           ...state.cryptoTimelines,
           [scope]: checkpoints,
+        },
+      };
+    }
+
+    case PortfolioActionTypes.UPSERT_BREAKEVEN: {
+      const {scope, breakeven} = action.payload;
+      return {
+        ...state,
+        breakeven: {
+          ...state.breakeven,
+          [scope]: breakeven,
         },
       };
     }

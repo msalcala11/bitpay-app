@@ -5,6 +5,7 @@ import {
   BalancePoint,
   SeriesRefreshState,
   CryptoCheckpoint,
+  BreakevenResult,
 } from './portfolio.types';
 
 export const resetPortfolioAnalytics = (): PortfolioActionType => ({
@@ -46,4 +47,12 @@ export const upsertCryptoTimeline = (
 ): PortfolioActionType => ({
   type: PortfolioActionTypes.UPSERT_CRYPTO_TIMELINE,
   payload: {scope, checkpoints},
+});
+
+export const upsertBreakeven = (
+  scope: string,
+  breakeven: BreakevenResult,
+): PortfolioActionType => ({
+  type: PortfolioActionTypes.UPSERT_BREAKEVEN,
+  payload: {scope, breakeven},
 });

@@ -9,12 +9,13 @@ import {LineGraph, GraphPoint} from 'react-native-graph';
 import {LineChart} from 'react-native-gifted-charts';
 
 import {WalletGroupParamList, WalletScreens} from '../WalletGroup';
-import {useBalanceSeries} from '../../../store/portfolio/hooks';
+import {useBalanceSeries, useBreakeven} from '../../../store/portfolio/hooks';
 import {BalancePoint, CryptoCheckpoint, Timeframe, WalletContribution} from '../../../store/portfolio/portfolio.types';
-import {useAppDispatch} from '../../../utils/hooks';
+import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {showBottomNotificationModal} from '../../../store/app/app.actions';
 import {resetNetworkRequestCount, getNetworkRequestCount, getLastRequestUrl} from '../../../store/portfolio/rate-cache';
 import {resetTxHistoryRequestCount, getTxHistoryRequestCount, getLastTxHistoryWallet} from '../../../store/portfolio/services/history';
+import {selectPortfolioQuoteCurrency} from '../../../store/portfolio/selectors';
 import {H5, Paragraph, Small} from '../../../components/styled/Text';
 import {ScreenGutter, WIDTH} from '../../../components/styled/Containers';
 import {Air, LightBlack, LuckySevens, ProgressBlue, White} from '../../../styles/colors';
@@ -172,10 +173,14 @@ const WalletBalanceSeriesScreen: React.FC<WalletBalanceSeriesScreenProps> = ({
   }, [accountAddress, accountKeyId, keyId, walletId]);
   const displayName = accountName || keyName || walletName || 'Portfolio';
 
+  const quoteCurrency = useAppSelector(selectPortfolioQuoteCurrency);
+
   const {data = [], cryptoTimeline = [], status, isLoading, reload} = useBalanceSeries({
     entity,
     timeframe: timeframe as Timeframe,
   });
+
+  const breakeven = useBreakeven({entity, quoteCurrency});
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
@@ -521,6 +526,11 @@ const WalletBalanceSeriesScreen: React.FC<WalletBalanceSeriesScreenProps> = ({
             {status?.state ? status.state.toUpperCase() : t('IDLE')}
           </StatusValue>
         </StatusRow>
+        {breakeven?.breakeven != null ? (
+          <Paragraph style={{marginTop: 4}}>
+            {t('Breakeven')}: {formatQuoteValue(breakeven.breakeven, quoteCurrency)}
+          </Paragraph>
+        ) : null}
         <Paragraph style={{marginTop: 4}}>
           {t('Timeframe')}: {timeframe}
         </Paragraph>

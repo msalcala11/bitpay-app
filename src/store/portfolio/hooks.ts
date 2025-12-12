@@ -1,11 +1,12 @@
 import {useEffect, useMemo} from 'react';
 import {useAppDispatch, useAppSelector} from '../../utils/hooks';
-import {EntityRef, Timeframe} from './portfolio.types';
+import {EntityRef, Timeframe, BreakevenResult} from './portfolio.types';
 import {
   selectPortfolioQuoteCurrency,
   selectPortfolioSeriesByKey,
   selectPortfolioStatusByKey,
   selectCryptoTimelineByKey,
+  selectBreakevenByKey,
 } from './selectors';
 import {buildSeriesKey} from './utils';
 import {loadBalanceSeries} from './thunks';
@@ -52,4 +53,39 @@ export const useBalanceSeries = ({
     isLoading: status?.state === 'loading',
     reload,
   };
+};
+
+interface UseBreakevenArgs {
+  entity: EntityRef;
+  quoteCurrency?: string;
+}
+
+/**
+ * Hook to access breakeven/cost basis data for a wallet.
+ * Breakeven data is computed as part of loadBalanceSeries, so this hook
+ * only reads from Redux - it doesn't trigger any data loading.
+ * 
+ * @returns breakeven result or undefined if not yet computed
+ */
+export const useBreakeven = ({
+  entity,
+  quoteCurrency,
+}: UseBreakevenArgs): BreakevenResult | undefined => {
+  const defaultQuoteCurrency = useAppSelector(selectPortfolioQuoteCurrency);
+  const resolvedQuoteCurrency = quoteCurrency || defaultQuoteCurrency;
+  
+  // Breakeven is stored per wallet, not per timeframe
+  const breakevenScopeKey = useMemo(() => {
+    if (entity.type === 'wallet' && entity.id) {
+      return `wallet:${entity.id}:${resolvedQuoteCurrency}`;
+    }
+    // TODO: Support key and portfolio scope aggregation
+    return null;
+  }, [entity, resolvedQuoteCurrency]);
+
+  const breakeven = useAppSelector(state => 
+    breakevenScopeKey ? selectBreakevenByKey(state, breakevenScopeKey) : undefined
+  );
+
+  return breakeven;
 };

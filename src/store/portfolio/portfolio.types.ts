@@ -53,6 +53,46 @@ export interface BalancePoint {
   breakdown?: WalletContribution[];
 }
 
+// ============ Cost Basis Types ============
+
+export type CostBasisMethod = 'FIFO' | 'LIFO' | 'AVG';
+
+/**
+ * A lot of crypto acquired at a specific time and price.
+ * Used for FIFO/LIFO cost basis tracking.
+ */
+export interface CryptoLot {
+  timestamp: number;
+  amount: number;        // satoshis acquired
+  costBasis: number;     // fiat paid for this lot
+  quoteRate: number;     // fiat rate at acquisition
+}
+
+/**
+ * Internal state for cost basis calculation.
+ * Tracks all lots and running totals.
+ */
+export interface CostBasisState {
+  lots: CryptoLot[];           // ordered by timestamp (oldest first)
+  totalCostBasis: number;      // sum of remaining lots' cost basis
+  totalAmount: number;         // sum of remaining lots' amounts
+  method: CostBasisMethod;
+}
+
+/**
+ * Result of breakeven calculation for a wallet/key/portfolio.
+ * Stored in Redux per scope key.
+ */
+export interface BreakevenResult {
+  costBasis: number;           // total fiat cost of current holdings
+  currentAmount: number;       // current crypto balance (satoshis)
+  breakeven: number;           // the breakeven fiat value (= costBasis)
+  method: CostBasisMethod;
+  lastUpdated: number;
+}
+
+// ============ Gain/Loss Types ============
+
 export interface GainLossResult {
   timeframe: Timeframe;
   absolute: number;
@@ -102,6 +142,7 @@ export interface PortfolioAnalyticsState {
   cryptoTimelines: Record<string, CryptoCheckpoint[]>;
   gainLoss: Record<string, GainLossResult>;
   allocations: Record<string, AllocationResult[]>;
+  breakeven: Record<string, BreakevenResult>;
   meta: PortfolioMetaState;
   status: Record<string, PortfolioLoadState>;
 }
@@ -113,6 +154,7 @@ export enum PortfolioActionTypes {
   UPSERT_SERIES = 'PORTFOLIO/UPSERT_SERIES',
   UPSERT_SERIES_REFRESH_STATE = 'PORTFOLIO/UPSERT_SERIES_REFRESH_STATE',
   UPSERT_CRYPTO_TIMELINE = 'PORTFOLIO/UPSERT_CRYPTO_TIMELINE',
+  UPSERT_BREAKEVEN = 'PORTFOLIO/UPSERT_BREAKEVEN',
 }
 
 export type PortfolioActionType =
@@ -133,6 +175,10 @@ export type PortfolioActionType =
   | {
       type: PortfolioActionTypes.UPSERT_CRYPTO_TIMELINE;
       payload: {scope: string; checkpoints: CryptoCheckpoint[]};
+    }
+  | {
+      type: PortfolioActionTypes.UPSERT_BREAKEVEN;
+      payload: {scope: string; breakeven: BreakevenResult};
     };
 
 export type PortfolioSelector<T> = (state: RootState) => T;

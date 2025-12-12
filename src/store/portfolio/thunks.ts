@@ -1,5 +1,5 @@
 import {Effect} from '../index';
-import {EntityRef, Timeframe, SeriesRefreshState} from './portfolio.types';
+import {EntityRef, Timeframe, SeriesRefreshState, CostBasisMethod} from './portfolio.types';
 import {buildSeriesKey} from './utils';
 import {
   fetchFullHistory,
@@ -10,8 +10,10 @@ import {
   getTimeframeDurationMs,
   WalletSeriesWithMeta,
 } from './services/history';
+import {computeBreakeven} from './services/costBasis';
 import {BalancePoint} from './portfolio.types';
-import {upsertPortfolioSeries, upsertPortfolioStatus, upsertCryptoTimeline, upsertSeriesRefreshState} from './portfolio.actions';
+import {upsertPortfolioSeries, upsertPortfolioStatus, upsertCryptoTimeline, upsertSeriesRefreshState, upsertBreakeven} from './portfolio.actions';
+import {GetPrecision} from '../wallet/utils/currency';
 import {Wallet} from '../wallet/wallet.models';
 import {findWalletById} from '../wallet/utils/wallet';
 import {getRateByCurrencyName} from '../../utils/helper-methods';
@@ -143,6 +145,31 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
         }
 
         dispatch(upsertCryptoTimeline(scopeKey, cryptoTimeline));
+
+        // 5. Compute breakeven / cost basis (uses same transactions, reuses rate cache)
+        const precision = dispatch(
+          GetPrecision(
+            wallet.currencyAbbreviation,
+            wallet.chain,
+            wallet.tokenAddress,
+          ),
+        );
+        const unitToSatoshi = precision?.unitToSatoshi || 1e8;
+        const costBasisMethod: CostBasisMethod = 'AVG'; // TODO: read from settings
+        
+        const breakevenResult = await computeBreakeven({
+          transactions,
+          method: costBasisMethod,
+          quoteCurrency: resolvedQuoteCurrency,
+          currencyAbbreviation: wallet.currencyAbbreviation,
+          chain: wallet.chain,
+          tokenAddress: wallet.tokenAddress,
+          unitToSatoshi,
+        });
+        
+        // Use wallet-level scope key for breakeven (not timeframe-specific)
+        const breakevenScopeKey = `wallet:${entity.id}:${resolvedQuoteCurrency}`;
+        dispatch(upsertBreakeven(breakevenScopeKey, breakevenResult));
       } else if (entity.type === 'key' && entity.id) {
         // === KEY SCOPE ===
         const key = state.WALLET.keys[entity.id];
