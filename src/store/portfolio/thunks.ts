@@ -204,28 +204,67 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
           throw new Error('Key has no mainnet wallets');
         }
 
-        // 1. Load series for each wallet SEQUENTIALLY to avoid overwhelming BWS and React
+        // 1. Load series for each wallet, reusing cached data when available
         const walletSeriesWithMeta: WalletSeriesWithMeta[] = [];
+        const CACHE_FRESHNESS_MS = 5 * 60 * 1000; // 5 minutes
+        const now = Date.now();
+
         for (const wallet of wallets) {
-          const transactions = await dispatch(fetchFullHistory({wallet}));
-          const cryptoTimeline = buildCryptoTimeline(transactions);
-          const liveRate = getLiveRate(wallet, resolvedQuoteCurrency, rates);
-          const series = await dispatch(
-            buildQuoteSeries({
-              wallet,
-              cryptoTimeline,
-              quoteCurrency: resolvedQuoteCurrency,
-              timeframe,
-              liveRate,
-            }),
+          // Check for cached wallet-level series
+          const walletScopeKey = buildSeriesKey(
+            {type: 'wallet', id: wallet.id},
+            timeframe,
+            resolvedQuoteCurrency,
           );
-          walletSeriesWithMeta.push({
-            series,
-            walletId: wallet.id,
-            walletName: wallet.walletName,
-            currencyAbbreviation: wallet.currencyAbbreviation,
-            chain: wallet.chain,
-          });
+          const cachedSeries = state.PORTFOLIO.series[walletScopeKey];
+          const cachedRefreshState = state.PORTFOLIO.seriesRefreshState[walletScopeKey];
+          
+          // Reuse cached data if fresh enough
+          const isCacheFresh = cachedRefreshState?.lastUpdated && 
+            (now - cachedRefreshState.lastUpdated) < CACHE_FRESHNESS_MS;
+          
+          if (cachedSeries?.length > 0 && isCacheFresh) {
+            // Reuse cached wallet series
+            walletSeriesWithMeta.push({
+              series: cachedSeries,
+              walletId: wallet.id,
+              walletName: wallet.walletName,
+              currencyAbbreviation: wallet.currencyAbbreviation,
+              chain: wallet.chain,
+            });
+          } else {
+            // Compute fresh data for this wallet
+            const transactions = await dispatch(fetchFullHistory({wallet}));
+            const cryptoTimeline = buildCryptoTimeline(transactions);
+            const liveRate = getLiveRate(wallet, resolvedQuoteCurrency, rates);
+            const series = await dispatch(
+              buildQuoteSeries({
+                wallet,
+                cryptoTimeline,
+                quoteCurrency: resolvedQuoteCurrency,
+                timeframe,
+                liveRate,
+              }),
+            );
+            
+            // Cache the wallet-level series for future reuse
+            dispatch(upsertPortfolioSeries(walletScopeKey, series));
+            const timeframeDuration = getTimeframeDurationMs(timeframe);
+            dispatch(upsertSeriesRefreshState(walletScopeKey, {
+              lastUpdated: now,
+              lastCryptoAmount: cryptoTimeline[cryptoTimeline.length - 1]?.amount || 0,
+              lastTxCount: cryptoTimeline.length,
+              windowStart: timeframeDuration ? now - timeframeDuration : now,
+            }));
+            
+            walletSeriesWithMeta.push({
+              series,
+              walletId: wallet.id,
+              walletName: wallet.walletName,
+              currencyAbbreviation: wallet.currencyAbbreviation,
+              chain: wallet.chain,
+            });
+          }
         }
 
         // 2. Merge wallet series into key series (with breakdown)
@@ -250,28 +289,67 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
           throw new Error('Account has no mainnet wallets');
         }
 
-        // 1. Load series for each wallet SEQUENTIALLY to avoid overwhelming BWS and React
+        // 1. Load series for each wallet, reusing cached data when available
         const walletSeriesWithMeta: WalletSeriesWithMeta[] = [];
+        const CACHE_FRESHNESS_MS = 5 * 60 * 1000; // 5 minutes
+        const now = Date.now();
+
         for (const wallet of wallets) {
-          const transactions = await dispatch(fetchFullHistory({wallet}));
-          const cryptoTimeline = buildCryptoTimeline(transactions);
-          const liveRate = getLiveRate(wallet, resolvedQuoteCurrency, rates);
-          const series = await dispatch(
-            buildQuoteSeries({
-              wallet,
-              cryptoTimeline,
-              quoteCurrency: resolvedQuoteCurrency,
-              timeframe,
-              liveRate,
-            }),
+          // Check for cached wallet-level series
+          const walletScopeKey = buildSeriesKey(
+            {type: 'wallet', id: wallet.id},
+            timeframe,
+            resolvedQuoteCurrency,
           );
-          walletSeriesWithMeta.push({
-            series,
-            walletId: wallet.id,
-            walletName: wallet.walletName,
-            currencyAbbreviation: wallet.currencyAbbreviation,
-            chain: wallet.chain,
-          });
+          const cachedSeries = state.PORTFOLIO.series[walletScopeKey];
+          const cachedRefreshState = state.PORTFOLIO.seriesRefreshState[walletScopeKey];
+          
+          // Reuse cached data if fresh enough
+          const isCacheFresh = cachedRefreshState?.lastUpdated && 
+            (now - cachedRefreshState.lastUpdated) < CACHE_FRESHNESS_MS;
+          
+          if (cachedSeries?.length > 0 && isCacheFresh) {
+            // Reuse cached wallet series
+            walletSeriesWithMeta.push({
+              series: cachedSeries,
+              walletId: wallet.id,
+              walletName: wallet.walletName,
+              currencyAbbreviation: wallet.currencyAbbreviation,
+              chain: wallet.chain,
+            });
+          } else {
+            // Compute fresh data for this wallet
+            const transactions = await dispatch(fetchFullHistory({wallet}));
+            const cryptoTimeline = buildCryptoTimeline(transactions);
+            const liveRate = getLiveRate(wallet, resolvedQuoteCurrency, rates);
+            const series = await dispatch(
+              buildQuoteSeries({
+                wallet,
+                cryptoTimeline,
+                quoteCurrency: resolvedQuoteCurrency,
+                timeframe,
+                liveRate,
+              }),
+            );
+            
+            // Cache the wallet-level series for future reuse
+            dispatch(upsertPortfolioSeries(walletScopeKey, series));
+            const timeframeDuration = getTimeframeDurationMs(timeframe);
+            dispatch(upsertSeriesRefreshState(walletScopeKey, {
+              lastUpdated: now,
+              lastCryptoAmount: cryptoTimeline[cryptoTimeline.length - 1]?.amount || 0,
+              lastTxCount: cryptoTimeline.length,
+              windowStart: timeframeDuration ? now - timeframeDuration : now,
+            }));
+            
+            walletSeriesWithMeta.push({
+              series,
+              walletId: wallet.id,
+              walletName: wallet.walletName,
+              currencyAbbreviation: wallet.currencyAbbreviation,
+              chain: wallet.chain,
+            });
+          }
         }
 
         // 2. Merge wallet series into account series (with breakdown)
@@ -288,29 +366,67 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
           throw new Error('No mainnet wallets found (keys may need backup)');
         }
 
-        // 1. Load series for each wallet SEQUENTIALLY to avoid overwhelming BWS and React
-        // Processing in parallel causes 429 rate limits and "Maximum update depth exceeded" errors
+        // 1. Load series for each wallet, reusing cached data when available
         const walletSeriesWithMeta: WalletSeriesWithMeta[] = [];
+        const CACHE_FRESHNESS_MS = 5 * 60 * 1000; // 5 minutes
+        const now = Date.now();
+
         for (const wallet of allWallets) {
-          const transactions = await dispatch(fetchFullHistory({wallet}));
-          const cryptoTimeline = buildCryptoTimeline(transactions);
-          const liveRate = getLiveRate(wallet, resolvedQuoteCurrency, rates);
-          const series = await dispatch(
-            buildQuoteSeries({
-              wallet,
-              cryptoTimeline,
-              quoteCurrency: resolvedQuoteCurrency,
-              timeframe,
-              liveRate,
-            }),
+          // Check for cached wallet-level series
+          const walletScopeKey = buildSeriesKey(
+            {type: 'wallet', id: wallet.id},
+            timeframe,
+            resolvedQuoteCurrency,
           );
-          walletSeriesWithMeta.push({
-            series,
-            walletId: wallet.id,
-            walletName: wallet.walletName,
-            currencyAbbreviation: wallet.currencyAbbreviation,
-            chain: wallet.chain,
-          });
+          const cachedSeries = state.PORTFOLIO.series[walletScopeKey];
+          const cachedRefreshState = state.PORTFOLIO.seriesRefreshState[walletScopeKey];
+          
+          // Reuse cached data if fresh enough
+          const isCacheFresh = cachedRefreshState?.lastUpdated && 
+            (now - cachedRefreshState.lastUpdated) < CACHE_FRESHNESS_MS;
+          
+          if (cachedSeries?.length > 0 && isCacheFresh) {
+            // Reuse cached wallet series
+            walletSeriesWithMeta.push({
+              series: cachedSeries,
+              walletId: wallet.id,
+              walletName: wallet.walletName,
+              currencyAbbreviation: wallet.currencyAbbreviation,
+              chain: wallet.chain,
+            });
+          } else {
+            // Compute fresh data for this wallet
+            const transactions = await dispatch(fetchFullHistory({wallet}));
+            const cryptoTimeline = buildCryptoTimeline(transactions);
+            const liveRate = getLiveRate(wallet, resolvedQuoteCurrency, rates);
+            const series = await dispatch(
+              buildQuoteSeries({
+                wallet,
+                cryptoTimeline,
+                quoteCurrency: resolvedQuoteCurrency,
+                timeframe,
+                liveRate,
+              }),
+            );
+            
+            // Cache the wallet-level series for future reuse
+            dispatch(upsertPortfolioSeries(walletScopeKey, series));
+            const timeframeDuration = getTimeframeDurationMs(timeframe);
+            dispatch(upsertSeriesRefreshState(walletScopeKey, {
+              lastUpdated: now,
+              lastCryptoAmount: cryptoTimeline[cryptoTimeline.length - 1]?.amount || 0,
+              lastTxCount: cryptoTimeline.length,
+              windowStart: timeframeDuration ? now - timeframeDuration : now,
+            }));
+            
+            walletSeriesWithMeta.push({
+              series,
+              walletId: wallet.id,
+              walletName: wallet.walletName,
+              currencyAbbreviation: wallet.currencyAbbreviation,
+              chain: wallet.chain,
+            });
+          }
         }
 
         // 2. Merge all wallet series into portfolio series (with breakdown)
