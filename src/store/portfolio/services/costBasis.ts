@@ -359,6 +359,7 @@ export const enrichTimelineWithRates = async ({
     
     enriched.push({
       ...checkpoint,
+      delta,
       quoteRate: rate > 0 ? rate : undefined,
       runningBreakeven,
     });

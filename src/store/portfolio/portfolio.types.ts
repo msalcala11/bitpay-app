@@ -19,7 +19,8 @@ export interface EntityRef {
  */
 export interface CryptoCheckpoint {
   timestamp: number;
-  amount: number; // in smallest unit (satoshis)
+  amount: number; // cumulative balance in smallest unit (satoshis)
+  delta?: number; // amount transacted (positive = received, negative = sent)
   memo?: string; // transaction memo/message if available
   action?: 'sent' | 'received' | 'moved'; // transaction type
   quoteRate?: number; // fiat rate at this checkpoint (for debugging cost basis)

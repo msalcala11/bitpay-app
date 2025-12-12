@@ -295,14 +295,19 @@ const WalletBalanceSeriesScreen: React.FC<WalletBalanceSeriesScreenProps> = ({
           .join('\n');
       }
     } else {
-      csv = 'timestamp,date,amount,action,memo\n';
+      csv = 'timestamp,date,balance,fiatValue,delta,fiatDelta,action,quoteRate,runningBreakeven,memo\n';
       csv += cryptoPoints
         .map(p => {
           // Handle memo that might be an object (legacy cached data) or string
           const memoText = typeof p.memo === 'string'
             ? p.memo
             : (p.memo as any)?.body || '';
-          return `${p.timestamp},"${moment(p.timestamp).format('lll')}",${p.amount},${p.action ?? ''},"${memoText.replace(/"/g, '""')}"`;
+          // Calculate fiat values: (sats / 1e8) * rate
+          const fiatValue = p.quoteRate != null ? (p.amount / 1e8) * p.quoteRate : '';
+          const fiatDelta = p.quoteRate != null && p.delta != null ? (p.delta / 1e8) * p.quoteRate : '';
+          const balance = p.amount / 1e8;
+          const delta = p.delta != null ? p.delta / 1e8 : '';
+          return `${p.timestamp},"${moment(p.timestamp).format('lll')}",${balance},${fiatValue},${delta},${fiatDelta},${p.action ?? ''},${p.quoteRate ?? ''},${p.runningBreakeven ?? ''},"${memoText.replace(/"/g, '""')}"`;
         })
         .join('\n');
     }
