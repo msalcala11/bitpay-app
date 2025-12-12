@@ -3,6 +3,7 @@ import {
   CryptoLot,
   CostBasisState,
   BreakevenResult,
+  CryptoCheckpoint,
 } from '../portfolio.types';
 import {getHistoricQuoteRate, QuoteRateRequest} from '../rate-cache';
 
@@ -286,4 +287,45 @@ export const aggregateBreakeven = (
     method,
     lastUpdated: Date.now(),
   };
+};
+
+export interface EnrichTimelineOptions {
+  timeline: CryptoCheckpoint[];
+  quoteCurrency: string;
+  currencyAbbreviation: string;
+  chain: string;
+  tokenAddress?: string;
+}
+
+/**
+ * Enriches a crypto timeline with fiat rates for each checkpoint.
+ * Uses the rate cache, so rates fetched during breakeven calculation will be reused.
+ * 
+ * @returns New array of CryptoCheckpoint with quoteRate populated
+ */
+export const enrichTimelineWithRates = async ({
+  timeline,
+  quoteCurrency,
+  currencyAbbreviation,
+  chain,
+  tokenAddress,
+}: EnrichTimelineOptions): Promise<CryptoCheckpoint[]> => {
+  const enriched: CryptoCheckpoint[] = [];
+
+  for (const checkpoint of timeline) {
+    const rate = await getHistoricQuoteRate({
+      quoteCurrency,
+      currencyAbbreviation,
+      chain,
+      tokenAddress,
+      timestampMs: checkpoint.timestamp,
+    });
+
+    enriched.push({
+      ...checkpoint,
+      quoteRate: rate > 0 ? rate : undefined,
+    });
+  }
+
+  return enriched;
 };

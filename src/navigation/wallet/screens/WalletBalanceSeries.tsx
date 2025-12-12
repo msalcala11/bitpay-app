@@ -398,14 +398,29 @@ const WalletBalanceSeriesScreen: React.FC<WalletBalanceSeriesScreenProps> = ({
       ? item.memo
       : (item.memo as any)?.body || null;
 
+    // Calculate fiat value: (sats / 1e8) * rate
+    const fiatValue = item.quoteRate != null
+      ? (item.amount / 1e8) * item.quoteRate
+      : null;
+
     return (
       <SeriesItem>
         <Small>{formatTimestamp(item.timestamp)}</Small>
         <QuoteValue>{item.amount.toLocaleString()} sats</QuoteValue>
+        {fiatValue != null && (
+          <QuoteValue>
+            {formatQuoteValue(fiatValue, quoteCurrency)}
+          </QuoteValue>
+        )}
         {item.action && (
           <BreakdownText style={{textTransform: 'capitalize'}}>
             {item.action}
           </BreakdownText>
+        )}
+        {item.quoteRate != null && (
+          <RateText>
+            @ {formatQuoteValue(item.quoteRate, quoteCurrency)}
+          </RateText>
         )}
         {memoText && <RateText>{memoText}</RateText>}
       </SeriesItem>

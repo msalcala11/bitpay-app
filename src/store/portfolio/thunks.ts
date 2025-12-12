@@ -10,7 +10,7 @@ import {
   getTimeframeDurationMs,
   WalletSeriesWithMeta,
 } from './services/history';
-import {computeBreakeven} from './services/costBasis';
+import {computeBreakeven, enrichTimelineWithRates} from './services/costBasis';
 import {BalancePoint} from './portfolio.types';
 import {upsertPortfolioSeries, upsertPortfolioStatus, upsertCryptoTimeline, upsertSeriesRefreshState, upsertBreakeven} from './portfolio.actions';
 import {GetPrecision} from '../wallet/utils/currency';
@@ -144,8 +144,6 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
           dispatch(upsertSeriesRefreshState(scopeKey, newRefreshState));
         }
 
-        dispatch(upsertCryptoTimeline(scopeKey, cryptoTimeline));
-
         // 5. Compute breakeven / cost basis (uses same transactions, reuses rate cache)
         const precision = dispatch(
           GetPrecision(
@@ -170,6 +168,20 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
         // Use wallet-level scope key for breakeven (not timeframe-specific)
         const breakevenScopeKey = `wallet:${entity.id}:${resolvedQuoteCurrency}`;
         dispatch(upsertBreakeven(breakevenScopeKey, breakevenResult));
+
+        // 6. Enrich crypto timeline with fiat rates (debug only - reuses rate cache from breakeven)
+        if (__DEV__) {
+          const enrichedTimeline = await enrichTimelineWithRates({
+            timeline: cryptoTimeline,
+            quoteCurrency: resolvedQuoteCurrency,
+            currencyAbbreviation: wallet.currencyAbbreviation,
+            chain: wallet.chain,
+            tokenAddress: wallet.tokenAddress,
+          });
+          dispatch(upsertCryptoTimeline(scopeKey, enrichedTimeline));
+        } else {
+          dispatch(upsertCryptoTimeline(scopeKey, cryptoTimeline));
+        }
       } else if (entity.type === 'key' && entity.id) {
         // === KEY SCOPE ===
         const key = state.WALLET.keys[entity.id];

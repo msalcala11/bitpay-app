@@ -22,6 +22,7 @@ export interface CryptoCheckpoint {
   amount: number; // in smallest unit (satoshis)
   memo?: string; // transaction memo/message if available
   action?: 'sent' | 'received' | 'moved'; // transaction type
+  quoteRate?: number; // fiat rate at this checkpoint (for debugging cost basis)
 }
 
 /**
