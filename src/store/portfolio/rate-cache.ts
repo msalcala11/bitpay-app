@@ -42,6 +42,21 @@ const getCacheKey = ({
   return `${chain.toLowerCase()}-${currencyAbbreviation.toLowerCase()}-${tokenPart}-${quoteCurrency.toUpperCase()}-${bucket}`;
 };
 
+// Map currency abbreviations to their API equivalents
+// (some coins have different tickers in the app vs the rate API)
+const mapCurrencyForApi = (currencyAbbreviation: string): string => {
+  switch (currencyAbbreviation.toLowerCase()) {
+    case 'pol':
+      return 'matic'; // Polygon native token
+    case 'wbtc':
+      return 'btc';
+    case 'weth':
+      return 'eth';
+    default:
+      return currencyAbbreviation;
+  }
+};
+
 export const getHistoricQuoteRate = async (
   request: QuoteRateRequest,
 ): Promise<number> => {
@@ -55,11 +70,12 @@ export const getHistoricQuoteRate = async (
 
   try {
     const hourBucket = getHourBucket(request.timestampMs);
+    const apiCurrency = mapCurrencyForApi(request.currencyAbbreviation);
     networkRequestCount++;
-    lastRequestUrl = `${request.currencyAbbreviation}/${request.quoteCurrency}@${new Date(hourBucket).toISOString().slice(0, 13)}`;
+    lastRequestUrl = `${apiCurrency}/${request.quoteCurrency}@${new Date(hourBucket).toISOString().slice(0, 13)}`;
     const response = await getHistoricFiatRate(
       request.quoteCurrency,
-      request.currencyAbbreviation,
+      apiCurrency,
       hourBucket.toString(),
     );
     const rate = response?.rate || 0;

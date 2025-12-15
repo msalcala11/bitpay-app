@@ -10,7 +10,7 @@ import {
   getTimeframeDurationMs,
   WalletSeriesWithMeta,
 } from './services/history';
-import {computeBreakeven, enrichTimelineWithRates, aggregateBreakeven} from './services/costBasis';
+import {computeBreakeven, enrichTimelineWithRates} from './services/costBasis';
 import {BalancePoint} from './portfolio.types';
 import {upsertPortfolioSeries, upsertPortfolioStatus, upsertCryptoTimeline, upsertSeriesRefreshState, upsertBreakeven} from './portfolio.actions';
 import {GetPrecision} from '../wallet/utils/currency';
@@ -116,6 +116,26 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
           );
           points = updatedPoints;
           dispatch(upsertSeriesRefreshState(scopeKey, newRefreshState));
+          
+          // Always enrich timeline in dev mode during incremental refresh
+          // (rates may have been missing from previous loads)
+          if (__DEV__) {
+            const precision = dispatch(
+              GetPrecision(wallet.currencyAbbreviation, wallet.chain, wallet.tokenAddress),
+            );
+            const unitToSatoshi = precision?.unitToSatoshi || 1e8;
+            const costBasisMethod: CostBasisMethod = 'AVG';
+            const enrichedTimeline = await enrichTimelineWithRates({
+              timeline: cryptoTimeline,
+              quoteCurrency: resolvedQuoteCurrency,
+              currencyAbbreviation: wallet.currencyAbbreviation,
+              chain: wallet.chain,
+              tokenAddress: wallet.tokenAddress,
+              unitToSatoshi,
+              method: costBasisMethod,
+            });
+            dispatch(upsertCryptoTimeline(scopeKey, enrichedTimeline));
+          }
         } else {
           // Full rebuild
           points = await dispatch(
@@ -206,10 +226,8 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
 
         // 1. Load series for each wallet, reusing cached data when available
         const walletSeriesWithMeta: WalletSeriesWithMeta[] = [];
-        const walletBreakevenResults: import('./portfolio.types').BreakevenResult[] = [];
         const CACHE_FRESHNESS_MS = 5 * 60 * 1000; // 5 minutes
         const now = Date.now();
-        const costBasisMethod: CostBasisMethod = 'AVG';
 
         for (const wallet of wallets) {
           // Check for cached wallet-level series
@@ -218,16 +236,12 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
             timeframe,
             resolvedQuoteCurrency,
           );
-          const walletBreakevenKey = `wallet:${wallet.id}:${resolvedQuoteCurrency}`;
           const cachedSeries = state.PORTFOLIO.series[walletScopeKey];
           const cachedRefreshState = state.PORTFOLIO.seriesRefreshState[walletScopeKey];
-          const cachedBreakeven = state.PORTFOLIO.breakeven[walletBreakevenKey];
           
           // Reuse cached data if fresh enough
           const isCacheFresh = cachedRefreshState?.lastUpdated && 
             (now - cachedRefreshState.lastUpdated) < CACHE_FRESHNESS_MS;
-          const isBreakevenFresh = cachedBreakeven?.lastUpdated &&
-            (now - cachedBreakeven.lastUpdated) < CACHE_FRESHNESS_MS;
           
           if (cachedSeries?.length > 0 && isCacheFresh) {
             // Reuse cached wallet series
@@ -238,29 +252,6 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
               currencyAbbreviation: wallet.currencyAbbreviation,
               chain: wallet.chain,
             });
-            
-            // Reuse or compute breakeven
-            if (cachedBreakeven && isBreakevenFresh) {
-              walletBreakevenResults.push(cachedBreakeven);
-            } else {
-              // Need to compute breakeven even if series is cached
-              const transactions = await dispatch(fetchFullHistory({wallet}));
-              const precision = dispatch(
-                GetPrecision(wallet.currencyAbbreviation, wallet.chain, wallet.tokenAddress),
-              );
-              const unitToSatoshi = precision?.unitToSatoshi || 1e8;
-              const breakevenResult = await computeBreakeven({
-                transactions,
-                method: costBasisMethod,
-                quoteCurrency: resolvedQuoteCurrency,
-                currencyAbbreviation: wallet.currencyAbbreviation,
-                chain: wallet.chain,
-                tokenAddress: wallet.tokenAddress,
-                unitToSatoshi,
-              });
-              dispatch(upsertBreakeven(walletBreakevenKey, breakevenResult));
-              walletBreakevenResults.push(breakevenResult);
-            }
           } else {
             // Compute fresh data for this wallet
             const transactions = await dispatch(fetchFullHistory({wallet}));
@@ -286,23 +277,6 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
               windowStart: timeframeDuration ? now - timeframeDuration : now,
             }));
             
-            // Compute and cache wallet breakeven
-            const precision = dispatch(
-              GetPrecision(wallet.currencyAbbreviation, wallet.chain, wallet.tokenAddress),
-            );
-            const unitToSatoshi = precision?.unitToSatoshi || 1e8;
-            const breakevenResult = await computeBreakeven({
-              transactions,
-              method: costBasisMethod,
-              quoteCurrency: resolvedQuoteCurrency,
-              currencyAbbreviation: wallet.currencyAbbreviation,
-              chain: wallet.chain,
-              tokenAddress: wallet.tokenAddress,
-              unitToSatoshi,
-            });
-            dispatch(upsertBreakeven(walletBreakevenKey, breakevenResult));
-            walletBreakevenResults.push(breakevenResult);
-            
             walletSeriesWithMeta.push({
               series,
               walletId: wallet.id,
@@ -315,13 +289,6 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
 
         // 2. Merge wallet series into key series (with breakdown)
         points = mergeBalanceSeries(walletSeriesWithMeta, resolvedQuoteCurrency);
-        
-        // 3. Aggregate breakeven results for key scope
-        if (walletBreakevenResults.length > 0) {
-          const keyBreakevenResult = aggregateBreakeven(walletBreakevenResults, costBasisMethod);
-          const keyBreakevenKey = `key:${entity.id}:${resolvedQuoteCurrency}`;
-          dispatch(upsertBreakeven(keyBreakevenKey, keyBreakevenResult));
-        }
       } else if (entity.type === 'account' && entity.accountAddress && entity.accountKeyId) {
         // === ACCOUNT SCOPE (EVM/SVM wallets sharing same address) ===
         const key = state.WALLET.keys[entity.accountKeyId];

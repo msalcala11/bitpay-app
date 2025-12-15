@@ -74,15 +74,12 @@ export const useBreakeven = ({
   const defaultQuoteCurrency = useAppSelector(selectPortfolioQuoteCurrency);
   const resolvedQuoteCurrency = quoteCurrency || defaultQuoteCurrency;
   
-  // Breakeven is stored per entity scope, not per timeframe
+  // Breakeven is stored per wallet, not per timeframe
   const breakevenScopeKey = useMemo(() => {
     if (entity.type === 'wallet' && entity.id) {
       return `wallet:${entity.id}:${resolvedQuoteCurrency}`;
     }
-    if (entity.type === 'key' && entity.id) {
-      return `key:${entity.id}:${resolvedQuoteCurrency}`;
-    }
-    // TODO: Support account and portfolio scope aggregation
+    // TODO: Support key and portfolio scope aggregation
     return null;
   }, [entity, resolvedQuoteCurrency]);
 

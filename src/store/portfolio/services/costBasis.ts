@@ -315,6 +315,15 @@ export const enrichTimelineWithRates = async ({
   unitToSatoshi = 1e8,
   method = 'AVG',
 }: EnrichTimelineOptions): Promise<CryptoCheckpoint[]> => {
+  console.log('[enrichTimelineWithRates] Starting enrichment', {
+    timelineLength: timeline.length,
+    quoteCurrency,
+    currencyAbbreviation,
+    chain,
+    tokenAddress,
+    unitToSatoshi,
+  });
+  
   const enriched: CryptoCheckpoint[] = [];
   
   // Track lots for running breakeven calculation
@@ -329,6 +338,10 @@ export const enrichTimelineWithRates = async ({
       tokenAddress,
       timestampMs: checkpoint.timestamp,
     });
+    
+    if (enriched.length === 0) {
+      console.log('[enrichTimelineWithRates] First checkpoint rate:', rate);
+    }
 
     // Calculate delta from previous checkpoint
     const delta = checkpoint.amount - prevAmount;

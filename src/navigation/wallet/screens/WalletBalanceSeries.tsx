@@ -10,6 +10,8 @@ import {LineChart} from 'react-native-gifted-charts';
 
 import {WalletGroupParamList, WalletScreens} from '../WalletGroup';
 import {useBalanceSeries, useBreakeven} from '../../../store/portfolio/hooks';
+import {GetPrecision} from '../../../store/wallet/utils/currency';
+import {findWalletById} from '../../../store/wallet/utils/wallet';
 import {BalancePoint, CryptoCheckpoint, Timeframe, WalletContribution} from '../../../store/portfolio/portfolio.types';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {showBottomNotificationModal} from '../../../store/app/app.actions';
@@ -174,6 +176,20 @@ const WalletBalanceSeriesScreen: React.FC<WalletBalanceSeriesScreenProps> = ({
   const displayName = accountName || keyName || walletName || 'Portfolio';
 
   const quoteCurrency = useAppSelector(selectPortfolioQuoteCurrency);
+  const keys = useAppSelector(state => state.WALLET.keys);
+  
+  // Get wallet precision for correct unit conversion (EVM uses 1e18, BTC uses 1e8)
+  const unitToSatoshi = useMemo(() => {
+    if (entity.type === 'wallet' && walletId) {
+      const allWallets = Object.values(keys).flatMap((key: any) => key.wallets || []);
+      const wallet = findWalletById(allWallets, walletId);
+      if (wallet) {
+        const precision = dispatch(GetPrecision(wallet.currencyAbbreviation, wallet.chain, wallet.tokenAddress));
+        return precision?.unitToSatoshi || 1e8;
+      }
+    }
+    return 1e8; // Default to BTC precision
+  }, [entity.type, walletId, keys, dispatch]);
 
   const {data = [], cryptoTimeline = [], status, isLoading, reload} = useBalanceSeries({
     entity,
@@ -251,6 +267,39 @@ const WalletBalanceSeriesScreen: React.FC<WalletBalanceSeriesScreenProps> = ({
 
   const fiatPoints = useMemo(() => data || [], [data]);
   const cryptoPoints = useMemo(() => cryptoTimeline || [], [cryptoTimeline]);
+  
+  // Debug info for rate enrichment
+  const walletInfo = useMemo(() => {
+    if (entity.type === 'wallet' && walletId) {
+      const allWallets = Object.values(keys).flatMap((key: any) => key.wallets || []);
+      const wallet = findWalletById(allWallets, walletId);
+      return wallet ? {
+        currencyAbbreviation: wallet.currencyAbbreviation,
+        chain: wallet.chain,
+      } : null;
+    }
+    return null;
+  }, [entity.type, walletId, keys]);
+  
+  const debugInfo = useMemo(() => {
+    const firstPoint = cryptoPoints[0];
+    const lastPoint = cryptoPoints[cryptoPoints.length - 1];
+    const hasQuoteRate = firstPoint?.quoteRate != null;
+    const hasDelta = firstPoint?.delta != null;
+    return {
+      entityType: entity.type,
+      cryptoPointsCount: cryptoPoints.length,
+      firstPointHasQuoteRate: hasQuoteRate,
+      firstPointQuoteRate: firstPoint?.quoteRate,
+      firstPointHasDelta: hasDelta,
+      unitToSatoshi,
+      statusState: status?.state,
+      currencyAbbreviation: walletInfo?.currencyAbbreviation,
+      chain: walletInfo?.chain,
+      lastDeltaRaw: lastPoint?.delta,
+      lastDeltaConverted: lastPoint?.delta != null ? lastPoint.delta / unitToSatoshi : null,
+    };
+  }, [cryptoPoints, entity.type, unitToSatoshi, status, walletInfo]);
 
   const scrollToTop = useCallback(() => {
     const listRef = viewMode === 'fiat' ? fiatListRef : cryptoListRef;
@@ -302,19 +351,20 @@ const WalletBalanceSeriesScreen: React.FC<WalletBalanceSeriesScreenProps> = ({
           const memoText = typeof p.memo === 'string'
             ? p.memo
             : (p.memo as any)?.body || '';
-          // Calculate fiat values: (sats / 1e8) * rate
-          const fiatValue = p.quoteRate != null ? (p.amount / 1e8) * p.quoteRate : '';
-          const fiatDelta = p.quoteRate != null && p.delta != null ? (p.delta / 1e8) * p.quoteRate : '';
+          // Calculate fiat values: (smallest unit / unitToSatoshi) * rate
+          const fiatValue = p.quoteRate != null ? (p.amount / unitToSatoshi) * p.quoteRate : '';
+          const fiatDelta = p.quoteRate != null && p.delta != null ? (p.delta / unitToSatoshi) * p.quoteRate : '';
           const fiatGain = typeof fiatValue === 'number' && p.runningBreakeven != null ? fiatValue - p.runningBreakeven : '';
-          const balance = p.amount / 1e8;
-          const delta = p.delta != null ? p.delta / 1e8 : '';
+          const balance = p.amount / unitToSatoshi;
+          // Use toFixed to avoid -0 display for small negative numbers
+          const delta = p.delta != null ? Number((p.delta / unitToSatoshi).toFixed(18)) : '';
           return `${p.timestamp},"${moment(p.timestamp).format('lll')}",${balance},${fiatValue},${delta},${fiatDelta},${p.action ?? ''},${p.quoteRate ?? ''},${p.runningBreakeven ?? ''},${fiatGain},"${memoText.replace(/"/g, '""')}"`;
         })
         .join('\n');
     }
     Clipboard.setString(csv);
     haptic('impactLight');
-  }, [viewMode, fiatPoints, cryptoPoints]);
+  }, [viewMode, fiatPoints, cryptoPoints, unitToSatoshi]);
 
   // Convert data to chart format {date, value}
   const fiatChartData = useMemo(
@@ -404,15 +454,15 @@ const WalletBalanceSeriesScreen: React.FC<WalletBalanceSeriesScreenProps> = ({
       ? item.memo
       : (item.memo as any)?.body || null;
 
-    // Calculate fiat value: (sats / 1e8) * rate
+    // Calculate fiat value: (smallest unit / unitToSatoshi) * rate
     const fiatValue = item.quoteRate != null
-      ? (item.amount / 1e8) * item.quoteRate
+      ? (item.amount / unitToSatoshi) * item.quoteRate
       : null;
 
     return (
       <SeriesItem>
         <Small>{formatTimestamp(item.timestamp)}</Small>
-        <QuoteValue>{item.amount.toLocaleString()} sats</QuoteValue>
+        <QuoteValue>{(item.amount / unitToSatoshi).toLocaleString()}</QuoteValue>
         {fiatValue != null && (
           <QuoteValue>
             {formatQuoteValue(fiatValue, quoteCurrency)}
@@ -444,17 +494,17 @@ const WalletBalanceSeriesScreen: React.FC<WalletBalanceSeriesScreenProps> = ({
       return formatQuoteValue(selectedPoint.value, fiatPoints[0]?.quoteCurrency || 'USD');
     }
     if (viewMode === 'crypto' && selectedCryptoPoint) {
-      return `${selectedCryptoPoint.value.toLocaleString()} sats`;
+      return (selectedCryptoPoint.value / unitToSatoshi).toLocaleString();
     }
     if (viewMode === 'fiat' && fiatPoints.length) {
       const latest = fiatPoints[fiatPoints.length - 1];
       return formatQuoteValue(latest.quoteValue, latest.quoteCurrency);
     }
     if (viewMode === 'crypto' && cryptoPoints.length) {
-      return `${cryptoPoints[cryptoPoints.length - 1].amount.toLocaleString()} sats`;
+      return (cryptoPoints[cryptoPoints.length - 1].amount / unitToSatoshi).toLocaleString();
     }
     return '--';
-  }, [selectedPoint, selectedCryptoPoint, viewMode, fiatPoints, cryptoPoints]);
+  }, [selectedPoint, selectedCryptoPoint, viewMode, fiatPoints, cryptoPoints, unitToSatoshi]);
 
   const displayDate = useMemo(() => {
     if (viewMode === 'fiat' && selectedPoint) {
@@ -557,6 +607,11 @@ const WalletBalanceSeriesScreen: React.FC<WalletBalanceSeriesScreenProps> = ({
             {t('Breakeven')}: {formatQuoteValue(breakeven.breakeven, quoteCurrency)}
           </Paragraph>
         ) : null}
+        <Small style={{marginTop: 4, color: LuckySevens}}>
+          Debug: coin={debugInfo.currencyAbbreviation}/{debugInfo.chain}, 
+          pts={debugInfo.cryptoPointsCount}, hasRate={String(debugInfo.firstPointHasQuoteRate)}, 
+          lastDeltaRaw={debugInfo.lastDeltaRaw}, lastDeltaConv={debugInfo.lastDeltaConverted}
+        </Small>
         <Paragraph style={{marginTop: 4}}>
           {t('Timeframe')}: {timeframe}
         </Paragraph>
