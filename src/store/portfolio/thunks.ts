@@ -198,6 +198,30 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
         );
         const unitToSatoshi = precision?.unitToSatoshi || 1e8;
         const costBasisMethod: CostBasisMethod = 'AVG'; // TODO: read from settings
+
+        // Keep the displayed "current" fiat balance in sync with the latest live rate.
+        // Incremental refresh may reuse cached points without regenerating the final point.
+        if (liveRate != null && points.length > 0) {
+          const nowMs = Date.now();
+          const latestCryptoAmount = cryptoTimeline[cryptoTimeline.length - 1]?.amount || 0;
+          const liveQuoteValue = (latestCryptoAmount / unitToSatoshi) * liveRate;
+          const lastPoint = points[points.length - 1];
+
+          // If the series already has a "now" point (recent timestamp), overwrite it.
+          // Otherwise append a fresh point so the UI shows an up-to-date fiat value.
+          const isRecent = Math.abs(lastPoint.timestamp - nowMs) < 5 * 60 * 1000;
+          const livePoint: BalancePoint = {
+            timestamp: nowMs,
+            quoteValue: liveQuoteValue,
+            quoteCurrency: resolvedQuoteCurrency,
+            quoteRate: liveRate,
+            cryptoAmount: latestCryptoAmount,
+          };
+
+          points = isRecent
+            ? [...points.slice(0, -1), {...lastPoint, ...livePoint}]
+            : [...points, livePoint];
+        }
         
         const breakevenResult = await computeBreakeven({
           transactions,
