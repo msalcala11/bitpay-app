@@ -15,6 +15,7 @@ import {findWalletById} from '../../../store/wallet/utils/wallet';
 import {BalancePoint, CryptoCheckpoint, Timeframe, WalletContribution} from '../../../store/portfolio/portfolio.types';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {showBottomNotificationModal} from '../../../store/app/app.actions';
+import {resetPortfolioAnalytics} from '../../../store/portfolio/portfolio.actions';
 import {resetNetworkRequestCount, getNetworkRequestCount, getLastRequestUrl} from '../../../store/portfolio/rate-cache';
 import {resetTxHistoryRequestCount, getTxHistoryRequestCount, getLastTxHistoryWallet} from '../../../store/portfolio/services/history';
 import {selectPortfolioQuoteCurrency} from '../../../store/portfolio/selectors';
@@ -28,6 +29,7 @@ import ChevronDownSvg from '../../../../assets/img/chevron-down.svg';
 import ChevronUpSvg from '../../../../assets/img/chevron-up.svg';
 import CopySvg from '../../../../assets/img/copy.svg';
 import RefreshSvg from '../../../../assets/img/refresh.svg';
+import TrashSvg from '../../../../assets/img/wallet-connect/trash-icon.svg';
 
 type ViewMode = 'fiat' | 'crypto';
 
@@ -317,6 +319,31 @@ const WalletBalanceSeriesScreen: React.FC<WalletBalanceSeriesScreenProps> = ({
       haptic('impactLight');
     }
   }, [viewMode, fiatPoints.length, cryptoPoints.length]);
+
+  const confirmClearPortfolioStore = useCallback(() => {
+    dispatch(
+      showBottomNotificationModal({
+        type: 'question',
+        title: t('Clear portfolio data'),
+        message: t('This will clear cached portfolio history, timelines, and breakeven data.'),
+        enableBackdropDismiss: true,
+        actions: [
+          {
+            text: t('CLEAR'),
+            primary: true,
+            action: async () => {
+              dispatch(resetPortfolioAnalytics());
+            },
+          },
+          {
+            text: t('GO BACK'),
+            action: () => {},
+          },
+        ],
+      }),
+    );
+    haptic('impactLight');
+  }, [dispatch, t]);
 
   const copyToClipboard = useCallback(() => {
     let csv: string;
@@ -697,6 +724,11 @@ const WalletBalanceSeriesScreen: React.FC<WalletBalanceSeriesScreenProps> = ({
           <ScrollButton onPress={copyToClipboard}>
             <CopySvg width={20} height={20} fill={White} />
           </ScrollButton>
+          {__DEV__ && (
+            <ScrollButton onPress={confirmClearPortfolioStore}>
+              <TrashSvg width={20} height={20} fill={White} />
+            </ScrollButton>
+          )}
           <ScrollButton onPress={scrollToTop}>
             <ChevronUpSvg width={20} height={20} fill={White} />
           </ScrollButton>
