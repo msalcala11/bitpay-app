@@ -94,6 +94,17 @@ export const portfolioReducer = (
       };
     }
 
+    case PortfolioActionTypes.UPSERT_GAIN_LOSS: {
+      const {scope, gainLoss} = action.payload;
+      return {
+        ...state,
+        gainLoss: {
+          ...state.gainLoss,
+          [scope]: gainLoss,
+        },
+      };
+    }
+
     case PortfolioActionTypes.UPSERT_BREAKEVEN: {
       const {scope, breakeven} = action.payload;
       return {

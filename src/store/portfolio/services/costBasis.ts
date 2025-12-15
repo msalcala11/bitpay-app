@@ -176,6 +176,8 @@ export interface ComputeBreakevenOptions {
   chain: string;
   tokenAddress?: string;
   unitToSatoshi: number;
+  /** If provided, only transactions with timestamp <= endTimestampMs are included */
+  endTimestampMs?: number;
 }
 
 /**
@@ -194,12 +196,17 @@ export const computeBreakeven = async ({
   chain,
   tokenAddress,
   unitToSatoshi,
+  endTimestampMs,
 }: ComputeBreakevenOptions): Promise<BreakevenResult> => {
   const lots: CryptoLot[] = [];
 
   for (const tx of transactions) {
     const timestampMs = (tx?.time ?? tx?.createdOn ?? 0) * 1000;
     if (!timestampMs) {
+      continue;
+    }
+
+    if (endTimestampMs != null && timestampMs > endTimestampMs) {
       continue;
     }
 

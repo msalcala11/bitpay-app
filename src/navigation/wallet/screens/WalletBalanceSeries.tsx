@@ -9,7 +9,7 @@ import {LineGraph, GraphPoint} from 'react-native-graph';
 import {LineChart} from 'react-native-gifted-charts';
 
 import {WalletGroupParamList, WalletScreens} from '../WalletGroup';
-import {useBalanceSeries, useBreakeven} from '../../../store/portfolio/hooks';
+import {useBalanceSeries, useBreakeven, useGainLoss} from '../../../store/portfolio/hooks';
 import {GetPrecision} from '../../../store/wallet/utils/currency';
 import {findWalletById} from '../../../store/wallet/utils/wallet';
 import {BalancePoint, CryptoCheckpoint, Timeframe, WalletContribution} from '../../../store/portfolio/portfolio.types';
@@ -199,6 +199,8 @@ const WalletBalanceSeriesScreen: React.FC<WalletBalanceSeriesScreenProps> = ({
   });
 
   const breakeven = useBreakeven({entity, quoteCurrency});
+  const unrealizedAll = useGainLoss({entity, timeframe: 'ALL', quoteCurrency});
+  const unrealizedDayChange = useGainLoss({entity, timeframe: '1D', quoteCurrency});
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
@@ -632,6 +634,16 @@ const WalletBalanceSeriesScreen: React.FC<WalletBalanceSeriesScreenProps> = ({
         {breakeven?.breakeven != null ? (
           <Paragraph style={{marginTop: 4}}>
             {t('Breakeven')}: {formatQuoteValue(breakeven.breakeven, quoteCurrency)}
+          </Paragraph>
+        ) : null}
+        {unrealizedAll?.absolute != null ? (
+          <Paragraph style={{marginTop: 4}}>
+            {t('Unrealized PnL')}: {formatQuoteValue(unrealizedAll.absolute, quoteCurrency)}
+          </Paragraph>
+        ) : null}
+        {unrealizedDayChange?.absolute != null ? (
+          <Paragraph style={{marginTop: 4}}>
+            {t('Unrealized PnL (24h)')}: {formatQuoteValue(unrealizedDayChange.absolute, quoteCurrency)}
           </Paragraph>
         ) : null}
         <Small style={{marginTop: 4, color: LuckySevens}}>

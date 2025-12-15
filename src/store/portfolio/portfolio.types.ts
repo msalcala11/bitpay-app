@@ -157,6 +157,7 @@ export enum PortfolioActionTypes {
   UPSERT_SERIES = 'PORTFOLIO/UPSERT_SERIES',
   UPSERT_SERIES_REFRESH_STATE = 'PORTFOLIO/UPSERT_SERIES_REFRESH_STATE',
   UPSERT_CRYPTO_TIMELINE = 'PORTFOLIO/UPSERT_CRYPTO_TIMELINE',
+  UPSERT_GAIN_LOSS = 'PORTFOLIO/UPSERT_GAIN_LOSS',
   UPSERT_BREAKEVEN = 'PORTFOLIO/UPSERT_BREAKEVEN',
 }
 
@@ -178,6 +179,10 @@ export type PortfolioActionType =
   | {
       type: PortfolioActionTypes.UPSERT_CRYPTO_TIMELINE;
       payload: {scope: string; checkpoints: CryptoCheckpoint[]};
+    }
+  | {
+      type: PortfolioActionTypes.UPSERT_GAIN_LOSS;
+      payload: {scope: string; gainLoss: GainLossResult};
     }
   | {
       type: PortfolioActionTypes.UPSERT_BREAKEVEN;

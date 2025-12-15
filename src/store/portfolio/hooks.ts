@@ -1,12 +1,13 @@
 import {useEffect, useMemo} from 'react';
 import {useAppDispatch, useAppSelector} from '../../utils/hooks';
-import {EntityRef, Timeframe, BreakevenResult} from './portfolio.types';
+import {EntityRef, Timeframe, BreakevenResult, GainLossResult} from './portfolio.types';
 import {
   selectPortfolioQuoteCurrency,
   selectPortfolioSeriesByKey,
   selectPortfolioStatusByKey,
   selectCryptoTimelineByKey,
   selectBreakevenByKey,
+  selectGainLossByKey,
 } from './selectors';
 import {buildSeriesKey} from './utils';
 import {loadBalanceSeries} from './thunks';
@@ -91,4 +92,26 @@ export const useBreakeven = ({
   );
 
   return breakeven;
+};
+
+interface UseGainLossArgs {
+  entity: EntityRef;
+  timeframe: Timeframe;
+  quoteCurrency?: string;
+}
+
+export const useGainLoss = ({
+  entity,
+  timeframe,
+  quoteCurrency,
+}: UseGainLossArgs): GainLossResult | undefined => {
+  const defaultQuoteCurrency = useAppSelector(selectPortfolioQuoteCurrency);
+  const resolvedQuoteCurrency = quoteCurrency || defaultQuoteCurrency;
+  const scopeKey = useMemo(
+    () => buildSeriesKey(entity, timeframe, resolvedQuoteCurrency),
+    [entity, timeframe, resolvedQuoteCurrency],
+  );
+
+  const gainLoss = useAppSelector(state => selectGainLossByKey(state, scopeKey));
+  return gainLoss;
 };
