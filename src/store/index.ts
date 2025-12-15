@@ -58,6 +58,10 @@ import {
   zenledgerReducer,
 } from './zenledger/zenledger.reducer';
 import {
+  portfolioReducer,
+  portfolioReduxPersistBlackList,
+} from './portfolio/portfolio.reducer';
+import {
   walletReducer,
   walletReduxPersistBlackList,
 } from './wallet/wallet.reducer';
@@ -251,6 +255,7 @@ const reducerPersistBlackLists: Record<keyof typeof reducers, string[]> = {
   CONTACT: ContactReduxPersistBlackList,
   COINBASE: CoinbaseReduxPersistBlackList,
   ZENLEDGER: ZenledgerReduxPersistBlackList,
+  PORTFOLIO: portfolioReduxPersistBlackList,
   WALLET_CONNECT: [],
   WALLET_CONNECT_V2: walletConnectV2ReduxPersistBlackList,
 };
@@ -276,6 +281,7 @@ const reducers = {
   CONTACT: contactReducer,
   COINBASE: coinbaseReducer,
   ZENLEDGER: zenledgerReducer,
+  PORTFOLIO: portfolioReducer,
   WALLET_CONNECT: walletConnectReducer,
   WALLET_CONNECT_V2: walletConnectV2Reducer,
 };
