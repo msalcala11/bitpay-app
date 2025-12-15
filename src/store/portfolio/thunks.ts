@@ -19,6 +19,8 @@ import {findWalletById} from '../wallet/utils/wallet';
 import {getRateByCurrencyName} from '../../utils/helper-methods';
 import {Rates} from '../rate/rate.models';
 
+const roundToCents = (value: number) => Math.round(value * 100) / 100;
+
 const findQuoteValueAtOrBefore = (
   points: BalancePoint[],
   targetTimestamp: number,
@@ -251,9 +253,11 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
         const valueNow = points.length ? points[points.length - 1].quoteValue : null;
         const valueDayAgo = findQuoteValueAtOrBefore(points, dayAgo);
         if (valueNow != null && valueDayAgo != null) {
-          const unrealizedNow = valueNow - breakevenResult.costBasis;
-          const unrealizedDayAgo = valueDayAgo - breakevenDayAgo.costBasis;
-          const delta = unrealizedNow - unrealizedDayAgo;
+          const unrealizedNow =
+            roundToCents(valueNow) - roundToCents(breakevenResult.costBasis);
+          const unrealizedDayAgo =
+            roundToCents(valueDayAgo) - roundToCents(breakevenDayAgo.costBasis);
+          const delta = roundToCents(unrealizedNow - unrealizedDayAgo);
 
           dispatch(
             upsertGainLoss(
@@ -479,9 +483,11 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
             : null;
 
           if (valueNow != null && valueDayAgo != null && keyBreakevenDayAgo) {
-            const unrealizedNow = valueNow - keyBreakevenResult.costBasis;
-            const unrealizedDayAgo = valueDayAgo - keyBreakevenDayAgo.costBasis;
-            const delta = unrealizedNow - unrealizedDayAgo;
+            const unrealizedNow =
+              roundToCents(valueNow) - roundToCents(keyBreakevenResult.costBasis);
+            const unrealizedDayAgo =
+              roundToCents(valueDayAgo) - roundToCents(keyBreakevenDayAgo.costBasis);
+            const delta = roundToCents(unrealizedNow - unrealizedDayAgo);
 
             dispatch(
               upsertGainLoss(buildSeriesKey(entity, 'ALL', resolvedQuoteCurrency), {
@@ -688,9 +694,11 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
           const valueDayAgo = findQuoteValueAtOrBefore(points, dayAgo);
 
           if (accountBreakevenDayAgo && valueNow != null && valueDayAgo != null) {
-            const unrealizedNow = valueNow - accountBreakevenResult.costBasis;
-            const unrealizedDayAgo = valueDayAgo - accountBreakevenDayAgo.costBasis;
-            const delta = unrealizedNow - unrealizedDayAgo;
+            const unrealizedNow =
+              roundToCents(valueNow) - roundToCents(accountBreakevenResult.costBasis);
+            const unrealizedDayAgo =
+              roundToCents(valueDayAgo) - roundToCents(accountBreakevenDayAgo.costBasis);
+            const delta = roundToCents(unrealizedNow - unrealizedDayAgo);
 
             dispatch(
               upsertGainLoss(buildSeriesKey(entity, 'ALL', resolvedQuoteCurrency), {
@@ -867,9 +875,11 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
           if (valueNow != null && valueDayAgo != null) {
             const portfolioBreakevenNow = aggregateBreakeven(walletBreakevenResults, costBasisMethod);
             const portfolioBreakevenDayAgo = aggregateBreakeven(walletBreakevenResultsDayAgo, costBasisMethod);
-            const unrealizedNow = valueNow - portfolioBreakevenNow.costBasis;
-            const unrealizedDayAgo = valueDayAgo - portfolioBreakevenDayAgo.costBasis;
-            const delta = unrealizedNow - unrealizedDayAgo;
+            const unrealizedNow =
+              roundToCents(valueNow) - roundToCents(portfolioBreakevenNow.costBasis);
+            const unrealizedDayAgo =
+              roundToCents(valueDayAgo) - roundToCents(portfolioBreakevenDayAgo.costBasis);
+            const delta = roundToCents(unrealizedNow - unrealizedDayAgo);
 
             dispatch(
               upsertGainLoss(buildSeriesKey(entity, 'ALL', resolvedQuoteCurrency), {
