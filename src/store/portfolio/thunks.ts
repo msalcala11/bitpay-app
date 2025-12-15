@@ -10,7 +10,7 @@ import {
   getTimeframeDurationMs,
   WalletSeriesWithMeta,
 } from './services/history';
-import {computeBreakeven, enrichTimelineWithRates} from './services/costBasis';
+import {aggregateBreakeven, computeBreakeven, enrichTimelineWithRates} from './services/costBasis';
 import {BalancePoint} from './portfolio.types';
 import {upsertPortfolioSeries, upsertPortfolioStatus, upsertCryptoTimeline, upsertSeriesRefreshState, upsertBreakeven} from './portfolio.actions';
 import {GetPrecision} from '../wallet/utils/currency';
@@ -228,6 +228,8 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
         const walletSeriesWithMeta: WalletSeriesWithMeta[] = [];
         const CACHE_FRESHNESS_MS = 5 * 60 * 1000; // 5 minutes
         const now = Date.now();
+        const costBasisMethod: CostBasisMethod = 'AVG';
+        const walletBreakevenResults: import('./portfolio.types').BreakevenResult[] = [];
 
         for (const wallet of wallets) {
           // Check for cached wallet-level series
@@ -236,12 +238,16 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
             timeframe,
             resolvedQuoteCurrency,
           );
+          const walletBreakevenKey = `wallet:${wallet.id}:${resolvedQuoteCurrency}`;
           const cachedSeries = state.PORTFOLIO.series[walletScopeKey];
           const cachedRefreshState = state.PORTFOLIO.seriesRefreshState[walletScopeKey];
+          const cachedBreakeven = state.PORTFOLIO.breakeven[walletBreakevenKey];
           
           // Reuse cached data if fresh enough
           const isCacheFresh = cachedRefreshState?.lastUpdated && 
             (now - cachedRefreshState.lastUpdated) < CACHE_FRESHNESS_MS;
+          const isBreakevenFresh = cachedBreakeven?.lastUpdated &&
+            (now - cachedBreakeven.lastUpdated) < CACHE_FRESHNESS_MS;
           
           if (cachedSeries?.length > 0 && isCacheFresh) {
             // Reuse cached wallet series
@@ -252,6 +258,27 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
               currencyAbbreviation: wallet.currencyAbbreviation,
               chain: wallet.chain,
             });
+
+            if (cachedBreakeven && isBreakevenFresh) {
+              walletBreakevenResults.push(cachedBreakeven);
+            } else {
+              const transactions = await dispatch(fetchFullHistory({wallet}));
+              const precision = dispatch(
+                GetPrecision(wallet.currencyAbbreviation, wallet.chain, wallet.tokenAddress),
+              );
+              const unitToSatoshi = precision?.unitToSatoshi || 1e8;
+              const breakevenResult = await computeBreakeven({
+                transactions,
+                method: costBasisMethod,
+                quoteCurrency: resolvedQuoteCurrency,
+                currencyAbbreviation: wallet.currencyAbbreviation,
+                chain: wallet.chain,
+                tokenAddress: wallet.tokenAddress,
+                unitToSatoshi,
+              });
+              dispatch(upsertBreakeven(walletBreakevenKey, breakevenResult));
+              walletBreakevenResults.push(breakevenResult);
+            }
           } else {
             // Compute fresh data for this wallet
             const transactions = await dispatch(fetchFullHistory({wallet}));
@@ -284,6 +311,22 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
               currencyAbbreviation: wallet.currencyAbbreviation,
               chain: wallet.chain,
             });
+
+            const precision = dispatch(
+              GetPrecision(wallet.currencyAbbreviation, wallet.chain, wallet.tokenAddress),
+            );
+            const unitToSatoshi = precision?.unitToSatoshi || 1e8;
+            const breakevenResult = await computeBreakeven({
+              transactions,
+              method: costBasisMethod,
+              quoteCurrency: resolvedQuoteCurrency,
+              currencyAbbreviation: wallet.currencyAbbreviation,
+              chain: wallet.chain,
+              tokenAddress: wallet.tokenAddress,
+              unitToSatoshi,
+            });
+            dispatch(upsertBreakeven(walletBreakevenKey, breakevenResult));
+            walletBreakevenResults.push(breakevenResult);
           }
         }
 
@@ -313,6 +356,8 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
         const walletSeriesWithMeta: WalletSeriesWithMeta[] = [];
         const CACHE_FRESHNESS_MS = 5 * 60 * 1000; // 5 minutes
         const now = Date.now();
+        const costBasisMethod: CostBasisMethod = 'AVG';
+        const walletBreakevenResults: import('./portfolio.types').BreakevenResult[] = [];
 
         for (const wallet of wallets) {
           // Check for cached wallet-level series
@@ -321,12 +366,16 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
             timeframe,
             resolvedQuoteCurrency,
           );
+          const walletBreakevenKey = `wallet:${wallet.id}:${resolvedQuoteCurrency}`;
           const cachedSeries = state.PORTFOLIO.series[walletScopeKey];
           const cachedRefreshState = state.PORTFOLIO.seriesRefreshState[walletScopeKey];
+          const cachedBreakeven = state.PORTFOLIO.breakeven[walletBreakevenKey];
           
           // Reuse cached data if fresh enough
           const isCacheFresh = cachedRefreshState?.lastUpdated && 
             (now - cachedRefreshState.lastUpdated) < CACHE_FRESHNESS_MS;
+          const isBreakevenFresh = cachedBreakeven?.lastUpdated &&
+            (now - cachedBreakeven.lastUpdated) < CACHE_FRESHNESS_MS;
           
           if (cachedSeries?.length > 0 && isCacheFresh) {
             // Reuse cached wallet series
@@ -337,6 +386,27 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
               currencyAbbreviation: wallet.currencyAbbreviation,
               chain: wallet.chain,
             });
+
+            if (cachedBreakeven && isBreakevenFresh) {
+              walletBreakevenResults.push(cachedBreakeven);
+            } else {
+              const transactions = await dispatch(fetchFullHistory({wallet}));
+              const precision = dispatch(
+                GetPrecision(wallet.currencyAbbreviation, wallet.chain, wallet.tokenAddress),
+              );
+              const unitToSatoshi = precision?.unitToSatoshi || 1e8;
+              const breakevenResult = await computeBreakeven({
+                transactions,
+                method: costBasisMethod,
+                quoteCurrency: resolvedQuoteCurrency,
+                currencyAbbreviation: wallet.currencyAbbreviation,
+                chain: wallet.chain,
+                tokenAddress: wallet.tokenAddress,
+                unitToSatoshi,
+              });
+              dispatch(upsertBreakeven(walletBreakevenKey, breakevenResult));
+              walletBreakevenResults.push(breakevenResult);
+            }
           } else {
             // Compute fresh data for this wallet
             const transactions = await dispatch(fetchFullHistory({wallet}));
@@ -369,11 +439,33 @@ export const loadBalanceSeries = ({entity, timeframe, quoteCurrency}: LoadBalanc
               currencyAbbreviation: wallet.currencyAbbreviation,
               chain: wallet.chain,
             });
+
+            const precision = dispatch(
+              GetPrecision(wallet.currencyAbbreviation, wallet.chain, wallet.tokenAddress),
+            );
+            const unitToSatoshi = precision?.unitToSatoshi || 1e8;
+            const breakevenResult = await computeBreakeven({
+              transactions,
+              method: costBasisMethod,
+              quoteCurrency: resolvedQuoteCurrency,
+              currencyAbbreviation: wallet.currencyAbbreviation,
+              chain: wallet.chain,
+              tokenAddress: wallet.tokenAddress,
+              unitToSatoshi,
+            });
+            dispatch(upsertBreakeven(walletBreakevenKey, breakevenResult));
+            walletBreakevenResults.push(breakevenResult);
           }
         }
 
         // 2. Merge wallet series into account series (with breakdown)
         points = mergeBalanceSeries(walletSeriesWithMeta, resolvedQuoteCurrency);
+
+        if (walletBreakevenResults.length > 0) {
+          const accountBreakevenKey = `account:${entity.accountKeyId}:${entity.accountAddress}:${resolvedQuoteCurrency}`;
+          const accountBreakevenResult = aggregateBreakeven(walletBreakevenResults, costBasisMethod);
+          dispatch(upsertBreakeven(accountBreakevenKey, accountBreakevenResult));
+        }
       } else if (entity.type === 'portfolio') {
         // === PORTFOLIO SCOPE ===
         // Filter out testnet wallets and wallets from keys that need backup

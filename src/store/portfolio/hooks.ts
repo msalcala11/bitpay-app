@@ -79,6 +79,9 @@ export const useBreakeven = ({
     if (entity.type === 'wallet' && entity.id) {
       return `wallet:${entity.id}:${resolvedQuoteCurrency}`;
     }
+    if (entity.type === 'account' && entity.accountKeyId && entity.accountAddress) {
+      return `account:${entity.accountKeyId}:${entity.accountAddress}:${resolvedQuoteCurrency}`;
+    }
     // TODO: Support key and portfolio scope aggregation
     return null;
   }, [entity, resolvedQuoteCurrency]);
