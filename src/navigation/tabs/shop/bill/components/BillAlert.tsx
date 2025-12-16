@@ -3,6 +3,7 @@ import styled from 'styled-components/native';
 import {Link, Paragraph} from '../../../../../components/styled/Text';
 import {LightBlack, NeutralSlate} from '../../../../../styles/colors';
 import ClockSvg from '../../../../../../assets/img/bills/clock.svg';
+import InfoSvg from '../../../home/components/InfoSvg';
 import {Linking} from 'react-native';
 
 const AlertContainer = styled.View`
@@ -32,6 +33,10 @@ const AlertHeader = styled(Paragraph)`
   margin-bottom: 3px;
 `;
 
+const IconContainer = styled.View`
+  align-self: center;
+`;
+
 export default ({
   variant = 'noLateFees',
 }: {
@@ -39,7 +44,13 @@ export default ({
 }) => {
   return (
     <AlertContainer>
-      <ClockSvg style={{marginTop: 5}} />
+      {variant === 'servicePaused' ? (
+        <IconContainer>
+          <InfoSvg width={20} height={20} />
+        </IconContainer>
+      ) : (
+        <ClockSvg style={{marginTop: 5}} />
+      )}
       <AlertBody>
         {variant === 'servicePaused' ? (
           <>
