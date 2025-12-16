@@ -35,7 +35,6 @@ const BillsHome = ({}: NativeStackScreenProps<
   // Check if PaymentList should be showing
   const shouldShowPaymentList = !!(
     user &&
-    isVerified &&
     billPayServicePaused &&
     accounts.length > 0
   );
