@@ -1,14 +1,15 @@
 import React from 'react';
 import {Path, Svg} from 'react-native-svg';
 import {useTheme} from 'styled-components/native';
-import {Slate, SlateDark} from '../../../../styles/colors';
+import {Slate30, SlateDark} from '../../../../styles/colors';
 
 const InfoSvg: React.FC<{
   width?: number;
   height?: number;
-}> = ({width = 16, height = 16}) => {
+  color?: string;
+}> = ({width = 16, height = 16, color}) => {
   const theme = useTheme();
-  const fillColor = theme.dark ? Slate : SlateDark;
+  const fillColor = color || (theme.dark ? Slate30 : SlateDark);
 
   return (
     <Svg width={width} height={height} viewBox="0 0 16 16" fill="none">

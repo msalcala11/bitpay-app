@@ -1,10 +1,11 @@
 import React from 'react';
 import styled from 'styled-components/native';
 import {Link, Paragraph} from '../../../../../components/styled/Text';
-import {LightBlack, NeutralSlate} from '../../../../../styles/colors';
+import {LightBlack, NeutralSlate, Slate30, SlateDark} from '../../../../../styles/colors';
 import ClockSvg from '../../../../../../assets/img/bills/clock.svg';
 import InfoSvg from '../../../home/components/InfoSvg';
 import {Linking} from 'react-native';
+import {useTheme} from 'styled-components/native';
 
 const AlertContainer = styled.View`
   background-color: ${({theme}) => (theme.dark ? LightBlack : NeutralSlate)};
@@ -42,11 +43,12 @@ export default ({
 }: {
   variant?: 'noLateFees' | 'servicePaused';
 }) => {
+  const theme = useTheme();
   return (
     <AlertContainer>
       {variant === 'servicePaused' ? (
         <IconContainer>
-          <InfoSvg width={20} height={20} />
+          <InfoSvg width={22} height={22} color={theme.dark ? Slate30 : SlateDark} />
         </IconContainer>
       ) : (
         <ClockSvg style={{marginTop: 5}} />
