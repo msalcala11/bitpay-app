@@ -37,6 +37,7 @@ const AmountDue = styled(BaseText)`
   font-weight: 500;
   text-align: center;
   margin-top: 20px;
+  line-height: 80px;
 `;
 
 const PaymentDateContainer = styled.View`
