@@ -43,7 +43,6 @@ import {joinWaitlist} from '../../../../store/app/app.effects';
 import UserInfo from './UserInfo';
 import {BitPayIdEffects} from '../../../../store/bitpay-id';
 import {PaymentList} from '../bill/components/PaymentList';
-import {toggleBillPayServicePaused} from '../../../../store/shop/shop.actions';
 
 const Subtitle = styled(Paragraph)`
   font-size: 14px;
@@ -76,36 +75,6 @@ const BillsHeader = styled(SectionHeader)`
 
 const BillsHeaderButton = styled(SectionHeaderButton)`
   margin-top: 0;
-`;
-
-const FloatingDebugButton = styled.TouchableOpacity`
-  position: absolute;
-  bottom: 20px;
-  right: 20px;
-  width: 56px;
-  height: 56px;
-  border-radius: 28px;
-  background-color: #007AFF;
-  justify-content: center;
-  align-items: center;
-  shadow-color: #000;
-  shadow-offset: 0px 2px;
-  shadow-opacity: 0.25;
-  shadow-radius: 3.84px;
-  elevation: 5;
-  z-index: 9999;
-`;
-
-const DebugButtonText = styled.Text`
-  color: white;
-  font-size: 12px;
-  font-weight: bold;
-  text-align: center;
-`;
-
-const FullScreenContainer = styled.View`
-  flex: 1;
-  position: relative;
 `;
 
 export const Bills = () => {
@@ -249,10 +218,9 @@ export const Bills = () => {
   };
 
   return (
-    <FullScreenContainer>
-      <SectionContainer
-        style={{minHeight: HEIGHT - (Platform.OS === 'android' ? 200 : 225)}}>
-        {!user ? (
+    <SectionContainer
+      style={{minHeight: HEIGHT - (Platform.OS === 'android' ? 200 : 225)}}>
+      {!user ? (
           <>
             <BillPitch />
             <Button
@@ -520,15 +488,5 @@ export const Bills = () => {
           </>
         )}
       </SectionContainer>
-      {/* Floating debug button - fixed to screen */}
-      <FloatingDebugButton
-        onPress={() => {
-          dispatch(toggleBillPayServicePaused(!billPayServicePaused));
-        }}>
-        <DebugButtonText>
-          {billPayServicePaused ? '▶️' : '⏸️'}
-        </DebugButtonText>
-      </FloatingDebugButton>
-    </FullScreenContainer>
   );
 };
