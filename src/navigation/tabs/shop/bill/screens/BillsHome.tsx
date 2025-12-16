@@ -28,17 +28,15 @@ const BillsHome = ({}: NativeStackScreenProps<
   const billPayServicePaused = useAppSelector(
     ({SHOP}) => SHOP.billPayServicePaused,
   );
-  const accounts = useAppSelector(
-    ({SHOP}) => SHOP.billPayAccounts[appNetwork],
-  );
+  const accounts = useAppSelector(({SHOP}) => SHOP.billPayAccounts[appNetwork]);
   const isVerified = !!(user && user.country);
   const [refreshing, setRefreshing] = useState(false);
 
   // Check if PaymentList should be showing
   const shouldShowPaymentList = !!(
-    user && 
-    isVerified && 
-    billPayServicePaused && 
+    user &&
+    isVerified &&
+    billPayServicePaused &&
     accounts.length > 0
   );
 

@@ -221,6 +221,51 @@ export const Bills = () => {
     <SectionContainer
       style={{minHeight: HEIGHT - (Platform.OS === 'android' ? 200 : 225)}}>
       {!user ? (
+        <>
+          <BillPitch />
+          <Button
+            height={50}
+            onPress={() => {
+              dispatch(
+                AppEffects.openUrlWithInAppBrowser(
+                  `${verificationBaseUrl}&context=createAccount`,
+                ),
+              );
+              dispatch(Analytics.track('Bill Pay - Clicked Sign Up'));
+            }}>
+            {t('Sign Up')}
+          </Button>
+          <View style={{height: 10}} />
+          <Button
+            height={50}
+            buttonStyle="secondary"
+            onPress={() => {
+              dispatch(
+                AppEffects.openUrlWithInAppBrowser(
+                  `${verificationBaseUrl}&context=login`,
+                ),
+              );
+              dispatch(
+                Analytics.track('Bill Pay - Clicked I Already Have an Account'),
+              );
+            }}>
+            {t('I already have an account')}
+          </Button>
+        </>
+      ) : !isVerified ? (
+        billPayServicePaused ? (
+          <>
+            <BillPitch />
+            <Button
+              state={waitlistButtonState}
+              style={{width: WIDTH - 32, marginTop: 24}}
+              height={50}
+              buttonStyle="secondary"
+              onPress={onSubmit}>
+              {t('Join waitlist')}
+            </Button>
+          </>
+        ) : (
           <>
             <BillPitch />
             <Button
@@ -246,234 +291,41 @@ export const Bills = () => {
                   ),
                 );
                 dispatch(
-                  Analytics.track('Bill Pay - Clicked I Already Have an Account'),
+                  Analytics.track(
+                    'Bill Pay - Clicked I Already Have an Account',
+                  ),
                 );
               }}>
               {t('I already have an account')}
             </Button>
           </>
-        ) : !isVerified ? (
-          billPayServicePaused ? (
+        )
+      ) : (
+        <>
+          {billPayServicePaused ? (
             <>
-              <BillPitch />
-              <Button
-                state={waitlistButtonState}
-                style={{width: WIDTH - 32, marginTop: 24}}
-                height={50}
-                buttonStyle="secondary"
-                onPress={onSubmit}>
-                {t('Join waitlist')}
-              </Button>
-            </>
-          ) : (
-            <>
-              <BillPitch />
-              <Button
-                height={50}
-                onPress={() => {
-                  dispatch(
-                    AppEffects.openUrlWithInAppBrowser(
-                      `${verificationBaseUrl}&context=createAccount`,
-                    ),
-                  );
-                  dispatch(Analytics.track('Bill Pay - Clicked Sign Up'));
-                }}>
-                {t('Sign Up')}
-              </Button>
-              <View style={{height: 10}} />
-              <Button
-                height={50}
-                buttonStyle="secondary"
-                onPress={() => {
-                  dispatch(
-                    AppEffects.openUrlWithInAppBrowser(
-                      `${verificationBaseUrl}&context=login`,
-                    ),
-                  );
-                  dispatch(
-                    Analytics.track('Bill Pay - Clicked I Already Have an Account'),
-                  );
-                }}>
-                {t('I already have an account')}
-              </Button>
-            </>
-          )
-        ) : (
-          <>
-            {billPayServicePaused ? (
-              <>
-                {connected ? (
-                  <>
-                    <View style={{marginTop: 16}}>
-                      <BillAlert variant={'servicePaused'} />
-                    </View>
-                    <View style={{marginTop: 25}}>
-                      <PaymentList
-                        accounts={accounts}
-                        variation={'small'}
-                        onPress={(accountObj, payment) => {
-                          navigation.navigate(BillScreens.PAYMENT, {
-                            account: accountObj,
-                            payment,
-                          });
-                        }}
-                      />
-                    </View>
-                    <SectionSpacer />
-                  </>
-                ) : (
-                  <>
-                    <BillPitch />
-                    <Button
-                      state={waitlistButtonState}
-                      style={{width: WIDTH - 32, marginTop: 24}}
-                      height={50}
-                      buttonStyle="secondary"
-                      onPress={onSubmit}>
-                      {t('Join waitlist')}
-                    </Button>
-                  </>
-                )}
-              </>
-            ) : available ? (
-              <>
-                {!connected ? (
-                  <>
-                    <BillPitch />
-                    <Button
-                      state={connectButtonState}
-                      height={50}
-                      onPress={async () => {
-                        connectBills();
-                        dispatch(
-                          Analytics.track('Bill Pay - Clicked Connect My Bills'),
-                        );
-                      }}>
-                      {t('Connect My Bills')}
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <BillsHeaderContainer>
-                      <BillsHeader>{t('My Bills')}</BillsHeader>
-                      <TouchableOpacity
-                        activeOpacity={ActiveOpacity}
-                        onPress={() => {
-                          navigation.navigate(BillScreens.PAYMENTS, {});
-                          dispatch(
-                            Analytics.track(
-                              'Bill Pay - Clicked View All Payments',
-                            ),
-                          );
-                        }}>
-                        <BillsHeaderButton>
-                          {t('View All Payments')}
-                        </BillsHeaderButton>
-                      </TouchableOpacity>
-                    </BillsHeaderContainer>
-                    <BillList
+              {connected ? (
+                <>
+                  <View style={{marginTop: 16}}>
+                    <BillAlert variant={'servicePaused'} />
+                  </View>
+                  <View style={{marginTop: 25}}>
+                    <PaymentList
                       accounts={accounts}
-                      variation={'pay'}
-                      onPress={account => {
-                        navigation.navigate(BillScreens.PAY_BILL, {account});
-                        dispatch(
-                          Analytics.track(
-                            'Bill Pay - Clicked Pay Bill',
-                            getBillAccountEventParams(account),
-                          ),
-                        );
+                      variation={'small'}
+                      onPress={(accountObj, payment) => {
+                        navigation.navigate(BillScreens.PAYMENT, {
+                          account: accountObj,
+                          payment,
+                        });
                       }}
                     />
-                    {accounts.some(account => account.isPayable) ? (
-                      <>
-                        <Button
-                          style={{marginTop: 20, marginBottom: 10}}
-                          height={50}
-                          buttonStyle="secondary"
-                          onPress={() => {
-                            navigation.navigate(BillScreens.PAY_ALL_BILLS, {
-                              accounts,
-                            });
-                            dispatch(
-                              Analytics.track('Bill Pay — Clicked Pay All Bills'),
-                            );
-                          }}>
-                          {t('Pay All Bills')}
-                        </Button>
-                        <Button
-                          buttonType={'link'}
-                          onPress={() => {
-                            connectBills();
-                            dispatch(
-                              Analytics.track(
-                                'Bill Pay - Clicked Connect More Bills',
-                              ),
-                            );
-                          }}>
-                          {connectButtonState
-                            ? t('Loading...')
-                            : t('Connect More Bills')}
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          style={{marginTop: 20, marginBottom: 10}}
-                          state={connectButtonState}
-                          height={50}
-                          buttonStyle="secondary"
-                          onPress={() => {
-                            connectBills();
-                            dispatch(
-                              Analytics.track(
-                                'Bill Pay - Clicked Connect More Bills',
-                              ),
-                            );
-                          }}>
-                          {t('Connect More Bills')}
-                        </Button>
-                      </>
-                    )}
-                    <SectionSpacer />
-                  </>
-                )}
-              </>
-            ) : (
-              <>
-                <BillsValueProp>
-                  <CautionIcon />
-                  <H5>{t("Bill Pay isn't available in your area")}</H5>
-                  <Subtitle>
-                    <Trans
-                      i18nKey="BillPayUnavailableInYourLocation"
-                      values={{states: t('states')}}
-                      components={[
-                        <Subtitle
-                          style={{color: LinkBlue}}
-                          onPress={() =>
-                            dispatch(
-                              AppActions.showBottomNotificationModal({
-                                type: 'info',
-                                title: t('Available States'),
-                                message: t(
-                                  'Bill Pay is available in Alabama, Alaska, Delaware, District of Columbia, Florida, Georgia, Illinois, Iowa, Kansas, Maine, Massachusetts, Mississippi, Nebraska, New Jersey, New Mexico, Ohio, Oregon, South Dakota, Tennessee, Washington',
-                                ),
-                                enableBackdropDismiss: true,
-                                onBackdropDismiss: () => {},
-                                actions: [
-                                  {
-                                    text: t('GOT IT'),
-                                    action: () => {},
-                                    primary: true,
-                                  },
-                                ],
-                              }),
-                            )
-                          }
-                        />,
-                      ]}
-                    />
-                  </Subtitle>
+                  </View>
+                  <SectionSpacer />
+                </>
+              ) : (
+                <>
+                  <BillPitch />
                   <Button
                     state={waitlistButtonState}
                     style={{width: WIDTH - 32, marginTop: 24}}
@@ -482,11 +334,161 @@ export const Bills = () => {
                     onPress={onSubmit}>
                     {t('Join waitlist')}
                   </Button>
-                </BillsValueProp>
-              </>
-            )}
-          </>
-        )}
-      </SectionContainer>
+                </>
+              )}
+            </>
+          ) : available ? (
+            <>
+              {!connected ? (
+                <>
+                  <BillPitch />
+                  <Button
+                    state={connectButtonState}
+                    height={50}
+                    onPress={async () => {
+                      connectBills();
+                      dispatch(
+                        Analytics.track('Bill Pay - Clicked Connect My Bills'),
+                      );
+                    }}>
+                    {t('Connect My Bills')}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <BillsHeaderContainer>
+                    <BillsHeader>{t('My Bills')}</BillsHeader>
+                    <TouchableOpacity
+                      activeOpacity={ActiveOpacity}
+                      onPress={() => {
+                        navigation.navigate(BillScreens.PAYMENTS, {});
+                        dispatch(
+                          Analytics.track(
+                            'Bill Pay - Clicked View All Payments',
+                          ),
+                        );
+                      }}>
+                      <BillsHeaderButton>
+                        {t('View All Payments')}
+                      </BillsHeaderButton>
+                    </TouchableOpacity>
+                  </BillsHeaderContainer>
+                  <BillList
+                    accounts={accounts}
+                    variation={'pay'}
+                    onPress={account => {
+                      navigation.navigate(BillScreens.PAY_BILL, {account});
+                      dispatch(
+                        Analytics.track(
+                          'Bill Pay - Clicked Pay Bill',
+                          getBillAccountEventParams(account),
+                        ),
+                      );
+                    }}
+                  />
+                  {accounts.some(account => account.isPayable) ? (
+                    <>
+                      <Button
+                        style={{marginTop: 20, marginBottom: 10}}
+                        height={50}
+                        buttonStyle="secondary"
+                        onPress={() => {
+                          navigation.navigate(BillScreens.PAY_ALL_BILLS, {
+                            accounts,
+                          });
+                          dispatch(
+                            Analytics.track('Bill Pay — Clicked Pay All Bills'),
+                          );
+                        }}>
+                        {t('Pay All Bills')}
+                      </Button>
+                      <Button
+                        buttonType={'link'}
+                        onPress={() => {
+                          connectBills();
+                          dispatch(
+                            Analytics.track(
+                              'Bill Pay - Clicked Connect More Bills',
+                            ),
+                          );
+                        }}>
+                        {connectButtonState
+                          ? t('Loading...')
+                          : t('Connect More Bills')}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        style={{marginTop: 20, marginBottom: 10}}
+                        state={connectButtonState}
+                        height={50}
+                        buttonStyle="secondary"
+                        onPress={() => {
+                          connectBills();
+                          dispatch(
+                            Analytics.track(
+                              'Bill Pay - Clicked Connect More Bills',
+                            ),
+                          );
+                        }}>
+                        {t('Connect More Bills')}
+                      </Button>
+                    </>
+                  )}
+                  <SectionSpacer />
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <BillsValueProp>
+                <CautionIcon />
+                <H5>{t("Bill Pay isn't available in your area")}</H5>
+                <Subtitle>
+                  <Trans
+                    i18nKey="BillPayUnavailableInYourLocation"
+                    values={{states: t('states')}}
+                    components={[
+                      <Subtitle
+                        style={{color: LinkBlue}}
+                        onPress={() =>
+                          dispatch(
+                            AppActions.showBottomNotificationModal({
+                              type: 'info',
+                              title: t('Available States'),
+                              message: t(
+                                'Bill Pay is available in Alabama, Alaska, Delaware, District of Columbia, Florida, Georgia, Illinois, Iowa, Kansas, Maine, Massachusetts, Mississippi, Nebraska, New Jersey, New Mexico, Ohio, Oregon, South Dakota, Tennessee, Washington',
+                              ),
+                              enableBackdropDismiss: true,
+                              onBackdropDismiss: () => {},
+                              actions: [
+                                {
+                                  text: t('GOT IT'),
+                                  action: () => {},
+                                  primary: true,
+                                },
+                              ],
+                            }),
+                          )
+                        }
+                      />,
+                    ]}
+                  />
+                </Subtitle>
+                <Button
+                  state={waitlistButtonState}
+                  style={{width: WIDTH - 32, marginTop: 24}}
+                  height={50}
+                  buttonStyle="secondary"
+                  onPress={onSubmit}>
+                  {t('Join waitlist')}
+                </Button>
+              </BillsValueProp>
+            </>
+          )}
+        </>
+      )}
+    </SectionContainer>
   );
 };

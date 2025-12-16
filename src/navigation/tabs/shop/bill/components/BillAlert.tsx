@@ -56,9 +56,8 @@ export default ({
           <>
             <AlertText>
               Bill Pay service will be temporarily paused beginning December
-              26th, 2025 at 12:00 PM EST. At this time, we are unable to
-              provide a confirmed timeline for when the Bill Pay service will
-              resume.
+              26th, 2025 at 12:00 PM EST. At this time, we are unable to provide
+              a confirmed timeline for when the Bill Pay service will resume.
               <AlertLink
                 onPress={() =>
                   Linking.openURL(
@@ -73,9 +72,9 @@ export default ({
           <>
             <AlertHeader>No late fees</AlertHeader>
             <AlertText>
-              Your bank will give you credit for making this payment within
-              one business day, but it may take 3-7 business days for it to
-              show up on your bank statement.
+              Your bank will give you credit for making this payment within one
+              business day, but it may take 3-7 business days for it to show up
+              on your bank statement.
             </AlertText>
           </>
         )}
