@@ -219,52 +219,38 @@ export const Bills = () => {
   return (
     <SectionContainer
       style={{minHeight: HEIGHT - (Platform.OS === 'android' ? 200 : 225)}}>
-      {!isVerified ? (
-        billPayServicePaused ? (
-          <>
-            <BillPitch />
-            <Button
-              state={waitlistButtonState}
-              style={{width: WIDTH - 32, marginTop: 24}}
-              height={50}
-              buttonStyle="secondary"
-              onPress={onSubmit}>
-              {t('Join waitlist')}
-            </Button>
-          </>
-        ) : (
-          <>
-            <BillPitch />
-            <Button
-              height={50}
-              onPress={() => {
-                dispatch(
-                  AppEffects.openUrlWithInAppBrowser(
-                    `${verificationBaseUrl}&context=createAccount`,
-                  ),
-                );
-                dispatch(Analytics.track('Bill Pay - Clicked Sign Up'));
-              }}>
-              {t('Sign Up')}
-            </Button>
-            <View style={{height: 10}} />
-            <Button
-              height={50}
-              buttonStyle="secondary"
-              onPress={() => {
-                dispatch(
-                  AppEffects.openUrlWithInAppBrowser(
-                    `${verificationBaseUrl}&context=login`,
-                  ),
-                );
-                dispatch(
-                  Analytics.track('Bill Pay - Clicked I Already Have an Account'),
-                );
-              }}>
-              {t('I already have an account')}
-            </Button>
-          </>
-        )
+      {!user ? (
+        <>
+          <BillPitch />
+          <Button
+            height={50}
+            onPress={() => {
+              dispatch(
+                AppEffects.openUrlWithInAppBrowser(
+                  `${verificationBaseUrl}&context=createAccount`,
+                ),
+              );
+              dispatch(Analytics.track('Bill Pay - Clicked Sign Up'));
+            }}>
+            {t('Sign Up')}
+          </Button>
+          <View style={{height: 10}} />
+          <Button
+            height={50}
+            buttonStyle="secondary"
+            onPress={() => {
+              dispatch(
+                AppEffects.openUrlWithInAppBrowser(
+                  `${verificationBaseUrl}&context=login`,
+                ),
+              );
+              dispatch(
+                Analytics.track('Bill Pay - Clicked I Already Have an Account'),
+              );
+            }}>
+            {t('I already have an account')}
+          </Button>
+        </>
       ) : (
         <>
           {billPayServicePaused ? (
@@ -441,20 +427,14 @@ export const Bills = () => {
                     ]}
                   />
                 </Subtitle>
-                {isJoinedWaitlist ? (
-                  <Paragraph style={{textAlign: 'center', fontSize: 14}}>
-                    {t('You have joined the waitlist.')}
-                  </Paragraph>
-                ) : (
-                  <Button
-                    state={waitlistButtonState}
-                    style={{width: WIDTH - 32, marginTop: 24}}
-                    height={50}
-                    buttonStyle="secondary"
-                    onPress={onSubmit}>
-                    {t('Join waitlist')}
-                  </Button>
-                )}
+                <Button
+                  state={waitlistButtonState}
+                  style={{width: WIDTH - 32, marginTop: 24}}
+                  height={50}
+                  buttonStyle="secondary"
+                  onPress={onSubmit}>
+                  {t('Join waitlist')}
+                </Button>
               </BillsValueProp>
             </>
           )}
