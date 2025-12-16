@@ -131,6 +131,9 @@ export const Bills = () => {
   });
 
   const onSubmit = async () => {
+    if (isJoinedWaitlist) {
+      return;
+    }
     try {
       setWaitlistButtonState('loading');
       user &&
@@ -222,20 +225,14 @@ export const Bills = () => {
         billPayServicePaused ? (
           <>
             <BillPitch />
-            {isJoinedWaitlist ? (
-              <Paragraph style={{textAlign: 'center', fontSize: 14}}>
-                {t('You have joined the waitlist.')}
-              </Paragraph>
-            ) : (
-              <Button
-                state={waitlistButtonState}
-                style={{width: WIDTH - 32, marginTop: 24}}
-                height={50}
-                buttonStyle="secondary"
-                onPress={onSubmit}>
-                {t('Join waitlist')}
-              </Button>
-            )}
+            <Button
+              state={waitlistButtonState}
+              style={{width: WIDTH - 32, marginTop: 24}}
+              height={50}
+              buttonStyle="secondary"
+              onPress={onSubmit}>
+              {t('Join waitlist')}
+            </Button>
           </>
         ) : (
           <>
@@ -296,20 +293,14 @@ export const Bills = () => {
               ) : (
                 <>
                   <BillPitch />
-                  {isJoinedWaitlist ? (
-                    <Paragraph style={{textAlign: 'center', fontSize: 14}}>
-                      {t('You have joined the waitlist.')}
-                    </Paragraph>
-                  ) : (
-                    <Button
-                      state={waitlistButtonState}
-                      style={{width: WIDTH - 32, marginTop: 24}}
-                      height={50}
-                      buttonStyle="secondary"
-                      onPress={onSubmit}>
-                      {t('Join waitlist')}
-                    </Button>
-                  )}
+                  <Button
+                    state={waitlistButtonState}
+                    style={{width: WIDTH - 32, marginTop: 24}}
+                    height={50}
+                    buttonStyle="secondary"
+                    onPress={onSubmit}>
+                    {t('Join waitlist')}
+                  </Button>
                 </>
               )}
             </>
