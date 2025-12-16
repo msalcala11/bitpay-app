@@ -24,12 +24,17 @@ const BillsHome = ({}: NativeStackScreenProps<
   const user = useAppSelector(
     ({APP, BITPAY_ID}) => BITPAY_ID.user[APP.network],
   );
+  const billPayServicePaused = useAppSelector(
+    ({SHOP}) => SHOP.billPayServicePaused,
+  );
   const [refreshing, setRefreshing] = useState(false);
 
   return (
     <TabContainer>
       <HeaderContainer>
-        <HeaderTitle>{t('Pay Bills')}</HeaderTitle>
+        <HeaderTitle>
+          {billPayServicePaused ? t('All Payments') : t('Pay Bills')}
+        </HeaderTitle>
       </HeaderContainer>
       <ScrollView
         refreshControl={

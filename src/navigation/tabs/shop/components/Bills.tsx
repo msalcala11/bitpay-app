@@ -259,7 +259,7 @@ export const Bills = () => {
                   <View style={{marginTop: 16}}>
                     <BillAlert variant={'servicePaused'} />
                   </View>
-                  <View style={{marginTop: 20}}>
+                  <View style={{marginTop: 25}}>
                     <PaymentList
                       accounts={accounts}
                       variation={'small'}
