@@ -1299,12 +1299,17 @@ export const buildTransactionDetails =
         let tokenSymbol: string | undefined;
 
         if (tokenAddress) {
-          tokenSymbol = Object.values(tokensOptsByAddress)
+          tokenSymbol = (
+            Object.values(tokensOptsByAddress) as Array<{
+              address?: string;
+              symbol?: string;
+            }>
+          )
             .find(
               ({address}) =>
                 tokenAddress?.toLowerCase() === address?.toLowerCase(),
             )
-            ?.symbol.toLowerCase();
+            ?.symbol?.toLowerCase();
         }
 
         const _fee =
