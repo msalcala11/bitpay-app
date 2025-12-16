@@ -32,6 +32,7 @@ import {BASE_BITPAY_URLS} from '../../../../constants/config';
 import {ShopEffects} from '../../../../store/shop';
 import {AppActions, AppEffects} from '../../../../store/app';
 import BillPitch from '../bill/components/BillPitch';
+import BillAlert from '../bill/components/BillAlert';
 import {Analytics} from '../../../../store/analytics/analytics.effects';
 import {getBillAccountEventParams} from '../bill/utils';
 import {sleep} from '../../../../utils/helper-methods';
@@ -41,6 +42,7 @@ import {CustomErrorMessage} from '../../../wallet/components/ErrorMessages';
 import {joinWaitlist} from '../../../../store/app/app.effects';
 import UserInfo from './UserInfo';
 import {BitPayIdEffects} from '../../../../store/bitpay-id';
+import {PaymentList} from '../bill/components/PaymentList';
 
 const Subtitle = styled(Paragraph)`
   font-size: 14px;
@@ -88,6 +90,10 @@ export const Bills = () => {
 
   const apiToken = useAppSelector(
     ({BITPAY_ID}) => BITPAY_ID.apiToken[appNetwork],
+  );
+
+  const billPayServicePaused = useAppSelector(
+    ({SHOP}) => SHOP.billPayServicePaused,
   );
 
   const isJoinedWaitlist = useAppSelector(({SHOP}) => SHOP.isJoinedWaitlist);
@@ -246,7 +252,48 @@ export const Bills = () => {
         </>
       ) : (
         <>
-          {available ? (
+          {billPayServicePaused ? (
+            <>
+              {connected ? (
+                <>
+                  <View style={{marginTop: 16}}>
+                    <BillAlert variant={'servicePaused'} />
+                  </View>
+                  <View style={{marginTop: 20}}>
+                    <PaymentList
+                      accounts={accounts}
+                      variation={'small'}
+                      onPress={(accountObj, payment) => {
+                        navigation.navigate(BillScreens.PAYMENT, {
+                          account: accountObj,
+                          payment,
+                        });
+                      }}
+                    />
+                  </View>
+                  <SectionSpacer />
+                </>
+              ) : (
+                <>
+                  <BillPitch />
+                  {isJoinedWaitlist ? (
+                    <Paragraph style={{textAlign: 'center', fontSize: 14}}>
+                      {t('You have joined the waitlist.')}
+                    </Paragraph>
+                  ) : (
+                    <Button
+                      state={waitlistButtonState}
+                      style={{width: WIDTH - 32, marginTop: 24}}
+                      height={50}
+                      buttonStyle="secondary"
+                      onPress={onSubmit}>
+                      {t('Join waitlist')}
+                    </Button>
+                  )}
+                </>
+              )}
+            </>
+          ) : available ? (
             <>
               {!connected ? (
                 <>

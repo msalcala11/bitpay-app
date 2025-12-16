@@ -23,7 +23,7 @@ import Settings from '../../../../../components/settings/Settings';
 import OptionsSheet, {Option} from '../../../../wallet/components/OptionsSheet';
 import {LightBlack, Slate30} from '../../../../../styles/colors';
 import {BillAccountPill} from '../components/BillAccountPill';
-import {useAppDispatch} from '../../../../../utils/hooks';
+import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {Analytics} from '../../../../../store/analytics/analytics.effects';
 import {getBillAccountEventParams} from '../utils';
 
@@ -58,6 +58,11 @@ const AlertContainer = styled.View`
   margin-top: 20px;
 `;
 
+const ServicePausedAlertContainer = styled.View`
+  margin: 0 16px;
+  margin-top: 16px;
+`;
+
 const LineItem = styled.View`
   flex-direction: row;
   padding: 18px 0;
@@ -77,6 +82,9 @@ const Payment = ({
   const {t} = useTranslation();
   const dispatch = useAppDispatch();
   const {account, payment} = route.params;
+  const billPayServicePaused = useAppSelector(
+    ({SHOP}) => SHOP.billPayServicePaused,
+  );
   const [isOptionsSheetVisible, setIsOptionsSheetVisible] = useState(false);
   const [baseEventParams] = useState(
     getBillAccountEventParams(account, payment),
@@ -138,6 +146,11 @@ const Payment = ({
 
   return (
     <ScrollView>
+      {billPayServicePaused ? (
+        <ServicePausedAlertContainer>
+          <BillAlert variant={'servicePaused'} />
+        </ServicePausedAlertContainer>
+      ) : null}
       <HeroSection>
         <AmountDue>{formatFiatAmount(payment.amount, 'USD')}</AmountDue>
         <PaymentDateContainer>

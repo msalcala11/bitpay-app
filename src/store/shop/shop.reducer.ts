@@ -23,6 +23,7 @@ export interface ShopState {
   email: string;
   phone: string;
   phoneCountryInfo: PhoneCountryInfo;
+  billPayServicePaused: boolean;
   billPayAccounts: {
     [key in Network]: BillPayAccount[];
   };
@@ -46,6 +47,7 @@ export const initialShopState: ShopState = {
     phoneCountryCode: '',
     countryIsoCode: '',
   },
+  billPayServicePaused: true,
   billPayAccounts: {
     [Network.mainnet]: [],
     [Network.testnet]: [],
