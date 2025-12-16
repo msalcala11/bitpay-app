@@ -47,7 +47,7 @@ export const initialShopState: ShopState = {
     phoneCountryCode: '',
     countryIsoCode: '',
   },
-  billPayServicePaused: true,
+  billPayServicePaused: false,
   billPayAccounts: {
     [Network.mainnet]: [],
     [Network.testnet]: [],
