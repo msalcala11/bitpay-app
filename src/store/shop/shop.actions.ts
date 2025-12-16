@@ -151,3 +151,10 @@ export const isJoinedWaitlist = (
   type: ShopActionTypes.IS_JOINED_WAITLIST,
   payload: {isJoinedWaitlist},
 });
+
+export const toggleBillPayServicePaused = (
+  billPayServicePaused: boolean,
+): ShopActionType => ({
+  type: ShopActionTypes.TOGGLE_BILL_PAY_SERVICE_PAUSED,
+  payload: {billPayServicePaused},
+});
