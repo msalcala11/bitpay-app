@@ -6,12 +6,13 @@ import {
   readRateMap,
   readWalletTxs,
 } from './portfolio.storage';
+import {Rates} from '../rate/rate.models';
 import {
   BitpaySupportedCoins,
   BitpaySupportedTokens,
 } from '../../constants/currencies';
 import {tokenManager} from '../../managers/TokenManager';
-import {getCurrencyAbbreviation} from '../../utils/helper-methods';
+import {getCurrencyAbbreviation, getRateByCurrencyName} from '../../utils/helper-methods';
 
 type UnitInfo = {
   unitToSatoshi: number;
@@ -28,6 +29,36 @@ export type PortfolioPosition = {
   rateSymbol: string;
   units: number;
   costBasisFiat: number;
+  missingRates: boolean;
+};
+
+export type PortfolioAssetRow = PortfolioPosition & {
+  currentRate?: number;
+  valueFiat: number;
+  pnlFiat: number;
+  allocation: number;
+};
+
+export type PortfolioAssetList = {
+  totalValueFiat: number;
+  totalCostBasisFiat: number;
+  totalPnlFiat: number;
+  missingRates: boolean;
+  assets: PortfolioAssetRow[];
+};
+
+export type PortfolioInterval = '1D' | '1W' | '1M' | '3M' | '1Y' | '5Y' | 'ALL';
+
+export type PortfolioChartPoint = {
+  ts: number;
+  value: number;
+  breakeven: number;
+  pnl: number;
+};
+
+export type PortfolioChartSeries = {
+  interval: PortfolioInterval;
+  points: PortfolioChartPoint[];
   missingRates: boolean;
 };
 
@@ -205,7 +236,7 @@ const buildEventsForWalletTxs = (
           deltaUnits: amountUnits,
           isInternalTransferCandidate: true,
         });
-      } else if (action === 'sent' || action === 'moved') {
+      } else if (action === 'sent') {
         events.push({
           txid: tx.txid,
           time: tx.time,
@@ -343,6 +374,254 @@ const computePositionsFromEvents = (
   return positions;
 };
 
+const getCurrentFiatRate = (
+  rates: Rates,
+  fiatCode: string,
+  {
+    coin,
+    chain,
+    tokenAddress,
+  }: {
+    coin: string;
+    chain: string;
+    tokenAddress?: string;
+  },
+): number | undefined => {
+  const arr = getRateByCurrencyName(rates, coin, chain, tokenAddress);
+  const match = arr?.find(r => r.code?.toUpperCase() === fiatCode.toUpperCase());
+  return match?.rate;
+};
+
+const buildAssetListFromPositions = (
+  state: RootState,
+  {
+    fiatCode,
+    positions,
+  }: {
+    fiatCode: string;
+    positions: Record<PortfolioAssetKey, PortfolioPosition>;
+  },
+): PortfolioAssetList => {
+  const currentRates = state.RATE?.rates || {};
+  const rows: PortfolioAssetRow[] = [];
+
+  let totalValueFiat = 0;
+  let totalCostBasisFiat = 0;
+  let missingRates = false;
+
+  for (const p of Object.values(positions)) {
+    if (!p.units) {
+      continue;
+    }
+    const currentRate = getCurrentFiatRate(currentRates, fiatCode, p);
+    const valueFiat = currentRate != null ? p.units * currentRate : 0;
+    if (currentRate == null) {
+      missingRates = true;
+    }
+    totalValueFiat += valueFiat;
+    totalCostBasisFiat += p.costBasisFiat;
+    rows.push({
+      ...p,
+      currentRate,
+      valueFiat,
+      pnlFiat: valueFiat - p.costBasisFiat,
+      allocation: 0,
+    });
+  }
+
+  const totalPnlFiat = totalValueFiat - totalCostBasisFiat;
+
+  const assets = rows
+    .map(r => ({
+      ...r,
+      allocation: totalValueFiat > 0 ? r.valueFiat / totalValueFiat : 0,
+    }))
+    .sort((a, b) => b.valueFiat - a.valueFiat);
+
+  return {
+    totalValueFiat,
+    totalCostBasisFiat,
+    totalPnlFiat,
+    missingRates: missingRates || assets.some(a => a.missingRates),
+    assets,
+  };
+};
+
+const resolveIntervalWindow = (
+  interval: PortfolioInterval,
+  events: PortfolioEvent[],
+): {startTs: number; endTs: number; targetPoints: number; isIntraday: boolean} => {
+  const endTs = Date.now();
+  const end = moment(endTs);
+  switch (interval) {
+    case '1D':
+      return {
+        startTs: end.clone().subtract(1, 'day').valueOf(),
+        endTs,
+        targetPoints: 45,
+        isIntraday: true,
+      };
+    case '1W':
+      return {
+        startTs: end.clone().subtract(7, 'days').startOf('day').valueOf(),
+        endTs,
+        targetPoints: 45,
+        isIntraday: false,
+      };
+    case '1M':
+      return {
+        startTs: end.clone().subtract(30, 'days').startOf('day').valueOf(),
+        endTs,
+        targetPoints: 60,
+        isIntraday: false,
+      };
+    case '3M':
+      return {
+        startTs: end.clone().subtract(90, 'days').startOf('day').valueOf(),
+        endTs,
+        targetPoints: 90,
+        isIntraday: false,
+      };
+    case '1Y':
+      return {
+        startTs: end.clone().subtract(365, 'days').startOf('day').valueOf(),
+        endTs,
+        targetPoints: 180,
+        isIntraday: false,
+      };
+    case '5Y':
+      return {
+        startTs: end.clone().subtract(365 * 5, 'days').startOf('day').valueOf(),
+        endTs,
+        targetPoints: 365,
+        isIntraday: false,
+      };
+    case 'ALL': {
+      const first = events.length
+        ? Math.min(...events.map(e => e.time))
+        : end.clone().startOf('day').valueOf();
+      return {
+        startTs: moment(first).startOf('day').valueOf(),
+        endTs,
+        targetPoints: 365,
+        isIntraday: false,
+      };
+    }
+  }
+};
+
+const computeSeriesFromEvents = (
+  state: RootState,
+  {
+    fiatCode,
+    interval,
+    events,
+  }: {
+    fiatCode: string;
+    interval: PortfolioInterval;
+    events: PortfolioEvent[];
+  },
+): PortfolioChartSeries => {
+  const {startTs, endTs, targetPoints, isIntraday} = resolveIntervalWindow(
+    interval,
+    events,
+  );
+
+  const sorted = [...events]
+    .filter(e => e.time <= endTs)
+    .sort((a, b) => a.time - b.time);
+
+  const symbols = Array.from(new Set(sorted.map(e => e.rateSymbol)));
+  const rateMaps: Record<string, Record<string, number>> = {};
+  for (const s of symbols) {
+    rateMaps[s] = readRateMap(fiatCode, s);
+  }
+
+  const positions: Record<PortfolioAssetKey, PortfolioPosition> = {};
+  const ensurePos = (e: PortfolioEvent): PortfolioPosition => {
+    return (positions[e.assetKey] ||= {
+      assetKey: e.assetKey,
+      chain: e.chain,
+      coin: e.coin,
+      tokenAddress: e.tokenAddress,
+      rateSymbol: e.rateSymbol,
+      units: 0,
+      costBasisFiat: 0,
+      missingRates: false,
+    });
+  };
+
+  const applyEvent = (e: PortfolioEvent) => {
+    const pos = ensurePos(e);
+    let rate: number | undefined;
+    if (e.deltaUnits > 0) {
+      const dayKey = String(moment(e.time).startOf('day').valueOf());
+      rate = rateMaps[e.rateSymbol]?.[dayKey];
+    }
+    applyDeltaUnits(pos, e.deltaUnits, rate);
+  };
+
+  let idx = 0;
+  while (idx < sorted.length && sorted[idx].time < startTs) {
+    applyEvent(sorted[idx]);
+    idx++;
+  }
+
+  const sampleTs: number[] = [];
+  if (isIntraday) {
+    const step = (endTs - startTs) / Math.max(targetPoints - 1, 1);
+    for (let i = 0; i < targetPoints; i++) {
+      sampleTs.push(Math.round(startTs + step * i));
+    }
+  } else {
+    const days: number[] = [];
+    let cur = moment(startTs).startOf('day');
+    const endDay = moment(endTs).startOf('day');
+    while (cur.valueOf() <= endDay.valueOf()) {
+      days.push(cur.valueOf());
+      cur = cur.clone().add(1, 'day');
+    }
+
+    const stride = Math.max(1, Math.ceil(days.length / targetPoints));
+    for (let i = 0; i < days.length; i += stride) {
+      sampleTs.push(days[i]);
+    }
+    if (sampleTs.length && sampleTs[sampleTs.length - 1] !== endDay.valueOf()) {
+      sampleTs.push(endDay.valueOf());
+    }
+  }
+
+  const points: PortfolioChartPoint[] = [];
+  let missingRates = false;
+
+  for (const ts of sampleTs) {
+    while (idx < sorted.length && sorted[idx].time <= ts) {
+      applyEvent(sorted[idx]);
+      idx++;
+    }
+
+    const dayKey = String(moment(ts).startOf('day').valueOf());
+    let value = 0;
+    let breakeven = 0;
+    for (const p of Object.values(positions)) {
+      if (!p.units) {
+        breakeven += p.costBasisFiat;
+        continue;
+      }
+      breakeven += p.costBasisFiat;
+      const r = rateMaps[p.rateSymbol]?.[dayKey];
+      if (r == null) {
+        missingRates = true;
+        continue;
+      }
+      value += p.units * r;
+    }
+    points.push({ts, value, breakeven, pnl: value - breakeven});
+  }
+
+  return {interval, points, missingRates};
+};
+
 export const selectPortfolioGlobalSync: AppSelector = ({PORTFOLIO}) =>
   PORTFOLIO.global;
 
@@ -362,6 +641,96 @@ export const makeSelectWalletPositions = (
       const txs = readWalletTxs(walletId);
       const events = buildEventsForWalletTxs(state, {fiatCode, txs});
       return computePositionsFromEvents(state, {fiatCode, events});
+    },
+  );
+
+export const makeSelectWalletAssetList = (walletId: string, fiatCode: string) =>
+  createSelector([
+    makeSelectWalletPositions(walletId, fiatCode),
+    (state: RootState) => state,
+  ], (positions, state) => buildAssetListFromPositions(state, {fiatCode, positions}));
+
+export const makeSelectWalletChartSeries = (
+  walletId: string,
+  fiatCode: string,
+  interval: PortfolioInterval,
+) =>
+  createSelector(
+    [
+      (state: RootState) => state.PORTFOLIO.wallets[walletId]?.txCount || 0,
+      (state: RootState) => state,
+    ],
+    (_txCount, state) => {
+      const txs = readWalletTxs(walletId);
+      const events = buildEventsForWalletTxs(state, {fiatCode, txs});
+      return computeSeriesFromEvents(state, {fiatCode, interval, events});
+    },
+  );
+
+export const makeSelectAccountPositions = (
+  keyId: string,
+  accountKey: string,
+  fiatCode: string,
+) =>
+  createSelector(
+    [
+      (state: RootState) => state.WALLET.keys[keyId],
+      (state: RootState) => state.PORTFOLIO.wallets,
+      (state: RootState) => state,
+    ],
+    (key, walletSyncs, state) => {
+      const wallets = (key as any)?.wallets || [];
+      const selectedWalletIds: string[] = wallets
+        .filter((w: any) => {
+          const wAccountKey = w?.receiveAddress || w?.credentials?.walletId;
+          return wAccountKey === accountKey;
+        })
+        .map((w: any) => w?.id)
+        .filter((id: any) => typeof id === 'string')
+        .filter((id: string) => walletSyncs[id]?.status === 'done');
+
+      const allTxs = selectedWalletIds.flatMap(id => readWalletTxs(id));
+      const events = buildEventsForWalletTxs(state, {fiatCode, txs: allTxs});
+      return computePositionsFromEvents(state, {fiatCode, events});
+    },
+  );
+
+export const makeSelectAccountAssetList = (
+  keyId: string,
+  accountKey: string,
+  fiatCode: string,
+) =>
+  createSelector(
+    [makeSelectAccountPositions(keyId, accountKey, fiatCode), (state: RootState) => state],
+    (positions, state) => buildAssetListFromPositions(state, {fiatCode, positions}),
+  );
+
+export const makeSelectAccountChartSeries = (
+  keyId: string,
+  accountKey: string,
+  fiatCode: string,
+  interval: PortfolioInterval,
+) =>
+  createSelector(
+    [
+      (state: RootState) => state.WALLET.keys[keyId],
+      (state: RootState) => state.PORTFOLIO.wallets,
+      (state: RootState) => state,
+    ],
+    (key, walletSyncs, state) => {
+      const wallets = (key as any)?.wallets || [];
+      const selectedWalletIds: string[] = wallets
+        .filter((w: any) => {
+          const wAccountKey = w?.receiveAddress || w?.credentials?.walletId;
+          return wAccountKey === accountKey;
+        })
+        .map((w: any) => w?.id)
+        .filter((id: any) => typeof id === 'string')
+        .filter((id: string) => walletSyncs[id]?.status === 'done');
+
+      const allTxs = selectedWalletIds.flatMap(id => readWalletTxs(id));
+      const events = buildEventsForWalletTxs(state, {fiatCode, txs: allTxs});
+      return computeSeriesFromEvents(state, {fiatCode, interval, events});
     },
   );
 
@@ -387,6 +756,37 @@ export const makeSelectKeyPositions = (keyId: string, fiatCode: string) =>
     },
   );
 
+export const makeSelectKeyAssetList = (keyId: string, fiatCode: string) =>
+  createSelector(
+    [makeSelectKeyPositions(keyId, fiatCode), (state: RootState) => state],
+    (positions, state) => buildAssetListFromPositions(state, {fiatCode, positions}),
+  );
+
+export const makeSelectKeyChartSeries = (
+  keyId: string,
+  fiatCode: string,
+  interval: PortfolioInterval,
+) =>
+  createSelector(
+    [
+      (state: RootState) => state.WALLET.keys[keyId],
+      (state: RootState) => state.PORTFOLIO.wallets,
+      (state: RootState) => state,
+    ],
+    (key, walletSyncs, state) => {
+      const wallets = (key as any)?.wallets || [];
+      const syncedWalletIds: string[] = wallets
+        .map((w: any) => w?.id)
+        .filter((id: any) => typeof id === 'string')
+        .filter((id: string) => walletSyncs[id]?.status === 'done');
+
+      const allTxs = syncedWalletIds.flatMap(id => readWalletTxs(id));
+      const rawEvents = buildEventsForWalletTxs(state, {fiatCode, txs: allTxs});
+      const events = neutralizeInternalTransfers(rawEvents);
+      return computeSeriesFromEvents(state, {fiatCode, interval, events});
+    },
+  );
+
 export const makeSelectPortfolioPositions = (fiatCode: string) =>
   createSelector(
     [
@@ -406,5 +806,35 @@ export const makeSelectPortfolioPositions = (fiatCode: string) =>
       const rawEvents = buildEventsForWalletTxs(state, {fiatCode, txs: allTxs});
       const events = neutralizeInternalTransfers(rawEvents);
       return computePositionsFromEvents(state, {fiatCode, events});
+    },
+  );
+
+export const makeSelectPortfolioAssetList = (fiatCode: string) =>
+  createSelector(
+    [makeSelectPortfolioPositions(fiatCode), (state: RootState) => state],
+    (positions, state) => buildAssetListFromPositions(state, {fiatCode, positions}),
+  );
+
+export const makeSelectPortfolioChartSeries = (
+  fiatCode: string,
+  interval: PortfolioInterval,
+) =>
+  createSelector(
+    [
+      (state: RootState) => state.WALLET.keys,
+      (state: RootState) => state.PORTFOLIO.wallets,
+      (state: RootState) => state,
+    ],
+    (keys, walletSyncs, state) => {
+      const wallets: any[] = Object.values(keys as any).flatMap((k: any) => k.wallets);
+      const syncedWalletIds: string[] = wallets
+        .map(w => w?.id)
+        .filter((id: any) => typeof id === 'string')
+        .filter((id: string) => walletSyncs[id]?.status === 'done');
+
+      const allTxs = syncedWalletIds.flatMap(id => readWalletTxs(id));
+      const rawEvents = buildEventsForWalletTxs(state, {fiatCode, txs: allTxs});
+      const events = neutralizeInternalTransfers(rawEvents);
+      return computeSeriesFromEvents(state, {fiatCode, interval, events});
     },
   );
