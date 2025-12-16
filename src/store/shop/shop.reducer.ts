@@ -252,12 +252,6 @@ export const shopReducer = (
         isJoinedWaitlist: action.payload.isJoinedWaitlist,
       };
 
-    case ShopActionTypes.TOGGLE_BILL_PAY_SERVICE_PAUSED:
-      return {
-        ...state,
-        billPayServicePaused: action.payload.billPayServicePaused,
-      };
-
     default:
       return state;
   }

@@ -32,7 +32,6 @@ export enum ShopActionTypes {
   CLEARED_GIFT_CARDS = 'SHOP/CLEARED_GIFT_CARDS',
   CLEARED_SHOP_CATALOG_FIELDS = 'SHOP/CLEARED_SHOP_CATALOG_FIELDS',
   IS_JOINED_WAITLIST = 'SHOP/IS_JOINED_WAITLIST',
-  TOGGLE_BILL_PAY_SERVICE_PAUSED = 'SHOP/TOGGLE_BILL_PAY_SERVICE_PAUSED',
 }
 
 interface successFetchCatalog {
@@ -152,10 +151,6 @@ interface isJoinedWaitlist {
   payload: {isJoinedWaitlist: boolean};
 }
 
-interface toggleBillPayServicePaused {
-  type: ShopActionTypes.TOGGLE_BILL_PAY_SERVICE_PAUSED;
-  payload: {billPayServicePaused: boolean};
-}
 
 export type ShopActionType =
   | successFetchCatalog
@@ -177,5 +172,4 @@ export type ShopActionType =
   | updatedPhone
   | clearedGiftCards
   | clearedSupportedCardMap
-  | isJoinedWaitlist
-  | toggleBillPayServicePaused;
+  | isJoinedWaitlist;
