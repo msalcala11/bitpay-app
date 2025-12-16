@@ -131,15 +131,13 @@ export const Bills = () => {
   });
 
   const onSubmit = async () => {
-    if (isJoinedWaitlist) {
-      return;
-    }
     try {
       setWaitlistButtonState('loading');
-      user &&
-        (await dispatch(
+      if (!isJoinedWaitlist && user) {
+        await dispatch(
           joinWaitlist(user.email, 'BillPay Waitlist', 'bill-pay'),
-        ));
+        );
+      }
       await sleep(500);
       setWaitlistButtonState('success');
     } catch (err) {
