@@ -151,7 +151,6 @@ interface isJoinedWaitlist {
   payload: {isJoinedWaitlist: boolean};
 }
 
-
 export type ShopActionType =
   | successFetchCatalog
   | failedFetchCatalog
