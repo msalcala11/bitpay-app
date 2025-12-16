@@ -139,6 +139,8 @@ export const Bills = () => {
   const [waitlistButtonState, setWaitlistButtonState] = useState<ButtonState>();
   const [connectButtonState, setConnectButtonState] = useState<ButtonState>();
 
+  const hasConnectedBills = !!accounts.length;
+
   const schema = yup.object().shape({
     email: yup.string().email().required().trim(),
   });
@@ -269,7 +271,7 @@ export const Bills = () => {
     <SectionContainer
       style={{minHeight: HEIGHT - (Platform.OS === 'android' ? 200 : 225)}}>
       {billPayServicePaused ? (
-        connected ? (
+        hasConnectedBills ? (
           <>
             <BillPayServicePausedAlertContainer>
               <BillPayServicePausedAlertText>

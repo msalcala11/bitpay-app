@@ -244,7 +244,7 @@ export default ({
         </AccountDetailsRight>
       </AccountBody>
       {variation === 'large' || variation === 'pay' ? (
-        account && account.isPayable && variation === 'large' ? (
+        account && account.isPayable && variation === 'large' && !payment ? (
           <AccountActions>
             <BillStatus account={account} payment={payment} />
             <PayButton>
@@ -254,6 +254,7 @@ export default ({
         ) : (
           <>
             {account &&
+            !payment &&
             !account.isPayable &&
             account.paymentStatus !== 'activating' ? (
               <AccountFooter variation={variation}>
