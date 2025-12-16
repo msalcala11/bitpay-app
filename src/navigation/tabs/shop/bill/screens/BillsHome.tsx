@@ -21,19 +21,32 @@ const BillsHome = ({}: NativeStackScreenProps<
   const theme = useTheme();
   const {t} = useTranslation();
   const dispatch = useAppDispatch();
+  const appNetwork = useAppSelector(({APP}) => APP.network);
   const user = useAppSelector(
     ({APP, BITPAY_ID}) => BITPAY_ID.user[APP.network],
   );
   const billPayServicePaused = useAppSelector(
     ({SHOP}) => SHOP.billPayServicePaused,
   );
+  const accounts = useAppSelector(
+    ({SHOP}) => SHOP.billPayAccounts[appNetwork],
+  );
+  const isVerified = !!(user && user.country);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Check if PaymentList should be showing
+  const shouldShowPaymentList = !!(
+    user && 
+    isVerified && 
+    billPayServicePaused && 
+    accounts.length > 0
+  );
 
   return (
     <TabContainer>
       <HeaderContainer>
         <HeaderTitle>
-          {billPayServicePaused ? t('All Payments') : t('Pay Bills')}
+          {shouldShowPaymentList ? t('All Payments') : t('Pay Bills')}
         </HeaderTitle>
       </HeaderContainer>
       <ScrollView
