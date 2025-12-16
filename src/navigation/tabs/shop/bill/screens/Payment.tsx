@@ -21,11 +21,12 @@ import BillAlert from '../components/BillAlert';
 import {HeaderRightContainer} from '../../../../../components/styled/Containers';
 import Settings from '../../../../../components/settings/Settings';
 import OptionsSheet, {Option} from '../../../../wallet/components/OptionsSheet';
-import {LightBlack, Slate30} from '../../../../../styles/colors';
+import {LinkBlue, LightBlack, Slate30} from '../../../../../styles/colors';
 import {BillAccountPill} from '../components/BillAccountPill';
 import {useAppDispatch} from '../../../../../utils/hooks';
 import {Analytics} from '../../../../../store/analytics/analytics.effects';
 import {getBillAccountEventParams} from '../utils';
+import {AppEffects} from '../../../../../store/app';
 
 const HeroSection = styled.View`
   width: 100%;
@@ -58,6 +59,24 @@ const AlertContainer = styled.View`
   margin-top: 20px;
 `;
 
+const BillPayServicePausedAlertContainer = styled.View`
+  background-color: ${({theme}) => (theme.dark ? '#1C1C1C' : '#F1F3F5')};
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin: 15px 16px 0;
+`;
+
+const BillPayServicePausedAlertText = styled(Paragraph)`
+  font-size: 14px;
+  line-height: 19px;
+`;
+
+const BillPayServicePausedAlertLink = styled(Paragraph)`
+  font-size: 14px;
+  line-height: 19px;
+  color: ${LinkBlue};
+`;
+
 const LineItem = styled.View`
   flex-direction: row;
   padding: 18px 0;
@@ -76,7 +95,7 @@ const Payment = ({
 }: NativeStackScreenProps<BillGroupParamList, 'Payment'>) => {
   const {t} = useTranslation();
   const dispatch = useAppDispatch();
-  const {account, payment} = route.params;
+  const {account, payment, showBillPayServicePausedAlert} = route.params;
   const [isOptionsSheetVisible, setIsOptionsSheetVisible] = useState(false);
   const [baseEventParams] = useState(
     getBillAccountEventParams(account, payment),
@@ -138,6 +157,21 @@ const Payment = ({
 
   return (
     <ScrollView>
+      {showBillPayServicePausedAlert ? (
+        <BillPayServicePausedAlertContainer>
+          <BillPayServicePausedAlertText>
+            {t(
+              'Bill Pay service will be temporarily paused beginning December 26th, 2025 at 12:00 PM EST. At this time, we are unable to provide a confirmed timeline for when the Bill Pay service will resume.',
+            )}{' '}
+            <BillPayServicePausedAlertLink
+              onPress={() =>
+                dispatch(AppEffects.openUrlWithInAppBrowser('https://bitpay.com'))
+              }>
+              {t('Learn more')}
+            </BillPayServicePausedAlertLink>
+          </BillPayServicePausedAlertText>
+        </BillPayServicePausedAlertContainer>
+      ) : null}
       <HeroSection>
         <AmountDue>{formatFiatAmount(payment.amount, 'USD')}</AmountDue>
         <PaymentDateContainer>

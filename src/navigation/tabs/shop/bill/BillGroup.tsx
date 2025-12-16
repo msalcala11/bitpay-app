@@ -33,7 +33,11 @@ export type BillGroupParamList = {
   ConnectBills: {tokenType: 'auth' | 'link'};
   ConnectBillsOptions: {};
   BillSettings: {};
-  Payment: {account: BillPayAccount; payment: BillPayment};
+  Payment: {
+    account: BillPayAccount;
+    payment: BillPayment;
+    showBillPayServicePausedAlert?: boolean;
+  };
   PayBill: {account: BillPayAccount};
   PayAllBills: {accounts: BillPayAccount[]};
   Payments: {account?: BillPayAccount};
