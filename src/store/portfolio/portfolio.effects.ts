@@ -20,6 +20,107 @@ import {BitpaySupportedTokenOptsByAddress} from '../../constants/tokens';
 import {tokenManager} from '../../managers/TokenManager';
 import {IsSVMChain} from '../wallet/utils/currency';
 
+type PortfolioInterval = '1D' | '1W' | '1M' | '3M' | '1Y' | '5Y' | 'ALL';
+
+const resolveIntervalWindow = (
+  interval: PortfolioInterval,
+  firstTxTimeMs?: number,
+): {startTs: number; endTs: number; targetPoints: number; isIntraday: boolean} => {
+  const endTs = Date.now();
+  const end = moment(endTs);
+  switch (interval) {
+    case '1D':
+      return {
+        startTs: end.clone().subtract(1, 'day').valueOf(),
+        endTs,
+        targetPoints: 45,
+        isIntraday: true,
+      };
+    case '1W':
+      return {
+        startTs: end.clone().subtract(7, 'days').startOf('day').valueOf(),
+        endTs,
+        targetPoints: 45,
+        isIntraday: false,
+      };
+    case '1M':
+      return {
+        startTs: end.clone().subtract(30, 'days').startOf('day').valueOf(),
+        endTs,
+        targetPoints: 60,
+        isIntraday: false,
+      };
+    case '3M':
+      return {
+        startTs: end.clone().subtract(90, 'days').startOf('day').valueOf(),
+        endTs,
+        targetPoints: 90,
+        isIntraday: false,
+      };
+    case '1Y':
+      return {
+        startTs: end.clone().subtract(365, 'days').startOf('day').valueOf(),
+        endTs,
+        targetPoints: 180,
+        isIntraday: false,
+      };
+    case '5Y':
+      return {
+        startTs: end.clone().subtract(365 * 5, 'days').startOf('day').valueOf(),
+        endTs,
+        targetPoints: 365,
+        isIntraday: false,
+      };
+    case 'ALL': {
+      const start =
+        typeof firstTxTimeMs === 'number'
+          ? moment(firstTxTimeMs).startOf('day').valueOf()
+          : end.clone().startOf('day').valueOf();
+      return {
+        startTs: start,
+        endTs,
+        targetPoints: 365,
+        isIntraday: false,
+      };
+    }
+  }
+};
+
+const computeSampleDayKeys = (
+  interval: PortfolioInterval,
+  firstTxTimeMs?: number,
+): string[] => {
+  const {startTs, endTs, targetPoints, isIntraday} = resolveIntervalWindow(
+    interval,
+    firstTxTimeMs,
+  );
+
+  if (isIntraday) {
+    const a = String(moment(startTs).startOf('day').valueOf());
+    const b = String(moment(endTs).startOf('day').valueOf());
+    return a === b ? [a] : [a, b];
+  }
+
+  const days: number[] = [];
+  let cur = moment(startTs).startOf('day');
+  const endDay = moment(endTs).startOf('day');
+  while (cur.valueOf() <= endDay.valueOf()) {
+    days.push(cur.valueOf());
+    cur = cur.clone().add(1, 'day');
+  }
+
+  const stride = Math.max(1, Math.ceil(days.length / targetPoints));
+  const sampled: number[] = [];
+  for (let i = 0; i < days.length; i += stride) {
+    sampled.push(days[i]);
+  }
+  if (sampled.length && sampled[sampled.length - 1] !== endDay.valueOf()) {
+    sampled.push(endDay.valueOf());
+  }
+
+  return sampled.map(d => String(d));
+};
+
 const normalizeTxs = (wallet: Wallet, txs: any[]): PortfolioTx[] => {
   return txs
     .filter(t => t && (t.txid || t.id))
@@ -279,15 +380,39 @@ export const portfolioBackfillHistoricRates =
       );
 
       const rateMap = readRateMap(fiatCode, symbol);
+      const known: Record<string, number> = {...rateMap};
       const neededDays = new Set<string>();
 
       txs.forEach(tx => {
         const dayTs = moment(tx.time).startOf('day').valueOf();
         const key = String(dayTs);
-        if (rateMap[key] == null) {
+        if (known[key] == null) {
           neededDays.add(key);
         }
       });
+
+      const firstTxTimeMs = txs.length
+        ? Math.min(...txs.map(t => t.time).filter(t => typeof t === 'number'))
+        : undefined;
+
+      const intervals: PortfolioInterval[] = [
+        '1D',
+        '1W',
+        '1M',
+        '3M',
+        '1Y',
+        '5Y',
+        'ALL',
+      ];
+
+      for (const interval of intervals) {
+        const sampleKeys = computeSampleDayKeys(interval, firstTxTimeMs);
+        for (const dayKey of sampleKeys) {
+          if (known[dayKey] == null) {
+            neededDays.add(dayKey);
+          }
+        }
+      }
 
       for (const dayKey of neededDays) {
         try {
@@ -297,6 +422,7 @@ export const portfolioBackfillHistoricRates =
             dayKey,
           );
           if (historic?.rate != null) {
+            known[dayKey] = historic.rate;
             upsertRateMap(fiatCode, symbol, {[dayKey]: historic.rate});
           }
         } catch (_) {}

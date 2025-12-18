@@ -37,12 +37,15 @@ export type PortfolioAssetRow = PortfolioPosition & {
   valueFiat: number;
   pnlFiat: number;
   allocation: number;
+  intervalPnlFiat?: number;
+  intervalPnlPct?: number;
 };
 
 export type PortfolioAssetList = {
   totalValueFiat: number;
   totalCostBasisFiat: number;
   totalPnlFiat: number;
+  totalIntervalPnlFiat?: number;
   missingRates: boolean;
   assets: PortfolioAssetRow[];
 };
@@ -447,6 +450,153 @@ const buildAssetListFromPositions = (
   };
 };
 
+const buildRateMapsForEvents = (
+  fiatCode: string,
+  events: PortfolioEvent[],
+): Record<string, Record<string, number>> => {
+  const symbols = Array.from(new Set(events.map(e => e.rateSymbol)));
+  const rateMaps: Record<string, Record<string, number>> = {};
+  for (const s of symbols) {
+    rateMaps[s] = readRateMap(fiatCode, s);
+  }
+  return rateMaps;
+};
+
+const computePositionsSnapshotFromEvents = (
+  state: RootState,
+  {
+    fiatCode,
+    events,
+    cutoffTs,
+    inclusive,
+  }: {
+    fiatCode: string;
+    events: PortfolioEvent[];
+    cutoffTs: number;
+    inclusive: boolean;
+  },
+): Record<PortfolioAssetKey, PortfolioPosition> => {
+  const rateMaps = buildRateMapsForEvents(fiatCode, events);
+  const sorted = [...events].sort((a, b) => a.time - b.time);
+  const positions: Record<PortfolioAssetKey, PortfolioPosition> = {};
+
+  for (const e of sorted) {
+    const within = inclusive ? e.time <= cutoffTs : e.time < cutoffTs;
+    if (!within) {
+      break;
+    }
+
+    const pos = (positions[e.assetKey] ||= {
+      assetKey: e.assetKey,
+      chain: e.chain,
+      coin: e.coin,
+      tokenAddress: e.tokenAddress,
+      rateSymbol: e.rateSymbol,
+      units: 0,
+      costBasisFiat: 0,
+      missingRates: false,
+    });
+
+    let rate: number | undefined;
+    if (e.deltaUnits > 0) {
+      const dayKey = String(moment(e.time).startOf('day').valueOf());
+      rate = rateMaps[e.rateSymbol]?.[dayKey];
+    }
+
+    applyDeltaUnits(pos, e.deltaUnits, rate);
+  }
+
+  return positions;
+};
+
+const getHistoricValueForPositions = (
+  rateMaps: Record<string, Record<string, number>>,
+  dayKey: string,
+  positions: Record<PortfolioAssetKey, PortfolioPosition>,
+): {valueFiat: number; missingRates: boolean} => {
+  let valueFiat = 0;
+  let missingRates = false;
+  for (const p of Object.values(positions)) {
+    if (!p.units) {
+      continue;
+    }
+    const r = rateMaps[p.rateSymbol]?.[dayKey];
+    if (r == null) {
+      missingRates = true;
+      continue;
+    }
+    valueFiat += p.units * r;
+  }
+  return {valueFiat, missingRates};
+};
+
+const buildAssetListWithIntervalPnlFromEvents = (
+  state: RootState,
+  {
+    fiatCode,
+    interval,
+    events,
+  }: {
+    fiatCode: string;
+    interval: PortfolioInterval;
+    events: PortfolioEvent[];
+  },
+): PortfolioAssetList => {
+  const endTs = Date.now();
+  const {startTs} = resolveIntervalWindow(interval, events);
+
+  const endPositions = computePositionsSnapshotFromEvents(state, {
+    fiatCode,
+    events,
+    cutoffTs: endTs,
+    inclusive: true,
+  });
+
+  const startPositions = computePositionsSnapshotFromEvents(state, {
+    fiatCode,
+    events,
+    cutoffTs: startTs,
+    inclusive: false,
+  });
+
+  const list = buildAssetListFromPositions(state, {fiatCode, positions: endPositions});
+
+  const rateMaps = buildRateMapsForEvents(fiatCode, events);
+  const startDayKey = String(moment(startTs).startOf('day').valueOf());
+  const {valueFiat: startValueFiat, missingRates: startMissingRates} =
+    getHistoricValueForPositions(rateMaps, startDayKey, startPositions);
+
+  const startCostBasisFiat = Object.values(startPositions).reduce(
+    (sum, p) => sum + (p.units ? p.costBasisFiat : 0),
+    0,
+  );
+
+  const startPnlFiat = startValueFiat - startCostBasisFiat;
+
+  const assets = list.assets.map(a => {
+    const startPos = startPositions[a.assetKey];
+    const startCost = startPos?.units ? startPos.costBasisFiat : 0;
+    const startUnits = startPos?.units || 0;
+    const startRate = rateMaps[a.rateSymbol]?.[startDayKey];
+    const startValue = startRate != null ? startUnits * startRate : 0;
+    const startPnl = startValue - startCost;
+    const intervalPnlFiat = a.pnlFiat - startPnl;
+    const intervalPnlPct = startValue ? intervalPnlFiat / startValue : undefined;
+    return {
+      ...a,
+      intervalPnlFiat,
+      intervalPnlPct,
+    };
+  });
+
+  return {
+    ...list,
+    assets,
+    totalIntervalPnlFiat: list.totalPnlFiat - startPnlFiat,
+    missingRates: list.missingRates || startMissingRates,
+  };
+};
+
 const resolveIntervalWindow = (
   interval: PortfolioInterval,
   events: PortfolioEvent[],
@@ -650,6 +800,23 @@ export const makeSelectWalletAssetList = (walletId: string, fiatCode: string) =>
     (state: RootState) => state,
   ], (positions, state) => buildAssetListFromPositions(state, {fiatCode, positions}));
 
+export const makeSelectWalletAssetListByInterval = (
+  walletId: string,
+  fiatCode: string,
+  interval: PortfolioInterval,
+) =>
+  createSelector(
+    [
+      (state: RootState) => state.PORTFOLIO.wallets[walletId]?.txCount || 0,
+      (state: RootState) => state,
+    ],
+    (_txCount, state) => {
+      const txs = readWalletTxs(walletId);
+      const events = buildEventsForWalletTxs(state, {fiatCode, txs});
+      return buildAssetListWithIntervalPnlFromEvents(state, {fiatCode, interval, events});
+    },
+  );
+
 export const makeSelectWalletChartSeries = (
   walletId: string,
   fiatCode: string,
@@ -703,6 +870,35 @@ export const makeSelectAccountAssetList = (
   createSelector(
     [makeSelectAccountPositions(keyId, accountKey, fiatCode), (state: RootState) => state],
     (positions, state) => buildAssetListFromPositions(state, {fiatCode, positions}),
+  );
+
+export const makeSelectAccountAssetListByInterval = (
+  keyId: string,
+  accountKey: string,
+  fiatCode: string,
+  interval: PortfolioInterval,
+) =>
+  createSelector(
+    [
+      (state: RootState) => state.WALLET.keys[keyId],
+      (state: RootState) => state.PORTFOLIO.wallets,
+      (state: RootState) => state,
+    ],
+    (key, walletSyncs, state) => {
+      const wallets = (key as any)?.wallets || [];
+      const selectedWalletIds: string[] = wallets
+        .filter((w: any) => {
+          const wAccountKey = w?.receiveAddress || w?.credentials?.walletId;
+          return wAccountKey === accountKey;
+        })
+        .map((w: any) => w?.id)
+        .filter((id: any) => typeof id === 'string')
+        .filter((id: string) => walletSyncs[id]?.status === 'done');
+
+      const allTxs = selectedWalletIds.flatMap(id => readWalletTxs(id));
+      const events = buildEventsForWalletTxs(state, {fiatCode, txs: allTxs});
+      return buildAssetListWithIntervalPnlFromEvents(state, {fiatCode, interval, events});
+    },
   );
 
 export const makeSelectAccountChartSeries = (
@@ -762,6 +958,32 @@ export const makeSelectKeyAssetList = (keyId: string, fiatCode: string) =>
     (positions, state) => buildAssetListFromPositions(state, {fiatCode, positions}),
   );
 
+export const makeSelectKeyAssetListByInterval = (
+  keyId: string,
+  fiatCode: string,
+  interval: PortfolioInterval,
+) =>
+  createSelector(
+    [
+      (state: RootState) => state.WALLET.keys[keyId],
+      (state: RootState) => state.PORTFOLIO.wallets,
+      (state: RootState) => state,
+    ],
+    (key, walletSyncs, state) => {
+      const wallets = (key as any)?.wallets || [];
+      const syncedWalletIds: string[] = wallets
+        .map((w: any) => w?.id)
+        .filter((id: any) => typeof id === 'string')
+        .filter((id: string) => walletSyncs[id]?.status === 'done');
+
+      const allTxs = syncedWalletIds.flatMap(id => readWalletTxs(id));
+      const events = neutralizeInternalTransfers(
+        buildEventsForWalletTxs(state, {fiatCode, txs: allTxs}),
+      );
+      return buildAssetListWithIntervalPnlFromEvents(state, {fiatCode, interval, events});
+    },
+  );
+
 export const makeSelectKeyChartSeries = (
   keyId: string,
   fiatCode: string,
@@ -813,6 +1035,31 @@ export const makeSelectPortfolioAssetList = (fiatCode: string) =>
   createSelector(
     [makeSelectPortfolioPositions(fiatCode), (state: RootState) => state],
     (positions, state) => buildAssetListFromPositions(state, {fiatCode, positions}),
+  );
+
+export const makeSelectPortfolioAssetListByInterval = (
+  fiatCode: string,
+  interval: PortfolioInterval,
+) =>
+  createSelector(
+    [
+      (state: RootState) => state.WALLET.keys,
+      (state: RootState) => state.PORTFOLIO.wallets,
+      (state: RootState) => state,
+    ],
+    (keys, walletSyncs, state) => {
+      const wallets: any[] = Object.values(keys as any).flatMap((k: any) => k.wallets);
+      const syncedWalletIds: string[] = wallets
+        .map(w => w?.id)
+        .filter((id: any) => typeof id === 'string')
+        .filter((id: string) => walletSyncs[id]?.status === 'done');
+
+      const allTxs = syncedWalletIds.flatMap(id => readWalletTxs(id));
+      const events = neutralizeInternalTransfers(
+        buildEventsForWalletTxs(state, {fiatCode, txs: allTxs}),
+      );
+      return buildAssetListWithIntervalPnlFromEvents(state, {fiatCode, interval, events});
+    },
   );
 
 export const makeSelectPortfolioChartSeries = (
