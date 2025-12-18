@@ -6,7 +6,11 @@ import {
   GetTransactionHistoryFromServer,
 } from '../wallet/effects/transactions/transactions';
 import {getHistoricFiatRate} from '../wallet/effects/rates/rates';
-import {setPortfolioGlobalSync, updatePortfolioWalletSync} from './portfolio.actions';
+import {
+  resetPortfolio,
+  setPortfolioGlobalSync,
+  updatePortfolioWalletSync,
+} from './portfolio.actions';
 import {
   appendWalletTxs,
   PortfolioTx,
@@ -15,6 +19,7 @@ import {
   upsertRateMap,
   readRateMap,
   readWalletTxMeta,
+  resetAllPortfolioStorage,
 } from './portfolio.storage';
 import {BitpaySupportedTokenOptsByAddress} from '../../constants/tokens';
 import {tokenManager} from '../../managers/TokenManager';
@@ -187,6 +192,13 @@ const getRateSymbolForWalletTxs = (
       return wallet.currencyAbbreviation?.toLowerCase();
   }
 };
+
+export const portfolioClearAllBackfillData =
+  (): Effect<Promise<void>> =>
+  async dispatch => {
+    resetAllPortfolioStorage();
+    dispatch(resetPortfolio());
+  };
 
 export const portfolioBackfillAllWalletTxs =
   ({

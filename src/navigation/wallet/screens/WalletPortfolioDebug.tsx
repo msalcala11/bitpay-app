@@ -1,11 +1,18 @@
 import {useNavigation, useTheme} from '@react-navigation/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import React, {useLayoutEffect, useMemo, useState} from 'react';
-import {ActivityIndicator, Platform, View} from 'react-native';
+import {ActivityIndicator, Alert, Platform, View} from 'react-native';
 import styled from 'styled-components/native';
 import {GraphPoint, LineGraph} from 'react-native-graph';
 import Button from '../../../components/button/Button';
-import {CtaContainer, Hr, ScreenGutter, WIDTH} from '../../../components/styled/Containers';
+import {
+  ActiveOpacity,
+  CtaContainer,
+  HeaderRightContainer,
+  Hr,
+  ScreenGutter,
+  WIDTH,
+} from '../../../components/styled/Containers';
 import {BaseText, H5, HeaderTitle} from '../../../components/styled/Text';
 import {LightBlack, ProgressBlue, SlateDark, White} from '../../../styles/colors';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
@@ -15,7 +22,13 @@ import {
 } from '../../../store/portfolio';
 import {WalletGroupParamList} from '../WalletGroup';
 import {formatFiatAmount} from '../../../utils/helper-methods';
-import {portfolioBackfillAllWalletTxs} from '../../../store/portfolio/portfolio.effects';
+import OptionsSheet, {Option} from '../components/OptionsSheet';
+import Icons from '../components/WalletIcons';
+import {TouchableOpacity} from '@components/base/TouchableOpacity';
+import {
+  portfolioBackfillAllWalletTxs,
+  portfolioClearAllBackfillData,
+} from '../../../store/portfolio/portfolio.effects';
 
 const AnyLineGraph = LineGraph as any;
 
@@ -102,6 +115,13 @@ const LoadingContainer = styled.View`
   align-items: center;
 `;
 
+const HeaderIconButton = styled(TouchableOpacity)`
+  justify-content: center;
+  align-items: center;
+  height: 40px;
+  width: 40px;
+`;
+
 const intervals: IntervalOption[] = [
   {label: '1D', interval: '1D'},
   {label: '1W', interval: '1W'},
@@ -124,6 +144,7 @@ const WalletPortfolioDebug: React.FC<Props> = ({route}) => {
   const globalSync = useAppSelector(({PORTFOLIO}) => PORTFOLIO.global);
 
   const [interval, setInterval] = useState<IntervalOption>(intervals[2]);
+  const [showActions, setShowActions] = useState(false);
 
   const selectAssetList = useMemo(
     () => makeSelectWalletAssetListByInterval(walletId, fiatCode, interval.interval),
@@ -141,6 +162,15 @@ const WalletPortfolioDebug: React.FC<Props> = ({route}) => {
   useLayoutEffect(() => {
     navigation.setOptions({
       headerTitle: () => <HeaderTitle>Portfolio Debug</HeaderTitle>,
+      headerRight: () => (
+        <HeaderRightContainer>
+          <HeaderIconButton
+            activeOpacity={ActiveOpacity}
+            onPress={() => setShowActions(true)}>
+            <Icons.Cog />
+          </HeaderIconButton>
+        </HeaderRightContainer>
+      ),
     });
   }, [navigation]);
 
@@ -163,6 +193,41 @@ const WalletPortfolioDebug: React.FC<Props> = ({route}) => {
     );
   };
 
+  const onPressClearAll = () => {
+    Alert.alert(
+      'Clear portfolio data?',
+      'This will delete all cached portfolio transactions and historic rates for all wallets. You will need to backfill again to see charts.',
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            await dispatch(portfolioClearAllBackfillData() as any);
+          },
+        },
+      ],
+    );
+  };
+
+  const actionOptions: Option[] = useMemo(
+    () => [
+      {
+        img: <Icons.Settings />,
+        title: 'Clear Portfolio Data',
+        description: 'Delete all cached portfolio transactions and historic rates.',
+        onPress: onPressClearAll,
+      },
+    ],
+    [onPressClearAll],
+  );
+
+  const showBackfillCounters =
+    walletSync?.status === 'syncing' ||
+    (globalSync.status === 'syncing' && globalSync.currentWalletId === walletId) ||
+    ((walletSync?.rateDaysTotal ?? 0) > 0 &&
+      (walletSync?.rateDaysDone ?? 0) < (walletSync?.rateDaysTotal ?? 0));
+
   return (
     <Container>
       <ScrollView>
@@ -174,43 +239,45 @@ const WalletPortfolioDebug: React.FC<Props> = ({route}) => {
               <BaseText>
                 Portfolio data is not synced for this wallet yet.
               </BaseText>
-              {walletSync?.status === 'syncing' ? (
-                <View style={{marginTop: 10}}>
-                  <Row>
-                    <Label>Backfill scope</Label>
-                    <Value>{String(walletId)}</Value>
-                  </Row>
-                  <Row>
-                    <Label>Global wallets</Label>
-                    <Value>
-                      {String(globalSync.walletsDone)}/{String(globalSync.walletsTotal)}
-                    </Value>
-                  </Row>
-                  <Row>
-                    <Label>Global current wallet</Label>
-                    <Value>{String(globalSync.currentWalletId ?? '')}</Value>
-                  </Row>
-                  <Row>
-                    <Label>Tx history requests</Label>
-                    <Value>{String(walletSync.txRequestCount ?? 0)}</Value>
-                  </Row>
-                  <Row>
-                    <Label>Txs cached</Label>
-                    <Value>{String(walletSync.txCount ?? 0)}</Value>
-                  </Row>
-                  <Row>
-                    <Label>Rate requests</Label>
-                    <Value>{String(walletSync.rateRequestCount ?? 0)}</Value>
-                  </Row>
-                  <Row>
-                    <Label>Rate days</Label>
-                    <Value>
-                      {String(walletSync.rateDaysDone ?? 0)}/
-                      {String(walletSync.rateDaysTotal ?? 0)}
-                    </Value>
-                  </Row>
-                </View>
-              ) : null}
+            </View>
+          ) : null}
+
+          {showBackfillCounters ? (
+            <View style={{marginBottom: 10}}>
+              <SectionTitle>Backfill Progress</SectionTitle>
+              <Row>
+                <Label>Backfill scope</Label>
+                <Value>{String(walletId)}</Value>
+              </Row>
+              <Row>
+                <Label>Global wallets</Label>
+                <Value>
+                  {String(globalSync.walletsDone)}/{String(globalSync.walletsTotal)}
+                </Value>
+              </Row>
+              <Row>
+                <Label>Global current wallet</Label>
+                <Value>{String(globalSync.currentWalletId ?? '')}</Value>
+              </Row>
+              <Row>
+                <Label>Tx history requests</Label>
+                <Value>{String(walletSync?.txRequestCount ?? 0)}</Value>
+              </Row>
+              <Row>
+                <Label>Txs cached</Label>
+                <Value>{String(walletSync?.txCount ?? 0)}</Value>
+              </Row>
+              <Row>
+                <Label>Rate requests</Label>
+                <Value>{String(walletSync?.rateRequestCount ?? 0)}</Value>
+              </Row>
+              <Row>
+                <Label>Rate days</Label>
+                <Value>
+                  {String(walletSync?.rateDaysDone ?? 0)}/
+                  {String(walletSync?.rateDaysTotal ?? 0)}
+                </Value>
+              </Row>
             </View>
           ) : null}
 
@@ -334,6 +401,13 @@ const WalletPortfolioDebug: React.FC<Props> = ({route}) => {
           </Button>
         </CtaContainer>
       ) : null}
+
+      <OptionsSheet
+        isVisible={showActions}
+        closeModal={() => setShowActions(false)}
+        title={'Actions'}
+        options={actionOptions}
+      />
     </Container>
   );
 };

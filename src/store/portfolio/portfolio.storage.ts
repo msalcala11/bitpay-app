@@ -127,6 +127,15 @@ export const readWalletTxs = (walletId: string): PortfolioTx[] => {
 const rateMapKey = (fiatCode: string, symbol: string) =>
   `portfolio:rateMap:${fiatCode.toUpperCase()}:${symbol.toLowerCase()}`;
 
+export const resetAllPortfolioStorage = () => {
+  const keys = kv.getAllKeys();
+  for (const key of keys) {
+    if (typeof key === 'string' && key.startsWith('portfolio:')) {
+      kv.delete(key);
+    }
+  }
+};
+
 export const readRateMap = (
   fiatCode: string,
   symbol: string,
