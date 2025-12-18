@@ -465,12 +465,25 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
       ),
   });
 
+  const createPortfolioDebugOption = () => ({
+    img: <Icons.Settings />,
+    title: 'Portfolio Debug',
+    description: 'Inspect portfolio balances and charts for this wallet.',
+    onPress: () =>
+      onPressWithDelay(() =>
+        navigation.navigate(WalletScreens.WALLET_PORTFOLIO_DEBUG, {
+          walletId,
+        }),
+      ),
+  });
+
   const getAssetOptions = (): Option[] => {
     const options = [
       createViewOnBlockchainOption(),
       createRequestAmountOption(),
       createShareAddressOption(),
       createWalletSettingsOption(),
+      createPortfolioDebugOption(),
     ].filter(Boolean) as Option[];
     return options;
   };
