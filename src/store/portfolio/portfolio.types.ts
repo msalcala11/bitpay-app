@@ -22,6 +22,10 @@ export interface PortfolioWalletSyncState {
   walletId: string;
   txCount: number;
   chunkCount: number;
+  txRequestCount?: number;
+  rateRequestCount?: number;
+  rateDaysTotal?: number;
+  rateDaysDone?: number;
   startedOn?: number;
   finishedOn?: number;
   error?: string;

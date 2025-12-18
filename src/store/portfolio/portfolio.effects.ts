@@ -192,18 +192,25 @@ export const portfolioBackfillAllWalletTxs =
   ({
     fiatCode,
     force,
+    walletIds,
   }: {
     fiatCode: string;
     force?: boolean;
+    walletIds?: string[];
   }): Effect<Promise<void>> =>
   async (dispatch, getState) => {
     const {
       WALLET: {keys},
     } = getState();
 
-    const wallets: Wallet[] = Object.values(keys as any)
+    const allWallets: Wallet[] = Object.values(keys as any)
       .flatMap((k: any) => k.wallets)
       .filter(w => typeof w?.id === 'string' && w.isComplete());
+
+    const walletIdSet = walletIds?.length ? new Set(walletIds) : undefined;
+    const wallets = walletIdSet
+      ? allWallets.filter(w => walletIdSet.has(w.id))
+      : allWallets;
 
     dispatch(
       setPortfolioGlobalSync({
@@ -237,6 +244,10 @@ export const portfolioBackfillAllWalletTxs =
             error: undefined,
             txCount: 0,
             chunkCount: 0,
+            txRequestCount: 0,
+            rateRequestCount: 0,
+            rateDaysTotal: 0,
+            rateDaysDone: 0,
           }),
         );
 
@@ -275,12 +286,26 @@ export const portfolioBackfillAllWalletTxs =
             walletId: wallet.id,
             txCount: existingMeta.txCount,
             chunkCount: existingMeta.chunkCount,
+            txRequestCount: 0,
+            rateRequestCount: 0,
+            rateDaysTotal: 0,
+            rateDaysDone: 0,
           }),
         );
 
         let skip = existingMeta.txCount;
         let totalSaved = 0;
+        let txRequestCount = 0;
         while (true) {
+          txRequestCount++;
+          dispatch(
+            updatePortfolioWalletSync({
+              keyId: wallet.keyId,
+              walletId: wallet.id,
+              txRequestCount,
+            }),
+          );
+
           const {transactions, loadMore} = await GetTransactionHistoryFromServer(
             wallet,
             skip,
@@ -302,6 +327,7 @@ export const portfolioBackfillAllWalletTxs =
               walletId: wallet.id,
               txCount: totalSaved,
               chunkCount: meta.chunkCount,
+              txRequestCount,
             }),
           );
 
@@ -344,23 +370,30 @@ export const portfolioBackfillAllWalletTxs =
       }),
     );
 
-    await dispatch(portfolioBackfillHistoricRates({fiatCode}));
+    await dispatch(portfolioBackfillHistoricRates({fiatCode, walletIds}));
   };
 
 export const portfolioBackfillHistoricRates =
   ({
     fiatCode,
+    walletIds,
   }: {
     fiatCode: string;
+    walletIds?: string[];
   }): Effect<Promise<void>> =>
   async (dispatch, getState) => {
     const {
       WALLET: {keys, customTokenOptionsByAddress},
     } = getState();
 
-    const wallets: Wallet[] = Object.values(keys as any)
+    const allWallets: Wallet[] = Object.values(keys as any)
       .flatMap((k: any) => k.wallets)
       .filter(w => typeof w?.id === 'string' && w.isComplete());
+
+    const walletIdSet = walletIds?.length ? new Set(walletIds) : undefined;
+    const wallets = walletIdSet
+      ? allWallets.filter(w => walletIdSet.has(w.id))
+      : allWallets;
 
     for (const wallet of wallets) {
       const walletSync = getState().PORTFOLIO?.wallets?.[wallet.id];
@@ -415,6 +448,20 @@ export const portfolioBackfillHistoricRates =
       }
 
       for (const dayKey of neededDays) {
+        const walletSync = getState().PORTFOLIO?.wallets?.[wallet.id];
+        const nextRateRequestCount = (walletSync?.rateRequestCount ?? 0) + 1;
+        const nextRateDaysDone = (walletSync?.rateDaysDone ?? 0) + 1;
+
+        dispatch(
+          updatePortfolioWalletSync({
+            keyId: wallet.keyId,
+            walletId: wallet.id,
+            rateDaysTotal: neededDays.size,
+            rateRequestCount: nextRateRequestCount,
+            rateDaysDone: nextRateDaysDone,
+          }),
+        );
+
         try {
           const historic = await getHistoricFiatRate(
             fiatCode,

@@ -121,6 +121,7 @@ const WalletPortfolioDebug: React.FC<Props> = ({route}) => {
   const fiatCode = useAppSelector(({APP}) => APP.defaultAltCurrency.isoCode);
 
   const walletSync = useAppSelector(({PORTFOLIO}) => PORTFOLIO.wallets[walletId]);
+  const globalSync = useAppSelector(({PORTFOLIO}) => PORTFOLIO.global);
 
   const [interval, setInterval] = useState<IntervalOption>(intervals[2]);
 
@@ -157,6 +158,7 @@ const WalletPortfolioDebug: React.FC<Props> = ({route}) => {
     await dispatch(
       portfolioBackfillAllWalletTxs({
         fiatCode,
+        walletIds: [walletId],
       }) as any,
     );
   };
@@ -172,6 +174,43 @@ const WalletPortfolioDebug: React.FC<Props> = ({route}) => {
               <BaseText>
                 Portfolio data is not synced for this wallet yet.
               </BaseText>
+              {walletSync?.status === 'syncing' ? (
+                <View style={{marginTop: 10}}>
+                  <Row>
+                    <Label>Backfill scope</Label>
+                    <Value>{String(walletId)}</Value>
+                  </Row>
+                  <Row>
+                    <Label>Global wallets</Label>
+                    <Value>
+                      {String(globalSync.walletsDone)}/{String(globalSync.walletsTotal)}
+                    </Value>
+                  </Row>
+                  <Row>
+                    <Label>Global current wallet</Label>
+                    <Value>{String(globalSync.currentWalletId ?? '')}</Value>
+                  </Row>
+                  <Row>
+                    <Label>Tx history requests</Label>
+                    <Value>{String(walletSync.txRequestCount ?? 0)}</Value>
+                  </Row>
+                  <Row>
+                    <Label>Txs cached</Label>
+                    <Value>{String(walletSync.txCount ?? 0)}</Value>
+                  </Row>
+                  <Row>
+                    <Label>Rate requests</Label>
+                    <Value>{String(walletSync.rateRequestCount ?? 0)}</Value>
+                  </Row>
+                  <Row>
+                    <Label>Rate days</Label>
+                    <Value>
+                      {String(walletSync.rateDaysDone ?? 0)}/
+                      {String(walletSync.rateDaysTotal ?? 0)}
+                    </Value>
+                  </Row>
+                </View>
+              ) : null}
             </View>
           ) : null}
 
