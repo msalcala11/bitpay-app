@@ -13,7 +13,7 @@ import {
 import {ScreenGutter} from '../../../components/styled/Containers';
 import {formatFiatAmount} from '../../../utils/helper-methods';
 import {useAppSelector} from '../../../utils/hooks';
-import {makeSelectWalletEvents, readRateMap} from '../../../store/portfolio';
+import {makeSelectWalletEvents, readRateMap, readTxRateMap} from '../../../store/portfolio';
 import {WalletGroupParamList, WalletScreens} from '../WalletGroup';
 
 export type WalletPortfolioHistoryScreenParamList = {
@@ -184,6 +184,7 @@ const WalletPortfolioHistoryFiatTab: React.FC<{walletId: string}> = ({
   walletId,
 }) => {
   const fiatCode = useAppSelector(({APP}) => APP.defaultAltCurrency.isoCode);
+  const walletSync = useAppSelector(({PORTFOLIO}) => PORTFOLIO.wallets[walletId]);
   const eventsSelector = useMemo(() => makeSelectWalletEvents(walletId), [walletId]);
   const events = useAppSelector(eventsSelector) as unknown as WalletPortfolioEvent[];
 
@@ -206,11 +207,22 @@ const WalletPortfolioHistoryFiatTab: React.FC<{walletId: string}> = ({
 
     const rateSymbol = filtered[0]?.rateSymbol;
     const rateMap = rateSymbol ? readRateMap(fiatCode, rateSymbol) : {};
+    const txRateMap = rateSymbol ? readTxRateMap(fiatCode, rateSymbol) : {};
 
     const deltaByDay: Record<string, number> = {};
+    const txFiatEffectByDay: Record<string, number> = {};
     for (const e of filtered) {
       const dayKey = String(moment(e.time).startOf('day').valueOf());
       deltaByDay[dayKey] = (deltaByDay[dayKey] || 0) + e.deltaUnits;
+
+      const txRateKey = `${e.chain}:${e.txid}`;
+      const txRate = txRateMap[txRateKey];
+      const dayRate = rateSymbol ? rateMap[dayKey] : undefined;
+      const rateForTx = typeof txRate === 'number' ? txRate : dayRate;
+      if (typeof rateForTx === 'number') {
+        txFiatEffectByDay[dayKey] =
+          (txFiatEffectByDay[dayKey] || 0) + e.deltaUnits * rateForTx;
+      }
     }
 
     const firstTs = filtered[0].time;
@@ -234,7 +246,8 @@ const WalletPortfolioHistoryFiatTab: React.FC<{walletId: string}> = ({
       const rate = typeof rateMap[dayKey] === 'number' ? rateMap[dayKey] : null;
       const valueFiat = rate != null ? balanceAfter * rate : null;
 
-      const fiatDeltaTx = rate != null ? deltaUnits * rate : null;
+      const txEffect = txFiatEffectByDay[dayKey];
+      const fiatDeltaTx = typeof txEffect === 'number' ? txEffect : null;
       const fiatDeltaRate =
         rate != null && prevRate != null ? balanceBefore * (rate - prevRate) : null;
 
@@ -263,7 +276,7 @@ const WalletPortfolioHistoryFiatTab: React.FC<{walletId: string}> = ({
     }
 
     return out.reverse();
-  }, [events, fiatCode]);
+  }, [events, fiatCode, walletSync?.rateDaysDone, walletSync?.rateRequestCount]);
 
   return (
     <ListContainer>

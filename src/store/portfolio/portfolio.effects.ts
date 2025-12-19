@@ -17,7 +17,9 @@ import {
   resetWalletTxs,
   readWalletTxs,
   upsertRateMap,
+  upsertTxRateMap,
   readRateMap,
+  readTxRateMap,
   readWalletTxMeta,
   resetAllPortfolioStorage,
 } from './portfolio.storage';
@@ -428,11 +430,22 @@ export const portfolioBackfillHistoricRates =
       const known: Record<string, number> = {...rateMap};
       const neededDays = new Set<string>();
 
+      const txRateMap = readTxRateMap(fiatCode, symbol);
+      const knownTxRates: Record<string, number> = {...txRateMap};
+      const neededTxIds = new Set<string>();
+
       txs.forEach(tx => {
         const dayTs = moment(tx.time).startOf('day').valueOf();
         const key = String(dayTs);
         if (known[key] == null) {
           neededDays.add(key);
+        }
+
+        // Cache exact tx-time rates (txid -> rate) so portfolio computations can use
+        // the best-available rate at the time of each transaction.
+        const txRateKey = `${tx.chain || wallet.chain}:${tx.txid}`;
+        if (knownTxRates[txRateKey] == null) {
+          neededTxIds.add(txRateKey);
         }
       });
 
@@ -459,6 +472,60 @@ export const portfolioBackfillHistoricRates =
         }
       }
 
+      // Fetch exact timestamp rates per txid for accurate cost basis.
+      // The /v1/fiatrates endpoint accepts an exact millisecond timestamp.
+      const totalRequests = neededDays.size + neededTxIds.size;
+
+      // Initialize totals so UI can show accurate progress.
+      dispatch(
+        updatePortfolioWalletSync({
+          keyId: wallet.keyId,
+          walletId: wallet.id,
+          rateDaysTotal: totalRequests,
+        }),
+      );
+
+      if (neededTxIds.size) {
+        const txById: Record<string, PortfolioTx> = {};
+        for (const tx of txs) {
+          const txRateKey = `${tx.chain || wallet.chain}:${tx.txid}`;
+          txById[txRateKey] = tx;
+        }
+
+        for (const txid of neededTxIds) {
+          const tx = txById[txid];
+          if (!tx) {
+            continue;
+          }
+
+          const walletSync = getState().PORTFOLIO?.wallets?.[wallet.id];
+          const nextRateRequestCount = (walletSync?.rateRequestCount ?? 0) + 1;
+          const nextRateDaysDone = (walletSync?.rateDaysDone ?? 0) + 1;
+
+          dispatch(
+            updatePortfolioWalletSync({
+              keyId: wallet.keyId,
+              walletId: wallet.id,
+              rateDaysTotal: totalRequests,
+              rateRequestCount: nextRateRequestCount,
+              rateDaysDone: nextRateDaysDone,
+            }),
+          );
+
+          try {
+            const historic = await getHistoricFiatRate(
+              fiatCode,
+              symbol,
+              String(tx.time),
+            );
+            if (historic?.rate != null) {
+              knownTxRates[txid] = historic.rate;
+              upsertTxRateMap(fiatCode, symbol, {[txid]: historic.rate});
+            }
+          } catch (_) {}
+        }
+      }
+
       for (const dayKey of neededDays) {
         const walletSync = getState().PORTFOLIO?.wallets?.[wallet.id];
         const nextRateRequestCount = (walletSync?.rateRequestCount ?? 0) + 1;
@@ -468,7 +535,7 @@ export const portfolioBackfillHistoricRates =
           updatePortfolioWalletSync({
             keyId: wallet.keyId,
             walletId: wallet.id,
-            rateDaysTotal: neededDays.size,
+            rateDaysTotal: totalRequests,
             rateRequestCount: nextRateRequestCount,
             rateDaysDone: nextRateDaysDone,
           }),
@@ -486,5 +553,6 @@ export const portfolioBackfillHistoricRates =
           }
         } catch (_) {}
       }
+
     }
   };

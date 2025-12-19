@@ -4,6 +4,7 @@ import {AppSelector, RootState} from '..';
 import {
   PortfolioTx,
   readRateMap,
+  readTxRateMap,
   readWalletTxs,
 } from './portfolio.storage';
 import {Rates} from '../rate/rate.models';
@@ -355,8 +356,10 @@ const computePositionsFromEvents = (
 ): Record<PortfolioAssetKey, PortfolioPosition> => {
   const symbols = Array.from(new Set(events.map(e => e.rateSymbol)));
   const rateMaps: Record<string, Record<string, number>> = {};
+  const txRateMaps: Record<string, Record<string, number>> = {};
   for (const s of symbols) {
     rateMaps[s] = readRateMap(fiatCode, s);
+    txRateMaps[s] = readTxRateMap(fiatCode, s);
   }
 
   const sorted = [...events].sort((a, b) => a.time - b.time);
@@ -377,8 +380,13 @@ const computePositionsFromEvents = (
 
     let rate: number | undefined;
     if (e.deltaUnits > 0) {
-      const dayKey = String(moment(e.time).startOf('day').valueOf());
-      rate = rateMaps[e.rateSymbol]?.[dayKey];
+      const txRate = txRateMaps[e.rateSymbol]?.[`${e.chain}:${e.txid}`];
+      if (txRate != null) {
+        rate = txRate;
+      } else {
+        const dayKey = String(moment(e.time).startOf('day').valueOf());
+        rate = rateMaps[e.rateSymbol]?.[dayKey];
+      }
     }
 
     applyDeltaUnits(pos, e.deltaUnits, rate);
@@ -485,6 +493,11 @@ const computePositionsSnapshotFromEvents = (
   },
 ): Record<PortfolioAssetKey, PortfolioPosition> => {
   const rateMaps = buildRateMapsForEvents(fiatCode, events);
+  const symbols = Array.from(new Set(events.map(e => e.rateSymbol)));
+  const txRateMaps: Record<string, Record<string, number>> = {};
+  for (const s of symbols) {
+    txRateMaps[s] = readTxRateMap(fiatCode, s);
+  }
   const sorted = [...events].sort((a, b) => a.time - b.time);
   const positions: Record<PortfolioAssetKey, PortfolioPosition> = {};
 
@@ -507,8 +520,13 @@ const computePositionsSnapshotFromEvents = (
 
     let rate: number | undefined;
     if (e.deltaUnits > 0) {
-      const dayKey = String(moment(e.time).startOf('day').valueOf());
-      rate = rateMaps[e.rateSymbol]?.[dayKey];
+      const txRate = txRateMaps[e.rateSymbol]?.[`${e.chain}:${e.txid}`];
+      if (txRate != null) {
+        rate = txRate;
+      } else {
+        const dayKey = String(moment(e.time).startOf('day').valueOf());
+        rate = rateMaps[e.rateSymbol]?.[dayKey];
+      }
     }
 
     applyDeltaUnits(pos, e.deltaUnits, rate);
