@@ -47,6 +47,8 @@ const StorageUsage: React.FC = () => {
   const [customTokenStorage, setCustomTokenStorage] = useState<string>('');
   const [contactStorage, setContactStorage] = useState<string>('');
   const [ratesStorage, setRatesStorage] = useState<string>('');
+  const [portfolioStorage, setPortfolioStorage] = useState<string>('');
+  const [portfolioCacheStorage, setPortfolioCacheStorage] = useState<string>('');
   const [backupStorage, setBackupStorage] = useState<string>('');
   const [shopCatalogStorage, setShopCatalogStorage] = useState<string>('');
 
@@ -57,6 +59,7 @@ const StorageUsage: React.FC = () => {
   const customTokens = useAppSelector(({WALLET}) => WALLET.customTokenData);
   const contacts = useAppSelector(({CONTACT}) => CONTACT.list);
   const rates = useAppSelector(({RATE}) => RATE.rates);
+  const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
 
   const formatBytes = (bytes: number, decimals = 2): string => {
     if (!+bytes) {
@@ -159,7 +162,7 @@ const StorageUsage: React.FC = () => {
     const _setDataCounterStorage = async () => {
       try {
         // Data counter
-        const wallets = Object.values(keys).map(k => {
+        const wallets = Object.values(keys as any).map((k: any) => {
           const {wallets} = k;
           return wallets.length;
         });
@@ -235,6 +238,36 @@ const StorageUsage: React.FC = () => {
         logManager.error('[setRatesStorage] Error ', errStr);
       }
     };
+
+    const _setPortfolioStorage = async () => {
+      try {
+        const _portfolioStorageSize = await getSize(
+          RNFS.TemporaryDirectoryPath + '/portfolio.txt',
+          JSON.stringify(portfolio),
+        );
+        setPortfolioStorage(formatBytes(_portfolioStorageSize));
+      } catch (err) {
+        const errStr = err instanceof Error ? err.message : JSON.stringify(err);
+        logManager.error('[setPortfolioStorage] Error ', errStr);
+      }
+    };
+
+    const _setPortfolioCacheStorage = async () => {
+      try {
+        const keys = storage.getAllKeys();
+        let bytes = 0;
+        forEach(keys, k => {
+          if (typeof k === 'string' && k.startsWith('portfolio:')) {
+            const v = storage.getString(k);
+            bytes += v ? v.length : 0;
+          }
+        });
+        setPortfolioCacheStorage(formatBytes(bytes));
+      } catch (err) {
+        const errStr = err instanceof Error ? err.message : JSON.stringify(err);
+        logManager.error('[setPortfolioCacheStorage] Error ', errStr);
+      }
+    };
     _setAppSize();
     _setDeviceStorage();
     _setDataCounterStorage();
@@ -243,6 +276,8 @@ const StorageUsage: React.FC = () => {
     _setCustomTokensStorage();
     _setContactStorage();
     _setRatesStorage();
+    _setPortfolioStorage();
+    _setPortfolioCacheStorage();
     _setBackupStorage();
     _setShopCatalogStorage();
   }, [dispatch]);
@@ -319,6 +354,20 @@ const StorageUsage: React.FC = () => {
             <SettingTitle>{t('Rates')}</SettingTitle>
 
             <Button buttonType="pill">{ratesStorage}</Button>
+          </Setting>
+
+          <Hr />
+          <Setting>
+            <SettingTitle>{t('Portfolio')}</SettingTitle>
+
+            <Button buttonType="pill">{portfolioStorage}</Button>
+          </Setting>
+
+          <Hr />
+          <Setting>
+            <SettingTitle>{t('Portfolio Cache')}</SettingTitle>
+
+            <Button buttonType="pill">{portfolioCacheStorage}</Button>
           </Setting>
 
           <Hr />
