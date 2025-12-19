@@ -72,6 +72,9 @@ import PriceCharts, {PriceChartsParamList} from './screens/PriceCharts';
 import WalletPortfolioDebug, {
   WalletPortfolioDebugScreenParamList,
 } from './screens/WalletPortfolioDebug';
+import WalletPortfolioHistory, {
+  WalletPortfolioHistoryScreenParamList,
+} from './screens/WalletPortfolioHistory';
 import ClearEncryptPassword, {
   ClearEncryptPasswordParamList,
 } from './screens/ClearEncryptPassword';
@@ -185,6 +188,7 @@ export type WalletGroupParamList = {
   AllAddresses: AllAddressesParamList;
   PriceCharts: PriceChartsParamList;
   WalletPortfolioDebug: WalletPortfolioDebugScreenParamList;
+  WalletPortfolioHistory: WalletPortfolioHistoryScreenParamList;
   ClearEncryptPassword: ClearEncryptPasswordParamList;
   SendToOptions: SendToOptionsParamList;
   SelectInputs: SelectInputsParamList;
@@ -242,6 +246,7 @@ export enum WalletScreens {
   ALL_ADDRESSES = 'AllAddresses',
   PRICE_CHARTS = 'PriceCharts',
   WALLET_PORTFOLIO_DEBUG = 'WalletPortfolioDebug',
+  WALLET_PORTFOLIO_HISTORY = 'WalletPortfolioHistory',
   CLEAR_ENCRYPT_PASSWORD = 'ClearEncryptPassword',
   SEND_TO_OPTIONS = 'SendToOptions',
   SELECT_INPUTS = 'SelectInputs',
@@ -467,6 +472,10 @@ const WalletGroup = ({Wallet, theme}: WalletProps) => {
       <Wallet.Screen
         name={WalletScreens.WALLET_PORTFOLIO_DEBUG}
         component={WalletPortfolioDebug}
+      />
+      <Wallet.Screen
+        name={WalletScreens.WALLET_PORTFOLIO_HISTORY}
+        component={WalletPortfolioHistory}
       />
       <Wallet.Screen
         options={{

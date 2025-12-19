@@ -29,6 +29,7 @@ import {
   portfolioBackfillAllWalletTxs,
   portfolioClearAllBackfillData,
 } from '../../../store/portfolio/portfolio.effects';
+import {WalletScreens} from '../WalletGroup';
 
 const AnyLineGraph = LineGraph as any;
 
@@ -210,8 +211,19 @@ const WalletPortfolioDebug: React.FC<Props> = ({route}) => {
     );
   };
 
+  const onPressHistory = () => {
+    setShowActions(false);
+    (navigation as any).navigate(WalletScreens.WALLET_PORTFOLIO_HISTORY, {walletId});
+  };
+
   const actionOptions: Option[] = useMemo(
     () => [
+      {
+        img: <Icons.RequestAmount />,
+        title: 'History (Crypto/Fiat)',
+        description: 'View per-transaction crypto deltas and daily fiat value changes.',
+        onPress: onPressHistory,
+      },
       {
         img: <Icons.Settings />,
         title: 'Clear Portfolio Data',
@@ -219,7 +231,7 @@ const WalletPortfolioDebug: React.FC<Props> = ({route}) => {
         onPress: onPressClearAll,
       },
     ],
-    [onPressClearAll],
+    [onPressClearAll, onPressHistory],
   );
 
   const showBackfillCounters =
