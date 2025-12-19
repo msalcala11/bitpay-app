@@ -14,6 +14,8 @@ import {
 import {tokenManager} from '../../managers/TokenManager';
 import {getCurrencyAbbreviation, getRateByCurrencyName} from '../../utils/helper-methods';
 
+const createSelectorLoose: any = createSelector;
+
 type UnitInfo = {
   unitToSatoshi: number;
   unitDecimals: number;
@@ -77,6 +79,8 @@ type PortfolioEvent = {
   isInternalTransferCandidate: boolean;
 };
 
+type TokensDataByAddress = Record<string, {coin?: string; unitInfo?: UnitInfo}>;
+
 const buildTokensDataByAddress = (state: RootState) => {
   const {
     WALLET: {customTokenDataByAddress},
@@ -91,8 +95,20 @@ const buildTokensDataByAddress = (state: RootState) => {
   } as Record<string, {coin?: string; unitInfo?: UnitInfo}>;
 };
 
+const selectTokensDataByAddress = createSelectorLoose(
+  (state: RootState) => state.WALLET.customTokenDataByAddress,
+  (customTokenDataByAddress: any) => {
+    const {tokenDataByAddress} = tokenManager.getTokenOptions();
+    return {
+      ...tokenDataByAddress,
+      ...customTokenDataByAddress,
+      ...BitpaySupportedTokens,
+    } as TokensDataByAddress;
+  },
+);
+
 const getUnitInfo = (
-  state: RootState,
+  tokens: Record<string, {coin?: string; unitInfo?: UnitInfo}>,
   {
     chain,
     tokenAddress,
@@ -101,8 +117,6 @@ const getUnitInfo = (
     tokenAddress?: string;
   },
 ): UnitInfo | undefined => {
-  const tokens = buildTokensDataByAddress(state);
-
   if (tokenAddress) {
     const currencyName = getCurrencyAbbreviation(tokenAddress, chain);
     return tokens[currencyName]?.unitInfo;
@@ -112,7 +126,7 @@ const getUnitInfo = (
 };
 
 const getRateSymbol = (
-  state: RootState,
+  tokens: Record<string, {coin?: string; unitInfo?: UnitInfo}>,
   {
     chain,
     coin,
@@ -124,7 +138,6 @@ const getRateSymbol = (
   },
 ): string => {
   if (tokenAddress) {
-    const tokens = buildTokensDataByAddress(state);
     const currencyName = getCurrencyAbbreviation(tokenAddress, chain);
     const symbol = tokens[currencyName]?.coin;
     if (typeof symbol === 'string' && symbol.length > 0) {
@@ -194,12 +207,10 @@ const applyDeltaUnits = (
 };
 
 const buildEventsForWalletTxs = (
-  state: RootState,
+  tokens: Record<string, {coin?: string; unitInfo?: UnitInfo}>,
   {
-    fiatCode,
     txs,
   }: {
-    fiatCode: string;
     txs: PortfolioTx[];
   },
 ): PortfolioEvent[] => {
@@ -215,12 +226,12 @@ const buildEventsForWalletTxs = (
     const tokenAddress = tx.tokenAddress || undefined;
     const action = tx.action;
 
-    const unitInfo = getUnitInfo(state, {chain, tokenAddress});
+    const unitInfo = getUnitInfo(tokens, {chain, tokenAddress});
     if (!unitInfo?.unitToSatoshi) {
       continue;
     }
 
-    const rateSymbol = getRateSymbol(state, {chain, coin, tokenAddress});
+    const rateSymbol = getRateSymbol(tokens, {chain, coin, tokenAddress});
     const assetKey = getAssetKey({chain, coin, tokenAddress});
 
     const amountSat = typeof tx.amount === 'number' ? tx.amount : 0;
@@ -263,7 +274,7 @@ const buildEventsForWalletTxs = (
 
     if (feeSat && (action === 'sent' || action === 'moved')) {
       const feeCurrency = BitpaySupportedCoins[chain]?.feeCurrency || coin;
-      const feeUnitInfo = getUnitInfo(state, {chain, tokenAddress: undefined});
+      const feeUnitInfo = getUnitInfo(tokens, {chain, tokenAddress: undefined});
       if (feeUnitInfo?.unitToSatoshi) {
         const feeUnits = satToUnit(feeSat, feeUnitInfo.unitToSatoshi);
         if (feeUnits) {
@@ -272,7 +283,7 @@ const buildEventsForWalletTxs = (
             coin: feeCurrency,
             tokenAddress: undefined,
           });
-          const feeRateSymbol = getRateSymbol(state, {
+          const feeRateSymbol = getRateSymbol(tokens, {
             chain,
             coin: feeCurrency,
             tokenAddress: undefined,
@@ -334,7 +345,6 @@ const neutralizeInternalTransfers = (events: PortfolioEvent[]): PortfolioEvent[]
 };
 
 const computePositionsFromEvents = (
-  state: RootState,
   {
     fiatCode,
     events,
@@ -396,7 +406,7 @@ const getCurrentFiatRate = (
 };
 
 const buildAssetListFromPositions = (
-  state: RootState,
+  currentRates: Rates,
   {
     fiatCode,
     positions,
@@ -405,7 +415,6 @@ const buildAssetListFromPositions = (
     positions: Record<PortfolioAssetKey, PortfolioPosition>;
   },
 ): PortfolioAssetList => {
-  const currentRates = state.RATE?.rates || {};
   const rows: PortfolioAssetRow[] = [];
 
   let totalValueFiat = 0;
@@ -463,7 +472,6 @@ const buildRateMapsForEvents = (
 };
 
 const computePositionsSnapshotFromEvents = (
-  state: RootState,
   {
     fiatCode,
     events,
@@ -531,7 +539,7 @@ const getHistoricValueForPositions = (
 };
 
 const buildAssetListWithIntervalPnlFromEvents = (
-  state: RootState,
+  currentRates: Rates,
   {
     fiatCode,
     interval,
@@ -545,21 +553,24 @@ const buildAssetListWithIntervalPnlFromEvents = (
   const endTs = Date.now();
   const {startTs} = resolveIntervalWindow(interval, events);
 
-  const endPositions = computePositionsSnapshotFromEvents(state, {
+  const endPositions = computePositionsSnapshotFromEvents({
     fiatCode,
     events,
     cutoffTs: endTs,
     inclusive: true,
   });
 
-  const startPositions = computePositionsSnapshotFromEvents(state, {
+  const startPositions = computePositionsSnapshotFromEvents({
     fiatCode,
     events,
     cutoffTs: startTs,
     inclusive: false,
   });
 
-  const list = buildAssetListFromPositions(state, {fiatCode, positions: endPositions});
+  const list = buildAssetListFromPositions(currentRates, {
+    fiatCode,
+    positions: endPositions,
+  });
 
   const rateMaps = buildRateMapsForEvents(fiatCode, events);
   const startDayKey = String(moment(startTs).startOf('day').valueOf());
@@ -660,18 +671,15 @@ const resolveIntervalWindow = (
   }
 };
 
-const computeSeriesFromEvents = (
-  state: RootState,
-  {
-    fiatCode,
-    interval,
-    events,
-  }: {
-    fiatCode: string;
-    interval: PortfolioInterval;
-    events: PortfolioEvent[];
-  },
-): PortfolioChartSeries => {
+const computeSeriesFromEvents = ({
+  fiatCode,
+  interval,
+  events,
+}: {
+  fiatCode: string;
+  interval: PortfolioInterval;
+  events: PortfolioEvent[];
+}): PortfolioChartSeries => {
   const {startTs, endTs, targetPoints, isIntraday} = resolveIntervalWindow(
     interval,
     events,
@@ -778,74 +786,76 @@ export const selectPortfolioGlobalSync: AppSelector = ({PORTFOLIO}) =>
 export const selectPortfolioWalletsSync: AppSelector = ({PORTFOLIO}) =>
   PORTFOLIO.wallets;
 
+export const makeSelectWalletEvents = (
+  walletId: string,
+): ((state: RootState) => PortfolioEvent[]) =>
+  createSelectorLoose(
+    (state: RootState) => state.PORTFOLIO.wallets[walletId]?.txCount || 0,
+    selectTokensDataByAddress,
+    (_txCount: number, tokens: TokensDataByAddress) => {
+      const txs = readWalletTxs(walletId);
+      return buildEventsForWalletTxs(tokens, {txs});
+    },
+  ) as ((state: RootState) => PortfolioEvent[]);
+
 export const makeSelectWalletPositions = (
   walletId: string,
   fiatCode: string,
-) =>
-  createSelector(
-    [
-      (state: RootState) => state.PORTFOLIO.wallets[walletId]?.txCount || 0,
-      (state: RootState) => state,
-    ],
-    (_txCount, state) => {
-      const txs = readWalletTxs(walletId);
-      const events = buildEventsForWalletTxs(state, {fiatCode, txs});
-      return computePositionsFromEvents(state, {fiatCode, events});
-    },
-  );
+) : ((state: RootState) => Record<string, PortfolioPosition>) =>
+  createSelectorLoose(
+    makeSelectWalletEvents(walletId),
+    (events: PortfolioEvent[]) => computePositionsFromEvents({fiatCode, events}),
+  ) as ((state: RootState) => Record<string, PortfolioPosition>);
 
-export const makeSelectWalletAssetList = (walletId: string, fiatCode: string) =>
-  createSelector([
+export const makeSelectWalletAssetList = (
+  walletId: string,
+  fiatCode: string,
+): ((state: RootState) => PortfolioAssetList) =>
+  createSelectorLoose(
     makeSelectWalletPositions(walletId, fiatCode),
-    (state: RootState) => state,
-  ], (positions, state) => buildAssetListFromPositions(state, {fiatCode, positions}));
+    (state: RootState) => state.RATE?.rates || {},
+    (positions: Record<string, PortfolioPosition>, currentRates: any) =>
+      buildAssetListFromPositions(currentRates as Rates, {fiatCode, positions}),
+  ) as ((state: RootState) => PortfolioAssetList);
 
 export const makeSelectWalletAssetListByInterval = (
   walletId: string,
   fiatCode: string,
   interval: PortfolioInterval,
-) =>
-  createSelector(
-    [
-      (state: RootState) => state.PORTFOLIO.wallets[walletId]?.txCount || 0,
-      (state: RootState) => state,
-    ],
-    (_txCount, state) => {
-      const txs = readWalletTxs(walletId);
-      const events = buildEventsForWalletTxs(state, {fiatCode, txs});
-      return buildAssetListWithIntervalPnlFromEvents(state, {fiatCode, interval, events});
-    },
-  );
+) : ((state: RootState) => PortfolioAssetList) =>
+  createSelectorLoose(
+    makeSelectWalletEvents(walletId),
+    (state: RootState) => state.RATE?.rates || {},
+    (events: PortfolioEvent[], currentRates: any) =>
+      buildAssetListWithIntervalPnlFromEvents(currentRates as Rates, {
+        fiatCode,
+        interval,
+        events,
+      }),
+  ) as ((state: RootState) => PortfolioAssetList);
 
 export const makeSelectWalletChartSeries = (
   walletId: string,
   fiatCode: string,
   interval: PortfolioInterval,
-) =>
-  createSelector(
-    [
-      (state: RootState) => state.PORTFOLIO.wallets[walletId]?.txCount || 0,
-      (state: RootState) => state,
-    ],
-    (_txCount, state) => {
-      const txs = readWalletTxs(walletId);
-      const events = buildEventsForWalletTxs(state, {fiatCode, txs});
-      return computeSeriesFromEvents(state, {fiatCode, interval, events});
-    },
-  );
+) : ((state: RootState) => PortfolioChartSeries) =>
+  createSelectorLoose(
+    makeSelectWalletEvents(walletId),
+    (events: PortfolioEvent[]) => computeSeriesFromEvents({fiatCode, interval, events}),
+  ) as ((state: RootState) => PortfolioChartSeries);
 
 export const makeSelectAccountPositions = (
   keyId: string,
   accountKey: string,
   fiatCode: string,
-) =>
-  createSelector(
+) : ((state: RootState) => Record<string, PortfolioPosition>) =>
+  createSelectorLoose(
     [
       (state: RootState) => state.WALLET.keys[keyId],
       (state: RootState) => state.PORTFOLIO.wallets,
-      (state: RootState) => state,
+      selectTokensDataByAddress,
     ],
-    (key, walletSyncs, state) => {
+    (key: any, walletSyncs: any, tokens: TokensDataByAddress) => {
       const wallets = (key as any)?.wallets || [];
       const selectedWalletIds: string[] = wallets
         .filter((w: any) => {
@@ -857,34 +867,37 @@ export const makeSelectAccountPositions = (
         .filter((id: string) => walletSyncs[id]?.status === 'done');
 
       const allTxs = selectedWalletIds.flatMap(id => readWalletTxs(id));
-      const events = buildEventsForWalletTxs(state, {fiatCode, txs: allTxs});
-      return computePositionsFromEvents(state, {fiatCode, events});
+      const events = buildEventsForWalletTxs(tokens, {txs: allTxs});
+      return computePositionsFromEvents({fiatCode, events});
     },
-  );
+  ) as ((state: RootState) => Record<string, PortfolioPosition>);
 
 export const makeSelectAccountAssetList = (
   keyId: string,
   accountKey: string,
   fiatCode: string,
-) =>
-  createSelector(
-    [makeSelectAccountPositions(keyId, accountKey, fiatCode), (state: RootState) => state],
-    (positions, state) => buildAssetListFromPositions(state, {fiatCode, positions}),
-  );
+) : ((state: RootState) => PortfolioAssetList) =>
+  createSelectorLoose(
+    makeSelectAccountPositions(keyId, accountKey, fiatCode),
+    (state: RootState) => state.RATE?.rates || {},
+    (positions: Record<string, PortfolioPosition>, currentRates: any) =>
+      buildAssetListFromPositions(currentRates as Rates, {fiatCode, positions}),
+  ) as ((state: RootState) => PortfolioAssetList);
 
 export const makeSelectAccountAssetListByInterval = (
   keyId: string,
   accountKey: string,
   fiatCode: string,
   interval: PortfolioInterval,
-) =>
-  createSelector(
+) : ((state: RootState) => PortfolioAssetList) =>
+  createSelectorLoose(
     [
       (state: RootState) => state.WALLET.keys[keyId],
       (state: RootState) => state.PORTFOLIO.wallets,
-      (state: RootState) => state,
+      selectTokensDataByAddress,
+      (state: RootState) => state.RATE?.rates || {},
     ],
-    (key, walletSyncs, state) => {
+    (key: any, walletSyncs: any, tokens: TokensDataByAddress, currentRates: any) => {
       const wallets = (key as any)?.wallets || [];
       const selectedWalletIds: string[] = wallets
         .filter((w: any) => {
@@ -896,24 +909,28 @@ export const makeSelectAccountAssetListByInterval = (
         .filter((id: string) => walletSyncs[id]?.status === 'done');
 
       const allTxs = selectedWalletIds.flatMap(id => readWalletTxs(id));
-      const events = buildEventsForWalletTxs(state, {fiatCode, txs: allTxs});
-      return buildAssetListWithIntervalPnlFromEvents(state, {fiatCode, interval, events});
+      const events = buildEventsForWalletTxs(tokens, {txs: allTxs});
+      return buildAssetListWithIntervalPnlFromEvents(currentRates as Rates, {
+        fiatCode,
+        interval,
+        events,
+      });
     },
-  );
+  ) as ((state: RootState) => PortfolioAssetList);
 
 export const makeSelectAccountChartSeries = (
   keyId: string,
   accountKey: string,
   fiatCode: string,
   interval: PortfolioInterval,
-) =>
-  createSelector(
+) : ((state: RootState) => PortfolioChartSeries) =>
+  createSelectorLoose(
     [
       (state: RootState) => state.WALLET.keys[keyId],
       (state: RootState) => state.PORTFOLIO.wallets,
-      (state: RootState) => state,
+      selectTokensDataByAddress,
     ],
-    (key, walletSyncs, state) => {
+    (key: any, walletSyncs: any, tokens: TokensDataByAddress) => {
       const wallets = (key as any)?.wallets || [];
       const selectedWalletIds: string[] = wallets
         .filter((w: any) => {
@@ -925,19 +942,22 @@ export const makeSelectAccountChartSeries = (
         .filter((id: string) => walletSyncs[id]?.status === 'done');
 
       const allTxs = selectedWalletIds.flatMap(id => readWalletTxs(id));
-      const events = buildEventsForWalletTxs(state, {fiatCode, txs: allTxs});
-      return computeSeriesFromEvents(state, {fiatCode, interval, events});
+      const events = buildEventsForWalletTxs(tokens, {txs: allTxs});
+      return computeSeriesFromEvents({fiatCode, interval, events});
     },
-  );
+  ) as ((state: RootState) => PortfolioChartSeries);
 
-export const makeSelectKeyPositions = (keyId: string, fiatCode: string) =>
-  createSelector(
+export const makeSelectKeyPositions = (
+  keyId: string,
+  fiatCode: string,
+): ((state: RootState) => Record<string, PortfolioPosition>) =>
+  createSelectorLoose(
     [
       (state: RootState) => state.WALLET.keys[keyId],
       (state: RootState) => state.PORTFOLIO.wallets,
-      (state: RootState) => state,
+      selectTokensDataByAddress,
     ],
-    (key, walletSyncs, state) => {
+    (key: any, walletSyncs: any, tokens: TokensDataByAddress) => {
       const wallets = (key as any)?.wallets || [];
       const syncedWalletIds: string[] = wallets
         .map((w: any) => w?.id)
@@ -946,30 +966,36 @@ export const makeSelectKeyPositions = (keyId: string, fiatCode: string) =>
 
       const allTxs = syncedWalletIds.flatMap(id => readWalletTxs(id));
 
-      const rawEvents = buildEventsForWalletTxs(state, {fiatCode, txs: allTxs});
+      const rawEvents = buildEventsForWalletTxs(tokens, {txs: allTxs});
       const events = neutralizeInternalTransfers(rawEvents);
-      return computePositionsFromEvents(state, {fiatCode, events});
+      return computePositionsFromEvents({fiatCode, events});
     },
-  );
+  ) as ((state: RootState) => Record<string, PortfolioPosition>);
 
-export const makeSelectKeyAssetList = (keyId: string, fiatCode: string) =>
-  createSelector(
-    [makeSelectKeyPositions(keyId, fiatCode), (state: RootState) => state],
-    (positions, state) => buildAssetListFromPositions(state, {fiatCode, positions}),
-  );
+export const makeSelectKeyAssetList = (
+  keyId: string,
+  fiatCode: string,
+): ((state: RootState) => PortfolioAssetList) =>
+  createSelectorLoose(
+    makeSelectKeyPositions(keyId, fiatCode),
+    (state: RootState) => state.RATE?.rates || {},
+    (positions: Record<string, PortfolioPosition>, currentRates: any) =>
+      buildAssetListFromPositions(currentRates as Rates, {fiatCode, positions}),
+  ) as ((state: RootState) => PortfolioAssetList);
 
 export const makeSelectKeyAssetListByInterval = (
   keyId: string,
   fiatCode: string,
   interval: PortfolioInterval,
-) =>
-  createSelector(
+) : ((state: RootState) => PortfolioAssetList) =>
+  createSelectorLoose(
     [
       (state: RootState) => state.WALLET.keys[keyId],
       (state: RootState) => state.PORTFOLIO.wallets,
-      (state: RootState) => state,
+      selectTokensDataByAddress,
+      (state: RootState) => state.RATE?.rates || {},
     ],
-    (key, walletSyncs, state) => {
+    (key: any, walletSyncs: any, tokens: TokensDataByAddress, currentRates: any) => {
       const wallets = (key as any)?.wallets || [];
       const syncedWalletIds: string[] = wallets
         .map((w: any) => w?.id)
@@ -978,24 +1004,28 @@ export const makeSelectKeyAssetListByInterval = (
 
       const allTxs = syncedWalletIds.flatMap(id => readWalletTxs(id));
       const events = neutralizeInternalTransfers(
-        buildEventsForWalletTxs(state, {fiatCode, txs: allTxs}),
+        buildEventsForWalletTxs(tokens, {txs: allTxs}),
       );
-      return buildAssetListWithIntervalPnlFromEvents(state, {fiatCode, interval, events});
+      return buildAssetListWithIntervalPnlFromEvents(currentRates as Rates, {
+        fiatCode,
+        interval,
+        events,
+      });
     },
-  );
+  ) as ((state: RootState) => PortfolioAssetList);
 
 export const makeSelectKeyChartSeries = (
   keyId: string,
   fiatCode: string,
   interval: PortfolioInterval,
-) =>
-  createSelector(
+) : ((state: RootState) => PortfolioChartSeries) =>
+  createSelectorLoose(
     [
       (state: RootState) => state.WALLET.keys[keyId],
       (state: RootState) => state.PORTFOLIO.wallets,
-      (state: RootState) => state,
+      selectTokensDataByAddress,
     ],
-    (key, walletSyncs, state) => {
+    (key: any, walletSyncs: any, tokens: TokensDataByAddress) => {
       const wallets = (key as any)?.wallets || [];
       const syncedWalletIds: string[] = wallets
         .map((w: any) => w?.id)
@@ -1003,20 +1033,22 @@ export const makeSelectKeyChartSeries = (
         .filter((id: string) => walletSyncs[id]?.status === 'done');
 
       const allTxs = syncedWalletIds.flatMap(id => readWalletTxs(id));
-      const rawEvents = buildEventsForWalletTxs(state, {fiatCode, txs: allTxs});
+      const rawEvents = buildEventsForWalletTxs(tokens, {txs: allTxs});
       const events = neutralizeInternalTransfers(rawEvents);
-      return computeSeriesFromEvents(state, {fiatCode, interval, events});
+      return computeSeriesFromEvents({fiatCode, interval, events});
     },
-  );
+  ) as ((state: RootState) => PortfolioChartSeries);
 
-export const makeSelectPortfolioPositions = (fiatCode: string) =>
-  createSelector(
+export const makeSelectPortfolioPositions = (
+  fiatCode: string,
+): ((state: RootState) => Record<string, PortfolioPosition>) =>
+  createSelectorLoose(
     [
       (state: RootState) => state.WALLET.keys,
       (state: RootState) => state.PORTFOLIO.wallets,
-      (state: RootState) => state,
+      selectTokensDataByAddress,
     ],
-    (keys, walletSyncs, state) => {
+    (keys: any, walletSyncs: any, tokens: TokensDataByAddress): Record<string, PortfolioPosition> => {
       const wallets: any[] = Object.values(keys as any).flatMap((k: any) => k.wallets);
       const syncedWalletIds: string[] = wallets
         .map(w => w?.id)
@@ -1025,29 +1057,34 @@ export const makeSelectPortfolioPositions = (fiatCode: string) =>
 
       const allTxs = syncedWalletIds.flatMap(id => readWalletTxs(id));
 
-      const rawEvents = buildEventsForWalletTxs(state, {fiatCode, txs: allTxs});
+      const rawEvents = buildEventsForWalletTxs(tokens, {txs: allTxs});
       const events = neutralizeInternalTransfers(rawEvents);
-      return computePositionsFromEvents(state, {fiatCode, events});
+      return computePositionsFromEvents({fiatCode, events});
     },
-  );
+  ) as ((state: RootState) => Record<string, PortfolioPosition>);
 
-export const makeSelectPortfolioAssetList = (fiatCode: string) =>
-  createSelector(
-    [makeSelectPortfolioPositions(fiatCode), (state: RootState) => state],
-    (positions, state) => buildAssetListFromPositions(state, {fiatCode, positions}),
-  );
+export const makeSelectPortfolioAssetList = (
+  fiatCode: string,
+): ((state: RootState) => PortfolioAssetList) =>
+  createSelectorLoose(
+    makeSelectPortfolioPositions(fiatCode),
+    (state: RootState) => state.RATE?.rates || {},
+    (positions: Record<string, PortfolioPosition>, currentRates: any) =>
+      buildAssetListFromPositions(currentRates as Rates, {fiatCode, positions}),
+  ) as ((state: RootState) => PortfolioAssetList);
 
 export const makeSelectPortfolioAssetListByInterval = (
   fiatCode: string,
   interval: PortfolioInterval,
-) =>
-  createSelector(
+) : ((state: RootState) => PortfolioAssetList) =>
+  createSelectorLoose(
     [
       (state: RootState) => state.WALLET.keys,
       (state: RootState) => state.PORTFOLIO.wallets,
-      (state: RootState) => state,
+      selectTokensDataByAddress,
+      (state: RootState) => state.RATE?.rates || {},
     ],
-    (keys, walletSyncs, state) => {
+    (keys: any, walletSyncs: any, tokens: TokensDataByAddress, currentRates: any) => {
       const wallets: any[] = Object.values(keys as any).flatMap((k: any) => k.wallets);
       const syncedWalletIds: string[] = wallets
         .map(w => w?.id)
@@ -1056,23 +1093,27 @@ export const makeSelectPortfolioAssetListByInterval = (
 
       const allTxs = syncedWalletIds.flatMap(id => readWalletTxs(id));
       const events = neutralizeInternalTransfers(
-        buildEventsForWalletTxs(state, {fiatCode, txs: allTxs}),
+        buildEventsForWalletTxs(tokens, {txs: allTxs}),
       );
-      return buildAssetListWithIntervalPnlFromEvents(state, {fiatCode, interval, events});
+      return buildAssetListWithIntervalPnlFromEvents(currentRates as Rates, {
+        fiatCode,
+        interval,
+        events,
+      });
     },
-  );
+  ) as ((state: RootState) => PortfolioAssetList);
 
 export const makeSelectPortfolioChartSeries = (
   fiatCode: string,
   interval: PortfolioInterval,
-) =>
-  createSelector(
+) : ((state: RootState) => PortfolioChartSeries) =>
+  createSelectorLoose(
     [
       (state: RootState) => state.WALLET.keys,
       (state: RootState) => state.PORTFOLIO.wallets,
-      (state: RootState) => state,
+      selectTokensDataByAddress,
     ],
-    (keys, walletSyncs, state) => {
+    (keys: any, walletSyncs: any, tokens: TokensDataByAddress) => {
       const wallets: any[] = Object.values(keys as any).flatMap((k: any) => k.wallets);
       const syncedWalletIds: string[] = wallets
         .map(w => w?.id)
@@ -1080,8 +1121,8 @@ export const makeSelectPortfolioChartSeries = (
         .filter((id: string) => walletSyncs[id]?.status === 'done');
 
       const allTxs = syncedWalletIds.flatMap(id => readWalletTxs(id));
-      const rawEvents = buildEventsForWalletTxs(state, {fiatCode, txs: allTxs});
+      const rawEvents = buildEventsForWalletTxs(tokens, {txs: allTxs});
       const events = neutralizeInternalTransfers(rawEvents);
-      return computeSeriesFromEvents(state, {fiatCode, interval, events});
+      return computeSeriesFromEvents({fiatCode, interval, events});
     },
-  );
+  ) as ((state: RootState) => PortfolioChartSeries);
