@@ -3,7 +3,7 @@ Components we want to add to this app
 
 
 Charts
-Fiat value charts for wallets, accounts (aggregations of evm wallets), keys (aggregations of all wallets), and the portfolio as a whole (all keys and their wallets). These charts display the fiat value of the crypto held in a wallet, account, key, or portfolio over the following intervals: day, week, month, 3 months, 1 year, 5 years, and all time. The charts will also display the breakeven line (cost basis) as a dotted horizontal line across the chart intersecting the point in the chart at which the fiat value of the crypto is at breakeven (meaning the unrealized PnL of the crypto remaining is $0) over the selected interval. The charts can be denominated in any altCurrency selected in app settings. We’ll also need to compute the PnL for each wallet/account/key/portfolio over all 7 intervals.
+Fiat value charts for wallets, accounts (aggregations of evm wallets), keys (aggregations of all wallets), and the portfolio as a whole (all keys and their wallets). These charts display the fiat value of the crypto held in a wallet, account, key, or portfolio over the following intervals: day, week, month, 3 months, 1 year, 5 years, and all time. The charts will also display the breakeven line (cost basis) as a dotted horizontal line at the current remaining cost basis (now) converted into the currently selected altCurrency (via an FX layer). We’ll also need to compute the PnL for each wallet/account/key/portfolio over all 7 intervals.
 
 We already have PriceCharts which show the exchange rate of a crypto asset over time over 3 intervals: day, week, and month. We will be adding the additional intervals above: 3 months, 1 year, 5 years, and all time. We will also display a breakeven line on each price chart at the exchange rate at which the balances of the selected crypto across all wallets in the app are at breakeven in terms of unrealized PnL over the selected interval.
 
@@ -34,17 +34,38 @@ Write code to fetch full transaction history per wallet:
 fetchFullTransactionHistory
 
 	calls getTxHistory with 1000 as the limit until it gets no more. 
-	for each getTxHistory call, make a getHistoricalRate request for that timestamp and save it to a map, keyed by currency on the tx so that when a new alt currency is selected in settings, we can continue to show the previously selected currency until the next one backfills in the map (we’ll store both at the same time to make switching alt currencies instantaneous)
+	for each tx returned, normalize into a PortfolioTxEvent and (when needed for cost basis) fetch an asset->USD historical price to persist alongside the event for deterministic recomputation
 
-Saves the transactions to a walletRunningBalance key in a new PORTFOLIO store in redux.
+Saves normalized transactions and derived state into a new PORTFOLIO store in redux.
 
-WalletRunningBalanceItem interface: (crypto delta, type (moved, received, sent), txid, fee, new crypto balance, fiat rates and running cost basis keyed buy selected fiat currency in app settings). We can also make it possible for the user to enter their own cost basis for each tx down the road
+PortfolioTxEvent interface (persisted)
+	- walletId
+	- txid
+	- time
+	- assetId (coin or token)
+	- category: receive | spend | moved_in | moved_out
+	- cryptoDelta (signed)
+	- feeCrypto (if applicable)
+	- confirmed/status
+	- usdPriceUsed? (asset->USD at tx time; required for events that create cost basis)
+	- basisUSDOverride? (future support: user-provided basis)
+	- counterpartyWalletId? (optional, for moves)
+
+Derived per-wallet state (persisted)
+	- lightweight checkpoints to speed up historical lookups (e.g. periodic every N txs and/or daily)
+	- current cached values per wallet: cryptoBalance, costBasisRemainingUSD, unrealizedPnLUSD
+
+Accounting rules
+	- USD is canonical for cost basis and PnL. Selected altCurrency is displayed via a separate USD->ALT FX cache.
+	- average cost basis
+	- fees treated as part of the crypto disposed during a move or send
+	- moved_in uses usdPriceUsed as a v1 fallback for basis assignment if basis transfer cannot be determined
 
 Testing
 
 Add a “Transaction History Debug” item to each wallet settings bottom sheet that links to a screen that shows:
 
-1. walletRunningBalance: All transactions in the wallet: (crypto delta, type (moved, received, sent), txid, fee, new crypto balance, fiat rates and running cost basis keyed buy selected fiat currency in app settings). We can also make it possible for the user to enter their own cost basis for each tx down the road
+1. PortfolioTxEvent list for the wallet + derived checkpoint summaries (crypto balance + costBasisRemainingUSD over time)
 2. Add an export button that copies to clipboard all of the data above in csv format
 3. Add a “Portfolio” item to @StorageUsage.tsx to track how much on device storage we’re using for all of this portfolio data
 
@@ -55,7 +76,11 @@ Step 2. Aggregation of PnL across wallets
 
 We need to aggregate cost basis and unrealized PnL across wallets for keys, accounts, assets and the portfolio as a whole. Luckily, cost basis is easily summable across wallets, same with the fiat balance of each wallet. This will allow us to show the PnL tables by asset, and the PnL of each key, account, and portfolio.
 
-This is easiest for all-time PnL (summing cached values), but for 1 day PnL, we’ll need to recompute the cost basis for each wallet yesterday as well as the fiat value of each wallet yesterday to compute the PnL yesterday, then subtract it from today’s PnL to get the PnL change over the past day. This should be performant if we can just look up the running cost basis stored in step 1 above for any given timestamp.
+PnL over an interval is defined as the change in unrealized PnL:
+	UnrealizedPnLUSD(t) = ValueUSD(t) - CostBasisRemainingUSD(t)
+	IntervalPnLUSD = UnrealizedPnLUSD(end) - UnrealizedPnLUSD(start)
+
+This should be performant using checkpoints from step 1 to obtain CostBasisRemainingUSD(t) and cryptoBalance(t) at the start/end timestamps, then computing ValueUSD(t) using crypto->USD rates.
 
 After step 2, we should be fully ready to implement all non-chart UI elements of the portfolio enhancements (asset allocation chart, and asset unrealized PnL list)
 
@@ -86,16 +111,17 @@ All time (variable) (wallet lifetime / 45)
 
 In order to be able to aggregate chart data across wallets, we’ll need standardized timestamps for rates (and fiat values) for each interval. Then we can just sum the same timestamps for all aggregated wallets to produce that aggregate charts.
 
-We’ll store these for every unique cryptocurrency we have, keyed by alt fiat currency, so that when the user changes the alt fiat currency, we can continue to show charts in the old currency until rates for the newly selected currency backfill. Then if they switch back to the original fiat currency, the switch should be instant.
+We’ll store crypto->USD rates for every unique cryptocurrency we have, and separately store a USD->ALT FX cache. When the user changes the altCurrency, charts can be derived immediately once FX for that altCurrency exists (or temporarily show the previous altCurrency until FX backfills).
 
 Refreshes will remove any data points that are too old and fill in data points for the most recent timestamps (not refill everything from scratch)
 
 Step 4. Compute wallet fiat balance values at each of the standard rate cache timestamps for all 7 intervals
 
-Data point: getCryptoBalanceAtTimestamp(walletRunningBalance, timestamp) * fiatRateCache(timestamp)
+Data point (USD): getCryptoBalanceAtTimestamp(portfolioTxEvents/checkpoints, timestamp) * cryptoUsdRateCache(timestamp)
+Data point (ALT): DataPointUSD * usdAltFxCache(timestamp)
 
 Step 5. Aggregate wallet fiat balances across wallets to build chart data for keys, account, and the portfolio as a whole, simply by summing the data points together via the formula above.
 
-We’ll cache the fiat balances for each wallet, account, key, and the portfolio as a whole, keyed by alt fiat currency at each of the 7 intervals.
+We’ll cache the USD balances for each wallet, account, key, and the portfolio as a whole at each of the 7 intervals, and derive/cache ALT series using the USD->ALT FX cache.
 
 Refreshing requires simply shifting data points leftward and replacing missing ones as needed by filling the rate cache and refreshing transaction history.
