@@ -43,7 +43,7 @@ PortfolioTxEvent interface (persisted)
 	- txid
 	- time
 	- assetId (coin or token)
-	- category: receive | spend | moved_in | moved_out
+	- category: receive | spend | moved
 	- cryptoDelta (signed)
 	- feeCrypto (if applicable)
 	- confirmed/status
@@ -59,7 +59,8 @@ Accounting rules
 	- USD is canonical for cost basis and PnL. Selected altCurrency is displayed via a separate USD->ALT FX cache.
 	- average cost basis
 	- fees treated as part of the crypto disposed during a move or send
-	- moved_in uses usdPriceUsed as a v1 fallback for basis assignment if basis transfer cannot be determined
+	- moved direction is inferred from cryptoDelta (positive = moved_in, negative = moved_out)
+	- for moved (cryptoDelta > 0), usdPriceUsed is a v1 fallback for basis assignment if basis transfer cannot be determined
 
 Testing
 
