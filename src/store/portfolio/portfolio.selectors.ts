@@ -5,6 +5,7 @@ import {
   PortfolioTx,
   readRateMap,
   readTxRateMap,
+  readTsRateMap,
   readWalletTxs,
 } from './portfolio.storage';
 import {Rates} from '../rate/rate.models';
@@ -630,59 +631,85 @@ const resolveIntervalWindow = (
   interval: PortfolioInterval,
   events: PortfolioEvent[],
 ): {startTs: number; endTs: number; targetPoints: number; isIntraday: boolean} => {
-  const endTs = Date.now();
-  const end = moment(endTs);
+  const now = moment();
   switch (interval) {
     case '1D':
-      return {
-        startTs: end.clone().subtract(1, 'day').valueOf(),
-        endTs,
-        targetPoints: 45,
-        isIntraday: true,
-      };
+      {
+        const end = now.clone().startOf('hour');
+        const endTs = end.valueOf();
+        return {
+          startTs: end.clone().subtract(1, 'day').valueOf(),
+          endTs,
+          targetPoints: 45,
+          isIntraday: true,
+        };
+      }
     case '1W':
-      return {
-        startTs: end.clone().subtract(7, 'days').startOf('day').valueOf(),
-        endTs,
-        targetPoints: 45,
-        isIntraday: false,
-      };
+      {
+        const end = now.clone().startOf('day');
+        const endTs = end.valueOf();
+        return {
+          startTs: end.clone().subtract(7, 'days').valueOf(),
+          endTs,
+          targetPoints: 45,
+          isIntraday: false,
+        };
+      }
     case '1M':
-      return {
-        startTs: end.clone().subtract(30, 'days').startOf('day').valueOf(),
-        endTs,
-        targetPoints: 60,
-        isIntraday: false,
-      };
+      {
+        const end = now.clone().startOf('day');
+        const endTs = end.valueOf();
+        return {
+          startTs: end.clone().subtract(30, 'days').valueOf(),
+          endTs,
+          targetPoints: 45,
+          isIntraday: false,
+        };
+      }
     case '3M':
-      return {
-        startTs: end.clone().subtract(90, 'days').startOf('day').valueOf(),
-        endTs,
-        targetPoints: 90,
-        isIntraday: false,
-      };
+      {
+        const end = now.clone().startOf('day');
+        const endTs = end.valueOf();
+        return {
+          startTs: end.clone().subtract(90, 'days').valueOf(),
+          endTs,
+          targetPoints: 45,
+          isIntraday: false,
+        };
+      }
     case '1Y':
-      return {
-        startTs: end.clone().subtract(365, 'days').startOf('day').valueOf(),
-        endTs,
-        targetPoints: 180,
-        isIntraday: false,
-      };
+      {
+        const end = now.clone().startOf('day');
+        const endTs = end.valueOf();
+        return {
+          startTs: end.clone().subtract(365, 'days').valueOf(),
+          endTs,
+          targetPoints: 45,
+          isIntraday: false,
+        };
+      }
     case '5Y':
-      return {
-        startTs: end.clone().subtract(365 * 5, 'days').startOf('day').valueOf(),
-        endTs,
-        targetPoints: 365,
-        isIntraday: false,
-      };
+      {
+        const end = now.clone().startOf('day');
+        const endTs = end.valueOf();
+        return {
+          startTs: end.clone().subtract(365 * 5, 'days').valueOf(),
+          endTs,
+          targetPoints: 45,
+          isIntraday: false,
+        };
+      }
     case 'ALL': {
       const first = events.length
         ? Math.min(...events.map(e => e.time))
-        : end.clone().startOf('day').valueOf();
+        : now.clone().startOf('day').valueOf();
+
+      const end = now.clone().startOf('day');
+      const endTs = end.valueOf();
       return {
         startTs: moment(first).startOf('day').valueOf(),
         endTs,
-        targetPoints: 365,
+        targetPoints: 45,
         isIntraday: false,
       };
     }
@@ -698,10 +725,7 @@ const computeSeriesFromEvents = ({
   interval: PortfolioInterval;
   events: PortfolioEvent[];
 }): PortfolioChartSeries => {
-  const {startTs, endTs, targetPoints, isIntraday} = resolveIntervalWindow(
-    interval,
-    events,
-  );
+  const {startTs, endTs, targetPoints} = resolveIntervalWindow(interval, events);
 
   const sorted = [...events]
     .filter(e => e.time <= endTs)
@@ -709,8 +733,12 @@ const computeSeriesFromEvents = ({
 
   const symbols = Array.from(new Set(sorted.map(e => e.rateSymbol)));
   const rateMaps: Record<string, Record<string, number>> = {};
+  const txRateMaps: Record<string, Record<string, number>> = {};
+  const tsRateMaps: Record<string, Record<string, number>> = {};
   for (const s of symbols) {
     rateMaps[s] = readRateMap(fiatCode, s);
+    txRateMaps[s] = readTxRateMap(fiatCode, s);
+    tsRateMaps[s] = readTsRateMap(fiatCode, s);
   }
 
   const positions: Record<PortfolioAssetKey, PortfolioPosition> = {};
@@ -731,8 +759,14 @@ const computeSeriesFromEvents = ({
     const pos = ensurePos(e);
     let rate: number | undefined;
     if (e.deltaUnits > 0) {
-      const dayKey = String(moment(e.time).startOf('day').valueOf());
-      rate = rateMaps[e.rateSymbol]?.[dayKey];
+      const txRateKey = `${e.chain}:${e.txid}`;
+      const txRate = txRateMaps[e.rateSymbol]?.[txRateKey];
+      if (txRate != null) {
+        rate = txRate;
+      } else {
+        const dayKey = String(moment(e.time).startOf('day').valueOf());
+        rate = rateMaps[e.rateSymbol]?.[dayKey];
+      }
     }
     applyDeltaUnits(pos, e.deltaUnits, rate);
   };
@@ -744,27 +778,9 @@ const computeSeriesFromEvents = ({
   }
 
   const sampleTs: number[] = [];
-  if (isIntraday) {
-    const step = (endTs - startTs) / Math.max(targetPoints - 1, 1);
-    for (let i = 0; i < targetPoints; i++) {
-      sampleTs.push(Math.round(startTs + step * i));
-    }
-  } else {
-    const days: number[] = [];
-    let cur = moment(startTs).startOf('day');
-    const endDay = moment(endTs).startOf('day');
-    while (cur.valueOf() <= endDay.valueOf()) {
-      days.push(cur.valueOf());
-      cur = cur.clone().add(1, 'day');
-    }
-
-    const stride = Math.max(1, Math.ceil(days.length / targetPoints));
-    for (let i = 0; i < days.length; i += stride) {
-      sampleTs.push(days[i]);
-    }
-    if (sampleTs.length && sampleTs[sampleTs.length - 1] !== endDay.valueOf()) {
-      sampleTs.push(endDay.valueOf());
-    }
+  const step = (endTs - startTs) / Math.max(targetPoints - 1, 1);
+  for (let i = 0; i < targetPoints; i++) {
+    sampleTs.push(Math.round(startTs + step * i));
   }
 
   const points: PortfolioChartPoint[] = [];
@@ -777,6 +793,7 @@ const computeSeriesFromEvents = ({
     }
 
     const dayKey = String(moment(ts).startOf('day').valueOf());
+    const tsKey = String(ts);
     let value = 0;
     let breakeven = 0;
     for (const p of Object.values(positions)) {
@@ -785,7 +802,8 @@ const computeSeriesFromEvents = ({
         continue;
       }
       breakeven += p.costBasisFiat;
-      const r = rateMaps[p.rateSymbol]?.[dayKey];
+      const r =
+        tsRateMaps[p.rateSymbol]?.[tsKey] ?? rateMaps[p.rateSymbol]?.[dayKey];
       if (r == null) {
         missingRates = true;
         continue;

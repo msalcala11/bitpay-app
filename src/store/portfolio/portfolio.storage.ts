@@ -130,6 +130,9 @@ const rateMapKey = (fiatCode: string, symbol: string) =>
 const txRateMapKey = (fiatCode: string, symbol: string) =>
   `portfolio:txRateMap:${fiatCode.toUpperCase()}:${symbol.toLowerCase()}`;
 
+const tsRateMapKey = (fiatCode: string, symbol: string) =>
+  `portfolio:tsRateMap:${fiatCode.toUpperCase()}:${symbol.toLowerCase()}`;
+
 export const resetAllPortfolioStorage = () => {
   const keys = kv.getAllKeys();
   for (const key of keys) {
@@ -188,6 +191,34 @@ export const upsertTxRateMap = (
   const current = readTxRateMap(fiatCode, symbol);
   kv.set(
     txRateMapKey(fiatCode, symbol),
+    JSON.stringify({...current, ...updates}),
+  );
+};
+
+export const readTsRateMap = (
+  fiatCode: string,
+  symbol: string,
+): Record<string, number> => {
+  const raw = kv.getString(tsRateMapKey(fiatCode, symbol));
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+};
+
+export const upsertTsRateMap = (
+  fiatCode: string,
+  symbol: string,
+  updates: Record<string, number>,
+) => {
+  const current = readTsRateMap(fiatCode, symbol);
+  kv.set(
+    tsRateMapKey(fiatCode, symbol),
     JSON.stringify({...current, ...updates}),
   );
 };
