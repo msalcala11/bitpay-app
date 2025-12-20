@@ -53,6 +53,7 @@ PortfolioTxEvent interface (persisted)
 
 Derived per-wallet state (persisted)
 	- lightweight checkpoints to speed up historical lookups (e.g. periodic every N txs and/or daily)
+	- checkpoints are used instead of storing running balance/cost basis fields on every PortfolioTxEvent to reduce storage size and make derived state easier to rebuild if logic changes
 	- current cached values per wallet: cryptoBalance, costBasisRemainingUSD, unrealizedPnLUSD
 
 Accounting rules
