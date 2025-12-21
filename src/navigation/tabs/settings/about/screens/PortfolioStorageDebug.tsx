@@ -250,7 +250,14 @@ const PortfolioStorageDebug: React.FC = () => {
         const pause = () => new Promise(resolve => setTimeout(resolve, 0));
         try {
           let built = 0;
+          let skipped = 0;
           for (const wallet of wallets) {
+            const eventCount =
+              PORTFOLIO.txEventsByWalletId[wallet.id]?.length || 0;
+            if (eventCount === 0) {
+              skipped++;
+              continue;
+            }
             for (const interval of cursorIntervals) {
               const walletLabel = `${wallet.walletName || wallet.id} (${
                 wallet.currencyAbbreviation?.toUpperCase() || ''
@@ -268,12 +275,14 @@ const PortfolioStorageDebug: React.FC = () => {
           setLastRunAt(finishedAt);
           setLastDurationMs(Date.now() - startedMs);
           setSyncStatus(
-            `Built ${built} cursors (all intervals) for ${wallets.length} wallet(s) at ${finishedAt}`,
+            `Built ${built} cursors (all intervals) for ${
+              wallets.length - skipped
+            } wallet(s) at ${finishedAt} (skipped ${skipped} with no txs)`,
           );
           setLastSummary(
             `Cursors: intervals ${cursorIntervals.join(
               ',',
-            )}, wallets ${wallets.length}, finished at ${finishedAt}`,
+            )}, wallets processed ${wallets.length - skipped}, skipped ${skipped}, finished at ${finishedAt}`,
           );
         } catch (e) {
           const err = e instanceof Error ? e.message : JSON.stringify(e);
