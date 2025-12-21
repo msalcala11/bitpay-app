@@ -217,7 +217,10 @@ Not required for v1; architecture should allow adding later.
   - Store `lastEndTime` and `lastTxIndex` (event index at endTime).
 
 - **[Incremental refresh]**
-  - If `newEndTime == lastEndTime`: no-op.
+  - If `newEndTime == lastEndTime`:
+    - do not shift timestamps
+    - if tx history changed (new txs) or rates/FX changed, recompute the latest point (the last item in `points`) in place
+    - otherwise no-op
   - If advanced:
     - shift points left
     - compute new last point by replaying events from `lastTxIndex` forward to `newEndTime`
