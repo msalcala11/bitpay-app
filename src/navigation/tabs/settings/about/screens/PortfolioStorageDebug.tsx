@@ -12,10 +12,15 @@ import {useTranslation} from 'react-i18next';
 import {Black, Feather, LightBlack, White} from '../../../../../styles/colors';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {Keys} from '../../../../../store/wallet/wallet.reducer';
-import {resetPortfolio, syncPortfolioTxEventsForWallet} from '../../../../../store/portfolio';
+import {
+  buildCursorForWalletInterval,
+  resetPortfolio,
+  syncPortfolioTxEventsForWallet,
+} from '../../../../../store/portfolio';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
+import {PortfolioInterval} from '../../../../../store/portfolio/portfolio.types';
 
 const ScrollContainer = styled.ScrollView``;
 
@@ -66,6 +71,7 @@ const PortfolioStorageDebug: React.FC = () => {
   const [lastSummary, setLastSummary] = useState<string>('');
   const [currentWalletLabel, setCurrentWalletLabel] = useState<string>('');
   const [lastDurationMs, setLastDurationMs] = useState<number | null>(null);
+  const cursorInterval: PortfolioInterval = 'day';
 
   const wallets = useMemo(() => {
     return Object.values(keys)
@@ -214,6 +220,34 @@ const PortfolioStorageDebug: React.FC = () => {
     setLastRequestCount(0);
   };
 
+  const buildCursors = async () => {
+    if (syncing) {
+      return;
+    }
+    const startedMs = Date.now();
+    const startedAt = new Date().toISOString();
+    setSyncStatus(`Building cursors (${cursorInterval})... started at ${startedAt}`);
+    setLastDurationMs(null);
+    try {
+      for (const wallet of wallets) {
+        await dispatch(buildCursorForWalletInterval(wallet.id, cursorInterval));
+      }
+      const finishedAt = new Date().toISOString();
+      setLastRunAt(finishedAt);
+      setLastDurationMs(Date.now() - startedMs);
+      setSyncStatus(
+        `Built cursors (${cursorInterval}) for ${wallets.length} wallet(s) at ${finishedAt}`,
+      );
+      setLastSummary(
+        `Cursors: interval ${cursorInterval}, wallets ${wallets.length}, finished at ${finishedAt}`,
+      );
+    } catch (e) {
+      const err = e instanceof Error ? e.message : JSON.stringify(e);
+      setSyncStatus(err);
+      setLastSummary(err);
+    }
+  };
+
   return (
     <SettingsContainer>
       <ScrollContainer>
@@ -236,6 +270,15 @@ const PortfolioStorageDebug: React.FC = () => {
               <SettingTitle>{t('Clear Portfolio Data')}</SettingTitle>
               <Button buttonType="pill" onPress={clearPortfolioData}>
                 {t('Clear')}
+              </Button>
+            </Setting>
+            <Hr />
+            <Setting onPress={buildCursors}>
+              <SettingTitle>
+                {t('Build Cursors')} ({cursorInterval})
+              </SettingTitle>
+              <Button buttonType="pill" onPress={buildCursors} disabled={syncing}>
+                {t('Build')}
               </Button>
             </Setting>
             <Hr />
