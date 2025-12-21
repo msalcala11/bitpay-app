@@ -286,7 +286,11 @@ Telemetry must include:
 UI update constraints:
 - Update counters “real-time-ish”, but throttle/batch updates (for example, flush at 250–500ms) to avoid re-render storms.
 - Prefer computing elapsed time from a stored `startedAt` in the UI rather than writing an “elapsed” value on every tick.
-- Keep telemetry non-persisted and cap retained history (example: last 20 runs).
+- Keep telemetry non-persisted to disk (do not persist via redux-persist) and cap retained history (example: last 20 runs).
+- Telemetry must be stored outside screen-local component state (for example, in a Redux slice or singleton) so that:
+  - leaving and returning to a debug screen shows the latest in-progress run status (request counts, duration)
+  - telemetry continues updating “behind the scenes” even while debug screens are unmounted
+  - multiple debug screens can observe the same run consistently
 
 Each phase below includes:
 - required debug UI work
