@@ -41,6 +41,16 @@ const formatBytes = (bytes: number, decimals = 2): string => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 };
 
+const formatDuration = (ms: number | null): string => {
+  if (ms == null || ms < 0) {
+    return 'n/a';
+  }
+  if (ms < 1000) {
+    return `${ms} ms`;
+  }
+  return `${(ms / 1000).toFixed(2)} s`;
+};
+
 const PortfolioStorageDebug: React.FC = () => {
   const {t} = useTranslation();
   const dispatch = useAppDispatch();
@@ -55,6 +65,7 @@ const PortfolioStorageDebug: React.FC = () => {
   const [lastRunAt, setLastRunAt] = useState<string>('');
   const [lastSummary, setLastSummary] = useState<string>('');
   const [currentWalletLabel, setCurrentWalletLabel] = useState<string>('');
+  const [lastDurationMs, setLastDurationMs] = useState<number | null>(null);
 
   const wallets = useMemo(() => {
     return Object.values(keys)
@@ -150,11 +161,13 @@ const PortfolioStorageDebug: React.FC = () => {
 
     setSyncing(true);
     const startedAt = new Date().toISOString();
+    const startedMs = Date.now();
     setSyncStatus(`Run ${nextRun}: syncing... started at ${startedAt}`);
     setLastRequestCount(0);
     setLastRunAt(startedAt);
     setLastSummary(`Running... (started at ${startedAt})`);
     setCurrentWalletLabel('');
+    setLastDurationMs(null);
 
     try {
       let totalEvents = 0;
@@ -179,6 +192,7 @@ const PortfolioStorageDebug: React.FC = () => {
       setLastRequestCount(totalRequests);
       const finishedAt = new Date().toISOString();
       setLastRunAt(finishedAt);
+      setLastDurationMs(Date.now() - startedMs);
       setLastSummary(
         `Last summary: run ${nextRun} at ${finishedAt} (events ${totalEvents}, requests ${totalRequests})`,
       );
@@ -187,6 +201,7 @@ const PortfolioStorageDebug: React.FC = () => {
       setSyncStatus(err);
       const finishedAt = new Date().toISOString();
       setLastRunAt(finishedAt);
+      setLastDurationMs(Date.now() - startedMs);
       setLastSummary(err);
     } finally {
       setSyncing(false);
@@ -246,6 +261,9 @@ const PortfolioStorageDebug: React.FC = () => {
               </Button>
               <Button buttonType="pill" style={{marginBottom: 6, marginRight: 6}}>
                 {t('Last Run') + ': ' + (lastRunAt || t('n/a'))}
+              </Button>
+              <Button buttonType="pill" style={{marginBottom: 6, marginRight: 6}}>
+                {t('Duration') + ': ' + formatDuration(lastDurationMs)}
               </Button>
             </Setting>
           </>
