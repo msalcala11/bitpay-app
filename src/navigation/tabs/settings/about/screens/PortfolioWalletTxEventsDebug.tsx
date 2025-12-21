@@ -16,6 +16,11 @@ import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
 import {PortfolioTxEvent} from '../../../../../store/portfolio/portfolio.types';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import Clipboard from '@react-native-clipboard/clipboard';
+import {
+  applyEventToState,
+  PortfolioPositionState,
+} from '../../../../../store/portfolio/portfolio.cursor';
 
 const ScrollContainer = styled.ScrollView``;
 
@@ -70,6 +75,54 @@ const PortfolioWalletTxEventsDebug: React.FC<Props> = ({route}) => {
     return {total, confirmed, byCategory, json};
   }, [events]);
 
+  const eventsWithRunningBalance = useMemo(() => {
+    let state: PortfolioPositionState = {
+      cryptoBalance: 0,
+      costBasisRemainingUSD: 0,
+      avgCostUSDPerUnit: 0,
+    };
+    return events.map((e: PortfolioTxEvent) => {
+      state = applyEventToState(state, e);
+      return {...e, runningCryptoBalance: state.cryptoBalance};
+    });
+  }, [events]);
+
+  const copyCsv = () => {
+    if (!eventsWithRunningBalance.length) {
+      return;
+    }
+    const headers = [
+      'walletId',
+      'txid',
+      'time',
+      'assetId',
+      'category',
+      'cryptoDelta',
+      'feeCrypto',
+      'confirmed',
+      'status',
+      'runningCryptoBalance',
+    ];
+    const lines = [
+      headers.join(','),
+      ...eventsWithRunningBalance.map((e: any) =>
+        [
+          e.walletId,
+          e.txid,
+          e.time,
+          e.assetId,
+          e.category,
+          e.cryptoDelta,
+          e.feeCrypto,
+          e.confirmed,
+          e.status,
+          e.runningCryptoBalance,
+        ].join(','),
+      ),
+    ];
+    Clipboard.setString(lines.join('\n'));
+  };
+
   return (
     <SettingsContainer>
       <ScrollContainer>
@@ -109,6 +162,12 @@ const PortfolioWalletTxEventsDebug: React.FC<Props> = ({route}) => {
         <HeaderTitle>
           <SettingTitle>{t('Events JSON')}</SettingTitle>
         </HeaderTitle>
+        <Setting
+          style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center'}}>
+          <Button buttonType="pill" onPress={copyCsv} style={{marginRight: 8}}>
+            {t('Copy as CSV')}
+          </Button>
+        </Setting>
         <JsonText selectable>{derived.json}</JsonText>
       </ScrollContainer>
     </SettingsContainer>
