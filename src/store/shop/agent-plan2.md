@@ -172,7 +172,7 @@ Reasons:
 Make meta **per wallet** to improve diagnostics:
 
 - `metaByWalletId[walletId]`:
-  - `included: boolean` (mainnet-only gating)
+  - `included: boolean` (eligible for portfolio analytics: mainnet + has tx events)
   - `excludedReason?: string`
   - `lastTxSyncAt?: number`
   - `lastCursorBuildAt?: number`
@@ -253,6 +253,10 @@ Portfolio analytics must support both **targeted** execution (single wallet) and
 ### Required behavior
 
 - Wallet scope runs the full pipeline **for that wallet only** (tx ingest/normalize → price backfill → cursor build → ensure required rates/FX buckets).
+- If a wallet’s normalized event list is empty (`0` events), it must be treated as excluded (`excludedReason = 'no_tx_history'`) and the wallet-scope pipeline must short-circuit:
+  - do not build cursors
+  - do not fetch crypto→USD rates for that wallet
+  - do not fetch USD→ALT FX solely because of that wallet
 - Key/portfolio scopes delegate to wallet scope for each included wallet (with throttling and guards against overlapping runs).
 
 ### Aggregate auto-update rule
@@ -378,6 +382,8 @@ Work:
   - set `assetId` using the format defined above
   - dedupe + stable sort
 - Update `eventsRevisionByWalletId`.
+- Empty-history rule:
+  - if normalized events length is `0`, mark excluded (`excludedReason = 'no_tx_history'`) and skip all later pipeline steps for this wallet (rates/FX/cursors/aggregation).
 
 Debug UI:
 - **Wallet Transaction Debug** screen:
@@ -482,6 +488,7 @@ Exit criteria:
 **Goal**: Build `WalletIntervalCursor` for each wallet and interval.
 
 Work:
+- Skip cursor builds entirely for wallets excluded from portfolio analytics (non-mainnet or `no_tx_history`).
 - Grid generation:
   - implement fixed-window grids for 1D/1W/1M/3M/1Y/5Y
   - implement all-time grid using wallet lifetime
@@ -655,3 +662,4 @@ Exit criteria:
 - Debug hub provides complete audit coverage for every phase.
 - Sync can be triggered at wallet/key/portfolio scope, and wallet-only sync updates all containing aggregates automatically.
 - Debug UI shows per-wallet request counts (tx history vs rates) and run durations for debug-triggered syncs with smooth, throttled updates.
+- Wallets with no tx history are excluded (`excludedReason = 'no_tx_history'`) and do not trigger cursor builds or rate/FX fetches.
