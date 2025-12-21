@@ -70,6 +70,10 @@ import {
   CoinbaseReduxPersistBlackList,
 } from './coinbase/coinbase.reducer';
 import {rateReducer, rateReduxPersistBlackList} from './rate/rate.reducer';
+import {
+  portfolioReducer,
+  portfolioReduxPersistBlackList,
+} from './portfolio/portfolio.reducer';
 import {LogActions} from './log';
 import * as initLogs from './log/initLogs';
 import {
@@ -248,6 +252,7 @@ const reducerPersistBlackLists: Record<keyof typeof reducers, string[]> = {
   SWAP_CRYPTO: swapCryptoReduxPersistBlackList,
   WALLET: walletReduxPersistBlackList,
   RATE: rateReduxPersistBlackList,
+  PORTFOLIO: portfolioReduxPersistBlackList,
   CONTACT: ContactReduxPersistBlackList,
   COINBASE: CoinbaseReduxPersistBlackList,
   ZENLEDGER: ZenledgerReduxPersistBlackList,
@@ -273,6 +278,7 @@ const reducers = {
   SWAP_CRYPTO: swapCryptoReducer,
   WALLET: walletReducer,
   RATE: rateReducer,
+  PORTFOLIO: portfolioReducer,
   CONTACT: contactReducer,
   COINBASE: coinbaseReducer,
   ZENLEDGER: zenledgerReducer,

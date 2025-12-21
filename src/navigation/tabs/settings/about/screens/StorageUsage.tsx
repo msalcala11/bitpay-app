@@ -3,6 +3,7 @@ import styled from 'styled-components/native';
 import {Platform} from 'react-native';
 import RNFS from 'react-native-fs';
 import {forEach} from 'lodash';
+import {useNavigation} from '@react-navigation/native';
 import {SettingsComponent, SettingsContainer} from '../../SettingsRoot';
 import {
   Hr,
@@ -16,6 +17,8 @@ import {Black, Feather, LightBlack, White} from '../../../../../styles/colors';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {storage} from '../../../../../store';
 import {logManager} from '../../../../../managers/LogManager';
+import {AboutScreens} from '../AboutGroup';
+import {Keys} from '../../../../../store/wallet/wallet.reducer';
 
 const ScrollContainer = styled.ScrollView``;
 
@@ -33,6 +36,7 @@ const storagePath =
 const StorageUsage: React.FC = () => {
   const {t} = useTranslation();
   const dispatch = useAppDispatch();
+  const navigation = useNavigation();
 
   const [walletsCount, setWalletsCount] = useState<number>(0);
   const [giftCount, setGiftCount] = useState<number>(0);
@@ -49,11 +53,12 @@ const StorageUsage: React.FC = () => {
   const [ratesStorage, setRatesStorage] = useState<string>('');
   const [backupStorage, setBackupStorage] = useState<string>('');
   const [shopCatalogStorage, setShopCatalogStorage] = useState<string>('');
+  const [portfolioStorage, setPortfolioStorage] = useState<string>('');
 
   const giftCards = useAppSelector(
     ({APP, SHOP}) => SHOP.giftCards[APP.network],
   );
-  const keys = useAppSelector(({WALLET}) => WALLET.keys);
+  const keys = useAppSelector(({WALLET}) => WALLET.keys) as Keys;
   const customTokens = useAppSelector(({WALLET}) => WALLET.customTokenData);
   const contacts = useAppSelector(({CONTACT}) => CONTACT.list);
   const rates = useAppSelector(({RATE}) => RATE.rates);
@@ -116,6 +121,31 @@ const StorageUsage: React.FC = () => {
       } catch (err) {
         const errStr = err instanceof Error ? err.message : JSON.stringify(err);
         logManager.error('[setShopCatalogStorage] Error ', errStr);
+      }
+    };
+    const _setPortfolioStorage = async () => {
+      try {
+        const root = storage.getString('persist:root');
+        if (root) {
+          try {
+            const parsed = JSON.parse(root);
+            const data = parsed?.PORTFOLIO;
+            const bytes =
+              typeof data === 'string'
+                ? data.length
+                : data
+                  ? JSON.stringify(data).length
+                  : 0;
+            setPortfolioStorage(formatBytes(bytes));
+          } catch (_) {
+            setPortfolioStorage('0 Bytes');
+          }
+        } else {
+          setPortfolioStorage('0 Bytes');
+        }
+      } catch (err) {
+        const errStr = err instanceof Error ? err.message : JSON.stringify(err);
+        logManager.error('[setPortfolioStorage] Error ', errStr);
       }
     };
     const _setBackupStorage = async () => {
@@ -245,6 +275,7 @@ const StorageUsage: React.FC = () => {
     _setRatesStorage();
     _setBackupStorage();
     _setShopCatalogStorage();
+    _setPortfolioStorage();
   }, [dispatch]);
 
   return (
@@ -320,6 +351,26 @@ const StorageUsage: React.FC = () => {
 
             <Button buttonType="pill">{ratesStorage}</Button>
           </Setting>
+
+          <Hr />
+          <Setting>
+            <SettingTitle>{t('Portfolio')}</SettingTitle>
+
+            <Button buttonType="pill">{portfolioStorage}</Button>
+          </Setting>
+
+          {__DEV__ ? (
+            <>
+              <Hr />
+              <Setting
+                onPress={() =>
+                  // @ts-ignore
+                  navigation.navigate(AboutScreens.PORTFOLIO_STORAGE_DEBUG)
+                }>
+                <SettingTitle>{t('Portfolio Storage Debug')}</SettingTitle>
+              </Setting>
+            </>
+          ) : null}
 
           <Hr />
           <Setting>

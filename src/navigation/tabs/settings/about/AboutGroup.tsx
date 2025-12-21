@@ -4,6 +4,7 @@ import SessionLogs from './screens/SessionLog';
 import SendFeedback, {SendFeedbackParamList} from './screens/SendFeedback';
 import {useTranslation} from 'react-i18next';
 import StorageUsage from './screens/StorageUsage';
+import PortfolioStorageDebug from './screens/PortfolioStorageDebug';
 import {Root} from '../../../../Root';
 import {useStackScreenOptions} from '../../../utils/headerHelpers';
 
@@ -14,12 +15,14 @@ interface AboutProps {
 
 export type AboutGroupParamList = {
   StorageUsage: undefined;
+  PortfolioStorageDebug: undefined;
   SessionLogs: undefined;
   SendFeedback: SendFeedbackParamList | undefined;
 };
 
 export enum AboutScreens {
   STORAGE_USAGE = 'StorageUsage',
+  PORTFOLIO_STORAGE_DEBUG = 'PortfolioStorageDebug',
   SESSION_LOGS = 'SessionLogs',
   SEND_FEEDBACK = 'SendFeedback',
 }
@@ -34,6 +37,13 @@ const AboutGroup = ({About, theme}: AboutProps) => {
         component={StorageUsage}
         options={{
           headerTitle: t('Storage Usage'),
+        }}
+      />
+      <About.Screen
+        name={AboutScreens.PORTFOLIO_STORAGE_DEBUG}
+        component={PortfolioStorageDebug}
+        options={{
+          headerTitle: t('Portfolio Storage Debug'),
         }}
       />
       <About.Screen
