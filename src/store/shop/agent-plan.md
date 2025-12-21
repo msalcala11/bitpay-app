@@ -210,7 +210,26 @@ Not required for v1; architecture should allow adding later.
 **Goal**: Build `WalletIntervalCursor` for each wallet and interval using standardized timestamps and the cost basis engine.
 
 - **[Grid generation]**
+  - Use deterministic standardized rolling timestamps.
+  - Requirements:
+    - the 45 `times[]` are **wallet-independent** (same for every wallet for a given interval at a given moment)
+    - the grid is **deterministic** and does not depend on server-returned timestamps
+    - use **UTC epoch seconds** for all calculations (do not use local timezone boundaries)
   - Define `getIntervalGrid(interval, now) => { stepSeconds, endTime, times[45] }`.
+    - `POINTS = 45`
+    - `nowSec = floor(nowMs / 1000)`
+    - Snap `endTime` to an hour boundary (UTC):
+      - `endTime = floor(nowSec / 3600) * 3600`
+    - Fixed duration table (seconds):
+      - day: `1 * 86400`
+      - week: `7 * 86400`
+      - month: `30 * 86400`
+      - 3months: `90 * 86400`
+      - year: `365 * 86400`
+      - 5years: `5 * 365 * 86400`
+      - all: **must be a fixed window** (wallet-independent). Choose a constant window (e.g. 10y) and treat it as a duration.
+    - `stepSeconds = round(durationSeconds(interval) / (POINTS - 1))`
+    - `times[i] = endTime - (POINTS - 1 - i) * stepSeconds` for `i = 0..44`
 - **[Cursor build / rebuild]**
   - For wallet+interval, build `points` by replaying events once and emitting state at each `time`.
   - Compute `valueUSD` per point using crypto→USD rate cache at that point time.
