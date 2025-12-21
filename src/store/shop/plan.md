@@ -64,6 +64,14 @@ WalletPositionCheckpoint interface (persisted)
 	- costBasisRemainingUSD
 	- avgCostUSDPerUnit
 
+WalletIntervalCursor interface (persisted)
+	- walletId
+	- interval: day | week | month | 3months | year | 5years | all
+	- lastEndTime (end timestamp for the last computed 45-point series on the standardized grid)
+	- lastTxIndex (index into wallet's PortfolioTxEvent list at lastEndTime)
+	- cryptoBalance
+	- costBasisRemainingUSD
+
 Accounting rules
 	- USD is canonical for cost basis and PnL. Selected altCurrency is displayed via a separate USD->ALT FX cache.
 	- average cost basis
