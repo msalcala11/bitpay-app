@@ -180,6 +180,16 @@ Make meta **per wallet** to improve diagnostics:
   - `lastError?: string`
   - `lastRequestCounts?: {txHistory?: number; prices?: number; fx?: number}`
 
+Persist a minimal global “initial sync” progress state so long-running first-time syncs can resume after an app restart:
+
+- `initialPortfolioSync?:`
+  - `status: 'idle' | 'running' | 'complete' | 'failed'`
+  - `startedAt?: number`
+  - `lastUpdatedAt?: number`
+  - `currentWalletId?: string`
+  - `completedWalletCount?: number`
+  - `totalWalletCount?: number`
+
 ---
 
 ## Grid definition (45 points)
@@ -258,6 +268,18 @@ Portfolio analytics must support both **targeted** execution (single wallet) and
   - do not fetch crypto→USD rates for that wallet
   - do not fetch USD→ALT FX solely because of that wallet
 - Key/portfolio scopes delegate to wallet scope for each included wallet (with throttling and guards against overlapping runs).
+
+### Initial background sync + resume (required)
+
+Power users may have many wallets and initial sync may take a long time. The app must be able to start syncing **in the background** on first launch and resume after an app restart.
+
+Requirements:
+- **Auto-start**: after store rehydration, kick off an “initial portfolio sync” if any eligible wallet is missing required wallet-level artifacts (tx events, basis pricing, cursors).
+- **Non-blocking**: run with low priority and yield to the JS event loop to avoid freezing the UI (use existing throttling patterns; yield periodically while iterating wallets/intervals).
+- **Resumable**: persist progress/checkpoints so that if the user kills the app mid-sync, the next launch resumes without redoing completed work.
+  - Treat persisted wallet-level artifacts (`txEventsByWalletId`, rate/fx caches, cursors, and `metaByWalletId` timestamps) as the primary resume checkpoints.
+  - Use `initialPortfolioSync` for a lightweight global progress indicator (and to avoid restarting from wallet 0 purely for UX).
+- **Idempotent**: wallet-scope steps must be safe to re-run for a wallet that was mid-flight when the app exited.
 
 ### Aggregate auto-update rule
 
@@ -613,6 +635,10 @@ Work:
 - Throttling:
   - limit concurrent network requests (tx history, price, fx)
   - add cancellation/guards to prevent overlapping full syncs
+- Background initial sync + resume:
+  - on app launch (post rehydrate), automatically run initial portfolio sync in the background until complete
+  - update persisted checkpoints frequently enough that killing the app does not force a full restart
+  - on next launch, resume from persisted checkpoints and skip already-completed wallets/intervals
 - Storage controls:
   - optional: cap rate/fx cache buckets per asset/alt
 
@@ -620,6 +646,7 @@ Debug UI:
 - **Sync Status Debug**:
   - per wallet: last sync start/end + duration, last cursor build, last errors, request counts (tx history vs rates)
   - while a run is active: show live request counts and elapsed time
+  - show `initialPortfolioSync` status + progress (completed/total + current wallet)
   - buttons:
     - **Sync Portfolio** (top-down)
     - **Sync Key** (top-down)
@@ -663,3 +690,4 @@ Exit criteria:
 - Sync can be triggered at wallet/key/portfolio scope, and wallet-only sync updates all containing aggregates automatically.
 - Debug UI shows per-wallet request counts (tx history vs rates) and run durations for debug-triggered syncs with smooth, throttled updates.
 - Wallets with no tx history are excluded (`excludedReason = 'no_tx_history'`) and do not trigger cursor builds or rate/FX fetches.
+- Initial portfolio sync can run in the background on first launch and resumes on next launch after an app kill, without redoing completed work.
