@@ -56,6 +56,14 @@ Derived per-wallet state (persisted)
 	- checkpoints are used instead of storing running balance/cost basis fields on every PortfolioTxEvent to reduce storage size and make derived state easier to rebuild if logic changes
 	- current cached values per wallet: cryptoBalance, costBasisRemainingUSD, unrealizedPnLUSD
 
+WalletPositionCheckpoint interface (persisted)
+	- walletId
+	- time
+	- txIndex (index into wallet's PortfolioTxEvent list)
+	- cryptoBalance
+	- costBasisRemainingUSD
+	- avgCostUSDPerUnit
+
 Accounting rules
 	- USD is canonical for cost basis and PnL. Selected altCurrency is displayed via a separate USD->ALT FX cache.
 	- average cost basis
