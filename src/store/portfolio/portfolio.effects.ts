@@ -116,7 +116,10 @@ export const normalizeTxHistoryToPortfolioTxEvents = (
       const amountCrypto = amountBaseUnits / unitToSatoshi;
 
       const feeBaseUnits = getTxFeeBaseUnits(tx);
-      const feeCrypto = feeBaseUnits != null ? feeBaseUnits / unitToSatoshi : undefined;
+      const feeCryptoRaw =
+        feeBaseUnits != null ? feeBaseUnits / unitToSatoshi : undefined;
+      const feeCrypto =
+        actionMapping.category === 'receive' ? undefined : feeCryptoRaw;
 
       const cryptoDelta = actionMapping.cryptoDeltaSign * amountCrypto;
 
