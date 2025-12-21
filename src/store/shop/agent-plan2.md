@@ -240,6 +240,27 @@ This avoids subtle bugs when “new history appears in the past”.
 
 ---
 
+## Sync orchestration (required)
+
+Portfolio analytics must support both **targeted** execution (single wallet) and **top-down** execution (key/portfolio), and all aggregations that include an updated wallet must update automatically.
+
+### Trigger scopes
+
+- **Wallet**: sync a single wallet by `walletId`.
+- **Key**: sync all wallets within a key by `keyId`.
+- **Portfolio**: sync all included wallets.
+
+### Required behavior
+
+- Wallet scope runs the full pipeline **for that wallet only** (tx ingest/normalize → price backfill → cursor build → ensure required rates/FX buckets).
+- Key/portfolio scopes delegate to wallet scope for each included wallet (with throttling and guards against overlapping runs).
+
+### Aggregate auto-update rule
+
+- Any aggregation that includes a wallet must update automatically when that wallet’s portfolio data changes.
+- Prefer deriving aggregates from wallet-level artifacts (tx events + cursors) so no explicit “rebuild aggregates” job is required in v1.
+- If persisted aggregate caches are introduced later, they must be invalidated via wallet-level revision(s) and rebuilt automatically.
+
 ## Debug UI: Audit Hub (required)
 
 Create/maintain a single entry point screen:
@@ -247,6 +268,8 @@ Create/maintain a single entry point screen:
 - **Settings → About → Portfolio Analytics (Debug)**
 
 This screen links to phase-specific audit screens below and must exist before Phase 2.
+
+It must also expose **hierarchical sync triggers** (wallet/key/portfolio) and make it easy to verify that aggregates update after a wallet-only sync.
 
 Each phase below includes:
 - required debug UI work
@@ -340,6 +363,7 @@ Debug UI:
   - show normalized events list
   - highlight events missing required fields
   - export CSV (events)
+  - button: **Sync this wallet** (runs wallet-scope sync; later phases extend what this sync does)
 
 Audit (manual):
 - Pick 3 wallets:
@@ -560,7 +584,12 @@ Work:
 Debug UI:
 - **Sync Status Debug**:
   - per wallet: last sync, last cursor build, last errors, request counts
-  - buttons: sync now, clear wallet cache, clear all
+  - buttons:
+    - **Sync Portfolio** (top-down)
+    - **Sync Key** (top-down)
+    - **Sync Wallet** (targeted)
+    - clear wallet cache
+    - clear all
 
 Exit criteria:
 - No crashes on rehydrate.
@@ -595,3 +624,4 @@ Exit criteria:
 - Aggregations match sums and are auditable.
 - Clear Portfolio Cache is available and safe.
 - Debug hub provides complete audit coverage for every phase.
+- Sync can be triggered at wallet/key/portfolio scope, and wallet-only sync updates all containing aggregates automatically.
