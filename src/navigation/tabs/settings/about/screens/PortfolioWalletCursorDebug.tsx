@@ -1,4 +1,5 @@
 import React, {useMemo, useState} from 'react';
+import {useNavigation} from '@react-navigation/native';
 import styled from 'styled-components/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useTranslation} from 'react-i18next';
@@ -14,6 +15,7 @@ import {Black, Feather, LightBlack, White} from '../../../../../styles/colors';
 import {useAppSelector} from '../../../../../utils/hooks';
 import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
 import {PortfolioInterval} from '../../../../../store/portfolio/portfolio.types';
+import {WalletGroupParamList} from '../../../../wallet/WalletGroup';
 
 const ScrollContainer = styled.ScrollView.attrs({
   contentContainerStyle: {paddingBottom: 40},
@@ -41,6 +43,7 @@ type Props = NativeStackScreenProps<
 const PortfolioWalletCursorDebug: React.FC<Props> = ({route}) => {
   const {t} = useTranslation();
   const {walletId} = route.params;
+  const navigation = useNavigation<NativeStackNavigationProp<WalletGroupParamList>>();
   const cursorsByInterval = useAppSelector(
     ({PORTFOLIO}) => PORTFOLIO.walletIntervalCursorsByWalletId[walletId] || {},
   );
@@ -78,6 +81,16 @@ const PortfolioWalletCursorDebug: React.FC<Props> = ({route}) => {
         </HeaderTitle>
         <Setting>
           <SettingTitle>{walletId}</SettingTitle>
+          <Button
+            buttonType="pill"
+            onPress={() =>
+              navigation.navigate('WalletDetails', {
+                walletId,
+              })
+            }
+            style={{marginTop: 8}}>
+            {t('Open Wallet Details')}
+          </Button>
         </Setting>
 
         <HeaderTitle>

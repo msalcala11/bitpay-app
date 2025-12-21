@@ -89,7 +89,12 @@ const PortfolioStorageDebug: React.FC = () => {
   const wallets = useMemo(() => {
     return Object.values(keys)
       .flatMap(k => k.wallets)
-      .filter(w => !w.hideWallet && !w.hideWalletByAccount);
+      .filter(
+        w =>
+          !w.hideWallet &&
+          !w.hideWalletByAccount &&
+          (w.network === 'livenet' || w.credentials?.network === 'livenet'),
+      );
   }, [keys]);
 
   const walletRows = useMemo(() => {
@@ -192,6 +197,9 @@ const PortfolioStorageDebug: React.FC = () => {
       let totalEvents = 0;
       let totalRequests = 0;
       for (const wallet of wallets) {
+        if (wallet.network !== 'livenet' && wallet.credentials?.network !== 'livenet') {
+          continue;
+        }
         const {events, requestCount} = await dispatch(
           syncPortfolioTxEventsForWallet(wallet),
         );
