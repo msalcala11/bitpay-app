@@ -5,6 +5,7 @@ import SendFeedback, {SendFeedbackParamList} from './screens/SendFeedback';
 import {useTranslation} from 'react-i18next';
 import StorageUsage from './screens/StorageUsage';
 import PortfolioStorageDebug from './screens/PortfolioStorageDebug';
+import PortfolioWalletTxEventsDebug from './screens/PortfolioWalletTxEventsDebug';
 import {Root} from '../../../../Root';
 import {useStackScreenOptions} from '../../../utils/headerHelpers';
 
@@ -16,6 +17,7 @@ interface AboutProps {
 export type AboutGroupParamList = {
   StorageUsage: undefined;
   PortfolioStorageDebug: undefined;
+  PortfolioWalletTxEventsDebug: {walletId: string};
   SessionLogs: undefined;
   SendFeedback: SendFeedbackParamList | undefined;
 };
@@ -23,6 +25,7 @@ export type AboutGroupParamList = {
 export enum AboutScreens {
   STORAGE_USAGE = 'StorageUsage',
   PORTFOLIO_STORAGE_DEBUG = 'PortfolioStorageDebug',
+  PORTFOLIO_WALLET_TX_EVENTS_DEBUG = 'PortfolioWalletTxEventsDebug',
   SESSION_LOGS = 'SessionLogs',
   SEND_FEEDBACK = 'SendFeedback',
 }
@@ -44,6 +47,13 @@ const AboutGroup = ({About, theme}: AboutProps) => {
         component={PortfolioStorageDebug}
         options={{
           headerTitle: t('Portfolio Storage Debug'),
+        }}
+      />
+      <About.Screen
+        name={AboutScreens.PORTFOLIO_WALLET_TX_EVENTS_DEBUG}
+        component={PortfolioWalletTxEventsDebug}
+        options={{
+          headerTitle: t('Portfolio Wallet Tx Events'),
         }}
       />
       <About.Screen

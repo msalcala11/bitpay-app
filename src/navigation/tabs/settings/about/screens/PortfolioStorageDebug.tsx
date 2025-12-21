@@ -1,4 +1,4 @@
-import React, {useMemo} from 'react';
+import React, {useMemo, useState} from 'react';
 import styled from 'styled-components/native';
 import {SettingsContainer} from '../../SettingsRoot';
 import {
@@ -10,7 +10,12 @@ import {
 import Button from '../../../../../components/button/Button';
 import {useTranslation} from 'react-i18next';
 import {Black, Feather, LightBlack, White} from '../../../../../styles/colors';
-import {useAppSelector} from '../../../../../utils/hooks';
+import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
+import {Keys} from '../../../../../store/wallet/wallet.reducer';
+import {syncPortfolioTxEventsForWallet} from '../../../../../store/portfolio';
+import {useNavigation} from '@react-navigation/native';
+import {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
 
 const ScrollContainer = styled.ScrollView``;
 
@@ -38,7 +43,29 @@ const formatBytes = (bytes: number, decimals = 2): string => {
 
 const PortfolioStorageDebug: React.FC = () => {
   const {t} = useTranslation();
+  const dispatch = useAppDispatch();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<AboutGroupParamList>>();
   const PORTFOLIO = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
+  const keys = useAppSelector(({WALLET}) => WALLET.keys) as Keys;
+  const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string>('');
+
+  const wallets = useMemo(() => {
+    return Object.values(keys)
+      .flatMap(k => k.wallets)
+      .filter(w => !w.hideWallet && !w.hideWalletByAccount);
+  }, [keys]);
+
+  const walletRows = useMemo(() => {
+    return wallets
+      .map(w => {
+        const count = PORTFOLIO.txEventsByWalletId[w.id]?.length || 0;
+        const label = `${w.walletName || w.id} (${w.currencyAbbreviation?.toUpperCase()})`;
+        return {id: w.id, label, count};
+      })
+      .sort((a, b) => b.count - a.count);
+  }, [PORTFOLIO.txEventsByWalletId, wallets]);
 
   const derived = useMemo(() => {
     const walletIds = Object.keys(PORTFOLIO.txEventsByWalletId || {});
@@ -100,9 +127,74 @@ const PortfolioStorageDebug: React.FC = () => {
     };
   }, [PORTFOLIO]);
 
+  const syncAllWalletTxEvents = async () => {
+    if (syncing) {
+      return;
+    }
+
+    setSyncing(true);
+    setSyncStatus(t('Syncing...'));
+
+    try {
+      let totalEvents = 0;
+      for (const wallet of wallets) {
+        const events = await dispatch(syncPortfolioTxEventsForWallet(wallet));
+        totalEvents += events.length;
+      }
+
+      setSyncStatus(
+        t('Synced wallets: {{count}}. Total events: {{events}}', {
+          count: wallets.length,
+          events: totalEvents,
+        }),
+      );
+    } catch (e) {
+      const err = e instanceof Error ? e.message : JSON.stringify(e);
+      setSyncStatus(err);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   return (
     <SettingsContainer>
       <ScrollContainer>
+        {__DEV__ ? (
+          <>
+            <HeaderTitle>
+              <SettingTitle>{t('Actions')}</SettingTitle>
+            </HeaderTitle>
+            <Setting onPress={syncAllWalletTxEvents}>
+              <SettingTitle>{t('Sync Portfolio Tx Events')}</SettingTitle>
+              <Button buttonType="pill">{syncing ? t('Syncing') : t('Run')}</Button>
+            </Setting>
+            {syncStatus ? (
+              <Setting>
+                <SettingTitle>{syncStatus}</SettingTitle>
+              </Setting>
+            ) : null}
+          </>
+        ) : null}
+
+        <HeaderTitle>
+          <SettingTitle>{t('Wallets')}</SettingTitle>
+        </HeaderTitle>
+        {walletRows.map(w => (
+          <React.Fragment key={w.id}>
+            <Setting
+              onPress={() =>
+                navigation.navigate(AboutScreens.PORTFOLIO_WALLET_TX_EVENTS_DEBUG, {
+                  walletId: w.id,
+                })
+              }>
+              <SettingTitle>
+                {w.label} ({w.count})
+              </SettingTitle>
+            </Setting>
+            <Hr />
+          </React.Fragment>
+        ))}
+
         <HeaderTitle>
           <SettingTitle>{t('Counts')}</SettingTitle>
         </HeaderTitle>

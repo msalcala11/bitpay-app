@@ -4,6 +4,7 @@ import {Platform} from 'react-native';
 import RNFS from 'react-native-fs';
 import {forEach} from 'lodash';
 import {useNavigation} from '@react-navigation/native';
+import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {SettingsComponent, SettingsContainer} from '../../SettingsRoot';
 import {
   Hr,
@@ -17,7 +18,7 @@ import {Black, Feather, LightBlack, White} from '../../../../../styles/colors';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {storage} from '../../../../../store';
 import {logManager} from '../../../../../managers/LogManager';
-import {AboutScreens} from '../AboutGroup';
+import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
 import {Keys} from '../../../../../store/wallet/wallet.reducer';
 
 const ScrollContainer = styled.ScrollView``;
@@ -36,7 +37,8 @@ const storagePath =
 const StorageUsage: React.FC = () => {
   const {t} = useTranslation();
   const dispatch = useAppDispatch();
-  const navigation = useNavigation();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<AboutGroupParamList>>();
 
   const [walletsCount, setWalletsCount] = useState<number>(0);
   const [giftCount, setGiftCount] = useState<number>(0);
@@ -364,7 +366,6 @@ const StorageUsage: React.FC = () => {
               <Hr />
               <Setting
                 onPress={() =>
-                  // @ts-ignore
                   navigation.navigate(AboutScreens.PORTFOLIO_STORAGE_DEBUG)
                 }>
                 <SettingTitle>{t('Portfolio Storage Debug')}</SettingTitle>
