@@ -52,11 +52,11 @@ PortfolioTxEvent interface (persisted)
 	- counterpartyWalletId? (optional, for moves)
 
 Derived per-wallet state (persisted)
-	- lightweight checkpoints to speed up historical lookups (e.g. periodic every N txs and/or daily)
-	- checkpoints are used instead of storing running balance/cost basis fields on every PortfolioTxEvent to reduce storage size and make derived state easier to rebuild if logic changes
+	- v1 will start cursor-first (cursor-only) for incremental chart updates
+	- we will design the computation/replay flow so that optional periodic checkpoints (e.g. every N txs) can be added later as a pure optimization without a painful rewrite or migration
 	- current cached values per wallet: cryptoBalance, costBasisRemainingUSD, unrealizedPnLUSD
 
-WalletPositionCheckpoint interface (persisted)
+WalletPositionCheckpoint interface (optional, persisted)
 	- walletId
 	- time
 	- txIndex (index into wallet's PortfolioTxEvent list)
