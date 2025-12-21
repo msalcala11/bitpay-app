@@ -1,4 +1,5 @@
 import React, {useMemo, useState} from 'react';
+import {InteractionManager} from 'react-native';
 import styled from 'styled-components/native';
 import {SettingsContainer} from '../../SettingsRoot';
 import {
@@ -71,7 +72,19 @@ const PortfolioStorageDebug: React.FC = () => {
   const [lastSummary, setLastSummary] = useState<string>('');
   const [currentWalletLabel, setCurrentWalletLabel] = useState<string>('');
   const [lastDurationMs, setLastDurationMs] = useState<number | null>(null);
-  const cursorInterval: PortfolioInterval = 'day';
+  const cursorIntervals: PortfolioInterval[] = [
+    'day',
+    'week',
+    'month',
+    '3months',
+    'year',
+    '5years',
+    'all',
+  ];
+  const [buildingCursors, setBuildingCursors] = useState(false);
+  const [buildingWalletLabel, setBuildingWalletLabel] = useState<string>('');
+  const [buildingInterval, setBuildingInterval] =
+    useState<PortfolioInterval | null>(null);
 
   const wallets = useMemo(() => {
     return Object.values(keys)
@@ -220,32 +233,59 @@ const PortfolioStorageDebug: React.FC = () => {
     setLastRequestCount(0);
   };
 
-  const buildCursors = async () => {
-    if (syncing) {
+  const buildCursors = () => {
+    if (syncing || buildingCursors) {
       return;
     }
-    const startedMs = Date.now();
-    const startedAt = new Date().toISOString();
-    setSyncStatus(`Building cursors (${cursorInterval})... started at ${startedAt}`);
+    setBuildingCursors(true);
     setLastDurationMs(null);
-    try {
-      for (const wallet of wallets) {
-        await dispatch(buildCursorForWalletInterval(wallet.id, cursorInterval));
-      }
-      const finishedAt = new Date().toISOString();
-      setLastRunAt(finishedAt);
-      setLastDurationMs(Date.now() - startedMs);
-      setSyncStatus(
-        `Built cursors (${cursorInterval}) for ${wallets.length} wallet(s) at ${finishedAt}`,
-      );
-      setLastSummary(
-        `Cursors: interval ${cursorInterval}, wallets ${wallets.length}, finished at ${finishedAt}`,
-      );
-    } catch (e) {
-      const err = e instanceof Error ? e.message : JSON.stringify(e);
-      setSyncStatus(err);
-      setLastSummary(err);
-    }
+    setBuildingWalletLabel('');
+    setBuildingInterval(null);
+    setSyncStatus('Starting cursor build...');
+    InteractionManager.runAfterInteractions(() => {
+      setTimeout(async () => {
+        const startedMs = Date.now();
+        const startedAt = new Date().toISOString();
+        setSyncStatus(`Building cursors (all intervals)... started at ${startedAt}`);
+        const pause = () => new Promise(resolve => setTimeout(resolve, 0));
+        try {
+          let built = 0;
+          for (const wallet of wallets) {
+            for (const interval of cursorIntervals) {
+              const walletLabel = `${wallet.walletName || wallet.id} (${
+                wallet.currencyAbbreviation?.toUpperCase() || ''
+              })`;
+              setBuildingWalletLabel(walletLabel);
+              setBuildingInterval(interval);
+              await dispatch(buildCursorForWalletInterval(wallet.id, interval));
+              built++;
+              if (built % 5 === 0) {
+                await pause();
+              }
+            }
+          }
+          const finishedAt = new Date().toISOString();
+          setLastRunAt(finishedAt);
+          setLastDurationMs(Date.now() - startedMs);
+          setSyncStatus(
+            `Built ${built} cursors (all intervals) for ${wallets.length} wallet(s) at ${finishedAt}`,
+          );
+          setLastSummary(
+            `Cursors: intervals ${cursorIntervals.join(
+              ',',
+            )}, wallets ${wallets.length}, finished at ${finishedAt}`,
+          );
+        } catch (e) {
+          const err = e instanceof Error ? e.message : JSON.stringify(e);
+          setSyncStatus(err);
+          setLastSummary(err);
+        } finally {
+          setBuildingWalletLabel('');
+          setBuildingInterval(null);
+          setBuildingCursors(false);
+        }
+      }, 0);
+    });
   };
 
   return (
@@ -275,10 +315,13 @@ const PortfolioStorageDebug: React.FC = () => {
             <Hr />
             <Setting onPress={buildCursors}>
               <SettingTitle>
-                {t('Build Cursors')} ({cursorInterval})
+                {t('Build Cursors')} ({t('all intervals')})
               </SettingTitle>
-              <Button buttonType="pill" onPress={buildCursors} disabled={syncing}>
-                {t('Build')}
+              <Button
+                buttonType="pill"
+                onPress={buildCursors}
+                disabled={syncing || buildingCursors}>
+                {buildingCursors ? t('Building...') : t('Build')}
               </Button>
             </Setting>
             <Hr />
@@ -299,6 +342,24 @@ const PortfolioStorageDebug: React.FC = () => {
               <Button buttonType="pill" style={{marginBottom: 6, marginRight: 6}}>
                 {t('Requests') + ': ' + (lastRequestCount || 0)}
               </Button>
+              {buildingCursors ? (
+                <>
+                  <Button
+                    buttonType="pill"
+                    style={{marginBottom: 6, marginRight: 6}}>
+                    {t('Wallet') +
+                      ': ' +
+                      (buildingWalletLabel || t('n/a'))}
+                  </Button>
+                  <Button
+                    buttonType="pill"
+                    style={{marginBottom: 6, marginRight: 6}}>
+                    {t('Interval') +
+                      ': ' +
+                      (buildingInterval?.toUpperCase?.() || t('n/a'))}
+                  </Button>
+                </>
+              ) : null}
               <Button buttonType="pill" style={{marginBottom: 6, marginRight: 6}}>
                 {t('Current') + ': ' + (currentWalletLabel || t('n/a'))}
               </Button>
