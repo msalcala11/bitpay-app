@@ -15,7 +15,9 @@ import {useAppSelector} from '../../../../../utils/hooks';
 import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
 import {PortfolioInterval} from '../../../../../store/portfolio/portfolio.types';
 
-const ScrollContainer = styled.ScrollView``;
+const ScrollContainer = styled.ScrollView.attrs({
+  contentContainerStyle: {paddingBottom: 40},
+})``;
 
 const HeaderTitle = styled(Setting)`
   margin-top: 20px;
@@ -81,25 +83,26 @@ const PortfolioWalletCursorDebug: React.FC<Props> = ({route}) => {
         <HeaderTitle>
           <SettingTitle>{t('Intervals')}</SettingTitle>
         </HeaderTitle>
-        {intervals.length ? (
-          intervals.map(interval => (
-            <React.Fragment key={interval}>
-              <Setting
-                onPress={() => setSelectedInterval(interval)}
-                style={{justifyContent: 'space-between'}}>
-                <SettingTitle>{interval}</SettingTitle>
-                <Button buttonType="pill">
-                  {selectedInterval === interval ? t('Selected') : t('Select')}
-                </Button>
+        <Setting style={{flexDirection: 'column', alignItems: 'flex-start'}}>
+          {intervals.length ? (
+            <React.Fragment>
+              <Setting style={{flexDirection: 'row', flexWrap: 'wrap', paddingVertical: 4}}>
+                {intervals.map(interval => (
+                  <Button
+                    key={interval}
+                    buttonType="pill"
+                    buttonStyle={selectedInterval === interval ? 'primary' : 'secondary'}
+                    onPress={() => setSelectedInterval(interval)}
+                    style={{marginRight: 8, marginBottom: 8}}>
+                    {interval}
+                  </Button>
+                ))}
               </Setting>
-              <Hr />
             </React.Fragment>
-          ))
-        ) : (
-          <Setting>
+          ) : (
             <SettingTitle>{t('No cursors found')}</SettingTitle>
-          </Setting>
-        )}
+          )}
+        </Setting>
 
         <HeaderTitle>
           <SettingTitle>{t('Cursor JSON')}</SettingTitle>
