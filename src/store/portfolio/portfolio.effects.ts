@@ -9,8 +9,10 @@ import {Wallet} from '../wallet/wallet.models';
 import {
   PortfolioTxEvent,
   PortfolioTxEventCategory,
+  PortfolioInterval,
 } from './portfolio.types';
-import {setTxEventsForWallet} from './portfolio.actions';
+import {setTxEventsForWallet, setWalletIntervalCursor} from './portfolio.actions';
+import {buildWalletIntervalCursor} from './portfolio.cursor';
 
 const getAssetIdFromWallet = (wallet: Wallet): string => {
   const coin = wallet.currencyAbbreviation?.toLowerCase() || '';
@@ -153,5 +155,29 @@ export const syncPortfolioTxEventsForWallet = (
     const err = e instanceof Error ? e.message : JSON.stringify(e);
     logManager.error('[portfolio] syncPortfolioTxEventsForWallet error:', err);
     return {events: [], requestCount: 0};
+  }
+};
+
+export const buildCursorForWalletInterval = (
+  walletId: string,
+  interval: PortfolioInterval,
+): Effect<Promise<void>> => async (dispatch, getState) => {
+  try {
+    const state = getState();
+    const events = state.PORTFOLIO.txEventsByWalletId[walletId] || [];
+    const cursor = buildWalletIntervalCursor(walletId, interval, events);
+    dispatch(
+      setWalletIntervalCursor({
+        walletId,
+        interval,
+        cursor,
+      }),
+    );
+  } catch (e) {
+    const err = e instanceof Error ? e.message : JSON.stringify(e);
+    logManager.error(
+      `[portfolio] buildCursorForWalletInterval error for wallet ${walletId} interval ${interval}:`,
+      err,
+    );
   }
 };
