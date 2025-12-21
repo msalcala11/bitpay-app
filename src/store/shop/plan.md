@@ -67,10 +67,13 @@ WalletPositionCheckpoint interface (optional, persisted)
 WalletIntervalCursor interface (persisted)
 	- walletId
 	- interval: day | week | month | 3months | year | 5years | all
+	- points (length 45, on the standardized grid)
+		- time
+		- cryptoBalance
+		- costBasisRemainingUSD
+		- valueUSD
 	- lastEndTime (end timestamp for the last computed 45-point series on the standardized grid)
 	- lastTxIndex (index into wallet's PortfolioTxEvent list at lastEndTime)
-	- cryptoBalance
-	- costBasisRemainingUSD
 
 Cursor cardinality
 	- expected count is approximately: (number of wallets with tx history) * (7 intervals)
@@ -88,7 +91,7 @@ Testing
 
 Add a “Transaction History Debug” item to each wallet settings bottom sheet that links to a screen that shows:
 
-1. PortfolioTxEvent list for the wallet + derived checkpoint summaries (crypto balance + costBasisRemainingUSD over time)
+1. PortfolioTxEvent list for the wallet + derived cursor/series summaries (crypto balance + costBasisRemainingUSD over time)
 2. Add an export button that copies to clipboard all of the data above in csv format
 3. Add a “Portfolio” item to @StorageUsage.tsx to track how much on device storage we’re using for all of this portfolio data
 
@@ -103,7 +106,7 @@ PnL over an interval is defined as the change in unrealized PnL:
 	UnrealizedPnLUSD(t) = ValueUSD(t) - CostBasisRemainingUSD(t)
 	IntervalPnLUSD = UnrealizedPnLUSD(end) - UnrealizedPnLUSD(start)
 
-This should be performant using checkpoints from step 1 to obtain CostBasisRemainingUSD(t) and cryptoBalance(t) at the start/end timestamps, then computing ValueUSD(t) using crypto->USD rates.
+This should be performant using cursors/series from step 1 to obtain CostBasisRemainingUSD(t) and cryptoBalance(t) at the start/end timestamps, then computing ValueUSD(t) using crypto->USD rates.
 
 After step 2, we should be fully ready to implement all non-chart UI elements of the portfolio enhancements (asset allocation chart, and asset unrealized PnL list)
 
