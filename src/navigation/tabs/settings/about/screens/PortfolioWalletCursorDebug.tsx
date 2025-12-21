@@ -83,10 +83,16 @@ const PortfolioWalletCursorDebug: React.FC<Props> = ({route}) => {
         <HeaderTitle>
           <SettingTitle>{t('Intervals')}</SettingTitle>
         </HeaderTitle>
-        <Setting style={{flexDirection: 'column', alignItems: 'flex-start'}}>
+        <Setting style={{flexDirection: 'column', alignItems: 'flex-start', height: 95}}>
           {intervals.length ? (
             <React.Fragment>
-              <Setting style={{flexDirection: 'row', flexWrap: 'wrap', paddingVertical: 4}}>
+              <Setting
+                style={{
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  paddingVertical: 11,
+                  minHeight: 95,
+                }}>
                 {intervals.map(interval => (
                   <Button
                     key={interval}
