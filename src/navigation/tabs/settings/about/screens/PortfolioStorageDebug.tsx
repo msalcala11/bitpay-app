@@ -12,7 +12,7 @@ import {useTranslation} from 'react-i18next';
 import {Black, Feather, LightBlack, White} from '../../../../../styles/colors';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {Keys} from '../../../../../store/wallet/wallet.reducer';
-import {syncPortfolioTxEventsForWallet} from '../../../../../store/portfolio';
+import {resetPortfolio, syncPortfolioTxEventsForWallet} from '../../../../../store/portfolio';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
@@ -50,6 +50,11 @@ const PortfolioStorageDebug: React.FC = () => {
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Keys;
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string>('');
+  const [lastRequestCount, setLastRequestCount] = useState<number>(0);
+  const [runCount, setRunCount] = useState<number>(0);
+  const [lastRunAt, setLastRunAt] = useState<string>('');
+  const [lastSummary, setLastSummary] = useState<string>('');
+  const [currentWalletLabel, setCurrentWalletLabel] = useState<string>('');
 
   const wallets = useMemo(() => {
     return Object.values(keys)
@@ -132,28 +137,66 @@ const PortfolioStorageDebug: React.FC = () => {
       return;
     }
 
+    const nextRun = runCount + 1;
+    setRunCount(nextRun);
+
+    if (!wallets.length) {
+      setSyncStatus(`Run ${nextRun}: no wallets found`);
+      setLastRequestCount(0);
+      setLastRunAt(new Date().toISOString());
+      setLastSummary(`Run ${nextRun}: no wallets found`);
+      return;
+    }
+
     setSyncing(true);
-    setSyncStatus(t('Syncing...'));
+    const startedAt = new Date().toISOString();
+    setSyncStatus(`Run ${nextRun}: syncing... started at ${startedAt}`);
+    setLastRequestCount(0);
+    setLastRunAt(startedAt);
+    setLastSummary(`Running... (started at ${startedAt})`);
+    setCurrentWalletLabel('');
 
     try {
       let totalEvents = 0;
+      let totalRequests = 0;
       for (const wallet of wallets) {
-        const events = await dispatch(syncPortfolioTxEventsForWallet(wallet));
+        const {events, requestCount} = await dispatch(
+          syncPortfolioTxEventsForWallet(wallet),
+        );
         totalEvents += events.length;
+        totalRequests += requestCount;
+        setLastRequestCount(totalRequests);
+        const label = `${wallet.walletName || wallet.id} (${wallet.currencyAbbreviation?.toUpperCase() || ''})`;
+        setCurrentWalletLabel(label);
+        setSyncStatus(
+          `Run ${nextRun}: syncing wallet ${label} (req ${totalRequests})`,
+        );
       }
 
       setSyncStatus(
-        t('Synced wallets: {{count}}. Total events: {{events}}', {
-          count: wallets.length,
-          events: totalEvents,
-        }),
+        `Run ${nextRun} - Synced wallets: ${wallets.length}. Total events: ${totalEvents}. Requests: ${totalRequests}`,
+      );
+      setLastRequestCount(totalRequests);
+      const finishedAt = new Date().toISOString();
+      setLastRunAt(finishedAt);
+      setLastSummary(
+        `Last summary: run ${nextRun} at ${finishedAt} (events ${totalEvents}, requests ${totalRequests})`,
       );
     } catch (e) {
       const err = e instanceof Error ? e.message : JSON.stringify(e);
       setSyncStatus(err);
+      const finishedAt = new Date().toISOString();
+      setLastRunAt(finishedAt);
+      setLastSummary(err);
     } finally {
       setSyncing(false);
     }
+  };
+
+  const clearPortfolioData = () => {
+    dispatch(resetPortfolio());
+    setSyncStatus(t('Cleared all portfolio data'));
+    setLastRequestCount(0);
   };
 
   return (
@@ -166,13 +209,45 @@ const PortfolioStorageDebug: React.FC = () => {
             </HeaderTitle>
             <Setting onPress={syncAllWalletTxEvents}>
               <SettingTitle>{t('Sync Portfolio Tx Events')}</SettingTitle>
-              <Button buttonType="pill">{syncing ? t('Syncing') : t('Run')}</Button>
+              <Button
+                buttonType="pill"
+                onPress={syncAllWalletTxEvents}
+                disabled={syncing}>
+                {syncing ? t('Syncing') : t('Run')}
+              </Button>
             </Setting>
-            {syncStatus ? (
-              <Setting>
-                <SettingTitle>{syncStatus}</SettingTitle>
-              </Setting>
-            ) : null}
+            <Hr />
+            <Setting onPress={clearPortfolioData}>
+              <SettingTitle>{t('Clear Portfolio Data')}</SettingTitle>
+              <Button buttonType="pill" onPress={clearPortfolioData}>
+                {t('Clear')}
+              </Button>
+            </Setting>
+            <Hr />
+            <Setting
+              style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                height: 'auto',
+                paddingTop: 20,
+              }}>
+              {/* {syncStatus ? (
+                <SettingTitle style={{marginRight: 8}}>{syncStatus}</SettingTitle>
+              ) : null} */}
+              <Button buttonType="pill" style={{marginBottom: 6, marginRight: 6}}>
+                {t('Run') + ': ' + (runCount || 0)}
+              </Button>
+              <Button buttonType="pill" style={{marginBottom: 6, marginRight: 6}}>
+                {t('Requests') + ': ' + (lastRequestCount || 0)}
+              </Button>
+              <Button buttonType="pill" style={{marginBottom: 6, marginRight: 6}}>
+                {t('Current') + ': ' + (currentWalletLabel || t('n/a'))}
+              </Button>
+              <Button buttonType="pill" style={{marginBottom: 6, marginRight: 6}}>
+                {t('Last Run') + ': ' + (lastRunAt || t('n/a'))}
+              </Button>
+            </Setting>
           </>
         ) : null}
 

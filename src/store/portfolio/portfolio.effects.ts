@@ -55,12 +55,14 @@ const getTxFeeBaseUnits = (tx: any): number | undefined => {
 
 export const fetchFullTransactionHistoryForWallet = (
   wallet: Wallet,
-): Effect<Promise<any[]>> => async dispatch => {
+): Effect<Promise<{transactions: any[]; requestCount: number}>> => async dispatch => {
   let acc: any[] = [];
   let loadMore = true;
   let iters = 0;
+  let requestCount = 0;
 
   while (loadMore) {
+    requestCount++;
     const {transactions, loadMore: _loadMore} = await dispatch(
       GetTransactionHistory({
         wallet,
@@ -75,7 +77,7 @@ export const fetchFullTransactionHistoryForWallet = (
     iters++;
   }
 
-  return acc;
+  return {transactions: acc, requestCount};
 };
 
 export const normalizeTxHistoryToPortfolioTxEvents = (
@@ -134,9 +136,11 @@ export const normalizeTxHistoryToPortfolioTxEvents = (
 
 export const syncPortfolioTxEventsForWallet = (
   wallet: Wallet,
-): Effect<Promise<PortfolioTxEvent[]>> => async dispatch => {
+): Effect<Promise<{events: PortfolioTxEvent[]; requestCount: number}>> => async dispatch => {
   try {
-    const transactions = await dispatch(fetchFullTransactionHistoryForWallet(wallet));
+    const {transactions, requestCount} = await dispatch(
+      fetchFullTransactionHistoryForWallet(wallet),
+    );
     const events = dispatch(normalizeTxHistoryToPortfolioTxEvents(wallet, transactions));
     dispatch(
       setTxEventsForWallet({
@@ -144,10 +148,10 @@ export const syncPortfolioTxEventsForWallet = (
         txEvents: events,
       }),
     );
-    return events;
+    return {events, requestCount};
   } catch (e) {
     const err = e instanceof Error ? e.message : JSON.stringify(e);
     logManager.error('[portfolio] syncPortfolioTxEventsForWallet error:', err);
-    return [];
+    return {events: [], requestCount: 0};
   }
 };
