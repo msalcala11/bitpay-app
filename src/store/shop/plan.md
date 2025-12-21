@@ -72,6 +72,11 @@ WalletIntervalCursor interface (persisted)
 	- cryptoBalance
 	- costBasisRemainingUSD
 
+Cursor cardinality
+	- expected count is approximately: (number of wallets with tx history) * (7 intervals)
+	- each cursor item is small, so hundreds to low-thousands of cursor rows should be acceptable
+	- if needed, we can reduce cursor count by only persisting cursors for intervals the user has viewed recently
+
 Accounting rules
 	- USD is canonical for cost basis and PnL. Selected altCurrency is displayed via a separate USD->ALT FX cache.
 	- average cost basis
