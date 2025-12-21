@@ -271,6 +271,23 @@ This screen links to phase-specific audit screens below and must exist before Ph
 
 It must also expose **hierarchical sync triggers** (wallet/key/portfolio) and make it easy to verify that aggregates update after a wallet-only sync.
 
+### Debug-triggered run telemetry (required)
+
+All debug screens must display a lightweight “sync telemetry” view for any **debug UI triggered** data fetch/aggregation runs.
+
+Telemetry must include:
+- run start/end timestamps and total duration
+- current elapsed time while running
+- **API request counts**, broken down by:
+  - request type (tx history vs rates)
+  - wallet(s) the request is attributable to
+  - optional: sub-type (tx history page requests vs crypto→USD bucket requests vs USD→ALT FX bucket requests)
+
+UI update constraints:
+- Update counters “real-time-ish”, but throttle/batch updates (for example, flush at 250–500ms) to avoid re-render storms.
+- Prefer computing elapsed time from a stored `startedAt` in the UI rather than writing an “elapsed” value on every tick.
+- Keep telemetry non-persisted and cap retained history (example: last 20 runs).
+
 Each phase below includes:
 - required debug UI work
 - manual audit steps
@@ -292,9 +309,10 @@ Deliverables:
 
 Instrumentation:
 - Add `logManager` info/error logs for:
-  - portfolio sync start/end per wallet
-  - tx history request counts
-  - price/fx request counts
+  - portfolio sync start/end per wallet (include duration)
+  - tx history request counts per wallet
+  - rates request counts per wallet
+  - debug-triggered run summary (scope, wallets, total duration, request totals)
   - rehydrate/persist failures related to PORTFOLIO slice
 
 Audit (manual):
@@ -327,6 +345,7 @@ Debug UI:
   - total txEvents
   - cursor counts per interval
   - cache sizes (#assets, #buckets)
+  - latest debug-triggered run telemetry summary (duration + per-wallet request counts by type)
   - serialized size estimate (best-effort)
   - Clear Cache button
 
@@ -359,7 +378,9 @@ Work:
 Debug UI:
 - **Wallet Transaction Debug** screen:
   - select wallet
-  - show raw tx count + request count
+  - show raw tx count
+  - show request counts (tx history + rates) for the selected wallet (live while running, and for the most recent run)
+  - show last run duration (and live elapsed while running)
   - show normalized events list
   - highlight events missing required fields
   - export CSV (events)
@@ -501,6 +522,8 @@ Debug UI:
 - **Rates + FX Debug**:
   - show cache hit/miss counts
   - show buckets stored
+  - show request counts (rates + FX) per wallet (live while running, and for the most recent run)
+  - show last run duration (and live elapsed while running)
   - clear FX only
 
 Exit criteria:
@@ -532,6 +555,7 @@ Debug UI:
   - show series valueUSD, basisUSD, unrealizedPnLUSD
   - show interval PnL breakdown by wallet
   - show transfer matches (and unmatched candidates)
+  - show last aggregation compute duration (best-effort) and last run duration
 
 Exit criteria:
 - Aggregate Debug totals match the sum of components.
@@ -583,7 +607,8 @@ Work:
 
 Debug UI:
 - **Sync Status Debug**:
-  - per wallet: last sync, last cursor build, last errors, request counts
+  - per wallet: last sync start/end + duration, last cursor build, last errors, request counts (tx history vs rates)
+  - while a run is active: show live request counts and elapsed time
   - buttons:
     - **Sync Portfolio** (top-down)
     - **Sync Key** (top-down)
@@ -625,3 +650,4 @@ Exit criteria:
 - Clear Portfolio Cache is available and safe.
 - Debug hub provides complete audit coverage for every phase.
 - Sync can be triggered at wallet/key/portfolio scope, and wallet-only sync updates all containing aggregates automatically.
+- Debug UI shows per-wallet request counts (tx history vs rates) and run durations for debug-triggered syncs with smooth, throttled updates.
