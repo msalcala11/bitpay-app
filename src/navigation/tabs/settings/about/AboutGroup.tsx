@@ -6,6 +6,7 @@ import {useTranslation} from 'react-i18next';
 import StorageUsage from './screens/StorageUsage';
 import PortfolioStorageDebug from './screens/PortfolioStorageDebug';
 import PortfolioWalletTxEventsDebug from './screens/PortfolioWalletTxEventsDebug';
+import PortfolioWalletCursorDebug from './screens/PortfolioWalletCursorDebug';
 import {Root} from '../../../../Root';
 import {useStackScreenOptions} from '../../../utils/headerHelpers';
 
@@ -18,6 +19,7 @@ export type AboutGroupParamList = {
   StorageUsage: undefined;
   PortfolioStorageDebug: undefined;
   PortfolioWalletTxEventsDebug: {walletId: string};
+  PortfolioWalletCursorDebug: {walletId: string};
   SessionLogs: undefined;
   SendFeedback: SendFeedbackParamList | undefined;
 };
@@ -26,6 +28,7 @@ export enum AboutScreens {
   STORAGE_USAGE = 'StorageUsage',
   PORTFOLIO_STORAGE_DEBUG = 'PortfolioStorageDebug',
   PORTFOLIO_WALLET_TX_EVENTS_DEBUG = 'PortfolioWalletTxEventsDebug',
+  PORTFOLIO_WALLET_CURSOR_DEBUG = 'PortfolioWalletCursorDebug',
   SESSION_LOGS = 'SessionLogs',
   SEND_FEEDBACK = 'SendFeedback',
 }
@@ -54,6 +57,13 @@ const AboutGroup = ({About, theme}: AboutProps) => {
         component={PortfolioWalletTxEventsDebug}
         options={{
           headerTitle: t('Portfolio Wallet Tx Events'),
+        }}
+      />
+      <About.Screen
+        name={AboutScreens.PORTFOLIO_WALLET_CURSOR_DEBUG}
+        component={PortfolioWalletCursorDebug}
+        options={{
+          headerTitle: t('Portfolio Wallet Cursor'),
         }}
       />
       <About.Screen

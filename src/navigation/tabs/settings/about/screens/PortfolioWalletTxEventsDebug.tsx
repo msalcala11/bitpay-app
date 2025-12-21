@@ -14,6 +14,8 @@ import Button from '../../../../../components/button/Button';
 import {useAppSelector} from '../../../../../utils/hooks';
 import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
 import {PortfolioTxEvent} from '../../../../../store/portfolio/portfolio.types';
+import {useNavigation} from '@react-navigation/native';
+import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 
 const ScrollContainer = styled.ScrollView``;
 
@@ -39,6 +41,8 @@ type Props = NativeStackScreenProps<
 const PortfolioWalletTxEventsDebug: React.FC<Props> = ({route}) => {
   const {t} = useTranslation();
   const {walletId} = route.params;
+  const navigation =
+    useNavigation<NativeStackNavigationProp<AboutGroupParamList>>();
 
   const events = useAppSelector(
     ({PORTFOLIO}) => PORTFOLIO.txEventsByWalletId[walletId] || [],
@@ -90,6 +94,16 @@ const PortfolioWalletTxEventsDebug: React.FC<Props> = ({route}) => {
         <Setting>
           <SettingTitle>{t('By Category')}</SettingTitle>
           <Button buttonType="pill">{JSON.stringify(derived.byCategory)}</Button>
+        </Setting>
+        <Hr />
+        <Setting
+          onPress={() =>
+            navigation.navigate(AboutScreens.PORTFOLIO_WALLET_CURSOR_DEBUG, {
+              walletId,
+            })
+          }>
+          <SettingTitle>{t('Cursor Debug')}</SettingTitle>
+          <Button buttonType="pill">{t('Open')}</Button>
         </Setting>
 
         <HeaderTitle>
