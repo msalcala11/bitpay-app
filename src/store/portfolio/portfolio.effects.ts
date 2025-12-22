@@ -349,6 +349,7 @@ const prefillRatesForIntervals = (
   const payload: Record<string, Record<number, number>> = {};
   let fetched = 0;
   let requested = 0;
+  let stoppedOnFailure = false;
   if (onProgress && missingTimes.length) {
     onProgress({coin, requested: 0, fetched: 0});
   }
@@ -365,12 +366,16 @@ const prefillRatesForIntervals = (
       logManager.error(
         `[portfolio] getHistoricFiatRate grid fetch failed for ${assetId} ts ${ts}: ${err}`,
       );
+      stoppedOnFailure = true;
     }
     if (attemptedSet) {
       attemptedSet.add(`${assetId}:${ts}`);
     }
     if (onProgress) {
       onProgress({coin, requested, fetched});
+    }
+    if (stoppedOnFailure) {
+      break;
     }
   }
 
