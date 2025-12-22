@@ -110,7 +110,6 @@ export const buildWalletIntervalCursor = (
         .sort((a, b) => a - b)
     : [];
   let rateIdx = 0;
-  let lastRate: number | null = null;
 
   const points: WalletIntervalCursorPoint[] = grid.times.map(time => {
     while (eventIdx < sortedEvents.length && sortedEvents[eventIdx].time <= time) {
@@ -121,17 +120,15 @@ export const buildWalletIntervalCursor = (
     while (rateIdx < rateTimes.length && rateTimes[rateIdx] <= time) {
       const t = rateTimes[rateIdx];
       const r = assetRateCache?.[t];
-      if (r != null) {
-        lastRate = r;
-      }
       rateIdx++;
     }
 
+    const exactRate = assetRateCache?.[time] ?? null;
     return {
       time,
       cryptoBalance: state.cryptoBalance,
       costBasisRemainingUSD: state.costBasisRemainingUSD,
-      valueUSD: lastRate != null ? state.cryptoBalance * lastRate : null,
+      valueUSD: exactRate != null ? state.cryptoBalance * exactRate : null,
     };
   });
 
