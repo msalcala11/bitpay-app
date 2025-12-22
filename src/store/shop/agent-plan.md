@@ -211,29 +211,25 @@ Not required for v1; architecture should allow adding later.
 **Goal**: Build `WalletIntervalCursor` for each wallet and interval using standardized timestamps and the cost basis engine.
 
 - **[Grid generation]**
-  - Use deterministic standardized rolling timestamps.
-  - Requirements:
-    - For fixed windows (`day`, `week`, `month`, `3months`, `year`, `5years`): the 45 `times[]` are **wallet-independent** (same for every wallet for a given interval at a given moment).
-    - For `all`: the duration is **wallet-dependent** (from the wallet’s first event through now) but the grid is still deterministic given `walletFirstEventTime`.
-    - Use **UTC epoch seconds** for all calculations (do not use local timezone boundaries).
-  - Define `getIntervalGrid(interval, now, walletFirstEventTimeSec?) => { stepSeconds, endTime, times[45] }`.
-    - `POINTS = 45`
-    - `nowSec = floor(nowMs / 1000)`
-    - Snap `endTime` to an hour boundary (UTC):
-      - `endTime = floor(nowSec / 3600) * 3600`
-    - Fixed duration table (seconds) for wallet-independent windows:
-      - day: `1 * 86400`
+  - Use deterministic standardized rolling timestamps (UTC seconds).
+  - Fixed windows (`day`, `week`, `month`, `3months`, `year`, `5years`): 45 `times[]` are wallet-independent (same for every wallet at a given moment).
+  - `all` interval is wallet-dependent:
+    - `startTime = floor(firstReceiveEventTimeSec / 3600) * 3600` (fallback to earliest event if no receive)
+    - `endTime = floor(now / 3600) * 3600`
+    - `durationSeconds = endTime - startTime`
+    - `stepSeconds = max(1, round(durationSeconds / (POINTS - 1)))`
+    - `times[i] = startTime + i * stepSeconds` for `i = 0..44` (last point at ~endTime)
+  - Fixed-window formulas:
+    - `endTime = floor(now / 3600) * 3600`
+    - `durationSeconds(interval)`:
+      - day: `86400`
       - week: `7 * 86400`
       - month: `30 * 86400`
       - 3months: `90 * 86400`
       - year: `365 * 86400`
       - 5years: `5 * 365 * 86400`
-    - `all` interval (wallet-dependent):
-      - `startTime = floor(walletFirstEventTimeSec / 3600) * 3600`
-      - `durationSeconds = endTime - startTime`
-      - `stepSeconds = round(durationSeconds / (POINTS - 1))`
-    - For fixed windows, `stepSeconds = round(durationSeconds(interval) / (POINTS - 1))`
-    - `times[i] = endTime - (POINTS - 1 - i) * stepSeconds` for `i = 0..44`
+    - `stepSeconds = max(1, round(durationSeconds(interval) / (POINTS - 1)))`
+    - `times[i] = endTime - (POINTS - 1 - i) * stepSeconds`
 - **[Rate cache prefill for cursor grids]**
   - For each asset, union all cursor grid timestamps across the 7 intervals (`day`, `week`, `month`, `3months`, `year`, `5years`, `all`).
   - De-dupe against existing `rateCacheUsd[assetId][ts]`.
