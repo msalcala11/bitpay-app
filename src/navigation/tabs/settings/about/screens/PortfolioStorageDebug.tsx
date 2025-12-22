@@ -188,6 +188,13 @@ const PortfolioStorageDebug: React.FC = () => {
       : rateCacheJson;
   }, [rateCacheJson]);
 
+  const rateCacheCounts = useMemo(() => {
+    return Object.entries(PORTFOLIO.rateCacheUsd || {}).map(([assetId, buckets]) => ({
+      assetId,
+      count: Object.keys(buckets || {}).length,
+    }));
+  }, [PORTFOLIO.rateCacheUsd]);
+
   const copyRateCache = () => {
     if (!rateCacheJson) {
       return;
@@ -500,6 +507,14 @@ const PortfolioStorageDebug: React.FC = () => {
             {rateCachePreview || t('No rate cache data')}
           </SettingTitle>
         </Setting>
+        {rateCacheCounts.length ? (
+          rateCacheCounts.map(rc => (
+            <Setting key={rc.assetId} style={{marginTop: 4}}>
+              <SettingTitle>{rc.assetId}</SettingTitle>
+              <Button buttonType="pill">{rc.count}</Button>
+            </Setting>
+          ))
+        ) : null}
         <Hr />
 
         <HeaderTitle>
