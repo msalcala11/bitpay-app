@@ -19,8 +19,6 @@ import {
 import {buildWalletIntervalCursor} from './portfolio.cursor';
 import {getHistoricFiatRate} from '../wallet/effects/rates/rates';
 
-const HOUR_IN_SECONDS = 3600;
-
 const getAssetIdFromWallet = (wallet: Wallet): string => {
   const coin = wallet.currencyAbbreviation?.toLowerCase() || '';
   const chain = wallet.chain?.toLowerCase() || '';
@@ -35,9 +33,6 @@ const getCoinFromAssetId = (assetId: string): string | undefined => {
   }
   return undefined;
 };
-
-const bucketToHour = (time: number): number =>
-  Math.floor(time / HOUR_IN_SECONDS) * HOUR_IN_SECONDS;
 
 const isBasisCreatingEvent = (event: PortfolioTxEvent): boolean =>
   event.category === 'receive';
@@ -162,10 +157,21 @@ export const normalizeTxHistoryToPortfolioTxEvents = (
 
 export const syncPortfolioTxEventsForWallet = (
   wallet: Wallet,
-): Effect<Promise<{events: PortfolioTxEvent[]; requestCount: number}>> => async dispatch => {
+): Effect<
+  Promise<{
+    events: PortfolioTxEvent[];
+    requestCount: number;
+    rateRequestCount: number;
+    rateFetchedCount: number;
+  }>
+> => async dispatch => {
   try {
+    logManager.info(`[portfolio] txhistory start wallet ${wallet.id}`);
     const {transactions, requestCount} = await dispatch(
       fetchFullTransactionHistoryForWallet(wallet),
+    );
+    logManager.info(
+      `[portfolio] txhistory done wallet ${wallet.id}: requests=${requestCount}`,
     );
     const events = dispatch(normalizeTxHistoryToPortfolioTxEvents(wallet, transactions));
     dispatch(
@@ -174,22 +180,35 @@ export const syncPortfolioTxEventsForWallet = (
         txEvents: events,
       }),
     );
-    await dispatch(backfillUsdPriceUsedForWallet(wallet.id));
-    return {events, requestCount};
+    const {rateRequestCount, fetchedCount} = await dispatch(
+      backfillUsdPriceUsedForWallet(wallet.id),
+    );
+    return {
+      events,
+      requestCount,
+      rateRequestCount,
+      rateFetchedCount: fetchedCount,
+    };
   } catch (e) {
     const err = e instanceof Error ? e.message : JSON.stringify(e);
     logManager.error('[portfolio] syncPortfolioTxEventsForWallet error:', err);
-    return {events: [], requestCount: 0};
+    return {events: [], requestCount: 0, rateRequestCount: 0, rateFetchedCount: 0};
   }
 };
 
 export const backfillUsdPriceUsedForWallet = (
   walletId: string,
-): Effect<Promise<void>> => async (dispatch, getState) => {
+): Effect<
+  Promise<{
+    rateRequestCount: number;
+    fetchedCount: number;
+    missingBucketCount: number;
+  }>
+> => async (dispatch, getState) => {
   const state = getState();
   const events = state.PORTFOLIO.txEventsByWalletId[walletId] || [];
   if (!events.length) {
-    return;
+    return {rateRequestCount: 0, fetchedCount: 0, missingBucketCount: 0};
   }
 
   const rateCache = state.PORTFOLIO.rateCacheUsd || {};
@@ -199,8 +218,7 @@ export const backfillUsdPriceUsedForWallet = (
     if (!isBasisCreatingEvent(event) || event.usdPriceUsed != null) {
       return event;
     }
-    const bucket = bucketToHour(event.time);
-    const cached = rateCache?.[event.assetId]?.[bucket];
+    const cached = rateCache?.[event.assetId]?.[event.time];
     if (cached != null) {
       return {...event, usdPriceUsed: cached};
     }
@@ -210,7 +228,7 @@ export const backfillUsdPriceUsedForWallet = (
   // Gather missing buckets per asset.
   const missingRequests: Array<{
     assetId: string;
-    bucket: number;
+    ts: number;
     coin: string;
   }> = [];
   const seen = new Set<string>();
@@ -218,32 +236,39 @@ export const backfillUsdPriceUsedForWallet = (
     if (!isBasisCreatingEvent(event) || event.usdPriceUsed != null) {
       return;
     }
-    const bucket = bucketToHour(event.time);
+    const ts = event.time;
     const coin = getCoinFromAssetId(event.assetId);
     if (!coin) {
       return;
     }
-    const key = `${event.assetId}-${bucket}`;
+    const key = `${event.assetId}-${ts}`;
     if (!seen.has(key)) {
       seen.add(key);
-      missingRequests.push({assetId: event.assetId, bucket, coin});
+      missingRequests.push({assetId: event.assetId, ts, coin});
     }
   });
 
+  const rateRequestCount = missingRequests.length;
+  logManager.info(
+    `[portfolio] rate backfill start wallet ${walletId}: missingBuckets=${rateRequestCount}`,
+  );
+
   const fetchedRates: Record<string, Record<number, number>> = {};
+  let fetchedCount = 0;
   for (const req of missingRequests) {
     try {
-      const historic = await getHistoricFiatRate('USD', req.coin, String(req.bucket * 1000));
+      const historic = await getHistoricFiatRate('USD', req.coin, String(req.ts * 1000));
       if (historic?.rate != null) {
+        fetchedCount++;
         fetchedRates[req.assetId] = {
           ...(fetchedRates[req.assetId] || {}),
-          [req.bucket]: historic.rate,
+          [req.ts]: historic.rate,
         };
       }
     } catch (e) {
       const err = e instanceof Error ? e.message : JSON.stringify(e);
       logManager.error(
-        `[portfolio] getHistoricFiatRate failed for ${req.assetId} bucket ${req.bucket}: ${err}`,
+        `[portfolio] getHistoricFiatRate failed for ${req.assetId} ts ${req.ts}: ${err}`,
       );
     }
   }
@@ -253,8 +278,7 @@ export const backfillUsdPriceUsedForWallet = (
     if (!isBasisCreatingEvent(event) || event.usdPriceUsed != null) {
       return event;
     }
-    const bucket = bucketToHour(event.time);
-    const fetched = fetchedRates?.[event.assetId]?.[bucket];
+    const fetched = fetchedRates?.[event.assetId]?.[event.time];
     if (fetched != null) {
       return {...event, usdPriceUsed: fetched};
     }
@@ -265,12 +289,22 @@ export const backfillUsdPriceUsedForWallet = (
     dispatch(setRateCacheUsd({rateCacheUsd: fetchedRates}));
   }
 
-  dispatch(
+  await dispatch(
     setTxEventsForWallet({
       walletId,
       txEvents: updatedEvents,
     }),
   );
+
+  logManager.info(
+    `[portfolio] rate backfill done wallet ${walletId}: requested=${rateRequestCount}, fetched=${fetchedCount}`,
+  );
+
+  return {
+    rateRequestCount,
+    fetchedCount,
+    missingBucketCount: rateRequestCount,
+  };
 };
 
 export const buildCursorForWalletInterval = (
@@ -280,7 +314,11 @@ export const buildCursorForWalletInterval = (
   try {
     const state = getState();
     const events = state.PORTFOLIO.txEventsByWalletId[walletId] || [];
-    const cursor = buildWalletIntervalCursor(walletId, interval, events);
+    const assetId = events[0]?.assetId;
+    const assetRateCache = assetId
+      ? state.PORTFOLIO.rateCacheUsd[assetId] || {}
+      : undefined;
+    const cursor = buildWalletIntervalCursor(walletId, interval, events, assetRateCache);
     dispatch(
       setWalletIntervalCursor({
         walletId,

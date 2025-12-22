@@ -90,6 +90,7 @@ export const buildWalletIntervalCursor = (
   walletId: string,
   interval: PortfolioInterval,
   events: PortfolioTxEvent[],
+  assetRateCache?: Record<number, number>,
 ): WalletIntervalCursor => {
   const grid = getPortfolioIntervalGrid(interval);
   const sortedEvents = [...events].sort((a, b) => a.time - b.time);
@@ -100,16 +101,37 @@ export const buildWalletIntervalCursor = (
   };
 
   let eventIdx = 0;
+
+  // Pre-sort rate timestamps to allow forward scan for <= time lookup.
+  const rateTimes = assetRateCache
+    ? Object.keys(assetRateCache)
+        .map(t => Number(t))
+        .filter(t => Number.isFinite(t))
+        .sort((a, b) => a - b)
+    : [];
+  let rateIdx = 0;
+  let lastRate: number | null = null;
+
   const points: WalletIntervalCursorPoint[] = grid.times.map(time => {
     while (eventIdx < sortedEvents.length && sortedEvents[eventIdx].time <= time) {
       state = applyEventToState(state, sortedEvents[eventIdx]);
       eventIdx++;
     }
+
+    while (rateIdx < rateTimes.length && rateTimes[rateIdx] <= time) {
+      const t = rateTimes[rateIdx];
+      const r = assetRateCache?.[t];
+      if (r != null) {
+        lastRate = r;
+      }
+      rateIdx++;
+    }
+
     return {
       time,
       cryptoBalance: state.cryptoBalance,
       costBasisRemainingUSD: state.costBasisRemainingUSD,
-      valueUSD: null,
+      valueUSD: lastRate != null ? state.cryptoBalance * lastRate : null,
     };
   });
 

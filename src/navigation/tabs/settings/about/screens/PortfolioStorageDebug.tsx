@@ -67,6 +67,8 @@ const PortfolioStorageDebug: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string>('');
   const [lastRequestCount, setLastRequestCount] = useState<number>(0);
+  const [lastRateRequestCount, setLastRateRequestCount] = useState<number>(0);
+  const [lastRateFetchedCount, setLastRateFetchedCount] = useState<number>(0);
   const [runCount, setRunCount] = useState<number>(0);
   const [lastRunAt, setLastRunAt] = useState<string>('');
   const [lastSummary, setLastSummary] = useState<string>('');
@@ -196,16 +198,22 @@ const PortfolioStorageDebug: React.FC = () => {
     try {
       let totalEvents = 0;
       let totalRequests = 0;
+      let totalRateRequests = 0;
+      let totalRateFetched = 0;
       for (const wallet of wallets) {
         if (wallet.network !== 'livenet' && wallet.credentials?.network !== 'livenet') {
           continue;
         }
-        const {events, requestCount} = await dispatch(
+        const {events, requestCount, rateRequestCount, rateFetchedCount} = await dispatch(
           syncPortfolioTxEventsForWallet(wallet),
         );
         totalEvents += events.length;
         totalRequests += requestCount;
+        totalRateRequests += rateRequestCount || 0;
+        totalRateFetched += rateFetchedCount || 0;
         setLastRequestCount(totalRequests);
+        setLastRateRequestCount(totalRateRequests);
+        setLastRateFetchedCount(totalRateFetched);
         const label = `${wallet.walletName || wallet.id} (${wallet.currencyAbbreviation?.toUpperCase() || ''})`;
         setCurrentWalletLabel(label);
         setSyncStatus(
@@ -214,14 +222,16 @@ const PortfolioStorageDebug: React.FC = () => {
       }
 
       setSyncStatus(
-        `Run ${nextRun} - Synced wallets: ${wallets.length}. Total events: ${totalEvents}. Requests: ${totalRequests}`,
+        `Run ${nextRun} - Synced wallets: ${wallets.length}. Total events: ${totalEvents}. Tx requests: ${totalRequests}. Rate requests: ${totalRateRequests} (fetched ${totalRateFetched})`,
       );
       setLastRequestCount(totalRequests);
+      setLastRateRequestCount(totalRateRequests);
+      setLastRateFetchedCount(totalRateFetched);
       const finishedAt = new Date().toISOString();
       setLastRunAt(finishedAt);
       setLastDurationMs(Date.now() - startedMs);
       setLastSummary(
-        `Last summary: run ${nextRun} at ${finishedAt} (events ${totalEvents}, requests ${totalRequests})`,
+        `Last summary: run ${nextRun} at ${finishedAt} (events ${totalEvents}, tx requests ${totalRequests}, rate requests ${totalRateRequests}, rates fetched ${totalRateFetched})`,
       );
     } catch (e) {
       const err = e instanceof Error ? e.message : JSON.stringify(e);
@@ -357,7 +367,13 @@ const PortfolioStorageDebug: React.FC = () => {
                 {t('Run') + ': ' + (runCount || 0)}
               </Button>
               <Button buttonType="pill" style={{marginBottom: 6, marginRight: 6}}>
-                {t('Requests') + ': ' + (lastRequestCount || 0)}
+                {t('Tx Requests') + ': ' + (lastRequestCount || 0)}
+              </Button>
+              <Button buttonType="pill" style={{marginBottom: 6, marginRight: 6}}>
+                {t('Rate Req') + ': ' + (lastRateRequestCount || 0)}
+              </Button>
+              <Button buttonType="pill" style={{marginBottom: 6, marginRight: 6}}>
+                {t('Rate Fetched') + ': ' + (lastRateFetchedCount || 0)}
               </Button>
               {buildingCursors ? (
                 <>
