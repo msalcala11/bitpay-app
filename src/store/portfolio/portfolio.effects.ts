@@ -407,22 +407,23 @@ export const buildCursorForWalletInterval = (
       coin = getCoinFromAssetId(assetId);
       if (coin) {
         const result = await dispatch(
-          prefillRatesForIntervals(assetId, coin, [
-            'day',
-            'week',
-            'month',
-            '3months',
-            'year',
-            '5years',
-            'all',
-          ], startTsForAll),
+          prefillRatesForIntervals(
+            assetId,
+            coin,
+            ['day', 'week', 'month', '3months', 'year', '5years', 'all'],
+            startTsForAll,
+            walletId, // run token per wallet to avoid repeat in a run
+          ),
         );
         rateRequested = result?.requested || 0;
         rateFetched = result?.fetched || 0;
       }
     }
+
+    // Re-read state after potential cache updates from prefill.
+    const postPrefillState = getState();
     const assetRateCache = assetId
-      ? state.PORTFOLIO.rateCacheUsd[assetId] || {}
+      ? postPrefillState.PORTFOLIO.rateCacheUsd[assetId] || {}
       : undefined;
     const cursor = buildWalletIntervalCursor(
       walletId,
