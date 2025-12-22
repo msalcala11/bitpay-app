@@ -27,6 +27,14 @@ const getAssetIdFromWallet = (wallet: Wallet): string => {
   return tokenAddress ? `${chain}:${coin}:${tokenAddress}` : `${chain}:${coin}`;
 };
 
+const normalizeCoinAbbreviation = (coin: string): string => {
+  // Bitcore uses "matic" for Polygon; normalize portfolio's "pol" to avoid 404s.
+  if (coin?.toLowerCase() === 'pol') {
+    return 'matic';
+  }
+  return coin;
+};
+
 const getCoinFromAssetId = (assetId: string): string | undefined => {
   const parts = assetId.split(':');
   if (parts.length >= 2) {
@@ -238,7 +246,7 @@ export const backfillUsdPriceUsedForWallet = (
       return;
     }
     const ts = event.time;
-    const coin = getCoinFromAssetId(event.assetId);
+    const coin = normalizeCoinAbbreviation(getCoinFromAssetId(event.assetId) || '');
     if (!coin) {
       return;
     }
@@ -423,7 +431,7 @@ export const buildCursorForWalletInterval = (
     );
     const startTsForAll = firstReceiveTimeSec ?? firstEventTimeSec;
     if (assetId && !options?.skipPrefill) {
-      coin = getCoinFromAssetId(assetId);
+      coin = normalizeCoinAbbreviation(getCoinFromAssetId(assetId) || '');
       if (coin) {
         const result = await dispatch(
           prefillRatesForIntervals(
