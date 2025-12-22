@@ -130,7 +130,7 @@ const PortfolioWalletTxEventsDebug: React.FC<Props> = ({route}) => {
       'runningCryptoBalance',
     ];
     const sorted = [...eventsWithRunningBalance].sort(
-      (a, b) => Number(b.time) - Number(a.time),
+      (a, b) => Number(a.time) - Number(b.time),
     );
 
     const lines = [

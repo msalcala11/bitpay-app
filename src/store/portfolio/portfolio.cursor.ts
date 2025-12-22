@@ -12,7 +12,6 @@ export interface PortfolioPositionState {
   avgCostUSDPerUnit: number;
 }
 
-const clampNonNegative = (n: number): number => (n < 0 ? 0 : n);
 
 const updateAvgCost = (state: PortfolioPositionState): PortfolioPositionState => {
   const {cryptoBalance, costBasisRemainingUSD} = state;
@@ -36,10 +35,8 @@ export const applyEventToState = (
       return;
     }
     const costUsed = next.avgCostUSDPerUnit * amountCrypto;
-    next.cryptoBalance = clampNonNegative(next.cryptoBalance - amountCrypto);
-    next.costBasisRemainingUSD = clampNonNegative(
-      next.costBasisRemainingUSD - costUsed,
-    );
+    next.cryptoBalance = next.cryptoBalance - amountCrypto;
+    next.costBasisRemainingUSD = next.costBasisRemainingUSD - costUsed;
     next = updateAvgCost(next);
   };
 
@@ -80,8 +77,8 @@ export const applyEventToState = (
     applySpendLike(feeCrypto);
   }
 
-  next.costBasisRemainingUSD = clampNonNegative(next.costBasisRemainingUSD);
-  next.cryptoBalance = clampNonNegative(next.cryptoBalance);
+  next.costBasisRemainingUSD = next.costBasisRemainingUSD;
+  next.cryptoBalance = next.cryptoBalance;
   next = updateAvgCost(next);
 
   return next;
