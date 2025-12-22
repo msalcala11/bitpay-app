@@ -94,6 +94,7 @@ const PortfolioStorageDebug: React.FC = () => {
   const [rateRequestsByCoin, setRateRequestsByCoin] = useState<
     Record<string, {requested: number; fetched: number}>
   >({});
+  const [prefetching, setPrefetching] = useState(false);
 
   const wallets = useMemo(() => {
     return Object.values(keys)
@@ -289,6 +290,89 @@ const PortfolioStorageDebug: React.FC = () => {
     setLastRequestCount(0);
   };
 
+  const prefetchRates = () => {
+    if (syncing || prefetching || buildingCursors) {
+      return;
+    }
+    setPrefetching(true);
+    setLastDurationMs(null);
+    setBuildingWalletLabel('');
+    setBuildingInterval(null);
+    setBuildingRateCoin('');
+    setBuildingRateRequested(0);
+    setBuildingRateFetched(0);
+    setRateRequestsByCoin({});
+    setSyncStatus('Starting rate prefetch (all intervals)...');
+    InteractionManager.runAfterInteractions(() => {
+      setTimeout(async () => {
+        const startedMs = Date.now();
+        const startedAt = new Date().toISOString();
+        setSyncStatus(`Prefetching rates... started at ${startedAt}`);
+        const pause = () => new Promise(resolve => setTimeout(resolve, 0));
+        try {
+          let prefetched = 0;
+          let skipped = 0;
+          const rateTotals: Record<string, {requested: number; fetched: number}> = {};
+          const runToken = `prefetch-${Date.now()}`;
+          for (const wallet of wallets) {
+            const eventCount =
+              PORTFOLIO.txEventsByWalletId[wallet.id]?.length || 0;
+            if (eventCount === 0) {
+              skipped++;
+              continue;
+            }
+            const walletLabel = `${wallet.walletName || wallet.id} (${
+              wallet.currencyAbbreviation?.toUpperCase() || ''
+            })`;
+            setBuildingWalletLabel(walletLabel);
+            const prefillResult = await dispatch(
+              buildCursorForWalletInterval(wallet.id, 'day', {
+                skipPrefill: false,
+                prefillOnly: true,
+                runToken: `${runToken}-${wallet.id}`,
+              }),
+            );
+            if (prefillResult?.coin) {
+              const prev = rateTotals[prefillResult.coin] || {requested: 0, fetched: 0};
+              rateTotals[prefillResult.coin] = {
+                requested: prev.requested + (prefillResult.rateRequested || 0),
+                fetched: prev.fetched + (prefillResult.rateFetched || 0),
+              };
+              setBuildingRateCoin(prefillResult.coin.toUpperCase());
+              setBuildingRateRequested(prefillResult.rateRequested || 0);
+              setBuildingRateFetched(prefillResult.rateFetched || 0);
+              setRateRequestsByCoin({...rateTotals});
+            }
+            prefetched++;
+            if (prefetched % 5 === 0) {
+              await pause();
+            }
+          }
+          const finishedAt = new Date().toISOString();
+          setLastRunAt(finishedAt);
+          setLastDurationMs(Date.now() - startedMs);
+          setSyncStatus(
+            `Prefetch complete for ${prefetched} wallet(s); skipped ${skipped} with no txs`,
+          );
+          setLastSummary(
+            `Prefetch: wallets processed ${prefetched}, skipped ${skipped}, finished at ${finishedAt}`,
+          );
+        } catch (e) {
+          const err = e instanceof Error ? e.message : JSON.stringify(e);
+          setSyncStatus(err);
+          setLastSummary(err);
+        } finally {
+          setBuildingWalletLabel('');
+          setBuildingInterval(null);
+          setBuildingRateCoin('');
+          setBuildingRateRequested(0);
+          setBuildingRateFetched(0);
+          setPrefetching(false);
+        }
+      }, 0);
+    });
+  };
+
   const buildCursors = () => {
     if (syncing || buildingCursors) {
       return;
@@ -325,25 +409,9 @@ const PortfolioStorageDebug: React.FC = () => {
               wallet.currencyAbbreviation?.toUpperCase() || ''
             })`;
             setBuildingWalletLabel(walletLabel);
-            // Run a single prefetch for all intervals for this wallet.
-            const prefillResult = await dispatch(
-              buildCursorForWalletInterval(wallet.id, 'day', {skipPrefill: false}),
-            );
-            if (prefillResult?.coin) {
-              const prev = rateTotals[prefillResult.coin] || {requested: 0, fetched: 0};
-              rateTotals[prefillResult.coin] = {
-                requested: prev.requested + (prefillResult.rateRequested || 0),
-                fetched: prev.fetched + (prefillResult.rateFetched || 0),
-              };
-              setBuildingRateCoin(prefillResult.coin.toUpperCase());
-              setBuildingRateRequested(prefillResult.rateRequested || 0);
-              setBuildingRateFetched(prefillResult.rateFetched || 0);
-              setRateRequestsByCoin({...rateTotals});
-            }
-
             for (const interval of cursorIntervals) {
               setBuildingInterval(interval);
-              // Skip prefill inside the interval loop; use cache from the single prefetch.
+              // No prefill here; assume prefetch was run separately.
               await dispatch(buildCursorForWalletInterval(wallet.id, interval, {skipPrefill: true}));
               built++;
               if (built % 5 === 0) {
@@ -405,6 +473,16 @@ const PortfolioStorageDebug: React.FC = () => {
               </Button>
             </Setting>
             <Hr />
+            <Setting onPress={prefetchRates}>
+              <SettingTitle>{t('Prefetch Rates')} ({t('all intervals')})</SettingTitle>
+              <Button
+                buttonType="pill"
+                onPress={prefetchRates}
+                disabled={syncing || prefetching || buildingCursors}>
+                {prefetching ? t('Prefetching...') : t('Prefetch')}
+              </Button>
+            </Setting>
+            <Hr />
             <Setting onPress={buildCursors}>
               <SettingTitle>
                 {t('Build Cursors')} ({t('all intervals')})
@@ -412,7 +490,7 @@ const PortfolioStorageDebug: React.FC = () => {
               <Button
                 buttonType="pill"
                 onPress={buildCursors}
-                disabled={syncing || buildingCursors}>
+                disabled={syncing || buildingCursors || prefetching}>
                 {buildingCursors ? t('Building...') : t('Build')}
               </Button>
             </Setting>

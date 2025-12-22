@@ -375,7 +375,7 @@ const prefillRatesForIntervals = (
 export const buildCursorForWalletInterval = (
   walletId: string,
   interval: PortfolioInterval,
-  options?: {skipPrefill?: boolean},
+  options?: {skipPrefill?: boolean; prefillOnly?: boolean; runToken?: string},
 ): Effect<
   Promise<{rateRequested: number; rateFetched: number; coin?: string}>
 > => async (dispatch, getState) => {
@@ -412,12 +412,16 @@ export const buildCursorForWalletInterval = (
             coin,
             ['day', 'week', 'month', '3months', 'year', '5years', 'all'],
             startTsForAll,
-            walletId, // run token per wallet to avoid repeat in a run
+            options?.runToken || walletId, // run token per call (default wallet-bound)
           ),
         );
         rateRequested = result?.requested || 0;
         rateFetched = result?.fetched || 0;
       }
+    }
+
+    if (options?.prefillOnly) {
+      return {rateRequested, rateFetched, coin};
     }
 
     // Re-read state after potential cache updates from prefill.
