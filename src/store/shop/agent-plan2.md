@@ -170,20 +170,24 @@ Persisted per wallet per interval.
 
 ### Rate + FX caches
 
-Use explicit schemas and a single bucket strategy:
+Use explicit schemas. For cursor/FX valuation caching, use a single bucket strategy (hourly):
 
 - `rateCacheUsdByAssetId: Record<assetId, Record<bucketTimeSec, string>>`
   - micro-USD per 1 crypto unit (decimal string)
+  - used for cursor `valueMicroUSD` computations
 - `fxCacheByAlt: Record<altCurrency, Record<bucketTimeSec, string>>`
   - micro-ALT per 1 USD (decimal string)
 
-Bucket rule:
+Bucket rule (for caches):
 - `bucketTimeSec = floor(timeSec / 3600) * 3600` (hourly)
 
-Reasons:
+Reasons (for caches):
 - aligns with `endTime` snapping
 - dedupes requests
 - works for all intervals (including variable “all time”)
+
+Note:
+- Basis pricing for incoming events uses **exact timestamps** and is persisted on events as `usdPriceUsedMicro` (see Phase 3).
 
 ### Meta/sync state
 
@@ -466,12 +470,12 @@ Exit criteria:
 
 ---
 
-## Phase 3 — Pricing for basis (USD spot at receipt)
+## Phase 3 — Pricing for basis (USD spot at receipt; exact timestamp)
 
 **Goal**: Ensure all basis-creating receives have `usdPriceUsedMicro` stored.
 
 Redux effects (add/extend):
-- `getOrFetchUsdRateByAssetIdBucket(args: {assetId: string; bucketTimeSec: number}): Effect<Promise<string>>`
+- `getOrFetchUsdRateByAssetIdAtTime(args: {assetId: string; timeSec: number}): Effect<Promise<string>>`
 - `backfillUsdPriceUsedForWallet(walletId: string): Effect<Promise<{pricesFetched: number; requestCount: number}>>`
 - Extend `syncPortfolioWalletScope(args: {walletId: string}): Effect<Promise<void>>` to include basis price backfill.
 
@@ -480,17 +484,19 @@ Work:
   - any event with `BigInt(cryptoDeltaBase) > 0n` (incoming)
   - includes `receive` and moved-in
 - For each basis event missing `usdPriceUsedMicro`:
-  - fetch crypto→USD at `bucketTimeSec` (hourly bucket)
+  - fetch crypto→USD at the **exact event timestamp**
+    - `timeSec = event.time`
+    - request timestamp should be `tsMs = timeSec * 1000` (BWS expects ms)
   - convert to micro-USD (`usdPriceUsedMicro`) and write into the event, then bump `eventsRevision`
 
-Caching:
-- Use `rateCacheUsdByAssetId[assetId][bucketTimeSec]` as the canonical store.
-- `usdPriceUsedMicro` on events should reference a value from the cache.
+Caching + dedupe:
+- Deduplicate in-flight requests by exact `(assetId, timeSec)` while a backfill run is executing.
+- Do **not** persist per-event exact timestamp USD rates in `rateCacheUsdByAssetId` (canonical persisted value is `PortfolioTxEvent.usdPriceUsedMicro`).
 
 Debug UI:
 - Extend Wallet Transaction Debug:
   - count of missing `usdPriceUsedMicro`
-  - last N price fetches (assetId, bucketTimeSec)
+  - last N price fetches (assetId, timeSec)
   - last error
 
 Audit (manual):
