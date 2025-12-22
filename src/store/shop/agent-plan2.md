@@ -56,11 +56,26 @@ Do not edit `plan.md` / `agent-plan.md` while executing this plan. Implement cha
   - unrealized pnl in USD
   - UI converts USD→ALT using a cached FX layer
 
+### Numeric precision strategy (must-have)
+
+- Portfolio accounting must be deterministic and must not lose on-chain precision.
+- Treat all on-chain crypto amounts as **base units** end-to-end:
+  - use `bigint` in memory for normalization + accounting
+  - persist integers as **decimal strings** (JSON/redux-persist cannot serialize `bigint`)
+- Avoid JS `number` for base-unit amounts (can exceed `2^53 - 1`, e.g. `1e18` token base units).
+- Treat USD accounting values as fixed-point integers:
+  - `usdMicro = round(usd * 1e6)`
+  - store and update basis/value/PnL using `usdMicro` as `bigint`
+- Only convert to `number` / decimal strings at the **UI boundary** (selectors/formatters/graphs).
+
 ### Cost basis method
 
 - **Average cost** (remaining-units basis):
-  - `avgCostUSDPerUnit = costBasisRemainingUSD / cryptoBalance`
-  - spend-like events reduce basis by `avgCostUSDPerUnit * unitsDisposed`
+  - Tracked state is integer-based:
+    - `cryptoBalanceBase` (base units)
+    - `costBasisRemainingMicroUSD` (micro-USD)
+  - spend-like events reduce basis proportionally (no floats):
+    - `costBasisUsedMicroUSD = (costBasisRemainingMicroUSD * unitsDisposedBase) / cryptoBalanceBase`
 
 ### Fees
 
@@ -115,23 +130,24 @@ Minimum required fields:
 - `time` (unix seconds)
 - `assetId`
 - `category`: `receive | spend | moved`
-- `cryptoDelta` (signed, in **crypto units**, not fiat)
-- `feeCrypto` (crypto units; optional)
+- `cryptoDeltaBase` (signed, **base units**, persisted as decimal string)
+- `feeCryptoBase` (base units; optional; persisted as decimal string)
 - `confirmed` / `status`
 
 Pricing + basis fields:
-- `usdPriceUsed?: number`
+- `usdPriceUsedMicro?: string`
+  - micro-USD per 1 crypto unit (persisted as decimal string)
   - **required** for all basis-creating receives (incoming)
-- `basisUSDOverride?: number` (optional, future)
+- `basisUSDOverrideMicro?: string` (optional, future)
 
 Extensibility fields (do not compute in v1 UI, but design for it):
-- `usdPriceAtSpendTime?: number` (optional, future realized PnL)
-- `costBasisUsedUSD?: number` (optional, can be computed during replay)
+- `usdPriceAtSpendTimeMicro?: string` (optional, future realized PnL)
+- `costBasisUsedMicroUSD?: string` (optional, can be computed during replay)
 - `counterpartyWalletId?: string` (optional; future internal transfer linking)
 
 Determinism fields (recommended):
 - `eventId: string`
-  - stable unique id used for sorting/dedup (e.g. `${walletId}:${txid}:${time}:${cryptoDelta}`)
+  - stable unique id used for sorting/dedup (e.g. `${walletId}:${txid}:${time}:${cryptoDeltaBase}`)
 
 ### Cursor model: `WalletIntervalCursor`
 
@@ -141,9 +157,9 @@ Persisted per wallet per interval.
 - `interval`
 - `points[45]`:
   - `time`
-  - `cryptoBalance`
-  - `costBasisRemainingUSD`
-  - `valueUSD` (nullable if missing rate)
+  - `cryptoBalanceBase` (decimal string)
+  - `costBasisRemainingMicroUSD` (decimal string)
+  - `valueMicroUSD` (nullable if missing rate; decimal string)
 - `grid` metadata:
   - `startTime`
   - `endTime`
@@ -156,8 +172,10 @@ Persisted per wallet per interval.
 
 Use explicit schemas and a single bucket strategy:
 
-- `rateCacheUsdByAssetId: Record<assetId, Record<bucketTimeSec, number>>`
-- `fxCacheByAlt: Record<altCurrency, Record<bucketTimeSec, number>>`
+- `rateCacheUsdByAssetId: Record<assetId, Record<bucketTimeSec, string>>`
+  - micro-USD per 1 crypto unit (decimal string)
+- `fxCacheByAlt: Record<altCurrency, Record<bucketTimeSec, string>>`
+  - micro-ALT per 1 USD (decimal string)
 
 Bucket rule:
 - `bucketTimeSec = floor(timeSec / 3600) * 3600` (hourly)
@@ -239,7 +257,7 @@ Maintain `eventsRevisionByWalletId[walletId]`:
   - append
   - dedup removal
   - reordering
-  - backfill of missing `usdPriceUsed`
+  - backfill of missing `usdPriceUsedMicro`
 
 Persist cursor with `eventsRevision` used to build it.
 
@@ -418,7 +436,7 @@ Work:
   - record request count in meta
 - Normalization:
   - category mapping: `receive | spend | moved`
-  - compute `cryptoDelta` and `feeCrypto`
+  - compute `cryptoDeltaBase` and `feeCryptoBase` (base units)
   - set `assetId` using the format defined above
   - dedupe + stable sort
 - Update `eventsRevisionByWalletId`.
@@ -450,28 +468,28 @@ Exit criteria:
 
 ## Phase 3 — Pricing for basis (USD spot at receipt)
 
-**Goal**: Ensure all basis-creating receives have `usdPriceUsed` stored.
+**Goal**: Ensure all basis-creating receives have `usdPriceUsedMicro` stored.
 
 Redux effects (add/extend):
-- `getOrFetchUsdRateByAssetIdBucket(args: {assetId: string; bucketTimeSec: number}): Effect<Promise<number>>`
+- `getOrFetchUsdRateByAssetIdBucket(args: {assetId: string; bucketTimeSec: number}): Effect<Promise<string>>`
 - `backfillUsdPriceUsedForWallet(walletId: string): Effect<Promise<{pricesFetched: number; requestCount: number}>>`
 - Extend `syncPortfolioWalletScope(args: {walletId: string}): Effect<Promise<void>>` to include basis price backfill.
 
 Work:
 - Basis-creating rule:
-  - any event with `cryptoDelta > 0` (incoming)
+  - any event with `BigInt(cryptoDeltaBase) > 0n` (incoming)
   - includes `receive` and moved-in
-- For each basis event missing `usdPriceUsed`:
+- For each basis event missing `usdPriceUsedMicro`:
   - fetch crypto→USD at `bucketTimeSec` (hourly bucket)
-  - write into the event, then bump `eventsRevision`
+  - convert to micro-USD (`usdPriceUsedMicro`) and write into the event, then bump `eventsRevision`
 
 Caching:
 - Use `rateCacheUsdByAssetId[assetId][bucketTimeSec]` as the canonical store.
-- `usdPriceUsed` on events should reference a value from the cache.
+- `usdPriceUsedMicro` on events should reference a value from the cache.
 
 Debug UI:
 - Extend Wallet Transaction Debug:
-  - count of missing `usdPriceUsed`
+  - count of missing `usdPriceUsedMicro`
   - last N price fetches (assetId, bucketTimeSec)
   - last error
 
@@ -479,7 +497,7 @@ Audit (manual):
 - For a wallet with incoming txs, confirm all incoming events have a USD price.
 
 Exit criteria:
-- No missing `usdPriceUsed` for incoming events in sampled wallets.
+- No missing `usdPriceUsedMicro` for incoming events in sampled wallets.
 
 ---
 
@@ -494,22 +512,24 @@ Work:
 - Implement pure replay functions:
   - `applyEventToState(state, event) => state`
   - state includes:
-    - `cryptoBalance`
-    - `costBasisRemainingUSD`
-    - `avgCostUSDPerUnit`
+    - `cryptoBalanceBase` (`bigint`)
+    - `costBasisRemainingMicroUSD` (`bigint`)
 - Rules:
-  - incoming: add balance; add basis by `basisUSDOverride ?? (cryptoDelta * usdPriceUsed)`
-  - spend-like (outgoing delta or fee): subtract balance; subtract basis by `avgCostUSDPerUnit * unitsDisposed`
+  - incoming:
+    - add balance using base units
+    - add basis using micro-USD:
+      - `basisAddedMicroUSD = basisUSDOverrideMicro ?? (abs(cryptoDeltaBase) * usdPriceUsedMicro) / unitToSatoshi`
+  - spend-like (outgoing delta or fee):
+    - `unitsDisposedBase = abs(cryptoDeltaBase) + feeCryptoBase`
+    - reduce basis using average-cost ratio (do not compute floats):
+      - `costBasisUsedMicroUSD = (costBasisRemainingMicroUSD * unitsDisposedBase) / cryptoBalanceBase`
 - Extensibility hook:
-  - have the engine optionally return `costBasisUsedUSD` per spend-like application
+  - have the engine optionally return `costBasisUsedMicroUSD` per spend-like application
 
-Precision strategy (v1 pragmatic):
-- Keep values as `number` but:
-  - clamp non-negative balances/basis
-  - avoid compounding float error where possible
-- Document a future upgrade path:
-  - store crypto in base units (integer)
-  - store USD basis in micro-USD (integer)
+Precision strategy (v1 required):
+- The replay engine must use **only integer math** (`bigint`) for crypto + USD accounting.
+- Rounding policy must be explicit and deterministic (recommended: integer division rounds down).
+- After a full disposal, ensure remaining basis and balance resolve to exactly `0` (no tiny negative/positive drift).
 
 Tests:
 - Unit tests for:
@@ -547,13 +567,13 @@ Work:
   - implement all-time grid using wallet lifetime
 - Cursor build:
   - for each grid point time, compute wallet state at that time
-  - compute `valueUSD = cryptoBalance * rateUsd(assetId, bucketTimeSec)`
-  - if rate missing, set `valueUSD = null` and record missing-rate meta
+  - compute `valueMicroUSD = (cryptoBalanceBase * rateMicroUsd(assetId, bucketTimeSec)) / unitToSatoshi`
+  - if rate missing, set `valueMicroUSD = null` and record missing-rate meta
 - Persist cursor with `eventsRevision`.
 
 Incremental refresh:
 - If `eventsRevision` unchanged and `endTime` unchanged: no-op.
-- If only rates/fx changed: recompute only `valueUSD` fields.
+- If only rates/fx changed: recompute only `valueMicroUSD` fields.
 - If `endTime` advanced: shift points and compute new last point.
 - If `eventsRevision` changed: rebuild.
 
@@ -577,7 +597,7 @@ Exit criteria:
 **Goal**: Make UI denomination fast and consistent.
 
 Redux effects (add/extend):
-- `getOrFetchFxRateUsdToAltByBucket(args: {altCurrency: string; bucketTimeSec: number}): Effect<Promise<number>>`
+- `getOrFetchFxRateUsdToAltByBucket(args: {altCurrency: string; bucketTimeSec: number}): Effect<Promise<string>>`
 - `ensureFxRatesForAltCurrency(args: {altCurrency: string; bucketTimeSecs: number[]}): Effect<Promise<{fetched: number; requestCount: number}>>`
 - Extend `syncPortfolioWalletScope(args: {walletId: string}): Effect<Promise<void>>` to ensure required FX buckets.
 
@@ -585,7 +605,7 @@ Work:
 - Implement `fxCacheByAlt[altCurrency][bucketTimeSec]`.
 - Fetch FX at the same bucket times needed by charts.
 - Breakeven line uses **current remaining basis (now)**:
-  - `breakevenALT = costBasisRemainingUSD(now) * fx(nowBucket)`
+  - `breakevenAltMicro = (costBasisRemainingMicroUSD(now) * fxMicro(nowBucket)) / 1_000_000`
 
 Debug UI:
 - **Rates + FX Debug**:
@@ -624,7 +644,7 @@ Internal transfer neutralization (recommended v1 enhancement):
 Debug UI:
 - **Aggregate Debug**:
   - choose scope: wallet/account/key/portfolio
-  - show series valueUSD, basisUSD, unrealizedPnLUSD
+  - show series `valueMicroUSD`, `costBasisRemainingMicroUSD`, `unrealizedPnlMicroUSD` (and formatted USD/ALT)
   - show interval PnL breakdown by wallet
   - show transfer matches (and unmatched candidates)
   - show last aggregation compute duration (best-effort) and last run duration
@@ -729,7 +749,8 @@ Exit criteria:
 ## Global acceptance checklist
 
 - All v1 portfolio computations run only for `Network.mainnet` wallets.
-- All incoming events have `usdPriceUsed`.
+- All incoming events have `usdPriceUsedMicro`.
+- All portfolio accounting uses base-unit crypto + micro-USD fixed-point integers (`bigint` in memory, decimal strings in persisted state).
 - Wallet cursors:
   - are deterministic
   - rebuild correctly on history backfills
