@@ -355,17 +355,20 @@ const prefillRatesForIntervals = (
 export const buildCursorForWalletInterval = (
   walletId: string,
   interval: PortfolioInterval,
+  options?: {skipPrefill?: boolean},
 ): Effect<
   Promise<{rateRequested: number; rateFetched: number; coin?: string}>
 > => async (dispatch, getState) => {
   try {
     const state = getState();
-    const events = state.PORTFOLIO.txEventsByWalletId[walletId] || [];
+    const events =
+      (state.PORTFOLIO.txEventsByWalletId[walletId] as PortfolioTxEvent[] | undefined) ||
+      [];
     const assetId = events[0]?.assetId;
     let rateRequested = 0;
     let rateFetched = 0;
     let coin: string | undefined;
-    const firstReceiveTimeSec = events.reduce<number | undefined>(
+    const firstReceiveTimeSec: number | undefined = events.reduce(
       (min: number | undefined, e: PortfolioTxEvent) =>
         e.category === 'receive'
           ? min == null || e.time < min
@@ -374,13 +377,13 @@ export const buildCursorForWalletInterval = (
           : min,
       undefined,
     );
-    const firstEventTimeSec = events.reduce<number | undefined>(
+    const firstEventTimeSec: number | undefined = events.reduce(
       (min: number | undefined, e: PortfolioTxEvent) =>
         min == null || e.time < min ? e.time : min,
       undefined,
     );
     const startTsForAll = firstReceiveTimeSec ?? firstEventTimeSec;
-    if (assetId) {
+    if (assetId && !options?.skipPrefill) {
       coin = getCoinFromAssetId(assetId);
       if (coin) {
         const result = await dispatch(

@@ -293,6 +293,7 @@ const PortfolioStorageDebug: React.FC = () => {
     if (syncing || buildingCursors) {
       return;
     }
+    // Reset totals and per-coin counts before a new build run.
     setBuildingCursors(true);
     setLastDurationMs(null);
     setBuildingWalletLabel('');
@@ -312,6 +313,7 @@ const PortfolioStorageDebug: React.FC = () => {
           let built = 0;
           let skipped = 0;
           const rateTotals: Record<string, {requested: number; fetched: number}> = {};
+          // Prefetch once per wallet/asset across all intervals to avoid repeated requests.
           for (const wallet of wallets) {
             const eventCount =
               PORTFOLIO.txEventsByWalletId[wallet.id]?.length || 0;
@@ -319,26 +321,30 @@ const PortfolioStorageDebug: React.FC = () => {
               skipped++;
               continue;
             }
+            const walletLabel = `${wallet.walletName || wallet.id} (${
+              wallet.currencyAbbreviation?.toUpperCase() || ''
+            })`;
+            setBuildingWalletLabel(walletLabel);
+            // Run a single prefetch for all intervals for this wallet.
+            const prefillResult = await dispatch(
+              buildCursorForWalletInterval(wallet.id, 'day', {skipPrefill: false}),
+            );
+            if (prefillResult?.coin) {
+              const prev = rateTotals[prefillResult.coin] || {requested: 0, fetched: 0};
+              rateTotals[prefillResult.coin] = {
+                requested: prev.requested + (prefillResult.rateRequested || 0),
+                fetched: prev.fetched + (prefillResult.rateFetched || 0),
+              };
+              setBuildingRateCoin(prefillResult.coin.toUpperCase());
+              setBuildingRateRequested(prefillResult.rateRequested || 0);
+              setBuildingRateFetched(prefillResult.rateFetched || 0);
+              setRateRequestsByCoin({...rateTotals});
+            }
+
             for (const interval of cursorIntervals) {
-              const walletLabel = `${wallet.walletName || wallet.id} (${
-                wallet.currencyAbbreviation?.toUpperCase() || ''
-              })`;
-              setBuildingWalletLabel(walletLabel);
               setBuildingInterval(interval);
-              const rateResult = await dispatch(
-                buildCursorForWalletInterval(wallet.id, interval),
-              );
-              if (rateResult?.coin) {
-                const prev = rateTotals[rateResult.coin] || {requested: 0, fetched: 0};
-                rateTotals[rateResult.coin] = {
-                  requested: prev.requested + (rateResult.rateRequested || 0),
-                  fetched: prev.fetched + (rateResult.rateFetched || 0),
-                };
-                setBuildingRateCoin(rateResult.coin.toUpperCase());
-                setBuildingRateRequested(rateResult.rateRequested || 0);
-                setBuildingRateFetched(rateResult.rateFetched || 0);
-                setRateRequestsByCoin({...rateTotals});
-              }
+              // Skip prefill inside the interval loop; use cache from the single prefetch.
+              await dispatch(buildCursorForWalletInterval(wallet.id, interval, {skipPrefill: true}));
               built++;
               if (built % 5 === 0) {
                 await pause();
