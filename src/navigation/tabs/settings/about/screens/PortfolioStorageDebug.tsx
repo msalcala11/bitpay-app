@@ -335,12 +335,14 @@ const PortfolioStorageDebug: React.FC = () => {
               wallet.currencyAbbreviation?.toUpperCase() || ''
             })`;
             setBuildingWalletLabel(walletLabel);
+            let progressFired = false;
             const prefillResult = await dispatch(
               buildCursorForWalletInterval(wallet.id, 'day', {
                 skipPrefill: false,
                 prefillOnly: true,
                 runToken: `${runToken}-${wallet.id}`,
                 onPrefillProgress: p => {
+                  progressFired = true;
                   const prev = rateTotals[p.coin] || {requested: 0, fetched: 0};
                   const nextTotals = {
                     ...rateTotals,
@@ -357,6 +359,21 @@ const PortfolioStorageDebug: React.FC = () => {
                 },
               }),
             );
+            if (!progressFired && prefillResult?.coin) {
+              const prev = rateTotals[prefillResult.coin] || {requested: 0, fetched: 0};
+              const nextTotals = {
+                ...rateTotals,
+                [prefillResult.coin]: {
+                  requested: Math.max(prev.requested, prefillResult.rateRequested || 0),
+                  fetched: Math.max(prev.fetched, prefillResult.rateFetched || 0),
+                },
+              };
+              Object.assign(rateTotals, nextTotals);
+              setBuildingRateCoin(prefillResult.coin.toUpperCase());
+              setBuildingRateRequested(prefillResult.rateRequested || 0);
+              setBuildingRateFetched(prefillResult.rateFetched || 0);
+              setRateRequestsByCoin({...nextTotals});
+            }
             prefetched++;
             if (prefetched % 5 === 0) {
               await pause();

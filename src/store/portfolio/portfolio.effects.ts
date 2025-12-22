@@ -349,6 +349,9 @@ const prefillRatesForIntervals = (
   const payload: Record<string, Record<number, number>> = {};
   let fetched = 0;
   let requested = 0;
+  if (onProgress && missingTimes.length) {
+    onProgress({coin, requested: 0, fetched: 0});
+  }
   for (const ts of missingTimes) {
     requested++;
     try {
