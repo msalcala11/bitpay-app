@@ -234,6 +234,12 @@ Not required for v1; architecture should allow adding later.
       - `stepSeconds = round(durationSeconds / (POINTS - 1))`
     - For fixed windows, `stepSeconds = round(durationSeconds(interval) / (POINTS - 1))`
     - `times[i] = endTime - (POINTS - 1 - i) * stepSeconds` for `i = 0..44`
+- **[Rate cache prefill for cursor grids]**
+  - For each asset, union all cursor grid timestamps across the 7 intervals (`day`, `week`, `month`, `3months`, `year`, `5years`, `all`).
+  - De-dupe against existing `rateCacheUsd[assetId][ts]`.
+  - Fetch missing USD rates via `getHistoricFiatRate('USD', coin, tsMs)` using the exact grid timestamp (seconds → ms).
+  - Store into `rateCacheUsd[assetId][ts]` (ts in seconds).
+  - During cursor build, read from this prefilled cache; if no rate exists up to a point, leave `valueUSD` null instead of carrying stale values.
 - **[Cursor build / rebuild]**
   - For wallet+interval, build `points` by replaying events once and emitting state at each `time`.
   - Compute `valueUSD` per point using crypto→USD rate cache at that point time.
