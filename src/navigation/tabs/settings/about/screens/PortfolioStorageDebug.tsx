@@ -16,6 +16,7 @@ import {Keys} from '../../../../../store/wallet/wallet.reducer';
 import Clipboard from '@react-native-clipboard/clipboard';
 import {
   buildCursorForWalletInterval,
+  clearRateCacheUsd,
   resetPortfolio,
   syncPortfolioTxEventsForWallet,
 } from '../../../../../store/portfolio';
@@ -290,6 +291,15 @@ const PortfolioStorageDebug: React.FC = () => {
     setLastRequestCount(0);
   };
 
+  const clearRateCache = () => {
+    dispatch(clearRateCacheUsd());
+    setRateRequestsByCoin({});
+    setBuildingRateCoin('');
+    setBuildingRateRequested(0);
+    setBuildingRateFetched(0);
+    setSyncStatus(t('Cleared rate cache'));
+  };
+
   const prefetchRates = () => {
     if (syncing || prefetching || buildingCursors) {
       return;
@@ -330,19 +340,23 @@ const PortfolioStorageDebug: React.FC = () => {
                 skipPrefill: false,
                 prefillOnly: true,
                 runToken: `${runToken}-${wallet.id}`,
+                onPrefillProgress: p => {
+                  const prev = rateTotals[p.coin] || {requested: 0, fetched: 0};
+                  const nextTotals = {
+                    ...rateTotals,
+                    [p.coin]: {
+                      requested: Math.max(prev.requested, p.requested),
+                      fetched: Math.max(prev.fetched, p.fetched),
+                    },
+                  };
+                  Object.assign(rateTotals, nextTotals);
+                  setBuildingRateCoin(p.coin.toUpperCase());
+                  setBuildingRateRequested(p.requested);
+                  setBuildingRateFetched(p.fetched);
+                  setRateRequestsByCoin({...nextTotals});
+                },
               }),
             );
-            if (prefillResult?.coin) {
-              const prev = rateTotals[prefillResult.coin] || {requested: 0, fetched: 0};
-              rateTotals[prefillResult.coin] = {
-                requested: prev.requested + (prefillResult.rateRequested || 0),
-                fetched: prev.fetched + (prefillResult.rateFetched || 0),
-              };
-              setBuildingRateCoin(prefillResult.coin.toUpperCase());
-              setBuildingRateRequested(prefillResult.rateRequested || 0);
-              setBuildingRateFetched(prefillResult.rateFetched || 0);
-              setRateRequestsByCoin({...rateTotals});
-            }
             prefetched++;
             if (prefetched % 5 === 0) {
               await pause();
@@ -469,6 +483,13 @@ const PortfolioStorageDebug: React.FC = () => {
             <Setting onPress={clearPortfolioData}>
               <SettingTitle>{t('Clear Portfolio Data')}</SettingTitle>
               <Button buttonType="pill" onPress={clearPortfolioData}>
+                {t('Clear')}
+              </Button>
+            </Setting>
+            <Hr />
+            <Setting onPress={clearRateCache}>
+              <SettingTitle>{t('Clear Rate Cache')}</SettingTitle>
+              <Button buttonType="pill" onPress={clearRateCache}>
                 {t('Clear')}
               </Button>
             </Setting>

@@ -43,6 +43,10 @@ export const setRateCacheUsd = (payload: {
   payload,
 });
 
+export const clearRateCacheUsd = (): PortfolioActionType => ({
+  type: PortfolioActionTypes.CLEAR_RATE_CACHE_USD,
+});
+
 export const setFxCache = (payload: {
   fxCache: Record<string, unknown>;
 }): PortfolioActionType => ({

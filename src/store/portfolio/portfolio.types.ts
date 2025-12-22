@@ -62,6 +62,7 @@ export enum PortfolioActionTypes {
   UPSERT_TX_EVENTS_FOR_WALLET = 'PORTFOLIO/UPSERT_TX_EVENTS_FOR_WALLET',
   SET_WALLET_INTERVAL_CURSOR = 'PORTFOLIO/SET_WALLET_INTERVAL_CURSOR',
   SET_RATE_CACHE_USD = 'PORTFOLIO/SET_RATE_CACHE_USD',
+  CLEAR_RATE_CACHE_USD = 'PORTFOLIO/CLEAR_RATE_CACHE_USD',
   SET_FX_CACHE = 'PORTFOLIO/SET_FX_CACHE',
   SET_META = 'PORTFOLIO/SET_META',
 }
@@ -102,6 +103,10 @@ export interface SetRateCacheUsdAction {
   };
 }
 
+export interface ClearRateCacheUsdAction {
+  type: PortfolioActionTypes.CLEAR_RATE_CACHE_USD;
+}
+
 export interface SetFxCacheAction {
   type: PortfolioActionTypes.SET_FX_CACHE;
   payload: {
@@ -120,5 +125,6 @@ export type PortfolioActionType =
   | UpsertTxEventsForWalletAction
   | SetWalletIntervalCursorAction
   | SetRateCacheUsdAction
+  | ClearRateCacheUsdAction
   | SetFxCacheAction
   | SetPortfolioMetaAction;

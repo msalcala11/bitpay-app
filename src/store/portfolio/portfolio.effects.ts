@@ -316,6 +316,7 @@ const prefillRatesForIntervals = (
   intervals: PortfolioInterval[],
   firstReceiveTimeSec?: number,
   runToken?: string,
+  onProgress?: (p: {coin: string; requested: number; fetched: number}) => void,
 ): Effect<Promise<{requested: number; fetched: number}>> => async (
   dispatch,
   getState,
@@ -347,7 +348,9 @@ const prefillRatesForIntervals = (
 
   const payload: Record<string, Record<number, number>> = {};
   let fetched = 0;
+  let requested = 0;
   for (const ts of missingTimes) {
+    requested++;
     try {
       const historic = await getHistoricFiatRate('USD', coin, String(ts * 1000));
       if (historic?.rate != null) {
@@ -363,6 +366,9 @@ const prefillRatesForIntervals = (
     if (attemptedSet) {
       attemptedSet.add(`${assetId}:${ts}`);
     }
+    if (onProgress) {
+      onProgress({coin, requested, fetched});
+    }
   }
 
   if (Object.keys(payload).length) {
@@ -375,7 +381,12 @@ const prefillRatesForIntervals = (
 export const buildCursorForWalletInterval = (
   walletId: string,
   interval: PortfolioInterval,
-  options?: {skipPrefill?: boolean; prefillOnly?: boolean; runToken?: string},
+  options?: {
+    skipPrefill?: boolean;
+    prefillOnly?: boolean;
+    runToken?: string;
+    onPrefillProgress?: (p: {coin: string; requested: number; fetched: number}) => void;
+  },
 ): Effect<
   Promise<{rateRequested: number; rateFetched: number; coin?: string}>
 > => async (dispatch, getState) => {

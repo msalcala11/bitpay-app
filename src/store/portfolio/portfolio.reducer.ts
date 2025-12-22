@@ -99,6 +99,13 @@ export const portfolioReducer = (
       };
     }
 
+    case PortfolioActionTypes.CLEAR_RATE_CACHE_USD: {
+      return {
+        ...state,
+        rateCacheUsd: {},
+      };
+    }
+
     case PortfolioActionTypes.SET_FX_CACHE: {
       return {
         ...state,
