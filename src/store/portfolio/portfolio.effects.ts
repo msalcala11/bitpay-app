@@ -365,19 +365,21 @@ export const buildCursorForWalletInterval = (
     let rateRequested = 0;
     let rateFetched = 0;
     let coin: string | undefined;
-    const firstReceiveTimeSec = events
-      .filter(e => e.category === 'receive')
-      .reduce<number | undefined>(
-        (min, e) => (min == null || e.time < min ? e.time : min),
-        undefined,
-      );
-    const firstEventTimeSec =
-      firstReceiveTimeSec != null
-        ? firstReceiveTimeSec
-        : events.reduce<number | undefined>(
-            (min, e) => (min == null || e.time < min ? e.time : min),
-            undefined,
-          );
+    const firstReceiveTimeSec = events.reduce<number | undefined>(
+      (min: number | undefined, e: PortfolioTxEvent) =>
+        e.category === 'receive'
+          ? min == null || e.time < min
+            ? e.time
+            : min
+          : min,
+      undefined,
+    );
+    const firstEventTimeSec = events.reduce<number | undefined>(
+      (min: number | undefined, e: PortfolioTxEvent) =>
+        min == null || e.time < min ? e.time : min,
+      undefined,
+    );
+    const startTsForAll = firstReceiveTimeSec ?? firstEventTimeSec;
     if (assetId) {
       coin = getCoinFromAssetId(assetId);
       if (coin) {
@@ -390,7 +392,7 @@ export const buildCursorForWalletInterval = (
             'year',
             '5years',
             'all',
-          ], firstEventTimeSec),
+          ], startTsForAll),
         );
         rateRequested = result?.requested || 0;
         rateFetched = result?.fetched || 0;
@@ -404,7 +406,7 @@ export const buildCursorForWalletInterval = (
       interval,
       events,
       assetRateCache,
-      firstEventTimeSec,
+      startTsForAll,
     );
     dispatch(
       setWalletIntervalCursor({
