@@ -16,6 +16,7 @@ import {useAppSelector} from '../../../../../utils/hooks';
 import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
 import {PortfolioInterval} from '../../../../../store/portfolio/portfolio.types';
 import {WalletGroupParamList} from '../../../../wallet/WalletGroup';
+import Clipboard from '@react-native-clipboard/clipboard';
 
 const ScrollContainer = styled.ScrollView.attrs({
   contentContainerStyle: {paddingBottom: 40},
@@ -73,6 +74,32 @@ const PortfolioWalletCursorDebug: React.FC<Props> = ({route}) => {
     }
   }, [cursor]);
 
+  const copyCursorCsv = () => {
+    if (!cursor) {
+      return;
+    }
+    const headers = [
+      'time',
+      'time_iso',
+      'cryptoBalance',
+      'costBasisRemainingUSD',
+      'valueUSD',
+    ];
+    const lines = [
+      headers.join(','),
+      ...cursor.points.map((p: typeof cursor.points[number]) =>
+        [
+          p.time,
+          new Date(p.time * 1000).toISOString(),
+          p.cryptoBalance,
+          p.costBasisRemainingUSD,
+          p.valueUSD ?? '',
+        ].join(','),
+      ),
+    ];
+    Clipboard.setString(lines.join('\n'));
+  };
+
   return (
     <SettingsContainer>
       <ScrollContainer>
@@ -125,6 +152,12 @@ const PortfolioWalletCursorDebug: React.FC<Props> = ({route}) => {
 
         <HeaderTitle>
           <SettingTitle>{t('Cursor JSON')}</SettingTitle>
+          <Button
+            buttonType="pill"
+            onPress={copyCursorCsv}
+            style={{marginTop: 8}}>
+            {t('Copy as CSV')}
+          </Button>
         </HeaderTitle>
         <JsonText selectable>{json || t('No cursor data')}</JsonText>
       </ScrollContainer>
