@@ -337,6 +337,13 @@ Deliverables:
   - historical crypto→USD rates (PriceCharts path)
   - USD→ALT FX rates
 
+Redux effects (no new effects required in this phase; identify and instrument existing):
+- `GetTransactionHistory(args: {wallet: Wallet; transactionsHistory: any[]; limit: number; refresh?: boolean; contactList?: any[]; isAccountDetailsView?: boolean; isExportHistoryView?: boolean;}): Effect<Promise<{transactions: any[]; loadMore: boolean; hasConfirmingTxs: boolean}>>`
+- `fetchFullTransactionHistoryForWallet(wallet: Wallet): Effect<Promise<{transactions: any[]; requestCount: number}>>`
+- `syncPortfolioTxEventsForWallet(wallet: Wallet): Effect<Promise<{events: PortfolioTxEvent[]; requestCount: number}>>`
+- `startGetRates(args: {context?: UpdateAllKeyAndWalletStatusContext; force?: boolean}): Effect<Promise<Rates>>`
+- `fetchHistoricalRates(dateRange?: DateRanges, currencyAbbreviation?: string, fiatIsoCode?: string): Effect<Promise<Array<Rate>>>`
+
 Instrumentation:
 - Add `logManager` info/error logs for:
   - portfolio sync start/end per wallet (include duration)
@@ -363,6 +370,9 @@ Work:
   - `eventsRevisionByWalletId`
   - `metaByWalletId`
   - `rateCacheUsdByAssetId` and `fxCacheByAlt` keyed by hourly buckets
+
+Redux effects (add/extend):
+- `clearPortfolioCache(): Effect<void>`
 
 User-facing ops:
 - Implement **Clear Portfolio Cache** action (debug-only initially):
@@ -391,6 +401,14 @@ Exit criteria:
 ## Phase 2 — Tx ingestion + normalization (mainnet-only)
 
 **Goal**: For each **livenet** wallet, fetch full tx history and normalize into deterministic `PortfolioTxEvent[]`.
+
+Redux effects (add/extend):
+- `fetchFullTransactionHistoryForWallet(wallet: Wallet): Effect<Promise<{transactions: any[]; requestCount: number}>>`
+- `normalizeTxHistoryToPortfolioTxEvents(wallet: Wallet, transactions: any[]): Effect<PortfolioTxEvent[]>`
+- `syncPortfolioTxEventsForWallet(wallet: Wallet): Effect<Promise<{events: PortfolioTxEvent[]; requestCount: number}>>`
+- `syncPortfolioWalletScope(args: {walletId: string}): Effect<Promise<void>>`
+- `syncPortfolioKeyScope(args: {keyId: string}): Effect<Promise<void>>`
+- `syncPortfolioPortfolioScope(): Effect<Promise<void>>`
 
 Work:
 - Enforce gating:
@@ -434,6 +452,11 @@ Exit criteria:
 
 **Goal**: Ensure all basis-creating receives have `usdPriceUsed` stored.
 
+Redux effects (add/extend):
+- `getOrFetchUsdRateByAssetIdBucket(args: {assetId: string; bucketTimeSec: number}): Effect<Promise<number>>`
+- `backfillUsdPriceUsedForWallet(walletId: string): Effect<Promise<{pricesFetched: number; requestCount: number}>>`
+- Extend `syncPortfolioWalletScope(args: {walletId: string}): Effect<Promise<void>>` to include basis price backfill.
+
 Work:
 - Basis-creating rule:
   - any event with `cryptoDelta > 0` (incoming)
@@ -463,6 +486,9 @@ Exit criteria:
 ## Phase 4 — Average cost engine (precision + extensibility)
 
 **Goal**: Implement and test the average-cost replay engine used by cursors.
+
+Redux effects:
+- No new Redux effects required in this phase (pure functions used by cursor-building effects).
 
 Work:
 - Implement pure replay functions:
@@ -509,6 +535,11 @@ Exit criteria:
 
 **Goal**: Build `WalletIntervalCursor` for each wallet and interval.
 
+Redux effects (add/extend):
+- `buildCursorForWalletInterval(walletId: string, interval: PortfolioInterval): Effect<Promise<void>>`
+- `buildCursorsForWallet(args: {walletId: string; intervals?: PortfolioInterval[]}): Effect<Promise<{built: number}>>`
+- Extend `syncPortfolioWalletScope(args: {walletId: string}): Effect<Promise<void>>` to include cursor builds.
+
 Work:
 - Skip cursor builds entirely for wallets excluded from portfolio analytics (non-mainnet or `no_tx_history`).
 - Grid generation:
@@ -545,6 +576,11 @@ Exit criteria:
 
 **Goal**: Make UI denomination fast and consistent.
 
+Redux effects (add/extend):
+- `getOrFetchFxRateUsdToAltByBucket(args: {altCurrency: string; bucketTimeSec: number}): Effect<Promise<number>>`
+- `ensureFxRatesForAltCurrency(args: {altCurrency: string; bucketTimeSecs: number[]}): Effect<Promise<{fetched: number; requestCount: number}>>`
+- Extend `syncPortfolioWalletScope(args: {walletId: string}): Effect<Promise<void>>` to ensure required FX buckets.
+
 Work:
 - Implement `fxCacheByAlt[altCurrency][bucketTimeSec]`.
 - Fetch FX at the same bucket times needed by charts.
@@ -567,6 +603,9 @@ Exit criteria:
 ## Phase 7 — Aggregations (wallet → account/key/portfolio) + internal transfer neutralization
 
 **Goal**: Aggregate results across wallets for charts and asset list.
+
+Redux effects:
+- No new Redux effects required in this phase (prefer selectors/pure functions; do not persist aggregate caches in v1).
 
 Work:
 - Aggregation for fixed-window intervals:
@@ -599,6 +638,10 @@ Exit criteria:
 
 **Goal**: Wire computed data into the user-facing UI.
 
+Redux effects (reuse):
+- Reuse `syncPortfolioWalletScope(args: {walletId: string}): Effect<Promise<void>>` for “ensure data is ready” on wallet screens.
+- Reuse `syncPortfolioKeyScope(args: {keyId: string}): Effect<Promise<void>>` / `syncPortfolioPortfolioScope(): Effect<Promise<void>>` where appropriate.
+
 Work:
 - Extend existing PriceCharts intervals:
   - add 3M/1Y/5Y/ALL
@@ -628,6 +671,11 @@ Exit criteria:
 ## Phase 9 — Reliability, persistence safety, and performance
 
 **Goal**: Make long-lived persisted state safe and diagnosable.
+
+Redux effects (add/extend):
+- `startInitialPortfolioSync(): Effect<Promise<void>>`
+- `resumeInitialPortfolioSyncIfNeeded(): Effect<Promise<void>>`
+- Extend `syncPortfolioWalletScope(args: {walletId: string}): Effect<Promise<void>>` with cancellation/guards and low-priority yielding.
 
 Work:
 - Persist/rehydrate resilience:
@@ -663,6 +711,9 @@ Exit criteria:
 ## Phase 10 — Optional optimization: checkpoints
 
 **Goal**: Speed up state queries for large histories without changing correctness.
+
+Redux effects (add/extend):
+- `buildWalletPositionCheckpoints(args: {walletId: string; checkpointEveryNEvents?: number}): Effect<Promise<void>>`
 
 Work:
 - Add optional `WalletPositionCheckpoint` every N events.
