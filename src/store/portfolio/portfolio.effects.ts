@@ -18,6 +18,7 @@ import {
 } from './portfolio.actions';
 import {buildWalletIntervalCursor} from './portfolio.cursor';
 import {getHistoricFiatRate} from '../wallet/effects/rates/rates';
+import {getPortfolioIntervalGrid} from './portfolio.grid';
 
 const getAssetIdFromWallet = (wallet: Wallet): string => {
   const coin = wallet.currencyAbbreviation?.toLowerCase() || '';
@@ -307,6 +308,49 @@ export const backfillUsdPriceUsedForWallet = (
   };
 };
 
+const prefillRatesForIntervals = (
+  assetId: string,
+  coin: string,
+  intervals: PortfolioInterval[],
+): Effect<Promise<{requested: number; fetched: number}>> => async (
+  dispatch,
+  getState,
+) => {
+  const state = getState();
+  const cache = state.PORTFOLIO.rateCacheUsd?.[assetId] || {};
+
+  const allTimes = new Set<number>();
+  intervals.forEach(interval => {
+    const grid = getPortfolioIntervalGrid(interval);
+    grid.times.forEach(ts => allTimes.add(ts));
+  });
+
+  const missingTimes = Array.from(allTimes).filter(ts => cache[ts] == null);
+
+  const payload: Record<string, Record<number, number>> = {};
+  let fetched = 0;
+  for (const ts of missingTimes) {
+    try {
+      const historic = await getHistoricFiatRate('USD', coin, String(ts * 1000));
+      if (historic?.rate != null) {
+        fetched++;
+        payload[assetId] = {...(payload[assetId] || {}), [ts]: historic.rate};
+      }
+    } catch (e) {
+      const err = e instanceof Error ? e.message : JSON.stringify(e);
+      logManager.error(
+        `[portfolio] getHistoricFiatRate grid fetch failed for ${assetId} ts ${ts}: ${err}`,
+      );
+    }
+  }
+
+  if (Object.keys(payload).length) {
+    dispatch(setRateCacheUsd({rateCacheUsd: payload}));
+  }
+
+  return {requested: missingTimes.length, fetched};
+};
+
 export const buildCursorForWalletInterval = (
   walletId: string,
   interval: PortfolioInterval,
@@ -315,6 +359,22 @@ export const buildCursorForWalletInterval = (
     const state = getState();
     const events = state.PORTFOLIO.txEventsByWalletId[walletId] || [];
     const assetId = events[0]?.assetId;
+    if (assetId) {
+      const coin = getCoinFromAssetId(assetId);
+      if (coin) {
+        await dispatch(
+          prefillRatesForIntervals(assetId, coin, [
+            'day',
+            'week',
+            'month',
+            '3months',
+            'year',
+            '5years',
+            'all',
+          ]),
+        );
+      }
+    }
     const assetRateCache = assetId
       ? state.PORTFOLIO.rateCacheUsd[assetId] || {}
       : undefined;
