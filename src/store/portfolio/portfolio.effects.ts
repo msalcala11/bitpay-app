@@ -11,8 +11,13 @@ import {
   PortfolioTxEventCategory,
   PortfolioInterval,
 } from './portfolio.types';
-import {setTxEventsForWallet, setWalletIntervalCursor} from './portfolio.actions';
+import {
+  setRateCacheUsd,
+  setTxEventsForWallet,
+  setWalletIntervalCursor,
+} from './portfolio.actions';
 import {buildWalletIntervalCursor} from './portfolio.cursor';
+import {getHistoricFiatRate} from '../wallet/effects/rates/rates';
 
 const getAssetIdFromWallet = (wallet: Wallet): string => {
   const coin = wallet.currencyAbbreviation?.toLowerCase() || '';

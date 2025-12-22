@@ -51,7 +51,7 @@ export interface PortfolioState {
     string,
     Partial<Record<PortfolioInterval, WalletIntervalCursor>>
   >;
-  rateCacheUsd: Record<string, unknown>;
+  rateCacheUsd: Record<string, Record<number, number>>;
   fxCache: Record<string, unknown>;
   meta: PortfolioMeta;
 }
@@ -98,7 +98,7 @@ export interface SetWalletIntervalCursorAction {
 export interface SetRateCacheUsdAction {
   type: PortfolioActionTypes.SET_RATE_CACHE_USD;
   payload: {
-    rateCacheUsd: Record<string, unknown>;
+    rateCacheUsd: Record<string, Record<number, number>>;
   };
 }
 

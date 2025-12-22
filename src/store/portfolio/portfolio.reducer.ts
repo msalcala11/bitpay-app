@@ -15,7 +15,18 @@ export const initialPortfolioState: PortfolioState = {
   fxCache: {},
   meta: {
     syncStatus: 'idle',
-  },
+  }
+};
+
+const mergeRateCacheUsd = (
+  existing: PortfolioState['rateCacheUsd'],
+  incoming: PortfolioState['rateCacheUsd'],
+): PortfolioState['rateCacheUsd'] => {
+  const merged = {...existing};
+  Object.entries(incoming || {}).forEach(([assetId, buckets]) => {
+    merged[assetId] = {...(merged[assetId] || {}), ...(buckets || {})};
+  });
+  return merged;
 };
 
 const mergeTxEvents = (
@@ -84,7 +95,7 @@ export const portfolioReducer = (
     case PortfolioActionTypes.SET_RATE_CACHE_USD: {
       return {
         ...state,
-        rateCacheUsd: action.payload.rateCacheUsd,
+        rateCacheUsd: mergeRateCacheUsd(state.rateCacheUsd, action.payload.rateCacheUsd),
       };
     }
 

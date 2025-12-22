@@ -37,7 +37,7 @@ export const setWalletIntervalCursor = (payload: {
 });
 
 export const setRateCacheUsd = (payload: {
-  rateCacheUsd: Record<string, unknown>;
+  rateCacheUsd: Record<string, Record<number, number>>;
 }): PortfolioActionType => ({
   type: PortfolioActionTypes.SET_RATE_CACHE_USD,
   payload,
