@@ -38,9 +38,28 @@ export const getPortfolioIntervalDurationSeconds = (
 export const getPortfolioIntervalGrid = (
   interval: PortfolioInterval,
   nowMs: number = Date.now(),
+  firstReceiveTimeSec?: number,
 ): PortfolioIntervalGrid => {
   const nowSec = Math.floor(nowMs / 1000);
   const endTime = Math.floor(nowSec / 3600) * 3600;
+
+  if (interval === 'all') {
+    const startBase = firstReceiveTimeSec ?? nowSec;
+    const startTime = Math.floor(startBase / 3600) * 3600;
+    const durationSeconds = Math.max(1, endTime - startTime);
+    const stepSeconds = Math.max(
+      1,
+      Math.round(durationSeconds / (PORTFOLIO_GRID_POINTS - 1)),
+    );
+    const times = Array.from({length: PORTFOLIO_GRID_POINTS}, (_, i) =>
+      startTime + i * stepSeconds,
+    );
+    return {
+      stepSeconds,
+      endTime,
+      times,
+    };
+  }
 
   const durationSeconds = getPortfolioIntervalDurationSeconds(interval);
   const stepSeconds = Math.max(

@@ -312,6 +312,7 @@ const prefillRatesForIntervals = (
   assetId: string,
   coin: string,
   intervals: PortfolioInterval[],
+  firstReceiveTimeSec?: number,
 ): Effect<Promise<{requested: number; fetched: number}>> => async (
   dispatch,
   getState,
@@ -321,7 +322,7 @@ const prefillRatesForIntervals = (
 
   const allTimes = new Set<number>();
   intervals.forEach(interval => {
-    const grid = getPortfolioIntervalGrid(interval);
+    const grid = getPortfolioIntervalGrid(interval, Date.now(), firstReceiveTimeSec);
     grid.times.forEach(ts => allTimes.add(ts));
   });
 
@@ -364,6 +365,19 @@ export const buildCursorForWalletInterval = (
     let rateRequested = 0;
     let rateFetched = 0;
     let coin: string | undefined;
+    const firstReceiveTimeSec = events
+      .filter(e => e.category === 'receive')
+      .reduce<number | undefined>(
+        (min, e) => (min == null || e.time < min ? e.time : min),
+        undefined,
+      );
+    const firstEventTimeSec =
+      firstReceiveTimeSec != null
+        ? firstReceiveTimeSec
+        : events.reduce<number | undefined>(
+            (min, e) => (min == null || e.time < min ? e.time : min),
+            undefined,
+          );
     if (assetId) {
       coin = getCoinFromAssetId(assetId);
       if (coin) {
@@ -376,7 +390,7 @@ export const buildCursorForWalletInterval = (
             'year',
             '5years',
             'all',
-          ]),
+          ], firstEventTimeSec),
         );
         rateRequested = result?.requested || 0;
         rateFetched = result?.fetched || 0;
@@ -385,7 +399,13 @@ export const buildCursorForWalletInterval = (
     const assetRateCache = assetId
       ? state.PORTFOLIO.rateCacheUsd[assetId] || {}
       : undefined;
-    const cursor = buildWalletIntervalCursor(walletId, interval, events, assetRateCache);
+    const cursor = buildWalletIntervalCursor(
+      walletId,
+      interval,
+      events,
+      assetRateCache,
+      firstEventTimeSec,
+    );
     dispatch(
       setWalletIntervalCursor({
         walletId,

@@ -91,8 +91,9 @@ export const buildWalletIntervalCursor = (
   interval: PortfolioInterval,
   events: PortfolioTxEvent[],
   assetRateCache?: Record<number, number>,
+  firstReceiveTimeSec?: number,
 ): WalletIntervalCursor => {
-  const grid = getPortfolioIntervalGrid(interval);
+  const grid = getPortfolioIntervalGrid(interval, Date.now(), firstReceiveTimeSec);
   const sortedEvents = [...events].sort((a, b) => a.time - b.time);
   let state: PortfolioPositionState = {
     cryptoBalance: 0,
