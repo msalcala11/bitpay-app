@@ -1,5 +1,5 @@
 import React, {useMemo, useState} from 'react';
-import {InteractionManager} from 'react-native';
+import {InteractionManager, View} from 'react-native';
 import styled from 'styled-components/native';
 import {SettingsContainer} from '../../SettingsRoot';
 import {
@@ -561,14 +561,33 @@ const PortfolioStorageDebug: React.FC = () => {
               </Button>
             </Setting>
             {Object.keys(rateRequestsByCoin).length ? (
-              <Setting style={{flexDirection: 'column', alignItems: 'flex-start'}}>
-                <SettingTitle>{t('Rate Requests by Coin')}</SettingTitle>
-                {Object.entries(rateRequestsByCoin).map(([coin, totals]) => (
-                  <SettingTitle key={coin} style={{marginTop: 4}}>
-                    {coin.toUpperCase()}: {totals.requested} req / {totals.fetched} fetched
+              <>
+                <View
+                  style={{
+                    width: '100%',
+                    paddingVertical: 12,
+                    marginBottom: 16,
+                    flexDirection: 'column',
+                    gap: 6,
+                  }}>
+                  <SettingTitle style={{marginBottom: 4, width: '100%'}}>
+                    {t('Rate Requests by Coin')}
                   </SettingTitle>
-                ))}
-              </Setting>
+                  {Object.entries(rateRequestsByCoin).map(([coin, totals]) => (
+                    <View
+                      key={coin}
+                      style={{
+                        width: '100%',
+                        paddingVertical: 4,
+                      }}>
+                      <SettingTitle style={{lineHeight: 20}}>
+                        {coin.toUpperCase()}: {totals.requested} req / {totals.fetched} fetched
+                      </SettingTitle>
+                    </View>
+                  ))}
+                </View>
+                <Hr />
+              </>
             ) : null}
           </>
         ) : null}
