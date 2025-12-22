@@ -88,6 +88,12 @@ const PortfolioStorageDebug: React.FC = () => {
   const [buildingWalletLabel, setBuildingWalletLabel] = useState<string>('');
   const [buildingInterval, setBuildingInterval] =
     useState<PortfolioInterval | null>(null);
+  const [buildingRateCoin, setBuildingRateCoin] = useState<string>('');
+  const [buildingRateRequested, setBuildingRateRequested] = useState<number>(0);
+  const [buildingRateFetched, setBuildingRateFetched] = useState<number>(0);
+  const [rateRequestsByCoin, setRateRequestsByCoin] = useState<
+    Record<string, {requested: number; fetched: number}>
+  >({});
 
   const wallets = useMemo(() => {
     return Object.values(keys)
@@ -226,18 +232,14 @@ const PortfolioStorageDebug: React.FC = () => {
     setLastRequestCount(0);
     setLastRunAt(startedAt);
     setLastSummary(`Running... (started at ${startedAt})`);
-    setCurrentWalletLabel('');
-    setLastDurationMs(null);
 
     try {
       let totalEvents = 0;
       let totalRequests = 0;
       let totalRateRequests = 0;
       let totalRateFetched = 0;
+
       for (const wallet of wallets) {
-        if (wallet.network !== 'livenet' && wallet.credentials?.network !== 'livenet') {
-          continue;
-        }
         const {events, requestCount, rateRequestCount, rateFetchedCount} = await dispatch(
           syncPortfolioTxEventsForWallet(wallet),
         );
@@ -248,7 +250,9 @@ const PortfolioStorageDebug: React.FC = () => {
         setLastRequestCount(totalRequests);
         setLastRateRequestCount(totalRateRequests);
         setLastRateFetchedCount(totalRateFetched);
-        const label = `${wallet.walletName || wallet.id} (${wallet.currencyAbbreviation?.toUpperCase() || ''})`;
+        const label = `${wallet.walletName || wallet.id} (${
+          wallet.currencyAbbreviation?.toUpperCase() || ''
+        })`;
         setCurrentWalletLabel(label);
         setSyncStatus(
           `Run ${nextRun}: syncing wallet ${label} (req ${totalRequests})`,
@@ -293,6 +297,10 @@ const PortfolioStorageDebug: React.FC = () => {
     setLastDurationMs(null);
     setBuildingWalletLabel('');
     setBuildingInterval(null);
+    setBuildingRateCoin('');
+    setBuildingRateRequested(0);
+    setBuildingRateFetched(0);
+    setRateRequestsByCoin({});
     setSyncStatus('Starting cursor build...');
     InteractionManager.runAfterInteractions(() => {
       setTimeout(async () => {
@@ -303,6 +311,7 @@ const PortfolioStorageDebug: React.FC = () => {
         try {
           let built = 0;
           let skipped = 0;
+          const rateTotals: Record<string, {requested: number; fetched: number}> = {};
           for (const wallet of wallets) {
             const eventCount =
               PORTFOLIO.txEventsByWalletId[wallet.id]?.length || 0;
@@ -316,7 +325,20 @@ const PortfolioStorageDebug: React.FC = () => {
               })`;
               setBuildingWalletLabel(walletLabel);
               setBuildingInterval(interval);
-              await dispatch(buildCursorForWalletInterval(wallet.id, interval));
+              const rateResult = await dispatch(
+                buildCursorForWalletInterval(wallet.id, interval),
+              );
+              if (rateResult?.coin) {
+                const prev = rateTotals[rateResult.coin] || {requested: 0, fetched: 0};
+                rateTotals[rateResult.coin] = {
+                  requested: prev.requested + (rateResult.rateRequested || 0),
+                  fetched: prev.fetched + (rateResult.rateFetched || 0),
+                };
+                setBuildingRateCoin(rateResult.coin.toUpperCase());
+                setBuildingRateRequested(rateResult.rateRequested || 0);
+                setBuildingRateFetched(rateResult.rateFetched || 0);
+                setRateRequestsByCoin({...rateTotals});
+              }
               built++;
               if (built % 5 === 0) {
                 await pause();
@@ -343,6 +365,9 @@ const PortfolioStorageDebug: React.FC = () => {
         } finally {
           setBuildingWalletLabel('');
           setBuildingInterval(null);
+          setBuildingRateCoin('');
+          setBuildingRateRequested(0);
+          setBuildingRateFetched(0);
           setBuildingCursors(false);
         }
       }, 0);
@@ -406,6 +431,25 @@ const PortfolioStorageDebug: React.FC = () => {
               <Button buttonType="pill" style={{marginBottom: 6, marginRight: 6}}>
                 {t('Rate Fetched') + ': ' + (lastRateFetchedCount || 0)}
               </Button>
+              {buildingCursors && buildingRateCoin ? (
+                <>
+                  <Button
+                    buttonType="pill"
+                    style={{marginBottom: 6, marginRight: 6}}>
+                    {t('Rate Coin') + ': ' + buildingRateCoin}
+                  </Button>
+                  <Button
+                    buttonType="pill"
+                    style={{marginBottom: 6, marginRight: 6}}>
+                    {t('Rate Req (curr)') + ': ' + buildingRateRequested}
+                  </Button>
+                  <Button
+                    buttonType="pill"
+                    style={{marginBottom: 6, marginRight: 6}}>
+                    {t('Rate Fetched (curr)') + ': ' + buildingRateFetched}
+                  </Button>
+                </>
+              ) : null}
               {buildingCursors ? (
                 <>
                   <Button
@@ -432,6 +476,16 @@ const PortfolioStorageDebug: React.FC = () => {
                 {t('Duration') + ': ' + formatDuration(lastDurationMs)}
               </Button>
             </Setting>
+            {Object.keys(rateRequestsByCoin).length ? (
+              <Setting style={{flexDirection: 'column', alignItems: 'flex-start'}}>
+                <SettingTitle>{t('Rate Requests by Coin')}</SettingTitle>
+                {Object.entries(rateRequestsByCoin).map(([coin, totals]) => (
+                  <SettingTitle key={coin} style={{marginTop: 4}}>
+                    {coin.toUpperCase()}: {totals.requested} req / {totals.fetched} fetched
+                  </SettingTitle>
+                ))}
+              </Setting>
+            ) : null}
           </>
         ) : null}
 

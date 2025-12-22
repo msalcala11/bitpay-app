@@ -354,15 +354,20 @@ const prefillRatesForIntervals = (
 export const buildCursorForWalletInterval = (
   walletId: string,
   interval: PortfolioInterval,
-): Effect<Promise<void>> => async (dispatch, getState) => {
+): Effect<
+  Promise<{rateRequested: number; rateFetched: number; coin?: string}>
+> => async (dispatch, getState) => {
   try {
     const state = getState();
     const events = state.PORTFOLIO.txEventsByWalletId[walletId] || [];
     const assetId = events[0]?.assetId;
+    let rateRequested = 0;
+    let rateFetched = 0;
+    let coin: string | undefined;
     if (assetId) {
-      const coin = getCoinFromAssetId(assetId);
+      coin = getCoinFromAssetId(assetId);
       if (coin) {
-        await dispatch(
+        const result = await dispatch(
           prefillRatesForIntervals(assetId, coin, [
             'day',
             'week',
@@ -373,6 +378,8 @@ export const buildCursorForWalletInterval = (
             'all',
           ]),
         );
+        rateRequested = result?.requested || 0;
+        rateFetched = result?.fetched || 0;
       }
     }
     const assetRateCache = assetId
@@ -386,11 +393,13 @@ export const buildCursorForWalletInterval = (
         cursor,
       }),
     );
+    return {rateRequested, rateFetched, coin};
   } catch (e) {
     const err = e instanceof Error ? e.message : JSON.stringify(e);
     logManager.error(
       `[portfolio] buildCursorForWalletInterval error for wallet ${walletId} interval ${interval}:`,
       err,
     );
+    return {rateRequested: 0, rateFetched: 0};
   }
 };
