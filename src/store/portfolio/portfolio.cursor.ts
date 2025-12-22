@@ -12,6 +12,8 @@ export interface PortfolioPositionState {
   avgCostUSDPerUnit: number;
 }
 
+const snapTiny = (n: number, epsilon = 1e-10): number =>
+  Math.abs(n) < epsilon ? 0 : n;
 
 const updateAvgCost = (state: PortfolioPositionState): PortfolioPositionState => {
   const {cryptoBalance, costBasisRemainingUSD} = state;
@@ -77,8 +79,8 @@ export const applyEventToState = (
     applySpendLike(feeCrypto);
   }
 
-  next.costBasisRemainingUSD = next.costBasisRemainingUSD;
-  next.cryptoBalance = next.cryptoBalance;
+  next.costBasisRemainingUSD = snapTiny(next.costBasisRemainingUSD);
+  next.cryptoBalance = snapTiny(next.cryptoBalance);
   next = updateAvgCost(next);
 
   return next;
