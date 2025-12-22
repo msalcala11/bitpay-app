@@ -63,6 +63,39 @@ const PortfolioWalletCursorDebug: React.FC<Props> = ({route}) => {
     ? cursorsByInterval[intervals[0]]
     : undefined;
 
+  const pnlUSD = useMemo(() => {
+    if (!cursor || !cursor.points?.length) {
+      return null;
+    }
+    const first = cursor.points[0];
+    const last = cursor.points[cursor.points.length - 1];
+    if (first.valueUSD == null || last.valueUSD == null) {
+      return null;
+    }
+    const startUnrealized = first.valueUSD - first.costBasisRemainingUSD;
+    const endUnrealized = last.valueUSD - last.costBasisRemainingUSD;
+    return endUnrealized - startUnrealized;
+  }, [cursor]);
+
+  const pnlDetail = useMemo(() => {
+    if (!cursor || !cursor.points?.length) {
+      return null;
+    }
+    const first = cursor.points[0];
+    const last = cursor.points[cursor.points.length - 1];
+    if (first.valueUSD == null || last.valueUSD == null) {
+      return null;
+    }
+    return {
+      startValue: first.valueUSD,
+      startBasis: first.costBasisRemainingUSD,
+      endValue: last.valueUSD,
+      endBasis: last.costBasisRemainingUSD,
+      startUnrealized: first.valueUSD - first.costBasisRemainingUSD,
+      endUnrealized: last.valueUSD - last.costBasisRemainingUSD,
+    };
+  }, [cursor]);
+
   const json = useMemo(() => {
     if (!cursor) {
       return '';
@@ -149,6 +182,35 @@ const PortfolioWalletCursorDebug: React.FC<Props> = ({route}) => {
             <SettingTitle>{t('No cursors found')}</SettingTitle>
           )}
         </Setting>
+
+        <HeaderTitle>
+          <SettingTitle>{t('Interval PnL (USD)')}</SettingTitle>
+        </HeaderTitle>
+        <Setting>
+          <SettingTitle>
+            {pnlUSD == null ? t('n/a') : `${pnlUSD.toFixed(2)} USD`}
+          </SettingTitle>
+        </Setting>
+        {pnlDetail ? (
+          <Setting>
+            <SettingTitle>
+              {t('Start')} — {t('Value')}: {pnlDetail.startValue.toFixed(2)} USD,{' '}
+              {t('Basis')}: {pnlDetail.startBasis.toFixed(2)} USD
+            </SettingTitle>
+            <SettingTitle style={{marginTop: 4}}>
+              {t('End')} — {t('Value')}: {pnlDetail.endValue.toFixed(2)} USD,{' '}
+              {t('Basis')}: {pnlDetail.endBasis.toFixed(2)} USD
+            </SettingTitle>
+            <SettingTitle style={{marginTop: 4}}>
+              {t('Unrealized Start')}:{' '}
+              {pnlDetail.startUnrealized.toFixed(2)} USD
+            </SettingTitle>
+            <SettingTitle style={{marginTop: 2}}>
+              {t('Unrealized End')}:{' '}
+              {pnlDetail.endUnrealized.toFixed(2)} USD
+            </SettingTitle>
+          </Setting>
+        ) : null}
 
         <HeaderTitle>
           <SettingTitle>{t('Cursor JSON')}</SettingTitle>
