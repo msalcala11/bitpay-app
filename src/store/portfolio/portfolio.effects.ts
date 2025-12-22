@@ -409,6 +409,7 @@ export const buildCursorForWalletInterval = (
   Promise<{rateRequested: number; rateFetched: number; coin?: string}>
 > => async (dispatch, getState) => {
   try {
+    const startedMs = Date.now();
     const state = getState();
     const events =
       (state.PORTFOLIO.txEventsByWalletId[walletId] as PortfolioTxEvent[] | undefined) ||
@@ -461,9 +462,13 @@ export const buildCursorForWalletInterval = (
     const cursor = buildWalletIntervalCursor(
       walletId,
       interval,
-      events,
+      options?.sortedEvents || events,
       assetRateCache,
       startTsForAll,
+      {
+        sortedEvents: options?.sortedEvents,
+        grid: options?.grid,
+      },
     );
     dispatch(
       setWalletIntervalCursor({
@@ -471,6 +476,9 @@ export const buildCursorForWalletInterval = (
         interval,
         cursor,
       }),
+    );
+    logManager.info(
+      `[portfolio] buildCursorForWalletInterval done wallet=${walletId} interval=${interval} events=${events.length} durationMs=${Date.now() - startedMs}`,
     );
     return {rateRequested, rateFetched, coin};
   } catch (e) {
