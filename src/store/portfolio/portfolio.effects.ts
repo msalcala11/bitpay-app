@@ -308,11 +308,14 @@ export const backfillUsdPriceUsedForWallet = (
   };
 };
 
+const attemptedRatesByRun: Record<string, Set<string>> = {};
+
 const prefillRatesForIntervals = (
   assetId: string,
   coin: string,
   intervals: PortfolioInterval[],
   firstReceiveTimeSec?: number,
+  runToken?: string,
 ): Effect<Promise<{requested: number; fetched: number}>> => async (
   dispatch,
   getState,
@@ -326,7 +329,21 @@ const prefillRatesForIntervals = (
     grid.times.forEach(ts => allTimes.add(ts));
   });
 
-  const missingTimes = Array.from(allTimes).filter(ts => cache[ts] == null);
+  const attemptedSet =
+    runToken != null
+      ? (attemptedRatesByRun[runToken] =
+          attemptedRatesByRun[runToken] || new Set<string>())
+      : undefined;
+
+  const missingTimes = Array.from(allTimes).filter(ts => {
+    if (cache[ts] != null) {
+      return false;
+    }
+    if (attemptedSet?.has(`${assetId}:${ts}`)) {
+      return false;
+    }
+    return true;
+  });
 
   const payload: Record<string, Record<number, number>> = {};
   let fetched = 0;
@@ -342,6 +359,9 @@ const prefillRatesForIntervals = (
       logManager.error(
         `[portfolio] getHistoricFiatRate grid fetch failed for ${assetId} ts ${ts}: ${err}`,
       );
+    }
+    if (attemptedSet) {
+      attemptedSet.add(`${assetId}:${ts}`);
     }
   }
 
