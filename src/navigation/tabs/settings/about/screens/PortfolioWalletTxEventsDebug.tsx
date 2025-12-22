@@ -81,10 +81,36 @@ const PortfolioWalletTxEventsDebug: React.FC<Props> = ({route}) => {
       costBasisRemainingUSD: 0,
       avgCostUSDPerUnit: 0,
     };
-    return events.map((e: PortfolioTxEvent) => {
-      state = applyEventToState(state, e);
-      return {...e, runningCryptoBalance: state.cryptoBalance};
-    });
+
+    const rows: (PortfolioTxEvent & {
+      runningCryptoBalance: number;
+      isFeeRow?: boolean;
+    })[] = [];
+
+    for (const e of events) {
+      const withoutFee: PortfolioTxEvent = {...e, feeCrypto: 0};
+      state = applyEventToState(state, withoutFee);
+      rows.push({...e, runningCryptoBalance: state.cryptoBalance});
+
+      if (e.feeCrypto && e.feeCrypto > 0) {
+        const feeEvent: PortfolioTxEvent = {
+          ...e,
+          category: 'spend',
+          cryptoDelta: 0,
+          feeCrypto: e.feeCrypto,
+        };
+        state = applyEventToState(state, feeEvent);
+        rows.push({
+          ...e,
+          category: 'fee',
+          cryptoDelta: -(e.feeCrypto || 0),
+          runningCryptoBalance: state.cryptoBalance,
+          isFeeRow: true,
+        });
+      }
+    }
+
+    return rows;
   }, [events]);
 
   const copyCsv = () => {
@@ -103,9 +129,13 @@ const PortfolioWalletTxEventsDebug: React.FC<Props> = ({route}) => {
       'status',
       'runningCryptoBalance',
     ];
+    const sorted = [...eventsWithRunningBalance].sort(
+      (a, b) => Number(b.time) - Number(a.time),
+    );
+
     const lines = [
       headers.join(','),
-      ...eventsWithRunningBalance.map((e: any) =>
+      ...sorted.map((e: any) =>
         [
           e.walletId,
           e.txid,
@@ -115,7 +145,7 @@ const PortfolioWalletTxEventsDebug: React.FC<Props> = ({route}) => {
           e.cryptoDelta,
           e.feeCrypto,
           e.confirmed,
-          e.status,
+          e.status || '',
           e.runningCryptoBalance,
         ].join(','),
       ),
