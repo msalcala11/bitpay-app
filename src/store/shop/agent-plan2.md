@@ -200,7 +200,11 @@ Make meta **per wallet** to improve diagnostics:
   - `lastCursorBuildAt?: number`
   - `lastRatesSyncAt?: number`
   - `lastError?: string`
+  - `lastErrorAt?: number`
+  - `lastErrorStage?: 'tx_history' | 'normalize' | 'basis_pricing' | 'cursor_rates' | 'fx' | 'aggregate' | 'persist'`
+  - `lastErrorIsRetryable?: boolean`
   - `lastRequestCounts?: {txHistory?: number; prices?: number; fx?: number}`
+  - `lastRequestErrors?: {txHistory?: number; prices?: number; fx?: number}`
 
 Persist a minimal global “initial sync” progress state so long-running first-time syncs can resume after an app restart:
 
@@ -208,6 +212,9 @@ Persist a minimal global “initial sync” progress state so long-running first
   - `status: 'idle' | 'running' | 'complete' | 'failed'`
   - `startedAt?: number`
   - `lastUpdatedAt?: number`
+  - `lastError?: string`
+  - `lastErrorAt?: number`
+  - `backoffUntil?: number`
   - `currentWalletId?: string`
   - `completedWalletCount?: number`
   - `totalWalletCount?: number`
@@ -329,7 +336,11 @@ Telemetry must include:
 - **API request counts**, broken down by:
   - request type (tx history vs rates)
   - wallet(s) the request is attributable to
-  - optional: sub-type (tx history page requests vs crypto→USD bucket requests vs USD→ALT FX bucket requests)
+  - optional: sub-type (tx history page requests vs crypto→USD basis timestamp requests vs crypto→USD cursor bucket requests vs USD→ALT FX bucket requests)
+- **API error counts**, broken down by:
+  - request type + wallet
+  - retry attempts
+  - last error (message + best-effort HTTP status)
 
 UI update constraints:
 - Update counters “real-time-ish”, but throttle/batch updates (for example, flush at 250–500ms) to avoid re-render storms.
@@ -339,6 +350,39 @@ UI update constraints:
   - leaving and returning to a debug screen shows the latest in-progress run status (request counts, duration)
   - telemetry continues updating “behind the scenes” even while debug screens are unmounted
   - multiple debug screens can observe the same run consistently
+
+### API request error handling (required)
+
+Portfolio sync is network-dependent and long-running. **All API requests must fail safely** and must never crash the app or corrupt persisted state.
+
+Definitions:
+- **Retryable** errors (retry with backoff): connection errors, timeouts, `429`, and `5xx`.
+- **Non-retryable** errors (do not retry): most `4xx` (except `429`), invalid request parameters, unsupported assets, and parse/schema errors.
+
+Retry policy (recommended defaults):
+- Tx history page requests:
+  - up to 2 retries for retryable errors
+  - exponential backoff with jitter (example: 2s, then 5s)
+- USD price fetch requests (basis timestamp):
+  - up to 2 retries for retryable errors
+  - exponential backoff with jitter (example: 0.5s, then 2s)
+- FX fetch requests:
+  - up to 2 retries for retryable errors
+  - exponential backoff with jitter (example: 0.5s, then 2s)
+
+Failure behavior (wallet/key/portfolio scope):
+- **Wallet scope**:
+  - If tx history ingestion fails: stop the wallet pipeline (do not proceed to pricing/cursors), record `metaByWalletId[walletId].lastError*`, and keep the last good persisted artifacts.
+  - If pricing fails for some events: leave those events missing `usdPriceUsedMicro`, record error counts, and treat the wallet as **not ready** for cursor build until resolved.
+  - If cursor valuation rates are missing: set `valueMicroUSD = null` for those points and record missing-rate meta (do not crash).
+- **Key/portfolio scope**:
+  - Continue syncing other wallets even if one wallet fails.
+  - The overall run result must surface “partial success” and list failed wallets + stage.
+
+Persistence safety:
+- Never write partially-corrupted wallet artifacts.
+- Only bump `eventsRevision` if the persisted event list actually changed.
+- On errors, persist the latest error fields in `metaByWalletId` (stage/message/time/retryable) so the next run can resume and debug UI can explain what happened.
 
 Each phase below includes:
 - required debug UI work
@@ -371,6 +415,7 @@ Instrumentation:
   - portfolio sync start/end per wallet (include duration)
   - tx history request counts per wallet
   - rates request counts per wallet
+  - request failures + retry attempts (include stage + best-effort HTTP status)
   - debug-triggered run summary (scope, wallets, total duration, request totals)
   - rehydrate/persist failures related to PORTFOLIO slice
 
@@ -438,6 +483,9 @@ Work:
 - Paging:
   - use existing paging limit (BWS limit) until `loadMore` false
   - record request count in meta
+- Error handling:
+  - if tx history fetch fails for a wallet, record `lastErrorStage = 'tx_history'` and continue syncing other wallets (do not mark `no_tx_history`)
+  - only set `excludedReason = 'no_tx_history'` when tx history + normalization succeeded and the normalized events length is `0`
 - Normalization:
   - category mapping: `receive | spend | moved`
   - compute `cryptoDeltaBase` and `feeCryptoBase` (base units)
@@ -476,7 +524,7 @@ Exit criteria:
 
 Redux effects (add/extend):
 - `getOrFetchUsdRateByAssetIdAtTime(args: {assetId: string; timeSec: number}): Effect<Promise<string>>`
-- `backfillUsdPriceUsedForWallet(walletId: string): Effect<Promise<{pricesFetched: number; requestCount: number}>>`
+- `backfillUsdPriceUsedForWallet(walletId: string): Effect<Promise<{pricesFetched: number; pricesFailed: number; requestCount: number}>>`
 - Extend `syncPortfolioWalletScope(args: {walletId: string}): Effect<Promise<void>>` to include basis price backfill.
 
 Work:
@@ -492,6 +540,13 @@ Work:
 Caching + dedupe:
 - Deduplicate in-flight requests by exact `(assetId, timeSec)` while a backfill run is executing.
 - Do **not** persist per-event exact timestamp USD rates in `rateCacheUsdByAssetId` (canonical persisted value is `PortfolioTxEvent.usdPriceUsedMicro`).
+
+Error handling:
+- If a USD price request fails after retries:
+  - leave the event missing `usdPriceUsedMicro`
+  - increment `metaByWalletId[walletId].lastRequestErrors.prices`
+  - set `metaByWalletId[walletId].lastErrorStage = 'basis_pricing'`
+  - do not proceed to cursor build for that wallet until missing prices are resolved
 
 Debug UI:
 - Extend Wallet Transaction Debug:
@@ -604,7 +659,7 @@ Exit criteria:
 
 Redux effects (add/extend):
 - `getOrFetchFxRateUsdToAltByBucket(args: {altCurrency: string; bucketTimeSec: number}): Effect<Promise<string>>`
-- `ensureFxRatesForAltCurrency(args: {altCurrency: string; bucketTimeSecs: number[]}): Effect<Promise<{fetched: number; requestCount: number}>>`
+- `ensureFxRatesForAltCurrency(args: {altCurrency: string; bucketTimeSecs: number[]}): Effect<Promise<{fetched: number; failed: number; requestCount: number}>>`
 - Extend `syncPortfolioWalletScope(args: {walletId: string}): Effect<Promise<void>>` to ensure required FX buckets.
 
 Work:
@@ -612,6 +667,12 @@ Work:
 - Fetch FX at the same bucket times needed by charts.
 - Breakeven line uses **current remaining basis (now)**:
   - `breakevenAltMicro = (costBasisRemainingMicroUSD(now) * fxMicro(nowBucket)) / 1_000_000`
+
+Error handling:
+- If FX fetch fails after retries:
+  - keep existing FX cache values
+  - record `lastErrorStage = 'fx'` and increment `lastRequestErrors.fx`
+  - UI may fall back to USD until FX is available (do not block basis or cursor builds)
 
 Debug UI:
 - **Rates + FX Debug**:
@@ -709,6 +770,9 @@ Work:
 - Throttling:
   - limit concurrent network requests (tx history, price, fx)
   - add cancellation/guards to prevent overlapping full syncs
+- Retries + backoff:
+  - implement the retry policy described in “API request error handling”
+  - avoid tight retry loops during background initial sync (respect `initialPortfolioSync.backoffUntil` when set)
 - Background initial sync + resume:
   - on app launch (post rehydrate), automatically run initial portfolio sync in the background until complete
   - update persisted checkpoints frequently enough that killing the app does not force a full restart
@@ -767,5 +831,6 @@ Exit criteria:
 - Debug hub provides complete audit coverage for every phase.
 - Sync can be triggered at wallet/key/portfolio scope, and wallet-only sync updates all containing aggregates automatically.
 - Debug UI shows per-wallet request counts (tx history vs rates) and run durations for debug-triggered syncs with smooth, throttled updates.
+- Transient API failures do not crash the app; errors are recorded per wallet/stage and surfaced in debug UI (with retries/backoff and no persisted state corruption).
 - Wallets with no tx history are excluded (`excludedReason = 'no_tx_history'`) and do not trigger cursor builds or rate/FX fetches.
 - Initial portfolio sync can run in the background on first launch and resumes on next launch after an app kill, without redoing completed work.
