@@ -13,6 +13,7 @@ import {useTranslation} from 'react-i18next';
 import {Black, Feather, LightBlack, White} from '../../../../../styles/colors';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {Keys} from '../../../../../store/wallet/wallet.reducer';
+import Clipboard from '@react-native-clipboard/clipboard';
 import {
   buildCursorForWalletInterval,
   resetPortfolio,
@@ -168,6 +169,32 @@ const PortfolioStorageDebug: React.FC = () => {
       totalBytes,
     };
   }, [PORTFOLIO]);
+
+  const rateCacheJson = useMemo(() => {
+    try {
+      return JSON.stringify(PORTFOLIO.rateCacheUsd || {}, null, 2);
+    } catch (_) {
+      return '';
+    }
+  }, [PORTFOLIO.rateCacheUsd]);
+
+  const rateCachePreview = useMemo(() => {
+    if (!rateCacheJson) {
+      return '';
+    }
+    const limit = 600;
+    return rateCacheJson.length > limit
+      ? `${rateCacheJson.slice(0, limit)}...`
+      : rateCacheJson;
+  }, [rateCacheJson]);
+
+  const copyRateCache = () => {
+    if (!rateCacheJson) {
+      return;
+    }
+    Clipboard.setString(rateCacheJson);
+    setSyncStatus(t('Copied rate cache JSON'));
+  };
 
   const syncAllWalletTxEvents = async () => {
     if (syncing) {
@@ -360,9 +387,6 @@ const PortfolioStorageDebug: React.FC = () => {
                 height: 'auto',
                 paddingTop: 20,
               }}>
-              {/* {syncStatus ? (
-                <SettingTitle style={{marginRight: 8}}>{syncStatus}</SettingTitle>
-              ) : null} */}
               <Button buttonType="pill" style={{marginBottom: 6, marginRight: 6}}>
                 {t('Run') + ': ' + (runCount || 0)}
               </Button>
@@ -380,9 +404,7 @@ const PortfolioStorageDebug: React.FC = () => {
                   <Button
                     buttonType="pill"
                     style={{marginBottom: 6, marginRight: 6}}>
-                    {t('Wallet') +
-                      ': ' +
-                      (buildingWalletLabel || t('n/a'))}
+                    {t('Wallet') + ': ' + (buildingWalletLabel || t('n/a'))}
                   </Button>
                   <Button
                     buttonType="pill"
@@ -466,8 +488,25 @@ const PortfolioStorageDebug: React.FC = () => {
           <Button buttonType="pill">{formatBytes(derived.fxCacheBytes)}</Button>
         </Setting>
         <Hr />
+
+        <HeaderTitle>
+          <SettingTitle>{t('Rate Cache')}</SettingTitle>
+        </HeaderTitle>
         <Setting>
-          <SettingTitle>{t('Total')}</SettingTitle>
+          <Button buttonType="pill" onPress={copyRateCache} style={{marginTop: 8}}>
+            {t('Copy Rate Cache JSON')}
+          </Button>
+          <SettingTitle style={{marginTop: 8}} numberOfLines={6}>
+            {rateCachePreview || t('No rate cache data')}
+          </SettingTitle>
+        </Setting>
+        <Hr />
+
+        <HeaderTitle>
+          <SettingTitle>{t('Totals')}</SettingTitle>
+        </HeaderTitle>
+        <Setting>
+          <SettingTitle>{t('Total Size')}</SettingTitle>
           <Button buttonType="pill">{formatBytes(derived.totalBytes)}</Button>
         </Setting>
       </ScrollContainer>
