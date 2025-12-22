@@ -212,23 +212,26 @@ Not required for v1; architecture should allow adding later.
 - **[Grid generation]**
   - Use deterministic standardized rolling timestamps.
   - Requirements:
-    - the 45 `times[]` are **wallet-independent** (same for every wallet for a given interval at a given moment)
-    - the grid is **deterministic** and does not depend on server-returned timestamps
-    - use **UTC epoch seconds** for all calculations (do not use local timezone boundaries)
-  - Define `getIntervalGrid(interval, now) => { stepSeconds, endTime, times[45] }`.
+    - For fixed windows (`day`, `week`, `month`, `3months`, `year`, `5years`): the 45 `times[]` are **wallet-independent** (same for every wallet for a given interval at a given moment).
+    - For `all`: the duration is **wallet-dependent** (from the wallet’s first event through now) but the grid is still deterministic given `walletFirstEventTime`.
+    - Use **UTC epoch seconds** for all calculations (do not use local timezone boundaries).
+  - Define `getIntervalGrid(interval, now, walletFirstEventTimeSec?) => { stepSeconds, endTime, times[45] }`.
     - `POINTS = 45`
     - `nowSec = floor(nowMs / 1000)`
     - Snap `endTime` to an hour boundary (UTC):
       - `endTime = floor(nowSec / 3600) * 3600`
-    - Fixed duration table (seconds):
+    - Fixed duration table (seconds) for wallet-independent windows:
       - day: `1 * 86400`
       - week: `7 * 86400`
       - month: `30 * 86400`
       - 3months: `90 * 86400`
       - year: `365 * 86400`
       - 5years: `5 * 365 * 86400`
-      - all: **must be a fixed window** (wallet-independent). Choose a constant window (e.g. 10y) and treat it as a duration.
-    - `stepSeconds = round(durationSeconds(interval) / (POINTS - 1))`
+    - `all` interval (wallet-dependent):
+      - `startTime = floor(walletFirstEventTimeSec / 3600) * 3600`
+      - `durationSeconds = endTime - startTime`
+      - `stepSeconds = round(durationSeconds / (POINTS - 1))`
+    - For fixed windows, `stepSeconds = round(durationSeconds(interval) / (POINTS - 1))`
     - `times[i] = endTime - (POINTS - 1 - i) * stepSeconds` for `i = 0..44`
 - **[Cursor build / rebuild]**
   - For wallet+interval, build `points` by replaying events once and emitting state at each `time`.
