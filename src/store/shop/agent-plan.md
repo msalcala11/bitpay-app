@@ -163,13 +163,14 @@ Not required for v1; architecture should allow adding later.
 - **[Define “basis-creating” rule]**
   - For v1 average cost, price is required for:
     - `receive` events that add holdings
-    - `moved` with `cryptoDelta > 0` when basis transfer cannot be determined
   - (Optional) also store for other categories for debugging consistency.
 
 - **[Fetch `usdPriceUsed`]**
-  - Use existing historical pricing API.
-  - De-dupe requests by `(assetId, timestampBucket)`.
-  - Persist into the event (`usdPriceUsed`).
+  - Basis-creating targets: `receive` (optionally all events for debugging).
+  - For each target event missing `usdPriceUsed`, bucket its timestamp to the hour: `bucket = floor(time / 3600) * 3600`.
+  - De-dupe requests by `(assetId, bucket)`; use existing historical pricing API (`getHistoricFiatRate`) to fetch USD.
+  - Write fetched rates into `rateCacheUsd[assetId][bucket]` and apply `usdPriceUsed` to matching events.
+  - Rate cache remains the source for cursor/valueUSD calculations; per-event fetch fills both cache and event fields.
 
 **Debug screen (Phase 3)**
 - Extend Transaction History Debug:
