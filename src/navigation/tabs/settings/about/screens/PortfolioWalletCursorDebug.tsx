@@ -1,4 +1,6 @@
 import React, {useMemo, useState} from 'react';
+import {View} from 'react-native';
+import {LineGraph} from 'react-native-graph';
 import {useNavigation} from '@react-navigation/native';
 import styled from 'styled-components/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
@@ -96,6 +98,18 @@ const PortfolioWalletCursorDebug: React.FC<Props> = ({route}) => {
     };
   }, [cursor]);
 
+  const graphPoints = useMemo(() => {
+    if (!cursor?.points?.length) {
+      return [];
+    }
+    return cursor.points
+      .filter((p: typeof cursor.points[number]) => p.valueUSD != null)
+      .map((p: typeof cursor.points[number]) => ({
+        date: new Date(p.time * 1000),
+        value: p.valueUSD as number,
+      }));
+  }, [cursor]);
+
   const json = useMemo(() => {
     if (!cursor) {
       return '';
@@ -154,6 +168,31 @@ const PortfolioWalletCursorDebug: React.FC<Props> = ({route}) => {
         </Setting>
 
         <HeaderTitle>
+          <SettingTitle>{t('Value Chart')}</SettingTitle>
+        </HeaderTitle>
+        <Setting
+          style={{
+            paddingVertical: 12,
+            marginBottom: 140,
+            minHeight: 200,
+            width: '100%',
+          }}>
+          {graphPoints.length ? (
+            <LineGraph
+              style={{height: 220, width: '100%'}}
+              points={graphPoints}
+              animated
+              gradientFillColors={['#7dd3fc', '#38bdf8', '#0ea5e9']}
+              color="#0ea5e9"
+              enablePanGesture={true}
+              enableIndicator={true}
+            />
+          ) : (
+            <SettingTitle>{t('No value data')}</SettingTitle>
+          )}
+        </Setting>
+
+        <HeaderTitle>
           <SettingTitle>{t('Intervals')}</SettingTitle>
         </HeaderTitle>
         <Setting style={{flexDirection: 'column', alignItems: 'flex-start', height: 95}}>
@@ -192,24 +231,34 @@ const PortfolioWalletCursorDebug: React.FC<Props> = ({route}) => {
           </SettingTitle>
         </Setting>
         {pnlDetail ? (
-          <Setting>
+          <View
+            style={{
+              width: '100%',
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              gap: 6,
+              alignItems: 'flex-start',
+            }}>
             <SettingTitle>
-              {t('Start')} — {t('Value')}: {pnlDetail.startValue.toFixed(2)} USD,{' '}
-              {t('Basis')}: {pnlDetail.startBasis.toFixed(2)} USD
+              {t('Start Value')}: {pnlDetail.startValue.toFixed(2)} USD
             </SettingTitle>
-            <SettingTitle style={{marginTop: 4}}>
-              {t('End')} — {t('Value')}: {pnlDetail.endValue.toFixed(2)} USD,{' '}
-              {t('Basis')}: {pnlDetail.endBasis.toFixed(2)} USD
+            <SettingTitle>
+              {t('Start Basis')}: {pnlDetail.startBasis.toFixed(2)} USD
             </SettingTitle>
-            <SettingTitle style={{marginTop: 4}}>
-              {t('Unrealized Start')}:{' '}
-              {pnlDetail.startUnrealized.toFixed(2)} USD
+            <SettingTitle>
+              {t('Unrealized Start')}: {pnlDetail.startUnrealized.toFixed(2)} USD
             </SettingTitle>
-            <SettingTitle style={{marginTop: 2}}>
-              {t('Unrealized End')}:{' '}
-              {pnlDetail.endUnrealized.toFixed(2)} USD
+            <View style={{height: 8}} />
+            <SettingTitle>
+              {t('End Value')}: {pnlDetail.endValue.toFixed(2)} USD
             </SettingTitle>
-          </Setting>
+            <SettingTitle>
+              {t('End Basis')}: {pnlDetail.endBasis.toFixed(2)} USD
+            </SettingTitle>
+            <SettingTitle>
+              {t('Unrealized End')}: {pnlDetail.endUnrealized.toFixed(2)} USD
+            </SettingTitle>
+          </View>
         ) : null}
 
         <HeaderTitle>
