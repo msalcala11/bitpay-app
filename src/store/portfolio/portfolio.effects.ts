@@ -402,6 +402,8 @@ export const buildCursorForWalletInterval = (
     prefillOnly?: boolean;
     runToken?: string;
     onPrefillProgress?: (p: {coin: string; requested: number; fetched: number}) => void;
+    sortedEvents?: PortfolioTxEvent[];
+    grid?: ReturnType<typeof getPortfolioIntervalGrid>;
   },
 ): Effect<
   Promise<{rateRequested: number; rateFetched: number; coin?: string}>

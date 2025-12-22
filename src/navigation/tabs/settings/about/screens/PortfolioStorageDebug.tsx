@@ -20,6 +20,7 @@ import {
   resetPortfolio,
   syncPortfolioTxEventsForWallet,
 } from '../../../../../store/portfolio';
+import {getPortfolioIntervalGrid} from '../../../../../store/portfolio/portfolio.grid';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
@@ -430,20 +431,54 @@ const PortfolioStorageDebug: React.FC = () => {
           const rateTotals: Record<string, {requested: number; fetched: number}> = {};
           // Prefetch once per wallet/asset across all intervals to avoid repeated requests.
           for (const wallet of wallets) {
-            const eventCount =
-              PORTFOLIO.txEventsByWalletId[wallet.id]?.length || 0;
+            const eventsForWallet =
+              (PORTFOLIO.txEventsByWalletId[wallet.id] as any as PortfolioTxEvent[]) || [];
+            const eventCount = eventsForWallet.length;
             if (eventCount === 0) {
               skipped++;
               continue;
             }
+            // Reuse sorted events and precomputed grids across intervals for this wallet to speed up builds.
+            const sortedEvents = [...eventsForWallet].sort((a, b) => a.time - b.time);
+            const firstReceiveTimeSec: number | undefined = sortedEvents.reduce(
+              (min: number | undefined, e: PortfolioTxEvent) =>
+                e.category === 'receive'
+                  ? min == null || e.time < min
+                    ? e.time
+                    : min
+                  : min,
+              undefined,
+            );
+            const firstEventTimeSec: number | undefined = sortedEvents.reduce(
+              (min: number | undefined, e: PortfolioTxEvent) =>
+                min == null || e.time < min ? e.time : min,
+              undefined,
+            );
+            const startTsForAll = firstReceiveTimeSec ?? firstEventTimeSec;
+            const gridByInterval: Partial<Record<PortfolioInterval, ReturnType<typeof getPortfolioIntervalGrid>>> =
+              {};
+            cursorIntervals.forEach(interval => {
+              gridByInterval[interval] = getPortfolioIntervalGrid(
+                interval,
+                Date.now(),
+                startTsForAll,
+              );
+            });
+
             const walletLabel = `${wallet.walletName || wallet.id} (${
               wallet.currencyAbbreviation?.toUpperCase() || ''
             })`;
             setBuildingWalletLabel(walletLabel);
             for (const interval of cursorIntervals) {
               setBuildingInterval(interval);
-              // No prefill here; assume prefetch was run separately.
-              await dispatch(buildCursorForWalletInterval(wallet.id, interval, {skipPrefill: true}));
+              // No prefill here; assume prefetch was run separately. Reuse sorted events + prebuilt grid.
+              await dispatch(
+                buildCursorForWalletInterval(wallet.id, interval, {
+                  skipPrefill: true,
+                  sortedEvents,
+                  grid: gridByInterval[interval],
+                }),
+              );
               built++;
               if (built % 5 === 0) {
                 await pause();

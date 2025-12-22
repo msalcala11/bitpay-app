@@ -86,15 +86,20 @@ export const applyEventToState = (
   return next;
 };
 
+type IntervalGrid = ReturnType<typeof getPortfolioIntervalGrid>;
+
 export const buildWalletIntervalCursor = (
   walletId: string,
   interval: PortfolioInterval,
   events: PortfolioTxEvent[],
   assetRateCache?: Record<number, number>,
   firstReceiveTimeSec?: number,
+  options?: {sortedEvents?: PortfolioTxEvent[]; grid?: IntervalGrid},
 ): WalletIntervalCursor => {
-  const grid = getPortfolioIntervalGrid(interval, Date.now(), firstReceiveTimeSec);
-  const sortedEvents = [...events].sort((a, b) => a.time - b.time);
+  const grid =
+    options?.grid || getPortfolioIntervalGrid(interval, Date.now(), firstReceiveTimeSec);
+  const sortedEvents =
+    options?.sortedEvents || [...events].sort((a, b) => a.time - b.time);
   let state: PortfolioPositionState = {
     cryptoBalance: 0,
     costBasisRemainingUSD: 0,
