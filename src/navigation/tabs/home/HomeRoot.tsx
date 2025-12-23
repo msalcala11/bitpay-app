@@ -49,11 +49,16 @@ import MarketingCarousel from './components/MarketingCarousel';
 import PortfolioBalance from './components/PortfolioBalance';
 import DefaultQuickLinks from './components/quick-links/DefaultQuickLinks';
 import QuickLinksCarousel from './components/quick-links/QuickLinksCarousel';
-import {HeaderContainer, HeaderLeftContainer} from './components/Styled';
+import {
+  HeaderContainer,
+  HeaderLeftContainer,
+  HomeSectionTitle,
+} from './components/Styled';
 import KeyMigrationFailureModal from './components/KeyMigrationFailureModal';
 import {useThemeType} from '../../../utils/hooks/useThemeType';
 import {ProposalBadgeContainer} from '../../../components/styled/Containers';
 import {ProposalBadge} from '../../../components/styled/Text';
+import Assets from './components/Assets';
 import {
   receiveCrypto,
   sendCrypto,
@@ -386,6 +391,11 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
                 <SecurePasskeyBanner />
               </HomeSection>
             ) : null}
+
+            {/* ////////////////////////////// ASSETS */}
+            <HomeSection style={{marginBottom: 40}}>
+              <Assets />
+            </HomeSection>
 
             {/* ////////////////////////////// SHOP WITH CRYPTO */}
             {memoizedShopWithCryptoCards.length ? (
