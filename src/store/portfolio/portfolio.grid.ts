@@ -13,6 +13,7 @@ export interface PortfolioIntervalGrid {
 export const getPortfolioIntervalDurationSeconds = (
   interval: PortfolioInterval,
 ): number => {
+  'worklet';
   switch (interval) {
     case 'day':
       return 1 * 86400;
@@ -40,6 +41,7 @@ export const getPortfolioIntervalGrid = (
   nowMs: number = Date.now(),
   firstReceiveTimeSec?: number,
 ): PortfolioIntervalGrid => {
+  'worklet';
   const nowSec = Math.floor(nowMs / 1000);
   const endTime = Math.floor(nowSec / 3600) * 3600;
 

@@ -19,6 +19,13 @@ jest.mock('react-native-reanimated', () =>
   require('react-native-reanimated/mock'),
 );
 global.__reanimatedWorkletInit = jest.fn();
+jest.mock('react-native-worklets', () => {
+  try {
+    return require('react-native-worklets/src/mock');
+  } catch (e) {
+    return require('react-native-worklets/lib/module/mock');
+  }
+});
 jest.mock('react-native/Libraries/Animated/NativeAnimatedHelper');
 
 jest.mock('react-native-permissions', () =>

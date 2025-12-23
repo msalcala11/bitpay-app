@@ -19,6 +19,7 @@ import {
   SettingsScreens,
 } from './settings/SettingsGroup';
 import {CardHomeScreenProps} from '../card/screens/CardHome';
+import {HomeScreenProps} from './home/HomeRoot';
 import {HeaderContainer, HeaderLeftContainer} from './home/components/Styled';
 import {H3, Link, Paragraph, TextAlign} from '../../components/styled/Text';
 import WarningSvg from '../../../assets/img/warning.svg';
@@ -86,7 +87,7 @@ const TabScreenErrorFallback: React.FC<TabsScreenErrorFallbackProps> = ({
         <HeaderContainer>
           <HeaderLeftContainer>
             <TouchableOpacity
-              onPress={() => navigation.navigate('SettingsHome')}>
+              onPress={() => (navigation as any).navigate('SettingsHome')}>
               <Icons.HomeSettings />
             </TouchableOpacity>
           </HeaderLeftContainer>
@@ -126,6 +127,7 @@ const TabScreenErrorFallback: React.FC<TabsScreenErrorFallbackProps> = ({
 
 type TabScreenProps =
   | CardHomeScreenProps
+  | HomeScreenProps
   | NativeStackScreenProps<BillGroupParamList, BillScreens.BILLS_HOME>
   | NativeStackScreenProps<ShopStackParamList, ShopScreens.HOME>
   | NativeStackScreenProps<

@@ -12,10 +12,13 @@ export interface PortfolioPositionState {
   avgCostUSDPerUnit: number;
 }
 
-const snapTiny = (n: number, epsilon = 1e-10): number =>
-  Math.abs(n) < epsilon ? 0 : n;
+const snapTiny = (n: number, epsilon = 1e-10): number => {
+  'worklet';
+  return Math.abs(n) < epsilon ? 0 : n;
+};
 
 const updateAvgCost = (state: PortfolioPositionState): PortfolioPositionState => {
+  'worklet';
   const {cryptoBalance, costBasisRemainingUSD} = state;
   const avgCostUSDPerUnit =
     cryptoBalance > 0 ? costBasisRemainingUSD / cryptoBalance : 0;
@@ -26,6 +29,7 @@ export const applyEventToState = (
   prev: PortfolioPositionState,
   event: PortfolioTxEvent,
 ): PortfolioPositionState => {
+  'worklet';
   let next = {...prev};
 
   const feeCrypto = event.feeCrypto || 0;
@@ -96,6 +100,7 @@ export const buildWalletIntervalCursor = (
   firstReceiveTimeSec?: number,
   options?: {sortedEvents?: PortfolioTxEvent[]; grid?: IntervalGrid},
 ): WalletIntervalCursor => {
+  'worklet';
   const grid =
     options?.grid || getPortfolioIntervalGrid(interval, Date.now(), firstReceiveTimeSec);
   const sortedEvents =
