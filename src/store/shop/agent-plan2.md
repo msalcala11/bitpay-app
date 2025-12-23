@@ -798,7 +798,46 @@ Exit criteria:
 
 ---
 
-## Phase 10 — Optional optimization: checkpoints
+## Phase 10 — Optional optimization: batch historical fiat rates (multi-timestamp; CDN-friendly)
+
+**Goal**: Reduce network overhead for cursor-rate prefetching (and optionally basis pricing) by fetching many timestamps in a single request, and make those requests cacheable at the CDN layer.
+
+BWS (server) work:
+- Add a batch endpoint for historical rates:
+  - input: `fiatCode`, `coin`, and a list of `tsMs[]`
+  - output: a stable sorted list of `HistoricRate[]` (or a map keyed by `ts`)
+- CDN cache friendliness requirements:
+  - use `GET` and keep the URL deterministic
+  - require clients to sort `tsMs` ascending before requesting
+  - cap batch size (example: 50–100 timestamps) and require clients to chunk deterministically
+  - allow partial results (do not fail the whole batch because 1 timestamp is missing)
+
+Client (app) integration:
+- Cursor valuation rates:
+  - collect missing `bucketTimeSec` values per `(assetId, fiatCode)`
+  - request `tsMs = bucketTimeSec * 1000` in deterministic, sorted batches
+  - write successful results into `rateCacheUsdByAssetId[assetId][bucketTimeSec]`
+- Basis pricing (optional; large backfills only):
+  - batch exact `event.time * 1000` lookups per `(assetId, fiatCode)`
+  - still persist canonical per-event prices to `PortfolioTxEvent.usdPriceUsedMicro`
+
+Error handling + telemetry:
+- Treat a batch request as one network request but track:
+  - timestamps requested vs returned vs failed
+- Partial success is allowed:
+  - store returned rates immediately
+  - retry only missing timestamps (respect the global retry/backoff policy)
+- Debug UI must surface batch effectiveness:
+  - total rate network requests
+  - total timestamps requested/resolved
+  - optional estimate: cache hit ratio (`resolvedFromCache / requestedTotal`)
+
+Exit criteria:
+- Fixed-window interval cursor builds require significantly fewer HTTP requests for rates, with unchanged computed values.
+
+---
+
+## Phase 11 — Optional optimization: checkpoints
 
 **Goal**: Speed up state queries for large histories without changing correctness.
 
