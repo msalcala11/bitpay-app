@@ -22,17 +22,12 @@ import {
   clearRateCacheUsd,
   resetPortfolio,
   syncPortfolioTxEventsForWallet,
-  setWalletIntervalCursors,
-  buildWalletIntervalCursor,
 } from '../../../../../store/portfolio';
-import {getPortfolioIntervalGrid} from '../../../../../store/portfolio/portfolio.grid';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
 import {
   PortfolioInterval,
-  PortfolioTxEvent,
-  WalletIntervalCursor,
 } from '../../../../../store/portfolio/portfolio.types';
 
 const ScrollContainer = styled.ScrollView``;
