@@ -12,6 +12,8 @@ import Button from '../../../../../components/button/Button';
 import {useTranslation} from 'react-i18next';
 import {Black, Feather, LightBlack, White} from '../../../../../styles/colors';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
+import {logManager} from '../../../../../managers/LogManager';
+import {LogLevel} from '../../../../../store/log/log.models';
 import {Keys} from '../../../../../store/wallet/wallet.reducer';
 import Clipboard from '@react-native-clipboard/clipboard';
 import {
@@ -19,12 +21,18 @@ import {
   clearRateCacheUsd,
   resetPortfolio,
   syncPortfolioTxEventsForWallet,
+  setWalletIntervalCursors,
+  buildWalletIntervalCursor,
 } from '../../../../../store/portfolio';
 import {getPortfolioIntervalGrid} from '../../../../../store/portfolio/portfolio.grid';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
-import {PortfolioInterval} from '../../../../../store/portfolio/portfolio.types';
+import {
+  PortfolioInterval,
+  PortfolioTxEvent,
+  WalletIntervalCursor,
+} from '../../../../../store/portfolio/portfolio.types';
 
 const ScrollContainer = styled.ScrollView``;
 
@@ -97,6 +105,9 @@ const PortfolioStorageDebug: React.FC = () => {
     Record<string, {requested: number; fetched: number}>
   >({});
   const [prefetching, setPrefetching] = useState(false);
+
+  const escapeRegExp = (str: string) =>
+    str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   const wallets = useMemo(() => {
     return Object.values(keys)
@@ -210,6 +221,33 @@ const PortfolioStorageDebug: React.FC = () => {
     }
     Clipboard.setString(rateCacheJson);
     setSyncStatus(t('Copied rate cache JSON'));
+  };
+
+  const copyDebugLogs = () => {
+    try {
+      const walletIds = walletRows.map(w => w.id).filter(Boolean);
+      const logs = logManager.getLogs();
+      const lines = logs.map(log => {
+        const level = LogLevel[log.level] || 'Log';
+        return `[${log.timestamp}] [${level}] ${log.message}`;
+      });
+      const redact = (text: string) => {
+        // Redact wallet IDs
+        let next = walletIds.reduce((acc, id) => {
+          const pattern = new RegExp(escapeRegExp(id), 'gi');
+          return acc.replace(pattern, 'redacted');
+        }, text);
+        // Redact EVM addresses (0x-prefixed, 40 hex chars)
+        next = next.replace(/0x[a-fA-F0-9]{40}/g, 'redacted');
+        return next;
+      };
+      const payload = redact(lines.join('\n'));
+      Clipboard.setString(payload);
+      setSyncStatus(t('Copied debug logs (wallet IDs redacted)'));
+    } catch (e) {
+      const err = e instanceof Error ? e.message : String(e);
+      setSyncStatus(err);
+    }
   };
 
   const syncAllWalletTxEvents = async () => {
@@ -419,99 +457,140 @@ const PortfolioStorageDebug: React.FC = () => {
     setBuildingRateFetched(0);
     setRateRequestsByCoin({});
     setSyncStatus('Starting cursor build...');
-    InteractionManager.runAfterInteractions(() => {
-      setTimeout(async () => {
-        const startedMs = Date.now();
-        const startedAt = new Date().toISOString();
-        setSyncStatus(`Building cursors (all intervals)... started at ${startedAt}`);
-        const pause = () => new Promise(resolve => setTimeout(resolve, 0));
-        try {
-          let built = 0;
-          let skipped = 0;
-          const rateTotals: Record<string, {requested: number; fetched: number}> = {};
-          // Prefetch once per wallet/asset across all intervals to avoid repeated requests.
-          for (const wallet of wallets) {
-            const eventsForWallet =
-              (PORTFOLIO.txEventsByWalletId[wallet.id] as any as PortfolioTxEvent[]) || [];
-            const eventCount = eventsForWallet.length;
-            if (eventCount === 0) {
-              skipped++;
-              continue;
-            }
-            // Reuse sorted events and precomputed grids across intervals for this wallet to speed up builds.
-            const sortedEvents = [...eventsForWallet].sort((a, b) => a.time - b.time);
-            const firstReceiveTimeSec: number | undefined = sortedEvents.reduce(
-              (min: number | undefined, e: PortfolioTxEvent) =>
-                e.category === 'receive'
-                  ? min == null || e.time < min
-                    ? e.time
-                    : min
-                  : min,
-              undefined,
-            );
-            const firstEventTimeSec: number | undefined = sortedEvents.reduce(
-              (min: number | undefined, e: PortfolioTxEvent) =>
-                min == null || e.time < min ? e.time : min,
-              undefined,
-            );
-            const startTsForAll = firstReceiveTimeSec ?? firstEventTimeSec;
-            const gridByInterval: Partial<Record<PortfolioInterval, ReturnType<typeof getPortfolioIntervalGrid>>> =
-              {};
-            cursorIntervals.forEach(interval => {
-              gridByInterval[interval] = getPortfolioIntervalGrid(
-                interval,
-                Date.now(),
-                startTsForAll,
-              );
-            });
-
-            const walletLabel = `${wallet.walletName || wallet.id} (${
-              wallet.currencyAbbreviation?.toUpperCase() || ''
-            })`;
-            setBuildingWalletLabel(walletLabel);
-            for (const interval of cursorIntervals) {
-              setBuildingInterval(interval);
-              // No prefill here; assume prefetch was run separately. Reuse sorted events + prebuilt grid.
-              await dispatch(
-                buildCursorForWalletInterval(wallet.id, interval, {
-                  skipPrefill: true,
-                  sortedEvents,
-                  grid: gridByInterval[interval],
-                }),
-              );
-              built++;
-              if (built % 5 === 0) {
-                await pause();
-              }
-            }
+    (async () => {
+      let lastUiUpdateMs = 0;
+      const maybeUpdateProgress = (interval?: PortfolioInterval) => {
+        const now = Date.now();
+        if (now - lastUiUpdateMs > 150) {
+          if (interval) {
+            setBuildingInterval(interval);
           }
-          const finishedAt = new Date().toISOString();
-          setLastRunAt(finishedAt);
-          setLastDurationMs(Date.now() - startedMs);
-          setSyncStatus(
-            `Built ${built} cursors (all intervals) for ${
-              wallets.length - skipped
-            } wallet(s) at ${finishedAt} (skipped ${skipped} with no txs)`,
-          );
-          setLastSummary(
-            `Cursors: intervals ${cursorIntervals.join(
-              ',',
-            )}, wallets processed ${wallets.length - skipped}, skipped ${skipped}, finished at ${finishedAt}`,
-          );
-        } catch (e) {
-          const err = e instanceof Error ? e.message : JSON.stringify(e);
-          setSyncStatus(err);
-          setLastSummary(err);
-        } finally {
-          setBuildingWalletLabel('');
-          setBuildingInterval(null);
-          setBuildingRateCoin('');
-          setBuildingRateRequested(0);
-          setBuildingRateFetched(0);
-          setBuildingCursors(false);
+          lastUiUpdateMs = now;
         }
-      }, 0);
-    });
+      };
+      const startedMs = Date.now();
+      const startedAt = new Date().toISOString();
+      setSyncStatus(`Building cursors (all intervals)... started at ${startedAt}`);
+      logManager.info(`[portfolio-debug] buildCursors start at ${startedAt}`);
+      try {
+        let built = 0;
+        let skipped = 0;
+        // Prefetch once per wallet/asset across all intervals to avoid repeated requests.
+        for (const wallet of wallets) {
+          const eventsForWallet =
+            (PORTFOLIO.txEventsByWalletId[wallet.id] as any as PortfolioTxEvent[]) || [];
+          const eventCount = eventsForWallet.length;
+          if (eventCount === 0) {
+            skipped++;
+            continue;
+          }
+          // Reuse sorted events and precomputed grids across intervals for this wallet to speed up builds.
+          const sortStart = Date.now();
+          const sortedEvents = [...eventsForWallet].sort((a, b) => a.time - b.time);
+          logManager.debug(
+            `[portfolio-debug] wallet=${wallet.id} sortEvents ms=${Date.now() - sortStart} count=${sortedEvents.length}`,
+          );
+          const firstReceiveTimeSec: number | undefined = sortedEvents.reduce(
+            (min: number | undefined, e: PortfolioTxEvent) =>
+              e.category === 'receive'
+                ? min == null || e.time < min
+                  ? e.time
+                  : min
+                : min,
+            undefined,
+          );
+          const firstEventTimeSec: number | undefined = sortedEvents.reduce(
+            (min: number | undefined, e: PortfolioTxEvent) =>
+              min == null || e.time < min ? e.time : min,
+            undefined,
+          );
+          const startTsForAll = firstReceiveTimeSec ?? firstEventTimeSec;
+          const gridByInterval: Partial<Record<PortfolioInterval, ReturnType<typeof getPortfolioIntervalGrid>>> =
+            {};
+          cursorIntervals.forEach(interval => {
+            const gridStart = Date.now();
+            gridByInterval[interval] = getPortfolioIntervalGrid(
+              interval,
+              Date.now(),
+              startTsForAll,
+            );
+            logManager.debug(
+              `[portfolio-debug] wallet=${wallet.id} grid interval=${interval} ms=${Date.now() - gridStart}`,
+            );
+          });
+
+          const walletLabel = `${wallet.walletName || wallet.id} (${
+            wallet.currencyAbbreviation?.toUpperCase() || ''
+          })`;
+          setBuildingWalletLabel(walletLabel);
+          const walletBuildStart = Date.now();
+          let walletBuildMs = 0;
+          const cursors: Partial<Record<PortfolioInterval, WalletIntervalCursor>> = {};
+          const assetId = sortedEvents[0]?.assetId;
+          const assetRateCache = assetId
+            ? (PORTFOLIO.rateCacheUsd[assetId] as Record<number, number>) || {}
+            : undefined;
+          for (const interval of cursorIntervals) {
+            maybeUpdateProgress(interval);
+            const intervalStart = Date.now();
+            const cursor = buildWalletIntervalCursor(
+              wallet.id,
+              interval,
+              sortedEvents,
+              assetRateCache,
+              startTsForAll,
+              {
+                sortedEvents,
+                grid: gridByInterval[interval],
+              },
+            );
+            const intervalMs = Date.now() - intervalStart;
+            walletBuildMs += intervalMs;
+            cursors[interval] = cursor;
+            logManager.info(
+              `[portfolio-debug] wallet=${wallet.id} interval=${interval} build ms=${intervalMs}`,
+            );
+            built++;
+          }
+          const walletMs = Date.now() - walletBuildStart;
+          const dispatchStart = Date.now();
+          await dispatch(
+            setWalletIntervalCursors({
+              walletId: wallet.id,
+              cursors,
+            }),
+          );
+          const dispatchMs = Date.now() - dispatchStart;
+          logManager.info(
+            `[portfolio-debug] wallet=${wallet.id} totalBuild ms=${walletMs} (intervalBuildAccum=${walletBuildMs}) dispatchSet ms=${dispatchMs}`,
+          );
+        }
+        const finishedAt = new Date().toISOString();
+        setLastRunAt(finishedAt);
+        setLastDurationMs(Date.now() - startedMs);
+        setSyncStatus(
+          `Built ${built} cursors (all intervals) for ${
+            wallets.length - skipped
+          } wallet(s) at ${finishedAt} (skipped ${skipped} with no txs)`,
+        );
+        setLastSummary(
+          `Cursors: intervals ${cursorIntervals.join(
+            ',',
+          )}, wallets processed ${wallets.length - skipped}, skipped ${skipped}, finished at ${finishedAt}`,
+        );
+      } catch (e) {
+        const err = e instanceof Error ? e.message : JSON.stringify(e);
+        setSyncStatus(err);
+        setLastSummary(err);
+      } finally {
+        setBuildingWalletLabel('');
+        setBuildingInterval(null);
+        setBuildingRateCoin('');
+        setBuildingRateRequested(0);
+        setBuildingRateFetched(0);
+        setBuildingCursors(false);
+      }
+    })();
   };
 
   return (
@@ -543,6 +622,13 @@ const PortfolioStorageDebug: React.FC = () => {
               <SettingTitle>{t('Clear Rate Cache')}</SettingTitle>
               <Button buttonType="pill" onPress={clearRateCache}>
                 {t('Clear')}
+              </Button>
+            </Setting>
+            <Hr />
+            <Setting onPress={copyDebugLogs}>
+              <SettingTitle>{t('Copy Debug Logs (redacted wallet IDs)')}</SettingTitle>
+              <Button buttonType="pill" onPress={copyDebugLogs}>
+                {t('Copy')}
               </Button>
             </Setting>
             <Hr />

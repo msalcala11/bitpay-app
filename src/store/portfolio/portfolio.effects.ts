@@ -15,6 +15,7 @@ import {
   setRateCacheUsd,
   setTxEventsForWallet,
   setWalletIntervalCursor,
+  setWalletIntervalCursors,
 } from './portfolio.actions';
 import {buildWalletIntervalCursor} from './portfolio.cursor';
 import {getHistoricFiatRate} from '../wallet/effects/rates/rates';

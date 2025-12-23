@@ -92,6 +92,20 @@ export const portfolioReducer = (
       };
     }
 
+    case PortfolioActionTypes.SET_WALLET_INTERVAL_CURSORS: {
+      const {walletId, cursors} = action.payload;
+      return {
+        ...state,
+        walletIntervalCursorsByWalletId: {
+          ...state.walletIntervalCursorsByWalletId,
+          [walletId]: {
+            ...(state.walletIntervalCursorsByWalletId[walletId] || {}),
+            ...cursors,
+          },
+        },
+      };
+    }
+
     case PortfolioActionTypes.SET_RATE_CACHE_USD: {
       return {
         ...state,

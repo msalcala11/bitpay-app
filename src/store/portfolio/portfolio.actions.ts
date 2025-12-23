@@ -36,6 +36,14 @@ export const setWalletIntervalCursor = (payload: {
   payload,
 });
 
+export const setWalletIntervalCursors = (payload: {
+  walletId: string;
+  cursors: Partial<Record<PortfolioInterval, WalletIntervalCursor>>;
+}): PortfolioActionType => ({
+  type: PortfolioActionTypes.SET_WALLET_INTERVAL_CURSORS,
+  payload,
+});
+
 export const setRateCacheUsd = (payload: {
   rateCacheUsd: Record<string, Record<number, number>>;
 }): PortfolioActionType => ({
