@@ -491,3 +491,121 @@ export const buildCursorForWalletInterval = (
     return {rateRequested: 0, rateFetched: 0};
   }
 };
+
+const defaultIntervals: PortfolioInterval[] = [
+  'day',
+  'week',
+  'month',
+  '3months',
+  'year',
+  '5years',
+  'all',
+];
+
+export const buildAllCursors = (
+  intervals: PortfolioInterval[] = defaultIntervals,
+): Effect<
+  Promise<{
+    built: number;
+    skipped: number;
+    durationMs: number;
+  }>
+> => async (dispatch, getState) => {
+  const startedMs = Date.now();
+  const state = getState();
+  const keys = state.WALLET?.keys || {};
+  const wallets = Object.values(keys)
+    .flatMap((k: any) => k.wallets || [])
+    .filter(
+      (w: Wallet) =>
+        !w.hideWallet &&
+        !w.hideWalletByAccount &&
+        (w.network === 'livenet' || w.credentials?.network === 'livenet'),
+    );
+
+  let built = 0;
+  let skipped = 0;
+
+  for (const wallet of wallets) {
+    const events =
+      (state.PORTFOLIO.txEventsByWalletId[wallet.id] as PortfolioTxEvent[] | undefined) || [];
+    if (!events.length) {
+      skipped++;
+      continue;
+    }
+
+    const sortStart = Date.now();
+    const sortedEvents = [...events].sort((a, b) => a.time - b.time);
+    logManager.debug(
+      `[portfolio] buildAllCursors wallet=${wallet.id} sortEvents ms=${Date.now() - sortStart} count=${sortedEvents.length}`,
+    );
+
+    const firstReceiveTimeSec: number | undefined = sortedEvents.reduce(
+      (min: number | undefined, e: PortfolioTxEvent) =>
+        e.category === 'receive' ? (min == null || e.time < min ? e.time : min) : min,
+      undefined,
+    );
+    const firstEventTimeSec: number | undefined = sortedEvents.reduce(
+      (min: number | undefined, e: PortfolioTxEvent) => (min == null || e.time < min ? e.time : min),
+      undefined,
+    );
+    const startTsForAll = firstReceiveTimeSec ?? firstEventTimeSec;
+
+    const gridByInterval: Partial<Record<PortfolioInterval, ReturnType<typeof getPortfolioIntervalGrid>>> =
+      {};
+    intervals.forEach(interval => {
+      const gridStart = Date.now();
+      gridByInterval[interval] = getPortfolioIntervalGrid(interval, Date.now(), startTsForAll);
+      logManager.debug(
+        `[portfolio] buildAllCursors wallet=${wallet.id} grid interval=${interval} ms=${Date.now() - gridStart}`,
+      );
+    });
+
+    const walletStart = Date.now();
+    const cursors: Partial<Record<PortfolioInterval, any>> = {};
+    const assetId = sortedEvents[0]?.assetId;
+    const assetRateCache = assetId ? state.PORTFOLIO.rateCacheUsd[assetId] || {} : undefined;
+    let walletBuildMs = 0;
+
+    for (const interval of intervals) {
+      const intervalStart = Date.now();
+      const cursor = buildWalletIntervalCursor(
+        wallet.id,
+        interval,
+        sortedEvents,
+        assetRateCache,
+        startTsForAll,
+        {
+          sortedEvents,
+          grid: gridByInterval[interval],
+        },
+      );
+      const intervalMs = Date.now() - intervalStart;
+      walletBuildMs += intervalMs;
+      cursors[interval] = cursor;
+      built++;
+      logManager.info(
+        `[portfolio] buildAllCursors wallet=${wallet.id} interval=${interval} build ms=${intervalMs}`,
+      );
+    }
+
+    const dispatchStart = Date.now();
+    await dispatch(
+      setWalletIntervalCursors({
+        walletId: wallet.id,
+        cursors,
+      }),
+    );
+    const dispatchMs = Date.now() - dispatchStart;
+    const walletMs = Date.now() - walletStart;
+    logManager.info(
+      `[portfolio] buildAllCursors wallet=${wallet.id} totalBuild ms=${walletMs} (intervalBuildAccum=${walletBuildMs}) dispatchSet ms=${dispatchMs}`,
+    );
+  }
+
+  const durationMs = Date.now() - startedMs;
+  logManager.info(
+    `[portfolio] buildAllCursors finished built=${built} skipped=${skipped} durationMs=${durationMs}`,
+  );
+  return {built, skipped, durationMs};
+};
