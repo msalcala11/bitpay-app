@@ -299,7 +299,11 @@ const AllocationSection: React.FC = () => {
         </HeaderAction>
       </Header>
 
-      <AllocationDonutLegendCard legendItems={legendItems} slices={slices} />
+      <TouchableOpacity
+        activeOpacity={ActiveOpacity}
+        onPress={() => (navigation as any).navigate('Allocation')}>
+        <AllocationDonutLegendCard legendItems={legendItems} slices={slices} />
+      </TouchableOpacity>
     </Container>
   );
 };
