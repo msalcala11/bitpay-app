@@ -72,6 +72,7 @@ import {Network} from '../../../constants';
 import SecurePasskeyBanner from './components/SecurePasskeyBanner';
 import DefaultMarketingCards from './components/DefaultMarketingCards';
 import AssetsSection from './components/AssetsSection';
+import AllocationSection from './components/AllocationSection';
 
 export type HomeScreenProps = NativeStackScreenProps<
   TabsStackParamList,
@@ -387,8 +388,12 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
                 <SecurePasskeyBanner />
               </HomeSection>
             ) : null}
-            <HomeSection>
+            <HomeSection style={{marginBottom: 20}}>
               <AssetsSection />
+            </HomeSection>
+
+            <HomeSection>
+              <AllocationSection />
             </HomeSection>
 
             {/* ////////////////////////////// SHOP WITH CRYPTO */}
