@@ -64,7 +64,7 @@ export const getAllAssetsMockItems = (): AssetRowItem[] => {
   return [
     {
       ...base[0],
-      name: 'Bitcoin',
+      name: 'BTC',
       key: 'btc_all',
     },
     base[1],

@@ -10,7 +10,7 @@ import AssetsList from './AssetsList';
 import {AssetRowItem, getAssetsSectionMockItems} from './AssetsMockData';
 import AssetsGainLossDropdown from './AssetsGainLossDropdown';
 
-const Container = styled.View`margin-bottom: 30px;`;
+const Container = styled.View`margin-bottom: 15px;`;
 
 const Header = styled.View`
   flex-direction: row;
