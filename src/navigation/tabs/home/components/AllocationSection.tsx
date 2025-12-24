@@ -1,6 +1,7 @@
 import React, {useMemo} from 'react';
 import styled, {useTheme} from 'styled-components/native';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
+import {useNavigation} from '@react-navigation/native';
 import Svg, {Circle, G} from 'react-native-svg';
 import {ActiveOpacity, ScreenGutter} from '../../../../components/styled/Containers';
 import {BaseText} from '../../../../components/styled/Text';
@@ -15,7 +16,7 @@ import {
   White,
 } from '../../../../styles/colors';
 
-type AllocationLegendItem = {
+export type AllocationLegendItem = {
   key: string;
   label: string;
   value?: string;
@@ -25,7 +26,7 @@ type AllocationLegendItem = {
   };
 };
 
-type AllocationSlice = {
+export type AllocationSlice = {
   key: string;
   value: number;
   color: {
@@ -169,8 +170,70 @@ const DonutChart = ({
   );
 };
 
-const AllocationSection: React.FC = () => {
+export const AllocationDonutLegendCard: React.FC<{
+  legendItems: AllocationLegendItem[];
+  slices: AllocationSlice[];
+  style?: any;
+}> = ({legendItems, slices, style}) => {
   const theme = useTheme();
+  const leftColumn = legendItems.slice(0, 3);
+  const rightColumn = legendItems.slice(3);
+
+  return (
+    <Card style={style}>
+      <ContentRow>
+        <DonutContainer>
+          <DonutChart size={80} strokeWidth={12} slices={slices} />
+        </DonutContainer>
+
+        <LegendGrid>
+          <LegendColumn>
+            {leftColumn.map(item => {
+              const dotColor = theme.dark ? item.color.dark : item.color.light;
+
+              return (
+                <LegendItemRow key={item.key}>
+                  <LegendDot color={dotColor} />
+                  <LegendText>
+                    <LegendCurrencyAbbreviationText>
+                      {item.label}
+                    </LegendCurrencyAbbreviationText>
+                    {item.value ? (
+                      <LegendPercentageText>{` ${item.value}`}</LegendPercentageText>
+                    ) : null}
+                  </LegendText>
+                </LegendItemRow>
+              );
+            })}
+          </LegendColumn>
+
+          <LegendColumn>
+            {rightColumn.map(item => {
+              const dotColor = theme.dark ? item.color.dark : item.color.light;
+
+              return (
+                <LegendItemRow key={item.key}>
+                  <LegendDot color={dotColor} />
+                  <LegendText>
+                    <LegendCurrencyAbbreviationText>
+                      {item.label}
+                    </LegendCurrencyAbbreviationText>
+                    {item.value ? (
+                      <LegendPercentageText>{` ${item.value}`}</LegendPercentageText>
+                    ) : null}
+                  </LegendText>
+                </LegendItemRow>
+              );
+            })}
+          </LegendColumn>
+        </LegendGrid>
+      </ContentRow>
+    </Card>
+  );
+};
+
+const AllocationSection: React.FC = () => {
+  const navigation = useNavigation();
 
   const legendItems: AllocationLegendItem[] = useMemo(
     () => [
@@ -225,71 +288,18 @@ const AllocationSection: React.FC = () => {
     [],
   );
 
-  const leftColumn = legendItems.slice(0, 3);
-  const rightColumn = legendItems.slice(3);
-
   return (
     <Container>
       <Header>
         <HomeSectionTitle>Allocation</HomeSectionTitle>
-        <HeaderAction activeOpacity={ActiveOpacity} onPress={() => {}}>
+        <HeaderAction
+          activeOpacity={ActiveOpacity}
+          onPress={() => (navigation as any).navigate('Allocation')}>
           <ChevronRightSvg width={13} height={19} gray />
         </HeaderAction>
       </Header>
 
-      <Card>
-        <ContentRow>
-          <DonutContainer>
-            <DonutChart size={80} strokeWidth={12} slices={slices} />
-          </DonutContainer>
-
-          <LegendGrid>
-            <LegendColumn>
-              {leftColumn.map(item => {
-                const dotColor = theme.dark ? item.color.dark : item.color.light;
-
-                return (
-                  <LegendItemRow key={item.key}>
-                    <LegendDot
-                      color={dotColor}
-                    />
-                    <LegendText>
-                      <LegendCurrencyAbbreviationText>
-                        {item.label}
-                      </LegendCurrencyAbbreviationText>
-                      {item.value ? (
-                        <LegendPercentageText>{` ${item.value}`}</LegendPercentageText>
-                      ) : null}
-                    </LegendText>
-                  </LegendItemRow>
-                );
-              })}
-            </LegendColumn>
-
-            <LegendColumn>
-              {rightColumn.map(item => {
-                const dotColor = theme.dark ? item.color.dark : item.color.light;
-
-                return (
-                  <LegendItemRow key={item.key}>
-                    <LegendDot
-                      color={dotColor}
-                    />
-                    <LegendText>
-                      <LegendCurrencyAbbreviationText>
-                        {item.label}
-                      </LegendCurrencyAbbreviationText>
-                      {item.value ? (
-                        <LegendPercentageText>{` ${item.value}`}</LegendPercentageText>
-                      ) : null}
-                    </LegendText>
-                  </LegendItemRow>
-                );
-              })}
-            </LegendColumn>
-          </LegendGrid>
-        </ContentRow>
-      </Card>
+      <AllocationDonutLegendCard legendItems={legendItems} slices={slices} />
     </Container>
   );
 };

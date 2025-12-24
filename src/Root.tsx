@@ -152,6 +152,7 @@ import {selectSettingsNotificationState} from './store/app/app.selectors';
 import {HeaderShownContext} from '@react-navigation/elements';
 import PaymentSent from './navigation/wallet/components/PaymentSent';
 import AllAssets from './navigation/tabs/home/screens/AllAssets';
+import Allocation from './navigation/tabs/home/screens/Allocation';
 import {
   getBaseEVMAccountCreationCoinsAndTokens,
   getBaseSVMAccountCreationCoinsAndTokens,
@@ -171,6 +172,7 @@ const {Timer, SilentPushEvent, InAppMessageModule} = NativeModules;
 export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabsStackParamList>;
   AllAssets: undefined;
+  Allocation: undefined;
 } & DebugScreenParamList &
   MerchantGroupParamList &
   BitpayIdGroupParamList &
@@ -992,6 +994,14 @@ export default () => {
             <Root.Screen
               name={'AllAssets'}
               component={AllAssets}
+              options={{
+                ...baseNavigatorOptions,
+                headerShown: true,
+              }}
+            />
+            <Root.Screen
+              name={'Allocation'}
+              component={Allocation}
               options={{
                 ...baseNavigatorOptions,
                 headerShown: true,
