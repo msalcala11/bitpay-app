@@ -76,7 +76,7 @@ interface ButtonOptionProps {
 }
 
 export const DURATION = 100;
-export const BUTTON_RADIUS = 6;
+export const BUTTON_RADIUS = 8;
 export const BUTTON_HEIGHT = 63;
 export const PILL_RADIUS = 50;
 export const LINK_RADIUS = 0;

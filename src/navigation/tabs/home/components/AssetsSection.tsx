@@ -36,7 +36,7 @@ type AssetRowItem = {
   isPositive: boolean;
 };
 
-const Container = styled.View``;
+const Container = styled.View`margin-bottom: 30px;`;
 
 const Header = styled.View`
   flex-direction: row;
@@ -141,7 +141,7 @@ const PercentText = styled(BaseText)<{isPositive: boolean}>`
 `;
 
 const ButtonContainer = styled.View`
-  margin: 12px ${ScreenGutter} 0;
+  margin: 0px ${ScreenGutter} 0;
 `;
 
 const AssetsSection: React.FC = () => {
@@ -152,7 +152,7 @@ const AssetsSection: React.FC = () => {
         key: 'btc',
         currencyAbbreviation: 'btc',
         chain: 'btc',
-        name: 'Bitcoin',
+        name: 'BTC',
         cryptoAmount: '0.56748',
         fiatAmount: '$52,458.18',
         deltaFiat: '-$1,267.15',
@@ -258,7 +258,7 @@ const AssetsSection: React.FC = () => {
       </List>
 
       <ButtonContainer>
-        <Button buttonStyle="secondary" buttonOutline onPress={() => {}}>
+        <Button buttonStyle="secondary" height={50} buttonOutline onPress={() => {}}>
           See All Assets
         </Button>
       </ButtonContainer>
