@@ -4,7 +4,7 @@ import styled from 'styled-components/native';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import {ActiveOpacity} from '../../../../components/styled/Containers';
 import {BaseText} from '../../../../components/styled/Text';
-import {LightBlack, Slate30, SlateDark, White} from '../../../../styles/colors';
+import {Black, LightBlack, Slate30, SlateDark, White} from '../../../../styles/colors';
 import ChevronDown from './ChevronDown';
 
 const Container = styled(TouchableOpacity)`
@@ -29,7 +29,7 @@ const Menu = styled.View`
   width: 190px;
   border-radius: 10px;
   background-color: ${({theme: {dark}}) => (dark ? LightBlack : White)};
-  shadow-color: #000;
+  shadow-color: ${Black};
   shadow-offset: 0px 0px;
   shadow-opacity: 0.15;
   shadow-radius: 32px;
