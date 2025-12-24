@@ -28,7 +28,7 @@ type AllocationSlice = {
   };
 };
 
-const Container = styled.View``;
+const Container = styled.View`margin-bottom: 30px;`;
 
 const Header = styled.View`
   flex-direction: row;
@@ -218,7 +218,7 @@ const AllocationSection: React.FC = () => {
       <Header>
         <HomeSectionTitle>Allocation</HomeSectionTitle>
         <HeaderAction activeOpacity={ActiveOpacity} onPress={() => {}}>
-          <ChevronRightSvg width={9} height={15} gray />
+          <ChevronRightSvg width={13} height={19} gray />
         </HeaderAction>
       </Header>
 
