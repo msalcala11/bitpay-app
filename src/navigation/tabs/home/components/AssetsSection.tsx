@@ -23,6 +23,7 @@ import {HomeSectionTitle} from './Styled';
 import ChevronRight from '../../../bitpay-id/components/ChevronRight';
 import ChevronDownSvgLight from '../../../../../assets/img/chevron-down-lightmode.svg';
 import ChevronDownSvgDark from '../../../../../assets/img/chevron-down-darkmode.svg';
+import ChevronRightSvg from './ChevronRightSvg';
 
 type AssetRowItem = {
   key: string;
@@ -251,7 +252,7 @@ const AssetsSection: React.FC = () => {
                 </PercentText>
               </PercentPill>
 
-              <ChevronRight />
+              <ChevronRightSvg width={9} height={15} gray />
             </Row>
           );
         })}

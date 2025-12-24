@@ -1,14 +1,15 @@
 import React from 'react';
 import {Path, Svg} from 'react-native-svg';
 import {useTheme} from 'styled-components/native';
-import {Action, LinkBlue} from '../../../../styles/colors';
+import {Action, LinkBlue, Slate, SlateDark} from '../../../../styles/colors';
 
-const ChevronRightSvg: React.FC<{width?: number; height?: number}> = ({
+const ChevronRightSvg: React.FC<{width?: number; height?: number; gray?: boolean}> = ({
   width = 6,
   height = 10,
+  gray = false,
 }) => {
   const theme = useTheme();
-  const fillColor = theme.dark ? LinkBlue : Action;
+  const fillColor = gray ? (theme.dark ? Slate : SlateDark) : (theme.dark ? LinkBlue : Action);
 
   return (
     <Svg width={width} height={height} viewBox="0 0 6 10" fill="none">
