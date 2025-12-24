@@ -46,14 +46,16 @@ const Dropdown = styled(TouchableOpacity)`
   flex-direction: row;
   align-items: center;
   border-radius: 50px;
-  padding: 8px 14px;
+  padding: 10px 14px;
   border: 1px solid ${({theme: {dark}}) => (dark ? SlateDark : Slate30)};
   background-color: ${({theme: {dark}}) => (dark ? 'transparent' : White)};
 `;
 
 const DropdownText = styled(BaseText)`
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 15px;
   margin-right: 10px;
   color: ${({theme: {dark}}) => (dark ? White : SlateDark)};
 `;
