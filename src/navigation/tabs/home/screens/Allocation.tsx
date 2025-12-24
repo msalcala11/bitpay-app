@@ -127,6 +127,8 @@ const ProgressFill = styled.View<{
   width: ${({progress}) => `${Math.min(100, Math.max(0, progress))}%`};
   border-radius: 50px;
   background-color: ${({color}) => color};
+  border-width: 1px;
+  border-color: ${({theme: {dark}}) => (dark ? SlateDark : Slate30)};
 `;
 
 const Allocation: React.FC<Props> = ({navigation}) => {
