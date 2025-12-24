@@ -33,7 +33,7 @@ type AssetRowItem = {
   isPositive: boolean;
 };
 
-const Container = styled.View`margin-bottom: 30px;`;
+const Container = styled.View`margin-bottom: 15px;`;
 
 const Header = styled.View`
   flex-direction: row;
