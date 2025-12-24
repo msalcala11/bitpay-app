@@ -41,6 +41,20 @@ const AllAssets: React.FC<Props> = ({navigation}) => {
   }, [navigation, commonOptions]);
 
   const items = useMemo(() => getAllAssetsMockItems(), []);
+  const filteredItems = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) {
+      return items;
+    }
+
+    return items.filter(item => {
+      return (
+        item.name.toLowerCase().includes(q) ||
+        item.currencyAbbreviation.toLowerCase().includes(q) ||
+        item.chain.toLowerCase().includes(q)
+      );
+    });
+  }, [items, query]);
 
   return (
     <ScreenContainer>
@@ -50,7 +64,7 @@ const AllAssets: React.FC<Props> = ({navigation}) => {
           <AssetsGainLossDropdown onPress={() => {}} />
         </FiltersRow>
 
-        <AssetsList items={items} />
+        <AssetsList items={filteredItems} />
       </Content>
     </ScreenContainer>
   );
