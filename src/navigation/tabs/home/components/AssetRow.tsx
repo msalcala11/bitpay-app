@@ -1,3 +1,4 @@
+import {useNavigation} from '@react-navigation/native';
 import React, {useMemo} from 'react';
 import styled from 'styled-components/native';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
@@ -97,17 +98,31 @@ interface Props {
 }
 
 const AssetRow: React.FC<Props> = ({item, isLast, onPress}) => {
+  const navigation = useNavigation();
   const option = useMemo(() => {
     return SupportedCurrencyOptions.find(o => {
       return o.currencyAbbreviation === item.currencyAbbreviation && o.chain === item.chain;
     });
   }, [item.chain, item.currencyAbbreviation]);
 
+  const handlePress = () => {
+    if (onPress) {
+      onPress();
+      return;
+    }
+
+    (navigation as any).navigate('ExchangeRate', {
+      currencyName: item.name,
+      currencyAbbreviation: item.currencyAbbreviation,
+      chain: item.chain,
+    });
+  };
+
   return (
     <Row
       activeOpacity={ActiveOpacity}
       isLast={isLast}
-      onPress={onPress || (() => {})}>
+      onPress={handlePress}>
       <IconContainer>
         <CurrencyImage
           img={option?.img}

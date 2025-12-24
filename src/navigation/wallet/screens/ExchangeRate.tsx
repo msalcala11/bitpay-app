@@ -1,4 +1,4 @@
-import {useNavigation} from '@react-navigation/native';
+import {RouteProp, useNavigation, useRoute} from '@react-navigation/native';
 import React, {useLayoutEffect, useMemo, useState} from 'react';
 import {ScrollView, View} from 'react-native';
 import {LineGraph} from 'react-native-graph';
@@ -18,6 +18,7 @@ import {BitpaySupportedCoins} from '../../../constants/currencies';
 import LinkingButtons from '../../tabs/home/components/LinkingButtons';
 import {LuckySevens, ProgressBlue, Slate30, SlateDark, White} from '../../../styles/colors';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
+import type {WalletGroupParamList} from '../WalletGroup';
 
 const ScreenContainer = styled.SafeAreaView`
   flex: 1;
@@ -254,7 +255,13 @@ const RightIconSvg = ({type}: {type: 'star' | 'bell'}) => {
 const ExchangeRate = () => {
   const theme = useTheme();
   const navigation = useNavigation();
+  const {params} = useRoute<RouteProp<WalletGroupParamList, 'ExchangeRate'>>();
   const [selectedTimeframe, setSelectedTimeframe] = useState('All');
+
+  const currencyName = params?.currencyName || 'Bitcoin';
+  const currencyAbbreviation = (params?.currencyAbbreviation || 'BTC').toUpperCase();
+  const coinKey = (params?.chain || params?.currencyAbbreviation || 'btc').toLowerCase();
+  const coin = BitpaySupportedCoins[coinKey] ?? BitpaySupportedCoins.btc;
 
   const points = useMemo(() => {
     const now = Date.now();
@@ -274,14 +281,14 @@ const ExchangeRate = () => {
   }, []);
 
   const {coinColor, gradientBackgroundColor} =
-    BitpaySupportedCoins.btc.theme ?? {
+    coin.theme ?? {
       coinColor: ProgressBlue,
       gradientBackgroundColor: theme.dark ? 'transparent' : White,
     };
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerTitle: () => <HeaderTitleText>Bitcoin</HeaderTitleText>,
+      headerTitle: () => <HeaderTitleText>{currencyName}</HeaderTitleText>,
       headerLeft: () => <HeaderBackButton />, 
       headerRight: () => (
         <HeaderRight>
@@ -294,7 +301,7 @@ const ExchangeRate = () => {
         </HeaderRight>
       ),
     });
-  }, [navigation]);
+  }, [currencyName, navigation]);
 
   const timeframes = ['All', '1D', '1W', '1M', '3M', '1Y', '5Y'];
 
@@ -302,7 +309,7 @@ const ExchangeRate = () => {
     <ScreenContainer>
       <ScrollView contentContainerStyle={{paddingBottom: 30}}>
         <TopSection>
-          <AbbreviationLabel>BTC</AbbreviationLabel>
+          <AbbreviationLabel>{currencyAbbreviation}</AbbreviationLabel>
           <PriceText>$119,458.18</PriceText>
           <PercentRow>
             <Percentage
@@ -392,7 +399,7 @@ const ExchangeRate = () => {
             <MarketHeader>
               <MarketHeaderLeft>
                 <View style={{width: 26, height: 26}}>
-                  <CurrencyImage img={BitpaySupportedCoins.btc.img} size={26} />
+                  <CurrencyImage img={coin.img} size={26} />
                 </View>
                 <MarketTitle>BTC Market Price</MarketTitle>
               </MarketHeaderLeft>
