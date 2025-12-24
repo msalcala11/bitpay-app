@@ -6,7 +6,14 @@ import {ActiveOpacity, ScreenGutter} from '../../../../components/styled/Contain
 import {BaseText} from '../../../../components/styled/Text';
 import {HomeSectionTitle} from './Styled';
 import ChevronRightSvg from './ChevronRightSvg';
-import {LightBlack, Slate, Slate30, SlateDark, White} from '../../../../styles/colors';
+import {
+  Black,
+  LightBlack,
+  Slate,
+  Slate30,
+  SlateDark,
+  White,
+} from '../../../../styles/colors';
 
 type AllocationLegendItem = {
   key: string;
@@ -94,9 +101,18 @@ const LegendDot = styled.View<{
 `;
 
 const LegendText = styled(BaseText)`
-  font-size: 14px;
-  font-weight: 500;
-  color: ${({theme}) => theme.colors.text};
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
+`;
+
+const LegendCurrencyAbbreviationText = styled(LegendText)`
+  color: ${({theme: {dark}}) => (dark ? White : Black)};
+`;
+
+const LegendPercentageText = styled(LegendText)`
+  color: ${({theme: {dark}}) => (dark ? Slate30 : SlateDark)};
 `;
 
 const DonutChart = ({
@@ -237,7 +253,6 @@ const AllocationSection: React.FC = () => {
                   : item.key === 'xrp'
                     ? '#000000'
                     : dotColor;
-                const text = item.value ? `${item.label} ${item.value}` : item.label;
 
                 return (
                   <LegendItemRow key={item.key}>
@@ -246,7 +261,14 @@ const AllocationSection: React.FC = () => {
                       outlined={item.outlinedDot}
                       outlineColor={outlineColor}
                     />
-                    <LegendText>{text}</LegendText>
+                    <LegendText>
+                      <LegendCurrencyAbbreviationText>
+                        {item.label}
+                      </LegendCurrencyAbbreviationText>
+                      {item.value ? (
+                        <LegendPercentageText>{` ${item.value}`}</LegendPercentageText>
+                      ) : null}
+                    </LegendText>
                   </LegendItemRow>
                 );
               })}
@@ -260,7 +282,6 @@ const AllocationSection: React.FC = () => {
                   : item.key === 'xrp'
                     ? '#000000'
                     : dotColor;
-                const text = item.value ? `${item.label} ${item.value}` : item.label;
 
                 return (
                   <LegendItemRow key={item.key}>
@@ -269,7 +290,14 @@ const AllocationSection: React.FC = () => {
                       outlined={item.outlinedDot}
                       outlineColor={outlineColor}
                     />
-                    <LegendText>{text}</LegendText>
+                    <LegendText>
+                      <LegendCurrencyAbbreviationText>
+                        {item.label}
+                      </LegendCurrencyAbbreviationText>
+                      {item.value ? (
+                        <LegendPercentageText>{` ${item.value}`}</LegendPercentageText>
+                      ) : null}
+                    </LegendText>
                   </LegendItemRow>
                 );
               })}
