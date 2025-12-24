@@ -5,7 +5,6 @@ import {RootStackParamList} from '../../../../Root';
 import {useStackScreenOptions} from '../../../utils/headerHelpers';
 import {HeaderTitle, BaseText} from '../../../../components/styled/Text';
 import HeaderBackButton from '../../../../components/back/HeaderBackButton';
-import Settings from '../../../../components/settings/Settings';
 import {SupportedCurrencyOptions} from '../../../../constants/SupportedCurrencyOptions';
 import {CurrencyImage} from '../../../../components/currency-image/CurrencyImage';
 import {AllocationDonutLegendCard} from '../components/AllocationSection';
@@ -139,7 +138,6 @@ const Allocation: React.FC<Props> = ({navigation}) => {
       ...commonOptions,
       headerLeft: () => <HeaderBackButton />,
       headerTitle: () => <HeaderTitle>Allocation</HeaderTitle>,
-      headerRight: () => <Settings onPress={() => {}} />,
     });
   }, [navigation, commonOptions]);
 
