@@ -17,10 +17,9 @@ import {
   White,
 } from '../../../../styles/colors';
 import {HomeSectionTitle} from './Styled';
-import ChevronDownSvgLight from '../../../../../assets/img/chevron-down-lightmode.svg';
-import ChevronDownSvgDark from '../../../../../assets/img/chevron-down-darkmode.svg';
 import ChevronRightSvg from './ChevronRightSvg';
-import { getDifferenceColor } from '../../../../components/percentage/Percentage';
+import {getDifferenceColor} from '../../../../components/percentage/Percentage';
+import ChevronDown from './ChevronDown';
 
 type AssetRowItem = {
   key: string;
@@ -199,11 +198,7 @@ const AssetsSection: React.FC = () => {
         <HomeSectionTitle>Assets</HomeSectionTitle>
         <Dropdown activeOpacity={ActiveOpacity} onPress={() => {}}>
           <DropdownText>Today’s Gain/Loss</DropdownText>
-          {theme.dark ? (
-            <ChevronDownSvgDark width={10} height={6} />
-          ) : (
-            <ChevronDownSvgLight width={10} height={6} />
-          )}
+          <ChevronDown />
         </Dropdown>
       </Header>
 
