@@ -125,8 +125,10 @@ const DonutChart = ({
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const total = slices.reduce((sum, s) => sum + s.value, 0);
+  const segmentBorderColor = theme.dark ? SlateDark : Slate30;
 
-  let cumulative = 0;
+  const gap = 1;
+  let cumulativeLength = 0;
 
   return (
     <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
@@ -135,16 +137,17 @@ const DonutChart = ({
           cx={size / 2}
           cy={size / 2}
           r={radius}
-          stroke={theme.dark ? LightBlack : Slate30}
+          stroke={segmentBorderColor}
           strokeWidth={strokeWidth}
           fill="transparent"
         />
         {slices.map(slice => {
           const color = theme.dark ? slice.color.dark : slice.color.light;
-          const segment = (slice.value / total) * circumference;
-          const dashArray = `${segment} ${circumference}`;
-          const dashOffset = -(cumulative / total) * circumference;
-          cumulative += slice.value;
+          const segmentLength = (slice.value / total) * circumference;
+          const adjustedSegmentLength = Math.max(0, segmentLength - gap);
+          const dashArray = `${adjustedSegmentLength} ${circumference}`;
+          const dashOffset = -(cumulativeLength + gap / 2);
+          cumulativeLength += segmentLength;
 
           return (
             <Circle
