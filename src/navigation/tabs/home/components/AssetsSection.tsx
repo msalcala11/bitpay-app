@@ -10,13 +10,10 @@ import {BaseText, H7} from '../../../../components/styled/Text';
 import Button from '../../../../components/button/Button';
 import {SupportedCurrencyOptions} from '../../../../constants/SupportedCurrencyOptions';
 import {
-  Caution,
-  Caution60,
   LightBlack,
   LightBlue,
   Slate30,
   SlateDark,
-  Success,
   White,
 } from '../../../../styles/colors';
 import {HomeSectionTitle} from './Styled';
@@ -75,8 +72,8 @@ const Row = styled(TouchableOpacity)<{isLast: boolean}>`
 `;
 
 const IconContainer = styled.View`
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   align-items: center;
   justify-content: center;
   margin-right: 12px;
@@ -88,13 +85,17 @@ const AssetInfo = styled.View`
 `;
 
 const AssetName = styled(BaseText)`
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
   color: ${({theme}) => theme.colors.text};
 `;
 
 const AssetAmount = styled(H7)`
   margin-top: 2px;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
   color: ${({theme: {dark}}) => (dark ? Slate30 : SlateDark)};
 `;
 
@@ -105,29 +106,34 @@ const Values = styled.View`
 `;
 
 const FiatAmount = styled(BaseText)`
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
   color: ${({theme}) => theme.colors.text};
 `;
 
 const DeltaFiat = styled(BaseText)<{isPositive: boolean}>`
-  margin-top: 2px;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
   color: ${({theme: {dark}, isPositive}) => getDifferenceColor(isPositive, dark)};
 `;
 
 const PercentPill = styled.View`
   border-radius: 50px;
-  padding: 8px 14px;
+  padding: 8px 10px;
   border: 1px solid ${({theme: {dark}}) => (dark ? SlateDark : Slate30)};
   background-color: ${({theme: {dark}}) => (dark ? 'transparent' : White)};
-  margin-right: 12px;
+  margin-right: 14px;
 `;
 
 const PercentText = styled(BaseText)<{isPositive: boolean}>`
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
   color: ${({theme: {dark}, isPositive}) => getDifferenceColor(isPositive, dark)};
 `;
 
@@ -220,7 +226,7 @@ const AssetsSection: React.FC = () => {
                 <CurrencyImage
                   img={option?.img}
                   imgSrc={option?.imgSrc as unknown as number}
-                  size={44}
+                  size={40}
                 />
               </IconContainer>
 
