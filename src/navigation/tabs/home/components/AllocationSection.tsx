@@ -88,10 +88,10 @@ const LegendItemRow = styled.View`
 const LegendDot = styled.View<{
   color: string;
 }>`
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 8px;
-  margin-right: 10px;
+  margin-right: 8px;
   background-color: ${({color}) => color};
   border-width: 1px;
   border-color: ${({theme: {dark}}) => (dark ? SlateDark : Slate30)};
