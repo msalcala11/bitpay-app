@@ -127,7 +127,7 @@ const DonutChart = ({
   const total = slices.reduce((sum, s) => sum + s.value, 0);
   const segmentBorderColor = theme.dark ? SlateDark : Slate30;
 
-  const gap = 1;
+  const gap = 2;
   let cumulativeLength = 0;
 
   return (
