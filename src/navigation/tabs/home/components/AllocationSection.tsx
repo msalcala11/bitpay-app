@@ -23,7 +23,6 @@ type AllocationLegendItem = {
     light: string;
     dark: string;
   };
-  outlinedDot?: boolean;
 };
 
 type AllocationSlice = {
@@ -88,16 +87,14 @@ const LegendItemRow = styled.View`
 
 const LegendDot = styled.View<{
   color: string;
-  outlined?: boolean;
-  outlineColor: string;
 }>`
   width: 8px;
   height: 8px;
   border-radius: 8px;
   margin-right: 10px;
-  background-color: ${({outlined, color}) => (outlined ? 'transparent' : color)};
-  border-width: ${({outlined}) => (outlined ? 1 : 0)}px;
-  border-color: ${({outlineColor}) => outlineColor};
+  background-color: ${({color}) => color};
+  border-width: 1px;
+  border-color: ${({theme: {dark}}) => (dark ? SlateDark : Slate30)};
 `;
 
 const LegendText = styled(BaseText)`
@@ -196,8 +193,7 @@ const AllocationSection: React.FC = () => {
         key: 'xrp',
         label: 'XRP',
         value: '9.8%',
-        color: {light: '#000000', dark: SlateDark},
-        outlinedDot: true,
+        color: {light: '#000000', dark: '#000000'},
       },
       {
         key: 'sol',
@@ -248,18 +244,11 @@ const AllocationSection: React.FC = () => {
             <LegendColumn>
               {leftColumn.map(item => {
                 const dotColor = theme.dark ? item.color.dark : item.color.light;
-                const outlineColor = theme.dark
-                  ? Slate
-                  : item.key === 'xrp'
-                    ? '#000000'
-                    : dotColor;
 
                 return (
                   <LegendItemRow key={item.key}>
                     <LegendDot
                       color={dotColor}
-                      outlined={item.outlinedDot}
-                      outlineColor={outlineColor}
                     />
                     <LegendText>
                       <LegendCurrencyAbbreviationText>
@@ -277,18 +266,11 @@ const AllocationSection: React.FC = () => {
             <LegendColumn>
               {rightColumn.map(item => {
                 const dotColor = theme.dark ? item.color.dark : item.color.light;
-                const outlineColor = theme.dark
-                  ? Slate
-                  : item.key === 'xrp'
-                    ? '#000000'
-                    : dotColor;
 
                 return (
                   <LegendItemRow key={item.key}>
                     <LegendDot
                       color={dotColor}
-                      outlined={item.outlinedDot}
-                      outlineColor={outlineColor}
                     />
                     <LegendText>
                       <LegendCurrencyAbbreviationText>
