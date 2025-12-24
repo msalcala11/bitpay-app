@@ -52,6 +52,7 @@ const RowTop = styled.View`
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
+  margin-bottom: 5px;
 `;
 
 const RowLeft = styled.View`
@@ -61,8 +62,8 @@ const RowLeft = styled.View`
 `;
 
 const IconContainer = styled.View`
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
   align-items: center;
   justify-content: center;
   margin-right: 12px;
@@ -285,7 +286,7 @@ const Allocation: React.FC<Props> = ({navigation}) => {
                       <CurrencyImage
                         img={option?.img}
                         imgSrc={option?.imgSrc as unknown as number}
-                        size={48}
+                        size={40}
                       />
                     </IconContainer>
                     <RowLabels>
