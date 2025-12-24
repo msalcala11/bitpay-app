@@ -20,10 +20,10 @@ import {
   White,
 } from '../../../../styles/colors';
 import {HomeSectionTitle} from './Styled';
-import ChevronRight from '../../../bitpay-id/components/ChevronRight';
 import ChevronDownSvgLight from '../../../../../assets/img/chevron-down-lightmode.svg';
 import ChevronDownSvgDark from '../../../../../assets/img/chevron-down-darkmode.svg';
 import ChevronRightSvg from './ChevronRightSvg';
+import { getDifferenceColor } from '../../../../components/percentage/Percentage';
 
 type AssetRowItem = {
   key: string;
@@ -114,12 +114,7 @@ const DeltaFiat = styled(BaseText)<{isPositive: boolean}>`
   margin-top: 2px;
   font-size: 14px;
   font-weight: 500;
-  color: ${({theme: {dark}, isPositive}) => {
-    if (isPositive) {
-      return Success;
-    }
-    return dark ? Caution : Caution60;
-  }};
+  color: ${({theme: {dark}, isPositive}) => getDifferenceColor(isPositive, dark)};
 `;
 
 const PercentPill = styled.View`
@@ -133,12 +128,7 @@ const PercentPill = styled.View`
 const PercentText = styled(BaseText)<{isPositive: boolean}>`
   font-size: 14px;
   font-weight: 500;
-  color: ${({theme: {dark}, isPositive}) => {
-    if (isPositive) {
-      return Success;
-    }
-    return dark ? Caution : Caution60;
-  }};
+  color: ${({theme: {dark}, isPositive}) => getDifferenceColor(isPositive, dark)};
 `;
 
 const ButtonContainer = styled.View`
