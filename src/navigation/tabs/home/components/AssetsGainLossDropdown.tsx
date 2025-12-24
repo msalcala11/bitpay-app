@@ -29,12 +29,11 @@ const Menu = styled.View`
   width: 190px;
   border-radius: 10px;
   background-color: ${({theme: {dark}}) => (dark ? LightBlack : White)};
-  overflow: hidden;
   shadow-color: #000;
-  shadow-offset: 0px 4px;
+  shadow-offset: 0px 0px;
   shadow-opacity: 0.15;
-  shadow-radius: 16px;
-  elevation: 10;
+  shadow-radius: 32px;
+  elevation: 16;
 `;
 
 const MenuItem = styled(TouchableOpacity)`
