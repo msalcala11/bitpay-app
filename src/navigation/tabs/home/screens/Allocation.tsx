@@ -108,7 +108,7 @@ const Percent = styled(BaseText)`
   font-style: normal;
   font-weight: 400;
   line-height: 20px;
-  color: ${({theme: {dark}}) => (dark ? Slate30 : SlateDark)};
+  color: ${({theme}) => theme.colors.text};
 `;
 
 const ProgressTrack = styled.View`
