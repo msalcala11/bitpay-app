@@ -72,12 +72,6 @@ import AuthGroup, {
   AuthGroupParamList,
   AuthScreens,
 } from './navigation/auth/AuthGroup';
-import BuyCryptoGroup, {
-  BuyCryptoGroupParamList,
-} from './navigation/services/buy-crypto/BuyCryptoGroup';
-import SellCryptoGroup, {
-  SellCryptoGroupParamList,
-} from './navigation/services/sell-crypto/SellCryptoGroup';
 import ExternalServicesGroup, {
   ExternalServicesGroupParamList,
 } from './navigation/services/ExternalServicesGroup';
@@ -157,6 +151,7 @@ import {BrazeWrapper} from './lib/Braze';
 import {selectSettingsNotificationState} from './store/app/app.selectors';
 import {HeaderShownContext} from '@react-navigation/elements';
 import PaymentSent from './navigation/wallet/components/PaymentSent';
+import AllAssets from './navigation/tabs/home/screens/AllAssets';
 import {
   getBaseEVMAccountCreationCoinsAndTokens,
   getBaseSVMAccountCreationCoinsAndTokens,
@@ -175,6 +170,7 @@ const {Timer, SilentPushEvent, InAppMessageModule} = NativeModules;
 // ROOT NAVIGATION CONFIG
 export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabsStackParamList>;
+  AllAssets: undefined;
 } & DebugScreenParamList &
   MerchantGroupParamList &
   BitpayIdGroupParamList &
@@ -254,12 +250,9 @@ export type SilentPushEventObj = {
 };
 
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
-export const navigate = (
-  name: keyof RootStackParamList,
-  params: NavScreenParams,
-) => {
+export const navigate = (name: any, params?: any) => {
   if (navigationRef.isReady()) {
-    navigationRef.navigate(name, params);
+    (navigationRef as any).navigate(name, params);
   }
 };
 
@@ -994,6 +987,14 @@ export default () => {
               component={TabsStack}
               options={{
                 gestureEnabled: false,
+              }}
+            />
+            <Root.Screen
+              name={'AllAssets'}
+              component={AllAssets}
+              options={{
+                ...baseNavigatorOptions,
+                headerShown: true,
               }}
             />
             {AuthGroup({Auth: Root, theme})}

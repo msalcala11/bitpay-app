@@ -1,0 +1,59 @@
+import React, {useLayoutEffect, useMemo, useState} from 'react';
+import styled from 'styled-components/native';
+import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {RootStackParamList} from '../../../../Root';
+import {useTheme} from 'styled-components/native';
+import {useStackScreenOptions} from '../../../utils/headerHelpers';
+import {HeaderTitle} from '../../../../components/styled/Text';
+import HeaderBackButton from '../../../../components/back/HeaderBackButton';
+import AssetsGainLossDropdown from '../components/AssetsGainLossDropdown';
+import AssetsSearchPill from '../components/AssetsSearchPill';
+import AssetsList from '../components/AssetsList';
+import {getAllAssetsMockItems} from '../components/AssetsMockData';
+
+type Props = NativeStackScreenProps<RootStackParamList, 'AllAssets'>;
+
+const ScreenContainer = styled.SafeAreaView`
+  flex: 1;
+`;
+
+const Content = styled.ScrollView`
+  flex: 1;
+`;
+
+const FiltersRow = styled.View`
+  flex-direction: row;
+  gap: 12px;
+  padding: 12px 16px;
+`;
+
+const AllAssets: React.FC<Props> = ({navigation}) => {
+  const theme = useTheme();
+  const commonOptions = useStackScreenOptions(theme);
+  const [query, setQuery] = useState('');
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      ...commonOptions,
+      headerLeft: () => <HeaderBackButton />,
+      headerTitle: () => <HeaderTitle>Assets</HeaderTitle>,
+    });
+  }, [navigation, commonOptions]);
+
+  const items = useMemo(() => getAllAssetsMockItems(), []);
+
+  return (
+    <ScreenContainer>
+      <Content>
+        <FiltersRow>
+          <AssetsSearchPill value={query} onChangeText={setQuery} />
+          <AssetsGainLossDropdown onPress={() => {}} />
+        </FiltersRow>
+
+        <AssetsList items={items} />
+      </Content>
+    </ScreenContainer>
+  );
+};
+
+export default AllAssets;

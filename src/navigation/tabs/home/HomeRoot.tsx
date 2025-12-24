@@ -284,7 +284,7 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
 
   const onPressTxpBadge = useMemo(
     () => () => {
-      navigation.navigate('TransactionProposalNotifications', {});
+      (navigation as any).navigate('TransactionProposalNotifications', {});
     },
     [navigation],
   );
@@ -309,7 +309,7 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
             abbr.toLowerCase() === currencyAbbreviation.toLowerCase(),
         );
         if (exchangeRatesSection) {
-          navigation.navigate('PriceCharts', {item: exchangeRatesSection});
+          (navigation as any).navigate('PriceCharts', {item: exchangeRatesSection});
         }
       }
     }
@@ -403,7 +403,7 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
                 title={t('Shop with Crypto')}
                 action={t('Shop all')}
                 onActionPress={() => {
-                  navigation.navigate('Tabs', {screen: 'Shop'});
+                  (navigation as any).navigate('Tabs', {screen: 'Shop'});
                   dispatch(
                     Analytics.track('Clicked Shop with Crypto', {
                       context: 'HomeRoot',
