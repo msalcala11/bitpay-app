@@ -173,7 +173,7 @@ const MarketHeader = styled.View`
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 14px 14px;
+  padding: 16px;
 `;
 
 const MarketHeaderLeft = styled.View`
