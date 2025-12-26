@@ -165,13 +165,15 @@ const WalletAmount = styled(BaseText)`
 
 const MarketCardContainer = styled.View`
   margin: 8px ${ScreenGutter} 20px;
+  border: 1px solid ${({theme}) => (theme.dark ? LightBlack : Slate30)};
+  border-radius: 12px;
 `;
 
 const MarketHeader = styled.View`
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 14px 10px;
+  padding: 14px 14px 14px;
 `;
 
 const MarketHeaderLeft = styled.View`
@@ -194,11 +196,12 @@ const MarketPrice = styled(BaseText)`
 
 const Divider = styled.View`
   height: 1px;
-  background-color: ${({theme: {dark}}) => (dark ? '#333333' : '#E1E4E7')};
+  background-color: ${({theme}) => (theme.dark ? LightBlack : Slate30)};
 `;
 
 const MarketBody = styled.View`
   padding: 14px;
+  background-color: ${({theme: {dark}}) => (dark ? '#111' : Slate10)};
 `;
 
 const SubSectionTitle = styled(BaseText)`
@@ -404,7 +407,7 @@ const ExchangeRate = () => {
         </WalletCard>
 
         <MarketCardContainer>
-          <CardContainer>
+          <CardContainer style={{backgroundColor: 'transparent'}}>
             <MarketHeader>
               <MarketHeaderLeft>
                 <View style={{width: 26, height: 26}}>
