@@ -164,7 +164,7 @@ const WalletAmount = styled(BaseText)`
 `;
 
 const MarketCardContainer = styled.View`
-  margin: 8px ${ScreenGutter} 20px;
+  margin: 20px ${ScreenGutter} 20px;
   border: 1px solid ${({theme}) => (theme.dark ? LightBlack : Slate30)};
   border-radius: 12px;
 `;
@@ -222,13 +222,18 @@ const StatBlock = styled.View`
 
 const StatLabel = styled(BaseText)`
   font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 15px;
   color: ${({theme: {dark}}) => (dark ? '#9BA3AE' : '#777777')};
   margin-bottom: 4px;
 `;
 
 const StatValue = styled(BaseText)`
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 24px;
   color: ${({theme}) => theme.colors.text};
 `;
 
