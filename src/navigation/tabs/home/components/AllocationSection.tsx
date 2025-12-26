@@ -9,7 +9,6 @@ import {HomeSectionTitle} from './Styled';
 import ChevronRightSvg from './ChevronRightSvg';
 import {
   Black,
-  LightBlack,
   Slate,
   Slate30,
   SlateDark,
