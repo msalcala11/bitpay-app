@@ -16,7 +16,7 @@ import {
 import {BaseText, H2, H5, HeaderTitle, Link} from '../../../components/styled/Text';
 import {BitpaySupportedCoins} from '../../../constants/currencies';
 import LinkingButtons from '../../tabs/home/components/LinkingButtons';
-import {LuckySevens, ProgressBlue, Slate30, SlateDark, White} from '../../../styles/colors';
+import {LightBlack, LuckySevens, ProgressBlue, Slate10, Slate30, SlateDark, White} from '../../../styles/colors';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import type {WalletGroupParamList} from '../WalletGroup';
 
@@ -113,12 +113,12 @@ const SectionTitle = styled(H5)`
   font-style: normal;
   font-weight: 700;
   line-height: 30px;
-  margin: 18px ${ScreenGutter} 0px;
+  margin: 18px ${ScreenGutter} 3px;
 `;
 
 const WalletCard = styled(TouchableOpacity)`
-  border: 1px solid ${({theme}) => (theme.dark ? '#434D5A' : '#E1E4E7')};
-  background-color: ${({theme: {dark}}) => (dark ? '#111' : White)};
+  border: 1px solid ${({theme}) => (theme.dark ? LightBlack : Slate10)};
+  background-color: ${({theme: {dark}}) => (dark ? '#111' : Slate10)};
   border-radius: 12px;
   margin: 8px ${ScreenGutter};
   flex-direction: row;
@@ -134,14 +134,18 @@ const WalletLeft = styled.View`
 `;
 
 const WalletName = styled(BaseText)`
-  font-size: 14px;
+  font-size: 16px;
+  font-style: normal;
   font-weight: 400;
+  line-height: 24px;
   color: ${({theme}) => theme.colors.text};
 `;
 
 const WalletSub = styled(BaseText)`
-  font-size: 12px;
-  margin-top: 2px;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
   color: ${({theme: {dark}}) => (dark ? Slate30 : LuckySevens)};
 `;
 
@@ -152,8 +156,10 @@ const WalletRight = styled.View`
 `;
 
 const WalletAmount = styled(BaseText)`
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 24px;
   color: ${({theme}) => theme.colors.text};
 `;
 
@@ -466,7 +472,7 @@ const RightChevron = () => {
   const theme = useTheme();
   const stroke = theme.dark ? Slate30 : SlateDark;
   return (
-    <Svg width={10} height={16} viewBox="0 0 10 16" fill="none">
+    <Svg width={7} height={13} viewBox="0 0 10 16" fill="none">
       <Path
         d="M1 1L8 8L1 15"
         stroke={stroke}
