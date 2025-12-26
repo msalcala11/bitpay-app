@@ -109,8 +109,11 @@ const ActionsContainer = styled.View`
 `;
 
 const SectionTitle = styled(H5)`
-  font-size: 18px;
-  margin: 18px ${ScreenGutter} 8px;
+  font-size: 20px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 30px;
+  margin: 18px ${ScreenGutter} 0px;
 `;
 
 const WalletCard = styled(TouchableOpacity)`
