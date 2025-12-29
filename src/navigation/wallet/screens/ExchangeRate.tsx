@@ -219,11 +219,11 @@ const SubSectionTitle = styled(BaseText)`
 
 const StatsGridRow = styled.View`
   flex-direction: row;
-  justify-content: space-between;
 `;
 
 const StatBlock = styled.View`
   flex: 1;
+  flex-basis: 0px;
 `;
 
 const StatLabel = styled(BaseText)`
@@ -438,10 +438,12 @@ const ExchangeRate = () => {
                   <StatLabel>52wk high</StatLabel>
                   <StatValue>$121,131.47</StatValue>
                 </StatBlock>
-                <StatBlock style={{paddingHorizontal: 8}}>
-                  <StatLabel>52wk low</StatLabel>
-                  <StatValue>$89,141.35</StatValue>
-                </StatBlock>
+                <View style={{flex: 1, paddingHorizontal: 8, alignItems: 'center'}}>
+                  <StatBlock style={{flex: 0}}>
+                    <StatLabel>52wk low</StatLabel>
+                    <StatValue>$89,141.35</StatValue>
+                  </StatBlock>
+                </View>
                 <StatBlock style={{paddingLeft: 8, alignItems: 'flex-end'}}>
                   <StatLabel>24h volume</StatLabel>
                   <StatValue>$23.98B</StatValue>
