@@ -27,6 +27,8 @@ const FiltersRow = styled.View`
   padding: 12px 16px;
 `;
 
+const FILTER_HEIGHT = 40;
+
 const AllAssets: React.FC<Props> = ({navigation}) => {
   const theme = useTheme();
   const commonOptions = useStackScreenOptions(theme);
@@ -60,8 +62,8 @@ const AllAssets: React.FC<Props> = ({navigation}) => {
     <ScreenContainer>
       <Content>
         <FiltersRow>
-          <AssetsSearchPill value={query} onChangeText={setQuery} />
-          <AssetsGainLossDropdown onPress={() => {}} />
+          <AssetsSearchPill value={query} onChangeText={setQuery} height={FILTER_HEIGHT} />
+          <AssetsGainLossDropdown onPress={() => {}} height={FILTER_HEIGHT} />
         </FiltersRow>
 
         <AssetsList items={filteredItems} />

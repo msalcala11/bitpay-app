@@ -7,11 +7,12 @@ import {BaseText} from '../../../../components/styled/Text';
 import {Black, LightBlack, Slate30, SlateDark, White} from '../../../../styles/colors';
 import ChevronDown from './ChevronDown';
 
-const Container = styled(TouchableOpacity)`
+const Container = styled(TouchableOpacity)<{height?: number}>`
   flex-direction: row;
   align-items: center;
   border-radius: 50px;
   padding: 10px 14px;
+  ${({height}) => (height ? `height: ${height}px;` : '')}
   border: 1px solid ${({theme: {dark}}) => (dark ? SlateDark : Slate30)};
   background-color: ${({theme: {dark}}) => (dark ? 'transparent' : White)};
 `;
@@ -54,9 +55,10 @@ const Divider = styled.View`
 interface Props {
   onPress?: () => void;
   onChange?: (value: 'today' | 'total') => void;
+  height?: number;
 }
 
-const AssetsGainLossDropdown: React.FC<Props> = ({onPress, onChange}) => {
+const AssetsGainLossDropdown: React.FC<Props> = ({onPress, onChange, height}) => {
   const anchorRef = useRef<View>(null);
   const [isVisible, setIsVisible] = useState(false);
   const [anchor, setAnchor] = useState<{x: number; y: number; w: number; h: number} | null>(
@@ -112,7 +114,7 @@ const AssetsGainLossDropdown: React.FC<Props> = ({onPress, onChange}) => {
   return (
     <>
       <View ref={anchorRef} collapsable={false}>
-        <Container activeOpacity={ActiveOpacity} onPress={open}>
+        <Container height={height} activeOpacity={ActiveOpacity} onPress={open}>
           <Label>{displayLabel}</Label>
           <ChevronDown />
         </Container>
