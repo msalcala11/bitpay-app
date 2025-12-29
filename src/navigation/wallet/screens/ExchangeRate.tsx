@@ -473,7 +473,7 @@ const ExchangeRate = () => {
                 <AboutText numberOfLines={3} ellipsizeMode="tail">
                   A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution...
                 </AboutText>
-                <View style={{marginTop: 10}}>
+                <View style={{marginTop: 15}}>
                   <Link style={{fontSize: 13}} onPress={() => {}}>Show more</Link>
                 </View>
               </View>
