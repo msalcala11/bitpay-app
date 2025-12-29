@@ -16,7 +16,7 @@ import {
 import {BaseText, H2, H5, HeaderTitle, Link} from '../../../components/styled/Text';
 import {BitpaySupportedCoins} from '../../../constants/currencies';
 import LinkingButtons from '../../tabs/home/components/LinkingButtons';
-import {LightBlack, LuckySevens, ProgressBlue, Slate10, Slate30, SlateDark, White} from '../../../styles/colors';
+import {LightBlack, LuckySevens, ProgressBlue, Slate, Slate10, Slate30, SlateDark, White} from '../../../styles/colors';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import type {WalletGroupParamList} from '../WalletGroup';
 
@@ -434,17 +434,17 @@ const ExchangeRate = () => {
               <SubSectionTitle>Bitcoin Stats</SubSectionTitle>
 
               <StatsGridRow>
-                <StatBlock style={{paddingRight: 8, flexGrow: 1.3}}>
+                <StatBlock style={{paddingRight: 8}}>
                   <StatLabel>52wk high</StatLabel>
                   <StatValue>$121,131.47</StatValue>
                 </StatBlock>
-                <View style={{flex: 1, paddingHorizontal: 8, alignItems: 'center'}}>
-                  <StatBlock style={{flex: 0}}>
+                <View>
+                  <StatBlock>
                     <StatLabel>52wk low</StatLabel>
                     <StatValue>$89,141.35</StatValue>
                   </StatBlock>
                 </View>
-                <StatBlock style={{paddingLeft: 8, alignItems: 'flex-end'}}>
+                <StatBlock style={{alignItems: 'flex-end'}}>
                   <StatLabel>24h volume</StatLabel>
                   <StatValue>$23.98B</StatValue>
                 </StatBlock>
@@ -455,11 +455,15 @@ const ExchangeRate = () => {
               <View style={{marginTop: 14}} />
 
               <StatsGridRow>
-                <StatBlock style={{paddingRight: 8}}>
+                <StatBlock style={{paddingRight: 8, flexGrow: 1.3}}>
                   <StatLabel>Circulating supply</StatLabel>
                   <StatValue>19,770,625 BTC</StatValue>
                 </StatBlock>
-                <StatBlock style={{paddingLeft: 8, alignItems: 'flex-end'}}>
+                <StatBlock>
+                  <StatLabel>Market cap</StatLabel>
+                  <StatValue>$1.98T</StatValue>
+                </StatBlock>
+                <StatBlock style={{opacity: 0, alignItems: 'flex-end'}}>
                   <StatLabel>Market cap</StatLabel>
                   <StatValue>$1.98T</StatValue>
                 </StatBlock>
@@ -487,7 +491,7 @@ const ExchangeRate = () => {
 
 const RightChevron = () => {
   const theme = useTheme();
-  const stroke = theme.dark ? Slate30 : SlateDark;
+  const stroke = theme.dark ? Slate : SlateDark;
   return (
     <Svg width={7} height={13} viewBox="0 0 10 16" fill="none">
       <Path
