@@ -183,14 +183,18 @@ const MarketHeaderLeft = styled.View`
 `;
 
 const MarketTitle = styled(BaseText)`
-  font-size: 14px;
+  font-size: 16px;
+  font-style: normal;
   font-weight: 500;
+  line-height: 24px;
   color: ${({theme}) => theme.colors.text};
 `;
 
 const MarketPrice = styled(BaseText)`
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 24px;
   color: ${({theme}) => theme.colors.text};
 `;
 
@@ -206,7 +210,9 @@ const MarketBody = styled.View`
 
 const SubSectionTitle = styled(BaseText)`
   font-size: 13px;
+  font-style: normal;
   font-weight: 600;
+  line-height: 20px;
   color: ${({theme}) => theme.colors.text};
   margin-bottom: 10px;
 `;
@@ -225,7 +231,7 @@ const StatLabel = styled(BaseText)`
   font-style: normal;
   font-weight: 400;
   line-height: 15px;
-  color: ${({theme: {dark}}) => (dark ? '#9BA3AE' : '#777777')};
+  color: ${({theme: {dark}}) => (dark ? Slate30 : SlateDark)};
   margin-bottom: 4px;
 `;
 
@@ -239,9 +245,10 @@ const StatValue = styled(BaseText)`
 
 const AboutText = styled(BaseText)`
   font-size: 12px;
-  line-height: 18px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 15px;
   color: ${({theme: {dark}}) => (dark ? '#9BA3AE' : '#777777')};
-  margin-top: 6px;
 `;
 
 const RightIconSvg = ({type}: {type: 'star' | 'bell'}) => {
@@ -460,12 +467,12 @@ const ExchangeRate = () => {
               <Divider />
 
               <View style={{marginTop: 14}}>
-                <SubSectionTitle>About</SubSectionTitle>
+                <SubSectionTitle style={{fontWeight: '400', marginBottom: 6}}>About</SubSectionTitle>
                 <AboutText numberOfLines={3} ellipsizeMode="tail">
                   A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution...
                 </AboutText>
                 <View style={{marginTop: 10}}>
-                  <Link onPress={() => {}}>Show more</Link>
+                  <Link style={{fontSize: 13}} onPress={() => {}}>Show more</Link>
                 </View>
               </View>
             </MarketBody>
