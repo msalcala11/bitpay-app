@@ -248,7 +248,7 @@ const AboutText = styled(BaseText)`
   font-style: normal;
   font-weight: 400;
   line-height: 15px;
-  color: ${({theme: {dark}}) => (dark ? '#9BA3AE' : '#777777')};
+  color: ${({theme: {dark}}) => (dark ? Slate30 : SlateDark)};
 `;
 
 const RightIconSvg = ({type}: {type: 'star' | 'bell'}) => {
