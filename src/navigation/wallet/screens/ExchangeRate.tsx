@@ -434,7 +434,7 @@ const ExchangeRate = () => {
               <SubSectionTitle>Bitcoin Stats</SubSectionTitle>
 
               <StatsGridRow>
-                <StatBlock style={{paddingRight: 8}}>
+                <StatBlock style={{paddingRight: 8, flexGrow: 1.3}}>
                   <StatLabel>52wk high</StatLabel>
                   <StatValue>$121,131.47</StatValue>
                 </StatBlock>
