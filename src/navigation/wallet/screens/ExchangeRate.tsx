@@ -83,7 +83,7 @@ const ChartContainer = styled.View`
 
 const TimeframeContainer = styled.View`
   margin-top: 18px;
-  padding: 0 12px;
+  padding: 0 0px;
 `;
 
 const TimeframeRow = styled.View`
@@ -91,7 +91,6 @@ const TimeframeRow = styled.View`
   justify-content: space-between;
   align-self: center;
   width: ${WIDTH - 24}px;
-  max-width: 360px;
 `;
 
 const TimeframePill = styled(TouchableOpacity)<{active: boolean}>`
@@ -440,6 +439,7 @@ const ExchangeRate = () => {
 
         <ActionsContainer>
           <LinkingButtons
+            maxWidth={500}
             buy={{
               cta: () => {
                 navigation.navigate(ExternalServicesScreens.ROOT_BUY_AND_SELL, {
