@@ -431,7 +431,7 @@ const ExchangeRate = () => {
           />
         </ActionsContainer>
 
-        <SectionTitle>Your Wallets with BTC</SectionTitle>
+        <SectionTitle>{`Your Wallets with ${currencyAbbreviation}`}</SectionTitle>
 
         <WalletCard activeOpacity={ActiveOpacity} onPress={() => {}}>
           <WalletLeft>
@@ -470,7 +470,7 @@ const ExchangeRate = () => {
                 <View style={{width: 26, height: 26}}>
                   <CurrencyImage img={coin.img} size={26} />
                 </View>
-                <MarketTitle>BTC Market Price</MarketTitle>
+                <MarketTitle>{`${currencyAbbreviation} Market Price`}</MarketTitle>
               </MarketHeaderLeft>
               <MarketPrice>$119,458.18</MarketPrice>
             </MarketHeader>
@@ -502,7 +502,7 @@ const ExchangeRate = () => {
               <StatsGridRow>
                 <StatBlock style={{paddingRight: 8, flexGrow: 1.3}}>
                   <StatLabel>Circulating supply</StatLabel>
-                  <StatValue>19,770,625 BTC</StatValue>
+                  <StatValue>{`19,770,625 ${currencyAbbreviation}`}</StatValue>
                 </StatBlock>
                 <StatBlock>
                   <StatLabel>Market cap</StatLabel>
