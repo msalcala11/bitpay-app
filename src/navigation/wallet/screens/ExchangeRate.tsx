@@ -113,8 +113,8 @@ const TimeframeText = styled(BaseText)<{active: boolean}>`
 `;
 
 const ActionsContainer = styled.View`
-  margin-top: 10px;
-  margin-bottom: 10px;
+  margin-top: 20px;
+  margin-bottom: 15px;
 `;
 
 const SectionTitle = styled(H5)`
