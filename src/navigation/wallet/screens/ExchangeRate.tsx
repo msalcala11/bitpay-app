@@ -16,7 +16,7 @@ import {
 import {BaseText, H2, H5, HeaderTitle, Link} from '../../../components/styled/Text';
 import {BitpaySupportedCoins} from '../../../constants/currencies';
 import LinkingButtons from '../../tabs/home/components/LinkingButtons';
-import {LightBlack, LuckySevens, ProgressBlue, Slate, Slate10, Slate30, SlateDark, White} from '../../../styles/colors';
+import {Action, LightBlack, LightBlue, LinkBlue, LuckySevens, Midnight, ProgressBlue, Slate, Slate10, Slate30, SlateDark, White} from '../../../styles/colors';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import type {WalletGroupParamList} from '../WalletGroup';
 import {Network} from '../../../constants';
@@ -101,14 +101,14 @@ const TimeframePill = styled(TouchableOpacity)<{active: boolean}>`
   align-items: center;
   justify-content: center;
   background-color: ${({theme, active}) =>
-    active ? (theme.dark ? '#0C204E' : '#EDF0FE') : 'transparent'};
+    active ? (theme.dark ? Midnight : LightBlue) : 'transparent'};
 `;
 
 const TimeframeText = styled(BaseText)<{active: boolean}>`
   font-size: 14px;
   font-weight: ${({active}) => (active ? 500 : 400)};
   color: ${({theme, active}) =>
-    active ? (theme.dark ? White : ProgressBlue) : theme.dark ? '#9BA3AE' : '#434D5A'};
+    active ? (theme.dark ? LinkBlue : Action) : theme.dark ? Slate30 : SlateDark};
 `;
 
 const ActionsContainer = styled.View`
