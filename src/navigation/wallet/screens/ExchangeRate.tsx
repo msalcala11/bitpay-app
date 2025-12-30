@@ -479,39 +479,45 @@ const ExchangeRate = () => {
           />
         </ActionsContainer>
 
-        <SectionTitle>{`Your Wallets with ${currencyAbbreviation}`}</SectionTitle>
+        {walletsForAsset.length ? (
+          <>
+            <SectionTitle>{`Your Wallets with ${currencyAbbreviation}`}</SectionTitle>
 
-        {walletsForAsset.map(({wallet, ui}) => (
-          <WalletCard
-            key={ui.id}
-            activeOpacity={ActiveOpacity}
-            onPress={() => {
-              navigation.navigate('WalletDetails', {
-                walletId: wallet.credentials?.walletId || wallet.id,
-                key: keys[wallet.keyId],
-                copayerId: wallet.credentials?.copayerId,
-              });
-            }}>
-            <WalletLeft>
-              <WalletName numberOfLines={1} ellipsizeMode="tail">
-                {ui.walletName}
-              </WalletName>
-              <WalletSub numberOfLines={1} ellipsizeMode="tail">
-                {ui.receiveAddress ? formatCryptoAddress(ui.receiveAddress) : ''}
-              </WalletSub>
-            </WalletLeft>
-            <WalletRight>
-              <WalletAmount>
-                {hideAllBalances
-                  ? '****'
-                  : ui.network === Network.testnet
-                    ? 'Test - No Value'
-                    : ui.fiatBalanceFormat || '$0.00'}
-              </WalletAmount>
-              <RightChevron />
-            </WalletRight>
-          </WalletCard>
-        ))}
+            {walletsForAsset.map(({wallet, ui}) => (
+              <WalletCard
+                key={ui.id}
+                activeOpacity={ActiveOpacity}
+                onPress={() => {
+                  navigation.navigate('WalletDetails', {
+                    walletId: wallet.credentials?.walletId || wallet.id,
+                    key: keys[wallet.keyId],
+                    copayerId: wallet.credentials?.copayerId,
+                  });
+                }}>
+                <WalletLeft>
+                  <WalletName numberOfLines={1} ellipsizeMode="tail">
+                    {ui.walletName}
+                  </WalletName>
+                  <WalletSub numberOfLines={1} ellipsizeMode="tail">
+                    {ui.receiveAddress
+                      ? formatCryptoAddress(ui.receiveAddress)
+                      : ''}
+                  </WalletSub>
+                </WalletLeft>
+                <WalletRight>
+                  <WalletAmount>
+                    {hideAllBalances
+                      ? '****'
+                      : ui.network === Network.testnet
+                        ? 'Test - No Value'
+                        : ui.fiatBalanceFormat || '$0.00'}
+                  </WalletAmount>
+                  <RightChevron />
+                </WalletRight>
+              </WalletCard>
+            ))}
+          </>
+        ) : null}
 
         <MarketCardContainer>
           <CardContainer style={{backgroundColor: 'transparent'}}>
