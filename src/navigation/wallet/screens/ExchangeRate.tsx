@@ -19,7 +19,13 @@ import LinkingButtons from '../../tabs/home/components/LinkingButtons';
 import {LightBlack, LuckySevens, ProgressBlue, Slate, Slate10, Slate30, SlateDark, White} from '../../../styles/colors';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import type {WalletGroupParamList} from '../WalletGroup';
-import {useAppDispatch} from '../../../utils/hooks';
+import {Network} from '../../../constants';
+import {buildUIFormattedWallet} from '../../../store/wallet/utils/wallet';
+import type {Wallet} from '../../../store/wallet/wallet.models';
+import type {Key} from '../../../store/wallet/wallet.models';
+import type {RootState} from '../../../store';
+import {formatCryptoAddress} from '../../../utils/helper-methods';
+import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {sendCrypto, receiveCrypto} from '../../../store/wallet/effects/send/send';
 import {ExternalServicesScreens} from '../../services/ExternalServicesGroup';
 
@@ -283,6 +289,12 @@ const ExchangeRate = () => {
   const theme = useTheme();
   const navigation = useNavigation();
   const dispatch = useAppDispatch();
+  const keys = useAppSelector(({WALLET}: RootState) => WALLET.keys);
+  const rates = useAppSelector(({RATE}: RootState) => RATE.rates);
+  const defaultAltCurrency = useAppSelector(
+    ({APP}: RootState) => APP.defaultAltCurrency,
+  );
+  const hideAllBalances = useAppSelector(({APP}: RootState) => APP.hideAllBalances);
   const {params} = useRoute<RouteProp<WalletGroupParamList, 'ExchangeRate'>>();
   const [selectedTimeframe, setSelectedTimeframe] = useState('All');
 
@@ -323,6 +335,40 @@ const ExchangeRate = () => {
       coinColor: ProgressBlue,
       gradientBackgroundColor: theme.dark ? 'transparent' : White,
     };
+
+  const walletsForAsset = useMemo(() => {
+    const allWallets: Wallet[] = (Object.values(keys) as Key[]).flatMap(
+      k => k.wallets,
+    );
+    const filtered = allWallets
+      .filter(w => !w.hideWallet && !w.hideWalletByAccount)
+      .filter(w => {
+        const matchesCurrency =
+          (w.currencyAbbreviation || '').toLowerCase() ===
+          assetContext.currencyAbbreviation;
+        const matchesChain = (w.chain || '').toLowerCase() === assetContext.chain;
+        const matchesNetwork = assetContext.network
+          ? (w.network || '').toLowerCase() === assetContext.network
+          : true;
+        const matchesTokenAddress = assetContext.tokenAddress
+          ? (w.tokenAddress || '').toLowerCase() === assetContext.tokenAddress
+          : true;
+        return matchesCurrency && matchesChain && matchesNetwork && matchesTokenAddress;
+      })
+      .map(wallet => {
+        const ui = buildUIFormattedWallet(
+          wallet,
+          defaultAltCurrency.isoCode,
+          rates,
+          dispatch,
+          'symbol',
+        );
+        return {wallet, ui};
+      })
+      .sort((a, b) => (b.ui.fiatBalance || 0) - (a.ui.fiatBalance || 0));
+
+    return filtered;
+  }, [assetContext.chain, assetContext.currencyAbbreviation, assetContext.network, assetContext.tokenAddress, defaultAltCurrency.isoCode, dispatch, keys, rates]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -433,35 +479,37 @@ const ExchangeRate = () => {
 
         <SectionTitle>{`Your Wallets with ${currencyAbbreviation}`}</SectionTitle>
 
-        <WalletCard activeOpacity={ActiveOpacity} onPress={() => {}}>
-          <WalletLeft>
-            <WalletName numberOfLines={1} ellipsizeMode="tail">
-              My Everything Wallet
-            </WalletName>
-            <WalletSub numberOfLines={1} ellipsizeMode="tail">
-              1PfJb...8gwhV
-            </WalletSub>
-          </WalletLeft>
-          <WalletRight>
-            <WalletAmount>$2,139.04</WalletAmount>
-            <RightChevron />
-          </WalletRight>
-        </WalletCard>
-
-        <WalletCard activeOpacity={ActiveOpacity} onPress={() => {}}>
-          <WalletLeft>
-            <WalletName numberOfLines={1} ellipsizeMode="tail">
-              My Everything Wallet
-            </WalletName>
-            <WalletSub numberOfLines={1} ellipsizeMode="tail">
-              1PfJb...8gwhV
-            </WalletSub>
-          </WalletLeft>
-          <WalletRight>
-            <WalletAmount>$2,139.04</WalletAmount>
-            <RightChevron />
-          </WalletRight>
-        </WalletCard>
+        {walletsForAsset.map(({wallet, ui}) => (
+          <WalletCard
+            key={ui.id}
+            activeOpacity={ActiveOpacity}
+            onPress={() => {
+              navigation.navigate('WalletDetails', {
+                walletId: wallet.credentials?.walletId || wallet.id,
+                key: keys[wallet.keyId],
+                copayerId: wallet.credentials?.copayerId,
+              });
+            }}>
+            <WalletLeft>
+              <WalletName numberOfLines={1} ellipsizeMode="tail">
+                {ui.walletName}
+              </WalletName>
+              <WalletSub numberOfLines={1} ellipsizeMode="tail">
+                {ui.receiveAddress ? formatCryptoAddress(ui.receiveAddress) : ''}
+              </WalletSub>
+            </WalletLeft>
+            <WalletRight>
+              <WalletAmount>
+                {hideAllBalances
+                  ? '****'
+                  : ui.network === Network.testnet
+                    ? 'Test - No Value'
+                    : ui.fiatBalanceFormat || '$0.00'}
+              </WalletAmount>
+              <RightChevron />
+            </WalletRight>
+          </WalletCard>
+        ))}
 
         <MarketCardContainer>
           <CardContainer style={{backgroundColor: 'transparent'}}>
