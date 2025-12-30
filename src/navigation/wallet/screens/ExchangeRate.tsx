@@ -341,7 +341,9 @@ const ExchangeRate = () => {
       k => k.wallets,
     );
     const filtered = allWallets
+      .filter(w => w.network !== Network.testnet)
       .filter(w => !w.hideWallet && !w.hideWalletByAccount)
+      .filter(w => (w.balance?.sat ?? 0) > 0)
       .filter(w => {
         const matchesCurrency =
           (w.currencyAbbreviation || '').toLowerCase() ===
