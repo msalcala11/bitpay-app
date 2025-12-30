@@ -19,6 +19,9 @@ import LinkingButtons from '../../tabs/home/components/LinkingButtons';
 import {LightBlack, LuckySevens, ProgressBlue, Slate, Slate10, Slate30, SlateDark, White} from '../../../styles/colors';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import type {WalletGroupParamList} from '../WalletGroup';
+import {useAppDispatch} from '../../../utils/hooks';
+import {sendCrypto, receiveCrypto} from '../../../store/wallet/effects/send/send';
+import {ExternalServicesScreens} from '../../services/ExternalServicesGroup';
 
 const ScreenContainer = styled.SafeAreaView`
   flex: 1;
@@ -279,6 +282,7 @@ const RightIconSvg = ({type}: {type: 'star' | 'bell'}) => {
 const ExchangeRate = () => {
   const theme = useTheme();
   const navigation = useNavigation();
+  const dispatch = useAppDispatch();
   const {params} = useRoute<RouteProp<WalletGroupParamList, 'ExchangeRate'>>();
   const [selectedTimeframe, setSelectedTimeframe] = useState('All');
 
@@ -286,6 +290,16 @@ const ExchangeRate = () => {
   const currencyAbbreviation = (params?.currencyAbbreviation || 'BTC').toUpperCase();
   const coinKey = (params?.chain || params?.currencyAbbreviation || 'btc').toLowerCase();
   const coin = BitpaySupportedCoins[coinKey] ?? BitpaySupportedCoins.btc;
+
+  const assetContext = useMemo(
+    () => ({
+      currencyAbbreviation: (params?.currencyAbbreviation || 'btc').toLowerCase(),
+      chain: (params?.chain || params?.currencyAbbreviation || 'btc').toLowerCase(),
+      network: params?.network?.toLowerCase(),
+      tokenAddress: params?.tokenAddress?.toLowerCase(),
+    }),
+    [params?.chain, params?.currencyAbbreviation, params?.network, params?.tokenAddress],
+  );
 
   const points = useMemo(() => {
     const now = Date.now();
@@ -378,11 +392,42 @@ const ExchangeRate = () => {
 
         <ActionsContainer>
           <LinkingButtons
-            buy={{cta: () => {}}}
-            sell={{cta: () => {}}}
-            swap={{cta: () => {}}}
-            receive={{cta: () => {}}}
-            send={{cta: () => {}}}
+            buy={{
+              cta: () => {
+                navigation.navigate(ExternalServicesScreens.ROOT_BUY_AND_SELL, {
+                  context: 'buyCrypto',
+                  currencyAbbreviation: assetContext.currencyAbbreviation,
+                  chain: assetContext.chain,
+                });
+              },
+            }}
+            sell={{
+              cta: () => {
+                navigation.navigate(ExternalServicesScreens.ROOT_BUY_AND_SELL, {
+                  context: 'sellCrypto',
+                  currencyAbbreviation: assetContext.currencyAbbreviation,
+                  chain: assetContext.chain,
+                });
+              },
+            }}
+            swap={{
+              cta: () => {
+                navigation.navigate('GlobalSelect', {
+                  context: 'swapFrom',
+                  assetContext,
+                });
+              },
+            }}
+            receive={{
+              cta: () => {
+                dispatch(receiveCrypto(navigation as any, 'ExchangeRate', assetContext));
+              },
+            }}
+            send={{
+              cta: () => {
+                dispatch(sendCrypto('ExchangeRate', assetContext));
+              },
+            }}
           />
         </ActionsContainer>
 

@@ -186,6 +186,8 @@ export type WalletGroupParamList = {
     currencyName: string;
     currencyAbbreviation: string;
     chain: string;
+    tokenAddress?: string;
+    network?: string;
   };
   ClearEncryptPassword: ClearEncryptPasswordParamList;
   SendToOptions: SendToOptionsParamList;

@@ -276,6 +276,13 @@ export type GlobalSelectModalContext =
   | 'swapTo'
   | 'paperwallet';
 
+ export type AssetContext = {
+   currencyAbbreviation: string;
+   chain: string;
+   network?: string;
+   tokenAddress?: string;
+ };
+
 export type GlobalSelectParamList = {
   context: GlobalSelectModalContext;
   recipient?: {
@@ -297,6 +304,7 @@ export type GlobalSelectParamList = {
   };
   amount?: number;
   selectedAccountAddress?: string;
+  assetContext?: AssetContext;
 };
 
 export interface GlobalSelectObj extends SearchableItem {
@@ -558,7 +566,8 @@ const GlobalSelect: React.FC<GlobalSelectScreenProps | GlobalSelectProps> = ({
   route,
 }) => {
   const {t} = useTranslation();
-  let {context, recipient, amount, selectedAccountAddress} = route.params || {};
+  let {context, recipient, amount, selectedAccountAddress, assetContext} =
+    route.params || {};
   if (useAsModal && modalContext) {
     context = modalContext;
   }
@@ -721,6 +730,33 @@ const GlobalSelect: React.FC<GlobalSelectScreenProps | GlobalSelectProps> = ({
     wallets = wallets.filter(wallet =>
       supportedCurrencies.includes(wallet.currencyAbbreviation),
     );
+  }
+
+  if (assetContext?.currencyAbbreviation && assetContext?.chain) {
+    const filterCurrencyAbbreviation =
+      assetContext.currencyAbbreviation.toLowerCase();
+    const filterChain = assetContext.chain.toLowerCase();
+    const filterNetwork = assetContext.network?.toLowerCase();
+    const filterTokenAddress = assetContext.tokenAddress?.toLowerCase();
+
+    wallets = wallets.filter(wallet => {
+      if (wallet.currencyAbbreviation !== filterCurrencyAbbreviation) {
+        return false;
+      }
+      if (wallet.chain !== filterChain) {
+        return false;
+      }
+      if (filterNetwork && wallet.network !== filterNetwork) {
+        return false;
+      }
+
+      if (filterTokenAddress) {
+        const walletTokenAddress = wallet.tokenAddress?.toLowerCase();
+        return walletTokenAddress === filterTokenAddress;
+      }
+
+      return true;
+    });
   }
 
   const currenciesSupportedList = useMemo(() => {
@@ -965,6 +1001,8 @@ const GlobalSelect: React.FC<GlobalSelectScreenProps | GlobalSelectProps> = ({
         }
       } else if (context === 'send') {
         navigation.navigate('SendTo', {wallet});
+      } else if (context === 'swapFrom') {
+        navigation.navigate('SwapCryptoRoot', {selectedWallet: wallet});
       } else {
         setReceiveWallet(wallet);
       }
