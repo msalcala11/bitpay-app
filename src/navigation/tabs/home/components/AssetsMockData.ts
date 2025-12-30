@@ -61,6 +61,13 @@ export const getAssetsSectionMockItems = (): AssetRowItem[] => {
 
 export const getAllAssetsMockItems = (): AssetRowItem[] => {
   const base = getAssetsSectionMockItems();
+  const bch = {
+    ...base[3],
+    key: 'bch',
+    currencyAbbreviation: 'bch',
+    chain: 'bch',
+    name: 'BCH',
+  };
   return [
     {
       ...base[0],
@@ -69,7 +76,7 @@ export const getAllAssetsMockItems = (): AssetRowItem[] => {
     },
     base[1],
     base[2],
-    base[3],
+    bch,
     {
       ...base[3],
       key: 'usdc_2',
