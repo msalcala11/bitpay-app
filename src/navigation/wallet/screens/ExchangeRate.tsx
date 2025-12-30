@@ -375,16 +375,16 @@ const ExchangeRate = () => {
     navigation.setOptions({
       headerTitle: () => <HeaderTitleText>{currencyName}</HeaderTitleText>,
       headerLeft: () => <HeaderBackButton />, 
-      headerRight: () => (
-        <HeaderRight>
-          <CircleButton activeOpacity={ActiveOpacity} onPress={() => {}}>
-            <RightIconSvg type="star" />
-          </CircleButton>
-          <CircleButton activeOpacity={ActiveOpacity} onPress={() => {}}>
-            <RightIconSvg type="bell" />
-          </CircleButton>
-        </HeaderRight>
-      ),
+      // headerRight: () => (
+      //   <HeaderRight>
+      //     <CircleButton activeOpacity={ActiveOpacity} onPress={() => {}}>
+      //       <RightIconSvg type="star" />
+      //     </CircleButton>
+      //     <CircleButton activeOpacity={ActiveOpacity} onPress={() => {}}>
+      //       <RightIconSvg type="bell" />
+      //     </CircleButton>
+      //   </HeaderRight>
+      // ),
     });
   }, [currencyName, navigation]);
 
