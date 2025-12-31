@@ -198,6 +198,18 @@ const WalletListFooterText = styled(BaseText)`
   margin-left: 10px;
 `;
 
+const AddWalletLinkContainer = styled.View`
+  padding: 16px 0;
+  align-items: center;
+`;
+
+const AddWalletLink = styled(Link)`
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 24px;
+`;
+
 const HeaderTitleContainer = styled.View`
   flex-direction: row;
   align-items: center;
@@ -727,14 +739,8 @@ const KeyOverview = () => {
           See All Assets
         </Button>
 
-        <View style={{paddingVertical: 16, alignItems: 'center'}}>
-          <Link
-            style={{
-              fontSize: 16,
-              fontStyle: 'normal',
-              fontWeight: '500',
-              lineHeight: 24,
-            }}
+        <AddWalletLinkContainer>
+          <AddWalletLink
             onPress={async () => {
               haptic('impactLight');
               navigation.navigate('AddingOptions', {
@@ -742,8 +748,8 @@ const KeyOverview = () => {
               });
           }}>
             Add Wallet
-          </Link>
-        </View>
+          </AddWalletLink>
+        </AddWalletLinkContainer>
 
 
         {/* <WalletListFooter
