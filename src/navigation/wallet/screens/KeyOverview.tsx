@@ -183,23 +183,11 @@ const WalletListHeader = styled.View`
 const WalletListFooterContainer = styled.View`
   padding: 10px 10px 100px 10px;
   margin-top: 15px;
-`;
-
-const WalletListFooter = styled(TouchableOpacity)`
-  flex-direction: row;
-  align-items: center;
-`;
-
-const WalletListFooterText = styled(BaseText)`
-  font-size: 16px;
-  font-style: normal;
-  font-weight: 400;
-  letter-spacing: 0;
-  margin-left: 10px;
+  gap: 12px;
 `;
 
 const AddWalletLinkContainer = styled.View`
-  padding: 16px 0;
+  padding: 13px 0;
   align-items: center;
 `;
 
