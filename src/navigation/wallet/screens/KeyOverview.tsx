@@ -23,6 +23,7 @@ import {
   H2,
   H5,
   HeaderTitle,
+  Link,
   ProposalBadge,
 } from '../../../components/styled/Text';
 import Settings from '../../../components/settings/Settings';
@@ -121,6 +122,7 @@ import {BWCErrorMessage} from '../../../constants/BWCError';
 import ArchaxFooter from '../../../components/archax/archax-footer';
 import {useOngoingProcess, useTokenContext} from '../../../contexts';
 import Percentage from '../../../components/percentage/Percentage';
+import Button from '../../../components/button/Button';
 
 LogBox.ignoreLogs([
   'Non-serializable values were found in the navigation state',
@@ -717,7 +719,34 @@ const KeyOverview = () => {
   const renderListFooterComponent = useCallback(() => {
     return (
       <WalletListFooterContainer>
-        <WalletListFooter
+        <Button
+          buttonStyle="secondary"
+          height={50}
+          buttonOutline
+          onPress={() => (navigation as any).navigate('AllAssets')}>
+          See All Assets
+        </Button>
+
+        <View style={{paddingVertical: 16, alignItems: 'center'}}>
+          <Link
+            style={{
+              fontSize: 16,
+              fontStyle: 'normal',
+              fontWeight: '500',
+              lineHeight: 24,
+            }}
+            onPress={async () => {
+              haptic('impactLight');
+              navigation.navigate('AddingOptions', {
+                key,
+              });
+          }}>
+            Add Wallet
+          </Link>
+        </View>
+
+
+        {/* <WalletListFooter
           activeOpacity={ActiveOpacity}
           onPress={async () => {
             haptic('impactLight');
@@ -727,7 +756,7 @@ const KeyOverview = () => {
           }}>
           <Icons.Add />
           <WalletListFooterText>{t('Add Wallet')}</WalletListFooterText>
-        </WalletListFooter>
+        </WalletListFooter> */}
         {showArchaxBanner && <ArchaxFooter />}
       </WalletListFooterContainer>
     );
