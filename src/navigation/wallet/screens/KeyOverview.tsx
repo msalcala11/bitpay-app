@@ -57,8 +57,6 @@ import {
   NeutralSlate,
   Slate,
   SlateDark,
-  Caution,
-  Success,
   White,
 } from '../../../styles/colors';
 import {
@@ -124,6 +122,7 @@ import {BWCErrorMessage} from '../../../constants/BWCError';
 import ArchaxFooter from '../../../components/archax/archax-footer';
 import {useOngoingProcess, useTokenContext} from '../../../contexts';
 import Percentage from '../../../components/percentage/Percentage';
+import {getDifferenceColor} from '../../../components/percentage/Percentage';
 import Button from '../../../components/button/Button';
 import {
   AllocationDonutLegendCard,
@@ -264,10 +263,10 @@ const AllocationMetricValue = styled(BaseText)<{positive?: boolean}>`
   margin-top: 4px;
   color: ${({positive, theme: {dark}}) => {
     if (positive === true) {
-      return Success;
+      return getDifferenceColor(true, dark);
     }
     if (positive === false) {
-      return Caution;
+      return getDifferenceColor(false, dark);
     }
     return dark ? White : SlateDark;
   }};
