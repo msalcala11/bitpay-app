@@ -297,10 +297,10 @@ const ExchangeRate = () => {
   const {params} = useRoute<RouteProp<WalletGroupParamList, 'ExchangeRate'>>();
   const [selectedTimeframe, setSelectedTimeframe] = useState('All');
 
-  const currencyName = params?.currencyName || 'Bitcoin';
   const currencyAbbreviation = (params?.currencyAbbreviation || 'BTC').toUpperCase();
   const coinKey = (params?.chain || params?.currencyAbbreviation || 'btc').toLowerCase();
   const coin = BitpaySupportedCoins[coinKey] ?? BitpaySupportedCoins.btc;
+  const currencyName = coin.name || params?.currencyName || 'Bitcoin';
 
   const assetContext = useMemo(
     () => ({
@@ -532,7 +532,7 @@ const ExchangeRate = () => {
             </MarketHeader>
             <Divider />
             <MarketBody>
-              <SubSectionTitle>Bitcoin Stats</SubSectionTitle>
+              <SubSectionTitle>{`${currencyName} Stats`}</SubSectionTitle>
 
               <StatsGridRow>
                 <StatBlock style={{paddingRight: 8}}>
