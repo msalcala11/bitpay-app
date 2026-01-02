@@ -200,7 +200,9 @@ const AddWalletLinkContainer = styled.View`
   align-items: center;
 `;
 
-const AddWalletLink = styled(Link)`
+const AddWalletLink = styled(Link).attrs(() => ({
+  suppressHighlighting: true,
+}))`
   font-size: 16px;
   font-style: normal;
   font-weight: 500;
