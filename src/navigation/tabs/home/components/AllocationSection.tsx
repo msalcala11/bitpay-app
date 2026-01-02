@@ -173,13 +173,16 @@ export const AllocationDonutLegendCard: React.FC<{
   legendItems: AllocationLegendItem[];
   slices: AllocationSlice[];
   style?: any;
-}> = ({legendItems, slices, style}) => {
+  header?: React.ReactNode;
+  footer?: React.ReactNode;
+}> = ({legendItems, slices, style, header, footer}) => {
   const theme = useTheme();
   const leftColumn = legendItems.slice(0, 3);
   const rightColumn = legendItems.slice(3);
 
   return (
     <Card style={style}>
+      {header}
       <ContentRow>
         <DonutContainer>
           <DonutChart size={80} strokeWidth={12} slices={slices} />
@@ -227,6 +230,7 @@ export const AllocationDonutLegendCard: React.FC<{
           </LegendColumn>
         </LegendGrid>
       </ContentRow>
+      {footer}
     </Card>
   );
 };

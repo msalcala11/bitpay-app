@@ -57,6 +57,8 @@ import {
   NeutralSlate,
   Slate,
   SlateDark,
+  Caution,
+  Success,
   White,
 } from '../../../styles/colors';
 import {
@@ -123,6 +125,13 @@ import ArchaxFooter from '../../../components/archax/archax-footer';
 import {useOngoingProcess, useTokenContext} from '../../../contexts';
 import Percentage from '../../../components/percentage/Percentage';
 import Button from '../../../components/button/Button';
+import {
+  AllocationDonutLegendCard,
+  AllocationLegendItem,
+  AllocationSlice,
+} from '../../tabs/home/components/AllocationSection';
+import ChevronRightSvg from '../../tabs/home/components/ChevronRightSvg';
+import {HomeSectionTitle} from '../../tabs/home/components/Styled';
 
 LogBox.ignoreLogs([
   'Non-serializable values were found in the navigation state',
@@ -196,6 +205,72 @@ const AddWalletLink = styled(Link)`
   font-style: normal;
   font-weight: 500;
   line-height: 24px;
+`;
+
+const AllocationHeader = styled.View`
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 10px;
+`;
+
+const AllocationHeaderAction = styled(TouchableOpacity)`
+  padding: 6px;
+`;
+
+const AllocationFooter = styled.View`
+  margin-top: 12px;
+`;
+
+const AllocationDivider = styled.View`
+  height: 1px;
+  background-color: ${({theme: {dark}}) => (dark ? SlateDark : Slate)};
+  opacity: 0.25;
+  margin: 12px 0;
+`;
+
+const AllocationLabel = styled(BaseText)`
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
+  color: ${({theme: {dark}}) => (dark ? Slate : SlateDark)};
+`;
+
+const AllocationValue = styled(BaseText)`
+  font-size: 20px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 28px;
+  color: ${({theme: {dark}}) => (dark ? White : SlateDark)};
+  margin-top: 4px;
+`;
+
+const AllocationRow = styled.View`
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: flex-start;
+`;
+
+const AllocationColumn = styled.View`
+  flex: 1;
+`;
+
+const AllocationMetricValue = styled(BaseText)<{positive?: boolean}>`
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
+  margin-top: 4px;
+  color: ${({positive, theme: {dark}}) => {
+    if (positive === true) {
+      return Success;
+    }
+    if (positive === false) {
+      return Caution;
+    }
+    return dark ? White : SlateDark;
+  }};
 `;
 
 const HeaderTitleContainer = styled.View`
@@ -717,6 +792,53 @@ const KeyOverview = () => {
   }, [key, hideAllBalances]);
 
   const renderListFooterComponent = useCallback(() => {
+    const legendItems: AllocationLegendItem[] = [
+      {
+        key: 'btc',
+        label: 'BTC',
+        value: '53.4%',
+        color: {light: '#F7931A', dark: '#F7931A'},
+      },
+      {
+        key: 'eth',
+        label: 'ETH',
+        value: '32.1%',
+        color: {light: '#627EEA', dark: '#627EEA'},
+      },
+      {
+        key: 'usdc',
+        label: 'USDC',
+        value: '8.3%',
+        color: {light: '#2775CA', dark: '#2775CA'},
+      },
+      {
+        key: 'xrp',
+        label: 'XRP',
+        value: '9.8%',
+        color: {light: '#000000', dark: '#000000'},
+      },
+      {
+        key: 'sol',
+        label: 'SOL',
+        value: '19.8%',
+        color: {light: '#7C3AED', dark: '#7C3AED'},
+      },
+      {
+        key: 'other',
+        label: 'Other',
+        color: {light: Slate, dark: SlateDark},
+      },
+    ];
+
+    const slices: AllocationSlice[] = [
+      {key: 'btc', value: 53.4, color: {light: '#F7931A', dark: '#F7931A'}},
+      {key: 'eth', value: 32.1, color: {light: '#627EEA', dark: '#627EEA'}},
+      {key: 'sol', value: 19.8, color: {light: '#7C3AED', dark: '#7C3AED'}},
+      {key: 'usdc', value: 8.3, color: {light: '#2775CA', dark: '#2775CA'}},
+      {key: 'xrp', value: 9.8, color: {light: '#000000', dark: SlateDark}},
+      {key: 'other', value: 6.6, color: {light: Slate, dark: SlateDark}},
+    ];
+
     return (
       <WalletListFooterContainer>
         <Button
@@ -739,6 +861,46 @@ const KeyOverview = () => {
           </AddWalletLink>
         </AddWalletLinkContainer>
 
+        <TouchableOpacity
+          activeOpacity={ActiveOpacity}
+          onPress={() => (navigation as any).navigate('Allocation')}>
+          <AllocationDonutLegendCard
+            legendItems={legendItems}
+            slices={slices}
+            header={
+              <AllocationHeader>
+                <HomeSectionTitle>Allocation</HomeSectionTitle>
+                <AllocationHeaderAction activeOpacity={ActiveOpacity}>
+                  <ChevronRightSvg width={13} height={19} gray />
+                </AllocationHeaderAction>
+              </AllocationHeader>
+            }
+            footer={
+              <AllocationFooter>
+                <AllocationLabel>Portfolio Value</AllocationLabel>
+                <AllocationValue>$61,459.21</AllocationValue>
+
+                <AllocationDivider />
+
+                <AllocationRow>
+                  <AllocationColumn style={{paddingRight: 12}}>
+                    <AllocationLabel>All-Time Gain / Loss ($)</AllocationLabel>
+                    <AllocationMetricValue positive>{'+$61,199.18  (+672%)'}</AllocationMetricValue>
+                  </AllocationColumn>
+                  <AllocationColumn style={{paddingLeft: 12}}>
+                    <AllocationLabel style={{textAlign: 'right'}}>
+                      Today's Gain / Loss ($)
+                    </AllocationLabel>
+                    <AllocationMetricValue positive={false} style={{textAlign: 'right'}}>
+                      {'-$1,318.11  (-4.27%)'}
+                    </AllocationMetricValue>
+                  </AllocationColumn>
+                </AllocationRow>
+              </AllocationFooter>
+            }
+          />
+        </TouchableOpacity>
+
 
         {/* <WalletListFooter
           activeOpacity={ActiveOpacity}
@@ -754,7 +916,7 @@ const KeyOverview = () => {
         {showArchaxBanner && <ArchaxFooter />}
       </WalletListFooterContainer>
     );
-  }, []);
+  }, [key, navigation, showArchaxBanner]);
 
   const listEmptyComponent = useMemo(
     () =>
