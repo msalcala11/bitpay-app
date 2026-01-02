@@ -866,6 +866,7 @@ const KeyOverview = () => {
           <AllocationDonutLegendCard
             legendItems={legendItems}
             slices={slices}
+            style={{marginLeft: 0, marginRight: 0}}
             header={
               <AllocationHeader>
                 <HomeSectionTitle>Allocation</HomeSectionTitle>
