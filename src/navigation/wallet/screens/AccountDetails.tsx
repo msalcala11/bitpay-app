@@ -743,12 +743,15 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     return () => subscription.remove();
   }, [keys]);
 
-  const keyExtractorAssets = useCallback(item => item.id, []);
+  const keyExtractorAssets = useCallback((item: AssetsByChainData) => item.id, []);
   const keyExtractorTransaction = useCallback(
-    item => `${item.txid}+${item.walletId}`,
+    (item: {txid: string; walletId: string}) => `${item.txid}+${item.walletId}`,
     [],
   );
-  const pendingTxpsKeyExtractor = useCallback(item => item.id, []);
+  const pendingTxpsKeyExtractor = useCallback(
+    (item: TransactionProposal) => item.id,
+    [],
+  );
 
   const getItemLayout = useCallback(
     (data: any, index: number) => ({
@@ -808,7 +811,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
                 <KeySvg width={10} height={10} />
                 <CenteredText>{key?.keyName}</CenteredText>
               </Row>
-              <Row style={{alignItems: 'center', gap: 5}}>
+              <Row style={{alignItems: 'center'}}>
                 {checkPrivateKeyEncrypted(key) ? (
                   <View style={{marginRight: 5}}>
                     {theme.dark ? (
@@ -1068,7 +1071,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     }
   };
 
-  const renderTransaction = useCallback(({item}) => {
+  const renderTransaction = useCallback(({item}: {item: any}) => {
     return (
       <TransactionRow
         key={item.txid}
@@ -1122,7 +1125,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     [],
   );
 
-  const renderTxp = useCallback(({item}) => {
+  const renderTxp = useCallback(({item}: {item: any}) => {
     return (
       <TransactionProposalRow
         key={item.id}
@@ -1291,7 +1294,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
       {
         key: 'pol',
         currencyAbbreviation: 'pol',
-        chain: 'pol',
+        chain: 'matic',
         name: 'Polygon',
         fiatAmount: '$2,645.10',
         percent: '2.8%',
@@ -1579,6 +1582,15 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     return activeTab === 'allocation' ? null : listEmptyComponent;
   }, [activeTab, listEmptyComponent]);
 
+  const sectionListKeyExtractor = useCallback(
+    (item: any, _index: number) => {
+      return activeTab === 'activity'
+        ? `${item.txid}+${item.walletId}`
+        : item.id;
+    },
+    [activeTab],
+  );
+
   return (
     <AccountDetailsContainer>
       <SectionList
@@ -1597,9 +1609,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
               ? listFooterComponentTxsTab
               : listFooterComponentAllocationTab
         }
-        keyExtractor={
-          activeTab === 'activity' ? keyExtractorTransaction : keyExtractorAssets
-        }
+        keyExtractor={sectionListKeyExtractor}
         //@ts-ignore
         sections={renderDataSectionComponent}
         renderItem={

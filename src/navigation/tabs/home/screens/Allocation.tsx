@@ -292,7 +292,7 @@ const Allocation: React.FC<Props> = ({navigation}) => {
       {
         key: 'pol',
         currencyAbbreviation: 'pol',
-        chain: 'pol',
+        chain: 'matic',
         name: 'Polygon',
         fiatAmount: '$2,645.10',
         percent: '2.8%',
