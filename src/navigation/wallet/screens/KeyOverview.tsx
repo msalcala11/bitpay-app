@@ -56,6 +56,7 @@ import {
   LightBlack,
   NeutralSlate,
   Slate,
+  Slate30,
   SlateDark,
   White,
 } from '../../../styles/colors';
@@ -218,30 +219,31 @@ const AllocationHeaderAction = styled(TouchableOpacity)`
 `;
 
 const AllocationFooter = styled.View`
-  margin-top: 12px;
+  margin-top: 20px;
+  padding-bottom: 5px;
 `;
 
 const AllocationDivider = styled.View`
   height: 1px;
   background-color: ${({theme: {dark}}) => (dark ? SlateDark : Slate)};
-  opacity: 0.25;
+  opacity: 1;
   margin: 12px 0;
 `;
 
 const AllocationLabel = styled(BaseText)`
-  font-size: 14px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 400;
-  line-height: 20px;
-  color: ${({theme: {dark}}) => (dark ? Slate : SlateDark)};
+  line-height: 14px;
+  color: ${({theme: {dark}}) => (dark ? Slate30 : SlateDark)};
 `;
 
 const AllocationValue = styled(BaseText)`
-  font-size: 20px;
+  font-size: 16px;
   font-style: normal;
-  font-weight: 700;
-  line-height: 28px;
-  color: ${({theme: {dark}}) => (dark ? White : SlateDark)};
+  font-weight: 500;
+  line-height: 24px;
+  color: ${({theme}) => theme.colors.text};
   margin-top: 4px;
 `;
 
