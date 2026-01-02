@@ -225,7 +225,7 @@ const AllocationFooter = styled.View`
 
 const AllocationDivider = styled.View`
   height: 1px;
-  background-color: ${({theme: {dark}}) => (dark ? SlateDark : Slate)};
+  background-color: ${({theme: {dark}}) => (dark ? SlateDark : Slate30)};
   opacity: 1;
   margin: 12px 0;
 `;
