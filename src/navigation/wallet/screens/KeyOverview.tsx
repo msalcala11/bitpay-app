@@ -209,6 +209,10 @@ const AddWalletLink = styled(Link).attrs(() => ({
   line-height: 24px;
 `;
 
+const AddWalletLinkButton = styled(TouchableOpacity)`
+  padding: 0 20px;
+`;
+
 const AllocationHeader = styled.View`
   flex-direction: row;
   align-items: center;
@@ -853,15 +857,16 @@ const KeyOverview = () => {
         </Button>
 
         <AddWalletLinkContainer>
-          <AddWalletLink
+          <AddWalletLinkButton
+            activeOpacity={ActiveOpacity}
             onPress={async () => {
               haptic('impactLight');
               navigation.navigate('AddingOptions', {
                 key,
               });
-          }}>
-            Add Wallet
-          </AddWalletLink>
+            }}>
+            <AddWalletLink>Add Wallet</AddWalletLink>
+          </AddWalletLinkButton>
         </AddWalletLinkContainer>
 
         <TouchableOpacity
