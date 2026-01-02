@@ -168,6 +168,15 @@ import {BitpaySupportedTokenOptsByAddress} from '../../../constants/tokens';
 import {useOngoingProcess, useTokenContext} from '../../../contexts';
 import {logManager} from '../../../managers/LogManager';
 import {ExternalServicesScreens} from '../../services/ExternalServicesGroup';
+import {
+  AllocationDonutLegendCard,
+  AllocationLegendItem,
+  AllocationSlice,
+} from '../../tabs/home/components/AllocationSection';
+import {
+  AllocationRowItem,
+  AllocationRowsList,
+} from '../../tabs/home/screens/Allocation';
 
 export type AccountDetailsScreenParamList = {
   selectedAccountAddress: string;
@@ -205,6 +214,8 @@ export interface AssetsByChainListProps extends SearchableItem {
   chains: string[]; // only used for filter
   data: AssetsByChainData[];
 }
+
+type AccountDetailsTab = 'wallets' | 'allocation' | 'activity';
 
 export interface GroupedHistoryProps extends SearchableItem {
   title: string;
@@ -336,7 +347,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   );
   const [copied, setCopied] = useState(false);
   const [searchVal, setSearchVal] = useState('');
-  const [showActivityTab, setShowActivityTab] = useState(false);
+  const [activeTab, setActiveTab] = useState<AccountDetailsTab>('wallets');
   const selectedChainFilterOption = useAppSelector(
     ({APP}) => APP.selectedChainFilterOption,
   );
@@ -1194,7 +1205,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     await sleep(1000);
     try {
       await dispatch(startGetRates({}));
-      showActivityTab
+      activeTab === 'activity'
         ? await debouncedLoadHistory(selectedChainFilterOption, true)
         : await dispatch(
             startUpdateAllWalletStatusForKey({
@@ -1211,6 +1222,95 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     }
     setRefreshing(false);
   };
+
+  const accountAllocationLegendItems: AllocationLegendItem[] = useMemo(
+    () => [
+      {
+        key: 'btc',
+        label: 'BTC',
+        value: '53.4%',
+        color: {light: '#F7931A', dark: '#F7931A'},
+      },
+      {
+        key: 'eth',
+        label: 'ETH',
+        value: '32.1%',
+        color: {light: '#627EEA', dark: '#627EEA'},
+      },
+      {
+        key: 'usdc',
+        label: 'USDC',
+        value: '8.3%',
+        color: {light: '#2775CA', dark: '#2775CA'},
+      },
+      {
+        key: 'xrp',
+        label: 'XRP',
+        value: '9.8%',
+        color: {light: '#000000', dark: '#000000'},
+      },
+      {
+        key: 'sol',
+        label: 'SOL',
+        value: '19.8%',
+        color: {light: '#7C3AED', dark: '#7C3AED'},
+      },
+      {
+        key: 'other',
+        label: 'Other',
+        color: {light: '#9BA3AE', dark: '#434D5A'},
+      },
+    ],
+    [],
+  );
+
+  const accountAllocationSlices: AllocationSlice[] = useMemo(
+    () => [
+      {key: 'btc', value: 53.4, color: {light: '#F7931A', dark: '#F7931A'}},
+      {key: 'eth', value: 32.1, color: {light: '#627EEA', dark: '#627EEA'}},
+      {key: 'sol', value: 19.8, color: {light: '#7C3AED', dark: '#7C3AED'}},
+      {key: 'usdc', value: 8.3, color: {light: '#2775CA', dark: '#2775CA'}},
+      {key: 'xrp', value: 9.8, color: {light: '#000000', dark: '#000000'}},
+      {key: 'other', value: 6.6, color: {light: '#434D5A', dark: '#434D5A'}},
+    ],
+    [],
+  );
+
+  const accountAllocationRows: AllocationRowItem[] = useMemo(
+    () => [
+      {
+        key: 'eth',
+        currencyAbbreviation: 'eth',
+        chain: 'eth',
+        name: 'Ethereum',
+        fiatAmount: '$58,525.18',
+        percent: '25.4%',
+        progress: 25.4,
+        barColor: {light: '#627EEA', dark: '#627EEA'},
+      },
+      {
+        key: 'pol',
+        currencyAbbreviation: 'pol',
+        chain: 'pol',
+        name: 'Polygon',
+        fiatAmount: '$2,645.10',
+        percent: '2.8%',
+        progress: 2.8,
+        barColor: {light: '#7C3AED', dark: '#7C3AED'},
+      },
+      {
+        key: 'usdc',
+        currencyAbbreviation: 'usdc',
+        chain: 'eth',
+        name: 'USDC',
+        fiatAmount: '$1,989.11',
+        percent: '2.1%',
+        progress: 2.1,
+        barColor: {light: '#2775CA', dark: '#2775CA'},
+      },
+    ],
+    [],
+  );
 
   const itemSeparatorComponent = useCallback(() => <BorderBottom />, []);
 
@@ -1261,6 +1361,10 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   }, [copied]);
 
   const renderListHeaderComponent = useCallback(() => {
+    const isWalletsTab = activeTab === 'wallets';
+    const isAllocationTab = activeTab === 'allocation';
+    const isActivityTab = activeTab === 'activity';
+
     return (
       <>
         <HeaderContainer>
@@ -1367,23 +1471,30 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
         <AssetsDataContainer>
           <HeaderListContainer>
             <WalletListHeader
-              isActive={!showActivityTab}
+              isActive={isWalletsTab}
               onPress={() => {
-                setShowActivityTab(false);
+                setActiveTab('wallets');
               }}>
-              <H5>{t('Assets')}</H5>
+              <H5>{t('Wallets')}</H5>
             </WalletListHeader>
             <WalletListHeader
-              isActive={showActivityTab}
+              isActive={isAllocationTab}
+              onPress={() => {
+                setActiveTab('allocation');
+              }}>
+              <H5>{t('Allocation')}</H5>
+            </WalletListHeader>
+            <WalletListHeader
+              isActive={isActivityTab}
               onPress={async () => {
-                setShowActivityTab(true);
+                setActiveTab('activity');
                 await sleep(200);
                 debouncedLoadHistory(selectedChainFilterOption);
               }}>
               <H5>{t('Activity')}</H5>
             </WalletListHeader>
           </HeaderListContainer>
-          {isSvmAccount ? null : (
+          {isSvmAccount || isAllocationTab ? null : (
             <View style={{flexDirection: 'row', justifyContent: 'flex-end'}}>
               <SearchComponent<
                 GroupedHistoryProps | Partial<AssetsByChainListProps>
@@ -1391,19 +1502,19 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
                 searchVal={searchVal}
                 setSearchVal={setSearchVal}
                 searchResults={
-                  !showActivityTab ? searchResultsAssets : searchResultsHistory
+                  isWalletsTab ? searchResultsAssets : searchResultsHistory
                 }
                 //@ts-ignore
                 setSearchResults={
-                  !showActivityTab
+                  isWalletsTab
                     ? setSearchResultsAssets
                     : setSearchResultsHistory
                 }
                 searchFullList={
-                  !showActivityTab ? memorizedAssetsByChainList : groupedHistory
+                  isWalletsTab ? memorizedAssetsByChainList : groupedHistory
                 }
                 context={
-                  !showActivityTab ? 'accountassetsview' : 'accounthistoryview'
+                  isWalletsTab ? 'accountassetsview' : 'accounthistoryview'
                 }
               />
             </View>
@@ -1412,28 +1523,61 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
       </>
     );
   }, [
-    showActivityTab,
+    activeTab,
     memorizedAssetsByChainList,
     groupedHistory,
     copied,
     hideAllBalances,
   ]);
 
+  const listFooterComponentAllocationTab = useCallback(() => {
+    if (activeTab !== 'allocation') {
+      return null;
+    }
+
+    return (
+      <View>
+        <AllocationDonutLegendCard
+          legendItems={accountAllocationLegendItems}
+          slices={accountAllocationSlices}
+          style={{marginLeft: 16, marginRight: 16}}
+        />
+        <AllocationRowsList rows={accountAllocationRows} />
+      </View>
+    );
+  }, [
+    activeTab,
+    accountAllocationLegendItems,
+    accountAllocationSlices,
+    accountAllocationRows,
+  ]);
+
   const renderDataSectionComponent = useMemo(() => {
+    const isAllocationTab = activeTab === 'allocation';
+    const isActivityTab = activeTab === 'activity';
+
+    if (isAllocationTab) {
+      return [];
+    }
+
     if (!searchVal && !selectedChainFilterOption) {
-      return showActivityTab ? groupedHistory : memorizedAssetsByChainList;
+      return isActivityTab ? groupedHistory : memorizedAssetsByChainList;
     } else {
-      return showActivityTab ? searchResultsHistory : searchResultsAssets;
+      return isActivityTab ? searchResultsHistory : searchResultsAssets;
     }
   }, [
     searchVal,
     selectedChainFilterOption,
-    showActivityTab,
+    activeTab,
     searchResultsAssets,
     searchResultsHistory,
     groupedHistory,
     memorizedAssetsByChainList,
   ]);
+
+  const listEmptyComponentForTab = useMemo(() => {
+    return activeTab === 'allocation' ? null : listEmptyComponent;
+  }, [activeTab, listEmptyComponent]);
 
   return (
     <AccountDetailsContainer>
@@ -1447,19 +1591,25 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
         }
         ListHeaderComponent={renderListHeaderComponent}
         ListFooterComponent={
-          !showActivityTab
+          activeTab === 'wallets'
             ? listFooterComponentAssetsTab
-            : listFooterComponentTxsTab
+            : activeTab === 'activity'
+              ? listFooterComponentTxsTab
+              : listFooterComponentAllocationTab
         }
         keyExtractor={
-          !showActivityTab ? keyExtractorAssets : keyExtractorTransaction
+          activeTab === 'activity' ? keyExtractorTransaction : keyExtractorAssets
         }
         //@ts-ignore
         sections={renderDataSectionComponent}
         renderItem={
-          !showActivityTab ? memoizedRenderAssetsItem : renderTransaction
+          activeTab === 'wallets'
+            ? memoizedRenderAssetsItem
+            : activeTab === 'activity'
+              ? renderTransaction
+              : (() => null)
         }
-        {...(showActivityTab && {
+        {...(activeTab === 'activity' && {
           renderSectionHeader,
           stickyHeaderIndices: [groupedHistory?.length],
           stickySectionHeadersEnabled: true,
@@ -1474,7 +1624,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
           onEndReachedThreshold: 0.3,
           maxToRenderPerBatch: 15,
         })}
-        ListEmptyComponent={listEmptyComponent}
+        ListEmptyComponent={listEmptyComponentForTab}
         getItemLayout={getItemLayout}
       />
 

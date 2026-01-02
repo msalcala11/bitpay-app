@@ -17,7 +17,7 @@ import {
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Allocation'>;
 
-type AllocationRowItem = {
+export type AllocationRowItem = {
   key: string;
   currencyAbbreviation: string;
   chain: string;
@@ -130,6 +130,57 @@ const ProgressFill = styled.View<{
   border-width: 1px;
   border-color: ${({theme: {dark}}) => (dark ? SlateDark : Slate30)};
 `;
+
+export const AllocationRowsList: React.FC<{
+  rows: AllocationRowItem[];
+  style?: any;
+}> = ({rows, style}) => {
+  const theme = useTheme();
+
+  return (
+    <Rows style={style}>
+      {rows.map(item => {
+        const option = SupportedCurrencyOptions.find(o => {
+          return (
+            o.currencyAbbreviation === item.currencyAbbreviation &&
+            o.chain === item.chain
+          );
+        });
+
+        const barColor = theme.dark ? item.barColor.dark : item.barColor.light;
+
+        return (
+          <Row key={item.key}>
+            <RowTop>
+              <RowLeft>
+                <IconContainer>
+                  <CurrencyImage
+                    img={option?.img}
+                    imgSrc={option?.imgSrc as unknown as number}
+                    size={40}
+                  />
+                </IconContainer>
+                <RowLabels>
+                  <AssetName>{item.name}</AssetName>
+                  <AssetSymbol>{item.currencyAbbreviation.toUpperCase()}</AssetSymbol>
+                </RowLabels>
+              </RowLeft>
+
+              <RowRight>
+                <FiatAmount>{item.fiatAmount}</FiatAmount>
+                <Percent>{item.percent}</Percent>
+              </RowRight>
+            </RowTop>
+
+            <ProgressTrack>
+              <ProgressFill progress={item.progress} color={barColor} />
+            </ProgressTrack>
+          </Row>
+        );
+      })}
+    </Rows>
+  );
+};
 
 const Allocation: React.FC<Props> = ({navigation}) => {
   const theme = useTheme();
@@ -267,47 +318,7 @@ const Allocation: React.FC<Props> = ({navigation}) => {
       <Content>
         <AllocationDonutLegendCard legendItems={legendItems} slices={slices} />
 
-        <Rows>
-          {rows.map(item => {
-            const option = SupportedCurrencyOptions.find(o => {
-              return (
-                o.currencyAbbreviation === item.currencyAbbreviation &&
-                o.chain === item.chain
-              );
-            });
-
-            const barColor = theme.dark ? item.barColor.dark : item.barColor.light;
-
-            return (
-              <Row key={item.key}>
-                <RowTop>
-                  <RowLeft>
-                    <IconContainer>
-                      <CurrencyImage
-                        img={option?.img}
-                        imgSrc={option?.imgSrc as unknown as number}
-                        size={40}
-                      />
-                    </IconContainer>
-                    <RowLabels>
-                      <AssetName>{item.name}</AssetName>
-                      <AssetSymbol>{item.currencyAbbreviation.toUpperCase()}</AssetSymbol>
-                    </RowLabels>
-                  </RowLeft>
-
-                  <RowRight>
-                    <FiatAmount>{item.fiatAmount}</FiatAmount>
-                    <Percent>{item.percent}</Percent>
-                  </RowRight>
-                </RowTop>
-
-                <ProgressTrack>
-                  <ProgressFill progress={item.progress} color={barColor} />
-                </ProgressTrack>
-              </Row>
-            );
-          })}
-        </Rows>
+        <AllocationRowsList rows={rows} />
       </Content>
     </ScreenContainer>
   );
