@@ -198,6 +198,7 @@ const WalletListFooterContainer = styled.View`
 const AddWalletLinkContainer = styled.View`
   padding: 13px 0;
   align-items: center;
+  margin-bottom: 15px;
 `;
 
 const AddWalletLink = styled(Link).attrs(() => ({
