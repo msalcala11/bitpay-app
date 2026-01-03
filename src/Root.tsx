@@ -172,7 +172,12 @@ const {Timer, SilentPushEvent, InAppMessageModule} = NativeModules;
 export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabsStackParamList>;
   AllAssets: undefined;
-  Allocation: undefined;
+  Allocation:
+    | {
+        keyId?: string;
+        accountAddress?: string;
+      }
+    | undefined;
 } & DebugScreenParamList &
   MerchantGroupParamList &
   BitpayIdGroupParamList &

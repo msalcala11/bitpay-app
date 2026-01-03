@@ -7,9 +7,13 @@ import {ActiveOpacity, ScreenGutter} from '../../../../components/styled/Contain
 import {BaseText} from '../../../../components/styled/Text';
 import {HomeSectionTitle} from './Styled';
 import ChevronRightSvg from './ChevronRightSvg';
+import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
+import {buildUIFormattedWallet} from '../../../../store/wallet/utils/wallet';
+import type {WalletRowProps} from '../../../../components/list/WalletRow';
+import type {Key, Wallet} from '../../../../store/wallet/wallet.models';
+import {buildAllocationDataFromWalletRows} from '../utils/allocationData';
 import {
   Black,
-  Slate,
   Slate30,
   SlateDark,
   White,
@@ -237,59 +241,24 @@ export const AllocationDonutLegendCard: React.FC<{
 
 const AllocationSection: React.FC = () => {
   const navigation = useNavigation();
+  const dispatch = useAppDispatch();
+  const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
+  const {rates} = useAppSelector(({RATE}) => RATE);
+  const {defaultAltCurrency} = useAppSelector(({APP}) => APP);
 
-  const legendItems: AllocationLegendItem[] = useMemo(
-    () => [
-      {
-        key: 'btc',
-        label: 'BTC',
-        value: '53.4%',
-        color: {light: '#F7931A', dark: '#F7931A'},
-      },
-      {
-        key: 'eth',
-        label: 'ETH',
-        value: '32.1%',
-        color: {light: '#627EEA', dark: '#627EEA'},
-      },
-      {
-        key: 'usdc',
-        label: 'USDC',
-        value: '8.3%',
-        color: {light: '#2775CA', dark: '#2775CA'},
-      },
-      {
-        key: 'xrp',
-        label: 'XRP',
-        value: '9.8%',
-        color: {light: '#000000', dark: '#000000'},
-      },
-      {
-        key: 'sol',
-        label: 'SOL',
-        value: '19.8%',
-        color: {light: '#7C3AED', dark: '#7C3AED'},
-      },
-      {
-        key: 'other',
-        label: 'Other',
-        color: {light: Slate, dark: SlateDark},
-      },
-    ],
-    [],
-  );
+  const walletRows: WalletRowProps[] = useMemo(() => {
+    const wallets = (Object.values(keys) as Key[])
+      .flatMap((k: Key) => k.wallets)
+      .filter((w: Wallet) => !w.hideWallet && !w.hideWalletByAccount);
 
-  const slices: AllocationSlice[] = useMemo(
-    () => [
-      {key: 'btc', value: 53.4, color: {light: '#F7931A', dark: '#F7931A'}},
-      {key: 'eth', value: 32.1, color: {light: '#627EEA', dark: '#627EEA'}},
-      {key: 'sol', value: 19.8, color: {light: '#7C3AED', dark: '#7C3AED'}},
-      {key: 'usdc', value: 8.3, color: {light: '#2775CA', dark: '#2775CA'}},
-      {key: 'xrp', value: 9.8, color: {light: '#000000', dark: SlateDark}},
-      {key: 'other', value: 6.6, color: {light: Slate, dark: SlateDark}},
-    ],
-    [],
-  );
+    return wallets.map((w: Wallet) =>
+      buildUIFormattedWallet(w, defaultAltCurrency.isoCode, rates, dispatch, 'symbol'),
+    );
+  }, [defaultAltCurrency.isoCode, dispatch, keys, rates]);
+
+  const allocationData = useMemo(() => {
+    return buildAllocationDataFromWalletRows(walletRows, defaultAltCurrency.isoCode);
+  }, [defaultAltCurrency.isoCode, walletRows]);
 
   return (
     <Container>
@@ -305,7 +274,10 @@ const AllocationSection: React.FC = () => {
       <TouchableOpacity
         activeOpacity={ActiveOpacity}
         onPress={() => (navigation as any).navigate('Allocation')}>
-        <AllocationDonutLegendCard legendItems={legendItems} slices={slices} />
+        <AllocationDonutLegendCard
+          legendItems={allocationData.legendItems}
+          slices={allocationData.slices}
+        />
       </TouchableOpacity>
     </Container>
   );

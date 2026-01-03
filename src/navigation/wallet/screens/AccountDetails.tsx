@@ -170,13 +170,11 @@ import {logManager} from '../../../managers/LogManager';
 import {ExternalServicesScreens} from '../../services/ExternalServicesGroup';
 import {
   AllocationDonutLegendCard,
-  AllocationLegendItem,
-  AllocationSlice,
 } from '../../tabs/home/components/AllocationSection';
 import {
-  AllocationRowItem,
   AllocationRowsList,
 } from '../../tabs/home/screens/Allocation';
+import {buildAllocationDataFromWalletRows} from '../../tabs/home/utils/allocationData';
 
 export type AccountDetailsScreenParamList = {
   selectedAccountAddress: string;
@@ -1226,94 +1224,12 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     setRefreshing(false);
   };
 
-  const accountAllocationLegendItems: AllocationLegendItem[] = useMemo(
-    () => [
-      {
-        key: 'btc',
-        label: 'BTC',
-        value: '53.4%',
-        color: {light: '#F7931A', dark: '#F7931A'},
-      },
-      {
-        key: 'eth',
-        label: 'ETH',
-        value: '32.1%',
-        color: {light: '#627EEA', dark: '#627EEA'},
-      },
-      {
-        key: 'usdc',
-        label: 'USDC',
-        value: '8.3%',
-        color: {light: '#2775CA', dark: '#2775CA'},
-      },
-      {
-        key: 'xrp',
-        label: 'XRP',
-        value: '9.8%',
-        color: {light: '#000000', dark: '#000000'},
-      },
-      {
-        key: 'sol',
-        label: 'SOL',
-        value: '19.8%',
-        color: {light: '#7C3AED', dark: '#7C3AED'},
-      },
-      {
-        key: 'other',
-        label: 'Other',
-        color: {light: '#9BA3AE', dark: '#434D5A'},
-      },
-    ],
-    [],
-  );
-
-  const accountAllocationSlices: AllocationSlice[] = useMemo(
-    () => [
-      {key: 'btc', value: 53.4, color: {light: '#F7931A', dark: '#F7931A'}},
-      {key: 'eth', value: 32.1, color: {light: '#627EEA', dark: '#627EEA'}},
-      {key: 'sol', value: 19.8, color: {light: '#7C3AED', dark: '#7C3AED'}},
-      {key: 'usdc', value: 8.3, color: {light: '#2775CA', dark: '#2775CA'}},
-      {key: 'xrp', value: 9.8, color: {light: '#000000', dark: '#000000'}},
-      {key: 'other', value: 6.6, color: {light: '#434D5A', dark: '#434D5A'}},
-    ],
-    [],
-  );
-
-  const accountAllocationRows: AllocationRowItem[] = useMemo(
-    () => [
-      {
-        key: 'eth',
-        currencyAbbreviation: 'eth',
-        chain: 'eth',
-        name: 'Ethereum',
-        fiatAmount: '$58,525.18',
-        percent: '25.4%',
-        progress: 25.4,
-        barColor: {light: '#627EEA', dark: '#627EEA'},
-      },
-      {
-        key: 'pol',
-        currencyAbbreviation: 'pol',
-        chain: 'matic',
-        name: 'Polygon',
-        fiatAmount: '$2,645.10',
-        percent: '2.8%',
-        progress: 2.8,
-        barColor: {light: '#7C3AED', dark: '#7C3AED'},
-      },
-      {
-        key: 'usdc',
-        currencyAbbreviation: 'usdc',
-        chain: 'eth',
-        name: 'USDC',
-        fiatAmount: '$1,989.11',
-        percent: '2.1%',
-        progress: 2.1,
-        barColor: {light: '#2775CA', dark: '#2775CA'},
-      },
-    ],
-    [],
-  );
+  const accountAllocationData = useMemo(() => {
+    return buildAllocationDataFromWalletRows(
+      (accountItem?.wallets || []) as WalletRowProps[],
+      defaultAltCurrency.isoCode,
+    );
+  }, [accountItem?.wallets, defaultAltCurrency.isoCode]);
 
   const itemSeparatorComponent = useCallback(() => <BorderBottom />, []);
 
@@ -1541,18 +1457,18 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     return (
       <View>
         <AllocationDonutLegendCard
-          legendItems={accountAllocationLegendItems}
-          slices={accountAllocationSlices}
+          legendItems={accountAllocationData.legendItems}
+          slices={accountAllocationData.slices}
           style={{marginLeft: 16, marginRight: 16}}
         />
-        <AllocationRowsList rows={accountAllocationRows} />
+        <AllocationRowsList rows={accountAllocationData.rows} />
       </View>
     );
   }, [
     activeTab,
-    accountAllocationLegendItems,
-    accountAllocationSlices,
-    accountAllocationRows,
+    accountAllocationData.legendItems,
+    accountAllocationData.rows,
+    accountAllocationData.slices,
   ]);
 
   const renderDataSectionComponent = useMemo(() => {

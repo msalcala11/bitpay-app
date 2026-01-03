@@ -8,9 +8,13 @@ import HeaderBackButton from '../../../../components/back/HeaderBackButton';
 import {SupportedCurrencyOptions} from '../../../../constants/SupportedCurrencyOptions';
 import {CurrencyImage} from '../../../../components/currency-image/CurrencyImage';
 import {AllocationDonutLegendCard} from '../components/AllocationSection';
+import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
+import {buildAccountList, buildUIFormattedWallet} from '../../../../store/wallet/utils/wallet';
+import type {WalletRowProps} from '../../../../components/list/WalletRow';
+import type {Key, Wallet} from '../../../../store/wallet/wallet.models';
+import {buildAllocationDataFromWalletRows} from '../utils/allocationData';
 import {
   LightBlack,
-  Slate,
   Slate30,
   SlateDark,
 } from '../../../../styles/colors';
@@ -21,6 +25,7 @@ export type AllocationRowItem = {
   key: string;
   currencyAbbreviation: string;
   chain: string;
+  tokenAddress?: string;
   name: string;
   fiatAmount: string;
   percent: string;
@@ -141,9 +146,13 @@ export const AllocationRowsList: React.FC<{
     <Rows style={style}>
       {rows.map(item => {
         const option = SupportedCurrencyOptions.find(o => {
+          const tokenMatch = item.tokenAddress
+            ? o.tokenAddress?.toLowerCase() === item.tokenAddress?.toLowerCase()
+            : true;
           return (
             o.currencyAbbreviation === item.currencyAbbreviation &&
-            o.chain === item.chain
+            o.chain === item.chain &&
+            tokenMatch
           );
         });
 
@@ -182,9 +191,13 @@ export const AllocationRowsList: React.FC<{
   );
 };
 
-const Allocation: React.FC<Props> = ({navigation}) => {
+const Allocation: React.FC<Props> = ({navigation, route}) => {
   const theme = useTheme();
   const commonOptions = useStackScreenOptions(theme);
+  const dispatch = useAppDispatch();
+  const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
+  const {rates} = useAppSelector(({RATE}) => RATE);
+  const {defaultAltCurrency} = useAppSelector(({APP}) => APP);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -194,131 +207,57 @@ const Allocation: React.FC<Props> = ({navigation}) => {
     });
   }, [navigation, commonOptions]);
 
-  const legendItems = useMemo(
-    () => [
-      {
-        key: 'btc',
-        label: 'BTC',
-        value: '53.4%',
-        color: {light: '#F7931A', dark: '#F7931A'},
-      },
-      {
-        key: 'eth',
-        label: 'ETH',
-        value: '32.1%',
-        color: {light: '#627EEA', dark: '#627EEA'},
-      },
-      {
-        key: 'usdc',
-        label: 'USDC',
-        value: '8.3%',
-        color: {light: '#2775CA', dark: '#2775CA'},
-      },
-      {
-        key: 'xrp',
-        label: 'XRP',
-        value: '9.8%',
-        color: {light: '#000000', dark: '#000000'},
-      },
-      {
-        key: 'sol',
-        label: 'SOL',
-        value: '19.8%',
-        color: {light: '#7C3AED', dark: '#7C3AED'},
-      },
-      {
-        key: 'other',
-        label: 'Other',
-        color: {light: Slate, dark: SlateDark},
-      },
-    ],
-    [],
-  );
+  const walletRows: WalletRowProps[] = useMemo(() => {
+    const keyId = route.params?.keyId;
+    const accountAddress = route.params?.accountAddress;
 
-  const slices = useMemo(
-    () => [
-      {key: 'btc', value: 53.4, color: {light: '#F7931A', dark: '#F7931A'}},
-      {key: 'eth', value: 32.1, color: {light: '#627EEA', dark: '#627EEA'}},
-      {key: 'sol', value: 19.8, color: {light: '#7C3AED', dark: '#7C3AED'}},
-      {key: 'usdc', value: 8.3, color: {light: '#2775CA', dark: '#2775CA'}},
-      {key: 'xrp', value: 9.8, color: {light: '#000000', dark: '#000000'}},
-      {key: 'other', value: 6.6, color: {light: SlateDark, dark: SlateDark}},
-    ],
-    [],
-  );
+    if (keyId) {
+      const key = keys[keyId];
+      if (!key) {
+        return [];
+      }
 
-  const rows: AllocationRowItem[] = useMemo(
-    () => [
-      {
-        key: 'btc',
-        currencyAbbreviation: 'btc',
-        chain: 'btc',
-        name: 'Bitcoin',
-        fiatAmount: '$58,525.18',
-        percent: '59.6%',
-        progress: 59.6,
-        barColor: {light: '#F7931A', dark: '#F7931A'},
-      },
-      {
-        key: 'eth',
-        currencyAbbreviation: 'eth',
-        chain: 'eth',
-        name: 'Ethereum',
-        fiatAmount: '$58,525.18',
-        percent: '25.4%',
-        progress: 25.4,
-        barColor: {light: '#627EEA', dark: '#627EEA'},
-      },
-      {
-        key: 'xrp',
-        currencyAbbreviation: 'xrp',
-        chain: 'xrp',
-        name: 'XRP',
-        fiatAmount: '$7,815.88',
-        percent: '7.9%',
-        progress: 7.9,
-        barColor: {light: '#000000', dark: '#000000'},
-      },
-      {
-        key: 'sol',
-        currencyAbbreviation: 'sol',
-        chain: 'sol',
-        name: 'Solana',
-        fiatAmount: '$4,242.04',
-        percent: '4.3%',
-        progress: 4.3,
-        barColor: {light: '#7C3AED', dark: '#7C3AED'},
-      },
-      {
-        key: 'pol',
-        currencyAbbreviation: 'pol',
-        chain: 'matic',
-        name: 'Polygon',
-        fiatAmount: '$2,645.10',
-        percent: '2.8%',
-        progress: 2.8,
-        barColor: {light: '#7C3AED', dark: '#7C3AED'},
-      },
-      {
-        key: 'usdc',
-        currencyAbbreviation: 'usdc',
-        chain: 'eth',
-        name: 'USDC',
-        fiatAmount: '$1,989.11',
-        percent: '2.1%',
-        progress: 2.1,
-        barColor: {light: '#2775CA', dark: '#2775CA'},
-      },
-    ],
-    [],
-  );
+      if (accountAddress) {
+        const accounts = buildAccountList(
+          key,
+          defaultAltCurrency.isoCode,
+          rates,
+          dispatch,
+          {
+            filterByHideWallet: true,
+          },
+        );
+        const account = accounts.find(a => a.receiveAddress === accountAddress);
+        return (account?.wallets || []) as WalletRowProps[];
+      }
+
+      const wallets = key.wallets.filter(w => !w.hideWallet && !w.hideWalletByAccount);
+      return wallets.map((w: Wallet) =>
+        buildUIFormattedWallet(w, defaultAltCurrency.isoCode, rates, dispatch, 'symbol'),
+      );
+    }
+
+    const wallets = (Object.values(keys) as Key[])
+      .flatMap((k: Key) => k.wallets)
+      .filter((w: Wallet) => !w.hideWallet && !w.hideWalletByAccount);
+    return wallets.map((w: Wallet) =>
+      buildUIFormattedWallet(w, defaultAltCurrency.isoCode, rates, dispatch, 'symbol'),
+    );
+  }, [defaultAltCurrency.isoCode, dispatch, keys, rates, route.params?.accountAddress, route.params?.keyId]);
+
+  const allocationData = useMemo(() => {
+    return buildAllocationDataFromWalletRows(walletRows, defaultAltCurrency.isoCode);
+  }, [defaultAltCurrency.isoCode, walletRows]);
 
   return (
     <ScreenContainer>
       <Content>
-        <AllocationDonutLegendCard legendItems={legendItems} slices={slices} />
+        <AllocationDonutLegendCard
+          legendItems={allocationData.legendItems}
+          slices={allocationData.slices}
+        />
 
-        <AllocationRowsList rows={rows} />
+        <AllocationRowsList rows={allocationData.rows} />
       </Content>
     </ScreenContainer>
   );

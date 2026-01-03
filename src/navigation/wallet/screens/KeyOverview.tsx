@@ -91,6 +91,7 @@ import {
   buildAccountList,
   mapAbbreviationAndName,
   buildWalletObj,
+  buildUIFormattedWallet,
   checkPrivateKeyEncrypted,
 } from '../../../store/wallet/utils/wallet';
 import {each} from 'lodash';
@@ -127,11 +128,11 @@ import {getDifferenceColor} from '../../../components/percentage/Percentage';
 import Button from '../../../components/button/Button';
 import {
   AllocationDonutLegendCard,
-  AllocationLegendItem,
-  AllocationSlice,
 } from '../../tabs/home/components/AllocationSection';
 import ChevronRightSvg from '../../tabs/home/components/ChevronRightSvg';
 import {HomeSectionTitle} from '../../tabs/home/components/Styled';
+import {buildAllocationDataFromWalletRows} from '../../tabs/home/utils/allocationData';
+import type {WalletRowProps} from '../../../components/list/WalletRow';
 
 LogBox.ignoreLogs([
   'Non-serializable values were found in the navigation state',
@@ -456,6 +457,20 @@ const KeyOverview = () => {
       filterByHideWallet: true,
     });
   }, [dispatch, key, defaultAltCurrency.isoCode, rates, hideAllBalances]);
+
+  const allocationWalletRows: WalletRowProps[] = useMemo(() => {
+    const wallets = key.wallets.filter(w => !w.hideWallet && !w.hideWalletByAccount);
+    return wallets.map((w: Wallet) =>
+      buildUIFormattedWallet(w, defaultAltCurrency.isoCode, rates, dispatch, 'symbol'),
+    );
+  }, [defaultAltCurrency.isoCode, dispatch, key.wallets, rates]);
+
+  const allocationData = useMemo(() => {
+    return buildAllocationDataFromWalletRows(
+      allocationWalletRows,
+      defaultAltCurrency.isoCode,
+    );
+  }, [allocationWalletRows, defaultAltCurrency.isoCode]);
 
   const _tokenOptionsByAddress = useAppSelector(({WALLET}: RootState) => {
     return {
@@ -800,53 +815,6 @@ const KeyOverview = () => {
   }, [key, hideAllBalances]);
 
   const renderListFooterComponent = useCallback(() => {
-    const legendItems: AllocationLegendItem[] = [
-      {
-        key: 'btc',
-        label: 'BTC',
-        value: '53.4%',
-        color: {light: '#F7931A', dark: '#F7931A'},
-      },
-      {
-        key: 'eth',
-        label: 'ETH',
-        value: '32.1%',
-        color: {light: '#627EEA', dark: '#627EEA'},
-      },
-      {
-        key: 'usdc',
-        label: 'USDC',
-        value: '8.3%',
-        color: {light: '#2775CA', dark: '#2775CA'},
-      },
-      {
-        key: 'xrp',
-        label: 'XRP',
-        value: '9.8%',
-        color: {light: '#000000', dark: '#000000'},
-      },
-      {
-        key: 'sol',
-        label: 'SOL',
-        value: '19.8%',
-        color: {light: '#7C3AED', dark: '#7C3AED'},
-      },
-      {
-        key: 'other',
-        label: 'Other',
-        color: {light: Slate, dark: SlateDark},
-      },
-    ];
-
-    const slices: AllocationSlice[] = [
-      {key: 'btc', value: 53.4, color: {light: '#F7931A', dark: '#F7931A'}},
-      {key: 'eth', value: 32.1, color: {light: '#627EEA', dark: '#627EEA'}},
-      {key: 'sol', value: 19.8, color: {light: '#7C3AED', dark: '#7C3AED'}},
-      {key: 'usdc', value: 8.3, color: {light: '#2775CA', dark: '#2775CA'}},
-      {key: 'xrp', value: 9.8, color: {light: '#000000', dark: SlateDark}},
-      {key: 'other', value: 6.6, color: {light: Slate, dark: SlateDark}},
-    ];
-
     return (
       <WalletListFooterContainer>
         <Button
@@ -872,10 +840,14 @@ const KeyOverview = () => {
 
         <TouchableOpacity
           activeOpacity={ActiveOpacity}
-          onPress={() => (navigation as any).navigate('Allocation')}>
+          onPress={() =>
+            (navigation as any).navigate('Allocation', {
+              keyId: key.id,
+            })
+          }>
           <AllocationDonutLegendCard
-            legendItems={legendItems}
-            slices={slices}
+            legendItems={allocationData.legendItems}
+            slices={allocationData.slices}
             style={{marginLeft: 0, marginRight: 0}}
             header={
               <AllocationHeader>
@@ -884,29 +856,6 @@ const KeyOverview = () => {
                   <ChevronRightSvg width={13} height={19} gray />
                 </AllocationHeaderAction>
               </AllocationHeader>
-            }
-            footer={
-              <AllocationFooter>
-                <AllocationLabel>Portfolio Value</AllocationLabel>
-                <AllocationValue>$61,459.21</AllocationValue>
-
-                <AllocationDivider />
-
-                <AllocationRow>
-                  <AllocationColumn style={{paddingRight: 12}}>
-                    <AllocationLabel>All-Time Gain / Loss ($)</AllocationLabel>
-                    <AllocationMetricValue positive>{'+$61,199.18  (+672%)'}</AllocationMetricValue>
-                  </AllocationColumn>
-                  <AllocationColumn style={{paddingLeft: 12}}>
-                    <AllocationLabel style={{textAlign: 'right'}}>
-                      Today's Gain / Loss ($)
-                    </AllocationLabel>
-                    <AllocationMetricValue positive={false} style={{textAlign: 'right'}}>
-                      {'-$1,318.11  (-4.27%)'}
-                    </AllocationMetricValue>
-                  </AllocationColumn>
-                </AllocationRow>
-              </AllocationFooter>
             }
           />
         </TouchableOpacity>
@@ -926,7 +875,7 @@ const KeyOverview = () => {
         {showArchaxBanner && <ArchaxFooter />}
       </WalletListFooterContainer>
     );
-  }, [key, navigation, showArchaxBanner]);
+  }, [allocationData.legendItems, allocationData.slices, key.id, navigation, showArchaxBanner]);
 
   const listEmptyComponent = useMemo(
     () =>
