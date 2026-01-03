@@ -6,6 +6,7 @@ import type {
 import type {AllocationRowItem} from '../screens/Allocation';
 import {formatFiatAmount} from '../../../../utils/helper-methods';
 import {Slate, SlateDark} from '../../../../styles/colors';
+import {BitpaySupportedCoins} from '../../../../constants/currencies';
 
 type AllocationAsset = {
   assetKey: string;
@@ -25,22 +26,18 @@ const getAssetKey = (w: WalletRowProps): string => {
 
 const getAssetColor = (
   currencyAbbreviation: string,
+  chain?: string,
 ): {light: string; dark: string} => {
-  const key = currencyAbbreviation.toLowerCase();
-  const known: Record<string, {light: string; dark: string}> = {
-    btc: {light: '#F7931A', dark: '#F7931A'},
-    bch: {light: '#0AC18E', dark: '#0AC18E'},
-    eth: {light: '#627EEA', dark: '#627EEA'},
-    xrp: {light: '#000000', dark: '#000000'},
-    sol: {light: '#7C3AED', dark: '#7C3AED'},
-    usdc: {light: '#2775CA', dark: '#2775CA'},
-    usdt: {light: '#26A17B', dark: '#26A17B'},
-    doge: {light: '#C2A633', dark: '#C2A633'},
-    ltc: {light: '#345D9D', dark: '#345D9D'},
-    pol: {light: '#8247E5', dark: '#8247E5'},
-    matic: {light: '#8247E5', dark: '#8247E5'},
-  };
-  return known[key] || {light: Slate, dark: SlateDark};
+  const coinKey = (currencyAbbreviation || '').toLowerCase();
+  const chainKey = (chain || '').toLowerCase();
+
+  const themeColor =
+    BitpaySupportedCoins[coinKey]?.theme?.coinColor ||
+    BitpaySupportedCoins[chainKey]?.theme?.coinColor;
+
+  return themeColor
+    ? {light: themeColor, dark: themeColor}
+    : {light: Slate, dark: SlateDark};
 };
 
 const toPercent = (value: number, total: number): number => {
@@ -96,7 +93,7 @@ export const buildAllocationDataFromWalletRows = (
 
   const rows: AllocationRowItem[] = assets.map(a => {
     const percent = toPercent(a.fiatValue, totalFiat);
-    const color = getAssetColor(a.currencyAbbreviation);
+    const color = getAssetColor(a.currencyAbbreviation, a.chain);
     return {
       key: a.assetKey,
       currencyAbbreviation: a.currencyAbbreviation,
@@ -125,7 +122,7 @@ export const buildAllocationDataFromWalletRows = (
       key: a.assetKey,
       label: a.currencyAbbreviation.toUpperCase(),
       value: `${percent.toFixed(1)}%`,
-      color: getAssetColor(a.currencyAbbreviation),
+      color: getAssetColor(a.currencyAbbreviation, a.chain),
     };
   });
 
@@ -134,7 +131,7 @@ export const buildAllocationDataFromWalletRows = (
     return {
       key: a.assetKey,
       value: percent,
-      color: getAssetColor(a.currencyAbbreviation),
+      color: getAssetColor(a.currencyAbbreviation, a.chain),
     };
   });
 
