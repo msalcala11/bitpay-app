@@ -182,47 +182,49 @@ export const startUpdateWalletStatus =
         );
 
         if (network === Network.mainnet) {
-          const wallets = getState().WALLET.keys[key.id].wallets.filter(
-            w => !w.hideWallet && !w.hideWalletByAccount,
+          const wallets = (getState().WALLET.keys[key.id].wallets as Wallet[]).filter(
+            (w: Wallet) => !w.hideWallet && !w.hideWalletByAccount,
           );
 
-          const totalFiatBalance = wallets.reduce(
-            (acc, {balance: {sat}}, index, wallets) =>
+          const totalFiatBalance = wallets.reduce((acc: number, w: Wallet) => {
+            const sat = w.balance?.sat || 0;
+            return (
               acc +
               convertToFiat(
                 dispatch(
                   toFiat(
                     sat,
                     defaultAltCurrency.isoCode,
-                    wallets[index].currencyAbbreviation,
-                    wallets[index].chain,
+                    w.currencyAbbreviation,
+                    w.chain,
                     rates,
-                    wallets[index].tokenAddress,
+                    w.tokenAddress,
                   ),
                 ),
                 false, // already filtered by hideWallet
                 false,
-                wallets[index].network,
-              ),
-            0,
-          );
+                w.network,
+              )
+            );
+          }, 0);
 
           const totalLastDayFiatBalance = wallets.reduce(
-            (acc, {balance: {sat}}, index, wallets) => {
+            (acc: number, w: Wallet) => {
+              const sat = w.balance?.sat || 0;
               const fiatLastDay = convertToFiat(
                 dispatch(
                   toFiat(
                     sat,
                     defaultAltCurrency.isoCode,
-                    wallets[index].currencyAbbreviation,
-                    wallets[index].chain,
+                    w.currencyAbbreviation,
+                    w.chain,
                     lastDayRates,
-                    wallets[index].tokenAddress,
+                    w.tokenAddress,
                   ),
                 ),
                 false, // already filtered by hideWallet
                 false,
-                wallets[index].network,
+                w.network,
               );
               return fiatLastDay ? acc + fiatLastDay : acc;
             },
@@ -377,18 +379,32 @@ export const updateKeyStatus =
           const {balance: cachedBalance, pendingTxps} = wallet;
 
           if (!bulkStatus) {
-            return {
+            const fiatBalance = dispatch(
+              buildFiatBalance({
+                wallet,
+                cryptoBalance: cachedBalance,
+                defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
+                rates,
+                lastDayRates,
+              }),
+            );
+
+            const mergedBalance = {
               ...cachedBalance,
-              ...dispatch(
-                buildFiatBalance({
-                  wallet,
-                  cryptoBalance: cachedBalance,
-                  defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
-                  rates,
-                  lastDayRates,
-                }),
-              ),
-            };
+              ...fiatBalance,
+            } as WalletBalance;
+
+            if ((mergedBalance.sat || 0) > 0 && (mergedBalance.fiat || 0) === 0) {
+              logManager.warn(
+                `Wallet fiat balance is 0 despite sat > 0: ${wallet.currencyAbbreviation} ${wallet.id}`,
+              );
+            }
+
+            if (!dataOnly) {
+              wallet.balance = mergedBalance;
+            }
+
+            return mergedBalance;
           }
 
           const {status, success} =
@@ -419,7 +435,7 @@ export const updateKeyStatus =
               }),
             );
 
-            let newBalance = {
+            const newBalance = {
               ...cryptoBalance,
               ...dispatch(
                 buildFiatBalance({
@@ -432,19 +448,25 @@ export const updateKeyStatus =
               ),
             } as WalletBalance;
 
+            if ((newBalance.sat || 0) > 0 && (newBalance.fiat || 0) === 0) {
+              logManager.warn(
+                `Wallet fiat balance is 0 despite sat > 0: ${wallet.currencyAbbreviation} ${wallet.id}`,
+              );
+            }
+
             const newPendingTxps = dispatch(buildPendingTxps({wallet, status}));
 
             // Collect wallet updates instead of applying them
             walletUpdates.push({
               walletId: wallet.id,
-              balance: cryptoBalance,
+              balance: newBalance,
               pendingTxps: newPendingTxps,
               singleAddress: status.wallet?.singleAddress,
             });
 
             if (!dataOnly) {
               // properties to update
-              wallet.balance = cryptoBalance;
+              wallet.balance = newBalance;
               wallet.pendingTxps = newPendingTxps;
               wallet.singleAddress = status.wallet?.singleAddress;
             }
@@ -455,18 +477,26 @@ export const updateKeyStatus =
 
             return newBalance;
           } else {
-            return {
+            const fiatBalance = dispatch(
+              buildFiatBalance({
+                wallet,
+                cryptoBalance: cachedBalance,
+                defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
+                rates,
+                lastDayRates,
+              }),
+            );
+
+            const mergedBalance = {
               ...cachedBalance,
-              ...dispatch(
-                buildFiatBalance({
-                  wallet,
-                  cryptoBalance: cachedBalance,
-                  defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
-                  rates,
-                  lastDayRates,
-                }),
-              ),
-            };
+              ...fiatBalance,
+            } as WalletBalance;
+
+            if (!dataOnly) {
+              wallet.balance = mergedBalance;
+            }
+
+            return mergedBalance;
           }
         });
 
@@ -1089,7 +1119,7 @@ export const FormatKeyBalances = (): Effect => async (dispatch, getState) => {
       } = getState();
 
       await Promise.all(
-        Object.values(keys).map(key => {
+        (Object.values(keys) as Key[]).map((key: Key) => {
           dispatch(
             startFormatBalanceAllWalletsForKey({
               key,
