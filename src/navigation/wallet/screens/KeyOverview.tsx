@@ -857,6 +857,39 @@ const KeyOverview = () => {
                 </AllocationHeaderAction>
               </AllocationHeader>
             }
+            footer={
+              <AllocationFooter>
+                <AllocationLabel>Portfolio Value</AllocationLabel>
+                <AllocationValue>
+                  {!hideAllBalances
+                    ? formatFiatAmount(totalBalance, defaultAltCurrency.isoCode, {
+                        currencyDisplay: 'symbol',
+                      })
+                    : '****'}
+                </AllocationValue>
+
+                {/* <AllocationDivider />
+
+                <AllocationRow>
+                  <AllocationColumn style={{paddingRight: 12}}>
+                    <AllocationLabel>All-Time Gain / Loss ($)</AllocationLabel>
+                    <AllocationMetricValue positive>
+                      {'+$61,199.18  (+672%)'}
+                    </AllocationMetricValue>
+                  </AllocationColumn>
+                  <AllocationColumn style={{paddingLeft: 12}}>
+                    <AllocationLabel style={{textAlign: 'right'}}>
+                      Today's Gain / Loss ($)
+                    </AllocationLabel>
+                    <AllocationMetricValue
+                      positive={false}
+                      style={{textAlign: 'right'}}>
+                      {'-$1,318.11  (-4.27%)'}
+                    </AllocationMetricValue>
+                  </AllocationColumn>
+                </AllocationRow> */}
+              </AllocationFooter>
+            }
           />
         </TouchableOpacity>
 
@@ -875,7 +908,16 @@ const KeyOverview = () => {
         {showArchaxBanner && <ArchaxFooter />}
       </WalletListFooterContainer>
     );
-  }, [allocationData.legendItems, allocationData.slices, key.id, navigation, showArchaxBanner]);
+  }, [
+    allocationData.legendItems,
+    allocationData.slices,
+    defaultAltCurrency.isoCode,
+    hideAllBalances,
+    key.id,
+    navigation,
+    showArchaxBanner,
+    totalBalance,
+  ]);
 
   const listEmptyComponent = useMemo(
     () =>
