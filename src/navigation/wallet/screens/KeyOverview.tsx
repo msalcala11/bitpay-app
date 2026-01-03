@@ -838,66 +838,72 @@ const KeyOverview = () => {
           </AddWalletLinkButton>
         </AddWalletLinkContainer>
 
-        <TouchableOpacity
-          activeOpacity={ActiveOpacity}
-          onPress={() =>
-            (navigation as any).navigate('Allocation', {
-              keyId: key.id,
-            })
-          }>
-          <AllocationDonutLegendCard
-            legendItems={allocationData.legendItems}
-            slices={allocationData.slices}
-            style={{marginLeft: 0, marginRight: 0}}
-            header={
-              <AllocationHeader>
-                <HomeSectionTitle>Allocation</HomeSectionTitle>
-                <AllocationHeaderAction
-                  activeOpacity={ActiveOpacity}
-                  onPress={() =>
-                    (navigation as any).navigate('Allocation', {
-                      keyId: key.id,
-                    })
-                  }>
-                  <ChevronRightSvg width={13} height={19} gray />
-                </AllocationHeaderAction>
-              </AllocationHeader>
-            }
-            footer={
-              <AllocationFooter>
-                <AllocationLabel>Portfolio Value</AllocationLabel>
-                <AllocationValue>
-                  {!hideAllBalances
-                    ? formatFiatAmount(totalBalance, defaultAltCurrency.isoCode, {
-                        currencyDisplay: 'symbol',
+        {allocationData.totalFiat > 0 ? (
+          <TouchableOpacity
+            activeOpacity={ActiveOpacity}
+            onPress={() =>
+              (navigation as any).navigate('Allocation', {
+                keyId: key.id,
+              })
+            }>
+            <AllocationDonutLegendCard
+              legendItems={allocationData.legendItems}
+              slices={allocationData.slices}
+              style={{marginLeft: 0, marginRight: 0}}
+              header={
+                <AllocationHeader>
+                  <HomeSectionTitle>Allocation</HomeSectionTitle>
+                  <AllocationHeaderAction
+                    activeOpacity={ActiveOpacity}
+                    onPress={() =>
+                      (navigation as any).navigate('Allocation', {
+                        keyId: key.id,
                       })
-                    : '****'}
-                </AllocationValue>
+                    }>
+                    <ChevronRightSvg width={13} height={19} gray />
+                  </AllocationHeaderAction>
+                </AllocationHeader>
+              }
+              footer={
+                <AllocationFooter>
+                  <AllocationLabel>Portfolio Value</AllocationLabel>
+                  <AllocationValue>
+                    {!hideAllBalances
+                      ? formatFiatAmount(
+                          totalBalance,
+                          defaultAltCurrency.isoCode,
+                          {
+                            currencyDisplay: 'symbol',
+                          },
+                        )
+                      : '****'}
+                  </AllocationValue>
 
-                {/* <AllocationDivider />
+                  {/* <AllocationDivider />
 
-                <AllocationRow>
-                  <AllocationColumn style={{paddingRight: 12}}>
-                    <AllocationLabel>All-Time Gain / Loss ($)</AllocationLabel>
-                    <AllocationMetricValue positive>
-                      {'+$61,199.18  (+672%)'}
-                    </AllocationMetricValue>
-                  </AllocationColumn>
-                  <AllocationColumn style={{paddingLeft: 12}}>
-                    <AllocationLabel style={{textAlign: 'right'}}>
-                      Today's Gain / Loss ($)
-                    </AllocationLabel>
-                    <AllocationMetricValue
-                      positive={false}
-                      style={{textAlign: 'right'}}>
-                      {'-$1,318.11  (-4.27%)'}
-                    </AllocationMetricValue>
-                  </AllocationColumn>
-                </AllocationRow> */}
-              </AllocationFooter>
-            }
-          />
-        </TouchableOpacity>
+                  <AllocationRow>
+                    <AllocationColumn style={{paddingRight: 12}}>
+                      <AllocationLabel>All-Time Gain / Loss ($)</AllocationLabel>
+                      <AllocationMetricValue positive>
+                        {'+$61,199.18  (+672%)'}
+                      </AllocationMetricValue>
+                    </AllocationColumn>
+                    <AllocationColumn style={{paddingLeft: 12}}>
+                      <AllocationLabel style={{textAlign: 'right'}}>
+                        Today's Gain / Loss ($)
+                      </AllocationLabel>
+                      <AllocationMetricValue
+                        positive={false}
+                        style={{textAlign: 'right'}}>
+                        {'-$1,318.11  (-4.27%)'}
+                      </AllocationMetricValue>
+                    </AllocationColumn>
+                  </AllocationRow> */}
+                </AllocationFooter>
+              }
+            />
+          </TouchableOpacity>
+        ) : null}
 
 
         {/* <WalletListFooter
@@ -917,6 +923,7 @@ const KeyOverview = () => {
   }, [
     allocationData.legendItems,
     allocationData.slices,
+    allocationData.totalFiat,
     defaultAltCurrency.isoCode,
     hideAllBalances,
     key.id,
