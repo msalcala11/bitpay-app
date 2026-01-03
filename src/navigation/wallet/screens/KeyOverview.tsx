@@ -852,7 +852,13 @@ const KeyOverview = () => {
             header={
               <AllocationHeader>
                 <HomeSectionTitle>Allocation</HomeSectionTitle>
-                <AllocationHeaderAction activeOpacity={ActiveOpacity}>
+                <AllocationHeaderAction
+                  activeOpacity={ActiveOpacity}
+                  onPress={() =>
+                    (navigation as any).navigate('Allocation', {
+                      keyId: key.id,
+                    })
+                  }>
                   <ChevronRightSvg width={13} height={19} gray />
                 </AllocationHeaderAction>
               </AllocationHeader>
