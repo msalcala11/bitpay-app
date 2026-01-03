@@ -131,21 +131,41 @@ const DonutChart = ({
   const total = slices.reduce((sum, s) => sum + s.value, 0);
   const segmentBorderColor = theme.dark ? SlateDark : Slate30;
 
+  const isSingleSliceFull =
+    slices.length === 1 &&
+    total > 0 &&
+    Math.abs((slices[0]?.value || 0) - total) < 1e-6;
+
   const gap = 2;
   let cumulativeLength = 0;
 
   return (
     <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       <G rotation={-90} originX={size / 2} originY={size / 2}>
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke={segmentBorderColor}
-          strokeWidth={strokeWidth}
-          fill="transparent"
-        />
+        {isSingleSliceFull ? null : (
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            stroke={segmentBorderColor}
+            strokeWidth={strokeWidth}
+            fill="transparent"
+          />
+        )}
+        {isSingleSliceFull ? (
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            stroke={theme.dark ? slices[0].color.dark : slices[0].color.light}
+            strokeWidth={strokeWidth}
+            fill="transparent"
+          />
+        ) : null}
         {slices.map(slice => {
+          if (isSingleSliceFull) {
+            return null;
+          }
           const color = theme.dark ? slice.color.dark : slice.color.light;
           const segmentLength = (slice.value / total) * circumference;
           const adjustedSegmentLength = Math.max(0, segmentLength - gap);
