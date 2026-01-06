@@ -132,6 +132,7 @@ import {
   buildAllocationDataFromWalletRows,
   type AllocationWallet,
 } from '../../../utils/allocation';
+import {toFiat} from '../../../store/wallet/utils/wallet';
 
 LogBox.ignoreLogs([
   'Non-serializable values were found in the navigation state',
@@ -346,6 +347,30 @@ const KeyOverview = () => {
   const selectedChainFilterOption = useAppSelector(
     ({APP}) => APP.selectedChainFilterOption,
   );
+
+  useEffect(() => {
+    if (key || !Object.keys(keys).length) {
+      return;
+    }
+
+    const nav: any = navigation;
+    if (nav?.canGoBack?.()) {
+      nav.dispatch(CommonActions.goBack());
+      return;
+    }
+
+    nav.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [
+          {
+            name: RootStacks.TABS,
+            params: {screen: TabsScreens.HOME},
+          },
+        ],
+      }),
+    );
+  }, [key, keys, navigation]);
   useLayoutEffect(() => {
     if (!key) {
       return;
@@ -454,11 +479,19 @@ const KeyOverview = () => {
     updateStatusForKey(false);
   }, []);
 
+  const selectedKeyState = useAppSelector(({WALLET}) => WALLET.keys[id]) as
+    | {
+        wallets?: Wallet[];
+        totalBalance?: number;
+        totalBalanceLastDay?: number;
+      }
+    | undefined;
+
   const {
     wallets = [],
     totalBalance = 0,
     totalBalanceLastDay,
-  } = useAppSelector(({WALLET}) => WALLET.keys[id]) || {};
+  } = selectedKeyState || {};
 
   const percentageDifference = useMemo(() => {
     if (!totalBalanceLastDay) {
@@ -468,25 +501,44 @@ const KeyOverview = () => {
   }, [totalBalance, totalBalanceLastDay]);
 
   const memorizedAccountList = useMemo(() => {
+    if (!key) {
+      return [] as AccountRowProps[];
+    }
     return buildAccountList(key, defaultAltCurrency.isoCode, rates, dispatch, {
       filterByHideWallet: true,
     });
   }, [dispatch, key, defaultAltCurrency.isoCode, rates, hideAllBalances]);
 
   const allocationWalletRows: AllocationWallet[] = useMemo(() => {
-    const wallets = key.wallets.filter(
+    const visibleWallets = (wallets || []).filter(
       w => !w.hideWallet && !w.hideWalletByAccount,
     );
-    return wallets.map((w: Wallet) => {
+    return visibleWallets.map((w: Wallet) => {
+      const fiatFromBalance = Number((w.balance as any)?.fiat) || 0;
+      const sat = Number((w.balance as any)?.sat) || 0;
+      const fiatComputed = fiatFromBalance
+        ? fiatFromBalance
+        : sat
+        ? dispatch(
+            toFiat(
+              sat,
+              defaultAltCurrency.isoCode,
+              w.currencyAbbreviation,
+              w.chain,
+              rates,
+              w.tokenAddress,
+            ),
+          )
+        : 0;
       return {
         currencyAbbreviation: w.currencyAbbreviation,
         chain: w.chain,
         tokenAddress: w.tokenAddress,
         currencyName: w.currencyName,
-        fiatBalance: (w.balance as any)?.fiat,
+        fiatBalance: fiatComputed,
       };
     });
-  }, [key.wallets]);
+  }, [defaultAltCurrency.isoCode, dispatch, rates, wallets]);
 
   const allocationData = useMemo(() => {
     return buildAllocationDataFromWalletRows(
@@ -648,68 +700,67 @@ const KeyOverview = () => {
   );
   const keyOptions: Array<Option> = [];
 
-  keyOptions.push({
-    img: <Icons.Wallet width="15" height="15" />,
-    title: t('Add Wallet'),
-    description: t(
-      'Choose another currency you would like to add to your key.',
-    ),
-    onPress: async () => {
-      haptic('impactLight');
-      await sleep(500);
-      navigation.navigate('AddingOptions', {
-        key,
-      });
-    },
-  });
-
-  if (missingChainsAccounts.length > 0) {
+  if (key) {
     keyOptions.push({
       img: <Icons.Wallet width="15" height="15" />,
-      title: t('Add Ethereum networks'),
-      description: t('Add all supported networks for this key.'),
-      onPress: async () => {
-        await handleAddEvmChain();
-      },
-    });
-  }
-
-  if (!key?.isReadOnly && !checkPrivateKeyEncrypted(key)) {
-    keyOptions.push({
-      img: <Icons.Encrypt />,
-      title: t('Encrypt your Key'),
+      title: t('Add Wallet'),
       description: t(
-        'Prevent an unauthorized user from sending funds out of your wallet.',
+        'Choose another currency you would like to add to your key.',
       ),
       onPress: async () => {
         haptic('impactLight');
         await sleep(500);
-        navigation.navigate('CreateEncryptPassword', {
+        navigation.navigate('AddingOptions', {
+          key,
+        });
+      },
+    });
+
+    if (missingChainsAccounts.length > 0) {
+      keyOptions.push({
+        img: <Icons.Wallet width="15" height="15" />,
+        title: t('Add Ethereum networks'),
+        description: t('Add all supported networks for this key.'),
+        onPress: async () => {
+          await handleAddEvmChain();
+        },
+      });
+    }
+
+    if (!key.isReadOnly && !checkPrivateKeyEncrypted(key)) {
+      keyOptions.push({
+        img: <Icons.Encrypt />,
+        title: t('Encrypt your Key'),
+        description: t(
+          'Prevent an unauthorized user from sending funds out of your wallet.',
+        ),
+        onPress: async () => {
+          haptic('impactLight');
+          await sleep(500);
+          navigation.navigate('CreateEncryptPassword', {
+            key,
+          });
+        },
+      });
+    }
+
+    keyOptions.push({
+      img: <Icons.Settings />,
+      title: t('Key Settings'),
+      description: t('View all the ways to manage and configure your key.'),
+      onPress: async () => {
+        haptic('impactLight');
+        await sleep(500);
+        navigation.navigate('KeySettings', {
           key,
         });
       },
     });
   }
 
-  keyOptions.push({
-    img: <Icons.Settings />,
-    title: t('Key Settings'),
-    description: t('View all the ways to manage and configure your key.'),
-    onPress: async () => {
-      haptic('impactLight');
-      await sleep(500);
-      navigation.navigate('KeySettings', {
-        key,
-      });
-    },
-  });
-
-  const onPressTxpBadge = useMemo(
-    () => () => {
-      navigation.navigate('TransactionProposalNotifications', {keyId: key.id});
-    },
-    [],
-  );
+  const onPressTxpBadge = useCallback(() => {
+    navigation.navigate('TransactionProposalNotifications', {keyId: id});
+  }, [navigation, id]);
 
   const updateStatusForKey = async (forceUpdate?: boolean) => {
     if (isViewUpdating) {
@@ -838,6 +889,9 @@ const KeyOverview = () => {
   }, [key, hideAllBalances]);
 
   const renderListFooterComponent = useCallback(() => {
+    if (!key) {
+      return null;
+    }
     return (
       <WalletListFooterContainer>
         <WalletListFooter
@@ -877,7 +931,7 @@ const KeyOverview = () => {
             activeOpacity={ActiveOpacity}
             onPress={() =>
               (navigation as any).navigate('Allocation', {
-                keyId: key.id,
+                keyId: id,
               })
             }>
             <AllocationDonutLegendCard
@@ -891,7 +945,7 @@ const KeyOverview = () => {
                     activeOpacity={ActiveOpacity}
                     onPress={() =>
                       (navigation as any).navigate('Allocation', {
-                        keyId: key.id,
+                        keyId: id,
                       })
                     }>
                     <ChevronRightSvg width={13} height={19} gray />
@@ -948,7 +1002,8 @@ const KeyOverview = () => {
     allocationData.totalFiat,
     defaultAltCurrency.isoCode,
     hideAllBalances,
-    key.id,
+    id,
+    key,
     navigation,
     showPortfolioValue,
     showArchaxBanner,
