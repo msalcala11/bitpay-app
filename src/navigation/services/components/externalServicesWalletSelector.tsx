@@ -140,6 +140,20 @@ const ExternalServicesWalletSelector: React.FC<
     useState(false);
   const autoSelectAttemptedRef = useRef(false);
 
+  const globalSelectRoute =
+    fromCurrencyAbbreviation && fromChain
+      ? {
+          ...route,
+          params: {
+            ...(route?.params || {}),
+            assetContext: {
+              currencyAbbreviation: fromCurrencyAbbreviation,
+              chain: fromChain,
+            },
+          },
+        }
+      : route;
+
   const walletError = async (
     type?: string,
     fromCurrencyAbbreviation?: string,
@@ -531,7 +545,7 @@ const ExternalServicesWalletSelector: React.FC<
         fullscreen>
         <GlobalSelectContainer>
           <GlobalSelect
-            route={route}
+            route={globalSelectRoute}
             navigation={navigation}
             modalContext={
               context === 'buyCrypto'
