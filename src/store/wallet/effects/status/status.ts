@@ -419,7 +419,7 @@ export const updateKeyStatus =
               }),
             );
 
-            let newBalance = {
+            const newBalance = {
               ...cryptoBalance,
               ...dispatch(
                 buildFiatBalance({
@@ -434,19 +434,20 @@ export const updateKeyStatus =
 
             const newPendingTxps = dispatch(buildPendingTxps({wallet, status}));
 
-            // Collect wallet updates instead of applying them
-            walletUpdates.push({
-              walletId: wallet.id,
-              balance: cryptoBalance,
-              pendingTxps: newPendingTxps,
-              singleAddress: status.wallet?.singleAddress,
-            });
-
             if (!dataOnly) {
-              // properties to update
-              wallet.balance = cryptoBalance;
+              wallet.balance = newBalance;
               wallet.pendingTxps = newPendingTxps;
               wallet.singleAddress = status.wallet?.singleAddress;
+            }
+
+            // For v2/dataOnly flows we need full balances (including fiat) to be persisted via reducer
+            if (dataOnly) {
+              walletUpdates.push({
+                walletId: wallet.id,
+                balance: newBalance,
+                pendingTxps: newPendingTxps,
+                singleAddress: status.wallet?.singleAddress,
+              });
             }
 
             logManager.info(
@@ -455,7 +456,7 @@ export const updateKeyStatus =
 
             return newBalance;
           } else {
-            return {
+            const balanceWithFiat = {
               ...cachedBalance,
               ...dispatch(
                 buildFiatBalance({
@@ -466,7 +467,32 @@ export const updateKeyStatus =
                   lastDayRates,
                 }),
               ),
-            };
+            } as WalletBalance;
+
+            // Keep wallet fiat fields in sync even when crypto amount doesn't change
+            if (!dataOnly) {
+              wallet.balance = balanceWithFiat;
+              if (status && success) {
+                wallet.pendingTxps = dispatch(buildPendingTxps({wallet, status}));
+                wallet.singleAddress = status.wallet?.singleAddress;
+              }
+            } else {
+              // For v2/dataOnly flows, include every wallet so fiat balances can be updated even if amounts didn't change
+              walletUpdates.push({
+                walletId: wallet.id,
+                balance: balanceWithFiat,
+                pendingTxps:
+                  status && success
+                    ? dispatch(buildPendingTxps({wallet, status}))
+                    : pendingTxps,
+                singleAddress:
+                  status && success
+                    ? status.wallet?.singleAddress
+                    : !!wallet.singleAddress,
+              });
+            }
+
+            return balanceWithFiat;
           }
         });
 

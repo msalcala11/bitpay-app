@@ -102,7 +102,7 @@ export interface FiatBalance {
 export interface WalletBalance extends CryptoBalance, FiatBalance {}
 
 export interface WalletStatus {
-  balance: CryptoBalance;
+  balance: WalletBalance;
   pendingTxps: TransactionProposal[];
   singleAddress: boolean;
 }

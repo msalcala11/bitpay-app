@@ -13,12 +13,14 @@ import {BaseText} from '../../../../components/styled/Text';
 import {HomeSectionTitle} from './Styled';
 import ChevronRightSvg from './ChevronRightSvg';
 import {useAppSelector} from '../../../../utils/hooks';
+import {useAppDispatch} from '../../../../utils/hooks';
 import type {Key, Wallet} from '../../../../store/wallet/wallet.models';
 import {
   buildAllocationDataFromWalletRows,
   type AllocationWallet,
 } from '../../../../utils/allocation';
 import {Black, Slate30, SlateDark, White} from '../../../../styles/colors';
+import {toFiat} from '../../../../store/wallet/utils/wallet';
 
 export type AllocationLegendItem = {
   key: string;
@@ -349,8 +351,10 @@ export const AllocationDonutLegendCard: React.FC<{
 
 const AllocationSection: React.FC = () => {
   const navigation = useNavigation();
+  const dispatch = useAppDispatch();
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
   const {defaultAltCurrency} = useAppSelector(({APP}) => APP);
+  const {rates} = useAppSelector(({RATE}) => RATE);
 
   const hasAnyVisibleWalletBalance = useMemo(() => {
     const wallets = (Object.values(keys) as Key[])
@@ -368,15 +372,32 @@ const AllocationSection: React.FC = () => {
       .filter((w: Wallet) => !w.hideWallet && !w.hideWalletByAccount);
 
     return wallets.map((w: Wallet) => {
+      const fiatFromBalance = Number((w.balance as any)?.fiat) || 0;
+      const sat = Number((w.balance as any)?.sat) || 0;
+      const fiatComputed = fiatFromBalance
+        ? fiatFromBalance
+        : sat
+        ? dispatch(
+            toFiat(
+              sat,
+              defaultAltCurrency.isoCode,
+              w.currencyAbbreviation,
+              w.chain,
+              rates,
+              w.tokenAddress,
+            ),
+          )
+        : 0;
+
       return {
         currencyAbbreviation: w.currencyAbbreviation,
         chain: w.chain,
         tokenAddress: w.tokenAddress,
         currencyName: w.currencyName,
-        fiatBalance: (w.balance as any)?.fiat,
+        fiatBalance: fiatComputed,
       };
     });
-  }, [keys]);
+  }, [defaultAltCurrency.isoCode, dispatch, keys, rates]);
 
   const allocationData = useMemo(() => {
     return buildAllocationDataFromWalletRows(

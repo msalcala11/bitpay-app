@@ -417,7 +417,7 @@ const ExternalServicesWalletSelector: React.FC<
             <WalletSelectorName
               ellipsizeMode="tail"
               numberOfLines={1}
-              style={{fontWeight: 500, color: White}}>
+              style={{fontWeight: '500', color: White}}>
               {t('Choose Crypto')}
             </WalletSelectorName>
           )}
