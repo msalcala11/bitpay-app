@@ -1,6 +1,6 @@
 // @ts-ignore
 import {REGTEST_BASE_BITPAY_URL} from '@env';
-const {version}: {version: string} = require('../../package.json');
+import {version} from '../../package.json'; // TODO: better way to get version
 import {Network} from '.';
 
 export const STATIC_CONTENT_CARDS_ENABLED = true;
@@ -174,8 +174,7 @@ export const EXCHANGE_RATES_SORT_ORDER = [
   'sol',
   'doge',
   'bch',
-  'shib',
-  'pol',
+  'ltc',
 ];
 
 // Passkey
