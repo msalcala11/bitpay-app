@@ -283,10 +283,7 @@ const ExternalServicesWalletSelector: React.FC<
       );
       return (
         wallet.credentials &&
-        (wallet.network === 'livenet' ||
-          (__DEV__ &&
-            wallet.network === 'testnet' &&
-            ['btc', 'eth'].includes(symbol))) &&
+        wallet.network === 'livenet' &&
         !!sellCryptoSupportedCoinsFullObj?.some(
           coin => coin.symbol === symbol,
         ) &&
