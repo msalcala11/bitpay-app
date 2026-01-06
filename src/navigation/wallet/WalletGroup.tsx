@@ -69,6 +69,7 @@ import PayProConfirm, {
   PayProConfirmParamList,
 } from './screens/send/confirm/PayProConfirm';
 import PriceCharts, {PriceChartsParamList} from './screens/PriceCharts';
+import ExchangeRate from './screens/ExchangeRate';
 import ClearEncryptPassword, {
   ClearEncryptPasswordParamList,
 } from './screens/ClearEncryptPassword';
@@ -181,6 +182,13 @@ export type WalletGroupParamList = {
   Addresses: {wallet: WalletModel};
   AllAddresses: AllAddressesParamList;
   PriceCharts: PriceChartsParamList;
+  ExchangeRate: {
+    currencyName: string;
+    currencyAbbreviation: string;
+    chain: string;
+    tokenAddress?: string;
+    network?: string;
+  };
   ClearEncryptPassword: ClearEncryptPasswordParamList;
   SendToOptions: SendToOptionsParamList;
   SelectInputs: SelectInputsParamList;
@@ -237,6 +245,7 @@ export enum WalletScreens {
   ADDRESSES = 'Addresses',
   ALL_ADDRESSES = 'AllAddresses',
   PRICE_CHARTS = 'PriceCharts',
+  EXCHANGE_RATE = 'ExchangeRate',
   CLEAR_ENCRYPT_PASSWORD = 'ClearEncryptPassword',
   SEND_TO_OPTIONS = 'SendToOptions',
   SELECT_INPUTS = 'SelectInputs',
@@ -458,6 +467,10 @@ const WalletGroup = ({Wallet, theme}: WalletProps) => {
       <Wallet.Screen
         name={WalletScreens.PRICE_CHARTS}
         component={PriceCharts}
+      />
+      <Wallet.Screen
+        name={WalletScreens.EXCHANGE_RATE}
+        component={ExchangeRate}
       />
       <Wallet.Screen
         options={{

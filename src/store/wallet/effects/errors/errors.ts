@@ -49,13 +49,29 @@ export const showWalletError =
             })
           : t('No wallets available to receive funds.');
         break;
+      case 'noWalletsAbleToSell':
+        title = t('No wallets');
+        message = coin
+          ? t('No coin wallets available to sell crypto.', {
+              coin: coin.toUpperCase(),
+            })
+          : t('No wallets available to sell crypto.');
+        break;
       case 'keysNoSupportedWallet':
-        title = t('Not supported wallets');
+        title = t('No supported wallets');
         message = coin
           ? t('Your keys do not have wallets able to buy crypto', {
               coin: coin.toUpperCase(),
             })
           : t('Your keys do not have supported wallets able to buy crypto');
+        break;
+      case 'keysNoSupportedWalletToSell':
+        title = t('No supported wallets');
+        message = coin
+          ? t('Your keys do not have wallets able to sell crypto', {
+              coin: coin.toUpperCase(),
+            })
+          : t('Your keys do not have supported wallets able to sell crypto');
         break;
       case 'emptyKeyList':
         title = t('No keys with supported wallets');

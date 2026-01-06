@@ -203,6 +203,7 @@ export const AxisLabel = ({
   arrayLength,
   currencyAbbreviation,
   type,
+  textColor,
 }: {
   value: number;
   index: number;
@@ -210,6 +211,7 @@ export const AxisLabel = ({
   arrayLength: number;
   currencyAbbreviation: string;
   type: 'min' | 'max';
+  textColor?: string;
 }): React.ReactElement => {
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const theme = useTheme();
@@ -234,6 +236,7 @@ export const AxisLabel = ({
   const translateY = type === 'min' ? 5 : -5;
   const opacity = useSharedValue(typeof prevIndex !== 'undefined' ? 1 : 0);
   opacity.value = withTiming(1, {duration: 800});
+  const labelColor = textColor ?? (theme.dark ? Slate30 : SlateDark);
   return (
     <Animated.View
       style={{
@@ -246,8 +249,8 @@ export const AxisLabel = ({
         onLayout={event => setTextWidth(event.nativeEvent.layout.width)}>
         <BaseText
           style={{
-            color: theme.dark ? LuckySevens : SlateDark,
-            fontWeight: '500',
+            color: labelColor,
+            fontWeight: '400',
             fontSize: 13,
           }}>
           {formatFiatAmount(value, defaultAltCurrency.isoCode, {
