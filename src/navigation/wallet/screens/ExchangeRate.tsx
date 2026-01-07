@@ -659,35 +659,6 @@ const ExchangeRate = () => {
     selectedDateRange,
   ]);
 
-  const points = useMemo(() => {
-    const now = Date.now();
-    const data = [
-      86000, 84500, 87000, 85500, 90000, 92000, 91000, 94000, 93000, 96500,
-      99000, 97500, 101000, 103500, 106000, 109500, 112000, 111000, 114500,
-      117500, 116000, 119458.18,
-    ];
-
-    return data.map((value, idx) => {
-      const daysAgo = data.length - 1 - idx;
-      return {
-        date: new Date(now - daysAgo * 24 * 60 * 60 * 1000),
-        value,
-      };
-    });
-  }, []);
-
-  const chartPoints = useMemo(() => {
-    if (selectedDateRange && displayData.data.length) {
-      return displayData.data;
-    }
-    return points;
-  }, [displayData.data, points, selectedDateRange]);
-
-  useEffect(() => {
-    gestureStarted.current = false;
-    setSelectedPoint(undefined);
-  }, [chartPoints]);
-
   const rangeLabel = useMemo(() => {
     switch (selectedTimeframe) {
       case '1D':
@@ -771,7 +742,7 @@ const ExchangeRate = () => {
     if (selectedDateRange && displayData.data.length) {
       return displayData.percentChange;
     }
-    return 607;
+    return 0;
   }, [
     displayData.data.length,
     displayData.percentChange,
@@ -800,7 +771,7 @@ const ExchangeRate = () => {
         },
       );
     }
-    return '$50,894.03';
+    return undefined;
   }, [
     assetContext.currencyAbbreviation,
     defaultAltCurrency.isoCode,
@@ -809,6 +780,33 @@ const ExchangeRate = () => {
     selectedDateRange,
     selectedPoint,
   ]);
+
+  const fallbackChartPoints = useMemo(() => {
+    const now = Date.now();
+    const baseValue = latestPriceValue ?? 0;
+    const interval = 24 * 60 * 60 * 1000;
+    const placeholderLength = 2;
+
+    return Array.from({length: placeholderLength}, (_, idx) => {
+      const stepsFromEnd = placeholderLength - 1 - idx;
+      return {
+        date: new Date(now - stepsFromEnd * interval),
+        value: baseValue,
+      };
+    });
+  }, [latestPriceValue]);
+
+  const chartPoints = useMemo(() => {
+    if (displayData.data.length) {
+      return displayData.data;
+    }
+    return fallbackChartPoints;
+  }, [displayData.data, fallbackChartPoints]);
+
+  useEffect(() => {
+    gestureStarted.current = false;
+    setSelectedPoint(undefined);
+  }, [chartPoints]);
 
   const MinAxisLabel = useCallback(() => {
     if (
@@ -959,10 +957,6 @@ const ExchangeRate = () => {
   const priceDisplayIsoCode = useMemo(() => {
     return defaultAltCurrency.isoCode || 'USD';
   }, [defaultAltCurrency.isoCode]);
-
-  const isDefaultAltCurrencyUsd = useMemo(() => {
-    return priceDisplayIsoCode.toUpperCase() === 'USD';
-  }, [priceDisplayIsoCode]);
 
   const marketVolume24hToDisplay = useMemo(() => {
     if (marketStats?.volume24h == null) {
