@@ -348,29 +348,6 @@ const KeyOverview = () => {
     ({APP}) => APP.selectedChainFilterOption,
   );
 
-  useEffect(() => {
-    if (key || !Object.keys(keys).length) {
-      return;
-    }
-
-    const nav: any = navigation;
-    if (nav?.canGoBack?.()) {
-      nav.dispatch(CommonActions.goBack());
-      return;
-    }
-
-    nav.dispatch(
-      CommonActions.reset({
-        index: 0,
-        routes: [
-          {
-            name: RootStacks.TABS,
-            params: {screen: TabsScreens.HOME},
-          },
-        ],
-      }),
-    );
-  }, [key, keys, navigation]);
   useLayoutEffect(() => {
     if (!key) {
       return;
