@@ -186,48 +186,47 @@ export const startUpdateWalletStatus =
             w => !w.hideWallet && !w.hideWalletByAccount,
           );
 
-          const totalFiatBalance = wallets.reduce(
-            (acc, {balance: {sat}}, index, wallets) =>
+          const totalFiatBalance = wallets.reduce((acc, w) => {
+            const sat = w.balance?.sat || 0;
+            return (
               acc +
               convertToFiat(
                 dispatch(
                   toFiat(
                     sat,
                     defaultAltCurrency.isoCode,
-                    wallets[index].currencyAbbreviation,
-                    wallets[index].chain,
+                    w.currencyAbbreviation,
+                    w.chain,
                     rates,
-                    wallets[index].tokenAddress,
+                    w.tokenAddress,
                   ),
                 ),
                 false, // already filtered by hideWallet
                 false,
-                wallets[index].network,
-              ),
-            0,
-          );
+                w.network,
+              )
+            );
+          }, 0);
 
-          const totalLastDayFiatBalance = wallets.reduce(
-            (acc, {balance: {sat}}, index, wallets) => {
-              const fiatLastDay = convertToFiat(
-                dispatch(
-                  toFiat(
-                    sat,
-                    defaultAltCurrency.isoCode,
-                    wallets[index].currencyAbbreviation,
-                    wallets[index].chain,
-                    lastDayRates,
-                    wallets[index].tokenAddress,
-                  ),
+          const totalLastDayFiatBalance = wallets.reduce((acc, w) => {
+            const sat = w.balance?.sat || 0;
+            const fiatLastDay = convertToFiat(
+              dispatch(
+                toFiat(
+                  sat,
+                  defaultAltCurrency.isoCode,
+                  w.currencyAbbreviation,
+                  w.chain,
+                  lastDayRates,
+                  w.tokenAddress,
                 ),
-                false, // already filtered by hideWallet
-                false,
-                wallets[index].network,
-              );
-              return fiatLastDay ? acc + fiatLastDay : acc;
-            },
-            0,
-          );
+              ),
+              false, // already filtered by hideWallet
+              false,
+              w.network,
+            );
+            return fiatLastDay ? acc + fiatLastDay : acc;
+          }, 0);
 
           dispatch(
             successUpdateKeysTotalBalance([
@@ -374,7 +373,8 @@ export const updateKeyStatus =
         }> = [];
 
         const balances = uniqBy(key.wallets, 'id').map(wallet => {
-          const {balance: cachedBalance, pendingTxps} = wallet;
+          const {balance: cachedBalanceRaw, pendingTxps} = wallet;
+          const cachedBalance = (cachedBalanceRaw || {}) as WalletBalance;
 
           if (!bulkStatus) {
             return {
@@ -754,12 +754,14 @@ export const updateWalletStatus =
   async dispatch => {
     return new Promise(async (resolve, reject) => {
       const {
-        balance: cachedBalance,
+        balance: cachedBalanceRaw,
         credentials: {token, multisigEthInfo},
         pendingTxps: cachedPendingTxps,
         singleAddress: cachedSingleAddress,
         receiveAddress,
       } = wallet;
+
+      const cachedBalance = (cachedBalanceRaw || {}) as WalletBalance;
 
       if (!receiveAddress) {
         try {
@@ -967,8 +969,13 @@ export const buildFiatBalance =
       tokenAddress,
     } = wallet;
 
-    let {sat, satLocked, satConfirmedLocked, satSpendable, satPending} =
-      cryptoBalance;
+    let {
+      sat = 0,
+      satLocked = 0,
+      satConfirmedLocked = 0,
+      satSpendable = 0,
+      satPending = 0,
+    } = (cryptoBalance || {}) as Partial<CryptoBalance>;
 
     return {
       fiat: convertToFiat(
@@ -1160,7 +1167,8 @@ export const startFormatBalanceAllWalletsForKey =
             tokenAddress,
           } = wallet;
           try {
-            const {sat, satLocked} = cachedBalance;
+            const sat = cachedBalance?.sat || 0;
+            const satLocked = cachedBalance?.satLocked || 0;
 
             const newBalance = {
               crypto: dispatch(
@@ -1271,11 +1279,8 @@ export const getTokenContractInfo = (
   });
 };
 
-const getTotalFiatBalance = (balances: {fiat: number}[]) =>
-  balances.reduce((acc, {fiat}) => acc + fiat, 0);
+const getTotalFiatBalance = (balances: {fiat?: number}[]) =>
+  balances.reduce((acc, {fiat}) => acc + (Number(fiat) || 0), 0);
 
-const getTotalFiatLastDayBalance = (balances: {fiatLastDay: number}[]) =>
-  balances.reduce(
-    (acc, {fiatLastDay}) => (fiatLastDay ? acc + fiatLastDay : acc),
-    0,
-  );
+const getTotalFiatLastDayBalance = (balances: {fiatLastDay?: number}[]) =>
+  balances.reduce((acc, {fiatLastDay}) => acc + (Number(fiatLastDay) || 0), 0);
