@@ -273,8 +273,8 @@ const AbbreviationLabel = styled(BaseText)`
 `;
 
 const PriceText = styled(H2)<{isLargeNumber?: boolean}>`
-  font-size: ${({isLargeNumber}) => (isLargeNumber ? '34px' : '40px')};
-  line-height: ${({isLargeNumber}) => (isLargeNumber ? '42px' : '50px')};
+  font-size: ${({isLargeNumber}) => (isLargeNumber ? '32px' : '40px')};
+  line-height: ${({isLargeNumber}) => (isLargeNumber ? '38px' : '50px')};
   margin-bottom: 5px;
 `;
 
