@@ -253,8 +253,9 @@ const AbbreviationLabel = styled(BaseText)`
   margin-bottom: 2px;
 `;
 
-const PriceText = styled(H2)`
-  line-height: 50px;
+const PriceText = styled(H2)<{isUsd?: boolean}>`
+  font-size: ${({isUsd = true}) => (isUsd ? '40px' : '34px')};
+  line-height: ${({isUsd = true}) => (isUsd ? '50px' : '42px')};
   margin-bottom: 5px;
 `;
 
@@ -936,22 +937,27 @@ const ExchangeRate = () => {
     marketStats?.low52w,
   ]);
 
+  const priceDisplayIsoCode = useMemo(() => {
+    return defaultAltCurrency.isoCode || 'USD';
+  }, [defaultAltCurrency.isoCode]);
+
+  const isDefaultAltCurrencyUsd = useMemo(() => {
+    return priceDisplayIsoCode.toUpperCase() === 'USD';
+  }, [priceDisplayIsoCode]);
+
   const marketVolume24hToDisplay = useMemo(() => {
     if (marketStats?.volume24h == null) {
       return '--';
     }
-    return formatCompactCurrency(
-      marketStats.volume24h,
-      defaultAltCurrency.isoCode,
-    );
-  }, [defaultAltCurrency.isoCode, marketStats?.volume24h]);
+    return formatCompactCurrency(marketStats.volume24h, priceDisplayIsoCode);
+  }, [marketStats?.volume24h, priceDisplayIsoCode]);
 
   const marketCapToDisplay = useMemo(() => {
     if (marketStats?.marketCap == null) {
       return '--';
     }
-    return formatCompactCurrency(marketStats.marketCap, defaultAltCurrency.isoCode);
-  }, [defaultAltCurrency.isoCode, marketStats?.marketCap]);
+    return formatCompactCurrency(marketStats.marketCap, priceDisplayIsoCode);
+  }, [marketStats?.marketCap, priceDisplayIsoCode]);
 
   const circulatingSupplyToDisplay = useMemo(() => {
     if (marketStats?.circulatingSupply == null) {
@@ -1057,7 +1063,9 @@ const ExchangeRate = () => {
       <ScrollView contentContainerStyle={{paddingBottom: 30}}>
         <TopSection>
           <AbbreviationLabel>{currencyAbbreviation}</AbbreviationLabel>
-          <PriceText>{formattedCurrentPrice}</PriceText>
+          <PriceText isUsd={isDefaultAltCurrencyUsd}>
+            {formattedCurrentPrice}
+          </PriceText>
           <PercentRow>
             <Percentage
               percentageDifference={percentChangeToDisplay}
