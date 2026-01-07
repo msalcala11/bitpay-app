@@ -43,23 +43,8 @@ export const fetchMarketStats = (params: {
         return null;
       }
 
-      const item: MarketStatsItem = {
-        symbol: (payload?.symbol as string | undefined) ?? undefined,
-        name: (payload?.name as string | undefined) ?? undefined,
-        image: (payload?.image as string | undefined) ?? undefined,
-        price: (payload?.price as number | null | undefined) ?? null,
-        high52w: (payload?.high52w as number | null | undefined) ?? null,
-        low52w: (payload?.low52w as number | null | undefined) ?? null,
-        volume24h: (payload?.volume24h as number | null | undefined) ?? null,
-        circulatingSupply:
-          (payload?.circulatingSupply as number | null | undefined) ?? null,
-        marketCap: (payload?.marketCap as number | null | undefined) ?? null,
-        lastUpdated: (payload?.lastUpdated as string | undefined) ?? undefined,
-        about: (payload?.about as string | undefined) ?? undefined,
-      };
-
-      dispatch(updateMarketStats({key, data: item}));
-      return item;
+      dispatch(updateMarketStats({key, data: payload}));
+      return payload;
     } catch (err) {
       const errStr = err instanceof Error ? err.message : JSON.stringify(err);
       logManager.warn(`fetchMarketStats: failed - ${errStr}`);
