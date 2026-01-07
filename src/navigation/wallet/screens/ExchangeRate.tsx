@@ -59,7 +59,6 @@ import {
   getRateByCurrencyName,
   sleep,
 } from '../../../utils/helper-methods';
-import {getCachedMarketStats} from '../../../utils/market-stats-cache';
 import {findIndex, maxBy, minBy} from 'lodash';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {
@@ -898,15 +897,9 @@ const ExchangeRate = () => {
     });
   }, [defaultAltCurrency.isoCode, marketStatsSymbol]);
 
-  const reduxMarketStats = useAppSelector(
+  const marketStats = useAppSelector(
     ({MARKET_STATS}: RootState) => MARKET_STATS.itemsByKey[marketStatsCacheKey],
   );
-
-  const staticMarketStats = useMemo(() => {
-    return getCachedMarketStats(marketStatsSymbol);
-  }, [marketStatsSymbol]);
-
-  const marketStats = reduxMarketStats || staticMarketStats;
 
   useEffect(() => {
     if (!defaultAltCurrency.isoCode || !marketStatsSymbol) {
@@ -967,9 +960,9 @@ const ExchangeRate = () => {
   }, [currencyAbbreviation, marketStats?.circulatingSupply]);
 
   const aboutToDisplay = useMemo(() => {
-    const about = reduxMarketStats?.about || staticMarketStats?.about || '';
+    const about = marketStats?.about || '';
     return about.replace(/\r\n/g, '\n').trim();
-  }, [reduxMarketStats?.about, staticMarketStats?.about]);
+  }, [marketStats?.about]);
 
   useEffect(() => {
     setIsAboutExpanded(false);
