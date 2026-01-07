@@ -136,7 +136,14 @@ const formatCompactCurrency = (
   isoCode: string,
   maximumFractionDigits = 2,
 ) => {
+  const absValue = Math.abs(value);
   if (isoCode === 'USD') {
+    if (absValue < 1e6) {
+      return formatFiatAmount(value, isoCode, {
+        customPrecision: 'minimal',
+        currencyDisplay: 'symbol',
+      });
+    }
     return `$${formatCompactNumber(value, maximumFractionDigits)}`;
   }
   return `${formatCompactNumber(value, maximumFractionDigits)} ${isoCode}`;
@@ -917,12 +924,8 @@ const ExchangeRate = () => {
     if (marketStats?.high52w == null) {
       return '--';
     }
-    return formatFiatAmount(marketStats.high52w, defaultAltCurrency.isoCode, {
-      customPrecision: 'minimal',
-      currencyAbbreviation: assetContext.currencyAbbreviation,
-    });
+    return formatCompactCurrency(marketStats.high52w, defaultAltCurrency.isoCode);
   }, [
-    assetContext.currencyAbbreviation,
     defaultAltCurrency.isoCode,
     marketStats?.high52w,
   ]);
@@ -931,12 +934,8 @@ const ExchangeRate = () => {
     if (marketStats?.low52w == null) {
       return '--';
     }
-    return formatFiatAmount(marketStats.low52w, defaultAltCurrency.isoCode, {
-      customPrecision: 'minimal',
-      currencyAbbreviation: assetContext.currencyAbbreviation,
-    });
+    return formatCompactCurrency(marketStats.low52w, defaultAltCurrency.isoCode);
   }, [
-    assetContext.currencyAbbreviation,
     defaultAltCurrency.isoCode,
     marketStats?.low52w,
   ]);
