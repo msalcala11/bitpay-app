@@ -297,7 +297,7 @@ const TimeframeRow = styled.View`
   flex-direction: row;
   justify-content: space-between;
   align-self: center;
-  width: ${WIDTH - 24}px;
+  width: ${270}px;
 `;
 
 const TimeframeHitSlop = {top: 10, bottom: 10, left: 10, right: 10} as const;
@@ -1075,7 +1075,7 @@ const ExchangeRate = () => {
     });
   }, [currencyName, navigation]);
 
-  const timeframes = ['1D', '1W', '1M', '3M', '1Y', '5Y'];
+  const timeframes = ['1D', '1W', '1M'];//, '3M', '1Y', '5Y'];
 
   return (
     <ScreenContainer>
