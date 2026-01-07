@@ -253,9 +253,9 @@ const AbbreviationLabel = styled(BaseText)`
   margin-bottom: 2px;
 `;
 
-const PriceText = styled(H2)<{isUsd?: boolean}>`
-  font-size: ${({isUsd = true}) => (isUsd ? '40px' : '34px')};
-  line-height: ${({isUsd = true}) => (isUsd ? '50px' : '42px')};
+const PriceText = styled(H2)<{isLargeNumber?: boolean}>`
+  font-size: ${({isLargeNumber}) => (isLargeNumber ? '34px' : '40px')};
+  line-height: ${({isLargeNumber}) => (isLargeNumber ? '42px' : '50px')};
   margin-bottom: 5px;
 `;
 
@@ -1063,7 +1063,7 @@ const ExchangeRate = () => {
       <ScrollView contentContainerStyle={{paddingBottom: 30}}>
         <TopSection>
           <AbbreviationLabel>{currencyAbbreviation}</AbbreviationLabel>
-          <PriceText isUsd={isDefaultAltCurrencyUsd}>
+          <PriceText isLargeNumber={formattedCurrentPrice.length > 10}>
             {formattedCurrentPrice}
           </PriceText>
           <PercentRow>
