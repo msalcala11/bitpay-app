@@ -33,8 +33,15 @@ export const fetchMarketStats = (params: {
       const url = `${BASE_BWS_URL}/v1/marketstats/${fiatCode}?coin=${coin}`;
       logManager.info(`fetchMarketStats: get request to: ${url}`);
       const {data} = await axios.get(url);
-      const top = asRecord(data);
-      const payload = asRecord(top?.data) ?? top;
+      const payloadArray = Array.isArray(data) ? data : [];
+      const payload = asRecord(payloadArray[0]);
+
+      if (!payload) {
+        logManager.warn(
+          `fetchMarketStats: empty payload for ${fiatCode}/${coin}`,
+        );
+        return null;
+      }
 
       const item: MarketStatsItem = {
         symbol: (payload?.symbol as string | undefined) ?? undefined,
