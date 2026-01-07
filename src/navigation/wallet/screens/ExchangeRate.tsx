@@ -63,6 +63,10 @@ import {getCachedMarketStats} from '../../../utils/market-stats-cache';
 import {findIndex, maxBy, minBy} from 'lodash';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {
+  fetchMarketStats,
+  getMarketStatsCacheKey,
+} from '../../../store/market-stats';
+import {
   sendCrypto,
   receiveCrypto,
 } from '../../../store/wallet/effects/send/send';
@@ -880,56 +884,93 @@ const ExchangeRate = () => {
     return abbreviation;
   }, [assetContext.currencyAbbreviation]);
 
-  const cachedMarketStats = useMemo(() => {
+  const marketStatsCacheKey = useMemo(() => {
+    return getMarketStatsCacheKey({
+      fiatCode: defaultAltCurrency.isoCode,
+      coin: marketStatsSymbol,
+    });
+  }, [defaultAltCurrency.isoCode, marketStatsSymbol]);
+
+  const reduxMarketStats = useAppSelector(
+    ({MARKET_STATS}: RootState) => MARKET_STATS.itemsByKey[marketStatsCacheKey],
+  );
+
+  const staticMarketStats = useMemo(() => {
     return getCachedMarketStats(marketStatsSymbol);
   }, [marketStatsSymbol]);
 
+  const marketStats = reduxMarketStats || staticMarketStats;
+
+  useEffect(() => {
+    if (!defaultAltCurrency.isoCode || !marketStatsSymbol) {
+      return;
+    }
+    dispatch(
+      fetchMarketStats({
+        fiatCode: defaultAltCurrency.isoCode,
+        coin: marketStatsSymbol,
+      }),
+    );
+  }, [defaultAltCurrency.isoCode, dispatch, marketStatsSymbol]);
+
   const marketHigh52wToDisplay = useMemo(() => {
-    if (cachedMarketStats?.high52w == null) {
+    if (marketStats?.high52w == null) {
       return '--';
     }
-    return formatFiatAmount(cachedMarketStats.high52w, 'USD', {
+    return formatFiatAmount(marketStats.high52w, defaultAltCurrency.isoCode, {
       customPrecision: 'minimal',
       currencyAbbreviation: assetContext.currencyAbbreviation,
     });
-  }, [assetContext.currencyAbbreviation, cachedMarketStats?.high52w]);
+  }, [
+    assetContext.currencyAbbreviation,
+    defaultAltCurrency.isoCode,
+    marketStats?.high52w,
+  ]);
 
   const marketLow52wToDisplay = useMemo(() => {
-    if (cachedMarketStats?.low52w == null) {
+    if (marketStats?.low52w == null) {
       return '--';
     }
-    return formatFiatAmount(cachedMarketStats.low52w, 'USD', {
+    return formatFiatAmount(marketStats.low52w, defaultAltCurrency.isoCode, {
       customPrecision: 'minimal',
       currencyAbbreviation: assetContext.currencyAbbreviation,
     });
-  }, [assetContext.currencyAbbreviation, cachedMarketStats?.low52w]);
+  }, [
+    assetContext.currencyAbbreviation,
+    defaultAltCurrency.isoCode,
+    marketStats?.low52w,
+  ]);
 
   const marketVolume24hToDisplay = useMemo(() => {
-    if (cachedMarketStats?.volume24h == null) {
+    if (marketStats?.volume24h == null) {
       return '--';
     }
-    return formatCompactCurrency(cachedMarketStats.volume24h, 'USD');
-  }, [cachedMarketStats?.volume24h]);
+    return formatCompactCurrency(
+      marketStats.volume24h,
+      defaultAltCurrency.isoCode,
+    );
+  }, [defaultAltCurrency.isoCode, marketStats?.volume24h]);
 
   const marketCapToDisplay = useMemo(() => {
-    if (cachedMarketStats?.marketCap == null) {
+    if (marketStats?.marketCap == null) {
       return '--';
     }
-    return formatCompactCurrency(cachedMarketStats.marketCap, 'USD');
-  }, [cachedMarketStats?.marketCap]);
+    return formatCompactCurrency(marketStats.marketCap, defaultAltCurrency.isoCode);
+  }, [defaultAltCurrency.isoCode, marketStats?.marketCap]);
 
   const circulatingSupplyToDisplay = useMemo(() => {
-    if (cachedMarketStats?.circulatingSupply == null) {
+    if (marketStats?.circulatingSupply == null) {
       return '--';
     }
     return `${formatSupply(
-      cachedMarketStats.circulatingSupply,
+      marketStats.circulatingSupply,
     )} ${currencyAbbreviation}`;
-  }, [cachedMarketStats?.circulatingSupply, currencyAbbreviation]);
+  }, [currencyAbbreviation, marketStats?.circulatingSupply]);
 
   const aboutToDisplay = useMemo(() => {
-    return cachedMarketStats?.about?.replace(/\r\n/g, '\n').trim() || '';
-  }, [cachedMarketStats?.about]);
+    const about = reduxMarketStats?.about || staticMarketStats?.about || '';
+    return about.replace(/\r\n/g, '\n').trim();
+  }, [reduxMarketStats?.about, staticMarketStats?.about]);
 
   useEffect(() => {
     setIsAboutExpanded(false);
