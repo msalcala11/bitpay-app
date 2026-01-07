@@ -468,13 +468,16 @@ const KeyOverview = () => {
   }, [totalBalance, totalBalanceLastDay]);
 
   const memorizedAccountList = useMemo(() => {
+    if (!key) {
+      return [];
+    }
     return buildAccountList(key, defaultAltCurrency.isoCode, rates, dispatch, {
       filterByHideWallet: true,
     });
   }, [dispatch, key, defaultAltCurrency.isoCode, rates, hideAllBalances]);
 
   const allocationWalletRows: AllocationWallet[] = useMemo(() => {
-    const wallets = key.wallets.filter(
+    const wallets = (key?.wallets ?? []).filter(
       w => !w.hideWallet && !w.hideWalletByAccount,
     );
     return wallets.map((w: Wallet) => {
@@ -486,7 +489,7 @@ const KeyOverview = () => {
         fiatBalance: (w.balance as any)?.fiat,
       };
     });
-  }, [key.wallets]);
+  }, [key?.wallets]);
 
   const allocationData = useMemo(() => {
     return buildAllocationDataFromWalletRows(
@@ -674,7 +677,7 @@ const KeyOverview = () => {
     });
   }
 
-  if (!key?.isReadOnly && !checkPrivateKeyEncrypted(key)) {
+  if (key && !key.isReadOnly && !checkPrivateKeyEncrypted(key)) {
     keyOptions.push({
       img: <Icons.Encrypt />,
       title: t('Encrypt your Key'),
@@ -706,14 +709,18 @@ const KeyOverview = () => {
 
   const onPressTxpBadge = useMemo(
     () => () => {
-      navigation.navigate('TransactionProposalNotifications', {keyId: key.id});
+      navigation.navigate('TransactionProposalNotifications', {keyId: id});
     },
-    [],
+    [id, navigation],
   );
 
   const updateStatusForKey = async (forceUpdate?: boolean) => {
     if (isViewUpdating) {
       logger.debug('KeyOverview is updating. Do not start forced updateAll...');
+      return;
+    }
+
+    if (!key) {
       return;
     }
 
@@ -746,6 +753,10 @@ const KeyOverview = () => {
 
   const onPressItem = (item: AccountRowProps) => {
     haptic('impactLight');
+
+    if (!key) {
+      return;
+    }
 
     if (IsVMChain(item.chains[0])) {
       navigation.navigate('AccountDetails', {
@@ -844,6 +855,9 @@ const KeyOverview = () => {
           activeOpacity={ActiveOpacity}
           onPress={async () => {
             haptic('impactLight');
+            if (!key) {
+              return;
+            }
             navigation.navigate('AddingOptions', {
               key,
             });
@@ -877,7 +891,7 @@ const KeyOverview = () => {
             activeOpacity={ActiveOpacity}
             onPress={() =>
               (navigation as any).navigate('Allocation', {
-                keyId: key.id,
+                keyId: id,
               })
             }>
             <AllocationDonutLegendCard
@@ -891,7 +905,7 @@ const KeyOverview = () => {
                     activeOpacity={ActiveOpacity}
                     onPress={() =>
                       (navigation as any).navigate('Allocation', {
-                        keyId: key.id,
+                        keyId: id,
                       })
                     }>
                     <ChevronRightSvg width={13} height={19} gray />
@@ -948,7 +962,7 @@ const KeyOverview = () => {
     allocationData.totalFiat,
     defaultAltCurrency.isoCode,
     hideAllBalances,
-    key.id,
+    id,
     navigation,
     showPortfolioValue,
     showArchaxBanner,
