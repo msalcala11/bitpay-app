@@ -130,6 +130,9 @@ const formatCompactNumber = (value: number, maximumFractionDigits = 2) => {
   return `${sign}${trimmed}${unit.suffix}`;
 };
 
+const POLYGON_ABOUT_FALLBACK =
+  'Polygon (Previously Matic Network) is the first well-structured, easy-to-use platform for Ethereum scaling and infrastructure development. Its core component is Polygon SDK, a modular, flexible framework that supports building multiple types of applications.\r\n\r\nUsing Polygon, one can create Optimistic Rollup chains, ZK Rollup chains, stand alone chains or any other kind of infra required by the developer. \r\n\r\nPolygon effectively transforms Ethereum into a full-fledged multi-chain system (aka Internet of Blockchains). This multi-chain system is akin to other ones such as Polkadot, Cosmos, Avalanche etc with the advantages of Ethereum’s security, vibrant ecosystem and openness.\r\n\r\nNothing will change for the existing ecosystem built on the Plasma-POS chain. With Polygon, new features are being built around the existing proven technology to expand the ability to cater to diverse needs from the developer ecosystem. Polygon will continue to develop the core technology so that it can scale to a larger ecosystem. \r\n\r\nThe $MATIC token will continue to exist and will play an increasingly important role, securing the system and enabling governance.';
+
 const formatCompactCurrency = (
   value: number,
   isoCode: string,
@@ -960,9 +963,11 @@ const ExchangeRate = () => {
   }, [currencyAbbreviation, marketStats?.circulatingSupply]);
 
   const aboutToDisplay = useMemo(() => {
-    const about = marketStats?.about || '';
+    const about =
+      marketStats?.about ||
+      (marketStatsSymbol === 'pol' ? POLYGON_ABOUT_FALLBACK : '');
     return about.replace(/\r\n/g, '\n').trim();
-  }, [marketStats?.about]);
+  }, [marketStats?.about, marketStatsSymbol]);
 
   useEffect(() => {
     setIsAboutExpanded(false);
