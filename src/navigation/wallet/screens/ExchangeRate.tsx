@@ -512,7 +512,7 @@ const ExchangeRate = () => {
     ({APP}: RootState) => APP.hideAllBalances,
   );
   const {params} = useRoute<RouteProp<WalletGroupParamList, 'ExchangeRate'>>();
-  const [selectedTimeframe, setSelectedTimeframe] = useState('5Y');
+  const [selectedTimeframe, setSelectedTimeframe] = useState('1D');
   const [isAboutExpanded, setIsAboutExpanded] = useState(false);
 
   const [displayData, setDisplayData] =
