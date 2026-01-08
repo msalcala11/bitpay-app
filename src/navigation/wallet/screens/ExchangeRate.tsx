@@ -295,10 +295,10 @@ const TimeframeContainer = styled.View`
 
 const TimeframeRow = styled.View`
   flex-direction: row;
-  justify-content: space-between;
+  justify-content: space-evenly;
   align-self: center;
-  width: 275px;
-  margin-left: -3px;
+  width: ${WIDTH - 24}px;
+  margin-left: -5px;
 `;
 
 const TimeframeHitSlop = {top: 10, bottom: 10, left: 10, right: 10} as const;
