@@ -673,6 +673,29 @@ const ExchangeRate = () => {
     }
   }, [selectedTimeframe]);
 
+  const rangeOrSelectedPointLabel = useMemo(() => {
+    if (!selectedPoint?.date) {
+      return rangeLabel;
+    }
+    const date = selectedPoint.date;
+    if (selectedTimeframe === '1D') {
+      return date.toLocaleTimeString([], {
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+    }
+    if (selectedTimeframe === '1W' || selectedTimeframe === '1M') {
+      return date.toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+    }
+    return rangeLabel;
+  }, [rangeLabel, selectedPoint?.date, selectedTimeframe]);
+
   const altCurrencyIsoCodeUpper = defaultAltCurrency.isoCode?.toUpperCase();
 
   const currentFiatRate = useMemo(() => {
@@ -1086,7 +1109,7 @@ const ExchangeRate = () => {
               hideArrow
               hideSign
               priceChange={priceChangeToDisplay}
-              rangeLabel={rangeLabel}
+              rangeLabel={rangeOrSelectedPointLabel}
             />
           </PercentRow>
         </TopSection>
