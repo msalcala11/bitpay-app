@@ -24,6 +24,7 @@ import {BitpaySupportedTokenOptsByAddress} from '../../../../constants/tokens';
 import {
   getCurrencyAbbreviation,
   addTokenChainSuffix,
+  sleep,
 } from '../../../../utils/helper-methods';
 import {
   getMultipleTokenPrices,
@@ -34,6 +35,23 @@ import {IsERCToken, IsSVMChain} from '../../utils/currency';
 import {UpdateAllKeyAndWalletStatusContext} from '../status/status';
 import {tokenManager} from '../../../../managers/TokenManager';
 import {logManager} from '../../../../managers/LogManager';
+const HARD_CODED_DELAYED_ASSETS: Record<string, number> = __DEV__
+  ? {
+      btc: 1000,
+    }
+  : {};
+
+const maybeDelayHistoricalRates = async (asset?: string) => {
+  if (!__DEV__ || !asset) {
+    return;
+  }
+  const delay = HARD_CODED_DELAYED_ASSETS[asset.toLowerCase()];
+  if (!delay) {
+    return;
+  }
+  logManager.info(`[rates]: delaying historical rates for ${asset} by ${delay}ms`);
+  await sleep(delay);
+};
 
 export const startGetRates =
   ({
@@ -359,6 +377,7 @@ export const fetchHistoricalRates =
         // This pulls ALL coins in one query
         const url = `${BASE_BWS_URL}/v2/fiatrates/${fiatIsoCode}?ts=${firstDateTs}`;
         const {data: rates} = await axios.get(url);
+        await maybeDelayHistoricalRates(currencyAbbreviation);
         dispatch(
           successGetHistoricalRates({
             ratesByDateRange: rates,

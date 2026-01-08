@@ -7,6 +7,7 @@ export enum RateActionTypes {
   FAILED_GET_HISTORICAL_RATES = 'RATE/FAILED_GET_HISTORICAL_RATES',
   UPDATE_CACHE_KEY = 'RATE/UPDATE_CACHE_KEY',
   UPDATE_HISTORICAL_CACHE_KEY = 'RATE/UPDATE_HISTORICAL_CACHE_KEY',
+  RESET_RATE_DATA = 'RATE/RESET_RATE_DATA',
 }
 
 interface successGetRates {
@@ -50,10 +51,15 @@ interface updateHistoricalCacheKey {
   };
 }
 
+interface resetRateData {
+  type: typeof RateActionTypes.RESET_RATE_DATA;
+}
+
 export type RateActionType =
   | successGetRates
   | successGetHistoricalRates
   | failedGetRates
   | failedGetHistoricalRates
   | updateCacheKey
-  | updateHistoricalCacheKey;
+  | updateHistoricalCacheKey
+  | resetRateData;

@@ -41,3 +41,7 @@ export const updateHistoricalCacheKey = (payload: {
   type: RateActionTypes.UPDATE_HISTORICAL_CACHE_KEY,
   payload,
 });
+
+export const resetRateData = (): RateActionType => ({
+  type: RateActionTypes.RESET_RATE_DATA,
+});

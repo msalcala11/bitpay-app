@@ -1,5 +1,5 @@
 import {useScrollToTop, useTheme} from '@react-navigation/native';
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import {
   AppState,
@@ -26,7 +26,7 @@ import {
 import {selectCardGroups} from '../../../store/card/card.selectors';
 import {getAndDispatchUpdatedWalletBalances} from '../../../store/wallet/effects/status/statusv2';
 import {updatePortfolioBalance} from '../../../store/wallet/wallet.actions';
-import {SlateDark, White} from '../../../styles/colors';
+import {Action, SlateDark, White} from '../../../styles/colors';
 import {
   calculatePercentageDifference,
   getCurrencyAbbreviation,
@@ -53,7 +53,7 @@ import {HeaderContainer, HeaderLeftContainer} from './components/Styled';
 import KeyMigrationFailureModal from './components/KeyMigrationFailureModal';
 import {useThemeType} from '../../../utils/hooks/useThemeType';
 import {ProposalBadgeContainer} from '../../../components/styled/Containers';
-import {ProposalBadge} from '../../../components/styled/Text';
+import {BaseText, ProposalBadge} from '../../../components/styled/Text';
 import {
   receiveCrypto,
   sendCrypto,
@@ -76,7 +76,9 @@ import {getPortfolioAllocationTotalFiat} from '../../../utils/allocation';
 import type {Key, Wallet} from '../../../store/wallet/wallet.models';
 import type {Rate, Rates} from '../../../store/rate/rate.models';
 import {getCoinAndChainFromCurrencyCode} from '../../bitpay-id/utils/bitpay-id-utils';
-
+import styled from 'styled-components/native';
+import {TouchableOpacity} from '@components/base/TouchableOpacity';
+import {resetRateData} from '../../../store/rate/rate.actions';
 export type HomeScreenProps = NativeStackScreenProps<
   TabsStackParamList,
   TabsScreens.HOME
@@ -107,8 +109,11 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   );
   const showPortfolioValue = useAppSelector(({APP}) => APP.showPortfolioValue);
   const hasKeys = Object.values(keys).length;
-  const cardGroups = useAppSelector(selectCardGroups as any);
-  const hasCards = cardGroups?.length > 0;
+  const cardGroups =
+    (useAppSelector(selectCardGroups as any) as ReturnType<
+      typeof selectCardGroups
+    >) || [];
+  const hasCards = cardGroups.length > 0;
 
   const portfolioAllocationTotalFiat = useMemo(() => {
     return getPortfolioAllocationTotalFiat({
@@ -362,6 +367,10 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
     return () => subscriptionAppStateChange.remove();
   }, [currencyAbbreviation]);
 
+  const handleClearRates = useCallback(() => {
+    dispatch(resetRateData());
+  }, [dispatch]);
+
   return (
     <TabContainer>
       {appIsLoading ? null : (
@@ -470,8 +479,41 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
         </>
       )}
       <KeyMigrationFailureModal />
+      {__DEV__ ? (
+        <DevHelperFab
+          accessibilityRole="button"
+          accessibilityLabel="Clear rate data"
+          activeOpacity={0.8}
+          touchableLibrary="react-native"
+          hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+          onPress={handleClearRates}>
+          <DevHelperFabText>Clear Rates</DevHelperFabText>
+        </DevHelperFab>
+      ) : null}
     </TabContainer>
   );
 };
 
 export default withErrorFallback(HomeRoot, {includeHeader: true});
+
+const DevHelperFab = styled(TouchableOpacity)`
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  background-color: ${({theme}) =>
+    theme.dark ? theme.colors.card : Action};
+  border-radius: 24px;
+  padding: 12px 18px;
+  elevation: 4;
+  z-index: 10;
+  shadow-color: #000;
+  shadow-opacity: 0.2;
+  shadow-radius: 4px;
+  shadow-offset: 0px 2px;
+`;
+
+const DevHelperFabText = styled(BaseText)`
+  color: ${({theme}) => (theme.dark ? theme.colors.text : White)};
+  font-weight: 600;
+  font-size: 13px;
+`;

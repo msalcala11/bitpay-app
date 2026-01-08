@@ -86,6 +86,12 @@ export const rateReducer = (
       };
     }
 
+    case RateActionTypes.RESET_RATE_DATA: {
+      return {
+        ...initialState,
+      };
+    }
+
     default:
       return state;
   }
