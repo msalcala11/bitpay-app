@@ -297,7 +297,7 @@ const TimeframeRow = styled.View`
   flex-direction: row;
   justify-content: space-between;
   align-self: center;
-  width: ${275}px;
+  width: 275px;
   margin-left: -3px;
 `;
 
