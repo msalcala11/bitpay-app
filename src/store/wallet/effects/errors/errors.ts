@@ -1,6 +1,7 @@
 import {t} from 'i18next';
 import {Effect} from '../../..';
 import {sleep} from '../../../../utils/helper-methods';
+import {ongoingProcessManager} from '../../../../managers/OngoingProcessManager';
 import {
   dismissBottomNotificationModal,
   showBottomNotificationModal,
@@ -88,6 +89,8 @@ export const showWalletError =
         message = t('Unknown Error');
         break;
     }
+    // Ensure we do not leave the global loader spinning while showing the error.
+    ongoingProcessManager.hide();
     await sleep(1000);
     dispatch(
       showBottomNotificationModal({
