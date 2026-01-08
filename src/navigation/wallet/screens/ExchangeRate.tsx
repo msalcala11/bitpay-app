@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {Animated, Easing, ScrollView, View} from 'react-native';
+import {ScrollView, View} from 'react-native';
 import {GraphPoint, LineGraph} from 'react-native-graph';
 import {Path, Svg} from 'react-native-svg';
 import styled, {useTheme} from 'styled-components/native';
@@ -30,7 +30,7 @@ import {
 import {BitpaySupportedCoins} from '../../../constants/currencies';
 import {SupportedCurrencyOptions} from '../../../constants/SupportedCurrencyOptions';
 import LinkingButtons from '../../tabs/home/components/LinkingButtons';
-import LoaderSvg from '../../tabs/home/components/LoaderSvg';
+import Loader from '../../../components/loader/Loader';
 import {
   Action,
   LightBlack,
@@ -550,19 +550,10 @@ const ExchangeRate = () => {
         price: number;
         priceChange: number;
         percentChange: number;
+        marketCap: number;
       }
     | undefined
   >(undefined);
-  const loaderSpin = useRef(new Animated.Value(0)).current;
-  const loaderAnimation = useRef<Animated.CompositeAnimation | null>(null);
-  const loaderRotation = useMemo(
-    () =>
-      loaderSpin.interpolate({
-        inputRange: [0, 1],
-        outputRange: ['0deg', '360deg'],
-      }),
-    [loaderSpin],
-  );
 
   const currencyAbbreviation = (
     params?.currencyAbbreviation || 'BTC'
@@ -635,26 +626,6 @@ const ExchangeRate = () => {
         return undefined;
     }
   }, [selectedTimeframe]);
-
-  useEffect(() => {
-    if (!isChartLoading) {
-      loaderAnimation.current?.stop();
-      return;
-    }
-    loaderSpin.setValue(0);
-    loaderAnimation.current = Animated.loop(
-      Animated.timing(loaderSpin, {
-        toValue: 1,
-        duration: 900,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
-    );
-    loaderAnimation.current.start();
-    return () => {
-      loaderAnimation.current?.stop();
-    };
-  }, [isChartLoading, loaderSpin]);
 
   useEffect(() => {
     if (!selectedDateRange) {
@@ -1193,9 +1164,7 @@ const ExchangeRate = () => {
             />
             {isChartLoading ? (
               <ChartLoaderOverlay pointerEvents="none">
-                <Animated.View style={{transform: [{rotate: loaderRotation}]}}>
-                  <LoaderSvg size={32} />
-                </Animated.View>
+                <Loader size={32} spinning />
               </ChartLoaderOverlay>
             ) : null}
           </ChartInner>
