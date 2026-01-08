@@ -1194,7 +1194,7 @@ const ExchangeRate = () => {
             {isChartLoading ? (
               <ChartLoaderOverlay pointerEvents="none">
                 <Animated.View style={{transform: [{rotate: loaderRotation}]}}>
-                  <LoaderSvg size={56} />
+                  <LoaderSvg size={32} />
                 </Animated.View>
               </ChartLoaderOverlay>
             ) : null}
