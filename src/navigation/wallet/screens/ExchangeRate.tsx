@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {ScrollView, View} from 'react-native';
+import {Animated, Easing, ScrollView, View} from 'react-native';
 import {GraphPoint, LineGraph} from 'react-native-graph';
 import {Path, Svg} from 'react-native-svg';
 import styled, {useTheme} from 'styled-components/native';
@@ -30,6 +30,7 @@ import {
 import {BitpaySupportedCoins} from '../../../constants/currencies';
 import {SupportedCurrencyOptions} from '../../../constants/SupportedCurrencyOptions';
 import LinkingButtons from '../../tabs/home/components/LinkingButtons';
+import LoaderSvg from '../../tabs/home/components/LoaderSvg';
 import {
   Action,
   LightBlack,
@@ -288,6 +289,23 @@ const ChartContainer = styled.View`
   margin-top: 16px;
 `;
 
+const ChartInner = styled.View`
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  height: 220px;
+`;
+
+const ChartLoaderOverlay = styled.View`
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  justify-content: center;
+  align-items: center;
+`;
+
 const TimeframeContainer = styled.View`
   margin-top: 18px;
   padding: 0 0px;
@@ -515,6 +533,7 @@ const ExchangeRate = () => {
   const {params} = useRoute<RouteProp<WalletGroupParamList, 'ExchangeRate'>>();
   const [selectedTimeframe, setSelectedTimeframe] = useState('1D');
   const [isAboutExpanded, setIsAboutExpanded] = useState(false);
+  const [isChartLoading, setIsChartLoading] = useState(false);
 
   const [displayData, setDisplayData] =
     useState<ChartDataType>(defaultDisplayData);
@@ -534,6 +553,16 @@ const ExchangeRate = () => {
       }
     | undefined
   >(undefined);
+  const loaderSpin = useRef(new Animated.Value(0)).current;
+  const loaderAnimation = useRef<Animated.CompositeAnimation | null>(null);
+  const loaderRotation = useMemo(
+    () =>
+      loaderSpin.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['0deg', '360deg'],
+      }),
+    [loaderSpin],
+  );
 
   const currencyAbbreviation = (
     params?.currencyAbbreviation || 'BTC'
@@ -608,6 +637,26 @@ const ExchangeRate = () => {
   }, [selectedTimeframe]);
 
   useEffect(() => {
+    if (!isChartLoading) {
+      loaderAnimation.current?.stop();
+      return;
+    }
+    loaderSpin.setValue(0);
+    loaderAnimation.current = Animated.loop(
+      Animated.timing(loaderSpin, {
+        toValue: 1,
+        duration: 1500,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    loaderAnimation.current.start();
+    return () => {
+      loaderAnimation.current?.stop();
+    };
+  }, [isChartLoading, loaderSpin]);
+
+  useEffect(() => {
     if (!selectedDateRange) {
       return;
     }
@@ -615,9 +664,11 @@ const ExchangeRate = () => {
     if (cachedRates[selectedDateRange]?.data?.length) {
       setPrevDisplayData(displayData);
       setDisplayData(cachedRates[selectedDateRange]);
+      setIsChartLoading(false);
       return;
     }
 
+    setIsChartLoading(true);
     const maxPoints = 45; // Keep animations smooth.
     const run = async () => {
       try {
@@ -648,6 +699,8 @@ const ExchangeRate = () => {
         setDisplayData(formattedRates);
       } catch (e) {
         // If rates fail to load, keep existing placeholder chart.
+      } finally {
+        setIsChartLoading(false);
       }
     };
 
@@ -1115,23 +1168,37 @@ const ExchangeRate = () => {
         </TopSection>
 
         <ChartContainer>
-          <LineGraph
-            points={chartPoints}
-            animated={true}
-            gradientFillColors={[
-              gradientBackgroundColor,
-              theme.dark ? 'transparent' : White,
-            ]}
-            enablePanGesture={true}
-            panGestureDelay={100}
-            onGestureStart={onGestureStarted}
-            onPointSelected={onPointSelected}
-            onGestureEnd={onGestureEnd}
-            TopAxisLabel={MaxAxisLabel}
-            BottomAxisLabel={MinAxisLabel}
-            color={theme.dark && coinColor === '#000000' ? White : coinColor}
-            style={{width: WIDTH, height: 200, marginTop: 10}}
-          />
+          <ChartInner>
+            <LineGraph
+              points={chartPoints}
+              animated={true}
+              gradientFillColors={[
+                gradientBackgroundColor,
+                theme.dark ? 'transparent' : White,
+              ]}
+              enablePanGesture={true}
+              panGestureDelay={100}
+              onGestureStart={onGestureStarted}
+              onPointSelected={onPointSelected}
+              onGestureEnd={onGestureEnd}
+              TopAxisLabel={MaxAxisLabel}
+              BottomAxisLabel={MinAxisLabel}
+              color={theme.dark && coinColor === '#000000' ? White : coinColor}
+              style={{
+                width: WIDTH,
+                height: 200,
+                marginTop: 10,
+                opacity: isChartLoading ? 0.25 : 1,
+              }}
+            />
+            {isChartLoading ? (
+              <ChartLoaderOverlay pointerEvents="none">
+                <Animated.View style={{transform: [{rotate: loaderRotation}]}}>
+                  <LoaderSvg size={56} />
+                </Animated.View>
+              </ChartLoaderOverlay>
+            ) : null}
+          </ChartInner>
         </ChartContainer>
 
         <TimeframeContainer>
