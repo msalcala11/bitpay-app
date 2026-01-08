@@ -412,10 +412,24 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
               <HomeSection style={{marginBottom: 25}}>
                 <LinkingButtons
                   receive={{
-                    cta: () => dispatch(receiveCrypto(navigation, 'HomeRoot')),
+                    cta: () => {
+                      dispatch(
+                        Analytics.track('Clicked Receive Crypto', {
+                          context: 'HomeRoot',
+                        }),
+                      );
+                      dispatch(receiveCrypto(navigation, 'HomeRoot'));
+                    },
                   }}
                   send={{
-                    cta: () => dispatch(sendCrypto('HomeRoot')),
+                    cta: () => {
+                      dispatch(
+                        Analytics.track('Clicked Send Crypto', {
+                          context: 'HomeRoot',
+                        }),
+                      );
+                      dispatch(sendCrypto('HomeRoot'));
+                    },
                   }}
                 />
               </HomeSection>

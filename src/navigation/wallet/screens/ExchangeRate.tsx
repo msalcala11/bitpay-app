@@ -1214,6 +1214,13 @@ const ExchangeRate = () => {
             }}
             sell={{
               cta: () => {
+                dispatch(
+                  Analytics.track('Clicked Sell Crypto', {
+                    context: 'PriceChart',
+                    coin: assetContext.currencyAbbreviation || '',
+                    chain: assetContext.chain || '',
+                  }),
+                );
                 navigation.navigate(ExternalServicesScreens.ROOT_BUY_AND_SELL, {
                   context: 'sellCrypto',
                   currencyAbbreviation: assetContext.currencyAbbreviation,
@@ -1223,6 +1230,13 @@ const ExchangeRate = () => {
             }}
             swap={{
               cta: () => {
+                dispatch(
+                  Analytics.track('Clicked Swap Crypto', {
+                    context: 'PriceChart',
+                    coin: assetContext.currencyAbbreviation || '',
+                    chain: assetContext.chain || '',
+                  }),
+                );
                 navigation.navigate('GlobalSelect', {
                   context: 'swapFrom',
                   assetContext,
@@ -1231,6 +1245,13 @@ const ExchangeRate = () => {
             }}
             receive={{
               cta: () => {
+                dispatch(
+                  Analytics.track('Clicked Receive Crypto', {
+                    context: 'PriceChart',
+                    coin: assetContext.currencyAbbreviation || '',
+                    chain: assetContext.chain || '',
+                  }),
+                );
                 dispatch(
                   receiveCrypto(
                     navigation as any,
@@ -1242,6 +1263,13 @@ const ExchangeRate = () => {
             }}
             send={{
               cta: () => {
+                dispatch(
+                  Analytics.track('Clicked Send Crypto', {
+                    context: 'PriceChart',
+                    coin: assetContext.currencyAbbreviation || '',
+                    chain: assetContext.chain || '',
+                  }),
+                );
                 dispatch(sendCrypto('ExchangeRate', assetContext));
               },
             }}
