@@ -297,7 +297,8 @@ const TimeframeRow = styled.View`
   flex-direction: row;
   justify-content: space-between;
   align-self: center;
-  width: ${270}px;
+  width: ${275}px;
+  margin-left: -3px;
 `;
 
 const TimeframeHitSlop = {top: 10, bottom: 10, left: 10, right: 10} as const;
