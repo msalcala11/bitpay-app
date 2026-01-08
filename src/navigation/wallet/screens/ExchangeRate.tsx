@@ -642,6 +642,7 @@ const ExchangeRate = () => {
     setIsChartLoading(true);
     const maxPoints = 45; // Keep animations smooth.
     const run = async () => {
+      let formattedRates: ChartDataType | undefined;
       try {
         rateFetchPromises.current[selectedDateRange] ||= dispatch(
           fetchHistoricalRates(
@@ -657,7 +658,7 @@ const ExchangeRate = () => {
           return;
         }
 
-        const formattedRates = getFormattedData(
+        formattedRates = getFormattedData(
           historicFiatRates,
           Math.min(maxPoints, historicFiatRates.length),
         );
@@ -671,7 +672,11 @@ const ExchangeRate = () => {
       } catch (e) {
         // If rates fail to load, keep existing placeholder chart.
       } finally {
-        setIsChartLoading(false);
+        const hasUsableData =
+          !!formattedRates?.data?.length ||
+          !!cachedRates[selectedDateRange]?.data?.length ||
+          !!displayData.data.length;
+        setIsChartLoading(!hasUsableData);
       }
     };
 
