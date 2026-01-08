@@ -645,7 +645,7 @@ const ExchangeRate = () => {
     loaderAnimation.current = Animated.loop(
       Animated.timing(loaderSpin, {
         toValue: 1,
-        duration: 1500,
+        duration: 900,
         easing: Easing.linear,
         useNativeDriver: true,
       }),
