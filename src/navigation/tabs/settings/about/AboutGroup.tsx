@@ -18,6 +18,8 @@ export type AboutGroupParamList = {
   SendFeedback: SendFeedbackParamList | undefined;
 };
 
+export type AboutStackParamList = AboutGroupParamList;
+
 export enum AboutScreens {
   STORAGE_USAGE = 'StorageUsage',
   SESSION_LOGS = 'SessionLogs',
