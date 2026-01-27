@@ -25,13 +25,16 @@ import {
 } from '../../../store/app/app.selectors';
 import {selectCardGroups} from '../../../store/card/card.selectors';
 import {getAndDispatchUpdatedWalletBalances} from '../../../store/wallet/effects/status/statusv2';
+import {refreshRatesForPortfolioPnl} from '../../../store/wallet/effects';
 import {updatePortfolioBalance} from '../../../store/wallet/wallet.actions';
 import {SlateDark, White} from '../../../styles/colors';
 import {
   calculatePercentageDifference,
   getCurrencyAbbreviation,
+  getLastDayTimestampStartOfHourMs,
   sleep,
 } from '../../../utils/helper-methods';
+import {getFiatRateFromSeriesCacheAtTimestamp} from '../../../utils/rate';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {BalanceUpdateError} from '../../wallet/components/ErrorMessages';
 import DefaultAdvertisements from './components/advertisements/DefaultAdvertisements';
@@ -58,6 +61,7 @@ import {
   receiveCrypto,
   sendCrypto,
 } from '../../../store/wallet/effects/send/send';
+import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
 import {Analytics} from '../../../store/analytics/analytics.effects';
 import {withErrorFallback} from '../TabScreenErrorFallback';
 import TabContainer from '../TabContainer';
@@ -72,10 +76,12 @@ import {Network} from '../../../constants';
 import SecurePasskeyBanner from './components/SecurePasskeyBanner';
 import DefaultMarketingCards from './components/DefaultMarketingCards';
 import AllocationSection from './components/AllocationSection';
+import AssetsSection from './components/AssetsSection';
 import {getPortfolioAllocationTotalFiat} from '../../../utils/allocation';
 import type {Key, Wallet} from '../../../store/wallet/wallet.models';
 import type {Rate, Rates} from '../../../store/rate/rate.models';
 import {getCoinAndChainFromCurrencyCode} from '../../bitpay-id/utils/bitpay-id-utils';
+import {getVisibleWalletsFromKeys} from '../../../utils/assets';
 
 export type HomeScreenProps = NativeStackScreenProps<
   TabsStackParamList,
@@ -94,11 +100,16 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   const brazeShopWithCrypto = useAppSelector(selectBrazeShopWithCrypto);
   const brazeQuickLinks = useAppSelector(selectBrazeQuickLinks);
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
+  const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
   const wallets = (Object.values(keys) as Key[]).flatMap((k: Key) => k.wallets);
   const pendingTxps = wallets.flatMap(w => w.pendingTxps);
   const appIsLoading = useAppSelector(({APP}) => APP.appIsLoading);
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
+  const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
   const rates = useAppSelector(({RATE}) => RATE.rates) as Rates;
+  const fiatRateSeriesCache = useAppSelector(
+    ({RATE}) => RATE.fiatRateSeriesCache,
+  );
   const keyMigrationFailure = useAppSelector(
     ({APP}) => APP.keyMigrationFailure,
   );
@@ -107,24 +118,25 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   );
   const showPortfolioValue = useAppSelector(({APP}) => APP.showPortfolioValue);
   const hasKeys = Object.values(keys).length;
-  const cardGroups = useAppSelector(selectCardGroups as any);
-  const hasCards = cardGroups?.length > 0;
+  const cardGroups = useAppSelector(selectCardGroups as any) as
+    | any[]
+    | undefined;
+  const hasCards = (cardGroups?.length || 0) > 0;
 
   const portfolioAllocationTotalFiat = useMemo(() => {
     return getPortfolioAllocationTotalFiat({
       keys,
+      homeCarouselConfig,
     });
-  }, [keys]);
+  }, [homeCarouselConfig, keys]);
 
   const hasAnyVisibleWalletBalance = useMemo(() => {
-    const visibleWallets = (Object.values(keys) as Key[])
-      .flatMap((k: Key) => k.wallets)
-      .filter((w: Wallet) => !w.hideWallet && !w.hideWalletByAccount);
+    const visibleWallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
 
     return visibleWallets.some(
       (w: Wallet) => (Number((w.balance as any)?.sat) || 0) > 0,
     );
-  }, [keys]);
+  }, [homeCarouselConfig, keys]);
 
   const showPortfolioAllocationSection =
     portfolioAllocationTotalFiat > 0 || hasAnyVisibleWalletBalance;
@@ -185,15 +197,21 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
 
   // Exchange Rates
   const lastDayRates = useAppSelector(({RATE}) => RATE.lastDayRates) as Rates;
+  const quoteCurrency = (
+    portfolio.quoteCurrency ||
+    defaultAltCurrency?.isoCode ||
+    'USD'
+  ).toUpperCase();
   const memoizedExchangeRates: Array<ExchangeRateItemProps> = useMemo(() => {
+    const baselineTimestampMs = getLastDayTimestampStartOfHourMs();
     const result = (
       Object.entries(lastDayRates) as Array<[string, Rate[]]>
     ).reduce((ratesList, [key, lastDayRate]) => {
       const lastDayRateForDefaultCurrency = lastDayRate.find(
-        ({code}: {code: string}) => code === defaultAltCurrency.isoCode,
+        ({code}: {code: string}) => code === quoteCurrency,
       );
       const rateForDefaultCurrency = rates[key].find(
-        ({code}: {code: string}) => code === defaultAltCurrency.isoCode,
+        ({code}: {code: string}) => code === quoteCurrency,
       );
       const {coin: targetCoin, chain: targetChain} =
         getCoinAndChainFromCurrencyCode(key);
@@ -218,13 +236,27 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
           BitpaySupportedTokens[currencyName]?.properties?.isStableCoin;
 
         if (
-          lastDayRateForDefaultCurrency?.rate &&
           rateForDefaultCurrency?.rate &&
           !isStableCoin &&
           EXCHANGE_RATES_CURRENCIES.includes(
             option.currencyAbbreviation.toLowerCase(),
           )
         ) {
+          const prevRateFromSeries = getFiatRateFromSeriesCacheAtTimestamp({
+            fiatRateSeriesCache,
+            fiatCode: quoteCurrency,
+            currencyAbbreviation: option.currencyAbbreviation,
+            interval: '1D',
+            timestampMs: baselineTimestampMs,
+            method: 'linear',
+          });
+          const prevRate =
+            prevRateFromSeries ?? lastDayRateForDefaultCurrency?.rate;
+
+          if (!(prevRate && prevRate > 0)) {
+            return ratesList;
+          }
+
           const {
             id,
             img,
@@ -236,7 +268,7 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
 
           const percentChange = calculatePercentageDifference(
             rateForDefaultCurrency.rate,
-            lastDayRateForDefaultCurrency.rate,
+            prevRate,
           );
 
           ratesList.push({
@@ -273,7 +305,7 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
       }
       return a.currencyName.localeCompare(b.currencyName);
     });
-  }, [lastDayRates, rates, defaultAltCurrency]);
+  }, [fiatRateSeriesCache, lastDayRates, quoteCurrency, rates]);
 
   // Quick Links
   const memoizedQuickLinks = useMemo(() => {
@@ -295,16 +327,26 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([
-        dispatch(
-          getAndDispatchUpdatedWalletBalances({
-            context: 'homeRootOnRefresh',
-            createTokenWalletWithFunds: true,
-          }),
-        ),
-        dispatch(requestBrazeContentRefresh()),
-        sleep(1000),
-      ]);
+      await dispatch(
+        refreshRatesForPortfolioPnl({context: 'homeRootOnRefresh'}) as any,
+      );
+      await dispatch(
+        getAndDispatchUpdatedWalletBalances({
+          context: 'homeRootOnRefresh',
+          createTokenWalletWithFunds: true,
+          skipRateUpdate: true,
+        }),
+      );
+
+      await Promise.all([dispatch(requestBrazeContentRefresh()), sleep(1000)]);
+
+      await dispatch(
+        maybePopulatePortfolioForWallets({
+          wallets,
+          quoteCurrency:
+            portfolio?.quoteCurrency || defaultAltCurrency?.isoCode,
+        }) as any,
+      );
       await sleep(2000);
     } catch (err) {
       dispatch(showBottomNotificationModal(BalanceUpdateError()));
@@ -439,6 +481,12 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
             {showSecureAccountBanner ? (
               <HomeSection>
                 <SecurePasskeyBanner />
+              </HomeSection>
+            ) : null}
+
+            {showPortfolioValue ? (
+              <HomeSection>
+                <AssetsSection />
               </HomeSection>
             ) : null}
 

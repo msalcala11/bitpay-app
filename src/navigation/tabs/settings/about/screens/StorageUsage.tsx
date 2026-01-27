@@ -1,9 +1,11 @@
-import React, {useCallback, useEffect, useState} from 'react';
-import styled, {useTheme} from 'styled-components/native';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {useTranslation} from 'react-i18next';
 import {InteractionManager, Platform} from 'react-native';
 import RNFS from 'react-native-fs';
-import {forEach} from 'lodash';
 import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
+import {useNavigation} from '@react-navigation/native';
+import styled, {useTheme} from 'styled-components/native';
+import {forEach} from 'lodash';
 import {SettingsComponent, SettingsContainer} from '../../SettingsRoot';
 import {
   Hr,
@@ -12,7 +14,6 @@ import {
   SettingTitle,
 } from '../../../../../components/styled/Containers';
 import Button from '../../../../../components/button/Button';
-import {useTranslation} from 'react-i18next';
 import {
   Action,
   Black,
@@ -25,7 +26,7 @@ import {
 import {useAppSelector} from '../../../../../utils/hooks';
 import {storage} from '../../../../../store';
 import {logManager} from '../../../../../managers/LogManager';
-import {useNavigation} from '@react-navigation/native';
+import {AboutScreens} from '../AboutGroup';
 
 const ScrollContainer = styled.ScrollView``;
 
@@ -54,7 +55,7 @@ const storagePath =
   Platform.OS === 'ios' ? RNFS.MainBundlePath : RNFS.DocumentDirectoryPath;
 
 const StorageUsage: React.FC = () => {
-  useNavigation();
+  const navigation = useNavigation();
   const {t} = useTranslation();
   const renderValue = useCallback((value: string, width?: number) => {
     if (value) {
@@ -62,6 +63,49 @@ const StorageUsage: React.FC = () => {
     }
     return <ValueSkeleton width={width} />;
   }, []);
+  const tripleTapRef = useRef<{
+    count: number;
+    lastTapMs: number;
+    timer?: ReturnType<typeof setTimeout>;
+  }>({count: 0, lastTapMs: 0});
+
+  const runAfterTripleTap = useCallback((action: () => void) => {
+    const now = Date.now();
+    const windowMs = 600;
+    const state = tripleTapRef.current;
+
+    if (now - state.lastTapMs > windowMs) {
+      state.count = 1;
+    } else {
+      state.count += 1;
+    }
+
+    state.lastTapMs = now;
+
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    state.timer = setTimeout(() => {
+      if (state.count >= 3) {
+        action();
+      }
+      state.count = 0;
+      state.lastTapMs = 0;
+    }, windowMs);
+  }, []);
+
+  const handleRatesPress = useCallback(() => {
+    runAfterTripleTap(() =>
+      navigation.navigate(AboutScreens.RATES_DEBUG as never),
+    );
+  }, [navigation, runAfterTripleTap]);
+
+  const handlePortfolioPress = useCallback(() => {
+    runAfterTripleTap(() =>
+      navigation.navigate(AboutScreens.PORTFOLIO_DEBUG as never),
+    );
+  }, [navigation, runAfterTripleTap]);
 
   const [walletsCount, setWalletsCount] = useState<number>(0);
   const [giftCount, setGiftCount] = useState<number>(0);
@@ -75,6 +119,8 @@ const StorageUsage: React.FC = () => {
   const [walletStorage, setWalletStorage] = useState<string>('');
   const [customTokenStorage, setCustomTokenStorage] = useState<string>('');
   const [contactStorage, setContactStorage] = useState<string>('');
+  const [ratesStorage, setRatesStorage] = useState<string>('');
+  const [portfolioStorage, setPortfolioStorage] = useState<string>('');
   const [backupStorage, setBackupStorage] = useState<string>('');
   const [shopCatalogStorage, setShopCatalogStorage] = useState<string>('');
 
@@ -84,6 +130,21 @@ const StorageUsage: React.FC = () => {
   const keys = useAppSelector(({WALLET}) => WALLET.keys);
   const customTokens = useAppSelector(({WALLET}) => WALLET.customTokenData);
   const contacts = useAppSelector(({CONTACT}) => CONTACT.list);
+  const rates = useAppSelector(({RATE}) => RATE.rates);
+  const fiatRateSeriesCache = useAppSelector(
+    ({RATE}) => RATE.fiatRateSeriesCache,
+  );
+
+  const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
+
+  const portfolioSnapshotsCount = useAppSelector(({PORTFOLIO}) => {
+    let total = 0;
+    const byWalletId = PORTFOLIO.snapshotsByWalletId || {};
+    Object.values(byWalletId).forEach(v => {
+      total += Array.isArray(v) ? v.length : 0;
+    });
+    return total;
+  });
 
   const formatBytes = (bytes: number, decimals = 2): string => {
     if (!+bytes) {
@@ -256,6 +317,35 @@ const StorageUsage: React.FC = () => {
           logManager.error('[setContactStorage] Error ', errStr);
         }
       };
+      const _setRatesStorage = async () => {
+        try {
+          const serializedRates = JSON.stringify({rates, fiatRateSeriesCache});
+          const _ratesStorageSize = await getSize(
+            RNFS.TemporaryDirectoryPath + '/rates.txt',
+            serializedRates,
+          );
+          setRatesStorage(formatBytes(_ratesStorageSize));
+        } catch (err) {
+          const errStr =
+            err instanceof Error ? err.message : JSON.stringify(err);
+          logManager.error('[setRatesStorage] Error ', errStr);
+        }
+      };
+
+      const _setPortfolioStorage = async () => {
+        try {
+          const serializedPortfolio = JSON.stringify(portfolio);
+          const _portfolioStorageSize = await getSize(
+            RNFS.TemporaryDirectoryPath + '/portfolio.txt',
+            serializedPortfolio,
+          );
+          setPortfolioStorage(formatBytes(_portfolioStorageSize));
+        } catch (err) {
+          const errStr =
+            err instanceof Error ? err.message : JSON.stringify(err);
+          logManager.error('[setPortfolioStorage] Error ', errStr);
+        }
+      };
       const tasks = [
         _setAppSize,
         _setDeviceStorage,
@@ -264,6 +354,8 @@ const StorageUsage: React.FC = () => {
         _setGiftCardStorage,
         _setCustomTokensStorage,
         _setContactStorage,
+        _setRatesStorage,
+        _setPortfolioStorage,
         _setBackupStorage,
         _setShopCatalogStorage,
       ];
@@ -278,7 +370,24 @@ const StorageUsage: React.FC = () => {
         clearTimeout(timeout);
       }
     };
-  }, [contacts, customTokens, giftCards, keys]);
+  }, [
+    contacts,
+    customTokens,
+    fiatRateSeriesCache,
+    giftCards,
+    keys,
+    portfolio,
+    rates,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      const timer = tripleTapRef.current.timer;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, []);
 
   return (
     <SettingsContainer>
@@ -348,17 +457,19 @@ const StorageUsage: React.FC = () => {
           </Setting>
 
           <Hr />
-          <Setting>
-            <SettingTitle>{t('App Backup')}</SettingTitle>
+          <Setting onPress={handleRatesPress}>
+            <SettingTitle>{t('Rates')}</SettingTitle>
 
-            {renderValue(backupStorage)}
+            {renderValue(ratesStorage)}
           </Setting>
 
           <Hr />
-          <Setting>
-            <SettingTitle>{t('Filesystem Backup')}</SettingTitle>
+          <Setting onPress={handlePortfolioPress}>
+            <SettingTitle>
+              {t('Portfolio')} ({portfolioSnapshotsCount || '0'})
+            </SettingTitle>
 
-            {renderValue(backupStorage)}
+            {renderValue(portfolioStorage)}
           </Setting>
 
           <Hr />
@@ -366,6 +477,13 @@ const StorageUsage: React.FC = () => {
             <SettingTitle>{t('Shop Catalog')}</SettingTitle>
 
             {renderValue(shopCatalogStorage)}
+          </Setting>
+
+          <Hr />
+          <Setting>
+            <SettingTitle>{t('Filesystem Backup')}</SettingTitle>
+
+            {renderValue(backupStorage)}
           </Setting>
         </SettingsComponent>
       </ScrollContainer>

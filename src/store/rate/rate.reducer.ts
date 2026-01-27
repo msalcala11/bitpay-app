@@ -6,7 +6,7 @@ import type {FiatRateSeriesCache} from './rate.models';
 type RateReduxPersistBlackList = string[];
 export const rateReduxPersistBlackList: RateReduxPersistBlackList = [];
 
-const FIAT_RATE_SERIES_MAX_FIATS_PERSISTED = 2;
+const FIAT_RATE_SERIES_MAX_FIATS_PERSISTED = 1;
 
 const getFiatCodeFromSeriesCacheKey = (
   cacheKey: string,
