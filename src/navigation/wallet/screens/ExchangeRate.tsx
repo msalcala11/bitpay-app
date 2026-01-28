@@ -73,14 +73,24 @@ import {
   getRateByCurrencyName,
   sleep,
 } from '../../../utils/helper-methods';
-import {getVisibleWalletsFromKeys} from '../../../utils/assets';
+import {
+  getQuoteCurrency,
+  getVisibleWalletsFromKeys,
+  isFiatLoadingForWallets,
+} from '../../../utils/assets';
+import {getAssetColor} from '../../../utils/allocation';
 import {
   downsampleSeries,
   getFiatRateChangeForTimeframe,
   normalizeFiatRateSeriesCoin,
 } from '../../../utils/rate';
 import {findIndex, maxBy, minBy} from 'lodash';
-import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
+import {
+  useAppDispatch,
+  useAppSelector,
+  useBalanceChartData,
+} from '../../../utils/hooks';
+import BalanceChart from '../../../components/balance-chart/BalanceChart';
 import {
   fetchMarketStats,
   getMarketStatsCacheKey,
@@ -726,6 +736,7 @@ const ExchangeRate = () => {
   const fiatRateSeriesCache = useAppSelector(
     ({RATE}: RootState) => RATE.fiatRateSeriesCache,
   );
+  const portfolio = useAppSelector(({PORTFOLIO}: RootState) => PORTFOLIO);
   const defaultAltCurrency = useAppSelector(
     ({APP}: RootState) => APP.defaultAltCurrency,
   );
@@ -865,6 +876,13 @@ const ExchangeRate = () => {
   }, [dispatch, normalizedCoin, selectedFiatCodeUpper, seriesDataInterval]);
 
   const altCurrencyIsoCodeUpper = defaultAltCurrency.isoCode?.toUpperCase();
+
+  const quoteCurrency = useMemo(() => {
+    return getQuoteCurrency({
+      portfolioQuoteCurrency: portfolio?.quoteCurrency,
+      defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
+    });
+  }, [defaultAltCurrency?.isoCode, portfolio?.quoteCurrency]);
 
   const currentFiatRate = useMemo(() => {
     if (
@@ -1025,6 +1043,55 @@ const ExchangeRate = () => {
     rates,
   ]);
   const hasWalletsForAsset = walletsForAsset.length > 0;
+
+  const balanceWallets = useMemo(() => {
+    return walletsForAsset.map(({wallet}) => wallet);
+  }, [walletsForAsset]);
+
+  const {
+    data: balanceChartData,
+    selectedTimeframe: balanceTimeframe,
+    setSelectedTimeframe: setBalanceTimeframe,
+  } = useBalanceChartData({
+    wallets: balanceWallets,
+    snapshotsByWalletId: portfolio?.snapshotsByWalletId || {},
+    fiatRateSeriesCache,
+    quoteCurrency,
+    timeframe: selectedTimeframe,
+    onTimeframeChange: setSelectedTimeframe,
+  });
+
+  const isBalanceChartLoading = useMemo(() => {
+    if (!balanceWallets.length) {
+      return false;
+    }
+    if (portfolio?.populateStatus?.inProgress) {
+      return true;
+    }
+    if (
+      isFiatLoadingForWallets({
+        quoteCurrency,
+        wallets: balanceWallets,
+        snapshotsByWalletId: portfolio?.snapshotsByWalletId || {},
+      })
+    ) {
+      return true;
+    }
+    return !balanceChartData.data.length;
+  }, [
+    balanceChartData.data.length,
+    balanceWallets,
+    portfolio?.populateStatus?.inProgress,
+    portfolio?.snapshotsByWalletId,
+    quoteCurrency,
+  ]);
+
+  const balanceChartColor = useMemo(() => {
+    return getAssetColor(
+      assetContext.currencyAbbreviation,
+      assetContext.chain,
+    ).light;
+  }, [assetContext.chain, assetContext.currencyAbbreviation]);
 
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -1734,6 +1801,20 @@ const ExchangeRate = () => {
         {walletsForAsset.length ? (
           <>
             <SectionTitle>{`Your Wallets with ${currencyAbbreviation}`}</SectionTitle>
+
+            {!hideAllBalances ? (
+              <ChartContainer>
+                <BalanceChart
+                  data={balanceChartData}
+                  quoteCurrency={quoteCurrency}
+                  selectedTimeframe={balanceTimeframe}
+                  onTimeframeChange={setBalanceTimeframe}
+                  showTimeframes={false}
+                  isLoading={isBalanceChartLoading}
+                  assetColor={balanceChartColor}
+                />
+              </ChartContainer>
+            ) : null}
 
             {walletsForAsset.map(({wallet, ui}) => (
               <WalletCard

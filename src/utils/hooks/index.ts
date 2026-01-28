@@ -5,3 +5,4 @@ export * from './useLogger';
 export * from './useMount';
 export * from './useRequestTrackingPermissionHandler';
 export * from './useSensitiveRefClear';
+export * from './useBalanceChartData';

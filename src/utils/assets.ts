@@ -8,21 +8,31 @@ import type {
 } from '../store/portfolio/portfolio.models';
 import type {
   FiatRateInterval,
+  FiatRatePoint,
   FiatRateSeriesCache,
   Rates,
 } from '../store/rate/rate.models';
+import {getFiatRateSeriesCacheKey} from '../store/rate/rate.models';
 import type {Key, Wallet} from '../store/wallet/wallet.models';
 import type {SupportedCurrencyOption} from '../constants/SupportedCurrencyOptions';
+import {findIndex, maxBy, minBy} from 'lodash';
 import {
   BitpaySupportedCoins,
   BitpaySupportedTokens,
 } from '../constants/currencies';
 import {tokenManager} from '../managers/TokenManager';
 import {
+  alignTimestamps,
+  downsampleSeries,
+  downsampleTimestamps,
   getBaselineTimestampMsForFiatRateTimeframe,
   getFiatRateFromSeriesCacheAtTimestamp,
   getFiatRateSeriesIntervalForTimeframe,
   getWindowMsForFiatRateTimeframe,
+  normalizeFiatRateSeriesCoin,
+  type RatePoint,
+  type RatesByCoin,
+  trimTimestamps,
 } from './rate';
 import {
   formatCurrencyAbbreviation,
@@ -544,6 +554,432 @@ const getWalletUnitInfo = (
         ? unitToSatoshi
         : 1,
   };
+};
+
+const sortedRatePointsCache = new WeakMap<FiatRatePoint[], RatePoint[]>();
+
+const getSortedRatePoints = (points: FiatRatePoint[]): RatePoint[] => {
+  const cached = sortedRatePointsCache.get(points);
+  if (cached) {
+    return cached;
+  }
+
+  const sorted = points.slice().sort((a, b) => a.ts - b.ts);
+  sortedRatePointsCache.set(points, sorted);
+  return sorted;
+};
+
+const getStartingSnapshotContext = (
+  snapshots: BalanceSnapshot[],
+  startTimestampMs?: number,
+): {startIndex: number; latest?: BalanceSnapshot} => {
+  if (!(typeof startTimestampMs === 'number' && Number.isFinite(startTimestampMs))) {
+    return {startIndex: 0, latest: undefined};
+  }
+
+  let lo = 0;
+  let hi = snapshots.length - 1;
+  let bestIndex = -1;
+
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const ts = snapshots[mid]?.timestamp || 0;
+    if (ts <= startTimestampMs) {
+      bestIndex = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+
+  if (bestIndex < 0) {
+    return {startIndex: 0, latest: undefined};
+  }
+
+  return {startIndex: bestIndex + 1, latest: snapshots[bestIndex]};
+};
+
+export type BalanceChartPoint = {
+  date: Date;
+  value: number;
+};
+
+export type BalanceChartData = {
+  data: BalanceChartPoint[];
+  percentChange: number;
+  priceChange: number;
+  maxIndex?: number;
+  maxPoint?: BalanceChartPoint;
+  minIndex?: number;
+  minPoint?: BalanceChartPoint;
+};
+
+export type WalletBalanceChartDataByInterval = Partial<
+  Record<FiatRateInterval, BalanceChartData>
+>;
+
+export const defaultBalanceChartData: BalanceChartData = {
+  data: [],
+  percentChange: 0,
+  priceChange: 0,
+  maxIndex: undefined,
+  maxPoint: undefined,
+  minIndex: undefined,
+  minPoint: undefined,
+};
+
+export const DEFAULT_BALANCE_CHART_INTERVALS: FiatRateInterval[] = [
+  'ALL',
+  '1D',
+  '1W',
+  '1M',
+  '3M',
+  '1Y',
+  '5Y',
+];
+
+type BalanceValuePoint = {
+  ts: number;
+  value: number;
+};
+
+const buildBalanceChartDataFromPoints = (
+  points: BalanceValuePoint[],
+): BalanceChartData => {
+  const sorted = points.slice().sort((a, b) => a.ts - b.ts);
+  if (!sorted.length) {
+    return defaultBalanceChartData;
+  }
+
+  const data = sorted.map(point => ({
+    date: new Date(point.ts),
+    value: point.value,
+  }));
+
+  const maxPoint = maxBy(data, point => point.value);
+  const minPoint = minBy(data, point => point.value);
+  const maxIndex =
+    typeof maxPoint !== 'undefined' ? findIndex(data, maxPoint) : undefined;
+  const minIndex =
+    typeof minPoint !== 'undefined' ? findIndex(data, minPoint) : undefined;
+
+  if (data.length < 2) {
+    return {
+      data,
+      percentChange: 0,
+      priceChange: 0,
+      maxIndex,
+      maxPoint,
+      minIndex,
+      minPoint,
+    };
+  }
+
+  const firstValue = data[0]?.value ?? 0;
+  const lastValue = data[data.length - 1]?.value ?? 0;
+
+  return {
+    data,
+    percentChange: calculatePercentageDifference(lastValue, firstValue),
+    priceChange: lastValue - firstValue,
+    maxIndex,
+    maxPoint,
+    minIndex,
+    minPoint,
+  };
+};
+
+const getSeriesPointsForCoin = (args: {
+  fiatRateSeriesCache?: FiatRateSeriesCache;
+  quoteCurrency: string;
+  currencyAbbreviation: string;
+  interval: FiatRateInterval;
+}): RatePoint[] => {
+  if (!args.fiatRateSeriesCache) {
+    return [];
+  }
+
+  const coin = normalizeFiatRateSeriesCoin(args.currencyAbbreviation);
+  const cacheKey = getFiatRateSeriesCacheKey(
+    args.quoteCurrency,
+    coin,
+    args.interval,
+  );
+  const points = args.fiatRateSeriesCache[cacheKey]?.points;
+  if (!Array.isArray(points) || !points.length) {
+    return [];
+  }
+
+  return getSortedRatePoints(points);
+};
+
+const sortedSnapshotsCache = new WeakMap<
+  BalanceSnapshot[],
+  BalanceSnapshot[]
+>();
+
+const getSortedSnapshots = (
+  snapshots: BalanceSnapshot[] | undefined,
+): BalanceSnapshot[] => {
+  if (!Array.isArray(snapshots) || !snapshots.length) {
+    return [];
+  }
+
+  const cached = sortedSnapshotsCache.get(snapshots);
+  if (cached) {
+    return cached;
+  }
+
+  const sorted = snapshots
+    .slice()
+    .sort((a, b) => (a?.timestamp || 0) - (b?.timestamp || 0));
+  sortedSnapshotsCache.set(snapshots, sorted);
+  return sorted;
+};
+
+const getWalletUnitsAtTimestamps = (
+  snapshots: BalanceSnapshot[] | undefined,
+  timestamps: Array<number | undefined>,
+  startTimestampMs?: number,
+): number[] => {
+  const sorted = getSortedSnapshots(snapshots);
+  const unitsByIndex = new Array(timestamps.length).fill(0);
+
+  if (!sorted.length) {
+    return unitsByIndex;
+  }
+
+  const {startIndex, latest: initialLatest} = getStartingSnapshotContext(
+    sorted,
+    startTimestampMs,
+  );
+  let snapIndex = startIndex;
+  let latest = initialLatest;
+
+  for (let i = 0; i < timestamps.length; i++) {
+    const ts = timestamps[i];
+    if (!(typeof ts === 'number' && Number.isFinite(ts))) {
+      continue;
+    }
+
+    while (snapIndex < sorted.length && (sorted[snapIndex]?.timestamp || 0) <= ts) {
+      latest = sorted[snapIndex];
+      snapIndex++;
+    }
+
+    unitsByIndex[i] = getSnapshotUnits(latest);
+  }
+
+  return unitsByIndex;
+};
+
+const buildWalletBalanceChartDataForInterval = (args: {
+  wallets: Wallet[];
+  snapshotsByWalletId: {[walletId: string]: BalanceSnapshot[] | undefined};
+  fiatRateSeriesCache?: FiatRateSeriesCache;
+  quoteCurrency: string;
+  interval: FiatRateInterval;
+  nowMs: number;
+}): BalanceChartData => {
+  const wallets = (args.wallets || []).filter(
+    w => w?.id && w.network === Network.mainnet,
+  );
+  if (!wallets.length) {
+    return defaultBalanceChartData;
+  }
+
+  const quoteCurrency = (args.quoteCurrency || 'USD').toUpperCase();
+  const seriesInterval = getFiatRateSeriesIntervalForTimeframe(args.interval);
+  const windowMs = getWindowMsForFiatRateTimeframe(args.interval);
+  const cutoffMs = windowMs ? args.nowMs - windowMs : undefined;
+  const targetLen = 91;
+  const maxSeriesLen = Math.max(targetLen * 4, 365);
+
+  const hasSnapshots = wallets.some(wallet => {
+    const snapshots = args.snapshotsByWalletId?.[wallet.id];
+    return Array.isArray(snapshots) && snapshots.length > 0;
+  });
+
+  if (!hasSnapshots) {
+    return defaultBalanceChartData;
+  }
+
+  const walletInfos = wallets
+    .map(wallet => ({
+      wallet,
+      coin: normalizeFiatRateSeriesCoin(wallet.currencyAbbreviation),
+    }))
+    .filter(info => info.coin);
+
+  if (!walletInfos.length) {
+    return defaultBalanceChartData;
+  }
+
+  const uniqueCoins = Array.from(new Set(walletInfos.map(info => info.coin)));
+  const ratesByCoin: RatesByCoin = {};
+
+  for (const coin of uniqueCoins) {
+    const rawPoints = getSeriesPointsForCoin({
+      fiatRateSeriesCache: args.fiatRateSeriesCache,
+      quoteCurrency,
+      currencyAbbreviation: coin,
+      interval: seriesInterval,
+    });
+    if (!rawPoints.length) {
+      continue;
+    }
+
+    const points = cutoffMs
+      ? rawPoints.filter(p => p.ts >= cutoffMs && p.ts <= args.nowMs)
+      : rawPoints;
+    if (!points.length) {
+      continue;
+    }
+
+    const cappedPoints =
+      points.length > maxSeriesLen
+        ? downsampleSeries(points, maxSeriesLen, {strategy: 'even'})
+        : points;
+
+    if (cappedPoints.length) {
+      ratesByCoin[coin] = cappedPoints;
+    }
+  }
+
+  const validCoins = Object.keys(ratesByCoin);
+  if (!validCoins.length) {
+    return defaultBalanceChartData;
+  }
+
+  const filteredWalletInfos = walletInfos.filter(info =>
+    validCoins.includes(info.coin),
+  );
+  if (!filteredWalletInfos.length) {
+    return defaultBalanceChartData;
+  }
+
+  const downsampled = (() => {
+    if (validCoins.length === 1) {
+      const coin = validCoins[0];
+      const points = ratesByCoin[coin] || [];
+      if (!points.length) {
+        return {};
+      }
+      const reduced =
+        points.length > targetLen
+          ? downsampleSeries(points, targetLen, {strategy: 'even'})
+          : points;
+      return {[coin]: reduced};
+    }
+
+    const aligned = alignTimestamps(ratesByCoin);
+    const trimmed = trimTimestamps(aligned);
+    const alignedCoins = Object.keys(trimmed);
+    if (!alignedCoins.length) {
+      return {};
+    }
+
+    const alignedLen = trimmed[alignedCoins[0]]?.length ?? 0;
+    if (!alignedLen) {
+      return {};
+    }
+
+    return alignedLen > targetLen
+      ? downsampleTimestamps(trimmed, targetLen, {
+          strategy: 'even',
+          mode: 'shared',
+        })
+      : trimmed;
+  })();
+
+  const downsampledCoins = Object.keys(downsampled);
+  if (!downsampledCoins.length) {
+    return defaultBalanceChartData;
+  }
+
+  const seriesLen = downsampled[downsampledCoins[0]]?.length ?? 0;
+  if (!seriesLen) {
+    return defaultBalanceChartData;
+  }
+
+  const timestamps: Array<number | undefined> = new Array(seriesLen);
+  let firstTimestamp: number | undefined;
+  for (let i = 0; i < seriesLen; i++) {
+    let ts: number | undefined;
+    for (const coin of downsampledCoins) {
+      const point = downsampled[coin]?.[i];
+      if (point) {
+        ts = point.ts;
+        break;
+      }
+    }
+    if (!(typeof firstTimestamp === 'number' && Number.isFinite(firstTimestamp))) {
+      if (typeof ts === 'number' && Number.isFinite(ts)) {
+        firstTimestamp = ts;
+      }
+    }
+    timestamps[i] = ts;
+  }
+
+  const totals = new Array(seriesLen).fill(0);
+  for (const info of filteredWalletInfos) {
+    const rates = downsampled[info.coin];
+    if (!rates) {
+      continue;
+    }
+
+    const unitsByIndex = getWalletUnitsAtTimestamps(
+      args.snapshotsByWalletId[info.wallet.id],
+      timestamps,
+      firstTimestamp,
+    );
+
+    for (let i = 0; i < seriesLen; i++) {
+      const ratePoint = rates[i];
+      if (!ratePoint || !(ratePoint.rate > 0)) {
+        continue;
+      }
+      totals[i] += unitsByIndex[i] * ratePoint.rate;
+    }
+  }
+
+  const valuePoints: BalanceValuePoint[] = [];
+  for (let i = 0; i < seriesLen; i++) {
+    const ts = timestamps[i];
+    if (!(typeof ts === 'number' && Number.isFinite(ts))) {
+      continue;
+    }
+    valuePoints.push({ts, value: totals[i]});
+  }
+
+  return buildBalanceChartDataFromPoints(valuePoints);
+};
+
+export const buildWalletBalanceChartDataByInterval = (args: {
+  wallets: Wallet[];
+  snapshotsByWalletId: {[walletId: string]: BalanceSnapshot[] | undefined};
+  fiatRateSeriesCache?: FiatRateSeriesCache;
+  quoteCurrency?: string;
+  intervals?: FiatRateInterval[];
+  nowMs?: number;
+}): WalletBalanceChartDataByInterval => {
+  const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
+  const quoteCurrency = (args.quoteCurrency || 'USD').toUpperCase();
+  const intervals = args.intervals || DEFAULT_BALANCE_CHART_INTERVALS;
+
+  const out: WalletBalanceChartDataByInterval = {};
+  for (const interval of intervals) {
+    out[interval] = buildWalletBalanceChartDataForInterval({
+      wallets: args.wallets,
+      snapshotsByWalletId: args.snapshotsByWalletId,
+      fiatRateSeriesCache: args.fiatRateSeriesCache,
+      quoteCurrency,
+      interval,
+      nowMs,
+    });
+  }
+
+  return out;
 };
 
 const getLiveUnitsForWallet = (wallet: Wallet): number => {

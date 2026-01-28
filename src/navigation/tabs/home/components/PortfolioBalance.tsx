@@ -21,10 +21,15 @@ import {useTranslation} from 'react-i18next';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import {maskIfHidden} from '../../../../utils/hideBalances';
 import {
+  getQuoteCurrency,
+  getVisibleWalletsFromKeys,
+  isFiatLoadingForWallets,
   getPercentageDifferenceFromPercentRatio,
   getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots,
 } from '../../../../utils/assets';
 import type {Wallet} from '../../../../store/wallet/wallet.models';
+import BalanceChart from '../../../../components/balance-chart/BalanceChart';
+import {useBalanceChartData} from '../../../../utils/hooks';
 
 const PortfolioContainer = styled.View`
   justify-content: center;
@@ -61,6 +66,11 @@ const HiddenBalance = styled(H2)`
   margin: 6px 0;
 `;
 
+const ChartWrapper = styled.View`
+  margin-top: 12px;
+  width: 100%;
+`;
+
 const PortfolioBalance = () => {
   const {t} = useTranslation();
   const coinbaseBalance =
@@ -76,6 +86,9 @@ const PortfolioBalance = () => {
   );
 
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
+  const homeCarouselConfig = useAppSelector(
+    ({APP}) => APP.homeCarouselConfig,
+  );
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
 
   const totalBalance: number = portfolioBalance.current + coinbaseBalance;
@@ -105,6 +118,64 @@ const PortfolioBalance = () => {
     }
     return Array.from(byId.values());
   }, [keys]);
+
+  const chartWallets = useMemo(() => {
+    const visibleWallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
+    const byId = new Map<string, Wallet>();
+    for (const w of visibleWallets) {
+      if (!w?.id) {
+        continue;
+      }
+      if (!byId.has(w.id)) {
+        byId.set(w.id, w);
+      }
+    }
+    return Array.from(byId.values());
+  }, [homeCarouselConfig, keys]);
+
+  const quoteCurrency = useMemo(() => {
+    return getQuoteCurrency({
+      portfolioQuoteCurrency: portfolio?.quoteCurrency,
+      defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
+    });
+  }, [defaultAltCurrency?.isoCode, portfolio?.quoteCurrency]);
+
+  const {
+    data: chartData,
+    selectedTimeframe,
+    setSelectedTimeframe,
+  } = useBalanceChartData({
+    wallets: chartWallets,
+    snapshotsByWalletId: portfolio?.snapshotsByWalletId || {},
+    fiatRateSeriesCache,
+    quoteCurrency,
+    initialTimeframe: 'ALL',
+  });
+
+  const isChartLoading = useMemo(() => {
+    if (!chartWallets.length) {
+      return false;
+    }
+    if (portfolio?.populateStatus?.inProgress) {
+      return true;
+    }
+    if (
+      isFiatLoadingForWallets({
+        quoteCurrency,
+        wallets: chartWallets,
+        snapshotsByWalletId: portfolio?.snapshotsByWalletId || {},
+      })
+    ) {
+      return true;
+    }
+    return !chartData.data.length;
+  }, [
+    chartData.data.length,
+    chartWallets,
+    portfolio?.populateStatus?.inProgress,
+    portfolio?.snapshotsByWalletId,
+    quoteCurrency,
+  ]);
 
   const legacyPercentageDifference = calculatePercentageDifference(
     portfolioBalance.current,
@@ -198,6 +269,17 @@ const PortfolioBalance = () => {
           <HiddenBalance>{maskIfHidden(true, totalBalance)}</HiddenBalance>
         )}
       </TouchableOpacity>
+      {!hideAllBalances && chartWallets.length ? (
+        <ChartWrapper>
+          <BalanceChart
+            data={chartData}
+            quoteCurrency={quoteCurrency}
+            selectedTimeframe={selectedTimeframe}
+            onTimeframeChange={setSelectedTimeframe}
+            isLoading={isChartLoading}
+          />
+        </ChartWrapper>
+      ) : null}
     </PortfolioContainer>
   );
 };

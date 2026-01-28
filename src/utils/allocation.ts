@@ -68,7 +68,7 @@ export type AllocationRowItem = {
   progress: number;
 };
 
-const getAssetColor = (
+export const getAssetColor = (
   currencyAbbreviation: string,
   chain?: string,
 ): {light: string; dark: string} => {

@@ -87,7 +87,7 @@ export interface SearchableItem {
   accountName?: string;
   chainAssetsList?: WalletRowProps[];
   chains?: string[]; // (Global Select view)
-  wallets?: Wallet[]; // (Key Overview view)
+  wallets?: Array<Wallet | WalletRowProps>; // (Key Overview view)
   chain?: string; // (Key Overview view)
   availableWallets?: Wallet[];
   availableWalletsByKey?: {

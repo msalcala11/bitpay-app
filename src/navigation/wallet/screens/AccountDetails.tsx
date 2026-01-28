@@ -13,11 +13,14 @@ import React, {
 import {RootState} from '../../../store';
 import {useTranslation} from 'react-i18next';
 import {WalletGroupParamList, WalletScreens} from '../WalletGroup';
-import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
+import {
+  useAppDispatch,
+  useAppSelector,
+  useBalanceChartData,
+} from '../../../utils/hooks';
 import {
   Wallet,
   TransactionProposal,
-  Status,
   KeyMethods,
   Key,
 } from '../../../store/wallet/wallet.models';
@@ -94,6 +97,7 @@ import {
   ScreenGutter,
   WIDTH,
 } from '../../../components/styled/Containers';
+import BalanceChart from '../../../components/balance-chart/BalanceChart';
 import SearchComponent, {
   SearchableItem,
 } from '../../../components/chain-search/ChainSearch';
@@ -123,6 +127,10 @@ import {
 import TransactionProposalRow from '../../../components/list/TransactionProposalRow';
 import {getGiftCardIcons} from '../../../lib/gift-cards/gift-card';
 import {BillPayAccount} from '../../../store/shop/shop.models';
+import {
+  getQuoteCurrency,
+  isFiatLoadingForWallets,
+} from '../../../utils/assets';
 import {
   BuildUiFriendlyList,
   CanSpeedupTx,
@@ -298,6 +306,11 @@ const BalanceContainer = styled.View`
   flex-direction: column;
 `;
 
+const ChartWrapper = styled.View`
+  margin-top: 10px;
+  width: 100%;
+`;
+
 const AssetsDataContainer = styled(Row)`
   display: flex;
   flex-direction: row;
@@ -381,6 +394,10 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   const [showReceiveAddressBottomModal, setShowReceiveAddressBottomModal] =
     useState(false);
   const {rates} = useAppSelector(({RATE}) => RATE);
+  const fiatRateSeriesCache = useAppSelector(
+    ({RATE}) => RATE.fiatRateSeriesCache,
+  );
+  const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
   const [showKeyOptions, setShowKeyOptions] = useState(false);
 
   const [searchResultsHistory, setSearchResultsHistory] = useState(
@@ -437,6 +454,56 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   const accounts = useAppSelector(
     ({SHOP}) => SHOP.billPayAccounts[accountItem?.wallets[0]?.network],
   );
+
+  const accountWallets = useMemo(() => {
+    return keyFullWalletObjs.filter(
+      w => !w.hideWallet && !w.hideWalletByAccount,
+    );
+  }, [keyFullWalletObjs]);
+
+  const quoteCurrency = useMemo(() => {
+    return getQuoteCurrency({
+      portfolioQuoteCurrency: portfolio?.quoteCurrency,
+      defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
+    });
+  }, [defaultAltCurrency?.isoCode, portfolio?.quoteCurrency]);
+
+  const {
+    data: chartData,
+    selectedTimeframe,
+    setSelectedTimeframe,
+  } = useBalanceChartData({
+    wallets: accountWallets,
+    snapshotsByWalletId: portfolio?.snapshotsByWalletId || {},
+    fiatRateSeriesCache,
+    quoteCurrency,
+    initialTimeframe: 'ALL',
+  });
+
+  const isChartLoading = useMemo(() => {
+    if (!accountWallets.length) {
+      return false;
+    }
+    if (portfolio?.populateStatus?.inProgress) {
+      return true;
+    }
+    if (
+      isFiatLoadingForWallets({
+        quoteCurrency,
+        wallets: accountWallets,
+        snapshotsByWalletId: portfolio?.snapshotsByWalletId || {},
+      })
+    ) {
+      return true;
+    }
+    return !chartData.data.length;
+  }, [
+    accountWallets,
+    chartData.data.length,
+    portfolio?.populateStatus?.inProgress,
+    portfolio?.snapshotsByWalletId,
+    quoteCurrency,
+  ]);
 
   const _tokenOptionsByAddress = useAppSelector(({WALLET}: RootState) => {
     return {
@@ -1172,8 +1239,8 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     const fullWalletObj = findWalletById(keyFullWalletObjs, walletId) as Wallet;
     if (!fullWalletObj.isComplete() && fullWalletObj.pendingTssSession) {
       fullWalletObj.getStatus(
-        {network: fullWalletObj.network},
-        (err: any, status: Status) => {
+        {},
+        (err?: Error, status?: any) => {
           if (err) {
             const errStr =
               err instanceof Error ? err.message : JSON.stringify(err);
@@ -1306,7 +1373,10 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   }, [isLoading, errorLoadingTxs, groupedHistory, ghostTownEmptyState]);
 
   const memorizedAssetsByChainList = useMemo(() => {
-    return buildAssetsByChainList(accountItem, defaultAltCurrency.isoCode);
+    return buildAssetsByChainList(
+      accountItem,
+      defaultAltCurrency.isoCode,
+    ) as AssetsByChainListProps[];
   }, [key, accountItem, defaultAltCurrency.isoCode]);
 
   const allocationHasAnyBalance = useMemo(() => {
@@ -1381,6 +1451,17 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
                 )}
               </Row>
             </TouchableOpacity>
+            {!hideAllBalances && showPortfolioValue && accountWallets.length ? (
+              <ChartWrapper>
+                <BalanceChart
+                  data={chartData}
+                  quoteCurrency={quoteCurrency}
+                  selectedTimeframe={selectedTimeframe}
+                  onTimeframeChange={setSelectedTimeframe}
+                  isLoading={isChartLoading}
+                />
+              </ChartWrapper>
+            ) : null}
             <BadgeContainerTouchable
               onPress={copyToClipboard}
               activeOpacity={ActiveOpacity}
@@ -1497,12 +1578,18 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
           {isSvmAccount || (isSmallScreen && showPortfolioValue) ? null : (
             <View style={{flexDirection: 'row', justifyContent: 'flex-end'}}>
               {isAllocationTab ? (
-                <SearchComponent<Partial<AssetsByChainListProps>>
+                <SearchComponent<AssetsByChainListProps>
                   searchVal={searchVal}
                   setSearchVal={setSearchVal}
-                  searchResults={searchResultsAssets}
-                  setSearchResults={setSearchResultsAssets}
-                  searchFullList={memorizedAssetsByChainList}
+                  searchResults={searchResultsAssets as AssetsByChainListProps[]}
+                  setSearchResults={results =>
+                    setSearchResultsAssets(
+                      results as AssetsByChainListProps[],
+                    )
+                  }
+                  searchFullList={
+                    memorizedAssetsByChainList as AssetsByChainListProps[]
+                  }
                   context={'accountassetsview'}
                 />
               ) : (

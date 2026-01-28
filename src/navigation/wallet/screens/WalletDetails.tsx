@@ -86,7 +86,11 @@ import ReceiveAddress from '../components/ReceiveAddress';
 import BalanceDetailsModal from '../components/BalanceDetailsModal';
 import Icons from '../components/WalletIcons';
 import {WalletScreens, WalletGroupParamList} from '../WalletGroup';
-import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
+import {
+  useAppDispatch,
+  useAppSelector,
+  useBalanceChartData,
+} from '../../../utils/hooks';
 import {startGetRates} from '../../../store/wallet/effects';
 import {createWalletAddress} from '../../../store/wallet/effects/address/address';
 import {
@@ -136,6 +140,12 @@ import SentBadgeSvg from '../../../../assets/img/sent-badge.svg';
 import {Analytics} from '../../../store/analytics/analytics.effects';
 import {getGiftCardIcons} from '../../../lib/gift-cards/gift-card';
 import {BillPayAccount} from '../../../store/shop/shop.models';
+import BalanceChart from '../../../components/balance-chart/BalanceChart';
+import {
+  getQuoteCurrency,
+  isFiatLoadingForWallets,
+} from '../../../utils/assets';
+import {getAssetColor} from '../../../utils/allocation';
 import debounce from 'lodash.debounce';
 import ArchaxFooter from '../../../components/archax/archax-footer';
 import {ExternalServicesScreens} from '../../services/ExternalServicesGroup';
@@ -176,6 +186,11 @@ const TouchableRow = styled(TouchableOpacity)`
 const BalanceContainer = styled.View`
   padding: 0 15px 40px;
   flex-direction: column;
+`;
+
+const ChartWrapper = styled.View`
+  margin-top: 10px;
+  width: 100%;
 `;
 
 const TransactionSectionHeaderContainer = styled.View`
@@ -320,6 +335,10 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
 
   const contactList = useAppSelector(({CONTACT}) => CONTACT.list);
   const {defaultAltCurrency, hideAllBalances} = useAppSelector(({APP}) => APP);
+  const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
+  const fiatRateSeriesCache = useAppSelector(
+    ({RATE}) => RATE.fiatRateSeriesCache,
+  );
   const fullWalletObj = findWalletById(wallets, walletId, copayerId) as Wallet;
   const key = keys[fullWalletObj.keyId];
   const uiFormattedWallet = buildUIFormattedWallet(
@@ -519,6 +538,51 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
     network,
     pendingTxps,
   } = uiFormattedWallet;
+
+  const quoteCurrency = useMemo(() => {
+    return getQuoteCurrency({
+      portfolioQuoteCurrency: portfolio?.quoteCurrency,
+      defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
+    });
+  }, [defaultAltCurrency?.isoCode, portfolio?.quoteCurrency]);
+
+  const {
+    data: chartData,
+    selectedTimeframe,
+    setSelectedTimeframe,
+  } = useBalanceChartData({
+    wallets: [fullWalletObj],
+    snapshotsByWalletId: portfolio?.snapshotsByWalletId || {},
+    fiatRateSeriesCache,
+    quoteCurrency,
+    initialTimeframe: 'ALL',
+  });
+
+  const isChartLoading = useMemo(() => {
+    if (portfolio?.populateStatus?.inProgress) {
+      return true;
+    }
+    if (
+      isFiatLoadingForWallets({
+        quoteCurrency,
+        wallets: [fullWalletObj],
+        snapshotsByWalletId: portfolio?.snapshotsByWalletId || {},
+      })
+    ) {
+      return true;
+    }
+    return !chartData.data.length;
+  }, [
+    chartData.data.length,
+    fullWalletObj,
+    portfolio?.populateStatus?.inProgress,
+    portfolio?.snapshotsByWalletId,
+    quoteCurrency,
+  ]);
+
+  const assetColor = useMemo(() => {
+    return getAssetColor(currencyAbbreviation, chain).light;
+  }, [chain, currencyAbbreviation]);
 
   const showFiatBalance =
     // @ts-ignore
@@ -1152,6 +1216,18 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
                     ) : null}
                   </Row>
                 </BalanceContainer>
+                {!hideAllBalances ? (
+                  <ChartWrapper>
+                    <BalanceChart
+                      data={chartData}
+                      quoteCurrency={quoteCurrency}
+                      selectedTimeframe={selectedTimeframe}
+                      onTimeframeChange={setSelectedTimeframe}
+                      isLoading={isChartLoading}
+                      assetColor={assetColor}
+                    />
+                  </ChartWrapper>
+                ) : null}
 
                 {fullWalletObj ? (
                   <LinkingButtons

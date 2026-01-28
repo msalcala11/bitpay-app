@@ -79,7 +79,12 @@ import {
 import OptionsSheet, {Option} from '../components/OptionsSheet';
 import Icons from '../components/WalletIcons';
 import {WalletGroupParamList, WalletScreens} from '../WalletGroup';
-import {useAppDispatch, useAppSelector, useLogger} from '../../../utils/hooks';
+import {
+  useAppDispatch,
+  useAppSelector,
+  useBalanceChartData,
+  useLogger,
+} from '../../../utils/hooks';
 import SheetModal from '../../../components/modal/base/sheet/SheetModal';
 import {
   getDecryptPassword,
@@ -138,6 +143,7 @@ import {
 import {isTSSKey} from '../../../store/wallet/effects/tss-send/tss-send';
 import {
   buildPortfolioGainLossSummaryFromPortfolioSnapshots,
+  isFiatLoadingForWallets,
   getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots,
   getQuoteCurrency,
   hasSnapshotsBeforeMsForWallets,
@@ -148,6 +154,7 @@ import {
   getPercentageDifferenceFromPercentRatio,
 } from '../../../utils/assets';
 import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
+import BalanceChart from '../../../components/balance-chart/BalanceChart';
 
 LogBox.ignoreLogs([
   'Non-serializable values were found in the navigation state',
@@ -190,6 +197,11 @@ const BalanceContainer = styled.View`
   margin-top: 20px;
   padding: 10px 15px;
   align-items: center;
+`;
+
+const ChartWrapper = styled.View`
+  margin-top: 10px;
+  width: 100%;
 `;
 
 const PercentageWrapper = styled.View`
@@ -475,15 +487,15 @@ const KeyOverview = () => {
   useEffect(() => {
     if (context === 'createNewMultisigKey') {
       key?.wallets[0].getStatus(
-        {network: key?.wallets[0].network},
-        (err: any, status: Status) => {
+        {},
+        (err?: Error, status?: any) => {
           if (err) {
             const errStr =
               err instanceof Error ? err.message : JSON.stringify(err);
             logger.error(
               `error [KeyOverview - createNewMultisigKey] [getStatus]: ${errStr}`,
             );
-          } else {
+          } else if (status?.wallet) {
             navigation.navigate('Copayers', {
               wallet: key?.wallets[0],
               status: status?.wallet,
@@ -517,6 +529,57 @@ const KeyOverview = () => {
     );
   }, [key?.wallets]);
 
+  const quoteCurrency = useMemo(() => {
+    return getQuoteCurrency({
+      portfolioQuoteCurrency: portfolio.quoteCurrency,
+      defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
+    });
+  }, [defaultAltCurrency?.isoCode, portfolio.quoteCurrency]);
+
+  const isKeyPopulateLoading = useMemo(() => {
+    return isPopulateLoadingForWallets({
+      populateStatus: portfolio.populateStatus,
+      wallets: visibleKeyWallets,
+    });
+  }, [portfolio.populateStatus, visibleKeyWallets]);
+
+  const {
+    data: chartData,
+    selectedTimeframe,
+    setSelectedTimeframe,
+  } = useBalanceChartData({
+    wallets: visibleKeyWallets,
+    snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
+    fiatRateSeriesCache,
+    quoteCurrency,
+    initialTimeframe: 'ALL',
+  });
+
+  const isChartLoading = useMemo(() => {
+    if (!visibleKeyWallets.length) {
+      return false;
+    }
+    if (isKeyPopulateLoading) {
+      return true;
+    }
+    if (
+      isFiatLoadingForWallets({
+        quoteCurrency,
+        wallets: visibleKeyWallets,
+        snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
+      })
+    ) {
+      return true;
+    }
+    return !chartData.data.length;
+  }, [
+    chartData.data.length,
+    isKeyPopulateLoading,
+    portfolio.snapshotsByWalletId,
+    quoteCurrency,
+    visibleKeyWallets,
+  ]);
+
   const allocationWalletRows: AllocationWallet[] = useMemo(() => {
     return visibleKeyWallets.map((w: Wallet) => {
       return {
@@ -535,13 +598,6 @@ const KeyOverview = () => {
       defaultAltCurrency.isoCode,
     );
   }, [allocationWalletRows, defaultAltCurrency.isoCode]);
-
-  const quoteCurrency = useMemo(() => {
-    return getQuoteCurrency({
-      portfolioQuoteCurrency: portfolio.quoteCurrency,
-      defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
-    });
-  }, [defaultAltCurrency?.isoCode, portfolio.quoteCurrency]);
 
   const keyWalletIdsSig = useMemo(() => {
     return (key?.wallets || [])
@@ -562,13 +618,6 @@ const KeyOverview = () => {
       }) as any,
     );
   }, [dispatch, isFocused, keyWalletIdsSig, quoteCurrency]);
-
-  const isKeyPopulateLoading = useMemo(() => {
-    return isPopulateLoadingForWallets({
-      populateStatus: portfolio.populateStatus,
-      wallets: visibleKeyWallets,
-    });
-  }, [portfolio.populateStatus, visibleKeyWallets]);
 
   const gainLossSummary = useMemo(() => {
     return buildPortfolioGainLossSummaryFromPortfolioSnapshots({
@@ -995,15 +1044,15 @@ const KeyOverview = () => {
     )!;
     if (!fullWalletObj.isComplete() && fullWalletObj.pendingTssSession) {
       fullWalletObj.getStatus(
-        {network: fullWalletObj.network},
-        (err: any, status: Status) => {
+        {},
+        (err?: Error, status?: any) => {
           if (err) {
             const errStr =
               err instanceof Error ? err.message : JSON.stringify(err);
             logger.error(
               `error [KeyOverview - onPressItem] [getStatus]: ${errStr}`,
             );
-          } else {
+          } else if (status?.wallet) {
             if (status?.wallet?.status === 'complete') {
               fullWalletObj.openWallet({}, () => {
                 navigation.navigate('WalletDetails', {
@@ -1066,7 +1115,7 @@ const KeyOverview = () => {
     [key, hideAllBalances],
   );
 
-  const renderListHeaderComponent = useCallback(() => {
+  const listHeaderComponent = useMemo(() => {
     return (
       <WalletListHeader>
         <H5>{t('My Wallets')}</H5>
@@ -1080,8 +1129,8 @@ const KeyOverview = () => {
             searchVal={searchVal}
             setSearchVal={setSearchVal}
             searchResults={searchResults}
-            setSearchResults={searchResults => {
-              setSearchResults(searchResults);
+            setSearchResults={results => {
+              setSearchResults(results as AccountRowProps[]);
               setIsLoadingInitial(false);
             }}
             searchFullList={memorizedAccountList}
@@ -1090,7 +1139,7 @@ const KeyOverview = () => {
         </View>
       </WalletListHeader>
     );
-  }, [key, hideAllBalances]);
+  }, [memorizedAccountList, searchResults, searchVal, t]);
 
   const renderListFooterComponent = useCallback(() => {
     return (
@@ -1276,6 +1325,17 @@ const KeyOverview = () => {
           )}
         </TouchableOpacity>
       </BalanceContainer>
+      {!hideAllBalances && showPortfolioValue && visibleKeyWallets.length ? (
+        <ChartWrapper>
+          <BalanceChart
+            data={chartData}
+            quoteCurrency={quoteCurrency}
+            selectedTimeframe={selectedTimeframe}
+            onTimeframeChange={setSelectedTimeframe}
+            isLoading={isChartLoading}
+          />
+        </ChartWrapper>
+      ) : null}
 
       <FlashList<AccountRowProps>
         refreshControl={
@@ -1285,12 +1345,11 @@ const KeyOverview = () => {
             onRefresh={() => onRefresh()}
           />
         }
-        ListHeaderComponent={renderListHeaderComponent}
+        ListHeaderComponent={listHeaderComponent}
         ListFooterComponent={renderListFooterComponent}
         data={renderDataComponent}
         renderItem={memoizedRenderItem}
         ListEmptyComponent={listEmptyComponent}
-        estimatedItemSize={70}
       />
 
       {keyOptions.length > 0 ? (
