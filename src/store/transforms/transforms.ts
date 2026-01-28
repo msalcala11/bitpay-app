@@ -2,6 +2,7 @@ import merge from 'lodash.merge';
 import {createTransform} from 'redux-persist';
 import {Key, Wallet} from '../wallet/wallet.models';
 import {BwcProvider} from '../../lib/bwc';
+import type {PortfolioState} from '../portfolio/portfolio.models';
 import {
   BitpaySupportedUtxoCoins,
   OtherBitpaySupportedCoins,
@@ -201,6 +202,27 @@ export const transformContacts = createTransform<ContactState, ContactState>(
     }
   },
   {whitelist: ['CONTACT']},
+);
+
+export const transformPortfolioPopulateStatus = createTransform<
+  PortfolioState,
+  PortfolioState
+>(
+  inboundState => inboundState,
+  outboundState => {
+    if (outboundState?.populateStatus?.inProgress) {
+      return {
+        ...outboundState,
+        populateStatus: {
+          ...outboundState.populateStatus,
+          inProgress: false,
+          currentWalletId: undefined,
+        },
+      };
+    }
+    return outboundState;
+  },
+  {whitelist: ['PORTFOLIO']},
 );
 
 export const encryptSpecificFields = (secretKey: string) => {
