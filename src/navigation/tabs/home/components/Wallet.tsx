@@ -5,6 +5,7 @@ import HomeCard from '../../../../components/home-card/HomeCard';
 import {BaseText, H3} from '../../../../components/styled/Text';
 import {Wallet} from '../../../../store/wallet/wallet.models';
 import {
+  CharcoalBlack,
   LightBlack,
   NeutralSlate,
   Slate,
@@ -32,11 +33,12 @@ import AngleRightSvg from '../../../../../assets/img/angle-right.svg';
 import ArrowRightSvg from './ArrowRightSvg';
 import {Balance} from '../../../wallet/components/DropdownOption';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
+import {maskIfHidden} from '../../../../utils/hideBalances';
 
 interface WalletCardComponentProps {
   wallets: Wallet[];
   totalBalance: number;
-  percentageDifference: number;
+  percentageDifference: number | null;
   onPress: () => void;
   needsBackup: boolean;
   keyName: string | undefined;
@@ -57,7 +59,7 @@ export const ListCard = styled(TouchableOpacity)<{outlineStyle?: boolean}>`
       theme.dark ? (!outlineStyle ? LightBlack : SlateDark) : Slate30
     }`};
   background-color: ${({theme: {dark}, outlineStyle}) =>
-    dark ? (!outlineStyle ? '#111' : 'none') : White};
+    dark ? (!outlineStyle ? CharcoalBlack : 'none') : White};
   border-radius: 12px;
   margin: ${({outlineStyle}) =>
     outlineStyle ? `0px 0px ${ScreenGutter} 0px` : `8px ${ScreenGutter}`};
@@ -216,7 +218,7 @@ const WalletCardComponent: React.FC<WalletCardComponentProps> = ({
             <BalanceContainer>
               <Balance hidden={hideKeyBalance}>
                 {hideKeyBalance ? (
-                  '****'
+                  maskIfHidden(true, amount)
                 ) : (
                   <>
                     {amount}
@@ -228,10 +230,11 @@ const WalletCardComponent: React.FC<WalletCardComponentProps> = ({
                   </>
                 )}
               </Balance>
-              {!hideKeyBalance && percentageDifference ? (
+              {!hideKeyBalance && percentageDifference !== null ? (
                 <Percentage
                   percentageDifference={percentageDifference}
                   hideArrow={true}
+                  fractionDigits={2}
                 />
               ) : null}
             </BalanceContainer>

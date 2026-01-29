@@ -29,19 +29,21 @@ import {addAltCurrencyList} from '../../../app/app.actions';
 import {AltCurrenciesRowProps} from '../../../../components/list/AltCurrenciesRow';
 import {BitpaySupportedTokenOptsByAddress} from '../../../../constants/tokens';
 import {
-  getCurrencyAbbreviation,
   addTokenChainSuffix,
+  getLastDayTimestampStartOfHourMs,
+  getErrorString,
 } from '../../../../utils/helper-methods';
 import {
   getMultipleTokenPrices,
   UnifiedTokenPriceObj,
 } from '../../../../store/moralis/moralis.effects';
 import {calculateUsdToAltFiat} from '../../../../store/buy-crypto/buy-crypto.effects';
-import {IsERCToken, IsSVMChain} from '../../utils/currency';
+import {IsERCToken} from '../../utils/currency';
 import {UpdateAllKeyAndWalletStatusContext} from '../status/status';
 import {tokenManager} from '../../../../managers/TokenManager';
 import {logManager} from '../../../../managers/LogManager';
 import type {Key, Wallet} from '../../wallet.models';
+import {normalizeFiatRateSeriesCoin} from '../../../../utils/rate';
 
 const FIAT_RATE_SERIES_BASE_URL = `${BASE_BWS_URL}/v4/fiatrates`;
 
@@ -146,8 +148,7 @@ export const startGetRates =
 
       try {
         logManager.info('startGetRates: fetching new rates...');
-        const yesterday =
-          moment().subtract(1, 'days').startOf('hour').unix() * 1000;
+        const yesterday = getLastDayTimestampStartOfHourMs();
 
         logManager.info(
           `startGetRates: get request to: ${BASE_BWS_URL}/v3/fiatrates/`,
@@ -196,17 +197,27 @@ export const startGetRates =
         logManager.info('startGetRates: success');
         resolve(allRates);
       } catch (err) {
-        let errorStr;
-        if (err instanceof Error) {
-          errorStr = err.message;
-        } else {
-          errorStr = JSON.stringify(err);
-        }
+        const errorStr = getErrorString(err);
         dispatch(failedGetRates());
         logManager.error(`startGetRates: failed ${errorStr}`);
         resolve(getState().RATE.rates); // Return cached rates
       }
     });
+  };
+
+export const refreshRatesForPortfolioPnl =
+  ({
+    context,
+  }: {
+    context?: UpdateAllKeyAndWalletStatusContext;
+  } = {}): Effect<Promise<void>> =>
+  async dispatch => {
+    await dispatch(
+      startGetRates({
+        context,
+        force: true,
+      }) as any,
+    );
   };
 
 export const getContractAddresses =
@@ -377,20 +388,6 @@ export const getHistoricFiatRate = (
       reject(e);
     }
   });
-};
-
-const normalizeFiatRateSeriesCoin = (currencyAbbreviation?: string): string => {
-  switch (currencyAbbreviation?.toLowerCase()) {
-    case 'wbtc':
-      return 'btc';
-    case 'weth':
-      return 'eth';
-    case 'matic':
-    case 'pol':
-      return 'pol';
-    default:
-      return (currencyAbbreviation || '').toLowerCase();
-  }
 };
 
 export const fetchFiatRateSeriesInterval =

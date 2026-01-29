@@ -32,6 +32,7 @@ export interface PercentageProps {
   hideSign?: boolean;
   priceChange?: string | number;
   rangeLabel?: string;
+  fractionDigits?: number;
 }
 
 export const getDifferenceColor = (
@@ -47,6 +48,7 @@ const Percentage = ({
   hideSign = false,
   priceChange,
   rangeLabel,
+  fractionDigits,
 }: PercentageProps) => {
   const theme = useTheme();
   const isDarkMode = theme.dark;
@@ -61,7 +63,12 @@ const Percentage = ({
   const shouldShowPriceChange = Boolean(formattedPriceChange?.length);
   const signPrefix = hideSign ? '' : percentageDifference < 0 ? '- ' : '+ ';
   const formattedPercentageDifference =
-    Math.abs(percentageDifference).toLocaleString('en-US');
+    typeof fractionDigits === 'number'
+      ? Math.abs(percentageDifference).toLocaleString('en-US', {
+          minimumFractionDigits: fractionDigits,
+          maximumFractionDigits: fractionDigits,
+        })
+      : Math.abs(percentageDifference).toLocaleString('en-US');
   const percentageValue = `${signPrefix}${formattedPercentageDifference}%`;
   const wrappedPercentageValue = shouldShowPriceChange
     ? `(${percentageValue})`
