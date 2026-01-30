@@ -35,8 +35,41 @@ import {
   unitStringToAtomicBigInt,
   getLastDayTimestampStartOfHourMs,
 } from './helper-methods';
+import {getAssetIdFromWallet, parseAssetId} from './portfolio/assetId';
 
 export type GainLossMode = FiatRateInterval;
+
+/**
+ * Debug payload for per-asset PnL calculations.
+ *
+ * Stored as an object (not pre-stringified) to avoid per-row JSON.stringify
+ * overhead during list renders. Consumers can stringify on-demand when the user
+ * copies the log.
+ */
+export type AssetPnlLog = {
+  assetId: string;
+  chain: string;
+  coin: string;
+  gainLossMode: GainLossMode;
+  baselineTimeframe: FiatRateInterval;
+  baselineTimestampMs: number;
+  units: number;
+  prevUnits: number;
+  costBasisFiat: number;
+  prevCostBasisFiat: number;
+  unrealizedPnlFiat: number;
+  prevUnrealizedPnlFiat: number;
+  fiatValueNow: number;
+  baselineFiatValue: number;
+  deltaTimeframe: number;
+  deltaFiat: number;
+  denom: number;
+  timeWeightedBaselineFiat?: number;
+  timeWeightedPercentRatio?: number;
+  percentRatio: number;
+  rateDebugs?: AssetRateDebug[];
+  twrDebugs?: AssetTwrDebug[];
+};
 
 export type AssetRowItem = {
   key: string;
@@ -50,7 +83,7 @@ export type AssetRowItem = {
   deltaPercent: string;
   isPositive: boolean;
   hasRate: boolean;
-  pnlLog?: string;
+  pnlLog?: AssetPnlLog;
 };
 
 export const sortAssetRowItemsByHasRate = (
@@ -316,18 +349,8 @@ export const getVisibleWalletsFromKeys = (
     .filter(w => !w.hideWallet && !w.hideWalletByAccount);
 };
 
-const getAssetKeyFromWallet = (wallet: Wallet): string => {
-  const chain = ((wallet as any)?.chain || '').toLowerCase();
-  const coin = ((wallet as any)?.currencyAbbreviation || '').toLowerCase();
-  if (!chain || !coin) {
-    return '';
-  }
-  const tokenAddress = (wallet as any)?.tokenAddress as string | undefined;
-  if (tokenAddress) {
-    return `${chain}:${coin}:${tokenAddress.toLowerCase()}`;
-  }
-  return `${chain}:${coin}`;
-};
+// NOTE: asset id creation is shared across portfolio + assets list.
+// See utils/portfolio/assetId.ts
 
 export const buildWalletIdsByAssetGroupKey = (
   wallets: Wallet[] | undefined,
@@ -666,22 +689,63 @@ export const getWalletIdsToPopulateFromSnapshots = (args: {
 
 const MAX_PREV1D_BASELINE_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 
+const getSnapshotTimestampMs = (s: BalanceSnapshot | undefined): number => {
+  const ts = s?.timestamp;
+  return typeof ts === 'number' && Number.isFinite(ts) ? ts : 0;
+};
+
+/**
+ * Assumes snapshots are stored sorted ascending by timestamp (portfolio effects
+ * sort before writing to state). Falls back gracefully for empty input.
+ */
+const findLastSnapshotIndexAtOrBefore = (
+  snapshots: BalanceSnapshot[],
+  cutoffMs: number,
+): number => {
+  let lo = 0;
+  let hi = snapshots.length - 1;
+  let best = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const ts = getSnapshotTimestampMs(snapshots[mid]);
+    if (ts && ts <= cutoffMs) {
+      best = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return best;
+};
+
+const findFirstSnapshotIndexAfter = (
+  snapshots: BalanceSnapshot[],
+  cutoffMs: number,
+): number => {
+  let lo = 0;
+  let hi = snapshots.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const ts = getSnapshotTimestampMs(snapshots[mid]);
+    if (ts && ts <= cutoffMs) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+};
+
 const getSnapshotAtOrBefore = (
   snapshots: BalanceSnapshot[] | undefined,
   cutoffMs: number,
 ): BalanceSnapshot | undefined => {
   const arr = Array.isArray(snapshots) ? snapshots : [];
-  let best: BalanceSnapshot | undefined;
-  for (const s of arr) {
-    const ts = s?.timestamp || 0;
-    if (!ts || ts > cutoffMs) {
-      continue;
-    }
-    if (!best || ts > (best.timestamp || 0)) {
-      best = s;
-    }
+  if (!arr.length) {
+    return undefined;
   }
-  return best;
+  const idx = findLastSnapshotIndexAtOrBefore(arr, cutoffMs);
+  return idx >= 0 ? arr[idx] : undefined;
 };
 
 const buildPortfolioSnapshotContext = (args: {
@@ -792,54 +856,43 @@ const getTimeWeightedReturnFromSnapshots = (args: {
       debug?: TimeWeightedReturnDebug;
     }
   | undefined => {
-  const arr = Array.isArray(args.snapshots) ? args.snapshots.slice() : [];
-  if (!arr.length) {
+  const snapshots = Array.isArray(args.snapshots) ? args.snapshots : [];
+  if (!snapshots.length) {
     return undefined;
   }
 
-  const sorted = arr.sort((a, b) => (a?.timestamp || 0) - (b?.timestamp || 0));
-  const getLatestAtOrBefore = (
-    snapshots: BalanceSnapshot[],
-    cutoffMs: number,
-  ): BalanceSnapshot | undefined => {
-    let latest: BalanceSnapshot | undefined;
-    for (const snap of snapshots) {
-      const ts = snap?.timestamp || 0;
-      if (!ts || ts > cutoffMs) {
-        break;
-      }
-      latest = snap;
-    }
-    return latest;
-  };
+  // Snapshots are stored sorted by timestamp in state.
+  const startAtOrBeforeIndex = findLastSnapshotIndexAtOrBefore(
+    snapshots,
+    args.baselineTimestampMs,
+  );
+  const startAtOrBefore =
+    startAtOrBeforeIndex >= 0 ? snapshots[startAtOrBeforeIndex] : undefined;
+  const startAfterIndex = findFirstSnapshotIndexAfter(
+    snapshots,
+    args.baselineTimestampMs,
+  );
+  const startAfterBaseline =
+    startAfterIndex >= 0 && startAfterIndex < snapshots.length
+      ? snapshots[startAfterIndex]
+      : undefined;
 
-  const getEarliestAfter = (
-    snapshots: BalanceSnapshot[],
-    cutoffMs: number,
-  ): BalanceSnapshot | undefined => {
-    for (const snap of snapshots) {
-      const ts = snap?.timestamp || 0;
-      if (ts > cutoffMs) {
-        return snap;
-      }
-    }
-    return undefined;
-  };
-
-  const startAtOrBefore = getLatestAtOrBefore(sorted, args.baselineTimestampMs);
-  const startAfterBaseline = getEarliestAfter(sorted, args.baselineTimestampMs);
   let start = startAtOrBefore || startAfterBaseline;
+  let startIndex =
+    startAtOrBeforeIndex >= 0 ? startAtOrBeforeIndex : startAfterIndex;
   let usedStartAfterBaseline = !startAtOrBefore && !!startAfterBaseline;
 
   if (startAtOrBefore && startAfterBaseline) {
     const startUnits = getSnapshotUnits(startAtOrBefore);
     if (!(startUnits > 0)) {
       start = startAfterBaseline;
+      startIndex = startAfterIndex;
       usedStartAfterBaseline = true;
     }
   }
 
-  const end = getLatestAtOrBefore(sorted, args.nowMs);
+  const endIndex = findLastSnapshotIndexAtOrBefore(snapshots, args.nowMs);
+  const end = endIndex >= 0 ? snapshots[endIndex] : undefined;
   if (!start || !end) {
     return undefined;
   }
@@ -895,12 +948,13 @@ const getTimeWeightedReturnFromSnapshots = (args: {
   let twr = 1;
   let currentUnits = startUnits;
   let valueAfterPrevFlow = startValue;
-  const startTs = start.timestamp || 0;
+  const startTs = getSnapshotTimestampMs(start);
   const flowRateSourceCounts = {series: 0, snapshot: 0, none: 0};
 
-  for (const snap of sorted) {
-    const ts = snap?.timestamp || 0;
-    if (ts <= startTs || ts > args.nowMs) {
+  for (let i = startIndex + 1; i <= endIndex; i++) {
+    const snap = snapshots[i];
+    const ts = getSnapshotTimestampMs(snap);
+    if (ts <= startTs) {
       continue;
     }
     const isFlowSnapshot =
@@ -1080,17 +1134,17 @@ type AssetAggRow = AssetAgg & {
   twrDebugs?: AssetTwrDebug[];
 };
 
-const formatAssetRowPnlLog = (args: {
+const buildAssetRowPnlLog = (args: {
   row: AssetAggRow;
   gainLossMode: GainLossMode;
   baselineTimeframe: FiatRateInterval;
   baselineTimestampMs: number;
-}): string => {
+}): AssetPnlLog => {
   const denom =
     args.gainLossMode === 'ALL'
       ? Math.abs(args.row.costBasisFiat)
       : Math.abs(args.row.fiatValuePrev);
-  return JSON.stringify({
+  return {
     assetId: args.row.assetId,
     chain: args.row.chain,
     coin: args.row.coin,
@@ -1110,11 +1164,10 @@ const formatAssetRowPnlLog = (args: {
     denom,
     timeWeightedBaselineFiat: args.row.timeWeightedBaselineFiat,
     timeWeightedPercentRatio: args.row.timeWeightedPercentRatio,
-    timeWeightedBaselineFiatTotal: args.row.timeWeightedBaselineFiat,
     percentRatio: args.row.percentRatio,
     rateDebugs: args.row.rateDebugs,
     twrDebugs: args.row.twrDebugs,
-  });
+  };
 };
 
 const buildWalletByIdMap = (
@@ -1137,9 +1190,9 @@ const getAssetMetaFromWalletAndSnapshot = (
   | undefined => {
   const coin = (wallet.currencyAbbreviation || latest.coin || '').toLowerCase();
   const chain = (wallet.chain || latest.chain || '').toLowerCase();
-  const walletAssetId = getAssetKeyFromWallet(wallet);
+  const walletAssetId = getAssetIdFromWallet(wallet);
   const latestAssetId = (latest.assetId || '').toLowerCase();
-  const hasLatestToken = latestAssetId.split(':').length === 3;
+  const hasLatestToken = !!parseAssetId(latestAssetId).tokenAddress;
   const assetId = (
     walletAssetId && (wallet.tokenAddress || !hasLatestToken)
       ? walletAssetId
@@ -1148,9 +1201,7 @@ const getAssetMetaFromWalletAndSnapshot = (
   if (!assetId) {
     return undefined;
   }
-  const tokenAddress =
-    wallet.tokenAddress ||
-    (assetId.split(':').length === 3 ? assetId.split(':')[2] : undefined);
+  const tokenAddress = wallet.tokenAddress || parseAssetId(assetId).tokenAddress;
   return {assetId, coin, chain, tokenAddress};
 };
 
@@ -1201,10 +1252,25 @@ const getQuoteRateNumForAsset = (args: {
   coin: string;
   chain: string;
   tokenAddress?: string;
+  cache?: Map<string, number>;
 }): number => {
   if (!args.rates) {
     return 0;
   }
+
+  const cacheKey = (() => {
+    const coin = (args.coin || '').toLowerCase();
+    const chain = (args.chain || '').toLowerCase();
+    const token = (args.tokenAddress || '').toLowerCase();
+    const quote = (args.quoteCurrency || '').toUpperCase();
+    return `${chain}:${coin}:${token}:${quote}`;
+  })();
+
+  const cached = args.cache?.get(cacheKey);
+  if (typeof cached === 'number') {
+    return cached;
+  }
+
   const arr = getRateByCurrencyName(
     args.rates,
     args.coin,
@@ -1212,7 +1278,9 @@ const getQuoteRateNumForAsset = (args: {
     args.tokenAddress,
   );
   const rate = arr?.find(r => r.code === args.quoteCurrency)?.rate;
-  return toNumber(rate);
+  const num = toNumber(rate);
+  args.cache?.set(cacheKey, num);
+  return num;
 };
 
 const getFiatValueMetricsForAgg = (args: {
@@ -1220,6 +1288,8 @@ const getFiatValueMetricsForAgg = (args: {
   quoteCurrency: string;
   rates?: Rates;
   lastDayRates?: Rates;
+  nowRateCache?: Map<string, number>;
+  lastDayRateCache?: Map<string, number>;
   fiatRateSeriesCache?: FiatRateSeriesCache;
   baselineTimestampMs: number;
   baselineTimeframe: FiatRateInterval;
@@ -1240,6 +1310,7 @@ const getFiatValueMetricsForAgg = (args: {
     coin: args.agg.coin,
     chain: args.agg.chain,
     tokenAddress: args.agg.tokenAddress,
+    cache: args.nowRateCache,
   });
   const prevSeriesInterval = getFiatRateSeriesIntervalForTimeframe(
     args.baselineTimeframe,
@@ -1260,9 +1331,13 @@ const getFiatValueMetricsForAgg = (args: {
           coin: args.agg.coin,
           chain: args.agg.chain,
           tokenAddress: args.agg.tokenAddress,
+          cache: args.lastDayRateCache,
         })
       : 0;
-  const prevRateNum = prevRateNumFromSeries ?? prevRateNumFromLastDayRates;
+  const prevRateNum = pickFirstPositiveRate(
+    prevRateNumFromSeries,
+    prevRateNumFromLastDayRates,
+  );
   const prevRateSource: 'series' | 'lastDayRates' | 'none' =
     prevRateNumFromSeries && prevRateNumFromSeries > 0
       ? 'series'
@@ -1447,9 +1522,9 @@ const buildAssetAggMapFromPortfolioSnapshots = (args: {
           : undefined;
       const hasBaselineSnapshot = !!prevSnapshot;
 
-      const hasTxSinceCutoff = (Array.isArray(snapshots) ? snapshots : []).some(
-        s => s?.eventType === 'tx' && (s?.timestamp || 0) > cutoffMs,
-      );
+      // All stored snapshots are flow-driven (tx or daily aggregation), so if the
+      // latest snapshot is after the cutoff we know there was activity since then.
+      const hasTxSinceCutoff = getSnapshotTimestampMs(latest) > cutoffMs;
 
       const unitsRaw = toNumber(latest.cryptoBalance);
       const units = unitsRaw > 0 ? unitsRaw : 0;
@@ -1530,7 +1605,7 @@ const buildAssetAggMapFromPortfolioSnapshots = (args: {
 
     const coin = (wallet.currencyAbbreviation || '').toLowerCase();
     const chain = (wallet.chain || '').toLowerCase();
-    const assetId = getAssetKeyFromWallet(wallet);
+    const assetId = getAssetIdFromWallet(wallet);
     if (!assetId) {
       continue;
     }
@@ -1678,6 +1753,8 @@ const getTimeframePnlMetricsForAgg = (args: {
   quoteCurrency: string;
   rates?: Rates;
   lastDayRates?: Rates;
+  nowRateCache?: Map<string, number>;
+  lastDayRateCache?: Map<string, number>;
   fiatRateSeriesCache?: FiatRateSeriesCache;
   baselineTimestampMs: number;
   timeframe: FiatRateInterval;
@@ -1706,6 +1783,8 @@ const getTimeframePnlMetricsForAgg = (args: {
     quoteCurrency: args.quoteCurrency,
     rates: args.rates,
     lastDayRates: args.lastDayRates,
+    nowRateCache: args.nowRateCache,
+    lastDayRateCache: args.lastDayRateCache,
     fiatRateSeriesCache: args.fiatRateSeriesCache,
     baselineTimestampMs: args.baselineTimestampMs,
     baselineTimeframe: args.timeframe,
@@ -1753,6 +1832,8 @@ const computePortfolioPnlChangeForTimeframeFromAggs = (args: {
   quoteCurrency: string;
   rates?: Rates;
   lastDayRates?: Rates;
+  nowRateCache?: Map<string, number>;
+  lastDayRateCache?: Map<string, number>;
   fiatRateSeriesCache?: FiatRateSeriesCache;
   baselineTimestampMs: number;
   timeframe: FiatRateInterval;
@@ -1770,6 +1851,8 @@ const computePortfolioPnlChangeForTimeframeFromAggs = (args: {
       quoteCurrency: args.quoteCurrency,
       rates: args.rates,
       lastDayRates: args.lastDayRates,
+      nowRateCache: args.nowRateCache,
+      lastDayRateCache: args.lastDayRateCache,
       fiatRateSeriesCache: args.fiatRateSeriesCache,
       baselineTimestampMs: args.baselineTimestampMs,
       timeframe: args.timeframe,
@@ -1803,6 +1886,8 @@ const getTimeWeightedReturnForWalletIds = (args: {
   fiatRateSeriesCache?: FiatRateSeriesCache;
   rates?: Rates;
   lastDayRates?: Rates;
+  nowRateCache?: Map<string, number>;
+  lastDayRateCache?: Map<string, number>;
 }):
   | {
       percentRatio: number;
@@ -1841,6 +1926,7 @@ const getTimeWeightedReturnForWalletIds = (args: {
       coin: wallet.currencyAbbreviation,
       chain: wallet.chain,
       tokenAddress: wallet.tokenAddress,
+      cache: args.nowRateCache,
     });
     const baselineRate =
       args.timeframe === '1D'
@@ -1850,6 +1936,7 @@ const getTimeWeightedReturnForWalletIds = (args: {
             coin: wallet.currencyAbbreviation,
             chain: wallet.chain,
             tokenAddress: wallet.tokenAddress,
+            cache: args.lastDayRateCache,
           })
         : 0;
     const result = getTimeWeightedReturnFromSnapshots({
@@ -1905,6 +1992,8 @@ const getPortfolioTimeWeightedReturnFromSnapshots = (args: {
   fiatRateSeriesCache?: FiatRateSeriesCache;
   rates?: Rates;
   lastDayRates?: Rates;
+  nowRateCache?: Map<string, number>;
+  lastDayRateCache?: Map<string, number>;
 }): {percentRatio: number; baselineFiatTotal: number} | undefined => {
   return getTimeWeightedReturnForWalletIds({
     walletIds: Object.keys(args.snapshotsByWalletId || {}),
@@ -1917,6 +2006,8 @@ const getPortfolioTimeWeightedReturnFromSnapshots = (args: {
     fiatRateSeriesCache: args.fiatRateSeriesCache,
     rates: args.rates,
     lastDayRates: args.lastDayRates,
+    nowRateCache: args.nowRateCache,
+    lastDayRateCache: args.lastDayRateCache,
   });
 };
 
@@ -1967,11 +2058,17 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
     maxPrevBaselineAgeMs: getMaxPrevBaselineAgeMsForTimeframe(args.timeframe),
   });
 
+  // Per-render caches to avoid repeated rate lookups across assets.
+  const nowRateCache = new Map<string, number>();
+  const lastDayRateCache = new Map<string, number>();
+
   const legacyTotals = computePortfolioPnlChangeForTimeframeFromAggs({
     byAssetId,
     quoteCurrency: effectiveQuoteCurrency,
     rates: args.rates,
     lastDayRates: args.lastDayRates,
+    nowRateCache,
+    lastDayRateCache,
     fiatRateSeriesCache: args.fiatRateSeriesCache,
     baselineTimestampMs,
     timeframe: args.timeframe,
@@ -1988,6 +2085,8 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
     fiatRateSeriesCache: args.fiatRateSeriesCache,
     rates: args.rates,
     lastDayRates: args.lastDayRates,
+    nowRateCache,
+    lastDayRateCache,
   });
 
   const percentRatio = timeWeighted?.percentRatio ?? legacyTotals.percentRatio;
@@ -2032,6 +2131,10 @@ export const buildPortfolioGainLossSummaryFromPortfolioSnapshots = (args: {
     maxPrevBaselineAgeMs: getMaxPrevBaselineAgeMsForTimeframe('1D'),
   });
 
+  // Per-render caches to avoid repeated rate lookups across assets.
+  const nowRateCache = new Map<string, number>();
+  const lastDayRateCache = new Map<string, number>();
+
   let fiatValueNowTotal = 0;
   let costBasisNowTotal = 0;
 
@@ -2046,6 +2149,8 @@ export const buildPortfolioGainLossSummaryFromPortfolioSnapshots = (args: {
         quoteCurrency: effectiveQuoteCurrency,
         rates: args.rates,
         lastDayRates: args.lastDayRates,
+        nowRateCache,
+        lastDayRateCache,
         fiatRateSeriesCache: args.fiatRateSeriesCache,
         baselineTimestampMs,
         baselineTimeframe: '1D',
@@ -2060,6 +2165,8 @@ export const buildPortfolioGainLossSummaryFromPortfolioSnapshots = (args: {
     quoteCurrency: effectiveQuoteCurrency,
     rates: args.rates,
     lastDayRates: args.lastDayRates,
+    nowRateCache,
+    lastDayRateCache,
     fiatRateSeriesCache: args.fiatRateSeriesCache,
     baselineTimestampMs,
     timeframe: '1D',
@@ -2097,20 +2204,21 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
   const preferredQuoteCurrency = (args.quoteCurrency || '').toUpperCase();
 
   const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
-  let gainLossMode = args.gainLossMode;
-  let baselineTimeframe: FiatRateInterval =
-    gainLossMode === 'ALL' ? '1D' : gainLossMode;
+  const requestedGainLossMode = args.gainLossMode;
 
-  let baselineTimestampMs = (() => {
+  const computeBaselineTimestampMs = (timeframe: FiatRateInterval): number => {
     const ts = getBaselineTimestampMsForFiatRateTimeframe({
-      timeframe: baselineTimeframe,
+      timeframe,
       nowMs,
     });
-    if (typeof ts === 'number') {
-      return ts;
-    }
-    return getBaselineTimestampMs(nowMs);
-  })();
+    return typeof ts === 'number' ? ts : getBaselineTimestampMs(nowMs);
+  };
+
+  // For ALL-time gain/loss we still compute a 1D baseline timestamp for
+  // populating debug info / baseline helpers.
+  let baselineTimeframe: FiatRateInterval =
+    requestedGainLossMode === 'ALL' ? '1D' : requestedGainLossMode;
+  let baselineTimestampMs = computeBaselineTimestampMs(baselineTimeframe);
 
   const {walletById, effectiveQuoteCurrency, earliestSnapshotTimestampMs} =
     buildPortfolioSnapshotContext({
@@ -2119,11 +2227,15 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       preferredQuoteCurrency,
     });
 
+  let gainLossMode: GainLossMode = requestedGainLossMode;
   if (
+    requestedGainLossMode !== 'ALL' &&
     typeof earliestSnapshotTimestampMs === 'number' &&
     baselineTimestampMs < earliestSnapshotTimestampMs
   ) {
     gainLossMode = 'ALL';
+    baselineTimeframe = '1D';
+    baselineTimestampMs = computeBaselineTimestampMs(baselineTimeframe);
   }
 
   const walletIdsByAssetId = buildWalletIdsByAssetIdFromSnapshots({
@@ -2142,6 +2254,10 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       getMaxPrevBaselineAgeMsForTimeframe(baselineTimeframe),
   });
 
+  // Per-render caches to avoid repeated rate lookups across rows.
+  const nowRateCache = new Map<string, number>();
+  const lastDayRateCache = new Map<string, number>();
+
   const rows: AssetAggRow[] = [];
 
   for (const agg of byAssetId.values()) {
@@ -2154,6 +2270,8 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       quoteCurrency: effectiveQuoteCurrency,
       rates: args.rates,
       lastDayRates: args.lastDayRates,
+      nowRateCache,
+      lastDayRateCache,
       fiatRateSeriesCache: args.fiatRateSeriesCache,
       baselineTimestampMs,
       timeframe: baselineTimeframe,
@@ -2184,6 +2302,8 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
             fiatRateSeriesCache: args.fiatRateSeriesCache,
             rates: args.rates,
             lastDayRates: args.lastDayRates,
+            nowRateCache,
+            lastDayRateCache,
           });
     const marketBaselineFiat = Math.abs(agg.units * m.rateDebug.prevRateUsed);
     const marketPercentRatio =
@@ -2235,7 +2355,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
   effectiveRows.sort((a, b) => b.snapshotFiatValue - a.snapshotFiatValue);
 
   return effectiveRows.map(r => {
-    const pnlLog = formatAssetRowPnlLog({
+    const pnlLog = buildAssetRowPnlLog({
       row: r,
       gainLossMode,
       baselineTimeframe,

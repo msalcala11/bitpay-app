@@ -32,6 +32,7 @@ import type {
   WalletPopulateState,
 } from './portfolio.models';
 import {getWalletIdsToPopulateFromSnapshots} from '../../utils/assets';
+import {getAssetIdFromWallet} from '../../utils/portfolio/assetId';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const NINETY_DAYS_MS = 90 * MS_PER_DAY;
@@ -218,15 +219,6 @@ const applyCostBasisTransition = (args: {
   return costBasisFiat;
 };
 
-const getAssetIdFromWallet = (wallet: Wallet): string => {
-  const chain = (wallet.chain || '').toLowerCase();
-  const coin = (wallet.currencyAbbreviation || '').toLowerCase();
-  if (wallet.tokenAddress) {
-    return `${chain}:${coin}:${wallet.tokenAddress.toLowerCase()}`;
-  }
-  return `${chain}:${coin}`;
-};
-
 const getUtcDayStartMs = (tsMs: number): number => {
   const d = new Date(tsMs);
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
@@ -234,6 +226,54 @@ const getUtcDayStartMs = (tsMs: number): number => {
 
 const toFiniteNumber = (value: number | undefined): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : 0;
+
+const sortSnapshotsInPlace = (snaps: BalanceSnapshot[]): BalanceSnapshot[] => {
+  // Deterministic ordering: primary timestamp, then createdAt, then id.
+  snaps.sort((a, b) => {
+    const tsA = a?.timestamp || 0;
+    const tsB = b?.timestamp || 0;
+    if (tsA !== tsB) {
+      return tsA - tsB;
+    }
+    const createdA = a?.createdAt || 0;
+    const createdB = b?.createdAt || 0;
+    if (createdA !== createdB) {
+      return createdA - createdB;
+    }
+    const idA = a?.id || '';
+    const idB = b?.id || '';
+    return idA.localeCompare(idB);
+  });
+  return snaps;
+};
+
+const runWithConcurrency = async <T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<void>,
+  shouldAbort?: () => boolean,
+): Promise<void> => {
+  if (!items.length) {
+    return;
+  }
+  const max = Math.max(1, Math.min(concurrency, items.length));
+  let nextIndex = 0;
+
+  const runners = Array.from({length: max}).map(async () => {
+    while (true) {
+      if (shouldAbort?.()) {
+        return;
+      }
+      const idx = nextIndex++;
+      if (idx >= items.length) {
+        return;
+      }
+      await worker(items[idx], idx);
+    }
+  });
+
+  await Promise.all(runners);
+};
 
 const buildSnapshotBase = (args: {
   wallet: Wallet;
@@ -352,20 +392,47 @@ const toSafeIntString = (v: unknown): string => {
     if (!Number.isFinite(v)) {
       return '0';
     }
+    // Fast-path safe integers. This avoids the relatively expensive
+    // toLocaleString("fullwide") for common cases.
+    if (Number.isSafeInteger(v)) {
+      return String(v);
+    }
+    // Fallback for values that may stringify to scientific notation.
     return v.toLocaleString('fullwide', {
       useGrouping: false,
       maximumFractionDigits: 0,
     });
   }
   if (typeof v === 'string') {
-    return v;
+    return v.trim();
   }
   return '0';
 };
 
 const toBigInt = (v: unknown): bigint => {
   try {
-    const s = toSafeIntString(v);
+    if (typeof v === 'bigint') {
+      return v;
+    }
+    if (typeof v === 'number') {
+      if (!Number.isFinite(v)) {
+        return 0n;
+      }
+      if (Number.isSafeInteger(v)) {
+        return BigInt(v);
+      }
+      // For non-safe integers, fall back to string conversion to avoid
+      // scientific notation.
+      const s = toSafeIntString(v);
+      return BigInt(s);
+    }
+
+    const raw = toSafeIntString(v);
+    if (!raw) {
+      return 0n;
+    }
+    // Remove any separators the upstream might include.
+    const s = raw.replace(/[,_]/g, '');
     if (!s) {
       return 0n;
     }
@@ -582,26 +649,38 @@ const ensureFiatRateSeriesIntervalOnce = async (args: {
   });
 };
 
-const ensureRateSeriesForTimestamp = async (args: {
+const collectRateSeriesIntervalsForTimestamps = (args: {
+  timestampsMs: Array<number | undefined>;
+  nowMs: number;
+}): Set<FiatRateInterval> => {
+  const needed = new Set<FiatRateInterval>();
+  for (const ts of args.timestampsMs) {
+    if (typeof ts !== 'number' || !Number.isFinite(ts) || ts <= 0) {
+      continue;
+    }
+    needed.add(
+      getBestRateIntervalForTimestamp({timestampMs: ts, nowMs: args.nowMs}),
+    );
+  }
+  return needed;
+};
+
+const ensureRateSeriesForIntervals = async (args: {
   dispatch: any;
   loadedIntervals: Set<string>;
   fiatCode: string;
   currencyAbbreviation: string;
-  timestampMs: number;
-  nowMs: number;
-}): Promise<FiatRateInterval> => {
-  const interval = getBestRateIntervalForTimestamp({
-    timestampMs: args.timestampMs,
-    nowMs: args.nowMs,
-  });
-  await ensureFiatRateSeriesIntervalOnce({
-    dispatch: args.dispatch,
-    loadedIntervals: args.loadedIntervals,
-    fiatCode: args.fiatCode,
-    currencyAbbreviation: args.currencyAbbreviation,
-    interval,
-  });
-  return interval;
+  intervals: Set<FiatRateInterval>;
+}) => {
+  for (const interval of args.intervals) {
+    await ensureFiatRateSeriesIntervalOnce({
+      dispatch: args.dispatch,
+      loadedIntervals: args.loadedIntervals,
+      fiatCode: args.fiatCode,
+      currencyAbbreviation: args.currencyAbbreviation,
+      interval,
+    });
+  }
 };
 
 const getHistoricFiatRateFromCache = (args: {
@@ -729,6 +808,9 @@ export const populatePortfolio =
           ) || undefined;
         const unitDecimals = precision?.unitDecimals || 0;
 
+        // Capture once per-wallet to avoid repeated Date.now() calls in loops.
+        const nowMs = Date.now();
+
         const portfolioState = getState().PORTFOLIO;
         const existingSnapshotsRaw =
           portfolioState.snapshotsByWalletId?.[wallet.id] || [];
@@ -745,9 +827,6 @@ export const populatePortfolio =
           Array.isArray(existingSnapshots) &&
           existingSnapshots.length > 0 &&
           existingQuoteCurrency === targetQuoteCurrency;
-        const seedSnapshot = incrementalEligible
-          ? getLatestSnapshot(existingSnapshots)
-          : undefined;
 
         const currentFiatRateNow = getCurrentFiatRateNow(
           allRates,
@@ -768,7 +847,7 @@ export const populatePortfolio =
         let acc: any[] = [];
 
         const incrementalResnapshotCutoffMs = incrementalEligible
-          ? Date.now() - PORTFOLIO_INCREMENTAL_RESNAPSHOT_WINDOW_MS
+          ? nowMs - PORTFOLIO_INCREMENTAL_RESNAPSHOT_WINDOW_MS
           : undefined;
 
         while (loadMore) {
@@ -826,7 +905,7 @@ export const populatePortfolio =
           }
         }
 
-        const nowMsForMissingTs = Date.now();
+        const nowMsForMissingTs = nowMs;
         for (const tx of Object.values(uniqByTxid)) {
           if (!tx) {
             continue;
@@ -882,9 +961,6 @@ export const populatePortfolio =
           return;
         }
 
-        const latestDay = getUtcDayStartMs(Date.now());
-        const latestId = `${wallet.id}:${latestDay}:daily:latest`;
-
         let unitsHeldAtomic = 0n;
         let costBasisFiat = 0;
 
@@ -892,13 +968,12 @@ export const populatePortfolio =
         let dailySnapshotIndexByDay = new Map<number, number>();
         let txsToProcess: any[] = txs;
 
-        if (incrementalEligible && seedSnapshot) {
-          const cutoffMs =
-            Date.now() - PORTFOLIO_INCREMENTAL_RESNAPSHOT_WINDOW_MS;
+        if (incrementalEligible) {
+          const cutoffMs = nowMs - PORTFOLIO_INCREMENTAL_RESNAPSHOT_WINDOW_MS;
           const seedForWindow = (existingSnapshots || []).reduce(
             (best: BalanceSnapshot | undefined, s: BalanceSnapshot) => {
               const ts = s?.timestamp || 0;
-              if (!ts || ts >= cutoffMs || s.id === latestId) {
+              if (!ts || ts >= cutoffMs) {
                 return best;
               }
               const bestTs = best?.timestamp || 0;
@@ -937,7 +1012,7 @@ export const populatePortfolio =
               : 0;
             snapshots = (existingSnapshots || []).filter(s => {
               const ts = (s?.timestamp || 0) as number;
-              return s.id !== latestId && ts > 0 && ts < cutoffMs;
+              return ts > 0 && ts < cutoffMs;
             });
             dailySnapshotIndexByDay = new Map<number, number>();
             (snapshots || []).forEach((s, index) => {
@@ -971,7 +1046,6 @@ export const populatePortfolio =
         }
 
         const loadedIntervals = new Set<string>();
-        const nowMs = Date.now();
         const oldTxCountByDay = new Map<number, number>();
 
         if (PORTFOLIO_COMPRESS_OLD_TXS_TO_DAILY_SNAPSHOTS) {
@@ -987,6 +1061,19 @@ export const populatePortfolio =
             oldTxCountByDay.set(day, (oldTxCountByDay.get(day) || 0) + 1);
           }
         }
+
+        // Preload the fiat-rate series intervals needed for this wallet's
+        // transactions. This avoids an `await` per tx in the hot loop.
+        await ensureRateSeriesForIntervals({
+          dispatch,
+          loadedIntervals,
+          fiatCode: quoteCurrency,
+          currencyAbbreviation: wallet.currencyAbbreviation,
+          intervals: collectRateSeriesIntervalsForTimestamps({
+            timestampsMs: txsToProcess.map((t: any) => getTxTimestampMs(t)),
+            nowMs,
+          }),
+        });
 
         for (const tx of txsToProcess) {
           if (shouldAbort()) {
@@ -1015,14 +1102,9 @@ export const populatePortfolio =
           let direction: 'incoming' | 'outgoing' | undefined;
           let costBasisRateFiat: number | undefined;
 
-          const nowMsForTx = Date.now();
-          const interval = await ensureRateSeriesForTimestamp({
-            dispatch,
-            loadedIntervals,
-            fiatCode: quoteCurrency,
-            currencyAbbreviation: wallet.currencyAbbreviation,
+          const interval = getBestRateIntervalForTimestamp({
             timestampMs,
-            nowMs: nowMsForTx,
+            nowMs,
           });
 
           if (isIncoming) {
@@ -1182,6 +1264,7 @@ export const populatePortfolio =
         }
 
         if (snapshots.length) {
+          sortSnapshotsInPlace(snapshots);
           dispatch(setWalletSnapshots({walletId: wallet.id, snapshots}));
         }
 
@@ -1221,20 +1304,14 @@ export const populatePortfolio =
       }
     };
 
-    const concurrency = Math.min(3, walletsToPopulate.length);
-    let nextIndex = 0;
-    const workers = new Array(concurrency).fill(null).map(async () => {
-      while (nextIndex < walletsToPopulate.length) {
-        if (shouldAbort()) {
-          return;
-        }
-        const wallet = walletsToPopulate[nextIndex];
-        nextIndex++;
+    await runWithConcurrency(
+      walletsToPopulate,
+      3,
+      async wallet => {
         await processWallet(wallet);
-      }
-    });
-
-    await Promise.all(workers);
+      },
+      shouldAbort,
+    );
 
     if (shouldAbort()) {
       return;
@@ -1350,6 +1427,10 @@ export const recalculatePortfolioFiatFields =
           s => s?.eventType === 'tx',
         );
 
+        const nonTxSnapshots = (existingSnapshots || []).filter(
+          s => s?.eventType !== 'tx',
+        );
+
         const orderedTxSnapshots = sortByTimestampThenId({
           items: txSnapshots,
           getTimestamp: s => s?.timestamp || 0,
@@ -1362,6 +1443,25 @@ export const recalculatePortfolioFiatFields =
         let finalCostBasisFiat = 0;
         const updatedById = new Map<string, Partial<BalanceSnapshot>>();
         const loadedIntervals = new Set<string>();
+
+        // Capture once per-wallet to avoid repeated Date.now() calls in loops.
+        const nowMs = Date.now();
+
+        // Preload the fiat-rate series intervals needed to recalculate this
+        // wallet's snapshots. Avoids per-snapshot `await`s in the hot loops.
+        await ensureRateSeriesForIntervals({
+          dispatch,
+          loadedIntervals,
+          fiatCode: targetQuoteCurrency,
+          currencyAbbreviation: wallet.currencyAbbreviation,
+          intervals: collectRateSeriesIntervalsForTimestamps({
+            timestampsMs: [
+              ...orderedTxSnapshots.map(s => s?.timestamp),
+              ...nonTxSnapshots.map(s => s?.timestamp),
+            ],
+            nowMs,
+          }),
+        });
 
         for (let i = 0; i < orderedTxSnapshots.length; i++) {
           if (shouldAbort()) {
@@ -1377,14 +1477,9 @@ export const recalculatePortfolioFiatFields =
           const isIncoming = s.direction === 'incoming';
 
           let costBasisRateFiat: number | undefined;
-          const nowMsForTx = Date.now();
-          const interval = await ensureRateSeriesForTimestamp({
-            dispatch,
-            loadedIntervals,
-            fiatCode: targetQuoteCurrency,
-            currencyAbbreviation: wallet.currencyAbbreviation,
+          const interval = getBestRateIntervalForTimestamp({
             timestampMs,
-            nowMs: nowMsForTx,
+            nowMs,
           });
 
           const positiveIncreaseAtomic = getPositiveIncreaseAtomic(
@@ -1506,13 +1601,9 @@ export const recalculatePortfolioFiatFields =
 
             const timestampMs =
               typeof s?.timestamp === 'number' ? s.timestamp : 0;
-            const interval = await ensureRateSeriesForTimestamp({
-              dispatch,
-              loadedIntervals,
-              fiatCode: targetQuoteCurrency,
-              currencyAbbreviation: wallet.currencyAbbreviation,
+            const interval = getBestRateIntervalForTimestamp({
               timestampMs,
-              nowMs: Date.now(),
+              nowMs,
             });
             const markRateFiat = getHistoricFiatRateFromCache({
               getState,
@@ -1554,6 +1645,8 @@ export const recalculatePortfolioFiatFields =
           return;
         }
 
+        sortSnapshotsInPlace(updatedSnapshots);
+
         dispatch(
           setWalletSnapshots({
             walletId: wallet.id,
@@ -1580,20 +1673,9 @@ export const recalculatePortfolioFiatFields =
       }
     };
 
-    const concurrency = Math.min(3, wallets.length);
-    let nextIndex = 0;
-    const workers = new Array(concurrency).fill(null).map(async () => {
-      while (nextIndex < wallets.length) {
-        if (shouldAbort()) {
-          return;
-        }
-        const wallet = wallets[nextIndex];
-        nextIndex++;
-        await processWallet(wallet);
-      }
-    });
-
-    await Promise.all(workers);
+    await runWithConcurrency(wallets, 3, async wallet => {
+      await processWallet(wallet);
+    }, shouldAbort);
 
     if (shouldAbort()) {
       return;

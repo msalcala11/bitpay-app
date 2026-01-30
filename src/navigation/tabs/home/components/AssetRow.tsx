@@ -153,7 +153,12 @@ const AssetRow: React.FC<Props> = ({
       return;
     }
     haptic('impactLight');
-    Clipboard.setString(item.pnlLog);
+    try {
+      Clipboard.setString(JSON.stringify(item.pnlLog, null, 2));
+    } catch (e) {
+      // Fallback in case the log contains unexpected unserializable values.
+      Clipboard.setString(String(item.pnlLog));
+    }
     dispatch(
       showBottomNotificationModal({
         type: 'success',
