@@ -7,7 +7,6 @@ import StorageUsage from './screens/StorageUsage';
 import RatesDebug from './screens/RatesDebug';
 import PortfolioDebug from './screens/PortfolioDebug';
 import PortfolioWalletDebug from './screens/PortfolioWalletDebug';
-import FiatBalanceSeriesDebug from './screens/FiatBalanceSeriesDebug';
 import {Root} from '../../../../Root';
 import {useStackScreenOptions} from '../../../utils/headerHelpers';
 
@@ -23,7 +22,6 @@ export type AboutGroupParamList = {
   RatesDebug: undefined;
   PortfolioDebug: undefined;
   PortfolioWalletDebug: {walletId: string};
-  FiatBalanceSeriesDebug: undefined;
 };
 
 export enum AboutScreens {
@@ -33,7 +31,6 @@ export enum AboutScreens {
   RATES_DEBUG = 'RatesDebug',
   PORTFOLIO_DEBUG = 'PortfolioDebug',
   PORTFOLIO_WALLET_DEBUG = 'PortfolioWalletDebug',
-  FIAT_BALANCE_SERIES_DEBUG = 'FiatBalanceSeriesDebug',
 }
 
 const AboutGroup = ({About, theme}: AboutProps) => {
@@ -85,14 +82,6 @@ const AboutGroup = ({About, theme}: AboutProps) => {
         component={PortfolioWalletDebug}
         options={{
           headerTitle: t('Portfolio Wallet (Raw)'),
-        }}
-      />
-
-      <About.Screen
-        name={AboutScreens.FIAT_BALANCE_SERIES_DEBUG}
-        component={FiatBalanceSeriesDebug}
-        options={{
-          headerTitle: t('Fiat Balance Series (Bench)'),
         }}
       />
     </About.Group>
