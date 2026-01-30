@@ -62,6 +62,7 @@ const ExchangeRatesList: React.FC<ExchangeRateProps> = props => {
                 currencyAbbreviation: item.currencyAbbreviation,
                 chain: item.chain,
                 tokenAddress: item.tokenAddress,
+                graphMode: 'rate',
               });
             }
           }}

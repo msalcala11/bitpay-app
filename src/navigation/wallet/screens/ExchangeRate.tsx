@@ -9,7 +9,7 @@ import React, {
 } from 'react';
 import {RefreshControl, ScrollView, View} from 'react-native';
 import type {SelectionDotProps} from 'react-native-graph';
-import {GraphPoint, LineGraph} from 'react-native-graph';
+import {GraphPoint} from 'react-native-graph';
 import {Circle, Group} from '@shopify/react-native-skia';
 import Animated, {
   runOnJS,
@@ -39,16 +39,12 @@ import {
 import {BitpaySupportedCoins} from '../../../constants/currencies';
 import {SupportedCurrencyOptions} from '../../../constants/SupportedCurrencyOptions';
 import LinkingButtons from '../../tabs/home/components/LinkingButtons';
-import Loader from '../../../components/loader/Loader';
+import TimeframeLineGraph from '../../../components/graph/TimeframeLineGraph';
 import {
-  Action,
   Black,
   CharcoalBlack,
   LightBlack,
-  LightBlue,
-  LinkBlue,
   LuckySevens,
-  Midnight,
   NeutralSlate,
   ProgressBlue,
   Slate,
@@ -74,6 +70,7 @@ import {
   sleep,
 } from '../../../utils/helper-methods';
 import {getVisibleWalletsFromKeys} from '../../../utils/assets';
+import {buildAggregatedFiatBalanceSeries} from '../../../utils/fiat-balance-series';
 import {
   downsampleSeries,
   getFiatRateChangeForTimeframe,
@@ -433,65 +430,6 @@ const PercentRow = styled.View`
   justify-content: center;
 `;
 
-const ChartContainer = styled.View`
-  margin-top: 8px;
-`;
-
-const ChartInner = styled.View`
-  position: relative;
-  align-items: center;
-  justify-content: center;
-  height: 220px;
-`;
-
-const ChartLoaderOverlay = styled.View`
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  justify-content: center;
-  align-items: center;
-`;
-
-const TimeframeContainer = styled.View`
-  margin-top: 5px;
-  padding: 0 0px;
-`;
-
-const TimeframeRow = styled.View`
-  flex-direction: row;
-  justify-content: space-between;
-  align-self: center;
-  width: ${WIDTH - 24}px;
-`;
-
-const TimeframeHitSlop = {top: 10, bottom: 10, left: 10, right: 10} as const;
-
-const TimeframePill = styled(TouchableOpacity)<{active: boolean}>`
-  height: 34px;
-  min-width: 44px;
-  padding: 0 12px;
-  border-radius: 18px;
-  align-items: center;
-  justify-content: center;
-  background-color: ${({theme, active}) =>
-    active ? (theme.dark ? Midnight : LightBlue) : 'transparent'};
-`;
-
-const TimeframeText = styled(BaseText)<{active: boolean}>`
-  font-size: 14px;
-  font-weight: ${({active}) => (active ? 500 : 400)};
-  color: ${({theme, active}) =>
-    active
-      ? theme.dark
-        ? LinkBlue
-        : Action
-      : theme.dark
-      ? Slate30
-      : SlateDark};
-`;
-
 const ActionsContainer = styled.View`
   margin-top: 20px;
   margin-bottom: 20px;
@@ -726,6 +664,9 @@ const ExchangeRate = () => {
   const fiatRateSeriesCache = useAppSelector(
     ({RATE}: RootState) => RATE.fiatRateSeriesCache,
   );
+  const snapshotsByWalletId = useAppSelector(
+    ({PORTFOLIO}: RootState) => PORTFOLIO?.snapshotsByWalletId || {},
+  );
   const defaultAltCurrency = useAppSelector(
     ({APP}: RootState) => APP.defaultAltCurrency,
   );
@@ -733,6 +674,9 @@ const ExchangeRate = () => {
     ({APP}: RootState) => APP.hideAllBalances,
   );
   const {params} = useRoute<RouteProp<WalletGroupParamList, 'ExchangeRate'>>();
+  const graphMode: 'rate' | 'balance' =
+    params?.graphMode === 'balance' ? 'balance' : 'rate';
+  const isBalanceMode = graphMode === 'balance';
   const [selectedTimeframe, setSelectedTimeframe] =
     useState<FiatRateInterval>('ALL');
   const [isAboutExpanded, setIsAboutExpanded] = useState(false);
@@ -899,7 +843,63 @@ const ExchangeRate = () => {
     rates,
   ]);
 
+  const walletsForAssetRaw = useMemo(() => {
+    const visibleWallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
+    return visibleWallets
+      .filter(w => w.network !== Network.testnet)
+      .filter(w => {
+        const matchesCurrency =
+          (w.currencyAbbreviation || '').toLowerCase() ===
+          assetContext.currencyAbbreviation;
+        const matchesTokenAddress = assetContext.tokenAddress
+          ? (w.tokenAddress || '').toLowerCase() === assetContext.tokenAddress
+          : true;
+        const matchesChain = assetContext.tokenAddress
+          ? (w.chain || '').toLowerCase() === assetContext.chain
+          : true;
+        return matchesCurrency && matchesTokenAddress && matchesChain;
+      });
+  }, [
+    assetContext.chain,
+    assetContext.currencyAbbreviation,
+    assetContext.tokenAddress,
+    homeCarouselConfig,
+    keys,
+  ]);
+
+  const walletsForBalanceGraph = walletsForAssetRaw;
+
+
+
   useEffect(() => {
+    if (isBalanceMode) {
+      const startedAt = Date.now();
+      const hasUsableData = !!displayDataRef.current.data.length;
+      setIsChartLoading(!hasUsableData);
+
+      const series = buildAggregatedFiatBalanceSeries({
+        wallets: walletsForBalanceGraph,
+        snapshotsByWalletId,
+        fiatRateSeriesCache,
+        fiatCode: selectedFiatCodeUpper,
+        timeframe: selectedTimeframe,
+      });
+
+      const pointsForChart = series.map(p => ({ts: p.ts, rate: p.balance}));
+      const formatted = getFormattedData(pointsForChart);
+
+      setPrevDisplayData(displayDataRef.current);
+      setDisplayData(formatted);
+      setIsChartLoading(false);
+
+      logManager.info(
+        `[ExchangeRate] balance chart (${selectedTimeframe}) - wallets=${walletsForBalanceGraph.length}, points=${series.length}, ms=${
+          Date.now() - startedAt
+        }`,
+      );
+      return;
+    }
+
     if (selectedSeries?.points?.length) {
       const pointsToDisplay: FiatRatePoint[] = (() => {
         if (
@@ -952,9 +952,14 @@ const ExchangeRate = () => {
     setIsChartLoading(!hasUsableData);
   }, [
     currentFiatRate,
+    fiatRateSeriesCache,
+    isBalanceMode,
+    selectedFiatCodeUpper,
     selectedSeries?.points,
     selectedTimeframe,
     seriesDataInterval,
+    snapshotsByWalletId,
+    walletsForBalanceGraph,
   ]);
 
   const loggedDownsampleLengthsRef = useRef<Record<string, number>>({});
@@ -985,22 +990,8 @@ const ExchangeRate = () => {
   }, [fiatRateSeriesCache, normalizedCoin, selectedFiatCodeUpper]);
 
   const walletsForAsset = useMemo(() => {
-    const visibleWallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
-    const filtered = visibleWallets
-      .filter(w => w.network !== Network.testnet)
+    return walletsForAssetRaw
       .filter(w => (w.balance?.sat ?? 0) > 0)
-      .filter(w => {
-        const matchesCurrency =
-          (w.currencyAbbreviation || '').toLowerCase() ===
-          assetContext.currencyAbbreviation;
-        const matchesTokenAddress = assetContext.tokenAddress
-          ? (w.tokenAddress || '').toLowerCase() === assetContext.tokenAddress
-          : true;
-        const matchesChain = assetContext.tokenAddress
-          ? (w.chain || '').toLowerCase() === assetContext.chain
-          : true;
-        return matchesCurrency && matchesTokenAddress && matchesChain;
-      })
       .map(wallet => {
         const ui = buildUIFormattedWallet(
           wallet,
@@ -1012,18 +1003,9 @@ const ExchangeRate = () => {
         return {wallet, ui};
       })
       .sort((a, b) => (b.ui.fiatBalance || 0) - (a.ui.fiatBalance || 0));
+  }, [defaultAltCurrency.isoCode, dispatch, rates, walletsForAssetRaw]);
 
-    return filtered;
-  }, [
-    assetContext.chain,
-    assetContext.currencyAbbreviation,
-    assetContext.tokenAddress,
-    defaultAltCurrency.isoCode,
-    dispatch,
-    homeCarouselConfig,
-    keys,
-    rates,
-  ]);
+
   const hasWalletsForAsset = walletsForAsset.length > 0;
 
   const onRefresh = useCallback(async () => {
@@ -1151,7 +1133,20 @@ const ExchangeRate = () => {
     return undefined;
   }, [displayData.data]);
 
-  const latestPriceValue = currentFiatRate ?? fallbackHistoricalPrice;
+  const fallbackHistoricalRate = useMemo(() => {
+    const pts = selectedSeries?.points;
+    if (pts?.length) {
+      return pts[pts.length - 1].rate;
+    }
+    return undefined;
+  }, [selectedSeries?.points]);
+
+  const latestPriceValue = useMemo(() => {
+    if (isBalanceMode) {
+      return fallbackHistoricalPrice;
+    }
+    return currentFiatRate ?? fallbackHistoricalPrice;
+  }, [currentFiatRate, fallbackHistoricalPrice, isBalanceMode]);
 
   const formatDisplayPrice = useCallback(
     (value?: number) => {
@@ -1179,8 +1174,18 @@ const ExchangeRate = () => {
   ]);
 
   const formattedMarketPrice = useMemo(() => {
-    return formatDisplayPrice(latestPriceValue ?? fallbackHistoricalPrice);
-  }, [fallbackHistoricalPrice, formatDisplayPrice, latestPriceValue]);
+    const value = isBalanceMode
+      ? currentFiatRate ?? fallbackHistoricalRate
+      : latestPriceValue ?? fallbackHistoricalPrice;
+    return formatDisplayPrice(value);
+  }, [
+    currentFiatRate,
+    fallbackHistoricalPrice,
+    fallbackHistoricalRate,
+    formatDisplayPrice,
+    isBalanceMode,
+    latestPriceValue,
+  ]);
 
   const allIntervalsHighValue = useMemo(() => {
     const getPointsForInterval = (
@@ -1249,6 +1254,9 @@ const ExchangeRate = () => {
   ]);
 
   const timeframeChange = useMemo(() => {
+    if (isBalanceMode) {
+      return undefined;
+    }
     if (!selectedFiatCodeUpper || !normalizedCoin) {
       return undefined;
     }
@@ -1264,6 +1272,7 @@ const ExchangeRate = () => {
   }, [
     currentFiatRate,
     fiatRateSeriesCache,
+    isBalanceMode,
     normalizedCoin,
     selectedFiatCodeUpper,
     selectedTimeframe,
@@ -1556,16 +1565,6 @@ const ExchangeRate = () => {
     });
   }, [currencyName, navigation]);
 
-  const timeframes: Array<{label: string; value: FiatRateInterval}> = [
-    {label: 'All', value: 'ALL'},
-    {label: '1D', value: '1D'},
-    {label: '1W', value: '1W'},
-    {label: '1M', value: '1M'},
-    {label: '3M', value: '3M'},
-    {label: '1Y', value: '1Y'},
-    {label: '5Y', value: '5Y'},
-  ];
-
   return (
     <ScreenContainer>
       <ScrollView
@@ -1582,7 +1581,8 @@ const ExchangeRate = () => {
           <AbbreviationLabel>{currencyAbbreviation}</AbbreviationLabel>
           <PriceText
             isLargeNumber={
-              (formattedAllIntervalsHighPrice || formattedTopPrice).length > 11
+              (isBalanceMode ? formattedTopPrice : formattedAllIntervalsHighPrice || formattedTopPrice)
+              .length > 11
             }>
             {formattedTopPrice}
           </PriceText>
@@ -1597,56 +1597,25 @@ const ExchangeRate = () => {
           </PercentRow>
         </TopSection>
 
-        <ChartContainer>
-          <ChartInner>
-            <LineGraph
-              points={chartPoints}
-              animated={true}
-              gradientFillColors={[
-                gradientBackgroundColor,
-                theme.dark ? 'transparent' : White,
-              ]}
-              enablePanGesture={true}
-              panGestureDelay={100}
-              onGestureStart={onGestureStarted}
-              onPointSelected={onPointSelected}
-              onGestureEnd={onGestureEnd}
-              TopAxisLabel={MaxAxisLabel}
-              BottomAxisLabel={MinAxisLabel}
-              SelectionDot={ChartSelectionDot}
-              color={theme.dark && coinColor === Black ? White : coinColor}
-              style={{
-                width: WIDTH,
-                height: 200,
-                marginTop: 10,
-                opacity: isChartLoading ? 0.25 : 1,
-              }}
-            />
-            {isChartLoading ? (
-              <ChartLoaderOverlay pointerEvents="none">
-                <Loader size={32} spinning />
-              </ChartLoaderOverlay>
-            ) : null}
-          </ChartInner>
-        </ChartContainer>
-
-        <TimeframeContainer>
-          <TimeframeRow>
-            {timeframes.map(({label, value}) => {
-              const active = selectedTimeframe === value;
-              return (
-                <TimeframePill
-                  key={value}
-                  active={active}
-                  hitSlop={TimeframeHitSlop}
-                  activeOpacity={ActiveOpacity}
-                  onPress={() => setSelectedTimeframe(value)}>
-                  <TimeframeText active={active}>{label}</TimeframeText>
-                </TimeframePill>
-              );
-            })}
-          </TimeframeRow>
-        </TimeframeContainer>
+        <TimeframeLineGraph
+          points={chartPoints}
+          selectedTimeframe={selectedTimeframe}
+          onTimeframeChange={setSelectedTimeframe}
+          gradientFillColors={[
+            gradientBackgroundColor,
+            theme.dark ? 'transparent' : White,
+          ]}
+          enablePanGesture={true}
+          panGestureDelay={100}
+          onGestureStart={onGestureStarted}
+          onPointSelected={onPointSelected}
+          onGestureEnd={onGestureEnd}
+          TopAxisLabel={MaxAxisLabel}
+          BottomAxisLabel={MinAxisLabel}
+          SelectionDot={ChartSelectionDot}
+          color={theme.dark && coinColor === Black ? White : coinColor}
+          isLoading={isChartLoading}
+        />
 
         <ActionsContainer>
           <LinkingButtons

@@ -107,6 +107,12 @@ const StorageUsage: React.FC = () => {
     );
   }, [navigation, runAfterTripleTap]);
 
+  const handleFiatBalanceSeriesPress = useCallback(() => {
+    runAfterTripleTap(() =>
+      navigation.navigate(AboutScreens.FIAT_BALANCE_SERIES_DEBUG as never),
+    );
+  }, [navigation, runAfterTripleTap]);
+
   const [walletsCount, setWalletsCount] = useState<number>(0);
   const [giftCount, setGiftCount] = useState<number>(0);
   const [contactCount, setContactCount] = useState<number>(0);
@@ -421,7 +427,7 @@ const StorageUsage: React.FC = () => {
           <SettingTitle>{t('Details')}</SettingTitle>
         </HeaderTitle>
         <SettingsComponent style={{marginBottom: 10}}>
-          <Setting>
+          <Setting onPress={handleFiatBalanceSeriesPress}>
             <SettingTitle>
               {t('Wallets')} ({walletsCount || '0'})
             </SettingTitle>

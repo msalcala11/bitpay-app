@@ -388,6 +388,7 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
             currencyAbbreviation: exchangeRatesSection.currencyAbbreviation,
             chain: exchangeRatesSection.chain,
             tokenAddress: exchangeRatesSection.tokenAddress,
+            graphMode: 'rate',
           });
         }
       }

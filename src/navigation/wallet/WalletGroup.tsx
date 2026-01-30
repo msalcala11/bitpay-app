@@ -192,6 +192,7 @@ export type WalletGroupParamList = {
     chain: string;
     tokenAddress?: string;
     network?: string;
+    graphMode?: 'rate' | 'balance';
   };
   ClearEncryptPassword: ClearEncryptPasswordParamList;
   SendToOptions: SendToOptionsParamList;
