@@ -3,6 +3,7 @@ import {createTransform} from 'redux-persist';
 import {Key, Wallet} from '../wallet/wallet.models';
 import {BwcProvider} from '../../lib/bwc';
 import type {PortfolioState} from '../portfolio/portfolio.models';
+import type {BalanceSnapshot} from '../portfolio/portfolio.models';
 import {
   BitpaySupportedUtxoCoins,
   OtherBitpaySupportedCoins,
@@ -23,6 +24,18 @@ import {
   decryptWalletStore,
 } from './encrypt';
 import {logManager} from '../../managers/LogManager';
+import {
+  hydrateBalanceSnapshotsFromSeriesV1,
+  isBalanceSnapshotSeriesV1,
+  packBalanceSnapshotsToSeriesV1,
+} from '../../core/pnl/snapshotSeries';
+import type {BalanceSnapshotStored} from '../../core/pnl/types';
+import {extractTxIdFromSnapshotId} from '../../core/pnl/snapshots';
+
+const getUtcDayStartMs = (tsMs: number): number => {
+  const d = new Date(tsMs);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+};
 
 const BWCProvider = BwcProvider.getInstance();
 
@@ -221,6 +234,124 @@ export const transformPortfolioPopulateStatus = createTransform<
       };
     }
     return outboundState;
+  },
+  {whitelist: ['PORTFOLIO']},
+);
+
+// Persist portfolio snapshots in a compact series format to reduce storage + parse costs.
+export const transformPortfolioSnapshotSeriesV1 = createTransform<
+  PortfolioState,
+  any
+>(
+  inboundState => {
+    try {
+      const map = (inboundState as any)?.snapshotsByWalletId || {};
+      const outMap: Record<string, any> = {};
+
+      for (const [walletId, snapsRaw] of Object.entries(map)) {
+        const snaps = Array.isArray(snapsRaw) ? (snapsRaw as BalanceSnapshot[]) : [];
+        if (!snaps.length) continue;
+
+        const compressionEnabled = snaps.some(s => (s as any)?.eventType === 'daily');
+        const createdAt =
+          typeof (snaps[snaps.length - 1] as any)?.createdAt === 'number'
+            ? Number((snaps[snaps.length - 1] as any).createdAt)
+            : Date.now();
+
+        const minimal: BalanceSnapshotStored[] = snaps.map(s => {
+          const markRate =
+            typeof (s as any)?.costBasisRateFiat === 'number'
+              ? (s as any).costBasisRateFiat
+              : typeof (s as any)?.markRate === 'number'
+                ? (s as any).markRate
+                : 0;
+
+          return {
+            id: String((s as any)?.id || ''),
+            walletId: String((s as any)?.walletId || walletId),
+            chain: String((s as any)?.chain || ''),
+            coin: String((s as any)?.coin || ''),
+            network: String((s as any)?.network || ''),
+            assetId: String((s as any)?.assetId || ''),
+            timestamp: Number((s as any)?.timestamp || 0),
+            eventType: ((s as any)?.eventType || 'tx') as any,
+            txIds: Array.isArray((s as any)?.txIds) ? (s as any).txIds.map(String) : undefined,
+            cryptoBalance: String((s as any)?.cryptoBalance || '0'),
+            remainingCostBasisFiat: Number((s as any)?.remainingCostBasisFiat || 0),
+            quoteCurrency: String((s as any)?.quoteCurrency || (inboundState as any)?.quoteCurrency || ''),
+            markRate: Number(markRate || 0),
+            createdAt: typeof (s as any)?.createdAt === 'number' ? (s as any).createdAt : undefined,
+          };
+        });
+
+        const series = packBalanceSnapshotsToSeriesV1({
+          snapshots: minimal,
+          compressionEnabled,
+          createdAt,
+        });
+
+        if (series) {
+          outMap[walletId] = series;
+        }
+      }
+
+      return {
+        ...inboundState,
+        snapshotsByWalletId: outMap as any,
+      };
+    } catch (_) {
+      return inboundState;
+    }
+  },
+  outboundState => {
+    try {
+      const map = (outboundState as any)?.snapshotsByWalletId || {};
+      const outMap: Record<string, BalanceSnapshot[]> = {};
+
+      for (const [walletId, value] of Object.entries(map)) {
+        if (isBalanceSnapshotSeriesV1(value)) {
+          const minimal = hydrateBalanceSnapshotsFromSeriesV1(value);
+          const snaps: BalanceSnapshot[] = minimal.map(s => {
+            const units = Number(s.cryptoBalance || '0');
+            const markRate = Number(s.markRate || 0);
+            const fiatBalance = units * markRate;
+            const remainingCostBasisFiat = Number(s.remainingCostBasisFiat || 0);
+            const avgCostFiatPerUnit = units > 0 ? remainingCostBasisFiat / units : 0;
+            const unrealizedPnlFiat = fiatBalance - remainingCostBasisFiat;
+            const txid = s.eventType === 'tx' ? extractTxIdFromSnapshotId(s.id) : undefined;
+
+            return {
+              id: s.id,
+              walletId: s.walletId,
+              chain: s.chain,
+              coin: s.coin,
+              network: s.network,
+              assetId: s.assetId,
+              timestamp: s.timestamp,
+              dayStartMs: s.eventType === 'daily' ? getUtcDayStartMs(s.timestamp) : undefined,
+              eventType: s.eventType,
+              txid,
+              txIds: s.txIds,
+              cryptoBalance: s.cryptoBalance,
+              avgCostFiatPerUnit,
+              remainingCostBasisFiat,
+              unrealizedPnlFiat,
+              costBasisRateFiat: markRate,
+              quoteCurrency: s.quoteCurrency,
+              createdAt: s.createdAt,
+            } as BalanceSnapshot;
+          });
+          outMap[walletId] = snaps;
+        }
+      }
+
+      return {
+        ...outboundState,
+        snapshotsByWalletId: outMap,
+      };
+    } catch (_) {
+      return outboundState;
+    }
   },
   {whitelist: ['PORTFOLIO']},
 );
