@@ -140,15 +140,19 @@ function getRatePointsFromCache(args: {
   fiatRateSeriesCache: FiatRateSeriesCache;
   quoteCurrency: string;
   coin: string;
+  /** Cache interval to query (may differ from timeframe; e.g. 3M/1Y/5Y use ALL in the app) */
+  seriesInterval: FiatRateInterval;
+  /** Original timeframe (used only for fallback ordering) */
   timeframe: PnlTimeframe;
 }): FiatRatePoint[] {
-  const {fiatRateSeriesCache, quoteCurrency, coin, timeframe} = args;
+  const {fiatRateSeriesCache, quoteCurrency, coin, timeframe, seriesInterval} = args;
 
   const tryIntervals = ((): FiatRateInterval[] => {
     // Prefer the requested interval, but gracefully fall back to other cached windows.
     // This mirrors the general “smallest available series that still covers the window” idea,
     // and keeps the engine resilient when some intervals haven't been fetched yet.
-    switch (timeframe) {
+    const base: FiatRateInterval[] = (() => {
+      switch (timeframe) {
       case '1D':
         return ['1D', '1W', '1M', '3M', '1Y', '5Y', 'ALL'];
       case '1W':
@@ -166,7 +170,20 @@ function getRatePointsFromCache(args: {
         // ALL series may be missing for very new wallets unless rates were fetched explicitly.
         // Prefer widest coverage first, but allow shorter windows for brand-new wallets.
         return ['ALL', '5Y', '1Y', '3M', '1M', '1W', '1D'];
-    }
+      }
+    })();
+
+    // Ensure the requested seriesInterval is attempted first (e.g. 3M/1Y/5Y use ALL).
+    const out: FiatRateInterval[] = [];
+    const seen = new Set<FiatRateInterval>();
+    const push = (v: FiatRateInterval) => {
+      if (seen.has(v)) return;
+      seen.add(v);
+      out.push(v);
+    };
+    push(seriesInterval);
+    for (const v of base) push(v);
+    return out;
   })();
 
   for (const interval of tryIntervals) {
@@ -178,7 +195,7 @@ function getRatePointsFromCache(args: {
     }
   }
 
-  const wantedKey = getFiatRateSeriesCacheKey(quoteCurrency, coin, timeframe);
+  const wantedKey = getFiatRateSeriesCacheKey(quoteCurrency, coin, seriesInterval);
   throw new Error(
     `Missing cached rate for ${wantedKey}. Fetch rates first (1D/1W/1M/3M/1Y/5Y/ALL).`,
   );
@@ -342,6 +359,12 @@ export function buildPnlAnalysisSeries(args: {
   timeframe: PnlTimeframe;
   quoteCurrency: string;
   fiatRateSeriesCache: FiatRateSeriesCache;
+  /**
+   * Optional current/spot rate overrides per coin (e.g. from app Rates / market stats).
+   * When provided, the final point in the series will use this rate. This helps
+   * ensure % changes match the ExchangeRate screen which uses a "currentRate" override.
+   */
+  currentRatesByCoin?: Record<string, number>;
   nowMs?: number;
   maxPoints?: number;
 }): PnlAnalysisResult {
@@ -375,6 +398,19 @@ export function buildPnlAnalysisSeries(args: {
   const baselineMs = getBaselineMs(args.timeframe, nowMs);
   const firstNonZeroMs = args.timeframe === 'ALL' ? findFirstNonZeroBalanceTs(wallets) : null;
 
+  // ExchangeRate screen uses ALL series for 3M/1Y/5Y timeframes. Match that behavior
+  // so percent changes are consistent across the app.
+  const seriesInterval: FiatRateInterval = (() => {
+    switch (args.timeframe) {
+      case '3M':
+      case '1Y':
+      case '5Y':
+        return 'ALL';
+      default:
+        return args.timeframe;
+    }
+  })();
+
   // Build compact rate series per coin and compute a strict overlapping window.
   //
   // This avoids the heavy allocation work performed by alignTimestamps/trimTimestamps,
@@ -389,6 +425,7 @@ export function buildPnlAnalysisSeries(args: {
       fiatRateSeriesCache: args.fiatRateSeriesCache,
       quoteCurrency,
       coin,
+      seriesInterval,
       timeframe: args.timeframe,
     });
 
@@ -414,7 +451,8 @@ export function buildPnlAnalysisSeries(args: {
     throw new Error('No overlapping rate window found across selected coins.');
   }
 
-  const desiredStart = args.timeframe === 'ALL' ? firstNonZeroMs ?? overlapStart : baselineMs ?? overlapStart;
+  const desiredStart =
+    args.timeframe === 'ALL' ? firstNonZeroMs ?? overlapStart : baselineMs ?? overlapStart;
   const startBound = Math.max(overlapStart, desiredStart);
   const endBound = overlapEnd;
 
@@ -427,6 +465,46 @@ export function buildPnlAnalysisSeries(args: {
   for (const coin of coins) {
     rateCursorByCoin[coin] = makeNearestRateCursor(rateSeriesByCoin[coin]);
   }
+
+  const getOverrideRate = (coin: string): number | undefined => {
+    const overrides = args.currentRatesByCoin;
+    if (!overrides) return undefined;
+    const v = overrides[coin];
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
+  };
+
+  const getLinearRateAtTs = (series: RateSeries, tsMs: number): number | undefined => {
+    const ts = series.ts;
+    const rate = series.rate;
+    const len = ts.length;
+    if (!len) return undefined;
+
+    // Find first index i such that ts[i] >= tsMs.
+    let lo = 0;
+    let hi = len - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (ts[mid] < tsMs) lo = mid + 1;
+      else hi = mid;
+    }
+
+    const rightIdx = lo;
+    const rightTs = ts[rightIdx];
+    const rightRate = rate[rightIdx];
+    const leftIdx = rightIdx > 0 ? rightIdx - 1 : rightIdx;
+    const leftTs = ts[leftIdx];
+    const leftRate = rate[leftIdx];
+
+    if (rightIdx === 0) return rightRate;
+    if (rightIdx === len - 1 && tsMs >= rightTs) return rightRate;
+    if (rightTs === leftTs) return rightRate;
+    if (tsMs <= leftTs) return leftRate;
+    if (tsMs >= rightTs) return rightRate;
+
+    const ratio = (tsMs - leftTs) / (rightTs - leftTs);
+    const out = leftRate + (rightRate - leftRate) * ratio;
+    return Number.isFinite(out) ? out : undefined;
+  };
 
   // Windowed cost basis state (reset to value at interval start).
   // We iterate forward through snapshots during timeline generation so this is O(points + txs).
@@ -445,8 +523,11 @@ export function buildPnlAnalysisSeries(args: {
 
   const baselineRateByCoin: Record<string, number> = {};
   for (const coin of coins) {
-    const r0 = rateCursorByCoin[coin]?.getNearest(timeline[0]);
-    if (r0 === undefined) throw new Error(`Missing ${quoteCurrency}:${coin} rate at ts=${timeline[0]}.`);
+    const series = rateSeriesByCoin[coin];
+    const r0 = getLinearRateAtTs(series, timeline[0]);
+    if (r0 === undefined) {
+      throw new Error(`Missing ${quoteCurrency}:${coin} rate at ts=${timeline[0]}.`);
+    }
     baselineRateByCoin[coin] = r0;
   }
 
@@ -486,7 +567,9 @@ export function buildPnlAnalysisSeries(args: {
     let totalCryptoCreds: WalletCredentials | null = null;
 
     // Determine markRate based on driver coin.
-    const driverRate = rateCursorByCoin[driverCoin]?.getNearest(ts);
+    const driverRate =
+      i === timeline.length - 1 ? getOverrideRate(driverCoin) ?? rateCursorByCoin[driverCoin]?.getNearest(ts)
+      : rateCursorByCoin[driverCoin]?.getNearest(ts);
     if (driverRate === undefined) {
       throw new Error(`Missing ${quoteCurrency}:${driverCoin} rate at ts=${ts}.`);
     }
@@ -494,7 +577,9 @@ export function buildPnlAnalysisSeries(args: {
     for (const w of wallets) {
       const st = windowStateByWalletId[w.walletId];
       const coin = st.coin;
-      const rate = rateCursorByCoin[coin]?.getNearest(ts);
+      const rate =
+        i === timeline.length - 1 ? getOverrideRate(coin) ?? rateCursorByCoin[coin]?.getNearest(ts)
+        : rateCursorByCoin[coin]?.getNearest(ts);
       if (rate === undefined) {
         throw new Error(`Missing ${quoteCurrency}:${coin} rate at ts=${ts}.`);
       }

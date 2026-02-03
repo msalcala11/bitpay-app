@@ -39,6 +39,7 @@ import {
 // PnL engine (lifted from the web harness). Keep these imports path-stable so the
 // engine code stays easily portable between RN + web.
 import {buildPnlAnalysisSeries, type WalletForAnalysis} from '../core/pnl/analysis';
+import {normalizeFiatRateSeriesCoin as normalizeCoinForPnlRates} from '../core/pnl/rates';
 import type {BalanceSnapshotStored} from '../core/pnl/types';
 import {formatBigIntDecimal, parseAtomicToBigint} from '../core/format';
 
@@ -2255,11 +2256,29 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
         throw new Error('Missing fiatRateSeriesCache');
       }
 
+      // Match ExchangeRate.tsx behavior: it uses a "currentRate" override sourced from
+      // the app's live Rates/market stats. When there are no transactions in an interval,
+      // this makes the asset PnL% match the rate % change exactly.
+      const currentRate = getQuoteRateNumForAsset({
+        rates: args.rates,
+        quoteCurrency,
+        coin,
+        chain: String((repWallet as any)?.chain || coin),
+        tokenAddress: (repWallet as any)?.tokenAddress,
+      });
+      const currentRatesByCoin =
+        currentRate > 0
+          ? {
+              [normalizeCoinForPnlRates(coin)]: currentRate,
+            }
+          : undefined;
+
       const res = buildPnlAnalysisSeries({
         wallets: pnlWallets,
         timeframe: timeframe as any,
         quoteCurrency,
         fiatRateSeriesCache: fiatRateSeriesCache as any,
+        currentRatesByCoin,
         nowMs,
         maxPoints: 2,
       });
