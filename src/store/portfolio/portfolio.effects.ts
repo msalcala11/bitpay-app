@@ -14,6 +14,13 @@ import {
   atomicToUnitString,
   unitStringToAtomicBigInt,
 } from '../../utils/helper-methods';
+
+import {
+  buildBalanceSnapshotsAsync,
+  computeBalanceSnapshotComputed,
+  extractTxIdFromSnapshotId,
+} from '../../core/pnl/snapshots';
+import type {BalanceSnapshotStored} from '../../core/pnl/types';
 import {getLatestSnapshot} from '../../utils/assets';
 import {
   getFiatRateFromSeriesCacheAtTimestamp,
@@ -740,10 +747,16 @@ export const populatePortfolio =
         ).toUpperCase();
         const targetQuoteCurrency = (quoteCurrency || '').toUpperCase();
 
-        const incrementalEligible =
-          PORTFOLIO_ENABLE_INCREMENTAL_UPDATES &&
+        const snapshotsLookLikeHarness =
           Array.isArray(existingSnapshots) &&
           existingSnapshots.length > 0 &&
+          typeof existingSnapshots[0]?.id === 'string' &&
+          (existingSnapshots[0].id.startsWith('tx:') ||
+            existingSnapshots[0].id.startsWith('daily:'));
+
+        const incrementalEligible =
+          PORTFOLIO_ENABLE_INCREMENTAL_UPDATES &&
+          snapshotsLookLikeHarness &&
           existingQuoteCurrency === targetQuoteCurrency;
         const seedSnapshot = incrementalEligible
           ? getLatestSnapshot(existingSnapshots)
@@ -882,29 +895,34 @@ export const populatePortfolio =
           return;
         }
 
-        const latestDay = getUtcDayStartMs(Date.now());
-        const latestId = `${wallet.id}:${latestDay}:daily:latest`;
-
+        // Build snapshots using the shared PnL harness snapshot engine.
         let unitsHeldAtomic = 0n;
-        let costBasisFiat = 0;
-
         let snapshots: BalanceSnapshot[] = [];
-        let dailySnapshotIndexByDay = new Map<number, number>();
+
+        // If we already have harness-based snapshots for this wallet, we can do an
+        // incremental rebuild of just the most recent window.
+        let latestSnapshotForEngine: BalanceSnapshotStored | undefined;
+        let preservedSnapshots: BalanceSnapshot[] = [];
         let txsToProcess: any[] = txs;
 
         if (incrementalEligible && seedSnapshot) {
           const cutoffMs =
             Date.now() - PORTFOLIO_INCREMENTAL_RESNAPSHOT_WINDOW_MS;
+
+          // Preserve everything strictly before the cutoff and use the last
+          // snapshot before cutoff as the engine seed.
           const seedForWindow = (existingSnapshots || []).reduce(
             (best: BalanceSnapshot | undefined, s: BalanceSnapshot) => {
               const ts = s?.timestamp || 0;
-              if (!ts || ts >= cutoffMs || s.id === latestId) {
+              if (!ts || ts >= cutoffMs) {
                 return best;
               }
+
               const bestTs = best?.timestamp || 0;
               if (!best || ts > bestTs) {
                 return s;
               }
+
               if (ts === bestTs) {
                 const bestCreatedAt = best?.createdAt || 0;
                 const createdAt = s?.createdAt || 0;
@@ -918,264 +936,186 @@ export const populatePortfolio =
                     return s;
                   }
                 }
-                return best;
               }
+
               return best;
             },
             undefined,
           );
 
           if (seedForWindow) {
-            unitsHeldAtomic = unitStringToAtomicBigInt(
-              seedForWindow.cryptoBalance || '0',
-              unitDecimals,
-            );
-            costBasisFiat = Number.isFinite(
-              seedForWindow.remainingCostBasisFiat,
-            )
-              ? seedForWindow.remainingCostBasisFiat
-              : 0;
-            snapshots = (existingSnapshots || []).filter(s => {
+            preservedSnapshots = (existingSnapshots || []).filter(s => {
               const ts = (s?.timestamp || 0) as number;
-              return s.id !== latestId && ts > 0 && ts < cutoffMs;
+              return ts > 0 && ts < cutoffMs;
             });
-            dailySnapshotIndexByDay = new Map<number, number>();
-            (snapshots || []).forEach((s, index) => {
-              if (s.eventType !== 'daily') {
-                return;
-              }
-              const day =
-                typeof s.dayStartMs === 'number' ? s.dayStartMs : s.timestamp;
-              if (typeof day === 'number' && day > 0) {
-                dailySnapshotIndexByDay.set(day, index);
-              }
-            });
-          } else {
-            unitsHeldAtomic = 0n;
-            costBasisFiat = 0;
-            snapshots = [];
-            dailySnapshotIndexByDay = new Map<number, number>();
+
+            latestSnapshotForEngine = {
+              id: seedForWindow.id,
+              walletId: seedForWindow.walletId,
+              chain: seedForWindow.chain,
+              coin: seedForWindow.coin,
+              network: seedForWindow.network,
+              assetId: seedForWindow.assetId,
+              timestamp: seedForWindow.timestamp,
+              eventType: seedForWindow.eventType,
+              txIds: (seedForWindow as any).txIds,
+              cryptoBalance: unitStringToAtomicBigInt(
+                seedForWindow.cryptoBalance || '0',
+                unitDecimals,
+              ).toString(),
+              remainingCostBasisFiat: Number.isFinite(
+                seedForWindow.remainingCostBasisFiat,
+              )
+                ? seedForWindow.remainingCostBasisFiat
+                : 0,
+              quoteCurrency: seedForWindow.quoteCurrency,
+              markRate:
+                typeof seedForWindow.costBasisRateFiat === 'number' &&
+                Number.isFinite(seedForWindow.costBasisRateFiat)
+                  ? seedForWindow.costBasisRateFiat
+                  : 0,
+              createdAt: seedForWindow.createdAt,
+            };
+
+            // Only process txs from the seed timestamp forward.
+            txsToProcess = txs.filter(
+              (t: any) => (getTxTimestampMs(t) || 0) >= seedForWindow.timestamp,
+            );
           }
-
-          txsToProcess = txs.filter(
-            (t: any) => (getTxTimestampMs(t) || 0) >= cutoffMs,
-          );
         }
 
-        if (!snapshots.length && !txsToProcess.length) {
-          snapshots = [];
-          dailySnapshotIndexByDay = new Map<number, number>();
-          txsToProcess = txs;
-          unitsHeldAtomic = 0n;
-          costBasisFiat = 0;
-        }
-
+        // Fetch any fiat rate series intervals we’ll need for tx timestamps.
         const loadedIntervals = new Set<string>();
-        const nowMs = Date.now();
-        const oldTxCountByDay = new Map<number, number>();
-
-        if (PORTFOLIO_COMPRESS_OLD_TXS_TO_DAILY_SNAPSHOTS) {
-          for (const tx of txsToProcess) {
-            const timestampMs = getTxTimestampMs(tx);
-            if (!timestampMs) {
-              continue;
-            }
-            if (nowMs - timestampMs < NINETY_DAYS_MS) {
-              continue;
-            }
-            const day = getUtcDayStartMs(timestampMs);
-            oldTxCountByDay.set(day, (oldTxCountByDay.get(day) || 0) + 1);
-          }
-        }
-
+        const nowMs = nowMsForMissingTs;
+        const neededIntervals = new Set<FiatRateInterval>();
         for (const tx of txsToProcess) {
-          if (shouldAbort()) {
-            return;
-          }
           const timestampMs = getTxTimestampMs(tx);
           if (!timestampMs) {
             continue;
           }
-
-          const action = tx?.action;
-          if (
-            action !== 'received' &&
-            action !== 'sent' &&
-            action !== 'moved'
-          ) {
-            continue;
-          }
-
-          const amountAtomic = getTxAmountAtomic(wallet, tx);
-          const feeAtomic = getTxFeeAtomic(wallet, tx);
-
-          const isIncoming = action === 'received';
-          const isMoved = action === 'moved';
-
-          let direction: 'incoming' | 'outgoing' | undefined;
-          let costBasisRateFiat: number | undefined;
-
-          const nowMsForTx = Date.now();
-          const interval = await ensureRateSeriesForTimestamp({
+          neededIntervals.add(
+            getBestRateIntervalForTimestamp({timestampMs, nowMs}),
+          );
+        }
+        for (const interval of neededIntervals) {
+          await ensureFiatRateSeriesIntervalOnce({
             dispatch,
             loadedIntervals,
             fiatCode: quoteCurrency,
             currencyAbbreviation: wallet.currencyAbbreviation,
-            timestampMs,
-            nowMs: nowMsForTx,
+            interval,
           });
-
-          if (isIncoming) {
-            direction = 'incoming';
-            const prevUnitsHeldAtomic = unitsHeldAtomic;
-            const nextUnitsHeldAtomic = prevUnitsHeldAtomic + amountAtomic;
-
-            const rateAtTx = getHistoricRateOrReportError({
-              getState,
-              dispatch,
-              walletId: wallet.id,
-              fiatCode: quoteCurrency,
-              currencyAbbreviation: wallet.currencyAbbreviation,
-              interval,
-              timestampMs,
-            });
-
-            if (typeof rateAtTx === 'number') {
-              costBasisRateFiat = rateAtTx;
-              costBasisFiat = applyCostBasisTransition({
-                prevAtomic: prevUnitsHeldAtomic,
-                nextAtomic: nextUnitsHeldAtomic,
-                unitDecimals,
-                direction: 'incoming',
-                costBasisFiat,
-                costBasisRateFiat: rateAtTx,
-              });
-            }
-            unitsHeldAtomic = nextUnitsHeldAtomic;
-          } else {
-            direction = 'outgoing';
-
-            const prevUnitsHeldAtomic = unitsHeldAtomic;
-
-            const disposalAtomic = isMoved
-              ? feeAtomic
-              : amountAtomic + feeAtomic;
-
-            const nextUnitsHeldAtomic = prevUnitsHeldAtomic - disposalAtomic;
-            unitsHeldAtomic = nextUnitsHeldAtomic;
-
-            costBasisFiat = applyCostBasisTransition({
-              prevAtomic: prevUnitsHeldAtomic,
-              nextAtomic: nextUnitsHeldAtomic,
-              unitDecimals,
-              direction: 'outgoing',
-              costBasisFiat,
-            });
-          }
-
-          bumpTxsProcessed();
-
-          if (txsProcessed % 25 === 0) {
-            await yieldToEventLoop();
-          }
-
-          const ageMs = nowMs - timestampMs;
-          const isRecent = ageMs < NINETY_DAYS_MS;
-
-          let shouldSnapshot = false;
-          let eventType: 'tx' | 'daily' = 'tx';
-          let snapshotTimestamp = timestampMs;
-          let dayStartMs: number | undefined;
-          let dailySnapshotIndex: number | undefined;
-
-          if (!PORTFOLIO_COMPRESS_OLD_TXS_TO_DAILY_SNAPSHOTS) {
-            shouldSnapshot = true;
-            eventType = 'tx';
-          } else {
-            if (isRecent) {
-              shouldSnapshot = true;
-              eventType = 'tx';
-            } else if (isIncoming) {
-              shouldSnapshot = true;
-              eventType = 'tx';
-            } else {
-              const day = getUtcDayStartMs(timestampMs);
-              const dayTxCount = oldTxCountByDay.get(day) || 0;
-              if (dayTxCount > 1) {
-                dailySnapshotIndex = dailySnapshotIndexByDay.get(day);
-                shouldSnapshot = true;
-                eventType = 'daily';
-                snapshotTimestamp = timestampMs;
-                dayStartMs = day;
-              } else {
-                shouldSnapshot = true;
-                eventType = 'tx';
-              }
-            }
-          }
-
-          if (shouldSnapshot) {
-            const unitsHeldUnit = parseFloat(
-              atomicToUnitString(unitsHeldAtomic, unitDecimals),
-            );
-
-            const avgCostFiatPerUnit =
-              unitsHeldUnit > 0 ? costBasisFiat / unitsHeldUnit : 0;
-
-            const markRateFiat = getHistoricFiatRateFromCache({
-              getState,
-              fiatCode: quoteCurrency,
-              currencyAbbreviation: wallet.currencyAbbreviation,
-              interval,
-              timestampMs: snapshotTimestamp,
-            });
-            const markRateFiatEffective =
-              typeof markRateFiat === 'number' && Number.isFinite(markRateFiat)
-                ? markRateFiat
-                : currentFiatRateNow;
-
-            const unrealizedPnlFiat =
-              unitsHeldUnit * markRateFiatEffective - costBasisFiat;
-
-            const txid = tx?.txid;
-            const snapshotId = `${
-              wallet.id
-            }:${snapshotTimestamp}:${eventType}:${
-              eventType === 'tx' && txid ? txid : ''
-            }`;
-
-            const snapshot = buildSnapshotBase({
-              wallet,
-              id: snapshotId,
-              timestamp: snapshotTimestamp,
-              dayStartMs,
-              eventType,
-              txid: eventType === 'tx' ? txid : undefined,
-              direction,
-              cryptoBalance: atomicToUnitString(unitsHeldAtomic, unitDecimals),
-              avgCostFiatPerUnit,
-              remainingCostBasisFiat: costBasisFiat,
-              unrealizedPnlFiat,
-              costBasisRateFiat,
-              quoteCurrency,
-            });
-
-            if (eventType === 'daily') {
-              if (typeof dailySnapshotIndex === 'number') {
-                snapshots[dailySnapshotIndex] = snapshot;
-              } else {
-                snapshots.push(snapshot);
-                const dayKey =
-                  typeof snapshot.dayStartMs === 'number'
-                    ? snapshot.dayStartMs
-                    : snapshot.timestamp;
-                dailySnapshotIndexByDay.set(dayKey, snapshots.length - 1);
-              }
-            } else {
-              snapshots.push(snapshot);
-            }
-          }
         }
+
+        if (shouldAbort()) {
+          return;
+        }
+
+        const walletSummary = {
+          id: wallet.id,
+          name: wallet.name,
+          chain: wallet.chain,
+          currencyAbbreviation: wallet.currencyAbbreviation,
+          network: wallet.network,
+          tokenAddress: wallet.tokenAddress,
+        };
+
+        const credentials: any = {
+          chain: String(wallet.chain || '').toLowerCase(),
+          coin: String(wallet.currencyAbbreviation || '').toLowerCase(),
+          network: wallet.network,
+        };
+        if (wallet.tokenAddress) {
+          credentials.token = {
+            address: wallet.tokenAddress,
+            decimals: unitDecimals,
+          };
+        }
+
+        const fiatRateSeriesCache = getState().RATE?.fiatRateSeriesCache || {};
+
+        let lastProgress = 0;
+        const storedSnaps = await buildBalanceSnapshotsAsync({
+          wallet: walletSummary as any,
+          credentials,
+          txs: txsToProcess,
+          quoteCurrency,
+          fiatRateSeriesCache: fiatRateSeriesCache as any,
+          latestSnapshot: latestSnapshotForEngine,
+          compression: {enabled: PORTFOLIO_COMPRESS_OLD_TXS_TO_DAILY_SNAPSHOTS},
+          nowMs,
+          onProgress: p => {
+            const next = typeof p?.txsProcessed === 'number' ? p.txsProcessed : 0;
+            const delta = next - lastProgress;
+            if (delta > 0) {
+              bumpTxsProcessed(delta);
+              lastProgress = next;
+            }
+          },
+        });
+
+        // Ensure our global tx processed counter catches up if onProgress didn't
+        // fire at the end.
+        if (lastProgress < txsToProcess.length) {
+          bumpTxsProcessed(txsToProcess.length - lastProgress);
+        }
+
+        const mappedNew: BalanceSnapshot[] = storedSnaps.map(s => {
+          const computed = computeBalanceSnapshotComputed(s, credentials);
+          const txid =
+            s.eventType === 'tx' ? extractTxIdFromSnapshotId(s.id) : undefined;
+          const direction =
+            s.eventType === 'tx'
+              ? computed.balanceDeltaAtomic > 0n
+                ? 'incoming'
+                : computed.balanceDeltaAtomic < 0n
+                ? 'outgoing'
+                : undefined
+              : undefined;
+
+          return {
+            id: s.id,
+            walletId: s.walletId,
+            chain: s.chain,
+            coin: s.coin,
+            network: s.network,
+            assetId: s.assetId,
+            timestamp: s.timestamp,
+            dayStartMs:
+              s.eventType === 'daily' ? getUtcDayStartMs(s.timestamp) : undefined,
+            eventType: s.eventType,
+            txid,
+            txIds: s.txIds,
+            direction,
+            cryptoBalance: computed.formattedCryptoBalance,
+            avgCostFiatPerUnit: computed.avgCostFiatPerUnit,
+            remainingCostBasisFiat: s.remainingCostBasisFiat,
+            unrealizedPnlFiat: computed.unrealizedPnlFiat,
+            costBasisRateFiat: s.markRate,
+            quoteCurrency: s.quoteCurrency,
+            createdAt: s.createdAt,
+          };
+        });
+
+        snapshots = preservedSnapshots.length
+          ? preservedSnapshots.concat(mappedNew)
+          : mappedNew;
+
+        // Compute the final atomic balance for mismatch detection.
+        if (storedSnaps.length) {
+          unitsHeldAtomic = BigInt(storedSnaps[storedSnaps.length - 1].cryptoBalance);
+        } else if (latestSnapshotForEngine) {
+          unitsHeldAtomic = BigInt(latestSnapshotForEngine.cryptoBalance);
+        } else if (preservedSnapshots.length) {
+          const lastPreserved = preservedSnapshots[preservedSnapshots.length - 1];
+          unitsHeldAtomic = unitStringToAtomicBigInt(
+            lastPreserved.cryptoBalance || '0',
+            unitDecimals,
+          );
+        } else {
+          unitsHeldAtomic = 0n;
+        }
+
 
         if (shouldAbort()) {
           return;

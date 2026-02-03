@@ -12,6 +12,7 @@ export interface BalanceSnapshot {
   dayStartMs?: number;
   eventType: BalanceSnapshotEventType;
   txid?: string;
+  txIds?: string[];
   direction?: BalanceSnapshotDirection;
   cryptoBalance: string;
   avgCostFiatPerUnit: number;
