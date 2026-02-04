@@ -1063,12 +1063,16 @@ export const populatePortfolio =
         const mappedNew: BalanceSnapshot[] = storedSnaps.map(s => {
           const computed = computeBalanceSnapshotComputed(s, credentials);
           const txid =
-            s.eventType === 'tx' ? extractTxIdFromSnapshotId(s.id) : undefined;
+            s.eventType === 'tx'
+              ? extractTxIdFromSnapshotId(s.id) ?? undefined
+              : undefined;
+          const balanceDeltaAtomic =
+            s.eventType === 'tx' ? BigInt(computed.balanceDeltaAtomic) : 0n;
           const direction =
             s.eventType === 'tx'
-              ? computed.balanceDeltaAtomic > 0n
+              ? balanceDeltaAtomic > 0n
                 ? 'incoming'
-                : computed.balanceDeltaAtomic < 0n
+                : balanceDeltaAtomic < 0n
                 ? 'outgoing'
                 : undefined
               : undefined;
