@@ -334,11 +334,31 @@ const StorageUsage: React.FC = () => {
 
       const _setPortfolioStorage = async () => {
         try {
-          const serializedPortfolio = JSON.stringify(portfolio);
-          const _portfolioStorageSize = await getSize(
-            RNFS.TemporaryDirectoryPath + '/portfolio.txt',
-            serializedPortfolio,
-          );
+          const root = storage.getString('persist:root');
+          if (!root) {
+            setPortfolioStorage('0 Bytes');
+            return;
+          }
+          let persistedPortfolio: unknown;
+          try {
+            const parsed = JSON.parse(root);
+            persistedPortfolio = parsed?.PORTFOLIO;
+          } catch (_) {
+            setPortfolioStorage('0 Bytes');
+            return;
+          }
+          const serializedPortfolio =
+            typeof persistedPortfolio === 'string'
+              ? persistedPortfolio
+              : persistedPortfolio
+              ? JSON.stringify(persistedPortfolio)
+              : '';
+          const _portfolioStorageSize = serializedPortfolio
+            ? await getSize(
+                RNFS.TemporaryDirectoryPath + '/portfolio.txt',
+                serializedPortfolio,
+              )
+            : 0;
           setPortfolioStorage(formatBytes(_portfolioStorageSize));
         } catch (err) {
           const errStr =
