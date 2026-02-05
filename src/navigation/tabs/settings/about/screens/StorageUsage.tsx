@@ -121,6 +121,10 @@ const StorageUsage: React.FC = () => {
   const [contactStorage, setContactStorage] = useState<string>('');
   const [ratesStorage, setRatesStorage] = useState<string>('');
   const [portfolioStorage, setPortfolioStorage] = useState<string>('');
+  const [portfolioPersistedStorage, setPortfolioPersistedStorage] =
+    useState<string>('');
+  const [portfolioPersistedSnapshotsCount, setPortfolioPersistedSnapshotsCount] =
+    useState<number>(0);
   const [backupStorage, setBackupStorage] = useState<string>('');
   const [shopCatalogStorage, setShopCatalogStorage] = useState<string>('');
 
@@ -334,32 +338,58 @@ const StorageUsage: React.FC = () => {
 
       const _setPortfolioStorage = async () => {
         try {
-          const root = storage.getString('persist:root');
-          if (!root) {
-            setPortfolioStorage('0 Bytes');
-            return;
-          }
-          let persistedPortfolio: unknown;
-          try {
-            const parsed = JSON.parse(root);
-            persistedPortfolio = parsed?.PORTFOLIO;
-          } catch (_) {
-            setPortfolioStorage('0 Bytes');
-            return;
-          }
-          const serializedPortfolio =
-            typeof persistedPortfolio === 'string'
-              ? persistedPortfolio
-              : persistedPortfolio
-              ? JSON.stringify(persistedPortfolio)
-              : '';
-          const _portfolioStorageSize = serializedPortfolio
-            ? await getSize(
-                RNFS.TemporaryDirectoryPath + '/portfolio.txt',
-                serializedPortfolio,
-              )
-            : 0;
+          const serializedPortfolio = JSON.stringify(portfolio);
+          const _portfolioStorageSize = await getSize(
+            RNFS.TemporaryDirectoryPath + '/portfolio.txt',
+            serializedPortfolio,
+          );
           setPortfolioStorage(formatBytes(_portfolioStorageSize));
+
+          // Persisted size (redux-persist) is stored as the PORTFOLIO string within persist:root.
+          // This reflects the *on-disk* representation (including any transform/encryption output).
+          const root = storage.getString('persist:root');
+          if (root) {
+            try {
+              const parsed = JSON.parse(root);
+              const portfolioPersisted = parsed?.PORTFOLIO;
+              if (typeof portfolioPersisted === 'string') {
+                const persistedBytes = await getSize(
+                  RNFS.TemporaryDirectoryPath + '/portfolio-persisted.txt',
+                  portfolioPersisted,
+                );
+                setPortfolioPersistedStorage(formatBytes(persistedBytes));
+
+                // Best-effort snapshot row count from the persisted payload.
+                try {
+                  const persistedObj = JSON.parse(portfolioPersisted);
+                  const byWalletId = persistedObj?.snapshotsByWalletId || {};
+                  let total = 0;
+                  Object.values(byWalletId).forEach((v: any) => {
+                    if (Array.isArray(v)) {
+                      total += v.length;
+                      return;
+                    }
+                    const rows = v?.rows;
+                    if (Array.isArray(rows)) {
+                      total += rows.length;
+                    }
+                  });
+                  setPortfolioPersistedSnapshotsCount(total);
+                } catch (_) {
+                  setPortfolioPersistedSnapshotsCount(0);
+                }
+              } else {
+                setPortfolioPersistedStorage('0 Bytes');
+                setPortfolioPersistedSnapshotsCount(0);
+              }
+            } catch (_) {
+              setPortfolioPersistedStorage('0 Bytes');
+              setPortfolioPersistedSnapshotsCount(0);
+            }
+          } else {
+            setPortfolioPersistedStorage('0 Bytes');
+            setPortfolioPersistedSnapshotsCount(0);
+          }
         } catch (err) {
           const errStr =
             err instanceof Error ? err.message : JSON.stringify(err);
@@ -490,6 +520,15 @@ const StorageUsage: React.FC = () => {
             </SettingTitle>
 
             {renderValue(portfolioStorage)}
+          </Setting>
+
+          <Hr />
+          <Setting onPress={handlePortfolioPress}>
+            <SettingTitle>
+              {t('Portfolio Persisted')} ({portfolioPersistedSnapshotsCount || '0'})
+            </SettingTitle>
+
+            {renderValue(portfolioPersistedStorage)}
           </Setting>
 
           <Hr />

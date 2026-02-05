@@ -3,6 +3,7 @@ import {InteractionManager, Pressable, ScrollView} from 'react-native';
 import styled from 'styled-components/native';
 import {useTranslation} from 'react-i18next';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import Clipboard from '@react-native-clipboard/clipboard';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
 import {
@@ -26,6 +27,7 @@ import {
 } from '../../../../../constants/currencies';
 import {getCurrencyAbbreviation} from '../../../../../utils/helper-methods';
 import {getLatestSnapshot} from '../../../../../utils/assets';
+import {Network} from '../../../../../constants';
 
 type PortfolioDebugScreenProps = NativeStackScreenProps<
   AboutGroupParamList,
@@ -74,6 +76,14 @@ const getUnitDecimalsForWallet = (wallet: Wallet | undefined): number => {
   return typeof unitDecimals === 'number' ? unitDecimals : 0;
 };
 
+const csvEscape = (v: unknown): string => {
+  const s = v == null ? '' : String(v);
+  if (/[^\x20-\x7E]|[\n\r,\"]/g.test(s)) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+};
+
 type DerivedMismatch = {
   deltaUnits: string;
   liveUnits: string;
@@ -88,6 +98,10 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
   const walletKeys = useAppSelector(({WALLET}) => WALLET?.keys || {});
 
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [isCopyingAudit, setIsCopyingAudit] = useState<boolean>(false);
+  const [copyAuditState, setCopyAuditState] = useState<'idle' | 'copied'>(
+    'idle',
+  );
 
   const walletIds = useMemo(() => {
     const ids = Object.keys(portfolio.snapshotsByWalletId || {});
@@ -95,20 +109,48 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
     return ids;
   }, [portfolio.snapshotsByWalletId]);
 
-  const {walletNameById, walletById} = useMemo(() => {
+  const {walletNameById, walletById, allWallets} = useMemo(() => {
     const nameMap: {[walletId: string]: string | undefined} = {};
     const walletMap: {[walletId: string]: Wallet | undefined} = {};
+    const all: Wallet[] = [];
     for (const key of Object.values(walletKeys || {}) as any[]) {
       const wallets: Wallet[] = Array.isArray(key?.wallets) ? key.wallets : [];
       for (const w of wallets) {
+        all.push(w);
         if (w?.id) {
           nameMap[w.id] = w.walletName;
           walletMap[w.id] = w;
         }
       }
     }
-    return {walletNameById: nameMap, walletById: walletMap};
+    return {walletNameById: nameMap, walletById: walletMap, allWallets: all};
   }, [walletKeys]);
+
+  const {
+    mainnetWallets,
+    testnetWallets,
+    mainnetWalletsWithZeroBalance,
+  } = useMemo(() => {
+    const mainnet = allWallets.filter(w => w?.network === Network.mainnet);
+    const testnet = allWallets.filter(w => w?.network !== Network.mainnet);
+    const zero = mainnet.filter(w => {
+      const sat = (w as any)?.balance?.sat;
+      const crypto = (w as any)?.balance?.crypto;
+      if (typeof sat === 'number') {
+        return sat === 0;
+      }
+      if (typeof crypto === 'string') {
+        const n = Number(crypto);
+        return Number.isFinite(n) ? n === 0 : false;
+      }
+      return false;
+    });
+    return {
+      mainnetWallets: mainnet,
+      testnetWallets: testnet,
+      mainnetWalletsWithZeroBalance: zero,
+    };
+  }, [allWallets]);
 
   const totalSnapshots = useMemo(() => {
     let count = 0;
@@ -191,12 +233,102 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
     return () => task.cancel();
   }, [dispatch, isGenerating, portfolio.populateStatus?.inProgress]);
 
+  const copySnapshotAuditCsv = useCallback(() => {
+    if (isCopyingAudit) {
+      return;
+    }
+
+    setIsCopyingAudit(true);
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      try {
+        const wallets = [...(allWallets || [])].filter((w: any) => !!w?.id);
+        wallets.sort((a: any, b: any) => String(a.id).localeCompare(String(b.id)));
+
+        const headers = [
+          'walletId',
+          'walletName',
+          'keyId',
+          'chain',
+          'coin',
+          'tokenAddress',
+          'network',
+          'hidden',
+          'balance.crypto',
+          'balance.sat',
+          'snapshots',
+          'txSnapshots',
+          'dailySnapshots',
+          'dailyTxIdsTotal',
+          'duplicateSnapshotIds',
+          'firstSnapshotTs',
+          'lastSnapshotTs',
+        ];
+
+        const rows = wallets.map((w: any) => {
+          const walletId = String(w.id);
+          const name = walletNameById[walletId] || w.walletName || '';
+          const snapsRaw = (portfolio.snapshotsByWalletId || {})[walletId];
+          const snaps: BalanceSnapshot[] = Array.isArray(snapsRaw)
+            ? (snapsRaw as BalanceSnapshot[])
+            : [];
+          const total = snaps.length;
+          const txCount = snaps.filter(s => (s as any)?.eventType === 'tx').length;
+          const dailyCount = total - txCount;
+          const dailyTxIdsTotal = snaps.reduce((sum, s: any) => {
+            const txIds = s?.txIds;
+            return sum + (Array.isArray(txIds) ? txIds.length : 0);
+          }, 0);
+          const uniqueIds = new Set(snaps.map(s => String((s as any)?.id || ''))).size;
+          const dupIds = total - uniqueIds;
+          const firstTs = total ? (snaps[0] as any)?.timestamp ?? '' : '';
+          const lastTs = total ? (snaps[total - 1] as any)?.timestamp ?? '' : '';
+
+          return [
+            walletId,
+            name,
+            w.keyId || '',
+            w.chain || '',
+            w.currencyAbbreviation || '',
+            w.tokenAddress || '',
+            w.network || '',
+            w.hideWallet ? 'yes' : '',
+            w.balance?.crypto ?? '',
+            typeof w.balance?.sat === 'number' ? w.balance.sat : '',
+            total,
+            txCount,
+            dailyCount,
+            dailyTxIdsTotal,
+            dupIds,
+            firstTs,
+            lastTs,
+          ]
+            .map(csvEscape)
+            .join(',');
+        });
+
+        const csv = [headers.join(','), ...rows].join('\n');
+        Clipboard.setString(csv);
+        setCopyAuditState('copied');
+        setTimeout(() => setCopyAuditState('idle'), 1500);
+      } finally {
+        setIsCopyingAudit(false);
+      }
+    });
+
+    return () => task.cancel();
+  }, [allWallets, isCopyingAudit, portfolio.snapshotsByWalletId, walletNameById]);
+
   return (
     <DebugScreenContainer>
       <DebugHeaderContainer>
         <DebugHeaderText>
-          {t('Wallets')}: {walletIds.length} | {t('Snapshots')}:{' '}
-          {totalSnapshots}
+          {t('Wallets')} (with snapshots): {walletIds.length} | {t('Snapshots')}: {totalSnapshots}
+        </DebugHeaderText>
+        <DebugHeaderText>
+          {t('Mainnet Wallets')}: {mainnetWallets.length} | {t('Testnet Wallets')}:{' '}
+          {testnetWallets.length} | {t('Mainnet Zero-Balance Wallets')}:{' '}
+          {mainnetWalletsWithZeroBalance.length}
         </DebugHeaderText>
         <DebugHeaderText>
           inProgress: {portfolio.populateStatus?.inProgress ? 'yes' : 'no'} |{' '}
@@ -220,6 +352,18 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
             <DebugPillButtonText
               selected={portfolio.populateStatus?.inProgress}>
               {t('Populate Portfolio Store')}
+            </DebugPillButtonText>
+          </DebugPillButton>
+        </DebugButtonRow>
+
+        <DebugButtonRow>
+          <DebugPillButton
+            onPress={() => (isCopyingAudit ? null : copySnapshotAuditCsv())}
+            selected={copyAuditState === 'copied'}>
+            <DebugPillButtonText selected={copyAuditState === 'copied'}>
+              {copyAuditState === 'copied'
+                ? 'Copied Snapshot Audit CSV'
+                : 'Copy Snapshot Audit CSV'}
             </DebugPillButtonText>
           </DebugPillButton>
         </DebugButtonRow>
