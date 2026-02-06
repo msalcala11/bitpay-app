@@ -220,12 +220,7 @@ const buildSnapshotMismatchUpdate = (args: {
   computedAtomic: bigint;
   actualAtomic: bigint;
   unitDecimals: number;
-  suppress?: boolean;
 }): SnapshotBalanceMismatch | undefined => {
-  if (args.suppress) {
-    return undefined;
-  }
-
   if (args.computedAtomic === args.actualAtomic) {
     return undefined;
   }
@@ -969,11 +964,6 @@ export const populatePortfolio =
           if (existingSnapshots.length) {
             const latestExisting = getLatestSnapshot(existingSnapshots);
             const walletBalance = getWalletBalanceAtomic(wallet, unitDecimals);
-            const satPendingRaw = (wallet as any)?.balance?.satPending;
-            const satPending =
-              typeof satPendingRaw === 'number'
-                ? satPendingRaw
-                : Number(satPendingRaw);
             const snapAtomic = getSnapshotAtomicBalanceFromCryptoBalance({
               snapshot: latestExisting as BalanceSnapshot | undefined,
               unitDecimals,
@@ -983,7 +973,6 @@ export const populatePortfolio =
               computedAtomic: snapAtomic,
               actualAtomic: walletBalance.atomic,
               unitDecimals,
-              suppress: Number.isFinite(satPending) && satPending > 0,
             });
             dispatch(
               setSnapshotBalanceMismatchesByWalletIdUpdates({
@@ -1241,17 +1230,11 @@ export const populatePortfolio =
           unitDecimals,
         });
         const walletBalance = getWalletBalanceAtomic(wallet, unitDecimals);
-        const satPendingRaw = (wallet as any)?.balance?.satPending;
-        const satPending =
-          typeof satPendingRaw === 'number'
-            ? satPendingRaw
-            : Number(satPendingRaw);
         const mismatchUpdate = buildSnapshotMismatchUpdate({
           walletId: wallet.id,
           computedAtomic: computedAtomicForMismatch,
           actualAtomic: walletBalance.atomic,
           unitDecimals,
-          suppress: Number.isFinite(satPending) && satPending > 0,
         });
         dispatch(
           setSnapshotBalanceMismatchesByWalletIdUpdates({
