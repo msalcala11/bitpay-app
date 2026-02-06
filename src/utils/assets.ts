@@ -137,6 +137,22 @@ const toNumber = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+const hasPendingWalletBalance = (wallet: Wallet): boolean => {
+  const satPendingRaw = (wallet as any)?.balance?.satPending;
+  const satPending =
+    typeof satPendingRaw === 'number' ? satPendingRaw : Number(satPendingRaw);
+  if (Number.isFinite(satPending) && satPending > 0) {
+    return true;
+  }
+
+  const cryptoPendingRaw = (wallet as any)?.balance?.cryptoPending;
+  const cryptoPending =
+    typeof cryptoPendingRaw === 'string' || typeof cryptoPendingRaw === 'number'
+      ? Number(String(cryptoPendingRaw).replace(/,/g, ''))
+      : NaN;
+  return Number.isFinite(cryptoPending) && cryptoPending > 0;
+};
+
 const pickFirstPositiveRate = (...rates: Array<number | undefined>): number => {
   for (const rate of rates) {
     const num = toNumber(rate);
@@ -667,6 +683,13 @@ export const getWalletIdsToPopulateFromSnapshots = (args: {
       const liveSat = ((w as any)?.balance?.sat as number | undefined) || 0;
       if (liveSat > 0) {
         mainnetWalletIdsMissingSnapshots.push(w.id);
+      }
+      continue;
+    }
+
+    if (hasPendingWalletBalance(w)) {
+      if (prevMismatchesByWalletId[w.id]) {
+        snapshotBalanceMismatchUpdates[w.id] = undefined;
       }
       continue;
     }
