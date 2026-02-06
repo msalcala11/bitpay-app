@@ -1,7 +1,7 @@
-import React from 'react';
+import React, {useMemo} from 'react';
 import styled from 'styled-components/native';
 import {BaseText, H2} from '../../../../components/styled/Text';
-import {Slate30, SlateDark, White} from '../../../../styles/colors';
+import {SlateDark, White} from '../../../../styles/colors';
 import {useSelector} from 'react-redux';
 import {RootState} from '../../../../store';
 import {
@@ -19,6 +19,13 @@ import Percentage from '../../../../components/percentage/Percentage';
 import {COINBASE_ENV} from '../../../../api/coinbase/coinbase.constants';
 import {useTranslation} from 'react-i18next';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
+import {maskIfHidden} from '../../../../utils/hideBalances';
+import {
+  getPercentageDifferenceFromPercentRatio,
+  getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots,
+  hasSnapshotsForWallets,
+} from '../../../../utils/assets';
+import type {Wallet} from '../../../../store/wallet/wallet.models';
 
 const PortfolioContainer = styled.View`
   justify-content: center;
@@ -63,16 +70,82 @@ const PortfolioBalance = () => {
     ({WALLET}: RootState) => WALLET.portfolioBalance,
   );
 
+  const keys = useSelector(({WALLET}: RootState) => WALLET.keys);
+  const portfolio = useSelector(({PORTFOLIO}: RootState) => PORTFOLIO);
+  const {rates, lastDayRates, fiatRateSeriesCache} = useSelector(
+    ({RATE}: RootState) => RATE,
+  );
+
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
 
   const totalBalance: number = portfolioBalance.current + coinbaseBalance;
 
   const dispatch = useAppDispatch();
-  const percentageDifference = calculatePercentageDifference(
+
+  const walletsAcrossKeys: Wallet[] = useMemo(() => {
+    const allWallets = Object.values(keys || {}).flatMap((k: any) =>
+      Array.isArray(k?.wallets) ? k.wallets : [],
+    );
+
+    const byId = new Map<string, Wallet>();
+    for (const w of allWallets) {
+      if (!w?.id) {
+        continue;
+      }
+      if (w.hideWallet || w.hideWalletByAccount) {
+        continue;
+      }
+      const sat = (w as any)?.balance?.sat as number | undefined;
+      if (!(typeof sat === 'number' && sat > 0)) {
+        continue;
+      }
+      if (!byId.has(w.id)) {
+        byId.set(w.id, w);
+      }
+    }
+    return Array.from(byId.values());
+  }, [keys]);
+
+  const legacyPercentageDifference = calculatePercentageDifference(
     portfolioBalance.current,
     portfolioBalance.lastDay,
   );
+
+  const hasSnapshots = hasSnapshotsForWallets({
+    snapshotsByWalletId: portfolio?.snapshotsByWalletId || {},
+    wallets: walletsAcrossKeys,
+  });
+
+  const portfolioPnlPercentageDifference = useMemo(() => {
+    if (!hasSnapshots) {
+      return null;
+    }
+
+    const pnl = getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots({
+      snapshotsByWalletId: portfolio?.snapshotsByWalletId || {},
+      wallets: walletsAcrossKeys,
+      quoteCurrency: portfolio?.quoteCurrency,
+      timeframe: '1D',
+      rates,
+      lastDayRates,
+      fiatRateSeriesCache,
+    });
+
+    return getPercentageDifferenceFromPercentRatio(pnl.percentRatio);
+  }, [
+    fiatRateSeriesCache,
+    hasSnapshots,
+    lastDayRates,
+    portfolio?.quoteCurrency,
+    portfolio?.snapshotsByWalletId,
+    rates,
+    walletsAcrossKeys,
+  ]);
+
+  const percentageDifference = hasSnapshots
+    ? portfolioPnlPercentageDifference
+    : legacyPercentageDifference;
 
   const showPortfolioBalanceInfoModal = () => {
     dispatch(
@@ -124,7 +197,7 @@ const PortfolioBalance = () => {
             ) : null}
           </>
         ) : (
-          <HiddenBalance>****</HiddenBalance>
+          <HiddenBalance>{maskIfHidden(true, totalBalance)}</HiddenBalance>
         )}
       </TouchableOpacity>
     </PortfolioContainer>

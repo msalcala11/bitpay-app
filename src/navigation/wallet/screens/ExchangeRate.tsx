@@ -42,11 +42,14 @@ import LinkingButtons from '../../tabs/home/components/LinkingButtons';
 import Loader from '../../../components/loader/Loader';
 import {
   Action,
+  Black,
+  CharcoalBlack,
   LightBlack,
   LightBlue,
   LinkBlue,
   LuckySevens,
   Midnight,
+  NeutralSlate,
   ProgressBlue,
   Slate,
   Slate10,
@@ -70,7 +73,12 @@ import {
   getRateByCurrencyName,
   sleep,
 } from '../../../utils/helper-methods';
-import {downsampleTimestamps} from '../../../utils/rate';
+import {getVisibleWalletsFromKeys} from '../../../utils/assets';
+import {
+  downsampleSeries,
+  getFiatRateChangeForTimeframe,
+  normalizeFiatRateSeriesCoin,
+} from '../../../utils/rate';
 import {findIndex, maxBy, minBy} from 'lodash';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {
@@ -317,13 +325,10 @@ const getFormattedData = (
     return defaultDisplayData;
   }
   const targetLen = 91;
-  const rates =
-    ratesSorted.length > targetLen
-      ? (downsampleTimestamps({series: ratesSorted}, targetLen, {
-          strategy: 'lttb',
-          mode: 'per_coin',
-        }).series.filter(p => p !== null) as Array<{ts: number; rate: number}>)
-      : ratesSorted;
+  const rates = downsampleSeries(ratesSorted, targetLen, {
+    strategy: 'lttb',
+    mode: 'per_coin',
+  });
   if (rates.length < 2) {
     const scaledData = rates.map(value => ({
       date: new Date(value.ts),
@@ -394,7 +399,7 @@ const CircleButton = styled(TouchableOpacity)`
   border-radius: 20px;
   align-items: center;
   justify-content: center;
-  background-color: ${({theme}) => (theme.dark ? '#252525' : '#F5F7F8')};
+  background-color: ${({theme}) => (theme.dark ? LightBlack : NeutralSlate)};
 `;
 
 const HeaderTitleText = styled(HeaderTitle)`
@@ -502,7 +507,7 @@ const SectionTitle = styled(H5)`
 
 const WalletCard = styled(TouchableOpacity)`
   border: 1px solid ${({theme}) => (theme.dark ? LightBlack : Slate10)};
-  background-color: ${({theme: {dark}}) => (dark ? '#111' : Slate10)};
+  background-color: ${({theme: {dark}}) => (dark ? CharcoalBlack : Slate10)};
   border-radius: 12px;
   margin: 8px ${ScreenGutter};
   flex-direction: row;
@@ -590,7 +595,7 @@ const Divider = styled.View`
 
 const MarketBody = styled.View`
   padding: 14px;
-  background-color: ${({theme: {dark}}) => (dark ? '#111' : Slate10)};
+  background-color: ${({theme: {dark}}) => (dark ? CharcoalBlack : Slate10)};
 `;
 
 const SubSectionTitle = styled(BaseText)`
@@ -715,6 +720,9 @@ const ExchangeRate = () => {
   const navigation = useNavigation();
   const dispatch = useAppDispatch();
   const keys = useAppSelector(({WALLET}: RootState) => WALLET.keys);
+  const homeCarouselConfig = useAppSelector(
+    ({APP}: RootState) => APP.homeCarouselConfig,
+  );
   const rates = useAppSelector(({RATE}: RootState) => RATE.rates);
   const fiatRateSeriesCache = useAppSelector(
     ({RATE}: RootState) => RATE.fiatRateSeriesCache,
@@ -809,16 +817,6 @@ const ExchangeRate = () => {
     assetContext.currencyAbbreviation,
     assetContext.tokenAddress,
   ]);
-
-  const normalizeFiatRateSeriesCoin = useCallback((abbr?: string): string => {
-    switch ((abbr || '').toLowerCase()) {
-      case 'matic':
-      case 'pol':
-        return 'pol';
-      default:
-        return (abbr || '').toLowerCase();
-    }
-  }, []);
 
   const selectedFiatCodeUpper = (
     defaultAltCurrency.isoCode || 'USD'
@@ -988,12 +986,9 @@ const ExchangeRate = () => {
   }, [fiatRateSeriesCache, normalizedCoin, selectedFiatCodeUpper]);
 
   const walletsForAsset = useMemo(() => {
-    const allWallets: Wallet[] = (Object.values(keys) as Key[]).flatMap(
-      k => k.wallets,
-    );
-    const filtered = allWallets
+    const visibleWallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
+    const filtered = visibleWallets
       .filter(w => w.network !== Network.testnet)
-      .filter(w => !w.hideWallet && !w.hideWalletByAccount)
       .filter(w => (w.balance?.sat ?? 0) > 0)
       .filter(w => {
         const matchesCurrency =
@@ -1026,6 +1021,7 @@ const ExchangeRate = () => {
     assetContext.tokenAddress,
     defaultAltCurrency.isoCode,
     dispatch,
+    homeCarouselConfig,
     keys,
     rates,
   ]);
@@ -1158,24 +1154,34 @@ const ExchangeRate = () => {
 
   const latestPriceValue = currentFiatRate ?? fallbackHistoricalPrice;
 
-  const formattedCurrentPrice = useMemo(() => {
-    const valueToDisplay =
-      selectedPoint?.price ?? latestPriceValue ?? fallbackHistoricalPrice;
-    if (valueToDisplay == null) {
-      return '--';
-    }
+  const formatDisplayPrice = useCallback(
+    (value?: number) => {
+      if (value == null) {
+        return '--';
+      }
 
-    return formatFiatAmount(valueToDisplay, defaultAltCurrency.isoCode, {
-      customPrecision: 'minimal',
-      currencyAbbreviation: assetContext.currencyAbbreviation,
-    });
+      return formatFiatAmount(value, defaultAltCurrency.isoCode, {
+        customPrecision: 'minimal',
+        currencyAbbreviation: assetContext.currencyAbbreviation,
+      });
+    },
+    [assetContext.currencyAbbreviation, defaultAltCurrency.isoCode],
+  );
+
+  const formattedTopPrice = useMemo(() => {
+    return formatDisplayPrice(
+      selectedPoint?.price ?? latestPriceValue ?? fallbackHistoricalPrice,
+    );
   }, [
-    assetContext.currencyAbbreviation,
-    defaultAltCurrency.isoCode,
     fallbackHistoricalPrice,
+    formatDisplayPrice,
     latestPriceValue,
     selectedPoint?.price,
   ]);
+
+  const formattedMarketPrice = useMemo(() => {
+    return formatDisplayPrice(latestPriceValue ?? fallbackHistoricalPrice);
+  }, [fallbackHistoricalPrice, formatDisplayPrice, latestPriceValue]);
 
   const allIntervalsHighValue = useMemo(() => {
     const getPointsForInterval = (
@@ -1243,20 +1249,59 @@ const ExchangeRate = () => {
     defaultAltCurrency.isoCode,
   ]);
 
+  const timeframeChange = useMemo(() => {
+    if (!selectedFiatCodeUpper || !normalizedCoin) {
+      return undefined;
+    }
+
+    return getFiatRateChangeForTimeframe({
+      fiatRateSeriesCache,
+      fiatCode: selectedFiatCodeUpper,
+      currencyAbbreviation: normalizedCoin,
+      timeframe: selectedTimeframe,
+      currentRate: currentFiatRate,
+      method: 'linear',
+    });
+  }, [
+    currentFiatRate,
+    fiatRateSeriesCache,
+    normalizedCoin,
+    selectedFiatCodeUpper,
+    selectedTimeframe,
+  ]);
+
   const percentChangeToDisplay = useMemo(() => {
     if (selectedPoint) {
       return selectedPoint.percentChange;
+    }
+    if (timeframeChange) {
+      return timeframeChange.percentChange;
     }
     if (displayData.data.length) {
       return displayData.percentChange;
     }
     return 0;
-  }, [displayData.data.length, displayData.percentChange, selectedPoint]);
+  }, [
+    displayData.data.length,
+    displayData.percentChange,
+    selectedPoint,
+    timeframeChange,
+  ]);
 
   const priceChangeToDisplay = useMemo(() => {
     if (selectedPoint) {
       return formatFiatAmount(
         selectedPoint.priceChange,
+        defaultAltCurrency.isoCode,
+        {
+          customPrecision: 'minimal',
+          currencyAbbreviation: assetContext.currencyAbbreviation,
+        },
+      );
+    }
+    if (timeframeChange) {
+      return formatFiatAmount(
+        timeframeChange.priceChange,
         defaultAltCurrency.isoCode,
         {
           customPrecision: 'minimal',
@@ -1281,6 +1326,7 @@ const ExchangeRate = () => {
     displayData.data.length,
     displayData.priceChange,
     selectedPoint,
+    timeframeChange,
   ]);
 
   const chartPoints = useMemo(() => {
@@ -1359,7 +1405,8 @@ const ExchangeRate = () => {
       if (!gestureStarted.current || !chartPoints.length) {
         return;
       }
-      const baselineValue = chartPoints[0]?.value ?? p.value;
+      const baselineValue =
+        timeframeChange?.baselineRate ?? chartPoints[0]?.value ?? p.value;
       const percentChangeAtPoint = calculatePercentageDifference(
         p.value,
         baselineValue,
@@ -1372,7 +1419,7 @@ const ExchangeRate = () => {
       });
       haptic('impactLight');
     },
-    [chartPoints],
+    [chartPoints, timeframeChange?.baselineRate],
   );
 
   const onGestureEnd = useCallback(async () => {
@@ -1536,10 +1583,9 @@ const ExchangeRate = () => {
           <AbbreviationLabel>{currencyAbbreviation}</AbbreviationLabel>
           <PriceText
             isLargeNumber={
-              (formattedAllIntervalsHighPrice || formattedCurrentPrice).length >
-              11
+              (formattedAllIntervalsHighPrice || formattedTopPrice).length > 11
             }>
-            {formattedCurrentPrice}
+            {formattedTopPrice}
           </PriceText>
           <PercentRow>
             <Percentage
@@ -1569,7 +1615,7 @@ const ExchangeRate = () => {
               TopAxisLabel={MaxAxisLabel}
               BottomAxisLabel={MinAxisLabel}
               SelectionDot={ChartSelectionDot}
-              color={theme.dark && coinColor === '#000000' ? White : coinColor}
+              color={theme.dark && coinColor === Black ? White : coinColor}
               style={{
                 width: WIDTH,
                 height: 200,
@@ -1736,7 +1782,7 @@ const ExchangeRate = () => {
                 </View>
                 <MarketTitle>{`${currencyAbbreviation} Market Price`}</MarketTitle>
               </MarketHeaderLeft>
-              <MarketPrice>{formattedCurrentPrice}</MarketPrice>
+              <MarketPrice>{formattedMarketPrice}</MarketPrice>
             </MarketHeader>
             <Divider />
             <MarketBody>
@@ -1787,7 +1833,7 @@ const ExchangeRate = () => {
                   {aboutToDisplay || '--'}
                 </AboutText>
                 <View style={{marginTop: 15}}>
-                  {!!aboutToDisplay ? (
+                  {aboutToDisplay ? (
                     <TouchableOpacity
                       accessibilityRole="button"
                       hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
