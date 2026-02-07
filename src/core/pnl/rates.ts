@@ -2,8 +2,8 @@ import type {
   FiatRatePoint,
   FiatRateSeriesCache,
   FiatRateInterval,
-} from '../fiatRates';
-import {getFiatRateSeriesCacheKey} from '../fiatRates';
+} from '../fiatRateSeries';
+import {getFiatRateSeriesCacheKey} from '../fiatRateSeries';
 
 export const normalizeFiatRateSeriesCoin = (
   currencyAbbreviation?: string,

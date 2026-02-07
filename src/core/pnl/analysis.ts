@@ -2,8 +2,8 @@ import type {
   FiatRateInterval,
   FiatRateSeriesCache,
   FiatRatePoint,
-} from '../fiatRates';
-import {getFiatRateSeriesCacheKey} from '../fiatRates';
+} from '../fiatRateSeries';
+import {getFiatRateSeriesCacheKey} from '../fiatRateSeries';
 import {
   formatAtomicAmount,
   formatBigIntDecimal,

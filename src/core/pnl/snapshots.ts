@@ -5,7 +5,7 @@ import {
   getAtomicDecimals,
   parseAtomicToBigint,
 } from '../format';
-import type {FiatRateSeriesCache} from '../fiatRates';
+import type {FiatRateSeriesCache} from '../fiatRateSeries';
 import {createFiatRateLookup, normalizeFiatRateSeriesCoin} from './rates';
 import type {
   BalanceSnapshotComputed,
