@@ -61,7 +61,6 @@ const getTxNonce = (tx: Tx): number | null => {
 
 const utcDayIndex = (tsMs: number): number => Math.floor(tsMs / DAY_MS);
 const utcDayKeyFromIndex = (dayIdx: number): string => new Date(dayIdx * DAY_MS).toISOString().slice(0, 10);
-const utcDayKey = (tsMs: number): string => new Date(tsMs).toISOString().slice(0, 10);
 
 const bigIntAbs = (v: bigint): bigint => (v < 0n ? -v : v);
 
