@@ -5,7 +5,14 @@ import {loadFiatRateSeriesCache, saveFiatRateSeriesCache} from './storage';
 //
 // BWS supports ?days=... for smaller windows; larger windows are typically daily cadence.
 // In the original BitPay app, the commonly-fetched intervals are: 1D, 1W, 1M, ALL.
-export type CachedFiatRateInterval = '1D' | '1W' | '1M' | '3M' | '1Y' | '5Y' | 'ALL';
+export type CachedFiatRateInterval =
+  | '1D'
+  | '1W'
+  | '1M'
+  | '3M'
+  | '1Y'
+  | '5Y'
+  | 'ALL';
 export type FiatRateInterval = CachedFiatRateInterval;
 
 export type FiatRatePoint = {
@@ -27,7 +34,10 @@ const HISTORIC_RATES_CACHE_DURATION_SECONDS = 5 * 60; // 5 minutes
 // Match BitPay pruning behavior: keep the most recently-fetched fiat(s).
 const FIAT_RATE_SERIES_MAX_FIATS_PERSISTED = 1;
 
-const FIAT_RATE_SERIES_INTERVAL_DAYS: Record<FiatRateInterval, number | undefined> = {
+const FIAT_RATE_SERIES_INTERVAL_DAYS: Record<
+  FiatRateInterval,
+  number | undefined
+> = {
   '1D': 1,
   '1W': 7,
   '1M': 30,
@@ -42,7 +52,9 @@ export const getFiatRateSeriesCacheKey = (
   coin: string,
   interval: FiatRateInterval,
 ): string => {
-  return `${(fiatCode || '').toUpperCase()}:${(coin || '').toLowerCase()}:${interval}`;
+  return `${(fiatCode || '').toUpperCase()}:${(
+    coin || ''
+  ).toLowerCase()}:${interval}`;
 };
 
 export const getFiatRateSeriesUrl = (
@@ -58,14 +70,19 @@ export const getFiatRateSeriesUrl = (
   return `${cfg.baseUrl}/v4/fiatrates/${codeUpper}?days=${days}`;
 };
 
-const getFiatCodeFromSeriesCacheKey = (cacheKey: string): string | undefined => {
+const getFiatCodeFromSeriesCacheKey = (
+  cacheKey: string,
+): string | undefined => {
   if (!cacheKey || typeof cacheKey !== 'string') return undefined;
   const idx = cacheKey.indexOf(':');
   if (idx <= 0) return undefined;
   return cacheKey.slice(0, idx).toUpperCase();
 };
 
-const isCacheKeyStale = (timestamp: number | undefined, durationSeconds: number): boolean => {
+const isCacheKeyStale = (
+  timestamp: number | undefined,
+  durationSeconds: number,
+): boolean => {
   if (!timestamp) return true;
   const ttlMs = durationSeconds * 1000;
   return Date.now() - timestamp > ttlMs;
@@ -135,7 +152,11 @@ export async function fetchAndCacheFiatRateSeriesAllCoins(args: {
   } = args;
 
   const current = loadFiatRateSeriesCache() as FiatRateSeriesCache;
-  const cacheKey = getFiatRateSeriesCacheKey(fiatCode, coinForCacheCheck, interval);
+  const cacheKey = getFiatRateSeriesCacheKey(
+    fiatCode,
+    coinForCacheCheck,
+    interval,
+  );
   const cached = current[cacheKey];
 
   if (

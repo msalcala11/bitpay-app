@@ -1,8 +1,17 @@
 import type {Tx, WalletCredentials, WalletSummary} from '../types';
-import {formatAtomicAmount, formatBigIntDecimal, getAtomicDecimals, parseAtomicToBigint} from '../format';
+import {
+  formatAtomicAmount,
+  formatBigIntDecimal,
+  getAtomicDecimals,
+  parseAtomicToBigint,
+} from '../format';
 import type {FiatRateSeriesCache} from '../fiatRates';
 import {createFiatRateLookup, normalizeFiatRateSeriesCoin} from './rates';
-import type {BalanceSnapshotComputed, BalanceSnapshotEventType, BalanceSnapshotStored} from './types';
+import type {
+  BalanceSnapshotComputed,
+  BalanceSnapshotEventType,
+  BalanceSnapshotStored,
+} from './types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const COMPRESSION_AGE_MS = 90 * DAY_MS;
@@ -11,7 +20,12 @@ const COMPRESSION_AGE_MS = 90 * DAY_MS;
 // Must be <= 2^53 to keep Number(scaled) exact.
 const RATIO_SCALE = 1_000_000_000_000n; // 1e12
 
-export const getAssetIdFromWallet = (wallet: Pick<WalletSummary, 'chain' | 'currencyAbbreviation' | 'tokenAddress'>): string => {
+export const getAssetIdFromWallet = (
+  wallet: Pick<
+    WalletSummary,
+    'chain' | 'currencyAbbreviation' | 'tokenAddress'
+  >,
+): string => {
   const chain = (wallet.chain || '').toLowerCase();
   const coin = (wallet.currencyAbbreviation || '').toLowerCase();
   if (wallet.tokenAddress) {
@@ -20,7 +34,9 @@ export const getAssetIdFromWallet = (wallet: Pick<WalletSummary, 'chain' | 'curr
   return `${chain}:${coin}`;
 };
 
-export const extractTxIdFromSnapshotId = (snapshotId: string): string | null => {
+export const extractTxIdFromSnapshotId = (
+  snapshotId: string,
+): string | null => {
   // Expected: tx:<walletId>:<txid>
   // (txid can itself contain ':' in our fallback ID format, so we join remaining parts)
   const parts = String(snapshotId || '').split(':');
@@ -41,16 +57,24 @@ const getTxId = (tx: Tx): string => {
   const id = String((tx as any)?.txid || (tx as any)?.id || '').trim();
   if (id) return id;
   // Worst-case fallback for txs without txid.
-  return `${String((tx as any)?.time ?? '')}:${String((tx as any)?.action ?? '')}:${String((tx as any)?.amount ?? '')}:${String((tx as any)?.fees ?? '')}`;
+  return `${String((tx as any)?.time ?? '')}:${String(
+    (tx as any)?.action ?? '',
+  )}:${String((tx as any)?.amount ?? '')}:${String((tx as any)?.fees ?? '')}`;
 };
 
 const getTxBlockHeight = (tx: Tx): number | null => {
-  const raw = Number((tx as any)?.blockheight ?? (tx as any)?.blockHeight ?? (tx as any)?.block_height);
+  const raw = Number(
+    (tx as any)?.blockheight ??
+      (tx as any)?.blockHeight ??
+      (tx as any)?.block_height,
+  );
   return Number.isFinite(raw) && raw > 0 ? raw : null;
 };
 
 const getTxTransactionIndex = (tx: Tx): number | null => {
-  const raw = Number((tx as any)?.receipt?.transactionIndex ?? (tx as any)?.transactionIndex);
+  const raw = Number(
+    (tx as any)?.receipt?.transactionIndex ?? (tx as any)?.transactionIndex,
+  );
   return Number.isFinite(raw) && raw >= 0 ? raw : null;
 };
 
@@ -60,7 +84,8 @@ const getTxNonce = (tx: Tx): number | null => {
 };
 
 const utcDayIndex = (tsMs: number): number => Math.floor(tsMs / DAY_MS);
-const utcDayKeyFromIndex = (dayIdx: number): string => new Date(dayIdx * DAY_MS).toISOString().slice(0, 10);
+const utcDayKeyFromIndex = (dayIdx: number): string =>
+  new Date(dayIdx * DAY_MS).toISOString().slice(0, 10);
 
 const bigIntAbs = (v: bigint): bigint => (v < 0n ? -v : v);
 
@@ -128,7 +153,9 @@ const getTxL1DataFeeAtomic = (tx: Tx): bigint => {
  */
 const getTxOperatorFeeAtomic = (tx: Tx): bigint => {
   const receipt = (tx as any)?.receipt;
-  const opFee = parseNumberishToBigint(receipt?.operatorFee ?? receipt?.opFee ?? (tx as any)?.operatorFee);
+  const opFee = parseNumberishToBigint(
+    receipt?.operatorFee ?? receipt?.opFee ?? (tx as any)?.operatorFee,
+  );
   return bigIntAbs(opFee);
 };
 
@@ -136,15 +163,21 @@ const getTxOperatorFeeAtomic = (tx: Tx): bigint => {
  * BWS sometimes reports EVM `fees` as `gasLimit * gasPrice` rather than
  * `gasUsed * effectiveGasPrice`, which can create balance mismatches.
  */
-const computeTxNetworkFeeAtomic = (tx: Tx, extra?: {l1FeeAtomic?: bigint; operatorFeeAtomic?: bigint}): bigint => {
+const computeTxNetworkFeeAtomic = (
+  tx: Tx,
+  extra?: {l1FeeAtomic?: bigint; operatorFeeAtomic?: bigint},
+): bigint => {
   const receipt = (tx as any)?.receipt;
   const gasUsed = parseNumberishToBigint(receipt?.gasUsed);
   if (gasUsed > 0n) {
-    const price = parseNumberishToBigint(receipt?.effectiveGasPrice ?? receipt?.gasPrice ?? (tx as any)?.gasPrice);
+    const price = parseNumberishToBigint(
+      receipt?.effectiveGasPrice ?? receipt?.gasPrice ?? (tx as any)?.gasPrice,
+    );
     if (price > 0n) {
       const l2Fee = gasUsed * price;
       const l1Fee = extra?.l1FeeAtomic ?? getTxL1DataFeeAtomic(tx);
-      const operatorFee = extra?.operatorFeeAtomic ?? getTxOperatorFeeAtomic(tx);
+      const operatorFee =
+        extra?.operatorFeeAtomic ?? getTxOperatorFeeAtomic(tx);
       return l2Fee + l1Fee + operatorFee;
     }
   }
@@ -161,8 +194,12 @@ const getTxMaxFeeFromGasLimitAtomic = (tx: Tx): bigint | null => {
   const gasUsed = parseNumberishToBigint(receipt?.gasUsed);
   if (gasUsed > 0n) return null;
 
-  const gasLimit = parseNumberishToBigint((tx as any)?.gasLimit ?? receipt?.gasLimit);
-  const gasPrice = parseNumberishToBigint((tx as any)?.gasPrice ?? receipt?.gasPrice ?? receipt?.effectiveGasPrice);
+  const gasLimit = parseNumberishToBigint(
+    (tx as any)?.gasLimit ?? receipt?.gasLimit,
+  );
+  const gasPrice = parseNumberishToBigint(
+    (tx as any)?.gasPrice ?? receipt?.gasPrice ?? receipt?.effectiveGasPrice,
+  );
   const fees = bigIntAbs(parseNumberishToBigint((tx as any)?.fees ?? 0));
 
   if (gasLimit <= 0n || gasPrice <= 0n || fees <= 0n) return null;
@@ -181,12 +218,17 @@ const normalizeAddress = (v: any): string | null => {
 };
 
 const getTxFromAddress = (tx: Tx): string | null =>
-  normalizeAddress((tx as any)?.receipt?.from ?? (tx as any)?.from ?? (tx as any)?.addressFrom);
+  normalizeAddress(
+    (tx as any)?.receipt?.from ?? (tx as any)?.from ?? (tx as any)?.addressFrom,
+  );
 
 const getTxToAddress = (tx: Tx): string | null =>
-  normalizeAddress((tx as any)?.receipt?.to ?? (tx as any)?.to ?? (tx as any)?.addressTo);
+  normalizeAddress(
+    (tx as any)?.receipt?.to ?? (tx as any)?.to ?? (tx as any)?.addressTo,
+  );
 
-const getTxEffects = (tx: Tx): any[] => (Array.isArray((tx as any)?.effects) ? (tx as any).effects : []);
+const getTxEffects = (tx: Tx): any[] =>
+  Array.isArray((tx as any)?.effects) ? (tx as any).effects : [];
 
 const isTxFailed = (tx: Tx): boolean => {
   const status = (tx as any)?.receipt?.status;
@@ -261,16 +303,18 @@ const normalizeTx = (tx: Tx, originalIndex: number): NormalizedTx => {
   );
   const effectTos = Array.from(
     new Set(
-      effects
-        .map(e => normalizeAddress(e?.to))
-        .filter((a): a is string => !!a),
+      effects.map(e => normalizeAddress(e?.to)).filter((a): a is string => !!a),
     ),
   );
 
-  const receiptPresent = (tx as any)?.receipt !== null && (tx as any)?.receipt !== undefined;
+  const receiptPresent =
+    (tx as any)?.receipt !== null && (tx as any)?.receipt !== undefined;
   const l1FeeAtomic = getTxL1DataFeeAtomic(tx);
   const operatorFeeAtomic = getTxOperatorFeeAtomic(tx);
-  const baseFeeAtomic = computeTxNetworkFeeAtomic(tx, {l1FeeAtomic, operatorFeeAtomic});
+  const baseFeeAtomic = computeTxNetworkFeeAtomic(tx, {
+    l1FeeAtomic,
+    operatorFeeAtomic,
+  });
   const maxFeeAtomic = getTxMaxFeeFromGasLimitAtomic(tx);
 
   return {
@@ -297,7 +341,8 @@ const normalizeTx = (tx: Tx, originalIndex: number): NormalizedTx => {
   };
 };
 
-const normalizeTxs = (txs: Tx[]): NormalizedTx[] => txs.map((tx, i) => normalizeTx(tx, i));
+const normalizeTxs = (txs: Tx[]): NormalizedTx[] =>
+  txs.map((tx, i) => normalizeTx(tx, i));
 
 const sortAndDedupeTxs = (txs: NormalizedTx[]): NormalizedTx[] => {
   const INF = Number.POSITIVE_INFINITY;
@@ -372,7 +417,15 @@ const inferWalletEvmAddresses = (txs: NormalizedTx[]): Set<string> => {
   const addrs = new Set<string>();
 
   for (const tx of txs) {
-    const {action, rawAmountAtomic, absAmountAtomic, from, to, effectFroms, effectTos} = tx;
+    const {
+      action,
+      rawAmountAtomic,
+      absAmountAtomic,
+      from,
+      to,
+      effectFroms,
+      effectTos,
+    } = tx;
 
     if (action === 'sent' || action === 'moved') {
       if (from) addrs.add(from);
@@ -399,7 +452,10 @@ const inferWalletEvmAddresses = (txs: NormalizedTx[]): Set<string> => {
   return addrs;
 };
 
-const isTxFeePaidByWallet = (tx: NormalizedTx, walletEvmAddresses: Set<string> | null): boolean => {
+const isTxFeePaidByWallet = (
+  tx: NormalizedTx,
+  walletEvmAddresses: Set<string> | null,
+): boolean => {
   // If we couldn't infer any wallet-controlled EVM addresses, fall back to legacy behavior
   // (assume fees affect native balance). This preserves behavior for non-EVM chains and
   // for sparse EVM histories where `from/to` fields are missing everywhere.
@@ -419,7 +475,8 @@ const isTxFeePaidByWallet = (tx: NormalizedTx, walletEvmAddresses: Set<string> |
   //
   // Best-effort: if there is exactly one `effects[].from` address, treat it as a proxy for the
   // tx initiator; otherwise, be conservative and assume the wallet did NOT pay the fee.
-  if (tx.effectFroms.length === 1) return walletEvmAddresses.has(tx.effectFroms[0]);
+  if (tx.effectFroms.length === 1)
+    return walletEvmAddresses.has(tx.effectFroms[0]);
 
   return false;
 };
@@ -430,9 +487,19 @@ type TxFlow = {
   acquisitionAtomic: bigint;
 };
 
-const classifyTxFlow = (tx: NormalizedTx, opts: {applyFeesToBalance: boolean; feePaidByWallet: boolean; feeAtomic: bigint}): TxFlow => {
+const classifyTxFlow = (
+  tx: NormalizedTx,
+  opts: {
+    applyFeesToBalance: boolean;
+    feePaidByWallet: boolean;
+    feeAtomic: bigint;
+  },
+): TxFlow => {
   const amount = tx.failed ? 0n : tx.absAmountAtomic;
-  const fees = opts.applyFeesToBalance && opts.feePaidByWallet ? bigIntAbs(opts.feeAtomic) : 0n;
+  const fees =
+    opts.applyFeesToBalance && opts.feePaidByWallet
+      ? bigIntAbs(opts.feeAtomic)
+      : 0n;
 
   // On EVM chains, a mined transaction with receipt.status = false/0 reverted.
   // In that case, *value transfers do not occur* but the network fee is still paid.
@@ -447,19 +514,35 @@ const classifyTxFlow = (tx: NormalizedTx, opts: {applyFeesToBalance: boolean; fe
       if (amount === 0n && fees > 0n) {
         return {inflowAtomic: 0n, outflowAtomic: fees, acquisitionAtomic: 0n};
       }
-      return {inflowAtomic: amount, outflowAtomic: 0n, acquisitionAtomic: amount};
+      return {
+        inflowAtomic: amount,
+        outflowAtomic: 0n,
+        acquisitionAtomic: amount,
+      };
     }
     case 'sent':
-      return {inflowAtomic: 0n, outflowAtomic: amount + fees, acquisitionAtomic: 0n};
+      return {
+        inflowAtomic: 0n,
+        outflowAtomic: amount + fees,
+        acquisitionAtomic: 0n,
+      };
     case 'moved':
       return {inflowAtomic: 0n, outflowAtomic: fees, acquisitionAtomic: 0n};
     default: {
       // Fallback inference
       if (tx.rawAmountAtomic > 0n) {
-        return {inflowAtomic: amount, outflowAtomic: 0n, acquisitionAtomic: amount};
+        return {
+          inflowAtomic: amount,
+          outflowAtomic: 0n,
+          acquisitionAtomic: amount,
+        };
       }
       if (tx.rawAmountAtomic < 0n) {
-        return {inflowAtomic: 0n, outflowAtomic: amount + fees, acquisitionAtomic: 0n};
+        return {
+          inflowAtomic: 0n,
+          outflowAtomic: amount + fees,
+          acquisitionAtomic: 0n,
+        };
       }
       if (fees > 0n) {
         return {inflowAtomic: 0n, outflowAtomic: fees, acquisitionAtomic: 0n};
@@ -546,7 +629,9 @@ export const computeBalanceSnapshotComputed = (
   const atomic = parseAtomicToBigint(s.cryptoBalance);
   const unitsHeld = atomicToUnitNumber(atomic, decimals);
 
-  const prevAtomic = prevSnapshot ? parseAtomicToBigint(prevSnapshot.cryptoBalance) : 0n;
+  const prevAtomic = prevSnapshot
+    ? parseAtomicToBigint(prevSnapshot.cryptoBalance)
+    : 0n;
   const balanceDeltaAtomic = (atomic - prevAtomic).toString();
 
   const formattedCryptoBalance = formatAtomicAmount(atomic, credentials);
@@ -554,7 +639,8 @@ export const computeBalanceSnapshotComputed = (
   const markRate = s.markRate;
   const fiatBalance = Number.isFinite(markRate) ? unitsHeld * markRate : NaN;
 
-  const avgCostFiatPerUnit = unitsHeld > 0 ? s.remainingCostBasisFiat / unitsHeld : 0;
+  const avgCostFiatPerUnit =
+    unitsHeld > 0 ? s.remainingCostBasisFiat / unitsHeld : 0;
   const unrealizedPnlFiat = fiatBalance - s.remainingCostBasisFiat;
 
   return {
@@ -598,7 +684,11 @@ type TxGroup = {
 };
 
 type FeeEstimate = {txid: string; maxFeeAtomic: bigint};
-type UnderFeeCandidate = {txid: string; baseFeeAtomic: bigint; maxExtraAtomic: bigint};
+type UnderFeeCandidate = {
+  txid: string;
+  baseFeeAtomic: bigint;
+  maxExtraAtomic: bigint;
+};
 
 type PreparedTxHistory = {
   walletId: string;
@@ -626,7 +716,9 @@ type PreparedTxHistory = {
   historyHasOpStackL1FeeField: boolean;
 };
 
-const getLatestSnapshotTxIds = (latestSnapshot: BalanceSnapshotStored | null): string[] => {
+const getLatestSnapshotTxIds = (
+  latestSnapshot: BalanceSnapshotStored | null,
+): string[] => {
   if (!latestSnapshot) return [];
   if (latestSnapshot.eventType === 'daily') {
     const anySnap: any = latestSnapshot as any;
@@ -637,7 +729,9 @@ const getLatestSnapshotTxIds = (latestSnapshot: BalanceSnapshotStored | null): s
   return txid ? [txid] : [];
 };
 
-const prepareTxHistory = (args: BuildBalanceSnapshotsArgs): PreparedTxHistory => {
+const prepareTxHistory = (
+  args: BuildBalanceSnapshotsArgs,
+): PreparedTxHistory => {
   const {wallet, credentials, latestSnapshot = null, compression} = args;
 
   const nowMs = args.nowMs ?? Date.now();
@@ -665,8 +759,16 @@ const prepareTxHistory = (args: BuildBalanceSnapshotsArgs): PreparedTxHistory =>
   if (applyFeesToBalance) {
     const hasEvmSignals =
       isEvmChain(chain) ||
-      dedupedSorted.some(tx => !!tx.from || !!tx.to || tx.effectFroms.length > 0 || tx.effectTos.length > 0);
-    walletEvmAddresses = hasEvmSignals ? inferWalletEvmAddresses(dedupedSorted) : null;
+      dedupedSorted.some(
+        tx =>
+          !!tx.from ||
+          !!tx.to ||
+          tx.effectFroms.length > 0 ||
+          tx.effectTos.length > 0,
+      );
+    walletEvmAddresses = hasEvmSignals
+      ? inferWalletEvmAddresses(dedupedSorted)
+      : null;
   }
 
   // Cursor logic: find the index in the *base sorted list* corresponding to latestSnapshot.
@@ -722,7 +824,8 @@ const prepareTxHistory = (args: BuildBalanceSnapshotsArgs): PreparedTxHistory =>
     }
   }
 
-  const toProcessBase = cursorIndex >= 0 ? dedupedSorted.slice(cursorIndex + 1) : dedupedSorted;
+  const toProcessBase =
+    cursorIndex >= 0 ? dedupedSorted.slice(cursorIndex + 1) : dedupedSorted;
 
   const opStack = isOpStackChain(chain);
   const historyHasOpStackL1FeeField = opStack
@@ -768,7 +871,11 @@ const reorderTxsToPreventUnderflow = (
     }
 
     const batch = txs.slice(i, j);
-    const orderedBatch = reorderTxBatchToPreventUnderflow(batch, simBalanceAtomic, getDeltaAtomic);
+    const orderedBatch = reorderTxBatchToPreventUnderflow(
+      batch,
+      simBalanceAtomic,
+      getDeltaAtomic,
+    );
 
     for (const tx of orderedBatch) {
       out.push(tx);
@@ -784,7 +891,11 @@ const reorderTxsToPreventUnderflow = (
   return out;
 };
 
-const groupTxsForCompression = (txsOrdered: NormalizedTx[], nowMs: number, compressionEnabled: boolean): TxGroup[] => {
+const groupTxsForCompression = (
+  txsOrdered: NormalizedTx[],
+  nowMs: number,
+  compressionEnabled: boolean,
+): TxGroup[] => {
   const groups: TxGroup[] = [];
   if (!compressionEnabled) {
     for (const tx of txsOrdered) groups.push({eventType: 'tx', txs: [tx]});
@@ -800,7 +911,11 @@ const groupTxsForCompression = (txsOrdered: NormalizedTx[], nowMs: number, compr
     if (curDayTxs.length === 1) {
       groups.push({eventType: 'tx', txs: [curDayTxs[0]]});
     } else {
-      groups.push({eventType: 'daily', txs: curDayTxs, dayIdx: curDayIdx ?? undefined});
+      groups.push({
+        eventType: 'daily',
+        txs: curDayTxs,
+        dayIdx: curDayIdx ?? undefined,
+      });
     }
     curDayTxs = [];
     curDayIdx = null;
@@ -834,8 +949,18 @@ type SimulationResult = {
   underFeeCandidates: UnderFeeCandidate[];
 };
 
-const simulateSnapshotsSync = (args: BuildBalanceSnapshotsArgs, prepared: PreparedTxHistory, feeOverrides?: Map<string, bigint> | null, collectFeeEstimates?: boolean): SimulationResult => {
-  const {quoteCurrency, fiatRateSeriesCache, latestSnapshot = null, onProgress} = args;
+const simulateSnapshotsSync = (
+  args: BuildBalanceSnapshotsArgs,
+  prepared: PreparedTxHistory,
+  feeOverrides?: Map<string, bigint> | null,
+  collectFeeEstimates?: boolean,
+): SimulationResult => {
+  const {
+    quoteCurrency,
+    fiatRateSeriesCache,
+    latestSnapshot = null,
+    onProgress,
+  } = args;
   const {
     walletId,
     chain,
@@ -853,8 +978,12 @@ const simulateSnapshotsSync = (args: BuildBalanceSnapshotsArgs, prepared: Prepar
   } = prepared;
 
   // Starting state (for incremental updates).
-  let balanceAtomic = latestSnapshot ? parseAtomicToBigint(latestSnapshot.cryptoBalance) : 0n;
-  let remainingCostBasisFiat = latestSnapshot ? Number(latestSnapshot.remainingCostBasisFiat || 0) : 0;
+  let balanceAtomic = latestSnapshot
+    ? parseAtomicToBigint(latestSnapshot.cryptoBalance)
+    : 0n;
+  let remainingCostBasisFiat = latestSnapshot
+    ? Number(latestSnapshot.remainingCostBasisFiat || 0)
+    : 0;
   if (!Number.isFinite(remainingCostBasisFiat) || remainingCostBasisFiat < 0) {
     remainingCostBasisFiat = 0;
   }
@@ -886,10 +1015,18 @@ const simulateSnapshotsSync = (args: BuildBalanceSnapshotsArgs, prepared: Prepar
   };
 
   // 1) Reorder txs that share the same timestamp (+ blockheight) to avoid temporary underflows.
-  const toProcessOrdered = reorderTxsToPreventUnderflow(toProcessBase, balanceAtomic, getDeltaAtomic);
+  const toProcessOrdered = reorderTxsToPreventUnderflow(
+    toProcessBase,
+    balanceAtomic,
+    getDeltaAtomic,
+  );
 
   // 2) Group txs for optional daily compression (older than 90 days).
-  const groups = groupTxsForCompression(toProcessOrdered, nowMs, compressionEnabled);
+  const groups = groupTxsForCompression(
+    toProcessOrdered,
+    nowMs,
+    compressionEnabled,
+  );
 
   // 3) Apply each group, producing a snapshot for each tx (or each day if compressed).
   const out: BalanceSnapshotStored[] = [];
@@ -953,7 +1090,12 @@ const simulateSnapshotsSync = (args: BuildBalanceSnapshotsArgs, prepared: Prepar
       const feePaid = feePaidByWallet(tx);
       const feeAtomic = getFeeAtomic(tx);
 
-      if (collectFeeEstimates && feePaid && applyFeesToBalance && feeAtomic > 0n) {
+      if (
+        collectFeeEstimates &&
+        feePaid &&
+        applyFeesToBalance &&
+        feeAtomic > 0n
+      ) {
         const maxFee = tx.maxFeeAtomic;
         if (maxFee && maxFee > 0n) {
           feeEstimates.push({txid: tx.id, maxFeeAtomic: maxFee});
@@ -980,16 +1122,27 @@ const simulateSnapshotsSync = (args: BuildBalanceSnapshotsArgs, prepared: Prepar
           // Cap how much extra we can allocate to a single tx to avoid masking unrelated data issues.
           // L1 data fees can exceed L2 fees, so keep this generous.
           const maxExtraAtomic = feeAtomic * 100n;
-          underFeeCandidates.push({txid: tx.id, baseFeeAtomic: feeAtomic, maxExtraAtomic});
+          underFeeCandidates.push({
+            txid: tx.id,
+            baseFeeAtomic: feeAtomic,
+            maxExtraAtomic,
+          });
         }
       }
 
-      const flow = classifyTxFlow(tx, {applyFeesToBalance, feePaidByWallet: feePaid, feeAtomic});
+      const flow = classifyTxFlow(tx, {
+        applyFeesToBalance,
+        feePaidByWallet: feePaid,
+        feeAtomic,
+      });
       applyInflow(flow.acquisitionAtomic, markRate);
       applyOutflow(flow.outflowAtomic);
 
       processedTxs++;
-      if (onProgress && (processedTxs % 250 === 0 || processedTxs === totalTxs)) {
+      if (
+        onProgress &&
+        (processedTxs % 250 === 0 || processedTxs === totalTxs)
+      ) {
         onProgress({processed: processedTxs, total: totalTxs});
       }
     }
@@ -1003,7 +1156,9 @@ const simulateSnapshotsSync = (args: BuildBalanceSnapshotsArgs, prepared: Prepar
     const id =
       eventType === 'tx'
         ? `tx:${walletId}:${txIds[0] ?? timestamp}`
-        : `daily:${walletId}:${utcDayKeyFromIndex(g.dayIdx ?? utcDayIndex(timestamp))}`;
+        : `daily:${walletId}:${utcDayKeyFromIndex(
+            g.dayIdx ?? utcDayIndex(timestamp),
+          )}`;
 
     const base: BalanceSnapshotStored = {
       id,
@@ -1027,7 +1182,12 @@ const simulateSnapshotsSync = (args: BuildBalanceSnapshotsArgs, prepared: Prepar
     out.push(base);
   }
 
-  return {out, endBalanceAtomic: balanceAtomic, feeEstimates, underFeeCandidates};
+  return {
+    out,
+    endBalanceAtomic: balanceAtomic,
+    feeEstimates,
+    underFeeCandidates,
+  };
 };
 
 const yieldToEventLoop = async (): Promise<void> => {
@@ -1041,7 +1201,12 @@ const simulateSnapshotsAsync = async (
   collectFeeEstimates: boolean,
   asyncOpts: BuildBalanceSnapshotsAsyncOpts,
 ): Promise<SimulationResult> => {
-  const {quoteCurrency, fiatRateSeriesCache, latestSnapshot = null, onProgress} = args;
+  const {
+    quoteCurrency,
+    fiatRateSeriesCache,
+    latestSnapshot = null,
+    onProgress,
+  } = args;
   const {
     walletId,
     chain,
@@ -1061,8 +1226,12 @@ const simulateSnapshotsAsync = async (
   const yieldEvery = Math.max(1, Math.floor(asyncOpts.yieldEvery ?? 1000));
 
   // Starting state (for incremental updates).
-  let balanceAtomic = latestSnapshot ? parseAtomicToBigint(latestSnapshot.cryptoBalance) : 0n;
-  let remainingCostBasisFiat = latestSnapshot ? Number(latestSnapshot.remainingCostBasisFiat || 0) : 0;
+  let balanceAtomic = latestSnapshot
+    ? parseAtomicToBigint(latestSnapshot.cryptoBalance)
+    : 0n;
+  let remainingCostBasisFiat = latestSnapshot
+    ? Number(latestSnapshot.remainingCostBasisFiat || 0)
+    : 0;
   if (!Number.isFinite(remainingCostBasisFiat) || remainingCostBasisFiat < 0) {
     remainingCostBasisFiat = 0;
   }
@@ -1094,10 +1263,18 @@ const simulateSnapshotsAsync = async (
   };
 
   // 1) Reorder txs that share the same timestamp (+ blockheight) to avoid temporary underflows.
-  const toProcessOrdered = reorderTxsToPreventUnderflow(toProcessBase, balanceAtomic, getDeltaAtomic);
+  const toProcessOrdered = reorderTxsToPreventUnderflow(
+    toProcessBase,
+    balanceAtomic,
+    getDeltaAtomic,
+  );
 
   // 2) Group txs for optional daily compression (older than 90 days).
-  const groups = groupTxsForCompression(toProcessOrdered, nowMs, compressionEnabled);
+  const groups = groupTxsForCompression(
+    toProcessOrdered,
+    nowMs,
+    compressionEnabled,
+  );
 
   // 3) Apply each group, producing a snapshot for each tx (or each day if compressed).
   const out: BalanceSnapshotStored[] = [];
@@ -1160,7 +1337,12 @@ const simulateSnapshotsAsync = async (
       const feePaid = feePaidByWallet(tx);
       const feeAtomic = getFeeAtomic(tx);
 
-      if (collectFeeEstimates && feePaid && applyFeesToBalance && feeAtomic > 0n) {
+      if (
+        collectFeeEstimates &&
+        feePaid &&
+        applyFeesToBalance &&
+        feeAtomic > 0n
+      ) {
         const maxFee = tx.maxFeeAtomic;
         if (maxFee && maxFee > 0n) {
           feeEstimates.push({txid: tx.id, maxFeeAtomic: maxFee});
@@ -1180,16 +1362,27 @@ const simulateSnapshotsAsync = async (
         const opFee = tx.operatorFeeAtomic;
         if (!receiptPresent || (l1 === 0n && opFee === 0n)) {
           const maxExtraAtomic = feeAtomic * 100n;
-          underFeeCandidates.push({txid: tx.id, baseFeeAtomic: feeAtomic, maxExtraAtomic});
+          underFeeCandidates.push({
+            txid: tx.id,
+            baseFeeAtomic: feeAtomic,
+            maxExtraAtomic,
+          });
         }
       }
 
-      const flow = classifyTxFlow(tx, {applyFeesToBalance, feePaidByWallet: feePaid, feeAtomic});
+      const flow = classifyTxFlow(tx, {
+        applyFeesToBalance,
+        feePaidByWallet: feePaid,
+        feeAtomic,
+      });
       applyInflow(flow.acquisitionAtomic, markRate);
       applyOutflow(flow.outflowAtomic);
 
       processedTxs++;
-      if (onProgress && (processedTxs % 250 === 0 || processedTxs === totalTxs)) {
+      if (
+        onProgress &&
+        (processedTxs % 250 === 0 || processedTxs === totalTxs)
+      ) {
         onProgress({processed: processedTxs, total: totalTxs});
       }
 
@@ -1206,7 +1399,9 @@ const simulateSnapshotsAsync = async (
     const id =
       eventType === 'tx'
         ? `tx:${walletId}:${txIds[0] ?? timestamp}`
-        : `daily:${walletId}:${utcDayKeyFromIndex(g.dayIdx ?? utcDayIndex(timestamp))}`;
+        : `daily:${walletId}:${utcDayKeyFromIndex(
+            g.dayIdx ?? utcDayIndex(timestamp),
+          )}`;
 
     const base: BalanceSnapshotStored = {
       id,
@@ -1233,10 +1428,17 @@ const simulateSnapshotsAsync = async (
     }
   }
 
-  return {out, endBalanceAtomic: balanceAtomic, feeEstimates, underFeeCandidates};
+  return {
+    out,
+    endBalanceAtomic: balanceAtomic,
+    feeEstimates,
+    underFeeCandidates,
+  };
 };
 
-export function buildBalanceSnapshots(args: BuildBalanceSnapshotsArgs): BalanceSnapshotStored[] {
+export function buildBalanceSnapshots(
+  args: BuildBalanceSnapshotsArgs,
+): BalanceSnapshotStored[] {
   const prepared = prepareTxHistory(args);
   const first = simulateSnapshotsSync(args, prepared, null, true);
 
@@ -1244,7 +1446,9 @@ export function buildBalanceSnapshots(args: BuildBalanceSnapshotsArgs): BalanceS
   if (prepared.applyFeesToBalance) {
     let targetBalanceAtomic: bigint | null = null;
     try {
-      targetBalanceAtomic = parseAtomicToBigint((args.wallet as any)?.balanceAtomic ?? '');
+      targetBalanceAtomic = parseAtomicToBigint(
+        (args.wallet as any)?.balanceAtomic ?? '',
+      );
     } catch {
       targetBalanceAtomic = null;
     }
@@ -1255,16 +1459,24 @@ export function buildBalanceSnapshots(args: BuildBalanceSnapshotsArgs): BalanceS
 
       // 1) Reduce gasLimit-based max fees (delta > 0 means our computed balance is too LOW).
       if (delta > 0n && first.feeEstimates.length > 0) {
-        const maxPossible = first.feeEstimates.reduce((acc, e) => acc + e.maxFeeAtomic, 0n);
+        const maxPossible = first.feeEstimates.reduce(
+          (acc, e) => acc + e.maxFeeAtomic,
+          0n,
+        );
 
         if (delta <= maxPossible) {
           let remaining = delta;
           const overrides = new Map<string, bigint>();
 
           // Adjust the *latest* estimated-fee txs first to minimize distortion of earlier snapshots.
-          for (let i = first.feeEstimates.length - 1; i >= 0 && remaining > 0n; i--) {
+          for (
+            let i = first.feeEstimates.length - 1;
+            i >= 0 && remaining > 0n;
+            i--
+          ) {
             const e = first.feeEstimates[i];
-            const reduce = remaining < e.maxFeeAtomic ? remaining : e.maxFeeAtomic;
+            const reduce =
+              remaining < e.maxFeeAtomic ? remaining : e.maxFeeAtomic;
             const corrected = e.maxFeeAtomic - reduce;
             overrides.set(e.txid, corrected);
             remaining -= reduce;
@@ -1277,14 +1489,23 @@ export function buildBalanceSnapshots(args: BuildBalanceSnapshotsArgs): BalanceS
       }
 
       // 2) Allocate missing OP Stack L1/operator fees (delta < 0 means our computed balance is too HIGH).
-      if (delta < 0n && prepared.historyHasOpStackL1FeeField && first.underFeeCandidates.length > 0) {
+      if (
+        delta < 0n &&
+        prepared.historyHasOpStackL1FeeField &&
+        first.underFeeCandidates.length > 0
+      ) {
         let remaining = -delta;
         const overrides = new Map<string, bigint>();
 
         // Allocate to the *latest* candidates first (minimizes earlier snapshot distortion).
-        for (let i = first.underFeeCandidates.length - 1; i >= 0 && remaining > 0n; i--) {
+        for (
+          let i = first.underFeeCandidates.length - 1;
+          i >= 0 && remaining > 0n;
+          i--
+        ) {
           const c = first.underFeeCandidates[i];
-          const add = remaining < c.maxExtraAtomic ? remaining : c.maxExtraAtomic;
+          const add =
+            remaining < c.maxExtraAtomic ? remaining : c.maxExtraAtomic;
           overrides.set(c.txid, c.baseFeeAtomic + add);
           remaining -= add;
         }
@@ -1304,12 +1525,20 @@ export async function buildBalanceSnapshotsAsync(
   asyncOpts: BuildBalanceSnapshotsAsyncOpts = {},
 ): Promise<BalanceSnapshotStored[]> {
   const prepared = prepareTxHistory(args);
-  const first = await simulateSnapshotsAsync(args, prepared, null, true, asyncOpts);
+  const first = await simulateSnapshotsAsync(
+    args,
+    prepared,
+    null,
+    true,
+    asyncOpts,
+  );
 
   if (prepared.applyFeesToBalance) {
     let targetBalanceAtomic: bigint | null = null;
     try {
-      targetBalanceAtomic = parseAtomicToBigint((args.wallet as any)?.balanceAtomic ?? '');
+      targetBalanceAtomic = parseAtomicToBigint(
+        (args.wallet as any)?.balanceAtomic ?? '',
+      );
     } catch {
       targetBalanceAtomic = null;
     }
@@ -1319,34 +1548,67 @@ export async function buildBalanceSnapshotsAsync(
       const delta = targetBalanceAtomic - computed;
 
       if (delta > 0n && first.feeEstimates.length > 0) {
-        const maxPossible = first.feeEstimates.reduce((acc, e) => acc + e.maxFeeAtomic, 0n);
+        const maxPossible = first.feeEstimates.reduce(
+          (acc, e) => acc + e.maxFeeAtomic,
+          0n,
+        );
         if (delta <= maxPossible) {
           let remaining = delta;
           const overrides = new Map<string, bigint>();
-          for (let i = first.feeEstimates.length - 1; i >= 0 && remaining > 0n; i--) {
+          for (
+            let i = first.feeEstimates.length - 1;
+            i >= 0 && remaining > 0n;
+            i--
+          ) {
             const e = first.feeEstimates[i];
-            const reduce = remaining < e.maxFeeAtomic ? remaining : e.maxFeeAtomic;
+            const reduce =
+              remaining < e.maxFeeAtomic ? remaining : e.maxFeeAtomic;
             const corrected = e.maxFeeAtomic - reduce;
             overrides.set(e.txid, corrected);
             remaining -= reduce;
           }
           if (overrides.size > 0) {
-            return (await simulateSnapshotsAsync(args, prepared, overrides, false, asyncOpts)).out;
+            return (
+              await simulateSnapshotsAsync(
+                args,
+                prepared,
+                overrides,
+                false,
+                asyncOpts,
+              )
+            ).out;
           }
         }
       }
 
-      if (delta < 0n && prepared.historyHasOpStackL1FeeField && first.underFeeCandidates.length > 0) {
+      if (
+        delta < 0n &&
+        prepared.historyHasOpStackL1FeeField &&
+        first.underFeeCandidates.length > 0
+      ) {
         let remaining = -delta;
         const overrides = new Map<string, bigint>();
-        for (let i = first.underFeeCandidates.length - 1; i >= 0 && remaining > 0n; i--) {
+        for (
+          let i = first.underFeeCandidates.length - 1;
+          i >= 0 && remaining > 0n;
+          i--
+        ) {
           const c = first.underFeeCandidates[i];
-          const add = remaining < c.maxExtraAtomic ? remaining : c.maxExtraAtomic;
+          const add =
+            remaining < c.maxExtraAtomic ? remaining : c.maxExtraAtomic;
           overrides.set(c.txid, c.baseFeeAtomic + add);
           remaining -= add;
         }
         if (remaining === 0n && overrides.size > 0) {
-          return (await simulateSnapshotsAsync(args, prepared, overrides, false, asyncOpts)).out;
+          return (
+            await simulateSnapshotsAsync(
+              args,
+              prepared,
+              overrides,
+              false,
+              asyncOpts,
+            )
+          ).out;
         }
       }
     }

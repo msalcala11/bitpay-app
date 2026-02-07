@@ -12,7 +12,9 @@ export const DEFAULT_BWS_CONFIG: BwsConfig = {
   timeoutMs: 100000,
 };
 
-export function normalizeCredentialsFromBackupText(text: string): WalletCredentials {
+export function normalizeCredentialsFromBackupText(
+  text: string,
+): WalletCredentials {
   const trimmed = text.trim();
 
   // Some exported .txt files contain instructions and the encrypted JSON between {...}
@@ -57,8 +59,12 @@ export function isProbablySjclEncryptedPayload(text: string): boolean {
   }
 }
 
-export function decryptSjclBackup(encryptedText: string, password: string): string {
-  const block = extractFirstCurlyBlock(encryptedText.trim()) ?? encryptedText.trim();
+export function decryptSjclBackup(
+  encryptedText: string,
+  password: string,
+): string {
+  const block =
+    extractFirstCurlyBlock(encryptedText.trim()) ?? encryptedText.trim();
   // @ts-ignore - BWC exposes sjcl
   return BWC.sjcl.decrypt(password, block);
 }
@@ -68,7 +74,10 @@ function extractFirstCurlyBlock(s: string): string | null {
   return match ? match[0] : null;
 }
 
-export function createBwcClient(credentials: WalletCredentials, cfg: BwsConfig): any {
+export function createBwcClient(
+  credentials: WalletCredentials,
+  cfg: BwsConfig,
+): any {
   const client = new BWC({
     baseUrl: cfg.baseUrl,
     verbose: true,
@@ -76,7 +85,8 @@ export function createBwcClient(credentials: WalletCredentials, cfg: BwsConfig):
     transports: ['polling'],
   });
 
-  const asString = typeof credentials === 'string' ? credentials : JSON.stringify(credentials);
+  const asString =
+    typeof credentials === 'string' ? credentials : JSON.stringify(credentials);
   client.fromString(asString);
 
   return client;
@@ -89,10 +99,16 @@ export async function fetchWalletSummary(
   const client = createBwcClient(credentials, cfg);
   const status = await getStatus(client);
 
-  const walletName =
-    String(status?.wallet?.name || credentials?.walletName || credentials?.walletId || 'Wallet');
+  const walletName = String(
+    status?.wallet?.name ||
+      credentials?.walletName ||
+      credentials?.walletId ||
+      'Wallet',
+  );
 
-  const chain = String(credentials?.chain || credentials?.coin || '').toLowerCase();
+  const chain = String(
+    credentials?.chain || credentials?.coin || '',
+  ).toLowerCase();
   const network = String(credentials?.network || '').toLowerCase();
 
   const tokenAddress = credentials?.token?.address;
@@ -101,7 +117,9 @@ export async function fetchWalletSummary(
   // Some BitPay-supported networks set `credentials.chain` to the network identifier (e.g. "base")
   // while the *asset* is still ETH. For rates and PnL calculations we want the asset symbol.
   // Prefer `credentials.coin` (asset) over `credentials.chain` (network) when available.
-  const currencyAbbreviation = String(credentials?.token?.symbol || credentials?.coin || chain || '').toLowerCase();
+  const currencyAbbreviation = String(
+    credentials?.token?.symbol || credentials?.coin || chain || '',
+  ).toLowerCase();
 
   const balanceAtomic = String(status?.balance?.totalAmount ?? '0');
   const balanceFormatted = formatAtomicAmount(balanceAtomic, credentials);

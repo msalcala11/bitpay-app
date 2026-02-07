@@ -126,31 +126,28 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
     return {walletNameById: nameMap, walletById: walletMap, allWallets: all};
   }, [walletKeys]);
 
-  const {
-    mainnetWallets,
-    testnetWallets,
-    mainnetWalletsWithZeroBalance,
-  } = useMemo(() => {
-    const mainnet = allWallets.filter(w => w?.network === Network.mainnet);
-    const testnet = allWallets.filter(w => w?.network !== Network.mainnet);
-    const zero = mainnet.filter(w => {
-      const sat = (w as any)?.balance?.sat;
-      const crypto = (w as any)?.balance?.crypto;
-      if (typeof sat === 'number') {
-        return sat === 0;
-      }
-      if (typeof crypto === 'string') {
-        const n = Number(crypto);
-        return Number.isFinite(n) ? n === 0 : false;
-      }
-      return false;
-    });
-    return {
-      mainnetWallets: mainnet,
-      testnetWallets: testnet,
-      mainnetWalletsWithZeroBalance: zero,
-    };
-  }, [allWallets]);
+  const {mainnetWallets, testnetWallets, mainnetWalletsWithZeroBalance} =
+    useMemo(() => {
+      const mainnet = allWallets.filter(w => w?.network === Network.mainnet);
+      const testnet = allWallets.filter(w => w?.network !== Network.mainnet);
+      const zero = mainnet.filter(w => {
+        const sat = (w as any)?.balance?.sat;
+        const crypto = (w as any)?.balance?.crypto;
+        if (typeof sat === 'number') {
+          return sat === 0;
+        }
+        if (typeof crypto === 'string') {
+          const n = Number(crypto);
+          return Number.isFinite(n) ? n === 0 : false;
+        }
+        return false;
+      });
+      return {
+        mainnetWallets: mainnet,
+        testnetWallets: testnet,
+        mainnetWalletsWithZeroBalance: zero,
+      };
+    }, [allWallets]);
 
   const totalSnapshots = useMemo(() => {
     let count = 0;
@@ -243,7 +240,9 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
     const task = InteractionManager.runAfterInteractions(() => {
       try {
         const wallets = [...(allWallets || [])].filter((w: any) => !!w?.id);
-        wallets.sort((a: any, b: any) => String(a.id).localeCompare(String(b.id)));
+        wallets.sort((a: any, b: any) =>
+          String(a.id).localeCompare(String(b.id)),
+        );
 
         const headers = [
           'walletId',
@@ -273,16 +272,22 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
             ? (snapsRaw as BalanceSnapshot[])
             : [];
           const total = snaps.length;
-          const txCount = snaps.filter(s => (s as any)?.eventType === 'tx').length;
+          const txCount = snaps.filter(
+            s => (s as any)?.eventType === 'tx',
+          ).length;
           const dailyCount = total - txCount;
           const dailyTxIdsTotal = snaps.reduce((sum, s: any) => {
             const txIds = s?.txIds;
             return sum + (Array.isArray(txIds) ? txIds.length : 0);
           }, 0);
-          const uniqueIds = new Set(snaps.map(s => String((s as any)?.id || ''))).size;
+          const uniqueIds = new Set(
+            snaps.map(s => String((s as any)?.id || '')),
+          ).size;
           const dupIds = total - uniqueIds;
           const firstTs = total ? (snaps[0] as any)?.timestamp ?? '' : '';
-          const lastTs = total ? (snaps[total - 1] as any)?.timestamp ?? '' : '';
+          const lastTs = total
+            ? (snaps[total - 1] as any)?.timestamp ?? ''
+            : '';
 
           return [
             walletId,
@@ -317,17 +322,24 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
     });
 
     return () => task.cancel();
-  }, [allWallets, isCopyingAudit, portfolio.snapshotsByWalletId, walletNameById]);
+  }, [
+    allWallets,
+    isCopyingAudit,
+    portfolio.snapshotsByWalletId,
+    walletNameById,
+  ]);
 
   return (
     <DebugScreenContainer>
       <DebugHeaderContainer>
         <DebugHeaderText>
-          {t('Wallets')} (with snapshots): {walletIds.length} | {t('Snapshots')}: {totalSnapshots}
+          {t('Wallets')} (with snapshots): {walletIds.length} | {t('Snapshots')}
+          : {totalSnapshots}
         </DebugHeaderText>
         <DebugHeaderText>
-          {t('Mainnet Wallets')}: {mainnetWallets.length} | {t('Testnet Wallets')}:{' '}
-          {testnetWallets.length} | {t('Mainnet Zero-Balance Wallets')}:{' '}
+          {t('Mainnet Wallets')}: {mainnetWallets.length} |{' '}
+          {t('Testnet Wallets')}: {testnetWallets.length} |{' '}
+          {t('Mainnet Zero-Balance Wallets')}:{' '}
           {mainnetWalletsWithZeroBalance.length}
         </DebugHeaderText>
         <DebugHeaderText>

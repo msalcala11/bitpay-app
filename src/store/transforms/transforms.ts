@@ -253,10 +253,14 @@ export const transformPortfolioSnapshotSeriesV1 = createTransform<
       const outMap: Record<string, any> = {};
 
       for (const [walletId, snapsRaw] of Object.entries(map)) {
-        const snaps = Array.isArray(snapsRaw) ? (snapsRaw as BalanceSnapshot[]) : [];
+        const snaps = Array.isArray(snapsRaw)
+          ? (snapsRaw as BalanceSnapshot[])
+          : [];
         if (!snaps.length) continue;
 
-        const compressionEnabled = snaps.some(s => (s as any)?.eventType === 'daily');
+        const compressionEnabled = snaps.some(
+          s => (s as any)?.eventType === 'daily',
+        );
         const createdAt =
           typeof (snaps[snaps.length - 1] as any)?.createdAt === 'number'
             ? Number((snaps[snaps.length - 1] as any).createdAt)
@@ -267,8 +271,8 @@ export const transformPortfolioSnapshotSeriesV1 = createTransform<
             typeof (s as any)?.costBasisRateFiat === 'number'
               ? (s as any).costBasisRateFiat
               : typeof (s as any)?.markRate === 'number'
-                ? (s as any).markRate
-                : 0;
+              ? (s as any).markRate
+              : 0;
 
           return {
             id: String((s as any)?.id || ''),
@@ -279,13 +283,24 @@ export const transformPortfolioSnapshotSeriesV1 = createTransform<
             assetId: String((s as any)?.assetId || ''),
             timestamp: Number((s as any)?.timestamp || 0),
             eventType: ((s as any)?.eventType || 'tx') as any,
-            txIds: Array.isArray((s as any)?.txIds) ? (s as any).txIds.map(String) : undefined,
+            txIds: Array.isArray((s as any)?.txIds)
+              ? (s as any).txIds.map(String)
+              : undefined,
             cryptoBalance: String((s as any)?.cryptoBalance || '0'),
             balanceDeltaAtomic: (s as any)?.balanceDeltaAtomic,
-            remainingCostBasisFiat: Number((s as any)?.remainingCostBasisFiat || 0),
-            quoteCurrency: String((s as any)?.quoteCurrency || (inboundState as any)?.quoteCurrency || ''),
+            remainingCostBasisFiat: Number(
+              (s as any)?.remainingCostBasisFiat || 0,
+            ),
+            quoteCurrency: String(
+              (s as any)?.quoteCurrency ||
+                (inboundState as any)?.quoteCurrency ||
+                '',
+            ),
             markRate: Number(markRate || 0),
-            createdAt: typeof (s as any)?.createdAt === 'number' ? (s as any).createdAt : undefined,
+            createdAt:
+              typeof (s as any)?.createdAt === 'number'
+                ? (s as any).createdAt
+                : undefined,
           };
         });
 
@@ -320,11 +335,16 @@ export const transformPortfolioSnapshotSeriesV1 = createTransform<
             const units = Number(s.cryptoBalance || '0');
             const markRate = Number(s.markRate || 0);
             const fiatBalance = units * markRate;
-            const remainingCostBasisFiat = Number(s.remainingCostBasisFiat || 0);
-            const avgCostFiatPerUnit = units > 0 ? remainingCostBasisFiat / units : 0;
+            const remainingCostBasisFiat = Number(
+              s.remainingCostBasisFiat || 0,
+            );
+            const avgCostFiatPerUnit =
+              units > 0 ? remainingCostBasisFiat / units : 0;
             const unrealizedPnlFiat = fiatBalance - remainingCostBasisFiat;
             const txIds =
-              Array.isArray(s.txIds) && s.txIds.length > 1 ? s.txIds : undefined;
+              Array.isArray(s.txIds) && s.txIds.length > 1
+                ? s.txIds
+                : undefined;
 
             return {
               id: s.id,
@@ -333,7 +353,10 @@ export const transformPortfolioSnapshotSeriesV1 = createTransform<
               network: s.network,
               assetId: s.assetId,
               timestamp: s.timestamp,
-              dayStartMs: s.eventType === 'daily' ? getUtcDayStartMs(s.timestamp) : undefined,
+              dayStartMs:
+                s.eventType === 'daily'
+                  ? getUtcDayStartMs(s.timestamp)
+                  : undefined,
               eventType: s.eventType,
               txIds,
               balanceDeltaAtomic: s.balanceDeltaAtomic,

@@ -12,7 +12,8 @@ const FIAT_CODE_KEY = 'bitpay-pnl-harness.selectedFiatCode.v1';
 const FIAT_RATE_SERIES_CACHE_KEY = 'bitpay-pnl-harness.fiatRateSeriesCache.v1';
 
 // Compact persisted snapshot series.
-const BALANCE_SNAPSHOT_SERIES_KEY_PREFIX_V1 = 'bitpay-pnl-harness.balanceSnapshotSeries.v1.';
+const BALANCE_SNAPSHOT_SERIES_KEY_PREFIX_V1 =
+  'bitpay-pnl-harness.balanceSnapshotSeries.v1.';
 
 export function loadWallets(): StoredWallet[] {
   try {
@@ -57,7 +58,8 @@ export function loadFiatRateSeriesCache(): Record<string, any> {
     const raw = localStorage.getItem(FIAT_RATE_SERIES_CACHE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+      return {};
     return parsed;
   } catch {
     return {};
@@ -80,19 +82,26 @@ export type BalanceSnapshotsMeta = {
 const getBalanceSnapshotSeriesKeyV1 = (walletId: string): string =>
   `${BALANCE_SNAPSHOT_SERIES_KEY_PREFIX_V1}${walletId}`;
 
-export function loadBalanceSnapshotsMeta(walletId: string): BalanceSnapshotsMeta | null {
+export function loadBalanceSnapshotsMeta(
+  walletId: string,
+): BalanceSnapshotsMeta | null {
   try {
     const raw = localStorage.getItem(getBalanceSnapshotSeriesKeyV1(walletId));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!isBalanceSnapshotSeriesV1(parsed)) return null;
-    return {quoteCurrency: parsed.quoteCurrency, compressionEnabled: parsed.compressionEnabled};
+    return {
+      quoteCurrency: parsed.quoteCurrency,
+      compressionEnabled: parsed.compressionEnabled,
+    };
   } catch {
     return null;
   }
 }
 
-export function loadBalanceSnapshots(walletId: string): BalanceSnapshotStored[] {
+export function loadBalanceSnapshots(
+  walletId: string,
+): BalanceSnapshotStored[] {
   try {
     const raw = localStorage.getItem(getBalanceSnapshotSeriesKeyV1(walletId));
     if (!raw) return [];
@@ -129,7 +138,10 @@ export function saveBalanceSnapshots(
     series.quoteCurrency = String(meta.quoteCurrency || '').toUpperCase();
   }
 
-  localStorage.setItem(getBalanceSnapshotSeriesKeyV1(walletId), JSON.stringify(series));
+  localStorage.setItem(
+    getBalanceSnapshotSeriesKeyV1(walletId),
+    JSON.stringify(series),
+  );
 }
 
 export function clearBalanceSnapshots(walletId: string): void {

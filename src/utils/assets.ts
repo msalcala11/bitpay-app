@@ -38,7 +38,10 @@ import {
 
 // PnL engine (lifted from the web harness). Keep these imports path-stable so the
 // engine code stays easily portable between RN + web.
-import {buildPnlAnalysisSeries, type WalletForAnalysis} from '../core/pnl/analysis';
+import {
+  buildPnlAnalysisSeries,
+  type WalletForAnalysis,
+} from '../core/pnl/analysis';
 import {normalizeFiatRateSeriesCoin as normalizeCoinForPnlRates} from '../core/pnl/rates';
 import type {BalanceSnapshotStored} from '../core/pnl/types';
 import {formatBigIntDecimal, parseAtomicToBigint} from '../core/format';
@@ -2027,7 +2030,9 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
       if (arr.length < 2) return arr;
       for (let i = 1; i < arr.length; i++) {
         if ((arr[i]?.timestamp || 0) < (arr[i - 1]?.timestamp || 0)) {
-          return arr.slice().sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+          return arr
+            .slice()
+            .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
         }
       }
       return arr;
@@ -2043,7 +2048,9 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
       const coin = String((w as any)?.currencyAbbreviation || '').toLowerCase();
       if (!walletId || !coin) continue;
 
-      const appSnaps = ensureSortedSnapshots(args.snapshotsByWalletId?.[walletId]);
+      const appSnaps = ensureSortedSnapshots(
+        args.snapshotsByWalletId?.[walletId],
+      );
       if (!appSnaps.length) continue;
 
       const unitInfo = getWalletUnitInfo(w);
@@ -2067,11 +2074,17 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
       }
 
       const snaps: BalanceSnapshotStored[] = appSnaps.map(s => {
-        const snapChain = String((s as any)?.chain || (w as any)?.chain || '').toLowerCase();
-        const snapCoin = String((s as any)?.coin || (w as any)?.currencyAbbreviation || '').toLowerCase();
+        const snapChain = String(
+          (s as any)?.chain || (w as any)?.chain || '',
+        ).toLowerCase();
+        const snapCoin = String(
+          (s as any)?.coin || (w as any)?.currencyAbbreviation || '',
+        ).toLowerCase();
         const assetId = tokenAddress
-          ? `${(snapChain || chainLower)}:${(snapCoin || coin)}:${tokenAddress.toLowerCase()}`
-          : `${(snapChain || chainLower)}:${(snapCoin || coin)}`;
+          ? `${snapChain || chainLower}:${
+              snapCoin || coin
+            }:${tokenAddress.toLowerCase()}`
+          : `${snapChain || chainLower}:${snapCoin || coin}`;
         const markRate =
           typeof (s as any)?.costBasisRateFiat === 'number'
             ? (s as any).costBasisRateFiat
@@ -2089,17 +2102,28 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
             String((s as any)?.cryptoBalance || '0'),
             unitInfo.unitDecimals,
           ).toString(),
-          remainingCostBasisFiat: Number((s as any)?.remainingCostBasisFiat || 0),
-          quoteCurrency: String((s as any)?.quoteCurrency || effectiveQuoteCurrency),
+          remainingCostBasisFiat: Number(
+            (s as any)?.remainingCostBasisFiat || 0,
+          ),
+          quoteCurrency: String(
+            (s as any)?.quoteCurrency || effectiveQuoteCurrency,
+          ),
           markRate,
-          createdAt: typeof (s as any)?.createdAt === 'number' ? (s as any).createdAt : undefined,
-          txIds: Array.isArray((s as any)?.txIds) ? (s as any).txIds : undefined,
+          createdAt:
+            typeof (s as any)?.createdAt === 'number'
+              ? (s as any).createdAt
+              : undefined,
+          txIds: Array.isArray((s as any)?.txIds)
+            ? (s as any).txIds
+            : undefined,
         };
       });
 
       pnlWallets.push({
         walletId,
-        walletName: String((w as any)?.walletName || (w as any)?.name || walletId),
+        walletName: String(
+          (w as any)?.walletName || (w as any)?.name || walletId,
+        ),
         currencyAbbreviation: coin,
         credentials,
         snapshots: snaps,
@@ -2136,12 +2160,16 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
       quoteCurrency: effectiveQuoteCurrency,
       fiatRateSeriesCache: args.fiatRateSeriesCache as any,
       currentRatesByCoin:
-        Object.keys(currentRatesByCoin).length > 0 ? currentRatesByCoin : undefined,
+        Object.keys(currentRatesByCoin).length > 0
+          ? currentRatesByCoin
+          : undefined,
       nowMs,
       maxPoints: 2,
     });
 
-    const last = res.points.length ? res.points[res.points.length - 1] : undefined;
+    const last = res.points.length
+      ? res.points[res.points.length - 1]
+      : undefined;
     if (!last) {
       throw new Error('Empty PnL series');
     }
@@ -2187,7 +2215,8 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
       lastDayRates: args.lastDayRates,
     });
 
-    const percentRatio = timeWeighted?.percentRatio ?? legacyTotals.percentRatio;
+    const percentRatio =
+      timeWeighted?.percentRatio ?? legacyTotals.percentRatio;
     const deltaFiat = legacyTotals.deltaFiat;
 
     return {
@@ -2287,7 +2316,9 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     if (arr.length < 2) return arr;
     for (let i = 1; i < arr.length; i++) {
       if ((arr[i]?.timestamp || 0) < (arr[i - 1]?.timestamp || 0)) {
-        return arr.slice().sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        return arr
+          .slice()
+          .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
       }
     }
     return arr;
@@ -2295,10 +2326,14 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
 
   const toPnlWallet = (w: Wallet): WalletForAnalysis | null => {
     const walletId = String((w as any)?.id || '');
-    const currencyAbbreviation = String((w as any)?.currencyAbbreviation || '').toLowerCase();
+    const currencyAbbreviation = String(
+      (w as any)?.currencyAbbreviation || '',
+    ).toLowerCase();
     if (!walletId || !currencyAbbreviation) return null;
 
-    const appSnaps = ensureSortedSnapshots(args.snapshotsByWalletId?.[walletId]);
+    const appSnaps = ensureSortedSnapshots(
+      args.snapshotsByWalletId?.[walletId],
+    );
     if (!appSnaps.length) return null;
 
     const unitInfo = getWalletUnitInfo(w);
@@ -2306,7 +2341,10 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     const credentials: any = {
       chain: String((w as any)?.chain || currencyAbbreviation).toLowerCase(),
       coin: currencyAbbreviation,
-      network: (w as any)?.network === Network.mainnet ? 'livenet' : String((w as any)?.network || 'livenet'),
+      network:
+        (w as any)?.network === Network.mainnet
+          ? 'livenet'
+          : String((w as any)?.network || 'livenet'),
     };
     const tokenAddress = (w as any)?.tokenAddress as string | undefined;
     if (tokenAddress) {
@@ -2318,11 +2356,20 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     }
 
     const snaps: BalanceSnapshotStored[] = appSnaps.map(s => {
-      const chain = String((s as any)?.chain || (w as any)?.chain || '').toLowerCase();
-      const coin = String((s as any)?.coin || (w as any)?.currencyAbbreviation || '').toLowerCase();
+      const chain = String(
+        (s as any)?.chain || (w as any)?.chain || '',
+      ).toLowerCase();
+      const coin = String(
+        (s as any)?.coin || (w as any)?.currencyAbbreviation || '',
+      ).toLowerCase();
       const tokenAddr = (w as any)?.tokenAddress as string | undefined;
-      const assetId = tokenAddr ? `${chain}:${coin}:${tokenAddr.toLowerCase()}` : `${chain}:${coin}`;
-      const markRate = typeof (s as any)?.costBasisRateFiat === 'number' ? (s as any).costBasisRateFiat : 0;
+      const assetId = tokenAddr
+        ? `${chain}:${coin}:${tokenAddr.toLowerCase()}`
+        : `${chain}:${coin}`;
+      const markRate =
+        typeof (s as any)?.costBasisRateFiat === 'number'
+          ? (s as any).costBasisRateFiat
+          : 0;
       return {
         id: String((s as any)?.id || ''),
         walletId,
@@ -2332,11 +2379,17 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
         assetId,
         timestamp: Number((s as any)?.timestamp || 0),
         eventType: ((s as any)?.eventType || 'tx') as any,
-        cryptoBalance: unitStringToAtomicBigInt(String((s as any)?.cryptoBalance || '0'), unitInfo.unitDecimals).toString(),
+        cryptoBalance: unitStringToAtomicBigInt(
+          String((s as any)?.cryptoBalance || '0'),
+          unitInfo.unitDecimals,
+        ).toString(),
         remainingCostBasisFiat: Number((s as any)?.remainingCostBasisFiat || 0),
         quoteCurrency: String((s as any)?.quoteCurrency || quoteCurrency),
         markRate,
-        createdAt: typeof (s as any)?.createdAt === 'number' ? (s as any).createdAt : undefined,
+        createdAt:
+          typeof (s as any)?.createdAt === 'number'
+            ? (s as any).createdAt
+            : undefined,
         // Only present for daily snapshots in the harness schema.
         txIds: Array.isArray((s as any)?.txIds) ? (s as any).txIds : undefined,
       };
@@ -2344,7 +2397,9 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
 
     return {
       walletId,
-      walletName: String((w as any)?.walletName || (w as any)?.name || walletId),
+      walletName: String(
+        (w as any)?.walletName || (w as any)?.name || walletId,
+      ),
       currencyAbbreviation,
       credentials,
       snapshots: snaps,
@@ -2378,19 +2433,20 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
 
   for (const [assetKey, groupWallets] of walletsByAssetKey.entries()) {
     const first = groupWallets[0];
-    const coin = String((first as any)?.currencyAbbreviation || '').toLowerCase();
+    const coin = String(
+      (first as any)?.currencyAbbreviation || '',
+    ).toLowerCase();
     if (!coin) continue;
 
     // For collapsed views (e.g. ETH across multiple EVM networks), prefer the L1/base-chain
     // wallet as the representative so icons + metadata resolve consistently.
-    const repWallet =
-      args.collapseAcrossChains
-        ?
-            groupWallets.find(w =>
-              String((w as any)?.chain || '').toLowerCase() === coin &&
-              !(w as any)?.tokenAddress,
-            ) || first
-        : first;
+    const repWallet = args.collapseAcrossChains
+      ? groupWallets.find(
+          w =>
+            String((w as any)?.chain || '').toLowerCase() === coin &&
+            !(w as any)?.tokenAddress,
+        ) || first
+      : first;
 
     // Build analysis wallets (skip wallets without snapshots).
     const pnlWallets: WalletForAnalysis[] = [];
@@ -2467,7 +2523,10 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
           typeof (latest as any)?.cryptoBalance === 'string'
             ? (latest as any).cryptoBalance
             : '0';
-        totalAtomic += unitStringToAtomicBigInt(latestCrypto, walletUnitDecimals);
+        totalAtomic += unitStringToAtomicBigInt(
+          latestCrypto,
+          walletUnitDecimals,
+        );
       } catch {
         // ignore
       }
@@ -2484,8 +2543,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     });
     if (currentRateForDisplay > 0) {
       const units = Number(atomicToUnitString(totalAtomic, repUnitDecimals));
-      fiatValue =
-        (Number.isFinite(units) ? units : 0) * currentRateForDisplay;
+      fiatValue = (Number.isFinite(units) ? units : 0) * currentRateForDisplay;
       hasRate = true;
     }
 

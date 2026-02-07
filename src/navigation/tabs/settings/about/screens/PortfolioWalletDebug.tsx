@@ -104,7 +104,9 @@ const unitStringToAtomicStringForDebug = (
   const unsigned = sign ? raw.slice(1) : raw;
   const [wholePartRaw, fracPartRaw = ''] = unsigned.split('.');
   const wholePart = wholePartRaw || '0';
-  const frac = fracPartRaw.slice(0, Math.max(0, decimals)).padEnd(decimals, '0');
+  const frac = fracPartRaw
+    .slice(0, Math.max(0, decimals))
+    .padEnd(decimals, '0');
   const normalized = `${wholePart}${frac}`.replace(/^0+(?=\d)/, '');
   const out = `${sign}${normalized || '0'}`;
   try {
@@ -171,33 +173,38 @@ const pickLatestSnapshotByOrderingForDebug = (
   if (!arr.length) {
     return undefined;
   }
-  return arr.reduce((best: BalanceSnapshot | undefined, current: BalanceSnapshot) => {
-    if (!best) {
-      return current;
-    }
-    const bestTs = typeof best.timestamp === 'number' ? best.timestamp : 0;
-    const currTs = typeof current.timestamp === 'number' ? current.timestamp : 0;
-    if (currTs > bestTs) {
-      return current;
-    }
-    if (currTs < bestTs) {
-      return best;
-    }
+  return arr.reduce(
+    (best: BalanceSnapshot | undefined, current: BalanceSnapshot) => {
+      if (!best) {
+        return current;
+      }
+      const bestTs = typeof best.timestamp === 'number' ? best.timestamp : 0;
+      const currTs =
+        typeof current.timestamp === 'number' ? current.timestamp : 0;
+      if (currTs > bestTs) {
+        return current;
+      }
+      if (currTs < bestTs) {
+        return best;
+      }
 
-    const bestCreatedAt = typeof best.createdAt === 'number' ? best.createdAt : 0;
-    const currCreatedAt =
-      typeof current.createdAt === 'number' ? current.createdAt : 0;
-    if (currCreatedAt > bestCreatedAt) {
-      return current;
-    }
-    if (currCreatedAt < bestCreatedAt) {
-      return best;
-    }
+      const bestCreatedAt =
+        typeof best.createdAt === 'number' ? best.createdAt : 0;
+      const currCreatedAt =
+        typeof current.createdAt === 'number' ? current.createdAt : 0;
+      if (currCreatedAt > bestCreatedAt) {
+        return current;
+      }
+      if (currCreatedAt < bestCreatedAt) {
+        return best;
+      }
 
-    return String(current.id || '').localeCompare(String(best.id || '')) > 0
-      ? current
-      : best;
-  }, undefined);
+      return String(current.id || '').localeCompare(String(best.id || '')) > 0
+        ? current
+        : best;
+    },
+    undefined,
+  );
 };
 
 const summarizeDiskRowForDebug = (row: any) => {
@@ -214,7 +221,9 @@ const summarizeDiskRowForDebug = (row: any) => {
   };
 };
 
-const countDuplicateTimestampsForDebug = (snapshots: BalanceSnapshot[]): number => {
+const countDuplicateTimestampsForDebug = (
+  snapshots: BalanceSnapshot[],
+): number => {
   const freq: Record<string, number> = {};
   for (const s of snapshots || []) {
     const ts = typeof s?.timestamp === 'number' ? String(s.timestamp) : '';
@@ -275,7 +284,8 @@ const countSameTxIdDifferentBalanceForDebug = (
   let count = 0;
   for (const s of snapshots || []) {
     const txid = extractTxIdFromSnapshotIdForDebug(s?.id);
-    const balance = typeof s?.cryptoBalance === 'string' ? s.cryptoBalance : null;
+    const balance =
+      typeof s?.cryptoBalance === 'string' ? s.cryptoBalance : null;
     if (!txid || balance == null) {
       continue;
     }
@@ -332,7 +342,8 @@ const buildLatestPopulateWindowStatsForDebug = (args: {
       windowSnaps.length ? windowSnaps[windowSnaps.length - 1] : null,
     ),
     deltaAtomicSumInWindow: deltaAtomicSum.toString(),
-    duplicateSnapshotIdsInWindow: countDuplicateSnapshotIdsForDebug(windowSnaps),
+    duplicateSnapshotIdsInWindow:
+      countDuplicateSnapshotIdsForDebug(windowSnaps),
     duplicateTxIdsInWindow: countDuplicateSnapshotTxIdsForDebug(windowSnaps),
     sameTxIdDifferentBalanceInWindow:
       countSameTxIdDifferentBalanceForDebug(windowSnaps),
@@ -369,20 +380,20 @@ const summarizeTxForDebug = (tx: any) => ({
     typeof tx?.confirmations === 'number'
       ? tx.confirmations
       : Number.isFinite(Number(tx?.confirmations))
-        ? Number(tx.confirmations)
-        : null,
+      ? Number(tx.confirmations)
+      : null,
   amount:
     typeof tx?.amount === 'number'
       ? tx.amount
       : Number.isFinite(Number(tx?.amount))
-        ? Number(tx.amount)
-        : null,
+      ? Number(tx.amount)
+      : null,
   fees:
     typeof tx?.fees === 'number'
       ? tx.fees
       : Number.isFinite(Number(tx?.fees))
-        ? Number(tx.fees)
-        : null,
+      ? Number(tx.fees)
+      : null,
   timePresent: tx?.time != null,
   createdOnPresent: tx?.createdOn != null,
   timestampMs: getTxTimestampMsForDebug(tx),
@@ -484,7 +495,11 @@ const PortfolioWalletDebug = ({
 
         const rootStr = storage.getString('persist:root');
         if (!rootStr) {
-          const json = JSON.stringify({error: 'persist:root is empty'}, null, 2);
+          const json = JSON.stringify(
+            {error: 'persist:root is empty'},
+            null,
+            2,
+          );
           if (!cancelled) {
             setDiskSnapshotData({
               ok: false,
@@ -517,7 +532,10 @@ const PortfolioWalletDebug = ({
 
         // In redux-persist, each slice is typically stored as a JSON string.
         // For encrypted reducers, JSON.parse(portfolioStr) yields the encrypted payload string.
-        const parsed = typeof portfolioStr === 'string' ? JSON.parse(portfolioStr) : portfolioStr;
+        const parsed =
+          typeof portfolioStr === 'string'
+            ? JSON.parse(portfolioStr)
+            : portfolioStr;
 
         let portfolioRaw: any = parsed;
         let encryptedPayload: string | null = null;
@@ -573,8 +591,8 @@ const PortfolioWalletDebug = ({
         const snapshotsCount = Array.isArray(snapshotStorage)
           ? snapshotStorage.length
           : typeof snapshotStorage?.rows?.length === 'number'
-            ? Number(snapshotStorage.rows.length)
-            : 0;
+          ? Number(snapshotStorage.rows.length)
+          : 0;
 
         const jsonObj = {
           walletId,
@@ -758,7 +776,9 @@ const PortfolioWalletDebug = ({
         : undefined;
       const walletSat = wallet?.balance?.sat;
       const walletCrypto =
-        typeof wallet?.balance?.crypto === 'string' ? wallet.balance.crypto : null;
+        typeof wallet?.balance?.crypto === 'string'
+          ? wallet.balance.crypto
+          : null;
       const snapshotCrypto =
         typeof lastSnapshot?.cryptoBalance === 'string'
           ? lastSnapshot.cryptoBalance
@@ -803,7 +823,9 @@ const PortfolioWalletDebug = ({
           sat: walletSat ?? null,
           satType: typeof walletSat,
           satIsSafeInteger:
-            typeof walletSat === 'number' ? Number.isSafeInteger(walletSat) : null,
+            typeof walletSat === 'number'
+              ? Number.isSafeInteger(walletSat)
+              : null,
           crypto: walletCrypto,
           tokenDecimals:
             typeof tokenDecimals === 'number' ? tokenDecimals : null,
@@ -841,10 +863,14 @@ const PortfolioWalletDebug = ({
         : undefined;
       const lastSnapshotByOrdering =
         pickLatestSnapshotByOrderingForDebug(walletSnapshots);
-      const firstSnapshot = walletSnapshots.length ? walletSnapshots[0] : undefined;
+      const firstSnapshot = walletSnapshots.length
+        ? walletSnapshots[0]
+        : undefined;
       const walletSat = wallet?.balance?.sat;
       const walletCrypto =
-        typeof wallet?.balance?.crypto === 'string' ? wallet.balance.crypto : null;
+        typeof wallet?.balance?.crypto === 'string'
+          ? wallet.balance.crypto
+          : null;
       const snapshotCrypto =
         typeof lastSnapshotByArray?.cryptoBalance === 'string'
           ? lastSnapshotByArray.cryptoBalance
@@ -876,13 +902,18 @@ const PortfolioWalletDebug = ({
       const orderedSnapshotAtomicFromCrypto =
         orderedSnapshotCrypto == null
           ? null
-          : unitStringToAtomicStringForDebug(orderedSnapshotCrypto, decimalsGuess);
+          : unitStringToAtomicStringForDebug(
+              orderedSnapshotCrypto,
+              decimalsGuess,
+            );
       const mismatchNowArrayTail = (() => {
         try {
           if (!walletAtomicFromSat || !snapshotAtomicFromCrypto) {
             return null;
           }
-          return BigInt(snapshotAtomicFromCrypto) !== BigInt(walletAtomicFromSat);
+          return (
+            BigInt(snapshotAtomicFromCrypto) !== BigInt(walletAtomicFromSat)
+          );
         } catch {
           return null;
         }
@@ -893,7 +924,8 @@ const PortfolioWalletDebug = ({
             return null;
           }
           return (
-            BigInt(orderedSnapshotAtomicFromCrypto) !== BigInt(walletAtomicFromSat)
+            BigInt(orderedSnapshotAtomicFromCrypto) !==
+            BigInt(walletAtomicFromSat)
           );
         } catch {
           return null;
@@ -907,7 +939,9 @@ const PortfolioWalletDebug = ({
       const diskRows = Array.isArray(diskJsonObj?.snapshotStorage?.rows)
         ? (diskJsonObj.snapshotStorage.rows as any[])
         : [];
-      const diskLastRowByArray = diskRows.length ? diskRows[diskRows.length - 1] : null;
+      const diskLastRowByArray = diskRows.length
+        ? diskRows[diskRows.length - 1]
+        : null;
       const diskLastRowByOrdering = diskRows.length
         ? diskRows.reduce((best: any, current: any) => {
             if (!best) {
@@ -921,8 +955,9 @@ const PortfolioWalletDebug = ({
             if (currTs < bestTs) {
               return best;
             }
-            return String(current?.id || '').localeCompare(String(best?.id || '')) >
-              0
+            return String(current?.id || '').localeCompare(
+              String(best?.id || ''),
+            ) > 0
               ? current
               : best;
           }, null)
@@ -972,7 +1007,8 @@ const PortfolioWalletDebug = ({
         recomputedMismatchNowOrderedLatest: mismatchNowOrderedLatest,
         walletBalance: {
           sat: walletSat ?? null,
-          satConfirmedLocked: (wallet as any)?.balance?.satConfirmedLocked ?? null,
+          satConfirmedLocked:
+            (wallet as any)?.balance?.satConfirmedLocked ?? null,
           satPending: (wallet as any)?.balance?.satPending ?? null,
           crypto: walletCrypto,
           chain: wallet?.chain ?? null,
@@ -1011,13 +1047,17 @@ const PortfolioWalletDebug = ({
           errorsCount: Array.isArray(portfolio.populateStatus?.errors)
             ? portfolio.populateStatus.errors.length
             : 0,
-          walletStatus: portfolio.populateStatus?.walletStatusById?.[walletId] ?? null,
+          walletStatus:
+            portfolio.populateStatus?.walletStatusById?.[walletId] ?? null,
           errorsForThisWallet: Array.isArray(portfolio.populateStatus?.errors)
             ? portfolio.populateStatus.errors
                 .filter(e => e?.walletId === walletId)
                 .map(e => ({
                   walletId: '[redacted]',
-                  message: typeof e?.message === 'string' ? e.message : String(e?.message),
+                  message:
+                    typeof e?.message === 'string'
+                      ? e.message
+                      : String(e?.message),
                 }))
             : [],
         },
@@ -1027,20 +1067,24 @@ const PortfolioWalletDebug = ({
           snapshotArrayTailPredatesLastPopulateStart:
             typeof portfolio.populateStatus?.startedAt === 'number' &&
             typeof lastSnapshotByArray?.createdAt === 'number'
-              ? lastSnapshotByArray.createdAt < portfolio.populateStatus.startedAt
+              ? lastSnapshotByArray.createdAt <
+                portfolio.populateStatus.startedAt
               : null,
           snapshotOrderedLatestPredatesLastPopulateStart:
             typeof portfolio.populateStatus?.startedAt === 'number' &&
             typeof lastSnapshotByOrdering?.createdAt === 'number'
-              ? lastSnapshotByOrdering.createdAt < portfolio.populateStatus.startedAt
+              ? lastSnapshotByOrdering.createdAt <
+                portfolio.populateStatus.startedAt
               : null,
           duplicateTimestampCountInRedux:
             countDuplicateTimestampsForDebug(walletSnapshots),
           sameTimestampDifferentBalances:
             !!lastSnapshotByArray &&
             !!lastSnapshotByOrdering &&
-            lastSnapshotByArray.timestamp === lastSnapshotByOrdering.timestamp &&
-            lastSnapshotByArray.cryptoBalance !== lastSnapshotByOrdering.cryptoBalance,
+            lastSnapshotByArray.timestamp ===
+              lastSnapshotByOrdering.timestamp &&
+            lastSnapshotByArray.cryptoBalance !==
+              lastSnapshotByOrdering.cryptoBalance,
         },
         snapshotsRedux: {
           count: walletSnapshots.length,
@@ -1055,21 +1099,21 @@ const PortfolioWalletDebug = ({
             lastSnapshotByOrdering == null
               ? null
               : walletSnapshots.findIndex(s => s === lastSnapshotByOrdering),
-          last5Ids: walletSnapshots
-            .slice(-5)
-            .map(s => redactIdForDebug(s.id)),
+          last5Ids: walletSnapshots.slice(-5).map(s => redactIdForDebug(s.id)),
           last5DeltaAtomic: walletSnapshots
             .slice(-5)
             .map(s =>
-              typeof s.balanceDeltaAtomic === 'string' ? s.balanceDeltaAtomic : null,
+              typeof s.balanceDeltaAtomic === 'string'
+                ? s.balanceDeltaAtomic
+                : null,
             ),
           missingBalanceDeltaAtomicCount: walletSnapshots.filter(
             s => typeof s.balanceDeltaAtomic !== 'string',
           ).length,
-          duplicateSnapshotIdsCount: countDuplicateSnapshotIdsForDebug(
-            walletSnapshots,
-          ),
-          duplicateTxIdsCount: countDuplicateSnapshotTxIdsForDebug(walletSnapshots),
+          duplicateSnapshotIdsCount:
+            countDuplicateSnapshotIdsForDebug(walletSnapshots),
+          duplicateTxIdsCount:
+            countDuplicateSnapshotTxIdsForDebug(walletSnapshots),
           sameTxIdDifferentBalanceCount:
             countSameTxIdDifferentBalanceForDebug(walletSnapshots),
         },
@@ -1082,8 +1126,8 @@ const PortfolioWalletDebug = ({
           storageType: Array.isArray(diskJsonObj?.snapshotStorage)
             ? 'array'
             : diskJsonObj?.snapshotStorage?.rows
-              ? 'series'
-              : typeof diskJsonObj?.snapshotStorage,
+            ? 'series'
+            : typeof diskJsonObj?.snapshotStorage,
           seriesRowsCount:
             typeof diskJsonObj?.snapshotStorage?.rows?.length === 'number'
               ? diskJsonObj.snapshotStorage.rows.length
@@ -1129,7 +1173,8 @@ const PortfolioWalletDebug = ({
         </DebugHeaderText>
         <DebugHeaderText>
           {t('Snapshots')} (redux): {walletSnapshots.length} | (disk):{' '}
-          {diskSnapshotData.snapshotsCount} | mismatches: {mismatch ? 'yes' : 'no'}
+          {diskSnapshotData.snapshotsCount} | mismatches:{' '}
+          {mismatch ? 'yes' : 'no'}
         </DebugHeaderText>
         <DebugHeaderText>
           {t('Crypto balance')}: {cryptoBalanceString}

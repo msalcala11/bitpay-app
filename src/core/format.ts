@@ -6,7 +6,9 @@ export function getAtomicDecimals(credentials: WalletCredentials): number {
   const token = credentials?.token;
   if (token && typeof token.decimals === 'number') return token.decimals;
 
-  const chain = String(credentials?.chain || credentials?.coin || '').toLowerCase();
+  const chain = String(
+    credentials?.chain || credentials?.coin || '',
+  ).toLowerCase();
   switch (chain) {
     case 'btc':
     case 'bch':
@@ -147,7 +149,9 @@ export function formatBigIntDecimal(
 }
 
 export function formatChainAndNetwork(credentials: WalletCredentials): string {
-  const chain = String(credentials?.chain || credentials?.coin || '').toUpperCase();
+  const chain = String(
+    credentials?.chain || credentials?.coin || '',
+  ).toUpperCase();
   const network = String(credentials?.network || '').toLowerCase();
   const niceNetwork = network === 'livenet' ? 'mainnet' : network || 'unknown';
   return `${chain}/${niceNetwork}`;

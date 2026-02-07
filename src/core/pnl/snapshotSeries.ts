@@ -24,15 +24,19 @@ export type BalanceSnapshotSeriesV1 = {
   }>;
 };
 
-export const isBalanceSnapshotSeriesV1 = (x: unknown): x is BalanceSnapshotSeriesV1 => {
+export const isBalanceSnapshotSeriesV1 = (
+  x: unknown,
+): x is BalanceSnapshotSeriesV1 => {
   if (!x || typeof x !== 'object' || Array.isArray(x)) return false;
   const v = (x as any).v;
   if (v !== 1) return false;
   return Array.isArray((x as any).rows);
 };
 
-const eventTypeToCode = (e: BalanceSnapshotEventType): 0 | 1 => (e === 'daily' ? 1 : 0);
-const codeToEventType = (e: 0 | 1): BalanceSnapshotEventType => (e === 1 ? 'daily' : 'tx');
+const eventTypeToCode = (e: BalanceSnapshotEventType): 0 | 1 =>
+  e === 'daily' ? 1 : 0;
+const codeToEventType = (e: 0 | 1): BalanceSnapshotEventType =>
+  e === 1 ? 'daily' : 'tx';
 
 /**
  * Packs full snapshot objects into a compact "series" representation for persistence.
@@ -53,8 +57,8 @@ export const packBalanceSnapshotsToSeriesV1 = (args: {
     typeof args.createdAt === 'number'
       ? args.createdAt
       : typeof snaps[snaps.length - 1].createdAt === 'number'
-        ? (snaps[snaps.length - 1].createdAt as number)
-        : Date.now();
+      ? (snaps[snaps.length - 1].createdAt as number)
+      : Date.now();
 
   const series: BalanceSnapshotSeriesV1 = {
     v: 1,

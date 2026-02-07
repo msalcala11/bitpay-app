@@ -152,8 +152,8 @@ const getWalletLiveFiatBalanceSortValue = (wallet: Wallet): number => {
       typeof candidate === 'number'
         ? candidate
         : typeof candidate === 'string'
-          ? Number(candidate.replace(/,/g, ''))
-          : NaN;
+        ? Number(candidate.replace(/,/g, ''))
+        : NaN;
     if (Number.isFinite(n) && n > 0) {
       return n;
     }
@@ -330,7 +330,9 @@ const getUtcDayStartMs = (tsMs: number): number => {
 const toFiniteNumber = (value: number | undefined): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : 0;
 
-const normalizeSnapshotTxLinkage = (snapshot: BalanceSnapshot): BalanceSnapshot => {
+const normalizeSnapshotTxLinkage = (
+  snapshot: BalanceSnapshot,
+): BalanceSnapshot => {
   const legacy = snapshot as BalanceSnapshot & {
     walletId?: string;
     txid?: string;
@@ -339,7 +341,10 @@ const normalizeSnapshotTxLinkage = (snapshot: BalanceSnapshot): BalanceSnapshot 
   const rawTxIds = legacy.txIds;
   const txIds =
     Array.isArray(rawTxIds) && rawTxIds.length > 1 ? rawTxIds : undefined;
-  const next = {...legacy} as BalanceSnapshot & {walletId?: string; txid?: string};
+  const next = {...legacy} as BalanceSnapshot & {
+    walletId?: string;
+    txid?: string;
+  };
   delete next.walletId;
   delete next.txid;
   delete (next as BalanceSnapshot & {txIds?: string[]}).txIds;
@@ -765,9 +770,8 @@ export const populatePortfolio =
     const walletIdsFilter = Array.isArray(args?.walletIds)
       ? new Set(args?.walletIds)
       : undefined;
-    const walletsToPopulateUnordered = (walletIdsFilter
-      ? wallets.filter(w => walletIdsFilter.has(w.id))
-      : wallets
+    const walletsToPopulateUnordered = (
+      walletIdsFilter ? wallets.filter(w => walletIdsFilter.has(w.id)) : wallets
     ).filter(walletHasNonZeroLiveBalance);
     const walletsToPopulate = sortWalletsByAssetAndBalanceDesc(
       walletsToPopulateUnordered,
@@ -1089,7 +1093,10 @@ export const populatePortfolio =
           return;
         }
 
-        const walletBalanceForSummary = getWalletBalanceAtomic(wallet, unitDecimals);
+        const walletBalanceForSummary = getWalletBalanceAtomic(
+          wallet,
+          unitDecimals,
+        );
         const walletSummary = {
           // IMPORTANT: the shared PnL engine expects these exact field names
           // (walletId / walletName / balanceAtomic / balanceFormatted).
@@ -1097,7 +1104,9 @@ export const populatePortfolio =
           walletName: wallet.name,
           chain: String(wallet.chain || '').toLowerCase(),
           network: wallet.network,
-          currencyAbbreviation: String(wallet.currencyAbbreviation || '').toLowerCase(),
+          currencyAbbreviation: String(
+            wallet.currencyAbbreviation || '',
+          ).toLowerCase(),
           tokenAddress: wallet.tokenAddress,
           balanceAtomic: walletBalanceForSummary.atomic.toString(),
           balanceFormatted: walletBalanceForSummary.unitString,
@@ -1128,7 +1137,10 @@ export const populatePortfolio =
           compression: {enabled: PORTFOLIO_COMPRESS_OLD_TXS_TO_DAILY_SNAPSHOTS},
           nowMs,
           onProgress: p => {
-            const next = typeof (p as any)?.processed === 'number' ? (p as any).processed : 0;
+            const next =
+              typeof (p as any)?.processed === 'number'
+                ? (p as any).processed
+                : 0;
             const delta = next - lastProgress;
             if (delta > 0) {
               bumpTxsProcessed(delta);
@@ -1144,7 +1156,8 @@ export const populatePortfolio =
         }
 
         const mappedNew: BalanceSnapshot[] = storedSnaps.map((s, idx) => {
-          const prev = idx === 0 ? latestSnapshotForEngine || null : storedSnaps[idx - 1];
+          const prev =
+            idx === 0 ? latestSnapshotForEngine || null : storedSnaps[idx - 1];
           const computed = computeBalanceSnapshotComputed(s, credentials, prev);
           let deltaAtomic = 0n;
           try {
@@ -1170,7 +1183,9 @@ export const populatePortfolio =
             assetId: s.assetId,
             timestamp: s.timestamp,
             dayStartMs:
-              s.eventType === 'daily' ? getUtcDayStartMs(s.timestamp) : undefined,
+              s.eventType === 'daily'
+                ? getUtcDayStartMs(s.timestamp)
+                : undefined,
             eventType: s.eventType,
             txIds:
               Array.isArray(s.txIds) && s.txIds.length > 1
@@ -1207,10 +1222,11 @@ export const populatePortfolio =
         const snapshotForMismatch = snapshots.length
           ? getLatestSnapshot(snapshots)
           : getLatestSnapshot(existingSnapshots);
-        const computedAtomicForMismatch = getSnapshotAtomicBalanceFromCryptoBalance({
-          snapshot: snapshotForMismatch as BalanceSnapshot | undefined,
-          unitDecimals,
-        });
+        const computedAtomicForMismatch =
+          getSnapshotAtomicBalanceFromCryptoBalance({
+            snapshot: snapshotForMismatch as BalanceSnapshot | undefined,
+            unitDecimals,
+          });
         const walletBalance = getWalletBalanceAtomic(wallet, unitDecimals);
         const mismatchUpdate = buildSnapshotMismatchUpdate({
           walletId: wallet.id,
