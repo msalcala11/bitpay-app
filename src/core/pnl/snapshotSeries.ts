@@ -17,7 +17,6 @@ export type BalanceSnapshotSeriesV1 = {
     t: number; // timestamp (ms)
     e: 0 | 1; // 0=tx, 1=daily
     b: string; // cryptoBalance
-    d?: string; // balanceDeltaAtomic
     c: number; // remainingCostBasisFiat
     r: number; // markRate
     x?: string[]; // txIds for daily
@@ -82,9 +81,6 @@ export const packBalanceSnapshotsToSeriesV1 = (args: {
       c: Number(s.remainingCostBasisFiat || 0),
       r: Number(s.markRate || 0),
     };
-    if (typeof s.balanceDeltaAtomic === 'string') {
-      row.d = s.balanceDeltaAtomic;
-    }
     if (s.eventType === 'daily' && Array.isArray(s.txIds) && s.txIds.length) {
       row.x = s.txIds.slice();
     }
@@ -112,7 +108,6 @@ export const hydrateBalanceSnapshotsFromSeriesV1 = (
       timestamp: row.t,
       eventType,
       cryptoBalance: row.b,
-      balanceDeltaAtomic: row.d,
       remainingCostBasisFiat: row.c,
       quoteCurrency: series.quoteCurrency,
       markRate: row.r,
