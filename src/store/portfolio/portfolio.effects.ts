@@ -19,12 +19,10 @@ import {
   buildBalanceSnapshotsAsync,
   computeBalanceSnapshotComputed,
 } from '../../core/pnl/snapshots';
+import {normalizeFiatRateSeriesCoin} from '../../core/pnl/rates';
 import type {BalanceSnapshotStored} from '../../core/pnl/types';
 import {getLatestSnapshot} from '../../utils/assets';
-import {
-  getFiatRateFromSeriesCacheAtTimestamp,
-  normalizeFiatRateSeriesCoin,
-} from '../../utils/rate';
+import {getFiatRateFromSeriesCacheAtTimestamp} from '../../utils/rate';
 import {
   finishPopulatePortfolio,
   setSnapshotBalanceMismatchesByWalletIdUpdates,

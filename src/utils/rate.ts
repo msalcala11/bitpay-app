@@ -4,6 +4,7 @@ import type {
   FiatRateSeriesCache,
 } from '../store/rate/rate.models';
 import {getFiatRateSeriesCacheKey} from '../store/rate/rate.models';
+import {normalizeFiatRateSeriesCoin} from '../core/pnl/rates';
 import {getLastDayTimestampStartOfHourMs} from './helper-methods';
 
 export type RatePoint = {
@@ -23,18 +24,6 @@ export type DownsampleOptions = {
   strategy?: DownsampleStrategy;
   mode?: DownsampleMode;
   driverCoin?: string;
-};
-
-export const normalizeFiatRateSeriesCoin = (
-  currencyAbbreviation?: string,
-): string => {
-  switch ((currencyAbbreviation || '').toLowerCase()) {
-    case 'matic':
-    case 'pol':
-      return 'pol';
-    default:
-      return (currencyAbbreviation || '').toLowerCase();
-  }
 };
 
 const getFiatRateSeriesPoints = (args: {

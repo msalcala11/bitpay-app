@@ -77,8 +77,8 @@ import {getVisibleWalletsFromKeys} from '../../../utils/assets';
 import {
   downsampleSeries,
   getFiatRateChangeForTimeframe,
-  normalizeFiatRateSeriesCoin,
 } from '../../../utils/rate';
+import {normalizeFiatRateSeriesCoin} from '../../../core/pnl/rates';
 import {findIndex, maxBy, minBy} from 'lodash';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {
