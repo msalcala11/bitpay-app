@@ -79,10 +79,12 @@ export const packBalanceSnapshotsToSeriesV1 = (args: {
       t: s.timestamp,
       e: eventTypeToCode(s.eventType),
       b: s.cryptoBalance,
-      d: s.balanceDeltaAtomic,
       c: Number(s.remainingCostBasisFiat || 0),
       r: Number(s.markRate || 0),
     };
+    if (typeof s.balanceDeltaAtomic === 'string') {
+      row.d = s.balanceDeltaAtomic;
+    }
     if (s.eventType === 'daily' && Array.isArray(s.txIds) && s.txIds.length) {
       row.x = s.txIds.slice();
     }
