@@ -354,6 +354,38 @@ const normalizeSnapshotTxLinkage = (
   };
 };
 
+const ensureSnapshotsSortedByTimestamp = (
+  snapshots: BalanceSnapshot[],
+): BalanceSnapshot[] => {
+  if (!Array.isArray(snapshots) || snapshots.length < 2) {
+    return snapshots;
+  }
+
+  const getTimestamp = (snapshot: BalanceSnapshot): number =>
+    typeof snapshot?.timestamp === 'number' && Number.isFinite(snapshot.timestamp)
+      ? snapshot.timestamp
+      : 0;
+
+  for (let i = 1; i < snapshots.length; i++) {
+    if (getTimestamp(snapshots[i - 1]) > getTimestamp(snapshots[i])) {
+      return snapshots
+        .map((snapshot, originalIndex) => ({snapshot, originalIndex}))
+        .sort((a, b) => {
+          const timestampDelta =
+            getTimestamp(a.snapshot) - getTimestamp(b.snapshot);
+          if (timestampDelta !== 0) {
+            return timestampDelta;
+          }
+          // Preserve original order for equal timestamps.
+          return a.originalIndex - b.originalIndex;
+        })
+        .map(({snapshot}) => snapshot);
+    }
+  }
+
+  return snapshots;
+};
+
 const buildSnapshotBase = (args: {
   wallet: Wallet;
   id: string;
@@ -1212,6 +1244,7 @@ export const populatePortfolio =
         }
 
         if (snapshots.length) {
+          snapshots = ensureSnapshotsSortedByTimestamp(snapshots);
           dispatch(setWalletSnapshots({walletId: wallet.id, snapshots}));
         }
 
@@ -1586,10 +1619,13 @@ export const recalculatePortfolioFiatFields =
           return;
         }
 
+        const sortedUpdatedSnapshots =
+          ensureSnapshotsSortedByTimestamp(updatedSnapshots);
+
         dispatch(
           setWalletSnapshots({
             walletId: wallet.id,
-            snapshots: updatedSnapshots,
+            snapshots: sortedUpdatedSnapshots,
           }),
         );
         setWalletStatus({dispatch, walletId: wallet.id, status: 'done'});

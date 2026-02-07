@@ -1,26 +1,14 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useMemo, useState} from 'react';
 import styled from 'styled-components/native';
 import {useNavigation} from '@react-navigation/native';
 import {ScreenGutter} from '../../../../components/styled/Containers';
 import Button from '../../../../components/button/Button';
 import {HomeSectionTitle} from './Styled';
 import AssetsList from './AssetsList';
-import {
-  AssetRowItem,
-  buildAssetRowItemsFromPortfolioSnapshots,
-  GainLossMode,
-  buildWalletIdsByAssetGroupKey,
-  getQuoteCurrency,
-  getVisibleWalletsFromKeys,
-  isFiatLoadingForWallets,
-  getPopulateLoadingByAssetKey,
-  getDisplayAssetRowItems,
-} from '../../../../utils/assets';
-import {SupportedCurrencyOptions} from '../../../../constants/SupportedCurrencyOptions';
+import {GainLossMode} from '../../../../utils/assets';
 import AssetsGainLossDropdown from './AssetsGainLossDropdown';
 import {useAppSelector} from '../../../../utils/hooks';
-import type {Key} from '../../../../store/wallet/wallet.models';
-import type {Rates} from '../../../../store/rate/rate.models';
+import usePortfolioAssetRows from '../hooks/usePortfolioAssetRows';
 
 const Container = styled.View`
   margin-top: 5px;
@@ -42,34 +30,10 @@ const AssetsSection: React.FC = () => {
   const navigation = useNavigation();
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
-  const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
-  const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
-  const rates = useAppSelector(({RATE}) => RATE.rates) as Rates;
-  const lastDayRates = useAppSelector(({RATE}) => RATE.lastDayRates) as Rates;
-  const fiatRateSeriesCache = useAppSelector(
-    ({RATE}) => RATE.fiatRateSeriesCache,
-  );
-  const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
-  const wallets = useMemo(() => {
-    return getVisibleWalletsFromKeys(keys, homeCarouselConfig);
-  }, [homeCarouselConfig, keys]);
-
-  const walletIdsByAssetKey = useMemo(() => {
-    return buildWalletIdsByAssetGroupKey(wallets);
-  }, [wallets]);
-
-  const quoteCurrency = getQuoteCurrency({
-    portfolioQuoteCurrency: portfolio.quoteCurrency,
-    defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
-  });
-
-  const isFiatLoading = useMemo(() => {
-    return isFiatLoadingForWallets({
-      quoteCurrency,
-      wallets,
-      snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
+  const {isFiatLoading, visibleItems, isPopulateLoadingByKey} =
+    usePortfolioAssetRows({
+      gainLossMode,
     });
-  }, [quoteCurrency, wallets, portfolio.snapshotsByWalletId]);
 
   const hasAnySnapshots = useMemo(() => {
     for (const v of Object.values(portfolio.snapshotsByWalletId || {})) {
@@ -80,63 +44,9 @@ const AssetsSection: React.FC = () => {
     return false;
   }, [portfolio.snapshotsByWalletId]);
 
-  const allItems: AssetRowItem[] = useMemo(() => {
-    return buildAssetRowItemsFromPortfolioSnapshots({
-      snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
-      wallets,
-      quoteCurrency,
-      gainLossMode,
-      rates,
-      lastDayRates,
-      fiatRateSeriesCache,
-      collapseAcrossChains: true,
-    });
-  }, [
-    gainLossMode,
-    portfolio.snapshotsByWalletId,
-    quoteCurrency,
-    wallets,
-    rates,
-    lastDayRates,
-    fiatRateSeriesCache,
-  ]);
-
-  const items: AssetRowItem[] = useMemo(() => {
-    const display = getDisplayAssetRowItems({
-      items: allItems,
-      gainLossMode,
-      options: SupportedCurrencyOptions,
-    });
-
-    return display.slice(0, 4);
-  }, [allItems, gainLossMode]);
-
-  const [isPopulateLoadingByKey, setIsPopulateLoadingByKey] = useState<
-    Record<string, boolean> | undefined
-  >(undefined);
-
-  useEffect(() => {
-    if (!portfolio.populateStatus?.inProgress) {
-      if (isPopulateLoadingByKey) {
-        setIsPopulateLoadingByKey(undefined);
-      }
-      return;
-    }
-
-    setIsPopulateLoadingByKey(prev => {
-      return getPopulateLoadingByAssetKey({
-        items,
-        walletIdsByAssetKey,
-        populateStatus: portfolio.populateStatus,
-        prev: prev || undefined,
-      });
-    });
-  }, [
-    isPopulateLoadingByKey,
-    items,
-    portfolio.populateStatus,
-    walletIdsByAssetKey,
-  ]);
+  const items = useMemo(() => {
+    return visibleItems.slice(0, 4);
+  }, [visibleItems]);
 
   if (!portfolio.populateStatus?.inProgress && !hasAnySnapshots) {
     return null;

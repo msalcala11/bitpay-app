@@ -1,4 +1,4 @@
-import React, {useEffect, useLayoutEffect, useMemo, useState} from 'react';
+import React, {useLayoutEffect, useMemo, useState} from 'react';
 import styled from 'styled-components/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../../../Root';
@@ -13,15 +13,8 @@ import AssetsGainLossDropdown from '../components/AssetsGainLossDropdown';
 import AssetsSearchPill from '../components/AssetsSearchPill';
 import AssetsList from '../components/AssetsList';
 import {
-  buildAssetRowItemsFromPortfolioSnapshots,
-  buildWalletIdsByAssetGroupKey,
   findSupportedCurrencyOptionForAsset,
   GainLossMode,
-  getQuoteCurrency,
-  getVisibleWalletsFromKeys,
-  isFiatLoadingForWallets,
-  getPopulateLoadingByAssetKey,
-  getDisplayAssetRowItems,
 } from '../../../../utils/assets';
 import {
   BitpaySupportedCoins,
@@ -30,8 +23,7 @@ import {
 import {SupportedCurrencyOptions} from '../../../../constants/SupportedCurrencyOptions';
 import {useAppSelector} from '../../../../utils/hooks';
 import {getCurrencyAbbreviation} from '../../../../utils/helper-methods';
-import type {Key} from '../../../../store/wallet/wallet.models';
-import type {Rates} from '../../../../store/rate/rate.models';
+import usePortfolioAssetRows from '../hooks/usePortfolioAssetRows';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AllAssets'>;
 
@@ -58,41 +50,13 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
 
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
-  const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
-  const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
-  const rates = useAppSelector(({RATE}) => RATE.rates) as Rates;
-  const lastDayRates = useAppSelector(({RATE}) => RATE.lastDayRates) as Rates;
-  const fiatRateSeriesCache = useAppSelector(
-    ({RATE}) => RATE.fiatRateSeriesCache,
-  );
-  const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
 
   const keyId = route.params?.keyId;
-
-  const wallets = useMemo(() => {
-    if (keyId && keys[keyId]) {
-      const subset: Record<string, Key> = {[keyId]: keys[keyId]};
-      return getVisibleWalletsFromKeys(subset);
-    }
-    return getVisibleWalletsFromKeys(keys, homeCarouselConfig);
-  }, [homeCarouselConfig, keyId, keys]);
-
-  const walletIdsByAssetKey = useMemo(() => {
-    return buildWalletIdsByAssetGroupKey(wallets);
-  }, [wallets]);
-
-  const quoteCurrency = getQuoteCurrency({
-    portfolioQuoteCurrency: portfolio.quoteCurrency,
-    defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
-  });
-
-  const isFiatLoading = useMemo(() => {
-    return isFiatLoadingForWallets({
-      quoteCurrency,
-      wallets,
-      snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
+  const {isFiatLoading, items, visibleItems, isPopulateLoadingByKey} =
+    usePortfolioAssetRows({
+      gainLossMode,
+      keyId,
     });
-  }, [quoteCurrency, wallets, portfolio.snapshotsByWalletId]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -102,41 +66,8 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
     });
   }, [navigation, commonOptions]);
 
-  const items = useMemo(() => {
-    return buildAssetRowItemsFromPortfolioSnapshots({
-      snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
-      wallets,
-      quoteCurrency,
-      gainLossMode,
-      rates,
-      lastDayRates,
-      fiatRateSeriesCache,
-      collapseAcrossChains: true,
-    });
-  }, [
-    gainLossMode,
-    portfolio.snapshotsByWalletId,
-    quoteCurrency,
-    wallets,
-    rates,
-    lastDayRates,
-    fiatRateSeriesCache,
-  ]);
-
-  const visibleItems = useMemo(() => {
-    return getDisplayAssetRowItems({
-      items,
-      gainLossMode,
-      options: SupportedCurrencyOptions,
-    });
-  }, [gainLossMode, items]);
-  const filteredItems = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) {
-      return visibleItems;
-    }
-
-    return visibleItems.filter(item => {
+  const searchableVisibleItems = useMemo(() => {
+    return visibleItems.map(item => {
       const option = findSupportedCurrencyOptionForAsset({
         options: SupportedCurrencyOptions,
         currencyAbbreviation: item.currencyAbbreviation,
@@ -152,43 +83,33 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
             getCurrencyAbbreviation(option.tokenAddress, option.chain)
           ]?.name
         : undefined;
-      return (
-        item.name.toLowerCase().includes(q) ||
-        item.currencyAbbreviation.toLowerCase().includes(q) ||
-        item.chain.toLowerCase().includes(q) ||
-        (optionCurrencyName || '').toLowerCase().includes(q) ||
-        (chainDisplayName || '').toLowerCase().includes(q) ||
-        (tokenDisplayName || '').toLowerCase().includes(q)
-      );
+
+      return {
+        item,
+        searchText: [
+          item.name,
+          item.currencyAbbreviation,
+          item.chain,
+          optionCurrencyName || '',
+          chainDisplayName || '',
+          tokenDisplayName || '',
+        ]
+          .join('\u0000')
+          .toLowerCase(),
+      };
     });
-  }, [query, visibleItems]);
+  }, [visibleItems]);
 
-  const [isPopulateLoadingByKey, setIsPopulateLoadingByKey] = useState<
-    Record<string, boolean> | undefined
-  >(undefined);
-
-  useEffect(() => {
-    if (!portfolio.populateStatus?.inProgress) {
-      if (isPopulateLoadingByKey) {
-        setIsPopulateLoadingByKey(undefined);
-      }
-      return;
+  const filteredItems = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) {
+      return visibleItems;
     }
 
-    setIsPopulateLoadingByKey(prev => {
-      return getPopulateLoadingByAssetKey({
-        items: filteredItems,
-        walletIdsByAssetKey,
-        populateStatus: portfolio.populateStatus,
-        prev: prev || undefined,
-      });
-    });
-  }, [
-    filteredItems,
-    isPopulateLoadingByKey,
-    portfolio.populateStatus,
-    walletIdsByAssetKey,
-  ]);
+    return searchableVisibleItems
+      .filter(({searchText}) => searchText.includes(q))
+      .map(({item}) => item);
+  }, [query, searchableVisibleItems, visibleItems]);
 
   const showGhostTown = !items.length;
 

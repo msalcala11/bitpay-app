@@ -11,6 +11,10 @@ import {ActiveOpacity} from '../../../../components/styled/Containers';
 import {BaseText, H7} from '../../../../components/styled/Text';
 import {SupportedCurrencyOptions} from '../../../../constants/SupportedCurrencyOptions';
 import {
+  BitpaySupportedCoins,
+  BitpaySupportedTokens,
+} from '../../../../constants/currencies';
+import {
   CharcoalBlack,
   GhostWhite,
   LightBlack,
@@ -25,6 +29,7 @@ import haptic from '../../../../components/haptic-feedback/haptic';
 import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
 import {maskIfHidden} from '../../../../utils/hideBalances';
 import {showBottomNotificationModal} from '../../../../store/app/app.actions';
+import {getCurrencyAbbreviation} from '../../../../utils/helper-methods';
 import ChevronRightSvg from './ChevronRightSvg';
 import {
   AssetRowItem,
@@ -116,29 +121,21 @@ const ChevronContainer = styled.View<{visible: boolean}>`
 interface Props {
   item: AssetRowItem;
   isLast: boolean;
-  isExchangeRateSupported: boolean;
   isFiatLoading?: boolean;
   isPopulateLoading?: boolean;
-  onPress?: () => void;
 }
 
 const AssetRow: React.FC<Props> = ({
   item,
   isLast,
-  isExchangeRateSupported,
   isFiatLoading,
   isPopulateLoading,
-  onPress,
 }) => {
   const navigation = useNavigation();
   const theme = useTheme();
   const {t} = useTranslation();
   const dispatch = useAppDispatch();
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
-  const hasRate = !!item.hasRate;
-  const isPressEnabled = isExchangeRateSupported && hasRate;
-  const canCopyLog = !!item.pnlLog;
-  const isTouchable = isPressEnabled || canCopyLog;
   const option = useMemo(() => {
     return findSupportedCurrencyOptionForAsset({
       options: SupportedCurrencyOptions,
@@ -147,6 +144,41 @@ const AssetRow: React.FC<Props> = ({
       tokenAddress: item.tokenAddress,
     });
   }, [item.chain, item.currencyAbbreviation, item.tokenAddress]);
+  const hasRate = !!item.hasRate;
+  const isExactSupportedMatch = useMemo(() => {
+    if (!option) {
+      return false;
+    }
+    return (
+      option.currencyAbbreviation.toLowerCase() ===
+        item.currencyAbbreviation.toLowerCase() &&
+      option.chain.toLowerCase() === item.chain.toLowerCase() &&
+      (option.tokenAddress || '').toLowerCase() ===
+        (item.tokenAddress || '').toLowerCase()
+    );
+  }, [
+    item.chain,
+    item.currencyAbbreviation,
+    item.tokenAddress,
+    option,
+  ]);
+  const isStableCoin = useMemo(() => {
+    if (!option) {
+      return false;
+    }
+    const currencyName = getCurrencyAbbreviation(
+      option.tokenAddress ? option.tokenAddress : option.currencyAbbreviation,
+      option.chain,
+    );
+    return !!(
+      BitpaySupportedCoins[currencyName]?.properties?.isStableCoin ||
+      BitpaySupportedTokens[currencyName]?.properties?.isStableCoin
+    );
+  }, [option]);
+  const canNavigate =
+    hasRate && isExactSupportedMatch && !!option && !isStableCoin;
+  const canCopyLog = !!item.pnlLog;
+  const isTouchable = canNavigate || canCopyLog;
 
   const handleLongPress = () => {
     if (!item.pnlLog) {
@@ -172,21 +204,15 @@ const AssetRow: React.FC<Props> = ({
   };
 
   const handlePress = () => {
-    if (!isPressEnabled) {
-      return;
-    }
-
-    if (onPress) {
-      onPress();
+    if (!canNavigate || !option) {
       return;
     }
 
     (navigation as any).navigate('ExchangeRate', {
-      currencyName: option?.currencyName || item.name,
-      currencyAbbreviation:
-        option?.currencyAbbreviation || item.currencyAbbreviation,
-      chain: option?.chain || item.chain,
-      tokenAddress: option?.tokenAddress || item.tokenAddress,
+      currencyName: option.currencyName || item.name,
+      currencyAbbreviation: option.currencyAbbreviation || item.currencyAbbreviation,
+      chain: option.chain || item.chain,
+      tokenAddress: option.tokenAddress || item.tokenAddress,
     });
   };
 
@@ -196,7 +222,7 @@ const AssetRow: React.FC<Props> = ({
       isLast={isLast}
       delayLongPress={canCopyLog ? 10000 : undefined}
       onLongPress={canCopyLog ? handleLongPress : undefined}
-      onPress={isPressEnabled ? handlePress : undefined}>
+      onPress={canNavigate ? handlePress : undefined}>
       <IconContainer>
         <CurrencyImage
           img={option?.img}
@@ -283,11 +309,11 @@ const AssetRow: React.FC<Props> = ({
         </>
       ) : null}
 
-      <ChevronContainer visible={isPressEnabled}>
+      <ChevronContainer visible={canNavigate}>
         <ChevronRightSvg width={9} height={15} gray />
       </ChevronContainer>
     </Row>
   );
 };
 
-export default AssetRow;
+export default React.memo(AssetRow);

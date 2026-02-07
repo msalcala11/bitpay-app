@@ -36,6 +36,62 @@ const getUtcDayStartMs = (tsMs: number): number => {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 };
 
+const toFiniteNumber = (value: unknown, fallback = 0): number => {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const getSnapshotMarkRate = (
+  snapshot: Partial<BalanceSnapshot> & {markRate?: unknown},
+): number => {
+  const costBasisRateFiat = toFiniteNumber(snapshot.costBasisRateFiat, NaN);
+  if (!Number.isNaN(costBasisRateFiat)) {
+    return costBasisRateFiat;
+  }
+  return toFiniteNumber(snapshot.markRate, 0);
+};
+
+const toSnapshotEventType = (
+  value: unknown,
+): BalanceSnapshotStored['eventType'] => {
+  return value === 'daily' ? 'daily' : 'tx';
+};
+
+const isChronologicalByTimestamp = <T extends {timestamp?: unknown}>(
+  snapshots: T[],
+): boolean => {
+  let prevTimestamp = Number.NEGATIVE_INFINITY;
+  for (const snapshot of snapshots) {
+    const timestamp = toFiniteNumber(snapshot.timestamp, 0);
+    if (timestamp < prevTimestamp) {
+      return false;
+    }
+    prevTimestamp = timestamp;
+  }
+  return true;
+};
+
+const ensureChronologicalByTimestamp = <T extends {timestamp?: unknown}>(
+  snapshots: T[],
+): T[] => {
+  if (snapshots.length < 2 || isChronologicalByTimestamp(snapshots)) {
+    return snapshots;
+  }
+  return snapshots
+    .map((snapshot, index) => ({snapshot, index}))
+    .sort((a, b) => {
+      const tsDiff =
+        toFiniteNumber(a.snapshot.timestamp, 0) -
+        toFiniteNumber(b.snapshot.timestamp, 0);
+      if (tsDiff !== 0) {
+        return tsDiff;
+      }
+      // Stable tie-break when timestamps are equal.
+      return a.index - b.index;
+    })
+    .map(({snapshot}) => snapshot);
+};
+
 const BWCProvider = BwcProvider.getInstance();
 
 // Helper for logging transform failures before the store exists
@@ -257,49 +313,50 @@ export const transformPortfolioSnapshotSeriesV1 = createTransform<
           ? (snapsRaw as BalanceSnapshot[])
           : [];
         if (!snaps.length) continue;
+        const orderedSnaps = ensureChronologicalByTimestamp(snaps);
 
-        const compressionEnabled = snaps.some(
-          s => (s as any)?.eventType === 'daily',
+        const compressionEnabled = orderedSnaps.some(
+          s => s.eventType === 'daily',
         );
-        const createdAt =
-          typeof (snaps[snaps.length - 1] as any)?.createdAt === 'number'
-            ? Number((snaps[snaps.length - 1] as any).createdAt)
-            : Date.now();
+        const lastSnapshot = orderedSnaps[orderedSnaps.length - 1];
+        const createdAt = toFiniteNumber(lastSnapshot?.createdAt, Date.now());
 
-        const minimal: BalanceSnapshotStored[] = snaps.map(s => {
-          const markRate =
-            typeof (s as any)?.costBasisRateFiat === 'number'
-              ? (s as any).costBasisRateFiat
-              : typeof (s as any)?.markRate === 'number'
-              ? (s as any).markRate
-              : 0;
+        const minimal: BalanceSnapshotStored[] = orderedSnaps.map(s => {
+          const snapshot = (s || {}) as Partial<BalanceSnapshot> & {
+            walletId?: unknown;
+            markRate?: unknown;
+          };
+          const markRate = getSnapshotMarkRate(snapshot);
 
           return {
-            id: String((s as any)?.id || ''),
-            walletId: String((s as any)?.walletId || walletId),
-            chain: String((s as any)?.chain || ''),
-            coin: String((s as any)?.coin || ''),
-            network: String((s as any)?.network || ''),
-            assetId: String((s as any)?.assetId || ''),
-            timestamp: Number((s as any)?.timestamp || 0),
-            eventType: ((s as any)?.eventType || 'tx') as any,
-            txIds: Array.isArray((s as any)?.txIds)
-              ? (s as any).txIds.map(String)
+            id: String(snapshot.id || ''),
+            walletId: String(snapshot.walletId || walletId),
+            chain: String(snapshot.chain || ''),
+            coin: String(snapshot.coin || ''),
+            network: String(snapshot.network || ''),
+            assetId: String(snapshot.assetId || ''),
+            timestamp: toFiniteNumber(snapshot.timestamp, 0),
+            eventType: toSnapshotEventType(snapshot.eventType),
+            txIds: Array.isArray(snapshot.txIds)
+              ? snapshot.txIds.map(String)
               : undefined,
-            cryptoBalance: String((s as any)?.cryptoBalance || '0'),
-            balanceDeltaAtomic: (s as any)?.balanceDeltaAtomic,
-            remainingCostBasisFiat: Number(
-              (s as any)?.remainingCostBasisFiat || 0,
+            // In this app's PORTFOLIO store, cryptoBalance is a UNIT string,
+            // even though BalanceSnapshotStored's core comment calls it atomic.
+            cryptoBalance: String(snapshot.cryptoBalance || '0'),
+            balanceDeltaAtomic: snapshot.balanceDeltaAtomic,
+            remainingCostBasisFiat: toFiniteNumber(
+              snapshot.remainingCostBasisFiat,
+              0,
             ),
             quoteCurrency: String(
-              (s as any)?.quoteCurrency ||
+              snapshot.quoteCurrency ||
                 (inboundState as any)?.quoteCurrency ||
                 '',
             ),
-            markRate: Number(markRate || 0),
+            markRate: toFiniteNumber(markRate, 0),
             createdAt:
-              typeof (s as any)?.createdAt === 'number'
-                ? (s as any).createdAt
+              typeof snapshot.createdAt === 'number'
+                ? snapshot.createdAt
                 : undefined,
           };
         });
@@ -330,13 +387,16 @@ export const transformPortfolioSnapshotSeriesV1 = createTransform<
 
       for (const [walletId, value] of Object.entries(map)) {
         if (isBalanceSnapshotSeriesV1(value)) {
-          const minimal = hydrateBalanceSnapshotsFromSeriesV1(value);
+          const minimal = ensureChronologicalByTimestamp(
+            hydrateBalanceSnapshotsFromSeriesV1(value),
+          );
           const snaps: BalanceSnapshot[] = minimal.map(s => {
-            const units = Number(s.cryptoBalance || '0');
-            const markRate = Number(s.markRate || 0);
+            const units = toFiniteNumber(s.cryptoBalance, 0);
+            const markRate = toFiniteNumber(s.markRate, 0);
             const fiatBalance = units * markRate;
-            const remainingCostBasisFiat = Number(
+            const remainingCostBasisFiat = toFiniteNumber(
               s.remainingCostBasisFiat || 0,
+              0,
             );
             const avgCostFiatPerUnit =
               units > 0 ? remainingCostBasisFiat / units : 0;

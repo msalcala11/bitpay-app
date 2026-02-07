@@ -73,7 +73,10 @@ import {
   getRateByCurrencyName,
   sleep,
 } from '../../../utils/helper-methods';
-import {getVisibleWalletsFromKeys} from '../../../utils/assets';
+import {
+  findSupportedCurrencyOptionForAsset,
+  getVisibleWalletsFromKeys,
+} from '../../../utils/assets';
 import {
   downsampleSeries,
   getFiatRateChangeForTimeframe,
@@ -791,32 +794,20 @@ const ExchangeRate = () => {
     ],
   );
 
-  const assetCurrencyOption = useMemo(() => {
-    const tokenAddressLower = assetContext.tokenAddress;
-    return (
-      SupportedCurrencyOptions.find(
-        ({currencyAbbreviation, chain, tokenAddress}) =>
-          currencyAbbreviation === assetContext.currencyAbbreviation &&
-          chain === assetContext.chain &&
-          (!tokenAddressLower ||
-            (tokenAddress || '').toLowerCase() === tokenAddressLower),
-      ) ||
-      (tokenAddressLower
-        ? SupportedCurrencyOptions.find(
-            ({tokenAddress}) =>
-              (tokenAddress || '').toLowerCase() === tokenAddressLower,
-          )
-        : undefined) ||
-      SupportedCurrencyOptions.find(
-        ({currencyAbbreviation}) =>
-          currencyAbbreviation === assetContext.currencyAbbreviation,
-      )
-    );
-  }, [
-    assetContext.chain,
-    assetContext.currencyAbbreviation,
-    assetContext.tokenAddress,
-  ]);
+  const assetCurrencyOption = useMemo(
+    () =>
+      findSupportedCurrencyOptionForAsset({
+        options: SupportedCurrencyOptions,
+        currencyAbbreviation: assetContext.currencyAbbreviation,
+        chain: assetContext.chain,
+        tokenAddress: assetContext.tokenAddress,
+      }),
+    [
+      assetContext.chain,
+      assetContext.currencyAbbreviation,
+      assetContext.tokenAddress,
+    ],
+  );
 
   const selectedFiatCodeUpper = (
     defaultAltCurrency.isoCode || 'USD'
