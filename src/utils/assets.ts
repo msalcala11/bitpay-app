@@ -2263,11 +2263,6 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
   const quoteCurrency = (args.quoteCurrency || 'USD').toUpperCase();
   const timeframe = args.gainLossMode;
   const fiatRateSeriesCache = args.fiatRateSeriesCache;
-  const atomicToUnitNumber = (atomic: bigint, decimals: number): number => {
-    const s = formatBigIntDecimal(atomic, decimals, Math.min(decimals, 18));
-    const n = Number(s);
-    return Number.isFinite(n) ? n : 0;
-  };
 
   const getAssetKey = (w: Wallet): {key: string; coin: string} | null => {
     const coin = String((w as any)?.currencyAbbreviation || '').toLowerCase();
@@ -2488,7 +2483,9 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       tokenAddress: (repWallet as any)?.tokenAddress,
     });
     if (currentRateForDisplay > 0) {
-      fiatValue = atomicToUnitNumber(totalAtomic, repUnitDecimals) * currentRateForDisplay;
+      const units = Number(atomicToUnitString(totalAtomic, repUnitDecimals));
+      fiatValue =
+        (Number.isFinite(units) ? units : 0) * currentRateForDisplay;
       hasRate = true;
     }
 
