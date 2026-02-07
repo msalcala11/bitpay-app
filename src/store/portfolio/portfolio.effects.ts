@@ -952,6 +952,12 @@ export const populatePortfolio =
               typeof confRaw === 'number' ? confRaw : Number(confRaw);
             if (!Number.isFinite(confNum) || confNum <= 0) {
               (tx as any).__portfolioTimestampMs = nowMsForMissingTs;
+              // Keep the engine + prefilter timestamp sources consistent for
+              // unconfirmed rows that arrive without a usable `time`.
+              const rawTime = Number((tx as any)?.time);
+              if (!Number.isFinite(rawTime) || rawTime <= 0) {
+                (tx as any).time = nowMsForMissingTs;
+              }
             }
           }
         }
@@ -1005,37 +1011,15 @@ export const populatePortfolio =
 
           // Preserve everything strictly before the cutoff and use the last
           // snapshot before cutoff as the engine seed.
-          const seedForWindow = (existingSnapshots || []).reduce(
-            (best: BalanceSnapshot | undefined, s: BalanceSnapshot) => {
-              const ts = s?.timestamp || 0;
-              if (!ts || ts >= cutoffMs) {
-                return best;
-              }
-
-              const bestTs = best?.timestamp || 0;
-              if (!best || ts > bestTs) {
-                return s;
-              }
-
-              if (ts === bestTs) {
-                const bestCreatedAt = best?.createdAt || 0;
-                const createdAt = s?.createdAt || 0;
-                if (createdAt > bestCreatedAt) {
-                  return s;
-                }
-                if (createdAt === bestCreatedAt) {
-                  const bestId = best?.id || '';
-                  const id = s?.id || '';
-                  if (id > bestId) {
-                    return s;
-                  }
-                }
-              }
-
-              return best;
-            },
-            undefined,
-          );
+          let seedForWindow: BalanceSnapshot | undefined;
+          for (const s of existingSnapshots || []) {
+            const ts = s?.timestamp || 0;
+            if (ts > 0 && ts < cutoffMs) {
+              // Keep the last pre-cutoff snapshot in existing array order.
+              // This matches getLatestSnapshot() semantics used elsewhere.
+              seedForWindow = s;
+            }
+          }
 
           if (seedForWindow) {
             preservedSnapshots = (existingSnapshots || [])

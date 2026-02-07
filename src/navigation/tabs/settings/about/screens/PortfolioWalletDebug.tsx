@@ -5,7 +5,7 @@ import {useTheme} from 'styled-components/native';
 import {useTranslation} from 'react-i18next';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import Clipboard from '@react-native-clipboard/clipboard';
-import {useAppSelector} from '../../../../../utils/hooks';
+import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {getEncryptionKey, storage} from '../../../../../store';
 import {encryptTransform} from 'redux-persist-transform-encrypt';
 import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
@@ -24,6 +24,7 @@ import type {
   SnapshotBalanceMismatch,
 } from '../../../../../store/portfolio/portfolio.models';
 import type {Wallet} from '../../../../../store/wallet/wallet.models';
+import {GetTransactionHistory} from '../../../../../store/wallet/effects/transactions/transactions';
 
 type PortfolioWalletDebugScreenProps = NativeStackScreenProps<
   AboutGroupParamList,
@@ -225,12 +226,175 @@ const countDuplicateTimestampsForDebug = (snapshots: BalanceSnapshot[]): number 
   return Object.values(freq).filter(n => n > 1).length;
 };
 
+const extractTxIdFromSnapshotIdForDebug = (
+  snapshotId: unknown,
+): string | null => {
+  if (typeof snapshotId !== 'string') {
+    return null;
+  }
+  const parts = snapshotId.split(':');
+  if (parts.length < 3 || parts[0] !== 'tx') {
+    return null;
+  }
+  const txid = parts.slice(2).join(':').trim();
+  return txid || null;
+};
+
+const countDuplicateSnapshotIdsForDebug = (
+  snapshots: BalanceSnapshot[],
+): number => {
+  const freq: Record<string, number> = {};
+  for (const s of snapshots || []) {
+    const id = typeof s?.id === 'string' ? s.id : '';
+    if (!id) {
+      continue;
+    }
+    freq[id] = (freq[id] || 0) + 1;
+  }
+  return Object.values(freq).filter(n => n > 1).length;
+};
+
+const countDuplicateSnapshotTxIdsForDebug = (
+  snapshots: BalanceSnapshot[],
+): number => {
+  const freq: Record<string, number> = {};
+  for (const s of snapshots || []) {
+    const txid = extractTxIdFromSnapshotIdForDebug(s?.id);
+    if (!txid) {
+      continue;
+    }
+    freq[txid] = (freq[txid] || 0) + 1;
+  }
+  return Object.values(freq).filter(n => n > 1).length;
+};
+
+const countSameTxIdDifferentBalanceForDebug = (
+  snapshots: BalanceSnapshot[],
+): number => {
+  const seen = new Map<string, string>();
+  let count = 0;
+  for (const s of snapshots || []) {
+    const txid = extractTxIdFromSnapshotIdForDebug(s?.id);
+    const balance = typeof s?.cryptoBalance === 'string' ? s.cryptoBalance : null;
+    if (!txid || balance == null) {
+      continue;
+    }
+    const prev = seen.get(txid);
+    if (prev == null) {
+      seen.set(txid, balance);
+      continue;
+    }
+    if (prev !== balance) {
+      count++;
+    }
+  }
+  return count;
+};
+
+const buildLatestPopulateWindowStatsForDebug = (args: {
+  snapshots: BalanceSnapshot[];
+  populateStartedAt?: number | null;
+}) => {
+  const startedAt =
+    typeof args.populateStartedAt === 'number' ? args.populateStartedAt : null;
+  if (startedAt == null) {
+    return {
+      startedAt: null,
+      snapshotsCreatedInWindowCount: null,
+      firstCreatedInWindow: null,
+      lastCreatedInWindow: null,
+      deltaAtomicSumInWindow: null,
+      duplicateSnapshotIdsInWindow: null,
+      duplicateTxIdsInWindow: null,
+      sameTxIdDifferentBalanceInWindow: null,
+    };
+  }
+
+  const windowSnaps = (args.snapshots || []).filter(s => {
+    const createdAt = s?.createdAt;
+    return typeof createdAt === 'number' && createdAt >= startedAt;
+  });
+
+  let deltaAtomicSum = 0n;
+  for (const s of windowSnaps) {
+    try {
+      deltaAtomicSum += BigInt(
+        typeof s?.balanceDeltaAtomic === 'string' ? s.balanceDeltaAtomic : '0',
+      );
+    } catch {}
+  }
+
+  return {
+    startedAt,
+    snapshotsCreatedInWindowCount: windowSnaps.length,
+    firstCreatedInWindow: summarizeSnapshotForDebug(windowSnaps[0]),
+    lastCreatedInWindow: summarizeSnapshotForDebug(
+      windowSnaps.length ? windowSnaps[windowSnaps.length - 1] : null,
+    ),
+    deltaAtomicSumInWindow: deltaAtomicSum.toString(),
+    duplicateSnapshotIdsInWindow: countDuplicateSnapshotIdsForDebug(windowSnaps),
+    duplicateTxIdsInWindow: countDuplicateSnapshotTxIdsForDebug(windowSnaps),
+    sameTxIdDifferentBalanceInWindow:
+      countSameTxIdDifferentBalanceForDebug(windowSnaps),
+  };
+};
+
+const getTxTimestampMsForDebug = (tx: any): number | null => {
+  const raw =
+    tx?.time ??
+    tx?.__portfolioTimestampMs ??
+    tx?.createdOn ??
+    tx?.ts ??
+    tx?.timestamp ??
+    tx?.createdTime ??
+    tx?.blockTime ??
+    tx?.block_time ??
+    tx?.blockTimeNormalized ??
+    tx?.block_time_normalized;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    return null;
+  }
+  return n > 1e12 ? n : n * 1000;
+};
+
+const summarizeTxForDebug = (tx: any) => ({
+  txidPresent: typeof tx?.txid === 'string' && tx.txid.trim().length > 0,
+  txidRedacted:
+    typeof tx?.txid === 'string' && tx.txid.trim().length > 0
+      ? '[redacted]'
+      : null,
+  action: typeof tx?.action === 'string' ? tx.action : null,
+  confirmations:
+    typeof tx?.confirmations === 'number'
+      ? tx.confirmations
+      : Number.isFinite(Number(tx?.confirmations))
+        ? Number(tx.confirmations)
+        : null,
+  amount:
+    typeof tx?.amount === 'number'
+      ? tx.amount
+      : Number.isFinite(Number(tx?.amount))
+        ? Number(tx.amount)
+        : null,
+  fees:
+    typeof tx?.fees === 'number'
+      ? tx.fees
+      : Number.isFinite(Number(tx?.fees))
+        ? Number(tx.fees)
+        : null,
+  timePresent: tx?.time != null,
+  createdOnPresent: tx?.createdOn != null,
+  timestampMs: getTxTimestampMsForDebug(tx),
+});
+
 const PortfolioWalletDebug = ({
   route,
   navigation,
 }: PortfolioWalletDebugScreenProps) => {
   const {t} = useTranslation();
   const theme = useTheme();
+  const dispatch = useAppDispatch();
 
   const {walletId} = route.params;
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
@@ -671,7 +835,7 @@ const PortfolioWalletDebug = ({
   }, [mismatch, wallet, walletId, walletSnapshots]);
 
   const copyMismatchTimelineLogs = useCallback(() => {
-    const task = InteractionManager.runAfterInteractions(() => {
+    const task = InteractionManager.runAfterInteractions(async () => {
       const lastSnapshotByArray = walletSnapshots.length
         ? walletSnapshots[walletSnapshots.length - 1]
         : undefined;
@@ -763,6 +927,42 @@ const PortfolioWalletDebug = ({
               : best;
           }, null)
         : null;
+
+      let txHistoryRows: any[] = [];
+      let txHistoryProbeError: string | null = null;
+      if (wallet) {
+        try {
+          const txRes = await dispatch(
+            GetTransactionHistory({
+              wallet,
+              transactionsHistory: [],
+              limit: 200,
+              refresh: true,
+              contactList: [],
+              isAccountDetailsView: true,
+              skipWalletProcessing: true,
+              skipUiFriendlyList: true,
+            }) as any,
+          );
+          txHistoryRows = Array.isArray(txRes?.transactions)
+            ? txRes.transactions
+            : [];
+        } catch (e: any) {
+          txHistoryProbeError =
+            typeof e?.message === 'string' ? e.message : String(e);
+        }
+      }
+
+      const txPendingCount = txHistoryRows.filter(tx => {
+        const c = Number(tx?.confirmations);
+        return Number.isFinite(c) && c <= 0;
+      }).length;
+      const txMissingTxidCount = txHistoryRows.filter(
+        tx => !(typeof tx?.txid === 'string' && tx.txid.trim().length > 0),
+      ).length;
+      const txMissingTimestampCount = txHistoryRows.filter(
+        tx => getTxTimestampMsForDebug(tx) == null,
+      ).length;
 
       const logs = {
         capturedAtMs: Date.now(),
@@ -858,9 +1058,20 @@ const PortfolioWalletDebug = ({
           last5Ids: walletSnapshots
             .slice(-5)
             .map(s => redactIdForDebug(s.id)),
+          last5DeltaAtomic: walletSnapshots
+            .slice(-5)
+            .map(s =>
+              typeof s.balanceDeltaAtomic === 'string' ? s.balanceDeltaAtomic : null,
+            ),
           missingBalanceDeltaAtomicCount: walletSnapshots.filter(
             s => typeof s.balanceDeltaAtomic !== 'string',
           ).length,
+          duplicateSnapshotIdsCount: countDuplicateSnapshotIdsForDebug(
+            walletSnapshots,
+          ),
+          duplicateTxIdsCount: countDuplicateSnapshotTxIdsForDebug(walletSnapshots),
+          sameTxIdDifferentBalanceCount:
+            countSameTxIdDifferentBalanceForDebug(walletSnapshots),
         },
         snapshotsDisk: {
           ok: diskSnapshotData.ok,
@@ -880,6 +1091,19 @@ const PortfolioWalletDebug = ({
           rowLastByArray: summarizeDiskRowForDebug(diskLastRowByArray),
           rowLastByOrdering: summarizeDiskRowForDebug(diskLastRowByOrdering),
         },
+        latestPopulateWindow: buildLatestPopulateWindowStatsForDebug({
+          snapshots: walletSnapshots,
+          populateStartedAt: portfolio.populateStatus?.startedAt ?? null,
+        }),
+        txHistoryProbe: {
+          ok: txHistoryProbeError == null,
+          error: txHistoryProbeError,
+          totalRows: txHistoryRows.length,
+          pendingCount: txPendingCount,
+          missingTxidCount: txMissingTxidCount,
+          missingTimestampCount: txMissingTimestampCount,
+          last10: txHistoryRows.slice(0, 10).map(summarizeTxForDebug),
+        },
       };
 
       Clipboard.setString(JSON.stringify(logs, null, 2));
@@ -887,7 +1111,15 @@ const PortfolioWalletDebug = ({
       setTimeout(() => setCopyTimelineState('idle'), 1500);
     });
     return () => task.cancel();
-  }, [diskSnapshotData, mismatch, portfolio.populateStatus, wallet, walletId, walletSnapshots]);
+  }, [
+    dispatch,
+    diskSnapshotData,
+    mismatch,
+    portfolio.populateStatus,
+    wallet,
+    walletId,
+    walletSnapshots,
+  ]);
 
   return (
     <DebugScreenContainer>
