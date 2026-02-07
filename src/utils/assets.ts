@@ -2263,6 +2263,11 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
   const quoteCurrency = (args.quoteCurrency || 'USD').toUpperCase();
   const timeframe = args.gainLossMode;
   const fiatRateSeriesCache = args.fiatRateSeriesCache;
+  const atomicToUnitNumber = (atomic: bigint, decimals: number): number => {
+    const s = formatBigIntDecimal(atomic, decimals, Math.min(decimals, 18));
+    const n = Number(s);
+    return Number.isFinite(n) ? n : 0;
+  };
 
   const getAssetKey = (w: Wallet): {key: string; coin: string} | null => {
     const coin = String((w as any)?.currencyAbbreviation || '').toLowerCase();
@@ -2407,7 +2412,6 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     let pnlRatio = 0;
     let hasRate = false;
     let pnlLog: string | undefined;
-    let endCryptoAtomic: string | undefined;
 
     try {
       if (!fiatRateSeriesCache) {
@@ -2447,7 +2451,6 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
         fiatValue = last.totalFiatBalance;
         pnlFiat = last.totalUnrealizedPnlFiat;
         pnlRatio = (last.totalPnlPercent || 0) / 100;
-        endCryptoAtomic = last.totalCryptoBalanceAtomic;
         hasRate = true;
       }
     } catch (e: any) {
@@ -2455,34 +2458,39 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       pnlLog = String(e?.message || e);
     }
 
-    // Determine end crypto amount (use analysis total if available; fall back to latest snapshots).
+    // Prefer latest snapshots for displayed holdings, independent of rate-series window.
     let totalAtomic = 0n;
     const repUnitDecimals = getWalletUnitInfo(repWallet).unitDecimals;
-
-    if (endCryptoAtomic) {
+    for (const w of groupWallets) {
+      const wid = String((w as any)?.id || '');
+      const snaps = ensureSortedSnapshots(args.snapshotsByWalletId?.[wid]);
+      const latest = getLatestSnapshot(snaps);
+      if (!latest) continue;
       try {
-        totalAtomic = parseAtomicToBigint(endCryptoAtomic);
+        const walletUnitDecimals = getWalletUnitInfo(w).unitDecimals;
+        const latestCrypto =
+          typeof (latest as any)?.cryptoBalance === 'string'
+            ? (latest as any).cryptoBalance
+            : '0';
+        totalAtomic += unitStringToAtomicBigInt(latestCrypto, walletUnitDecimals);
       } catch {
-        totalAtomic = 0n;
-      }
-    }
-
-    if (!endCryptoAtomic || totalAtomic === 0n) {
-      // Prefer the latest snapshot from each wallet to avoid depending on rate cache for basic holdings.
-      for (const w of groupWallets) {
-        const wid = String((w as any)?.id || '');
-        const snaps = ensureSortedSnapshots(args.snapshotsByWalletId?.[wid]);
-        const latest = getLatestSnapshot(snaps);
-        if (!latest) continue;
-        try {
-          totalAtomic += parseAtomicToBigint((latest as any).cryptoBalance);
-        } catch {
-          // ignore
-        }
+        // ignore
       }
     }
 
     if (totalAtomic <= 0n) continue;
+
+    const currentRateForDisplay = getQuoteRateNumForAsset({
+      rates: args.rates,
+      quoteCurrency,
+      coin,
+      chain: String((repWallet as any)?.chain || coin),
+      tokenAddress: (repWallet as any)?.tokenAddress,
+    });
+    if (currentRateForDisplay > 0) {
+      fiatValue = atomicToUnitNumber(totalAtomic, repUnitDecimals) * currentRateForDisplay;
+      hasRate = true;
+    }
 
     const cryptoAmount = formatBigIntDecimal(
       totalAtomic,
