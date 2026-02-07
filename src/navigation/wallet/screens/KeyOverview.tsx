@@ -571,7 +571,7 @@ const KeyOverview = () => {
   }, [portfolio.populateStatus, visibleKeyWallets]);
 
   const gainLossSummary = useMemo(() => {
-    return buildPortfolioGainLossSummaryFromPortfolioSnapshots({
+    const summary = buildPortfolioGainLossSummaryFromPortfolioSnapshots({
       snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
       wallets: visibleKeyWallets,
       quoteCurrency,
@@ -579,27 +579,50 @@ const KeyOverview = () => {
       lastDayRates,
       fiatRateSeriesCache,
     });
+
+    if (summary.today.available) {
+      return summary;
+    }
+
+    const baseline =
+      typeof totalBalanceLastDay === 'number' ? totalBalanceLastDay : 0;
+    const deltaFiat = totalBalance - baseline;
+    const percentRatio = baseline > 0 ? deltaFiat / baseline : 0;
+
+    return {
+      ...summary,
+      today: {
+        ...summary.today,
+        deltaFiat,
+        percentRatio,
+        available: true,
+      },
+    };
   }, [
     fiatRateSeriesCache,
     lastDayRates,
     portfolio.snapshotsByWalletId,
     quoteCurrency,
     rates,
+    totalBalance,
+    totalBalanceLastDay,
     visibleKeyWallets,
   ]);
 
   const portfolioPercentageDifference = useMemo(() => {
-    return getPercentageDifferenceFromPercentRatio(
-      getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots({
-        snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
-        wallets: visibleKeyWallets,
-        quoteCurrency,
-        timeframe: '1D',
-        rates,
-        lastDayRates,
-        fiatRateSeriesCache,
-      }).percentRatio,
-    );
+    const pnl = getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots({
+      snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
+      wallets: visibleKeyWallets,
+      quoteCurrency,
+      timeframe: '1D',
+      rates,
+      lastDayRates,
+      fiatRateSeriesCache,
+    });
+    if (!pnl.available) {
+      return null;
+    }
+    return getPercentageDifferenceFromPercentRatio(pnl.percentRatio);
   }, [
     fiatRateSeriesCache,
     lastDayRates,
@@ -662,6 +685,10 @@ const KeyOverview = () => {
   ]);
 
   const allTimeGainLossText = useMemo(() => {
+    if (!gainLossSummary.total.available) {
+      return null;
+    }
+
     if (hideAllBalances) {
       const pctSign = gainLossSummary.total.percentRatio >= 0 ? '+' : '-';
       const pct = Math.abs(gainLossSummary.total.percentRatio * 100).toFixed(2);
@@ -682,14 +709,17 @@ const KeyOverview = () => {
     return `${sign}${amt}  (${pctSign}${pct}%)`;
   }, [
     gainLossSummary.quoteCurrency,
+    gainLossSummary.total.available,
     gainLossSummary.total.deltaFiat,
     gainLossSummary.total.percentRatio,
     hideAllBalances,
   ]);
 
   const allTimeIsPositive = useMemo(() => {
-    return gainLossSummary.total.deltaFiat >= 0;
-  }, [gainLossSummary.total.deltaFiat]);
+    return gainLossSummary.total.available
+      ? gainLossSummary.total.deltaFiat >= 0
+      : true;
+  }, [gainLossSummary.total.available, gainLossSummary.total.deltaFiat]);
 
   const todayGainLossText = useMemo(() => {
     if (hideAllBalances) {
@@ -1175,19 +1205,24 @@ const KeyOverview = () => {
                   <AllocationDivider />
 
                   <AllocationRow>
-                    <AllocationColumn style={{paddingRight: 12}}>
-                      <AllocationLabel>
-                        All-Time Gain / Loss ($)
-                      </AllocationLabel>
-                      {isKeyPopulateLoading ? (
-                        <AllocationMetricSkeleton />
-                      ) : (
-                        <AllocationMetricValue positive={allTimeIsPositive}>
-                          {allTimeGainLossText}
-                        </AllocationMetricValue>
-                      )}
-                    </AllocationColumn>
-                    <AllocationColumn style={{paddingLeft: 12}}>
+                    {allTimeGainLossText !== null ? (
+                      <AllocationColumn style={{paddingRight: 12}}>
+                        <AllocationLabel>
+                          All-Time Gain / Loss ($)
+                        </AllocationLabel>
+                        {isKeyPopulateLoading ? (
+                          <AllocationMetricSkeleton />
+                        ) : (
+                          <AllocationMetricValue positive={allTimeIsPositive}>
+                            {allTimeGainLossText}
+                          </AllocationMetricValue>
+                        )}
+                      </AllocationColumn>
+                    ) : null}
+                    <AllocationColumn
+                      style={
+                        allTimeGainLossText !== null ? {paddingLeft: 12} : undefined
+                      }>
                       <AllocationLabel style={{textAlign: 'right'}}>
                         Today's Gain / Loss ($)
                       </AllocationLabel>

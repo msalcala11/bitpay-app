@@ -177,7 +177,7 @@ const roundDownToHourMs = (tsMs: number): number => {
   return Math.floor(tsMs / MS_PER_HOUR) * MS_PER_HOUR;
 };
 
-export const getBaselineTimestampMsForFiatRateTimeframe = (args: {
+export const getFiatRateBaselineTsForTimeframe = (args: {
   timeframe: FiatRateInterval;
   nowMs?: number;
 }): number | undefined => {
@@ -224,7 +224,7 @@ export const getFiatRateTimeframeConfig = (args: {
 }): FiatRateTimeframeConfig => {
   const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
   const windowMs = getWindowMsForFiatRateTimeframe(args.timeframe);
-  const baselineTimestampMs = getBaselineTimestampMsForFiatRateTimeframe({
+  const baselineTimestampMs = getFiatRateBaselineTsForTimeframe({
     timeframe: args.timeframe,
     nowMs,
   });

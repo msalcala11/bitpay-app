@@ -132,11 +132,16 @@ const PortfolioBalance = () => {
       fiatRateSeriesCache,
     });
 
+    if (!pnl.available) {
+      return legacyPercentageDifference;
+    }
+
     return getPercentageDifferenceFromPercentRatio(pnl.percentRatio);
   }, [
     fiatRateSeriesCache,
     hasSnapshots,
     lastDayRates,
+    legacyPercentageDifference,
     portfolio?.quoteCurrency,
     portfolio?.snapshotsByWalletId,
     rates,

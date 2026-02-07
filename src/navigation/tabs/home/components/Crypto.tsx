@@ -265,19 +265,27 @@ export const createHomeCardList = ({
           totalBalanceLastDay,
         });
 
-      const portfolioPercentageDifference = portfolioSnapshotsByWalletId
-        ? getPercentageDifferenceFromPercentRatio(
-            getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots({
-              snapshotsByWalletId: portfolioSnapshotsByWalletId,
-              wallets,
-              quoteCurrency,
-              timeframe: '1D',
-              rates,
-              lastDayRates,
-              fiatRateSeriesCache,
-            }).percentRatio,
-          )
-        : null;
+      const portfolioPercentageDifference = (() => {
+        if (!portfolioSnapshotsByWalletId) {
+          return null;
+        }
+
+        const pnl = getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots({
+          snapshotsByWalletId: portfolioSnapshotsByWalletId,
+          wallets,
+          quoteCurrency,
+          timeframe: '1D',
+          rates,
+          lastDayRates,
+          fiatRateSeriesCache,
+        });
+
+        if (!pnl.available) {
+          return null;
+        }
+
+        return getPercentageDifferenceFromPercentRatio(pnl.percentRatio);
+      })();
 
       const hasKeySnapshots = portfolioSnapshotsByWalletId
         ? hasSnapshotsForWallets({
