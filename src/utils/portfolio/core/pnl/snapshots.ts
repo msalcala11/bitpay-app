@@ -59,14 +59,11 @@ export const getAssetIdFromWallet = (
 export const extractTxIdFromSnapshotId = (
   snapshotId: string,
 ): string | null => {
-  // Expected: tx:<walletId>:<txid>
+  // Expected: tx:<txid>
   // (txid can itself contain ':' in our fallback ID format)
   const s = String(snapshotId || '');
   if (!s.startsWith('tx:')) return null;
-  const firstColon = s.indexOf(':');
-  const secondColon = s.indexOf(':', firstColon + 1);
-  if (secondColon < 0) return null;
-  const txid = s.slice(secondColon + 1);
+  const txid = s.slice(3);
   return txid ? txid : null;
 };
 
@@ -1206,8 +1203,8 @@ const buildSnapshotForGroup = (
 
   const id =
     eventType === 'tx'
-      ? `tx:${walletId}:${txIds[0] ?? timestamp}`
-      : `daily:${walletId}:${utcDayKeyFromIndex(
+      ? `tx:${txIds[0] ?? timestamp}`
+      : `daily:${utcDayKeyFromIndex(
           group.dayIdx ?? utcDayIndex(timestamp),
         )}`;
 
