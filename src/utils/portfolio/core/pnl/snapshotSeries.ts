@@ -112,13 +112,11 @@ export const hydrateBalanceSnapshotsFromSeries = (
   for (const row of series.rows || []) {
     if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
 
-    const rowData = row as Partial<BalanceSnapshotSeries['rows'][number]> & {
-      id?: unknown;
-    };
-    const {i, t, e, b, c, r, x} = rowData;
-    const id = typeof i === 'string' ? i : rowData.id;
+    const {i, t, e, b, c, r, x} = row as Partial<
+      BalanceSnapshotSeries['rows'][number]
+    >;
     if (
-      typeof id !== 'string' ||
+      typeof i !== 'string' ||
       typeof b !== 'string' ||
       !isEventTypeCode(e)
     ) {
@@ -138,7 +136,7 @@ export const hydrateBalanceSnapshotsFromSeries = (
 
     const eventType = codeToEventType(e);
     const snap: BalanceSnapshotStored = {
-      id,
+      id: i,
       walletId: series.walletId,
       chain: series.chain,
       coin: series.coin,

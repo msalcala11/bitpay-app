@@ -212,7 +212,7 @@ const summarizeDiskRowForDebug = (row: any) => {
     return null;
   }
   return {
-    id: redactIdForDebug(row.id),
+    id: redactIdForDebug(row.i),
     timestamp: typeof row.t === 'number' ? row.t : null,
     eventTypeCode: typeof row.e === 'number' ? row.e : null,
     cryptoBalanceAtomic: typeof row.b === 'string' ? row.b : null,
@@ -954,8 +954,8 @@ const PortfolioWalletDebug = ({
             if (currTs < bestTs) {
               return best;
             }
-            return String(current?.id || '').localeCompare(
-              String(best?.id || ''),
+            return String(current?.i || '').localeCompare(
+              String(best?.i || ''),
             ) > 0
               ? current
               : best;
