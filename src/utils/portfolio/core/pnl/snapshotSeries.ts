@@ -1,4 +1,4 @@
-import type {BalanceSnapshotEventType, BalanceSnapshotStored} from './types';
+import type {BalanceSnapshotStored} from './types';
 
 export type BalanceSnapshotSeries = {
   v: 1;
@@ -13,9 +13,9 @@ export type BalanceSnapshotSeries = {
 
   // snapshot rows with only varying fields
   rows: Array<{
-    i: string; // id
+    // txid payload for tx rows. Daily rows omit this and derive id from `t`.
+    i?: string;
     t: number; // timestamp (ms)
-    e: 0 | 1; // 0=tx, 1=daily
     b: string; // cryptoBalance
     c: number; // remainingCostBasisFiat
     r: number; // markRate
@@ -32,18 +32,22 @@ export const isBalanceSnapshotSeries = (
   return Array.isArray((x as any).rows);
 };
 
-const eventTypeToCode = (e: BalanceSnapshotEventType): 0 | 1 =>
-  e === 'daily' ? 1 : 0;
-const codeToEventType = (e: 0 | 1): BalanceSnapshotEventType =>
-  e === 1 ? 'daily' : 'tx';
-
 const toFiniteNumber = (value: unknown, fallback: number): number => {
   const n = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
 };
 
-const isEventTypeCode = (value: unknown): value is 0 | 1 =>
-  value === 0 || value === 1;
+const roundToDecimals = (value: number, decimals: number): number => {
+  if (!Number.isFinite(value)) return value;
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+};
+
+const getTxIdFromSnapshotId = (snapshotId: string): string =>
+  snapshotId.startsWith('tx:') ? snapshotId.slice(3) : snapshotId;
+
+const getUtcDayKeyFromTimestamp = (tsMs: number): string =>
+  new Date(tsMs).toISOString().slice(0, 10);
 
 /**
  * Packs full snapshot objects into a compact "series" representation for persistence.
@@ -74,14 +78,21 @@ export const packBalanceSnapshotsToSeries = (args: {
   const rows = new Array<BalanceSnapshotSeries['rows'][number]>(snaps.length);
   for (let i = 0; i < snaps.length; i += 1) {
     const s = snaps[i];
+    // Persistence-only quantization trims noisy float tails and shrinks payload size.
+    const remainingCostBasisFiat = roundToDecimals(
+      toFiniteNumber(s.remainingCostBasisFiat, 0),
+      2,
+    );
+    const markRate = roundToDecimals(toFiniteNumber(s.markRate, 0), 6);
     const row: BalanceSnapshotSeries['rows'][number] = {
-      i: s.id,
       t: toFiniteNumber(s.timestamp, 0),
-      e: eventTypeToCode(s.eventType),
       b: s.cryptoBalance,
-      c: toFiniteNumber(s.remainingCostBasisFiat, 0),
-      r: toFiniteNumber(s.markRate, 0),
+      c: remainingCostBasisFiat,
+      r: markRate,
     };
+    if (s.eventType === 'tx') {
+      row.i = getTxIdFromSnapshotId(String(s.id || '')) || String(s.timestamp);
+    }
     if (s.eventType === 'daily' && Array.isArray(s.txIds) && s.txIds.length) {
       row.x = s.txIds.slice();
     }
@@ -112,13 +123,12 @@ export const hydrateBalanceSnapshotsFromSeries = (
   for (const row of series.rows || []) {
     if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
 
-    const {i, t, e, b, c, r, x} = row as Partial<
+    const {i, t, b, c, r, x} = row as Partial<
       BalanceSnapshotSeries['rows'][number]
     >;
     if (
-      typeof i !== 'string' ||
       typeof b !== 'string' ||
-      !isEventTypeCode(e)
+      (i !== undefined && typeof i !== 'string')
     ) {
       continue;
     }
@@ -134,9 +144,14 @@ export const hydrateBalanceSnapshotsFromSeries = (
       continue;
     }
 
-    const eventType = codeToEventType(e);
+    const eventType = typeof i === 'string' ? 'tx' : 'daily';
+    const txid = typeof i === 'string' ? getTxIdFromSnapshotId(i) : '';
+    if (eventType === 'tx' && !txid) continue;
     const snap: BalanceSnapshotStored = {
-      id: i,
+      id:
+        eventType === 'tx'
+          ? `tx:${txid}`
+          : `daily:${getUtcDayKeyFromTimestamp(timestamp)}`,
       walletId: series.walletId,
       chain: series.chain,
       coin: series.coin,
