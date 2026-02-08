@@ -1195,7 +1195,6 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
   const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
   const quoteCurrency = (args.quoteCurrency || 'USD').toUpperCase();
   const timeframe = args.gainLossMode;
-  const isTodayGainLoss = timeframe === '1D';
   const fiatRateSeriesCache = args.fiatRateSeriesCache;
 
   const getAssetKey = (w: Wallet): {key: string; coin: string} | null => {
@@ -1316,7 +1315,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       const pw = toPnlWallet(w);
       if (pw) pnlWallets.push(pw);
     }
-    if (!pnlWallets.length && !isTodayGainLoss) continue;
+    if (!pnlWallets.length) continue;
 
     // Compute end-of-interval metrics via the same series builder the harness uses.
     // (We only need the endpoints here, so we request 2 points for speed.)
@@ -1327,53 +1326,51 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     let hasPnl = false;
     let pnlLog: string | undefined;
 
-    if (pnlWallets.length) {
-      try {
-        if (!fiatRateSeriesCache) {
-          throw new Error('Missing fiatRateSeriesCache');
-        }
-
-        // Match ExchangeRate.tsx behavior: it uses a "currentRate" override sourced from
-        // the app's live Rates/market stats. When there are no transactions in an interval,
-        // this makes the asset PnL% match the rate % change exactly.
-        const currentRate = getQuoteRateNumForAsset({
-          rates: args.rates,
-          quoteCurrency,
-          coin,
-          chain: String((repWallet as any)?.chain || coin),
-          tokenAddress: (repWallet as any)?.tokenAddress,
-        });
-        const currentRatesByCoin =
-          currentRate > 0
-            ? {
-                [normalizeCoinForPnlRates(coin)]: currentRate,
-              }
-            : undefined;
-
-        const res = buildPnlAnalysisSeries({
-          wallets: pnlWallets,
-          timeframe: timeframe as any,
-          quoteCurrency,
-          fiatRateSeriesCache: fiatRateSeriesCache as any,
-          currentRatesByCoin,
-          nowMs,
-          maxPoints: 2,
-        });
-
-        const pts = res.points;
-        const last = pts.length ? pts[pts.length - 1] : undefined;
-        if (last) {
-          fiatValue = last.totalFiatBalance;
-          pnlFiat = last.totalUnrealizedPnlFiat;
-          pnlRatio = (last.totalPnlPercent || 0) / 100;
-          hasRate = true;
-          hasPnl = true;
-        }
-      } catch (e: any) {
-        hasRate = false;
-        hasPnl = false;
-        pnlLog = String(e?.message || e);
+    try {
+      if (!fiatRateSeriesCache) {
+        throw new Error('Missing fiatRateSeriesCache');
       }
+
+      // Match ExchangeRate.tsx behavior: it uses a "currentRate" override sourced from
+      // the app's live Rates/market stats. When there are no transactions in an interval,
+      // this makes the asset PnL% match the rate % change exactly.
+      const currentRate = getQuoteRateNumForAsset({
+        rates: args.rates,
+        quoteCurrency,
+        coin,
+        chain: String((repWallet as any)?.chain || coin),
+        tokenAddress: (repWallet as any)?.tokenAddress,
+      });
+      const currentRatesByCoin =
+        currentRate > 0
+          ? {
+              [normalizeCoinForPnlRates(coin)]: currentRate,
+            }
+          : undefined;
+
+      const res = buildPnlAnalysisSeries({
+        wallets: pnlWallets,
+        timeframe: timeframe as any,
+        quoteCurrency,
+        fiatRateSeriesCache: fiatRateSeriesCache as any,
+        currentRatesByCoin,
+        nowMs,
+        maxPoints: 2,
+      });
+
+      const pts = res.points;
+      const last = pts.length ? pts[pts.length - 1] : undefined;
+      if (last) {
+        fiatValue = last.totalFiatBalance;
+        pnlFiat = last.totalUnrealizedPnlFiat;
+        pnlRatio = (last.totalPnlPercent || 0) / 100;
+        hasRate = true;
+        hasPnl = true;
+      }
+    } catch (e: any) {
+      hasRate = false;
+      hasPnl = false;
+      pnlLog = String(e?.message || e);
     }
 
     // Prefer latest snapshots for displayed holdings, independent of rate-series window.
@@ -1383,18 +1380,9 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       const wid = String((w as any)?.id || '');
       const snaps = ensureSortedSnapshots(args.snapshotsByWalletId?.[wid]);
       const latest = getLatestSnapshot(snaps);
+      if (!latest) continue;
       try {
         const walletUnitDecimals = getWalletUnitInfo(w).unitDecimals;
-        if (!latest) {
-          if (!isTodayGainLoss) {
-            continue;
-          }
-          totalAtomic += getWalletLiveAtomicBalance({
-            wallet: w,
-            unitDecimals: walletUnitDecimals,
-          });
-          continue;
-        }
         const latestCrypto =
           typeof (latest as any)?.cryptoBalance === 'string'
             ? (latest as any).cryptoBalance
@@ -1417,28 +1405,10 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       chain: String((repWallet as any)?.chain || coin),
       tokenAddress: (repWallet as any)?.tokenAddress,
     });
-    const units = Number(atomicToUnitString(totalAtomic, repUnitDecimals));
-    const unitsForDisplay = Number.isFinite(units) ? units : 0;
     if (currentRateForDisplay > 0) {
-      fiatValue = unitsForDisplay * currentRateForDisplay;
+      const units = Number(atomicToUnitString(totalAtomic, repUnitDecimals));
+      fiatValue = (Number.isFinite(units) ? units : 0) * currentRateForDisplay;
       hasRate = true;
-    }
-
-    // Keep unsupported/no-series assets visible in Today by falling back to legacy last-day deltas.
-    if (isTodayGainLoss && !hasPnl && currentRateForDisplay > 0) {
-      const lastDayRateForDisplay = getQuoteRateNumForAsset({
-        rates: args.lastDayRates,
-        quoteCurrency,
-        coin,
-        chain: String((repWallet as any)?.chain || coin),
-        tokenAddress: (repWallet as any)?.tokenAddress,
-      });
-      if (lastDayRateForDisplay > 0) {
-        const lastDayFiatValue = unitsForDisplay * lastDayRateForDisplay;
-        pnlFiat = fiatValue - lastDayFiatValue;
-        pnlRatio = lastDayFiatValue > 0 ? pnlFiat / lastDayFiatValue : 0;
-        hasPnl = true;
-      }
     }
 
     const cryptoAmount = formatBigIntDecimal(
