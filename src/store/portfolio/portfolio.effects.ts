@@ -745,7 +745,7 @@ export const populatePortfolio =
     const walletsToPopulateUnordered = (
       walletIdsFilter ? wallets.filter(w => walletIdsFilter.has(w.id)) : wallets
     ).filter(walletHasNonZeroLiveBalance);
-    const walletsToPopulate = sortWalletsByAssetAndBalanceDesc(
+    let walletsToPopulate = sortWalletsByAssetAndBalanceDesc(
       walletsToPopulateUnordered,
     );
 
@@ -755,6 +755,66 @@ export const populatePortfolio =
 
     dispatch(startPopulatePortfolio({quoteCurrency}));
     const shouldAbort = createPopulateAbortChecker(getState);
+
+    const allRates = await dispatch(startGetRates({}));
+
+    if (shouldAbort()) {
+      return;
+    }
+
+    const targetQuoteCurrency = (quoteCurrency || '').toUpperCase();
+    const preflightLoadedIntervals = new Set<string>();
+    const hasHistoricalRateSupportByQuoteCoin = new Map<string, boolean>();
+    const filteredWallets: Wallet[] = [];
+    for (const wallet of walletsToPopulate) {
+      if (shouldAbort()) {
+        return;
+      }
+
+      const currentFiatRateNow = getCurrentFiatRateNow(
+        allRates,
+        wallet,
+        quoteCurrency,
+      );
+      if (!currentFiatRateNow) {
+        continue;
+      }
+
+      const normalizedRateCoin = normalizeFiatRateSeriesCoin(
+        wallet.currencyAbbreviation,
+      );
+      const historicalSupportKey = `${targetQuoteCurrency}:${normalizedRateCoin}`;
+      const cachedHistoricalSupport = hasHistoricalRateSupportByQuoteCoin.get(
+        historicalSupportKey,
+      );
+      const hasHistoricalRateSupport =
+        typeof cachedHistoricalSupport === 'boolean'
+          ? cachedHistoricalSupport
+          : await ensureWalletHasHistoricalFiatRates({
+              dispatch,
+              getState,
+              loadedIntervals: preflightLoadedIntervals,
+              fiatCode: targetQuoteCurrency,
+              currencyAbbreviation: wallet.currencyAbbreviation,
+            });
+
+      if (typeof cachedHistoricalSupport !== 'boolean') {
+        hasHistoricalRateSupportByQuoteCoin.set(
+          historicalSupportKey,
+          hasHistoricalRateSupport,
+        );
+      }
+
+      if (hasHistoricalRateSupport) {
+        filteredWallets.push(wallet);
+      }
+    }
+    walletsToPopulate = filteredWallets;
+
+    if (!walletsToPopulate.length) {
+      dispatch(finishPopulatePortfolio({finishedAt: Date.now()}));
+      return;
+    }
 
     const initialWalletStatusByIdUpdates = walletsToPopulate.reduce(
       (acc, wallet) => {
@@ -772,16 +832,9 @@ export const populatePortfolio =
       }),
     );
 
-    const allRates = await dispatch(startGetRates({}));
-
-    if (shouldAbort()) {
-      return;
-    }
-
     let walletsCompleted = 0;
     let txRequestsMade = 0;
     let txsProcessed = 0;
-    const hasHistoricalRateSupportByQuoteCoin = new Map<string, boolean>();
 
     const bumpTxRequestsMade = () => {
       txRequestsMade++;
@@ -832,7 +885,6 @@ export const populatePortfolio =
         const existingQuoteCurrency = (
           (existingSnapshots?.[0]?.quoteCurrency as string | undefined) || ''
         ).toUpperCase();
-        const targetQuoteCurrency = (quoteCurrency || '').toUpperCase();
 
         const snapshotsLookLikeHarness =
           Array.isArray(existingSnapshots) &&
