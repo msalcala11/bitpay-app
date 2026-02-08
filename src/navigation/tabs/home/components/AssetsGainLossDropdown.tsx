@@ -82,13 +82,13 @@ const AssetsGainLossDropdown: React.FC<Props> = ({
 
   const options = useMemo((): Array<{value: GainLossMode; label: string}> => {
     return [
-      {value: '1D', label: "Today's gain/loss"},
-      {value: '1W', label: '1W gain/loss'},
-      {value: '1M', label: '1M gain/loss'},
-      {value: '3M', label: '3M gain/loss'},
-      {value: '1Y', label: '1Y gain/loss'},
-      {value: '5Y', label: '5Y gain/loss'},
-      {value: 'ALL', label: 'Total gain/loss'},
+      {value: '1D', label: "Today's Gain/Loss"},
+      // {value: '1W', label: '1W Gain/Loss'},
+      // {value: '1M', label: '1M Gain/Loss'},
+      // {value: '3M', label: '3M Gain/Loss'},
+      // {value: '1Y', label: '1Y Gain/Loss'},
+      // {value: '5Y', label: '5Y Gain/Loss'},
+      {value: 'ALL', label: 'Total Gain/Loss'},
     ];
   }, []);
 
