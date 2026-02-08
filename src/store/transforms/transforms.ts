@@ -25,9 +25,9 @@ import {
 } from './encrypt';
 import {logManager} from '../../managers/LogManager';
 import {
-  hydrateBalanceSnapshotsFromSeriesV1,
-  isBalanceSnapshotSeriesV1,
-  packBalanceSnapshotsToSeriesV1,
+  hydrateBalanceSnapshotsFromSeries,
+  isBalanceSnapshotSeries,
+  packBalanceSnapshotsToSeries,
 } from '../../core/pnl/snapshotSeries';
 import type {BalanceSnapshotStored} from '../../core/pnl/types';
 
@@ -361,7 +361,7 @@ export const transformPortfolioSnapshotSeriesV1 = createTransform<
           };
         });
 
-        const series = packBalanceSnapshotsToSeriesV1({
+        const series = packBalanceSnapshotsToSeries({
           snapshots: minimal,
           compressionEnabled,
           createdAt,
@@ -386,9 +386,9 @@ export const transformPortfolioSnapshotSeriesV1 = createTransform<
       const outMap: Record<string, BalanceSnapshot[]> = {};
 
       for (const [walletId, value] of Object.entries(map)) {
-        if (isBalanceSnapshotSeriesV1(value)) {
+        if (isBalanceSnapshotSeries(value)) {
           const minimal = ensureChronologicalByTimestamp(
-            hydrateBalanceSnapshotsFromSeriesV1(value),
+            hydrateBalanceSnapshotsFromSeries(value),
           );
           const snaps: BalanceSnapshot[] = minimal.map(s => {
             const units = toFiniteNumber(s.cryptoBalance, 0);
