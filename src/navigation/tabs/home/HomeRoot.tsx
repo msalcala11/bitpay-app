@@ -79,7 +79,10 @@ import {getPortfolioAllocationTotalFiat} from '../../../utils/portfolio/allocati
 import type {Key, Wallet} from '../../../store/wallet/wallet.models';
 import type {Rate, Rates} from '../../../store/rate/rate.models';
 import {getCoinAndChainFromCurrencyCode} from '../../bitpay-id/utils/bitpay-id-utils';
-import {getVisibleWalletsFromKeys} from '../../../utils/portfolio/assets';
+import {
+  getQuoteCurrency,
+  getVisibleWalletsFromKeys,
+} from '../../../utils/portfolio/assets';
 
 export type HomeScreenProps = NativeStackScreenProps<
   TabsStackParamList,
@@ -178,11 +181,10 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
 
   // Exchange Rates
   const lastDayRates = useAppSelector(({RATE}) => RATE.lastDayRates) as Rates;
-  const quoteCurrency = (
-    portfolio.quoteCurrency ||
-    defaultAltCurrency?.isoCode ||
-    'USD'
-  ).toUpperCase();
+  const quoteCurrency = getQuoteCurrency({
+    portfolioQuoteCurrency: portfolio.quoteCurrency,
+    defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
+  }).toUpperCase();
   const memoizedExchangeRates: Array<ExchangeRateItemProps> = useMemo(() => {
     const baselineTimestampMs = getLastDayTimestampStartOfHourMs();
     const result = (
@@ -332,8 +334,10 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
       await dispatch(
         maybePopulatePortfolioForWallets({
           wallets,
-          quoteCurrency:
-            portfolio?.quoteCurrency || defaultAltCurrency?.isoCode,
+          quoteCurrency: getQuoteCurrency({
+            portfolioQuoteCurrency: portfolio?.quoteCurrency,
+            defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
+          }),
         }) as any,
       );
       await sleep(2000);

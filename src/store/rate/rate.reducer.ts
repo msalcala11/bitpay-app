@@ -6,7 +6,8 @@ import type {FiatRateSeriesCache} from './rate.models';
 type RateReduxPersistBlackList = string[];
 export const rateReduxPersistBlackList: RateReduxPersistBlackList = [];
 
-const FIAT_RATE_SERIES_MAX_FIATS_PERSISTED = 1;
+// Keep the active display fiat plus one bridge fiat (typically the snapshot quote).
+const FIAT_RATE_SERIES_MAX_FIATS_PERSISTED = 2;
 
 const getFiatCodeFromSeriesCacheKey = (
   cacheKey: string,
@@ -19,6 +20,23 @@ const getFiatCodeFromSeriesCacheKey = (
     return undefined;
   }
   return cacheKey.slice(0, idx).toUpperCase();
+};
+
+const getCoinFromSeriesCacheKey = (
+  cacheKey: string,
+): string | undefined => {
+  if (!cacheKey || typeof cacheKey !== 'string') {
+    return undefined;
+  }
+  const first = cacheKey.indexOf(':');
+  if (first <= 0) {
+    return undefined;
+  }
+  const second = cacheKey.indexOf(':', first + 1);
+  if (second <= first + 1) {
+    return undefined;
+  }
+  return cacheKey.slice(first + 1, second).toLowerCase();
 };
 
 export interface RateState {
@@ -56,6 +74,40 @@ export const rateReducer = (
           [DEFAULT_DATE_RANGE]: Date.now(),
         },
         lastDayRates: {...initialState.lastDayRates, ...lastDayRates},
+      };
+    }
+
+    case RateActionTypes.PRUNE_FIAT_RATE_SERIES_CACHE: {
+      const fiatCode = (action.payload?.fiatCode || '').toUpperCase();
+      if (!fiatCode) {
+        return state;
+      }
+
+      const keepCoins = new Set(
+        (action.payload?.keepCoins || [])
+          .map(coin => (coin || '').toLowerCase())
+          .filter(Boolean),
+      );
+
+      const next: FiatRateSeriesCache = {};
+      for (const [cacheKey, series] of Object.entries(
+        state.fiatRateSeriesCache || {},
+      )) {
+        const keyFiat = getFiatCodeFromSeriesCacheKey(cacheKey);
+        if (keyFiat !== fiatCode) {
+          next[cacheKey] = series;
+          continue;
+        }
+
+        const keyCoin = getCoinFromSeriesCacheKey(cacheKey);
+        if (keyCoin && keepCoins.has(keyCoin)) {
+          next[cacheKey] = series;
+        }
+      }
+
+      return {
+        ...state,
+        fiatRateSeriesCache: next,
       };
     }
 

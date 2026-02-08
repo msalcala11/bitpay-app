@@ -5,7 +5,12 @@ import {
   type FiatRateInterval,
   type Rates,
 } from '../rate/rate.models';
-import {fetchFiatRateSeriesInterval, startGetRates} from '../wallet/effects';
+import {
+  fetchFiatRateSeriesAllIntervals,
+  fetchFiatRateSeriesInterval,
+  startGetRates,
+} from '../wallet/effects';
+import {pruneFiatRateSeriesCache} from '../rate/rate.actions';
 import {
   BWS_TX_HISTORY_LIMIT,
   GetTransactionHistory,
@@ -26,7 +31,6 @@ import {
 import {normalizeFiatRateSeriesCoin} from '../../utils/portfolio/core/pnl/rates';
 import type {BalanceSnapshotStored} from '../../utils/portfolio/core/pnl/types';
 import {getLatestSnapshot} from '../../utils/portfolio/assets';
-import {getFiatRateFromSeriesCacheAtTimestamp} from '../../utils/portfolio/rate';
 import {
   finishPopulatePortfolio,
   setSnapshotBalanceMismatchesByWalletIdUpdates,
@@ -53,9 +57,6 @@ const PORTFOLIO_COMPRESS_OLD_TXS_TO_DAILY_SNAPSHOTS = true;
 const PORTFOLIO_ENABLE_INCREMENTAL_UPDATES = true;
 const PORTFOLIO_INCREMENTAL_MAX_PAGES = 10;
 const PORTFOLIO_INCREMENTAL_RESNAPSHOT_WINDOW_MS = MS_PER_DAY;
-const PORTFOLIO_RECALC_TX_LOOP_YIELD_EVERY = 3;
-const PORTFOLIO_RECALC_SNAPSHOT_LOOP_YIELD_EVERY = 10;
-const PORTFOLIO_RECALC_MAX_BLOCK_MS = 12;
 
 const resolveQuoteCurrency = (
   ...candidates: Array<string | undefined>
@@ -253,91 +254,6 @@ const buildSnapshotMismatchUpdate = (args: {
 
 const yieldToEventLoop = async (): Promise<void> => {
   await new Promise<void>(resolve => setTimeout(resolve, 0));
-};
-
-const createLoopYielder = (args: {
-  everyN: number;
-  maxBlockMs: number;
-}): (() => Promise<void>) => {
-  const everyN = Math.max(1, args.everyN);
-  const maxBlockMs = Math.max(1, args.maxBlockMs);
-  let iterations = 0;
-  let lastYieldMs = Date.now();
-
-  return async () => {
-    iterations++;
-    const nowMs = Date.now();
-    if (iterations % everyN !== 0 && nowMs - lastYieldMs < maxBlockMs) {
-      return;
-    }
-    lastYieldMs = nowMs;
-    await yieldToEventLoop();
-  };
-};
-
-const positiveAtomic = (v: bigint): bigint => (v > 0n ? v : 0n);
-
-const getPositiveIncreaseAtomic = (prev: bigint, next: bigint): bigint =>
-  positiveAtomic(next) - positiveAtomic(prev);
-
-const getPositiveDecreaseAtomic = (prev: bigint, next: bigint): bigint =>
-  positiveAtomic(prev) - positiveAtomic(next);
-
-const applyCostBasisTransition = (args: {
-  prevAtomic: bigint;
-  nextAtomic: bigint;
-  unitDecimals: number;
-  direction: 'incoming' | 'outgoing';
-  costBasisFiat: number;
-  costBasisRateFiat?: number;
-}): number => {
-  let costBasisFiat = Number.isFinite(args.costBasisFiat)
-    ? args.costBasisFiat
-    : 0;
-
-  const positiveIncreaseAtomic = getPositiveIncreaseAtomic(
-    args.prevAtomic,
-    args.nextAtomic,
-  );
-
-  if (args.direction === 'incoming') {
-    const rateAtTx = args.costBasisRateFiat;
-    if (
-      typeof rateAtTx === 'number' &&
-      Number.isFinite(rateAtTx) &&
-      positiveIncreaseAtomic > 0n
-    ) {
-      const unitsInUnit = parseFloat(
-        atomicToUnitString(positiveIncreaseAtomic, args.unitDecimals),
-      );
-      costBasisFiat += unitsInUnit * rateAtTx;
-    }
-  } else {
-    const positiveDecreaseAtomic = getPositiveDecreaseAtomic(
-      args.prevAtomic,
-      args.nextAtomic,
-    );
-
-    const disposalUnit = parseFloat(
-      atomicToUnitString(positiveDecreaseAtomic, args.unitDecimals),
-    );
-    const unitsHeldUnitBefore = parseFloat(
-      atomicToUnitString(args.prevAtomic, args.unitDecimals),
-    );
-    const avgCostPerUnitBefore =
-      unitsHeldUnitBefore > 0 ? costBasisFiat / unitsHeldUnitBefore : 0;
-
-    costBasisFiat -= disposalUnit * avgCostPerUnitBefore;
-    if (!Number.isFinite(costBasisFiat) || costBasisFiat < 0) {
-      costBasisFiat = 0;
-    }
-  }
-
-  if (args.nextAtomic <= 0n) {
-    costBasisFiat = 0;
-  }
-
-  return costBasisFiat;
 };
 
 const getUtcDayStartMs = (tsMs: number): number => {
@@ -597,28 +513,6 @@ const ensureFiatRateSeriesIntervalOnce = async (args: {
   });
 };
 
-const ensureRateSeriesForTimestamp = async (args: {
-  dispatch: any;
-  loadedIntervals: Set<string>;
-  fiatCode: string;
-  currencyAbbreviation: string;
-  timestampMs: number;
-  nowMs: number;
-}): Promise<FiatRateInterval> => {
-  const interval = getBestRateIntervalForTimestamp({
-    timestampMs: args.timestampMs,
-    nowMs: args.nowMs,
-  });
-  await ensureFiatRateSeriesIntervalOnce({
-    dispatch: args.dispatch,
-    loadedIntervals: args.loadedIntervals,
-    fiatCode: args.fiatCode,
-    currencyAbbreviation: args.currencyAbbreviation,
-    interval,
-  });
-  return interval;
-};
-
 const hasFiatRateSeriesPointsInCache = (args: {
   getState: () => RootState;
   fiatCode: string;
@@ -668,54 +562,6 @@ const ensureWalletHasHistoricalFiatRates = async (args: {
     currencyAbbreviation: args.currencyAbbreviation,
     interval: 'ALL',
   });
-};
-
-const getHistoricFiatRateFromCache = (args: {
-  getState: () => RootState;
-  fiatCode: string;
-  currencyAbbreviation: string;
-  interval: FiatRateInterval;
-  timestampMs: number;
-}): number | undefined => {
-  const {getState, fiatCode, currencyAbbreviation, interval, timestampMs} =
-    args;
-  const cache = getState().RATE.fiatRateSeriesCache;
-  return getFiatRateFromSeriesCacheAtTimestamp({
-    fiatRateSeriesCache: cache,
-    fiatCode,
-    currencyAbbreviation,
-    interval,
-    timestampMs,
-    method: 'nearest',
-  });
-};
-
-const getHistoricRateOrReportError = (args: {
-  getState: () => RootState;
-  dispatch: any;
-  walletId: string;
-  fiatCode: string;
-  currencyAbbreviation: string;
-  interval: FiatRateInterval;
-  timestampMs: number;
-}): number | undefined => {
-  const rateAtTx = getHistoricFiatRateFromCache({
-    getState: args.getState,
-    fiatCode: args.fiatCode,
-    currencyAbbreviation: args.currencyAbbreviation,
-    interval: args.interval,
-    timestampMs: args.timestampMs,
-  });
-  if (typeof rateAtTx === 'number' && Number.isFinite(rateAtTx)) {
-    return rateAtTx;
-  }
-
-  addPopulateError({
-    dispatch: args.dispatch,
-    walletId: args.walletId,
-    message: `Missing historic rate for ${args.currencyAbbreviation} @ ${args.timestampMs}`,
-  });
-  return undefined;
 };
 
 export const populatePortfolio =
@@ -1360,366 +1206,41 @@ export const recalculatePortfolioFiatFields =
       state.APP?.defaultAltCurrency?.isoCode,
     );
     const targetQuoteCurrency = (quoteCurrency || '').toUpperCase();
-
-    dispatch(startPopulatePortfolio({quoteCurrency: targetQuoteCurrency}));
-    const shouldAbort = createPopulateAbortChecker(getState);
-
     const keys = state.WALLET?.keys || {};
     const wallets = getMainnetWalletsFromKeys(keys);
+    const snapshotsByWalletId = state.PORTFOLIO?.snapshotsByWalletId || {};
 
-    dispatch(updatePopulateProgress({walletsTotal: wallets.length}));
-
-    const allRates = await dispatch(startGetRates({}));
-
-    if (shouldAbort()) {
-      return;
+    const sourceQuoteCurrencies = new Set<string>();
+    for (const wallet of wallets) {
+      const snapshots = snapshotsByWalletId[wallet.id];
+      const latest = getLatestSnapshot(snapshots);
+      const quote = (latest?.quoteCurrency || '').toUpperCase();
+      if (!quote || quote === targetQuoteCurrency) {
+        continue;
+      }
+      sourceQuoteCurrencies.add(quote);
     }
 
-    let walletsCompleted = 0;
-    let txRequestsMade = 0;
-    let txsProcessed = 0;
+    await dispatch(
+      fetchFiatRateSeriesAllIntervals({
+        fiatCode: targetQuoteCurrency,
+        currencyAbbreviation: 'btc',
+        force: true,
+      }) as any,
+    );
 
-    const bumpTxsProcessed = (n: number) => {
-      txsProcessed += n;
-      if (txsProcessed % 200 === 0) {
-        dispatch(updatePopulateProgress({txsProcessed}));
-      }
-    };
-
-    const processWallet = async (wallet: Wallet) => {
-      if (shouldAbort()) {
-        return;
-      }
-      dispatch(updatePopulateProgress({currentWalletId: wallet.id}));
-      setWalletStatus({dispatch, walletId: wallet.id, status: 'in_progress'});
-
-      try {
-        const portfolioState = getState().PORTFOLIO;
-        const existingSnapshots =
-          portfolioState.snapshotsByWalletId?.[wallet.id] || [];
-
-        if (!Array.isArray(existingSnapshots) || !existingSnapshots.length) {
-          setWalletStatus({dispatch, walletId: wallet.id, status: 'done'});
-          walletsCompleted = updateWalletsCompleted({
-            dispatch,
-            walletsCompleted,
-            txRequestsMade,
-            txsProcessed,
-          });
-          return;
-        }
-
-        const existingQuoteCurrency = (
-          (existingSnapshots?.[0]?.quoteCurrency as string | undefined) || ''
-        ).toUpperCase();
-
-        if (existingQuoteCurrency === targetQuoteCurrency) {
-          setWalletStatus({dispatch, walletId: wallet.id, status: 'done'});
-          walletsCompleted = updateWalletsCompleted({
-            dispatch,
-            walletsCompleted,
-            txRequestsMade,
-            txsProcessed,
-          });
-          return;
-        }
-
-        const precision =
-          dispatch(
-            GetPrecision(
-              wallet.currencyAbbreviation,
-              wallet.chain,
-              wallet.tokenAddress,
-            ),
-          ) || undefined;
-        const unitDecimals = precision?.unitDecimals || 0;
-
-        const currentFiatRateNow = getCurrentFiatRateNow(
-          allRates,
-          wallet,
-          targetQuoteCurrency,
-        );
-
-        if (!currentFiatRateNow) {
-          addPopulateError({
-            dispatch,
-            walletId: wallet.id,
-            message: `Missing current fiat rate for ${wallet.currencyAbbreviation} @ ${targetQuoteCurrency}`,
-          });
-        }
-
-        const allExisting = Array.isArray(existingSnapshots)
-          ? existingSnapshots
-          : [];
-        const txSnapshots: BalanceSnapshot[] = [];
-        const yieldWhileCollectingTxSnapshots = createLoopYielder({
-          everyN: PORTFOLIO_RECALC_SNAPSHOT_LOOP_YIELD_EVERY,
-          maxBlockMs: PORTFOLIO_RECALC_MAX_BLOCK_MS,
-        });
-        for (let i = 0; i < allExisting.length; i++) {
-          if (shouldAbort()) {
-            return;
-          }
-          const snapshot = allExisting[i];
-          if (snapshot?.eventType === 'tx') {
-            txSnapshots.push(snapshot);
-          }
-          await yieldWhileCollectingTxSnapshots();
-        }
-
-        let prevAtomic = 0n;
-        let costBasisFiat = 0;
-        let finalAtomic = 0n;
-        let finalCostBasisFiat = 0;
-        const updatedById = new Map<string, Partial<BalanceSnapshot>>();
-        const loadedIntervals = new Set<string>();
-        const yieldInTxLoop = createLoopYielder({
-          everyN: PORTFOLIO_RECALC_TX_LOOP_YIELD_EVERY,
-          maxBlockMs: PORTFOLIO_RECALC_MAX_BLOCK_MS,
-        });
-        const yieldInSnapshotLoop = createLoopYielder({
-          everyN: PORTFOLIO_RECALC_SNAPSHOT_LOOP_YIELD_EVERY,
-          maxBlockMs: PORTFOLIO_RECALC_MAX_BLOCK_MS,
-        });
-
-        for (let i = 0; i < txSnapshots.length; i++) {
-          if (shouldAbort()) {
-            return;
-          }
-          const s = txSnapshots[i];
-          const timestampMs =
-            typeof s?.timestamp === 'number' ? s.timestamp : 0;
-          const currentAtomic = unitStringToAtomicBigInt(
-            s.cryptoBalance || '0',
-            unitDecimals,
-          );
-          const isIncoming = s.direction === 'incoming';
-
-          let costBasisRateFiat: number | undefined;
-          const nowMsForTx = Date.now();
-          const interval = await ensureRateSeriesForTimestamp({
-            dispatch,
-            loadedIntervals,
-            fiatCode: targetQuoteCurrency,
-            currencyAbbreviation: wallet.currencyAbbreviation,
-            timestampMs,
-            nowMs: nowMsForTx,
-          });
-
-          const positiveIncreaseAtomic = getPositiveIncreaseAtomic(
-            prevAtomic,
-            currentAtomic,
-          );
-
-          if (isIncoming && positiveIncreaseAtomic > 0n) {
-            const rateAtTx = getHistoricRateOrReportError({
-              getState,
-              dispatch,
-              walletId: wallet.id,
-              fiatCode: targetQuoteCurrency,
-              currencyAbbreviation: wallet.currencyAbbreviation,
-              interval,
-              timestampMs,
-            });
-
-            if (typeof rateAtTx === 'number') {
-              costBasisRateFiat = rateAtTx;
-              costBasisFiat = applyCostBasisTransition({
-                prevAtomic,
-                nextAtomic: currentAtomic,
-                unitDecimals,
-                direction: 'incoming',
-                costBasisFiat,
-                costBasisRateFiat: rateAtTx,
-              });
-            }
-          } else {
-            costBasisFiat = applyCostBasisTransition({
-              prevAtomic,
-              nextAtomic: currentAtomic,
-              unitDecimals,
-              direction: 'outgoing',
-              costBasisFiat,
-            });
-          }
-
-          prevAtomic = currentAtomic;
-          finalAtomic = currentAtomic;
-          finalCostBasisFiat = costBasisFiat;
-
-          const unitsHeldUnit = parseFloat(
-            atomicToUnitString(currentAtomic, unitDecimals),
-          );
-          const avgCostFiatPerUnit =
-            unitsHeldUnit > 0 ? costBasisFiat / unitsHeldUnit : 0;
-
-          const markRateFiat = getHistoricFiatRateFromCache({
-            getState,
-            fiatCode: targetQuoteCurrency,
-            currencyAbbreviation: wallet.currencyAbbreviation,
-            interval,
-            timestampMs,
-          });
-          const markRateFiatEffective =
-            typeof markRateFiat === 'number' && Number.isFinite(markRateFiat)
-              ? markRateFiat
-              : currentFiatRateNow || 0;
-
-          const unrealizedPnlFiat =
-            unitsHeldUnit * markRateFiatEffective - costBasisFiat;
-
-          updatedById.set(s.id, {
-            avgCostFiatPerUnit: Number.isFinite(avgCostFiatPerUnit)
-              ? avgCostFiatPerUnit
-              : 0,
-            remainingCostBasisFiat: Number.isFinite(costBasisFiat)
-              ? costBasisFiat
-              : 0,
-            unrealizedPnlFiat: Number.isFinite(unrealizedPnlFiat)
-              ? unrealizedPnlFiat
-              : 0,
-            costBasisRateFiat,
-            quoteCurrency: targetQuoteCurrency,
-          });
-
-          await yieldInTxLoop();
-        }
-
-        bumpTxsProcessed(txSnapshots.length);
-
-        const finalUnitsHeldUnit = parseFloat(
-          atomicToUnitString(finalAtomic, unitDecimals),
-        );
-
-        const updatedSnapshots: BalanceSnapshot[] = [];
-
-        for (let i = 0; i < allExisting.length; i++) {
-          if (shouldAbort()) {
-            return;
-          }
-          const s = allExisting[i];
-          if (s?.eventType === 'tx') {
-            const upd = updatedById.get(s.id);
-            updatedSnapshots.push(
-              upd ? ({...s, ...upd} as BalanceSnapshot) : s,
-            );
-          } else {
-            const snapAtomic = getSnapshotAtomicBalanceFromCryptoBalance({
-              snapshot: s,
-              unitDecimals,
-            });
-            const snapUnits = parseFloat(
-              atomicToUnitString(snapAtomic, unitDecimals),
-            );
-            const scaledCostBasis =
-              finalUnitsHeldUnit > 0 && snapUnits > 0
-                ? finalCostBasisFiat * (snapUnits / finalUnitsHeldUnit)
-                : 0;
-            const avgCostFiatPerUnit =
-              snapUnits > 0 ? scaledCostBasis / snapUnits : 0;
-
-            const timestampMs =
-              typeof s?.timestamp === 'number' ? s.timestamp : 0;
-            const interval = await ensureRateSeriesForTimestamp({
-              dispatch,
-              loadedIntervals,
-              fiatCode: targetQuoteCurrency,
-              currencyAbbreviation: wallet.currencyAbbreviation,
-              timestampMs,
-              nowMs: Date.now(),
-            });
-            const markRateFiat = getHistoricFiatRateFromCache({
-              getState,
-              fiatCode: targetQuoteCurrency,
-              currencyAbbreviation: wallet.currencyAbbreviation,
-              interval,
-              timestampMs,
-            });
-            const markRateFiatEffective =
-              typeof markRateFiat === 'number' && Number.isFinite(markRateFiat)
-                ? markRateFiat
-                : currentFiatRateNow || 0;
-
-            const unrealizedPnlFiat =
-              snapUnits * markRateFiatEffective - scaledCostBasis;
-
-            updatedSnapshots.push({
-              ...normalizeSnapshotTxLinkage(s),
-              avgCostFiatPerUnit: Number.isFinite(avgCostFiatPerUnit)
-                ? avgCostFiatPerUnit
-                : 0,
-              remainingCostBasisFiat: Number.isFinite(scaledCostBasis)
-                ? scaledCostBasis
-                : 0,
-              unrealizedPnlFiat: Number.isFinite(unrealizedPnlFiat)
-                ? unrealizedPnlFiat
-                : 0,
-              costBasisRateFiat: undefined,
-              quoteCurrency: targetQuoteCurrency,
-            });
-          }
-
-          await yieldInSnapshotLoop();
-        }
-
-        if (shouldAbort()) {
-          return;
-        }
-
-        await yieldToEventLoop();
-
-        const sortedUpdatedSnapshots =
-          ensureSnapshotsSortedByTimestamp(updatedSnapshots);
-
-        dispatch(
-          setWalletSnapshots({
-            walletId: wallet.id,
-            snapshots: sortedUpdatedSnapshots,
-          }),
-        );
-        setWalletStatus({dispatch, walletId: wallet.id, status: 'done'});
-        walletsCompleted = updateWalletsCompleted({
-          dispatch,
-          walletsCompleted,
-          txRequestsMade,
-          txsProcessed,
-        });
-      } catch (e) {
-        const msg = getErrorString(e);
-        addPopulateError({dispatch, walletId: wallet.id, message: msg});
-        setWalletStatus({dispatch, walletId: wallet.id, status: 'error'});
-        walletsCompleted = updateWalletsCompleted({
-          dispatch,
-          walletsCompleted,
-          txRequestsMade,
-          txsProcessed,
-        });
-      }
-    };
-
-    const concurrency = Math.min(3, wallets.length);
-    let nextIndex = 0;
-    const workers = new Array(concurrency).fill(null).map(async () => {
-      const yieldBetweenWallets = createLoopYielder({
-        everyN: 1,
-        maxBlockMs: PORTFOLIO_RECALC_MAX_BLOCK_MS,
-      });
-      while (nextIndex < wallets.length) {
-        if (shouldAbort()) {
-          return;
-        }
-        const wallet = wallets[nextIndex];
-        nextIndex++;
-        await processWallet(wallet);
-        await yieldBetweenWallets();
-      }
-    });
-
-    await Promise.all(workers);
-
-    if (shouldAbort()) {
-      return;
+    for (const sourceQuoteCurrency of sourceQuoteCurrencies) {
+      await dispatch(
+        fetchFiatRateSeriesAllIntervals({
+          fiatCode: sourceQuoteCurrency,
+          currencyAbbreviation: 'btc',
+        }) as any,
+      );
+      dispatch(
+        pruneFiatRateSeriesCache({
+          fiatCode: sourceQuoteCurrency,
+          keepCoins: ['btc'],
+        }),
+      );
     }
-    dispatch(updatePopulateProgress({txRequestsMade, txsProcessed}));
-    dispatch(finishPopulatePortfolio({finishedAt: Date.now()}));
   };

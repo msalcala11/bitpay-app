@@ -300,8 +300,8 @@ export const startAppInit = (): Effect => async (dispatch, getState) => {
         }
 
         const quoteCurrency =
-          stateAfterWalletInit.PORTFOLIO?.quoteCurrency ||
           stateAfterWalletInit.APP?.defaultAltCurrency?.isoCode ||
+          stateAfterWalletInit.PORTFOLIO?.quoteCurrency ||
           'USD';
 
         const snapshotsByWalletId =
@@ -344,6 +344,8 @@ export const startAppInit = (): Effect => async (dispatch, getState) => {
           quoteCurrency,
           wallets,
           snapshotsByWalletId,
+          fiatRateSeriesCache:
+            stateAfterWalletInit.RATE?.fiatRateSeriesCache || {},
         });
 
         if (hasFiatLoading) {

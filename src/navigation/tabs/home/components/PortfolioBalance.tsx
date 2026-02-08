@@ -23,6 +23,7 @@ import {maskIfHidden} from '../../../../utils/hideBalances';
 import {
   getPercentageDifferenceFromPercentRatio,
   getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots,
+  getQuoteCurrency,
   hasSnapshotsForWallets,
 } from '../../../../utils/portfolio/assets';
 import type {Wallet} from '../../../../store/wallet/wallet.models';
@@ -116,6 +117,10 @@ const PortfolioBalance = () => {
     snapshotsByWalletId: portfolio?.snapshotsByWalletId || {},
     wallets: walletsAcrossKeys,
   });
+  const quoteCurrency = getQuoteCurrency({
+    portfolioQuoteCurrency: portfolio?.quoteCurrency,
+    defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
+  });
 
   const portfolioPnlPercentageDifference = useMemo(() => {
     if (!hasSnapshots) {
@@ -125,7 +130,7 @@ const PortfolioBalance = () => {
     const pnl = getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots({
       snapshotsByWalletId: portfolio?.snapshotsByWalletId || {},
       wallets: walletsAcrossKeys,
-      quoteCurrency: portfolio?.quoteCurrency,
+      quoteCurrency,
       timeframe: '1D',
       rates,
       lastDayRates,
@@ -142,7 +147,7 @@ const PortfolioBalance = () => {
     hasSnapshots,
     lastDayRates,
     legacyPercentageDifference,
-    portfolio?.quoteCurrency,
+    quoteCurrency,
     portfolio?.snapshotsByWalletId,
     rates,
     walletsAcrossKeys,

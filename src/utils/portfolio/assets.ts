@@ -11,6 +11,7 @@ import type {
   FiatRateSeriesCache,
   Rates,
 } from '../../store/rate/rate.models';
+import {getFiatRateSeriesCacheKey} from '../../store/rate/rate.models';
 import type {Key, Wallet} from '../../store/wallet/wallet.models';
 import type {SupportedCurrencyOption} from '../../constants/SupportedCurrencyOptions';
 import {
@@ -18,7 +19,10 @@ import {
   BitpaySupportedTokens,
 } from '../../constants/currencies';
 import {tokenManager} from '../../managers/TokenManager';
-import {getFiatRateBaselineTsForTimeframe} from './rate';
+import {
+  getFiatRateBaselineTsForTimeframe,
+  getFiatRateFromSeriesCacheAtTimestamp,
+} from './rate';
 import {
   formatCurrencyAbbreviation,
   formatFiatAmount,
@@ -166,11 +170,130 @@ const toNumber = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const getPreferredIntervalsForTimestamp = (args: {
+  timestampMs: number;
+  nowMs: number;
+}): FiatRateInterval[] => {
+  const ageMs = args.nowMs - args.timestampMs;
+  if (ageMs <= MS_PER_DAY) {
+    return ['1D', '1W', '1M', 'ALL'];
+  }
+  if (ageMs <= 7 * MS_PER_DAY) {
+    return ['1W', '1M', 'ALL'];
+  }
+  if (ageMs <= 30 * MS_PER_DAY) {
+    return ['1M', 'ALL'];
+  }
+  return ['ALL'];
+};
+
+const getRateAtTimestampFromCache = (args: {
+  fiatRateSeriesCache: FiatRateSeriesCache | undefined;
+  fiatCode: string;
+  currencyAbbreviation: string;
+  timestampMs: number;
+  nowMs: number;
+  method?: 'nearest' | 'linear';
+}): number | undefined => {
+  const preferredIntervals = getPreferredIntervalsForTimestamp({
+    timestampMs: args.timestampMs,
+    nowMs: args.nowMs,
+  });
+
+  const seen = new Set<FiatRateInterval>();
+  const intervals: FiatRateInterval[] = [
+    ...preferredIntervals,
+    '1D',
+    '1W',
+    '1M',
+    'ALL',
+  ].filter(interval => {
+    if (seen.has(interval)) {
+      return false;
+    }
+    seen.add(interval);
+    return true;
+  });
+
+  for (const interval of intervals) {
+    const rate = getFiatRateFromSeriesCacheAtTimestamp({
+      fiatRateSeriesCache: args.fiatRateSeriesCache,
+      fiatCode: args.fiatCode,
+      currencyAbbreviation: args.currencyAbbreviation,
+      interval,
+      timestampMs: args.timestampMs,
+      method: args.method || 'nearest',
+    });
+    if (typeof rate === 'number' && Number.isFinite(rate) && rate > 0) {
+      return rate;
+    }
+  }
+
+  return undefined;
+};
+
+const convertAmountBetweenQuotesViaBtc = (args: {
+  amount: number;
+  sourceQuoteCurrency: string;
+  targetQuoteCurrency: string;
+  timestampMs: number;
+  fiatRateSeriesCache: FiatRateSeriesCache | undefined;
+  nowMs: number;
+}): number | undefined => {
+  const amount = toNumber(args.amount);
+  if (!(amount > 0)) {
+    return amount;
+  }
+
+  const sourceQuoteCurrency = (args.sourceQuoteCurrency || '').toUpperCase();
+  const targetQuoteCurrency = (args.targetQuoteCurrency || '').toUpperCase();
+  if (!sourceQuoteCurrency || !targetQuoteCurrency) {
+    return undefined;
+  }
+  if (sourceQuoteCurrency === targetQuoteCurrency) {
+    return amount;
+  }
+
+  const sourceBtcRate = getRateAtTimestampFromCache({
+    fiatRateSeriesCache: args.fiatRateSeriesCache,
+    fiatCode: sourceQuoteCurrency,
+    currencyAbbreviation: 'btc',
+    timestampMs: args.timestampMs,
+    nowMs: args.nowMs,
+    method: 'nearest',
+  });
+  const targetBtcRate = getRateAtTimestampFromCache({
+    fiatRateSeriesCache: args.fiatRateSeriesCache,
+    fiatCode: targetQuoteCurrency,
+    currencyAbbreviation: 'btc',
+    timestampMs: args.timestampMs,
+    nowMs: args.nowMs,
+    method: 'nearest',
+  });
+
+  if (
+    !(typeof sourceBtcRate === 'number' && sourceBtcRate > 0) ||
+    !(typeof targetBtcRate === 'number' && targetBtcRate > 0)
+  ) {
+    return undefined;
+  }
+
+  const fxRatio = targetBtcRate / sourceBtcRate;
+  if (!(fxRatio > 0) || !Number.isFinite(fxRatio)) {
+    return undefined;
+  }
+
+  const converted = amount * fxRatio;
+  return Number.isFinite(converted) ? converted : undefined;
+};
+
 export const getQuoteCurrency = (args: {
   portfolioQuoteCurrency?: string;
   defaultAltCurrencyIsoCode?: string;
 }): string => {
-  return args.portfolioQuoteCurrency || args.defaultAltCurrencyIsoCode || 'USD';
+  return args.defaultAltCurrencyIsoCode || args.portfolioQuoteCurrency || 'USD';
 };
 
 export const hasSnapshotsForWallets = (args: {
@@ -370,6 +493,7 @@ export const isFiatLoadingForWallets = (args: {
   quoteCurrency: string;
   wallets: Wallet[];
   snapshotsByWalletId: {[walletId: string]: BalanceSnapshot[] | undefined};
+  fiatRateSeriesCache?: FiatRateSeriesCache;
 }): boolean => {
   const target = (args.quoteCurrency || '').toUpperCase();
   if (!target) {
@@ -393,11 +517,34 @@ export const isFiatLoadingForWallets = (args: {
   };
 
   for (const w of args.wallets) {
+    if (w?.network !== Network.mainnet) {
+      continue;
+    }
+
     const arr = args.snapshotsByWalletId[w.id] || [];
     const latest = getLatestByTimestamp(arr);
     const snapQuote = (latest?.quoteCurrency || '').toUpperCase();
-    if (snapQuote && snapQuote !== target) {
-      return true;
+    if (!snapQuote || snapQuote === target) {
+      continue;
+    }
+
+    const intervals: FiatRateInterval[] = ['1D', 'ALL'];
+    for (const interval of intervals) {
+      const targetBtcKey = getFiatRateSeriesCacheKey(target, 'btc', interval);
+      const sourceBtcKey = getFiatRateSeriesCacheKey(
+        snapQuote,
+        'btc',
+        interval,
+      );
+
+      const targetPoints =
+        args.fiatRateSeriesCache?.[targetBtcKey]?.points || [];
+      const sourcePoints =
+        args.fiatRateSeriesCache?.[sourceBtcKey]?.points || [];
+
+      if (!targetPoints.length || !sourcePoints.length) {
+        return true;
+      }
     }
   }
 
@@ -491,12 +638,16 @@ const mapSnapshotsToStored = (args: {
   fallbackChain: string;
   fallbackCoin: string;
   fallbackQuoteCurrency: string;
+  targetQuoteCurrency?: string;
+  fiatRateSeriesCache?: FiatRateSeriesCache;
+  nowMs?: number;
   fallbackAssetIdToWalletIdentity: boolean;
 }): BalanceSnapshotStored[] => {
   const tokenAddress = (args.wallet as any)?.tokenAddress as string | undefined;
   const tokenAddressLower = tokenAddress
     ? tokenAddress.toLowerCase()
     : undefined;
+  const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
 
   return args.snapshots.map(s => {
     const snapshotChain = String(
@@ -516,10 +667,33 @@ const mapSnapshotsToStored = (args: {
     const assetId = tokenAddressLower
       ? `${assetChain}:${assetCoin}:${tokenAddressLower}`
       : `${assetChain}:${assetCoin}`;
-    const markRate =
+    const snapshotQuoteCurrency = String(
+      (s as any)?.quoteCurrency || args.fallbackQuoteCurrency,
+    ).toUpperCase();
+    const targetQuoteCurrency = (
+      args.targetQuoteCurrency || args.fallbackQuoteCurrency
+    ).toUpperCase();
+
+    let markRate =
       typeof (s as any)?.costBasisRateFiat === 'number'
         ? (s as any).costBasisRateFiat
         : 0;
+
+    if (markRate > 0 && snapshotQuoteCurrency !== targetQuoteCurrency) {
+      const convertedMarkRate = convertAmountBetweenQuotesViaBtc({
+        amount: markRate,
+        sourceQuoteCurrency: snapshotQuoteCurrency,
+        targetQuoteCurrency,
+        timestampMs: Number((s as any)?.timestamp || 0),
+        fiatRateSeriesCache: args.fiatRateSeriesCache,
+        nowMs,
+      });
+
+      markRate =
+        typeof convertedMarkRate === 'number' && convertedMarkRate > 0
+          ? convertedMarkRate
+          : 0;
+    }
 
     return {
       id: String((s as any)?.id || ''),
@@ -535,9 +709,7 @@ const mapSnapshotsToStored = (args: {
         args.unitDecimals,
       ).toString(),
       remainingCostBasisFiat: Number((s as any)?.remainingCostBasisFiat || 0),
-      quoteCurrency: String(
-        (s as any)?.quoteCurrency || args.fallbackQuoteCurrency,
-      ),
+      quoteCurrency: targetQuoteCurrency || snapshotQuoteCurrency,
       markRate,
       createdAt:
         typeof (s as any)?.createdAt === 'number'
@@ -821,7 +993,6 @@ const buildPortfolioSnapshotContext = (args: {
   const earliestSnapshotTimestampMs = getEarliestSnapshotTimestampMs({
     snapshotsByWalletId,
     walletById,
-    effectiveQuoteCurrency,
   });
 
   return {walletById, effectiveQuoteCurrency, earliestSnapshotTimestampMs};
@@ -907,6 +1078,10 @@ const getEffectiveQuoteCurrencyFromSnapshots = (args: {
   snapshotsByWalletId: {[walletId: string]: BalanceSnapshot[] | undefined};
   walletById: Map<string, Wallet>;
 }): string => {
+  if (args.preferredQuoteCurrency) {
+    return args.preferredQuoteCurrency;
+  }
+
   const quoteCounts = new Map<string, number>();
   for (const [walletId, snapshots] of Object.entries(
     args.snapshotsByWalletId || {},
@@ -923,13 +1098,6 @@ const getEffectiveQuoteCurrencyFromSnapshots = (args: {
     quoteCounts.set(snapQuote, (quoteCounts.get(snapQuote) || 0) + 1);
   }
 
-  if (
-    args.preferredQuoteCurrency &&
-    quoteCounts.has(args.preferredQuoteCurrency)
-  ) {
-    return args.preferredQuoteCurrency;
-  }
-
   let best: string | undefined;
   let bestCount = -1;
   for (const [code, count] of quoteCounts.entries()) {
@@ -939,13 +1107,12 @@ const getEffectiveQuoteCurrencyFromSnapshots = (args: {
     }
   }
 
-  return best || args.preferredQuoteCurrency || 'USD';
+  return best || 'USD';
 };
 
 const getEarliestSnapshotTimestampMs = (args: {
   snapshotsByWalletId: {[walletId: string]: BalanceSnapshot[] | undefined};
   walletById: Map<string, Wallet>;
-  effectiveQuoteCurrency: string;
 }): number | undefined => {
   let best: number | undefined;
   for (const [walletId, snapshots] of Object.entries(
@@ -959,10 +1126,6 @@ const getEarliestSnapshotTimestampMs = (args: {
     for (const s of arr) {
       const ts = s?.timestamp;
       if (!(typeof ts === 'number' && Number.isFinite(ts) && ts > 0)) {
-        continue;
-      }
-      const q = (s?.quoteCurrency || '').toUpperCase();
-      if (q && q !== args.effectiveQuoteCurrency) {
         continue;
       }
       best = typeof best === 'number' ? Math.min(best, ts) : ts;
@@ -1079,6 +1242,9 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
       fallbackChain: chainLower,
       fallbackCoin: coin,
       fallbackQuoteCurrency: effectiveQuoteCurrency,
+      targetQuoteCurrency: effectiveQuoteCurrency,
+      fiatRateSeriesCache: args.fiatRateSeriesCache,
+      nowMs,
       fallbackAssetIdToWalletIdentity: true,
     });
 
@@ -1290,6 +1456,9 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       fallbackChain: credentials.chain,
       fallbackCoin: currencyAbbreviation,
       fallbackQuoteCurrency: quoteCurrency,
+      targetQuoteCurrency: quoteCurrency,
+      fiatRateSeriesCache,
+      nowMs,
       fallbackAssetIdToWalletIdentity: false,
     });
 

@@ -66,8 +66,9 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
       quoteCurrency,
       wallets,
       snapshotsByWalletId,
+      fiatRateSeriesCache,
     });
-  }, [quoteCurrency, snapshotsByWalletId, wallets]);
+  }, [fiatRateSeriesCache, quoteCurrency, snapshotsByWalletId, wallets]);
 
   const items = useMemo(() => {
     return buildAssetRowItemsFromPortfolioSnapshots({

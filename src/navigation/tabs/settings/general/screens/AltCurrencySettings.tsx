@@ -33,8 +33,6 @@ import {FormatKeyBalances} from '../../../../../store/wallet/effects/status/stat
 import {updatePortfolioBalance} from '../../../../../store/wallet/wallet.actions';
 import {
   cancelPopulatePortfolio,
-  clearPortfolio,
-  populatePortfolio,
   recalculatePortfolioFiatFields,
 } from '../../../../../store/portfolio';
 import {useTranslation} from 'react-i18next';
@@ -140,7 +138,7 @@ const AltCurrencySettings = () => {
       });
     }
     return list;
-  }, [recentDefaultAltCurrency, alternativeCurrencies]);
+  }, [alternativeCurrencies, recentDefaultAltCurrency, selectedAltCurrency]);
 
   const [searchVal, setSearchVal] = useState('');
   const [searchResults, setSearchResults] = useState(
@@ -175,8 +173,20 @@ const AltCurrencySettings = () => {
               await sleep(500);
 
               const nextQuoteCurrency = (item.isoCode || '').toUpperCase();
+              const inferredSnapshotQuoteCurrency = Object.values(
+                portfolio.snapshotsByWalletId || {},
+              ).reduce((acc, snapshots) => {
+                if (acc) {
+                  return acc;
+                }
+                const latest = Array.isArray(snapshots)
+                  ? snapshots[snapshots.length - 1]
+                  : undefined;
+                const quote = (latest?.quoteCurrency || '').toUpperCase();
+                return quote || acc;
+              }, '');
               const existingQuoteCurrency = (
-                portfolio.quoteCurrency || ''
+                portfolio.quoteCurrency || inferredSnapshotQuoteCurrency || ''
               ).toUpperCase();
               const hasExistingSnapshots = Object.values(
                 portfolio.snapshotsByWalletId || {},
@@ -197,7 +207,6 @@ const AltCurrencySettings = () => {
 
               if (shouldRestartPopulate) {
                 dispatch(cancelPopulatePortfolio());
-                dispatch(clearPortfolio());
               }
 
               dispatch(
@@ -217,7 +226,7 @@ const AltCurrencySettings = () => {
               if (shouldRestartPopulate) {
                 InteractionManager.runAfterInteractions(() => {
                   dispatch(
-                    populatePortfolio({
+                    recalculatePortfolioFiatFields({
                       quoteCurrency: item.isoCode,
                     }),
                   );
