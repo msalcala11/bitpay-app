@@ -170,75 +170,7 @@ export const getQuoteCurrency = (args: {
   portfolioQuoteCurrency?: string;
   defaultAltCurrencyIsoCode?: string;
 }): string => {
-  return args.defaultAltCurrencyIsoCode || args.portfolioQuoteCurrency || 'USD';
-};
-
-const getFiatToFiatRateFromRates = (args: {
-  rates?: Rates;
-  fromQuoteCurrency: string;
-  toQuoteCurrency: string;
-}): number | undefined => {
-  const from = (args.fromQuoteCurrency || '').toUpperCase();
-  const to = (args.toQuoteCurrency || '').toUpperCase();
-  if (!from || !to) {
-    return undefined;
-  }
-  if (from === to) {
-    return 1;
-  }
-
-  const getRateForCode = (
-    arr: Array<{code: string; rate: number}> | undefined,
-    code: string,
-  ): number | undefined => {
-    const rate = arr?.find(r => r.code === code)?.rate;
-    return Number.isFinite(rate) && (rate ?? 0) > 0 ? rate : undefined;
-  };
-
-  const rates = args.rates;
-  if (!rates) {
-    return undefined;
-  }
-
-  const btcRates = rates.btc;
-  if (Array.isArray(btcRates) && btcRates.length) {
-    const fromRate = getRateForCode(btcRates, from);
-    const toRate = getRateForCode(btcRates, to);
-    if (fromRate && toRate) {
-      return toRate / fromRate;
-    }
-  }
-
-  for (const arr of Object.values(rates || {})) {
-    if (!Array.isArray(arr) || !arr.length) {
-      continue;
-    }
-    const fromRate = getRateForCode(arr, from);
-    const toRate = getRateForCode(arr, to);
-    if (fromRate && toRate) {
-      return toRate / fromRate;
-    }
-  }
-
-  return undefined;
-};
-
-const convertFiatAmountByLatestFx = (args: {
-  amount: number;
-  fromQuoteCurrency: string;
-  toQuoteCurrency: string;
-  rates?: Rates;
-}): number | undefined => {
-  const amount = toNumber(args.amount);
-  const fx = getFiatToFiatRateFromRates({
-    rates: args.rates,
-    fromQuoteCurrency: args.fromQuoteCurrency,
-    toQuoteCurrency: args.toQuoteCurrency,
-  });
-  if (!Number.isFinite(fx) || !(fx > 0)) {
-    return undefined;
-  }
-  return amount * fx;
+  return args.portfolioQuoteCurrency || args.defaultAltCurrencyIsoCode || 'USD';
 };
 
 export const hasSnapshotsForWallets = (args: {
@@ -434,14 +366,41 @@ export const buildWalletIdsByAssetGroupKey = (
   return map;
 };
 
-export const isFiatLoadingForWallets = (_args: {
+export const isFiatLoadingForWallets = (args: {
   quoteCurrency: string;
   wallets: Wallet[];
   snapshotsByWalletId: {[walletId: string]: BalanceSnapshot[] | undefined};
 }): boolean => {
-  // We now support showing snapshot-derived PnL in the selected fiat by
-  // converting display values via latest FX, so quote mismatch alone is not
-  // treated as a loading state.
+  const target = (args.quoteCurrency || '').toUpperCase();
+  if (!target) {
+    return false;
+  }
+
+  const getLatestByTimestamp = (
+    snapshots: BalanceSnapshot[] | undefined,
+  ): BalanceSnapshot | undefined => {
+    const arr = Array.isArray(snapshots) ? snapshots : [];
+    let latest: BalanceSnapshot | undefined;
+    for (const s of arr) {
+      if (!s) {
+        continue;
+      }
+      if (!latest || (s.timestamp || 0) > (latest.timestamp || 0)) {
+        latest = s;
+      }
+    }
+    return latest;
+  };
+
+  for (const w of args.wallets) {
+    const arr = args.snapshotsByWalletId[w.id] || [];
+    const latest = getLatestByTimestamp(arr);
+    const snapQuote = (latest?.quoteCurrency || '').toUpperCase();
+    if (snapQuote && snapQuote !== target) {
+      return true;
+    }
+  }
+
   return false;
 };
 
@@ -1039,8 +998,6 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
       snapshotsByWalletId: args.snapshotsByWalletId || {},
       preferredQuoteCurrency,
     });
-  const requestedQuoteCurrency =
-    preferredQuoteCurrency || effectiveQuoteCurrency || 'USD';
 
   const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
   const baselineTimestampMs = (() => {
@@ -1060,7 +1017,7 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
     overrides: Partial<PortfolioPnlChangeForTimeframeResult> = {},
   ): PortfolioPnlChangeForTimeframeResult => {
     return {
-      quoteCurrency: requestedQuoteCurrency,
+      quoteCurrency: effectiveQuoteCurrency,
       timeframe: args.timeframe,
       baselineTimestampMs,
       deltaFiat: 0,
@@ -1187,36 +1144,11 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
     });
   }
 
-  const deltaInEffectiveQuote = toNumber(last.totalUnrealizedPnlFiat);
-  const needsConversion =
-    effectiveQuoteCurrency &&
-    requestedQuoteCurrency &&
-    effectiveQuoteCurrency !== requestedQuoteCurrency;
-  const convertedDeltaFiat = needsConversion
-    ? convertFiatAmountByLatestFx({
-        amount: deltaInEffectiveQuote,
-        fromQuoteCurrency: effectiveQuoteCurrency,
-        toQuoteCurrency: requestedQuoteCurrency,
-        rates: args.rates,
-      })
-    : deltaInEffectiveQuote;
-  const canUseRequestedQuote =
-    !needsConversion || typeof convertedDeltaFiat === 'number';
-  const outputQuoteCurrency = canUseRequestedQuote
-    ? requestedQuoteCurrency
-    : effectiveQuoteCurrency;
-  const outputDeltaFiat =
-    !needsConversion || typeof convertedDeltaFiat === 'number'
-      ? (typeof convertedDeltaFiat === 'number'
-          ? convertedDeltaFiat
-          : deltaInEffectiveQuote)
-      : deltaInEffectiveQuote;
-
   return {
-    quoteCurrency: outputQuoteCurrency,
+    quoteCurrency: effectiveQuoteCurrency,
     timeframe: args.timeframe,
     baselineTimestampMs,
-    deltaFiat: outputDeltaFiat,
+    deltaFiat: last.totalUnrealizedPnlFiat,
     percentRatio: (last.totalPnlPercent || 0) / 100,
     available: true,
   };
@@ -1299,17 +1231,6 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
 }): AssetRowItem[] => {
   const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
   const quoteCurrency = (args.quoteCurrency || 'USD').toUpperCase();
-  const {effectiveQuoteCurrency: analysisQuoteCurrency} =
-    buildPortfolioSnapshotContext({
-      wallets: args.wallets,
-      snapshotsByWalletId: args.snapshotsByWalletId || {},
-      preferredQuoteCurrency: quoteCurrency,
-    });
-  const analysisToDisplayFx = getFiatToFiatRateFromRates({
-    rates: args.rates,
-    fromQuoteCurrency: analysisQuoteCurrency,
-    toQuoteCurrency: quoteCurrency,
-  });
   const timeframe = args.gainLossMode;
   const isTodayGainLoss = timeframe === '1D';
   const fiatRateSeriesCache = args.fiatRateSeriesCache;
@@ -1368,7 +1289,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       unitDecimals: unitInfo.unitDecimals,
       fallbackChain: credentials.chain,
       fallbackCoin: currencyAbbreviation,
-      fallbackQuoteCurrency: analysisQuoteCurrency,
+      fallbackQuoteCurrency: quoteCurrency,
       fallbackAssetIdToWalletIdentity: false,
     });
 
@@ -1432,7 +1353,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     if (!(normCoin in currentRatesByCoin)) {
       const currentRate = getQuoteRateNumForAsset({
         rates: args.rates,
-        quoteCurrency: analysisQuoteCurrency,
+        quoteCurrency,
         coin,
         chain: String((repWallet as any)?.chain || coin),
         tokenAddress: (repWallet as any)?.tokenAddress,
@@ -1461,7 +1382,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       const res = buildPnlAnalysisSeries({
         wallets: allPnlWallets,
         timeframe: timeframe as any,
-        quoteCurrency: analysisQuoteCurrency,
+        quoteCurrency,
         fiatRateSeriesCache: fiatRateSeriesCache as any,
         currentRatesByCoin:
           Object.keys(currentRatesByCoin).length > 0
@@ -1527,31 +1448,10 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       }
 
       if (hasWalletPoints) {
-        const pnlRatioRaw = basis > 0 ? pnlFiat / basis : 0;
-        const hasConversionRate =
-          typeof analysisToDisplayFx === 'number' &&
-          Number.isFinite(analysisToDisplayFx) &&
-          analysisToDisplayFx > 0;
-        const conversionRate = hasConversionRate
-          ? analysisToDisplayFx
-          : undefined;
-        const canUseAnalysisPnl =
-          analysisQuoteCurrency === quoteCurrency || !!conversionRate;
-
-        if (canUseAnalysisPnl) {
-          if (analysisQuoteCurrency !== quoteCurrency && conversionRate) {
-            fiatValue *= conversionRate;
-            pnlFiat *= conversionRate;
-          }
-          hasRate = true;
-          hasPnl = true;
-          pnlRatio = Number.isFinite(pnlRatioRaw) ? pnlRatioRaw : 0;
-        } else {
-          // Avoid rendering mismatched-currency values when conversion isn't possible.
-          fiatValue = 0;
-          pnlFiat = 0;
-          hasRate = false;
-          hasPnl = false;
+        hasRate = true;
+        hasPnl = true;
+        pnlRatio = basis > 0 ? pnlFiat / basis : 0;
+        if (!Number.isFinite(pnlRatio)) {
           pnlRatio = 0;
         }
       }
