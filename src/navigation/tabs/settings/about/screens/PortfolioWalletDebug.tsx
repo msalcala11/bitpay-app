@@ -549,6 +549,7 @@ const PortfolioWalletDebug = ({
               onError: () => {},
               unencryptedStores: [
                 'APP',
+                'PORTFOLIO',
                 'RATE',
                 'SHOP',
                 'SHOP_CATALOG',
