@@ -39,27 +39,40 @@ function toSignificantStr(n: number, maxDecimals: number): string {
   return s.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
 }
 
-export function formatAtomicAmount(
-  atomic: number | string | bigint,
-  credentials: WalletCredentials,
-  opts?: {maxDecimals?: number},
-): string {
-  const decimals = getAtomicDecimals(credentials);
-  const maxDecimals = opts?.maxDecimals ?? decimals;
+const SCI_NUMBER_RE = /^(-?)(?:(\d+)(?:\.(\d*))?|\.(\d+))[eE]([+-]?\d+)$/;
+const DECIMAL_NUMBER_RE = /^(-?\d+)(?:\.\d+)?$/;
+const POW10_BIGINT_CACHE: bigint[] = [1n];
 
-  // Prefer bigint-safe formatting (esp. for EVM 1e18 units), but keep a small
-  // number fallback for environments where BigInt parsing could fail.
-  try {
-    const b = parseAtomicToBigint(atomic);
-    return formatBigIntDecimal(b, decimals, maxDecimals);
-  } catch {
-    const asNum = typeof atomic === 'number' ? atomic : Number(String(atomic));
-    const unit = Math.pow(10, decimals);
-    return toSignificantStr(asNum / unit, maxDecimals);
-  }
+function normalizeIntString(sign: string, digits: string): string {
+  const normalized = digits.replace(/^0+/, '') || '0';
+  return sign && normalized !== '0' ? `-${normalized}` : normalized;
 }
 
-export function parseAtomicToBigint(v: number | string | bigint): bigint {
+function expandScientificToIntString(s: string): string | null {
+  const m = s.match(SCI_NUMBER_RE);
+  if (!m) return null;
+
+  const sign = m[1];
+  const whole = m[2] ?? '';
+  const frac = m[3] ?? m[4] ?? '';
+  const exp = Number(m[5]);
+  if (!Number.isInteger(exp)) return null;
+
+  const digits = `${whole}${frac}`;
+  if (!digits || /^0+$/.test(digits)) return '0';
+
+  const decimalIndex = whole.length + exp;
+  if (decimalIndex <= 0) return '0';
+
+  const intDigits =
+    decimalIndex >= digits.length
+      ? digits + '0'.repeat(decimalIndex - digits.length)
+      : digits.slice(0, decimalIndex);
+
+  return normalizeIntString(sign, intDigits);
+}
+
+function tryParseAtomicToBigint(v: number | string | bigint): bigint | null {
   if (typeof v === 'bigint') return v;
   if (typeof v === 'number') {
     if (!Number.isFinite(v)) return 0n;
@@ -88,42 +101,73 @@ export function parseAtomicToBigint(v: number | string | bigint): bigint {
     // Prefer the JS "shortest round-trippable" decimal representation.
     // (This matches JSON.stringify/Number#toString behavior.)
     const s = String(v);
-
-    // Handle scientific notation (Number#toString switches to it for >= 1e21).
     if (/[eE]/.test(s)) {
-      const formatted = new Intl.NumberFormat('en-US', {
-        useGrouping: false,
-        maximumFractionDigits: 0,
-      }).format(v);
-      const cleaned = formatted.replace(/(?!^-)[^\d]/g, '');
-      return cleaned ? BigInt(cleaned) : 0n;
+      const expanded = expandScientificToIntString(s);
+      if (expanded != null) return BigInt(expanded);
     }
 
     // Drop any fractional part defensively.
-    const m = s.match(/^(-?\d+)(?:\.\d+)?$/);
+    const m = s.match(DECIMAL_NUMBER_RE);
     if (m) return BigInt(m[1]);
 
     // Fallback: last-resort truncation.
     return BigInt(Math.trunc(v));
   }
+
   const s = String(v).trim();
   if (!s) return 0n;
+
   // Handle scientific notation in strings (e.g. from user input).
   if (/[eE]/.test(s)) {
     const n = Number(s);
     if (!Number.isFinite(n)) return 0n;
-    return parseAtomicToBigint(n);
+    return tryParseAtomicToBigint(n);
   }
+
   // Handle decimal strings defensively: drop fractional part if present.
-  const m = s.match(/^(-?\d+)(?:\.(\d+))?$/);
-  if (!m) throw new Error('Invalid atomic string');
+  const m = s.match(DECIMAL_NUMBER_RE);
+  if (!m) return null;
   return BigInt(m[1]);
 }
 
+export function formatAtomicAmount(
+  atomic: number | string | bigint,
+  credentials: WalletCredentials,
+  opts?: {maxDecimals?: number},
+): string {
+  const decimals = getAtomicDecimals(credentials);
+  const maxDecimals = opts?.maxDecimals ?? decimals;
+
+  // Prefer bigint-safe formatting (esp. for EVM 1e18 units), but keep a small
+  // number fallback for environments where BigInt parsing could fail.
+  const b = tryParseAtomicToBigint(atomic);
+  if (b !== null) {
+    return formatBigIntDecimal(b, decimals, maxDecimals);
+  }
+
+  const asNum = typeof atomic === 'number' ? atomic : Number(String(atomic));
+  const unit = Math.pow(10, decimals);
+  return toSignificantStr(asNum / unit, maxDecimals);
+}
+
+export function parseAtomicToBigint(v: number | string | bigint): bigint {
+  const parsed = tryParseAtomicToBigint(v);
+  if (parsed !== null) return parsed;
+  throw new Error('Invalid atomic string');
+}
+
 function pow10BigInt(decimals: number): bigint {
-  let out = 1n;
-  for (let i = 0; i < decimals; i++) out *= 10n;
-  return out;
+  if (!Number.isFinite(decimals)) return 1n;
+  if (!Number.isInteger(decimals) || decimals < 0) {
+    let out = 1n;
+    for (let i = 0; i < decimals; i++) out *= 10n;
+    return out;
+  }
+
+  for (let i = POW10_BIGINT_CACHE.length; i <= decimals; i++) {
+    POW10_BIGINT_CACHE[i] = POW10_BIGINT_CACHE[i - 1] * 10n;
+  }
+  return POW10_BIGINT_CACHE[decimals];
 }
 
 export function formatBigIntDecimal(

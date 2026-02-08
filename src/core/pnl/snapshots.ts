@@ -1,12 +1,12 @@
 import type {Tx, WalletCredentials, WalletSummary} from '../types';
 import {
   formatAtomicAmount,
-  formatBigIntDecimal,
   getAtomicDecimals,
   parseAtomicToBigint,
 } from '../format';
 import type {FiatRateSeriesCache} from '../fiatRateSeries';
 import {createFiatRateLookup, normalizeFiatRateSeriesCoin} from './rates';
+import {atomicToUnitNumber} from './atomic';
 import type {
   BalanceSnapshotComputed,
   BalanceSnapshotEventType,
@@ -19,6 +19,28 @@ const COMPRESSION_AGE_MS = 90 * DAY_MS;
 // Scale used when converting bigint ratios to numbers.
 // Must be <= 2^53 to keep Number(scaled) exact.
 const RATIO_SCALE = 1_000_000_000_000n; // 1e12
+
+const EVM_CHAIN_SET = new Set([
+  'eth',
+  'ethereum',
+  'matic',
+  'polygon',
+  'pol',
+  'arb',
+  'arbitrum',
+  'op',
+  'optimism',
+  'base',
+  'bsc',
+  'bnb',
+  'avax',
+  'avalanche',
+  'ftm',
+  'fantom',
+  'linea',
+  'zksync',
+  'scroll',
+]);
 
 export const getAssetIdFromWallet = (
   wallet: Pick<
@@ -38,11 +60,13 @@ export const extractTxIdFromSnapshotId = (
   snapshotId: string,
 ): string | null => {
   // Expected: tx:<walletId>:<txid>
-  // (txid can itself contain ':' in our fallback ID format, so we join remaining parts)
-  const parts = String(snapshotId || '').split(':');
-  if (parts.length < 3) return null;
-  if (parts[0] !== 'tx') return null;
-  const txid = parts.slice(2).join(':');
+  // (txid can itself contain ':' in our fallback ID format)
+  const s = String(snapshotId || '');
+  if (!s.startsWith('tx:')) return null;
+  const firstColon = s.indexOf(':');
+  const secondColon = s.indexOf(':', firstColon + 1);
+  if (secondColon < 0) return null;
+  const txid = s.slice(secondColon + 1);
   return txid ? txid : null;
 };
 
@@ -294,18 +318,17 @@ const normalizeTx = (tx: Tx, originalIndex: number): NormalizedTx => {
   const to = getTxToAddress(tx);
   const effects = getTxEffects(tx);
 
-  const effectFroms = Array.from(
-    new Set(
-      effects
-        .map(e => normalizeAddress(e?.from))
-        .filter((a): a is string => !!a),
-    ),
-  );
-  const effectTos = Array.from(
-    new Set(
-      effects.map(e => normalizeAddress(e?.to)).filter((a): a is string => !!a),
-    ),
-  );
+  const effectFromsSet = new Set<string>();
+  const effectTosSet = new Set<string>();
+  for (const e of effects) {
+    const ef = normalizeAddress(e?.from);
+    if (ef) effectFromsSet.add(ef);
+    const et = normalizeAddress(e?.to);
+    if (et) effectTosSet.add(et);
+  }
+
+  const effectFroms = effectFromsSet.size ? Array.from(effectFromsSet) : [];
+  const effectTos = effectTosSet.size ? Array.from(effectTosSet) : [];
 
   const receiptPresent =
     (tx as any)?.receipt !== null && (tx as any)?.receipt !== undefined;
@@ -382,27 +405,7 @@ const sortAndDedupeTxs = (txs: NormalizedTx[]): NormalizedTx[] => {
 const isEvmChain = (chain: string): boolean => {
   const c = (chain || '').toLowerCase();
   // Best-effort: allow unknown chains to still behave correctly if history contains EVM-style addresses.
-  return [
-    'eth',
-    'ethereum',
-    'matic',
-    'polygon',
-    'pol',
-    'arb',
-    'arbitrum',
-    'op',
-    'optimism',
-    'base',
-    'bsc',
-    'bnb',
-    'avax',
-    'avalanche',
-    'ftm',
-    'fantom',
-    'linea',
-    'zksync',
-    'scroll',
-  ].includes(c);
+  return EVM_CHAIN_SET.has(c);
 };
 
 const isOpStackChain = (chain: string): boolean => {
@@ -611,14 +614,6 @@ const safeRatioToNumber = (numerator: bigint, denominator: bigint): number => {
 };
 
 const clampNonNegative = (n: number): number => (n < 0 ? 0 : n);
-
-const atomicToUnitNumber = (atomic: bigint, decimals: number): number => {
-  if (atomic === 0n) return 0;
-  // Use a string-based conversion to avoid Number() overflow where possible.
-  const s = formatBigIntDecimal(atomic, decimals, Math.min(decimals, 18));
-  const v = Number(s);
-  return Number.isFinite(v) ? v : 0;
-};
 
 export const computeBalanceSnapshotComputed = (
   s: BalanceSnapshotStored,
@@ -870,6 +865,17 @@ const reorderTxsToPreventUnderflow = (
       j++;
     }
 
+    // Avoid allocating an intermediate batch array for the common case where there are no ties.
+    if (j === i + 1) {
+      const tx = txs[i];
+      out.push(tx);
+      // Simulate balance evolution with "no negative balances" semantics (matches applyOutflow clamping).
+      simBalanceAtomic += getDeltaAtomic(tx);
+      if (simBalanceAtomic < 0n) simBalanceAtomic = 0n;
+      i = j;
+      continue;
+    }
+
     const batch = txs.slice(i, j);
     const orderedBatch = reorderTxBatchToPreventUnderflow(
       batch,
@@ -949,43 +955,65 @@ type SimulationResult = {
   underFeeCandidates: UnderFeeCandidate[];
 };
 
-const simulateSnapshotsSync = (
+type SimulationState = {
+  balanceAtomic: bigint;
+  remainingCostBasisFiat: number;
+};
+
+type SimulationSetup = {
+  state: SimulationState;
+  rateCoin: string;
+  rateLookup: ReturnType<typeof createFiatRateLookup>;
+  feePaidByWallet: (tx: NormalizedTx) => boolean;
+  getFeeAtomic: (tx: NormalizedTx) => bigint;
+  getFlow: (
+    tx: NormalizedTx,
+    resolved?: {feePaidByWallet: boolean; feeAtomic: bigint},
+  ) => TxFlow;
+  getDeltaAtomic: (tx: NormalizedTx) => bigint;
+  applyInflow: (amountIn: bigint, markRate: number) => void;
+  applyOutflow: (amountOut: bigint) => void;
+};
+
+type SnapshotMeta = Pick<
+  PreparedTxHistory,
+  'walletId' | 'chain' | 'coin' | 'network' | 'assetId' | 'nowMs'
+>;
+
+type SimulationRuntime = {
+  quoteCurrencyUpper: string;
+  collectFeeEstimates: boolean;
+  applyFeesToBalance: boolean;
+  isOpStackChain: boolean;
+  historyHasOpStackL1FeeField: boolean;
+  onProgress?: (p: {processed: number; total: number}) => void;
+  totalTxs: number;
+  processedTxs: number;
+  feeEstimates: FeeEstimate[];
+  underFeeCandidates: UnderFeeCandidate[];
+};
+
+const createSimulationSetup = (
   args: BuildBalanceSnapshotsArgs,
   prepared: PreparedTxHistory,
   feeOverrides?: Map<string, bigint> | null,
-  collectFeeEstimates?: boolean,
-): SimulationResult => {
-  const {
-    quoteCurrency,
-    fiatRateSeriesCache,
-    latestSnapshot = null,
-    onProgress,
-  } = args;
-  const {
-    walletId,
-    chain,
-    coin,
-    network,
-    assetId,
-    applyFeesToBalance,
-    compressionEnabled,
-    decimals,
-    nowMs,
-    toProcessBase,
-    walletEvmAddresses,
-    isOpStackChain,
-    historyHasOpStackL1FeeField,
-  } = prepared;
+): SimulationSetup => {
+  const {quoteCurrency, fiatRateSeriesCache, latestSnapshot = null} = args;
+  const {coin, nowMs, applyFeesToBalance, walletEvmAddresses, decimals} = prepared;
 
-  // Starting state (for incremental updates).
-  let balanceAtomic = latestSnapshot
-    ? parseAtomicToBigint(latestSnapshot.cryptoBalance)
-    : 0n;
-  let remainingCostBasisFiat = latestSnapshot
-    ? Number(latestSnapshot.remainingCostBasisFiat || 0)
-    : 0;
-  if (!Number.isFinite(remainingCostBasisFiat) || remainingCostBasisFiat < 0) {
-    remainingCostBasisFiat = 0;
+  const state: SimulationState = {
+    balanceAtomic: latestSnapshot
+      ? parseAtomicToBigint(latestSnapshot.cryptoBalance)
+      : 0n,
+    remainingCostBasisFiat: latestSnapshot
+      ? Number(latestSnapshot.remainingCostBasisFiat || 0)
+      : 0,
+  };
+  if (
+    !Number.isFinite(state.remainingCostBasisFiat) ||
+    state.remainingCostBasisFiat < 0
+  ) {
+    state.remainingCostBasisFiat = 0;
   }
 
   const rateCoin = normalizeFiatRateSeriesCoin(coin);
@@ -1005,20 +1033,225 @@ const simulateSnapshotsSync = (
     return override !== undefined ? override : tx.baseFeeAtomic;
   };
 
-  const getDeltaAtomic = (tx: NormalizedTx): bigint => {
-    const flow = classifyTxFlow(tx, {
+  const getFlow = (
+    tx: NormalizedTx,
+    resolved?: {feePaidByWallet: boolean; feeAtomic: bigint},
+  ): TxFlow =>
+    classifyTxFlow(tx, {
       applyFeesToBalance,
-      feePaidByWallet: feePaidByWallet(tx),
-      feeAtomic: getFeeAtomic(tx),
+      feePaidByWallet: resolved?.feePaidByWallet ?? feePaidByWallet(tx),
+      feeAtomic: resolved?.feeAtomic ?? getFeeAtomic(tx),
     });
+
+  const getDeltaAtomic = (tx: NormalizedTx): bigint => {
+    const flow = getFlow(tx);
     return flow.inflowAtomic - flow.outflowAtomic;
   };
+
+  const applyInflow = (amountIn: bigint, markRate: number) => {
+    if (amountIn <= 0n) return;
+    state.balanceAtomic += amountIn;
+
+    // Add cost basis at acquisition price (avg cost basis uses this to accumulate total basis).
+    const units = atomicToUnitNumber(amountIn, decimals);
+    state.remainingCostBasisFiat += units * markRate;
+  };
+
+  const applyOutflow = (amountOut: bigint) => {
+    if (amountOut <= 0n) return;
+    if (state.balanceAtomic <= 0n) {
+      // Nothing to dispose; keep balance at 0 and basis at 0.
+      state.balanceAtomic = 0n;
+      state.remainingCostBasisFiat = 0;
+      return;
+    }
+
+    const dispose =
+      amountOut > state.balanceAtomic ? state.balanceAtomic : amountOut;
+    const ratio = safeRatioToNumber(dispose, state.balanceAtomic); // proportion of units disposed
+    state.remainingCostBasisFiat -= state.remainingCostBasisFiat * ratio;
+    state.remainingCostBasisFiat = clampNonNegative(state.remainingCostBasisFiat);
+
+    state.balanceAtomic -= dispose;
+    if (state.balanceAtomic === 0n) {
+      state.remainingCostBasisFiat = 0;
+    }
+  };
+
+  return {
+    state,
+    rateCoin,
+    rateLookup,
+    feePaidByWallet,
+    getFeeAtomic,
+    getFlow,
+    getDeltaAtomic,
+    applyInflow,
+    applyOutflow,
+  };
+};
+
+const createSimulationRuntime = (
+  args: BuildBalanceSnapshotsArgs,
+  prepared: PreparedTxHistory,
+  totalTxs: number,
+  collectFeeEstimates: boolean,
+): SimulationRuntime => ({
+  quoteCurrencyUpper: args.quoteCurrency.toUpperCase(),
+  collectFeeEstimates,
+  applyFeesToBalance: prepared.applyFeesToBalance,
+  isOpStackChain: prepared.isOpStackChain,
+  historyHasOpStackL1FeeField: prepared.historyHasOpStackL1FeeField,
+  onProgress: args.onProgress,
+  totalTxs,
+  processedTxs: 0,
+  feeEstimates: [],
+  underFeeCandidates: [],
+});
+
+const processTxForSimulation = (
+  tx: NormalizedTx,
+  setup: SimulationSetup,
+  runtime: SimulationRuntime,
+): {ts: number; markRate: number} => {
+  const ts = tx.tsMs;
+  const markRate = setup.rateLookup.getNearestRate(ts);
+  if (markRate === undefined) {
+    // This is a hard dependency for inflows and for meaningful valuation.
+    throw new Error(
+      `Missing cached rate for ${runtime.quoteCurrencyUpper}:${setup.rateCoin} at ts=${ts}ms. Fetch rates first (1D/1W/1M/ALL).`,
+    );
+  }
+
+  const feePaid = setup.feePaidByWallet(tx);
+  const feeAtomic = setup.getFeeAtomic(tx);
+
+  if (
+    runtime.collectFeeEstimates &&
+    feePaid &&
+    runtime.applyFeesToBalance &&
+    feeAtomic > 0n
+  ) {
+    const maxFee = tx.maxFeeAtomic;
+    if (maxFee && maxFee > 0n) {
+      runtime.feeEstimates.push({txid: tx.id, maxFeeAtomic: maxFee});
+    }
+  }
+
+  // OP Stack chains charge an extra L1 data fee (and sometimes an operator fee).
+  // Some providers omit these receipt fields for certain txs, causing us to undercount fees
+  // and end up with a higher-than-actual running balance.
+  if (
+    runtime.collectFeeEstimates &&
+    runtime.isOpStackChain &&
+    runtime.historyHasOpStackL1FeeField &&
+    runtime.applyFeesToBalance &&
+    feePaid &&
+    feeAtomic > 0n
+  ) {
+    const receiptPresent = tx.receiptPresent;
+    const l1 = tx.l1FeeAtomic;
+    const opFee = tx.operatorFeeAtomic;
+
+    // Candidate: likely missing L1/OP fee fields (common when receipt is absent).
+    if (!receiptPresent || (l1 === 0n && opFee === 0n)) {
+      // Cap how much extra we can allocate to a single tx to avoid masking unrelated data issues.
+      // L1 data fees can exceed L2 fees, so keep this generous.
+      const maxExtraAtomic = feeAtomic * 100n;
+      runtime.underFeeCandidates.push({
+        txid: tx.id,
+        baseFeeAtomic: feeAtomic,
+        maxExtraAtomic,
+      });
+    }
+  }
+
+  const flow = setup.getFlow(tx, {
+    feePaidByWallet: feePaid,
+    feeAtomic,
+  });
+  setup.applyInflow(flow.acquisitionAtomic, markRate);
+  setup.applyOutflow(flow.outflowAtomic);
+
+  runtime.processedTxs++;
+  if (
+    runtime.onProgress &&
+    (runtime.processedTxs % 250 === 0 ||
+      runtime.processedTxs === runtime.totalTxs)
+  ) {
+    runtime.onProgress({
+      processed: runtime.processedTxs,
+      total: runtime.totalTxs,
+    });
+  }
+
+  return {ts, markRate};
+};
+
+const buildSnapshotForGroup = (
+  group: TxGroup,
+  txIds: string[],
+  lastTs: number,
+  lastRate: number | undefined,
+  snapshotMeta: SnapshotMeta,
+  quoteCurrencyUpper: string,
+  state: SimulationState,
+): BalanceSnapshotStored => {
+  const {walletId, chain, coin, network, assetId, nowMs} = snapshotMeta;
+  const timestamp = lastTs;
+  const eventType: BalanceSnapshotEventType = group.eventType;
+
+  const id =
+    eventType === 'tx'
+      ? `tx:${walletId}:${txIds[0] ?? timestamp}`
+      : `daily:${walletId}:${utcDayKeyFromIndex(
+          group.dayIdx ?? utcDayIndex(timestamp),
+        )}`;
+
+  return {
+    id,
+    walletId,
+    chain,
+    coin,
+    network,
+    assetId,
+    timestamp,
+    eventType,
+    cryptoBalance: state.balanceAtomic.toString(),
+    remainingCostBasisFiat: state.remainingCostBasisFiat,
+    quoteCurrency: quoteCurrencyUpper,
+    markRate: lastRate ?? NaN,
+    createdAt: nowMs,
+
+    // txIds is only included for daily snapshots (where multiple txs are collapsed).
+    ...(eventType === 'daily' ? {txIds} : {}),
+  };
+};
+
+const simulateSnapshotsSync = (
+  args: BuildBalanceSnapshotsArgs,
+  prepared: PreparedTxHistory,
+  feeOverrides?: Map<string, bigint> | null,
+  collectFeeEstimates?: boolean,
+): SimulationResult => {
+  const {
+    compressionEnabled,
+    nowMs,
+    toProcessBase,
+    walletId,
+    chain,
+    coin,
+    network,
+    assetId,
+  } = prepared;
+
+  const setup = createSimulationSetup(args, prepared, feeOverrides);
 
   // 1) Reorder txs that share the same timestamp (+ blockheight) to avoid temporary underflows.
   const toProcessOrdered = reorderTxsToPreventUnderflow(
     toProcessBase,
-    balanceAtomic,
-    getDeltaAtomic,
+    setup.state.balanceAtomic,
+    setup.getDeltaAtomic,
   );
 
   // 2) Group txs for optional daily compression (older than 90 days).
@@ -1030,39 +1263,19 @@ const simulateSnapshotsSync = (
 
   // 3) Apply each group, producing a snapshot for each tx (or each day if compressed).
   const out: BalanceSnapshotStored[] = [];
-  const totalTxs = toProcessOrdered.length;
-  let processedTxs = 0;
-
-  const feeEstimates: FeeEstimate[] = [];
-  const underFeeCandidates: UnderFeeCandidate[] = [];
-
-  const applyInflow = (amountIn: bigint, markRate: number) => {
-    if (amountIn <= 0n) return;
-    balanceAtomic += amountIn;
-
-    // Add cost basis at acquisition price (avg cost basis uses this to accumulate total basis).
-    const units = atomicToUnitNumber(amountIn, decimals);
-    remainingCostBasisFiat += units * markRate;
-  };
-
-  const applyOutflow = (amountOut: bigint) => {
-    if (amountOut <= 0n) return;
-    if (balanceAtomic <= 0n) {
-      // Nothing to dispose; keep balance at 0 and basis at 0.
-      balanceAtomic = 0n;
-      remainingCostBasisFiat = 0;
-      return;
-    }
-
-    const dispose = amountOut > balanceAtomic ? balanceAtomic : amountOut;
-    const ratio = safeRatioToNumber(dispose, balanceAtomic); // proportion of units disposed
-    remainingCostBasisFiat -= remainingCostBasisFiat * ratio;
-    remainingCostBasisFiat = clampNonNegative(remainingCostBasisFiat);
-
-    balanceAtomic -= dispose;
-    if (balanceAtomic === 0n) {
-      remainingCostBasisFiat = 0;
-    }
+  const runtime = createSimulationRuntime(
+    args,
+    prepared,
+    toProcessOrdered.length,
+    !!collectFeeEstimates,
+  );
+  const snapshotMeta: SnapshotMeta = {
+    walletId,
+    chain,
+    coin,
+    network,
+    assetId,
+    nowMs,
   };
 
   for (let gi = 0; gi < groups.length; gi++) {
@@ -1074,119 +1287,29 @@ const simulateSnapshotsSync = (
 
     for (const tx of g.txs) {
       txIds.push(tx.id);
-      const ts = tx.tsMs;
-
-      const markRate = rateLookup.getNearestRate(ts);
-      if (markRate === undefined) {
-        // This is a hard dependency for inflows and for meaningful valuation.
-        throw new Error(
-          `Missing cached rate for ${quoteCurrency.toUpperCase()}:${rateCoin} at ts=${ts}ms. Fetch rates first (1D/1W/1M/ALL).`,
-        );
-      }
-
-      lastTs = ts;
-      lastRate = markRate;
-
-      const feePaid = feePaidByWallet(tx);
-      const feeAtomic = getFeeAtomic(tx);
-
-      if (
-        collectFeeEstimates &&
-        feePaid &&
-        applyFeesToBalance &&
-        feeAtomic > 0n
-      ) {
-        const maxFee = tx.maxFeeAtomic;
-        if (maxFee && maxFee > 0n) {
-          feeEstimates.push({txid: tx.id, maxFeeAtomic: maxFee});
-        }
-      }
-
-      // OP Stack chains charge an extra L1 data fee (and sometimes an operator fee).
-      // Some providers omit these receipt fields for certain txs, causing us to undercount fees
-      // and end up with a higher-than-actual running balance.
-      if (
-        collectFeeEstimates &&
-        isOpStackChain &&
-        historyHasOpStackL1FeeField &&
-        applyFeesToBalance &&
-        feePaid &&
-        feeAtomic > 0n
-      ) {
-        const receiptPresent = tx.receiptPresent;
-        const l1 = tx.l1FeeAtomic;
-        const opFee = tx.operatorFeeAtomic;
-
-        // Candidate: likely missing L1/OP fee fields (common when receipt is absent).
-        if (!receiptPresent || (l1 === 0n && opFee === 0n)) {
-          // Cap how much extra we can allocate to a single tx to avoid masking unrelated data issues.
-          // L1 data fees can exceed L2 fees, so keep this generous.
-          const maxExtraAtomic = feeAtomic * 100n;
-          underFeeCandidates.push({
-            txid: tx.id,
-            baseFeeAtomic: feeAtomic,
-            maxExtraAtomic,
-          });
-        }
-      }
-
-      const flow = classifyTxFlow(tx, {
-        applyFeesToBalance,
-        feePaidByWallet: feePaid,
-        feeAtomic,
-      });
-      applyInflow(flow.acquisitionAtomic, markRate);
-      applyOutflow(flow.outflowAtomic);
-
-      processedTxs++;
-      if (
-        onProgress &&
-        (processedTxs % 250 === 0 || processedTxs === totalTxs)
-      ) {
-        onProgress({processed: processedTxs, total: totalTxs});
-      }
+      const processed = processTxForSimulation(tx, setup, runtime);
+      lastTs = processed.ts;
+      lastRate = processed.markRate;
     }
 
-    // Snapshot timestamp is the last tx timestamp in the group.
-    const timestamp = lastTs;
-    const markRate = lastRate ?? NaN;
-
-    const eventType: BalanceSnapshotEventType = g.eventType;
-
-    const id =
-      eventType === 'tx'
-        ? `tx:${walletId}:${txIds[0] ?? timestamp}`
-        : `daily:${walletId}:${utcDayKeyFromIndex(
-            g.dayIdx ?? utcDayIndex(timestamp),
-          )}`;
-
-    const base: BalanceSnapshotStored = {
-      id,
-      walletId,
-      chain,
-      coin,
-      network,
-      assetId,
-      timestamp,
-      eventType,
-      cryptoBalance: balanceAtomic.toString(),
-      remainingCostBasisFiat,
-      quoteCurrency: quoteCurrency.toUpperCase(),
-      markRate,
-      createdAt: nowMs,
-
-      // txIds is only included for daily snapshots (where multiple txs are collapsed).
-      ...(eventType === 'daily' ? {txIds} : {}),
-    };
-
-    out.push(base);
+    out.push(
+      buildSnapshotForGroup(
+        g,
+        txIds,
+        lastTs,
+        lastRate,
+        snapshotMeta,
+        runtime.quoteCurrencyUpper,
+        setup.state,
+      ),
+    );
   }
 
   return {
     out,
-    endBalanceAtomic: balanceAtomic,
-    feeEstimates,
-    underFeeCandidates,
+    endBalanceAtomic: setup.state.balanceAtomic,
+    feeEstimates: runtime.feeEstimates,
+    underFeeCandidates: runtime.underFeeCandidates,
   };
 };
 
@@ -1202,71 +1325,24 @@ const simulateSnapshotsAsync = async (
   asyncOpts: BuildBalanceSnapshotsAsyncOpts,
 ): Promise<SimulationResult> => {
   const {
-    quoteCurrency,
-    fiatRateSeriesCache,
-    latestSnapshot = null,
-    onProgress,
-  } = args;
-  const {
+    compressionEnabled,
+    nowMs,
+    toProcessBase,
     walletId,
     chain,
     coin,
     network,
     assetId,
-    applyFeesToBalance,
-    compressionEnabled,
-    decimals,
-    nowMs,
-    toProcessBase,
-    walletEvmAddresses,
-    isOpStackChain,
-    historyHasOpStackL1FeeField,
   } = prepared;
 
   const yieldEvery = Math.max(1, Math.floor(asyncOpts.yieldEvery ?? 1000));
-
-  // Starting state (for incremental updates).
-  let balanceAtomic = latestSnapshot
-    ? parseAtomicToBigint(latestSnapshot.cryptoBalance)
-    : 0n;
-  let remainingCostBasisFiat = latestSnapshot
-    ? Number(latestSnapshot.remainingCostBasisFiat || 0)
-    : 0;
-  if (!Number.isFinite(remainingCostBasisFiat) || remainingCostBasisFiat < 0) {
-    remainingCostBasisFiat = 0;
-  }
-
-  const rateCoin = normalizeFiatRateSeriesCoin(coin);
-  const rateLookup = createFiatRateLookup({
-    quoteCurrency,
-    coin: rateCoin,
-    cache: fiatRateSeriesCache,
-    nowMs,
-  });
-
-  const feePaidByWallet = (tx: NormalizedTx): boolean =>
-    applyFeesToBalance ? isTxFeePaidByWallet(tx, walletEvmAddresses) : false;
-
-  const getFeeAtomic = (tx: NormalizedTx): bigint => {
-    if (!applyFeesToBalance) return 0n;
-    const override = feeOverrides?.get(tx.id);
-    return override !== undefined ? override : tx.baseFeeAtomic;
-  };
-
-  const getDeltaAtomic = (tx: NormalizedTx): bigint => {
-    const flow = classifyTxFlow(tx, {
-      applyFeesToBalance,
-      feePaidByWallet: feePaidByWallet(tx),
-      feeAtomic: getFeeAtomic(tx),
-    });
-    return flow.inflowAtomic - flow.outflowAtomic;
-  };
+  const setup = createSimulationSetup(args, prepared, feeOverrides);
 
   // 1) Reorder txs that share the same timestamp (+ blockheight) to avoid temporary underflows.
   const toProcessOrdered = reorderTxsToPreventUnderflow(
     toProcessBase,
-    balanceAtomic,
-    getDeltaAtomic,
+    setup.state.balanceAtomic,
+    setup.getDeltaAtomic,
   );
 
   // 2) Group txs for optional daily compression (older than 90 days).
@@ -1278,39 +1354,19 @@ const simulateSnapshotsAsync = async (
 
   // 3) Apply each group, producing a snapshot for each tx (or each day if compressed).
   const out: BalanceSnapshotStored[] = [];
-  const totalTxs = toProcessOrdered.length;
-  let processedTxs = 0;
-
-  const feeEstimates: FeeEstimate[] = [];
-  const underFeeCandidates: UnderFeeCandidate[] = [];
-
-  const applyInflow = (amountIn: bigint, markRate: number) => {
-    if (amountIn <= 0n) return;
-    balanceAtomic += amountIn;
-
-    // Add cost basis at acquisition price (avg cost basis uses this to accumulate total basis).
-    const units = atomicToUnitNumber(amountIn, decimals);
-    remainingCostBasisFiat += units * markRate;
-  };
-
-  const applyOutflow = (amountOut: bigint) => {
-    if (amountOut <= 0n) return;
-    if (balanceAtomic <= 0n) {
-      // Nothing to dispose; keep balance at 0 and basis at 0.
-      balanceAtomic = 0n;
-      remainingCostBasisFiat = 0;
-      return;
-    }
-
-    const dispose = amountOut > balanceAtomic ? balanceAtomic : amountOut;
-    const ratio = safeRatioToNumber(dispose, balanceAtomic); // proportion of units disposed
-    remainingCostBasisFiat -= remainingCostBasisFiat * ratio;
-    remainingCostBasisFiat = clampNonNegative(remainingCostBasisFiat);
-
-    balanceAtomic -= dispose;
-    if (balanceAtomic === 0n) {
-      remainingCostBasisFiat = 0;
-    }
+  const runtime = createSimulationRuntime(
+    args,
+    prepared,
+    toProcessOrdered.length,
+    collectFeeEstimates,
+  );
+  const snapshotMeta: SnapshotMeta = {
+    walletId,
+    chain,
+    coin,
+    network,
+    assetId,
+    nowMs,
   };
 
   for (let gi = 0; gi < groups.length; gi++) {
@@ -1322,105 +1378,26 @@ const simulateSnapshotsAsync = async (
 
     for (const tx of g.txs) {
       txIds.push(tx.id);
-      const ts = tx.tsMs;
+      const processed = processTxForSimulation(tx, setup, runtime);
+      lastTs = processed.ts;
+      lastRate = processed.markRate;
 
-      const markRate = rateLookup.getNearestRate(ts);
-      if (markRate === undefined) {
-        throw new Error(
-          `Missing cached rate for ${quoteCurrency.toUpperCase()}:${rateCoin} at ts=${ts}ms. Fetch rates first (1D/1W/1M/ALL).`,
-        );
-      }
-
-      lastTs = ts;
-      lastRate = markRate;
-
-      const feePaid = feePaidByWallet(tx);
-      const feeAtomic = getFeeAtomic(tx);
-
-      if (
-        collectFeeEstimates &&
-        feePaid &&
-        applyFeesToBalance &&
-        feeAtomic > 0n
-      ) {
-        const maxFee = tx.maxFeeAtomic;
-        if (maxFee && maxFee > 0n) {
-          feeEstimates.push({txid: tx.id, maxFeeAtomic: maxFee});
-        }
-      }
-
-      if (
-        collectFeeEstimates &&
-        isOpStackChain &&
-        historyHasOpStackL1FeeField &&
-        applyFeesToBalance &&
-        feePaid &&
-        feeAtomic > 0n
-      ) {
-        const receiptPresent = tx.receiptPresent;
-        const l1 = tx.l1FeeAtomic;
-        const opFee = tx.operatorFeeAtomic;
-        if (!receiptPresent || (l1 === 0n && opFee === 0n)) {
-          const maxExtraAtomic = feeAtomic * 100n;
-          underFeeCandidates.push({
-            txid: tx.id,
-            baseFeeAtomic: feeAtomic,
-            maxExtraAtomic,
-          });
-        }
-      }
-
-      const flow = classifyTxFlow(tx, {
-        applyFeesToBalance,
-        feePaidByWallet: feePaid,
-        feeAtomic,
-      });
-      applyInflow(flow.acquisitionAtomic, markRate);
-      applyOutflow(flow.outflowAtomic);
-
-      processedTxs++;
-      if (
-        onProgress &&
-        (processedTxs % 250 === 0 || processedTxs === totalTxs)
-      ) {
-        onProgress({processed: processedTxs, total: totalTxs});
-      }
-
-      if (processedTxs % yieldEvery === 0) {
+      if (runtime.processedTxs % yieldEvery === 0) {
         await yieldToEventLoop();
       }
     }
 
-    const timestamp = lastTs;
-    const markRate = lastRate ?? NaN;
-
-    const eventType: BalanceSnapshotEventType = g.eventType;
-
-    const id =
-      eventType === 'tx'
-        ? `tx:${walletId}:${txIds[0] ?? timestamp}`
-        : `daily:${walletId}:${utcDayKeyFromIndex(
-            g.dayIdx ?? utcDayIndex(timestamp),
-          )}`;
-
-    const base: BalanceSnapshotStored = {
-      id,
-      walletId,
-      chain,
-      coin,
-      network,
-      assetId,
-      timestamp,
-      eventType,
-      cryptoBalance: balanceAtomic.toString(),
-      remainingCostBasisFiat,
-      quoteCurrency: quoteCurrency.toUpperCase(),
-      markRate,
-      createdAt: nowMs,
-      ...(eventType === 'daily' ? {txIds} : {}),
-    };
-
-    out.push(base);
+    out.push(
+      buildSnapshotForGroup(
+        g,
+        txIds,
+        lastTs,
+        lastRate,
+        snapshotMeta,
+        runtime.quoteCurrencyUpper,
+        setup.state,
+      ),
+    );
 
     // Also yield between groups on large wallets (daily groups can be big).
     if (gi % 25 === 0) {
@@ -1430,10 +1407,89 @@ const simulateSnapshotsAsync = async (
 
   return {
     out,
-    endBalanceAtomic: balanceAtomic,
-    feeEstimates,
-    underFeeCandidates,
+    endBalanceAtomic: setup.state.balanceAtomic,
+    feeEstimates: runtime.feeEstimates,
+    underFeeCandidates: runtime.underFeeCandidates,
   };
+};
+
+const computeFeeOverridesFromAnchorBalance = (params: {
+  prepared: PreparedTxHistory;
+  firstResult: SimulationResult;
+  walletBalanceAtomicString: unknown;
+}): Map<string, bigint> | null => {
+  const {prepared, firstResult, walletBalanceAtomicString} = params;
+
+  let targetBalanceAtomic: bigint | null = null;
+  try {
+    const raw = walletBalanceAtomicString;
+    const input: string | number | bigint =
+      typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'bigint'
+        ? raw
+        : raw == null
+        ? ''
+        : String(raw);
+    targetBalanceAtomic = parseAtomicToBigint(input);
+  } catch {
+    targetBalanceAtomic = null;
+  }
+
+  if (targetBalanceAtomic === null || targetBalanceAtomic < 0n) return null;
+
+  const delta = targetBalanceAtomic - firstResult.endBalanceAtomic;
+
+  // 1) Reduce gasLimit-based max fees (delta > 0 means our computed balance is too LOW).
+  if (delta > 0n && firstResult.feeEstimates.length > 0) {
+    const maxPossible = firstResult.feeEstimates.reduce(
+      (acc, e) => acc + e.maxFeeAtomic,
+      0n,
+    );
+    if (delta <= maxPossible) {
+      let remaining = delta;
+      const overrides = new Map<string, bigint>();
+
+      // Adjust the *latest* estimated-fee txs first to minimize distortion of earlier snapshots.
+      for (
+        let i = firstResult.feeEstimates.length - 1;
+        i >= 0 && remaining > 0n;
+        i--
+      ) {
+        const e = firstResult.feeEstimates[i];
+        const reduce = remaining < e.maxFeeAtomic ? remaining : e.maxFeeAtomic;
+        const corrected = e.maxFeeAtomic - reduce;
+        overrides.set(e.txid, corrected);
+        remaining -= reduce;
+      }
+
+      if (overrides.size > 0) return overrides;
+    }
+  }
+
+  // 2) Allocate missing OP Stack L1/operator fees (delta < 0 means our computed balance is too HIGH).
+  if (
+    delta < 0n &&
+    prepared.historyHasOpStackL1FeeField &&
+    firstResult.underFeeCandidates.length > 0
+  ) {
+    let remaining = -delta;
+    const overrides = new Map<string, bigint>();
+
+    // Allocate to the *latest* candidates first (minimizes earlier snapshot distortion).
+    for (
+      let i = firstResult.underFeeCandidates.length - 1;
+      i >= 0 && remaining > 0n;
+      i--
+    ) {
+      const c = firstResult.underFeeCandidates[i];
+      const add = remaining < c.maxExtraAtomic ? remaining : c.maxExtraAtomic;
+      overrides.set(c.txid, c.baseFeeAtomic + add);
+      remaining -= add;
+    }
+
+    if (remaining === 0n && overrides.size > 0) return overrides;
+  }
+
+  return null;
 };
 
 export function buildBalanceSnapshots(
@@ -1442,79 +1498,15 @@ export function buildBalanceSnapshots(
   const prepared = prepareTxHistory(args);
   const first = simulateSnapshotsSync(args, prepared, null, true);
 
-  // Optional reconciliation using wallet.balanceAtomic as an anchor.
-  if (prepared.applyFeesToBalance) {
-    let targetBalanceAtomic: bigint | null = null;
-    try {
-      targetBalanceAtomic = parseAtomicToBigint(
-        (args.wallet as any)?.balanceAtomic ?? '',
-      );
-    } catch {
-      targetBalanceAtomic = null;
-    }
+  if (!prepared.applyFeesToBalance) return first.out;
 
-    if (targetBalanceAtomic !== null && targetBalanceAtomic >= 0n) {
-      const computed = first.endBalanceAtomic;
-      const delta = targetBalanceAtomic - computed;
-
-      // 1) Reduce gasLimit-based max fees (delta > 0 means our computed balance is too LOW).
-      if (delta > 0n && first.feeEstimates.length > 0) {
-        const maxPossible = first.feeEstimates.reduce(
-          (acc, e) => acc + e.maxFeeAtomic,
-          0n,
-        );
-
-        if (delta <= maxPossible) {
-          let remaining = delta;
-          const overrides = new Map<string, bigint>();
-
-          // Adjust the *latest* estimated-fee txs first to minimize distortion of earlier snapshots.
-          for (
-            let i = first.feeEstimates.length - 1;
-            i >= 0 && remaining > 0n;
-            i--
-          ) {
-            const e = first.feeEstimates[i];
-            const reduce =
-              remaining < e.maxFeeAtomic ? remaining : e.maxFeeAtomic;
-            const corrected = e.maxFeeAtomic - reduce;
-            overrides.set(e.txid, corrected);
-            remaining -= reduce;
-          }
-
-          if (overrides.size > 0) {
-            return simulateSnapshotsSync(args, prepared, overrides, false).out;
-          }
-        }
-      }
-
-      // 2) Allocate missing OP Stack L1/operator fees (delta < 0 means our computed balance is too HIGH).
-      if (
-        delta < 0n &&
-        prepared.historyHasOpStackL1FeeField &&
-        first.underFeeCandidates.length > 0
-      ) {
-        let remaining = -delta;
-        const overrides = new Map<string, bigint>();
-
-        // Allocate to the *latest* candidates first (minimizes earlier snapshot distortion).
-        for (
-          let i = first.underFeeCandidates.length - 1;
-          i >= 0 && remaining > 0n;
-          i--
-        ) {
-          const c = first.underFeeCandidates[i];
-          const add =
-            remaining < c.maxExtraAtomic ? remaining : c.maxExtraAtomic;
-          overrides.set(c.txid, c.baseFeeAtomic + add);
-          remaining -= add;
-        }
-
-        if (remaining === 0n && overrides.size > 0) {
-          return simulateSnapshotsSync(args, prepared, overrides, false).out;
-        }
-      }
-    }
+  const overrides = computeFeeOverridesFromAnchorBalance({
+    prepared,
+    firstResult: first,
+    walletBalanceAtomicString: (args.wallet as any)?.balanceAtomic,
+  });
+  if (overrides) {
+    return simulateSnapshotsSync(args, prepared, overrides, false).out;
   }
 
   return first.out;
@@ -1533,85 +1525,21 @@ export async function buildBalanceSnapshotsAsync(
     asyncOpts,
   );
 
-  if (prepared.applyFeesToBalance) {
-    let targetBalanceAtomic: bigint | null = null;
-    try {
-      targetBalanceAtomic = parseAtomicToBigint(
-        (args.wallet as any)?.balanceAtomic ?? '',
-      );
-    } catch {
-      targetBalanceAtomic = null;
-    }
+  if (!prepared.applyFeesToBalance) return first.out;
 
-    if (targetBalanceAtomic !== null && targetBalanceAtomic >= 0n) {
-      const computed = first.endBalanceAtomic;
-      const delta = targetBalanceAtomic - computed;
-
-      if (delta > 0n && first.feeEstimates.length > 0) {
-        const maxPossible = first.feeEstimates.reduce(
-          (acc, e) => acc + e.maxFeeAtomic,
-          0n,
-        );
-        if (delta <= maxPossible) {
-          let remaining = delta;
-          const overrides = new Map<string, bigint>();
-          for (
-            let i = first.feeEstimates.length - 1;
-            i >= 0 && remaining > 0n;
-            i--
-          ) {
-            const e = first.feeEstimates[i];
-            const reduce =
-              remaining < e.maxFeeAtomic ? remaining : e.maxFeeAtomic;
-            const corrected = e.maxFeeAtomic - reduce;
-            overrides.set(e.txid, corrected);
-            remaining -= reduce;
-          }
-          if (overrides.size > 0) {
-            return (
-              await simulateSnapshotsAsync(
-                args,
-                prepared,
-                overrides,
-                false,
-                asyncOpts,
-              )
-            ).out;
-          }
-        }
-      }
-
-      if (
-        delta < 0n &&
-        prepared.historyHasOpStackL1FeeField &&
-        first.underFeeCandidates.length > 0
-      ) {
-        let remaining = -delta;
-        const overrides = new Map<string, bigint>();
-        for (
-          let i = first.underFeeCandidates.length - 1;
-          i >= 0 && remaining > 0n;
-          i--
-        ) {
-          const c = first.underFeeCandidates[i];
-          const add =
-            remaining < c.maxExtraAtomic ? remaining : c.maxExtraAtomic;
-          overrides.set(c.txid, c.baseFeeAtomic + add);
-          remaining -= add;
-        }
-        if (remaining === 0n && overrides.size > 0) {
-          return (
-            await simulateSnapshotsAsync(
-              args,
-              prepared,
-              overrides,
-              false,
-              asyncOpts,
-            )
-          ).out;
-        }
-      }
-    }
+  const overrides = computeFeeOverridesFromAnchorBalance({
+    prepared,
+    firstResult: first,
+    walletBalanceAtomicString: (args.wallet as any)?.balanceAtomic,
+  });
+  if (overrides) {
+    return (await simulateSnapshotsAsync(
+      args,
+      prepared,
+      overrides,
+      false,
+      asyncOpts,
+    )).out;
   }
 
   return first.out;

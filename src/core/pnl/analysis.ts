@@ -6,13 +6,22 @@ import type {
 import {getFiatRateSeriesCacheKey} from '../fiatRateSeries';
 import {
   formatAtomicAmount,
-  formatBigIntDecimal,
   getAtomicDecimals,
   parseAtomicToBigint,
 } from '../format';
 import type {WalletCredentials} from '../types';
 import type {BalanceSnapshotStored} from './types';
 import {normalizeFiatRateSeriesCoin} from './rates';
+import {
+  PREF_1D,
+  PREF_1W,
+  PREF_1M,
+  PREF_3M,
+  PREF_1Y,
+  PREF_5Y,
+  PREF_ALL,
+} from './intervalPrefs';
+import {atomicToUnitNumber} from './atomic';
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
@@ -152,6 +161,30 @@ function getBaselineMs(
   return roundDownToHourMs(nowMs - win);
 }
 
+function getFallbackOrderForTimeframe(
+  timeframe: PnlTimeframe,
+): readonly FiatRateInterval[] {
+  switch (timeframe) {
+    case '1D':
+      return PREF_1D;
+    case '1W':
+      return PREF_1W;
+    case '1M':
+      return PREF_1M;
+    case '3M':
+      return PREF_3M;
+    case '1Y':
+      return PREF_1Y;
+    case '5Y':
+      return PREF_5Y;
+    case 'ALL':
+    default:
+      // ALL series may be missing for very new wallets unless rates were fetched explicitly.
+      // Prefer widest coverage first, but allow shorter windows for brand-new wallets.
+      return PREF_ALL;
+  }
+}
+
 function getRatePointsFromCache(args: {
   fiatRateSeriesCache: FiatRateSeriesCache;
   quoteCurrency: string;
@@ -164,46 +197,20 @@ function getRatePointsFromCache(args: {
   const {fiatRateSeriesCache, quoteCurrency, coin, timeframe, seriesInterval} =
     args;
 
-  const tryIntervals = ((): FiatRateInterval[] => {
-    // Prefer the requested interval, but gracefully fall back to other cached windows.
-    // This mirrors the general “smallest available series that still covers the window” idea,
-    // and keeps the engine resilient when some intervals haven't been fetched yet.
-    const base: FiatRateInterval[] = (() => {
-      switch (timeframe) {
-        case '1D':
-          return ['1D', '1W', '1M', '3M', '1Y', '5Y', 'ALL'];
-        case '1W':
-          return ['1W', '1M', '3M', '1Y', '5Y', 'ALL', '1D'];
-        case '1M':
-          return ['1M', '3M', '1Y', '5Y', 'ALL', '1W', '1D'];
-        case '3M':
-          return ['3M', '1Y', '5Y', 'ALL', '1M', '1W', '1D'];
-        case '1Y':
-          return ['1Y', '5Y', 'ALL', '3M', '1M', '1W', '1D'];
-        case '5Y':
-          return ['5Y', 'ALL', '1Y', '3M', '1M', '1W', '1D'];
-        case 'ALL':
-        default:
-          // ALL series may be missing for very new wallets unless rates were fetched explicitly.
-          // Prefer widest coverage first, but allow shorter windows for brand-new wallets.
-          return ['ALL', '5Y', '1Y', '3M', '1M', '1W', '1D'];
-      }
-    })();
+  // Ensure the requested seriesInterval is attempted first (e.g. 3M/1Y/5Y use ALL).
+  const firstKey = getFiatRateSeriesCacheKey(quoteCurrency, coin, seriesInterval);
+  const firstSeries = fiatRateSeriesCache?.[firstKey];
+  const firstPoints = Array.isArray(firstSeries?.points) ? firstSeries.points : [];
+  if (firstPoints.length) {
+    return firstPoints;
+  }
 
-    // Ensure the requested seriesInterval is attempted first (e.g. 3M/1Y/5Y use ALL).
-    const out: FiatRateInterval[] = [];
-    const seen = new Set<FiatRateInterval>();
-    const push = (v: FiatRateInterval) => {
-      if (seen.has(v)) return;
-      seen.add(v);
-      out.push(v);
-    };
-    push(seriesInterval);
-    for (const v of base) push(v);
-    return out;
-  })();
-
-  for (const interval of tryIntervals) {
+  // Prefer the requested interval, then gracefully fall back to other cached windows.
+  // This mirrors the general “smallest available series that still covers the window” idea,
+  // and keeps the engine resilient when some intervals haven't been fetched yet.
+  const fallbackIntervals = getFallbackOrderForTimeframe(timeframe);
+  for (const interval of fallbackIntervals) {
+    if (interval === seriesInterval) continue;
     const key = getFiatRateSeriesCacheKey(quoteCurrency, coin, interval);
     const series = fiatRateSeriesCache?.[key];
     const points = Array.isArray(series?.points) ? series.points : [];
@@ -220,13 +227,6 @@ function getRatePointsFromCache(args: {
   throw new Error(
     `Missing cached rate for ${wantedKey}. Fetch rates first (1D/1W/1M/3M/1Y/5Y/ALL).`,
   );
-}
-
-function atomicToUnitNumber(atomic: bigint, decimals: number): number {
-  if (atomic === 0n) return 0;
-  const s = formatBigIntDecimal(atomic, decimals, Math.min(decimals, 18));
-  const v = Number(s);
-  return Number.isFinite(v) ? v : 0;
 }
 
 function findLastSnapshotIndexAtOrBefore(
@@ -569,6 +569,8 @@ export function buildPnlAnalysisSeries(args: {
     snapshots: BalanceSnapshotStored[];
     nextIdx: number; // next snapshot index to process (> startTs)
     unitsAtomic: bigint;
+    unitsNumber: number;
+    unitsDirty: boolean;
     basisFiat: number;
   };
 
@@ -599,8 +601,9 @@ export function buildPnlAnalysisSeries(args: {
     const lastIdx = findLastSnapshotIndexAtOrBefore(snaps, startTs);
     const unitsAtomic =
       lastIdx >= 0 ? parseAtomicToBigint(snaps[lastIdx].cryptoBalance) : 0n;
+    const unitsNumber = atomicToUnitNumber(unitsAtomic, decimals);
     const startRate = baselineRateByCoin[coin];
-    const basisFiat = atomicToUnitNumber(unitsAtomic, decimals) * startRate;
+    const basisFiat = unitsNumber * startRate;
 
     windowStateByWalletId[w.walletId] = {
       walletId: w.walletId,
@@ -609,6 +612,8 @@ export function buildPnlAnalysisSeries(args: {
       snapshots: snaps,
       nextIdx: findFirstSnapshotIndexAfter(snaps, startTs),
       unitsAtomic,
+      unitsNumber,
+      unitsDirty: false,
       basisFiat: Number.isFinite(basisFiat) && basisFiat > 0 ? basisFiat : 0,
     };
   }
@@ -663,18 +668,29 @@ export function buildPnlAnalysisSeries(args: {
           }
           const deltaUnits = atomicToUnitNumber(delta, st.decimals);
           st.basisFiat += deltaUnits * markRate;
+          st.unitsDirty = true;
         } else if (delta < 0n) {
           // Pro-rata cost basis reduction (average cost) within the window.
           if (st.unitsAtomic > 0n) {
-            const beforeUnits = atomicToUnitNumber(st.unitsAtomic, st.decimals);
+            const beforeUnits = st.unitsDirty
+              ? atomicToUnitNumber(st.unitsAtomic, st.decimals)
+              : st.unitsNumber;
+            if (st.unitsDirty) {
+              st.unitsNumber = beforeUnits;
+              st.unitsDirty = false;
+            }
             const afterUnits = atomicToUnitNumber(afterAtomic, st.decimals);
             if (beforeUnits > 0) {
               st.basisFiat *= afterUnits / beforeUnits;
             } else {
               st.basisFiat = 0;
             }
+            st.unitsNumber = afterUnits;
+            st.unitsDirty = false;
           } else {
             st.basisFiat = 0;
+            st.unitsNumber = 0;
+            st.unitsDirty = false;
           }
         }
 
@@ -686,13 +702,21 @@ export function buildPnlAnalysisSeries(args: {
         ) {
           st.basisFiat = 0;
         }
+        if (st.unitsAtomic === 0n) {
+          st.unitsNumber = 0;
+          st.unitsDirty = false;
+        }
 
         st.nextIdx++;
       }
 
       const balAtomic = st.unitsAtomic;
       const costBasis = st.basisFiat;
-      const units = atomicToUnitNumber(balAtomic, st.decimals);
+      if (st.unitsDirty) {
+        st.unitsNumber = atomicToUnitNumber(balAtomic, st.decimals);
+        st.unitsDirty = false;
+      }
+      const units = st.unitsNumber;
       const fiatBalance = units * rate;
       const unrealizedPnlFiat = fiatBalance - costBasis;
       const pnlPercent =

@@ -4,6 +4,15 @@ import type {
   FiatRateInterval,
 } from '../fiatRateSeries';
 import {getFiatRateSeriesCacheKey} from '../fiatRateSeries';
+import {
+  PREF_1D,
+  PREF_1W,
+  PREF_1M,
+  PREF_3M,
+  PREF_1Y,
+  PREF_5Y,
+  PREF_ALL,
+} from './intervalPrefs';
 
 export const normalizeFiatRateSeriesCoin = (
   currencyAbbreviation?: string,
@@ -77,71 +86,6 @@ const makeNearestFinder = (points: FiatRatePoint[]): Finder => {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-// Hoist the preference arrays to avoid per-call allocations (getNearestRate is called per tx).
-const PREF_1D: readonly FiatRateInterval[] = [
-  '1D',
-  '1W',
-  '1M',
-  '3M',
-  '1Y',
-  '5Y',
-  'ALL',
-];
-const PREF_1W: readonly FiatRateInterval[] = [
-  '1W',
-  '1M',
-  '3M',
-  '1Y',
-  '5Y',
-  'ALL',
-  '1D',
-];
-const PREF_1M: readonly FiatRateInterval[] = [
-  '1M',
-  '3M',
-  '1Y',
-  '5Y',
-  'ALL',
-  '1W',
-  '1D',
-];
-const PREF_3M: readonly FiatRateInterval[] = [
-  '3M',
-  '1Y',
-  '5Y',
-  'ALL',
-  '1M',
-  '1W',
-  '1D',
-];
-const PREF_1Y: readonly FiatRateInterval[] = [
-  '1Y',
-  '5Y',
-  'ALL',
-  '3M',
-  '1M',
-  '1W',
-  '1D',
-];
-const PREF_5Y: readonly FiatRateInterval[] = [
-  '5Y',
-  'ALL',
-  '1Y',
-  '3M',
-  '1M',
-  '1W',
-  '1D',
-];
-const PREF_ALL: readonly FiatRateInterval[] = [
-  'ALL',
-  '5Y',
-  '1Y',
-  '3M',
-  '1M',
-  '1W',
-  '1D',
-];
-
 const intervalPreferenceForAge = (
   ageMs: number,
 ): readonly FiatRateInterval[] => {
@@ -175,25 +119,24 @@ export const createFiatRateLookup = (args: {
 }): FiatRateLookup => {
   const {quoteCurrency, coin, cache, nowMs} = args;
 
-  const findersByKey = new Map<string, Finder>();
-
-  const getSeriesPoints = (
-    interval: FiatRateInterval,
-  ): FiatRatePoint[] | null => {
-    const key = getFiatRateSeriesCacheKey(quoteCurrency, coin, interval);
-    const series = cache[key];
-    const points = (series as any)?.points as FiatRatePoint[] | undefined;
-    if (!Array.isArray(points) || points.length === 0) return null;
-    return points;
+  const keyByInterval: Record<FiatRateInterval, string> = {
+    '1D': getFiatRateSeriesCacheKey(quoteCurrency, coin, '1D'),
+    '1W': getFiatRateSeriesCacheKey(quoteCurrency, coin, '1W'),
+    '1M': getFiatRateSeriesCacheKey(quoteCurrency, coin, '1M'),
+    '3M': getFiatRateSeriesCacheKey(quoteCurrency, coin, '3M'),
+    '1Y': getFiatRateSeriesCacheKey(quoteCurrency, coin, '1Y'),
+    '5Y': getFiatRateSeriesCacheKey(quoteCurrency, coin, '5Y'),
+    ALL: getFiatRateSeriesCacheKey(quoteCurrency, coin, 'ALL'),
   };
+  const findersByInterval = new Map<FiatRateInterval, Finder>();
 
   const getFinderForInterval = (interval: FiatRateInterval): Finder | null => {
-    const key = getFiatRateSeriesCacheKey(quoteCurrency, coin, interval);
-    const existing = findersByKey.get(key);
+    const existing = findersByInterval.get(interval);
     if (existing) return existing;
 
-    const points = getSeriesPoints(interval);
-    if (!points) return null;
+    const series = cache[keyByInterval[interval]];
+    const points = (series as any)?.points as FiatRatePoint[] | undefined;
+    if (!Array.isArray(points) || points.length === 0) return null;
 
     // The cache builder already sorts points by timestamp ascending.
     // Avoid a redundant slice+sort per interval unless needed.
@@ -201,7 +144,7 @@ export const createFiatRateLookup = (args: {
       ? points
       : points.slice().sort((a, b) => a.ts - b.ts);
     const finder = makeNearestFinder(sortedPoints);
-    findersByKey.set(key, finder);
+    findersByInterval.set(interval, finder);
     return finder;
   };
 

@@ -1,6 +1,6 @@
 import type {BalanceSnapshotEventType, BalanceSnapshotStored} from './types';
 
-export type BalanceSnapshotSeriesV1 = {
+export type BalanceSnapshotSeries = {
   v: 1;
   walletId: string;
   chain: string;
@@ -23,9 +23,9 @@ export type BalanceSnapshotSeriesV1 = {
   }>;
 };
 
-export const isBalanceSnapshotSeriesV1 = (
+export const isBalanceSnapshotSeries = (
   x: unknown,
-): x is BalanceSnapshotSeriesV1 => {
+): x is BalanceSnapshotSeries => {
   if (!x || typeof x !== 'object' || Array.isArray(x)) return false;
   const v = (x as any).v;
   if (v !== 1) return false;
@@ -37,29 +37,59 @@ const eventTypeToCode = (e: BalanceSnapshotEventType): 0 | 1 =>
 const codeToEventType = (e: 0 | 1): BalanceSnapshotEventType =>
   e === 1 ? 'daily' : 'tx';
 
+const toFiniteNumber = (value: unknown, fallback: number): number => {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const isEventTypeCode = (value: unknown): value is 0 | 1 =>
+  value === 0 || value === 1;
+
 /**
  * Packs full snapshot objects into a compact "series" representation for persistence.
  *
  * Note: `createdAt` is stored once at the series level, and is applied to all hydrated
  * snapshots as a convenience.
  */
-export const packBalanceSnapshotsToSeriesV1 = (args: {
+export const packBalanceSnapshotsToSeries = (args: {
   snapshots: BalanceSnapshotStored[];
   compressionEnabled: boolean;
   createdAt?: number;
-}): BalanceSnapshotSeriesV1 | null => {
+}): BalanceSnapshotSeries | null => {
   const snaps = args.snapshots || [];
   if (!snaps.length) return null;
 
   const first = snaps[0];
+  const explicitCreatedAt = toFiniteNumber(args.createdAt, Number.NaN);
+  const latestCreatedAt = toFiniteNumber(
+    snaps[snaps.length - 1].createdAt,
+    Number.NaN,
+  );
   const createdAt =
-    typeof args.createdAt === 'number'
-      ? args.createdAt
-      : typeof snaps[snaps.length - 1].createdAt === 'number'
-      ? (snaps[snaps.length - 1].createdAt as number)
+    Number.isFinite(explicitCreatedAt)
+      ? explicitCreatedAt
+      : Number.isFinite(latestCreatedAt)
+      ? latestCreatedAt
       : Date.now();
 
-  const series: BalanceSnapshotSeriesV1 = {
+  const rows = new Array<BalanceSnapshotSeries['rows'][number]>(snaps.length);
+  for (let i = 0; i < snaps.length; i += 1) {
+    const s = snaps[i];
+    const row: BalanceSnapshotSeries['rows'][number] = {
+      id: s.id,
+      t: toFiniteNumber(s.timestamp, 0),
+      e: eventTypeToCode(s.eventType),
+      b: s.cryptoBalance,
+      c: toFiniteNumber(s.remainingCostBasisFiat, 0),
+      r: toFiniteNumber(s.markRate, 0),
+    };
+    if (s.eventType === 'daily' && Array.isArray(s.txIds) && s.txIds.length) {
+      row.x = s.txIds.slice();
+    }
+    rows[i] = row;
+  }
+
+  const series: BalanceSnapshotSeries = {
     v: 1,
     walletId: first.walletId,
     chain: first.chain,
@@ -69,52 +99,64 @@ export const packBalanceSnapshotsToSeriesV1 = (args: {
     quoteCurrency: first.quoteCurrency,
     createdAt,
     compressionEnabled: !!args.compressionEnabled,
-    rows: [],
+    rows,
   };
-
-  for (const s of snaps) {
-    const row: BalanceSnapshotSeriesV1['rows'][number] = {
-      id: s.id,
-      t: s.timestamp,
-      e: eventTypeToCode(s.eventType),
-      b: s.cryptoBalance,
-      c: Number(s.remainingCostBasisFiat || 0),
-      r: Number(s.markRate || 0),
-    };
-    if (s.eventType === 'daily' && Array.isArray(s.txIds) && s.txIds.length) {
-      row.x = s.txIds.slice();
-    }
-    series.rows.push(row);
-  }
 
   return series;
 };
 
 /** Hydrates a compact series back into full snapshot objects for UI/runtime use. */
-export const hydrateBalanceSnapshotsFromSeriesV1 = (
-  series: BalanceSnapshotSeriesV1,
+export const hydrateBalanceSnapshotsFromSeries = (
+  series: BalanceSnapshotSeries,
 ): BalanceSnapshotStored[] => {
   const out: BalanceSnapshotStored[] = [];
   for (const row of series.rows || []) {
-    if (!row || typeof row !== 'object') continue;
-    const eventType = codeToEventType(row.e);
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+
+    const {id, t, e, b, c, r, x} = row as Partial<
+      BalanceSnapshotSeries['rows'][number]
+    >;
+    if (typeof id !== 'string' || typeof b !== 'string' || !isEventTypeCode(e)) {
+      continue;
+    }
+
+    const timestamp = toFiniteNumber(t, Number.NaN);
+    const remainingCostBasisFiat = toFiniteNumber(c, Number.NaN);
+    const markRate = toFiniteNumber(r, Number.NaN);
+    if (
+      !Number.isFinite(timestamp) ||
+      !Number.isFinite(remainingCostBasisFiat) ||
+      !Number.isFinite(markRate)
+    ) {
+      continue;
+    }
+
+    const eventType = codeToEventType(e);
     const snap: BalanceSnapshotStored = {
-      id: row.id,
+      id,
       walletId: series.walletId,
       chain: series.chain,
       coin: series.coin,
       network: series.network,
       assetId: series.assetId,
-      timestamp: row.t,
+      timestamp,
       eventType,
-      cryptoBalance: row.b,
-      remainingCostBasisFiat: row.c,
+      cryptoBalance: b,
+      remainingCostBasisFiat,
       quoteCurrency: series.quoteCurrency,
-      markRate: row.r,
+      markRate,
       createdAt: series.createdAt,
     };
-    if (eventType === 'daily' && Array.isArray(row.x) && row.x.length) {
-      snap.txIds = row.x.slice();
+    if (eventType === 'daily') {
+      // Be lenient when hydrating persisted caches: if txIds are malformed or
+      // missing, keep the snapshot and treat it as having no txIds.
+      if (
+        Array.isArray(x) &&
+        x.length &&
+        x.every((txId) => typeof txId === 'string')
+      ) {
+        snap.txIds = x.slice();
+      }
     }
     out.push(snap);
   }
