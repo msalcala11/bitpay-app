@@ -143,6 +143,7 @@ const AssetRow: React.FC<Props> = ({
     options: SupportedCurrencyOptions,
   });
   const shouldShowDeltaFiat = hasPnl;
+  const isCryptoAmountLoading = !!isPopulateLoading && !isFiatLoading;
 
   const deltaFiatDisplay = showPnlPlaceholder
     ? item.deltaFiat
@@ -189,7 +190,7 @@ const AssetRow: React.FC<Props> = ({
         </AssetName>
         {hideAllBalances ? (
           <AssetAmount>{maskIfHidden(true, item.cryptoAmount)}</AssetAmount>
-        ) : isPopulateLoading ? (
+        ) : isCryptoAmountLoading ? (
           <SkeletonPlaceholder
             backgroundColor={theme.dark ? CharcoalBlack : NeutralSlate}
             highlightColor={theme.dark ? LightBlack : GhostWhite}>
