@@ -1,10 +1,8 @@
 import React, {useMemo} from 'react';
 import {ImageRequireSource} from 'react-native';
-import Clipboard from '@react-native-clipboard/clipboard';
 import {useNavigation} from '@react-navigation/native';
 import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 import styled, {useTheme} from 'styled-components/native';
-import {useTranslation} from 'react-i18next';
 import {TouchableOpacity} from '../../../../components/base/TouchableOpacity';
 import {CurrencyImage} from '../../../../components/currency-image/CurrencyImage';
 import {ActiveOpacity} from '../../../../components/styled/Containers';
@@ -21,10 +19,8 @@ import {
   White,
 } from '../../../../styles/colors';
 import {getDifferenceColor} from '../../../../components/percentage/Percentage';
-import haptic from '../../../../components/haptic-feedback/haptic';
-import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
+import {useAppSelector} from '../../../../utils/hooks';
 import {maskIfHidden} from '../../../../utils/hideBalances';
-import {showBottomNotificationModal} from '../../../../store/app/app.actions';
 import ChevronRightSvg from './ChevronRightSvg';
 import {
   AssetRowItem,
@@ -129,8 +125,6 @@ const AssetRow: React.FC<Props> = ({
 }) => {
   const navigation = useNavigation();
   const theme = useTheme();
-  const {t} = useTranslation();
-  const dispatch = useAppDispatch();
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
   const option = useMemo(() => {
     return findSupportedCurrencyOptionForAsset({
@@ -146,31 +140,6 @@ const AssetRow: React.FC<Props> = ({
     item,
     options: SupportedCurrencyOptions,
   });
-  const canCopyLog = !!item.pnlLog;
-  const isTouchable = canNavigate || canCopyLog;
-
-  const handleLongPress = () => {
-    if (!item.pnlLog) {
-      return;
-    }
-    haptic('impactLight');
-    Clipboard.setString(item.pnlLog);
-    dispatch(
-      showBottomNotificationModal({
-        type: 'success',
-        title: t('Copied!'),
-        message: t('PnL calculation log copied to clipboard'),
-        enableBackdropDismiss: true,
-        actions: [
-          {
-            text: t('OK'),
-            action: () => null,
-            primary: true,
-          },
-        ],
-      }),
-    );
-  };
 
   const handlePress = () => {
     if (!canNavigate || !option) {
@@ -188,10 +157,8 @@ const AssetRow: React.FC<Props> = ({
 
   return (
     <Row
-      activeOpacity={isTouchable ? ActiveOpacity : 1}
+      activeOpacity={canNavigate ? ActiveOpacity : 1}
       isLast={isLast}
-      delayLongPress={canCopyLog ? 10000 : undefined}
-      onLongPress={canCopyLog ? handleLongPress : undefined}
       onPress={canNavigate ? handlePress : undefined}>
       <IconContainer>
         <CurrencyImage

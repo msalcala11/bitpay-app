@@ -54,7 +54,6 @@ export type AssetRowItem = {
   isPositive: boolean;
   hasRate: boolean;
   hasPnl: boolean;
-  pnlLog?: string;
 };
 
 export const sortAssetRowItemsByHasRate = (
@@ -1369,13 +1368,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
   >['points'][number];
 
   let lastPoint: AnalysisPoint | undefined;
-  let analysisError: string | undefined;
-
-  if (!allPnlWallets.length) {
-    analysisError = 'PnL analysis missing snapshot wallets';
-  } else if (!fiatRateSeriesCache) {
-    analysisError = 'Missing fiatRateSeriesCache';
-  } else {
+  if (allPnlWallets.length && fiatRateSeriesCache) {
     try {
       const res = buildPnlAnalysisSeries({
         wallets: allPnlWallets,
@@ -1393,13 +1386,8 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       lastPoint = res.points.length
         ? res.points[res.points.length - 1]
         : undefined;
-      if (!lastPoint) {
-        analysisError = 'PnL analysis returned no points';
-      }
-    } catch (e: unknown) {
-      analysisError = `Failed to build PnL analysis series: ${
-        e instanceof Error ? e.message : String(e)
-      }`;
+    } catch {
+      // Ignore and use fallback per-row rate-derived calculations below.
     }
   }
 
@@ -1415,7 +1403,6 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     pnlRatio: number;
     hasRate: boolean;
     hasPnl: boolean;
-    pnlLog?: string;
   }> = [];
 
   for (const [assetKey, groupWallets] of walletsByAssetKey.entries()) {
@@ -1433,9 +1420,8 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     let pnlRatio = 0;
     let hasRate = false;
     let hasPnl = false;
-    let pnlLog: string | undefined = analysisError;
 
-    if (lastPoint && !analysisError) {
+    if (lastPoint) {
       let basis = 0;
       let hasWalletPoints = false;
 
@@ -1459,9 +1445,6 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
         if (!Number.isFinite(pnlRatio)) {
           pnlRatio = 0;
         }
-        pnlLog = undefined;
-      } else {
-        pnlLog = 'PnL analysis missing wallet points';
       }
     }
 
@@ -1547,7 +1530,6 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       pnlRatio,
       hasRate,
       hasPnl,
-      pnlLog,
     });
   }
 
@@ -1569,7 +1551,6 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       isPositive: r.pnlFiat >= 0,
       hasRate: r.hasRate,
       hasPnl: r.hasPnl,
-      pnlLog: r.pnlLog,
     };
   });
 };

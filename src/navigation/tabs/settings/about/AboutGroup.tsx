@@ -4,7 +4,6 @@ import SessionLogs from './screens/SessionLog';
 import SendFeedback, {SendFeedbackParamList} from './screens/SendFeedback';
 import {useTranslation} from 'react-i18next';
 import StorageUsage from './screens/StorageUsage';
-import RatesDebug from './screens/RatesDebug';
 import PortfolioDebug from './screens/PortfolioDebug';
 import PortfolioWalletDebug from './screens/PortfolioWalletDebug';
 import {Root} from '../../../../Root';
@@ -19,7 +18,6 @@ export type AboutGroupParamList = {
   StorageUsage: undefined;
   SessionLogs: undefined;
   SendFeedback: SendFeedbackParamList | undefined;
-  RatesDebug: undefined;
   PortfolioDebug: undefined;
   PortfolioWalletDebug: {walletId: string};
 };
@@ -28,7 +26,6 @@ export enum AboutScreens {
   STORAGE_USAGE = 'StorageUsage',
   SESSION_LOGS = 'SessionLogs',
   SEND_FEEDBACK = 'SendFeedback',
-  RATES_DEBUG = 'RatesDebug',
   PORTFOLIO_DEBUG = 'PortfolioDebug',
   PORTFOLIO_WALLET_DEBUG = 'PortfolioWalletDebug',
 }
@@ -58,14 +55,6 @@ const AboutGroup = ({About, theme}: AboutProps) => {
         component={SendFeedback}
         options={{
           headerTitle: t('Send Feedback'),
-        }}
-      />
-
-      <About.Screen
-        name={AboutScreens.RATES_DEBUG}
-        component={RatesDebug}
-        options={{
-          headerTitle: t('Rates (Raw)'),
         }}
       />
 

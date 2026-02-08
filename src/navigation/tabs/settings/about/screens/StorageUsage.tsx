@@ -95,12 +95,6 @@ const StorageUsage: React.FC = () => {
     }, windowMs);
   }, []);
 
-  const handleRatesPress = useCallback(() => {
-    runAfterTripleTap(() =>
-      navigation.navigate(AboutScreens.RATES_DEBUG as never),
-    );
-  }, [navigation, runAfterTripleTap]);
-
   const handlePortfolioPress = useCallback(() => {
     runAfterTripleTap(() =>
       navigation.navigate(AboutScreens.PORTFOLIO_DEBUG as never),
@@ -474,7 +468,7 @@ const StorageUsage: React.FC = () => {
           </Setting>
 
           <Hr />
-          <Setting onPress={handleRatesPress}>
+          <Setting>
             <SettingTitle>{t('Rates')}</SettingTitle>
 
             {renderValue(ratesStorage)}
