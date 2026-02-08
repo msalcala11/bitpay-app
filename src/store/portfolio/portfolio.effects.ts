@@ -6,7 +6,7 @@ import {
   BWS_TX_HISTORY_LIMIT,
   GetTransactionHistory,
 } from '../wallet/effects/transactions/transactions';
-import {GetPrecision, IsERCToken} from '../wallet/utils/currency';
+import {GetPrecision} from '../wallet/utils/currency';
 import type {Wallet} from '../wallet/wallet.models';
 import {
   getRateByCurrencyName,
@@ -313,22 +313,10 @@ const applyCostBasisTransition = (args: {
   return costBasisFiat;
 };
 
-const getAssetIdFromWallet = (wallet: Wallet): string => {
-  const chain = (wallet.chain || '').toLowerCase();
-  const coin = (wallet.currencyAbbreviation || '').toLowerCase();
-  if (wallet.tokenAddress) {
-    return `${chain}:${coin}:${wallet.tokenAddress.toLowerCase()}`;
-  }
-  return `${chain}:${coin}`;
-};
-
 const getUtcDayStartMs = (tsMs: number): number => {
   const d = new Date(tsMs);
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 };
-
-const toFiniteNumber = (value: number | undefined): number =>
-  typeof value === 'number' && Number.isFinite(value) ? value : 0;
 
 const normalizeSnapshotTxLinkage = (
   snapshot: BalanceSnapshot,
@@ -385,41 +373,6 @@ const ensureSnapshotsSortedByTimestamp = (
   }
 
   return snapshots;
-};
-
-const buildSnapshotBase = (args: {
-  wallet: Wallet;
-  id: string;
-  timestamp: number;
-  eventType: BalanceSnapshot['eventType'];
-  cryptoBalance: string;
-  avgCostFiatPerUnit: number;
-  remainingCostBasisFiat: number;
-  unrealizedPnlFiat: number;
-  quoteCurrency: string;
-  dayStartMs?: number;
-  direction?: BalanceSnapshot['direction'];
-  costBasisRateFiat?: number;
-  createdAt?: number;
-}): BalanceSnapshot => {
-  return {
-    id: args.id,
-    chain: args.wallet.chain,
-    coin: args.wallet.currencyAbbreviation,
-    network: args.wallet.network,
-    assetId: getAssetIdFromWallet(args.wallet),
-    timestamp: args.timestamp,
-    dayStartMs: args.dayStartMs,
-    eventType: args.eventType,
-    direction: args.direction,
-    cryptoBalance: args.cryptoBalance,
-    avgCostFiatPerUnit: toFiniteNumber(args.avgCostFiatPerUnit),
-    remainingCostBasisFiat: toFiniteNumber(args.remainingCostBasisFiat),
-    unrealizedPnlFiat: toFiniteNumber(args.unrealizedPnlFiat),
-    costBasisRateFiat: args.costBasisRateFiat,
-    quoteCurrency: args.quoteCurrency.toUpperCase(),
-    createdAt: args.createdAt ?? Date.now(),
-  };
 };
 
 export const maybePopulatePortfolioForWallets =
@@ -493,40 +446,6 @@ const getBestRateIntervalForTimestamp = (args: {
   return '3M';
 };
 
-const toSafeIntString = (v: unknown): string => {
-  if (typeof v === 'bigint') {
-    return v.toString();
-  }
-  if (typeof v === 'number') {
-    if (!Number.isFinite(v)) {
-      return '0';
-    }
-    return v.toLocaleString('fullwide', {
-      useGrouping: false,
-      maximumFractionDigits: 0,
-    });
-  }
-  if (typeof v === 'string') {
-    return v;
-  }
-  return '0';
-};
-
-const toBigInt = (v: unknown): bigint => {
-  try {
-    const s = toSafeIntString(v);
-    if (!s) {
-      return 0n;
-    }
-    if (s.includes('.')) {
-      return BigInt(s.split('.')[0]);
-    }
-    return BigInt(s);
-  } catch {
-    return 0n;
-  }
-};
-
 const getWalletBalanceAtomic = (
   wallet: Wallet,
   unitDecimals: number,
@@ -579,76 +498,6 @@ const getTxTimestampMs = (tx: any): number | undefined => {
   // If Date.parse returned ms, n will already be in ms.
   // Otherwise heuristic: treat large values as ms, otherwise seconds.
   return n > 1e12 ? n : n * 1000;
-};
-
-const getTxTokenAmountAtomic = (wallet: Wallet, tx: any): bigint => {
-  const effects = Array.isArray(tx?.effects) ? tx.effects : [];
-  if (!effects.length || !wallet.tokenAddress) {
-    return 0n;
-  }
-  const contract = wallet.tokenAddress.toLowerCase();
-  const isReceived = tx?.action === 'received';
-  const walletAddr = (wallet.receiveAddress || '').toLowerCase();
-
-  return effects
-    .filter((e: any) => {
-      const effectContract = (e?.contractAddress || '').toLowerCase();
-      if (effectContract !== contract) {
-        return false;
-      }
-      if (!walletAddr) {
-        return true;
-      }
-      if (isReceived) {
-        return (e?.to || '').toLowerCase() === walletAddr;
-      }
-      return (e?.from || '').toLowerCase() === walletAddr;
-    })
-    .reduce((acc: bigint, e: any) => {
-      return acc + toBigInt(e?.amount);
-    }, 0n);
-};
-
-const getTxAmountAtomic = (wallet: Wallet, tx: any): bigint => {
-  const isTokenWallet = IsERCToken(wallet.currencyAbbreviation, wallet.chain);
-
-  if (isTokenWallet) {
-    const amtFromEffects = getTxTokenAmountAtomic(wallet, tx);
-    if (amtFromEffects > 0n) {
-      return amtFromEffects;
-    }
-  }
-
-  const outputs = Array.isArray(tx?.outputs) ? tx.outputs : undefined;
-  if (outputs?.length && tx?.action !== 'received') {
-    return outputs
-      .filter((o: any) => o?.address !== 'false')
-      .reduce((acc: bigint, o: any) => acc + toBigInt(o?.amount), 0n);
-  }
-
-  return toBigInt(tx?.amount);
-};
-
-const getTxFeeAtomic = (wallet: Wallet, tx: any): bigint => {
-  const isTokenWallet = IsERCToken(wallet.currencyAbbreviation, wallet.chain);
-  if (isTokenWallet) {
-    return 0n;
-  }
-
-  const gasUsed = tx?.receipt?.gasUsed;
-  const effectiveGasPrice = tx?.receipt?.effectiveGasPrice;
-  if (gasUsed != null && effectiveGasPrice != null) {
-    return toBigInt(gasUsed) * toBigInt(effectiveGasPrice);
-  }
-
-  if (tx?.fee != null) {
-    return toBigInt(tx.fee);
-  }
-  if (tx?.fees != null) {
-    return toBigInt(tx.fees);
-  }
-
-  return 0n;
 };
 
 const getCurrentFiatRateNow = (
