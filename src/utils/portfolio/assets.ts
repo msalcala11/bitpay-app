@@ -1542,7 +1542,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
   rows.sort((a, b) => (b.fiatValue || 0) - (a.fiatValue || 0));
 
   return rows.map(r => {
-    const showPnlPlaceholder = !isTodayGainLoss && !r.hasPnl;
+    const showPnlPlaceholder = !r.hasPnl && (!isTodayGainLoss || !r.hasRate);
 
     return {
       key: r.key,
