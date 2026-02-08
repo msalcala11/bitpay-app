@@ -22,9 +22,7 @@ const getFiatCodeFromSeriesCacheKey = (
   return cacheKey.slice(0, idx).toUpperCase();
 };
 
-const getCoinFromSeriesCacheKey = (
-  cacheKey: string,
-): string | undefined => {
+const getCoinFromSeriesCacheKey = (cacheKey: string): string | undefined => {
   if (!cacheKey || typeof cacheKey !== 'string') {
     return undefined;
   }

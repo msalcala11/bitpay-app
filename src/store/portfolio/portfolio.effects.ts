@@ -630,9 +630,8 @@ export const populatePortfolio =
         wallet.currencyAbbreviation,
       );
       const historicalSupportKey = `${targetQuoteCurrency}:${normalizedRateCoin}`;
-      const cachedHistoricalSupport = hasHistoricalRateSupportByQuoteCoin.get(
-        historicalSupportKey,
-      );
+      const cachedHistoricalSupport =
+        hasHistoricalRateSupportByQuoteCoin.get(historicalSupportKey);
       const hasHistoricalRateSupport =
         typeof cachedHistoricalSupport === 'boolean'
           ? cachedHistoricalSupport

@@ -186,7 +186,9 @@ const AltCurrencySettings = () => {
                 return quote || acc;
               }, '');
               const existingQuoteCurrency = (
-                portfolio.quoteCurrency || inferredSnapshotQuoteCurrency || ''
+                portfolio.quoteCurrency ||
+                inferredSnapshotQuoteCurrency ||
+                ''
               ).toUpperCase();
               const hasExistingSnapshots = Object.values(
                 portfolio.snapshotsByWalletId || {},
