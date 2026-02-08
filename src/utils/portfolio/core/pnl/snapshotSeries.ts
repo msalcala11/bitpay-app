@@ -13,7 +13,7 @@ export type BalanceSnapshotSeries = {
 
   // snapshot rows with only varying fields
   rows: Array<{
-    id: string;
+    i: string; // id
     t: number; // timestamp (ms)
     e: 0 | 1; // 0=tx, 1=daily
     b: string; // cryptoBalance
@@ -75,7 +75,7 @@ export const packBalanceSnapshotsToSeries = (args: {
   for (let i = 0; i < snaps.length; i += 1) {
     const s = snaps[i];
     const row: BalanceSnapshotSeries['rows'][number] = {
-      id: s.id,
+      i: s.id,
       t: toFiniteNumber(s.timestamp, 0),
       e: eventTypeToCode(s.eventType),
       b: s.cryptoBalance,
@@ -112,9 +112,11 @@ export const hydrateBalanceSnapshotsFromSeries = (
   for (const row of series.rows || []) {
     if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
 
-    const {id, t, e, b, c, r, x} = row as Partial<
-      BalanceSnapshotSeries['rows'][number]
-    >;
+    const rowData = row as Partial<BalanceSnapshotSeries['rows'][number]> & {
+      id?: unknown;
+    };
+    const {i, t, e, b, c, r, x} = rowData;
+    const id = typeof i === 'string' ? i : rowData.id;
     if (
       typeof id !== 'string' ||
       typeof b !== 'string' ||
