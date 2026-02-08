@@ -296,7 +296,7 @@ export const transformPortfolioPopulateStatus = createTransform<
 // Persist portfolio snapshots in a compact series format to reduce storage + parse costs.
 const ENABLE_PORTFOLIO_SNAPSHOT_SERIES_PERSIST_COMPRESSION = true;
 
-export const transformPortfolioSnapshotSeriesV1 = createTransform<
+export const transformPortfolioSnapshotSeries = createTransform<
   PortfolioState,
   any
 >(

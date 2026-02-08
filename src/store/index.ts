@@ -26,7 +26,7 @@ import {
   bindWalletKeys,
   transformContacts,
   transformPortfolioPopulateStatus,
-  transformPortfolioSnapshotSeriesV1,
+  transformPortfolioSnapshotSeries,
   encryptSpecificFields,
 } from './transforms/transforms';
 import {appReducer, appReduxPersistBlackList} from './app/app.reducer';
@@ -422,7 +422,7 @@ const getStore = async () => {
       bindWalletKeys,
       transformContacts,
       transformPortfolioPopulateStatus,
-      transformPortfolioSnapshotSeriesV1,
+      transformPortfolioSnapshotSeries,
       createTransform<RootState, RootState, RootState>((inboundState, key) => {
         // Clear out nested blacklisted fields before encrypting and persisting
         if (typeof key === 'string') {
