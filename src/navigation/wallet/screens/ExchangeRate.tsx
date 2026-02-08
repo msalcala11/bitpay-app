@@ -49,7 +49,6 @@ import {
   LinkBlue,
   LuckySevens,
   Midnight,
-  NeutralSlate,
   ProgressBlue,
   Slate,
   Slate10,
@@ -389,19 +388,19 @@ const ScreenContainer = styled.SafeAreaView`
   flex: 1;
 `;
 
-const HeaderRight = styled.View`
-  flex-direction: row;
-  gap: 10px;
-`;
+// const HeaderRight = styled.View`
+//   flex-direction: row;
+//   gap: 10px;
+// `;
 
-const CircleButton = styled(TouchableOpacity)`
-  width: 40px;
-  height: 40px;
-  border-radius: 20px;
-  align-items: center;
-  justify-content: center;
-  background-color: ${({theme}) => (theme.dark ? LightBlack : NeutralSlate)};
-`;
+// const CircleButton = styled(TouchableOpacity)`
+//   width: 40px;
+//   height: 40px;
+//   border-radius: 20px;
+//   align-items: center;
+//   justify-content: center;
+//   background-color: ${({theme}) => (theme.dark ? LightBlack : NeutralSlate)};
+// `;
 
 const HeaderTitleText = styled(HeaderTitle)`
   font-size: 20px;
@@ -642,30 +641,30 @@ const AboutText = styled(BaseText)`
   color: ${({theme: {dark}}) => (dark ? Slate30 : SlateDark)};
 `;
 
-const RightIconSvg = ({type}: {type: 'star' | 'bell'}) => {
-  const theme = useTheme();
-  const fill = theme.dark ? Slate30 : SlateDark;
+// const RightIconSvg = ({type}: {type: 'star' | 'bell'}) => {
+//   const theme = useTheme();
+//   const fill = theme.dark ? Slate30 : SlateDark;
 
-  if (type === 'star') {
-    return (
-      <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-        <Path
-          d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27Z"
-          fill={fill}
-        />
-      </Svg>
-    );
-  }
+//   if (type === 'star') {
+//     return (
+//       <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+//         <Path
+//           d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27Z"
+//           fill={fill}
+//         />
+//       </Svg>
+//     );
+//   }
 
-  return (
-    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2Zm6-6V11c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5S10.5 3.17 10.5 4v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2Z"
-        fill={fill}
-      />
-    </Svg>
-  );
-};
+//   return (
+//     <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+//       <Path
+//         d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2Zm6-6V11c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5S10.5 3.17 10.5 4v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2Z"
+//         fill={fill}
+//       />
+//     </Svg>
+//   );
+// };
 
 const ChartSelectionDot = ({
   isActive,
