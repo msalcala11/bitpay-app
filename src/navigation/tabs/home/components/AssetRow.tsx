@@ -142,6 +142,7 @@ const AssetRow: React.FC<Props> = ({
     item,
     options: SupportedCurrencyOptions,
   });
+  const shouldShowDeltaFiat = canNavigate || !showPnlPlaceholder;
 
   const deltaFiatDisplay = showPnlPlaceholder
     ? item.deltaFiat
@@ -212,13 +213,15 @@ const AssetRow: React.FC<Props> = ({
                 <FiatAmount>
                   {hasRate ? maskIfHidden(true, fiatAmountDisplay) : '—'}
                 </FiatAmount>
-                <DeltaFiat isPositive={item.isPositive} hasPnl={hasPnl}>
-                  {showPnlPlaceholder
-                    ? deltaFiatDisplay
-                    : hasPnl
-                    ? maskIfHidden(true, deltaFiatDisplay)
-                    : '—'}
-                </DeltaFiat>
+                {shouldShowDeltaFiat ? (
+                  <DeltaFiat isPositive={item.isPositive} hasPnl={hasPnl}>
+                    {showPnlPlaceholder
+                      ? deltaFiatDisplay
+                      : hasPnl
+                      ? maskIfHidden(true, deltaFiatDisplay)
+                      : '—'}
+                  </DeltaFiat>
+                ) : null}
               </>
             ) : (isFiatLoading || isPopulateLoading) && !showPnlPlaceholder ? (
               <SkeletonPlaceholder
@@ -228,20 +231,24 @@ const AssetRow: React.FC<Props> = ({
                   width={72}
                   height={12}
                   borderRadius={2}
-                  marginBottom={6}
+                  marginBottom={shouldShowDeltaFiat ? 6 : 0}
                 />
-                <SkeletonPlaceholder.Item
-                  width={54}
-                  height={12}
-                  borderRadius={2}
-                />
+                {shouldShowDeltaFiat ? (
+                  <SkeletonPlaceholder.Item
+                    width={54}
+                    height={12}
+                    borderRadius={2}
+                  />
+                ) : null}
               </SkeletonPlaceholder>
             ) : (
               <>
                 <FiatAmount>{fiatAmountDisplay}</FiatAmount>
-                <DeltaFiat isPositive={item.isPositive} hasPnl={hasPnl}>
-                  {deltaFiatDisplay}
-                </DeltaFiat>
+                {shouldShowDeltaFiat ? (
+                  <DeltaFiat isPositive={item.isPositive} hasPnl={hasPnl}>
+                    {deltaFiatDisplay}
+                  </DeltaFiat>
+                ) : null}
               </>
             )}
           </Values>
