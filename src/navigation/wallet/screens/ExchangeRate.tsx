@@ -64,8 +64,6 @@ import {
   buildUIFormattedWallet,
   isCacheKeyStale,
 } from '../../../store/wallet/utils/wallet';
-import type {Wallet} from '../../../store/wallet/wallet.models';
-import type {Key} from '../../../store/wallet/wallet.models';
 import type {RootState} from '../../../store';
 import {
   calculatePercentageDifference,
@@ -1085,7 +1083,6 @@ const ExchangeRate = () => {
     hasWalletsForAsset,
     normalizedCoin,
     selectedFiatCodeUpper,
-    selectedTimeframe,
     seriesDataInterval,
   ]);
 
