@@ -56,12 +56,10 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
     return buildWalletIdsByAssetGroupKey(wallets);
   }, [wallets]);
 
-  const quoteCurrency = useMemo(() => {
-    return getQuoteCurrency({
-      portfolioQuoteCurrency: portfolio.quoteCurrency,
-      defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
-    });
-  }, [defaultAltCurrency?.isoCode, portfolio.quoteCurrency]);
+  const quoteCurrency = getQuoteCurrency({
+    portfolioQuoteCurrency: portfolio.quoteCurrency,
+    defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
+  });
 
   const isFiatLoading = useMemo(() => {
     return isFiatLoadingForWallets({
@@ -108,7 +106,7 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
     if (portfolio.populateStatus?.inProgress) {
       return;
     }
-    setIsPopulateLoadingByKey(prev => (prev ? undefined : prev));
+    setIsPopulateLoadingByKey(undefined);
   }, [portfolio.populateStatus?.inProgress]);
 
   useEffect(() => {

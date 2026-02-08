@@ -191,7 +191,8 @@ const PortfolioBalance = () => {
                 currencyDisplay: 'symbol',
               })}
             </PortfolioBalanceText>
-            {percentageDifference ? (
+            {percentageDifference !== null &&
+            percentageDifference !== undefined ? (
               <PercentageWrapper>
                 <Percentage
                   percentageDifference={percentageDifference}

@@ -11,10 +11,6 @@ import {ActiveOpacity} from '../../../../components/styled/Containers';
 import {BaseText, H7} from '../../../../components/styled/Text';
 import {SupportedCurrencyOptions} from '../../../../constants/SupportedCurrencyOptions';
 import {
-  BitpaySupportedCoins,
-  BitpaySupportedTokens,
-} from '../../../../constants/currencies';
-import {
   CharcoalBlack,
   GhostWhite,
   LightBlack,
@@ -29,10 +25,10 @@ import haptic from '../../../../components/haptic-feedback/haptic';
 import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
 import {maskIfHidden} from '../../../../utils/hideBalances';
 import {showBottomNotificationModal} from '../../../../store/app/app.actions';
-import {getCurrencyAbbreviation} from '../../../../utils/helper-methods';
 import ChevronRightSvg from './ChevronRightSvg';
 import {
   AssetRowItem,
+  canNavigateToExchangeRateForAssetRowItem,
   findSupportedCurrencyOptionForAsset,
 } from '../../../../utils/assets';
 
@@ -86,13 +82,13 @@ const FiatAmount = styled(BaseText)`
   color: ${({theme}) => theme.colors.text};
 `;
 
-const DeltaFiat = styled(BaseText)<{isPositive: boolean}>`
+const DeltaFiat = styled(BaseText)<{isPositive: boolean; hasPnl: boolean}>`
   font-size: 13px;
   font-style: normal;
   font-weight: 400;
   line-height: 20px;
-  color: ${({theme: {dark}, isPositive}) =>
-    getDifferenceColor(isPositive, dark)};
+  color: ${({theme: {dark}, isPositive, hasPnl}) =>
+    hasPnl ? getDifferenceColor(isPositive, dark) : dark ? Slate30 : SlateDark};
 `;
 
 const PercentPill = styled.View`
@@ -103,13 +99,13 @@ const PercentPill = styled.View`
   margin-right: 14px;
 `;
 
-const PercentText = styled(BaseText)<{isPositive: boolean}>`
+const PercentText = styled(BaseText)<{isPositive: boolean; hasPnl: boolean}>`
   font-size: 13px;
   font-style: normal;
   font-weight: 400;
   line-height: 20px;
-  color: ${({theme: {dark}, isPositive}) =>
-    getDifferenceColor(isPositive, dark)};
+  color: ${({theme: {dark}, isPositive, hasPnl}) =>
+    hasPnl ? getDifferenceColor(isPositive, dark) : dark ? Slate30 : SlateDark};
 `;
 
 const ChevronContainer = styled.View<{visible: boolean}>`
@@ -145,38 +141,11 @@ const AssetRow: React.FC<Props> = ({
     });
   }, [item.chain, item.currencyAbbreviation, item.tokenAddress]);
   const hasRate = !!item.hasRate;
-  const isExactSupportedMatch = useMemo(() => {
-    if (!option) {
-      return false;
-    }
-    return (
-      option.currencyAbbreviation.toLowerCase() ===
-        item.currencyAbbreviation.toLowerCase() &&
-      option.chain.toLowerCase() === item.chain.toLowerCase() &&
-      (option.tokenAddress || '').toLowerCase() ===
-        (item.tokenAddress || '').toLowerCase()
-    );
-  }, [
-    item.chain,
-    item.currencyAbbreviation,
-    item.tokenAddress,
-    option,
-  ]);
-  const isStableCoin = useMemo(() => {
-    if (!option) {
-      return false;
-    }
-    const currencyName = getCurrencyAbbreviation(
-      option.tokenAddress ? option.tokenAddress : option.currencyAbbreviation,
-      option.chain,
-    );
-    return !!(
-      BitpaySupportedCoins[currencyName]?.properties?.isStableCoin ||
-      BitpaySupportedTokens[currencyName]?.properties?.isStableCoin
-    );
-  }, [option]);
-  const canNavigate =
-    hasRate && isExactSupportedMatch && !!option && !isStableCoin;
+  const hasPnl = !!item.hasPnl;
+  const canNavigate = canNavigateToExchangeRateForAssetRowItem({
+    item,
+    options: SupportedCurrencyOptions,
+  });
   const canCopyLog = !!item.pnlLog;
   const isTouchable = canNavigate || canCopyLog;
 
@@ -259,8 +228,8 @@ const AssetRow: React.FC<Props> = ({
             {hideAllBalances ? (
               <>
                 <FiatAmount>{maskIfHidden(true, item.fiatAmount)}</FiatAmount>
-                <DeltaFiat isPositive={item.isPositive}>
-                  {maskIfHidden(true, item.deltaFiat)}
+                <DeltaFiat isPositive={item.isPositive} hasPnl={hasPnl}>
+                  {hasPnl ? maskIfHidden(true, item.deltaFiat) : '—'}
                 </DeltaFiat>
               </>
             ) : isFiatLoading || isPopulateLoading ? (
@@ -282,8 +251,8 @@ const AssetRow: React.FC<Props> = ({
             ) : (
               <>
                 <FiatAmount>{item.fiatAmount}</FiatAmount>
-                <DeltaFiat isPositive={item.isPositive}>
-                  {item.deltaFiat}
+                <DeltaFiat isPositive={item.isPositive} hasPnl={hasPnl}>
+                  {hasPnl ? item.deltaFiat : '—'}
                 </DeltaFiat>
               </>
             )}
@@ -301,8 +270,8 @@ const AssetRow: React.FC<Props> = ({
                 />
               </SkeletonPlaceholder>
             ) : (
-              <PercentText isPositive={item.isPositive}>
-                {item.deltaPercent}
+              <PercentText isPositive={item.isPositive} hasPnl={hasPnl}>
+                {hasPnl ? item.deltaPercent : '—'}
               </PercentText>
             )}
           </PercentPill>

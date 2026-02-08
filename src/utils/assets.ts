@@ -55,6 +55,7 @@ export type AssetRowItem = {
   deltaPercent: string;
   isPositive: boolean;
   hasRate: boolean;
+  hasPnl: boolean;
   pnlLog?: string;
 };
 
@@ -77,19 +78,46 @@ export const sortAssetRowItemsByHasRate = (
   return withRate.concat(withoutRate);
 };
 
-export const isStableCoinAssetRowItem = (args: {
+type AssetRowItemSupportInfo = {
+  option: SupportedCurrencyOption | undefined;
+  isExactMatch: boolean;
+  isStable: boolean;
+};
+
+const isExactSupportedOptionMatchForAssetRowItem = (args: {
   item: AssetRowItem;
-  options: SupportedCurrencyOption[];
+  option: SupportedCurrencyOption;
 }): boolean => {
-  return getAssetRowItemSupportInfo(args).isStable;
+  return (
+    (args.option.currencyAbbreviation || '').toLowerCase() ===
+      (args.item.currencyAbbreviation || '').toLowerCase() &&
+    (args.option.chain || '').toLowerCase() ===
+      (args.item.chain || '').toLowerCase() &&
+    (args.option.tokenAddress || '').toLowerCase() ===
+      (args.item.tokenAddress || '').toLowerCase()
+  );
+};
+
+const canNavigateToExchangeRateForAssetRowItemWithSupportInfo = (args: {
+  item: AssetRowItem;
+  supportInfo: AssetRowItemSupportInfo;
+}): boolean => {
+  return (
+    !!args.supportInfo.option &&
+    !!args.item.hasRate &&
+    args.supportInfo.isExactMatch &&
+    !args.supportInfo.isStable
+  );
 };
 
 export const canNavigateToExchangeRateForAssetRowItem = (args: {
   item: AssetRowItem;
   options: SupportedCurrencyOption[];
 }): boolean => {
-  const {option, isStable} = getAssetRowItemSupportInfo(args);
-  return !isStable && !!option && !!args.item.hasRate;
+  return canNavigateToExchangeRateForAssetRowItemWithSupportInfo({
+    item: args.item,
+    supportInfo: getAssetRowItemSupportInfo(args),
+  });
 };
 
 export const getDisplayAssetRowItems = (args: {
@@ -100,12 +128,16 @@ export const getDisplayAssetRowItems = (args: {
   const visible =
     args.gainLossMode === 'ALL'
       ? (args.items || []).filter(item => {
-          const {option, isStable} = getAssetRowItemSupportInfo({
+          const supportInfo = getAssetRowItemSupportInfo({
             item,
             options: args.options,
           });
-          const canNavigate = !!option && !!item.hasRate && !isStable;
-          return isStable || canNavigate;
+          const canNavigate =
+            canNavigateToExchangeRateForAssetRowItemWithSupportInfo({
+              item,
+              supportInfo,
+            });
+          return supportInfo.isStable || canNavigate;
         })
       : args.items;
 
@@ -115,7 +147,7 @@ export const getDisplayAssetRowItems = (args: {
 const getAssetRowItemSupportInfo = (args: {
   item: AssetRowItem;
   options: SupportedCurrencyOption[];
-}): {option: SupportedCurrencyOption | undefined; isStable: boolean} => {
+}): AssetRowItemSupportInfo => {
   const option = findSupportedCurrencyOptionForAsset({
     options: args.options,
     currencyAbbreviation: args.item.currencyAbbreviation,
@@ -124,7 +156,15 @@ const getAssetRowItemSupportInfo = (args: {
   });
 
   if (!option) {
-    return {option: undefined, isStable: false};
+    return {option: undefined, isExactMatch: false, isStable: false};
+  }
+
+  const isExactMatch = isExactSupportedOptionMatchForAssetRowItem({
+    item: args.item,
+    option,
+  });
+  if (!isExactMatch) {
+    return {option, isExactMatch: false, isStable: false};
   }
 
   const currencyName = getCurrencyAbbreviation(
@@ -136,7 +176,7 @@ const getAssetRowItemSupportInfo = (args: {
     BitpaySupportedCoins[currencyName]?.properties?.isStableCoin ||
     BitpaySupportedTokens[currencyName]?.properties?.isStableCoin;
 
-  return {option, isStable: !!isStable};
+  return {option, isExactMatch: true, isStable: !!isStable};
 };
 
 const toNumber = (v: unknown): number => {
@@ -1248,6 +1288,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     pnlFiat: number;
     pnlRatio: number;
     hasRate: boolean;
+    hasPnl: boolean;
     pnlLog?: string;
   }> = [];
 
@@ -1282,6 +1323,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     let pnlFiat = 0;
     let pnlRatio = 0;
     let hasRate = false;
+    let hasPnl = false;
     let pnlLog: string | undefined;
 
     try {
@@ -1323,9 +1365,11 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
         pnlFiat = last.totalUnrealizedPnlFiat;
         pnlRatio = (last.totalPnlPercent || 0) / 100;
         hasRate = true;
+        hasPnl = true;
       }
     } catch (e: any) {
       hasRate = false;
+      hasPnl = false;
       pnlLog = String(e?.message || e);
     }
 
@@ -1384,6 +1428,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       pnlFiat,
       pnlRatio,
       hasRate,
+      hasPnl,
       pnlLog,
     });
   }
@@ -1405,6 +1450,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       deltaPercent: formatDeltaPercent(r.pnlRatio),
       isPositive: r.pnlFiat >= 0,
       hasRate: r.hasRate,
+      hasPnl: r.hasPnl,
       pnlLog: r.pnlLog,
     };
   });
