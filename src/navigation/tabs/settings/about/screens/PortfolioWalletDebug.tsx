@@ -241,11 +241,10 @@ const extractTxIdFromSnapshotIdForDebug = (
   if (typeof snapshotId !== 'string') {
     return null;
   }
-  const parts = snapshotId.split(':');
-  if (parts.length < 3 || parts[0] !== 'tx') {
+  if (!snapshotId.startsWith('tx:')) {
     return null;
   }
-  const txid = parts.slice(2).join(':').trim();
+  const txid = snapshotId.slice(3).trim();
   return txid || null;
 };
 
