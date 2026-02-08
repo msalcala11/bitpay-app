@@ -1266,7 +1266,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     };
   };
 
-  // Group wallets by asset key.
+  // Group wallets by asset key (display grouping).
   const walletsByAssetKey = new Map<string, Wallet[]>();
   for (const w of args.wallets || []) {
     if ((w as any)?.network !== Network.mainnet) continue;
@@ -1275,6 +1275,103 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     const list = walletsByAssetKey.get(info.key) || [];
     list.push(w);
     walletsByAssetKey.set(info.key, list);
+  }
+
+  if (!walletsByAssetKey.size) {
+    return [];
+  }
+
+  // Precompute representative wallet per asset key and build analysis wallets once.
+  const repWalletByAssetKey = new Map<string, Wallet>();
+  const coinByAssetKey = new Map<string, string>();
+  const allPnlWallets: WalletForAnalysis[] = [];
+  const seenPnlWalletIds = new Set<string>();
+
+  const currentRatesByCoin: Record<string, number> = {};
+
+  for (const [assetKey, groupWallets] of walletsByAssetKey.entries()) {
+    const first = groupWallets[0];
+    const coin = String(
+      (first as any)?.currencyAbbreviation || '',
+    ).toLowerCase();
+    if (!coin) {
+      continue;
+    }
+
+    // For collapsed views (e.g. ETH across multiple EVM networks), prefer the L1/base-chain
+    // wallet as the representative so icons + metadata resolve consistently.
+    const repWallet = args.collapseAcrossChains
+      ? groupWallets.find(
+          w =>
+            String((w as any)?.chain || '').toLowerCase() === coin &&
+            !(w as any)?.tokenAddress,
+        ) || first
+      : first;
+
+    repWalletByAssetKey.set(assetKey, repWallet);
+    coinByAssetKey.set(assetKey, coin);
+
+    const normCoin = normalizeCoinForPnlRates(coin);
+    if (!(normCoin in currentRatesByCoin)) {
+      const currentRate = getQuoteRateNumForAsset({
+        rates: args.rates,
+        quoteCurrency,
+        coin,
+        chain: String((repWallet as any)?.chain || coin),
+        tokenAddress: (repWallet as any)?.tokenAddress,
+      });
+      if (currentRate > 0) {
+        currentRatesByCoin[normCoin] = currentRate;
+      }
+    }
+
+    for (const w of groupWallets) {
+      const pw = toPnlWallet(w);
+      if (!pw) continue;
+      if (seenPnlWalletIds.has(pw.walletId)) continue;
+      seenPnlWalletIds.add(pw.walletId);
+      allPnlWallets.push(pw);
+    }
+  }
+
+  if (!allPnlWallets.length) {
+    return [];
+  }
+
+  type AnalysisPoint =
+    ReturnType<typeof buildPnlAnalysisSeries>['points'][number];
+
+  let lastPoint: AnalysisPoint | undefined;
+  let analysisError: string | undefined;
+
+  if (!fiatRateSeriesCache) {
+    analysisError = 'Missing fiatRateSeriesCache';
+  } else {
+    try {
+      const res = buildPnlAnalysisSeries({
+        wallets: allPnlWallets,
+        timeframe: timeframe as any,
+        quoteCurrency,
+        fiatRateSeriesCache: fiatRateSeriesCache as any,
+        currentRatesByCoin:
+          Object.keys(currentRatesByCoin).length > 0
+            ? currentRatesByCoin
+            : undefined,
+        nowMs,
+        maxPoints: 2,
+      });
+
+      lastPoint = res.points.length
+        ? res.points[res.points.length - 1]
+        : undefined;
+      if (!lastPoint) {
+        analysisError = 'PnL analysis returned no points';
+      }
+    } catch (e: unknown) {
+      analysisError = `Failed to build PnL analysis series: ${
+        e instanceof Error ? e.message : String(e)
+      }`;
+    }
   }
 
   const rows: Array<{
@@ -1293,84 +1390,50 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
   }> = [];
 
   for (const [assetKey, groupWallets] of walletsByAssetKey.entries()) {
-    const first = groupWallets[0];
-    const coin = String(
-      (first as any)?.currencyAbbreviation || '',
-    ).toLowerCase();
-    if (!coin) continue;
-
-    // For collapsed views (e.g. ETH across multiple EVM networks), prefer the L1/base-chain
-    // wallet as the representative so icons + metadata resolve consistently.
-    const repWallet = args.collapseAcrossChains
-      ? groupWallets.find(
-          w =>
-            String((w as any)?.chain || '').toLowerCase() === coin &&
-            !(w as any)?.tokenAddress,
-        ) || first
-      : first;
-
-    // Build analysis wallets (skip wallets without snapshots).
-    const pnlWallets: WalletForAnalysis[] = [];
-    for (const w of groupWallets) {
-      const pw = toPnlWallet(w);
-      if (pw) pnlWallets.push(pw);
+    const repWallet = repWalletByAssetKey.get(assetKey) || groupWallets[0];
+    const coin =
+      coinByAssetKey.get(assetKey) ||
+      String((repWallet as any)?.currencyAbbreviation || '').toLowerCase();
+    if (!coin) {
+      continue;
     }
-    if (!pnlWallets.length) continue;
 
-    // Compute end-of-interval metrics via the same series builder the harness uses.
-    // (We only need the endpoints here, so we request 2 points for speed.)
+    // Aggregate per-wallet PnL stats from the last point of the *single* analysis series.
     let fiatValue = 0;
     let pnlFiat = 0;
     let pnlRatio = 0;
     let hasRate = false;
     let hasPnl = false;
-    let pnlLog: string | undefined;
+    let pnlLog: string | undefined = analysisError;
 
-    try {
-      if (!fiatRateSeriesCache) {
-        throw new Error('Missing fiatRateSeriesCache');
+    if (lastPoint && !analysisError) {
+      let basis = 0;
+      let hasWalletPoints = false;
+
+      for (const w of groupWallets) {
+        const wid = String((w as any)?.id || '');
+        if (!wid) continue;
+
+        const wp = (lastPoint as any).byWalletId?.[wid] as any;
+        if (!wp) continue;
+
+        hasWalletPoints = true;
+        fiatValue += toNumber(wp.fiatBalance);
+        pnlFiat += toNumber(wp.unrealizedPnlFiat);
+        basis += toNumber(wp.remainingCostBasisFiat);
       }
 
-      // Match ExchangeRate.tsx behavior: it uses a "currentRate" override sourced from
-      // the app's live Rates/market stats. When there are no transactions in an interval,
-      // this makes the asset PnL% match the rate % change exactly.
-      const currentRate = getQuoteRateNumForAsset({
-        rates: args.rates,
-        quoteCurrency,
-        coin,
-        chain: String((repWallet as any)?.chain || coin),
-        tokenAddress: (repWallet as any)?.tokenAddress,
-      });
-      const currentRatesByCoin =
-        currentRate > 0
-          ? {
-              [normalizeCoinForPnlRates(coin)]: currentRate,
-            }
-          : undefined;
-
-      const res = buildPnlAnalysisSeries({
-        wallets: pnlWallets,
-        timeframe: timeframe as any,
-        quoteCurrency,
-        fiatRateSeriesCache: fiatRateSeriesCache as any,
-        currentRatesByCoin,
-        nowMs,
-        maxPoints: 2,
-      });
-
-      const pts = res.points;
-      const last = pts.length ? pts[pts.length - 1] : undefined;
-      if (last) {
-        fiatValue = last.totalFiatBalance;
-        pnlFiat = last.totalUnrealizedPnlFiat;
-        pnlRatio = (last.totalPnlPercent || 0) / 100;
+      if (hasWalletPoints) {
         hasRate = true;
         hasPnl = true;
+        pnlRatio = basis > 0 ? pnlFiat / basis : 0;
+        if (!Number.isFinite(pnlRatio)) {
+          pnlRatio = 0;
+        }
+        pnlLog = undefined;
+      } else {
+        pnlLog = 'PnL analysis missing wallet points';
       }
-    } catch (e: any) {
-      hasRate = false;
-      hasPnl = false;
-      pnlLog = String(e?.message || e);
     }
 
     // Prefer latest snapshots for displayed holdings, independent of rate-series window.
@@ -1455,6 +1518,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     };
   });
 };
+
 
 export const getPopulateLoadingByAssetKey = (args: {
   items: Array<{key: string}>;
