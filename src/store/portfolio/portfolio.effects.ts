@@ -362,7 +362,8 @@ const ensureSnapshotsSortedByTimestamp = (
   }
 
   const getTimestamp = (snapshot: BalanceSnapshot): number =>
-    typeof snapshot?.timestamp === 'number' && Number.isFinite(snapshot.timestamp)
+    typeof snapshot?.timestamp === 'number' &&
+    Number.isFinite(snapshot.timestamp)
       ? snapshot.timestamp
       : 0;
 

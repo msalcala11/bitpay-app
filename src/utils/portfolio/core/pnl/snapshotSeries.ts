@@ -65,12 +65,11 @@ export const packBalanceSnapshotsToSeries = (args: {
     snaps[snaps.length - 1].createdAt,
     Number.NaN,
   );
-  const createdAt =
-    Number.isFinite(explicitCreatedAt)
-      ? explicitCreatedAt
-      : Number.isFinite(latestCreatedAt)
-      ? latestCreatedAt
-      : Date.now();
+  const createdAt = Number.isFinite(explicitCreatedAt)
+    ? explicitCreatedAt
+    : Number.isFinite(latestCreatedAt)
+    ? latestCreatedAt
+    : Date.now();
 
   const rows = new Array<BalanceSnapshotSeries['rows'][number]>(snaps.length);
   for (let i = 0; i < snaps.length; i += 1) {
@@ -116,7 +115,11 @@ export const hydrateBalanceSnapshotsFromSeries = (
     const {id, t, e, b, c, r, x} = row as Partial<
       BalanceSnapshotSeries['rows'][number]
     >;
-    if (typeof id !== 'string' || typeof b !== 'string' || !isEventTypeCode(e)) {
+    if (
+      typeof id !== 'string' ||
+      typeof b !== 'string' ||
+      !isEventTypeCode(e)
+    ) {
       continue;
     }
 
@@ -153,7 +156,7 @@ export const hydrateBalanceSnapshotsFromSeries = (
       if (
         Array.isArray(x) &&
         x.length &&
-        x.every((txId) => typeof txId === 'string')
+        x.every(txId => typeof txId === 'string')
       ) {
         snap.txIds = x.slice();
       }

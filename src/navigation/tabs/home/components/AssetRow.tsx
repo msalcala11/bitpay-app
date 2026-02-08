@@ -179,7 +179,8 @@ const AssetRow: React.FC<Props> = ({
 
     (navigation as any).navigate('ExchangeRate', {
       currencyName: option.currencyName || item.name,
-      currencyAbbreviation: option.currencyAbbreviation || item.currencyAbbreviation,
+      currencyAbbreviation:
+        option.currencyAbbreviation || item.currencyAbbreviation,
       chain: option.chain || item.chain,
       tokenAddress: option.tokenAddress || item.tokenAddress,
     });

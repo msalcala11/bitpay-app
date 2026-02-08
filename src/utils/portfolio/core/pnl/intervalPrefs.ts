@@ -1,10 +1,20 @@
 import type {FiatRateInterval} from '../fiatRateSeries';
 
-const ORDER: readonly FiatRateInterval[] = ['1D', '1W', '1M', '3M', '1Y', '5Y', 'ALL'];
+const ORDER: readonly FiatRateInterval[] = [
+  '1D',
+  '1W',
+  '1M',
+  '3M',
+  '1Y',
+  '5Y',
+  'ALL',
+];
 
 const makePref = (start: FiatRateInterval): readonly FiatRateInterval[] => {
   const i = ORDER.indexOf(start);
-  return i < 0 ? ORDER : [start, ...ORDER.slice(i + 1), ...ORDER.slice(0, i).reverse()];
+  return i < 0
+    ? ORDER
+    : [start, ...ORDER.slice(i + 1), ...ORDER.slice(0, i).reverse()];
 };
 
 export const PREF_1D: readonly FiatRateInterval[] = makePref('1D');

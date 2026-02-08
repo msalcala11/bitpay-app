@@ -999,7 +999,8 @@ const createSimulationSetup = (
   feeOverrides?: Map<string, bigint> | null,
 ): SimulationSetup => {
   const {quoteCurrency, fiatRateSeriesCache, latestSnapshot = null} = args;
-  const {coin, nowMs, applyFeesToBalance, walletEvmAddresses, decimals} = prepared;
+  const {coin, nowMs, applyFeesToBalance, walletEvmAddresses, decimals} =
+    prepared;
 
   const state: SimulationState = {
     balanceAtomic: latestSnapshot
@@ -1070,7 +1071,9 @@ const createSimulationSetup = (
       amountOut > state.balanceAtomic ? state.balanceAtomic : amountOut;
     const ratio = safeRatioToNumber(dispose, state.balanceAtomic); // proportion of units disposed
     state.remainingCostBasisFiat -= state.remainingCostBasisFiat * ratio;
-    state.remainingCostBasisFiat = clampNonNegative(state.remainingCostBasisFiat);
+    state.remainingCostBasisFiat = clampNonNegative(
+      state.remainingCostBasisFiat,
+    );
 
     state.balanceAtomic -= dispose;
     if (state.balanceAtomic === 0n) {
@@ -1424,7 +1427,9 @@ const computeFeeOverridesFromAnchorBalance = (params: {
   try {
     const raw = walletBalanceAtomicString;
     const input: string | number | bigint =
-      typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'bigint'
+      typeof raw === 'string' ||
+      typeof raw === 'number' ||
+      typeof raw === 'bigint'
         ? raw
         : raw == null
         ? ''
@@ -1533,13 +1538,9 @@ export async function buildBalanceSnapshotsAsync(
     walletBalanceAtomicString: (args.wallet as any)?.balanceAtomic,
   });
   if (overrides) {
-    return (await simulateSnapshotsAsync(
-      args,
-      prepared,
-      overrides,
-      false,
-      asyncOpts,
-    )).out;
+    return (
+      await simulateSnapshotsAsync(args, prepared, overrides, false, asyncOpts)
+    ).out;
   }
 
   return first.out;

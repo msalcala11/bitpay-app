@@ -198,9 +198,15 @@ function getRatePointsFromCache(args: {
     args;
 
   // Ensure the requested seriesInterval is attempted first (e.g. 3M/1Y/5Y use ALL).
-  const firstKey = getFiatRateSeriesCacheKey(quoteCurrency, coin, seriesInterval);
+  const firstKey = getFiatRateSeriesCacheKey(
+    quoteCurrency,
+    coin,
+    seriesInterval,
+  );
   const firstSeries = fiatRateSeriesCache?.[firstKey];
-  const firstPoints = Array.isArray(firstSeries?.points) ? firstSeries.points : [];
+  const firstPoints = Array.isArray(firstSeries?.points)
+    ? firstSeries.points
+    : [];
   if (firstPoints.length) {
     return firstPoints;
   }

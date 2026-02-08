@@ -18,9 +18,7 @@ import {
   BitpaySupportedTokens,
 } from '../../constants/currencies';
 import {tokenManager} from '../../managers/TokenManager';
-import {
-  getFiatRateBaselineTsForTimeframe,
-} from './rate';
+import {getFiatRateBaselineTsForTimeframe} from './rate';
 import {
   formatCurrencyAbbreviation,
   formatFiatAmount,
@@ -456,7 +454,12 @@ export const findSupportedCurrencyOptionForAsset = (args: {
     }
 
     const optTokenLower = (o.tokenAddress || '').toLowerCase();
-    if (tokenLower && !byTokenAddress && !!optTokenLower && optTokenLower === tokenLower) {
+    if (
+      tokenLower &&
+      !byTokenAddress &&
+      !!optTokenLower &&
+      optTokenLower === tokenLower
+    ) {
       byTokenAddress = o;
     }
 
@@ -488,7 +491,9 @@ const ensureSortedSnapshots = (
   if (arr.length < 2) return arr;
   for (let i = 1; i < arr.length; i++) {
     if ((arr[i]?.timestamp || 0) < (arr[i - 1]?.timestamp || 0)) {
-      return arr.slice().sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      return arr
+        .slice()
+        .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
     }
   }
   return arr;
@@ -505,7 +510,9 @@ const mapSnapshotsToStored = (args: {
   fallbackAssetIdToWalletIdentity: boolean;
 }): BalanceSnapshotStored[] => {
   const tokenAddress = (args.wallet as any)?.tokenAddress as string | undefined;
-  const tokenAddressLower = tokenAddress ? tokenAddress.toLowerCase() : undefined;
+  const tokenAddressLower = tokenAddress
+    ? tokenAddress.toLowerCase()
+    : undefined;
 
   return args.snapshots.map(s => {
     const snapshotChain = String(
@@ -544,7 +551,9 @@ const mapSnapshotsToStored = (args: {
         args.unitDecimals,
       ).toString(),
       remainingCostBasisFiat: Number((s as any)?.remainingCostBasisFiat || 0),
-      quoteCurrency: String((s as any)?.quoteCurrency || args.fallbackQuoteCurrency),
+      quoteCurrency: String(
+        (s as any)?.quoteCurrency || args.fallbackQuoteCurrency,
+      ),
       markRate,
       createdAt:
         typeof (s as any)?.createdAt === 'number'
@@ -1025,7 +1034,9 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
     const coin = String((w as any)?.currencyAbbreviation || '').toLowerCase();
     if (!walletId || !coin) continue;
 
-    const appSnaps = ensureSortedSnapshots(args.snapshotsByWalletId?.[walletId]);
+    const appSnaps = ensureSortedSnapshots(
+      args.snapshotsByWalletId?.[walletId],
+    );
     if (!appSnaps.length) continue;
 
     const unitInfo = getWalletUnitInfo(w);
@@ -1061,7 +1072,9 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
 
     pnlWallets.push({
       walletId,
-      walletName: String((w as any)?.walletName || (w as any)?.name || walletId),
+      walletName: String(
+        (w as any)?.walletName || (w as any)?.name || walletId,
+      ),
       currencyAbbreviation: coin,
       credentials,
       snapshots: snaps,
@@ -1109,7 +1122,9 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
     });
   }
 
-  const last = res.points.length ? res.points[res.points.length - 1] : undefined;
+  const last = res.points.length
+    ? res.points[res.points.length - 1]
+    : undefined;
   if (!last) {
     return zeroResult({
       available: false,
@@ -1129,8 +1144,18 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
 
 export type PortfolioGainLossSummary = {
   quoteCurrency: string;
-  total: {deltaFiat: number; percentRatio: number; available: boolean; error?: string};
-  today: {deltaFiat: number; percentRatio: number; available: boolean; error?: string};
+  total: {
+    deltaFiat: number;
+    percentRatio: number;
+    available: boolean;
+    error?: string;
+  };
+  today: {
+    deltaFiat: number;
+    percentRatio: number;
+    available: boolean;
+    error?: string;
+  };
 };
 
 export const buildPortfolioGainLossSummaryFromPortfolioSnapshots = (args: {
@@ -1339,8 +1364,9 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     return [];
   }
 
-  type AnalysisPoint =
-    ReturnType<typeof buildPnlAnalysisSeries>['points'][number];
+  type AnalysisPoint = ReturnType<
+    typeof buildPnlAnalysisSeries
+  >['points'][number];
 
   let lastPoint: AnalysisPoint | undefined;
   let analysisError: string | undefined;
@@ -1547,7 +1573,6 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     };
   });
 };
-
 
 export const getPopulateLoadingByAssetKey = (args: {
   items: Array<{key: string}>;

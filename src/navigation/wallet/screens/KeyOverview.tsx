@@ -1221,7 +1221,9 @@ const KeyOverview = () => {
                     ) : null}
                     <AllocationColumn
                       style={
-                        allTimeGainLossText !== null ? {paddingLeft: 12} : undefined
+                        allTimeGainLossText !== null
+                          ? {paddingLeft: 12}
+                          : undefined
                       }>
                       <AllocationLabel style={{textAlign: 'right'}}>
                         Today's Gain / Loss ($)
