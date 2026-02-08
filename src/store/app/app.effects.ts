@@ -51,6 +51,7 @@ import {
 } from '../wallet/effects';
 import {
   populatePortfolio,
+  recalculatePortfolioFiatFields,
   setSnapshotBalanceMismatchesByWalletIdUpdates,
 } from '../portfolio';
 import {
@@ -73,7 +74,10 @@ import {
   findWalletByIdHashed,
   getAllWalletClients,
 } from '../wallet/utils/wallet';
-import {getWalletIdsToPopulateFromSnapshots} from '../../utils/assets';
+import {
+  getWalletIdsToPopulateFromSnapshots,
+  isFiatLoadingForWallets,
+} from '../../utils/assets';
 import {navigationRef, RootStacks, SilentPushEventObj} from '../../Root';
 import {
   startUpdateAllKeyAndWalletStatus,
@@ -334,6 +338,17 @@ export const startAppInit = (): Effect => async (dispatch, getState) => {
               snapshotBalanceMismatchUpdates,
             ),
           );
+        }
+
+        const hasFiatLoading = isFiatLoadingForWallets({
+          quoteCurrency,
+          wallets,
+          snapshotsByWalletId,
+        });
+
+        if (hasFiatLoading) {
+          dispatch(recalculatePortfolioFiatFields({quoteCurrency}));
+          return;
         }
 
         if (walletIdsToPopulate.length) {
