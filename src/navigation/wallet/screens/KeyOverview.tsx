@@ -542,6 +542,9 @@ const KeyOverview = () => {
       defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
     });
   }, [defaultAltCurrency?.isoCode, portfolio.quoteCurrency]);
+  const populateQuoteCurrency = useMemo(() => {
+    return portfolio.quoteCurrency || quoteCurrency;
+  }, [portfolio.quoteCurrency, quoteCurrency]);
 
   const keyWalletIdsSig = useMemo(() => {
     return (key?.wallets || [])
@@ -558,10 +561,10 @@ const KeyOverview = () => {
     dispatch(
       maybePopulatePortfolioForWallets({
         wallets: key?.wallets || [],
-        quoteCurrency,
+        quoteCurrency: populateQuoteCurrency,
       }) as any,
     );
-  }, [dispatch, isFocused, keyWalletIdsSig, quoteCurrency]);
+  }, [dispatch, isFocused, keyWalletIdsSig, populateQuoteCurrency]);
 
   const isKeyPopulateLoading = useMemo(() => {
     return isPopulateLoadingForWallets({

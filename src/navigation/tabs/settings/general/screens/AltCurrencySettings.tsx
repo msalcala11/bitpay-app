@@ -35,7 +35,6 @@ import {
   cancelPopulatePortfolio,
   clearPortfolio,
   populatePortfolio,
-  recalculatePortfolioFiatFields,
 } from '../../../../../store/portfolio';
 import {useTranslation} from 'react-i18next';
 import {coinbaseInitialize} from '../../../../../store/coinbase';
@@ -190,10 +189,6 @@ const AltCurrencySettings = () => {
                 hasExistingSnapshots &&
                 isQuoteCurrencyChange &&
                 isPopulateInProgress;
-              const shouldRecalculatePortfolio =
-                hasExistingSnapshots &&
-                isQuoteCurrencyChange &&
-                !isPopulateInProgress;
 
               if (shouldRestartPopulate) {
                 dispatch(cancelPopulatePortfolio());
@@ -223,16 +218,6 @@ const AltCurrencySettings = () => {
                   );
                 });
                 return;
-              }
-
-              if (shouldRecalculatePortfolio) {
-                InteractionManager.runAfterInteractions(() => {
-                  dispatch(
-                    recalculatePortfolioFiatFields({
-                      quoteCurrency: item.isoCode,
-                    }),
-                  );
-                });
               }
             }}
           />
