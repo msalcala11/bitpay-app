@@ -865,10 +865,10 @@ const getCurrencySymbol = (isoCode: string): string | undefined => {
 const formatUnavailableDeltaFiat = (quoteCurrency: string): string => {
   const code = (quoteCurrency || '').toUpperCase() || 'USD';
   const symbol = getCurrencySymbol(code);
-  return symbol ? `${symbol}--.--` : `--.-- ${code}`;
+  return symbol ? `—` : `—`;
 };
 
-const UNAVAILABLE_DELTA_PERCENT = '+--.-%';
+const UNAVAILABLE_DELTA_PERCENT = '—— %';
 
 const buildWalletByIdMap = (
   wallets: Wallet[] | undefined,
