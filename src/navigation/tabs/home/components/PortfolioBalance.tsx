@@ -24,7 +24,7 @@ import {
   getPercentageDifferenceFromPercentRatio,
   getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots,
   hasSnapshotsForWallets,
-} from '../../../../utils/assets';
+} from '../../../../utils/portfolio/assets';
 import type {Wallet} from '../../../../store/wallet/wallet.models';
 
 const PortfolioContainer = styled.View`

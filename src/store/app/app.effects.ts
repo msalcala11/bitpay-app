@@ -77,7 +77,7 @@ import {
 import {
   getWalletIdsToPopulateFromSnapshots,
   isFiatLoadingForWallets,
-} from '../../utils/assets';
+} from '../../utils/portfolio/assets';
 import {navigationRef, RootStacks, SilentPushEventObj} from '../../Root';
 import {
   startUpdateAllKeyAndWalletStatus,

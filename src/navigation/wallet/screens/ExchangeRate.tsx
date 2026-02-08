@@ -76,12 +76,12 @@ import {
 import {
   findSupportedCurrencyOptionForAsset,
   getVisibleWalletsFromKeys,
-} from '../../../utils/assets';
+} from '../../../utils/portfolio/assets';
 import {
   downsampleSeries,
   getFiatRateChangeForTimeframe,
-} from '../../../utils/rate';
-import {normalizeFiatRateSeriesCoin} from '../../../core/pnl/rates';
+} from '../../../utils/portfolio/rate';
+import {normalizeFiatRateSeriesCoin} from '../../../utils/portfolio/core/pnl/rates';
 import {findIndex, maxBy, minBy} from 'lodash';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {

@@ -64,7 +64,7 @@ import {
   hasSnapshotsBeforeMsForWallets,
   hasSnapshotsForWallets,
   isPopulateLoadingForWallets,
-} from '../../../../utils/assets';
+} from '../../../../utils/portfolio/assets';
 import {COINBASE_ENV} from '../../../../api/coinbase/coinbase.constants';
 import {WrongPasswordError} from '../../../wallet/components/ErrorMessages';
 import {useTranslation} from 'react-i18next';

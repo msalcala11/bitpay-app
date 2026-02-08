@@ -30,7 +30,7 @@ import {
   AssetRowItem,
   canNavigateToExchangeRateForAssetRowItem,
   findSupportedCurrencyOptionForAsset,
-} from '../../../../utils/assets';
+} from '../../../../utils/portfolio/assets';
 
 const Row = styled(TouchableOpacity)<{isLast: boolean}>`
   flex-direction: row;

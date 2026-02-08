@@ -12,7 +12,7 @@ import {
   White,
 } from '../../../../styles/colors';
 import ChevronDown from './ChevronDown';
-import type {GainLossMode} from '../../../../utils/assets';
+import type {GainLossMode} from '../../../../utils/portfolio/assets';
 
 const Container = styled(TouchableOpacity)<{height?: number}>`
   flex-direction: row;

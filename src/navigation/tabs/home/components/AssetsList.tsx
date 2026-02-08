@@ -2,7 +2,7 @@ import React from 'react';
 import styled from 'styled-components/native';
 import {ScreenGutter} from '../../../../components/styled/Containers';
 import AssetRow from './AssetRow';
-import {AssetRowItem} from '../../../../utils/assets';
+import {AssetRowItem} from '../../../../utils/portfolio/assets';
 
 const List = styled.View`
   margin: 10px ${ScreenGutter} 10px;

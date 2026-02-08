@@ -28,8 +28,8 @@ import {
   hydrateBalanceSnapshotsFromSeries,
   isBalanceSnapshotSeries,
   packBalanceSnapshotsToSeries,
-} from '../../core/pnl/snapshotSeries';
-import type {BalanceSnapshotStored} from '../../core/pnl/types';
+} from '../../utils/portfolio/core/pnl/snapshotSeries';
+import type {BalanceSnapshotStored} from '../../utils/portfolio/core/pnl/types';
 
 const getUtcDayStartMs = (tsMs: number): number => {
   const d = new Date(tsMs);

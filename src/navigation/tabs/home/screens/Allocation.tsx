@@ -19,8 +19,8 @@ import {
   buildAllocationDataFromWalletRows,
   type AllocationWallet,
   toAllocationWallet,
-} from '../../../../utils/allocation';
-import {getVisibleWalletsFromKeys} from '../../../../utils/assets';
+} from '../../../../utils/portfolio/allocation';
+import {getVisibleWalletsFromKeys} from '../../../../utils/portfolio/assets';
 import {LightBlack, Slate30, SlateDark} from '../../../../styles/colors';
 import {maskIfHidden} from '../../../../utils/hideBalances';
 

@@ -26,7 +26,7 @@ import {
   BitpaySupportedTokens,
 } from '../../../../../constants/currencies';
 import {getCurrencyAbbreviation} from '../../../../../utils/helper-methods';
-import {getLatestSnapshot} from '../../../../../utils/assets';
+import {getLatestSnapshot} from '../../../../../utils/portfolio/assets';
 import {Network} from '../../../../../constants';
 
 type PortfolioDebugScreenProps = NativeStackScreenProps<

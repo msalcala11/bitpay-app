@@ -5,7 +5,7 @@ import {ScreenGutter} from '../../../../components/styled/Containers';
 import Button from '../../../../components/button/Button';
 import {HomeSectionTitle} from './Styled';
 import AssetsList from './AssetsList';
-import {GainLossMode} from '../../../../utils/assets';
+import {GainLossMode} from '../../../../utils/portfolio/assets';
 import AssetsGainLossDropdown from './AssetsGainLossDropdown';
 import {useAppSelector} from '../../../../utils/hooks';
 import usePortfolioAssetRows from '../hooks/usePortfolioAssetRows';

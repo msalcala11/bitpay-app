@@ -18,11 +18,11 @@ import {
 import {
   buildBalanceSnapshotsAsync,
   computeBalanceSnapshotComputed,
-} from '../../core/pnl/snapshots';
-import {normalizeFiatRateSeriesCoin} from '../../core/pnl/rates';
-import type {BalanceSnapshotStored} from '../../core/pnl/types';
-import {getLatestSnapshot} from '../../utils/assets';
-import {getFiatRateFromSeriesCacheAtTimestamp} from '../../utils/rate';
+} from '../../utils/portfolio/core/pnl/snapshots';
+import {normalizeFiatRateSeriesCoin} from '../../utils/portfolio/core/pnl/rates';
+import type {BalanceSnapshotStored} from '../../utils/portfolio/core/pnl/types';
+import {getLatestSnapshot} from '../../utils/portfolio/assets';
+import {getFiatRateFromSeriesCacheAtTimestamp} from '../../utils/portfolio/rate';
 import {
   finishPopulatePortfolio,
   setSnapshotBalanceMismatchesByWalletIdUpdates,
@@ -39,7 +39,7 @@ import {
   getWalletIdsToPopulateFromSnapshots,
   getSnapshotAtomicBalanceFromCryptoBalance,
   getWalletLiveAtomicBalance,
-} from '../../utils/assets';
+} from '../../utils/portfolio/assets';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const NINETY_DAYS_MS = 90 * MS_PER_DAY;

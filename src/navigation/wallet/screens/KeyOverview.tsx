@@ -134,7 +134,7 @@ import {HomeSectionTitle} from '../../tabs/home/components/Styled';
 import {
   buildAllocationDataFromWalletRows,
   type AllocationWallet,
-} from '../../../utils/allocation';
+} from '../../../utils/portfolio/allocation';
 import {isTSSKey} from '../../../store/wallet/effects/tss-send/tss-send';
 import {
   buildPortfolioGainLossSummaryFromPortfolioSnapshots,
@@ -146,7 +146,7 @@ import {
   getLegacyPercentageDifferenceFromTotals,
   getKeyLastDayPercentageDifference,
   getPercentageDifferenceFromPercentRatio,
-} from '../../../utils/assets';
+} from '../../../utils/portfolio/assets';
 import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
 
 LogBox.ignoreLogs([

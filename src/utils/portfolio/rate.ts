@@ -2,10 +2,10 @@ import type {
   FiatRateInterval,
   FiatRatePoint,
   FiatRateSeriesCache,
-} from '../store/rate/rate.models';
-import {getFiatRateSeriesCacheKey} from '../store/rate/rate.models';
-import {normalizeFiatRateSeriesCoin} from '../core/pnl/rates';
-import {getLastDayTimestampStartOfHourMs} from './helper-methods';
+} from '../../store/rate/rate.models';
+import {getFiatRateSeriesCacheKey} from '../../store/rate/rate.models';
+import {normalizeFiatRateSeriesCoin} from './core/pnl/rates';
+import {getLastDayTimestampStartOfHourMs} from '../helper-methods';
 
 export type RatePoint = {
   ts: number;

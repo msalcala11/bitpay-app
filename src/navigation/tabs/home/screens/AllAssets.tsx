@@ -15,7 +15,7 @@ import AssetsList from '../components/AssetsList';
 import {
   findSupportedCurrencyOptionForAsset,
   GainLossMode,
-} from '../../../../utils/assets';
+} from '../../../../utils/portfolio/assets';
 import {
   BitpaySupportedCoins,
   BitpaySupportedTokens,

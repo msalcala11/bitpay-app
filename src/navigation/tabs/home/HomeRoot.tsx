@@ -35,7 +35,7 @@ import {
   getLastDayTimestampStartOfHourMs,
   sleep,
 } from '../../../utils/helper-methods';
-import {getFiatRateFromSeriesCacheAtTimestamp} from '../../../utils/rate';
+import {getFiatRateFromSeriesCacheAtTimestamp} from '../../../utils/portfolio/rate';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {BalanceUpdateError} from '../../wallet/components/ErrorMessages';
 import Crypto from './components/Crypto';
@@ -75,11 +75,11 @@ import SecurePasskeyBanner from './components/SecurePasskeyBanner';
 import DefaultMarketingCards from './components/DefaultMarketingCards';
 import AllocationSection from './components/AllocationSection';
 import AssetsSection from './components/AssetsSection';
-import {getPortfolioAllocationTotalFiat} from '../../../utils/allocation';
+import {getPortfolioAllocationTotalFiat} from '../../../utils/portfolio/allocation';
 import type {Key, Wallet} from '../../../store/wallet/wallet.models';
 import type {Rate, Rates} from '../../../store/rate/rate.models';
 import {getCoinAndChainFromCurrencyCode} from '../../bitpay-id/utils/bitpay-id-utils';
-import {getVisibleWalletsFromKeys} from '../../../utils/assets';
+import {getVisibleWalletsFromKeys} from '../../../utils/portfolio/assets';
 
 export type HomeScreenProps = NativeStackScreenProps<
   TabsStackParamList,

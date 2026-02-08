@@ -18,8 +18,8 @@ import {
   buildAllocationDataFromWalletRows,
   type AllocationWallet,
   toAllocationWallet,
-} from '../../../../utils/allocation';
-import {getVisibleWalletsFromKeys} from '../../../../utils/assets';
+} from '../../../../utils/portfolio/allocation';
+import {getVisibleWalletsFromKeys} from '../../../../utils/portfolio/assets';
 import {
   Black,
   CharcoalBlack,

@@ -12,7 +12,7 @@ import {
   getQuoteCurrency,
   getVisibleWalletsFromKeys,
   isFiatLoadingForWallets,
-} from '../../../../utils/assets';
+} from '../../../../utils/portfolio/assets';
 import {useAppSelector} from '../../../../utils/hooks';
 
 type Args = {

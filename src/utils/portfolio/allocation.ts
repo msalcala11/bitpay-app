@@ -1,9 +1,9 @@
-import type {WalletRowProps} from '../components/list/WalletRow';
-import {formatFiatAmount} from './helper-methods';
-import type {Key, Wallet} from '../store/wallet/wallet.models';
-import type {HomeCarouselConfig} from '../store/app/app.models';
-import {Slate, SlateDark} from '../styles/colors';
-import {BitpaySupportedCoins} from '../constants/currencies';
+import type {WalletRowProps} from '../../components/list/WalletRow';
+import {formatFiatAmount} from '../helper-methods';
+import type {Key, Wallet} from '../../store/wallet/wallet.models';
+import type {HomeCarouselConfig} from '../../store/app/app.models';
+import {Slate, SlateDark} from '../../styles/colors';
+import {BitpaySupportedCoins} from '../../constants/currencies';
 import {getVisibleWalletsFromKeys} from './assets';
 
 type AllocationAsset = {
