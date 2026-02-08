@@ -136,10 +136,24 @@ const AssetRow: React.FC<Props> = ({
   }, [item.chain, item.currencyAbbreviation, item.tokenAddress]);
   const hasRate = !!item.hasRate;
   const hasPnl = !!item.hasPnl;
+  const showPnlPlaceholder = !!item.showPnlPlaceholder;
+  const shouldShowRightSide = hasRate || showPnlPlaceholder;
   const canNavigate = canNavigateToExchangeRateForAssetRowItem({
     item,
     options: SupportedCurrencyOptions,
   });
+
+  const deltaFiatDisplay = showPnlPlaceholder
+    ? item.deltaFiat
+    : hasPnl
+    ? item.deltaFiat
+    : '—';
+  const deltaPercentDisplay = showPnlPlaceholder
+    ? item.deltaPercent
+    : hasPnl
+    ? item.deltaPercent
+    : '—';
+  const fiatAmountDisplay = hasRate ? item.fiatAmount : '—';
 
   const handlePress = () => {
     if (!canNavigate || !option) {
@@ -190,17 +204,23 @@ const AssetRow: React.FC<Props> = ({
         )}
       </AssetInfo>
 
-      {hasRate ? (
+      {shouldShowRightSide ? (
         <>
           <Values>
             {hideAllBalances ? (
               <>
-                <FiatAmount>{maskIfHidden(true, item.fiatAmount)}</FiatAmount>
+                <FiatAmount>
+                  {hasRate ? maskIfHidden(true, fiatAmountDisplay) : '—'}
+                </FiatAmount>
                 <DeltaFiat isPositive={item.isPositive} hasPnl={hasPnl}>
-                  {hasPnl ? maskIfHidden(true, item.deltaFiat) : '—'}
+                  {showPnlPlaceholder
+                    ? deltaFiatDisplay
+                    : hasPnl
+                    ? maskIfHidden(true, deltaFiatDisplay)
+                    : '—'}
                 </DeltaFiat>
               </>
-            ) : isFiatLoading || isPopulateLoading ? (
+            ) : (isFiatLoading || isPopulateLoading) && !showPnlPlaceholder ? (
               <SkeletonPlaceholder
                 backgroundColor={theme.dark ? CharcoalBlack : NeutralSlate}
                 highlightColor={theme.dark ? LightBlack : GhostWhite}>
@@ -218,16 +238,16 @@ const AssetRow: React.FC<Props> = ({
               </SkeletonPlaceholder>
             ) : (
               <>
-                <FiatAmount>{item.fiatAmount}</FiatAmount>
+                <FiatAmount>{fiatAmountDisplay}</FiatAmount>
                 <DeltaFiat isPositive={item.isPositive} hasPnl={hasPnl}>
-                  {hasPnl ? item.deltaFiat : '—'}
+                  {deltaFiatDisplay}
                 </DeltaFiat>
               </>
             )}
           </Values>
 
           <PercentPill>
-            {isFiatLoading || isPopulateLoading ? (
+            {(isFiatLoading || isPopulateLoading) && !showPnlPlaceholder ? (
               <SkeletonPlaceholder
                 backgroundColor={theme.dark ? CharcoalBlack : NeutralSlate}
                 highlightColor={theme.dark ? LightBlack : GhostWhite}>
@@ -239,7 +259,7 @@ const AssetRow: React.FC<Props> = ({
               </SkeletonPlaceholder>
             ) : (
               <PercentText isPositive={item.isPositive} hasPnl={hasPnl}>
-                {hasPnl ? item.deltaPercent : '—'}
+                {deltaPercentDisplay}
               </PercentText>
             )}
           </PercentPill>

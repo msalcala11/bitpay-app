@@ -54,6 +54,7 @@ export type AssetRowItem = {
   isPositive: boolean;
   hasRate: boolean;
   hasPnl: boolean;
+  showPnlPlaceholder?: boolean;
 };
 
 export const sortAssetRowItemsByHasRate = (
@@ -122,23 +123,7 @@ export const getDisplayAssetRowItems = (args: {
   gainLossMode: GainLossMode;
   options: SupportedCurrencyOption[];
 }): AssetRowItem[] => {
-  const visible =
-    args.gainLossMode === 'ALL'
-      ? (args.items || []).filter(item => {
-          const supportInfo = getAssetRowItemSupportInfo({
-            item,
-            options: args.options,
-          });
-          const canNavigate =
-            canNavigateToExchangeRateForAssetRowItemWithSupportInfo({
-              item,
-              supportInfo,
-            });
-          return supportInfo.isStable || canNavigate;
-        })
-      : args.items;
-
-  return sortAssetRowItemsByHasRate(visible);
+  return sortAssetRowItemsByHasRate(args.items || []);
 };
 
 const getAssetRowItemSupportInfo = (args: {
@@ -857,6 +842,34 @@ const formatDeltaPercent = (ratio: number): string => {
   return `${prefix}${abs.toFixed(1)}%`;
 };
 
+const getCurrencySymbol = (isoCode: string): string | undefined => {
+  try {
+    const formatted = (0)
+      .toLocaleString('en-US', {
+        style: 'currency',
+        currency: isoCode,
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      })
+      .replace(/\d/g, '')
+      .trim();
+    if (!formatted || formatted.toUpperCase() === isoCode.toUpperCase()) {
+      return undefined;
+    }
+    return formatted;
+  } catch {
+    return undefined;
+  }
+};
+
+const formatUnavailableDeltaFiat = (quoteCurrency: string): string => {
+  const code = (quoteCurrency || '').toUpperCase() || 'USD';
+  const symbol = getCurrencySymbol(code);
+  return symbol ? `${symbol}--.--` : `--.-- ${code}`;
+};
+
+const UNAVAILABLE_DELTA_PERCENT = '+--.-%';
+
 const buildWalletByIdMap = (
   wallets: Wallet[] | undefined,
 ): Map<string, Wallet> => {
@@ -1359,10 +1372,6 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     }
   }
 
-  if (!allPnlWallets.length && !isTodayGainLoss) {
-    return [];
-  }
-
   type AnalysisPoint = ReturnType<
     typeof buildPnlAnalysisSeries
   >['points'][number];
@@ -1458,9 +1467,6 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       try {
         const walletUnitDecimals = getWalletUnitInfo(w).unitDecimals;
         if (!latest) {
-          if (!isTodayGainLoss) {
-            continue;
-          }
           totalAtomic += getWalletLiveAtomicBalance({
             wallet: w,
             unitDecimals: walletUnitDecimals,
@@ -1536,6 +1542,8 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
   rows.sort((a, b) => (b.fiatValue || 0) - (a.fiatValue || 0));
 
   return rows.map(r => {
+    const showPnlPlaceholder = !isTodayGainLoss && !r.hasPnl;
+
     return {
       key: r.key,
       currencyAbbreviation: r.coin,
@@ -1546,11 +1554,16 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       fiatAmount: formatFiatAmount(r.fiatValue, quoteCurrency, {
         customPrecision: 'minimal',
       }),
-      deltaFiat: formatDeltaFiat(r.pnlFiat, quoteCurrency),
-      deltaPercent: formatDeltaPercent(r.pnlRatio),
+      deltaFiat: showPnlPlaceholder
+        ? formatUnavailableDeltaFiat(quoteCurrency)
+        : formatDeltaFiat(r.pnlFiat, quoteCurrency),
+      deltaPercent: showPnlPlaceholder
+        ? UNAVAILABLE_DELTA_PERCENT
+        : formatDeltaPercent(r.pnlRatio),
       isPositive: r.pnlFiat >= 0,
       hasRate: r.hasRate,
       hasPnl: r.hasPnl,
+      showPnlPlaceholder,
     };
   });
 };
