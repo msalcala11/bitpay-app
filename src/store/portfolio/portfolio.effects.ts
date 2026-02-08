@@ -1,6 +1,10 @@
 import {Effect, RootState} from '..';
 import {Network} from '../../constants';
-import {type FiatRateInterval, type Rates} from '../rate/rate.models';
+import {
+  getFiatRateSeriesCacheKey,
+  type FiatRateInterval,
+  type Rates,
+} from '../rate/rate.models';
 import {fetchFiatRateSeriesInterval, startGetRates} from '../wallet/effects';
 import {
   BWS_TX_HISTORY_LIMIT,
@@ -439,11 +443,23 @@ export const maybePopulatePortfolioForWallets =
       return;
     }
 
-    if (walletIdsToPopulate.length) {
+    const rates = (state.RATE?.rates || {}) as Rates;
+    const walletsById = new Map(
+      walletsScope.map(w => [String(w?.id || ''), w] as const),
+    );
+    const walletIdsWithCurrentRates = walletIdsToPopulate.filter(walletId => {
+      const wallet = walletsById.get(walletId);
+      if (!wallet) {
+        return false;
+      }
+      return getCurrentFiatRateNow(rates, wallet, quoteCurrency) > 0;
+    });
+
+    if (walletIdsWithCurrentRates.length) {
       dispatch(
         populatePortfolio({
           quoteCurrency,
-          walletIds: walletIdsToPopulate,
+          walletIds: walletIdsWithCurrentRates,
         }) as any,
       );
     }
@@ -603,6 +619,57 @@ const ensureRateSeriesForTimestamp = async (args: {
   return interval;
 };
 
+const hasFiatRateSeriesPointsInCache = (args: {
+  getState: () => RootState;
+  fiatCode: string;
+  currencyAbbreviation: string;
+  interval: FiatRateInterval;
+}): boolean => {
+  const fiatCode = (args.fiatCode || '').toUpperCase();
+  const coin = normalizeFiatRateSeriesCoin(args.currencyAbbreviation);
+  const cacheKey = getFiatRateSeriesCacheKey(fiatCode, coin, args.interval);
+  const series = args.getState().RATE?.fiatRateSeriesCache?.[cacheKey];
+  return Array.isArray(series?.points) && series.points.length > 0;
+};
+
+const ensureWalletHasHistoricalFiatRates = async (args: {
+  dispatch: any;
+  getState: () => RootState;
+  loadedIntervals: Set<string>;
+  fiatCode: string;
+  currencyAbbreviation: string;
+}): Promise<boolean> => {
+  if (
+    hasFiatRateSeriesPointsInCache({
+      getState: args.getState,
+      fiatCode: args.fiatCode,
+      currencyAbbreviation: args.currencyAbbreviation,
+      interval: 'ALL',
+    })
+  ) {
+    return true;
+  }
+
+  try {
+    await ensureFiatRateSeriesIntervalOnce({
+      dispatch: args.dispatch,
+      loadedIntervals: args.loadedIntervals,
+      fiatCode: args.fiatCode,
+      currencyAbbreviation: args.currencyAbbreviation,
+      interval: 'ALL',
+    });
+  } catch {
+    return false;
+  }
+
+  return hasFiatRateSeriesPointsInCache({
+    getState: args.getState,
+    fiatCode: args.fiatCode,
+    currencyAbbreviation: args.currencyAbbreviation,
+    interval: 'ALL',
+  });
+};
+
 const getHistoricFiatRateFromCache = (args: {
   getState: () => RootState;
   fiatCode: string;
@@ -714,6 +781,7 @@ export const populatePortfolio =
     let walletsCompleted = 0;
     let txRequestsMade = 0;
     let txsProcessed = 0;
+    const hasHistoricalRateSupportByQuoteCoin = new Map<string, boolean>();
 
     const bumpTxRequestsMade = () => {
       txRequestsMade++;
@@ -788,11 +856,50 @@ export const populatePortfolio =
         );
 
         if (!currentFiatRateNow) {
-          addPopulateError({
+          setWalletStatus({dispatch, walletId: wallet.id, status: 'done'});
+          walletsCompleted = updateWalletsCompleted({
             dispatch,
-            walletId: wallet.id,
-            message: `Missing current rate for ${wallet.currencyAbbreviation}`,
+            walletsCompleted,
+            txRequestsMade,
+            txsProcessed,
           });
+          return;
+        }
+
+        const loadedIntervals = new Set<string>();
+        const normalizedRateCoin = normalizeFiatRateSeriesCoin(
+          wallet.currencyAbbreviation,
+        );
+        const historicalSupportKey = `${targetQuoteCurrency}:${normalizedRateCoin}`;
+        const cachedHistoricalSupport =
+          hasHistoricalRateSupportByQuoteCoin.get(historicalSupportKey);
+        const hasHistoricalRateSupport =
+          typeof cachedHistoricalSupport === 'boolean'
+            ? cachedHistoricalSupport
+            : await ensureWalletHasHistoricalFiatRates({
+                dispatch,
+                getState,
+                loadedIntervals,
+                fiatCode: targetQuoteCurrency,
+                currencyAbbreviation: wallet.currencyAbbreviation,
+              });
+
+        if (typeof cachedHistoricalSupport !== 'boolean') {
+          hasHistoricalRateSupportByQuoteCoin.set(
+            historicalSupportKey,
+            hasHistoricalRateSupport,
+          );
+        }
+
+        if (!hasHistoricalRateSupport) {
+          setWalletStatus({dispatch, walletId: wallet.id, status: 'done'});
+          walletsCompleted = updateWalletsCompleted({
+            dispatch,
+            walletsCompleted,
+            txRequestsMade,
+            txsProcessed,
+          });
+          return;
         }
 
         let loadMore = true;
@@ -972,7 +1079,6 @@ export const populatePortfolio =
         }
 
         // Fetch any fiat rate series intervals we’ll need for tx timestamps.
-        const loadedIntervals = new Set<string>();
         const nowMs = nowMsForMissingTs;
         const neededIntervals = new Set<FiatRateInterval>();
         for (const tx of txsToProcess) {
