@@ -451,7 +451,14 @@ const getStore = async () => {
             ),
           );
         },
-        unencryptedStores: ['APP', 'PORTFOLIO', 'RATE', 'SHOP', 'SHOP_CATALOG', 'WALLET'],
+        unencryptedStores: [
+          'APP',
+          'PORTFOLIO',
+          'RATE',
+          'SHOP',
+          'SHOP_CATALOG',
+          'WALLET',
+        ],
       }),
     ],
   };

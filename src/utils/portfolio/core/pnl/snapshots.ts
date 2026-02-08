@@ -1204,9 +1204,7 @@ const buildSnapshotForGroup = (
   const id =
     eventType === 'tx'
       ? `tx:${txIds[0] ?? timestamp}`
-      : `daily:${utcDayKeyFromIndex(
-          group.dayIdx ?? utcDayIndex(timestamp),
-        )}`;
+      : `daily:${utcDayKeyFromIndex(group.dayIdx ?? utcDayIndex(timestamp))}`;
 
   return {
     id,

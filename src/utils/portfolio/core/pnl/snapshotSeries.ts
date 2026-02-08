@@ -126,10 +126,7 @@ export const hydrateBalanceSnapshotsFromSeries = (
     const {i, t, b, c, r, x} = row as Partial<
       BalanceSnapshotSeries['rows'][number]
     >;
-    if (
-      typeof b !== 'string' ||
-      (i !== undefined && typeof i !== 'string')
-    ) {
+    if (typeof b !== 'string' || (i !== undefined && typeof i !== 'string')) {
       continue;
     }
 
