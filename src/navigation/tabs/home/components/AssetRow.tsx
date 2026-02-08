@@ -142,7 +142,7 @@ const AssetRow: React.FC<Props> = ({
     item,
     options: SupportedCurrencyOptions,
   });
-  const shouldShowDeltaFiat = canNavigate || !showPnlPlaceholder;
+  const shouldShowDeltaFiat = hasPnl;
 
   const deltaFiatDisplay = showPnlPlaceholder
     ? item.deltaFiat
