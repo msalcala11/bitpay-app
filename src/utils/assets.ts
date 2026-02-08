@@ -1195,6 +1195,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
   const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
   const quoteCurrency = (args.quoteCurrency || 'USD').toUpperCase();
   const timeframe = args.gainLossMode;
+  const isTodayGainLoss = timeframe === '1D';
   const fiatRateSeriesCache = args.fiatRateSeriesCache;
 
   const getAssetKey = (w: Wallet): {key: string; coin: string} | null => {
@@ -1334,7 +1335,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     }
   }
 
-  if (!allPnlWallets.length) {
+  if (!allPnlWallets.length && !isTodayGainLoss) {
     return [];
   }
 
@@ -1344,7 +1345,9 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
   let lastPoint: AnalysisPoint | undefined;
   let analysisError: string | undefined;
 
-  if (!fiatRateSeriesCache) {
+  if (!allPnlWallets.length) {
+    analysisError = 'PnL analysis missing snapshot wallets';
+  } else if (!fiatRateSeriesCache) {
     analysisError = 'Missing fiatRateSeriesCache';
   } else {
     try {
@@ -1443,9 +1446,18 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       const wid = String((w as any)?.id || '');
       const snaps = ensureSortedSnapshots(args.snapshotsByWalletId?.[wid]);
       const latest = getLatestSnapshot(snaps);
-      if (!latest) continue;
       try {
         const walletUnitDecimals = getWalletUnitInfo(w).unitDecimals;
+        if (!latest) {
+          if (!isTodayGainLoss) {
+            continue;
+          }
+          totalAtomic += getWalletLiveAtomicBalance({
+            wallet: w,
+            unitDecimals: walletUnitDecimals,
+          });
+          continue;
+        }
         const latestCrypto =
           typeof (latest as any)?.cryptoBalance === 'string'
             ? (latest as any).cryptoBalance
@@ -1468,10 +1480,27 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       chain: String((repWallet as any)?.chain || coin),
       tokenAddress: (repWallet as any)?.tokenAddress,
     });
+    const units = Number(atomicToUnitString(totalAtomic, repUnitDecimals));
+    const unitsForDisplay = Number.isFinite(units) ? units : 0;
     if (currentRateForDisplay > 0) {
-      const units = Number(atomicToUnitString(totalAtomic, repUnitDecimals));
-      fiatValue = (Number.isFinite(units) ? units : 0) * currentRateForDisplay;
+      fiatValue = unitsForDisplay * currentRateForDisplay;
       hasRate = true;
+    }
+
+    if (isTodayGainLoss && !hasPnl && currentRateForDisplay > 0) {
+      const lastDayRateForDisplay = getQuoteRateNumForAsset({
+        rates: args.lastDayRates,
+        quoteCurrency,
+        coin,
+        chain: String((repWallet as any)?.chain || coin),
+        tokenAddress: (repWallet as any)?.tokenAddress,
+      });
+      if (lastDayRateForDisplay > 0) {
+        const lastDayFiatValue = unitsForDisplay * lastDayRateForDisplay;
+        pnlFiat = fiatValue - lastDayFiatValue;
+        pnlRatio = lastDayFiatValue > 0 ? pnlFiat / lastDayFiatValue : 0;
+        hasPnl = true;
+      }
     }
 
     const cryptoAmount = formatBigIntDecimal(
