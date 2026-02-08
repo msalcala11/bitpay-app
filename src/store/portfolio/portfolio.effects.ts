@@ -49,6 +49,9 @@ const PORTFOLIO_COMPRESS_OLD_TXS_TO_DAILY_SNAPSHOTS = true;
 const PORTFOLIO_ENABLE_INCREMENTAL_UPDATES = true;
 const PORTFOLIO_INCREMENTAL_MAX_PAGES = 10;
 const PORTFOLIO_INCREMENTAL_RESNAPSHOT_WINDOW_MS = MS_PER_DAY;
+const PORTFOLIO_RECALC_TX_LOOP_YIELD_EVERY = 3;
+const PORTFOLIO_RECALC_SNAPSHOT_LOOP_YIELD_EVERY = 10;
+const PORTFOLIO_RECALC_MAX_BLOCK_MS = 12;
 
 const resolveQuoteCurrency = (
   ...candidates: Array<string | undefined>
@@ -246,6 +249,26 @@ const buildSnapshotMismatchUpdate = (args: {
 
 const yieldToEventLoop = async (): Promise<void> => {
   await new Promise<void>(resolve => setTimeout(resolve, 0));
+};
+
+const createLoopYielder = (args: {
+  everyN: number;
+  maxBlockMs: number;
+}): (() => Promise<void>) => {
+  const everyN = Math.max(1, args.everyN);
+  const maxBlockMs = Math.max(1, args.maxBlockMs);
+  let iterations = 0;
+  let lastYieldMs = Date.now();
+
+  return async () => {
+    iterations++;
+    const nowMs = Date.now();
+    if (iterations % everyN !== 0 && nowMs - lastYieldMs < maxBlockMs) {
+      return;
+    }
+    lastYieldMs = nowMs;
+    await yieldToEventLoop();
+  };
 };
 
 const positiveAtomic = (v: bigint): bigint => (v > 0n ? v : 0n);
@@ -1267,9 +1290,24 @@ export const recalculatePortfolioFiatFields =
           });
         }
 
-        const txSnapshots = (existingSnapshots || []).filter(
-          s => s?.eventType === 'tx',
-        );
+        const allExisting = Array.isArray(existingSnapshots)
+          ? existingSnapshots
+          : [];
+        const txSnapshots: BalanceSnapshot[] = [];
+        const yieldWhileCollectingTxSnapshots = createLoopYielder({
+          everyN: PORTFOLIO_RECALC_SNAPSHOT_LOOP_YIELD_EVERY,
+          maxBlockMs: PORTFOLIO_RECALC_MAX_BLOCK_MS,
+        });
+        for (let i = 0; i < allExisting.length; i++) {
+          if (shouldAbort()) {
+            return;
+          }
+          const snapshot = allExisting[i];
+          if (snapshot?.eventType === 'tx') {
+            txSnapshots.push(snapshot);
+          }
+          await yieldWhileCollectingTxSnapshots();
+        }
 
         let prevAtomic = 0n;
         let costBasisFiat = 0;
@@ -1277,6 +1315,14 @@ export const recalculatePortfolioFiatFields =
         let finalCostBasisFiat = 0;
         const updatedById = new Map<string, Partial<BalanceSnapshot>>();
         const loadedIntervals = new Set<string>();
+        const yieldInTxLoop = createLoopYielder({
+          everyN: PORTFOLIO_RECALC_TX_LOOP_YIELD_EVERY,
+          maxBlockMs: PORTFOLIO_RECALC_MAX_BLOCK_MS,
+        });
+        const yieldInSnapshotLoop = createLoopYielder({
+          everyN: PORTFOLIO_RECALC_SNAPSHOT_LOOP_YIELD_EVERY,
+          maxBlockMs: PORTFOLIO_RECALC_MAX_BLOCK_MS,
+        });
 
         for (let i = 0; i < txSnapshots.length; i++) {
           if (shouldAbort()) {
@@ -1378,9 +1424,7 @@ export const recalculatePortfolioFiatFields =
             quoteCurrency: targetQuoteCurrency,
           });
 
-          if (i > 0 && i % 10 === 0) {
-            await yieldToEventLoop();
-          }
+          await yieldInTxLoop();
         }
 
         bumpTxsProcessed(txSnapshots.length);
@@ -1390,9 +1434,6 @@ export const recalculatePortfolioFiatFields =
         );
 
         const updatedSnapshots: BalanceSnapshot[] = [];
-        const allExisting = Array.isArray(existingSnapshots)
-          ? existingSnapshots
-          : [];
 
         for (let i = 0; i < allExisting.length; i++) {
           if (shouldAbort()) {
@@ -1460,14 +1501,14 @@ export const recalculatePortfolioFiatFields =
             });
           }
 
-          if (i > 0 && i % 50 === 0) {
-            await yieldToEventLoop();
-          }
+          await yieldInSnapshotLoop();
         }
 
         if (shouldAbort()) {
           return;
         }
+
+        await yieldToEventLoop();
 
         const sortedUpdatedSnapshots =
           ensureSnapshotsSortedByTimestamp(updatedSnapshots);
@@ -1501,6 +1542,10 @@ export const recalculatePortfolioFiatFields =
     const concurrency = Math.min(3, wallets.length);
     let nextIndex = 0;
     const workers = new Array(concurrency).fill(null).map(async () => {
+      const yieldBetweenWallets = createLoopYielder({
+        everyN: 1,
+        maxBlockMs: PORTFOLIO_RECALC_MAX_BLOCK_MS,
+      });
       while (nextIndex < wallets.length) {
         if (shouldAbort()) {
           return;
@@ -1508,6 +1553,7 @@ export const recalculatePortfolioFiatFields =
         const wallet = wallets[nextIndex];
         nextIndex++;
         await processWallet(wallet);
+        await yieldBetweenWallets();
       }
     });
 
