@@ -145,17 +145,7 @@ const AssetRow: React.FC<Props> = ({
   const shouldShowDeltaFiat = hasPnl;
   const isCryptoAmountLoading = !!isPopulateLoading && !isFiatLoading;
 
-  const deltaFiatDisplay = showPnlPlaceholder
-    ? item.deltaFiat
-    : hasPnl
-    ? item.deltaFiat
-    : '—';
-  const deltaPercentDisplay = showPnlPlaceholder
-    ? item.deltaPercent
-    : hasPnl
-    ? item.deltaPercent
-    : '—';
-  const fiatAmountDisplay = hasRate ? item.fiatAmount : '—';
+  const fiatAmountDisplay = hasRate ? item.fiatAmount : '— ';
 
   const handlePress = () => {
     if (!canNavigate || !option) {
@@ -216,11 +206,7 @@ const AssetRow: React.FC<Props> = ({
                 </FiatAmount>
                 {shouldShowDeltaFiat ? (
                   <DeltaFiat isPositive={item.isPositive} hasPnl={hasPnl}>
-                    {showPnlPlaceholder
-                      ? deltaFiatDisplay
-                      : hasPnl
-                      ? maskIfHidden(true, deltaFiatDisplay)
-                      : '—'}
+                    {maskIfHidden(true, item.deltaFiat)}
                   </DeltaFiat>
                 ) : null}
               </>
@@ -247,7 +233,7 @@ const AssetRow: React.FC<Props> = ({
                 <FiatAmount>{fiatAmountDisplay}</FiatAmount>
                 {shouldShowDeltaFiat ? (
                   <DeltaFiat isPositive={item.isPositive} hasPnl={hasPnl}>
-                    {deltaFiatDisplay}
+                    {item.deltaFiat}
                   </DeltaFiat>
                 ) : null}
               </>
@@ -267,7 +253,7 @@ const AssetRow: React.FC<Props> = ({
               </SkeletonPlaceholder>
             ) : (
               <PercentText isPositive={item.isPositive} hasPnl={hasPnl}>
-                {deltaPercentDisplay}
+                {item.deltaPercent}
               </PercentText>
             )}
           </PercentPill>

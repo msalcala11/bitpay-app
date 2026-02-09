@@ -1033,7 +1033,7 @@ const getCurrencySymbol = (isoCode: string): string | undefined => {
   }
 };
 
-const UNAVAILABLE_DELTA_FIAT = '—';
+const UNAVAILABLE_DELTA_FIAT = '—     ';
 const UNAVAILABLE_DELTA_PERCENT = '  —  %';
 
 const buildWalletByIdMap = (
