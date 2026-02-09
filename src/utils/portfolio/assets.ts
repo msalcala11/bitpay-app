@@ -1039,7 +1039,7 @@ const formatUnavailableDeltaFiat = (quoteCurrency: string): string => {
   return symbol ? `—` : `—`;
 };
 
-const UNAVAILABLE_DELTA_PERCENT = '—— %';
+const UNAVAILABLE_DELTA_PERCENT = '  —  %';
 
 const buildWalletByIdMap = (
   wallets: Wallet[] | undefined,
