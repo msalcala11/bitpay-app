@@ -1033,12 +1033,7 @@ const getCurrencySymbol = (isoCode: string): string | undefined => {
   }
 };
 
-const formatUnavailableDeltaFiat = (quoteCurrency: string): string => {
-  const code = (quoteCurrency || '').toUpperCase() || 'USD';
-  const symbol = getCurrencySymbol(code);
-  return symbol ? `—` : `—`;
-};
-
+const UNAVAILABLE_DELTA_FIAT = '—';
 const UNAVAILABLE_DELTA_PERCENT = '  —  %';
 
 const buildWalletByIdMap = (
@@ -1724,7 +1719,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
         customPrecision: 'minimal',
       }),
       deltaFiat: showPnlPlaceholder
-        ? formatUnavailableDeltaFiat(quoteCurrency)
+        ? UNAVAILABLE_DELTA_FIAT
         : formatDeltaFiat(r.pnlFiat, quoteCurrency),
       deltaPercent: showPnlPlaceholder
         ? UNAVAILABLE_DELTA_PERCENT
