@@ -173,38 +173,24 @@ const AltCurrencySettings = () => {
               await sleep(500);
 
               const nextQuoteCurrency = (item.isoCode || '').toUpperCase();
-              const inferredSnapshotQuoteCurrency = Object.values(
-                portfolio.snapshotsByWalletId || {},
-              ).reduce((acc, snapshots) => {
-                if (acc) {
-                  return acc;
-                }
-                const latest = Array.isArray(snapshots)
-                  ? snapshots[snapshots.length - 1]
-                  : undefined;
-                const quote = (latest?.quoteCurrency || '').toUpperCase();
-                return quote || acc;
-              }, '');
-              const existingQuoteCurrency = (
-                portfolio.quoteCurrency ||
-                inferredSnapshotQuoteCurrency ||
-                ''
+              const currentDisplayQuoteCurrency = (
+                selectedAltCurrency?.isoCode || ''
               ).toUpperCase();
               const hasExistingSnapshots = Object.values(
                 portfolio.snapshotsByWalletId || {},
               ).some(v => Array.isArray(v) && v.length);
-              const isQuoteCurrencyChange =
-                !!existingQuoteCurrency &&
-                existingQuoteCurrency !== nextQuoteCurrency;
+              const isDisplayCurrencyChange =
+                !!nextQuoteCurrency &&
+                currentDisplayQuoteCurrency !== nextQuoteCurrency;
               const isPopulateInProgress =
                 !!portfolio.populateStatus?.inProgress;
               const shouldRestartPopulate =
                 hasExistingSnapshots &&
-                isQuoteCurrencyChange &&
+                isDisplayCurrencyChange &&
                 isPopulateInProgress;
               const shouldRecalculatePortfolio =
                 hasExistingSnapshots &&
-                isQuoteCurrencyChange &&
+                isDisplayCurrencyChange &&
                 !isPopulateInProgress;
 
               if (shouldRestartPopulate) {
