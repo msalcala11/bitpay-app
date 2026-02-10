@@ -1,4 +1,3 @@
-// Mirrors BitPay app types/shape closely so the cache JSON matches.
 export type CachedFiatRateInterval =
   | '1D'
   | '1W'
