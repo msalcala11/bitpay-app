@@ -1,5 +1,6 @@
 import React, {useCallback, useMemo, useRef, useState} from 'react';
-import {Dimensions, Modal, Pressable, View} from 'react-native';
+import {Modal, Pressable, View, useWindowDimensions} from 'react-native';
+import {useTranslation} from 'react-i18next';
 import styled from 'styled-components/native';
 import {TouchableOpacity} from '../../../../components/base/TouchableOpacity';
 import {ActiveOpacity} from '../../../../components/styled/Containers';
@@ -60,17 +61,19 @@ const Divider = styled.View`
 `;
 
 interface Props {
-  onPress?: () => void;
+  value: GainLossMode;
   onChange?: (value: GainLossMode) => void;
   height?: number;
 }
 
 const AssetsGainLossDropdown: React.FC<Props> = ({
-  onPress,
+  value,
   onChange,
   height,
 }) => {
+  const {t} = useTranslation();
   const anchorRef = useRef<View>(null);
+  const {width: screenWidth} = useWindowDimensions();
   const [isVisible, setIsVisible] = useState(false);
   const [anchor, setAnchor] = useState<{
     x: number;
@@ -78,43 +81,26 @@ const AssetsGainLossDropdown: React.FC<Props> = ({
     w: number;
     h: number;
   } | null>(null);
-  const [value, setValue] = useState<GainLossMode>('1D');
 
   const options = useMemo((): Array<{value: GainLossMode; label: string}> => {
     return [
-      {value: '1D', label: "Today's Gain/Loss"},
-      {value: '1W', label: '1W Gain/Loss'},
-      {value: '1M', label: '1M Gain/Loss'},
-      {value: '3M', label: '3M Gain/Loss'},
-      {value: '1Y', label: '1Y Gain/Loss'},
-      {value: '5Y', label: '5Y Gain/Loss'},
-      {value: 'ALL', label: 'Total Gain/Loss'},
+      {value: '1D', label: t("Today's Gain/Loss")},
+      {value: '1W', label: t('1W Gain/Loss')},
+      {value: '1M', label: t('1M Gain/Loss')},
+      {value: '3M', label: t('3M Gain/Loss')},
+      {value: '1Y', label: t('1Y Gain/Loss')},
+      {value: '5Y', label: t('5Y Gain/Loss')},
+      {value: 'ALL', label: t('Total Gain/Loss')},
     ];
-  }, []);
+  }, [t]);
 
   const displayLabel = useMemo(() => {
-    switch (value) {
-      case '1D':
-        return 'Today’s Gain/Loss';
-      case '1W':
-        return '1W Gain/Loss';
-      case '1M':
-        return '1M Gain/Loss';
-      case '3M':
-        return '3M Gain/Loss';
-      case '1Y':
-        return '1Y Gain/Loss';
-      case '5Y':
-        return '5Y Gain/Loss';
-      case 'ALL':
-      default:
-        return 'Total Gain/Loss';
-    }
-  }, [value]);
+    return options.find(o => o.value === value)?.label || t('Total Gain/Loss');
+  }, [options, t, value]);
 
   const open = useCallback(() => {
-    onPress?.();
     if (!anchorRef.current?.measureInWindow) {
+      setAnchor(null);
       setIsVisible(true);
       return;
     }
@@ -124,7 +110,7 @@ const AssetsGainLossDropdown: React.FC<Props> = ({
         setIsVisible(true);
       },
     );
-  }, [onPress]);
+  }, []);
 
   const close = useCallback(() => {
     setIsVisible(false);
@@ -132,7 +118,6 @@ const AssetsGainLossDropdown: React.FC<Props> = ({
 
   const select = useCallback(
     (next: GainLossMode) => {
-      setValue(next);
       onChange?.(next);
       close();
     },
@@ -142,10 +127,11 @@ const AssetsGainLossDropdown: React.FC<Props> = ({
   const menuPosition = useMemo(() => {
     const menuWidth = 190;
     const margin = 12;
-    const screenWidth = Dimensions.get('window').width;
 
     if (!anchor) {
-      return {left: margin, top: margin};
+      // Explicit fallback: align top-right with margins.
+      const left = Math.max(margin, screenWidth - menuWidth - margin);
+      return {left, top: margin};
     }
 
     const preferredLeft = anchor.x + anchor.w - menuWidth;
@@ -155,7 +141,7 @@ const AssetsGainLossDropdown: React.FC<Props> = ({
     );
     const top = anchor.y + anchor.h + 8;
     return {left, top};
-  }, [anchor]);
+  }, [anchor, screenWidth]);
 
   return (
     <>

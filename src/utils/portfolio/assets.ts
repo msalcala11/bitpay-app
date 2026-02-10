@@ -400,7 +400,7 @@ export const getKeyLastDayPercentageDifference = (args: {
   portfolioPercentageDifference: number | null;
 }): number | null => {
   if (!(args.totalBalance > 0)) {
-    return 0;
+    return null;
   }
   if (!args.hasSnapshots) {
     return args.legacyPercentageDifference;
@@ -856,6 +856,15 @@ export const getWalletLiveAtomicBalance = (args: {
   const unitString =
     typeof crypto === 'string' ? crypto.replace(/,/g, '') : '0';
   return unitStringToAtomicBigInt(unitString, args.unitDecimals);
+};
+
+export const walletHasNonZeroLiveBalance = (wallet: Wallet): boolean => {
+  const {unitDecimals} = getWalletUnitInfo(wallet);
+  const liveAtomicBalance = getWalletLiveAtomicBalance({
+    wallet,
+    unitDecimals,
+  });
+  return liveAtomicBalance > 0n;
 };
 
 export const getSnapshotAtomicBalanceFromCryptoBalance = (args: {
