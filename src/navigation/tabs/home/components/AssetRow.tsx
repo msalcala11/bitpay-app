@@ -1,13 +1,18 @@
 import React, {useMemo} from 'react';
 import {ImageRequireSource} from 'react-native';
-import {useNavigation} from '@react-navigation/native';
+import {NavigationProp, useNavigation} from '@react-navigation/native';
 import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 import styled, {useTheme} from 'styled-components/native';
+import type {RootStackParamList} from '../../../../Root';
 import {TouchableOpacity} from '../../../../components/base/TouchableOpacity';
 import {CurrencyImage} from '../../../../components/currency-image/CurrencyImage';
 import {ActiveOpacity} from '../../../../components/styled/Containers';
 import {BaseText, H7} from '../../../../components/styled/Text';
 import {SupportedCurrencyOptions} from '../../../../constants/SupportedCurrencyOptions';
+import {
+  BitpaySupportedCoins,
+  BitpaySupportedTokens,
+} from '../../../../constants/currencies';
 import {
   CharcoalBlack,
   GhostWhite,
@@ -21,12 +26,16 @@ import {
 import {getDifferenceColor} from '../../../../components/percentage/Percentage';
 import {useAppSelector} from '../../../../utils/hooks';
 import {maskIfHidden} from '../../../../utils/hideBalances';
+import {getCurrencyAbbreviation} from '../../../../utils/helper-methods';
 import ChevronRightSvg from './ChevronRightSvg';
 import {
   AssetRowItem,
-  canNavigateToExchangeRateForAssetRowItem,
-  findSupportedCurrencyOptionForAsset,
 } from '../../../../utils/portfolio/assets';
+import {createSupportedCurrencyOptionLookup} from '../../../../utils/portfolio/supportedCurrencyOptionsLookup';
+
+const supportedCurrencyOptionLookup = createSupportedCurrencyOptionLookup(
+  SupportedCurrencyOptions,
+);
 
 const Row = styled(TouchableOpacity)<{isLast: boolean}>`
   flex-direction: row;
@@ -123,12 +132,11 @@ const AssetRow: React.FC<Props> = ({
   isFiatLoading,
   isPopulateLoading,
 }) => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const theme = useTheme();
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
   const option = useMemo(() => {
-    return findSupportedCurrencyOptionForAsset({
-      options: SupportedCurrencyOptions,
+    return supportedCurrencyOptionLookup.getOption({
       currencyAbbreviation: item.currencyAbbreviation,
       chain: item.chain,
       tokenAddress: item.tokenAddress,
@@ -138,10 +146,33 @@ const AssetRow: React.FC<Props> = ({
   const hasPnl = !!item.hasPnl;
   const showPnlPlaceholder = !!item.showPnlPlaceholder;
   const shouldShowRightSide = hasRate || showPnlPlaceholder;
-  const canNavigate = canNavigateToExchangeRateForAssetRowItem({
-    item,
-    options: SupportedCurrencyOptions,
-  });
+  const canNavigate = useMemo(() => {
+    if (!option || !item.hasRate) {
+      return false;
+    }
+
+    const isExactMatch =
+      (option.currencyAbbreviation || '').toLowerCase() ===
+        (item.currencyAbbreviation || '').toLowerCase() &&
+      (option.chain || '').toLowerCase() === (item.chain || '').toLowerCase() &&
+      (option.tokenAddress || '').toLowerCase() ===
+        (item.tokenAddress || '').toLowerCase();
+
+    if (!isExactMatch) {
+      return false;
+    }
+
+    const currencyName = getCurrencyAbbreviation(
+      option.tokenAddress ? option.tokenAddress : option.currencyAbbreviation,
+      option.chain,
+    );
+
+    const isStable =
+      BitpaySupportedCoins[currencyName]?.properties?.isStableCoin ||
+      BitpaySupportedTokens[currencyName]?.properties?.isStableCoin;
+
+    return !isStable;
+  }, [item, option]);
   const shouldShowDeltaFiat = hasPnl;
   const isCryptoAmountLoading = !!isPopulateLoading && !isFiatLoading;
 
@@ -152,7 +183,7 @@ const AssetRow: React.FC<Props> = ({
       return;
     }
 
-    (navigation as any).navigate('ExchangeRate', {
+    navigation.navigate('ExchangeRate', {
       currencyName: option.currencyName || item.name,
       currencyAbbreviation:
         option.currencyAbbreviation || item.currencyAbbreviation,

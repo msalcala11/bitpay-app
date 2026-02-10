@@ -1,7 +1,6 @@
-import {DateRanges, Rates} from './rate.models';
+import type {FiatRateSeriesCache, Rates, RatesCacheKey} from './rate.models';
 import {RateActionType, RateActionTypes} from './rate.types';
 import {DEFAULT_DATE_RANGE} from '../../constants/rate';
-import type {FiatRateSeriesCache} from './rate.models';
 
 type RateReduxPersistBlackList = string[];
 export const rateReduxPersistBlackList: RateReduxPersistBlackList = [];
@@ -38,15 +37,13 @@ export interface RateState {
   lastDayRates: Rates;
   rates: Rates;
   fiatRateSeriesCache: FiatRateSeriesCache;
-  balanceCacheKey: {[key in string]: number | undefined};
-  ratesCacheKey: {[key in number]: DateRanges | undefined};
+  ratesCacheKey: RatesCacheKey;
 }
 
 const initialState: RateState = {
   rates: {},
   lastDayRates: {},
   fiatRateSeriesCache: {},
-  balanceCacheKey: {},
   ratesCacheKey: {},
 };
 
@@ -65,7 +62,7 @@ export const rateReducer = (
         ...state,
         rates: {...initialState.rates, ...rates},
         ratesCacheKey: {
-          ...initialState.ratesCacheKey,
+          ...state.ratesCacheKey,
           [DEFAULT_DATE_RANGE]: Date.now(),
         },
         lastDayRates: {...initialState.lastDayRates, ...lastDayRates},
@@ -119,10 +116,13 @@ export const rateReducer = (
     }
 
     case RateActionTypes.UPDATE_CACHE_KEY: {
-      const {cacheKey, dateRange = DEFAULT_DATE_RANGE} = action.payload;
+      const {dateRange = DEFAULT_DATE_RANGE} = action.payload;
       return {
         ...state,
-        [cacheKey]: {...initialState.ratesCacheKey, [dateRange]: Date.now()},
+        ratesCacheKey: {
+          ...state.ratesCacheKey,
+          [dateRange]: Date.now(),
+        },
       };
     }
 
