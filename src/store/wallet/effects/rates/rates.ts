@@ -19,6 +19,7 @@ import {
 import {DEFAULT_DATE_RANGE} from '../../../../constants/rate';
 import {
   failedGetRates,
+  pruneFiatRateSeriesCache,
   successGetRates,
   upsertFiatRateSeriesCache,
   updateCacheKey,
@@ -435,6 +436,18 @@ export const fetchFiatRateSeriesInterval =
             allowedCoins.map(c => (c || '').toLowerCase()).filter(Boolean),
           )
         : null;
+    const keepCoins = Object.keys(data as Record<string, unknown>)
+      .map(coin => (coin || '').toLowerCase())
+      .filter(coin => !!coin && (!allowedCoinsSet || allowedCoinsSet.has(coin)));
+
+    if (keepCoins.length) {
+      dispatch(
+        pruneFiatRateSeriesCache({
+          fiatCode,
+          keepCoins,
+        }),
+      );
+    }
 
     const updates: FiatRateSeriesCache = {};
     Object.keys(data as Record<string, unknown>).forEach(coin => {
