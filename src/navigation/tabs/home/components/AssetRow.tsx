@@ -1,9 +1,11 @@
-import React, {useMemo} from 'react';
+import React, {useMemo, useRef} from 'react';
+import Clipboard from '@react-native-clipboard/clipboard';
 import {ImageRequireSource} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 import styled, {useTheme} from 'styled-components/native';
 import {TouchableOpacity} from '../../../../components/base/TouchableOpacity';
+import haptic from '../../../../components/haptic-feedback/haptic';
 import {CurrencyImage} from '../../../../components/currency-image/CurrencyImage';
 import {ActiveOpacity} from '../../../../components/styled/Containers';
 import {BaseText, H7} from '../../../../components/styled/Text';
@@ -27,6 +29,8 @@ import {
   canNavigateToExchangeRateForAssetRowItem,
   findSupportedCurrencyOptionForAsset,
 } from '../../../../utils/portfolio/assets';
+
+const COPY_LOG_LONG_PRESS_MS = 3000;
 
 const Row = styled(TouchableOpacity)<{isLast: boolean}>`
   flex-direction: row;
@@ -125,6 +129,7 @@ const AssetRow: React.FC<Props> = ({
 }) => {
   const navigation = useNavigation();
   const theme = useTheme();
+  const didLongPressRef = useRef(false);
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
   const option = useMemo(() => {
     return findSupportedCurrencyOptionForAsset({
@@ -148,6 +153,11 @@ const AssetRow: React.FC<Props> = ({
   const fiatAmountDisplay = hasRate ? item.fiatAmount : '— ';
 
   const handlePress = () => {
+    if (didLongPressRef.current) {
+      didLongPressRef.current = false;
+      return;
+    }
+
     if (!canNavigate || !option) {
       return;
     }
@@ -161,10 +171,39 @@ const AssetRow: React.FC<Props> = ({
     });
   };
 
+  const handleLongPress = () => {
+    didLongPressRef.current = true;
+
+    const fallbackLog = JSON.stringify(
+      {
+        type: 'asset_row',
+        key: item.key,
+        currencyAbbreviation: item.currencyAbbreviation,
+        chain: item.chain,
+        tokenAddress: item.tokenAddress,
+        name: item.name,
+        cryptoAmount: item.cryptoAmount,
+        fiatAmount: item.fiatAmount,
+        deltaFiat: item.deltaFiat,
+        deltaPercent: item.deltaPercent,
+        isPositive: item.isPositive,
+        hasRate: item.hasRate,
+        hasPnl: item.hasPnl,
+      },
+      null,
+      2,
+    );
+
+    Clipboard.setString(item.debugRateAlignmentLog || fallbackLog);
+    haptic('impactLight');
+  };
+
   return (
     <Row
       activeOpacity={canNavigate ? ActiveOpacity : 1}
       isLast={isLast}
+      delayLongPress={COPY_LOG_LONG_PRESS_MS}
+      onLongPress={handleLongPress}
       onPress={canNavigate ? handlePress : undefined}>
       <IconContainer>
         <CurrencyImage

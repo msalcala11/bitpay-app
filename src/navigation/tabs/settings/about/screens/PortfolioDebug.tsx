@@ -19,6 +19,7 @@ import {
   clearPortfolio,
   populatePortfolio,
 } from '../../../../../store/portfolio';
+import {clearRateState} from '../../../../../store/rate/rate.actions';
 import type {BalanceSnapshot} from '../../../../../store/portfolio/portfolio.models';
 import type {Wallet} from '../../../../../store/wallet/wallet.models';
 import {
@@ -230,6 +231,20 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
     return () => task.cancel();
   }, [dispatch, isGenerating, portfolio.populateStatus?.inProgress]);
 
+  const clearRatesCache = useCallback(() => {
+    if (isGenerating || portfolio.populateStatus?.inProgress) {
+      return;
+    }
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      try {
+        dispatch(clearRateState());
+      } catch {}
+    });
+
+    return () => task.cancel();
+  }, [dispatch, isGenerating, portfolio.populateStatus?.inProgress]);
+
   const copySnapshotAuditCsv = useCallback(() => {
     if (isCopyingAudit) {
       return;
@@ -365,6 +380,11 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
               selected={portfolio.populateStatus?.inProgress}>
               {t('Populate Portfolio Store')}
             </DebugPillButtonText>
+          </DebugPillButton>
+          <DebugButtonSpacer />
+          <DebugPillButton
+            onPress={() => (isGenerating ? null : clearRatesCache())}>
+            <DebugPillButtonText>{t('Clear Rates Cache')}</DebugPillButtonText>
           </DebugPillButton>
         </DebugButtonRow>
 

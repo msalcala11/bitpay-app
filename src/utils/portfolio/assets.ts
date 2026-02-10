@@ -21,7 +21,10 @@ import {
 import {tokenManager} from '../../managers/TokenManager';
 import {
   getFiatRateBaselineTsForTimeframe,
+  getFiatRateChangeForTimeframe,
   getFiatRateFromSeriesCacheAtTimestamp,
+  getUsdEurRateSeriesAlignmentDiagnostics,
+  type UsdEurRateSeriesAlignmentDiagnostics,
 } from './rate';
 import {
   formatCurrencyAbbreviation,
@@ -59,6 +62,50 @@ export type AssetRowItem = {
   hasRate: boolean;
   hasPnl: boolean;
   showPnlPlaceholder?: boolean;
+  debugRateAlignmentLog?: string;
+};
+
+const RATE_ALIGNMENT_DEBUG_FLAG = '__BITPAY_RATE_ALIGNMENT_DEBUG__';
+const rateAlignmentDebugLoggedKeys = new Set<string>();
+
+const maybeLogUsdEurRateAlignmentDiagnostics = (args: {
+  fiatRateSeriesCache: FiatRateSeriesCache | undefined;
+  currencyAbbreviation: string;
+  timeframe: FiatRateInterval;
+  nowMs: number;
+  diagnostics?: UsdEurRateSeriesAlignmentDiagnostics;
+}): void => {
+  if (!__DEV__) {
+    return;
+  }
+
+  const debugEnabled = Boolean(
+    (globalThis as Record<string, unknown>)[RATE_ALIGNMENT_DEBUG_FLAG],
+  );
+  if (!debugEnabled) {
+    return;
+  }
+
+  const normalizedCoin = normalizeCoinForPnlRates(args.currencyAbbreviation);
+  const dedupeKey = `${normalizedCoin}:${args.timeframe}`;
+  if (rateAlignmentDebugLoggedKeys.has(dedupeKey)) {
+    return;
+  }
+
+  const diagnostics =
+    args.diagnostics ||
+    getUsdEurRateSeriesAlignmentDiagnostics({
+      fiatRateSeriesCache: args.fiatRateSeriesCache,
+      currencyAbbreviation: normalizedCoin,
+      timeframe: args.timeframe,
+      nowMs: args.nowMs,
+    });
+  if (!diagnostics) {
+    return;
+  }
+
+  rateAlignmentDebugLoggedKeys.add(dedupeKey);
+  console.log('[PNL][RateAlignment] USD vs EUR sampling diagnostics', diagnostics);
 };
 
 export const sortAssetRowItemsByHasRate = (
@@ -287,6 +334,210 @@ const convertAmountBetweenQuotesViaBtc = (args: {
 
   const converted = amount * fxRatio;
   return Number.isFinite(converted) ? converted : undefined;
+};
+
+const SYNTHETIC_RATE_SERIES_INTERVALS: FiatRateInterval[] = [
+  '1D',
+  '1W',
+  '1M',
+  'ALL',
+];
+
+const getFiatCodesFromSeriesCache = (
+  fiatRateSeriesCache: FiatRateSeriesCache | undefined,
+): string[] => {
+  const cache = fiatRateSeriesCache || {};
+  const fiats = new Set<string>();
+  for (const cacheKey of Object.keys(cache)) {
+    const sep = cacheKey.indexOf(':');
+    if (sep <= 0) {
+      continue;
+    }
+    const fiatCode = cacheKey.slice(0, sep).toUpperCase();
+    if (fiatCode) {
+      fiats.add(fiatCode);
+    }
+  }
+  return Array.from(fiats);
+};
+
+const getSeriesPointsForFiatCoinInterval = (args: {
+  fiatRateSeriesCache: FiatRateSeriesCache | undefined;
+  fiatCode: string;
+  coin: string;
+  interval: FiatRateInterval;
+}): Array<{ts: number; rate: number}> => {
+  const key = getFiatRateSeriesCacheKey(args.fiatCode, args.coin, args.interval);
+  const points = args.fiatRateSeriesCache?.[key]?.points;
+  return Array.isArray(points) ? points : [];
+};
+
+const buildSyntheticFiatRateSeriesCacheForTargetQuote = (args: {
+  fiatRateSeriesCache: FiatRateSeriesCache | undefined;
+  targetQuoteCurrency: string;
+  coins: string[];
+}): FiatRateSeriesCache | undefined => {
+  const cache = args.fiatRateSeriesCache;
+  const targetQuoteCurrency = (args.targetQuoteCurrency || '').toUpperCase();
+  if (!cache || !targetQuoteCurrency) {
+    return cache;
+  }
+
+  const candidateSourceFiats = getFiatCodesFromSeriesCache(cache)
+    .map(f => (f || '').toUpperCase())
+    .filter(f => !!f && f !== targetQuoteCurrency);
+  if (!candidateSourceFiats.length) {
+    return cache;
+  }
+
+  const normalizedCoins = Array.from(
+    new Set(
+      (args.coins || [])
+        .map(coin => normalizeCoinForPnlRates(coin))
+        .filter(Boolean),
+    ),
+  );
+  if (!normalizedCoins.length) {
+    return cache;
+  }
+
+  const updates: FiatRateSeriesCache = {};
+  const nowMs = Date.now();
+
+  for (const coin of normalizedCoins) {
+    if (!coin || coin === 'btc') {
+      continue;
+    }
+
+    for (const interval of SYNTHETIC_RATE_SERIES_INTERVALS) {
+      const targetCoinPoints = getSeriesPointsForFiatCoinInterval({
+        fiatRateSeriesCache: cache,
+        fiatCode: targetQuoteCurrency,
+        coin,
+        interval,
+      });
+      if (targetCoinPoints.length) {
+        continue;
+      }
+
+      const targetBtcPoints = getSeriesPointsForFiatCoinInterval({
+        fiatRateSeriesCache: cache,
+        fiatCode: targetQuoteCurrency,
+        coin: 'btc',
+        interval,
+      });
+      if (!targetBtcPoints.length) {
+        continue;
+      }
+
+      let sourceFiatForSynthesis: string | undefined;
+      let sourceCoinPointsForSynthesis: Array<{ts: number; rate: number}> = [];
+
+      for (const sourceFiat of candidateSourceFiats) {
+        const sourceCoinPoints = getSeriesPointsForFiatCoinInterval({
+          fiatRateSeriesCache: cache,
+          fiatCode: sourceFiat,
+          coin,
+          interval,
+        });
+        if (!sourceCoinPoints.length) {
+          continue;
+        }
+
+        const sourceBtcPoints = getSeriesPointsForFiatCoinInterval({
+          fiatRateSeriesCache: cache,
+          fiatCode: sourceFiat,
+          coin: 'btc',
+          interval,
+        });
+        if (!sourceBtcPoints.length) {
+          continue;
+        }
+
+        if (sourceCoinPoints.length > sourceCoinPointsForSynthesis.length) {
+          sourceFiatForSynthesis = sourceFiat;
+          sourceCoinPointsForSynthesis = sourceCoinPoints;
+        }
+      }
+
+      if (!sourceFiatForSynthesis || !sourceCoinPointsForSynthesis.length) {
+        continue;
+      }
+
+      const syntheticPoints: Array<{ts: number; rate: number}> = [];
+      for (const sourceCoinPoint of sourceCoinPointsForSynthesis) {
+        const ts = Number(sourceCoinPoint?.ts);
+        const sourceCoinRate = Number(sourceCoinPoint?.rate);
+        if (!Number.isFinite(ts) || !Number.isFinite(sourceCoinRate)) {
+          continue;
+        }
+        if (!(sourceCoinRate > 0)) {
+          continue;
+        }
+
+        const sourceBtcRateAtTs = getFiatRateFromSeriesCacheAtTimestamp({
+          fiatRateSeriesCache: cache,
+          fiatCode: sourceFiatForSynthesis,
+          currencyAbbreviation: 'btc',
+          interval,
+          timestampMs: ts,
+          method: 'nearest',
+        });
+        const targetBtcRateAtTs = getFiatRateFromSeriesCacheAtTimestamp({
+          fiatRateSeriesCache: cache,
+          fiatCode: targetQuoteCurrency,
+          currencyAbbreviation: 'btc',
+          interval,
+          timestampMs: ts,
+          method: 'nearest',
+        });
+        if (
+          !(
+            typeof sourceBtcRateAtTs === 'number' &&
+            Number.isFinite(sourceBtcRateAtTs) &&
+            sourceBtcRateAtTs > 0
+          )
+        ) {
+          continue;
+        }
+        if (
+          !(
+            typeof targetBtcRateAtTs === 'number' &&
+            Number.isFinite(targetBtcRateAtTs) &&
+            targetBtcRateAtTs > 0
+          )
+        ) {
+          continue;
+        }
+
+        const syntheticRate =
+          sourceCoinRate * (targetBtcRateAtTs / sourceBtcRateAtTs);
+        if (!(syntheticRate > 0) || !Number.isFinite(syntheticRate)) {
+          continue;
+        }
+
+        syntheticPoints.push({ts, rate: syntheticRate});
+      }
+
+      if (!syntheticPoints.length) {
+        continue;
+      }
+
+      updates[getFiatRateSeriesCacheKey(targetQuoteCurrency, coin, interval)] = {
+        fetchedOn: nowMs,
+        points: syntheticPoints,
+      };
+    }
+  }
+
+  if (!Object.keys(updates).length) {
+    return cache;
+  }
+
+  return {
+    ...cache,
+    ...updates,
+  };
 };
 
 export const getQuoteCurrency = (args: {
@@ -1013,26 +1264,6 @@ const formatDeltaPercent = (ratio: number): string => {
   return `${prefix}${abs.toFixed(1)}%`;
 };
 
-const getCurrencySymbol = (isoCode: string): string | undefined => {
-  try {
-    const formatted = (0)
-      .toLocaleString('en-US', {
-        style: 'currency',
-        currency: isoCode,
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
-      })
-      .replace(/\d/g, '')
-      .trim();
-    if (!formatted || formatted.toUpperCase() === isoCode.toUpperCase()) {
-      return undefined;
-    }
-    return formatted;
-  } catch {
-    return undefined;
-  }
-};
-
 const UNAVAILABLE_DELTA_FIAT = '—     ';
 const UNAVAILABLE_DELTA_PERCENT = '  —  %';
 
@@ -1048,15 +1279,15 @@ const buildWalletByIdMap = (
   return walletById;
 };
 
-const getQuoteRateNumForAsset = (args: {
+const getQuoteRateForAsset = (args: {
   rates?: Rates;
   quoteCurrency: string;
   coin: string;
   chain: string;
   tokenAddress?: string;
-}): number => {
+}): {rate: number; ts?: number} => {
   if (!args.rates) {
-    return 0;
+    return {rate: 0};
   }
   const arr = getRateByCurrencyName(
     args.rates,
@@ -1064,8 +1295,21 @@ const getQuoteRateNumForAsset = (args: {
     args.chain,
     args.tokenAddress,
   );
-  const rate = arr?.find(r => r.code === args.quoteCurrency)?.rate;
-  return toNumber(rate);
+  const match = arr?.find(r => r.code === args.quoteCurrency);
+  return {
+    rate: toNumber(match?.rate),
+    ts: typeof match?.ts === 'number' ? match.ts : undefined,
+  };
+};
+
+const getQuoteRateNumForAsset = (args: {
+  rates?: Rates;
+  quoteCurrency: string;
+  coin: string;
+  chain: string;
+  tokenAddress?: string;
+}): number => {
+  return getQuoteRateForAsset(args).rate;
 };
 
 const getEffectiveQuoteCurrencyFromSnapshots = (args: {
@@ -1272,13 +1516,21 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
     return zeroResult({available: true});
   }
 
+  const analysisFiatRateSeriesCache = buildSyntheticFiatRateSeriesCacheForTargetQuote(
+    {
+      fiatRateSeriesCache: args.fiatRateSeriesCache,
+      targetQuoteCurrency: effectiveQuoteCurrency,
+      coins: pnlWallets.map(w => w.currencyAbbreviation),
+    },
+  );
+
   let res: ReturnType<typeof buildPnlAnalysisSeries>;
   try {
     res = buildPnlAnalysisSeries({
       wallets: pnlWallets,
       timeframe: args.timeframe as any,
       quoteCurrency: effectiveQuoteCurrency,
-      fiatRateSeriesCache: args.fiatRateSeriesCache as any,
+      fiatRateSeriesCache: analysisFiatRateSeriesCache as any,
       currentRatesByCoin:
         Object.keys(currentRatesByCoin).length > 0
           ? currentRatesByCoin
@@ -1395,6 +1647,10 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
   const timeframe = args.gainLossMode;
   const isTodayGainLoss = timeframe === '1D';
   const fiatRateSeriesCache = args.fiatRateSeriesCache;
+  const baselineTimestampMs = getFiatRateBaselineTsForTimeframe({
+    timeframe,
+    nowMs,
+  });
 
   const getAssetKey = (w: Wallet): {key: string; coin: string} | null => {
     const coin = String((w as any)?.currencyAbbreviation || '').toLowerCase();
@@ -1540,14 +1796,22 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     typeof buildPnlAnalysisSeries
   >['points'][number];
 
+  const analysisFiatRateSeriesCache = buildSyntheticFiatRateSeriesCacheForTargetQuote(
+    {
+      fiatRateSeriesCache,
+      targetQuoteCurrency: quoteCurrency,
+      coins: allPnlWallets.map(w => w.currencyAbbreviation),
+    },
+  );
+
   let lastPoint: AnalysisPoint | undefined;
-  if (allPnlWallets.length && fiatRateSeriesCache) {
+  if (allPnlWallets.length && analysisFiatRateSeriesCache) {
     try {
       const res = buildPnlAnalysisSeries({
         wallets: allPnlWallets,
         timeframe: timeframe as any,
         quoteCurrency,
-        fiatRateSeriesCache: fiatRateSeriesCache as any,
+        fiatRateSeriesCache: analysisFiatRateSeriesCache as any,
         currentRatesByCoin:
           Object.keys(currentRatesByCoin).length > 0
             ? currentRatesByCoin
@@ -1576,7 +1840,35 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     pnlRatio: number;
     hasRate: boolean;
     hasPnl: boolean;
+    debugRateAlignmentLog?: string;
   }> = [];
+
+  const hasTransactionsInTimeframe = (groupWallets: Wallet[]): boolean => {
+    for (const w of groupWallets) {
+      const wid = String((w as any)?.id || '');
+      if (!wid) {
+        continue;
+      }
+      const snapshots = ensureSortedSnapshots(args.snapshotsByWalletId?.[wid]);
+      for (const s of snapshots) {
+        if (s?.eventType !== 'tx') {
+          continue;
+        }
+        const ts = Number(s?.timestamp || 0);
+        if (!(ts > 0)) {
+          continue;
+        }
+        if (timeframe === 'ALL') {
+          return true;
+        }
+        if (typeof baselineTimestampMs === 'number' && ts > baselineTimestampMs) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  };
 
   for (const [assetKey, groupWallets] of walletsByAssetKey.entries()) {
     const repWallet = repWalletByAssetKey.get(assetKey) || groupWallets[0];
@@ -1593,6 +1885,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     let pnlRatio = 0;
     let hasRate = false;
     let hasPnl = false;
+    let debugRateAlignmentLog: string | undefined;
 
     if (lastPoint) {
       let basis = 0;
@@ -1652,13 +1945,20 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
 
     if (totalAtomic <= 0n) continue;
 
-    const currentRateForDisplay = getQuoteRateNumForAsset({
+    const currentRateForDisplayData = getQuoteRateForAsset({
       rates: args.rates,
       quoteCurrency,
       coin,
       chain: String((repWallet as any)?.chain || coin),
       tokenAddress: (repWallet as any)?.tokenAddress,
     });
+    const currentRateForDisplay = currentRateForDisplayData.rate;
+    const currentRateTsMs =
+      typeof currentRateForDisplayData.ts === 'number' &&
+      currentRateForDisplayData.ts > 0
+        ? currentRateForDisplayData.ts
+        : undefined;
+    const rateMathNowMs = currentRateTsMs || nowMs;
     const units = Number(atomicToUnitString(totalAtomic, repUnitDecimals));
     const unitsForDisplay = Number.isFinite(units) ? units : 0;
     if (currentRateForDisplay > 0) {
@@ -1682,6 +1982,74 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       }
     }
 
+    const hasTxInTimeframe = hasTransactionsInTimeframe(groupWallets);
+    if (currentRateForDisplay > 0 && !hasTxInTimeframe) {
+      const rateChange = getFiatRateChangeForTimeframe({
+        fiatRateSeriesCache: args.fiatRateSeriesCache,
+        fiatCode: quoteCurrency,
+        currencyAbbreviation: coin,
+        timeframe,
+        nowMs: rateMathNowMs,
+        currentRate: currentRateForDisplay,
+        method: 'linear',
+      });
+
+      const rateAlignmentDiagnostics = getUsdEurRateSeriesAlignmentDiagnostics({
+        fiatRateSeriesCache: args.fiatRateSeriesCache,
+        currencyAbbreviation: coin,
+        timeframe,
+        nowMs: rateMathNowMs,
+      });
+
+      if (rateAlignmentDiagnostics || rateChange) {
+        debugRateAlignmentLog = JSON.stringify(
+          {
+            type: 'asset_rate_alignment',
+            asset: {
+              key: assetKey,
+              coin,
+              chain: String((repWallet as any)?.chain || ''),
+              tokenAddress: (repWallet as any)?.tokenAddress,
+            },
+            quoteCurrency,
+            timeframe,
+            nowMs,
+            rateMathNowMs,
+            currentRateTsMs,
+            currentRate: currentRateForDisplay,
+            hasTransactionsInTimeframe: hasTxInTimeframe,
+            timeframeChange: rateChange
+              ? {
+                  baselineTimestampMs: rateChange.baselineTimestampMs,
+                  baselineRate: rateChange.baselineRate,
+                  currentRate: rateChange.currentRate,
+                  priceChange: rateChange.priceChange,
+                  percentRatio: rateChange.percentRatio,
+                  percentChange: rateChange.percentChange,
+                }
+              : undefined,
+            diagnostics: rateAlignmentDiagnostics,
+          },
+          null,
+          2,
+        );
+      }
+
+      maybeLogUsdEurRateAlignmentDiagnostics({
+        fiatRateSeriesCache: args.fiatRateSeriesCache,
+        currencyAbbreviation: coin,
+        timeframe,
+        nowMs: rateMathNowMs,
+        diagnostics: rateAlignmentDiagnostics,
+      });
+
+      if (rateChange) {
+        pnlRatio = rateChange.percentRatio;
+        pnlFiat = unitsForDisplay * rateChange.priceChange;
+        hasPnl = true;
+      }
+    }
+
     const cryptoAmount = formatBigIntDecimal(
       totalAtomic,
       repUnitDecimals,
@@ -1700,6 +2068,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       pnlRatio,
       hasRate,
       hasPnl,
+      debugRateAlignmentLog,
     });
   }
 
@@ -1728,6 +2097,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       hasRate: r.hasRate,
       hasPnl: r.hasPnl,
       showPnlPlaceholder,
+      debugRateAlignmentLog: r.debugRateAlignmentLog,
     };
   });
 };

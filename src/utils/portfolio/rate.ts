@@ -342,6 +342,179 @@ export const getFiatRateChangeForTimeframe = (args: {
   };
 };
 
+export type RateSeriesSamplingDiagnostics = {
+  pointsCount: number;
+  nearestDistanceMsAtNow?: number;
+  nearestDistanceMsAtBaseline?: number;
+  interpolationSpanMsAtNow?: number;
+  interpolationSpanMsAtBaseline?: number;
+};
+
+export type RateSeriesAlignmentStats = {
+  sampleCount: number;
+  meanAbsDeltaMs: number;
+  medianAbsDeltaMs: number;
+  p95AbsDeltaMs: number;
+  maxAbsDeltaMs: number;
+};
+
+export type UsdEurRateSeriesAlignmentDiagnostics = {
+  coin: string;
+  timeframe: FiatRateInterval;
+  seriesInterval: FiatRateInterval;
+  nowMs: number;
+  baselineTimestampMs?: number;
+  usd?: RateSeriesSamplingDiagnostics;
+  eur?: RateSeriesSamplingDiagnostics;
+  usdVsEur?: RateSeriesAlignmentStats;
+};
+
+const getNearestDistanceMs = (
+  points: FiatRatePoint[],
+  tsMs: number,
+): number | undefined => {
+  const nearest = getNearestFiatRatePoint(points, tsMs);
+  if (!nearest) {
+    return undefined;
+  }
+  return Math.abs(nearest.ts - tsMs);
+};
+
+const getInterpolationSpanMs = (
+  points: FiatRatePoint[],
+  tsMs: number,
+): number | undefined => {
+  const {left, right} = findBoundingRatePoints(points, tsMs);
+  if (!left || !right) {
+    return undefined;
+  }
+  return Math.abs(right.ts - left.ts);
+};
+
+const getSamplingDiagnosticsForSeries = (args: {
+  points: FiatRatePoint[];
+  nowMs: number;
+  baselineTimestampMs?: number;
+}): RateSeriesSamplingDiagnostics => {
+  return {
+    pointsCount: args.points.length,
+    nearestDistanceMsAtNow: getNearestDistanceMs(args.points, args.nowMs),
+    interpolationSpanMsAtNow: getInterpolationSpanMs(args.points, args.nowMs),
+    nearestDistanceMsAtBaseline:
+      typeof args.baselineTimestampMs === 'number'
+        ? getNearestDistanceMs(args.points, args.baselineTimestampMs)
+        : undefined,
+    interpolationSpanMsAtBaseline:
+      typeof args.baselineTimestampMs === 'number'
+        ? getInterpolationSpanMs(args.points, args.baselineTimestampMs)
+        : undefined,
+  };
+};
+
+const getRateSeriesAlignmentStats = (args: {
+  leftPoints: FiatRatePoint[];
+  rightPoints: FiatRatePoint[];
+}): RateSeriesAlignmentStats | undefined => {
+  const leftPoints = args.leftPoints;
+  const rightPoints = args.rightPoints;
+  if (!leftPoints.length || !rightPoints.length) {
+    return undefined;
+  }
+
+  const deltas: number[] = [];
+  for (const p of leftPoints) {
+    const nearest = getNearestFiatRatePoint(rightPoints, p.ts);
+    if (!nearest) {
+      continue;
+    }
+    deltas.push(Math.abs(p.ts - nearest.ts));
+  }
+
+  if (!deltas.length) {
+    return undefined;
+  }
+
+  const sorted = deltas.slice().sort((a, b) => a - b);
+  const sampleCount = sorted.length;
+  const maxAbsDeltaMs = sorted[sampleCount - 1];
+  const medianAbsDeltaMs = sorted[Math.floor((sampleCount - 1) / 2)];
+  const p95AbsDeltaMs = sorted[Math.floor((sampleCount - 1) * 0.95)];
+  const meanAbsDeltaMs =
+    sorted.reduce((sum, value) => sum + value, 0) / sampleCount;
+
+  return {
+    sampleCount,
+    meanAbsDeltaMs,
+    medianAbsDeltaMs,
+    p95AbsDeltaMs,
+    maxAbsDeltaMs,
+  };
+};
+
+export const getUsdEurRateSeriesAlignmentDiagnostics = (args: {
+  fiatRateSeriesCache: FiatRateSeriesCache | undefined;
+  currencyAbbreviation: string;
+  timeframe: FiatRateInterval;
+  nowMs?: number;
+}): UsdEurRateSeriesAlignmentDiagnostics | undefined => {
+  const cache = args.fiatRateSeriesCache;
+  if (!cache) {
+    return undefined;
+  }
+
+  const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
+  const {seriesInterval, baselineTimestampMs} = getFiatRateTimeframeConfig({
+    timeframe: args.timeframe,
+    nowMs,
+  });
+
+  const usdPoints = getFiatRateSeriesPoints({
+    fiatRateSeriesCache: cache,
+    fiatCode: 'USD',
+    currencyAbbreviation: args.currencyAbbreviation,
+    interval: seriesInterval,
+  });
+  const eurPoints = getFiatRateSeriesPoints({
+    fiatRateSeriesCache: cache,
+    fiatCode: 'EUR',
+    currencyAbbreviation: args.currencyAbbreviation,
+    interval: seriesInterval,
+  });
+
+  if (!usdPoints && !eurPoints) {
+    return undefined;
+  }
+
+  return {
+    coin: normalizeFiatRateSeriesCoin(args.currencyAbbreviation),
+    timeframe: args.timeframe,
+    seriesInterval,
+    nowMs,
+    baselineTimestampMs,
+    usd: usdPoints
+      ? getSamplingDiagnosticsForSeries({
+          points: usdPoints,
+          nowMs,
+          baselineTimestampMs,
+        })
+      : undefined,
+    eur: eurPoints
+      ? getSamplingDiagnosticsForSeries({
+          points: eurPoints,
+          nowMs,
+          baselineTimestampMs,
+        })
+      : undefined,
+    usdVsEur:
+      usdPoints && eurPoints
+        ? getRateSeriesAlignmentStats({
+            leftPoints: usdPoints,
+            rightPoints: eurPoints,
+          })
+        : undefined,
+  };
+};
+
 function medianLow(values: number[]): number {
   values.sort((a, b) => a - b);
   return values[Math.floor((values.length - 1) / 2)];

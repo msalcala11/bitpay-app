@@ -855,7 +855,7 @@ const ExchangeRate = () => {
 
   const altCurrencyIsoCodeUpper = defaultAltCurrency.isoCode?.toUpperCase();
 
-  const currentFiatRate = useMemo(() => {
+  const currentFiatRateData = useMemo(() => {
     if (
       !rates ||
       !assetContext.currencyAbbreviation ||
@@ -879,7 +879,14 @@ const ExchangeRate = () => {
       rate => rate.code?.toUpperCase() === altCurrencyIsoCodeUpper,
     );
 
-    return matchingRate?.rate;
+    if (!matchingRate) {
+      return undefined;
+    }
+
+    return {
+      rate: matchingRate.rate,
+      ts: matchingRate.ts,
+    };
   }, [
     altCurrencyIsoCodeUpper,
     assetContext.chain,
@@ -887,6 +894,11 @@ const ExchangeRate = () => {
     assetContext.tokenAddress,
     rates,
   ]);
+  const currentFiatRate = currentFiatRateData?.rate;
+  const currentFiatRateTs =
+    typeof currentFiatRateData?.ts === 'number' && currentFiatRateData.ts > 0
+      ? currentFiatRateData.ts
+      : undefined;
 
   useEffect(() => {
     if (selectedSeries?.points?.length) {
@@ -1246,11 +1258,13 @@ const ExchangeRate = () => {
       fiatCode: selectedFiatCodeUpper,
       currencyAbbreviation: normalizedCoin,
       timeframe: selectedTimeframe,
+      nowMs: currentFiatRateTs,
       currentRate: currentFiatRate,
       method: 'linear',
     });
   }, [
     currentFiatRate,
+    currentFiatRateTs,
     fiatRateSeriesCache,
     normalizedCoin,
     selectedFiatCodeUpper,
