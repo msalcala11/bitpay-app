@@ -86,6 +86,8 @@ export const CurrencyImage: React.FC<CurrencyImageProps> = ({
         <Blockie size={size ?? blockie.size} seed={blockie.seed ?? 'random'} />
       ) : (!img && !imgSrc) || imageError ? (
         <DefaultImage {...style} />
+      ) : typeof img === 'function' ? (
+        img(style)
       ) : imgSrc ? (
         <FastImage
           style={style}

@@ -17,8 +17,19 @@ import type {Key, Wallet} from '../../../../store/wallet/wallet.models';
 import {
   buildAllocationDataFromWalletRows,
   type AllocationWallet,
-} from '../../../../utils/allocation';
-import {Black, Slate30, SlateDark, White} from '../../../../styles/colors';
+  toAllocationWallet,
+} from '../../../../utils/portfolio/allocation';
+import {getVisibleWalletsFromKeys} from '../../../../utils/portfolio/assets';
+import {
+  Black,
+  CharcoalBlack,
+  GhostWhite,
+  LightBlack,
+  NeutralSlate,
+  Slate30,
+  SlateDark,
+  White,
+} from '../../../../styles/colors';
 
 export type AllocationLegendItem = {
   key: string;
@@ -277,8 +288,8 @@ export const AllocationDonutLegendCard: React.FC<{
     const holeColor =
       (theme as any)?.colors?.background || (theme.dark ? Black : White);
 
-    const skeletonBackgroundColor = theme.dark ? '#111' : '#F5F7F8';
-    const skeletonHighlightColor = theme.dark ? '#252525' : '#FBFBFF';
+    const skeletonBackgroundColor = theme.dark ? CharcoalBlack : NeutralSlate;
+    const skeletonHighlightColor = theme.dark ? LightBlack : GhostWhite;
     const skeletonRowHeight = 12;
     const skeletonRowWidth = 68;
     const skeletonRowBorderRadius = 2;
@@ -416,32 +427,23 @@ const AllocationSection: React.FC = () => {
   const navigation = useNavigation();
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
   const {defaultAltCurrency} = useAppSelector(({APP}) => APP);
+  const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
 
   const hasAnyVisibleWalletBalance = useMemo(() => {
-    const wallets = (Object.values(keys) as Key[])
-      .flatMap((k: Key) => k.wallets)
-      .filter((w: Wallet) => !w.hideWallet && !w.hideWalletByAccount);
+    const wallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
 
     return wallets.some(
       (w: Wallet) => (Number((w.balance as any)?.sat) || 0) > 0,
     );
-  }, [keys]);
+  }, [homeCarouselConfig, keys]);
 
   const walletRows: AllocationWallet[] = useMemo(() => {
-    const wallets = (Object.values(keys) as Key[])
-      .flatMap((k: Key) => k.wallets)
-      .filter((w: Wallet) => !w.hideWallet && !w.hideWalletByAccount);
+    const wallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
 
     return wallets.map((w: Wallet) => {
-      return {
-        currencyAbbreviation: w.currencyAbbreviation,
-        chain: w.chain,
-        tokenAddress: w.tokenAddress,
-        currencyName: w.currencyName,
-        fiatBalance: (w.balance as any)?.fiat,
-      };
+      return toAllocationWallet(w);
     });
-  }, [keys]);
+  }, [homeCarouselConfig, keys]);
 
   const allocationData = useMemo(() => {
     return buildAllocationDataFromWalletRows(

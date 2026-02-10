@@ -1,4 +1,5 @@
 import React, {useLayoutEffect, useMemo} from 'react';
+import {ImageRequireSource} from 'react-native';
 import styled, {useTheme} from 'styled-components/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../../../Root';
@@ -17,8 +18,11 @@ import {addTokenChainSuffix} from '../../../../utils/helper-methods';
 import {
   buildAllocationDataFromWalletRows,
   type AllocationWallet,
-} from '../../../../utils/allocation';
+  toAllocationWallet,
+} from '../../../../utils/portfolio/allocation';
+import {getVisibleWalletsFromKeys} from '../../../../utils/portfolio/assets';
 import {LightBlack, Slate30, SlateDark} from '../../../../styles/colors';
+import {maskIfHidden} from '../../../../utils/hideBalances';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Allocation'>;
 
@@ -159,7 +163,7 @@ export const AllocationRowsList: React.FC<{
   return (
     <Rows style={style}>
       {rows.map(item => {
-        const option = SupportedCurrencyOptions.find(o => {
+        const optionStrict = SupportedCurrencyOptions.find(o => {
           const tokenMatch = item.tokenAddress
             ? o.tokenAddress?.toLowerCase() === item.tokenAddress?.toLowerCase()
             : true;
@@ -170,6 +174,12 @@ export const AllocationRowsList: React.FC<{
           );
         });
 
+        const option =
+          optionStrict ||
+          SupportedCurrencyOptions.find(
+            o => o.currencyAbbreviation === item.currencyAbbreviation,
+          );
+
         const tokenKey = item.tokenAddress
           ? addTokenChainSuffix(item.tokenAddress, item.chain)
           : undefined;
@@ -177,6 +187,7 @@ export const AllocationRowsList: React.FC<{
           ? allTokenOptionsByAddress[tokenKey]
           : undefined;
         const img = option?.img || (tokenOpt?.logoURI as string | undefined);
+        const imgSrc = option?.imgSrc as ImageRequireSource | undefined;
 
         const barColor = theme.dark ? item.barColor.dark : item.barColor.light;
 
@@ -185,15 +196,7 @@ export const AllocationRowsList: React.FC<{
             <RowTop>
               <RowLeft>
                 <IconContainer>
-                  <CurrencyImage
-                    img={img}
-                    imgSrc={
-                      option?.img
-                        ? undefined
-                        : (option?.imgSrc as unknown as number)
-                    }
-                    size={40}
-                  />
+                  <CurrencyImage img={img} imgSrc={imgSrc} size={40} />
                 </IconContainer>
                 <RowLabels>
                   <AssetName>{item.name}</AssetName>
@@ -205,7 +208,7 @@ export const AllocationRowsList: React.FC<{
 
               <RowRight>
                 <FiatAmount>
-                  {hideAllBalances ? '****' : item.fiatAmount}
+                  {maskIfHidden(hideAllBalances, item.fiatAmount)}
                 </FiatAmount>
                 <Percent>{item.percent}</Percent>
               </RowRight>
@@ -228,6 +231,7 @@ const Allocation: React.FC<Props> = ({navigation, route}) => {
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
   const {rates} = useAppSelector(({RATE}) => RATE);
   const {defaultAltCurrency} = useAppSelector(({APP}) => APP);
+  const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -266,32 +270,19 @@ const Allocation: React.FC<Props> = ({navigation, route}) => {
       );
 
       return wallets.map((w: Wallet) => {
-        return {
-          currencyAbbreviation: w.currencyAbbreviation,
-          chain: w.chain,
-          tokenAddress: w.tokenAddress,
-          currencyName: w.currencyName,
-          fiatBalance: (w.balance as any)?.fiat,
-        };
+        return toAllocationWallet(w);
       });
     }
 
-    const wallets = (Object.values(keys) as Key[])
-      .flatMap((k: Key) => k.wallets)
-      .filter((w: Wallet) => !w.hideWallet && !w.hideWalletByAccount);
+    const wallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
 
     return wallets.map((w: Wallet) => {
-      return {
-        currencyAbbreviation: w.currencyAbbreviation,
-        chain: w.chain,
-        tokenAddress: w.tokenAddress,
-        currencyName: w.currencyName,
-        fiatBalance: (w.balance as any)?.fiat,
-      };
+      return toAllocationWallet(w);
     });
   }, [
     defaultAltCurrency.isoCode,
     dispatch,
+    homeCarouselConfig,
     keys,
     rates,
     route.params?.accountAddress,
