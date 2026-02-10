@@ -1492,10 +1492,12 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     return [];
   }
 
-  // Precompute representative wallet per asset key and build analysis wallets once.
+  // Precompute representative wallet per asset key and bucket analysis wallets
+  // by normalized rate coin. This keeps one coin's stale/missing cache entries
+  // from poisoning PnL for every asset row.
   const repWalletByAssetKey = new Map<string, Wallet>();
   const coinByAssetKey = new Map<string, string>();
-  const allPnlWallets: WalletForAnalysis[] = [];
+  const pnlWalletsByRateCoin = new Map<string, WalletForAnalysis[]>();
   const seenPnlWalletIds = new Set<string>();
 
   const currentRatesByCoin: Record<string, number> = {};
@@ -1541,7 +1543,9 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       if (!pw) continue;
       if (seenPnlWalletIds.has(pw.walletId)) continue;
       seenPnlWalletIds.add(pw.walletId);
-      allPnlWallets.push(pw);
+      const existing = pnlWalletsByRateCoin.get(normCoin) || [];
+      existing.push(pw);
+      pnlWalletsByRateCoin.set(normCoin, existing);
     }
   }
 
@@ -1549,27 +1553,39 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     typeof buildPnlAnalysisSeries
   >['points'][number];
 
-  let lastPoint: AnalysisPoint | undefined;
-  if (allPnlWallets.length && fiatRateSeriesCache) {
-    try {
-      const res = buildPnlAnalysisSeries({
-        wallets: allPnlWallets,
-        timeframe: timeframe as any,
-        quoteCurrency,
-        fiatRateSeriesCache: fiatRateSeriesCache as any,
-        currentRatesByCoin:
-          Object.keys(currentRatesByCoin).length > 0
-            ? currentRatesByCoin
-            : undefined,
-        nowMs,
-        maxPoints: 2,
-      });
+  const lastPointByRateCoin = new Map<string, AnalysisPoint>();
+  if (fiatRateSeriesCache) {
+    for (const [rateCoin, walletsForCoin] of pnlWalletsByRateCoin.entries()) {
+      if (!walletsForCoin.length) {
+        continue;
+      }
 
-      lastPoint = res.points.length
-        ? res.points[res.points.length - 1]
-        : undefined;
-    } catch {
-      // Ignore and use fallback per-row rate-derived calculations below.
+      const currentRate = currentRatesByCoin[rateCoin];
+      const currentRateOverride =
+        typeof currentRate === 'number' && Number.isFinite(currentRate)
+          ? {[rateCoin]: currentRate}
+          : undefined;
+
+      try {
+        const res = buildPnlAnalysisSeries({
+          wallets: walletsForCoin,
+          timeframe: timeframe as any,
+          quoteCurrency,
+          fiatRateSeriesCache: fiatRateSeriesCache as any,
+          currentRatesByCoin: currentRateOverride,
+          nowMs,
+          maxPoints: 2,
+        });
+
+        const lastPoint = res.points.length
+          ? res.points[res.points.length - 1]
+          : undefined;
+        if (lastPoint) {
+          lastPointByRateCoin.set(rateCoin, lastPoint);
+        }
+      } catch {
+        // Ignore and use fallback per-row rate-derived calculations below.
+      }
     }
   }
 
@@ -1596,13 +1612,15 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       continue;
     }
 
-    // Aggregate per-wallet PnL stats from the last point of the *single* analysis series.
+    // Aggregate per-wallet PnL stats from the last point of this row's rate-coin series.
     let fiatValue = 0;
     let pnlFiat = 0;
     let pnlRatio = 0;
     let hasRate = false;
     let hasPnl = false;
 
+    const rateCoin = normalizeCoinForPnlRates(coin);
+    const lastPoint = lastPointByRateCoin.get(rateCoin);
     if (lastPoint) {
       let basis = 0;
       let hasWalletPoints = false;
