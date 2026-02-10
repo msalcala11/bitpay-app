@@ -6,8 +6,6 @@ import type {FiatRateSeriesCache} from './rate.models';
 type RateReduxPersistBlackList = string[];
 export const rateReduxPersistBlackList: RateReduxPersistBlackList = [];
 
-const FIAT_RATE_SERIES_MAX_FIATS_PERSISTED = 1;
-
 const getFiatCodeFromSeriesCacheKey = (
   cacheKey: string,
 ): string | undefined => {
@@ -19,6 +17,21 @@ const getFiatCodeFromSeriesCacheKey = (
     return undefined;
   }
   return cacheKey.slice(0, idx).toUpperCase();
+};
+
+const getCoinFromSeriesCacheKey = (cacheKey: string): string | undefined => {
+  if (!cacheKey || typeof cacheKey !== 'string') {
+    return undefined;
+  }
+  const first = cacheKey.indexOf(':');
+  if (first <= 0) {
+    return undefined;
+  }
+  const second = cacheKey.indexOf(':', first + 1);
+  if (second <= first + 1) {
+    return undefined;
+  }
+  return cacheKey.slice(first + 1, second).toLowerCase();
 };
 
 export interface RateState {
@@ -59,46 +72,49 @@ export const rateReducer = (
       };
     }
 
+    case RateActionTypes.PRUNE_FIAT_RATE_SERIES_CACHE: {
+      const fiatCode = (action.payload?.fiatCode || '').toUpperCase();
+      if (!fiatCode) {
+        return state;
+      }
+
+      const keepCoins = new Set(
+        (action.payload?.keepCoins || [])
+          .map(coin => (coin || '').toLowerCase())
+          .filter(Boolean),
+      );
+
+      const next: FiatRateSeriesCache = {};
+      for (const [cacheKey, series] of Object.entries(
+        state.fiatRateSeriesCache || {},
+      )) {
+        const keyFiat = getFiatCodeFromSeriesCacheKey(cacheKey);
+        if (keyFiat !== fiatCode) {
+          next[cacheKey] = series;
+          continue;
+        }
+
+        const keyCoin = getCoinFromSeriesCacheKey(cacheKey);
+        if (keyCoin && keepCoins.has(keyCoin)) {
+          next[cacheKey] = series;
+        }
+      }
+
+      return {
+        ...state,
+        fiatRateSeriesCache: next,
+      };
+    }
+
     case RateActionTypes.UPSERT_FIAT_RATE_SERIES_CACHE: {
       const {updates} = action.payload;
       const fiatRateSeriesCache = {
         ...state.fiatRateSeriesCache,
         ...updates,
       };
-
-      const lastFetchedByFiat: Record<string, number> = {};
-      for (const [cacheKey, series] of Object.entries(fiatRateSeriesCache)) {
-        const fiatCode = getFiatCodeFromSeriesCacheKey(cacheKey);
-        if (!fiatCode) {
-          continue;
-        }
-        const fetchedOn = (series as any)?.fetchedOn;
-        if (typeof fetchedOn !== 'number') {
-          continue;
-        }
-        const prev = lastFetchedByFiat[fiatCode];
-        if (!prev || fetchedOn > prev) {
-          lastFetchedByFiat[fiatCode] = fetchedOn;
-        }
-      }
-
-      const fiatsByRecent = Object.entries(lastFetchedByFiat)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, FIAT_RATE_SERIES_MAX_FIATS_PERSISTED)
-        .map(([fiat]) => fiat);
-      const keepFiats = new Set(fiatsByRecent);
-
-      const prunedFiatRateSeriesCache: FiatRateSeriesCache = {};
-      for (const [cacheKey, series] of Object.entries(fiatRateSeriesCache)) {
-        const fiatCode = getFiatCodeFromSeriesCacheKey(cacheKey);
-        if (!fiatCode || keepFiats.has(fiatCode)) {
-          prunedFiatRateSeriesCache[cacheKey] = series;
-        }
-      }
-
       return {
         ...state,
-        fiatRateSeriesCache: prunedFiatRateSeriesCache,
+        fiatRateSeriesCache,
       };
     }
 

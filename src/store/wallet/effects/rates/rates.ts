@@ -29,19 +29,21 @@ import {addAltCurrencyList} from '../../../app/app.actions';
 import {AltCurrenciesRowProps} from '../../../../components/list/AltCurrenciesRow';
 import {BitpaySupportedTokenOptsByAddress} from '../../../../constants/tokens';
 import {
-  getCurrencyAbbreviation,
   addTokenChainSuffix,
+  getLastDayTimestampStartOfHourMs,
+  getErrorString,
 } from '../../../../utils/helper-methods';
 import {
   getMultipleTokenPrices,
   UnifiedTokenPriceObj,
 } from '../../../../store/moralis/moralis.effects';
 import {calculateUsdToAltFiat} from '../../../../store/buy-crypto/buy-crypto.effects';
-import {IsERCToken, IsSVMChain} from '../../utils/currency';
+import {IsERCToken} from '../../utils/currency';
 import {UpdateAllKeyAndWalletStatusContext} from '../status/status';
 import {tokenManager} from '../../../../managers/TokenManager';
 import {logManager} from '../../../../managers/LogManager';
 import type {Key, Wallet} from '../../wallet.models';
+import {normalizeFiatRateSeriesCoin} from '../../../../utils/portfolio/core/pnl/rates';
 
 const FIAT_RATE_SERIES_BASE_URL = `${BASE_BWS_URL}/v4/fiatrates`;
 
@@ -146,8 +148,7 @@ export const startGetRates =
 
       try {
         logManager.info('startGetRates: fetching new rates...');
-        const yesterday =
-          moment().subtract(1, 'days').startOf('hour').unix() * 1000;
+        const yesterday = getLastDayTimestampStartOfHourMs();
 
         logManager.info(
           `startGetRates: get request to: ${BASE_BWS_URL}/v3/fiatrates/`,
@@ -196,17 +197,27 @@ export const startGetRates =
         logManager.info('startGetRates: success');
         resolve(allRates);
       } catch (err) {
-        let errorStr;
-        if (err instanceof Error) {
-          errorStr = err.message;
-        } else {
-          errorStr = JSON.stringify(err);
-        }
+        const errorStr = getErrorString(err);
         dispatch(failedGetRates());
         logManager.error(`startGetRates: failed ${errorStr}`);
         resolve(getState().RATE.rates); // Return cached rates
       }
     });
+  };
+
+export const refreshRatesForPortfolioPnl =
+  ({
+    context,
+  }: {
+    context?: UpdateAllKeyAndWalletStatusContext;
+  } = {}): Effect<Promise<void>> =>
+  async dispatch => {
+    await dispatch(
+      startGetRates({
+        context,
+        force: true,
+      }) as any,
+    );
   };
 
 export const getContractAddresses =
@@ -379,29 +390,16 @@ export const getHistoricFiatRate = (
   });
 };
 
-const normalizeFiatRateSeriesCoin = (currencyAbbreviation?: string): string => {
-  switch (currencyAbbreviation?.toLowerCase()) {
-    case 'wbtc':
-      return 'btc';
-    case 'weth':
-      return 'eth';
-    case 'matic':
-    case 'pol':
-      return 'pol';
-    default:
-      return (currencyAbbreviation || '').toLowerCase();
-  }
-};
-
 export const fetchFiatRateSeriesInterval =
   (args: {
     fiatCode: string;
     interval: FiatRateInterval;
     coinForCacheCheck: string;
     force?: boolean;
+    allowedCoins?: string[];
   }): Effect<Promise<void>> =>
   async (dispatch, getState) => {
-    const {fiatCode, interval, coinForCacheCheck, force} = args;
+    const {fiatCode, interval, coinForCacheCheck, force, allowedCoins} = args;
     const {
       RATE: {fiatRateSeriesCache},
     } = getState();
@@ -429,8 +427,19 @@ export const fetchFiatRateSeriesInterval =
       return;
     }
 
+    const allowedCoinsSet =
+      Array.isArray(allowedCoins) && allowedCoins.length
+        ? new Set(
+            allowedCoins.map(c => (c || '').toLowerCase()).filter(Boolean),
+          )
+        : null;
+
     const updates: FiatRateSeriesCache = {};
     Object.keys(data as Record<string, unknown>).forEach(coin => {
+      if (allowedCoinsSet && !allowedCoinsSet.has((coin || '').toLowerCase())) {
+        return;
+      }
+
       const rawPoints = (data as Record<string, FiatRatePoint[]>)[coin];
       if (!rawPoints?.length) {
         return;
@@ -464,9 +473,10 @@ export const fetchFiatRateSeriesAllIntervals =
     fiatCode: string;
     currencyAbbreviation: string;
     force?: boolean;
+    allowedCoins?: string[];
   }): Effect<Promise<void>> =>
   async dispatch => {
-    const {fiatCode, currencyAbbreviation, force} = args;
+    const {fiatCode, currencyAbbreviation, force, allowedCoins} = args;
     const coinForCacheCheck = normalizeFiatRateSeriesCoin(currencyAbbreviation);
     const intervals: FiatRateInterval[] = ['1D', '1W', '1M', 'ALL'];
     await Promise.allSettled(
@@ -477,6 +487,7 @@ export const fetchFiatRateSeriesAllIntervals =
             interval,
             coinForCacheCheck,
             force,
+            allowedCoins,
           }),
         ),
       ),

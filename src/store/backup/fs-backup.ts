@@ -46,6 +46,7 @@ export async function backupPersistRoot(rawJson: string): Promise<void> {
       const parsed = JSON.parse(rawJson);
       delete parsed.RATE;
       delete parsed.SHOP_CATALOG;
+      delete parsed.PORTFOLIO;
       filtered = JSON.stringify(parsed);
     } catch (_) {
       // If parse fails, keep raw json — better to have a backup than none

@@ -147,6 +147,7 @@ import {BrazeWrapper} from './lib/Braze';
 import {selectSettingsNotificationState} from './store/app/app.selectors';
 import {HeaderShownContext} from '@react-navigation/elements';
 import PaymentSent from './navigation/wallet/components/PaymentSent';
+import AllAssets from './navigation/tabs/home/screens/AllAssets';
 import Allocation from './navigation/tabs/home/screens/Allocation';
 import {
   getBaseEVMAccountCreationCoinsAndTokens,
@@ -166,6 +167,7 @@ const {Timer, SilentPushEvent, InAppMessageModule} = NativeModules;
 // ROOT NAVIGATION CONFIG
 export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabsStackParamList>;
+  AllAssets: {keyId?: string} | undefined;
   Allocation:
     | {
         keyId?: string;
@@ -250,12 +252,9 @@ export type SilentPushEventObj = {
 };
 
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
-export const navigate = (
-  name: keyof RootStackParamList,
-  params: NavScreenParams,
-) => {
+export const navigate = (name: keyof RootStackParamList, params?: any) => {
   if (navigationRef.isReady()) {
-    navigationRef.navigate(name, params);
+    (navigationRef.navigate as any)(name, params);
   }
 };
 
@@ -990,6 +989,14 @@ export default () => {
               component={TabsStack}
               options={{
                 gestureEnabled: false,
+              }}
+            />
+            <Root.Screen
+              name={'AllAssets'}
+              component={AllAssets}
+              options={{
+                ...baseNavigatorOptions,
+                headerShown: true,
               }}
             />
             <Root.Screen
