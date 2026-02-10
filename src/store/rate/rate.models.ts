@@ -31,6 +31,9 @@ export type FiatRateInterval = CachedFiatRateInterval | '3M' | '1Y' | '5Y';
 export const FIAT_RATE_SERIES_CACHED_INTERVALS: Array<CachedFiatRateInterval> =
   ['ALL', '1D', '1W', '1M'];
 
+// Shared chart density + minimum historical coverage threshold.
+export const FIAT_RATE_SERIES_TARGET_POINTS = 91;
+
 export type FiatRatePoint = {
   ts: number;
   rate: number;

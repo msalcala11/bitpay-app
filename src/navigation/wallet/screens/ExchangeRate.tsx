@@ -103,6 +103,7 @@ import {
   FiatRateInterval,
   FiatRatePoint,
   FIAT_RATE_SERIES_CACHED_INTERVALS,
+  FIAT_RATE_SERIES_TARGET_POINTS,
   getFiatRateSeriesCacheKey,
 } from '../../../store/rate/rate.models';
 import haptic from '../../../components/haptic-feedback/haptic';
@@ -324,7 +325,7 @@ const getFormattedData = (
   if (!ratesSorted.length) {
     return defaultDisplayData;
   }
-  const targetLen = 91;
+  const targetLen = FIAT_RATE_SERIES_TARGET_POINTS;
   const rates = downsampleSeries(ratesSorted, targetLen, {
     strategy: 'lttb',
     mode: 'per_coin',
