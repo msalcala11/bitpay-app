@@ -4,15 +4,12 @@ import {NavigationProp, useNavigation} from '@react-navigation/native';
 import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 import styled, {useTheme} from 'styled-components/native';
 import type {RootStackParamList} from '../../../../Root';
+import {getFiatRateSeriesCacheKey} from '../../../../store/rate/rate.models';
 import {TouchableOpacity} from '../../../../components/base/TouchableOpacity';
 import {CurrencyImage} from '../../../../components/currency-image/CurrencyImage';
 import {ActiveOpacity} from '../../../../components/styled/Containers';
 import {BaseText, H7} from '../../../../components/styled/Text';
 import {SupportedCurrencyOptions} from '../../../../constants/SupportedCurrencyOptions';
-import {
-  BitpaySupportedCoins,
-  BitpaySupportedTokens,
-} from '../../../../constants/currencies';
 import {
   CharcoalBlack,
   GhostWhite,
@@ -26,11 +23,12 @@ import {
 import {getDifferenceColor} from '../../../../components/percentage/Percentage';
 import {useAppSelector} from '../../../../utils/hooks';
 import {maskIfHidden} from '../../../../utils/hideBalances';
-import {getCurrencyAbbreviation} from '../../../../utils/helper-methods';
 import ChevronRightSvg from './ChevronRightSvg';
 import {
   AssetRowItem,
+  canNavigateToExchangeRateForAssetRowItem,
 } from '../../../../utils/portfolio/assets';
+import {normalizeFiatRateSeriesCoin} from '../../../../utils/portfolio/core/pnl/rates';
 import {createSupportedCurrencyOptionLookup} from '../../../../utils/portfolio/supportedCurrencyOptionsLookup';
 
 const supportedCurrencyOptionLookup = createSupportedCurrencyOptionLookup(
@@ -135,6 +133,10 @@ const AssetRow: React.FC<Props> = ({
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const theme = useTheme();
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
+  const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
+  const fiatRateSeriesCache = useAppSelector(
+    ({RATE}) => RATE.fiatRateSeriesCache,
+  );
   const option = useMemo(() => {
     return supportedCurrencyOptionLookup.getOption({
       currencyAbbreviation: item.currencyAbbreviation,
@@ -146,33 +148,28 @@ const AssetRow: React.FC<Props> = ({
   const hasPnl = !!item.hasPnl;
   const showPnlPlaceholder = !!item.showPnlPlaceholder;
   const shouldShowRightSide = hasRate || showPnlPlaceholder;
-  const canNavigate = useMemo(() => {
-    if (!option || !item.hasRate) {
+  const hasHistoricalV4Rates = useMemo(() => {
+    const fiatCodeUpper = (defaultAltCurrency?.isoCode || 'USD').toUpperCase();
+    const normalizedCoin = normalizeFiatRateSeriesCoin(item.currencyAbbreviation);
+    if (!normalizedCoin) {
       return false;
     }
-
-    const isExactMatch =
-      (option.currencyAbbreviation || '').toLowerCase() ===
-        (item.currencyAbbreviation || '').toLowerCase() &&
-      (option.chain || '').toLowerCase() === (item.chain || '').toLowerCase() &&
-      (option.tokenAddress || '').toLowerCase() ===
-        (item.tokenAddress || '').toLowerCase();
-
-    if (!isExactMatch) {
-      return false;
-    }
-
-    const currencyName = getCurrencyAbbreviation(
-      option.tokenAddress ? option.tokenAddress : option.currencyAbbreviation,
-      option.chain,
+    const cacheKey = getFiatRateSeriesCacheKey(
+      fiatCodeUpper,
+      normalizedCoin,
+      'ALL',
     );
-
-    const isStable =
-      BitpaySupportedCoins[currencyName]?.properties?.isStableCoin ||
-      BitpaySupportedTokens[currencyName]?.properties?.isStableCoin;
-
-    return !isStable;
-  }, [item, option]);
+    return !!fiatRateSeriesCache?.[cacheKey]?.points?.length;
+  }, [defaultAltCurrency?.isoCode, fiatRateSeriesCache, item.currencyAbbreviation]);
+  const canNavigate = useMemo(() => {
+    return (
+      hasHistoricalV4Rates &&
+      canNavigateToExchangeRateForAssetRowItem({
+        item,
+        options: option ? [option] : [],
+      })
+    );
+  }, [hasHistoricalV4Rates, item, option]);
   const shouldShowDeltaFiat = hasPnl;
   const isCryptoAmountLoading = !!isPopulateLoading && !isFiatLoading;
 
