@@ -980,16 +980,21 @@ const ExchangeRate = () => {
       .filter(w => w.network !== Network.testnet)
       .filter(w => (w.balance?.sat ?? 0) > 0)
       .filter(w => {
+        const isSelectedToken = !!assetContext.tokenAddress;
         const matchesCurrency =
           (w.currencyAbbreviation || '').toLowerCase() ===
           assetContext.currencyAbbreviation;
-        const matchesTokenAddress = assetContext.tokenAddress
-          ? (w.tokenAddress || '').toLowerCase() === assetContext.tokenAddress
-          : true;
-        const matchesChain = assetContext.tokenAddress
-          ? (w.chain || '').toLowerCase() === assetContext.chain
-          : true;
-        return matchesCurrency && matchesTokenAddress && matchesChain;
+        if (!matchesCurrency) {
+          return false;
+        }
+
+        // Asset rows are collapsed across chains. For token assets (like USDC),
+        // include all token wallets with the same ticker across supported chains.
+        if (isSelectedToken) {
+          return !!w.tokenAddress;
+        }
+
+        return true;
       })
       .map(wallet => {
         const ui = buildUIFormattedWallet(
@@ -1005,7 +1010,6 @@ const ExchangeRate = () => {
 
     return filtered;
   }, [
-    assetContext.chain,
     assetContext.currencyAbbreviation,
     assetContext.tokenAddress,
     defaultAltCurrency.isoCode,
