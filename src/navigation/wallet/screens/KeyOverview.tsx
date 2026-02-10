@@ -1125,17 +1125,6 @@ const KeyOverview = () => {
   const renderListFooterComponent = useCallback(() => {
     return (
       <WalletListFooterContainer>
-        {/* <WalletListFooter
-          activeOpacity={ActiveOpacity}
-          onPress={async () => {
-            haptic('impactLight');
-            navigation.navigate('AddingOptions', {
-              key,
-            });
-          }}>
-          <Icons.Add />
-          <WalletListFooterText>{t('Add Wallet')}</WalletListFooterText>
-        </WalletListFooter> */}
         <Button
           buttonStyle="secondary"
           height={50}
