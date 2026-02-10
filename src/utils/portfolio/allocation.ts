@@ -1,5 +1,5 @@
 import type {WalletRowProps} from '../../components/list/WalletRow';
-import {formatFiatAmount} from '../helper-methods';
+import {formatCurrencyAbbreviation, formatFiatAmount} from '../helper-methods';
 import type {Key, Wallet} from '../../store/wallet/wallet.models';
 import type {HomeCarouselConfig} from '../../store/app/app.models';
 import {Slate, SlateDark} from '../../styles/colors';
@@ -177,7 +177,7 @@ export const buildAllocationDataFromWalletRows = (
   const legendItems: AllocationLegendItem[] = topAssets.map(a => {
     return {
       key: a.assetKey,
-      label: a.currencyAbbreviation.toUpperCase(),
+      label: formatCurrencyAbbreviation(a.currencyAbbreviation || ''),
       value: `${a.percent.toFixed(1)}%`,
       color: a.color,
     };

@@ -14,7 +14,10 @@ import {buildAccountList} from '../../../../store/wallet/utils/wallet';
 import type {Key, Wallet} from '../../../../store/wallet/wallet.models';
 import {useTokenContext} from '../../../../contexts';
 import {BitpaySupportedTokenOptsByAddress} from '../../../../constants/tokens';
-import {addTokenChainSuffix} from '../../../../utils/helper-methods';
+import {
+  addTokenChainSuffix,
+  formatCurrencyAbbreviation,
+} from '../../../../utils/helper-methods';
 import {createSupportedCurrencyOptionLookup} from '../../../../utils/portfolio/supportedCurrencyOptionsLookup';
 import {
   buildAllocationDataFromWalletRows,
@@ -195,7 +198,7 @@ export const AllocationRowsList: React.FC<{
                 <RowLabels>
                   <AssetName>{item.name}</AssetName>
                   <AssetSymbol>
-                    {item.currencyAbbreviation.toUpperCase()}
+                    {formatCurrencyAbbreviation(item.currencyAbbreviation || '')}
                   </AssetSymbol>
                 </RowLabels>
               </RowLeft>
