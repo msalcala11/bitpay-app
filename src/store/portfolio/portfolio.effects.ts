@@ -1222,7 +1222,7 @@ export const populatePortfolio =
     dispatch(finishPopulatePortfolio({finishedAt: Date.now()}));
   };
 
-export const recalculatePortfolioFiatFields =
+export const preparePortfolioFiatRateCachesForQuoteCurrencySwitch =
   (args?: {quoteCurrency?: string}): Effect<Promise<void>> =>
   async (dispatch, getState) => {
     const state = getState();

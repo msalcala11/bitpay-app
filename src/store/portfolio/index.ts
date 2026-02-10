@@ -13,7 +13,7 @@ export {
 export {
   maybePopulatePortfolioForWallets,
   populatePortfolio,
-  recalculatePortfolioFiatFields,
+  preparePortfolioFiatRateCachesForQuoteCurrencySwitch,
 } from './portfolio.effects';
 
 export {

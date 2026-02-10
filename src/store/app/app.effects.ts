@@ -51,7 +51,7 @@ import {
 } from '../wallet/effects';
 import {
   populatePortfolio,
-  recalculatePortfolioFiatFields,
+  preparePortfolioFiatRateCachesForQuoteCurrencySwitch,
   setSnapshotBalanceMismatchesByWalletIdUpdates,
 } from '../portfolio';
 import {
@@ -349,7 +349,11 @@ export const startAppInit = (): Effect => async (dispatch, getState) => {
         });
 
         if (hasFiatLoading) {
-          dispatch(recalculatePortfolioFiatFields({quoteCurrency}));
+          dispatch(
+            preparePortfolioFiatRateCachesForQuoteCurrencySwitch({
+              quoteCurrency,
+            }),
+          );
           return;
         }
 

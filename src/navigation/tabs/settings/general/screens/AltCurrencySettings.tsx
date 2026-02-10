@@ -33,7 +33,7 @@ import {FormatKeyBalances} from '../../../../../store/wallet/effects/status/stat
 import {updatePortfolioBalance} from '../../../../../store/wallet/wallet.actions';
 import {
   cancelPopulatePortfolio,
-  recalculatePortfolioFiatFields,
+  preparePortfolioFiatRateCachesForQuoteCurrencySwitch,
 } from '../../../../../store/portfolio';
 import {useTranslation} from 'react-i18next';
 import {coinbaseInitialize} from '../../../../../store/coinbase';
@@ -214,7 +214,7 @@ const AltCurrencySettings = () => {
               if (shouldRestartPopulate) {
                 InteractionManager.runAfterInteractions(() => {
                   dispatch(
-                    recalculatePortfolioFiatFields({
+                    preparePortfolioFiatRateCachesForQuoteCurrencySwitch({
                       quoteCurrency: item.isoCode,
                     }),
                   );
@@ -225,7 +225,7 @@ const AltCurrencySettings = () => {
               if (shouldRecalculatePortfolio) {
                 InteractionManager.runAfterInteractions(() => {
                   dispatch(
-                    recalculatePortfolioFiatFields({
+                    preparePortfolioFiatRateCachesForQuoteCurrencySwitch({
                       quoteCurrency: item.isoCode,
                     }),
                   );
