@@ -1,4 +1,4 @@
-import React, {useMemo} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import styled from 'styled-components/native';
 import {BaseText, H2} from '../../../../components/styled/Text';
 import {SlateDark, White} from '../../../../styles/colors';
@@ -24,6 +24,7 @@ import {
   getPercentageDifferenceFromPercentRatio,
   getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots,
   getQuoteCurrency,
+  hasSnapshotsBeforeMsForWallets,
   hasSnapshotsForWallets,
   walletHasNonZeroLiveBalance,
 } from '../../../../utils/portfolio/assets';
@@ -117,6 +118,24 @@ const PortfolioBalance = () => {
     snapshotsByWalletId: portfolio?.snapshotsByWalletId || {},
     wallets: walletsAcrossKeys,
   });
+  const isPopulateInProgress = !!portfolio?.populateStatus?.inProgress;
+  const hasSnapshotsBeforePopulateStarted = useMemo(() => {
+    const startedAt = portfolio?.populateStatus?.startedAt;
+    if (!isPopulateInProgress || typeof startedAt !== 'number') {
+      return true;
+    }
+
+    return hasSnapshotsBeforeMsForWallets({
+      snapshotsByWalletId: portfolio?.snapshotsByWalletId || {},
+      wallets: walletsAcrossKeys,
+      cutoffMs: startedAt,
+    });
+  }, [
+    isPopulateInProgress,
+    portfolio?.populateStatus?.startedAt,
+    portfolio?.snapshotsByWalletId,
+    walletsAcrossKeys,
+  ]);
   const quoteCurrency = getQuoteCurrency({
     portfolioQuoteCurrency: portfolio?.quoteCurrency,
     defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
@@ -138,7 +157,7 @@ const PortfolioBalance = () => {
     });
 
     if (!pnl.available) {
-      return legacyPercentageDifference;
+      return null;
     }
 
     return getPercentageDifferenceFromPercentRatio(pnl.percentRatio);
@@ -146,16 +165,71 @@ const PortfolioBalance = () => {
     fiatRateSeriesCache,
     hasSnapshots,
     lastDayRates,
-    legacyPercentageDifference,
     quoteCurrency,
     portfolio?.snapshotsByWalletId,
     rates,
     walletsAcrossKeys,
   ]);
 
-  const percentageDifference = hasSnapshots
-    ? portfolioPnlPercentageDifference
-    : legacyPercentageDifference;
+  const [committedSnapshotPercentageDifference, setCommittedSnapshotPercentage] =
+    useState<number | null>(null);
+
+  useEffect(() => {
+    if (!isPopulateInProgress) {
+      if (!hasSnapshots) {
+        setCommittedSnapshotPercentage(null);
+        return;
+      }
+
+      if (portfolioPnlPercentageDifference !== null) {
+        setCommittedSnapshotPercentage(portfolioPnlPercentageDifference);
+      }
+      return;
+    }
+
+    if (
+      committedSnapshotPercentageDifference === null &&
+      hasSnapshotsBeforePopulateStarted &&
+      portfolioPnlPercentageDifference !== null
+    ) {
+      setCommittedSnapshotPercentage(portfolioPnlPercentageDifference);
+    }
+  }, [
+    committedSnapshotPercentageDifference,
+    hasSnapshots,
+    hasSnapshotsBeforePopulateStarted,
+    isPopulateInProgress,
+    portfolioPnlPercentageDifference,
+  ]);
+
+  const percentageDifference = useMemo(() => {
+    if (!hasSnapshots) {
+      return legacyPercentageDifference;
+    }
+
+    if (isPopulateInProgress) {
+      if (!hasSnapshotsBeforePopulateStarted) {
+        return legacyPercentageDifference;
+      }
+
+      if (committedSnapshotPercentageDifference !== null) {
+        return committedSnapshotPercentageDifference;
+      }
+    }
+
+    if (portfolioPnlPercentageDifference !== null) {
+      return portfolioPnlPercentageDifference;
+    }
+
+    return legacyPercentageDifference;
+  }, [
+    committedSnapshotPercentageDifference,
+    hasSnapshots,
+    hasSnapshotsBeforePopulateStarted,
+    isPopulateInProgress,
+    legacyPercentageDifference,
+    portfolioPnlPercentageDifference,
+  ]);
 
   const showPortfolioBalanceInfoModal = () => {
     dispatch(
