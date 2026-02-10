@@ -1056,10 +1056,10 @@ export const populatePortfolio =
           coin: String(wallet.currencyAbbreviation || '').toLowerCase(),
           network: wallet.network,
         };
-        if (wallet.tokenAddress) {
+        if (typeof precision?.unitDecimals === 'number') {
           credentials.token = {
-            address: wallet.tokenAddress,
-            decimals: unitDecimals,
+            ...(wallet.tokenAddress ? {address: wallet.tokenAddress} : {}),
+            decimals: precision.unitDecimals,
           };
         }
 
