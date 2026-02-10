@@ -1,10 +1,9 @@
-import React, {useCallback, useMemo, useRef} from 'react';
+import React, {useMemo} from 'react';
 import {ImageRequireSource} from 'react-native';
 import {NavigationProp, useNavigation} from '@react-navigation/native';
 import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 import styled, {useTheme} from 'styled-components/native';
 import type {RootStackParamList} from '../../../../Root';
-import Clipboard from '@react-native-clipboard/clipboard';
 import {
   FIAT_RATE_SERIES_CACHED_INTERVALS,
   FIAT_RATE_SERIES_TARGET_POINTS,
@@ -14,9 +13,7 @@ import {TouchableOpacity} from '../../../../components/base/TouchableOpacity';
 import {CurrencyImage} from '../../../../components/currency-image/CurrencyImage';
 import {ActiveOpacity} from '../../../../components/styled/Containers';
 import {BaseText, H7} from '../../../../components/styled/Text';
-import {showBottomNotificationModal} from '../../../../store/app/app.actions';
 import {SupportedCurrencyOptions} from '../../../../constants/SupportedCurrencyOptions';
-import {BitpaySupportedCoins, BitpaySupportedTokens} from '../../../../constants/currencies';
 import {
   CharcoalBlack,
   GhostWhite,
@@ -28,8 +25,7 @@ import {
   White,
 } from '../../../../styles/colors';
 import {getDifferenceColor} from '../../../../components/percentage/Percentage';
-import {getCurrencyAbbreviation} from '../../../../utils/helper-methods';
-import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
+import {useAppSelector} from '../../../../utils/hooks';
 import {maskIfHidden} from '../../../../utils/hideBalances';
 import ChevronRightSvg from './ChevronRightSvg';
 import {
@@ -139,7 +135,6 @@ const AssetRow: React.FC<Props> = ({
   isPopulateLoading,
 }) => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
-  const dispatch = useAppDispatch();
   const theme = useTheme();
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
@@ -157,9 +152,6 @@ const AssetRow: React.FC<Props> = ({
   const hasPnl = !!item.hasPnl;
   const showPnlPlaceholder = !!item.showPnlPlaceholder;
   const shouldShowRightSide = hasRate || showPnlPlaceholder;
-  const suppressNextPressRef = useRef(false);
-  const itemAbbrLower = (item.currencyAbbreviation || '').toLowerCase();
-  const isUsdtRow = itemAbbrLower === 'usdt';
   const hasHistoricalV4Rates = useMemo(() => {
     const fiatCodeUpper = (defaultAltCurrency?.isoCode || 'USD').toUpperCase();
     const normalizedCoin = normalizeFiatRateSeriesCoin(item.currencyAbbreviation);
@@ -195,202 +187,7 @@ const AssetRow: React.FC<Props> = ({
 
   const fiatAmountDisplay = hasRate ? item.fiatAmount : '— ';
 
-  const getUsdtNavigationDebugPayload = useCallback((): string => {
-    const fiatCodeUpper = (defaultAltCurrency?.isoCode || 'USD').toUpperCase();
-    const normalizedCoin = normalizeFiatRateSeriesCoin(item.currencyAbbreviation);
-
-    const cacheIntervals = FIAT_RATE_SERIES_CACHED_INTERVALS.map(interval => {
-      const cacheKey = getFiatRateSeriesCacheKey(
-        fiatCodeUpper,
-        normalizedCoin,
-        interval,
-      );
-      const series = fiatRateSeriesCache?.[cacheKey];
-      return {
-        interval,
-        cacheKey,
-        pointsLength: series?.points?.length || 0,
-        fetchedOn: series?.fetchedOn || null,
-      };
-    });
-
-    const optionExactMatch = !!(
-      option &&
-      (option.currencyAbbreviation || '').toLowerCase() === itemAbbrLower &&
-      (option.chain || '').toLowerCase() === (item.chain || '').toLowerCase() &&
-      (option.tokenAddress || '').toLowerCase() ===
-        (item.tokenAddress || '').toLowerCase()
-    );
-
-    const helperCanNavigate = canNavigateToExchangeRateForAssetRowItem({
-      item,
-      options: option ? [option] : [],
-    });
-
-    const usdtCatalogOptions = SupportedCurrencyOptions.filter(
-      o => (o.currencyAbbreviation || '').toLowerCase() === 'usdt',
-    ).map(o => ({
-      chain: o.chain,
-      tokenAddress: o.tokenAddress || '',
-    }));
-
-    const tokenAddressLower = (item.tokenAddress || '').toLowerCase();
-    const exactSupportedOption = SupportedCurrencyOptions.find(
-      o =>
-        (o.currencyAbbreviation || '').toLowerCase() === itemAbbrLower &&
-        (o.chain || '').toLowerCase() === (item.chain || '').toLowerCase() &&
-        (o.tokenAddress || '').toLowerCase() === tokenAddressLower,
-    );
-    const chainSupportedOption = SupportedCurrencyOptions.find(
-      o =>
-        (o.currencyAbbreviation || '').toLowerCase() === itemAbbrLower &&
-        (o.chain || '').toLowerCase() === (item.chain || '').toLowerCase(),
-    );
-    const tokenSupportedOption = tokenAddressLower
-      ? SupportedCurrencyOptions.find(
-          o =>
-            (o.currencyAbbreviation || '').toLowerCase() === itemAbbrLower &&
-            (o.tokenAddress || '').toLowerCase() === tokenAddressLower,
-        )
-      : undefined;
-
-    const optionCurrencyName = option
-      ? getCurrencyAbbreviation(
-          option.tokenAddress ? option.tokenAddress : option.currencyAbbreviation,
-          option.chain,
-        )
-      : '';
-    const optionIsStable = option
-      ? !!(
-          BitpaySupportedCoins[optionCurrencyName]?.properties?.isStableCoin ||
-          BitpaySupportedTokens[optionCurrencyName]?.properties?.isStableCoin
-        )
-      : false;
-
-    const reasons: string[] = [];
-    if (!hasRate) {
-      reasons.push('item.hasRate=false');
-    }
-    if (!option) {
-      reasons.push('supported option lookup returned undefined');
-    }
-    if (option && !optionExactMatch) {
-      reasons.push('lookup option does not exactly match item chain/tokenAddress');
-    }
-    if (!hasHistoricalV4Rates) {
-      reasons.push('missing fiatRateSeriesCache ALL points');
-    }
-    if (!helperCanNavigate) {
-      reasons.push('canNavigateToExchangeRateForAssetRowItem returned false');
-    }
-    if (!canNavigate) {
-      reasons.push('final canNavigate is false');
-    }
-
-    return JSON.stringify(
-      {
-        type: 'ASSET_ROW_USDT_NAV_DEBUG',
-        generatedAtIso: new Date().toISOString(),
-        item: {
-          key: item.key,
-          currencyAbbreviation: item.currencyAbbreviation,
-          chain: item.chain,
-          tokenAddress: item.tokenAddress || '',
-          hasRate,
-          hasPnl,
-          showPnlPlaceholder,
-        },
-        lookup: {
-          option: option
-            ? {
-                currencyAbbreviation: option.currencyAbbreviation,
-                chain: option.chain,
-                tokenAddress: option.tokenAddress || '',
-              }
-            : null,
-          optionExactMatch,
-          optionIsStable,
-          exactSupportedOption: exactSupportedOption
-            ? {
-                chain: exactSupportedOption.chain,
-                tokenAddress: exactSupportedOption.tokenAddress || '',
-              }
-            : null,
-          chainSupportedOption: chainSupportedOption
-            ? {
-                chain: chainSupportedOption.chain,
-                tokenAddress: chainSupportedOption.tokenAddress || '',
-              }
-            : null,
-          tokenSupportedOption: tokenSupportedOption
-            ? {
-                chain: tokenSupportedOption.chain,
-                tokenAddress: tokenSupportedOption.tokenAddress || '',
-              }
-            : null,
-          usdtCatalogOptions,
-        },
-        navigation: {
-          helperCanNavigate,
-          hasHistoricalV4Rates,
-          finalCanNavigate: canNavigate,
-        },
-        ratesCache: {
-          fiatCodeUpper,
-          normalizedCoin,
-          intervals: cacheIntervals,
-        },
-        reasons,
-      },
-      null,
-      2,
-    );
-  }, [
-    canNavigate,
-    defaultAltCurrency?.isoCode,
-    fiatRateSeriesCache,
-    hasHistoricalV4Rates,
-    hasPnl,
-    hasRate,
-    item,
-    itemAbbrLower,
-    option,
-    showPnlPlaceholder,
-  ]);
-
-  const handleUsdtLongPress = useCallback(() => {
-    if (!isUsdtRow) {
-      return;
-    }
-
-    suppressNextPressRef.current = true;
-    const payload = getUsdtNavigationDebugPayload();
-    Clipboard.setString(payload);
-
-    dispatch(
-      showBottomNotificationModal({
-        type: 'info',
-        title: 'USDT Debug Copied',
-        message:
-          'USDT navigation diagnostics were copied to clipboard. Paste them here.',
-        enableBackdropDismiss: true,
-        actions: [
-          {
-            text: 'OK',
-            action: () => null,
-            primary: true,
-          },
-        ],
-      }),
-    );
-  }, [dispatch, getUsdtNavigationDebugPayload, isUsdtRow]);
-
   const handlePress = () => {
-    if (suppressNextPressRef.current) {
-      suppressNextPressRef.current = false;
-      return;
-    }
-
     if (!canNavigate || !option) {
       return;
     }
@@ -408,8 +205,6 @@ const AssetRow: React.FC<Props> = ({
     <Row
       activeOpacity={canNavigate ? ActiveOpacity : 1}
       isLast={isLast}
-      delayLongPress={isUsdtRow ? 3000 : undefined}
-      onLongPress={isUsdtRow ? handleUsdtLongPress : undefined}
       onPress={canNavigate ? handlePress : undefined}>
       <IconContainer>
         <CurrencyImage
