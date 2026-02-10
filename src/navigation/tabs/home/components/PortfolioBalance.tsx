@@ -25,7 +25,6 @@ import {
   getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots,
   getQuoteCurrency,
   hasSnapshotsForWallets,
-  walletHasNonZeroLiveBalance,
 } from '../../../../utils/portfolio/assets';
 import type {Wallet} from '../../../../store/wallet/wallet.models';
 
@@ -98,7 +97,8 @@ const PortfolioBalance = () => {
       if (w.hideWallet || w.hideWalletByAccount) {
         continue;
       }
-      if (!walletHasNonZeroLiveBalance(w)) {
+      const sat = (w as any)?.balance?.sat as number | undefined;
+      if (!(typeof sat === 'number' && sat > 0)) {
         continue;
       }
       if (!byId.has(w.id)) {

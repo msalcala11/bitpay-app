@@ -45,10 +45,6 @@ export type FiatRateSeriesCache = {
   [key in string]?: FiatRateSeries;
 };
 
-export type RatesCacheKey = {
-  [key: number]: number | undefined;
-};
-
 export const getFiatRateSeriesCacheKey = (
   fiatCode: string,
   coin: string,

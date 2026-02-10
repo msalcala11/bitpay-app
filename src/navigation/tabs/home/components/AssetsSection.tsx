@@ -1,8 +1,6 @@
 import React, {useMemo, useState} from 'react';
 import styled from 'styled-components/native';
-import {NavigationProp, useNavigation} from '@react-navigation/native';
-import {useTranslation} from 'react-i18next';
-import type {RootStackParamList} from '../../../../Root';
+import {useNavigation} from '@react-navigation/native';
 import {ScreenGutter} from '../../../../components/styled/Containers';
 import Button from '../../../../components/button/Button';
 import {HomeSectionTitle} from './Styled';
@@ -29,8 +27,7 @@ const ButtonContainer = styled.View`
 `;
 
 const AssetsSection: React.FC = () => {
-  const {t} = useTranslation();
-  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const navigation = useNavigation();
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
   const {isFiatLoading, visibleItems, isPopulateLoadingByKey} =
@@ -62,10 +59,10 @@ const AssetsSection: React.FC = () => {
   return (
     <Container>
       <Header>
-        <HomeSectionTitle>{t('Assets')}</HomeSectionTitle>
+        <HomeSectionTitle>Assets</HomeSectionTitle>
         <AssetsGainLossDropdown
-          value={gainLossMode}
-          onChange={setGainLossMode}
+          onPress={() => {}}
+          onChange={value => setGainLossMode(value)}
         />
       </Header>
 
@@ -81,8 +78,8 @@ const AssetsSection: React.FC = () => {
           buttonStyle="secondary"
           height={50}
           buttonOutline
-          onPress={() => navigation.navigate('AllAssets')}>
-          {t('See All Assets')}
+          onPress={() => (navigation as any).navigate('AllAssets')}>
+          See All Assets
         </Button>
       </ButtonContainer>
     </Container>

@@ -32,9 +32,8 @@ export async function backupFileExists(): Promise<boolean> {
     return true;
   }
   try {
-    const exists = await RNFS.exists(FINAL_FILE);
-    cachedBackupExists = exists;
-    return exists;
+    const cachedBackupExists = await RNFS.exists(FINAL_FILE);
+    return cachedBackupExists;
   } catch (_) {
     return false;
   }

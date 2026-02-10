@@ -1,5 +1,5 @@
 import {useScrollToTop, useTheme} from '@react-navigation/native';
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import {
   AppState,
@@ -33,6 +33,7 @@ import {
   calculatePercentageDifference,
   getCurrencyAbbreviation,
   getLastDayTimestampStartOfHourMs,
+  sleep,
 } from '../../../utils/helper-methods';
 import {getFiatRateFromSeriesCacheAtTimestamp} from '../../../utils/portfolio/rate';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
@@ -64,8 +65,6 @@ import {withErrorFallback} from '../TabScreenErrorFallback';
 import TabContainer from '../TabContainer';
 import ArchaxFooter from '../../../components/archax/archax-footer';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
-import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import type {RootStackParamList} from '../../../Root';
 import {TabsScreens, TabsStackParamList} from '../TabsStack';
 import {
   BitpaySupportedCoins,
@@ -311,46 +310,49 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([
-        dispatch(
-          refreshRatesForPortfolioPnl({context: 'homeRootOnRefresh'}) as any,
-        ),
-        dispatch(
-          fetchFiatRateSeriesInterval({
-            fiatCode: quoteCurrency,
-            interval: '1D',
-            coinForCacheCheck: 'btc',
-            force: true,
-          }) as any,
-        ),
-        dispatch(
-          getAndDispatchUpdatedWalletBalances({
-            context: 'homeRootOnRefresh',
-            createTokenWalletWithFunds: true,
-            skipRateUpdate: true,
-          }) as any,
-        ),
-        dispatch(requestBrazeContentRefresh()),
-      ]);
+      await dispatch(
+        refreshRatesForPortfolioPnl({context: 'homeRootOnRefresh'}) as any,
+      );
+      await dispatch(
+        fetchFiatRateSeriesInterval({
+          fiatCode: quoteCurrency,
+          interval: '1D',
+          coinForCacheCheck: 'btc',
+          force: true,
+        }) as any,
+      );
+      await dispatch(
+        getAndDispatchUpdatedWalletBalances({
+          context: 'homeRootOnRefresh',
+          createTokenWalletWithFunds: true,
+          skipRateUpdate: true,
+        }),
+      );
+
+      await Promise.all([dispatch(requestBrazeContentRefresh()), sleep(1000)]);
 
       await dispatch(
         maybePopulatePortfolioForWallets({
           wallets,
-          quoteCurrency,
+          quoteCurrency: getQuoteCurrency({
+            portfolioQuoteCurrency: portfolio?.quoteCurrency,
+            defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
+          }),
         }) as any,
       );
+      await sleep(2000);
     } catch (err) {
       dispatch(showBottomNotificationModal(BalanceUpdateError()));
-    } finally {
-      setRefreshing(false);
     }
+    setRefreshing(false);
   };
 
-  const onPressTxpBadge = useCallback(() => {
-    navigation
-      .getParent<NativeStackNavigationProp<RootStackParamList>>()
-      ?.navigate('TransactionProposalNotifications', {});
-  }, [navigation]);
+  const onPressTxpBadge = useMemo(
+    () => () => {
+      (navigation as any).navigate('TransactionProposalNotifications', {});
+    },
+    [navigation],
+  );
 
   useEffect(() => {
     if (keyMigrationFailure && !keyMigrationFailureModalHasBeenShown) {
@@ -361,52 +363,36 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   const scrollViewRef = useRef<ScrollView>(null);
   useScrollToTop(scrollViewRef);
 
-  const exchangeRatesRef = useRef(memoizedExchangeRates);
   useEffect(() => {
-    exchangeRatesRef.current = memoizedExchangeRates;
-  }, [memoizedExchangeRates]);
-
-  const handleAppStateChange = useCallback(
-    (status: AppStateStatus) => {
-      if (status !== 'active' || !currencyAbbreviation) {
-        return;
-      }
-
-      navigation.setParams({
-        currencyAbbreviation: undefined,
-      });
-
-      const {coin: targetAbbreviation} =
-        getCoinAndChainFromCurrencyCode(currencyAbbreviation);
-      const exchangeRatesSection = exchangeRatesRef.current.find(
-        ({currencyAbbreviation: abbr}) =>
-          abbr.toLowerCase() === targetAbbreviation,
-      );
-
-      if (!exchangeRatesSection) {
-        return;
-      }
-
-      navigation
-        .getParent<NativeStackNavigationProp<RootStackParamList>>()
-        ?.navigate('ExchangeRate', {
-          currencyName: exchangeRatesSection.currencyName,
-          currencyAbbreviation: exchangeRatesSection.currencyAbbreviation,
-          chain: exchangeRatesSection.chain,
-          tokenAddress: exchangeRatesSection.tokenAddress,
+    function onAppStateChange(status: AppStateStatus) {
+      if (status === 'active' && currencyAbbreviation) {
+        navigation.setParams({
+          currencyAbbreviation: undefined,
         });
-    },
-    [currencyAbbreviation, navigation],
-  );
+        const {coin: targetAbbreviation} =
+          getCoinAndChainFromCurrencyCode(currencyAbbreviation);
+        const exchangeRatesSection = memoizedExchangeRates.find(
+          ({currencyAbbreviation: abbr}) =>
+            abbr.toLowerCase() === targetAbbreviation,
+        );
+        if (exchangeRatesSection) {
+          (navigation as any).navigate('ExchangeRate', {
+            currencyName: exchangeRatesSection.currencyName,
+            currencyAbbreviation: exchangeRatesSection.currencyAbbreviation,
+            chain: exchangeRatesSection.chain,
+            tokenAddress: exchangeRatesSection.tokenAddress,
+          });
+        }
+      }
+    }
 
-  useEffect(() => {
     const subscriptionAppStateChange = AppState.addEventListener(
       'change',
-      handleAppStateChange,
+      onAppStateChange,
     );
 
     return () => subscriptionAppStateChange.remove();
-  }, [handleAppStateChange]);
+  }, [currencyAbbreviation]);
 
   return (
     <TabContainer>

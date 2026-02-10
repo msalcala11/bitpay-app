@@ -15,7 +15,6 @@ import type {Key, Wallet} from '../../../../store/wallet/wallet.models';
 import {useTokenContext} from '../../../../contexts';
 import {BitpaySupportedTokenOptsByAddress} from '../../../../constants/tokens';
 import {addTokenChainSuffix} from '../../../../utils/helper-methods';
-import {createSupportedCurrencyOptionLookup} from '../../../../utils/portfolio/supportedCurrencyOptionsLookup';
 import {
   buildAllocationDataFromWalletRows,
   type AllocationWallet,
@@ -24,10 +23,6 @@ import {
 import {getVisibleWalletsFromKeys} from '../../../../utils/portfolio/assets';
 import {LightBlack, Slate30, SlateDark} from '../../../../styles/colors';
 import {maskIfHidden} from '../../../../utils/hideBalances';
-
-const supportedOptionLookup = createSupportedCurrencyOptionLookup(
-  SupportedCurrencyOptions,
-);
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Allocation'>;
 
@@ -168,11 +163,22 @@ export const AllocationRowsList: React.FC<{
   return (
     <Rows style={style}>
       {rows.map(item => {
-        const option = supportedOptionLookup.getOption({
-          currencyAbbreviation: item.currencyAbbreviation,
-          chain: item.chain,
-          tokenAddress: item.tokenAddress,
+        const optionStrict = SupportedCurrencyOptions.find(o => {
+          const tokenMatch = item.tokenAddress
+            ? o.tokenAddress?.toLowerCase() === item.tokenAddress?.toLowerCase()
+            : true;
+          return (
+            o.currencyAbbreviation === item.currencyAbbreviation &&
+            o.chain === item.chain &&
+            tokenMatch
+          );
         });
+
+        const option =
+          optionStrict ||
+          SupportedCurrencyOptions.find(
+            o => o.currencyAbbreviation === item.currencyAbbreviation,
+          );
 
         const tokenKey = item.tokenAddress
           ? addTokenChainSuffix(item.tokenAddress, item.chain)

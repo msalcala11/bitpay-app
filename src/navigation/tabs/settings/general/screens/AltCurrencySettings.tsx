@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useMemo, useState} from 'react';
 import styled from 'styled-components/native';
 import {RootState} from '../../../../../store';
 import debounce from 'lodash.debounce';
@@ -145,31 +145,15 @@ const AltCurrencySettings = () => {
     [] as AltCurrenciesRowProps[],
   );
 
-  const updateSearchResults = useMemo(
-    () =>
-      debounce((text: string) => {
-        setSearchVal(text);
-        const q = text.trim().toLowerCase();
-        if (!q) {
-          setSearchResults([]);
-          return;
-        }
-
-        const results = alternativeCurrencies.filter(
-          ({name, isoCode}: AltCurrenciesRowProps) =>
-            (name || '').toLowerCase().includes(q) ||
-            (isoCode || '').toLowerCase().includes(q),
-        );
-        setSearchResults(results);
-      }, 300),
-    [alternativeCurrencies],
-  );
-
-  useEffect(() => {
-    return () => {
-      updateSearchResults.cancel();
-    };
-  }, [updateSearchResults]);
+  const updateSearchResults = debounce((text: string) => {
+    setSearchVal(text);
+    const results = alternativeCurrencies.filter(
+      (altCurrency: AltCurrenciesRowProps) =>
+        altCurrency.name.toLowerCase().includes(text.toLocaleLowerCase()) ||
+        altCurrency.isoCode.toLowerCase().includes(text.toLocaleLowerCase()),
+    );
+    setSearchResults(results);
+  }, 300);
 
   const keyExtractor = (item: AltCurrenciesRowProps) => {
     return item.isoCode;
