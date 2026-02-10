@@ -107,8 +107,8 @@ const canNavigateToExchangeRateForAssetRowItemWithSupportInfo = (args: {
   return (
     !!args.supportInfo.option &&
     !!args.item.hasRate &&
-    args.supportInfo.isExactMatch &&
-    !args.supportInfo.isStable
+    args.supportInfo.isExactMatch// &&
+    // !args.supportInfo.isStable
   );
 };
 
@@ -1648,30 +1648,17 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       }
     }
 
-    // Prefer latest snapshots for displayed holdings, independent of rate-series window.
+    // Use live wallet balances for displayed holdings so rows still render when
+    // snapshot history is incomplete or stale.
     let totalAtomic = 0n;
     const repUnitDecimals = getWalletUnitInfo(repWallet).unitDecimals;
     for (const w of groupWallets) {
-      const wid = String((w as any)?.id || '');
-      const snaps = ensureSortedSnapshots(args.snapshotsByWalletId?.[wid]);
-      const latest = getLatestSnapshot(snaps);
       try {
         const walletUnitDecimals = getWalletUnitInfo(w).unitDecimals;
-        if (!latest) {
-          totalAtomic += getWalletLiveAtomicBalance({
-            wallet: w,
-            unitDecimals: walletUnitDecimals,
-          });
-          continue;
-        }
-        const latestCrypto =
-          typeof (latest as any)?.cryptoBalance === 'string'
-            ? (latest as any).cryptoBalance
-            : '0';
-        totalAtomic += unitStringToAtomicBigInt(
-          latestCrypto,
-          walletUnitDecimals,
-        );
+        totalAtomic += getWalletLiveAtomicBalance({
+          wallet: w,
+          unitDecimals: walletUnitDecimals,
+        });
       } catch {
         // ignore
       }
