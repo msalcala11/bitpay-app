@@ -122,12 +122,10 @@ export const canNavigateToExchangeRateForAssetRowItem = (args: {
   });
 };
 
-export const getDisplayAssetRowItems = (args: {
-  items: AssetRowItem[];
-  gainLossMode: GainLossMode;
-  options: SupportedCurrencyOption[];
-}): AssetRowItem[] => {
-  return sortAssetRowItemsByHasRate(args.items || []);
+export const getDisplayAssetRowItems = (
+  items: AssetRowItem[],
+): AssetRowItem[] => {
+  return sortAssetRowItemsByHasRate(items || []);
 };
 
 const getAssetRowItemSupportInfo = (args: {

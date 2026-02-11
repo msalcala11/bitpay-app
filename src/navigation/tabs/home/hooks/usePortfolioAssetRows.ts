@@ -1,5 +1,4 @@
 import {useEffect, useMemo, useState} from 'react';
-import {SupportedCurrencyOptions} from '../../../../constants/SupportedCurrencyOptions';
 import type {Rates} from '../../../../store/rate/rate.models';
 import type {Key, Wallet} from '../../../../store/wallet/wallet.models';
 import {
@@ -92,12 +91,8 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
   ]);
 
   const visibleItems = useMemo(() => {
-    return getDisplayAssetRowItems({
-      items,
-      gainLossMode,
-      options: SupportedCurrencyOptions,
-    });
-  }, [gainLossMode, items]);
+    return getDisplayAssetRowItems(items);
+  }, [items]);
 
   const [isPopulateLoadingByKey, setIsPopulateLoadingByKey] = useState<
     Record<string, boolean> | undefined
