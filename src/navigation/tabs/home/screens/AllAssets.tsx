@@ -91,7 +91,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
   const [query, setQuery] = useState('');
 
-  const {isFiatLoading, visibleItems, isPopulateLoadingByKey} =
+  const {visibleItems, isFiatLoading, isPopulateLoadingByKey} =
     usePortfolioAssetRows({
       gainLossMode,
       keyId: route.params?.keyId,

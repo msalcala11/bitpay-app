@@ -33,7 +33,7 @@ const AssetsSection: React.FC = () => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
-  const {isFiatLoading, visibleItems, isPopulateLoadingByKey} =
+  const {visibleItems, isFiatLoading, isPopulateLoadingByKey} =
     usePortfolioAssetRows({
       gainLossMode,
     });

@@ -1,6 +1,6 @@
 import {useEffect, useMemo, useState} from 'react';
 import type {Rates} from '../../../../store/rate/rate.models';
-import type {Key, Wallet} from '../../../../store/wallet/wallet.models';
+import type {Key} from '../../../../store/wallet/wallet.models';
 import {
   type AssetRowItem,
   buildAssetRowItemsFromPortfolioSnapshots,
@@ -20,14 +20,12 @@ type Args = {
 };
 
 type Result = {
-  wallets: Wallet[];
-  walletIdsByAssetKey: Record<string, string[]>;
-  quoteCurrency: string;
-  isFiatLoading: boolean;
-  items: AssetRowItem[];
   visibleItems: AssetRowItem[];
+  isFiatLoading: boolean;
   isPopulateLoadingByKey: Record<string, boolean> | undefined;
 };
+
+const EMPTY_SNAPSHOTS_BY_WALLET_ID = {};
 
 const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
@@ -40,9 +38,8 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
   );
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
 
-  const snapshotsByWalletId = useMemo(() => {
-    return portfolio.snapshotsByWalletId || {};
-  }, [portfolio.snapshotsByWalletId]);
+  const snapshotsByWalletId =
+    portfolio.snapshotsByWalletId ?? EMPTY_SNAPSHOTS_BY_WALLET_ID;
 
   const wallets = useMemo(() => {
     if (keyId && keys[keyId]) {
@@ -121,12 +118,8 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
   }, [portfolio.populateStatus, visibleItems, walletIdsByAssetKey]);
 
   return {
-    wallets,
-    walletIdsByAssetKey,
-    quoteCurrency,
-    isFiatLoading,
-    items,
     visibleItems,
+    isFiatLoading,
     isPopulateLoadingByKey,
   };
 };
