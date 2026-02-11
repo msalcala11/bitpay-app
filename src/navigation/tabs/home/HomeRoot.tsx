@@ -77,12 +77,13 @@ import DefaultMarketingCards from './components/DefaultMarketingCards';
 import AllocationSection from './components/AllocationSection';
 import AssetsSection from './components/AssetsSection';
 import {getPortfolioAllocationTotalFiat} from '../../../utils/portfolio/allocation';
-import type {Key, Wallet} from '../../../store/wallet/wallet.models';
+import type {Key} from '../../../store/wallet/wallet.models';
 import type {Rate, Rates} from '../../../store/rate/rate.models';
 import {getCoinAndChainFromCurrencyCode} from '../../bitpay-id/utils/bitpay-id-utils';
 import {
   getQuoteCurrency,
   getVisibleWalletsFromKeys,
+  walletHasNonZeroLiveBalance,
 } from '../../../utils/portfolio/assets';
 
 export type HomeScreenProps = NativeStackScreenProps<
@@ -129,9 +130,7 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   const hasAnyVisibleWalletBalance = useMemo(() => {
     const visibleWallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
 
-    return visibleWallets.some(
-      (w: Wallet) => (Number((w.balance as any)?.sat) || 0) > 0,
-    );
+    return visibleWallets.some(walletHasNonZeroLiveBalance);
   }, [homeCarouselConfig, keys]);
 
   const showPortfolioAllocationSection =

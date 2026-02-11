@@ -19,7 +19,10 @@ import {
   type AllocationWallet,
   toAllocationWallet,
 } from '../../../../utils/portfolio/allocation';
-import {getVisibleWalletsFromKeys} from '../../../../utils/portfolio/assets';
+import {
+  getVisibleWalletsFromKeys,
+  walletHasNonZeroLiveBalance,
+} from '../../../../utils/portfolio/assets';
 import {
   Black,
   CharcoalBlack,
@@ -432,9 +435,7 @@ const AllocationSection: React.FC = () => {
   const hasAnyVisibleWalletBalance = useMemo(() => {
     const wallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
 
-    return wallets.some(
-      (w: Wallet) => (Number((w.balance as any)?.sat) || 0) > 0,
-    );
+    return wallets.some(walletHasNonZeroLiveBalance);
   }, [homeCarouselConfig, keys]);
 
   const walletRows: AllocationWallet[] = useMemo(() => {

@@ -73,6 +73,7 @@ import {
 import {
   findSupportedCurrencyOptionForAsset,
   getVisibleWalletsFromKeys,
+  walletHasNonZeroLiveBalance,
 } from '../../../utils/portfolio/assets';
 import {
   downsampleSeries,
@@ -978,7 +979,7 @@ const ExchangeRate = () => {
     const visibleWallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
     const filtered = visibleWallets
       .filter(w => w.network !== Network.testnet)
-      .filter(w => (w.balance?.sat ?? 0) > 0)
+      .filter(walletHasNonZeroLiveBalance)
       .filter(w => {
         const isSelectedToken = !!assetContext.tokenAddress;
         const matchesCurrency =
