@@ -100,6 +100,7 @@ import {
 } from '../../../store/wallet/effects';
 import {getAndDispatchUpdatedWalletBalances} from '../../../store/wallet/effects/status/statusv2';
 import {
+  CachedFiatRateInterval,
   DateRanges,
   FiatRateInterval,
   FiatRatePoint,
@@ -813,9 +814,13 @@ const ExchangeRate = () => {
   ).toUpperCase();
   const normalizedCoin = normalizeFiatRateSeriesCoin(
     assetContext.currencyAbbreviation,
-  );
+  ).trim();
+  const hasValidNormalizedCoin = normalizedCoin.length > 0;
+  const allIntervalsFetchRequestIdRef = useRef(0);
+  const allIntervalsFetchInFlightRef = useRef(false);
+  const [allIntervalsFetchCycle, setAllIntervalsFetchCycle] = useState(0);
 
-  const seriesDataInterval: FiatRateInterval = useMemo(() => {
+  const seriesDataInterval = useMemo<CachedFiatRateInterval>(() => {
     switch (selectedTimeframe) {
       case '3M':
       case '1Y':
@@ -837,15 +842,60 @@ const ExchangeRate = () => {
   const selectedSeries = fiatRateSeriesCache[selectedSeriesKey];
 
   useEffect(() => {
+    if (!selectedFiatCodeUpper || !hasValidNormalizedCoin) {
+      allIntervalsFetchInFlightRef.current = false;
+      return;
+    }
+
+    const requestId = allIntervalsFetchRequestIdRef.current + 1;
+    allIntervalsFetchRequestIdRef.current = requestId;
+    allIntervalsFetchInFlightRef.current = true;
+
     dispatch(
       fetchFiatRateSeriesAllIntervals({
         fiatCode: selectedFiatCodeUpper,
         currencyAbbreviation: assetContext.currencyAbbreviation,
       }),
-    );
-  }, [assetContext.currencyAbbreviation, dispatch, selectedFiatCodeUpper]);
+    ).finally(() => {
+      if (allIntervalsFetchRequestIdRef.current !== requestId) {
+        return;
+      }
+      allIntervalsFetchInFlightRef.current = false;
+      setAllIntervalsFetchCycle(current => current + 1);
+    });
+  }, [
+    assetContext.currencyAbbreviation,
+    dispatch,
+    hasValidNormalizedCoin,
+    selectedFiatCodeUpper,
+  ]);
 
   useEffect(() => {
+    if (!selectedFiatCodeUpper || !hasValidNormalizedCoin) {
+      return;
+    }
+
+    const isIntervalCoveredByAllIntervals =
+      FIAT_RATE_SERIES_CACHED_INTERVALS.includes(seriesDataInterval);
+    if (
+      isIntervalCoveredByAllIntervals &&
+      allIntervalsFetchInFlightRef.current
+    ) {
+      return;
+    }
+
+    const hasFreshPoints = Boolean(
+      selectedSeries?.points?.length &&
+        selectedSeries?.fetchedOn &&
+        !isCacheKeyStale(
+          selectedSeries.fetchedOn,
+          HISTORIC_RATES_CACHE_DURATION,
+        ),
+    );
+    if (hasFreshPoints) {
+      return;
+    }
+
     dispatch(
       fetchFiatRateSeriesInterval({
         fiatCode: selectedFiatCodeUpper,
@@ -853,7 +903,15 @@ const ExchangeRate = () => {
         coinForCacheCheck: normalizedCoin,
       }),
     );
-  }, [dispatch, normalizedCoin, selectedFiatCodeUpper, seriesDataInterval]);
+  }, [
+    allIntervalsFetchCycle,
+    dispatch,
+    hasValidNormalizedCoin,
+    normalizedCoin,
+    selectedFiatCodeUpper,
+    selectedSeries,
+    seriesDataInterval,
+  ]);
 
   const altCurrencyIsoCodeUpper = defaultAltCurrency.isoCode?.toUpperCase();
 
@@ -1038,6 +1096,10 @@ const ExchangeRate = () => {
           }),
         );
       }
+      if (!hasValidNormalizedCoin) {
+        return;
+      }
+
       const cacheKey = getFiatRateSeriesCacheKey(
         selectedFiatCodeUpper,
         normalizedCoin,
@@ -1086,6 +1148,7 @@ const ExchangeRate = () => {
     dispatch,
     fiatRateSeriesCache,
     hasWalletsForAsset,
+    hasValidNormalizedCoin,
     normalizedCoin,
     selectedFiatCodeUpper,
     seriesDataInterval,
