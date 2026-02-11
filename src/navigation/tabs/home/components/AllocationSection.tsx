@@ -147,6 +147,9 @@ const DonutChart = ({
   const theme = useTheme();
   const radius = (size - strokeWidth) / 2;
   const total = slices.reduce((sum, s) => sum + s.value, 0);
+  const hasValidTotal = Number.isFinite(total) && total > 0;
+  const hasSlices = slices.length > 0;
+  const shouldRenderNeutralRing = !hasSlices || !hasValidTotal;
   const segmentBorderColor = theme.dark ? SlateDark : Slate30;
 
   const isSingleSliceFull =
@@ -163,6 +166,23 @@ const DonutChart = ({
   const innerCircumference = 2 * Math.PI * innerEdgeRadius;
   const gapAngle = gap / radius;
   let cumulativeAngle = 0;
+
+  if (shouldRenderNeutralRing) {
+    return (
+      <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <G rotation={-90} originX={size / 2} originY={size / 2}>
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            stroke={segmentBorderColor}
+            strokeWidth={strokeWidth}
+            fill="transparent"
+          />
+        </G>
+      </Svg>
+    );
+  }
 
   return (
     <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
