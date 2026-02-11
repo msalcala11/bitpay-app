@@ -38,6 +38,7 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
     ({RATE}) => RATE.fiatRateSeriesCache,
   );
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
+  const isPopulateInProgress = !!portfolio.populateStatus?.inProgress;
 
   const snapshotsByWalletId =
     portfolio.snapshotsByWalletId ?? EMPTY_SNAPSHOTS_BY_WALLET_ID;
@@ -50,8 +51,11 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
   }, [homeCarouselConfig, keyId, keys]);
 
   const walletIdsByAssetKey = useMemo(() => {
+    if (!isPopulateInProgress) {
+      return undefined;
+    }
     return buildWalletIdsByAssetGroupKey(wallets);
-  }, [wallets]);
+  }, [isPopulateInProgress, wallets]);
 
   const quoteCurrency = getQuoteCurrency({
     portfolioQuoteCurrency: portfolio.quoteCurrency,
@@ -97,14 +101,14 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
   >(undefined);
 
   useEffect(() => {
-    if (portfolio.populateStatus?.inProgress) {
+    if (isPopulateInProgress) {
       return;
     }
     setIsPopulateLoadingByKey(undefined);
-  }, [portfolio.populateStatus?.inProgress]);
+  }, [isPopulateInProgress]);
 
   useEffect(() => {
-    if (!portfolio.populateStatus?.inProgress) {
+    if (!isPopulateInProgress || !walletIdsByAssetKey) {
       return;
     }
 
@@ -116,7 +120,12 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
         prev: prev || undefined,
       });
     });
-  }, [portfolio.populateStatus, visibleItems, walletIdsByAssetKey]);
+  }, [
+    isPopulateInProgress,
+    portfolio.populateStatus,
+    visibleItems,
+    walletIdsByAssetKey,
+  ]);
 
   return {
     visibleItems,
