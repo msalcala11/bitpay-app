@@ -729,6 +729,10 @@ const ExchangeRate = () => {
   const fiatRateSeriesCache = useAppSelector(
     ({RATE}: RootState) => RATE.fiatRateSeriesCache,
   );
+  const fiatRateSeriesCacheRef = useRef(fiatRateSeriesCache);
+  useEffect(() => {
+    fiatRateSeriesCacheRef.current = fiatRateSeriesCache;
+  }, [fiatRateSeriesCache]);
   const defaultAltCurrency = useAppSelector(
     ({APP}: RootState) => APP.defaultAltCurrency,
   );
@@ -850,13 +854,37 @@ const ExchangeRate = () => {
   const selectedSeries = fiatRateSeriesCache[selectedSeriesKey];
 
   useEffect(() => {
+    const requestId = allIntervalsFetchRequestIdRef.current + 1;
+    allIntervalsFetchRequestIdRef.current = requestId;
+
     if (!selectedFiatCodeUpper || !hasValidNormalizedCoin) {
       allIntervalsFetchInFlightRef.current = false;
       return;
     }
 
-    const requestId = allIntervalsFetchRequestIdRef.current + 1;
-    allIntervalsFetchRequestIdRef.current = requestId;
+    const hasFreshAllIntervals = FIAT_RATE_SERIES_CACHED_INTERVALS.every(
+      interval => {
+        const cacheKey = getFiatRateSeriesCacheKey(
+          selectedFiatCodeUpper,
+          normalizedCoin,
+          interval,
+        );
+        const cachedSeries = fiatRateSeriesCacheRef.current[cacheKey];
+        if (!cachedSeries?.fetchedOn) {
+          return false;
+        }
+
+        return !isCacheKeyStale(
+          cachedSeries.fetchedOn,
+          HISTORIC_RATES_CACHE_DURATION,
+        );
+      },
+    );
+    if (hasFreshAllIntervals) {
+      allIntervalsFetchInFlightRef.current = false;
+      return;
+    }
+
     allIntervalsFetchInFlightRef.current = true;
 
     dispatch(
@@ -878,6 +906,7 @@ const ExchangeRate = () => {
     assetContext.currencyAbbreviation,
     dispatch,
     hasValidNormalizedCoin,
+    normalizedCoin,
     selectedFiatCodeUpper,
   ]);
 
