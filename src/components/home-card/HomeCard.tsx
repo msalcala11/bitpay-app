@@ -120,8 +120,7 @@ const HomeCard: React.FC<HomeCardProps> = ({body, footer, onCTAPress}) => {
       ) : !hideKeyBalance ? (
         <>
           {value && <CardPrice scale={shouldScale(value)}>{value}</CardPrice>}
-          {percentageDifference !== undefined &&
-          percentageDifference !== null ? (
+          {percentageDifference || percentageDifference === 0 ? (
             <Percentage
               percentageDifference={percentageDifference}
               fractionDigits={2}
