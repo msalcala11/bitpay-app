@@ -445,19 +445,20 @@ const AllocationSection: React.FC = () => {
   const {defaultAltCurrency} = useAppSelector(({APP}) => APP);
   const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
 
-  const hasAnyVisibleWalletBalance = useMemo(() => {
-    const wallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
+  const visibleWallets = useMemo(
+    () => getVisibleWalletsFromKeys(keys, homeCarouselConfig),
+    [keys, homeCarouselConfig],
+  );
 
-    return wallets.some(walletHasNonZeroLiveBalance);
-  }, [homeCarouselConfig, keys]);
+  const hasAnyVisibleWalletBalance = useMemo(() => {
+    return visibleWallets.some(walletHasNonZeroLiveBalance);
+  }, [visibleWallets]);
 
   const walletRows: AllocationWallet[] = useMemo(() => {
-    const wallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
-
-    return wallets.map((w: Wallet) => {
+    return visibleWallets.map((w: Wallet) => {
       return toAllocationWallet(w);
     });
-  }, [homeCarouselConfig, keys]);
+  }, [visibleWallets]);
 
   const allocationData = useMemo(() => {
     return buildAllocationDataFromWalletRows(
