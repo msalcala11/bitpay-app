@@ -252,23 +252,13 @@ export type SilentPushEventObj = {
 };
 
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
-export const navigate = <RouteName extends keyof RootStackParamList>(
-  name: RouteName,
-  ...params: undefined extends RootStackParamList[RouteName]
-    ? [RootStackParamList[RouteName]?]
-    : [RootStackParamList[RouteName]]
+export const navigate = (
+  name: keyof RootStackParamList,
+  params: NavScreenParams,
 ) => {
-  if (!navigationRef.isReady()) {
-    return;
+  if (navigationRef.isReady()) {
+    navigationRef.navigate(name, params);
   }
-
-  // React Navigation expects different call signatures depending on whether
-  // a route accepts params. Use a rest tuple to keep call sites type-safe.
-  if (!params.length) {
-    navigationRef.navigate(name);
-    return;
-  }
-  navigationRef.navigate(name, params[0] as RootStackParamList[RouteName]);
 };
 
 export const getNavigationTabName = () => {
