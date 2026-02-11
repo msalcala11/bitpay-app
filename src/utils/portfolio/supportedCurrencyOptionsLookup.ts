@@ -13,13 +13,24 @@ export type SupportedCurrencyOptionLookup = {
 const normalize = (value: string | undefined): string =>
   (value || '').toLowerCase();
 
-// Builds O(1) lookup tables for SupportedCurrencyOptions.
-//
-// This is intentionally behavior-compatible with the existing
-// `findSupportedCurrencyOptionForAsset` fallback order:
-// - Prefer strict chain+tokenAddress matches when tokenAddress is present
-// - Fall back to tokenAddress-only matches
-// - Fall back to a reasonable first option for the currency abbreviation
+const byAbbrChainKey = (abbr: string, chain: string): string => `${abbr}:${chain}`;
+const byAbbrTokenKey = (abbr: string, tokenLower: string): string =>
+  `${abbr}:${tokenLower}`;
+const byAbbrChainTokenKey = (
+  abbr: string,
+  chain: string,
+  tokenLower: string,
+): string => `${abbr}:${chain}:${tokenLower}`;
+
+// Builds O(1) lookup tables for SupportedCurrencyOptions while preserving the
+// fallback order currently used by `findSupportedCurrencyOptionForAsset`:
+// - If tokenAddress is present:
+//   1) strict chain+tokenAddress
+//   2) tokenAddress-only
+//   3) first option for abbreviation that has tokenAddress
+// - If tokenAddress is not present:
+//   1) strict chain (unless chain is wildcard=abbr, then use first abbr match)
+//   2) first option for abbreviation
 export const createSupportedCurrencyOptionLookup = (
   options: SupportedCurrencyOption[],
 ): SupportedCurrencyOptionLookup => {
@@ -46,23 +57,19 @@ export const createSupportedCurrencyOptionLookup = (
       tokenFallbackByAbbr.set(abbr, opt);
     }
 
-    if (chain) {
-      const chainKey = `${abbr}:${chain}`;
-      if (!byAbbrChain.has(chainKey)) {
-        byAbbrChain.set(chainKey, opt);
-      }
+    const chainKey = byAbbrChainKey(abbr, chain);
+    if (!byAbbrChain.has(chainKey)) {
+      byAbbrChain.set(chainKey, opt);
     }
 
     if (tokenLower) {
-      const tokenKey = `${abbr}:${tokenLower}`;
+      const tokenKey = byAbbrTokenKey(abbr, tokenLower);
       if (!byAbbrToken.has(tokenKey)) {
         byAbbrToken.set(tokenKey, opt);
       }
-      if (chain) {
-        const exactKey = `${abbr}:${chain}:${tokenLower}`;
-        if (!byAbbrChainToken.has(exactKey)) {
-          byAbbrChainToken.set(exactKey, opt);
-        }
+      const strictKey = byAbbrChainTokenKey(abbr, chain, tokenLower);
+      if (!byAbbrChainToken.has(strictKey)) {
+        byAbbrChainToken.set(strictKey, opt);
       }
     }
   }
@@ -76,34 +83,32 @@ export const createSupportedCurrencyOptionLookup = (
     }
 
     const chain = normalize(args.chain);
-    const tokenLower = args.tokenAddress ? normalize(args.tokenAddress) : '';
+    const tokenLower = args.tokenAddress ? normalize(args.tokenAddress) : undefined;
     const isWildcardChain = chain === abbr && !tokenLower;
 
     if (tokenLower) {
-      const strict = chain
-        ? byAbbrChainToken.get(`${abbr}:${chain}:${tokenLower}`)
-        : undefined;
+      const strict = byAbbrChainToken.get(
+        byAbbrChainTokenKey(abbr, chain, tokenLower),
+      );
       if (strict) {
         return strict;
       }
 
-      const byToken = byAbbrToken.get(`${abbr}:${tokenLower}`);
+      const byToken = byAbbrToken.get(byAbbrTokenKey(abbr, tokenLower));
       if (byToken) {
         return byToken;
       }
 
-      return tokenFallbackByAbbr.get(abbr) || byAbbr.get(abbr);
+      return tokenFallbackByAbbr.get(abbr);
     }
 
     if (isWildcardChain) {
       return byAbbr.get(abbr);
     }
 
-    if (chain) {
-      const byChain = byAbbrChain.get(`${abbr}:${chain}`);
-      if (byChain) {
-        return byChain;
-      }
+    const byChain = byAbbrChain.get(byAbbrChainKey(abbr, chain));
+    if (byChain) {
+      return byChain;
     }
 
     return byAbbr.get(abbr);

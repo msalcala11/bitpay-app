@@ -42,6 +42,10 @@ import {
 import {normalizeFiatRateSeriesCoin as normalizeCoinForPnlRates} from './core/pnl/rates';
 import type {BalanceSnapshotStored} from './core/pnl/types';
 import {formatBigIntDecimal} from './core/format';
+import {
+  createSupportedCurrencyOptionLookup,
+  type SupportedCurrencyOptionLookup,
+} from './supportedCurrencyOptionsLookup';
 
 export type GainLossMode = FiatRateInterval;
 
@@ -549,68 +553,37 @@ export const isFiatLoadingForWallets = (args: {
   return false;
 };
 
+const EMPTY_SUPPORTED_CURRENCY_OPTIONS: SupportedCurrencyOption[] = [];
+const supportedCurrencyOptionLookupCache = new WeakMap<
+  SupportedCurrencyOption[],
+  SupportedCurrencyOptionLookup
+>();
+
+const getSupportedCurrencyOptionLookup = (
+  options: SupportedCurrencyOption[] | undefined,
+): SupportedCurrencyOptionLookup => {
+  const optionsRef = options || EMPTY_SUPPORTED_CURRENCY_OPTIONS;
+  const cached = supportedCurrencyOptionLookupCache.get(optionsRef);
+  if (cached) {
+    return cached;
+  }
+
+  const lookup = createSupportedCurrencyOptionLookup(optionsRef);
+  supportedCurrencyOptionLookupCache.set(optionsRef, lookup);
+  return lookup;
+};
+
 export const findSupportedCurrencyOptionForAsset = (args: {
   options: SupportedCurrencyOption[];
   currencyAbbreviation?: string;
   chain?: string;
   tokenAddress?: string;
 }): SupportedCurrencyOption | undefined => {
-  const abbr = (args.currencyAbbreviation || '').toLowerCase();
-  const chain = (args.chain || '').toLowerCase();
-  const tokenAddress = args.tokenAddress;
-  const tokenLower = tokenAddress ? tokenAddress.toLowerCase() : undefined;
-  const isWildcardChain = chain === abbr && !tokenLower;
-
-  const options = args.options || [];
-  let strict: SupportedCurrencyOption | undefined;
-  let byTokenAddress: SupportedCurrencyOption | undefined;
-  let fallback: SupportedCurrencyOption | undefined;
-
-  for (const o of options) {
-    const optAbbr = (o.currencyAbbreviation || '').toLowerCase();
-    if (optAbbr !== abbr) {
-      continue;
-    }
-
-    if (!fallback) {
-      if (tokenLower) {
-        if (o.tokenAddress) {
-          fallback = o;
-        }
-      } else {
-        fallback = o;
-      }
-    }
-
-    const optTokenLower = (o.tokenAddress || '').toLowerCase();
-    if (
-      tokenLower &&
-      !byTokenAddress &&
-      !!optTokenLower &&
-      optTokenLower === tokenLower
-    ) {
-      byTokenAddress = o;
-    }
-
-    if (strict) {
-      continue;
-    }
-    const optChain = (o.chain || '').toLowerCase();
-    const chainMatches = isWildcardChain || optChain === chain;
-    if (!chainMatches) {
-      continue;
-    }
-    if (tokenLower) {
-      if (optTokenLower === tokenLower) {
-        strict = o;
-      }
-      continue;
-    }
-
-    strict = o;
-  }
-
-  return strict || byTokenAddress || fallback;
+  return getSupportedCurrencyOptionLookup(args.options).getOption({
+    currencyAbbreviation: args.currencyAbbreviation,
+    chain: args.chain,
+    tokenAddress: args.tokenAddress,
+  });
 };
 
 const ensureSortedSnapshots = (
