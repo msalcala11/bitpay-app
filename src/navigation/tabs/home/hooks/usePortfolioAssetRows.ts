@@ -1,4 +1,5 @@
 import {useEffect, useMemo, useState} from 'react';
+import type {PortfolioState} from '../../../../store/portfolio/portfolio.models';
 import type {Rates} from '../../../../store/rate/rate.models';
 import type {Key} from '../../../../store/wallet/wallet.models';
 import {
@@ -25,7 +26,7 @@ type Result = {
   isPopulateLoadingByKey: Record<string, boolean> | undefined;
 };
 
-const EMPTY_SNAPSHOTS_BY_WALLET_ID = {};
+const EMPTY_SNAPSHOTS_BY_WALLET_ID: PortfolioState['snapshotsByWalletId'] = {};
 
 const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
