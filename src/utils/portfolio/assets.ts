@@ -803,15 +803,17 @@ export const getWalletLiveAtomicBalance = (args: {
   const satConfirmedLocked = (args.wallet as any)?.balance?.satConfirmedLocked;
   if (
     typeof sat === 'number' &&
-    Number.isSafeInteger(sat) &&
-    sat >= 0
+    Number.isFinite(sat) &&
+    sat >= 0 &&
+    Math.trunc(sat) === sat
   ) {
     // Use canonical JS numeric string form (round-trippable), not locale formatting.
     const includeConfirmedLocked =
       (chain === 'xrp' || chain === 'sol') &&
       typeof satConfirmedLocked === 'number' &&
-      Number.isSafeInteger(satConfirmedLocked) &&
-      satConfirmedLocked >= 0;
+      Number.isFinite(satConfirmedLocked) &&
+      satConfirmedLocked >= 0 &&
+      Math.trunc(satConfirmedLocked) === satConfirmedLocked;
     try {
       const satAtomic = BigInt(sat.toString());
       if (includeConfirmedLocked) {
