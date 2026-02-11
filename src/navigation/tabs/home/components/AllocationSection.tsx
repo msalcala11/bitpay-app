@@ -309,6 +309,29 @@ export const AllocationDonutLegendCard: React.FC<{
   const {t} = useTranslation();
   const leftColumn = legendItems.slice(0, 3);
   const rightColumn = legendItems.slice(3);
+  const renderLegendColumn = (items: AllocationLegendItem[]) => {
+    return (
+      <LegendColumn>
+        {items.map(item => {
+          const dotColor = theme.dark ? item.color.dark : item.color.light;
+
+          return (
+            <LegendItemRow key={item.key}>
+              <LegendDot color={dotColor} />
+              <LegendText>
+                <LegendCurrencyAbbreviationText>
+                  {item.isOther ? t('Other') : item.label}
+                </LegendCurrencyAbbreviationText>
+                {item.value ? (
+                  <LegendPercentageText>{` ${item.value}`}</LegendPercentageText>
+                ) : null}
+              </LegendText>
+            </LegendItemRow>
+          );
+        })}
+      </LegendColumn>
+    );
+  };
 
   if (isLoading) {
     const holeColor =
@@ -403,45 +426,8 @@ export const AllocationDonutLegendCard: React.FC<{
         </DonutContainer>
 
         <LegendGrid>
-          <LegendColumn>
-            {leftColumn.map(item => {
-              const dotColor = theme.dark ? item.color.dark : item.color.light;
-
-              return (
-                <LegendItemRow key={item.key}>
-                  <LegendDot color={dotColor} />
-                  <LegendText>
-                    <LegendCurrencyAbbreviationText>
-                      {item.isOther ? t('Other') : item.label}
-                    </LegendCurrencyAbbreviationText>
-                    {item.value ? (
-                      <LegendPercentageText>{` ${item.value}`}</LegendPercentageText>
-                    ) : null}
-                  </LegendText>
-                </LegendItemRow>
-              );
-            })}
-          </LegendColumn>
-
-          <LegendColumn>
-            {rightColumn.map(item => {
-              const dotColor = theme.dark ? item.color.dark : item.color.light;
-
-              return (
-                <LegendItemRow key={item.key}>
-                  <LegendDot color={dotColor} />
-                  <LegendText>
-                    <LegendCurrencyAbbreviationText>
-                      {item.isOther ? t('Other') : item.label}
-                    </LegendCurrencyAbbreviationText>
-                    {item.value ? (
-                      <LegendPercentageText>{` ${item.value}`}</LegendPercentageText>
-                    ) : null}
-                  </LegendText>
-                </LegendItemRow>
-              );
-            })}
-          </LegendColumn>
+          {renderLegendColumn(leftColumn)}
+          {renderLegendColumn(rightColumn)}
         </LegendGrid>
       </ContentRow>
       {footer}
