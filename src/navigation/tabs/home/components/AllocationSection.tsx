@@ -165,7 +165,6 @@ const DonutChart = ({
   const outerCircumference = 2 * Math.PI * outerEdgeRadius;
   const innerCircumference = 2 * Math.PI * innerEdgeRadius;
   const gapAngle = gap / radius;
-  let cumulativeAngle = 0;
 
   if (shouldRenderNeutralRing) {
     return (
@@ -182,6 +181,76 @@ const DonutChart = ({
         </G>
       </Svg>
     );
+  }
+
+  const sliceFragments: React.ReactElement[] = [];
+  let cumulativeAngle = 0;
+
+  if (!isSingleSliceFull) {
+    for (const slice of slices) {
+      const color = theme.dark ? slice.color.dark : slice.color.light;
+      const segmentAngle = (slice.value / total) * 2 * Math.PI;
+      const adjustedSegmentAngle = Math.max(0, segmentAngle - gapAngle);
+
+      const dashArray = `${adjustedSegmentAngle * radius} ${circumference}`;
+      const dashOffset = -((cumulativeAngle + gapAngle / 2) * radius);
+
+      const outerDashArray = `${
+        adjustedSegmentAngle * outerEdgeRadius
+      } ${outerCircumference}`;
+      const outerDashOffset = -(
+        (cumulativeAngle + gapAngle / 2) *
+        outerEdgeRadius
+      );
+
+      const innerDashArray = `${
+        adjustedSegmentAngle * innerEdgeRadius
+      } ${innerCircumference}`;
+      const innerDashOffset = -(
+        (cumulativeAngle + gapAngle / 2) *
+        innerEdgeRadius
+      );
+
+      cumulativeAngle += segmentAngle;
+
+      sliceFragments.push(
+        <React.Fragment key={slice.key}>
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            stroke={color}
+            strokeWidth={strokeWidth}
+            strokeDasharray={dashArray}
+            strokeDashoffset={dashOffset}
+            strokeLinecap="butt"
+            fill="transparent"
+          />
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={outerEdgeRadius}
+            stroke={segmentBorderColor}
+            strokeWidth={edgeBorderWidth}
+            strokeDasharray={outerDashArray}
+            strokeDashoffset={outerDashOffset}
+            strokeLinecap="butt"
+            fill="transparent"
+          />
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={innerEdgeRadius}
+            stroke={segmentBorderColor}
+            strokeWidth={edgeBorderWidth}
+            strokeDasharray={innerDashArray}
+            strokeDashoffset={innerDashOffset}
+            strokeLinecap="butt"
+            fill="transparent"
+          />
+        </React.Fragment>,
+      );
+    }
   }
 
   return (
@@ -225,73 +294,7 @@ const DonutChart = ({
             />
           </>
         ) : null}
-        {slices.map(slice => {
-          if (isSingleSliceFull) {
-            return null;
-          }
-          const color = theme.dark ? slice.color.dark : slice.color.light;
-          const segmentAngle = (slice.value / total) * 2 * Math.PI;
-          const adjustedSegmentAngle = Math.max(0, segmentAngle - gapAngle);
-
-          const dashArray = `${adjustedSegmentAngle * radius} ${circumference}`;
-          const dashOffset = -((cumulativeAngle + gapAngle / 2) * radius);
-
-          const outerDashArray = `${
-            adjustedSegmentAngle * outerEdgeRadius
-          } ${outerCircumference}`;
-          const outerDashOffset = -(
-            (cumulativeAngle + gapAngle / 2) *
-            outerEdgeRadius
-          );
-
-          const innerDashArray = `${
-            adjustedSegmentAngle * innerEdgeRadius
-          } ${innerCircumference}`;
-          const innerDashOffset = -(
-            (cumulativeAngle + gapAngle / 2) *
-            innerEdgeRadius
-          );
-
-          cumulativeAngle += segmentAngle;
-
-          return (
-            <React.Fragment key={slice.key}>
-              <Circle
-                cx={size / 2}
-                cy={size / 2}
-                r={radius}
-                stroke={color}
-                strokeWidth={strokeWidth}
-                strokeDasharray={dashArray}
-                strokeDashoffset={dashOffset}
-                strokeLinecap="butt"
-                fill="transparent"
-              />
-              <Circle
-                cx={size / 2}
-                cy={size / 2}
-                r={outerEdgeRadius}
-                stroke={segmentBorderColor}
-                strokeWidth={edgeBorderWidth}
-                strokeDasharray={outerDashArray}
-                strokeDashoffset={outerDashOffset}
-                strokeLinecap="butt"
-                fill="transparent"
-              />
-              <Circle
-                cx={size / 2}
-                cy={size / 2}
-                r={innerEdgeRadius}
-                stroke={segmentBorderColor}
-                strokeWidth={edgeBorderWidth}
-                strokeDasharray={innerDashArray}
-                strokeDashoffset={innerDashOffset}
-                strokeLinecap="butt"
-                fill="transparent"
-              />
-            </React.Fragment>
-          );
-        })}
+        {sliceFragments}
       </G>
     </Svg>
   );
