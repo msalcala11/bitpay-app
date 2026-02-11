@@ -1,4 +1,10 @@
-import React, {useCallback, useLayoutEffect, useMemo, useState} from 'react';
+import React, {
+  useCallback,
+  useDeferredValue,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from 'react';
 import {TextInput} from 'react-native';
 import {FlashList, ListRenderItemInfo} from '@shopify/flash-list';
 import styled, {useTheme} from 'styled-components/native';
@@ -90,6 +96,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
 
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
   const [query, setQuery] = useState('');
+  const deferredQuery = useDeferredValue(query);
 
   const {visibleItems, isFiatLoading, isPopulateLoadingByKey} =
     usePortfolioAssetRows({
@@ -108,9 +115,16 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
     () => createSupportedCurrencyOptionLookup(SupportedCurrencyOptions),
     [],
   );
+  const normalizedDeferredQuery = deferredQuery.trim().toLowerCase();
+  const hasActiveQuery = query.trim().length > 0;
+  const hasDeferredQuery = normalizedDeferredQuery.length > 0;
 
   const searchableVisibleItems = useMemo(() => {
-    return (visibleItems || []).map(item => {
+    if (!hasActiveQuery || !hasDeferredQuery) {
+      return [];
+    }
+
+    return visibleItems.map(item => {
       const option = supportedOptionLookup.getOption({
         currencyAbbreviation: item.currencyAbbreviation,
         chain: item.chain,
@@ -141,18 +155,23 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
 
       return {item, searchText};
     });
-  }, [supportedOptionLookup, visibleItems]);
+  }, [hasActiveQuery, hasDeferredQuery, supportedOptionLookup, visibleItems]);
 
   const filteredItems: AssetRowItem[] = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) {
+    if (!hasActiveQuery || !hasDeferredQuery) {
       return visibleItems;
     }
 
     return searchableVisibleItems
-      .filter(({searchText}) => searchText.includes(q))
+      .filter(({searchText}) => searchText.includes(normalizedDeferredQuery))
       .map(({item}) => item);
-  }, [query, searchableVisibleItems, visibleItems]);
+  }, [
+    hasActiveQuery,
+    hasDeferredQuery,
+    normalizedDeferredQuery,
+    searchableVisibleItems,
+    visibleItems,
+  ]);
 
   const renderListHeader = useMemo(() => {
     return (
