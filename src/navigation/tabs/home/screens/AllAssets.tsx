@@ -241,6 +241,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
         ListHeaderComponent={renderListHeader}
         ListEmptyComponent={renderEmpty}
         estimatedItemSize={74}
+        maintainVisibleContentPosition={{disabled: true}}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       />
