@@ -815,9 +815,18 @@ const ExchangeRate = () => {
     assetContext.currencyAbbreviation,
   ).trim();
   const hasValidNormalizedCoin = normalizedCoin.length > 0;
+  const isMountedRef = useRef(false);
   const allIntervalsFetchRequestIdRef = useRef(0);
   const allIntervalsFetchInFlightRef = useRef(false);
   const [allIntervalsFetchCycle, setAllIntervalsFetchCycle] = useState(0);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      allIntervalsFetchInFlightRef.current = false;
+    };
+  }, []);
 
   const seriesDataInterval = useMemo<CachedFiatRateInterval>(() => {
     switch (selectedTimeframe) {
@@ -860,6 +869,9 @@ const ExchangeRate = () => {
         return;
       }
       allIntervalsFetchInFlightRef.current = false;
+      if (!isMountedRef.current) {
+        return;
+      }
       setAllIntervalsFetchCycle(current => current + 1);
     });
   }, [
