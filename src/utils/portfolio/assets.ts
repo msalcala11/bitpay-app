@@ -899,8 +899,24 @@ export const getWalletIdsToPopulateFromSnapshots = (args: {
     const hasSnapshots = Array.isArray(snapshots) && snapshots.length > 0;
 
     if (!hasSnapshots) {
-      const liveSat = ((w as any)?.balance?.sat as number | undefined) || 0;
-      if (liveSat > 0) {
+      const hasNonZeroLiveBalance = (() => {
+        if (walletHasNonZeroLiveBalance(w)) {
+          return true;
+        }
+
+        if (!(w as any)?.tokenAddress) {
+          return false;
+        }
+
+        const {unitDecimals} = getWalletUnitInfo(w);
+        const crypto = (w as any)?.balance?.crypto;
+        const unitString =
+          typeof crypto === 'string' ? crypto.replace(/,/g, '') : '0';
+
+        return unitStringToAtomicBigInt(unitString, unitDecimals) > 0n;
+      })();
+
+      if (hasNonZeroLiveBalance) {
         mainnetWalletIdsMissingSnapshots.push(w.id);
       }
       continue;
