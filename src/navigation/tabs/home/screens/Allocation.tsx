@@ -1,5 +1,6 @@
-import React, {useLayoutEffect, useMemo} from 'react';
+import React, {useCallback, useLayoutEffect, useMemo} from 'react';
 import {ImageRequireSource} from 'react-native';
+import {FlashList, ListRenderItemInfo} from '@shopify/flash-list';
 import styled, {useTheme} from 'styled-components/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useTranslation} from 'react-i18next';
@@ -54,15 +55,8 @@ const ScreenContainer = styled.SafeAreaView`
   flex: 1;
 `;
 
-const Content = styled.ScrollView`
-  flex: 1;
-`;
-
-const Rows = styled.View`
-  margin: 0px 16px 24px;
-`;
-
 const Row = styled.View`
+  margin: 0 16px;
   padding: 14px 0;
 `;
 
@@ -150,10 +144,49 @@ const ProgressFill = styled.View<{
   border-color: ${({theme: {dark}}) => (dark ? SlateDark : Slate30)};
 `;
 
+const ALLOCATION_ROW_ESTIMATED_ITEM_SIZE = 94;
+
+const AllocationRow: React.FC<{
+  item: AllocationRowItem;
+  hideAllBalances: boolean;
+  barColor: string;
+  img?: string;
+  imgSrc?: ImageRequireSource;
+}> = ({item, hideAllBalances, barColor, img, imgSrc}) => {
+  return (
+    <Row>
+      <RowTop>
+        <RowLeft>
+          <IconContainer>
+            <CurrencyImage img={img} imgSrc={imgSrc} size={40} />
+          </IconContainer>
+          <RowLabels>
+            <AssetName>{item.name}</AssetName>
+            <AssetSymbol>
+              {formatCurrencyAbbreviation(item.currencyAbbreviation || '')}
+            </AssetSymbol>
+          </RowLabels>
+        </RowLeft>
+
+        <RowRight>
+          <FiatAmount>{maskIfHidden(hideAllBalances, item.fiatAmount)}</FiatAmount>
+          <Percent>{item.percent}</Percent>
+        </RowRight>
+      </RowTop>
+
+      <ProgressTrack>
+        <ProgressFill progress={item.progress} color={barColor} />
+      </ProgressTrack>
+    </Row>
+  );
+};
+
 export const AllocationRowsList: React.FC<{
   rows: AllocationRowItem[];
   style?: any;
-}> = ({rows, style}) => {
+  ListHeaderComponent?: React.ReactElement | null;
+  scrollEnabled?: boolean;
+}> = ({rows, style, ListHeaderComponent, scrollEnabled = false}) => {
   const theme = useTheme();
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
   const {tokenOptionsByAddress} = useTokenContext();
@@ -169,58 +202,49 @@ export const AllocationRowsList: React.FC<{
     };
   }, [customTokenOptionsByAddress, tokenOptionsByAddress]);
 
+  const renderItem = useCallback(
+    ({item}: ListRenderItemInfo<AllocationRowItem>) => {
+      const option = supportedOptionLookup.getOption({
+        currencyAbbreviation: item.currencyAbbreviation,
+        chain: item.chain,
+        tokenAddress: item.tokenAddress,
+      });
+
+      const tokenKey = item.tokenAddress
+        ? addTokenChainSuffix(item.tokenAddress, item.chain)
+        : undefined;
+      const tokenOpt = tokenKey ? allTokenOptionsByAddress[tokenKey] : undefined;
+      const img = option?.img || (tokenOpt?.logoURI as string | undefined);
+      const imgSrc = option?.imgSrc as ImageRequireSource | undefined;
+
+      const barColor = theme.dark ? item.barColor.dark : item.barColor.light;
+
+      return (
+        <AllocationRow
+          item={item}
+          hideAllBalances={hideAllBalances}
+          barColor={barColor}
+          img={img}
+          imgSrc={imgSrc}
+        />
+      );
+    },
+    [allTokenOptionsByAddress, hideAllBalances, theme.dark],
+  );
+
+  const keyExtractor = useCallback((item: AllocationRowItem) => item.key, []);
+
   return (
-    <Rows style={style}>
-      {rows.map(item => {
-        const option = supportedOptionLookup.getOption({
-          currencyAbbreviation: item.currencyAbbreviation,
-          chain: item.chain,
-          tokenAddress: item.tokenAddress,
-        });
-
-        const tokenKey = item.tokenAddress
-          ? addTokenChainSuffix(item.tokenAddress, item.chain)
-          : undefined;
-        const tokenOpt = tokenKey
-          ? allTokenOptionsByAddress[tokenKey]
-          : undefined;
-        const img = option?.img || (tokenOpt?.logoURI as string | undefined);
-        const imgSrc = option?.imgSrc as ImageRequireSource | undefined;
-
-        const barColor = theme.dark ? item.barColor.dark : item.barColor.light;
-
-        return (
-          <Row key={item.key}>
-            <RowTop>
-              <RowLeft>
-                <IconContainer>
-                  <CurrencyImage img={img} imgSrc={imgSrc} size={40} />
-                </IconContainer>
-                <RowLabels>
-                  <AssetName>{item.name}</AssetName>
-                  <AssetSymbol>
-                    {formatCurrencyAbbreviation(
-                      item.currencyAbbreviation || '',
-                    )}
-                  </AssetSymbol>
-                </RowLabels>
-              </RowLeft>
-
-              <RowRight>
-                <FiatAmount>
-                  {maskIfHidden(hideAllBalances, item.fiatAmount)}
-                </FiatAmount>
-                <Percent>{item.percent}</Percent>
-              </RowRight>
-            </RowTop>
-
-            <ProgressTrack>
-              <ProgressFill progress={item.progress} color={barColor} />
-            </ProgressTrack>
-          </Row>
-        );
-      })}
-    </Rows>
+    <FlashList<AllocationRowItem>
+      data={rows}
+      renderItem={renderItem}
+      keyExtractor={keyExtractor}
+      ListHeaderComponent={ListHeaderComponent}
+      contentContainerStyle={[{paddingBottom: 24}, style]}
+      estimatedItemSize={ALLOCATION_ROW_ESTIMATED_ITEM_SIZE}
+      maintainVisibleContentPosition={{disabled: true}}
+      scrollEnabled={scrollEnabled}
+    />
   );
 };
 
@@ -297,16 +321,22 @@ const Allocation: React.FC<Props> = ({navigation, route}) => {
     );
   }, [defaultAltCurrency.isoCode, walletRows]);
 
+  const listHeaderComponent = useMemo(() => {
+    return (
+      <AllocationDonutLegendCard
+        legendItems={allocationData.legendItems}
+        slices={allocationData.slices}
+      />
+    );
+  }, [allocationData.legendItems, allocationData.slices]);
+
   return (
     <ScreenContainer>
-      <Content>
-        <AllocationDonutLegendCard
-          legendItems={allocationData.legendItems}
-          slices={allocationData.slices}
-        />
-
-        <AllocationRowsList rows={allocationData.rows} />
-      </Content>
+      <AllocationRowsList
+        rows={allocationData.rows}
+        ListHeaderComponent={listHeaderComponent}
+        scrollEnabled
+      />
     </ScreenContainer>
   );
 };
