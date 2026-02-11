@@ -110,7 +110,6 @@ import {
 } from '../../../store/rate/rate.models';
 import haptic from '../../../components/haptic-feedback/haptic';
 import {HISTORIC_RATES_CACHE_DURATION} from '../../../constants/wallet';
-import {logManager} from '../../../managers/LogManager';
 
 interface ChartDisplayDataType {
   date: Date;
@@ -1005,33 +1004,6 @@ const ExchangeRate = () => {
     selectedTimeframe,
     seriesDataInterval,
   ]);
-
-  const loggedDownsampleLengthsRef = useRef<Record<string, number>>({});
-
-  useEffect(() => {
-    const intervals: FiatRateInterval[] = ['ALL', '1D', '1W', '1M'];
-    for (const interval of intervals) {
-      const cacheKey = getFiatRateSeriesCacheKey(
-        selectedFiatCodeUpper,
-        normalizedCoin,
-        interval,
-      );
-      const series = fiatRateSeriesCache[cacheKey];
-      if (!series?.points?.length || !series.fetchedOn) {
-        continue;
-      }
-
-      if (loggedDownsampleLengthsRef.current[cacheKey] === series.fetchedOn) {
-        continue;
-      }
-
-      const downsampledLen = getFormattedData(series.points).data.length;
-      logManager.info(
-        `[ExchangeRate] downsample length - fiat:${selectedFiatCodeUpper} coin:${normalizedCoin} interval:${interval} raw:${series.points.length} downsampled:${downsampledLen}`,
-      );
-      loggedDownsampleLengthsRef.current[cacheKey] = series.fetchedOn;
-    }
-  }, [fiatRateSeriesCache, normalizedCoin, selectedFiatCodeUpper]);
 
   const walletsForAsset = useMemo(() => {
     const visibleWallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
