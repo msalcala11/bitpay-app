@@ -37,6 +37,7 @@ export const toAllocationWallet = (w: Wallet): AllocationWallet => {
 export type AllocationLegendItem = {
   key: string;
   label: string;
+  isOther?: boolean;
   value?: string;
   color: {
     light: string;
@@ -195,7 +196,8 @@ export const buildAllocationDataFromWalletRows = (
     const percent = toPercent(otherFiat, totalFiat);
     legendItems.push({
       key: 'other',
-      label: 'Other',
+      label: '',
+      isOther: true,
       value: `${percent.toFixed(1)}%`,
       color: {light: Slate, dark: SlateDark},
     });

@@ -4,6 +4,7 @@ import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 import Svg, {Circle, G} from 'react-native-svg';
 import styled, {useTheme} from 'styled-components/native';
 import {useNavigation} from '@react-navigation/native';
+import {useTranslation} from 'react-i18next';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import {
   ActiveOpacity,
@@ -37,6 +38,7 @@ import {
 export type AllocationLegendItem = {
   key: string;
   label: string;
+  isOther?: boolean;
   value?: string;
   color: {
     light: string;
@@ -284,6 +286,7 @@ export const AllocationDonutLegendCard: React.FC<{
   isLoading?: boolean;
 }> = ({legendItems, slices, style, header, footer, isLoading}) => {
   const theme = useTheme();
+  const {t} = useTranslation();
   const leftColumn = legendItems.slice(0, 3);
   const rightColumn = legendItems.slice(3);
 
@@ -389,7 +392,7 @@ export const AllocationDonutLegendCard: React.FC<{
                   <LegendDot color={dotColor} />
                   <LegendText>
                     <LegendCurrencyAbbreviationText>
-                      {item.label}
+                      {item.isOther ? t('Other') : item.label}
                     </LegendCurrencyAbbreviationText>
                     {item.value ? (
                       <LegendPercentageText>{` ${item.value}`}</LegendPercentageText>
@@ -409,7 +412,7 @@ export const AllocationDonutLegendCard: React.FC<{
                   <LegendDot color={dotColor} />
                   <LegendText>
                     <LegendCurrencyAbbreviationText>
-                      {item.label}
+                      {item.isOther ? t('Other') : item.label}
                     </LegendCurrencyAbbreviationText>
                     {item.value ? (
                       <LegendPercentageText>{` ${item.value}`}</LegendPercentageText>
@@ -428,6 +431,7 @@ export const AllocationDonutLegendCard: React.FC<{
 
 const AllocationSection: React.FC = () => {
   const navigation = useNavigation();
+  const {t} = useTranslation();
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
   const {defaultAltCurrency} = useAppSelector(({APP}) => APP);
   const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
@@ -456,7 +460,7 @@ const AllocationSection: React.FC = () => {
   return (
     <Container>
       <Header>
-        <HomeSectionTitle>Allocation</HomeSectionTitle>
+        <HomeSectionTitle>{t('Allocation')}</HomeSectionTitle>
         <HeaderAction
           activeOpacity={ActiveOpacity}
           hitSlop={{top: 20, bottom: 20, left: 20, right: 20}}

@@ -2,6 +2,7 @@ import React, {useLayoutEffect, useMemo} from 'react';
 import {ImageRequireSource} from 'react-native';
 import styled, {useTheme} from 'styled-components/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {useTranslation} from 'react-i18next';
 import {RootStackParamList} from '../../../../Root';
 import {useStackScreenOptions} from '../../../utils/headerHelpers';
 import {HeaderTitle, BaseText} from '../../../../components/styled/Text';
@@ -225,6 +226,7 @@ export const AllocationRowsList: React.FC<{
 
 const Allocation: React.FC<Props> = ({navigation, route}) => {
   const theme = useTheme();
+  const {t} = useTranslation();
   const commonOptions = useStackScreenOptions(theme);
   const dispatch = useAppDispatch();
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
@@ -236,9 +238,9 @@ const Allocation: React.FC<Props> = ({navigation, route}) => {
     navigation.setOptions({
       ...commonOptions,
       headerLeft: () => <HeaderBackButton />,
-      headerTitle: () => <HeaderTitle>Allocation</HeaderTitle>,
+      headerTitle: () => <HeaderTitle>{t('Allocation')}</HeaderTitle>,
     });
-  }, [navigation, commonOptions]);
+  }, [navigation, commonOptions, t]);
 
   const walletRows: AllocationWallet[] = useMemo(() => {
     const keyId = route.params?.keyId;
