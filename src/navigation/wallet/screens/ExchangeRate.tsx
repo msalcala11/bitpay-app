@@ -19,6 +19,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import {Path, Svg} from 'react-native-svg';
+import {useTranslation} from 'react-i18next';
 import styled, {useTheme} from 'styled-components/native';
 import HeaderBackButton from '../../../components/back/HeaderBackButton';
 import {CurrencyImage} from '../../../components/currency-image/CurrencyImage';
@@ -718,6 +719,7 @@ const ChartSelectionDot = ({
 };
 
 const ExchangeRate = () => {
+  const {t} = useTranslation();
   const theme = useTheme();
   const navigation = useNavigation();
   const dispatch = useAppDispatch();
@@ -1170,22 +1172,22 @@ const ExchangeRate = () => {
   const rangeLabel = useMemo(() => {
     switch (selectedTimeframe) {
       case '1D':
-        return 'Last Day';
+        return t('Last Day');
       case '1W':
-        return 'Past Week';
+        return t('Past Week');
       case '1M':
-        return 'Past Month';
+        return t('Past Month');
       case '3M':
-        return 'Past 3 Months';
+        return t('Past 3 Months');
       case '1Y':
-        return 'Past Year';
+        return t('Past Year');
       case '5Y':
-        return 'Past 5 Years';
+        return t('Past 5 Years');
       case 'ALL':
       default:
-        return 'All-time';
+        return t('All-time');
     }
-  }, [selectedTimeframe]);
+  }, [selectedTimeframe, t]);
 
   const rangeOrSelectedPointLabel = useMemo(() => {
     if (!selectedPoint?.date) {
