@@ -107,7 +107,7 @@ const canNavigateToExchangeRateForAssetRowItemWithSupportInfo = (args: {
   return (
     !!args.supportInfo.option &&
     !!args.item.hasRate &&
-    args.supportInfo.isExactMatch// &&
+    args.supportInfo.isExactMatch // &&
     // !args.supportInfo.isStable
   );
 };

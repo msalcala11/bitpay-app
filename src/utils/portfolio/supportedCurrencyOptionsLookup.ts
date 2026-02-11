@@ -67,7 +67,9 @@ export const createSupportedCurrencyOptionLookup = (
     }
   }
 
-  const getOption = (args: OptionLookupArgs): SupportedCurrencyOption | undefined => {
+  const getOption = (
+    args: OptionLookupArgs,
+  ): SupportedCurrencyOption | undefined => {
     const abbr = normalize(args.currencyAbbreviation);
     if (!abbr) {
       return undefined;

@@ -154,7 +154,9 @@ const AssetRow: React.FC<Props> = ({
   const shouldShowRightSide = hasRate || showPnlPlaceholder;
   const hasHistoricalV4Rates = useMemo(() => {
     const fiatCodeUpper = (defaultAltCurrency?.isoCode || 'USD').toUpperCase();
-    const normalizedCoin = normalizeFiatRateSeriesCoin(item.currencyAbbreviation);
+    const normalizedCoin = normalizeFiatRateSeriesCoin(
+      item.currencyAbbreviation,
+    );
     if (!normalizedCoin) {
       return false;
     }
@@ -172,7 +174,11 @@ const AssetRow: React.FC<Props> = ({
     }
 
     return true;
-  }, [defaultAltCurrency?.isoCode, fiatRateSeriesCache, item.currencyAbbreviation]);
+  }, [
+    defaultAltCurrency?.isoCode,
+    fiatRateSeriesCache,
+    item.currencyAbbreviation,
+  ]);
   const canNavigate = useMemo(() => {
     return (
       hasHistoricalV4Rates &&

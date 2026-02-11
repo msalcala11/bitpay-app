@@ -66,11 +66,7 @@ interface Props {
   height?: number;
 }
 
-const AssetsGainLossDropdown: React.FC<Props> = ({
-  value,
-  onChange,
-  height,
-}) => {
+const AssetsGainLossDropdown: React.FC<Props> = ({value, onChange, height}) => {
   const {t} = useTranslation();
   const anchorRef = useRef<View>(null);
   const {width: screenWidth} = useWindowDimensions();

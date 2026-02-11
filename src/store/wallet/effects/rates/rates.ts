@@ -436,7 +436,9 @@ export const fetchFiatRateSeriesInterval =
         : null;
     const keepCoins = Object.keys(data as Record<string, unknown>)
       .map(coin => (coin || '').toLowerCase())
-      .filter(coin => !!coin && (!allowedCoinsSet || allowedCoinsSet.has(coin)));
+      .filter(
+        coin => !!coin && (!allowedCoinsSet || allowedCoinsSet.has(coin)),
+      );
 
     if (keepCoins.length) {
       dispatch(

@@ -14,7 +14,10 @@ import SearchSvg from '../../../../../assets/img/search.svg';
 
 import {useAppSelector} from '../../../../utils/hooks';
 import usePortfolioAssetRows from '../hooks/usePortfolioAssetRows';
-import type {AssetRowItem, GainLossMode} from '../../../../utils/portfolio/assets';
+import type {
+  AssetRowItem,
+  GainLossMode,
+} from '../../../../utils/portfolio/assets';
 import AssetRow from '../components/AssetRow';
 import AssetsGainLossDropdown from '../components/AssetsGainLossDropdown';
 import {SupportedCurrencyOptions} from '../../../../constants/SupportedCurrencyOptions';
@@ -168,7 +171,10 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
           />
         </SearchInputContainer>
 
-        <AssetsGainLossDropdown value={gainLossMode} onChange={setGainLossMode} />
+        <AssetsGainLossDropdown
+          value={gainLossMode}
+          onChange={setGainLossMode}
+        />
       </FiltersRow>
     );
   }, [gainLossMode, query, t, theme.dark]);
@@ -217,7 +223,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
           <GhostSvg style={{marginTop: 20}} />
           <H5 style={{marginTop: 18}}>{t('No assets match your search')}</H5>
           <EmptySubtext>
-            {t("Try a different name, symbol, or chain.")}
+            {t('Try a different name, symbol, or chain.')}
           </EmptySubtext>
         </EmptyListContainer>
       );

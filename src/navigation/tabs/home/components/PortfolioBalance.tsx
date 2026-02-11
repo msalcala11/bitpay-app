@@ -171,8 +171,10 @@ const PortfolioBalance = () => {
     walletsAcrossKeys,
   ]);
 
-  const [committedSnapshotPercentageDifference, setCommittedSnapshotPercentage] =
-    useState<number | null>(null);
+  const [
+    committedSnapshotPercentageDifference,
+    setCommittedSnapshotPercentage,
+  ] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isPopulateInProgress) {
@@ -270,7 +272,7 @@ const PortfolioBalance = () => {
                 currencyDisplay: 'symbol',
               })}
             </PortfolioBalanceText>
-            {percentageDifference || percentageDifference === 0? (
+            {percentageDifference || percentageDifference === 0 ? (
               <PercentageWrapper>
                 <Percentage
                   percentageDifference={percentageDifference}

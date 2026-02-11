@@ -85,7 +85,8 @@ const Percentage = ({
       ? undefined
       : String(priceChange);
   const shouldShowPriceChange = Boolean(formattedPriceChange?.length);
-  const signPrefix = !isFiniteDifference || hideSign ? '' : safeDifference < 0 ? '- ' : '+ ';
+  const signPrefix =
+    !isFiniteDifference || hideSign ? '' : safeDifference < 0 ? '- ' : '+ ';
   const formattedPercentageDifference = isFiniteDifference
     ? formatter.format(Math.abs(safeDifference))
     : '--';

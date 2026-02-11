@@ -198,7 +198,9 @@ export const AllocationRowsList: React.FC<{
                 <RowLabels>
                   <AssetName>{item.name}</AssetName>
                   <AssetSymbol>
-                    {formatCurrencyAbbreviation(item.currencyAbbreviation || '')}
+                    {formatCurrencyAbbreviation(
+                      item.currencyAbbreviation || '',
+                    )}
                   </AssetSymbol>
                 </RowLabels>
               </RowLeft>
