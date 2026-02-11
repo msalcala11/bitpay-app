@@ -35,6 +35,7 @@ import {getCurrencyAbbreviation} from '../../../../utils/helper-methods';
 import {createSupportedCurrencyOptionLookup} from '../../../../utils/portfolio/supportedCurrencyOptionsLookup';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AllAssets'>;
+const LIST_HORIZONTAL_GUTTER = Number.parseInt(ScreenGutter, 10);
 
 const ScreenContainer = styled.SafeAreaView`
   flex: 1;
@@ -44,7 +45,7 @@ const FiltersRow = styled.View`
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  padding: 12px ${ScreenGutter} 12px;
+  padding: 12px 0 12px;
   gap: 12px;
 `;
 
@@ -70,15 +71,11 @@ const SearchIconContainer = styled.View`
   margin-right: 8px;
 `;
 
-const RowContainer = styled.View`
-  margin: 0 ${ScreenGutter};
-`;
-
 const EmptyListContainer = styled.View`
   flex: 1;
   align-items: center;
   justify-content: center;
-  padding: 24px ${ScreenGutter};
+  padding: 24px 0;
 `;
 
 const EmptySubtext = styled(BaseText)`
@@ -206,14 +203,12 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
           : populateInProgress;
 
       return (
-        <RowContainer>
-          <AssetRow
-            item={item}
-            isLast={index === filteredItems.length - 1}
-            isFiatLoading={isFiatLoading}
-            isPopulateLoading={isRowPopulateLoading}
-          />
-        </RowContainer>
+        <AssetRow
+          item={item}
+          isLast={index === filteredItems.length - 1}
+          isFiatLoading={isFiatLoading}
+          isPopulateLoading={isRowPopulateLoading}
+        />
       );
     },
     [
@@ -259,6 +254,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
         keyExtractor={keyExtractor}
         ListHeaderComponent={renderListHeader}
         ListEmptyComponent={renderEmpty}
+        contentContainerStyle={{paddingHorizontal: LIST_HORIZONTAL_GUTTER}}
         estimatedItemSize={74}
         maintainVisibleContentPosition={{disabled: true}}
         keyboardShouldPersistTaps="handled"
