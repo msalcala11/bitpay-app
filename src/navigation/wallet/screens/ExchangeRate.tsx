@@ -87,7 +87,6 @@ import {
   lowerBoundByTs,
 } from '../../../utils/portfolio/timeSeries';
 import {normalizeFiatRateSeriesCoin} from '../../../utils/portfolio/core/pnl/rates';
-import {findIndex, maxBy, minBy} from 'lodash';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {
   fetchMarketStats,
@@ -339,21 +338,33 @@ const getFormattedData = (
     strategy: 'lttb',
     mode: 'per_coin',
   });
+  const scaledData = rates.map(value => ({
+    date: new Date(value.ts),
+    value: value.rate,
+  }));
+
+  let maxPoint: ChartDisplayDataType | undefined;
+  let minPoint: ChartDisplayDataType | undefined;
+  let maxIndex: number | undefined;
+  let minIndex: number | undefined;
+
+  for (let index = 0; index < scaledData.length; index++) {
+    const point = scaledData[index];
+    if (Number.isNaN(point.value)) {
+      continue;
+    }
+
+    if (typeof maxPoint === 'undefined' || point.value > maxPoint.value) {
+      maxPoint = point;
+      maxIndex = index;
+    }
+    if (typeof minPoint === 'undefined' || point.value < minPoint.value) {
+      minPoint = point;
+      minIndex = index;
+    }
+  }
+
   if (rates.length < 2) {
-    const scaledData = rates.map(value => ({
-      date: new Date(value.ts),
-      value: value.rate,
-    }));
-    const maxPoint = maxBy(scaledData, point => point.value);
-    const minPoint = minBy(scaledData, point => point.value);
-    const maxIndex =
-      typeof maxPoint !== 'undefined'
-        ? findIndex(scaledData, maxPoint)
-        : undefined;
-    const minIndex =
-      typeof minPoint !== 'undefined'
-        ? findIndex(scaledData, minPoint)
-        : undefined;
     return {
       data: scaledData,
       percentChange: 0,
@@ -368,20 +379,6 @@ const getFormattedData = (
     rates[rates.length - 1].rate,
     rates[0].rate,
   );
-  const scaledData = rates.map(value => ({
-    date: new Date(value.ts),
-    value: value.rate,
-  }));
-  const maxPoint = maxBy(scaledData, point => point.value);
-  const minPoint = minBy(scaledData, point => point.value);
-  const maxIndex =
-    typeof maxPoint !== 'undefined'
-      ? findIndex(scaledData, maxPoint)
-      : undefined;
-  const minIndex =
-    typeof minPoint !== 'undefined'
-      ? findIndex(scaledData, minPoint)
-      : undefined;
 
   return {
     data: scaledData,
