@@ -80,7 +80,9 @@ export const getMaxRateFromIndex = <T extends RatePoint>(
   return hasFiniteRate ? maxRate : undefined;
 };
 
-export const isSortedByTsAsc = <T extends TimestampPoint>(points: T[]): boolean => {
+export const isSortedByTsAsc = <T extends TimestampPoint>(
+  points: readonly T[],
+): boolean => {
   for (let index = 1; index < points.length; index++) {
     if (points[index - 1].ts > points[index].ts) {
       return false;
@@ -88,3 +90,10 @@ export const isSortedByTsAsc = <T extends TimestampPoint>(points: T[]): boolean 
   }
   return true;
 };
+
+export const ensureSortedByTsAsc = <T extends TimestampPoint>(
+  points: readonly T[],
+): T[] =>
+  isSortedByTsAsc(points)
+    ? (points as T[])
+    : [...points].sort((a, b) => a.ts - b.ts);

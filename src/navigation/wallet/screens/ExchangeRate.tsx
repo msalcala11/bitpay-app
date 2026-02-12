@@ -81,9 +81,9 @@ import {
   getFiatRateChangeForTimeframe,
 } from '../../../utils/portfolio/rate';
 import {
+  ensureSortedByTsAsc,
   getMaxRate,
   getMaxRateFromIndex,
-  isSortedByTsAsc,
   lowerBoundByTs,
 } from '../../../utils/portfolio/timeSeries';
 import {normalizeFiatRateSeriesCoin} from '../../../utils/portfolio/core/pnl/rates';
@@ -327,16 +327,10 @@ const formatSupply = (value: number, maximumFractionDigits = 2) => {
   return decPart ? `${withCommas}.${decPart}` : withCommas;
 };
 
-
-const ensurePointsSortedByTsAsc = <T extends {ts: number}>(points: T[]): T[] =>
-  isSortedByTsAsc(points) ? points : [...points].sort((a, b) => a.ts - b.ts);
-
 const getFormattedData = (
   historicFiatRates: Array<{ts: number; rate: number}>,
 ): ChartDataType => {
-  const ratesSorted = isSortedByTsAsc(historicFiatRates)
-    ? historicFiatRates
-    : [...historicFiatRates].sort((a, b) => a.ts - b.ts);
+  const ratesSorted = ensureSortedByTsAsc(historicFiatRates);
   if (!ratesSorted.length) {
     return defaultDisplayData;
   }
@@ -1025,7 +1019,7 @@ const ExchangeRate = () => {
             ? HISTORIC_TIMEFRAME_WINDOW_MS['1Y']
             : HISTORIC_TIMEFRAME_WINDOW_MS['5Y'];
         const cutoffTs = now - windowMs;
-        const pointsSortedByTs = ensurePointsSortedByTsAsc(seriesPoints);
+        const pointsSortedByTs = ensureSortedByTsAsc(seriesPoints);
         const startIdx = lowerBoundByTs(pointsSortedByTs, cutoffTs);
         return pointsSortedByTs.slice(startIdx);
       }
@@ -1308,7 +1302,7 @@ const ExchangeRate = () => {
     const allPoints = getPointsForInterval('ALL');
     if (allPoints?.length) {
       const now = Date.now();
-      const allPointsSortedByTs = ensurePointsSortedByTsAsc(allPoints);
+      const allPointsSortedByTs = ensureSortedByTsAsc(allPoints);
       const derivedWindows: Array<{windowMs: number}> = [
         {windowMs: HISTORIC_TIMEFRAME_WINDOW_MS['3M']},
         {windowMs: HISTORIC_TIMEFRAME_WINDOW_MS['1Y']},
