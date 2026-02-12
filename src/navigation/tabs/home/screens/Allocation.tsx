@@ -1,5 +1,5 @@
 import React, {useCallback, useLayoutEffect, useMemo} from 'react';
-import {ImageRequireSource} from 'react-native';
+import {ImageRequireSource, View} from 'react-native';
 import {FlashList, ListRenderItemInfo} from '@shopify/flash-list';
 import styled, {useTheme} from 'styled-components/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
@@ -202,8 +202,8 @@ export const AllocationRowsList: React.FC<{
     };
   }, [customTokenOptionsByAddress, tokenOptionsByAddress]);
 
-  const renderItem = useCallback(
-    ({item}: ListRenderItemInfo<AllocationRowItem>) => {
+  const renderRow = useCallback(
+    (item: AllocationRowItem) => {
       const option = supportedOptionLookup.getOption({
         currencyAbbreviation: item.currencyAbbreviation,
         chain: item.chain,
@@ -232,7 +232,23 @@ export const AllocationRowsList: React.FC<{
     [allTokenOptionsByAddress, hideAllBalances, theme.dark],
   );
 
+  const renderItem = useCallback(
+    ({item}: ListRenderItemInfo<AllocationRowItem>) => renderRow(item),
+    [renderRow],
+  );
+
   const keyExtractor = useCallback((item: AllocationRowItem) => item.key, []);
+
+  if (!scrollEnabled) {
+    return (
+      <View style={[{paddingBottom: 24}, style]}>
+        {ListHeaderComponent}
+        {rows.map(item => (
+          <React.Fragment key={item.key}>{renderRow(item)}</React.Fragment>
+        ))}
+      </View>
+    );
+  }
 
   return (
     <FlashList<AllocationRowItem>
