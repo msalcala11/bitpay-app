@@ -258,6 +258,7 @@ const HISTORIC_TIMEFRAME_WINDOW_MS: Record<'3M' | '1Y' | '5Y', number> = {
   '1Y': DateRanges.Year * MS_PER_DAY,
   '5Y': DateRanges.FiveYears * MS_PER_DAY,
 };
+const SPOT_RATE_MATCH_EPSILON = 1e-12;
 
 const lowerBoundByTs = (
   points: FiatRatePoint[],
@@ -1079,6 +1080,13 @@ const ExchangeRate = () => {
 
     const lastIdx = pointsToDisplay.length - 1;
     const last = pointsToDisplay[lastIdx];
+    if (
+      !last ||
+      Math.abs(last.rate - currentFiatRate) <= SPOT_RATE_MATCH_EPSILON
+    ) {
+      return pointsToDisplay;
+    }
+
     // Never mutate cached series points in Redux; only override in-memory for rendering.
     const copy = [...pointsToDisplay];
     copy[lastIdx] = {...last, rate: currentFiatRate};
