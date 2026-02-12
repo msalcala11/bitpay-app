@@ -1044,7 +1044,8 @@ const ExchangeRate = () => {
   ]);
 
   const pointsForChartRaw = useMemo<FiatRatePoint[] | undefined>(() => {
-    if (!selectedSeries?.points?.length) {
+    const seriesPoints = selectedSeries?.points;
+    if (!seriesPoints) {
       return undefined;
     }
 
@@ -1064,10 +1065,10 @@ const ExchangeRate = () => {
             ? HISTORIC_TIMEFRAME_WINDOW_MS['1Y']
             : HISTORIC_TIMEFRAME_WINDOW_MS['5Y'];
         const cutoffTs = now - windowMs;
-        const startIdx = lowerBoundByTs(selectedSeries.points, cutoffTs);
-        return selectedSeries.points.slice(startIdx);
+        const startIdx = lowerBoundByTs(seriesPoints, cutoffTs);
+        return seriesPoints.slice(startIdx);
       }
-      return selectedSeries.points;
+      return seriesPoints;
     })();
 
     if (
@@ -1103,7 +1104,7 @@ const ExchangeRate = () => {
   }, [pointsForChartRaw]);
 
   useEffect(() => {
-    if (pointsForChartRaw?.length) {
+    if (typeof pointsForChartRaw !== 'undefined') {
       const formattedRates = getFormattedData(pointsForChartRaw);
       setPrevDisplayData(displayDataRef.current);
       setDisplayData(formattedRates);
