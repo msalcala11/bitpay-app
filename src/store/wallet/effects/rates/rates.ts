@@ -45,6 +45,7 @@ import {tokenManager} from '../../../../managers/TokenManager';
 import {logManager} from '../../../../managers/LogManager';
 import type {Key, Wallet} from '../../wallet.models';
 import {normalizeFiatRateSeriesCoin} from '../../../../utils/portfolio/core/pnl/rates';
+import {isSortedByTsAsc} from '../../../../utils/portfolio/timeSeries';
 
 const FIAT_RATE_SERIES_BASE_URL = `${BASE_BWS_URL}/v4/fiatrates`;
 
@@ -468,9 +469,10 @@ export const fetchFiatRateSeriesInterval =
         return;
       }
 
-      const points = filtered
-        .map(p => ({ts: p.ts, rate: p.rate}))
-        .sort((a, b) => a.ts - b.ts);
+      let points = filtered.map(p => ({ts: p.ts, rate: p.rate}));
+      if (!isSortedByTsAsc(points)) {
+        points = points.sort((a, b) => a.ts - b.ts);
+      }
       const deduped = dedupeFiatRatePointsByTs(points);
       updates[getFiatRateSeriesCacheKey(fiatCode, coin, interval)] = {
         fetchedOn,
