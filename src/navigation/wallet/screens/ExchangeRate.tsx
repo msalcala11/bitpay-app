@@ -80,6 +80,12 @@ import {
   downsampleSeries,
   getFiatRateChangeForTimeframe,
 } from '../../../utils/portfolio/rate';
+import {
+  getMaxRate,
+  getMaxRateFromIndex,
+  isSortedByTsAsc,
+  lowerBoundByTs,
+} from '../../../utils/portfolio/timeSeries';
 import {normalizeFiatRateSeriesCoin} from '../../../utils/portfolio/core/pnl/rates';
 import {findIndex, maxBy, minBy} from 'lodash';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
@@ -260,25 +266,6 @@ const HISTORIC_TIMEFRAME_WINDOW_MS: Record<'3M' | '1Y' | '5Y', number> = {
 };
 const SPOT_RATE_MATCH_EPSILON = 1e-12;
 
-const lowerBoundByTs = (
-  points: FiatRatePoint[],
-  cutoffTs: number,
-): number => {
-  let left = 0;
-  let right = points.length;
-
-  while (left < right) {
-    const mid = left + Math.floor((right - left) / 2);
-    if (points[mid].ts < cutoffTs) {
-      left = mid + 1;
-    } else {
-      right = mid;
-    }
-  }
-
-  return left;
-};
-
 const formatTinyDecimal = (value: number, decimals: number) => {
   const fixed = value.toFixed(decimals);
   return fixed.replace(/\.0+$/, '').replace(/(\.[0-9]*?)0+$/, '$1');
@@ -340,67 +327,6 @@ const formatSupply = (value: number, maximumFractionDigits = 2) => {
   return decPart ? `${withCommas}.${decPart}` : withCommas;
 };
 
-const getMaxRate = (points?: FiatRatePoint[]): number | undefined => {
-  if (!points?.length) {
-    return undefined;
-  }
-
-  let maxRate = Number.NEGATIVE_INFINITY;
-  let hasFiniteRate = false;
-
-  for (const point of points) {
-    if (!Number.isFinite(point.rate)) {
-      continue;
-    }
-
-    if (!hasFiniteRate || point.rate > maxRate) {
-      maxRate = point.rate;
-      hasFiniteRate = true;
-    }
-  }
-
-  return hasFiniteRate ? maxRate : undefined;
-};
-
-const getMaxRateFromIndex = (
-  points: FiatRatePoint[],
-  startIdx: number,
-): number | undefined => {
-  if (!points.length) {
-    return undefined;
-  }
-
-  const normalizedStartIdx = Math.max(0, startIdx);
-  if (normalizedStartIdx >= points.length) {
-    return undefined;
-  }
-
-  let maxRate = Number.NEGATIVE_INFINITY;
-  let hasFiniteRate = false;
-
-  for (let index = normalizedStartIdx; index < points.length; index++) {
-    const rate = points[index].rate;
-    if (!Number.isFinite(rate)) {
-      continue;
-    }
-
-    if (!hasFiniteRate || rate > maxRate) {
-      maxRate = rate;
-      hasFiniteRate = true;
-    }
-  }
-
-  return hasFiniteRate ? maxRate : undefined;
-};
-
-const isSortedByTsAsc = (points: Array<{ts: number}>): boolean => {
-  for (let index = 1; index < points.length; index++) {
-    if (points[index - 1].ts > points[index].ts) {
-      return false;
-    }
-  }
-  return true;
-};
 
 const ensurePointsSortedByTsAsc = <T extends {ts: number}>(points: T[]): T[] =>
   isSortedByTsAsc(points) ? points : [...points].sort((a, b) => a.ts - b.ts);
