@@ -361,10 +361,21 @@ const getMaxRate = (points?: FiatRatePoint[]): number | undefined => {
   return hasFiniteRate ? maxRate : undefined;
 };
 
+const isSortedByTsAsc = (points: Array<{ts: number}>): boolean => {
+  for (let index = 1; index < points.length; index++) {
+    if (points[index - 1].ts > points[index].ts) {
+      return false;
+    }
+  }
+  return true;
+};
+
 const getFormattedData = (
   historicFiatRates: Array<{ts: number; rate: number}>,
 ): ChartDataType => {
-  const ratesSorted = [...historicFiatRates].sort((a, b) => a.ts - b.ts);
+  const ratesSorted = isSortedByTsAsc(historicFiatRates)
+    ? historicFiatRates
+    : [...historicFiatRates].sort((a, b) => a.ts - b.ts);
   if (!ratesSorted.length) {
     return defaultDisplayData;
   }
