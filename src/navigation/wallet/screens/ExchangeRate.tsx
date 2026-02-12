@@ -320,6 +320,28 @@ const formatSupply = (value: number, maximumFractionDigits = 2) => {
   return decPart ? `${withCommas}.${decPart}` : withCommas;
 };
 
+const getMaxRate = (points?: FiatRatePoint[]): number | undefined => {
+  if (!points?.length) {
+    return undefined;
+  }
+
+  let maxRate = Number.NEGATIVE_INFINITY;
+  let hasFiniteRate = false;
+
+  for (const point of points) {
+    if (!Number.isFinite(point.rate)) {
+      continue;
+    }
+
+    if (!hasFiniteRate || point.rate > maxRate) {
+      maxRate = point.rate;
+      hasFiniteRate = true;
+    }
+  }
+
+  return hasFiniteRate ? maxRate : undefined;
+};
+
 const getFormattedData = (
   historicFiatRates: Array<{ts: number; rate: number}>,
 ): ChartDataType => {
@@ -990,49 +1012,60 @@ const ExchangeRate = () => {
     rates,
   ]);
 
+  const pointsForChartRaw = useMemo<FiatRatePoint[] | undefined>(() => {
+    if (!selectedSeries?.points?.length) {
+      return undefined;
+    }
+
+    const pointsToDisplay: FiatRatePoint[] = (() => {
+      if (
+        seriesDataInterval === 'ALL' &&
+        selectedTimeframe !== 'ALL' &&
+        (selectedTimeframe === '3M' ||
+          selectedTimeframe === '1Y' ||
+          selectedTimeframe === '5Y')
+      ) {
+        const now = Date.now();
+        const windowMs =
+          selectedTimeframe === '3M'
+            ? HISTORIC_TIMEFRAME_WINDOW_MS['3M']
+            : selectedTimeframe === '1Y'
+            ? HISTORIC_TIMEFRAME_WINDOW_MS['1Y']
+            : HISTORIC_TIMEFRAME_WINDOW_MS['5Y'];
+        const cutoff = now - windowMs;
+        return selectedSeries.points.filter((p: FiatRatePoint) => p.ts >= cutoff);
+      }
+      return selectedSeries.points;
+    })();
+
+    if (
+      !pointsToDisplay.length ||
+      !currentFiatRate ||
+      !Number.isFinite(currentFiatRate)
+    ) {
+      return pointsToDisplay;
+    }
+
+    const lastIdx = pointsToDisplay.length - 1;
+    const last = pointsToDisplay[lastIdx];
+    // Never mutate cached series points in Redux; only override in-memory for rendering.
+    const copy = [...pointsToDisplay];
+    copy[lastIdx] = {...last, rate: currentFiatRate};
+    return copy;
+  }, [
+    currentFiatRate,
+    selectedSeries?.points,
+    selectedTimeframe,
+    seriesDataInterval,
+  ]);
+
+  const selectedTimeframeHighValue = useMemo(() => {
+    return getMaxRate(pointsForChartRaw);
+  }, [pointsForChartRaw]);
+
   useEffect(() => {
-    if (selectedSeries?.points?.length) {
-      const pointsToDisplay: FiatRatePoint[] = (() => {
-        if (
-          seriesDataInterval === 'ALL' &&
-          selectedTimeframe !== 'ALL' &&
-          (selectedTimeframe === '3M' ||
-            selectedTimeframe === '1Y' ||
-            selectedTimeframe === '5Y')
-        ) {
-          const now = Date.now();
-          const windowMs =
-            selectedTimeframe === '3M'
-              ? HISTORIC_TIMEFRAME_WINDOW_MS['3M']
-              : selectedTimeframe === '1Y'
-              ? HISTORIC_TIMEFRAME_WINDOW_MS['1Y']
-              : HISTORIC_TIMEFRAME_WINDOW_MS['5Y'];
-          const cutoff = now - windowMs;
-          return selectedSeries.points.filter(
-            (p: FiatRatePoint) => p.ts >= cutoff,
-          );
-        }
-        return selectedSeries.points;
-      })();
-
-      const pointsForChart = (() => {
-        if (
-          !pointsToDisplay.length ||
-          !currentFiatRate ||
-          !Number.isFinite(currentFiatRate)
-        ) {
-          return pointsToDisplay;
-        }
-
-        const lastIdx = pointsToDisplay.length - 1;
-        const last = pointsToDisplay[lastIdx];
-        // Never mutate cached series points in Redux; only override in-memory for rendering.
-        const copy = [...pointsToDisplay];
-        copy[lastIdx] = {...last, rate: currentFiatRate};
-        return copy;
-      })();
-
-      const formattedRates = getFormattedData(pointsForChart);
+    if (pointsForChartRaw?.length) {
+      const formattedRates = getFormattedData(pointsForChartRaw);
       setPrevDisplayData(displayDataRef.current);
       setDisplayData(formattedRates);
       setIsChartLoading(false);
@@ -1042,10 +1075,7 @@ const ExchangeRate = () => {
     const hasUsableData = !!displayDataRef.current.data.length;
     setIsChartLoading(!hasUsableData);
   }, [
-    currentFiatRate,
-    selectedSeries?.points,
-    selectedTimeframe,
-    seriesDataInterval,
+    pointsForChartRaw,
   ]);
 
   const walletsForAsset = useMemo(() => {
@@ -1266,18 +1296,9 @@ const ExchangeRate = () => {
       return fiatRateSeriesCache[cacheKey]?.points;
     };
 
-    const getHighFromPoints = (
-      points?: FiatRatePoint[],
-    ): number | undefined => {
-      if (!points?.length) {
-        return undefined;
-      }
-      return getFormattedData(points).maxPoint?.value;
-    };
-
     const maxCandidates: number[] = [];
     for (const interval of FIAT_RATE_SERIES_CACHED_INTERVALS) {
-      const high = getHighFromPoints(getPointsForInterval(interval));
+      const high = getMaxRate(getPointsForInterval(interval));
       if (high != null) {
         maxCandidates.push(high);
       }
@@ -1295,7 +1316,7 @@ const ExchangeRate = () => {
       for (const {windowMs} of derivedWindows) {
         const cutoff = now - windowMs;
         const windowPoints = allPoints.filter(p => p.ts >= cutoff);
-        const high = getHighFromPoints(windowPoints);
+        const high = getMaxRate(windowPoints);
         if (high != null) {
           maxCandidates.push(high);
         }
@@ -1441,20 +1462,23 @@ const ExchangeRate = () => {
   ]);
 
   const MaxAxisLabel = useCallback(() => {
+    const maxAxisLabelValue =
+      selectedTimeframeHighValue ?? displayData.maxPoint?.value;
+
     if (isChartLoading) {
       return null;
     }
     if (
       !displayData.data.length ||
       typeof displayData.maxIndex !== 'number' ||
-      displayData.maxPoint?.value == null
+      maxAxisLabelValue == null
     ) {
       return null;
     }
 
     return (
       <AxisLabel
-        value={displayData.maxPoint.value}
+        value={maxAxisLabelValue}
         index={displayData.maxIndex}
         prevIndex={prevDisplayData.maxIndex}
         arrayLength={displayData.data.length}
@@ -1469,6 +1493,7 @@ const ExchangeRate = () => {
     displayData.maxPoint?.value,
     isChartLoading,
     prevDisplayData.maxIndex,
+    selectedTimeframeHighValue,
   ]);
 
   const onPointSelected = useCallback(
