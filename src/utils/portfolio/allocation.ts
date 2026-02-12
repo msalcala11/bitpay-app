@@ -96,6 +96,13 @@ const toPercent = (value: number, total: number): number => {
   return (value / total) * 100;
 };
 
+const formatAllocationPercent = (percent: number): string => {
+  if (percent > 0 && percent < 0.1) {
+    return '<0.1%';
+  }
+  return `${percent.toFixed(1)}%`;
+};
+
 export const buildAllocationDataFromWalletRows = (
   wallets: AllocationWallet[],
   defaultAltCurrencyIsoCode: string,
@@ -159,7 +166,7 @@ export const buildAllocationDataFromWalletRows = (
       fiatAmount: formatFiatAmount(a.fiatValue, defaultAltCurrencyIsoCode, {
         currencyDisplay: 'symbol',
       }),
-      percent: `${a.percent.toFixed(1)}%`,
+      percent: formatAllocationPercent(a.percent),
       progress: a.percent,
       barColor: a.color,
     };
@@ -179,7 +186,7 @@ export const buildAllocationDataFromWalletRows = (
     return {
       key: a.assetKey,
       label: formatCurrencyAbbreviation(a.currencyAbbreviation || ''),
-      value: `${a.percent.toFixed(1)}%`,
+      value: formatAllocationPercent(a.percent),
       color: a.color,
     };
   });
@@ -198,7 +205,7 @@ export const buildAllocationDataFromWalletRows = (
       key: 'other',
       label: '',
       isOther: true,
-      value: `${percent.toFixed(1)}%`,
+      value: formatAllocationPercent(percent),
       color: {light: Slate, dark: SlateDark},
     });
     slices.push({
