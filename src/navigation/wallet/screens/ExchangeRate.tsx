@@ -1276,30 +1276,78 @@ const ExchangeRate = () => {
     return formatDisplayPrice(latestPriceValue ?? fallbackHistoricalPrice);
   }, [fallbackHistoricalPrice, formatDisplayPrice, latestPriceValue]);
 
-  const allIntervalsHighValue = useMemo(() => {
-    const getPointsForInterval = (
-      interval: 'ALL' | '1D' | '1W' | '1M',
-    ): FiatRatePoint[] | undefined => {
-      const cacheKey = getFiatRateSeriesCacheKey(
+  const allIntervalsHighCacheKeys = useMemo(
+    () => ({
+      oneDay: getFiatRateSeriesCacheKey(
         selectedFiatCodeUpper,
         normalizedCoin,
-        interval,
-      );
-      return fiatRateSeriesCache[cacheKey]?.points;
-    };
+        '1D',
+      ),
+      oneWeek: getFiatRateSeriesCacheKey(
+        selectedFiatCodeUpper,
+        normalizedCoin,
+        '1W',
+      ),
+      oneMonth: getFiatRateSeriesCacheKey(
+        selectedFiatCodeUpper,
+        normalizedCoin,
+        '1M',
+      ),
+      all: getFiatRateSeriesCacheKey(
+        selectedFiatCodeUpper,
+        normalizedCoin,
+        'ALL',
+      ),
+    }),
+    [normalizedCoin, selectedFiatCodeUpper],
+  );
 
+  const oneDaySeriesForAllIntervalsHigh =
+    fiatRateSeriesCache[allIntervalsHighCacheKeys.oneDay];
+  const oneWeekSeriesForAllIntervalsHigh =
+    fiatRateSeriesCache[allIntervalsHighCacheKeys.oneWeek];
+  const oneMonthSeriesForAllIntervalsHigh =
+    fiatRateSeriesCache[allIntervalsHighCacheKeys.oneMonth];
+  const allSeriesForAllIntervalsHigh =
+    fiatRateSeriesCache[allIntervalsHighCacheKeys.all];
+
+  const oneDayPointsForAllIntervalsHigh = useMemo(
+    () => oneDaySeriesForAllIntervalsHigh?.points,
+    [oneDaySeriesForAllIntervalsHigh?.points],
+  );
+  const oneWeekPointsForAllIntervalsHigh = useMemo(
+    () => oneWeekSeriesForAllIntervalsHigh?.points,
+    [oneWeekSeriesForAllIntervalsHigh?.points],
+  );
+  const oneMonthPointsForAllIntervalsHigh = useMemo(
+    () => oneMonthSeriesForAllIntervalsHigh?.points,
+    [oneMonthSeriesForAllIntervalsHigh?.points],
+  );
+  const allPointsForAllIntervalsHigh = useMemo(
+    () => allSeriesForAllIntervalsHigh?.points,
+    [allSeriesForAllIntervalsHigh?.points],
+  );
+
+  const allIntervalsHighValue = useMemo(() => {
     const maxCandidates: number[] = [];
-    for (const interval of FIAT_RATE_SERIES_CACHED_INTERVALS) {
-      const high = getMaxRate(getPointsForInterval(interval));
+    const cachedIntervalPointSets: Array<FiatRatePoint[] | undefined> = [
+      oneDayPointsForAllIntervalsHigh,
+      oneWeekPointsForAllIntervalsHigh,
+      oneMonthPointsForAllIntervalsHigh,
+      allPointsForAllIntervalsHigh,
+    ];
+    for (const points of cachedIntervalPointSets) {
+      const high = getMaxRate(points);
       if (high != null) {
         maxCandidates.push(high);
       }
     }
 
-    const allPoints = getPointsForInterval('ALL');
-    if (allPoints?.length) {
+    if (allPointsForAllIntervalsHigh?.length) {
       const now = Date.now();
-      const allPointsSortedByTs = ensureSortedByTsAsc(allPoints);
+      const allPointsSortedByTs = ensureSortedByTsAsc<FiatRatePoint>(
+        allPointsForAllIntervalsHigh,
+      );
       const derivedWindows: Array<{windowMs: number}> = [
         {windowMs: HISTORIC_TIMEFRAME_WINDOW_MS['3M']},
         {windowMs: HISTORIC_TIMEFRAME_WINDOW_MS['1Y']},
@@ -1317,7 +1365,12 @@ const ExchangeRate = () => {
     }
 
     return maxCandidates.length ? Math.max(...maxCandidates) : undefined;
-  }, [fiatRateSeriesCache, normalizedCoin, selectedFiatCodeUpper]);
+  }, [
+    allPointsForAllIntervalsHigh,
+    oneDayPointsForAllIntervalsHigh,
+    oneMonthPointsForAllIntervalsHigh,
+    oneWeekPointsForAllIntervalsHigh,
+  ]);
 
   const formattedAllIntervalsHighPrice = useMemo(() => {
     if (allIntervalsHighValue == null) {
