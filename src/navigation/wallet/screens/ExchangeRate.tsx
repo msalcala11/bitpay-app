@@ -371,6 +371,9 @@ const isSortedByTsAsc = (points: Array<{ts: number}>): boolean => {
   return true;
 };
 
+const ensurePointsSortedByTsAsc = <T extends {ts: number}>(points: T[]): T[] =>
+  isSortedByTsAsc(points) ? points : [...points].sort((a, b) => a.ts - b.ts);
+
 const getFormattedData = (
   historicFiatRates: Array<{ts: number; rate: number}>,
 ): ChartDataType => {
@@ -1065,8 +1068,9 @@ const ExchangeRate = () => {
             ? HISTORIC_TIMEFRAME_WINDOW_MS['1Y']
             : HISTORIC_TIMEFRAME_WINDOW_MS['5Y'];
         const cutoffTs = now - windowMs;
-        const startIdx = lowerBoundByTs(seriesPoints, cutoffTs);
-        return seriesPoints.slice(startIdx);
+        const pointsSortedByTs = ensurePointsSortedByTsAsc(seriesPoints);
+        const startIdx = lowerBoundByTs(pointsSortedByTs, cutoffTs);
+        return pointsSortedByTs.slice(startIdx);
       }
       return seriesPoints;
     })();
@@ -1347,6 +1351,7 @@ const ExchangeRate = () => {
     const allPoints = getPointsForInterval('ALL');
     if (allPoints?.length) {
       const now = Date.now();
+      const allPointsSortedByTs = ensurePointsSortedByTsAsc(allPoints);
       const derivedWindows: Array<{windowMs: number}> = [
         {windowMs: HISTORIC_TIMEFRAME_WINDOW_MS['3M']},
         {windowMs: HISTORIC_TIMEFRAME_WINDOW_MS['1Y']},
@@ -1355,8 +1360,8 @@ const ExchangeRate = () => {
 
       for (const {windowMs} of derivedWindows) {
         const cutoffTs = now - windowMs;
-        const startIdx = lowerBoundByTs(allPoints, cutoffTs);
-        const high = getMaxRate(allPoints.slice(startIdx));
+        const startIdx = lowerBoundByTs(allPointsSortedByTs, cutoffTs);
+        const high = getMaxRate(allPointsSortedByTs.slice(startIdx));
         if (high != null) {
           maxCandidates.push(high);
         }
