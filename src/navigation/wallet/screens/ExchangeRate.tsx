@@ -259,6 +259,25 @@ const HISTORIC_TIMEFRAME_WINDOW_MS: Record<'3M' | '1Y' | '5Y', number> = {
   '5Y': DateRanges.FiveYears * MS_PER_DAY,
 };
 
+const lowerBoundByTs = (
+  points: FiatRatePoint[],
+  cutoffTs: number,
+): number => {
+  let left = 0;
+  let right = points.length;
+
+  while (left < right) {
+    const mid = left + Math.floor((right - left) / 2);
+    if (points[mid].ts < cutoffTs) {
+      left = mid + 1;
+    } else {
+      right = mid;
+    }
+  }
+
+  return left;
+};
+
 const formatTinyDecimal = (value: number, decimals: number) => {
   const fixed = value.toFixed(decimals);
   return fixed.replace(/\.0+$/, '').replace(/(\.[0-9]*?)0+$/, '$1');
@@ -1032,8 +1051,9 @@ const ExchangeRate = () => {
             : selectedTimeframe === '1Y'
             ? HISTORIC_TIMEFRAME_WINDOW_MS['1Y']
             : HISTORIC_TIMEFRAME_WINDOW_MS['5Y'];
-        const cutoff = now - windowMs;
-        return selectedSeries.points.filter((p: FiatRatePoint) => p.ts >= cutoff);
+        const cutoffTs = now - windowMs;
+        const startIdx = lowerBoundByTs(selectedSeries.points, cutoffTs);
+        return selectedSeries.points.slice(startIdx);
       }
       return selectedSeries.points;
     })();
@@ -1314,9 +1334,9 @@ const ExchangeRate = () => {
       ];
 
       for (const {windowMs} of derivedWindows) {
-        const cutoff = now - windowMs;
-        const windowPoints = allPoints.filter(p => p.ts >= cutoff);
-        const high = getMaxRate(windowPoints);
+        const cutoffTs = now - windowMs;
+        const startIdx = lowerBoundByTs(allPoints, cutoffTs);
+        const high = getMaxRate(allPoints.slice(startIdx));
         if (high != null) {
           maxCandidates.push(high);
         }
