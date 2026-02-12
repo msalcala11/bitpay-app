@@ -48,6 +48,7 @@ import {
   getSnapshotAtomicBalanceFromCryptoBalance,
   getWalletLiveAtomicBalance,
 } from '../../utils/portfolio/assets';
+import {logManager} from '../../managers/LogManager';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const NINETY_DAYS_MS = 90 * MS_PER_DAY;
@@ -219,6 +220,25 @@ const sortWalletsByAssetAndBalanceDesc = (wallets: Wallet[]): Wallet[] => {
 
     return String(a?.id || '').localeCompare(String(b?.id || ''));
   });
+};
+
+const getNormalizedFiatRateSeriesCoinsForWallets = (
+  wallets: Wallet[],
+  options?: {includeBtc?: boolean},
+): string[] => {
+  const out = new Set<string>();
+  if (options?.includeBtc !== false) {
+    out.add('btc');
+  }
+
+  for (const wallet of wallets) {
+    const coin = normalizeFiatRateSeriesCoin(wallet?.currencyAbbreviation);
+    if (coin) {
+      out.add(coin);
+    }
+  }
+
+  return Array.from(out);
 };
 
 const buildSnapshotMismatchUpdate = (args: {
@@ -488,6 +508,7 @@ const ensureFiatRateSeriesInterval = async (args: {
       fiatCode,
       interval,
       coinForCacheCheck,
+      coins: [coinForCacheCheck],
     }),
   );
 };
@@ -501,10 +522,14 @@ const ensureFiatRateSeriesIntervalOnce = async (args: {
 }) => {
   const {dispatch, loadedIntervals, fiatCode, currencyAbbreviation, interval} =
     args;
-  if (loadedIntervals.has(interval)) {
+  const normalizedCoin = normalizeFiatRateSeriesCoin(currencyAbbreviation);
+  const loadedKey = `${(fiatCode || '').toUpperCase()}:${interval}:${
+    normalizedCoin || ''
+  }`;
+  if (loadedIntervals.has(loadedKey)) {
     return;
   }
-  loadedIntervals.add(interval);
+  loadedIntervals.add(loadedKey);
   await ensureFiatRateSeriesInterval({
     dispatch,
     fiatCode,
@@ -609,6 +634,29 @@ export const populatePortfolio =
     }
 
     const targetQuoteCurrency = (quoteCurrency || '').toUpperCase();
+    const preflightCoins = getNormalizedFiatRateSeriesCoinsForWallets(
+      walletsToPopulate,
+      {
+        includeBtc: true,
+      },
+    );
+    if (preflightCoins.length) {
+      try {
+        await dispatch(
+          fetchFiatRateSeriesInterval({
+            fiatCode: targetQuoteCurrency,
+            interval: 'ALL',
+            coinForCacheCheck: preflightCoins[0],
+            coins: preflightCoins,
+          }) as any,
+        );
+      } catch {
+        logManager.warn(
+          `populatePortfolio: preflight fiat series fetch failed (${targetQuoteCurrency})`,
+        );
+      }
+    }
+
     const preflightLoadedIntervals = new Set<string>();
     const hasHistoricalRateSupportByQuoteCoin = new Map<string, boolean>();
     const loadedBridgeBtcQuoteCurrencies = new Set<string>();
@@ -819,7 +867,7 @@ export const populatePortfolio =
             fetchFiatRateSeriesAllIntervals({
               fiatCode: walletSnapshotQuoteCurrency,
               currencyAbbreviation: 'btc',
-              allowedCoins: ['btc'],
+              coins: ['btc'],
             }) as any,
           );
           dispatch(
@@ -1248,7 +1296,7 @@ export const preparePortfolioFiatRateCachesForQuoteCurrencySwitch =
 
     // Determine which quote currencies are currently used by stored snapshots.
     // We'll keep ONLY BTC series for those currencies (bridge layer), and fetch
-    // a full v4 cache for the active display currency.
+    // v4 series for the active display currency across all portfolio-held coins.
     const sourceQuoteCurrencies = new Set<string>();
     for (const wallet of wallets) {
       const snapshots = snapshotsByWalletId[wallet.id];
@@ -1260,11 +1308,16 @@ export const preparePortfolioFiatRateCachesForQuoteCurrencySwitch =
       sourceQuoteCurrencies.add(quote);
     }
 
+    const targetCoins = getNormalizedFiatRateSeriesCoinsForWallets(wallets, {
+      includeBtc: true,
+    });
+
     // 1) Fetch + cache v4 series for the newly-selected (display) quote currency.
     await dispatch(
       fetchFiatRateSeriesAllIntervals({
         fiatCode: targetQuoteCurrency,
-        currencyAbbreviation: 'btc',
+        currencyAbbreviation: targetCoins[0] || 'btc',
+        coins: targetCoins,
         force: true,
       }) as any,
     );
@@ -1276,7 +1329,7 @@ export const preparePortfolioFiatRateCachesForQuoteCurrencySwitch =
         fetchFiatRateSeriesAllIntervals({
           fiatCode: sourceQuoteCurrency,
           currencyAbbreviation: 'btc',
-          allowedCoins: ['btc'],
+          coins: ['btc'],
         }) as any,
       );
 
