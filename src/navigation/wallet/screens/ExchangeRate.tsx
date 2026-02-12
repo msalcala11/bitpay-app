@@ -362,6 +362,37 @@ const getMaxRate = (points?: FiatRatePoint[]): number | undefined => {
   return hasFiniteRate ? maxRate : undefined;
 };
 
+const getMaxRateFromIndex = (
+  points: FiatRatePoint[],
+  startIdx: number,
+): number | undefined => {
+  if (!points.length) {
+    return undefined;
+  }
+
+  const normalizedStartIdx = Math.max(0, startIdx);
+  if (normalizedStartIdx >= points.length) {
+    return undefined;
+  }
+
+  let maxRate = Number.NEGATIVE_INFINITY;
+  let hasFiniteRate = false;
+
+  for (let index = normalizedStartIdx; index < points.length; index++) {
+    const rate = points[index].rate;
+    if (!Number.isFinite(rate)) {
+      continue;
+    }
+
+    if (!hasFiniteRate || rate > maxRate) {
+      maxRate = rate;
+      hasFiniteRate = true;
+    }
+  }
+
+  return hasFiniteRate ? maxRate : undefined;
+};
+
 const isSortedByTsAsc = (points: Array<{ts: number}>): boolean => {
   for (let index = 1; index < points.length; index++) {
     if (points[index - 1].ts > points[index].ts) {
@@ -1361,7 +1392,7 @@ const ExchangeRate = () => {
       for (const {windowMs} of derivedWindows) {
         const cutoffTs = now - windowMs;
         const startIdx = lowerBoundByTs(allPointsSortedByTs, cutoffTs);
-        const high = getMaxRate(allPointsSortedByTs.slice(startIdx));
+        const high = getMaxRateFromIndex(allPointsSortedByTs, startIdx);
         if (high != null) {
           maxCandidates.push(high);
         }
