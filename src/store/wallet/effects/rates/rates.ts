@@ -19,6 +19,7 @@ import {
 import {DEFAULT_DATE_RANGE} from '../../../../constants/rate';
 import {
   failedGetRates,
+  pruneFiatRateSeriesCache,
   successGetRates,
   upsertFiatRateSeriesCache,
   updateCacheKey,
@@ -63,30 +64,13 @@ const FIAT_RATE_SERIES_INTERVAL_DAYS: Record<
 const getFiatRateSeriesUrl = (
   fiatCode: string,
   interval: FiatRateInterval,
-  coin?: string,
 ): string => {
   const days = FIAT_RATE_SERIES_INTERVAL_DAYS[interval];
   const codeUpper = (fiatCode || 'USD').toUpperCase();
-  const queryParams = [
-    days ? `days=${days}` : undefined,
-    coin ? `coin=${encodeURIComponent((coin || '').toLowerCase())}` : undefined,
-  ].filter(Boolean);
-  const query = queryParams.length ? `?${queryParams.join('&')}` : '';
-  return `${FIAT_RATE_SERIES_BASE_URL}/${codeUpper}${query}`;
-};
-
-const normalizeUniqueFiatRateSeriesCoins = (
-  coins: Array<string | undefined>,
-): string[] => {
-  const out = new Set<string>();
-  for (const raw of coins) {
-    const normalized = normalizeFiatRateSeriesCoin(raw);
-    if (!normalized) {
-      continue;
-    }
-    out.add(normalized);
+  if (!days) {
+    return `${FIAT_RATE_SERIES_BASE_URL}/${codeUpper}`;
   }
-  return Array.from(out);
+  return `${FIAT_RATE_SERIES_BASE_URL}/${codeUpper}?days=${days}`;
 };
 
 const getFiatRateSeriesCadenceMs = (
@@ -413,57 +397,73 @@ export const fetchFiatRateSeriesInterval =
     interval: FiatRateInterval;
     coinForCacheCheck: string;
     force?: boolean;
-    coins?: string[];
+    allowedCoins?: string[];
   }): Effect<Promise<void>> =>
   async (dispatch, getState) => {
-    const {fiatCode, interval, coinForCacheCheck, force, coins} = args;
+    const {fiatCode, interval, coinForCacheCheck, force, allowedCoins} = args;
     const {
       RATE: {fiatRateSeriesCache},
     } = getState();
 
-    const requestedCoins = normalizeUniqueFiatRateSeriesCoins([
+    const cacheKey = getFiatRateSeriesCacheKey(
+      fiatCode,
       coinForCacheCheck,
-      ...(coins || []),
-    ]);
-    if (!requestedCoins.length) {
+      interval,
+    );
+    const cached = fiatRateSeriesCache[cacheKey];
+
+    if (
+      !force &&
+      cached?.points?.length &&
+      !isCacheKeyStale(cached.fetchedOn, HISTORIC_RATES_CACHE_DURATION)
+    ) {
       return;
     }
 
-    const staleOrMissingCoins = force
-      ? requestedCoins
-      : requestedCoins.filter(coin => {
-          const cacheKey = getFiatRateSeriesCacheKey(fiatCode, coin, interval);
-          const cached = fiatRateSeriesCache[cacheKey];
-          return !(
-            cached?.points?.length &&
-            !isCacheKeyStale(cached.fetchedOn, HISTORIC_RATES_CACHE_DURATION)
-          );
-        });
-
-    if (!staleOrMissingCoins.length) {
-      return;
-    }
-
-    const requestedCoinSet = new Set(requestedCoins);
+    const url = getFiatRateSeriesUrl(fiatCode, interval);
+    const {data} = await axios.get(url);
     const fetchedOn = Date.now();
+
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return;
+    }
+
+    const allowedCoinsSet =
+      Array.isArray(allowedCoins) && allowedCoins.length
+        ? new Set(
+            allowedCoins.map(c => (c || '').toLowerCase()).filter(Boolean),
+          )
+        : null;
+    const keepCoins = Object.keys(data as Record<string, unknown>)
+      .map(coin => (coin || '').toLowerCase())
+      .filter(
+        coin => !!coin && (!allowedCoinsSet || allowedCoinsSet.has(coin)),
+      );
+
+    if (keepCoins.length) {
+      dispatch(
+        pruneFiatRateSeriesCache({
+          fiatCode,
+          keepCoins,
+        }),
+      );
+    }
+
     const updates: FiatRateSeriesCache = {};
-    let firstRequestError: unknown;
-
-    const upsertCoinSeriesPoints = (coin: string, rawPoints: unknown) => {
-      if (!requestedCoinSet.has(coin)) {
+    Object.keys(data as Record<string, unknown>).forEach(coin => {
+      if (allowedCoinsSet && !allowedCoinsSet.has((coin || '').toLowerCase())) {
         return;
       }
 
-      const pointsArray = Array.isArray(rawPoints)
-        ? (rawPoints as FiatRatePoint[])
-        : [];
-      if (!pointsArray.length) {
+      const rawPoints = (data as Record<string, FiatRatePoint[]>)[coin];
+      if (!rawPoints?.length) {
         return;
       }
 
-      const filtered = pointsArray.filter(
+      const filtered = rawPoints.filter(
         p => Number.isFinite(p?.ts) && Number.isFinite(p?.rate),
       );
+
       if (!filtered.length) {
         return;
       }
@@ -471,87 +471,15 @@ export const fetchFiatRateSeriesInterval =
       const points = filtered
         .map(p => ({ts: p.ts, rate: p.rate}))
         .sort((a, b) => a.ts - b.ts);
+      const deduped = dedupeFiatRatePointsByTs(points);
       updates[getFiatRateSeriesCacheKey(fiatCode, coin, interval)] = {
         fetchedOn,
-        points: dedupeFiatRatePointsByTs(points),
+        points: deduped,
       };
-    };
-
-    const upsertSeriesFromPayload = (
-      payload: unknown,
-      fallbackCoin: string,
-    ): void => {
-      if (!payload) {
-        return;
-      }
-
-      // Some APIs may return points directly for coin-scoped requests.
-      if (Array.isArray(payload)) {
-        upsertCoinSeriesPoints(fallbackCoin, payload);
-        return;
-      }
-
-      if (typeof payload !== 'object') {
-        return;
-      }
-
-      for (const [rawCoin, rawPoints] of Object.entries(
-        payload as Record<string, unknown>,
-      )) {
-        const normalizedCoin = normalizeFiatRateSeriesCoin(rawCoin);
-        if (!normalizedCoin) {
-          continue;
-        }
-        upsertCoinSeriesPoints(normalizedCoin, rawPoints);
-      }
-    };
-
-    const MAX_PARALLEL_COIN_REQUESTS = 6;
-    for (
-      let i = 0;
-      i < staleOrMissingCoins.length;
-      i += MAX_PARALLEL_COIN_REQUESTS
-    ) {
-      const coinChunk = staleOrMissingCoins.slice(
-        i,
-        i + MAX_PARALLEL_COIN_REQUESTS,
-      );
-      const chunkResults = await Promise.allSettled(
-        coinChunk.map(async coin => {
-          const url = getFiatRateSeriesUrl(fiatCode, interval, coin);
-          logManager.info(`fetchFiatRateSeriesInterval: get request to: ${url}`);
-          const {data} = await axios.get(url);
-          return {coin, data};
-        }),
-      );
-
-      for (const result of chunkResults) {
-        if (result.status === 'fulfilled') {
-          upsertSeriesFromPayload(result.value.data, result.value.coin);
-          continue;
-        }
-        if (!firstRequestError) {
-          firstRequestError = result.reason;
-        }
-      }
-    }
+    });
 
     if (Object.keys(updates).length) {
-      if (firstRequestError) {
-        const errStr =
-          firstRequestError instanceof Error
-            ? firstRequestError.message
-            : JSON.stringify(firstRequestError);
-        logManager.warn(
-          `fetchFiatRateSeriesInterval: partial fetch failure (${fiatCode}/${interval}) - ${errStr}`,
-        );
-      }
       dispatch(upsertFiatRateSeriesCache({updates}));
-      return;
-    }
-
-    if (firstRequestError) {
-      throw firstRequestError;
     }
   };
 
@@ -560,16 +488,11 @@ export const fetchFiatRateSeriesAllIntervals =
     fiatCode: string;
     currencyAbbreviation: string;
     force?: boolean;
-    coins?: string[];
+    allowedCoins?: string[];
   }): Effect<Promise<void>> =>
   async dispatch => {
-    const {fiatCode, currencyAbbreviation, force, coins} = args;
-    const requestedCoins = normalizeUniqueFiatRateSeriesCoins([
-      currencyAbbreviation,
-      ...(coins || []),
-    ]);
-    const coinForCacheCheck =
-      requestedCoins[0] || normalizeFiatRateSeriesCoin(currencyAbbreviation);
+    const {fiatCode, currencyAbbreviation, force, allowedCoins} = args;
+    const coinForCacheCheck = normalizeFiatRateSeriesCoin(currencyAbbreviation);
     const intervals: FiatRateInterval[] = ['1D', '1W', '1M', 'ALL'];
     await Promise.allSettled(
       intervals.map(interval =>
@@ -579,7 +502,7 @@ export const fetchFiatRateSeriesAllIntervals =
             interval,
             coinForCacheCheck,
             force,
-            coins: requestedCoins,
+            allowedCoins,
           }),
         ),
       ),
