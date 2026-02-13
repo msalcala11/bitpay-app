@@ -6,6 +6,7 @@ import {
   FiatRatePoint,
   FiatRateSeriesCache,
   FiatRateInterval,
+  FIAT_RATE_SERIES_CACHED_INTERVALS,
   HistoricRate,
   Rate,
   Rates,
@@ -752,7 +753,10 @@ export const fetchFiatRateSeriesAllIntervals =
   async (dispatch, getState) => {
     const {fiatCode, currencyAbbreviation, force, allowedCoins} = args;
     const coinForCacheCheck = normalizeFiatRateSeriesCoin(currencyAbbreviation);
-    const intervals: FiatRateInterval[] = ['1D', '1W', '1M', 'ALL'];
+    const intervals: FiatRateInterval[] = [
+      ...FIAT_RATE_SERIES_CACHED_INTERVALS.filter(interval => interval !== 'ALL'),
+      ...FIAT_RATE_SERIES_CACHED_INTERVALS.filter(interval => interval === 'ALL'),
+    ];
 
     // Always keep the default no-coin v4 request behavior. We gate by BTC so
     // one fresh default response can satisfy all per-coin callers.
