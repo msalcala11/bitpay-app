@@ -174,6 +174,33 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
   }, [shouldFetchAllIntervalsForCoin, visibleItems]);
 
   useEffect(() => {
+    const fiatCode = (quoteCurrency || 'USD').toUpperCase();
+    const activeQuoteCoinKeys = new Set(
+      missingHistoricalCoins.map(coin => `${fiatCode}:${coin}`),
+    );
+
+    const nextLastFetchAttemptByQuoteCoin: Record<string, number> = {};
+    for (const quoteCoinKey of Object.keys(
+      lastFetchAttemptByQuoteCoinRef.current,
+    )) {
+      if (activeQuoteCoinKeys.has(quoteCoinKey)) {
+        nextLastFetchAttemptByQuoteCoin[quoteCoinKey] =
+          lastFetchAttemptByQuoteCoinRef.current[quoteCoinKey];
+      }
+    }
+    lastFetchAttemptByQuoteCoinRef.current = nextLastFetchAttemptByQuoteCoin;
+  }, [missingHistoricalCoins, quoteCurrency]);
+
+  useEffect(() => {
+    const inFlightFetchByQuoteCoin = inFlightFetchByQuoteCoinRef.current;
+
+    return () => {
+      inFlightFetchByQuoteCoin.clear();
+      lastFetchAttemptByQuoteCoinRef.current = {};
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isFocused || !missingHistoricalCoins.length) {
       return;
     }
