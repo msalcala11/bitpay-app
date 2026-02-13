@@ -492,6 +492,16 @@ const ensureFiatRateSeriesInterval = async (args: {
   );
 };
 
+const getLoadedFiatRateSeriesIntervalKey = (args: {
+  fiatCode: string;
+  currencyAbbreviation: string;
+  interval: FiatRateInterval;
+}): string => {
+  const fiatCode = (args.fiatCode || '').toUpperCase();
+  const coin = normalizeFiatRateSeriesCoin(args.currencyAbbreviation);
+  return `${fiatCode}:${coin}:${args.interval}`;
+};
+
 const ensureFiatRateSeriesIntervalOnce = async (args: {
   dispatch: any;
   loadedIntervals: Set<string>;
@@ -501,10 +511,15 @@ const ensureFiatRateSeriesIntervalOnce = async (args: {
 }): Promise<boolean> => {
   const {dispatch, loadedIntervals, fiatCode, currencyAbbreviation, interval} =
     args;
-  if (loadedIntervals.has(interval)) {
+  const loadedIntervalKey = getLoadedFiatRateSeriesIntervalKey({
+    fiatCode,
+    currencyAbbreviation,
+    interval,
+  });
+  if (loadedIntervals.has(loadedIntervalKey)) {
     return true;
   }
-  loadedIntervals.add(interval);
+  loadedIntervals.add(loadedIntervalKey);
   return ensureFiatRateSeriesInterval({
     dispatch,
     fiatCode,
