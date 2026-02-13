@@ -719,7 +719,8 @@ export const fetchFiatRateSeriesInterval =
         fiatCode,
         coin: normalizedCoinForCacheCheck,
         interval,
-        requireFresh: false,
+        // Do not let stale cached series block the coin-param refresh fallback.
+        requireFresh: true,
       });
       if (hasTargetCoinSeries) {
         return true;
