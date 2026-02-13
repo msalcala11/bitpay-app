@@ -376,7 +376,7 @@ export const maybePopulatePortfolioForWallets =
         populatePortfolio({
           quoteCurrency,
           walletIds: walletIdsWithCurrentRates,
-        }) as any,
+        }),
       );
     }
   };
@@ -842,7 +842,7 @@ export const populatePortfolio =
               fiatCode: walletSnapshotQuoteCurrency,
               currencyAbbreviation: 'btc',
               allowedCoins: ['btc'],
-            }) as any,
+            }),
           );
         }
 
@@ -1282,7 +1282,7 @@ export const preparePortfolioFiatRateCachesForQuoteCurrencySwitch =
         fiatCode: targetQuoteCurrency,
         currencyAbbreviation: 'btc',
         force: true,
-      }) as any,
+      }),
     );
 
     // 2) Ensure BTC series exist for snapshot quote currencies (bridge/fx layer),
@@ -1293,7 +1293,7 @@ export const preparePortfolioFiatRateCachesForQuoteCurrencySwitch =
           fiatCode: sourceQuoteCurrency,
           currencyAbbreviation: 'btc',
           allowedCoins: ['btc'],
-        }) as any,
+        }),
       );
     }
 

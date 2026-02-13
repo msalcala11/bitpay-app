@@ -1,4 +1,9 @@
-import {RouteProp, useNavigation, useRoute} from '@react-navigation/native';
+import {
+  type NavigationProp,
+  RouteProp,
+  useNavigation,
+  useRoute,
+} from '@react-navigation/native';
 import React, {
   useCallback,
   useEffect,
@@ -644,7 +649,7 @@ const tokenThemeByCoin: {[key in string]: string} = Object.values(
 const ExchangeRate = () => {
   const {t} = useTranslation();
   const theme = useTheme();
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp<any>>();
   const dispatch = useAppDispatch();
   const keys = useAppSelector(({WALLET}: RootState) => WALLET.keys);
   const homeCarouselConfig = useAppSelector(
@@ -1750,7 +1755,7 @@ const ExchangeRate = () => {
                 );
                 dispatch(
                   receiveCrypto(
-                    navigation as any,
+                    navigation,
                     'ExchangeRate',
                     assetContext,
                   ),

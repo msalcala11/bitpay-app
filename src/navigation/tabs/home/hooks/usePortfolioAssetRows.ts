@@ -240,7 +240,7 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
               fetchFiatRateSeriesAllIntervals({
                 fiatCode,
                 currencyAbbreviation: coin,
-              }) as any,
+              }),
             );
           } finally {
             inFlightFetchByQuoteCoinRef.current.delete(quoteCoinKey);
