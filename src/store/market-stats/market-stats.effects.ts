@@ -31,7 +31,8 @@ export const fetchMarketStats =
     const key = getMarketStatsCacheKey({fiatCode, coin});
 
     try {
-      const url = `${BASE_BWS_URL}/v1/marketstats/${fiatCode}?coin=${coin}`;
+      //const url = `${BASE_BWS_URL}/v1/marketstats/${fiatCode}?coin=${coin}`;
+      const url = `http://localhost:3232/bws/api/v1/marketstats/${fiatCode}?coin=${coin}`;
       logManager.info(`fetchMarketStats: get request to: ${url}`);
       const {data} = await axios.get(url);
       const payloadArray = Array.isArray(data) ? data : [];

@@ -176,6 +176,7 @@ export const EXCHANGE_RATES_CURRENCIES = [
   'doge',
   'ltc',
   'pol',
+  'shib'
 ];
 
 // Passkey

@@ -6,7 +6,7 @@ import styled, {useTheme} from 'styled-components/native';
 import type {RootStackParamList} from '../../../../Root';
 import {
   FIAT_RATE_SERIES_CACHED_INTERVALS,
-  FIAT_RATE_SERIES_TARGET_POINTS,
+  type FiatRatePoint,
   getFiatRateSeriesCacheKey,
 } from '../../../../store/rate/rate.models';
 import {TouchableOpacity} from '../../../../components/base/TouchableOpacity';
@@ -167,8 +167,14 @@ const AssetRow: React.FC<Props> = ({
         normalizedCoin,
         interval,
       );
-      const pointsLength = fiatRateSeriesCache?.[cacheKey]?.points?.length || 0;
-      if (pointsLength < FIAT_RATE_SERIES_TARGET_POINTS) {
+      const points = (fiatRateSeriesCache?.[cacheKey]?.points ||
+        []) as FiatRatePoint[];
+      if (!points.length) {
+        return false;
+      }
+      if (
+        !points.every(p => Number.isFinite(p?.ts) && Number.isFinite(p?.rate))
+      ) {
         return false;
       }
     }
