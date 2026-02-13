@@ -37,10 +37,7 @@ import {
   HeaderTitle,
   Link,
 } from '../../../components/styled/Text';
-import {
-  BitpaySupportedCoins,
-  BitpaySupportedTokens,
-} from '../../../constants/currencies';
+import {BitpaySupportedCoins} from '../../../constants/currencies';
 import {SupportedCurrencyOptions} from '../../../constants/SupportedCurrencyOptions';
 import LinkingButtons from '../../tabs/home/components/LinkingButtons';
 import Loader from '../../../components/loader/Loader';
@@ -69,7 +66,6 @@ import {
 } from '../../../store/wallet/utils/wallet';
 import type {RootState} from '../../../store';
 import {
-  addTokenChainSuffix,
   calculatePercentageDifference,
   formatFiatAmount,
   getRateByCurrencyName,
@@ -629,17 +625,6 @@ const ChartSelectionDot = ({
   );
 };
 
-const tokenThemeByCoin: {[key in string]: string} = Object.values(
-  BitpaySupportedTokens,
-).reduce((acc, token) => {
-  const coinKey = (token.coin || '').toLowerCase();
-  const color = token.theme?.coinColor;
-  if (coinKey && color && !acc[coinKey]) {
-    acc[coinKey] = color;
-  }
-  return acc;
-}, {} as {[key in string]: string});
-
 const ExchangeRate = () => {
   const {t} = useTranslation();
   const theme = useTheme();
@@ -699,30 +684,6 @@ const ExchangeRate = () => {
   ).toLowerCase();
   const coin = BitpaySupportedCoins[coinKey] ?? BitpaySupportedCoins.btc;
   const currencyName = params?.currencyName || coin.name || 'Bitcoin';
-  const tokenTheme = useMemo(() => {
-    const tokenAddress = params?.tokenAddress;
-    const chain = (params?.chain || '').toLowerCase();
-    const abbr = (params?.currencyAbbreviation || '').toLowerCase();
-
-    if (tokenAddress && chain) {
-      const tokenKey = addTokenChainSuffix(tokenAddress, chain);
-      const strictTheme = BitpaySupportedTokens[tokenKey]?.theme;
-      if (strictTheme) {
-        return strictTheme;
-      }
-    }
-
-    const colorByAbbr = tokenThemeByCoin[abbr];
-    if (colorByAbbr) {
-      return {
-        coinColor: colorByAbbr,
-        backgroundColor: colorByAbbr,
-        gradientBackgroundColor: colorByAbbr,
-      };
-    }
-
-    return undefined;
-  }, [params?.tokenAddress, params?.chain, params?.currencyAbbreviation]);
 
   const assetContext = useMemo(
     () => ({
@@ -844,6 +805,7 @@ const ExchangeRate = () => {
       fetchFiatRateSeriesAllIntervals({
         fiatCode: selectedFiatCodeUpper,
         currencyAbbreviation: assetContext.currencyAbbreviation,
+        coin: normalizedCoin,
       }),
     ).finally(() => {
       if (allIntervalsFetchRequestIdRef.current !== requestId) {
@@ -894,6 +856,7 @@ const ExchangeRate = () => {
         fiatCode: selectedFiatCodeUpper,
         interval: seriesDataInterval,
         coinForCacheCheck: normalizedCoin,
+        coin: normalizedCoin,
       }),
     );
   }, [
@@ -1585,7 +1548,7 @@ const ExchangeRate = () => {
     assetContext.tokenAddress,
   ]);
 
-  const {coinColor, gradientBackgroundColor} = tokenTheme ?? coin.theme ?? {
+  const {coinColor, gradientBackgroundColor} = coin.theme ?? {
     coinColor: ProgressBlue,
     gradientBackgroundColor: theme.dark ? 'transparent' : White,
   };

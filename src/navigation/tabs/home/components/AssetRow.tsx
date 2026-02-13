@@ -5,8 +5,7 @@ import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 import styled, {useTheme} from 'styled-components/native';
 import type {RootStackParamList} from '../../../../Root';
 import {
-  FIAT_RATE_SERIES_CACHED_INTERVALS,
-  type FiatRatePoint,
+  FiatRateInterval,
   getFiatRateSeriesCacheKey,
 } from '../../../../store/rate/rate.models';
 import {TouchableOpacity} from '../../../../components/base/TouchableOpacity';
@@ -161,20 +160,24 @@ const AssetRow: React.FC<Props> = ({
       return false;
     }
 
-    for (const interval of FIAT_RATE_SERIES_CACHED_INTERVALS) {
+    const requiredIntervals: FiatRateInterval[] = [
+      '1D',
+      '1W',
+      '1M',
+      '3M',
+      '1Y',
+      '5Y',
+      'ALL',
+    ];
+
+    for (const interval of requiredIntervals) {
       const cacheKey = getFiatRateSeriesCacheKey(
         fiatCodeUpper,
         normalizedCoin,
         interval,
       );
-      const points = (fiatRateSeriesCache?.[cacheKey]?.points ||
-        []) as FiatRatePoint[];
-      if (!points.length) {
-        return false;
-      }
-      if (
-        !points.every(p => Number.isFinite(p?.ts) && Number.isFinite(p?.rate))
-      ) {
+      const pointsLength = fiatRateSeriesCache?.[cacheKey]?.points?.length || 0;
+      if (pointsLength <= 0) {
         return false;
       }
     }

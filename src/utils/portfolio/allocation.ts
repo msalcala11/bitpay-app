@@ -3,10 +3,7 @@ import {formatCurrencyAbbreviation, formatFiatAmount} from '../helper-methods';
 import type {Key, Wallet} from '../../store/wallet/wallet.models';
 import type {HomeCarouselConfig} from '../../store/app/app.models';
 import {Slate, SlateDark} from '../../styles/colors';
-import {
-  BitpaySupportedCoins,
-  BitpaySupportedTokens,
-} from '../../constants/currencies';
+import {BitpaySupportedCoins} from '../../constants/currencies';
 import {getVisibleWalletsFromKeys} from './assets';
 
 type AllocationAsset = {
@@ -72,17 +69,6 @@ export type AllocationRowItem = {
   progress: number;
 };
 
-const tokenThemeByCoin: {[key in string]: string} = Object.values(
-  BitpaySupportedTokens,
-).reduce((acc, token) => {
-  const coinKey = (token.coin || '').toLowerCase();
-  const color = token.theme?.coinColor;
-  if (coinKey && color && !acc[coinKey]) {
-    acc[coinKey] = color;
-  }
-  return acc;
-}, {} as {[key in string]: string});
-
 const getAssetColor = (
   currencyAbbreviation: string,
   chain?: string,
@@ -92,8 +78,11 @@ const getAssetColor = (
 
   const themeColor =
     BitpaySupportedCoins[coinKey]?.theme?.coinColor ||
-    BitpaySupportedCoins[chainKey]?.theme?.coinColor ||
-    tokenThemeByCoin[coinKey];
+    BitpaySupportedCoins[chainKey]?.theme?.coinColor;
+
+  if (coinKey === 'usdc') {
+    return {light: '#0074D1', dark: '#0074D1'};
+  }
 
   return themeColor
     ? {light: themeColor, dark: themeColor}

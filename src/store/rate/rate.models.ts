@@ -32,7 +32,7 @@ export const FIAT_RATE_SERIES_CACHED_INTERVALS: Array<CachedFiatRateInterval> =
   ['ALL', '1D', '1W', '1M'];
 
 // Shared chart density + minimum historical coverage threshold.
-export const FIAT_RATE_SERIES_TARGET_POINTS = 89;
+export const FIAT_RATE_SERIES_TARGET_POINTS = 90;
 
 export type FiatRatePoint = {
   ts: number;
