@@ -1,4 +1,5 @@
 import type {
+  CachedFiatRateInterval,
   FiatRateInterval,
   FiatRatePoint,
   FiatRateSeriesCache,
@@ -201,7 +202,7 @@ export const getFiatRateBaselineTsForTimeframe = (args: {
 
 export const getFiatRateSeriesIntervalForTimeframe = (
   timeframe: FiatRateInterval,
-): FiatRateInterval => {
+): CachedFiatRateInterval => {
   switch (timeframe) {
     case '3M':
     case '1Y':

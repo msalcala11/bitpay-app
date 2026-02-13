@@ -835,18 +835,14 @@ export const populatePortfolio =
           !loadedBridgeBtcQuoteCurrencies.has(walletSnapshotQuoteCurrency)
         ) {
           loadedBridgeBtcQuoteCurrencies.add(walletSnapshotQuoteCurrency);
+          // Keep pruning centralized in rate fetch effects when `allowedCoins`
+          // is provided to avoid duplicate prune actions here.
           await dispatch(
             fetchFiatRateSeriesAllIntervals({
               fiatCode: walletSnapshotQuoteCurrency,
               currencyAbbreviation: 'btc',
               allowedCoins: ['btc'],
             }) as any,
-          );
-          dispatch(
-            pruneFiatRateSeriesCache({
-              fiatCode: walletSnapshotQuoteCurrency,
-              keepCoins: ['btc'],
-            }),
           );
         }
 
@@ -1290,7 +1286,7 @@ export const preparePortfolioFiatRateCachesForQuoteCurrencySwitch =
     );
 
     // 2) Ensure BTC series exist for snapshot quote currencies (bridge/fx layer),
-    //    and prune away all other coins in those caches to save space.
+    //    and let fetch effects handle allowed-coins pruning to reduce churn.
     for (const sourceQuoteCurrency of sourceQuoteCurrencies) {
       await dispatch(
         fetchFiatRateSeriesAllIntervals({
@@ -1298,13 +1294,6 @@ export const preparePortfolioFiatRateCachesForQuoteCurrencySwitch =
           currencyAbbreviation: 'btc',
           allowedCoins: ['btc'],
         }) as any,
-      );
-
-      dispatch(
-        pruneFiatRateSeriesCache({
-          fiatCode: sourceQuoteCurrency,
-          keepCoins: ['btc'],
-        }),
       );
     }
 

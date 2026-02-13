@@ -81,6 +81,7 @@ import {
 } from '../../../utils/portfolio/assets';
 import {
   getFiatRateChangeForTimeframe,
+  getFiatRateSeriesIntervalForTimeframe,
 } from '../../../utils/portfolio/rate';
 import {
   ensureSortedByTsAsc,
@@ -785,16 +786,10 @@ const ExchangeRate = () => {
     };
   }, []);
 
-  const seriesDataInterval = useMemo<CachedFiatRateInterval>(() => {
-    switch (selectedTimeframe) {
-      case '3M':
-      case '1Y':
-      case '5Y':
-        return 'ALL';
-      default:
-        return selectedTimeframe;
-    }
-  }, [selectedTimeframe]);
+  const seriesDataInterval = useMemo<CachedFiatRateInterval>(
+    () => getFiatRateSeriesIntervalForTimeframe(selectedTimeframe),
+    [selectedTimeframe],
+  );
 
   const selectedSeriesKey = useMemo(() => {
     return getFiatRateSeriesCacheKey(
@@ -868,12 +863,7 @@ const ExchangeRate = () => {
       return;
     }
 
-    const isIntervalCoveredByAllIntervals =
-      FIAT_RATE_SERIES_CACHED_INTERVALS.includes(seriesDataInterval);
-    if (
-      isIntervalCoveredByAllIntervals &&
-      allIntervalsFetchInFlightRef.current
-    ) {
+    if (allIntervalsFetchInFlightRef.current) {
       return;
     }
 
