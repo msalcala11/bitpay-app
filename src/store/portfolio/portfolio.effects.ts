@@ -475,110 +475,41 @@ const getCurrentFiatRateNow = (
   return typeof rate === 'number' && Number.isFinite(rate) ? rate : 0;
 };
 
-const REQUIRED_FIAT_RATE_SERIES_INTERVALS: FiatRateInterval[] = [
-  '1D',
-  '1W',
-  '1M',
-  '3M',
-  '1Y',
-  '5Y',
-  'ALL',
-];
-
-const ensureDefaultFiatRateSeriesIntervalOnce = async (args: {
+const ensureFiatRateSeriesInterval = async (args: {
   dispatch: any;
-  loadedKeys: Set<string>;
-  fiatCode: string;
-  interval: FiatRateInterval;
-  force?: boolean;
-}) => {
-  const fiatCodeUpper = (args.fiatCode || '').toUpperCase();
-  const key = `default:${fiatCodeUpper}:${args.interval}`;
-  if (args.loadedKeys.has(key)) {
-    return;
-  }
-  args.loadedKeys.add(key);
-  await args.dispatch(
-    fetchFiatRateSeriesInterval({
-      fiatCode: fiatCodeUpper,
-      interval: args.interval,
-      // BTC is always in the default multi-coin response and works as a
-      // freshness sentinel.
-      coinForCacheCheck: 'btc',
-      force: args.force,
-    }) as any,
-  );
-};
-
-const ensureCoinSpecificFiatRateSeriesIntervalOnce = async (args: {
-  dispatch: any;
-  loadedKeys: Set<string>;
-  fiatCode: string;
-  coin: string;
-  interval: FiatRateInterval;
-  force?: boolean;
-}) => {
-  const fiatCodeUpper = (args.fiatCode || '').toUpperCase();
-  const coinLower = (args.coin || '').toLowerCase();
-  const key = `coin:${fiatCodeUpper}:${coinLower}:${args.interval}`;
-  if (args.loadedKeys.has(key)) {
-    return;
-  }
-  args.loadedKeys.add(key);
-  await args.dispatch(
-    fetchFiatRateSeriesInterval({
-      fiatCode: fiatCodeUpper,
-      interval: args.interval,
-      coinForCacheCheck: coinLower,
-      coin: coinLower,
-      force: args.force,
-    }) as any,
-  );
-};
-
-const ensureFiatRateSeriesIntervalForCoinOnce = async (args: {
-  dispatch: any;
-  getState: () => RootState;
-  loadedKeys: Set<string>;
   fiatCode: string;
   currencyAbbreviation: string;
   interval: FiatRateInterval;
-  force?: boolean;
 }) => {
-  const fiatCodeUpper = (args.fiatCode || '').toUpperCase();
-  const coinLower = normalizeFiatRateSeriesCoin(args.currencyAbbreviation);
-  if (!fiatCodeUpper || !coinLower) {
+  const {dispatch, fiatCode, currencyAbbreviation, interval} = args;
+  const coinForCacheCheck = normalizeFiatRateSeriesCoin(currencyAbbreviation);
+  await dispatch(
+    fetchFiatRateSeriesInterval({
+      fiatCode,
+      interval,
+      coinForCacheCheck,
+    }),
+  );
+};
+
+const ensureFiatRateSeriesIntervalOnce = async (args: {
+  dispatch: any;
+  loadedIntervals: Set<string>;
+  fiatCode: string;
+  currencyAbbreviation: string;
+  interval: FiatRateInterval;
+}) => {
+  const {dispatch, loadedIntervals, fiatCode, currencyAbbreviation, interval} =
+    args;
+  if (loadedIntervals.has(interval)) {
     return;
   }
-
-  // 1) Ensure default (multi-coin) response is fetched once per interval.
-  await ensureDefaultFiatRateSeriesIntervalOnce({
-    dispatch: args.dispatch,
-    loadedKeys: args.loadedKeys,
-    fiatCode: fiatCodeUpper,
-    interval: args.interval,
-    force: args.force,
-  });
-
-  // 2) If the default response didn't include this coin, fill via coin-specific request.
-  if (
-    hasFiatRateSeriesPointsInCache({
-      getState: args.getState,
-      fiatCode: fiatCodeUpper,
-      currencyAbbreviation: coinLower,
-      interval: args.interval,
-    })
-  ) {
-    return;
-  }
-
-  await ensureCoinSpecificFiatRateSeriesIntervalOnce({
-    dispatch: args.dispatch,
-    loadedKeys: args.loadedKeys,
-    fiatCode: fiatCodeUpper,
-    coin: coinLower,
-    interval: args.interval,
-    force: args.force,
+  loadedIntervals.add(interval);
+  await ensureFiatRateSeriesInterval({
+    dispatch,
+    fiatCode,
+    currencyAbbreviation,
+    interval,
   });
 };
 
@@ -598,63 +529,39 @@ const hasFiatRateSeriesPointsInCache = (args: {
 const ensureWalletHasHistoricalFiatRates = async (args: {
   dispatch: any;
   getState: () => RootState;
-  loadedKeys: Set<string>;
+  loadedIntervals: Set<string>;
   fiatCode: string;
   currencyAbbreviation: string;
 }): Promise<boolean> => {
-  const fiatCodeUpper = (args.fiatCode || '').toUpperCase();
-  const coinLower = normalizeFiatRateSeriesCoin(args.currencyAbbreviation);
-
-  if (!fiatCodeUpper || !coinLower) {
-    return false;
-  }
-
-  const hasAll = REQUIRED_FIAT_RATE_SERIES_INTERVALS.every(interval =>
+  if (
     hasFiatRateSeriesPointsInCache({
       getState: args.getState,
-      fiatCode: fiatCodeUpper,
-      currencyAbbreviation: coinLower,
-      interval,
-    }),
-  );
-  if (hasAll) {
+      fiatCode: args.fiatCode,
+      currencyAbbreviation: args.currencyAbbreviation,
+      interval: 'ALL',
+    })
+  ) {
     return true;
   }
 
   try {
-    for (const interval of REQUIRED_FIAT_RATE_SERIES_INTERVALS) {
-      if (
-        hasFiatRateSeriesPointsInCache({
-          getState: args.getState,
-          fiatCode: fiatCodeUpper,
-          currencyAbbreviation: coinLower,
-          interval,
-        })
-      ) {
-        continue;
-      }
-
-      await ensureFiatRateSeriesIntervalForCoinOnce({
-        dispatch: args.dispatch,
-        getState: args.getState,
-        loadedKeys: args.loadedKeys,
-        fiatCode: fiatCodeUpper,
-        currencyAbbreviation: coinLower,
-        interval,
-      });
-    }
+    await ensureFiatRateSeriesIntervalOnce({
+      dispatch: args.dispatch,
+      loadedIntervals: args.loadedIntervals,
+      fiatCode: args.fiatCode,
+      currencyAbbreviation: args.currencyAbbreviation,
+      interval: 'ALL',
+    });
   } catch {
     return false;
   }
 
-  return REQUIRED_FIAT_RATE_SERIES_INTERVALS.every(interval =>
-    hasFiatRateSeriesPointsInCache({
-      getState: args.getState,
-      fiatCode: fiatCodeUpper,
-      currencyAbbreviation: coinLower,
-      interval,
-    }),
-  );
+  return hasFiatRateSeriesPointsInCache({
+    getState: args.getState,
+    fiatCode: args.fiatCode,
+    currencyAbbreviation: args.currencyAbbreviation,
+    interval: 'ALL',
+  });
 };
 
 export const populatePortfolio =
@@ -732,7 +639,7 @@ export const populatePortfolio =
           : await ensureWalletHasHistoricalFiatRates({
               dispatch,
               getState,
-              loadedKeys: preflightLoadedIntervals,
+              loadedIntervals: preflightLoadedIntervals,
               fiatCode: targetQuoteCurrency,
               currencyAbbreviation: wallet.currencyAbbreviation,
             });
@@ -865,7 +772,7 @@ export const populatePortfolio =
           return;
         }
 
-        const loadedKeys = new Set<string>();
+        const loadedIntervals = new Set<string>();
         const normalizedRateCoin = normalizeFiatRateSeriesCoin(
           wallet.currencyAbbreviation,
         );
@@ -878,7 +785,7 @@ export const populatePortfolio =
             : await ensureWalletHasHistoricalFiatRates({
                 dispatch,
                 getState,
-                loadedKeys,
+                loadedIntervals,
                 fiatCode: targetQuoteCurrency,
                 currencyAbbreviation: wallet.currencyAbbreviation,
               });
@@ -1112,10 +1019,9 @@ export const populatePortfolio =
           );
         }
         for (const interval of neededIntervals) {
-          await ensureFiatRateSeriesIntervalForCoinOnce({
+          await ensureFiatRateSeriesIntervalOnce({
             dispatch,
-            getState,
-            loadedKeys,
+            loadedIntervals,
             fiatCode: quoteCurrency,
             currencyAbbreviation: wallet.currencyAbbreviation,
             interval,

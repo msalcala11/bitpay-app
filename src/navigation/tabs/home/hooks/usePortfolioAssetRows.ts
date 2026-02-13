@@ -1,6 +1,16 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {HISTORIC_RATES_CACHE_DURATION} from '../../../../constants/wallet';
 import type {PortfolioState} from '../../../../store/portfolio/portfolio.models';
-import type {Rates} from '../../../../store/rate/rate.models';
+import type {
+  CachedFiatRateInterval,
+  FiatRatePoint,
+  Rates,
+} from '../../../../store/rate/rate.models';
+import {
+  FIAT_RATE_SERIES_CACHED_INTERVALS,
+  getFiatRateSeriesCacheKey,
+} from '../../../../store/rate/rate.models';
+import {fetchFiatRateSeriesAllIntervals} from '../../../../store/wallet/effects';
 import type {Key} from '../../../../store/wallet/wallet.models';
 import {
   type AssetRowItem,
@@ -13,8 +23,8 @@ import {
   getVisibleWalletsFromKeys,
   isFiatLoadingForWallets,
 } from '../../../../utils/portfolio/assets';
+import {normalizeFiatRateSeriesCoin} from '../../../../utils/portfolio/core/pnl/rates';
 import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
-import {ensureFiatRateSeriesForCoins} from '../../../../store/wallet/effects';
 
 type Args = {
   gainLossMode: GainLossMode;
@@ -98,32 +108,11 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
     return getDisplayAssetRowItems(items);
   }, [items]);
 
-  const coinsForV4Rates = useMemo(() => {
-    return Array.from(
-      new Set(
-        (visibleItems || [])
-          .map(i => (i?.currencyAbbreviation || '').toLowerCase())
-          .filter(Boolean),
-      ),
-    );
-  }, [visibleItems]);
-
-  useEffect(() => {
-    if (!quoteCurrency || !coinsForV4Rates.length) {
-      return;
-    }
-
-    dispatch(
-      ensureFiatRateSeriesForCoins({
-        fiatCode: quoteCurrency,
-        currencyAbbreviations: coinsForV4Rates,
-      }) as any,
-    );
-  }, [coinsForV4Rates, dispatch, quoteCurrency]);
-
   const [isPopulateLoadingByKey, setIsPopulateLoadingByKey] = useState<
     Record<string, boolean> | undefined
   >(undefined);
+  const lastFetchAttemptByQuoteCoinRef = useRef<Record<string, number>>({});
+  const inFlightFetchByQuoteCoinRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (isPopulateInProgress) {
@@ -151,6 +140,114 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
     visibleItems,
     walletIdsByAssetKey,
   ]);
+
+  const shouldFetchAllIntervalsForCoin = useCallback(
+    (
+      coin: string,
+      intervals: ReadonlyArray<CachedFiatRateInterval>,
+    ): boolean => {
+      const fiatCode = (quoteCurrency || 'USD').toUpperCase();
+      for (const interval of intervals) {
+        const cacheKey = getFiatRateSeriesCacheKey(fiatCode, coin, interval);
+        const cached = fiatRateSeriesCache?.[cacheKey];
+        const points = (cached?.points || []) as FiatRatePoint[];
+        if (!points.length) {
+          return true;
+        }
+        if (
+          !points.every(
+            p => Number.isFinite(p?.ts) && Number.isFinite(p?.rate),
+          )
+        ) {
+          return true;
+        }
+      }
+      return false;
+    },
+    [fiatRateSeriesCache, quoteCurrency],
+  );
+
+  const missingHistoricalCoins = useMemo(() => {
+    const coins = new Set<string>();
+    const cachedIntervals =
+      FIAT_RATE_SERIES_CACHED_INTERVALS as ReadonlyArray<CachedFiatRateInterval>;
+    for (const item of visibleItems) {
+      const coin = normalizeFiatRateSeriesCoin(item.currencyAbbreviation);
+      if (!coin) {
+        continue;
+      }
+      if (shouldFetchAllIntervalsForCoin(coin, cachedIntervals)) {
+        coins.add(coin);
+      }
+    }
+    return Array.from(coins).sort((a, b) => a.localeCompare(b));
+  }, [shouldFetchAllIntervalsForCoin, visibleItems]);
+
+  useEffect(() => {
+    if (!missingHistoricalCoins.length) {
+      return;
+    }
+
+    let cancelled = false;
+    let sweepInFlight = false;
+    const minRetryMs = HISTORIC_RATES_CACHE_DURATION * 1000;
+    const fiatCode = (quoteCurrency || 'USD').toUpperCase();
+
+    const runSweep = async () => {
+      if (cancelled || sweepInFlight) {
+        return;
+      }
+
+      sweepInFlight = true;
+      try {
+        for (const coin of missingHistoricalCoins) {
+          if (cancelled) {
+            return;
+          }
+
+          const quoteCoinKey = `${fiatCode}:${coin}`;
+          if (inFlightFetchByQuoteCoinRef.current.has(quoteCoinKey)) {
+            continue;
+          }
+
+          const lastAttempt =
+            lastFetchAttemptByQuoteCoinRef.current[quoteCoinKey] || 0;
+          if (Date.now() - lastAttempt < minRetryMs) {
+            continue;
+          }
+
+          inFlightFetchByQuoteCoinRef.current.add(quoteCoinKey);
+          lastFetchAttemptByQuoteCoinRef.current[quoteCoinKey] = Date.now();
+          try {
+            await dispatch(
+              fetchFiatRateSeriesAllIntervals({
+                fiatCode,
+                currencyAbbreviation: coin,
+              }) as any,
+            );
+          } finally {
+            inFlightFetchByQuoteCoinRef.current.delete(quoteCoinKey);
+          }
+        }
+      } finally {
+        sweepInFlight = false;
+      }
+    };
+
+    runSweep().catch(() => {
+      // Keep the sweep best-effort; failures are retried on next cycle.
+    });
+    const pollInterval = setInterval(() => {
+      runSweep().catch(() => {
+        // Keep the sweep best-effort; failures are retried on next cycle.
+      });
+    }, minRetryMs);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollInterval);
+    };
+  }, [dispatch, missingHistoricalCoins, quoteCurrency]);
 
   return {
     visibleItems,
