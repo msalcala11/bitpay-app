@@ -165,10 +165,19 @@ const dedupeFiatRatePointsByTs = (points: FiatRatePoint[]): FiatRatePoint[] => {
 
 const fiatRateSeriesRequestsInFlightByKey = new Map<string, Promise<void>>();
 
-const getFiatRateSeriesInFlightKey = (
-  cacheKey: string,
-  usesCoinParam: boolean,
-): string => `${cacheKey}:${usesCoinParam ? 'coin' : 'default'}`;
+const getFiatRateSeriesInFlightKey = (args: {
+  fiatCode: string;
+  interval: FiatRateInterval;
+  coin?: string;
+}): string => {
+  const fiatCodeUpper = (args.fiatCode || '').toUpperCase();
+  const normalizedCoin = normalizeFiatRateSeriesCoin(args.coin);
+  // Default v4 requests are shared across callers regardless of target coin.
+  if (!normalizedCoin) {
+    return `${fiatCodeUpper}:${args.interval}:default`;
+  }
+  return `${fiatCodeUpper}:${normalizedCoin}:${args.interval}:coin`;
+};
 
 export const startGetRates =
   ({
@@ -509,10 +518,11 @@ export const fetchFiatRateSeriesInterval =
     }
 
     const normalizedRequestedCoin = normalizeFiatRateSeriesCoin(coin);
-    const inFlightKey = getFiatRateSeriesInFlightKey(
-      cacheKey,
-      !!normalizedRequestedCoin,
-    );
+    const inFlightKey = getFiatRateSeriesInFlightKey({
+      fiatCode,
+      interval,
+      coin: normalizedRequestedCoin || undefined,
+    });
     const allowedCoinsSet =
       Array.isArray(allowedCoins) && allowedCoins.length
         ? new Set(
@@ -648,13 +658,36 @@ export const fetchFiatRateSeriesInterval =
     const inFlightRequest = fiatRateSeriesRequestsInFlightByKey.get(inFlightKey);
     if (inFlightRequest) {
       await inFlightRequest;
-      return hasValidFiatRateSeriesInCache({
-        fiatRateSeriesCache: getState().RATE?.fiatRateSeriesCache || {},
+      const latestCache = getState().RATE?.fiatRateSeriesCache || {};
+      const hasFreshTargetCoinSeries = hasValidFiatRateSeriesInCache({
+        fiatRateSeriesCache: latestCache,
         fiatCode,
         coin: coinForCacheCheck,
         interval,
         requireFresh: true,
       });
+      if (hasFreshTargetCoinSeries) {
+        return true;
+      }
+
+      // A shared default request may not include every coin; retry coin-param fetch.
+      const canAttemptCoinSpecificFallback =
+        !coin &&
+        !!normalizedCoinForCacheCheck &&
+        (!allowedCoinsSet || allowedCoinsSet.has(normalizedCoinForCacheCheck));
+      if (!canAttemptCoinSpecificFallback) {
+        return false;
+      }
+      return await dispatch(
+        fetchFiatRateSeriesInterval({
+          fiatCode,
+          interval,
+          coinForCacheCheck: normalizedCoinForCacheCheck,
+          force,
+          allowedCoins,
+          coin: normalizedCoinForCacheCheck,
+        }),
+      );
     }
 
     let resolveInFlightRequest: (() => void) | undefined;
