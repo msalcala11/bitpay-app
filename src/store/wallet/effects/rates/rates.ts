@@ -164,6 +164,48 @@ const dedupeFiatRatePointsByTs = (points: FiatRatePoint[]): FiatRatePoint[] => {
   return out;
 };
 
+const coerceV4FiatRatesPayloadToByCoin = (
+  data: unknown,
+  normalizedRequestedCoin?: string,
+): Record<string, unknown> => {
+  if (!data || typeof data !== 'object') {
+    return {};
+  }
+  if (Array.isArray(data)) {
+    if (!normalizedRequestedCoin) {
+      return {};
+    }
+    return {[normalizedRequestedCoin]: data};
+  }
+  return data as Record<string, unknown>;
+};
+
+const sanitizeSortDedupePoints = (rawPoints: unknown): FiatRatePoint[] => {
+  if (!Array.isArray(rawPoints) || !rawPoints.length) {
+    return [];
+  }
+
+  const filtered = rawPoints
+    .map(point => {
+      const p = point as FiatRatePoint | Record<string, unknown> | undefined;
+      return {
+        ts: Number((p as any)?.ts),
+        rate: Number((p as any)?.rate),
+      } as FiatRatePoint;
+    })
+    .filter(p => Number.isFinite(p?.ts) && Number.isFinite(p?.rate));
+
+  if (!filtered.length) {
+    return [];
+  }
+
+  let points = filtered.map(p => ({ts: p.ts, rate: p.rate}));
+  if (!isSortedByTsAsc(points)) {
+    points = points.sort((a, b) => a.ts - b.ts);
+  }
+  return dedupeFiatRatePointsByTs(points);
+};
+
 const fiatRateSeriesRequestsInFlightByKey = new Map<string, Promise<void>>();
 
 const getFiatRateSeriesInFlightKey = (args: {
@@ -564,18 +606,10 @@ export const fetchFiatRateSeriesInterval =
       }
 
       const fetchedOn = Date.now();
-      const responseByCoin: Record<string, unknown> = (() => {
-        if (!data || typeof data !== 'object') {
-          return {};
-        }
-        if (Array.isArray(data)) {
-          if (!normalizedRequestedCoin) {
-            return {};
-          }
-          return {[normalizedRequestedCoin]: data};
-        }
-        return data as Record<string, unknown>;
-      })();
+      const responseByCoin = coerceV4FiatRatesPayloadToByCoin(
+        data,
+        normalizedRequestedCoin || undefined,
+      );
 
       if (!Object.keys(responseByCoin).length) {
         if (coin) {
@@ -610,30 +644,10 @@ export const fetchFiatRateSeriesInterval =
           return;
         }
 
-        const rawPoints = responseByCoin[seriesCoin];
-        if (!Array.isArray(rawPoints) || !rawPoints.length) {
+        const deduped = sanitizeSortDedupePoints(responseByCoin[seriesCoin]);
+        if (!deduped.length) {
           return;
         }
-
-        const filtered = rawPoints
-          .map(point => {
-            const p = point as FiatRatePoint | Record<string, unknown> | undefined;
-            return {
-              ts: Number((p as any)?.ts),
-              rate: Number((p as any)?.rate),
-            } as FiatRatePoint;
-          })
-          .filter(p => Number.isFinite(p?.ts) && Number.isFinite(p?.rate));
-
-        if (!filtered.length) {
-          return;
-        }
-
-        let points = filtered.map(p => ({ts: p.ts, rate: p.rate}));
-        if (!isSortedByTsAsc(points)) {
-          points = points.sort((a, b) => a.ts - b.ts);
-        }
-        const deduped = dedupeFiatRatePointsByTs(points);
         updates[getFiatRateSeriesCacheKey(fiatCode, seriesCoin, interval)] = {
           fetchedOn,
           points: deduped,
