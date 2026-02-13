@@ -50,7 +50,6 @@ import {normalizeFiatRateSeriesCoin} from '../../../../utils/portfolio/core/pnl/
 import {isSortedByTsAsc} from '../../../../utils/portfolio/timeSeries';
 
 const FIAT_RATE_SERIES_BASE_URL = `${BASE_BWS_URL}/v4/fiatrates`;
-// const FIAT_RATE_SERIES_BASE_URL = `http://localhost:3232/bws/api/v4/fiatrates`;
 
 const FIAT_RATE_SERIES_INTERVAL_DAYS: Record<
   FiatRateInterval,
