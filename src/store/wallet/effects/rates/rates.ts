@@ -442,7 +442,7 @@ export const fetchFiatRateSeriesInterval =
     force?: boolean;
     allowedCoins?: string[];
     coin?: string;
-  }): Effect<Promise<void>> =>
+  }): Effect<Promise<boolean>> =>
   async (dispatch, getState) => {
     const {
       fiatCode,
@@ -471,7 +471,7 @@ export const fetchFiatRateSeriesInterval =
       cached?.points?.length &&
       !isCacheKeyStale(cached.fetchedOn, HISTORIC_RATES_CACHE_DURATION)
     ) {
-      return;
+      return true;
     }
 
     const hasFreshDefaultBtcSeries = hasValidFiatRateSeriesInCache({
@@ -487,7 +487,7 @@ export const fetchFiatRateSeriesInterval =
       normalizedCoinForCacheCheck !== 'btc' &&
       hasFreshDefaultBtcSeries;
     if (shouldSkipDefaultFetchForCoinSpecificRequest) {
-      await dispatch(
+      return dispatch(
         fetchFiatRateSeriesInterval({
           fiatCode,
           interval,
@@ -497,24 +497,28 @@ export const fetchFiatRateSeriesInterval =
           coin: normalizedCoinForCacheCheck,
         }),
       );
-      return;
     }
 
     const url = getFiatRateSeriesUrl(fiatCode, interval, coin);
+    const contextCoin =
+      normalizeFiatRateSeriesCoin(coin || coinForCacheCheck) ||
+      (coin || coinForCacheCheck || 'default').toLowerCase();
+    const context = `${(fiatCode || '').toUpperCase()}/${contextCoin}/${interval}`;
     let data: unknown;
     try {
       const response = await axios.get(url);
       data = response.data;
     } catch (error) {
-      if (coin) {
-        const normalizedCoin = normalizeFiatRateSeriesCoin(coin) || coin;
+      if (axios.isAxiosError(error)) {
         logManager.error(
-          `fetchFiatRateSeriesInterval: coin-specific v4 fiatrates request failed (${(
-            fiatCode || ''
-          ).toUpperCase()}/${normalizedCoin}/${interval}) ${getErrorString(error)}`,
+          `fetchFiatRateSeriesInterval: v4 fiatrates request failed (${context}) ${getErrorString(error)}`,
+        );
+      } else {
+        logManager.error(
+          `fetchFiatRateSeriesInterval: unexpected error (${context}) ${getErrorString(error)}`,
         );
       }
-      throw error;
+      return false;
     }
     const fetchedOn = Date.now();
 
@@ -542,7 +546,7 @@ export const fetchFiatRateSeriesInterval =
           ).toUpperCase()}/${normalizedRequestedCoin || coin}/${interval})`,
         );
       }
-      return;
+      return false;
     }
 
     const allowedCoinsSet =
@@ -602,7 +606,8 @@ export const fetchFiatRateSeriesInterval =
       };
     });
 
-    if (Object.keys(updates).length) {
+    const updateCount = Object.keys(updates).length;
+    if (updateCount) {
       dispatch(upsertFiatRateSeriesCache({updates}));
     } else if (coin) {
       const payloadCoins = Object.keys(responseByCoin)
@@ -621,7 +626,7 @@ export const fetchFiatRateSeriesInterval =
       !!normalizedCoinForCacheCheck &&
       (!allowedCoinsSet || allowedCoinsSet.has(normalizedCoinForCacheCheck));
     if (!canAttemptCoinSpecificFallback) {
-      return;
+      return updateCount > 0;
     }
 
     const mergedCache: FiatRateSeriesCache = {
@@ -636,10 +641,10 @@ export const fetchFiatRateSeriesInterval =
       requireFresh: false,
     });
     if (hasTargetCoinSeries) {
-      return;
+      return true;
     }
 
-    await dispatch(
+    return dispatch(
       fetchFiatRateSeriesInterval({
         fiatCode,
         interval,

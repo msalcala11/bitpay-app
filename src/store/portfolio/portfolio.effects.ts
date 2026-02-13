@@ -480,10 +480,10 @@ const ensureFiatRateSeriesInterval = async (args: {
   fiatCode: string;
   currencyAbbreviation: string;
   interval: FiatRateInterval;
-}) => {
+}): Promise<boolean> => {
   const {dispatch, fiatCode, currencyAbbreviation, interval} = args;
   const coinForCacheCheck = normalizeFiatRateSeriesCoin(currencyAbbreviation);
-  await dispatch(
+  return dispatch(
     fetchFiatRateSeriesInterval({
       fiatCode,
       interval,
@@ -498,14 +498,14 @@ const ensureFiatRateSeriesIntervalOnce = async (args: {
   fiatCode: string;
   currencyAbbreviation: string;
   interval: FiatRateInterval;
-}) => {
+}): Promise<boolean> => {
   const {dispatch, loadedIntervals, fiatCode, currencyAbbreviation, interval} =
     args;
   if (loadedIntervals.has(interval)) {
-    return;
+    return true;
   }
   loadedIntervals.add(interval);
-  await ensureFiatRateSeriesInterval({
+  return ensureFiatRateSeriesInterval({
     dispatch,
     fiatCode,
     currencyAbbreviation,
@@ -544,16 +544,21 @@ const ensureWalletHasHistoricalFiatRates = async (args: {
     return true;
   }
 
-  try {
-    await ensureFiatRateSeriesIntervalOnce({
-      dispatch: args.dispatch,
-      loadedIntervals: args.loadedIntervals,
+  const didFetch = await ensureFiatRateSeriesIntervalOnce({
+    dispatch: args.dispatch,
+    loadedIntervals: args.loadedIntervals,
+    fiatCode: args.fiatCode,
+    currencyAbbreviation: args.currencyAbbreviation,
+    interval: 'ALL',
+  });
+  if (!didFetch) {
+    // Best-effort fetch failed; treat as unavailable unless cache already exists.
+    return hasFiatRateSeriesPointsInCache({
+      getState: args.getState,
       fiatCode: args.fiatCode,
       currencyAbbreviation: args.currencyAbbreviation,
       interval: 'ALL',
     });
-  } catch {
-    return false;
   }
 
   return hasFiatRateSeriesPointsInCache({
