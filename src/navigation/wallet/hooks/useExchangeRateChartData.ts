@@ -181,7 +181,12 @@ const useExchangeRateChartData = ({
     const copy = [...pointsToDisplay];
     copy[lastIdx] = {...last, rate: currentFiatRate};
     return copy;
-  }, [currentFiatRate, selectedSeriesPoints, selectedTimeframe, seriesDataInterval]);
+  }, [
+    currentFiatRate,
+    selectedSeriesPoints,
+    selectedTimeframe,
+    seriesDataInterval,
+  ]);
 
   const displayData = useMemo(() => {
     if (typeof pointsForChartRaw === 'undefined') {

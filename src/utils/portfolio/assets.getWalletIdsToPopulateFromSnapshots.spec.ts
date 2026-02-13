@@ -38,7 +38,9 @@ jest.mock('../helper-methods', () => {
     unitString: string,
     unitDecimals: number,
   ): bigint => {
-    const raw = String(unitString || '0').replace(/,/g, '').trim();
+    const raw = String(unitString || '0')
+      .replace(/,/g, '')
+      .trim();
     if (!raw) {
       return 0n;
     }

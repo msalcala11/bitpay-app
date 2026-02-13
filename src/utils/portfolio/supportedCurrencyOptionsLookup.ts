@@ -13,7 +13,8 @@ export type SupportedCurrencyOptionLookup = {
 const normalize = (value: string | undefined): string =>
   (value || '').toLowerCase();
 
-const byAbbrChainKey = (abbr: string, chain: string): string => `${abbr}:${chain}`;
+const byAbbrChainKey = (abbr: string, chain: string): string =>
+  `${abbr}:${chain}`;
 const byAbbrTokenKey = (abbr: string, tokenLower: string): string =>
   `${abbr}:${tokenLower}`;
 const byAbbrChainTokenKey = (
@@ -83,7 +84,9 @@ export const createSupportedCurrencyOptionLookup = (
     }
 
     const chain = normalize(args.chain);
-    const tokenLower = args.tokenAddress ? normalize(args.tokenAddress) : undefined;
+    const tokenLower = args.tokenAddress
+      ? normalize(args.tokenAddress)
+      : undefined;
     const isWildcardChain = chain === abbr && !tokenLower;
 
     if (tokenLower) {

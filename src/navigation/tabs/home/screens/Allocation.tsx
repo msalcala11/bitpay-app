@@ -169,7 +169,9 @@ const AllocationRow: React.FC<{
         </RowLeft>
 
         <RowRight>
-          <FiatAmount>{maskIfHidden(hideAllBalances, item.fiatAmount)}</FiatAmount>
+          <FiatAmount>
+            {maskIfHidden(hideAllBalances, item.fiatAmount)}
+          </FiatAmount>
           <Percent>{item.percent}</Percent>
         </RowRight>
       </RowTop>
@@ -213,7 +215,9 @@ export const AllocationRowsList: React.FC<{
       const tokenKey = item.tokenAddress
         ? addTokenChainSuffix(item.tokenAddress, item.chain)
         : undefined;
-      const tokenOpt = tokenKey ? allTokenOptionsByAddress[tokenKey] : undefined;
+      const tokenOpt = tokenKey
+        ? allTokenOptionsByAddress[tokenKey]
+        : undefined;
       const img = option?.img || (tokenOpt?.logoURI as string | undefined);
       const imgSrc = option?.imgSrc as ImageRequireSource | undefined;
 

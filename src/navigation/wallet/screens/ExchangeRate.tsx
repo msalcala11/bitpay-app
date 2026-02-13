@@ -960,10 +960,7 @@ const ExchangeRate = () => {
 
     const hasUsableData = !!displayDataRef.current.data.length;
     setIsChartLoading(!hasUsableData);
-  }, [
-    derivedDisplayData,
-    pointsForChartRaw,
-  ]);
+  }, [derivedDisplayData, pointsForChartRaw]);
 
   const walletsForAsset = useMemo(() => {
     const visibleWallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
@@ -1580,10 +1577,11 @@ const ExchangeRate = () => {
     assetContext.tokenAddress,
   ]);
 
-  const {coinColor, gradientBackgroundColor} = tokenTheme ?? coin.theme ?? {
-    coinColor: ProgressBlue,
-    gradientBackgroundColor: theme.dark ? 'transparent' : White,
-  };
+  const {coinColor, gradientBackgroundColor} = tokenTheme ??
+    coin.theme ?? {
+      coinColor: ProgressBlue,
+      gradientBackgroundColor: theme.dark ? 'transparent' : White,
+    };
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -1754,11 +1752,7 @@ const ExchangeRate = () => {
                   }),
                 );
                 dispatch(
-                  receiveCrypto(
-                    navigation,
-                    'ExchangeRate',
-                    assetContext,
-                  ),
+                  receiveCrypto(navigation, 'ExchangeRate', assetContext),
                 );
               },
             }}
