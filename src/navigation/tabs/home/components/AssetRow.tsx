@@ -1,6 +1,7 @@
-import React, {useMemo} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef} from 'react';
 import {ImageRequireSource} from 'react-native';
 import {NavigationProp, useNavigation} from '@react-navigation/native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 import styled, {useTheme} from 'styled-components/native';
 import type {RootStackParamList} from '../../../../Root';
@@ -25,7 +26,7 @@ import {
   White,
 } from '../../../../styles/colors';
 import {getDifferenceColor} from '../../../../components/percentage/Percentage';
-import {useAppSelector} from '../../../../utils/hooks';
+import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
 import {maskIfHidden} from '../../../../utils/hideBalances';
 import ChevronRightSvg from './ChevronRightSvg';
 import {
@@ -34,6 +35,8 @@ import {
 } from '../../../../utils/portfolio/assets';
 import {normalizeFiatRateSeriesCoin} from '../../../../utils/portfolio/core/pnl/rates';
 import {createSupportedCurrencyOptionLookup} from '../../../../utils/portfolio/supportedCurrencyOptionsLookup';
+import {logManager} from '../../../../managers/LogManager';
+import {fetchFiatRateSeriesAllIntervals} from '../../../../store/wallet/effects';
 
 const supportedCurrencyOptionLookup = createSupportedCurrencyOptionLookup(
   SupportedCurrencyOptions,
@@ -136,6 +139,7 @@ const AssetRow: React.FC<Props> = ({
 }) => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const theme = useTheme();
+  const dispatch = useAppDispatch();
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const fiatRateSeriesCache = useAppSelector(
@@ -198,6 +202,120 @@ const AssetRow: React.FC<Props> = ({
   const isCryptoAmountLoading = !!isPopulateLoading && !isFiatLoading;
 
   const fiatAmountDisplay = hasRate ? item.fiatAmount : '— ';
+  const lastAutoFetchRef = useRef<{key: string; ts: number} | undefined>(
+    undefined,
+  );
+  useEffect(() => {
+    const fiatCodeUpper = (defaultAltCurrency?.isoCode || 'USD').toUpperCase();
+    const normalizedCoin = normalizeFiatRateSeriesCoin(item.currencyAbbreviation);
+    if (!fiatCodeUpper || !normalizedCoin || !hasRate || hasHistoricalV4Rates) {
+      return;
+    }
+
+    const key = `${fiatCodeUpper}:${normalizedCoin}`;
+    const now = Date.now();
+    const throttleMs = 30 * 1000;
+    if (
+      lastAutoFetchRef.current?.key === key &&
+      now - lastAutoFetchRef.current.ts < throttleMs
+    ) {
+      return;
+    }
+    lastAutoFetchRef.current = {key, ts: now};
+
+    dispatch(
+      fetchFiatRateSeriesAllIntervals({
+        fiatCode: fiatCodeUpper,
+        currencyAbbreviation: normalizedCoin,
+      }) as any,
+    ).catch((error: unknown) => {
+      logManager.error(
+        `AssetRow: auto-fetch coin-specific v4 series failed (${key}) ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    });
+  }, [
+    defaultAltCurrency?.isoCode,
+    dispatch,
+    hasHistoricalV4Rates,
+    hasRate,
+    item.currencyAbbreviation,
+  ]);
+
+  const debugPayload = useMemo(() => {
+    const fiatCodeUpper = (defaultAltCurrency?.isoCode || 'USD').toUpperCase();
+    const normalizedCoin = normalizeFiatRateSeriesCoin(item.currencyAbbreviation);
+    const intervalDiagnostics = FIAT_RATE_SERIES_CACHED_INTERVALS.map(interval => {
+      const cacheKey = getFiatRateSeriesCacheKey(
+        fiatCodeUpper,
+        normalizedCoin,
+        interval,
+      );
+      const points = (fiatRateSeriesCache?.[cacheKey]?.points ||
+        []) as FiatRatePoint[];
+      return {
+        interval,
+        cacheKey,
+        pointsLength: points.length,
+        firstTs: points[0]?.ts,
+        lastTs: points[points.length - 1]?.ts,
+        fetchedOn: fiatRateSeriesCache?.[cacheKey]?.fetchedOn,
+      };
+    });
+
+    return {
+      timestamp: new Date().toISOString(),
+      fiatCode: fiatCodeUpper,
+      asset: {
+        key: item.key,
+        name: item.name,
+        currencyAbbreviation: item.currencyAbbreviation,
+        chain: item.chain,
+        tokenAddress: item.tokenAddress,
+      },
+      rowState: {
+        hasRate,
+        hasPnl,
+        showPnlPlaceholder,
+        hasHistoricalV4Rates,
+        canNavigate,
+      },
+      option: option
+        ? {
+            id: option.id,
+            currencyAbbreviation: option.currencyAbbreviation,
+            chain: option.chain,
+            tokenAddress: option.tokenAddress,
+          }
+        : undefined,
+      intervals: intervalDiagnostics,
+    };
+  }, [
+    canNavigate,
+    defaultAltCurrency?.isoCode,
+    fiatRateSeriesCache,
+    hasHistoricalV4Rates,
+    hasPnl,
+    hasRate,
+    item.chain,
+    item.currencyAbbreviation,
+    item.key,
+    item.name,
+    item.tokenAddress,
+    option,
+    showPnlPlaceholder,
+  ]);
+
+  const handleLongPress = useCallback(() => {
+    const payload = JSON.stringify(debugPayload, null, 2);
+    Clipboard.setString(payload);
+    logManager.info(
+      `AssetRow debug copied to clipboard: ${item.currencyAbbreviation.toUpperCase()}/${
+        (defaultAltCurrency?.isoCode || 'USD').toUpperCase()
+      }`,
+    );
+  }, [debugPayload, defaultAltCurrency?.isoCode, item.currencyAbbreviation]);
 
   const handlePress = () => {
     if (!canNavigate || !option) {
@@ -217,7 +335,8 @@ const AssetRow: React.FC<Props> = ({
     <Row
       activeOpacity={canNavigate ? ActiveOpacity : 1}
       isLast={isLast}
-      onPress={canNavigate ? handlePress : undefined}>
+      onPress={canNavigate ? handlePress : undefined}
+      onLongPress={handleLongPress}>
       <IconContainer>
         <CurrencyImage
           img={option?.img}
