@@ -69,7 +69,6 @@ import {
   calculatePercentageDifference,
   formatFiatAmount,
   getRateByCurrencyName,
-  sleep,
 } from '../../../utils/helper-methods';
 import {
   findSupportedCurrencyOptionForAsset,
@@ -77,7 +76,6 @@ import {
   walletHasNonZeroLiveBalance,
 } from '../../../utils/portfolio/assets';
 import {
-  downsampleSeries,
   getFiatRateChangeForTimeframe,
 } from '../../../utils/portfolio/rate';
 import {
@@ -107,40 +105,18 @@ import {
 import {getAndDispatchUpdatedWalletBalances} from '../../../store/wallet/effects/status/statusv2';
 import {
   CachedFiatRateInterval,
-  DateRanges,
   FiatRateInterval,
   FiatRatePoint,
   FIAT_RATE_SERIES_CACHED_INTERVALS,
-  FIAT_RATE_SERIES_TARGET_POINTS,
   getFiatRateSeriesCacheKey,
 } from '../../../store/rate/rate.models';
 import haptic from '../../../components/haptic-feedback/haptic';
 import {HISTORIC_RATES_CACHE_DURATION} from '../../../constants/wallet';
-
-interface ChartDisplayDataType {
-  date: Date;
-  value: number;
-}
-
-interface ChartDataType {
-  data: ChartDisplayDataType[];
-  percentChange: number;
-  priceChange: number;
-  maxIndex?: number;
-  maxPoint?: ChartDisplayDataType;
-  minIndex?: number;
-  minPoint?: ChartDisplayDataType;
-}
-
-const defaultDisplayData: ChartDataType = {
-  data: [],
-  percentChange: 0,
-  priceChange: 0,
-  maxIndex: undefined,
-  maxPoint: undefined,
-  minIndex: undefined,
-  minPoint: undefined,
-};
+import useExchangeRateChartData, {
+  type ChartDataType,
+  defaultDisplayData,
+  HISTORIC_TIMEFRAME_WINDOW_MS,
+} from '../hooks/useExchangeRateChartData';
 
 const AxisLabel = ({
   value,
@@ -257,14 +233,6 @@ const MIN_TINY_FRACTION_DIGITS = 4;
 const MAX_TINY_FRACTION_DIGITS = 8;
 const MIN_TINY_DISPLAYABLE = 1 / Math.pow(10, MAX_TINY_FRACTION_DIGITS);
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-const HISTORIC_TIMEFRAME_WINDOW_MS: Record<'3M' | '1Y' | '5Y', number> = {
-  '3M': DateRanges.Quarter * MS_PER_DAY,
-  '1Y': DateRanges.Year * MS_PER_DAY,
-  '5Y': DateRanges.FiveYears * MS_PER_DAY,
-};
-const SPOT_RATE_MATCH_EPSILON = 1e-12;
-
 const formatTinyDecimal = (value: number, decimals: number) => {
   const fixed = value.toFixed(decimals);
   return fixed.replace(/\.0+$/, '').replace(/(\.[0-9]*?)0+$/, '$1');
@@ -324,71 +292,6 @@ const formatSupply = (value: number, maximumFractionDigits = 2) => {
   const [intPart, decPart] = trimmed.split('.');
   const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return decPart ? `${withCommas}.${decPart}` : withCommas;
-};
-
-const getFormattedData = (
-  historicFiatRates: Array<{ts: number; rate: number}>,
-): ChartDataType => {
-  const ratesSorted = ensureSortedByTsAsc(historicFiatRates);
-  if (!ratesSorted.length) {
-    return defaultDisplayData;
-  }
-  const targetLen = FIAT_RATE_SERIES_TARGET_POINTS;
-  const rates = downsampleSeries(ratesSorted, targetLen, {
-    strategy: 'lttb',
-    mode: 'per_coin',
-  });
-  const scaledData = rates.map(value => ({
-    date: new Date(value.ts),
-    value: value.rate,
-  }));
-
-  let maxPoint: ChartDisplayDataType | undefined;
-  let minPoint: ChartDisplayDataType | undefined;
-  let maxIndex: number | undefined;
-  let minIndex: number | undefined;
-
-  for (let index = 0; index < scaledData.length; index++) {
-    const point = scaledData[index];
-    if (Number.isNaN(point.value)) {
-      continue;
-    }
-
-    if (typeof maxPoint === 'undefined' || point.value > maxPoint.value) {
-      maxPoint = point;
-      maxIndex = index;
-    }
-    if (typeof minPoint === 'undefined' || point.value < minPoint.value) {
-      minPoint = point;
-      minIndex = index;
-    }
-  }
-
-  if (rates.length < 2) {
-    return {
-      data: scaledData,
-      percentChange: 0,
-      priceChange: 0,
-      maxIndex,
-      maxPoint,
-      minIndex,
-      minPoint,
-    };
-  }
-  const percentChange = calculatePercentageDifference(
-    rates[rates.length - 1].rate,
-    rates[0].rate,
-  );
-
-  return {
-    data: scaledData,
-    percentChange,
-    priceChange: rates[rates.length - 1].rate - rates[0].rate,
-    maxIndex,
-    maxPoint,
-    minIndex,
-    minPoint,
-  };
 };
 
 const ScreenContainer = styled.SafeAreaView`
@@ -826,6 +729,7 @@ const ExchangeRate = () => {
   ).trim();
   const hasValidNormalizedCoin = normalizedCoin.length > 0;
   const isMountedRef = useRef(false);
+  const gestureEndRafRef = useRef<number | null>(null);
   const allIntervalsFetchRequestIdRef = useRef(0);
   const allIntervalsFetchInFlightRef = useRef(false);
   const [allIntervalsFetchCycle, setAllIntervalsFetchCycle] = useState(0);
@@ -835,6 +739,10 @@ const ExchangeRate = () => {
     return () => {
       isMountedRef.current = false;
       allIntervalsFetchInFlightRef.current = false;
+      if (gestureEndRafRef.current != null) {
+        cancelAnimationFrame(gestureEndRafRef.current);
+        gestureEndRafRef.current = null;
+      }
     };
   }, []);
 
@@ -994,72 +902,24 @@ const ExchangeRate = () => {
     rates,
   ]);
 
-  const pointsForChartRaw = useMemo<FiatRatePoint[] | undefined>(() => {
-    const seriesPoints = selectedSeries?.points;
-    if (!seriesPoints) {
-      return undefined;
-    }
-
-    const pointsToDisplay: FiatRatePoint[] = (() => {
-      if (
-        seriesDataInterval === 'ALL' &&
-        selectedTimeframe !== 'ALL' &&
-        (selectedTimeframe === '3M' ||
-          selectedTimeframe === '1Y' ||
-          selectedTimeframe === '5Y')
-      ) {
-        const now = Date.now();
-        const windowMs =
-          selectedTimeframe === '3M'
-            ? HISTORIC_TIMEFRAME_WINDOW_MS['3M']
-            : selectedTimeframe === '1Y'
-            ? HISTORIC_TIMEFRAME_WINDOW_MS['1Y']
-            : HISTORIC_TIMEFRAME_WINDOW_MS['5Y'];
-        const cutoffTs = now - windowMs;
-        const pointsSortedByTs = ensureSortedByTsAsc(seriesPoints);
-        const startIdx = lowerBoundByTs(pointsSortedByTs, cutoffTs);
-        return pointsSortedByTs.slice(startIdx);
-      }
-      return seriesPoints;
-    })();
-
-    if (
-      !pointsToDisplay.length ||
-      !currentFiatRate ||
-      !Number.isFinite(currentFiatRate)
-    ) {
-      return pointsToDisplay;
-    }
-
-    const lastIdx = pointsToDisplay.length - 1;
-    const last = pointsToDisplay[lastIdx];
-    if (
-      !last ||
-      Math.abs(last.rate - currentFiatRate) <= SPOT_RATE_MATCH_EPSILON
-    ) {
-      return pointsToDisplay;
-    }
-
-    // Never mutate cached series points in Redux; only override in-memory for rendering.
-    const copy = [...pointsToDisplay];
-    copy[lastIdx] = {...last, rate: currentFiatRate};
-    return copy;
-  }, [
-    currentFiatRate,
-    selectedSeries?.points,
+  const {
+    pointsForChartRaw,
+    displayData: derivedDisplayData,
+    selectedTimeframeHighValue,
+  } = useExchangeRateChartData({
+    selectedSeriesPoints: selectedSeries?.points,
     selectedTimeframe,
     seriesDataInterval,
-  ]);
-
-  const selectedTimeframeHighValue = useMemo(() => {
-    return getMaxRate(pointsForChartRaw);
-  }, [pointsForChartRaw]);
+    currentFiatRate,
+  });
 
   useEffect(() => {
-    if (typeof pointsForChartRaw !== 'undefined') {
-      const formattedRates = getFormattedData(pointsForChartRaw);
+    if (
+      typeof pointsForChartRaw !== 'undefined' &&
+      typeof derivedDisplayData !== 'undefined'
+    ) {
       setPrevDisplayData(displayDataRef.current);
-      setDisplayData(formattedRates);
+      setDisplayData(derivedDisplayData);
       setIsChartLoading(false);
       return;
     }
@@ -1067,6 +927,7 @@ const ExchangeRate = () => {
     const hasUsableData = !!displayDataRef.current.data.length;
     setIsChartLoading(!hasUsableData);
   }, [
+    derivedDisplayData,
     pointsForChartRaw,
   ]);
 
@@ -1564,14 +1425,22 @@ const ExchangeRate = () => {
     [chartPoints, timeframeChange?.baselineRate],
   );
 
-  const onGestureEnd = useCallback(async () => {
+  const onGestureEnd = useCallback(() => {
     if (!gestureStarted.current) {
       return;
     }
-    await sleep(10);
-    gestureStarted.current = false;
-    setSelectedPoint(undefined);
-    haptic('impactLight');
+    if (gestureEndRafRef.current != null) {
+      cancelAnimationFrame(gestureEndRafRef.current);
+    }
+    gestureEndRafRef.current = requestAnimationFrame(() => {
+      gestureEndRafRef.current = null;
+      gestureStarted.current = false;
+      if (!isMountedRef.current) {
+        return;
+      }
+      setSelectedPoint(undefined);
+      haptic('impactLight');
+    });
   }, []);
 
   const onGestureStarted = useCallback(() => {
