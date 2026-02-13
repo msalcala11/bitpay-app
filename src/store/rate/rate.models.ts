@@ -25,11 +25,16 @@ export enum DateRanges {
   FiveYears = 1825,
 }
 
-export type CachedFiatRateInterval = 'ALL' | '1D' | '1W' | '1M';
-export type FiatRateInterval = CachedFiatRateInterval | '3M' | '1Y' | '5Y';
+export const FIAT_RATE_SERIES_CACHED_INTERVALS = [
+  'ALL',
+  '1D',
+  '1W',
+  '1M',
+] as const;
 
-export const FIAT_RATE_SERIES_CACHED_INTERVALS: Array<CachedFiatRateInterval> =
-  ['ALL', '1D', '1W', '1M'];
+export type CachedFiatRateInterval =
+  (typeof FIAT_RATE_SERIES_CACHED_INTERVALS)[number];
+export type FiatRateInterval = CachedFiatRateInterval | '3M' | '1Y' | '5Y';
 
 // Shared chart density + minimum historical coverage threshold.
 export const FIAT_RATE_SERIES_TARGET_POINTS = 89;
