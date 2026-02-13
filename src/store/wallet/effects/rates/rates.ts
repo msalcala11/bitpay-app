@@ -116,21 +116,6 @@ const hasValidFiatRateSeriesInCache = (args: {
   );
 };
 
-const normalizeCoinForRequestMatch = (coin: string): string => {
-  const normalized = normalizeFiatRateSeriesCoin(coin).trim().toLowerCase();
-  switch (normalized) {
-    case 'usdcn':
-    case 'usdce':
-    case 'usdc.e':
-      return 'usdc';
-    case 'usdte':
-    case 'usdt.e':
-      return 'usdt';
-    default:
-      return normalized.replace(/[^a-z0-9]/g, '');
-  }
-};
-
 const getFiatRateSeriesCadenceMs = (
   points: FiatRatePoint[],
   interval: FiatRateInterval,
@@ -174,46 +159,6 @@ const dedupeFiatRatePointsByTs = (points: FiatRatePoint[]): FiatRatePoint[] => {
     out.push(p);
   }
   return out;
-};
-
-const toMsTimestamp = (value: unknown): number | undefined => {
-  const raw = Number(value);
-  if (!Number.isFinite(raw) || raw <= 0) {
-    return undefined;
-  }
-  // Accept either ms or epoch-seconds.
-  if (raw > 1e12) {
-    return raw;
-  }
-  if (raw > 1e9) {
-    return raw * 1000;
-  }
-  return raw;
-};
-
-const toFiatRatePoint = (value: unknown): FiatRatePoint | undefined => {
-  if (Array.isArray(value) && value.length >= 2) {
-    const ts = toMsTimestamp(value[0]);
-    const rate = Number(value[1]);
-    if (Number.isFinite(ts) && Number.isFinite(rate)) {
-      return {ts, rate};
-    }
-    return undefined;
-  }
-
-  const p = value as Record<string, unknown> | undefined;
-  if (!p || typeof p !== 'object') {
-    return undefined;
-  }
-
-  const ts = toMsTimestamp(
-    p.ts ?? p.timestamp ?? p.time ?? p.date ?? p.createdOn,
-  );
-  const rate = Number(p.rate ?? p.price ?? p.value ?? p.close);
-  if (Number.isFinite(ts) && Number.isFinite(rate)) {
-    return {ts, rate};
-  }
-  return undefined;
 };
 
 export const startGetRates =
@@ -627,19 +572,20 @@ export const fetchFiatRateSeriesInterval =
         return;
       }
 
-      const rawCoinValue = responseByCoin[seriesCoin];
-      const rawPoints = Array.isArray(rawCoinValue)
-        ? rawCoinValue
-        : Array.isArray((rawCoinValue as any)?.points)
-        ? ((rawCoinValue as any).points as unknown[])
-        : [];
-      if (!rawPoints.length) {
+      const rawPoints = responseByCoin[seriesCoin];
+      if (!Array.isArray(rawPoints) || !rawPoints.length) {
         return;
       }
 
       const filtered = rawPoints
-        .map(point => toFiatRatePoint(point))
-        .filter((p): p is FiatRatePoint => !!p);
+        .map(point => {
+          const p = point as FiatRatePoint | Record<string, unknown> | undefined;
+          return {
+            ts: Number((p as any)?.ts),
+            rate: Number((p as any)?.rate),
+          } as FiatRatePoint;
+        })
+        .filter(p => Number.isFinite(p?.ts) && Number.isFinite(p?.rate));
 
       if (!filtered.length) {
         return;
@@ -650,70 +596,11 @@ export const fetchFiatRateSeriesInterval =
         points = points.sort((a, b) => a.ts - b.ts);
       }
       const deduped = dedupeFiatRatePointsByTs(points);
-      const normalizedSeriesCoin =
-        normalizeFiatRateSeriesCoin(seriesCoin).trim() ||
-        (seriesCoin || '').toLowerCase();
-      updates[getFiatRateSeriesCacheKey(fiatCode, normalizedSeriesCoin, interval)] = {
+      updates[getFiatRateSeriesCacheKey(fiatCode, seriesCoin, interval)] = {
         fetchedOn,
         points: deduped,
       };
     });
-
-    if (coin) {
-      const requestedCoinKey =
-        normalizeFiatRateSeriesCoin(coin).trim() || (coin || '').toLowerCase();
-      const requestedCacheKey = getFiatRateSeriesCacheKey(
-        fiatCode,
-        requestedCoinKey,
-        interval,
-      );
-      if (!updates[requestedCacheKey]) {
-        const updateEntries = Object.entries(updates);
-        const requestedMatchKey = normalizeCoinForRequestMatch(requestedCoinKey);
-        const matchingAliasEntries = updateEntries.filter(([entryCacheKey]) => {
-          const entryCoin = (entryCacheKey.split(':')[1] || '').toLowerCase();
-          return normalizeCoinForRequestMatch(entryCoin) === requestedMatchKey;
-        });
-
-        if (matchingAliasEntries.length) {
-          const [selectedEntryKey, selectedEntrySeries] = matchingAliasEntries
-            .slice()
-            .sort(
-              (a, b) =>
-                (b[1]?.points?.length || 0) - (a[1]?.points?.length || 0),
-            )[0];
-          updates[requestedCacheKey] = selectedEntrySeries;
-          if (selectedEntryKey !== requestedCacheKey) {
-            const selectedCoin = selectedEntryKey.split(':')[1] || '';
-            logManager.warn(
-              `fetchFiatRateSeriesInterval: aliased coin-specific payload key (${selectedCoin} -> ${requestedCoinKey}) (${(
-                fiatCode || ''
-              ).toUpperCase()}/${requestedCoinKey}/${interval})`,
-            );
-          }
-        } else if (updateEntries.length === 1) {
-          const [onlyCacheKey, onlySeries] = updateEntries[0];
-          updates[requestedCacheKey] = onlySeries;
-          if (onlyCacheKey !== requestedCacheKey) {
-            logManager.warn(
-              `fetchFiatRateSeriesInterval: aliased single coin payload to requested coin key (${(
-                fiatCode || ''
-              ).toUpperCase()}/${requestedCoinKey}/${interval})`,
-            );
-          }
-        } else if (updateEntries.length > 1) {
-          const responseCoins = updateEntries
-            .map(([entryCacheKey]) => entryCacheKey.split(':')[1] || '')
-            .filter(Boolean)
-            .join(',');
-          logManager.error(
-            `fetchFiatRateSeriesInterval: coin-specific v4 fiatrates response missing requested coin (${(
-              fiatCode || ''
-            ).toUpperCase()}/${requestedCoinKey}/${interval}) responseCoins=[${responseCoins}]`,
-          );
-        }
-      }
-    }
 
     if (Object.keys(updates).length) {
       dispatch(upsertFiatRateSeriesCache({updates}));

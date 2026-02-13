@@ -115,13 +115,6 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
   const inFlightFetchByQuoteCoinRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    // Quote switches can prune coin-specific caches; clear retry/in-flight
-    // guards so missing coins for the new quote are fetched immediately.
-    lastFetchAttemptByQuoteCoinRef.current = {};
-    inFlightFetchByQuoteCoinRef.current = new Set();
-  }, [quoteCurrency]);
-
-  useEffect(() => {
     if (isPopulateInProgress) {
       return;
     }
