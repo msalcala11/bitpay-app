@@ -1,4 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useIsFocused} from '@react-navigation/native';
 import {HISTORIC_RATES_CACHE_DURATION} from '../../../../constants/wallet';
 import type {PortfolioState} from '../../../../store/portfolio/portfolio.models';
 import type {
@@ -39,6 +40,7 @@ type Result = {
 const EMPTY_SNAPSHOTS_BY_WALLET_ID: PortfolioState['snapshotsByWalletId'] = {};
 
 const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
+  const isFocused = useIsFocused();
   const dispatch = useAppDispatch();
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
@@ -172,7 +174,7 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
   }, [shouldFetchAllIntervalsForCoin, visibleItems]);
 
   useEffect(() => {
-    if (!missingHistoricalCoins.length) {
+    if (!isFocused || !missingHistoricalCoins.length) {
       return;
     }
 
@@ -235,7 +237,7 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
       cancelled = true;
       clearInterval(pollInterval);
     };
-  }, [dispatch, missingHistoricalCoins, quoteCurrency]);
+  }, [dispatch, isFocused, missingHistoricalCoins, quoteCurrency]);
 
   return {
     visibleItems,
