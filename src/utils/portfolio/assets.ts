@@ -11,7 +11,7 @@ import type {
   FiatRateSeriesCache,
   Rates,
 } from '../../store/rate/rate.models';
-import {getFiatRateSeriesCacheKey} from '../../store/rate/rate.models';
+import {hasValidSeriesForCoin} from '../../store/rate/rate.models';
 import type {Key, Wallet} from '../../store/wallet/wallet.models';
 import type {SupportedCurrencyOption} from '../../constants/SupportedCurrencyOptions';
 import {
@@ -531,22 +531,21 @@ export const isFiatLoadingForWallets = (args: {
     }
 
     const intervals: FiatRateInterval[] = ['1D', 'ALL'];
-    for (const interval of intervals) {
-      const targetBtcKey = getFiatRateSeriesCacheKey(target, 'btc', interval);
-      const sourceBtcKey = getFiatRateSeriesCacheKey(
-        snapQuote,
-        'btc',
-        interval,
-      );
+    const hasTargetBtcSeries = hasValidSeriesForCoin({
+      cache: args.fiatRateSeriesCache,
+      fiatCodeUpper: target,
+      normalizedCoin: 'btc',
+      intervals,
+    });
+    const hasSourceBtcSeries = hasValidSeriesForCoin({
+      cache: args.fiatRateSeriesCache,
+      fiatCodeUpper: snapQuote,
+      normalizedCoin: 'btc',
+      intervals,
+    });
 
-      const targetPoints =
-        args.fiatRateSeriesCache?.[targetBtcKey]?.points || [];
-      const sourcePoints =
-        args.fiatRateSeriesCache?.[sourceBtcKey]?.points || [];
-
-      if (!targetPoints.length || !sourcePoints.length) {
-        return true;
-      }
+    if (!hasTargetBtcSeries || !hasSourceBtcSeries) {
+      return true;
     }
   }
 

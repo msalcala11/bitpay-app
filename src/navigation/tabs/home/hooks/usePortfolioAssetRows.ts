@@ -3,12 +3,11 @@ import {HISTORIC_RATES_CACHE_DURATION} from '../../../../constants/wallet';
 import type {PortfolioState} from '../../../../store/portfolio/portfolio.models';
 import type {
   CachedFiatRateInterval,
-  FiatRatePoint,
   Rates,
 } from '../../../../store/rate/rate.models';
 import {
   FIAT_RATE_SERIES_CACHED_INTERVALS,
-  getFiatRateSeriesCacheKey,
+  hasValidSeriesForCoin,
 } from '../../../../store/rate/rate.models';
 import {fetchFiatRateSeriesAllIntervals} from '../../../../store/wallet/effects';
 import type {Key} from '../../../../store/wallet/wallet.models';
@@ -146,23 +145,12 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
       coin: string,
       intervals: ReadonlyArray<CachedFiatRateInterval>,
     ): boolean => {
-      const fiatCode = (quoteCurrency || 'USD').toUpperCase();
-      for (const interval of intervals) {
-        const cacheKey = getFiatRateSeriesCacheKey(fiatCode, coin, interval);
-        const cached = fiatRateSeriesCache?.[cacheKey];
-        const points = (cached?.points || []) as FiatRatePoint[];
-        if (!points.length) {
-          return true;
-        }
-        if (
-          !points.every(
-            p => Number.isFinite(p?.ts) && Number.isFinite(p?.rate),
-          )
-        ) {
-          return true;
-        }
-      }
-      return false;
+      return !hasValidSeriesForCoin({
+        cache: fiatRateSeriesCache,
+        fiatCodeUpper: (quoteCurrency || 'USD').toUpperCase(),
+        normalizedCoin: coin,
+        intervals,
+      });
     },
     [fiatRateSeriesCache, quoteCurrency],
   );

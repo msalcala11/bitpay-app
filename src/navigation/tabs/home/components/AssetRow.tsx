@@ -6,8 +6,7 @@ import styled, {useTheme} from 'styled-components/native';
 import type {RootStackParamList} from '../../../../Root';
 import {
   FIAT_RATE_SERIES_CACHED_INTERVALS,
-  type FiatRatePoint,
-  getFiatRateSeriesCacheKey,
+  hasValidSeriesForCoin,
 } from '../../../../store/rate/rate.models';
 import {TouchableOpacity} from '../../../../components/base/TouchableOpacity';
 import {CurrencyImage} from '../../../../components/currency-image/CurrencyImage';
@@ -153,33 +152,12 @@ const AssetRow: React.FC<Props> = ({
   const showPnlPlaceholder = !!item.showPnlPlaceholder;
   const shouldShowRightSide = hasRate || showPnlPlaceholder;
   const hasHistoricalV4Rates = useMemo(() => {
-    const fiatCodeUpper = (defaultAltCurrency?.isoCode || 'USD').toUpperCase();
-    const normalizedCoin = normalizeFiatRateSeriesCoin(
-      item.currencyAbbreviation,
-    );
-    if (!normalizedCoin) {
-      return false;
-    }
-
-    for (const interval of FIAT_RATE_SERIES_CACHED_INTERVALS) {
-      const cacheKey = getFiatRateSeriesCacheKey(
-        fiatCodeUpper,
-        normalizedCoin,
-        interval,
-      );
-      const points = (fiatRateSeriesCache?.[cacheKey]?.points ||
-        []) as FiatRatePoint[];
-      if (!points.length) {
-        return false;
-      }
-      if (
-        !points.every(p => Number.isFinite(p?.ts) && Number.isFinite(p?.rate))
-      ) {
-        return false;
-      }
-    }
-
-    return true;
+    return hasValidSeriesForCoin({
+      cache: fiatRateSeriesCache,
+      fiatCodeUpper: (defaultAltCurrency?.isoCode || 'USD').toUpperCase(),
+      normalizedCoin: normalizeFiatRateSeriesCoin(item.currencyAbbreviation),
+      intervals: FIAT_RATE_SERIES_CACHED_INTERVALS,
+    });
   }, [
     defaultAltCurrency?.isoCode,
     fiatRateSeriesCache,

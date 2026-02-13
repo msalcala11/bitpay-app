@@ -62,6 +62,40 @@ export const getFiatRateSeriesCacheKey = (
   ).toLowerCase()}:${interval}`;
 };
 
+export const hasValidSeriesForCoin = (args: {
+  cache: FiatRateSeriesCache | undefined;
+  fiatCodeUpper: string;
+  normalizedCoin: string;
+  intervals: ReadonlyArray<FiatRateInterval>;
+}): boolean => {
+  const fiatCodeUpper = (args.fiatCodeUpper || '').toUpperCase();
+  const normalizedCoin = (args.normalizedCoin || '').trim().toLowerCase();
+  if (!fiatCodeUpper || !normalizedCoin) {
+    return false;
+  }
+
+  for (const interval of args.intervals) {
+    const cacheKey = getFiatRateSeriesCacheKey(
+      fiatCodeUpper,
+      normalizedCoin,
+      interval,
+    );
+    const points = args.cache?.[cacheKey]?.points;
+    if (!Array.isArray(points) || !points.length) {
+      return false;
+    }
+    if (
+      !points.every(
+        point => Number.isFinite(point?.ts) && Number.isFinite(point?.rate),
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 export enum CacheKeys {
   RATES = 'ratesCacheKey',
 }

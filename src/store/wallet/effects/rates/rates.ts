@@ -10,6 +10,7 @@ import {
   Rate,
   Rates,
   getFiatRateSeriesCacheKey,
+  hasValidSeriesForCoin,
 } from '../../../rate/rate.models';
 import {isCacheKeyStale} from '../../utils/wallet';
 import {
@@ -92,27 +93,28 @@ const hasValidFiatRateSeriesInCache = (args: {
   interval: FiatRateInterval;
   requireFresh?: boolean;
 }): boolean => {
+  const hasValidSeries = hasValidSeriesForCoin({
+    cache: args.fiatRateSeriesCache,
+    fiatCodeUpper: args.fiatCode,
+    normalizedCoin: args.coin,
+    intervals: [args.interval],
+  });
+  if (!hasValidSeries) {
+    return false;
+  }
+  if (!args.requireFresh) {
+    return true;
+  }
+
   const cacheKey = getFiatRateSeriesCacheKey(
     args.fiatCode,
     args.coin,
     args.interval,
   );
-  const series = args.fiatRateSeriesCache?.[cacheKey];
-  const points = Array.isArray(series?.points) ? series.points : [];
-  if (!points.length) {
-    return false;
-  }
-  if (
-    args.requireFresh &&
-    (typeof series?.fetchedOn !== 'number' ||
-      isCacheKeyStale(series.fetchedOn, HISTORIC_RATES_CACHE_DURATION))
-  ) {
-    return false;
-  }
-  return points.every(
-    p =>
-      Number.isFinite((p as FiatRatePoint | undefined)?.ts) &&
-      Number.isFinite((p as FiatRatePoint | undefined)?.rate),
+  const fetchedOn = args.fiatRateSeriesCache?.[cacheKey]?.fetchedOn;
+  return (
+    typeof fetchedOn === 'number' &&
+    !isCacheKeyStale(fetchedOn, HISTORIC_RATES_CACHE_DURATION)
   );
 };
 
