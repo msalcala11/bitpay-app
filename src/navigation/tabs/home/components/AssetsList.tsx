@@ -3,6 +3,7 @@ import styled from 'styled-components/native';
 import {ScreenGutter} from '../../../../components/styled/Containers';
 import AssetRow from './AssetRow';
 import {AssetRowItem} from '../../../../utils/portfolio/assets';
+import {useAssetIconResolver} from '../hooks/useAssetIconResolver';
 
 const List = styled.View`
   margin: 10px ${ScreenGutter} 10px;
@@ -11,23 +12,25 @@ const List = styled.View`
 interface Props {
   items: AssetRowItem[];
   isFiatLoading?: boolean;
-  isPopulateLoading?: boolean;
+  populateInProgress?: boolean;
   isPopulateLoadingByKey?: Record<string, boolean>;
 }
 
 const AssetsList: React.FC<Props> = ({
   items,
   isFiatLoading,
-  isPopulateLoading,
+  populateInProgress,
   isPopulateLoadingByKey,
 }) => {
+  const {getAssetIconData} = useAssetIconResolver();
+
   return (
     <List>
       {items.map((item, index) => {
+        const {img, imgSrc} = getAssetIconData(item);
+
         const isRowPopulateLoading =
-          typeof isPopulateLoadingByKey?.[item.key] === 'boolean'
-            ? isPopulateLoadingByKey[item.key]
-            : isPopulateLoading;
+          isPopulateLoadingByKey?.[item.key] ?? !!populateInProgress;
 
         return (
           <AssetRow
@@ -36,6 +39,8 @@ const AssetsList: React.FC<Props> = ({
             isLast={index === items.length - 1}
             isFiatLoading={isFiatLoading}
             isPopulateLoading={isRowPopulateLoading}
+            img={img}
+            imgSrc={imgSrc}
           />
         );
       })}

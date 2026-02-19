@@ -19,7 +19,6 @@ import {
 import {requestBrazeContentRefresh} from '../../../store/app/app.effects';
 import {
   selectBrazeMarketingCarousel,
-  selectBrazeQuickLinks,
   selectBrazeShopWithCrypto,
 } from '../../../store/app/app.selectors';
 import {getAndDispatchUpdatedWalletBalances} from '../../../store/wallet/effects/status/statusv2';
@@ -49,7 +48,6 @@ import MockOffers from './components/offers/MockOffers';
 import OffersCarousel from './components/offers/OffersCarousel';
 import MarketingCarousel from './components/MarketingCarousel';
 import PortfolioBalance from './components/PortfolioBalance';
-import DefaultQuickLinks from './components/quick-links/DefaultQuickLinks';
 import {HeaderContainer, HeaderLeftContainer} from './components/Styled';
 import KeyMigrationFailureModal from './components/KeyMigrationFailureModal';
 import {ProposalBadgeContainer} from '../../../components/styled/Containers';
@@ -81,6 +79,7 @@ import type {Key} from '../../../store/wallet/wallet.models';
 import type {Rate, Rates} from '../../../store/rate/rate.models';
 import {getCoinAndChainFromCurrencyCode} from '../../bitpay-id/utils/bitpay-id-utils';
 import {
+  findSupportedCurrencyOptionForAsset,
   getQuoteCurrency,
   getVisibleWalletsFromKeys,
   walletHasNonZeroLiveBalance,
@@ -99,7 +98,6 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   const [refreshing, setRefreshing] = useState(false);
   const brazeMarketingCarousel = useAppSelector(selectBrazeMarketingCarousel);
   const brazeShopWithCrypto = useAppSelector(selectBrazeShopWithCrypto);
-  const brazeQuickLinks = useAppSelector(selectBrazeQuickLinks);
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
   const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
   const wallets = (Object.values(keys) as Key[]).flatMap((k: Key) => k.wallets);
@@ -198,14 +196,11 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
       );
       const {coin: targetCoin, chain: targetChain} =
         getCoinAndChainFromCurrencyCode(key);
-      const option =
-        SupportedCurrencyOptions.find(
-          ({currencyAbbreviation, chain}) =>
-            currencyAbbreviation === targetCoin && chain === targetChain,
-        ) ||
-        SupportedCurrencyOptions.find(
-          ({currencyAbbreviation}) => currencyAbbreviation === targetCoin,
-        );
+      const option = findSupportedCurrencyOptionForAsset({
+        options: SupportedCurrencyOptions,
+        currencyAbbreviation: targetCoin,
+        chain: targetChain,
+      });
 
       if (option && option.chain && option.currencyAbbreviation) {
         const currencyName = getCurrencyAbbreviation(
@@ -289,15 +284,6 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
       return a.currencyName.localeCompare(b.currencyName);
     });
   }, [fiatRateSeriesCache, lastDayRates, quoteCurrency, rates]);
-
-  // Quick Links
-  const memoizedQuickLinks = useMemo(() => {
-    if (STATIC_CONTENT_CARDS_ENABLED && !brazeQuickLinks.length) {
-      return DefaultQuickLinks();
-    }
-
-    return brazeQuickLinks;
-  }, [brazeQuickLinks]);
 
   useEffect(() => {
     return navigation.addListener('focus', () => {

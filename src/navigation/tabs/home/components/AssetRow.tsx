@@ -12,7 +12,10 @@ import {TouchableOpacity} from '../../../../components/base/TouchableOpacity';
 import {CurrencyImage} from '../../../../components/currency-image/CurrencyImage';
 import {ActiveOpacity} from '../../../../components/styled/Containers';
 import {BaseText, H7} from '../../../../components/styled/Text';
-import {SupportedCurrencyOptions} from '../../../../constants/SupportedCurrencyOptions';
+import {
+  SupportedCurrencyOptions,
+  type SupportedCurrencyOption,
+} from '../../../../constants/SupportedCurrencyOptions';
 import {
   CharcoalBlack,
   GhostWhite,
@@ -125,6 +128,8 @@ interface Props {
   isLast: boolean;
   isFiatLoading?: boolean;
   isPopulateLoading?: boolean;
+  img?: SupportedCurrencyOption['img'];
+  imgSrc?: ImageRequireSource;
 }
 
 const AssetRow: React.FC<Props> = ({
@@ -132,6 +137,8 @@ const AssetRow: React.FC<Props> = ({
   isLast,
   isFiatLoading,
   isPopulateLoading,
+  img,
+  imgSrc,
 }) => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const theme = useTheme();
@@ -198,8 +205,13 @@ const AssetRow: React.FC<Props> = ({
       onPress={canNavigate ? handlePress : undefined}>
       <IconContainer>
         <CurrencyImage
-          img={option?.img}
-          imgSrc={option?.imgSrc as ImageRequireSource}
+          img={img ?? option?.img}
+          imgSrc={
+            imgSrc ??
+            (option && typeof option.imgSrc === 'number'
+              ? option.imgSrc
+              : undefined)
+          }
           size={40}
         />
       </IconContainer>
@@ -218,7 +230,7 @@ const AssetRow: React.FC<Props> = ({
               width={80}
               height={12}
               borderRadius={2}
-              marginTop={4}
+              marginTop={8}
             />
           </SkeletonPlaceholder>
         ) : (
@@ -249,6 +261,7 @@ const AssetRow: React.FC<Props> = ({
                   height={12}
                   borderRadius={2}
                   marginBottom={shouldShowDeltaFiat ? 6 : 0}
+                  marginTop={3}
                 />
                 {shouldShowDeltaFiat ? (
                   <SkeletonPlaceholder.Item

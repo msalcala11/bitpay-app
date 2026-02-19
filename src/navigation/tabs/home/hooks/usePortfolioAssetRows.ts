@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef} from 'react';
 import {useIsFocused} from '@react-navigation/native';
 import {useStore} from 'react-redux';
 import {HISTORIC_RATES_CACHE_DURATION} from '../../../../constants/wallet';
@@ -116,33 +116,17 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
     return getDisplayAssetRowItems(items);
   }, [items]);
 
-  const [isPopulateLoadingByKey, setIsPopulateLoadingByKey] = useState<
-    Record<string, boolean> | undefined
-  >(undefined);
-  const lastFetchAttemptByQuoteCoinRef = useRef<Record<string, number>>({});
-  const inFlightFetchByQuoteCoinRef = useRef<Set<string>>(new Set());
-  const unsupportedQuoteCoinKeysRef = useRef<Set<string>>(new Set());
-  const lastPopulateTriggerAtRef = useRef<number>(0);
-
-  useEffect(() => {
-    if (isPopulateInProgress) {
-      return;
-    }
-    setIsPopulateLoadingByKey(undefined);
-  }, [isPopulateInProgress]);
-
-  useEffect(() => {
+  const populateLoadingByKeyPrevRef = useRef<Record<string, boolean>>();
+  const isPopulateLoadingByKey = useMemo(() => {
     if (!isPopulateInProgress || !walletIdsByAssetKey) {
-      return;
+      return undefined;
     }
 
-    setIsPopulateLoadingByKey(prev => {
-      return getPopulateLoadingByAssetKey({
-        items: visibleItems,
-        walletIdsByAssetKey,
-        populateStatus: portfolio.populateStatus,
-        prev: prev || undefined,
-      });
+    return getPopulateLoadingByAssetKey({
+      items: visibleItems,
+      walletIdsByAssetKey,
+      populateStatus: portfolio.populateStatus,
+      prev: populateLoadingByKeyPrevRef.current,
     });
   }, [
     isPopulateInProgress,
@@ -150,6 +134,15 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
     visibleItems,
     walletIdsByAssetKey,
   ]);
+
+  useEffect(() => {
+    populateLoadingByKeyPrevRef.current = isPopulateLoadingByKey;
+  }, [isPopulateLoadingByKey]);
+
+  const lastFetchAttemptByQuoteCoinRef = useRef<Record<string, number>>({});
+  const inFlightFetchByQuoteCoinRef = useRef<Set<string>>(new Set());
+  const unsupportedQuoteCoinKeysRef = useRef<Set<string>>(new Set());
+  const lastPopulateTriggerAtRef = useRef<number>(0);
 
   const shouldFetchAllIntervalsForCoin = useCallback(
     (

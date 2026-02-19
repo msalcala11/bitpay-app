@@ -26,13 +26,12 @@ import type {
 } from '../../../../utils/portfolio/assets';
 import AssetRow from '../components/AssetRow';
 import AssetsGainLossDropdown from '../components/AssetsGainLossDropdown';
-import {SupportedCurrencyOptions} from '../../../../constants/SupportedCurrencyOptions';
 import {
   BitpaySupportedCoins,
   BitpaySupportedTokens,
 } from '../../../../constants/currencies';
 import {getCurrencyAbbreviation} from '../../../../utils/helper-methods';
-import {createSupportedCurrencyOptionLookup} from '../../../../utils/portfolio/supportedCurrencyOptionsLookup';
+import {useAssetIconResolver} from '../hooks/useAssetIconResolver';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AllAssets'>;
 const LIST_HORIZONTAL_GUTTER = Number.parseInt(ScreenGutter, 10);
@@ -90,6 +89,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
   const commonOptions = useStackScreenOptions(theme);
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
   const populateInProgress = !!portfolio.populateStatus?.inProgress;
+  const {getAssetIconData, getSupportedOption} = useAssetIconResolver();
 
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
   const [query, setQuery] = useState('');
@@ -108,10 +108,6 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
     });
   }, [commonOptions, navigation, t]);
 
-  const supportedOptionLookup = useMemo(
-    () => createSupportedCurrencyOptionLookup(SupportedCurrencyOptions),
-    [],
-  );
   const normalizedDeferredQuery = deferredQuery.trim().toLowerCase();
   const hasActiveQuery = query.trim().length > 0;
   const hasDeferredQuery = normalizedDeferredQuery.length > 0;
@@ -122,11 +118,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
     }
 
     return visibleItems.map(item => {
-      const option = supportedOptionLookup.getOption({
-        currencyAbbreviation: item.currencyAbbreviation,
-        chain: item.chain,
-        tokenAddress: item.tokenAddress,
-      });
+      const option = getSupportedOption(item);
 
       const optionCurrencyName = option?.currencyName;
       const chainKey = (option?.chain || item.chain || '').toLowerCase();
@@ -152,7 +144,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
 
       return {item, searchText};
     });
-  }, [hasActiveQuery, hasDeferredQuery, supportedOptionLookup, visibleItems]);
+  }, [getSupportedOption, hasActiveQuery, hasDeferredQuery, visibleItems]);
 
   const filteredItems: AssetRowItem[] = useMemo(() => {
     if (!hasActiveQuery || !hasDeferredQuery) {
@@ -197,10 +189,10 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
 
   const renderItem = useCallback(
     ({item, index}: ListRenderItemInfo<AssetRowItem>) => {
+      const {img, imgSrc} = getAssetIconData(item);
+
       const isRowPopulateLoading =
-        typeof isPopulateLoadingByKey?.[item.key] === 'boolean'
-          ? isPopulateLoadingByKey[item.key]
-          : populateInProgress;
+        isPopulateLoadingByKey?.[item.key] ?? populateInProgress;
 
       return (
         <AssetRow
@@ -208,11 +200,14 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
           isLast={index === filteredItems.length - 1}
           isFiatLoading={isFiatLoading}
           isPopulateLoading={isRowPopulateLoading}
+          img={img}
+          imgSrc={imgSrc}
         />
       );
     },
     [
       filteredItems.length,
+      getAssetIconData,
       isFiatLoading,
       isPopulateLoadingByKey,
       populateInProgress,

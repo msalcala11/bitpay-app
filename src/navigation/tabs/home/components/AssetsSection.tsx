@@ -72,7 +72,7 @@ const AssetsSection: React.FC = () => {
       <AssetsList
         items={items}
         isFiatLoading={isFiatLoading}
-        isPopulateLoading={portfolio.populateStatus?.inProgress}
+        populateInProgress={!!portfolio.populateStatus?.inProgress}
         isPopulateLoadingByKey={isPopulateLoadingByKey}
       />
 

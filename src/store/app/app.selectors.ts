@@ -5,7 +5,6 @@ import {
   isCardOffer,
   isDoMore,
   isMarketingCarousel,
-  isQuickLink,
   isShopWithCrypto,
 } from '../../utils/braze';
 
@@ -23,11 +22,6 @@ export const selectBrazeShopWithCrypto = createSelector(
 export const selectBrazeDoMore = createSelector(
   [selectBrazeContentCards],
   contentCards => contentCards.filter(isDoMore),
-);
-
-export const selectBrazeQuickLinks = createSelector(
-  [selectBrazeContentCards],
-  contentCards => contentCards.filter(isQuickLink),
 );
 
 export const selectBrazeCardOffers = createSelector(

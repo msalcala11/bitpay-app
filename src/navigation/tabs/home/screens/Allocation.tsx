@@ -8,19 +8,13 @@ import {RootStackParamList} from '../../../../Root';
 import {useStackScreenOptions} from '../../../utils/headerHelpers';
 import {HeaderTitle, BaseText} from '../../../../components/styled/Text';
 import HeaderBackButton from '../../../../components/back/HeaderBackButton';
-import {SupportedCurrencyOptions} from '../../../../constants/SupportedCurrencyOptions';
+import type {SupportedCurrencyOption} from '../../../../constants/SupportedCurrencyOptions';
 import {CurrencyImage} from '../../../../components/currency-image/CurrencyImage';
 import {AllocationDonutLegendCard} from '../components/AllocationSection';
 import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
 import {buildAccountList} from '../../../../store/wallet/utils/wallet';
 import type {Key, Wallet} from '../../../../store/wallet/wallet.models';
-import {useTokenContext} from '../../../../contexts';
-import {BitpaySupportedTokenOptsByAddress} from '../../../../constants/tokens';
-import {
-  addTokenChainSuffix,
-  formatCurrencyAbbreviation,
-} from '../../../../utils/helper-methods';
-import {createSupportedCurrencyOptionLookup} from '../../../../utils/portfolio/supportedCurrencyOptionsLookup';
+import {formatCurrencyAbbreviation} from '../../../../utils/helper-methods';
 import {
   buildAllocationDataFromWalletRows,
   type AllocationWallet,
@@ -29,10 +23,7 @@ import {
 import {getVisibleWalletsFromKeys} from '../../../../utils/portfolio/assets';
 import {LightBlack, Slate30, SlateDark} from '../../../../styles/colors';
 import {maskIfHidden} from '../../../../utils/hideBalances';
-
-const supportedOptionLookup = createSupportedCurrencyOptionLookup(
-  SupportedCurrencyOptions,
-);
+import {useAssetIconResolver} from '../hooks/useAssetIconResolver';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Allocation'>;
 
@@ -150,7 +141,7 @@ const AllocationRow: React.FC<{
   item: AllocationRowItem;
   hideAllBalances: boolean;
   barColor: string;
-  img?: string;
+  img?: SupportedCurrencyOption['img'];
   imgSrc?: ImageRequireSource;
 }> = ({item, hideAllBalances, barColor, img, imgSrc}) => {
   return (
@@ -191,35 +182,11 @@ export const AllocationRowsList: React.FC<{
 }> = ({rows, style, ListHeaderComponent, scrollEnabled = false}) => {
   const theme = useTheme();
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
-  const {tokenOptionsByAddress} = useTokenContext();
-  const customTokenOptionsByAddress = useAppSelector(
-    ({WALLET}) => WALLET.customTokenOptionsByAddress,
-  );
-
-  const allTokenOptionsByAddress = useMemo(() => {
-    return {
-      ...BitpaySupportedTokenOptsByAddress,
-      ...tokenOptionsByAddress,
-      ...customTokenOptionsByAddress,
-    };
-  }, [customTokenOptionsByAddress, tokenOptionsByAddress]);
+  const {getAssetIconData} = useAssetIconResolver();
 
   const renderRow = useCallback(
     (item: AllocationRowItem) => {
-      const option = supportedOptionLookup.getOption({
-        currencyAbbreviation: item.currencyAbbreviation,
-        chain: item.chain,
-        tokenAddress: item.tokenAddress,
-      });
-
-      const tokenKey = item.tokenAddress
-        ? addTokenChainSuffix(item.tokenAddress, item.chain)
-        : undefined;
-      const tokenOpt = tokenKey
-        ? allTokenOptionsByAddress[tokenKey]
-        : undefined;
-      const img = option?.img || (tokenOpt?.logoURI as string | undefined);
-      const imgSrc = option?.imgSrc as ImageRequireSource | undefined;
+      const {img, imgSrc} = getAssetIconData(item);
 
       const barColor = theme.dark ? item.barColor.dark : item.barColor.light;
 
@@ -233,7 +200,7 @@ export const AllocationRowsList: React.FC<{
         />
       );
     },
-    [allTokenOptionsByAddress, hideAllBalances, theme.dark],
+    [getAssetIconData, hideAllBalances, theme.dark],
   );
 
   const renderItem = useCallback(

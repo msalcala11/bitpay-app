@@ -49,10 +49,6 @@ export const isShopWithCrypto = (contentCard: ContentCard) => {
   return contentCard.extras.feed_type === 'shop_with_crypto';
 };
 
-export const isQuickLink = (contentCard: ContentCard) => {
-  return contentCard.extras.feed_type === 'quick_links';
-};
-
 export const isDoMore = (contentCard: ContentCard) => {
   return contentCard.extras.feed_type === 'do_more';
 };
