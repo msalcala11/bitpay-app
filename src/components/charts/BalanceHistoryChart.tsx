@@ -24,7 +24,7 @@ import InteractiveLineChart from './InteractiveLineChart';
 import ChartAxisLabel from './ChartAxisLabel';
 import ChartSelectionDot from './ChartSelectionDot';
 import ChartChangeRow from './ChartChangeRow';
-import {ProgressBlue, White} from '../../styles/colors';
+import {Action, ProgressBlue, White} from '../../styles/colors';
 import haptic from '../haptic-feedback/haptic';
 import {buildPnlWalletInputsFromPortfolioSnapshots} from '../../utils/portfolio/assets';
 
@@ -848,7 +848,7 @@ const BalanceHistoryChart = ({
     ],
   );
 
-  const chartColor = ProgressBlue;
+  const chartColor = theme.dark ? ProgressBlue : Action;
   const gradientBackgroundColor = theme.dark ? 'transparent' : White;
 
   // Per product requirements: if there has never been any transaction history
