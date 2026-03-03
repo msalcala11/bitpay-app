@@ -125,7 +125,7 @@ import {BitpaySupportedTokenOptsByAddress} from '../../../constants/tokens';
 import {BWCErrorMessage} from '../../../constants/BWCError';
 import ArchaxFooter from '../../../components/archax/archax-footer';
 import {useOngoingProcess, useTokenContext} from '../../../contexts';
-import Percentage from '../../../components/percentage/Percentage';
+import BalanceHistoryChart from '../../../components/charts/BalanceHistoryChart';
 import {getDifferenceColor} from '../../../components/percentage/Percentage';
 import Button from '../../../components/button/Button';
 import {AllocationDonutLegendCard} from '../../tabs/home/components/AllocationSection';
@@ -186,7 +186,6 @@ const OverviewContainer = styled.SafeAreaView`
 `;
 
 const BalanceContainer = styled.View`
-  height: 15%;
   margin-top: 20px;
   padding: 10px 15px;
   align-items: center;
@@ -362,6 +361,7 @@ const KeyOverview = () => {
   const {tokenOptionsByAddress} = useTokenContext();
   const [showKeyOptions, setShowKeyOptions] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedBalance, setSelectedBalance] = useState<number | undefined>();
   const {keys}: {keys: {[key: string]: Key}} = useAppSelector(
     ({WALLET}) => WALLET,
   );
@@ -1262,25 +1262,26 @@ const KeyOverview = () => {
           {!hideAllBalances ? (
             <>
               <Balance scale={shouldScale(totalBalance)}>
-                {formatFiatAmount(totalBalance, defaultAltCurrency.isoCode, {
+                {formatFiatAmount(selectedBalance ?? totalBalance, defaultAltCurrency.isoCode, {
                   currencyDisplay: 'symbol',
                 })}
               </Balance>
-              {percentageDifference !== null ? (
-                <PercentageWrapper>
-                  <Percentage
-                    percentageDifference={percentageDifference}
-                    hideArrow
-                    fractionDigits={2}
-                    rangeLabel={t('Last Day')}
-                  />
-                </PercentageWrapper>
-              ) : null}
             </>
           ) : (
             <H2>****</H2>
           )}
         </TouchableOpacity>
+
+        {!hideAllBalances ? (
+          <BalanceHistoryChart
+            wallets={visibleKeyWallets}
+            snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
+            quoteCurrency={quoteCurrency}
+            rates={rates}
+            fiatRateSeriesCache={fiatRateSeriesCache}
+            onSelectedBalanceChange={setSelectedBalance}
+          />
+        ) : null}
       </BalanceContainer>
 
       <FlashList<AccountRowProps>

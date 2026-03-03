@@ -1327,6 +1327,130 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
   };
 };
 
+/**
+ * Build the wallet+snapshot inputs required by the PnL analysis engine.
+ *
+ * This is factored out so balance-history charts can reuse the same conversion
+ * logic already used by AssetsList/portfolio PnL computations.
+ */
+export const buildPnlWalletInputsFromPortfolioSnapshots = (args: {
+  snapshotsByWalletId: {[walletId: string]: BalanceSnapshot[] | undefined};
+  wallets: Wallet[];
+  quoteCurrency: string;
+  rates?: Rates;
+  fiatRateSeriesCache?: FiatRateSeriesCache;
+  nowMs?: number;
+}): {
+  wallets: WalletForAnalysis[];
+  currentRatesByCoin: Record<string, number>;
+  quoteCurrency: string;
+} => {
+  const walletById = buildWalletByIdMap(args.wallets);
+  const effectiveQuoteCurrency = getEffectiveQuoteCurrencyFromSnapshots({
+    preferredQuoteCurrency: (args.quoteCurrency || '').toUpperCase(),
+    snapshotsByWalletId: args.snapshotsByWalletId || {},
+    walletById,
+  }).toUpperCase();
+
+  const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
+  const fiatRateSeriesCache = args.fiatRateSeriesCache;
+
+  const pnlWallets: WalletForAnalysis[] = [];
+  const currentRatesByCoin: Record<string, number> = {};
+
+  if (!fiatRateSeriesCache) {
+    return {
+      wallets: pnlWallets,
+      currentRatesByCoin,
+      quoteCurrency: effectiveQuoteCurrency,
+    };
+  }
+
+  for (const w of args.wallets || []) {
+    if ((w as any)?.network !== Network.mainnet) {
+      continue;
+    }
+
+    const walletId = String((w as any)?.id || '');
+    const coin = String((w as any)?.currencyAbbreviation || '').toLowerCase();
+    if (!walletId || !coin) {
+      continue;
+    }
+
+    const appSnaps = ensureSortedSnapshots(
+      args.snapshotsByWalletId?.[walletId],
+    );
+    if (!appSnaps.length) {
+      continue;
+    }
+
+    const unitInfo = getWalletUnitInfo(w);
+    const chainLower = String((w as any)?.chain || coin).toLowerCase();
+
+    const credentials: any = {
+      chain: chainLower,
+      coin,
+      network:
+        (w as any)?.network === Network.mainnet
+          ? 'livenet'
+          : String((w as any)?.network || 'livenet'),
+    };
+
+    const tokenAddress = (w as any)?.tokenAddress as string | undefined;
+    if (tokenAddress) {
+      credentials.token = {
+        ...(credentials.token || {}),
+        decimals: unitInfo.unitDecimals,
+        address: tokenAddress,
+      };
+    }
+
+    const snaps = mapSnapshotsToStored({
+      snapshots: appSnaps,
+      wallet: w,
+      walletId,
+      unitDecimals: unitInfo.unitDecimals,
+      fallbackChain: chainLower,
+      fallbackCoin: coin,
+      fallbackQuoteCurrency: effectiveQuoteCurrency,
+      targetQuoteCurrency: effectiveQuoteCurrency,
+      fiatRateSeriesCache,
+      nowMs,
+      fallbackAssetIdToWalletIdentity: true,
+    });
+
+    pnlWallets.push({
+      walletId,
+      walletName: String(
+        (w as any)?.walletName || (w as any)?.name || walletId,
+      ),
+      currencyAbbreviation: coin,
+      credentials,
+      snapshots: snaps,
+    });
+
+    const normCoin = normalizeCoinForPnlRates(coin);
+    if (!(normCoin in currentRatesByCoin)) {
+      const currentRate = getQuoteRateNumForAsset({
+        rates: args.rates,
+        quoteCurrency: effectiveQuoteCurrency,
+        coin,
+        chain: String((w as any)?.chain || coin),
+        tokenAddress,
+      });
+      if (currentRate > 0) {
+        currentRatesByCoin[normCoin] = currentRate;
+      }
+    }
+  }
+
+  return {
+    wallets: pnlWallets,
+    currentRatesByCoin,
+    quoteCurrency: effectiveQuoteCurrency,
+  };
+};
+
 export type PortfolioGainLossSummary = {
   quoteCurrency: string;
   total: {
