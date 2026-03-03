@@ -31,6 +31,7 @@ const ChartChangeRow = ({
         hideSign
         priceChange={deltaFiatFormatted}
         rangeLabel={rangeLabel}
+        fractionDigits={2}
       />
     </PercentRow>
   );
