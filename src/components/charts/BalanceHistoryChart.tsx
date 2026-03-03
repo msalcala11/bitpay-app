@@ -576,7 +576,8 @@ const BalanceHistoryChart = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walletsSig, snapshotsSig, quoteCurrency, balanceOffset]);
 
-  // Update placeholder window immediately on timeframe change, then compute.
+  // On timeframe change, keep the previously rendered series visible while
+  // the new timeframe computes (shown with reduced opacity behind loader).
   // IMPORTANT: depend ONLY on timeframe/balanceOffset so we don't re-run on
   // every render due to callback identity or internal helper identity changes.
   useEffect(() => {
@@ -584,14 +585,6 @@ const BalanceHistoryChart = ({
     onSelectedBalanceChangeRef.current?.(undefined);
     enqueueComputeRef.current = enqueueComputeRef.current.filter(
       tf => tf === selectedTimeframe,
-    );
-
-    setDisplayData(
-      buildPlaceholderSeries({
-        timeframe: selectedTimeframe,
-        nowMs: Date.now(),
-        value: balanceOffset,
-      }),
     );
 
     // Compute selected timeframe (if possible) after painting.
