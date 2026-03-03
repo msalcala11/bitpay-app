@@ -1076,7 +1076,7 @@ const KeyOverview = () => {
     [key, hideAllBalances],
   );
 
-  const renderListHeaderComponent = useCallback(() => {
+  const listHeaderComponent = useMemo(() => {
     return (
       <>
         <BalanceContainer>
@@ -1311,7 +1311,7 @@ const KeyOverview = () => {
             onRefresh={() => onRefresh()}
           />
         }
-        ListHeaderComponent={renderListHeaderComponent}
+        ListHeaderComponent={listHeaderComponent}
         ListFooterComponent={renderListFooterComponent}
         data={renderDataComponent}
         renderItem={memoizedRenderItem}
