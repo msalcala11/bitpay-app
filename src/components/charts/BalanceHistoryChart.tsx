@@ -672,6 +672,7 @@ const BalanceHistoryChart = ({
     !inputsReady ||
     !!isComputingByTimeframe[selectedTimeframe] ||
     isSelectedTimeframePending;
+  const hasAnyComputedSeries = Object.values(seriesByTimeframe).some(Boolean);
 
   const activeSeries =
     selectedComputedSeries || selectedOrFallbackComputedSeries || displayData;
@@ -873,6 +874,7 @@ const BalanceHistoryChart = ({
           theme.dark ? 'transparent' : White,
         ]}
         isLoading={isChartLoading}
+        hideLineWhileLoading={!hasAnyComputedSeries}
         enablePanGesture={!isChartLoading}
         SelectionDot={ChartSelectionDot}
         TopAxisLabel={MaxAxisLabel}

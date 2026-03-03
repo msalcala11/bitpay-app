@@ -32,6 +32,7 @@ export type InteractiveLineChartProps = {
   color: string;
   gradientFillColors: [string, string];
   isLoading?: boolean;
+  hideLineWhileLoading?: boolean;
   enablePanGesture?: boolean;
   panGestureDelay?: number;
   animated?: boolean;
@@ -54,6 +55,7 @@ const InteractiveLineChart = ({
   color,
   gradientFillColors,
   isLoading,
+  hideLineWhileLoading = false,
   enablePanGesture = true,
   panGestureDelay = 100,
   animated = true,
@@ -85,7 +87,7 @@ const InteractiveLineChart = ({
           width: WIDTH,
           height: 200,
           marginTop: 10,
-          opacity: isLoading ? 0.25 : 1,
+          opacity: isLoading ? (hideLineWhileLoading ? 0 : 0.25) : 1,
         }}
       />
       {isLoading ? (
