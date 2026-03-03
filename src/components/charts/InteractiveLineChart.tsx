@@ -85,7 +85,7 @@ const InteractiveLineChart = ({
           width: WIDTH,
           height: 200,
           marginTop: 10,
-          opacity: isLoading ? 0.25 : 1,
+          opacity: isLoading ? 0 : 1,
         }}
       />
       {isLoading ? (
