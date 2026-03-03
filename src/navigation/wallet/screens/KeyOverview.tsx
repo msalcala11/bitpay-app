@@ -1078,29 +1078,78 @@ const KeyOverview = () => {
 
   const renderListHeaderComponent = useCallback(() => {
     return (
-      <WalletListHeader>
-        <H5>{t('My Wallets')}</H5>
-        <View
-          style={{
-            flexDirection: 'row',
-            justifyContent: 'flex-end',
-            marginRight: -10,
-          }}>
-          <SearchComponent<AccountRowProps>
-            searchVal={searchVal}
-            setSearchVal={setSearchVal}
-            searchResults={searchResults}
-            setSearchResults={searchResults => {
-              setSearchResults(searchResults);
-              setIsLoadingInitial(false);
-            }}
-            searchFullList={memorizedAccountList}
-            context={'keyoverview'}
-          />
-        </View>
-      </WalletListHeader>
+      <>
+        <BalanceContainer>
+          <TouchableOpacity
+            onLongPress={() => {
+              dispatch(toggleHideAllBalances());
+            }}>
+            {!hideAllBalances ? (
+              <Balance scale={shouldScale(totalBalance)}>
+                {formatFiatAmount(
+                  selectedBalance ?? totalBalance,
+                  defaultAltCurrency.isoCode,
+                  {
+                    currencyDisplay: 'symbol',
+                  },
+                )}
+              </Balance>
+            ) : (
+              <H2>****</H2>
+            )}
+          </TouchableOpacity>
+
+          {!hideAllBalances ? (
+            <BalanceHistoryChart
+              wallets={visibleKeyWallets}
+              snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
+              quoteCurrency={quoteCurrency}
+              rates={rates}
+              fiatRateSeriesCache={fiatRateSeriesCache}
+              onSelectedBalanceChange={setSelectedBalance}
+            />
+          ) : null}
+        </BalanceContainer>
+
+        <WalletListHeader>
+          <H5>{t('My Wallets')}</H5>
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'flex-end',
+              marginRight: -10,
+            }}>
+            <SearchComponent<AccountRowProps>
+              searchVal={searchVal}
+              setSearchVal={setSearchVal}
+              searchResults={searchResults}
+              setSearchResults={searchResults => {
+                setSearchResults(searchResults);
+                setIsLoadingInitial(false);
+              }}
+              searchFullList={memorizedAccountList}
+              context={'keyoverview'}
+            />
+          </View>
+        </WalletListHeader>
+      </>
     );
-  }, [key, hideAllBalances]);
+  }, [
+    defaultAltCurrency.isoCode,
+    dispatch,
+    fiatRateSeriesCache,
+    hideAllBalances,
+    memorizedAccountList,
+    portfolio?.snapshotsByWalletId,
+    quoteCurrency,
+    rates,
+    searchResults,
+    searchVal,
+    selectedBalance,
+    t,
+    totalBalance,
+    visibleKeyWallets,
+  ]);
 
   const renderListFooterComponent = useCallback(() => {
     return (
@@ -1254,36 +1303,6 @@ const KeyOverview = () => {
 
   return (
     <OverviewContainer>
-      <BalanceContainer>
-        <TouchableOpacity
-          onLongPress={() => {
-            dispatch(toggleHideAllBalances());
-          }}>
-          {!hideAllBalances ? (
-            <>
-              <Balance scale={shouldScale(totalBalance)}>
-                {formatFiatAmount(selectedBalance ?? totalBalance, defaultAltCurrency.isoCode, {
-                  currencyDisplay: 'symbol',
-                })}
-              </Balance>
-            </>
-          ) : (
-            <H2>****</H2>
-          )}
-        </TouchableOpacity>
-
-        {!hideAllBalances ? (
-          <BalanceHistoryChart
-            wallets={visibleKeyWallets}
-            snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
-            quoteCurrency={quoteCurrency}
-            rates={rates}
-            fiatRateSeriesCache={fiatRateSeriesCache}
-            onSelectedBalanceChange={setSelectedBalance}
-          />
-        ) : null}
-      </BalanceContainer>
-
       <FlashList<AccountRowProps>
         refreshControl={
           <RefreshControl
