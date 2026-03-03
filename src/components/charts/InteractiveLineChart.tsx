@@ -1,6 +1,6 @@
 import React from 'react';
 import {TouchableWithoutFeedback} from 'react-native';
-import styled from 'styled-components/native';
+import styled, {useTheme} from 'styled-components/native';
 import {LineGraph, type GraphPoint} from 'react-native-graph';
 import type {SelectionDotProps} from 'react-native-graph';
 import Loader from '../loader/Loader';
@@ -31,6 +31,7 @@ export type InteractiveLineChartProps = {
   points: GraphPoint[];
   color: string;
   gradientFillColors: [string, string];
+  lineThickness?: number;
   isLoading?: boolean;
   hideLineWhileLoading?: boolean;
   enablePanGesture?: boolean;
@@ -54,6 +55,7 @@ const InteractiveLineChart = ({
   points,
   color,
   gradientFillColors,
+  lineThickness,
   isLoading,
   hideLineWhileLoading = false,
   enablePanGesture = true,
@@ -68,11 +70,16 @@ const InteractiveLineChart = ({
   onLongPress,
   longPressDelayMs = 800,
 }: InteractiveLineChartProps): React.ReactElement => {
+  const theme = useTheme();
+  const effectiveLineThickness =
+    typeof lineThickness === 'number' ? lineThickness : theme.dark ? 2 : 4;
+
   const chartInner = (
     <ChartInner>
       <LineGraph
         points={points}
         animated={animated}
+        lineThickness={effectiveLineThickness}
         panGestureDelay={panGestureDelay}
         enablePanGesture={enablePanGesture}
         color={color}
