@@ -442,6 +442,27 @@ const BalanceHistoryChart = ({
   const enqueueComputeRef = useRef<FiatRateInterval[]>([]);
   const computingQueueRef = useRef(false);
 
+  const enqueueTimeframeCompute = useCallback(
+    (timeframe: FiatRateInterval, prioritize = false) => {
+      const queue = enqueueComputeRef.current;
+      const existingIndex = queue.indexOf(timeframe);
+      if (existingIndex >= 0) {
+        if (prioritize && existingIndex > 0) {
+          queue.splice(existingIndex, 1);
+          queue.unshift(timeframe);
+        }
+        return;
+      }
+
+      if (prioritize) {
+        queue.unshift(timeframe);
+      } else {
+        queue.push(timeframe);
+      }
+    },
+    [],
+  );
+
   const processQueue = useCallback(() => {
     if (computingQueueRef.current) {
       return;
@@ -460,8 +481,18 @@ const BalanceHistoryChart = ({
         setIsComputingByTimeframe(prev => ({...prev, [next]: true}));
         setLastAttemptRevisionByTimeframe(prev => ({...prev, [next]: cacheRevision}));
 
-        // Yield to the JS event loop between timeframes.
-        setTimeout(() => {
+        // Let loading state render before running potentially heavy analysis.
+        const scheduleCompute = (cb: () => void) => {
+          if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => {
+              setTimeout(cb, 0);
+            });
+            return;
+          }
+          setTimeout(cb, 0);
+        };
+
+        scheduleCompute(() => {
           try {
             const computed = computeSeriesForTimeframe(next);
             setSeriesByTimeframe(prev => ({...prev, [next]: computed}));
@@ -486,7 +517,7 @@ const BalanceHistoryChart = ({
   }, [cacheRevision, computeSeriesForTimeframe]);
 
   const ensureTimeframeComputed = useCallback(
-    (tf: FiatRateInterval) => {
+    (tf: FiatRateInterval, options?: {prioritize?: boolean}) => {
       if (seriesByTimeframe[tf]) {
         return;
       }
@@ -503,13 +534,12 @@ const BalanceHistoryChart = ({
       if (lastAttemptRevisionByTimeframe[tf] === cacheRevision) {
         return;
       }
-      if (!enqueueComputeRef.current.includes(tf)) {
-        enqueueComputeRef.current.push(tf);
-      }
+      enqueueTimeframeCompute(tf, !!options?.prioritize);
       processQueue();
     },
     [
       cacheRevision,
+      enqueueTimeframeCompute,
       hasAnySnapshots,
       inputsReady,
       isComputingByTimeframe,
@@ -552,6 +582,9 @@ const BalanceHistoryChart = ({
   useEffect(() => {
     setSelectedPoint(undefined);
     onSelectedBalanceChangeRef.current?.(undefined);
+    enqueueComputeRef.current = enqueueComputeRef.current.filter(
+      tf => tf === selectedTimeframe,
+    );
 
     setDisplayData(
       buildPlaceholderSeries({
@@ -562,7 +595,7 @@ const BalanceHistoryChart = ({
     );
 
     // Compute selected timeframe (if possible) after painting.
-    ensureTimeframeComputedRef.current(selectedTimeframe);
+    ensureTimeframeComputedRef.current(selectedTimeframe, {prioritize: true});
   }, [selectedTimeframe, balanceOffset]);
 
   // When inputs become ready or the fiat-rate cache updates, try computing missing series.
@@ -571,13 +604,9 @@ const BalanceHistoryChart = ({
       return;
     }
 
-    // Compute the selected timeframe first.
-    ensureTimeframeComputed(selectedTimeframe);
-
-    // Precompute other timeframes opportunistically.
-    for (const tf of ['ALL', '1D', '1W', '1M', '3M', '1Y', '5Y'] as FiatRateInterval[]) {
-      ensureTimeframeComputed(tf);
-    }
+    // Compute only the selected timeframe to avoid background JS work
+    // freezing selector interactions.
+    ensureTimeframeComputed(selectedTimeframe, {prioritize: true});
   }, [cacheRevision, ensureTimeframeComputed, inputsReady, selectedTimeframe]);
 
   const selectedComputedSeries = seriesByTimeframe[selectedTimeframe];
@@ -644,12 +673,12 @@ const BalanceHistoryChart = ({
   }, [rangeLabel, selectedPoint?.date, selectedTimeframe]);
 
   // Show loader while computing, or while waiting for required inputs/series.
+  const isSelectedTimeframePending =
+    !selectedComputedSeries && !selectedTimeframeError;
   const isChartLoading =
     !inputsReady ||
     !!isComputingByTimeframe[selectedTimeframe] ||
-    (!selectedComputedSeries &&
-      !selectedOrFallbackComputedSeries &&
-      !selectedTimeframeError);
+    isSelectedTimeframePending;
 
   const activeSeries =
     selectedComputedSeries || selectedOrFallbackComputedSeries || displayData;
