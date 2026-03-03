@@ -34,6 +34,7 @@ import {
   View,
 } from 'react-native';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
+import BalanceHistoryChart from '../../../components/charts/BalanceHistoryChart';
 import {
   Badge,
   Balance,
@@ -52,6 +53,7 @@ import {
 import {
   formatCryptoAddress,
   formatCurrencyAbbreviation,
+  formatFiatAmount,
   shouldScale,
   sleep,
   fixWalletAddresses,
@@ -380,7 +382,11 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   );
   const [showReceiveAddressBottomModal, setShowReceiveAddressBottomModal] =
     useState(false);
-  const {rates} = useAppSelector(({RATE}) => RATE);
+  const {rates, fiatRateSeriesCache} = useAppSelector(({RATE}) => RATE);
+  const snapshotsByWalletId = useAppSelector(
+    ({PORTFOLIO}) => PORTFOLIO.snapshotsByWalletId,
+  );
+  const [selectedBalance, setSelectedBalance] = useState<number | undefined>();
   const [showKeyOptions, setShowKeyOptions] = useState(false);
 
   const [searchResultsHistory, setSearchResultsHistory] = useState(
@@ -431,7 +437,13 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   const accountItem = memorizedAccountList.find(
     a => a.receiveAddress === selectedAccountAddress,
   )!;
-  const totalBalance = accountItem?.fiatBalanceFormat;
+  const totalBalance =
+    typeof selectedBalance === 'number'
+      ? formatFiatAmount(selectedBalance, defaultAltCurrency.isoCode, {
+          currencyDisplay: 'symbol',
+          customPrecision: 'minimal',
+        })
+      : accountItem?.fiatBalanceFormat;
   const hasMultipleAccounts = memorizedAccountList.length > 1;
 
   const accounts = useAppSelector(
@@ -1381,6 +1393,18 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
                 )}
               </Row>
             </TouchableOpacity>
+
+            {!hideAllBalances ? (
+              <BalanceHistoryChart
+                wallets={accountItem?.wallets || []}
+                snapshotsByWalletId={snapshotsByWalletId || {}}
+                quoteCurrency={defaultAltCurrency.isoCode}
+                rates={rates}
+                fiatRateSeriesCache={fiatRateSeriesCache}
+                onSelectedBalanceChange={setSelectedBalance}
+              />
+            ) : null}
+
             <BadgeContainerTouchable
               onPress={copyToClipboard}
               activeOpacity={ActiveOpacity}

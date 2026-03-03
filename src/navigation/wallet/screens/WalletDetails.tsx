@@ -23,6 +23,7 @@ import {
 } from 'react-native';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import styled from 'styled-components/native';
+import BalanceHistoryChart from '../../../components/charts/BalanceHistoryChart';
 import Settings from '../../../components/settings/Settings';
 import {
   Balance,
@@ -47,6 +48,7 @@ import {
   isSegwit,
   isTaproot,
 } from '../../../store/wallet/utils/wallet';
+import {formatFiatAmount} from '../../../utils/helper-methods';
 import {
   setWalletScanning,
   updatePortfolioBalance,
@@ -309,9 +311,15 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const {t} = useTranslation();
   const [showWalletOptions, setShowWalletOptions] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedFiatBalance, setSelectedFiatBalance] = useState<
+    number | undefined
+  >();
   const {walletId, skipInitializeHistory, copayerId} = route.params;
   const {keys} = useAppSelector(({WALLET}) => WALLET);
-  const {rates} = useAppSelector(({RATE}) => RATE);
+  const {rates, fiatRateSeriesCache} = useAppSelector(({RATE}) => RATE);
+  const snapshotsByWalletId = useAppSelector(
+    ({PORTFOLIO}) => PORTFOLIO.snapshotsByWalletId,
+  );
   const supportedCardMap = useAppSelector(
     ({SHOP_CATALOG}) => SHOP_CATALOG.supportedCardMap,
   );
@@ -521,6 +529,14 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
     network,
     pendingTxps,
   } = uiFormattedWallet;
+
+  const displayedFiatBalanceFormat =
+    typeof selectedFiatBalance === 'number'
+      ? formatFiatAmount(selectedFiatBalance, defaultAltCurrency.isoCode, {
+          currencyDisplay: 'symbol',
+          customPrecision: 'minimal',
+        })
+      : fiatBalanceFormat;
 
   const showFiatBalance =
     // @ts-ignore
@@ -1089,10 +1105,22 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
                       {showFiatBalance &&
                         !hideAllBalances &&
                         !fullWalletObj.isScanning && (
-                          <Paragraph>{fiatBalanceFormat}</Paragraph>
+                          <Paragraph>{displayedFiatBalanceFormat}</Paragraph>
                         )}
                     </Row>
                   </TouchableOpacity>
+
+                  {!hideAllBalances ? (
+                    <BalanceHistoryChart
+                      wallets={[fullWalletObj]}
+                      snapshotsByWalletId={snapshotsByWalletId || {}}
+                      quoteCurrency={defaultAltCurrency.isoCode}
+                      rates={rates}
+                      fiatRateSeriesCache={fiatRateSeriesCache}
+                      onSelectedBalanceChange={setSelectedFiatBalance}
+                    />
+                  ) : null}
+
                   {!hideAllBalances && showBalanceDetailsButton() && (
                     <TouchableRow
                       onPress={() => setShowBalanceDetailsModal(true)}>
