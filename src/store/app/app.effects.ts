@@ -4,6 +4,7 @@ import {debounce} from 'lodash';
 import {
   DeviceEventEmitter,
   EmitterSubscription,
+  InteractionManager,
   Linking,
   Platform,
   Share,
@@ -169,6 +170,20 @@ const SSL_PINS = {
   GOOGLE_WE1: 'kIdp6NNEd8wsugYyyIYFsi1ylMCED3hZbSR8ZFsa/A4=',
 };
 
+const runAfterInitialInteractions = async (): Promise<void> => {
+  await new Promise<void>(resolve => {
+    InteractionManager.runAfterInteractions(() => {
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+        return;
+      }
+      setTimeout(resolve, 0);
+    });
+  });
+};
+
 export const startAppInit = (): Effect => async (dispatch, getState) => {
   try {
     logManager.info(
@@ -209,8 +224,6 @@ export const startAppInit = (): Effect => async (dispatch, getState) => {
     const {customTokensMigrationComplete, polygonMigrationComplete} = WALLET;
     // init analytics -> post onboarding or migration
     dispatch(initAnalytics());
-
-    const walletInitPromise = dispatch(startWalletStoreInit());
 
     const {
       contactMigrationComplete,
@@ -289,8 +302,15 @@ export const startAppInit = (): Effect => async (dispatch, getState) => {
     DeviceEventEmitter.emit(DeviceEmitterEvents.APP_DATA_INITIALIZED);
     logManager.info('Initialized app successfully.');
 
+    const walletInitPromise = (async () => {
+      await runAfterInitialInteractions();
+      return dispatch(startWalletStoreInit());
+    })();
+
     walletInitPromise
-      .then(() => {
+      .then(async () => {
+        await runAfterInitialInteractions();
+
         const stateAfterWalletInit = getState();
         if (stateAfterWalletInit.APP?.showPortfolioValue === false) {
           return;
