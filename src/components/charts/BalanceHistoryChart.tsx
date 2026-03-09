@@ -67,6 +67,12 @@ type AnalysisInputs = ReturnType<
   typeof buildPnlWalletInputsFromPortfolioSnapshots
 >;
 
+const EMPTY_ANALYSIS_INPUTS = (quoteCurrency: string): AnalysisInputs => ({
+  wallets: [],
+  currentRatesByCoin: {},
+  quoteCurrency: (quoteCurrency || '').toUpperCase(),
+});
+
 const getSeriesIntervalForTimeframe = (
   timeframe: FiatRateInterval,
 ): FiatRateInterval => {
@@ -376,12 +382,12 @@ const BalanceHistoryChart = ({
     Partial<Record<FiatRateInterval, boolean>>
   >({});
   const [analysisInputs, setAnalysisInputs] = useState<AnalysisInputs>(() => ({
-    wallets: [],
-    currentRatesByCoin: {},
-    quoteCurrency: (quoteCurrency || '').toUpperCase(),
+    ...EMPTY_ANALYSIS_INPUTS(quoteCurrency),
   }));
-  const [isPreparingAnalysisInputs, setIsPreparingAnalysisInputs] =
-    useState(false);
+  const [, setIsPreparingAnalysisInputs] = useState(false);
+  const [analysisInputsReadyKey, setAnalysisInputsReadyKey] = useState<
+    string | undefined
+  >(undefined);
 
   const [lastAttemptRevisionByTimeframe, setLastAttemptRevisionByTimeframe] =
     useState<Partial<Record<FiatRateInterval, string>>>({});
@@ -465,10 +471,16 @@ const BalanceHistoryChart = ({
 
   const hasAnySnapshots = snapshotStats.totalCount > 0;
   const hasCompletedInitialAllLoadRef = useRef(false);
+  const analysisInputsReadyKeyRef = useRef<string | undefined>(undefined);
 
   const selectedSeriesInterval = useMemo(() => {
     return getSeriesIntervalForTimeframe(selectedTimeframe);
   }, [selectedTimeframe]);
+
+  const analysisInputsBaseKey = useMemo(
+    () => `${walletsSig}|${snapshotsSig}|${quoteCurrency}`,
+    [quoteCurrency, snapshotsSig, walletsSig],
+  );
 
   const rateFetchAssets = useMemo(() => {
     const assets: Array<{
@@ -560,20 +572,29 @@ const BalanceHistoryChart = ({
   }, [fiatRateSeriesCache]);
 
   useEffect(() => {
+    analysisInputsReadyKeyRef.current = analysisInputsReadyKey;
+  }, [analysisInputsReadyKey]);
+
+  useEffect(() => {
     let cancelled = false;
     let prepareTimeout: ReturnType<typeof setTimeout> | undefined;
     let firstFrame: number | undefined;
     let secondFrame: number | undefined;
-
-    setAnalysisInputs({
-      wallets: [],
-      currentRatesByCoin: {},
-      quoteCurrency: (quoteCurrency || '').toUpperCase(),
-    });
+    const shouldResetPreparedInputs =
+      analysisInputsReadyKeyRef.current !== analysisInputsBaseKey;
 
     if (!hasAnySnapshots) {
+      setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
+      analysisInputsReadyKeyRef.current = undefined;
+      setAnalysisInputsReadyKey(undefined);
       setIsPreparingAnalysisInputs(false);
       return;
+    }
+
+    if (shouldResetPreparedInputs) {
+      setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
+      analysisInputsReadyKeyRef.current = undefined;
+      setAnalysisInputsReadyKey(undefined);
     }
 
     setIsPreparingAnalysisInputs(true);
@@ -599,8 +620,13 @@ const BalanceHistoryChart = ({
             return;
           }
 
+          const nextReadyKey = prepared.wallets.length
+            ? analysisInputsBaseKey
+            : undefined;
+          analysisInputsReadyKeyRef.current = nextReadyKey;
           startTransition(() => {
             setAnalysisInputs(prepared);
+            setAnalysisInputsReadyKey(nextReadyKey);
           });
         } finally {
           if (!cancelled) {
@@ -647,6 +673,7 @@ const BalanceHistoryChart = ({
   }, [
     fiatRateSeriesCache,
     hasAnySnapshots,
+    analysisInputsBaseKey,
     quoteCurrency,
     rates,
     snapshotsByWalletId,
@@ -657,9 +684,9 @@ const BalanceHistoryChart = ({
 
   const inputsReady =
     hasAnySnapshots &&
-    !isPreparingAnalysisInputs &&
     !!fiatRateSeriesCache &&
-    analysisInputs.wallets.length > 0;
+    analysisInputs.wallets.length > 0 &&
+    analysisInputsReadyKey === analysisInputsBaseKey;
 
   const computeSeriesForTimeframe = useCallback(
     async (timeframe: FiatRateInterval): Promise<ComputedSeries> => {
