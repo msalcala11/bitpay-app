@@ -14,17 +14,20 @@ import {Analytics} from '../../../../store/analytics/analytics.effects';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import {ExternalServicesScreens} from '../../../services/ExternalServicesGroup';
 
-const ButtonsRow = styled.View<{maxWidth?: number}>`
-  justify-content: space-between;
+const MAX_LINKING_BUTTON_ROW_WIDTH = 450;
+
+const ButtonsRow = styled.View<{maxWidth?: number; compactSpacing?: boolean}>`
+  justify-content: ${({compactSpacing}) =>
+    compactSpacing ? 'center' : 'space-between'};
   flex-direction: row;
   align-self: center;
-  width: ${WIDTH - 24}px;
-  max-width: ${({maxWidth = 340}) => maxWidth}px;
+  width: ${({maxWidth = MAX_LINKING_BUTTON_ROW_WIDTH}) => Math.min(WIDTH - 24, maxWidth)}px;
+  max-width: ${({maxWidth = MAX_LINKING_BUTTON_ROW_WIDTH}) => maxWidth}px;
 `;
 
-const ButtonContainer = styled.View`
+const ButtonContainer = styled.View<{compactSpacing?: boolean}>`
   align-items: center;
-  margin: 0;
+  margin: ${({compactSpacing}) => (compactSpacing ? '0 30px' : '0')};
 `;
 
 const ButtonText = styled(BaseText)`
@@ -212,27 +215,28 @@ const LinkingButtons = ({buy, sell, receive, send, swap, maxWidth}: Props) => {
       hide: !!send?.hide,
     },
   ];
+  const visibleButtons = buttonsList.filter(({hide}) => !hide);
+  const compactSpacing = visibleButtons.length <= 3;
+
   return (
-    <ButtonsRow maxWidth={maxWidth}>
-      {buttonsList.map(({key, label, cta, img, hide}: ButtonListProps) =>
-        hide ? null : (
-          <ButtonContainer key={key}>
-            <LinkButton
-              activeOpacity={ActiveOpacity}
-              disabled={
-                ['buy', 'sell', 'swap'].includes(key) &&
-                (!appWasInit || !tokensDataLoaded)
-              }
-              onPress={() => {
-                Haptic('impactLight');
-                cta();
-              }}>
-              {img}
-            </LinkButton>
-            <ButtonText>{titleCasing(label)}</ButtonText>
-          </ButtonContainer>
-        ),
-      )}
+    <ButtonsRow maxWidth={maxWidth} compactSpacing={compactSpacing}>
+      {visibleButtons.map(({key, label, cta, img}: ButtonListProps) => (
+        <ButtonContainer key={key} compactSpacing={compactSpacing}>
+          <LinkButton
+            activeOpacity={ActiveOpacity}
+            disabled={
+              ['buy', 'sell', 'swap'].includes(key) &&
+              (!appWasInit || !tokensDataLoaded)
+            }
+            onPress={() => {
+              Haptic('impactLight');
+              cta();
+            }}>
+            {img}
+          </LinkButton>
+          <ButtonText>{titleCasing(label)}</ButtonText>
+        </ButtonContainer>
+      ))}
     </ButtonsRow>
   );
 };

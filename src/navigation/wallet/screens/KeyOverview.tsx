@@ -125,7 +125,7 @@ import {BitpaySupportedTokenOptsByAddress} from '../../../constants/tokens';
 import {BWCErrorMessage} from '../../../constants/BWCError';
 import ArchaxFooter from '../../../components/archax/archax-footer';
 import {useOngoingProcess, useTokenContext} from '../../../contexts';
-import Percentage from '../../../components/percentage/Percentage';
+import BalanceHistoryChart from '../../../components/charts/BalanceHistoryChart';
 import {getDifferenceColor} from '../../../components/percentage/Percentage';
 import Button from '../../../components/button/Button';
 import {AllocationDonutLegendCard} from '../../tabs/home/components/AllocationSection';
@@ -186,8 +186,7 @@ const OverviewContainer = styled.SafeAreaView`
 `;
 
 const BalanceContainer = styled.View`
-  height: 15%;
-  margin-top: 20px;
+  margin-top: 8px;
   padding: 10px 15px;
   align-items: center;
 `;
@@ -362,6 +361,7 @@ const KeyOverview = () => {
   const {tokenOptionsByAddress} = useTokenContext();
   const [showKeyOptions, setShowKeyOptions] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedBalance, setSelectedBalance] = useState<number | undefined>();
   const {keys}: {keys: {[key: string]: Key}} = useAppSelector(
     ({WALLET}) => WALLET,
   );
@@ -1076,31 +1076,80 @@ const KeyOverview = () => {
     [key, hideAllBalances],
   );
 
-  const renderListHeaderComponent = useCallback(() => {
+  const listHeaderComponent = useMemo(() => {
     return (
-      <WalletListHeader>
-        <H5>{t('My Wallets')}</H5>
-        <View
-          style={{
-            flexDirection: 'row',
-            justifyContent: 'flex-end',
-            marginRight: -10,
-          }}>
-          <SearchComponent<AccountRowProps>
-            searchVal={searchVal}
-            setSearchVal={setSearchVal}
-            searchResults={searchResults}
-            setSearchResults={searchResults => {
-              setSearchResults(searchResults);
-              setIsLoadingInitial(false);
-            }}
-            searchFullList={memorizedAccountList}
-            context={'keyoverview'}
-          />
-        </View>
-      </WalletListHeader>
+      <>
+        <BalanceContainer>
+          <TouchableOpacity
+            onLongPress={() => {
+              dispatch(toggleHideAllBalances());
+            }}>
+            {!hideAllBalances ? (
+              <Balance scale={shouldScale(totalBalance)}>
+                {formatFiatAmount(
+                  selectedBalance ?? totalBalance,
+                  defaultAltCurrency.isoCode,
+                  {
+                    currencyDisplay: 'symbol',
+                  },
+                )}
+              </Balance>
+            ) : (
+              <H2>****</H2>
+            )}
+          </TouchableOpacity>
+
+          {!hideAllBalances ? (
+            <BalanceHistoryChart
+              wallets={visibleKeyWallets}
+              snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
+              quoteCurrency={quoteCurrency}
+              rates={rates}
+              fiatRateSeriesCache={fiatRateSeriesCache}
+              onSelectedBalanceChange={setSelectedBalance}
+            />
+          ) : null}
+        </BalanceContainer>
+
+        <WalletListHeader>
+          <H5>{t('My Wallets')}</H5>
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'flex-end',
+              marginRight: -10,
+            }}>
+            <SearchComponent<AccountRowProps>
+              searchVal={searchVal}
+              setSearchVal={setSearchVal}
+              searchResults={searchResults}
+              setSearchResults={searchResults => {
+                setSearchResults(searchResults);
+                setIsLoadingInitial(false);
+              }}
+              searchFullList={memorizedAccountList}
+              context={'keyoverview'}
+            />
+          </View>
+        </WalletListHeader>
+      </>
     );
-  }, [key, hideAllBalances]);
+  }, [
+    defaultAltCurrency.isoCode,
+    dispatch,
+    fiatRateSeriesCache,
+    hideAllBalances,
+    memorizedAccountList,
+    portfolio?.snapshotsByWalletId,
+    quoteCurrency,
+    rates,
+    searchResults,
+    searchVal,
+    selectedBalance,
+    t,
+    totalBalance,
+    visibleKeyWallets,
+  ]);
 
   const renderListFooterComponent = useCallback(() => {
     return (
@@ -1254,35 +1303,6 @@ const KeyOverview = () => {
 
   return (
     <OverviewContainer>
-      <BalanceContainer>
-        <TouchableOpacity
-          onLongPress={() => {
-            dispatch(toggleHideAllBalances());
-          }}>
-          {!hideAllBalances ? (
-            <>
-              <Balance scale={shouldScale(totalBalance)}>
-                {formatFiatAmount(totalBalance, defaultAltCurrency.isoCode, {
-                  currencyDisplay: 'symbol',
-                })}
-              </Balance>
-              {percentageDifference !== null ? (
-                <PercentageWrapper>
-                  <Percentage
-                    percentageDifference={percentageDifference}
-                    hideArrow
-                    fractionDigits={2}
-                    rangeLabel={t('Last Day')}
-                  />
-                </PercentageWrapper>
-              ) : null}
-            </>
-          ) : (
-            <H2>****</H2>
-          )}
-        </TouchableOpacity>
-      </BalanceContainer>
-
       <FlashList<AccountRowProps>
         refreshControl={
           <RefreshControl
@@ -1291,7 +1311,7 @@ const KeyOverview = () => {
             onRefresh={() => onRefresh()}
           />
         }
-        ListHeaderComponent={renderListHeaderComponent}
+        ListHeaderComponent={listHeaderComponent}
         ListFooterComponent={renderListFooterComponent}
         data={renderDataComponent}
         renderItem={memoizedRenderItem}

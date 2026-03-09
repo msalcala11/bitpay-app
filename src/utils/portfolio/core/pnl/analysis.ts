@@ -395,7 +395,7 @@ function isSingleAsset(wallets: WalletForAnalysis[]): boolean {
   return coins.size === 1;
 }
 
-export function buildPnlAnalysisSeries(args: {
+type BuildPnlAnalysisSeriesArgs = {
   wallets: WalletForAnalysis[];
   timeframe: PnlTimeframe;
   quoteCurrency: string;
@@ -408,7 +408,34 @@ export function buildPnlAnalysisSeries(args: {
   currentRatesByCoin?: Record<string, number>;
   nowMs?: number;
   maxPoints?: number;
-}): PnlAnalysisResult {
+};
+
+type BuildPnlAnalysisSeriesGeneratorOptions = {
+  yieldEveryPoints?: number;
+};
+
+const DEFAULT_ASYNC_YIELD_EVERY_POINTS = 2;
+
+const yieldToEventLoop = (): Promise<void> => {
+  return new Promise(resolve => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => setTimeout(resolve, 0));
+      return;
+    }
+    setTimeout(resolve, 0);
+  });
+};
+
+function* buildPnlAnalysisSeriesGenerator(
+  args: BuildPnlAnalysisSeriesArgs,
+  options?: BuildPnlAnalysisSeriesGeneratorOptions,
+): Generator<void, PnlAnalysisResult, void> {
+  const yieldEveryPoints =
+    typeof options?.yieldEveryPoints === 'number' &&
+    Number.isFinite(options.yieldEveryPoints) &&
+    options.yieldEveryPoints > 0
+      ? Math.floor(options.yieldEveryPoints)
+      : 0;
   const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
   const maxPoints = typeof args.maxPoints === 'number' ? args.maxPoints : 91;
 
@@ -625,6 +652,10 @@ export function buildPnlAnalysisSeries(args: {
   }
 
   for (let i = 0; i < timeline.length; i++) {
+    if (yieldEveryPoints > 0 && i > 0 && i % yieldEveryPoints === 0) {
+      yield;
+    }
+
     const ts = timeline[i];
 
     const byWalletId: Record<string, WalletPoint> = {};
@@ -851,4 +882,38 @@ export function buildPnlAnalysisSeries(args: {
     assetSummaries,
     totalSummary,
   };
+}
+
+export function buildPnlAnalysisSeries(
+  args: BuildPnlAnalysisSeriesArgs,
+): PnlAnalysisResult {
+  const generator = buildPnlAnalysisSeriesGenerator(args);
+  let next = generator.next();
+  while (!next.done) {
+    next = generator.next();
+  }
+  return next.value;
+}
+
+export async function buildPnlAnalysisSeriesAsync(
+  args: BuildPnlAnalysisSeriesArgs & {
+    yieldEveryPoints?: number;
+    yieldControl?: () => Promise<void>;
+  },
+): Promise<PnlAnalysisResult> {
+  const {yieldEveryPoints, yieldControl, ...rest} = args;
+  const generator = buildPnlAnalysisSeriesGenerator(rest, {
+    yieldEveryPoints:
+      typeof yieldEveryPoints === 'number'
+        ? yieldEveryPoints
+        : DEFAULT_ASYNC_YIELD_EVERY_POINTS,
+  });
+  const yieldFn = yieldControl || yieldToEventLoop;
+
+  let next = generator.next();
+  while (!next.done) {
+    await yieldFn();
+    next = generator.next();
+  }
+  return next.value;
 }

@@ -13,22 +13,12 @@ import React, {
   useState,
 } from 'react';
 import {RefreshControl, ScrollView, View} from 'react-native';
-import type {SelectionDotProps} from 'react-native-graph';
-import {GraphPoint, LineGraph} from 'react-native-graph';
-import {Circle, Group} from '@shopify/react-native-skia';
-import Animated, {
-  runOnJS,
-  useAnimatedReaction,
-  useSharedValue,
-  withSpring,
-  withTiming,
-} from 'react-native-reanimated';
+import type {GraphPoint} from 'react-native-graph';
 import {Path, Svg} from 'react-native-svg';
 import {useTranslation} from 'react-i18next';
 import styled, {useTheme} from 'styled-components/native';
 import HeaderBackButton from '../../../components/back/HeaderBackButton';
 import {CurrencyImage} from '../../../components/currency-image/CurrencyImage';
-import Percentage from '../../../components/percentage/Percentage';
 import {
   ActiveOpacity,
   CardContainer,
@@ -48,7 +38,6 @@ import {
 } from '../../../constants/currencies';
 import {SupportedCurrencyOptions} from '../../../constants/SupportedCurrencyOptions';
 import LinkingButtons from '../../tabs/home/components/LinkingButtons';
-import Loader from '../../../components/loader/Loader';
 import {
   Action,
   Black,
@@ -129,73 +118,12 @@ import useExchangeRateChartData, {
   HISTORIC_TIMEFRAME_WINDOW_MS,
 } from '../hooks/useExchangeRateChartData';
 
-const AxisLabel = ({
-  value,
-  index,
-  prevIndex,
-  arrayLength,
-  currencyAbbreviation,
-  type,
-  textColor,
-}: {
-  value: number;
-  index: number;
-  prevIndex?: number;
-  arrayLength: number;
-  currencyAbbreviation: string;
-  type: 'min' | 'max';
-  textColor?: string;
-}): React.ReactElement => {
-  const defaultAltCurrency = useAppSelector(
-    ({APP}: RootState) => APP.defaultAltCurrency,
-  );
-  const theme = useTheme();
-  const [textWidth, setTextWidth] = useState(50);
-  const prevLocation =
-    ((prevIndex ?? index) / arrayLength) * WIDTH - textWidth / 2;
-  const location = (index / arrayLength) * WIDTH - textWidth / 2;
-  const getTranslateX = (loc: number) => {
-    const minLocation = 5;
-    const maxLocation = WIDTH - textWidth;
-    return Math.min(Math.max(loc, minLocation), maxLocation);
-  };
-  const prevTranslateX = getTranslateX(prevLocation);
-  const newTranslateX = getTranslateX(location);
-  const translateX = useSharedValue(prevTranslateX);
-  translateX.value = withSpring(newTranslateX, {
-    mass: 1,
-    stiffness: 500,
-    damping: 400,
-    velocity: 0,
-  });
-  const translateY = type === 'min' ? 5 : -5;
-  const opacity = useSharedValue(typeof prevIndex !== 'undefined' ? 1 : 0);
-  opacity.value = withTiming(1, {duration: 800});
-  const labelColor = textColor ?? (theme.dark ? Slate30 : SlateDark);
-  return (
-    <Animated.View
-      style={{
-        flexDirection: 'row',
-        transform: [{translateY}],
-        opacity,
-      }}>
-      <Animated.View
-        style={{transform: [{translateX}]}}
-        onLayout={event => setTextWidth(event.nativeEvent.layout.width)}>
-        <BaseText
-          style={{
-            color: labelColor,
-            fontWeight: '400',
-            fontSize: 13,
-          }}>
-          {formatFiatAmount(value, defaultAltCurrency.isoCode, {
-            currencyAbbreviation,
-          })}
-        </BaseText>
-      </Animated.View>
-    </Animated.View>
-  );
-};
+import ChartAxisLabel from '../../../components/charts/ChartAxisLabel';
+import ChartSelectionDot from '../../../components/charts/ChartSelectionDot';
+import InteractiveLineChart from '../../../components/charts/InteractiveLineChart';
+import TimeframeSelector from '../../../components/charts/TimeframeSelector';
+import ChartChangeRow from '../../../components/charts/ChartChangeRow';
+import {FIAT_CHART_TIMEFRAMES} from '../../../components/charts/fiatTimeframes';
 
 const formatCompactNumber = (value: number, maximumFractionDigits = 2) => {
   const abs = Math.abs(value);
@@ -345,71 +273,6 @@ const PriceText = styled(H2)<{isLargeNumber?: boolean}>`
   font-size: ${({isLargeNumber}) => (isLargeNumber ? '32px' : '40px')};
   line-height: ${({isLargeNumber}) => (isLargeNumber ? '38px' : '50px')};
   margin-bottom: 5px;
-`;
-
-const PercentRow = styled.View`
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-`;
-
-const ChartContainer = styled.View`
-  margin-top: 8px;
-`;
-
-const ChartInner = styled.View`
-  position: relative;
-  align-items: center;
-  justify-content: center;
-  height: 220px;
-`;
-
-const ChartLoaderOverlay = styled.View`
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  justify-content: center;
-  align-items: center;
-`;
-
-const TimeframeContainer = styled.View`
-  margin-top: 5px;
-  padding: 0 0px;
-`;
-
-const TimeframeRow = styled.View`
-  flex-direction: row;
-  justify-content: space-between;
-  align-self: center;
-  width: ${WIDTH - 24}px;
-`;
-
-const TimeframeHitSlop = {top: 10, bottom: 10, left: 10, right: 10} as const;
-
-const TimeframePill = styled(TouchableOpacity)<{active: boolean}>`
-  height: 34px;
-  min-width: 44px;
-  padding: 0 12px;
-  border-radius: 18px;
-  align-items: center;
-  justify-content: center;
-  background-color: ${({theme, active}) =>
-    active ? (theme.dark ? Midnight : LightBlue) : 'transparent'};
-`;
-
-const TimeframeText = styled(BaseText)<{active: boolean}>`
-  font-size: 14px;
-  font-weight: ${({active}) => (active ? 500 : 400)};
-  color: ${({theme, active}) =>
-    active
-      ? theme.dark
-        ? LinkBlue
-        : Action
-      : theme.dark
-      ? Slate30
-      : SlateDark};
 `;
 
 const ActionsContainer = styled.View`
@@ -586,55 +449,6 @@ const AboutText = styled(BaseText)`
 //   );
 // };
 
-const ChartSelectionDot = ({
-  isActive,
-  color,
-  circleX,
-  circleY,
-}: SelectionDotProps): React.ReactElement => {
-  const outerRadius = useSharedValue(0);
-  const innerRadius = useSharedValue(0);
-
-  const setIsActive = useCallback(
-    (active: boolean) => {
-      outerRadius.value = withSpring(active ? 9 : 0, {
-        mass: 1,
-        stiffness: 1000,
-        damping: 50,
-        velocity: 0,
-      });
-      innerRadius.value = withSpring(active ? 4 : 0, {
-        mass: 1,
-        stiffness: 1000,
-        damping: 50,
-        velocity: 0,
-      });
-    },
-    [innerRadius, outerRadius],
-  );
-
-  useAnimatedReaction(
-    () => isActive.value,
-    active => {
-      runOnJS(setIsActive)(active);
-    },
-    [setIsActive],
-  );
-
-  return (
-    <Group>
-      <Circle
-        cx={circleX}
-        cy={circleY}
-        r={outerRadius}
-        color={color}
-        opacity={0.18}
-      />
-      <Circle cx={circleX} cy={circleY} r={innerRadius} color={color} />
-    </Group>
-  );
-};
-
 const tokenThemeByCoin: {[key in string]: string} = Object.values(
   BitpaySupportedTokens,
 ).reduce((acc, token) => {
@@ -678,9 +492,10 @@ const ExchangeRate = () => {
 
   const [displayData, setDisplayData] =
     useState<ChartDataType>(defaultDisplayData);
-  const [prevDisplayData, setPrevDisplayData] =
-    useState<ChartDataType>(defaultDisplayData);
   const displayDataRef = useRef(displayData);
+  // Keep the ref hot; axis label renderers read from it but must not recreate
+  // their component identities.
+  displayDataRef.current = displayData;
   useEffect(() => {
     displayDataRef.current = displayData;
   }, [displayData]);
@@ -960,7 +775,6 @@ const ExchangeRate = () => {
       typeof pointsForChartRaw !== 'undefined' &&
       typeof derivedDisplayData !== 'undefined'
     ) {
-      setPrevDisplayData(displayDataRef.current);
       setDisplayData(derivedDisplayData);
       setIsChartLoading(false);
       return;
@@ -1377,76 +1191,66 @@ const ExchangeRate = () => {
     return displayData.data;
   }, [displayData.data]);
 
+  // Axis label renderers are passed to `react-native-graph` as *component
+  // types*. If we recreate them on every render (e.g. via useCallback deps),
+  // React treats them as new component types and unmounts/remounts the labels.
+  // That resets internal measurement/animation state and can show up as a
+  // jarring "jump" to a clamped edge before sliding to the final position.
+  //
+  // Keep stable identities and read the latest values from refs.
+  const currencyAbbreviationRef = useRef(currencyAbbreviation);
+  currencyAbbreviationRef.current = currencyAbbreviation;
+  const selectedTimeframeHighValueRef = useRef(selectedTimeframeHighValue);
+  selectedTimeframeHighValueRef.current = selectedTimeframeHighValue;
+
   useEffect(() => {
     gestureStarted.current = false;
     setSelectedPoint(undefined);
   }, [chartPoints]);
 
   const MinAxisLabel = useCallback(() => {
-    if (isChartLoading) {
-      return null;
-    }
     if (
-      !displayData.data.length ||
-      typeof displayData.minIndex !== 'number' ||
-      displayData.minPoint?.value == null
+      !displayDataRef.current.data.length ||
+      typeof displayDataRef.current.minIndex !== 'number' ||
+      displayDataRef.current.minPoint?.value == null
     ) {
       return null;
     }
 
     return (
-      <AxisLabel
-        value={displayData.minPoint.value}
-        index={displayData.minIndex}
-        prevIndex={prevDisplayData.minIndex}
-        arrayLength={displayData.data.length}
-        currencyAbbreviation={currencyAbbreviation}
+      <ChartAxisLabel
+        value={displayDataRef.current.minPoint.value}
+        index={displayDataRef.current.minIndex}
+        arrayLength={displayDataRef.current.data.length}
+        currencyAbbreviation={currencyAbbreviationRef.current}
         type="min"
       />
     );
-  }, [
-    currencyAbbreviation,
-    displayData.data.length,
-    displayData.minIndex,
-    displayData.minPoint?.value,
-    isChartLoading,
-    prevDisplayData.minIndex,
-  ]);
+  }, []);
 
   const MaxAxisLabel = useCallback(() => {
+    const dd = displayDataRef.current;
     const maxAxisLabelValue =
-      selectedTimeframeHighValue ?? displayData.maxPoint?.value;
+      selectedTimeframeHighValueRef.current ?? dd.maxPoint?.value;
 
-    if (isChartLoading) {
-      return null;
-    }
     if (
-      !displayData.data.length ||
-      typeof displayData.maxIndex !== 'number' ||
+      !dd.data.length ||
+      typeof dd.maxIndex !== 'number' ||
       maxAxisLabelValue == null
     ) {
       return null;
     }
 
     return (
-      <AxisLabel
+      <ChartAxisLabel
         value={maxAxisLabelValue}
-        index={displayData.maxIndex}
-        prevIndex={prevDisplayData.maxIndex}
-        arrayLength={displayData.data.length}
-        currencyAbbreviation={currencyAbbreviation}
+        index={dd.maxIndex}
+        arrayLength={dd.data.length}
+        currencyAbbreviation={currencyAbbreviationRef.current}
         type="max"
       />
     );
-  }, [
-    currencyAbbreviation,
-    displayData.data.length,
-    displayData.maxIndex,
-    displayData.maxPoint?.value,
-    isChartLoading,
-    prevDisplayData.maxIndex,
-    selectedTimeframeHighValue,
-  ]);
+  }, []);
 
   const onPointSelected = useCallback(
     (p: GraphPoint) => {
@@ -1614,16 +1418,6 @@ const ExchangeRate = () => {
     });
   }, [currencyName, navigation]);
 
-  const timeframes: Array<{label: string; value: FiatRateInterval}> = [
-    {label: 'All', value: 'ALL'},
-    {label: '1D', value: '1D'},
-    {label: '1W', value: '1W'},
-    {label: '1M', value: '1M'},
-    {label: '3M', value: '3M'},
-    {label: '1Y', value: '1Y'},
-    {label: '5Y', value: '5Y'},
-  ];
-
   return (
     <ScreenContainer>
       <ScrollView
@@ -1644,67 +1438,38 @@ const ExchangeRate = () => {
             }>
             {formattedTopPrice}
           </PriceText>
-          <PercentRow style={{opacity: isChartLoading ? 0 : 1}}>
-            <Percentage
-              percentageDifference={percentChangeToDisplay}
-              hideArrow
-              hideSign
-              priceChange={priceChangeToDisplay}
-              rangeLabel={rangeOrSelectedPointLabel}
-            />
-          </PercentRow>
+          <ChartChangeRow
+            percent={percentChangeToDisplay}
+            deltaFiatFormatted={priceChangeToDisplay}
+            rangeLabel={rangeOrSelectedPointLabel}
+            isLoading={isChartLoading}
+          />
         </TopSection>
 
-        <ChartContainer>
-          <ChartInner>
-            <LineGraph
-              points={chartPoints}
-              animated={true}
-              gradientFillColors={[
-                gradientBackgroundColor,
-                theme.dark ? 'transparent' : White,
-              ]}
-              enablePanGesture={true}
-              panGestureDelay={100}
-              onGestureStart={onGestureStarted}
-              onPointSelected={onPointSelected}
-              onGestureEnd={onGestureEnd}
-              TopAxisLabel={MaxAxisLabel}
-              BottomAxisLabel={MinAxisLabel}
-              SelectionDot={ChartSelectionDot}
-              color={theme.dark && coinColor === Black ? White : coinColor}
-              style={{
-                width: WIDTH,
-                height: 200,
-                marginTop: 10,
-                opacity: isChartLoading ? 0.25 : 1,
-              }}
-            />
-            {isChartLoading ? (
-              <ChartLoaderOverlay pointerEvents="none">
-                <Loader size={32} spinning />
-              </ChartLoaderOverlay>
-            ) : null}
-          </ChartInner>
-        </ChartContainer>
+        <InteractiveLineChart
+          points={chartPoints}
+          animated={true}
+          gradientFillColors={[
+            gradientBackgroundColor,
+            theme.dark ? 'transparent' : White,
+          ]}
+          enablePanGesture={true}
+          panGestureDelay={100}
+          onGestureStart={onGestureStarted}
+          onPointSelected={onPointSelected}
+          onGestureEnd={onGestureEnd}
+          TopAxisLabel={MaxAxisLabel}
+          BottomAxisLabel={MinAxisLabel}
+          SelectionDot={ChartSelectionDot}
+          color={theme.dark && coinColor === Black ? White : coinColor}
+          isLoading={isChartLoading}
+        />
 
-        <TimeframeContainer>
-          <TimeframeRow>
-            {timeframes.map(({label, value}) => {
-              const active = selectedTimeframe === value;
-              return (
-                <TimeframePill
-                  key={value}
-                  active={active}
-                  hitSlop={TimeframeHitSlop}
-                  activeOpacity={ActiveOpacity}
-                  onPress={() => setSelectedTimeframe(value)}>
-                  <TimeframeText active={active}>{label}</TimeframeText>
-                </TimeframePill>
-              );
-            })}
-          </TimeframeRow>
-        </TimeframeContainer>
+        <TimeframeSelector
+          options={FIAT_CHART_TIMEFRAMES}
+          selected={selectedTimeframe}
+          onSelect={setSelectedTimeframe}
+        />
 
         <ActionsContainer>
           <LinkingButtons
