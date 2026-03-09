@@ -1,4 +1,11 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   InteractionManager,
   StyleProp,
@@ -35,7 +42,10 @@ import ChartSelectionDot from './ChartSelectionDot';
 import ChartChangeRow from './ChartChangeRow';
 import {Action, LinkBlue, White} from '../../styles/colors';
 import haptic from '../haptic-feedback/haptic';
-import {buildPnlWalletInputsFromPortfolioSnapshots} from '../../utils/portfolio/assets';
+import {
+  buildPnlWalletInputsFromPortfolioSnapshots,
+  buildPnlWalletInputsFromPortfolioSnapshotsAsync,
+} from '../../utils/portfolio/assets';
 import {useAppDispatch} from '../../utils/hooks';
 import {fetchFiatRateSeriesInterval} from '../../store/wallet/effects';
 import {normalizeFiatRateSeriesCoin} from '../../utils/portfolio/core/pnl/rates';
@@ -52,6 +62,10 @@ const PRECOMPUTE_TIMEFRAME_ORDER: FiatRateInterval[] = [
   '1Y',
   '5Y',
 ];
+
+type AnalysisInputs = ReturnType<
+  typeof buildPnlWalletInputsFromPortfolioSnapshots
+>;
 
 const getSeriesIntervalForTimeframe = (
   timeframe: FiatRateInterval,
@@ -361,6 +375,13 @@ const BalanceHistoryChart = ({
   const [isComputingByTimeframe, setIsComputingByTimeframe] = useState<
     Partial<Record<FiatRateInterval, boolean>>
   >({});
+  const [analysisInputs, setAnalysisInputs] = useState<AnalysisInputs>(() => ({
+    wallets: [],
+    currentRatesByCoin: {},
+    quoteCurrency: (quoteCurrency || '').toUpperCase(),
+  }));
+  const [isPreparingAnalysisInputs, setIsPreparingAnalysisInputs] =
+    useState(false);
 
   const [lastAttemptRevisionByTimeframe, setLastAttemptRevisionByTimeframe] =
     useState<Partial<Record<FiatRateInterval, string>>>({});
@@ -443,6 +464,7 @@ const BalanceHistoryChart = ({
   }, [snapshotsByWalletId, wallets]);
 
   const hasAnySnapshots = snapshotStats.totalCount > 0;
+  const hasCompletedInitialAllLoadRef = useRef(false);
 
   const selectedSeriesInterval = useMemo(() => {
     return getSeriesIntervalForTimeframe(selectedTimeframe);
@@ -537,19 +559,105 @@ const BalanceHistoryChart = ({
     return `${keysCount}:${maxFetchedOn}`;
   }, [fiatRateSeriesCache]);
 
-  const analysisInputs = useMemo(() => {
-    return buildPnlWalletInputsFromPortfolioSnapshots({
-      snapshotsByWalletId: snapshotsByWalletId || {},
-      wallets: wallets || [],
-      quoteCurrency,
-      rates,
-      fiatRateSeriesCache,
+  useEffect(() => {
+    let cancelled = false;
+    let prepareTimeout: ReturnType<typeof setTimeout> | undefined;
+    let firstFrame: number | undefined;
+    let secondFrame: number | undefined;
+
+    setAnalysisInputs({
+      wallets: [],
+      currentRatesByCoin: {},
+      quoteCurrency: (quoteCurrency || '').toUpperCase(),
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [walletsSig, snapshotsSig, quoteCurrency, rates, fiatRateSeriesCache]);
+
+    if (!hasAnySnapshots) {
+      setIsPreparingAnalysisInputs(false);
+      return;
+    }
+
+    setIsPreparingAnalysisInputs(true);
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      const runPreparation = async () => {
+        try {
+          const prepared = await buildPnlWalletInputsFromPortfolioSnapshotsAsync(
+            {
+              snapshotsByWalletId: snapshotsByWalletId || {},
+              wallets: wallets || [],
+              quoteCurrency,
+              rates,
+              fiatRateSeriesCache,
+            },
+            {
+              yieldEveryWallets: 1,
+              yieldEverySnapshots: 150,
+            },
+          );
+
+          if (cancelled) {
+            return;
+          }
+
+          startTransition(() => {
+            setAnalysisInputs(prepared);
+          });
+        } finally {
+          if (!cancelled) {
+            setIsPreparingAnalysisInputs(false);
+          }
+        }
+      };
+
+      const schedulePreparation = () => {
+        prepareTimeout = setTimeout(() => {
+          runPreparation().catch(() => undefined);
+        }, 0);
+      };
+
+      if (typeof requestAnimationFrame === 'function') {
+        firstFrame = requestAnimationFrame(() => {
+          secondFrame = requestAnimationFrame(schedulePreparation);
+        });
+        return;
+      }
+
+      schedulePreparation();
+    });
+
+    return () => {
+      cancelled = true;
+      task.cancel();
+      if (
+        typeof firstFrame === 'number' &&
+        typeof cancelAnimationFrame === 'function'
+      ) {
+        cancelAnimationFrame(firstFrame);
+      }
+      if (
+        typeof secondFrame === 'number' &&
+        typeof cancelAnimationFrame === 'function'
+      ) {
+        cancelAnimationFrame(secondFrame);
+      }
+      if (prepareTimeout) {
+        clearTimeout(prepareTimeout);
+      }
+    };
+  }, [
+    fiatRateSeriesCache,
+    hasAnySnapshots,
+    quoteCurrency,
+    rates,
+    snapshotsByWalletId,
+    snapshotsSig,
+    wallets,
+    walletsSig,
+  ]);
 
   const inputsReady =
     hasAnySnapshots &&
+    !isPreparingAnalysisInputs &&
     !!fiatRateSeriesCache &&
     analysisInputs.wallets.length > 0;
 
@@ -693,7 +801,9 @@ const BalanceHistoryChart = ({
         scheduleCompute(async () => {
           try {
             const computed = await computeSeriesForTimeframe(next);
-            setSeriesByTimeframe(prev => ({...prev, [next]: computed}));
+            startTransition(() => {
+              setSeriesByTimeframe(prev => ({...prev, [next]: computed}));
+            });
             setLastErrorByTimeframe(prev => ({...prev, [next]: undefined}));
           } catch (e: any) {
             const msg =
@@ -806,6 +916,9 @@ const BalanceHistoryChart = ({
     if (!inputsReady || !hasAnySnapshots) {
       return;
     }
+    if (!hasCompletedInitialAllLoadRef.current) {
+      return;
+    }
 
     const nextToPrecompute = PRECOMPUTE_TIMEFRAME_ORDER.find(tf => {
       if (tf === selectedTimeframe) {
@@ -882,9 +995,11 @@ const BalanceHistoryChart = ({
       return;
     }
 
-    setDisplayData(prev => {
-      prevDisplayDataRef.current = prev;
-      return selectedComputedSeries;
+    startTransition(() => {
+      setDisplayData(prev => {
+        prevDisplayDataRef.current = prev;
+        return selectedComputedSeries;
+      });
     });
   }, [selectedComputedSeries]);
 
@@ -905,8 +1020,7 @@ const BalanceHistoryChart = ({
     timeframeSelectorOpacity != null &&
     typeof timeframeSelectorOpacity === 'object' &&
     // Don't read `.value` during render.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    'value' in (timeframeSelectorOpacity as any);
+    'value' in (timeframeSelectorOpacity as {value?: unknown});
 
   const timeframeSelectorOpacityNumber =
     typeof timeframeSelectorOpacity === 'number'
@@ -934,7 +1048,6 @@ const BalanceHistoryChart = ({
       !!isComputingByTimeframe[selectedTimeframe] ||
       isSelectedTimeframePending);
   const [isChartLoaderVisible, setIsChartLoaderVisible] = useState(false);
-  const hasCompletedInitialAllLoadRef = useRef(false);
 
   useEffect(() => {
     if (!isChartLoadingRaw) {
