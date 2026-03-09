@@ -8,7 +8,6 @@ import {
   LightBlue,
   LinkBlue,
   Midnight,
-  NeutralSlate,
 } from '../../../../styles/colors';
 import {useTheme} from 'styled-components/native';
 import {useAppDispatch} from '../../../../utils/hooks';

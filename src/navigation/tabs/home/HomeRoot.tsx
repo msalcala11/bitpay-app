@@ -427,7 +427,7 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
             }>
             {/* ////////////////////////////// PORTFOLIO BALANCE */}
             {showPortfolioValue ? (
-              <HomeSection style={{marginTop: 5, marginBottom: 20}}>
+              <HomeSection style={{marginTop: 20, marginBottom: 20}}>
                 <PortfolioBalance />
               </HomeSection>
             ) : null}

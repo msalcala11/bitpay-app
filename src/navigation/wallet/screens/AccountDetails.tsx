@@ -33,6 +33,7 @@ import {
   View,
 } from 'react-native';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
+import BalanceHistoryChart from '../../../components/charts/BalanceHistoryChart';
 import {
   Badge,
   Balance,
@@ -51,6 +52,7 @@ import {
 import {
   formatCryptoAddress,
   formatCurrencyAbbreviation,
+  formatFiatAmount,
   shouldScale,
   sleep,
   fixWalletAddresses,
@@ -250,7 +252,7 @@ const CopyToClipboardContainer = styled.View`
 `;
 
 const HeaderContainer = styled.View`
-  margin: 32px 0 24px;
+  margin: 18px 0 24px;
 `;
 
 const TransactionSectionHeaderContainer = styled.View`
@@ -293,7 +295,7 @@ const Value = styled(BaseText)`
 `;
 
 const BalanceContainer = styled.View`
-  padding: 0 15px 40px;
+  padding: 0 15px 22px;
   flex-direction: column;
 `;
 
@@ -326,6 +328,45 @@ const CenteredText = styled(BaseText)`
   margin-left: 4px;
 `;
 
+type AccountAddressBadgeProps = {
+  address?: string;
+};
+
+const AccountAddressBadge = ({address}: AccountAddressBadgeProps) => {
+  const [copied, setCopied] = useState(false);
+
+  const copyToClipboard = useCallback(() => {
+    haptic('impactLight');
+    if (!copied && address) {
+      Clipboard.setString(address);
+      setCopied(true);
+    }
+  }, [address, copied]);
+
+  useEffect(() => {
+    if (!copied) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      setCopied(false);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  return (
+    <BadgeContainerTouchable
+      onPress={copyToClipboard}
+      activeOpacity={ActiveOpacity}
+      style={{alignSelf: 'center', width: 'auto', height: 25}}>
+      <Badge>{formatCryptoAddress(address)}</Badge>
+      <CopyToClipboardContainer>
+        {!copied ? <CopySvg width={10} /> : <CopiedSvg width={10} />}
+      </CopyToClipboardContainer>
+    </BadgeContainerTouchable>
+  );
+};
+
 const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   const navigation = useNavigation();
   const dispatch = useAppDispatch();
@@ -339,7 +380,6 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   const {selectedAccountAddress, keyId, isSvmAccount} = route.params;
   const [refreshing, setRefreshing] = useState(false);
   const key = useAppSelector(({WALLET}: RootState) => WALLET.keys[keyId]);
-  const [copied, setCopied] = useState(false);
   const [searchVal, setSearchVal] = useState('');
   const [activeTab, setActiveTab] = useState<AccountDetailsTab>('wallets');
 
@@ -377,7 +417,11 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   );
   const [showReceiveAddressBottomModal, setShowReceiveAddressBottomModal] =
     useState(false);
-  const rates = useAppSelector(({RATE}) => RATE.rates);
+  const {rates, fiatRateSeriesCache} = useAppSelector(({RATE}) => RATE);
+  const snapshotsByWalletId = useAppSelector(
+    ({PORTFOLIO}) => PORTFOLIO.snapshotsByWalletId,
+  );
+  const [selectedBalance, setSelectedBalance] = useState<number | undefined>();
   const [showKeyOptions, setShowKeyOptions] = useState(false);
 
   const [searchResultsHistory, setSearchResultsHistory] = useState(
@@ -427,7 +471,13 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   const accountItem = memorizedAccountList.find(
     a => a.receiveAddress === selectedAccountAddress,
   )!;
-  const totalBalance = accountItem?.fiatBalanceFormat;
+  const totalBalance =
+    typeof selectedBalance === 'number'
+      ? formatFiatAmount(selectedBalance, defaultAltCurrency.isoCode, {
+          currencyDisplay: 'symbol',
+          customPrecision: 'minimal',
+        })
+      : accountItem?.fiatBalanceFormat;
   const hasMultipleAccounts = memorizedAccountList.length > 1;
 
   const accounts = useAppSelector(
@@ -1335,25 +1385,6 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     accountAllocationData.rows,
   ]);
 
-  const copyToClipboard = () => {
-    haptic('impactLight');
-    if (!copied) {
-      Clipboard.setString(accountItem?.receiveAddress);
-      setCopied(true);
-    }
-  };
-
-  useEffect(() => {
-    if (!copied) {
-      return;
-    }
-    const timer = setTimeout(() => {
-      setCopied(false);
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }, [copied]);
-
   const renderListHeaderComponent = useCallback(() => {
     const isWalletsTab = activeTab === 'wallets';
     const isAllocationTab = activeTab === 'allocation';
@@ -1377,15 +1408,20 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
                 )}
               </Row>
             </TouchableOpacity>
-            <BadgeContainerTouchable
-              onPress={copyToClipboard}
-              activeOpacity={ActiveOpacity}
-              style={{alignSelf: 'center', width: 'auto', height: 25}}>
-              <Badge>{formatCryptoAddress(accountItem?.receiveAddress)}</Badge>
-              <CopyToClipboardContainer>
-                {!copied ? <CopySvg width={10} /> : <CopiedSvg width={10} />}
-              </CopyToClipboardContainer>
-            </BadgeContainerTouchable>
+
+            {!hideAllBalances ? (
+              <BalanceHistoryChart
+                wallets={accountItem?.wallets || []}
+                snapshotsByWalletId={snapshotsByWalletId || {}}
+                quoteCurrency={defaultAltCurrency.isoCode}
+                rates={rates}
+                fiatRateSeriesCache={fiatRateSeriesCache}
+                onSelectedBalanceChange={setSelectedBalance}
+                preChartContent={
+                  <AccountAddressBadge address={accountItem?.receiveAddress} />
+                }
+              />
+            ) : null}
           </BalanceContainer>
           <LinkingButtons
             buy={{
@@ -1530,7 +1566,6 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   }, [
     activeTab,
     accountItem?.receiveAddress,
-    copied,
     dispatch,
     groupedHistory,
     hideAllBalances,
@@ -1631,7 +1666,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
             onRefresh={onRefresh}
           />
         }
-        ListHeaderComponent={renderListHeaderComponent}
+        ListHeaderComponent={renderListHeaderComponent()}
         ListFooterComponent={
           activeTab === 'wallets'
             ? listFooterComponentAssetsTab
