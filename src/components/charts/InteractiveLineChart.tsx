@@ -134,8 +134,7 @@ const InteractiveLineChart = ({
     strokeScale != null &&
     typeof strokeScale === 'object' &&
     // Don't read `.value` during render.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    'value' in (strokeScale as any);
+    'value' in (strokeScale as {value?: unknown});
 
   const strokeScaleNumber = typeof strokeScale === 'number' ? strokeScale : 1;
   const safeStrokeScaleNumber = strokeScaleNumber > 0 ? strokeScaleNumber : 1;
@@ -154,8 +153,7 @@ const InteractiveLineChart = ({
       return strokeScale;
     }
     if (strokeScale != null && typeof strokeScale === 'object') {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const v = (strokeScale as any).value;
+      const v = (strokeScale as {value?: unknown}).value;
       return typeof v === 'number' ? v : 1;
     }
     return 1;
@@ -487,9 +485,11 @@ const InteractiveLineChart = ({
     </ChartInner>
   );
 
+  const shouldEnableDiagnosticsLongPress = !!onLongPress && !isLoading;
+
   return (
-    <ChartContainer>
-      {onLongPress ? (
+    <ChartContainer pointerEvents={isLoading ? 'none' : 'auto'}>
+      {shouldEnableDiagnosticsLongPress ? (
         <TouchableWithoutFeedback
           onLongPress={onLongPress}
           delayLongPress={longPressDelayMs}>

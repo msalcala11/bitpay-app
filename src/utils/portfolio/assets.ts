@@ -601,7 +601,7 @@ const ensureSortedSnapshots = (
   return arr;
 };
 
-const mapSnapshotsToStored = (args: {
+type MapSnapshotsToStoredArgs = {
   snapshots: BalanceSnapshot[];
   wallet: Wallet;
   walletId: string;
@@ -613,82 +613,140 @@ const mapSnapshotsToStored = (args: {
   fiatRateSeriesCache?: FiatRateSeriesCache;
   nowMs?: number;
   fallbackAssetIdToWalletIdentity: boolean;
-}): BalanceSnapshotStored[] => {
+};
+
+const mapSnapshotToStored = (args: {
+  snapshot: BalanceSnapshot;
+  wallet: Wallet;
+  walletId: string;
+  unitDecimals: number;
+  fallbackChain: string;
+  fallbackCoin: string;
+  fallbackQuoteCurrency: string;
+  targetQuoteCurrency?: string;
+  fiatRateSeriesCache?: FiatRateSeriesCache;
+  nowMs: number;
+  fallbackAssetIdToWalletIdentity: boolean;
+}): BalanceSnapshotStored => {
+  const s = args.snapshot;
   const tokenAddress = (args.wallet as any)?.tokenAddress as string | undefined;
   const tokenAddressLower = tokenAddress
     ? tokenAddress.toLowerCase()
     : undefined;
+  const snapshotChain = String(
+    (s as any)?.chain || (args.wallet as any)?.chain || '',
+  ).toLowerCase();
+  const snapshotCoin = String(
+    (s as any)?.coin || (args.wallet as any)?.currencyAbbreviation || '',
+  ).toLowerCase();
+  const chainForFields = snapshotChain || args.fallbackChain;
+  const coinForFields = snapshotCoin || args.fallbackCoin;
+  const assetChain = args.fallbackAssetIdToWalletIdentity
+    ? chainForFields
+    : snapshotChain;
+  const assetCoin = args.fallbackAssetIdToWalletIdentity
+    ? coinForFields
+    : snapshotCoin;
+  const assetId = tokenAddressLower
+    ? `${assetChain}:${assetCoin}:${tokenAddressLower}`
+    : `${assetChain}:${assetCoin}`;
+  const snapshotQuoteCurrency = String(
+    (s as any)?.quoteCurrency || args.fallbackQuoteCurrency,
+  ).toUpperCase();
+  const targetQuoteCurrency = (
+    args.targetQuoteCurrency || args.fallbackQuoteCurrency
+  ).toUpperCase();
+
+  let markRate =
+    typeof (s as any)?.costBasisRateFiat === 'number'
+      ? (s as any).costBasisRateFiat
+      : 0;
+
+  if (markRate > 0 && snapshotQuoteCurrency !== targetQuoteCurrency) {
+    const convertedMarkRate = convertAmountBetweenQuotesViaBtc({
+      amount: markRate,
+      sourceQuoteCurrency: snapshotQuoteCurrency,
+      targetQuoteCurrency,
+      timestampMs: Number((s as any)?.timestamp || 0),
+      fiatRateSeriesCache: args.fiatRateSeriesCache,
+      nowMs: args.nowMs,
+    });
+
+    markRate =
+      typeof convertedMarkRate === 'number' && convertedMarkRate > 0
+        ? convertedMarkRate
+        : 0;
+  }
+
+  return {
+    id: String((s as any)?.id || ''),
+    walletId: args.walletId,
+    chain: chainForFields,
+    coin: coinForFields,
+    network: String((s as any)?.network || 'livenet'),
+    assetId,
+    timestamp: Number((s as any)?.timestamp || 0),
+    eventType: ((s as any)?.eventType || 'tx') as any,
+    cryptoBalance: unitStringToAtomicBigInt(
+      String((s as any)?.cryptoBalance || '0'),
+      args.unitDecimals,
+    ).toString(),
+    remainingCostBasisFiat: Number((s as any)?.remainingCostBasisFiat || 0),
+    quoteCurrency: targetQuoteCurrency || snapshotQuoteCurrency,
+    markRate,
+    createdAt:
+      typeof (s as any)?.createdAt === 'number'
+        ? (s as any).createdAt
+        : undefined,
+    txIds: Array.isArray((s as any)?.txIds) ? (s as any).txIds : undefined,
+  };
+};
+
+const mapSnapshotsToStored = (args: MapSnapshotsToStoredArgs): BalanceSnapshotStored[] => {
   const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
 
-  return args.snapshots.map(s => {
-    const snapshotChain = String(
-      (s as any)?.chain || (args.wallet as any)?.chain || '',
-    ).toLowerCase();
-    const snapshotCoin = String(
-      (s as any)?.coin || (args.wallet as any)?.currencyAbbreviation || '',
-    ).toLowerCase();
-    const chainForFields = snapshotChain || args.fallbackChain;
-    const coinForFields = snapshotCoin || args.fallbackCoin;
-    const assetChain = args.fallbackAssetIdToWalletIdentity
-      ? chainForFields
-      : snapshotChain;
-    const assetCoin = args.fallbackAssetIdToWalletIdentity
-      ? coinForFields
-      : snapshotCoin;
-    const assetId = tokenAddressLower
-      ? `${assetChain}:${assetCoin}:${tokenAddressLower}`
-      : `${assetChain}:${assetCoin}`;
-    const snapshotQuoteCurrency = String(
-      (s as any)?.quoteCurrency || args.fallbackQuoteCurrency,
-    ).toUpperCase();
-    const targetQuoteCurrency = (
-      args.targetQuoteCurrency || args.fallbackQuoteCurrency
-    ).toUpperCase();
+  return args.snapshots.map(snapshot =>
+    mapSnapshotToStored({
+      ...args,
+      snapshot,
+      nowMs,
+    }),
+  );
+};
 
-    let markRate =
-      typeof (s as any)?.costBasisRateFiat === 'number'
-        ? (s as any).costBasisRateFiat
-        : 0;
+const yieldToEventLoop = async (): Promise<void> =>
+  new Promise(resolve => setTimeout(resolve, 0));
 
-    if (markRate > 0 && snapshotQuoteCurrency !== targetQuoteCurrency) {
-      const convertedMarkRate = convertAmountBetweenQuotesViaBtc({
-        amount: markRate,
-        sourceQuoteCurrency: snapshotQuoteCurrency,
-        targetQuoteCurrency,
-        timestampMs: Number((s as any)?.timestamp || 0),
-        fiatRateSeriesCache: args.fiatRateSeriesCache,
+const mapSnapshotsToStoredAsync = async (
+  args: MapSnapshotsToStoredArgs,
+  asyncOpts?: {
+    yieldEverySnapshots?: number;
+    yieldControl?: () => Promise<void>;
+  },
+): Promise<BalanceSnapshotStored[]> => {
+  const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
+  const yieldEverySnapshots = Math.max(
+    1,
+    Math.floor(asyncOpts?.yieldEverySnapshots ?? 200),
+  );
+  const yieldControl = asyncOpts?.yieldControl || yieldToEventLoop;
+  const out: BalanceSnapshotStored[] = [];
+
+  for (let i = 0; i < args.snapshots.length; i++) {
+    out.push(
+      mapSnapshotToStored({
+        ...args,
+        snapshot: args.snapshots[i],
         nowMs,
-      });
+      }),
+    );
 
-      markRate =
-        typeof convertedMarkRate === 'number' && convertedMarkRate > 0
-          ? convertedMarkRate
-          : 0;
+    if ((i + 1) % yieldEverySnapshots === 0) {
+      await yieldControl();
     }
+  }
 
-    return {
-      id: String((s as any)?.id || ''),
-      walletId: args.walletId,
-      chain: chainForFields,
-      coin: coinForFields,
-      network: String((s as any)?.network || 'livenet'),
-      assetId,
-      timestamp: Number((s as any)?.timestamp || 0),
-      eventType: ((s as any)?.eventType || 'tx') as any,
-      cryptoBalance: unitStringToAtomicBigInt(
-        String((s as any)?.cryptoBalance || '0'),
-        args.unitDecimals,
-      ).toString(),
-      remainingCostBasisFiat: Number((s as any)?.remainingCostBasisFiat || 0),
-      quoteCurrency: targetQuoteCurrency || snapshotQuoteCurrency,
-      markRate,
-      createdAt:
-        typeof (s as any)?.createdAt === 'number'
-          ? (s as any).createdAt
-          : undefined,
-      txIds: Array.isArray((s as any)?.txIds) ? (s as any).txIds : undefined,
-    };
-  });
+  return out;
 };
 
 export const getLatestSnapshot = <T>(
@@ -1023,26 +1081,6 @@ const formatDeltaPercent = (ratio: number): string => {
   const abs = Math.abs(pct);
   const prefix = pct >= 0 ? '+' : '-';
   return `${prefix}${abs.toFixed(1)}%`;
-};
-
-const getCurrencySymbol = (isoCode: string): string | undefined => {
-  try {
-    const formatted = (0)
-      .toLocaleString('en-US', {
-        style: 'currency',
-        currency: isoCode,
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
-      })
-      .replace(/\d/g, '')
-      .trim();
-    if (!formatted || formatted.toUpperCase() === isoCode.toUpperCase()) {
-      return undefined;
-    }
-    return formatted;
-  } catch {
-    return undefined;
-  }
 };
 
 const UNAVAILABLE_DELTA_FIAT = '—     ';
@@ -1441,6 +1479,148 @@ export const buildPnlWalletInputsFromPortfolioSnapshots = (args: {
       if (currentRate > 0) {
         currentRatesByCoin[normCoin] = currentRate;
       }
+    }
+  }
+
+  return {
+    wallets: pnlWallets,
+    currentRatesByCoin,
+    quoteCurrency: effectiveQuoteCurrency,
+  };
+};
+
+export const buildPnlWalletInputsFromPortfolioSnapshotsAsync = async (
+  args: {
+    snapshotsByWalletId: {[walletId: string]: BalanceSnapshot[] | undefined};
+    wallets: Wallet[];
+    quoteCurrency: string;
+    rates?: Rates;
+    fiatRateSeriesCache?: FiatRateSeriesCache;
+    nowMs?: number;
+  },
+  asyncOpts?: {
+    yieldEveryWallets?: number;
+    yieldEverySnapshots?: number;
+    yieldControl?: () => Promise<void>;
+  },
+): Promise<{
+  wallets: WalletForAnalysis[];
+  currentRatesByCoin: Record<string, number>;
+  quoteCurrency: string;
+}> => {
+  const walletById = buildWalletByIdMap(args.wallets);
+  const effectiveQuoteCurrency = getEffectiveQuoteCurrencyFromSnapshots({
+    preferredQuoteCurrency: (args.quoteCurrency || '').toUpperCase(),
+    snapshotsByWalletId: args.snapshotsByWalletId || {},
+    walletById,
+  }).toUpperCase();
+
+  const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
+  const fiatRateSeriesCache = args.fiatRateSeriesCache;
+  const yieldEveryWallets = Math.max(
+    1,
+    Math.floor(asyncOpts?.yieldEveryWallets ?? 1),
+  );
+  const yieldControl = asyncOpts?.yieldControl || yieldToEventLoop;
+
+  const pnlWallets: WalletForAnalysis[] = [];
+  const currentRatesByCoin: Record<string, number> = {};
+
+  if (!fiatRateSeriesCache) {
+    return {
+      wallets: pnlWallets,
+      currentRatesByCoin,
+      quoteCurrency: effectiveQuoteCurrency,
+    };
+  }
+
+  for (let walletIndex = 0; walletIndex < (args.wallets || []).length; walletIndex++) {
+    const w = args.wallets[walletIndex];
+
+    if ((w as any)?.network !== Network.mainnet) {
+      continue;
+    }
+
+    const walletId = String((w as any)?.id || '');
+    const coin = String((w as any)?.currencyAbbreviation || '').toLowerCase();
+    if (!walletId || !coin) {
+      continue;
+    }
+
+    const appSnaps = ensureSortedSnapshots(
+      args.snapshotsByWalletId?.[walletId],
+    );
+    if (!appSnaps.length) {
+      continue;
+    }
+
+    const unitInfo = getWalletUnitInfo(w);
+    const chainLower = String((w as any)?.chain || coin).toLowerCase();
+
+    const credentials: any = {
+      chain: chainLower,
+      coin,
+      network:
+        (w as any)?.network === Network.mainnet
+          ? 'livenet'
+          : String((w as any)?.network || 'livenet'),
+    };
+
+    const tokenAddress = (w as any)?.tokenAddress as string | undefined;
+    if (tokenAddress) {
+      credentials.token = {
+        ...(credentials.token || {}),
+        decimals: unitInfo.unitDecimals,
+        address: tokenAddress,
+      };
+    }
+
+    const snaps = await mapSnapshotsToStoredAsync(
+      {
+        snapshots: appSnaps,
+        wallet: w,
+        walletId,
+        unitDecimals: unitInfo.unitDecimals,
+        fallbackChain: chainLower,
+        fallbackCoin: coin,
+        fallbackQuoteCurrency: effectiveQuoteCurrency,
+        targetQuoteCurrency: effectiveQuoteCurrency,
+        fiatRateSeriesCache,
+        nowMs,
+        fallbackAssetIdToWalletIdentity: true,
+      },
+      {
+        yieldEverySnapshots: asyncOpts?.yieldEverySnapshots,
+        yieldControl,
+      },
+    );
+
+    pnlWallets.push({
+      walletId,
+      walletName: String(
+        (w as any)?.walletName || (w as any)?.name || walletId,
+      ),
+      currencyAbbreviation: coin,
+      credentials,
+      snapshots: snaps,
+    });
+
+    const normCoin = normalizeCoinForPnlRates(coin);
+    if (!(normCoin in currentRatesByCoin)) {
+      const currentRate = getQuoteRateNumForAsset({
+        rates: args.rates,
+        quoteCurrency: effectiveQuoteCurrency,
+        coin,
+        chain: String((w as any)?.chain || coin),
+        tokenAddress,
+      });
+      if (currentRate > 0) {
+        currentRatesByCoin[normCoin] = currentRate;
+      }
+    }
+
+    if ((walletIndex + 1) % yieldEveryWallets === 0) {
+      await yieldControl();
     }
   }
 
