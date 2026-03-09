@@ -220,23 +220,28 @@ const LinkingButtons = ({buy, sell, receive, send, swap, maxWidth}: Props) => {
 
   return (
     <ButtonsRow maxWidth={maxWidth} compactSpacing={compactSpacing}>
-      {visibleButtons.map(({key, label, cta, img}: ButtonListProps) => (
-        <ButtonContainer key={key} compactSpacing={compactSpacing}>
-          <LinkButton
-            activeOpacity={ActiveOpacity}
-            disabled={
-              ['buy', 'sell', 'swap'].includes(key) &&
-              (!appWasInit || !tokensDataLoaded)
-            }
-            onPress={() => {
-              Haptic('impactLight');
-              cta();
-            }}>
-            {img}
-          </LinkButton>
-          <ButtonText>{titleCasing(label)}</ButtonText>
-        </ButtonContainer>
-      ))}
+      {visibleButtons.map(({key, label, cta, img}: ButtonListProps) => {
+        const isDisabled =
+          ['buy', 'sell', 'swap'].includes(key) &&
+          (!appWasInit || !tokensDataLoaded);
+
+        return (
+          <ButtonContainer key={key} compactSpacing={compactSpacing}>
+            <LinkButton
+              activeOpacity={ActiveOpacity}
+              touchableLibrary="react-native"
+              disabled={isDisabled}
+              accessibilityState={{disabled: isDisabled}}
+              onPress={() => {
+                Haptic('impactLight');
+                cta();
+              }}>
+              {img}
+            </LinkButton>
+            <ButtonText>{titleCasing(label)}</ButtonText>
+          </ButtonContainer>
+        );
+      })}
     </ButtonsRow>
   );
 };
