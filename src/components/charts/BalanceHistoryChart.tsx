@@ -1166,14 +1166,12 @@ const BalanceHistoryChart = ({
     };
   }, [sharedTimeframeSelectorOpacity, timeframeSelectorOpacityNumber]);
 
-  // Show loader while computing, or while waiting for required inputs/series.
+  // Only show the loader when the selected timeframe does not have a computed
+  // series yet. If we already have selected-timeframe data, keep it visible at
+  // full opacity even if background refresh/recompute work is still happening.
   const isSelectedTimeframePending =
     !selectedComputedSeries && !selectedTimeframeError;
-  const isChartLoadingRaw =
-    hasAnySnapshots &&
-    (!inputsReady ||
-      !!isComputingByTimeframe[selectedTimeframe] ||
-      isSelectedTimeframePending);
+  const isChartLoadingRaw = hasAnySnapshots && isSelectedTimeframePending;
   const [isChartLoaderVisible, setIsChartLoaderVisible] = useState(false);
 
   useEffect(() => {
