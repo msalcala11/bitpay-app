@@ -562,42 +562,6 @@ function* buildPnlAnalysisSeriesGenerator(
     return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
   };
 
-  const getLinearRateAtTs = (
-    series: RateSeries,
-    tsMs: number,
-  ): number | undefined => {
-    const ts = series.ts;
-    const rate = series.rate;
-    const len = ts.length;
-    if (!len) return undefined;
-
-    // Find first index i such that ts[i] >= tsMs.
-    let lo = 0;
-    let hi = len - 1;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (ts[mid] < tsMs) lo = mid + 1;
-      else hi = mid;
-    }
-
-    const rightIdx = lo;
-    const rightTs = ts[rightIdx];
-    const rightRate = rate[rightIdx];
-    const leftIdx = rightIdx > 0 ? rightIdx - 1 : rightIdx;
-    const leftTs = ts[leftIdx];
-    const leftRate = rate[leftIdx];
-
-    if (rightIdx === 0) return rightRate;
-    if (rightIdx === len - 1 && tsMs >= rightTs) return rightRate;
-    if (rightTs === leftTs) return rightRate;
-    if (tsMs <= leftTs) return leftRate;
-    if (tsMs >= rightTs) return rightRate;
-
-    const ratio = (tsMs - leftTs) / (rightTs - leftTs);
-    const out = leftRate + (rightRate - leftRate) * ratio;
-    return Number.isFinite(out) ? out : undefined;
-  };
-
   // Windowed cost basis state (reset to value at interval start).
   // We iterate forward through snapshots during timeline generation so this is O(points + txs).
   type WindowBasisState = {
@@ -617,8 +581,9 @@ function* buildPnlAnalysisSeriesGenerator(
 
   const baselineRateByCoin: Record<string, number> = {};
   for (const coin of coins) {
-    const series = rateSeriesByCoin[coin];
-    const r0 = getLinearRateAtTs(series, timeline[0]);
+    // Keep the baseline anchored to the same sampled rate used by the first
+    // rendered point so the chart always starts at exactly 0 PnL / 0%.
+    const r0 = rateCursorByCoin[coin]?.getNearest(timeline[0]);
     if (r0 === undefined) {
       throw new Error(
         `Missing ${quoteCurrency}:${coin} rate at ts=${timeline[0]}.`,
