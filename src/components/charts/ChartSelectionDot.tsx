@@ -7,8 +7,8 @@ import {
   withSpring,
 } from 'react-native-reanimated';
 
-// The selection dot animation & styling is copied from ExchangeRate.tsx so that
-// all charts can share an identical look and feel.
+// Shared selection dot renderer used by ExchangeRate and balance history charts
+// so chart interactions keep the same animation and styling.
 const ChartSelectionDot = ({
   isActive,
   color,
