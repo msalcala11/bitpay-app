@@ -11,18 +11,20 @@ import {
   CurrencyOpts,
   SUPPORTED_VM_TOKENS,
 } from '../../../../constants/currencies';
-import {BASE_BWS_URL} from '../../../../constants/config';
-import {getCurrencyAbbreviation} from '../../../../utils/helper-methods';
+import {BASE_BWS_URL, BLOCKCHAIN_EXPLORERS} from '../../../../constants/config';
+import {
+  addTokenChainSuffix,
+  getCurrencyAbbreviation,
+  getEVMFeeCurrency,
+} from '../../../../utils/helper-methods';
+import {GetProtocolPrefix} from '../../utils/currency';
 import {AppActions} from '../../../app';
 import {buildWalletObj, mapAbbreviationAndName} from '../../utils/wallet';
 import merge from 'lodash.merge';
 import {tokenManager} from '../../../../managers/TokenManager';
 import {logManager} from '../../../../managers/LogManager';
-import {populateTokenInfo} from '../../utils/token-options';
-import {AppDispatch} from '../../../../utils/hooks';
 
 const TOKEN_OPTIONS_YIELD_EVERY = 150;
-let tokenOptionsRefreshPromise: Promise<void> | null = null;
 
 const yieldToEventLoop = (): Promise<void> => {
   return new Promise(resolve => {
@@ -38,17 +40,66 @@ const yieldToEventLoop = (): Promise<void> => {
 
 export const startGetTokenOptions =
   (): Effect<Promise<void>> => async dispatch => {
-    logManager.info('starting [startGetTokenOptions]');
+    try {
+      logManager.info('starting [startGetTokenOptions]');
+      let tokenOptionsByAddress: {[key in string]: Token} = {};
+      let tokenDataByAddress: {[key in string]: CurrencyOpts} = {};
+      for await (const chain of SUPPORTED_VM_TOKENS) {
+        let tokens: Token[] = [];
+        try {
+          const {data} = await axios.get<Token[]>(
+            `${BASE_BWS_URL}/v1/service/oneInch/getTokens/${chain}`,
+          );
+          tokens = data;
+        } catch {
+          logManager.info(
+            `request: ${BASE_BWS_URL}/v1/service/oneInch/getTokens/${chain} failed - continue anyway [startGetTokenOptions]`,
+          );
+        }
+        if (!Array.isArray(tokens)) {
+          logManager.error(
+            `Unexpected response [startGetTokenOptions]: ${tokens}`,
+          );
+          return;
+        }
 
-    if (
-      Object.keys(tokenManager.getTokenOptions().tokenOptionsByAddress).length
-    ) {
+        for (let tokenIndex = 0; tokenIndex < tokens.length; tokenIndex++) {
+          const token = tokens[tokenIndex];
+          if (
+            BitpaySupportedTokens[getCurrencyAbbreviation(token.address, chain)]
+          ) {
+            continue;
+          } // remove bitpay supported tokens and currencies
+          populateTokenInfo({
+            chain,
+            token,
+            tokenOptionsByAddress,
+            tokenDataByAddress,
+          });
+          if (
+            tokenIndex > 0 &&
+            tokenIndex % TOKEN_OPTIONS_YIELD_EVERY === 0
+          ) {
+            await yieldToEventLoop();
+          }
+        }
+
+        await yieldToEventLoop();
+      }
+      tokenManager.setTokenOptions({tokenOptionsByAddress, tokenDataByAddress});
+      logManager.info('successful [startGetTokenOptions]');
       dispatch(AppActions.appTokensDataLoaded());
-      refreshTokenOptionsFromNetwork(dispatch);
-      return;
+    } catch (e) {
+      let errorStr;
+      if (e instanceof Error) {
+        errorStr = e.message;
+      } else {
+        errorStr = JSON.stringify(e);
+      }
+      dispatch(failedGetTokenOptions());
+      logManager.error(`failed [startGetTokenOptions]: ${errorStr}`);
+      dispatch(AppActions.appTokensDataLoaded());
     }
-
-    await refreshTokenOptionsFromNetwork(dispatch);
   };
 
 export const addCustomTokenOption =
@@ -81,77 +132,60 @@ export const addCustomTokenOption =
     }
   };
 
-const refreshTokenOptionsFromNetwork = async (
-  dispatch: AppDispatch,
-): Promise<void> => {
-  if (tokenOptionsRefreshPromise) {
-    return tokenOptionsRefreshPromise;
-  }
-
-  tokenOptionsRefreshPromise = (async () => {
-    try {
-      let tokenOptionsByAddress: {[key in string]: Token} = {};
-      let tokenDataByAddress: {[key in string]: CurrencyOpts} = {};
-
-      for await (const chain of SUPPORTED_VM_TOKENS) {
-        let tokens: Token[] = [];
-        try {
-          const {data} = await axios.get<Token[]>(
-            `${BASE_BWS_URL}/v1/service/oneInch/getTokens/${chain}`,
-          );
-          tokens = data;
-        } catch {
-          logManager.info(
-            `request: ${BASE_BWS_URL}/v1/service/oneInch/getTokens/${chain} failed - continue anyway [startGetTokenOptions]`,
-          );
-        }
-
-        if (!Array.isArray(tokens)) {
-          logManager.error(
-            `Unexpected response [startGetTokenOptions]: ${tokens}`,
-          );
-          return;
-        }
-
-        for (let tokenIndex = 0; tokenIndex < tokens.length; tokenIndex++) {
-          const token = tokens[tokenIndex];
-          if (
-            BitpaySupportedTokens[getCurrencyAbbreviation(token.address, chain)]
-          ) {
-            continue;
-          }
-
-          populateTokenInfo({
-            chain,
-            token,
-            tokenOptionsByAddress,
-            tokenDataByAddress,
-          });
-
-          if (
-            tokenIndex > 0 &&
-            tokenIndex % TOKEN_OPTIONS_YIELD_EVERY === 0
-          ) {
-            await yieldToEventLoop();
-          }
-        }
-
-        await yieldToEventLoop();
-      }
-
-      tokenManager.setTokenOptions({tokenOptionsByAddress, tokenDataByAddress});
-      logManager.info('successful [startGetTokenOptions]');
-    } catch (e) {
-      const errorStr = e instanceof Error ? e.message : JSON.stringify(e);
-      dispatch(failedGetTokenOptions());
-      logManager.error(`failed [startGetTokenOptions]: ${errorStr}`);
-    } finally {
-      dispatch(AppActions.appTokensDataLoaded());
-      tokenOptionsRefreshPromise = null;
-    }
-  })();
-
-  return tokenOptionsRefreshPromise;
+const populateTokenInfo = ({
+  chain,
+  token,
+  tokenOptionsByAddress,
+  tokenDataByAddress,
+}: {
+  chain: string;
+  token: Token;
+  tokenOptionsByAddress: {[key in string]: Token};
+  tokenDataByAddress: {[key in string]: CurrencyOpts};
+}) => {
+  const tokenAddressWithSuffix = addTokenChainSuffix(token.address, chain);
+  const tokenData = {
+    name: token.name.replace('(PoS)', '').trim(),
+    chain,
+    coin: token.symbol.toLowerCase(),
+    feeCurrency: getEVMFeeCurrency(chain),
+    logoURI: token.logoURI,
+    address: token.address,
+    unitInfo: {
+      unitName: token.symbol.toUpperCase(),
+      unitToSatoshi: 10 ** token.decimals,
+      unitDecimals: token.decimals,
+      unitCode: token.symbol,
+    },
+    properties: {
+      hasMultiSig: false,
+      hasMultiSend: false,
+      isUtxo: false,
+      isERCToken: true,
+      isStableCoin: false,
+      singleAddress: true,
+      isCustom: true,
+    },
+    paymentInfo: {
+      paymentCode: 'EIP681b',
+      protocolPrefix: {
+        livenet: GetProtocolPrefix('livenet', chain),
+        testnet: GetProtocolPrefix('testnet', chain),
+        regtest: GetProtocolPrefix('regtest', chain),
+      },
+      ratesApi: '',
+      blockExplorerUrls: BLOCKCHAIN_EXPLORERS[chain].livenet,
+      blockExplorerUrlsTestnet: BLOCKCHAIN_EXPLORERS[chain].testnet,
+    },
+    feeInfo: {
+      feeUnit: 'Gwei',
+      feeUnitAmount: 1e9,
+      blockTime: 0.2,
+      maxMerchantFee: 'urgent',
+    },
+  };
+  tokenOptionsByAddress[tokenAddressWithSuffix] = token;
+  tokenDataByAddress[tokenAddressWithSuffix] = tokenData;
 };
 
 export const startCustomTokensMigration =

@@ -4,15 +4,16 @@ import Animated, {
   useSharedValue,
   withSpring,
   withTiming,
-  type SharedValue,
 } from 'react-native-reanimated';
 import {useTheme} from 'styled-components/native';
 import {WIDTH} from '../styled/Containers';
 import {BaseText} from '../styled/Text';
 import {formatFiatAmount} from '../../utils/helper-methods';
-import type {RootState} from '../../store';
-import {useAppSelector} from '../../utils/hooks';
 import {Slate30, SlateDark} from '../../styles/colors';
+import {
+  isNumberSharedValue,
+  type NumberSharedValue,
+} from './sharedValueGuards';
 
 export type ChartAxisLabelProps = {
   value: number;
@@ -31,13 +32,11 @@ export type ChartAxisLabelProps = {
    */
   prevArrayLength?: number;
   arrayLength: number;
+  quoteCurrency: string;
   currencyAbbreviation?: string;
   type: 'min' | 'max';
   textColor?: string;
-  contentOpacity?:
-    | number
-    | SharedValue<number>
-    | Readonly<SharedValue<number>>;
+  contentOpacity?: number | NumberSharedValue;
 };
 
 const AnimatedBaseText = Animated.createAnimatedComponent(BaseText);
@@ -48,21 +47,19 @@ const ChartAxisLabel = ({
   prevIndex,
   prevArrayLength,
   arrayLength,
+  quoteCurrency,
   currencyAbbreviation,
   type,
   textColor,
   contentOpacity = 1,
 }: ChartAxisLabelProps): React.ReactElement => {
-  const defaultAltCurrency = useAppSelector(
-    ({APP}: RootState) => APP.defaultAltCurrency,
-  );
   const theme = useTheme();
 
   const labelText = useMemo(() => {
-    return formatFiatAmount(value, defaultAltCurrency.isoCode, {
+    return formatFiatAmount(value, quoteCurrency, {
       currencyAbbreviation,
     });
-  }, [currencyAbbreviation, defaultAltCurrency.isoCode, value]);
+  }, [currencyAbbreviation, quoteCurrency, value]);
 
   // We need an accurate text width to position the label without clipping.
   // Measuring via onLayout is correct, but between timeframes the label text can
@@ -93,21 +90,26 @@ const ChartAxisLabel = ({
       ? measuredTextLayout.width
       : estimatedTextWidth;
 
-  const safeArrayLength = Math.max(arrayLength, 1);
-  const safePrevArrayLength = Math.max(
-    typeof prevArrayLength === 'number' && prevArrayLength > 0
-      ? prevArrayLength
-      : safeArrayLength,
-    1,
-  );
+  const getPointRatio = (pointIndex: number, length: number): number => {
+    if (length <= 1) {
+      return 0.5;
+    }
 
+    const maxIndex = length - 1;
+    const safePointIndex = Math.min(Math.max(pointIndex, 0), maxIndex);
+    return safePointIndex / maxIndex;
+  };
+
+  const resolvedPrevArrayLength =
+    typeof prevArrayLength === 'number' ? prevArrayLength : arrayLength;
   const prevLocation =
-    ((prevIndex ?? index) / safePrevArrayLength) * WIDTH - textWidth / 2;
-  const location = (index / safeArrayLength) * WIDTH - textWidth / 2;
+    getPointRatio(prevIndex ?? index, resolvedPrevArrayLength) * WIDTH -
+    textWidth / 2;
+  const location = getPointRatio(index, arrayLength) * WIDTH - textWidth / 2;
 
   const getTranslateX = (loc: number) => {
     const minLocation = 5;
-    const maxLocation = WIDTH - textWidth;
+    const maxLocation = Math.max(minLocation, WIDTH - textWidth);
     return Math.min(Math.max(loc, minLocation), maxLocation);
   };
 
@@ -116,6 +118,11 @@ const ChartAxisLabel = ({
 
   const translateX = useSharedValue(prevTranslateX);
   useEffect(() => {
+    if (Math.abs(translateX.value - newTranslateX) < 0.5) {
+      translateX.value = newTranslateX;
+      return;
+    }
+
     translateX.value = withSpring(newTranslateX, {
       mass: 1,
       stiffness: 500,
@@ -133,21 +140,21 @@ const ChartAxisLabel = ({
 
   const labelColor = textColor ?? (theme.dark ? Slate30 : SlateDark);
 
-  const contentOpacityIsSharedValue =
-    contentOpacity != null &&
-    typeof contentOpacity === 'object' &&
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    typeof (contentOpacity as any).value === 'number';
+  const contentOpacityIsSharedValue = isNumberSharedValue(contentOpacity);
+  const sharedContentOpacity = contentOpacityIsSharedValue
+    ? contentOpacity
+    : undefined;
 
-  const contentOpacityNumber = typeof contentOpacity === 'number' ? contentOpacity : 1;
+  const contentOpacityNumber =
+    typeof contentOpacity === 'number' ? contentOpacity : 1;
 
   const contentOpacityAnimatedStyle = useAnimatedStyle(() => {
     return {
-      opacity: contentOpacityIsSharedValue
-        ? (contentOpacity as SharedValue<number>).value
+      opacity: sharedContentOpacity
+        ? sharedContentOpacity.value
         : contentOpacityNumber,
     };
-  }, [contentOpacity, contentOpacityIsSharedValue, contentOpacityNumber]);
+  }, [contentOpacityNumber, sharedContentOpacity]);
 
   return (
     <Animated.View

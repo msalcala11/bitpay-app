@@ -13,7 +13,6 @@ import {useTranslation} from 'react-i18next';
 import {Analytics} from '../../../../store/analytics/analytics.effects';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import {ExternalServicesScreens} from '../../../services/ExternalServicesGroup';
-import {useTokenContext} from '../../../../contexts';
 
 const MAX_LINKING_BUTTON_ROW_WIDTH = 450;
 
@@ -138,8 +137,6 @@ const LinkingButtons = ({buy, sell, receive, send, swap, maxWidth}: Props) => {
   const dispatch = useAppDispatch();
   const appWasInit = useAppSelector(({APP}) => APP.appWasInit);
   const tokensDataLoaded = useAppSelector(({APP}) => APP.tokensDataLoaded);
-  const {tokenOptionsByAddress} = useTokenContext();
-  const hasSeededTokenData = Object.keys(tokenOptionsByAddress).length > 0;
 
   const buyCryptoCta = useRequireKeyAndWalletRedirect(
     buy && buy.cta
@@ -226,7 +223,7 @@ const LinkingButtons = ({buy, sell, receive, send, swap, maxWidth}: Props) => {
       {visibleButtons.map(({key, label, cta, img}: ButtonListProps) => {
         const isDisabled =
           ['buy', 'sell', 'swap'].includes(key) &&
-          (!appWasInit || (!tokensDataLoaded && !hasSeededTokenData));
+          (!appWasInit || !tokensDataLoaded);
 
         return (
           <ButtonContainer key={key} compactSpacing={compactSpacing}>
