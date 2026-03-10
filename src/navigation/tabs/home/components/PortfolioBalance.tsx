@@ -305,6 +305,13 @@ const PortfolioBalance = () => {
     portfolioQuoteCurrency: portfolio?.quoteCurrency,
     defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
   });
+  // Home may stay mounted while the user toggles this setting from the
+  // Settings tab. Keying the chart to the latest completed populate cycle
+  // guarantees a fresh chart instance once new portfolio data is ready.
+  const chartLifecycleKey = useMemo(
+    () => `home-portfolio-chart:${quoteCurrency}:${portfolio?.lastPopulatedAt || 0}`,
+    [portfolio?.lastPopulatedAt, quoteCurrency],
+  );
 
   const displayedPortfolioBalance =
     typeof selectedChartBalance === 'number'
@@ -448,6 +455,7 @@ const PortfolioBalance = () => {
                   }
                 }}>
                 <BalanceHistoryChart
+                  key={chartLifecycleKey}
                   wallets={walletsAcrossKeys}
                   snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
                   quoteCurrency={quoteCurrency}
@@ -487,6 +495,7 @@ const PortfolioBalance = () => {
           </ChartStage>
         ) : (
           <BalanceHistoryChart
+            key={chartLifecycleKey}
             wallets={walletsAcrossKeys}
             snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
             quoteCurrency={quoteCurrency}
