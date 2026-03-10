@@ -4,6 +4,7 @@ import {useTranslation} from 'react-i18next';
 import {
   AppState,
   AppStateStatus,
+  InteractionManager,
   RefreshControl,
   ScrollView,
 } from 'react-native';
@@ -97,6 +98,8 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   const {currencyAbbreviation} = route.params || {};
   const theme = useTheme();
   const [refreshing, setRefreshing] = useState(false);
+  const [showDeferredHomeSections, setShowDeferredHomeSections] =
+    useState(false);
   const brazeMarketingCarousel = useAppSelector(selectBrazeMarketingCarousel);
   const brazeShopWithCrypto = useAppSelector(selectBrazeShopWithCrypto);
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
@@ -120,17 +123,25 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   const hasKeys = Object.values(keys).length;
 
   const portfolioAllocationTotalFiat = useMemo(() => {
+    if (!showDeferredHomeSections) {
+      return 0;
+    }
+
     return getPortfolioAllocationTotalFiat({
       keys,
       homeCarouselConfig,
     });
-  }, [homeCarouselConfig, keys]);
+  }, [homeCarouselConfig, keys, showDeferredHomeSections]);
 
   const hasAnyVisibleWalletBalance = useMemo(() => {
+    if (!showDeferredHomeSections) {
+      return false;
+    }
+
     const visibleWallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
 
     return visibleWallets.some(walletHasNonZeroLiveBalance);
-  }, [homeCarouselConfig, keys]);
+  }, [homeCarouselConfig, keys, showDeferredHomeSections]);
 
   const showPortfolioAllocationSection =
     portfolioAllocationTotalFiat > 0 || hasAnyVisibleWalletBalance;
@@ -187,6 +198,10 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
     defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
   }).toUpperCase();
   const memoizedExchangeRates: Array<ExchangeRateItemProps> = useMemo(() => {
+    if (!showDeferredHomeSections) {
+      return [];
+    }
+
     const baselineTimestampMs = getLastDayTimestampStartOfHourMs();
     const result = (
       Object.entries(lastDayRates) as Array<[string, Rate[]]>
@@ -241,8 +256,8 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
           const {
             id,
             img,
-            currencyName,
-            currencyAbbreviation,
+            currencyName: optionCurrencyName,
+            currencyAbbreviation: optionCurrencyAbbreviation,
             chain,
             tokenAddress,
           } = option;
@@ -255,8 +270,8 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
           ratesList.push({
             id,
             img,
-            currencyName,
-            currencyAbbreviation,
+            currencyName: optionCurrencyName,
+            currencyAbbreviation: optionCurrencyAbbreviation,
             chain,
             tokenAddress: tokenAddress,
             average: percentChange,
@@ -286,7 +301,40 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
       }
       return a.currencyName.localeCompare(b.currencyName);
     });
-  }, [fiatRateSeriesCache, lastDayRates, quoteCurrency, rates]);
+  }, [
+    fiatRateSeriesCache,
+    lastDayRates,
+    quoteCurrency,
+    rates,
+    showDeferredHomeSections,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const interactionHandle = InteractionManager.runAfterInteractions(() => {
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (!cancelled) {
+              setShowDeferredHomeSections(true);
+            }
+          });
+        });
+        return;
+      }
+
+      setTimeout(() => {
+        if (!cancelled) {
+          setShowDeferredHomeSections(true);
+        }
+      }, 0);
+    });
+
+    return () => {
+      cancelled = true;
+      interactionHandle.cancel?.();
+    };
+  }, []);
 
   useEffect(() => {
     return navigation.addListener('focus', () => {
@@ -327,7 +375,7 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
           quoteCurrency,
         }) as any,
       );
-    } catch (err) {
+    } catch {
       dispatch(showBottomNotificationModal(BalanceUpdateError()));
     } finally {
       setRefreshing(false);
@@ -461,7 +509,7 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
             ) : null}
 
             {/* ////////////////////////////// MARKETING */}
-            {memoizedMarketingCards.length ? (
+            {showDeferredHomeSections && memoizedMarketingCards.length ? (
               <HomeSection>
                 <MarketingCarousel contentCards={memoizedMarketingCards} />
               </HomeSection>
@@ -469,30 +517,32 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
 
             {/* ////////////////////////////// CRYPTO */}
             <HomeSection>
-              <Crypto />
+              <Crypto enableHeavyCardMetrics={showDeferredHomeSections} />
             </HomeSection>
 
             {/* ////////////////////////////// SECURE WITH PASSKEY */}
-            {showSecureAccountBanner ? (
+            {showDeferredHomeSections && showSecureAccountBanner ? (
               <HomeSection>
                 <SecurePasskeyBanner />
               </HomeSection>
             ) : null}
 
-            {showPortfolioValue ? (
+            {showDeferredHomeSections && showPortfolioValue ? (
               <HomeSection>
                 <AssetsSection />
               </HomeSection>
             ) : null}
 
-            {showPortfolioValue && showPortfolioAllocationSection ? (
+            {showDeferredHomeSections &&
+            showPortfolioValue &&
+            showPortfolioAllocationSection ? (
               <HomeSection>
                 <AllocationSection />
               </HomeSection>
             ) : null}
 
             {/* ////////////////////////////// DO MORE */}
-            {memoizedShopWithCryptoCards.length ? (
+            {showDeferredHomeSections && memoizedShopWithCryptoCards.length ? (
               <HomeSection
                 style={{marginBottom: 20}}
                 title={t('Do More')}
@@ -511,7 +561,9 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
             ) : null}
 
             {/* ////////////////////////////// EXCHANGE RATES */}
-            {!showArchaxBanner && memoizedExchangeRates.length ? (
+            {showDeferredHomeSections &&
+            !showArchaxBanner &&
+            memoizedExchangeRates.length ? (
               <HomeSection title={t('Exchange Rates')} label="24H">
                 <ExchangeRatesList
                   items={memoizedExchangeRates}

@@ -1,5 +1,11 @@
 import {NavigationProp, useNavigation} from '@react-navigation/native';
-import React, {ReactElement, useEffect, useState} from 'react';
+import React, {
+  ReactElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import Carousel from 'react-native-reanimated-carousel';
 import styled from 'styled-components/native';
 import {
@@ -209,6 +215,7 @@ export const createHomeCardList = ({
   context,
   onPress,
   currency,
+  enablePortfolioSnapshotPnl = true,
 }: {
   navigation: any;
   keys: Key[];
@@ -229,6 +236,7 @@ export const createHomeCardList = ({
   context?: 'keySelector';
   onPress?: (currency: any, selectedKey: Key) => any;
   currency?: any;
+  enablePortfolioSnapshotPnl?: boolean;
 }) => {
   let list: {id: string; component: ReactElement}[] = [];
   const defaults: {id: string; component: ReactElement}[] = [];
@@ -263,61 +271,65 @@ export const createHomeCardList = ({
           totalBalance,
           totalBalanceLastDay,
         });
+      let percentageDifference =
+        totalBalance > 0 ? legacyPercentageDifference : null;
 
-      const portfolioPercentageDifference = (() => {
-        if (!portfolioSnapshotsByWalletId) {
-          return null;
-        }
+      if (enablePortfolioSnapshotPnl) {
+        const portfolioPercentageDifference = (() => {
+          if (!portfolioSnapshotsByWalletId) {
+            return null;
+          }
 
-        const pnl = getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots({
-          snapshotsByWalletId: portfolioSnapshotsByWalletId,
-          wallets,
-          quoteCurrency,
-          timeframe: '1D',
-          rates,
-          lastDayRates,
-          fiatRateSeriesCache,
-        });
-
-        if (!pnl.available) {
-          return null;
-        }
-
-        return getPercentageDifferenceFromPercentRatio(pnl.percentRatio);
-      })();
-
-      const hasKeySnapshots = portfolioSnapshotsByWalletId
-        ? hasSnapshotsForWallets({
+          const pnl = getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots({
             snapshotsByWalletId: portfolioSnapshotsByWalletId,
             wallets,
-          })
-        : false;
+            quoteCurrency,
+            timeframe: '1D',
+            rates,
+            lastDayRates,
+            fiatRateSeriesCache,
+          });
 
-      const hasKeySnapshotsBeforePopulateStarted = (() => {
-        const startedAt = populateStatus?.startedAt;
-        if (!populateStatus?.inProgress || typeof startedAt !== 'number') {
-          return true;
-        }
-        if (!portfolioSnapshotsByWalletId) {
-          return false;
-        }
-        return hasSnapshotsBeforeMsForWallets({
-          snapshotsByWalletId: portfolioSnapshotsByWalletId,
-          wallets,
-          cutoffMs: startedAt,
+          if (!pnl.available) {
+            return null;
+          }
+
+          return getPercentageDifferenceFromPercentRatio(pnl.percentRatio);
+        })();
+
+        const hasKeySnapshots = portfolioSnapshotsByWalletId
+          ? hasSnapshotsForWallets({
+              snapshotsByWalletId: portfolioSnapshotsByWalletId,
+              wallets,
+            })
+          : false;
+
+        const hasKeySnapshotsBeforePopulateStarted = (() => {
+          const startedAt = populateStatus?.startedAt;
+          if (!populateStatus?.inProgress || typeof startedAt !== 'number') {
+            return true;
+          }
+          if (!portfolioSnapshotsByWalletId) {
+            return false;
+          }
+          return hasSnapshotsBeforeMsForWallets({
+            snapshotsByWalletId: portfolioSnapshotsByWalletId,
+            wallets,
+            cutoffMs: startedAt,
+          });
+        })();
+
+        const rawPercentageDifference = getKeyLastDayPercentageDifference({
+          totalBalance,
+          hasSnapshots: hasKeySnapshots,
+          hasSnapshotsBeforePopulateStarted:
+            hasKeySnapshotsBeforePopulateStarted,
+          isPopulateLoading: isKeyPopulateLoading,
+          legacyPercentageDifference,
+          portfolioPercentageDifference,
         });
-      })();
-
-      const rawPercentageDifference = getKeyLastDayPercentageDifference({
-        totalBalance,
-        hasSnapshots: hasKeySnapshots,
-        hasSnapshotsBeforePopulateStarted: hasKeySnapshotsBeforePopulateStarted,
-        isPopulateLoading: isKeyPopulateLoading,
-        legacyPercentageDifference,
-        portfolioPercentageDifference,
-      });
-      const percentageDifference =
-        totalBalance > 0 ? rawPercentageDifference : null;
+        percentageDifference = totalBalance > 0 ? rawPercentageDifference : null;
+      }
 
       return {
         id: key.id,
@@ -418,8 +430,12 @@ export const createHomeCardList = ({
   };
 };
 
-const Crypto = () => {
-  const {t} = useTranslation();
+const Crypto = ({
+  enableHeavyCardMetrics = true,
+}: {
+  enableHeavyCardMetrics?: boolean;
+}) => {
+  const {t: translate} = useTranslation();
   const navigation = useNavigation();
   const dispatch = useAppDispatch();
   const keys = useAppSelector(({WALLET}) => WALLET.keys);
@@ -435,31 +451,14 @@ const Crypto = () => {
     ({APP}) => APP.homeCarouselLayoutType,
   );
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
-  const hasKeys = Object.values(keys).length;
-  const [cardsList, setCardsList] = useState(
-    createHomeCardList({
-      navigation,
-      keys: Object.values(keys),
-      dispatch,
-      linkedCoinbase: false,
-      homeCarouselConfig: homeCarouselConfig || [],
-      homeCarouselLayoutType,
-      hideKeyBalance: hideAllBalances,
-      portfolioSnapshotsByWalletId: portfolio?.snapshotsByWalletId,
-      portfolioQuoteCurrency: portfolio?.quoteCurrency,
-      populateStatus: portfolio?.populateStatus,
-      rates,
-      lastDayRates,
-      fiatRateSeriesCache,
-      defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
-    }),
-  );
+  const keyList = useMemo(() => Object.values(keys), [keys]);
+  const hasKeys = keyList.length;
 
-  useEffect(() => {
-    setCardsList(
+  const buildCardsList = useCallback(
+    (withPortfolioSnapshotPnl: boolean) =>
       createHomeCardList({
         navigation,
-        keys: Object.values(keys),
+        keys: keyList,
         dispatch,
         linkedCoinbase,
         homeCarouselConfig: homeCarouselConfig || [],
@@ -472,23 +471,35 @@ const Crypto = () => {
         lastDayRates,
         fiatRateSeriesCache,
         defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
+        enablePortfolioSnapshotPnl: withPortfolioSnapshotPnl,
       }),
-    );
+    [
+      navigation,
+      keyList,
+      dispatch,
+      linkedCoinbase,
+      homeCarouselConfig,
+      homeCarouselLayoutType,
+      hideAllBalances,
+      portfolio?.snapshotsByWalletId,
+      portfolio?.quoteCurrency,
+      portfolio?.populateStatus,
+      rates,
+      lastDayRates,
+      fiatRateSeriesCache,
+      defaultAltCurrency?.isoCode,
+    ],
+  );
+
+  const [cardsList, setCardsList] = useState(() =>
+    buildCardsList(enableHeavyCardMetrics),
+  );
+
+  useEffect(() => {
+    setCardsList(buildCardsList(enableHeavyCardMetrics));
   }, [
-    navigation,
-    keys,
-    dispatch,
-    linkedCoinbase,
-    homeCarouselConfig,
-    homeCarouselLayoutType,
-    hideAllBalances,
-    portfolio?.quoteCurrency,
-    portfolio?.populateStatus,
-    portfolio?.snapshotsByWalletId,
-    rates,
-    lastDayRates,
-    fiatRateSeriesCache,
-    defaultAltCurrency?.isoCode,
+    buildCardsList,
+    enableHeavyCardMetrics,
   ]);
 
   if (!hasKeys && !linkedCoinbase) {
@@ -496,7 +507,7 @@ const Crypto = () => {
       <CryptoContainer>
         <NoKeysSectionHeaderContainer>
           <Column>
-            <HomeSectionTitle>{t('Your Crypto')}</HomeSectionTitle>
+            <HomeSectionTitle>{translate('Your Crypto')}</HomeSectionTitle>
             <ButtonContainer>
               <NoKeysButtonWrapper>
                 <Button
@@ -508,7 +519,7 @@ const Crypto = () => {
                     );
                     navigation.navigate('CreationOptions');
                   }}>
-                  {t('Create, import or join a shared wallet')}
+                  {translate('Create, import or join a shared wallet')}
                 </Button>
               </NoKeysButtonWrapper>
               <NoKeysButtonWrapper>
@@ -524,7 +535,7 @@ const Crypto = () => {
                   }}>
                   {linkedCoinbase
                     ? 'Coinbase'
-                    : t('Connect your Coinbase account')}
+                    : translate('Connect your Coinbase account')}
                 </Button>
               </NoKeysButtonWrapper>
               {/*<Button
@@ -545,7 +556,7 @@ const Crypto = () => {
     <CryptoContainer>
       <CryptoSectionHeaderContainer>
         <CryptoHeaderRow>
-          <CryptoHeaderTitle>{t('Your Crypto')}</CryptoHeaderTitle>
+          <CryptoHeaderTitle>{translate('Your Crypto')}</CryptoHeaderTitle>
           <CryptoHeaderActions>
             <TouchableOpacity
               activeOpacity={ActiveOpacity}
