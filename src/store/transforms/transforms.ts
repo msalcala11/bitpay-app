@@ -17,8 +17,9 @@ import {LogActions} from '../log';
 import * as initLogs from '../log/initLogs';
 import {
   encryptAppStore,
-  encryptShopStore,
   decryptAppStore,
+  encryptShopStore,
+  decryptShopStore,
   encryptWalletStore,
   decryptWalletStore,
 } from './encrypt';
@@ -107,7 +108,7 @@ const logTransformFailure = (
         ),
       ),
     );
-  } catch {}
+  } catch (_) {}
 };
 
 export const bootstrapWallets = (wallets: Wallet[]) => {
@@ -251,7 +252,7 @@ export const transformContacts = createTransform<ContactState, ContactState>(
         outboundState.list = migratedContacts;
       }
       return outboundState;
-    } catch {
+    } catch (_) {
       return outboundState;
     }
   },
@@ -362,7 +363,7 @@ export const transformPortfolioSnapshotSeries = createTransform<
         ...inboundState,
         snapshotsByWalletId: outMap as any,
       };
-    } catch {
+    } catch (_) {
       return inboundState;
     }
   },
@@ -426,7 +427,7 @@ export const transformPortfolioSnapshotSeries = createTransform<
         ...outboundState,
         snapshotsByWalletId: outMap,
       };
-    } catch {
+    } catch (_) {
       return outboundState;
     }
   },
@@ -478,7 +479,7 @@ export const encryptSpecificFields = (secretKey: string) => {
       }
       if (key === 'SHOP') {
         try {
-          return outboundState;
+          return decryptShopStore(outboundState, secretKey);
         } catch (error) {
           logTransformFailure('decrypt', 'Shop', error);
         }

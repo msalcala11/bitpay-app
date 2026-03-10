@@ -2,20 +2,7 @@ import Aes from 'crypto-js/aes.js';
 import CryptoJsCore from 'crypto-js/core.js';
 import {Network} from '../../constants';
 
-export const encryptedPrefix = 'encrypted:';
-export const shopGiftCardFieldsToTransform = [
-  'accessKey',
-  'barcodeData',
-  'barcodeImage',
-  'claimCode',
-  'claimLink',
-  'pin',
-] as const;
-
-export type ShopGiftCardField = (typeof shopGiftCardFieldsToTransform)[number];
-
-export const isEncryptedValue = (value: unknown): value is string =>
-  typeof value === 'string' && value.startsWith(encryptedPrefix);
+const encryptedPrefix = 'encrypted:';
 
 export const encryptValue = (value: any, secretKey: string): string => {
   // Skip encryption for already encrypted values
@@ -27,7 +14,7 @@ export const encryptValue = (value: any, secretKey: string): string => {
     const encrypted = Aes.encrypt(String(value), secretKey).toString();
     const result = `${encryptedPrefix}${encrypted}`;
     return result;
-  } catch {
+  } catch (err) {
     return value;
   }
 };
@@ -46,59 +33,10 @@ export const decryptValue = (value: any, secretKey: string): any => {
       throw new Error('Decrypted string is empty');
     }
     return result;
-  } catch {
+  } catch (err) {
     return value;
   }
 };
-
-const transformGiftCardFields = <T extends Record<string, any>>(
-  card: T,
-  secretKey: string,
-  transformer: (value: any, secretKey: string) => any,
-  checkCondition: (value: string) => boolean,
-  fieldsToTransform: readonly ShopGiftCardField[] = shopGiftCardFieldsToTransform,
-): T => {
-  const updatedCard = {...card} as Record<string, any>;
-  fieldsToTransform.forEach(field => {
-    const value = card[field];
-    if (value && typeof value === 'string' && checkCondition(value)) {
-      updatedCard[field] = transformer(value, secretKey);
-    }
-  });
-  return updatedCard as T;
-};
-
-export const hasEncryptedGiftCardFields = (
-  card: Partial<Record<ShopGiftCardField, unknown>>,
-  fieldsToTransform: readonly ShopGiftCardField[] = shopGiftCardFieldsToTransform,
-): boolean =>
-  fieldsToTransform.some(field => isEncryptedValue(card[field]));
-
-export const decryptGiftCardFields = <T extends Record<string, any>>(
-  card: T,
-  secretKey: string,
-  fieldsToTransform: readonly ShopGiftCardField[] = shopGiftCardFieldsToTransform,
-): T =>
-  transformGiftCardFields(
-    card,
-    secretKey,
-    decryptValue,
-    value => value.startsWith(encryptedPrefix),
-    fieldsToTransform,
-  );
-
-export const encryptGiftCardFields = <T extends Record<string, any>>(
-  card: T,
-  secretKey: string,
-  fieldsToTransform: readonly ShopGiftCardField[] = shopGiftCardFieldsToTransform,
-): T =>
-  transformGiftCardFields(
-    card,
-    secretKey,
-    encryptValue,
-    value => !value.startsWith(encryptedPrefix),
-    fieldsToTransform,
-  );
 
 // Generic function to transform wallet store (encrypt or decrypt)
 const transformWalletStore = (
@@ -228,14 +166,24 @@ const transformShopStore = (
     return state;
   }
 
+  const fieldsToTransform = [
+    'accessKey',
+    'barcodeData',
+    'barcodeImage',
+    'claimCode',
+    'claimLink',
+    'pin',
+  ];
+
   // Transform each gift card in mainnet
   const newGiftCards = giftCards.map((card: any) => {
-    const updatedCard = transformGiftCardFields(
-      card,
-      secretKey,
-      transformer,
-      checkCondition,
-    );
+    const updatedCard = {...card};
+    fieldsToTransform.forEach(field => {
+      const value = card[field];
+      if (value && typeof value === 'string' && checkCondition(value)) {
+        updatedCard[field] = transformer(value, secretKey);
+      }
+    });
     // Always set invoice to undefined for persisted state
     updatedCard.invoice = undefined;
     return updatedCard;

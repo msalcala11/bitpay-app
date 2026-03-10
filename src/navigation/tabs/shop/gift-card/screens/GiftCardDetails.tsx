@@ -62,10 +62,6 @@ import {
 } from '../../../../../store/shop/shop.models';
 import {ShopActions, ShopEffects} from '../../../../../store/shop';
 import {
-  decryptStoredGiftCardFields,
-  giftCardNeedsDecryption,
-} from '../../../../../store/shop/shop.utils';
-import {
   useAppDispatch,
   useAppSelector,
   useLogger,
@@ -82,16 +78,8 @@ import Markdown from 'react-native-markdown-display';
 import {ScrollableBottomNotificationMessageContainer} from '../../../../../components/modal/bottom-notification/BottomNotification';
 import GiftCardTerms from '../../components/GiftCardTerms';
 import GiftCardImage from '../../components/GiftCardImage';
-import {ShopGiftCardField} from '../../../../../store/transforms/encrypt';
 
 const maxWidth = 320;
-const giftCardDetailFieldsToDecrypt: readonly ShopGiftCardField[] = [
-  'barcodeData',
-  'barcodeImage',
-  'claimCode',
-  'claimLink',
-  'pin',
-];
 
 const GiftCardDetailsContainer = styled.SafeAreaView`
   flex: 1;
@@ -190,19 +178,9 @@ const GiftCardDetails = ({
     giftCards.find(card => card.invoiceId === initialGiftCard.invoiceId) ||
       initialGiftCard,
   );
-  const [decryptedGiftCard, setDecryptedGiftCard] = useState<
-    GiftCard | undefined
-  >(
-    giftCard.status === 'SUCCESS' &&
-      !giftCardNeedsDecryption(giftCard, giftCardDetailFieldsToDecrypt)
-      ? giftCard
-      : undefined,
-  );
   const [defaultClaimCodeType, setDefaultClaimCodeType] = useState(
     cardConfig.defaultClaimCodeType,
   );
-  const successGiftCard =
-    giftCard.status === 'SUCCESS' ? decryptedGiftCard : undefined;
   const cardImage = getCardImage(cardConfig, giftCard.amount);
 
   useEffect(() => {
@@ -226,65 +204,19 @@ const GiftCardDetails = ({
   }, [dispatch, giftCard.invoiceId, giftCard.status]);
 
   useEffect(() => {
-    let isActive = true;
-
-    if (giftCard.status !== 'SUCCESS') {
-      setDecryptedGiftCard(undefined);
-      return () => {
-        isActive = false;
-      };
-    }
-
-    if (!giftCardNeedsDecryption(giftCard, giftCardDetailFieldsToDecrypt)) {
-      setDecryptedGiftCard(giftCard);
-      return () => {
-        isActive = false;
-      };
-    }
-
-    setDecryptedGiftCard(undefined);
-
-    const decryptGiftCard = async () => {
-      try {
-        const resolvedGiftCard = await decryptStoredGiftCardFields(
-          giftCard,
-          giftCardDetailFieldsToDecrypt,
-        );
-        if (isActive) {
-          setDecryptedGiftCard(resolvedGiftCard as GiftCard);
-        }
-      } catch (err) {
-        logger.error(
-          `Unable to decrypt gift card ${giftCard.invoiceId}: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      }
-    };
-
-    decryptGiftCard();
-
-    return () => {
-      isActive = false;
-    };
-  }, [giftCard, logger]);
-
-  useEffect(() => {
     const fallbackToClaimLink = () => {
-      if (successGiftCard?.claimLink) {
+      if (giftCard.claimLink) {
         setDefaultClaimCodeType(ClaimCodeType.link);
       }
     };
-    if (!successGiftCard?.barcodeImage) {
-      setIsBarcode(false);
-      setScannableCodeDimensions({height: 0, width: 0});
+    if (!giftCard.barcodeImage) {
       if (defaultClaimCodeType === ClaimCodeType.barcode) {
         fallbackToClaimLink();
       }
       return;
     }
     Image.getSize(
-      successGiftCard.barcodeImage,
+      giftCard.barcodeImage,
       (width, height) => {
         if (!width || !height) {
           logger.error(
@@ -316,8 +248,8 @@ const GiftCardDetails = ({
   }, [
     cardConfig,
     defaultClaimCodeType,
-    successGiftCard?.barcodeImage,
-    successGiftCard?.claimLink,
+    giftCard.barcodeImage,
+    giftCard.claimLink,
     logger,
   ]);
 
@@ -337,16 +269,16 @@ const GiftCardDetails = ({
 
   const showCopiedNotification = (
     copiedValue: string,
-    notificationCardConfig: CardConfig,
+    cardConfig: CardConfig,
     customMessage?: string,
   ) => {
     const redeemInstructions =
       customMessage ||
-      notificationCardConfig.redeemInstructions ||
+      cardConfig.redeemInstructions ||
       t(
         'Paste this code on . This gift card cannot be recovered if your claim code is lost.',
         {
-          website: notificationCardConfig.website,
+          website: cardConfig.website,
         },
       );
     const containsHtml =
@@ -411,39 +343,32 @@ const GiftCardDetails = ({
           `${BASE_BITPAY_URLS[appNetwork]}/invoice?id=${giftCard.invoiceId}`,
         ),
     },
-    ...(successGiftCard
+    {
+      img: <ExternalLinkSvg theme={theme} />,
+      description: t('Share Claim Code'),
+      onPress: async () => {
+        const dataToShare =
+          Platform.OS === 'ios' && giftCard.claimLink
+            ? {url: giftCard.claimLink}
+            : {message: giftCard.claimLink || giftCard.claimCode};
+        Share.share(dataToShare);
+      },
+    },
+    ...(defaultClaimCodeType !== 'link'
       ? [
           {
-            img: <ExternalLinkSvg theme={theme} />,
-            description: t('Share Claim Code'),
+            img: <PrintSvg theme={theme} />,
+            description: t('Print'),
             onPress: async () => {
-              const dataToShare =
-                Platform.OS === 'ios' && successGiftCard.claimLink
-                  ? {url: successGiftCard.claimLink}
-                  : {
-                      message:
-                        successGiftCard.claimLink || successGiftCard.claimCode,
-                    };
-              Share.share(dataToShare);
+              await RNPrint.print({
+                html: generateGiftCardPrintHtml(
+                  cardConfig,
+                  giftCard,
+                  scannableCodeDimensions,
+                ),
+              });
             },
           },
-          ...(defaultClaimCodeType !== 'link'
-            ? [
-                {
-                  img: <PrintSvg theme={theme} />,
-                  description: t('Print'),
-                  onPress: async () => {
-                    await RNPrint.print({
-                      html: generateGiftCardPrintHtml(
-                        cardConfig,
-                        successGiftCard,
-                        scannableCodeDimensions,
-                      ),
-                    });
-                  },
-                },
-              ]
-            : []),
         ]
       : []),
   ];
@@ -511,111 +436,99 @@ const GiftCardDetails = ({
         </TouchableOpacity>
         <GiftCardImage uri={cardImage} />
         {giftCard.status === 'SUCCESS' ? (
-          successGiftCard ? (
-            <>
-              {defaultClaimCodeType !== 'link' ? (
-                <ClaimCodeBox>
-                  <Paragraph>{t('Claim Code')}</Paragraph>
-                  {successGiftCard.barcodeImage &&
-                  defaultClaimCodeType === 'barcode' ? (
-                    <ScannableCodeContainer
-                      height={scannableCodeDimensions.height + 40}
-                      width={scannableCodeDimensions.width + 40}>
-                      <ScannableCode
-                        height={scannableCodeDimensions.height}
-                        width={scannableCodeDimensions.width}
-                        source={{uri: successGiftCard.barcodeImage}}
-                        resizeMode={isBarcode ? 'stretch' : 'contain'}
-                      />
-                    </ScannableCodeContainer>
-                  ) : null}
-                  <TouchableOpacity
-                    activeOpacity={ActiveOpacity}
-                    onPress={() => copyToClipboard(successGiftCard.claimCode)}>
-                    <ClaimCode>{successGiftCard.claimCode}</ClaimCode>
-                  </TouchableOpacity>
-                  {successGiftCard.pin ? (
-                    <>
-                      <Divider />
-                      <Paragraph>{t('Pin')}</Paragraph>
-                      <TouchableOpacity
-                        activeOpacity={ActiveOpacity}
-                        onPress={() =>
-                          copyToClipboard(successGiftCard.pin as string)
-                        }>
-                        <ClaimCode>{successGiftCard.pin}</ClaimCode>
-                      </TouchableOpacity>
-                    </>
-                  ) : (
-                    <Paragraph style={{marginBottom: 30}}>
-                      {t('Created')} <TimeAgo time={giftCard.date} />
-                    </Paragraph>
-                  )}
-                </ClaimCodeBox>
-              ) : null}
-              {successGiftCard.pin || defaultClaimCodeType === 'link' ? (
-                <Paragraph style={{marginTop: 15}}>
-                  {t('Created')} <TimeAgo time={giftCard.date} />
-                </Paragraph>
-              ) : null}
-              {!giftCard.archived || defaultClaimCodeType === 'link' ? (
-                <ActionContainer>
-                  {cardConfig.redeemUrl ? (
+          <>
+            {defaultClaimCodeType !== 'link' ? (
+              <ClaimCodeBox>
+                <Paragraph>{t('Claim Code')}</Paragraph>
+                {giftCard.barcodeImage && defaultClaimCodeType === 'barcode' ? (
+                  <ScannableCodeContainer
+                    height={scannableCodeDimensions.height + 40}
+                    width={scannableCodeDimensions.width + 40}>
+                    <ScannableCode
+                      height={scannableCodeDimensions.height}
+                      width={scannableCodeDimensions.width}
+                      source={{uri: giftCard.barcodeImage}}
+                      resizeMode={isBarcode ? 'stretch' : 'contain'}
+                    />
+                  </ScannableCodeContainer>
+                ) : null}
+                <TouchableOpacity
+                  activeOpacity={ActiveOpacity}
+                  onPress={() => copyToClipboard(giftCard.claimCode)}>
+                  <ClaimCode>{giftCard.claimCode}</ClaimCode>
+                </TouchableOpacity>
+                {giftCard.pin ? (
+                  <>
+                    <Divider />
+                    <Paragraph>{t('Pin')}</Paragraph>
+                    <TouchableOpacity
+                      activeOpacity={ActiveOpacity}
+                      onPress={() => copyToClipboard(giftCard.pin as string)}>
+                      <ClaimCode>{giftCard.pin}</ClaimCode>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <Paragraph style={{marginBottom: 30}}>
+                    {t('Created')} <TimeAgo time={giftCard.date} />
+                  </Paragraph>
+                )}
+              </ClaimCodeBox>
+            ) : null}
+            {giftCard.pin || defaultClaimCodeType === 'link' ? (
+              <Paragraph style={{marginTop: 15}}>
+                {t('Created')} <TimeAgo time={giftCard.date} />
+              </Paragraph>
+            ) : null}
+            {!giftCard.archived || defaultClaimCodeType === 'link' ? (
+              <ActionContainer>
+                {cardConfig.redeemUrl ? (
+                  <Button
+                    onPress={() => {
+                      Linking.openURL(
+                        `${cardConfig.redeemUrl as string}${
+                          giftCard.claimCode
+                        }`,
+                      );
+                      dispatch(
+                        Analytics.track('Redeemed Gift Card', {
+                          giftCardAmount: giftCard.amount,
+                          giftCardBrand: cardConfig.name,
+                          giftCardCurrency: cardConfig.currency,
+                        }),
+                      );
+                    }}
+                    buttonStyle={'primary'}>
+                    {t('Redeem Now')}
+                  </Button>
+                ) : defaultClaimCodeType === 'link' ? (
+                  <Button
+                    onPress={() =>
+                      Linking.openURL(giftCard.claimLink as string)
+                    }
+                    buttonStyle={'primary'}>
+                    {cardConfig.redeemButtonText || 'View Redemption Code'}
+                  </Button>
+                ) : (
+                  <Button
+                    onPress={() => copyToClipboard(giftCard.claimCode)}
+                    buttonStyle={'primary'}>
+                    {t('Copy Code')}
+                  </Button>
+                )}
+                {!giftCard.archived ? (
+                  <ArchiveButtonContainer>
                     <Button
-                      onPress={() => {
-                        Linking.openURL(
-                          `${cardConfig.redeemUrl as string}${
-                            successGiftCard.claimCode
-                          }`,
-                        );
-                        dispatch(
-                          Analytics.track('Redeemed Gift Card', {
-                            giftCardAmount: giftCard.amount,
-                            giftCardBrand: cardConfig.name,
-                            giftCardCurrency: cardConfig.currency,
-                          }),
-                        );
-                      }}
-                      buttonStyle={'primary'}>
-                      {t('Redeem Now')}
+                      onPress={() => toggleArchiveStatus()}
+                      buttonStyle={'secondary'}>
+                      {t("I've used this card")}
                     </Button>
-                  ) : defaultClaimCodeType === 'link' ? (
-                    <Button
-                      onPress={() =>
-                        Linking.openURL(successGiftCard.claimLink as string)
-                      }
-                      buttonStyle={'primary'}>
-                      {cardConfig.redeemButtonText || 'View Redemption Code'}
-                    </Button>
-                  ) : (
-                    <Button
-                      onPress={() => copyToClipboard(successGiftCard.claimCode)}
-                      buttonStyle={'primary'}>
-                      {t('Copy Code')}
-                    </Button>
-                  )}
-                  {!giftCard.archived ? (
-                    <ArchiveButtonContainer>
-                      <Button
-                        onPress={() => toggleArchiveStatus()}
-                        buttonStyle={'secondary'}>
-                        {t("I've used this card")}
-                      </Button>
-                    </ArchiveButtonContainer>
-                  ) : null}
-                </ActionContainer>
-              ) : (
-                <SectionSpacer />
-              )}
-            </>
-          ) : (
-            <ClaimCodeBox>
-              <TextAlign align="center">
-                <Paragraph>{t('Loading claim information...')}</Paragraph>
-              </TextAlign>
+                  </ArchiveButtonContainer>
+                ) : null}
+              </ActionContainer>
+            ) : (
               <SectionSpacer />
-            </ClaimCodeBox>
-          )
+            )}
+          </>
         ) : (
           <ClaimCodeBox>
             {['PENDING', 'SYNCED'].includes(giftCard.status) ? (
