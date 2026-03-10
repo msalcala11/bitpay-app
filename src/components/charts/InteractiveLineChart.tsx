@@ -13,11 +13,14 @@ import Svg, {Line} from 'react-native-svg';
 import Reanimated, {
   useAnimatedProps,
   useDerivedValue,
-  type SharedValue,
 } from 'react-native-reanimated';
 import Loader from '../loader/Loader';
 import {WIDTH} from '../styled/Containers';
 import {Slate, SlateDark} from '../../styles/colors';
+import {
+  isNumberSharedValue,
+  type NumberSharedValue,
+} from './sharedValueGuards';
 
 const ChartContainer = styled.View`
   margin-top: 0;
@@ -42,6 +45,10 @@ const ChartLoaderOverlay = styled.View`
 
 const AnimatedSvgLine = Reanimated.createAnimatedComponent(Line);
 
+const FIRST_POINT_GUIDE_LINE_DASH_LENGTH = 2.5;
+const FIRST_POINT_GUIDE_LINE_GAP_LENGTH = 4.1;
+const FIRST_POINT_GUIDE_LINE_SVG_HEIGHT = 4;
+
 export type InteractiveLineChartProps = {
   points: GraphPoint[];
   color: string;
@@ -53,7 +60,7 @@ export type InteractiveLineChartProps = {
    * We use this to compensate stroke widths (and dash pattern) so they appear
    * visually constant even while the chart view itself is being scaled.
    */
-  strokeScale?: number | SharedValue<number> | Readonly<SharedValue<number>>;
+  strokeScale?: number | NumberSharedValue;
   /**
    * Optional lower bound for `strokeScale`.
    *
@@ -70,8 +77,8 @@ export type InteractiveLineChartProps = {
   panGestureDelay?: number;
   animated?: boolean;
   SelectionDot?: React.ComponentType<SelectionDotProps>;
-  TopAxisLabel?: React.ComponentType<any>;
-  BottomAxisLabel?: React.ComponentType<any>;
+  TopAxisLabel?: React.ComponentType;
+  BottomAxisLabel?: React.ComponentType;
   onGestureStart?: () => void;
   onGestureEnd?: () => void;
   onPointSelected?: (point: GraphPoint) => void;
@@ -84,6 +91,8 @@ export type InteractiveLineChartProps = {
   showFirstPointGuideLine?: boolean;
   firstPointGuideLineColor?: string;
 };
+
+type SvgLineAnimatedProps = Partial<React.ComponentProps<typeof Line>>;
 
 const InteractiveLineChart = ({
   points,
@@ -108,9 +117,6 @@ const InteractiveLineChart = ({
   showFirstPointGuideLine = false,
   firstPointGuideLineColor,
 }: InteractiveLineChartProps): React.ReactElement => {
-  const FIRST_POINT_GUIDE_LINE_DASH_LENGTH = 2.5;
-  const FIRST_POINT_GUIDE_LINE_GAP_LENGTH = 4.1;
-  const FIRST_POINT_GUIDE_LINE_SVG_HEIGHT = 4;
   const theme = useTheme();
   const isFocused = useIsFocused();
   const graphHeight = 200;
@@ -130,11 +136,7 @@ const InteractiveLineChart = ({
   const effectiveLineThickness =
     typeof lineThickness === 'number' ? lineThickness : theme.dark ? 2 : 4;
 
-  const strokeScaleIsSharedValue =
-    strokeScale != null &&
-    typeof strokeScale === 'object' &&
-    // Don't read `.value` during render.
-    'value' in (strokeScale as {value?: unknown});
+  const strokeScaleIsSharedValue = isNumberSharedValue(strokeScale);
 
   const strokeScaleNumber = typeof strokeScale === 'number' ? strokeScale : 1;
   const safeStrokeScaleNumber = strokeScaleNumber > 0 ? strokeScaleNumber : 1;
@@ -177,30 +179,29 @@ const InteractiveLineChart = ({
 
   // Prefer a plain number when we don't need dynamic compensation. This keeps
   // behavior compatible with non-animated graph implementations.
-  const lineThicknessForGraph: number | SharedValue<number> | Readonly<SharedValue<number>> =
+  const lineThicknessForGraph: number | NumberSharedValue =
     strokeScaleIsSharedValue
       ? compensatedLineThickness
       : effectiveLineThickness /
         Math.pow(safeStrokeScaleNumber, lineThicknessCompensationExponent);
 
-  const firstPointGuideLineAnimatedProps = useAnimatedProps(() => {
-    const scale = strokeScaleValue.value;
-    const safeScale = scale > 0 ? scale : 1;
+  const firstPointGuideLineAnimatedProps = useAnimatedProps<SvgLineAnimatedProps>(
+    () => {
+      const scale = strokeScaleValue.value;
+      const safeScale = scale > 0 ? scale : 1;
 
-    return {
-      // Keep the dash thickness constant under the parent scale.
-      strokeWidth: 1 / safeScale,
-      // Keep dash + gap lengths constant under the parent scale.
-      strokeDasharray: [
-        FIRST_POINT_GUIDE_LINE_DASH_LENGTH / safeScale,
-        FIRST_POINT_GUIDE_LINE_GAP_LENGTH / safeScale,
-      ],
-    };
-  }, [
-    strokeScaleValue,
-    FIRST_POINT_GUIDE_LINE_DASH_LENGTH,
-    FIRST_POINT_GUIDE_LINE_GAP_LENGTH,
-  ]);
+      return {
+        // Keep the dash thickness constant under the parent scale.
+        strokeWidth: 1 / safeScale,
+        // Keep dash + gap lengths constant under the parent scale.
+        strokeDasharray: [
+          FIRST_POINT_GUIDE_LINE_DASH_LENGTH / safeScale,
+          FIRST_POINT_GUIDE_LINE_GAP_LENGTH / safeScale,
+        ],
+      };
+    },
+    [strokeScaleValue],
+  );
 
   /**
    * THEME SWITCH BEHAVIOR (important)
@@ -308,12 +309,7 @@ const InteractiveLineChart = ({
   //   - we regain focus after a theme switch (ensures redraw is visible),
   //   - layout happens after a theme switch (handles detach/reattach cases).
   const pointsForGraph = React.useMemo(() => {
-    // Keep refresh dependencies "used" so the memo intentionally re-runs when
-    // redraw triggers change, while preserving the same points payload.
-    const refreshNonce =
-      styleSignature.length + focusRefreshNonce + layoutRefreshNonce;
-    const sliceStart = refreshNonce - refreshNonce;
-    return points.slice(sliceStart);
+    return points.slice();
   }, [points, styleSignature, focusRefreshNonce, layoutRefreshNonce]);
 
   const firstPointGuideLine = React.useMemo(() => {
@@ -321,16 +317,25 @@ const InteractiveLineChart = ({
       return null;
     }
 
-    const values = pointsForGraph
-      .map(p => Number(p?.value))
-      .filter(v => Number.isFinite(v));
+    let minValue = Number.POSITIVE_INFINITY;
+    let maxValue = Number.NEGATIVE_INFINITY;
+    for (const point of pointsForGraph) {
+      const value = Number(point?.value);
+      if (!Number.isFinite(value)) {
+        continue;
+      }
+      if (value < minValue) {
+        minValue = value;
+      }
+      if (value > maxValue) {
+        maxValue = value;
+      }
+    }
 
-    if (!values.length) {
+    if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) {
       return null;
     }
 
-    const minValue = Math.min(...values);
-    const maxValue = Math.max(...values);
     const firstPointValue = Number.isFinite(pointsForGraph[0]?.value)
       ? Number(pointsForGraph[0]?.value)
       : minValue;
@@ -461,17 +466,12 @@ const InteractiveLineChart = ({
             width={firstPointGuideLine.width}
             height={FIRST_POINT_GUIDE_LINE_SVG_HEIGHT}>
             <AnimatedSvgLine
-              animatedProps={firstPointGuideLineAnimatedProps as any}
+              animatedProps={firstPointGuideLineAnimatedProps}
               x1={0}
               y1={FIRST_POINT_GUIDE_LINE_SVG_HEIGHT / 2}
               x2={firstPointGuideLine.width}
               y2={FIRST_POINT_GUIDE_LINE_SVG_HEIGHT / 2}
               stroke={firstPointGuideLine.color}
-              strokeWidth={1}
-              strokeDasharray={[
-                FIRST_POINT_GUIDE_LINE_DASH_LENGTH,
-                FIRST_POINT_GUIDE_LINE_GAP_LENGTH,
-              ]}
               strokeLinecap="butt"
             />
           </Svg>

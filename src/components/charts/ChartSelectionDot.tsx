@@ -1,8 +1,7 @@
-import React, {useCallback} from 'react';
+import React from 'react';
 import {Circle, Group} from '@shopify/react-native-skia';
 import type {SelectionDotProps} from 'react-native-graph';
 import {
-  runOnJS,
   useAnimatedReaction,
   useSharedValue,
   withSpring,
@@ -19,8 +18,9 @@ const ChartSelectionDot = ({
   const outerRadius = useSharedValue(0);
   const innerRadius = useSharedValue(0);
 
-  const setIsActive = useCallback(
-    (active: boolean) => {
+  useAnimatedReaction(
+    () => isActive.value,
+    active => {
       outerRadius.value = withSpring(active ? 9 : 0, {
         mass: 1,
         stiffness: 1000,
@@ -35,14 +35,6 @@ const ChartSelectionDot = ({
       });
     },
     [innerRadius, outerRadius],
-  );
-
-  useAnimatedReaction(
-    () => isActive.value,
-    active => {
-      runOnJS(setIsActive)(active);
-    },
-    [setIsActive],
   );
 
   return (

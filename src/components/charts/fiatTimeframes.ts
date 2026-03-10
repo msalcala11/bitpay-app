@@ -1,14 +1,60 @@
 import type {FiatRateInterval} from '../../store/rate/rate.models';
 
-export const FIAT_CHART_TIMEFRAMES: Array<{label: string; value: FiatRateInterval}> = [
-  {label: 'All', value: 'ALL'},
-  {label: '1D', value: '1D'},
-  {label: '1W', value: '1W'},
-  {label: '1M', value: '1M'},
-  {label: '3M', value: '3M'},
-  {label: '1Y', value: '1Y'},
-  {label: '5Y', value: '5Y'},
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export const FIAT_CHART_TIMEFRAME_VALUES: FiatRateInterval[] = [
+  'ALL',
+  '1D',
+  '1W',
+  '1M',
+  '3M',
+  '1Y',
+  '5Y',
 ];
+
+export const getFiatChartTimeframeOptions = (
+  t: (key: string) => string,
+): Array<{label: string; value: FiatRateInterval}> => {
+  return FIAT_CHART_TIMEFRAME_VALUES.map(value => ({
+    value,
+    label: value === 'ALL' ? t('All') : value,
+  }));
+};
+
+export const getSeriesIntervalForFiatTimeframe = (
+  timeframe: FiatRateInterval,
+): FiatRateInterval => {
+  switch (timeframe) {
+    case '3M':
+    case '1Y':
+    case '5Y':
+      return 'ALL';
+    default:
+      return timeframe;
+  }
+};
+
+export const getFiatTimeframeWindowMs = (
+  timeframe: FiatRateInterval,
+): number => {
+  switch (timeframe) {
+    case '1D':
+      return 1 * DAY_MS;
+    case '1W':
+      return 7 * DAY_MS;
+    case '1M':
+      return 30 * DAY_MS;
+    case '3M':
+      return 90 * DAY_MS;
+    case '1Y':
+      return 365 * DAY_MS;
+    case '5Y':
+      return 1825 * DAY_MS;
+    case 'ALL':
+    default:
+      return 1825 * DAY_MS;
+  }
+};
 
 export const getRangeLabelForFiatTimeframe = (
   t: (key: string) => string,

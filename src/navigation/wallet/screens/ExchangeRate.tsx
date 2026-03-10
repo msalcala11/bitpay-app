@@ -23,7 +23,6 @@ import {
   ActiveOpacity,
   CardContainer,
   ScreenGutter,
-  WIDTH,
 } from '../../../components/styled/Containers';
 import {
   BaseText,
@@ -39,14 +38,10 @@ import {
 import {SupportedCurrencyOptions} from '../../../constants/SupportedCurrencyOptions';
 import LinkingButtons from '../../tabs/home/components/LinkingButtons';
 import {
-  Action,
   Black,
   CharcoalBlack,
   LightBlack,
-  LightBlue,
-  LinkBlue,
   LuckySevens,
-  Midnight,
   ProgressBlue,
   Slate,
   Slate10,
@@ -123,7 +118,11 @@ import ChartSelectionDot from '../../../components/charts/ChartSelectionDot';
 import InteractiveLineChart from '../../../components/charts/InteractiveLineChart';
 import TimeframeSelector from '../../../components/charts/TimeframeSelector';
 import ChartChangeRow from '../../../components/charts/ChartChangeRow';
-import {FIAT_CHART_TIMEFRAMES} from '../../../components/charts/fiatTimeframes';
+import {
+  formatRangeOrSelectedPointLabel,
+  getFiatChartTimeframeOptions,
+  getRangeLabelForFiatTimeframe,
+} from '../../../components/charts/fiatTimeframes';
 
 const formatCompactNumber = (value: number, maximumFractionDigits = 2) => {
   const abs = Math.abs(value);
@@ -236,20 +235,6 @@ const formatSupply = (value: number, maximumFractionDigits = 2) => {
 const ScreenContainer = styled.SafeAreaView`
   flex: 1;
 `;
-
-// const HeaderRight = styled.View`
-//   flex-direction: row;
-//   gap: 10px;
-// `;
-
-// const CircleButton = styled(TouchableOpacity)`
-//   width: 40px;
-//   height: 40px;
-//   border-radius: 20px;
-//   align-items: center;
-//   justify-content: center;
-//   background-color: ${({theme}) => (theme.dark ? LightBlack : NeutralSlate)};
-// `;
 
 const HeaderTitleText = styled(HeaderTitle)`
   font-size: 20px;
@@ -424,31 +409,6 @@ const AboutText = styled(BaseText)`
   color: ${({theme: {dark}}) => (dark ? Slate30 : SlateDark)};
 `;
 
-// const RightIconSvg = ({type}: {type: 'star' | 'bell'}) => {
-//   const theme = useTheme();
-//   const fill = theme.dark ? Slate30 : SlateDark;
-
-//   if (type === 'star') {
-//     return (
-//       <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-//         <Path
-//           d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27Z"
-//           fill={fill}
-//         />
-//       </Svg>
-//     );
-//   }
-
-//   return (
-//     <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-//       <Path
-//         d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2Zm6-6V11c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5S10.5 3.17 10.5 4v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2Z"
-//         fill={fill}
-//       />
-//     </Svg>
-//   );
-// };
-
 const tokenThemeByCoin: {[key in string]: string} = Object.values(
   BitpaySupportedTokens,
 ).reduce((acc, token) => {
@@ -496,9 +456,6 @@ const ExchangeRate = () => {
   // Keep the ref hot; axis label renderers read from it but must not recreate
   // their component identities.
   displayDataRef.current = displayData;
-  useEffect(() => {
-    displayDataRef.current = displayData;
-  }, [displayData]);
   const gestureStarted = useRef(false);
   const [selectedPoint, setSelectedPoint] = useState<
     | {
@@ -512,6 +469,10 @@ const ExchangeRate = () => {
 
   const currencyAbbreviation = formatCurrencyAbbreviation(
     params?.currencyAbbreviation || 'BTC',
+  );
+  const fiatChartTimeframeOptions = useMemo(
+    () => getFiatChartTimeframeOptions(t),
+    [t],
   );
   const coinKey = (
     params?.chain ||
@@ -912,49 +873,14 @@ const ExchangeRate = () => {
   ]);
 
   const rangeLabel = useMemo(() => {
-    switch (selectedTimeframe) {
-      case '1D':
-        return t('Last Day');
-      case '1W':
-        return t('Past Week');
-      case '1M':
-        return t('Past Month');
-      case '3M':
-        return t('Past 3 Months');
-      case '1Y':
-        return t('Past Year');
-      case '5Y':
-        return t('Past 5 Years');
-      case 'ALL':
-      default:
-        return t('All-time');
-    }
+    return getRangeLabelForFiatTimeframe(t, selectedTimeframe);
   }, [selectedTimeframe, t]);
 
   const rangeOrSelectedPointLabel = useMemo(() => {
-    if (!selectedPoint?.date) {
-      return rangeLabel;
-    }
-    const date = selectedPoint.date;
-    if (selectedTimeframe === '1D') {
-      return date.toLocaleTimeString([], {
-        hour: 'numeric',
-        minute: '2-digit',
-      });
-    }
-    if (selectedTimeframe === '1W' || selectedTimeframe === '1M') {
-      return date.toLocaleString([], {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      });
-    }
-    return date.toLocaleDateString([], {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
+    return formatRangeOrSelectedPointLabel({
+      rangeLabel,
+      selectedTimeframe,
+      selectedDate: selectedPoint?.date,
     });
   }, [rangeLabel, selectedPoint?.date, selectedTimeframe]);
 
@@ -1200,6 +1126,8 @@ const ExchangeRate = () => {
   // Keep stable identities and read the latest values from refs.
   const currencyAbbreviationRef = useRef(currencyAbbreviation);
   currencyAbbreviationRef.current = currencyAbbreviation;
+  const quoteCurrencyRef = useRef(defaultAltCurrency.isoCode);
+  quoteCurrencyRef.current = defaultAltCurrency.isoCode;
   const selectedTimeframeHighValueRef = useRef(selectedTimeframeHighValue);
   selectedTimeframeHighValueRef.current = selectedTimeframeHighValue;
 
@@ -1222,6 +1150,7 @@ const ExchangeRate = () => {
         value={displayDataRef.current.minPoint.value}
         index={displayDataRef.current.minIndex}
         arrayLength={displayDataRef.current.data.length}
+        quoteCurrency={quoteCurrencyRef.current}
         currencyAbbreviation={currencyAbbreviationRef.current}
         type="min"
       />
@@ -1246,6 +1175,7 @@ const ExchangeRate = () => {
         value={maxAxisLabelValue}
         index={dd.maxIndex}
         arrayLength={dd.data.length}
+        quoteCurrency={quoteCurrencyRef.current}
         currencyAbbreviation={currencyAbbreviationRef.current}
         type="max"
       />
@@ -1405,16 +1335,6 @@ const ExchangeRate = () => {
     navigation.setOptions({
       headerTitle: () => <HeaderTitleText>{currencyName}</HeaderTitleText>,
       headerLeft: () => <HeaderBackButton />,
-      // headerRight: () => (
-      //   <HeaderRight>
-      //     <CircleButton activeOpacity={ActiveOpacity} onPress={() => {}}>
-      //       <RightIconSvg type="star" />
-      //     </CircleButton>
-      //     <CircleButton activeOpacity={ActiveOpacity} onPress={() => {}}>
-      //       <RightIconSvg type="bell" />
-      //     </CircleButton>
-      //   </HeaderRight>
-      // ),
     });
   }, [currencyName, navigation]);
 
@@ -1466,7 +1386,7 @@ const ExchangeRate = () => {
         />
 
         <TimeframeSelector
-          options={FIAT_CHART_TIMEFRAMES}
+          options={fiatChartTimeframeOptions}
           selected={selectedTimeframe}
           onSelect={setSelectedTimeframe}
         />

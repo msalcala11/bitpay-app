@@ -414,14 +414,19 @@ type BuildPnlAnalysisSeriesGeneratorOptions = {
   yieldEveryPoints?: number;
 };
 
-const DEFAULT_ASYNC_YIELD_EVERY_POINTS = 2;
+const DEFAULT_ASYNC_YIELD_EVERY_POINTS = 4;
 
 const yieldToEventLoop = (): Promise<void> => {
   return new Promise(resolve => {
-    if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(() => setTimeout(resolve, 0));
+    const setImmediateFn = (globalThis as {
+      setImmediate?: (callback: () => void) => unknown;
+    }).setImmediate;
+
+    if (typeof setImmediateFn === 'function') {
+      setImmediateFn(resolve);
       return;
     }
+
     setTimeout(resolve, 0);
   });
 };

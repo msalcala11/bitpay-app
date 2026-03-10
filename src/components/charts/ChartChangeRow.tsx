@@ -1,4 +1,5 @@
 import React from 'react';
+import type {StyleProp, ViewStyle} from 'react-native';
 import styled from 'styled-components/native';
 import Percentage from '../percentage/Percentage';
 
@@ -13,7 +14,7 @@ export type ChartChangeRowProps = {
   deltaFiatFormatted?: string;
   rangeLabel?: string;
   isLoading?: boolean;
-  style?: any;
+  style?: StyleProp<ViewStyle>;
 };
 
 const ChartChangeRow = ({

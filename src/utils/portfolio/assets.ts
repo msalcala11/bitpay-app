@@ -656,15 +656,31 @@ const mapSnapshotToStored = (args: {
   const targetQuoteCurrency = (
     args.targetQuoteCurrency || args.fallbackQuoteCurrency
   ).toUpperCase();
+  const remainingCostBasisFiatRaw = Number(
+    (s as any)?.remainingCostBasisFiat || 0,
+  );
 
   let markRate =
     typeof (s as any)?.costBasisRateFiat === 'number'
       ? (s as any).costBasisRateFiat
       : 0;
+  let remainingCostBasisFiat = remainingCostBasisFiatRaw;
+  let storedQuoteCurrency = targetQuoteCurrency || snapshotQuoteCurrency;
 
-  if (markRate > 0 && snapshotQuoteCurrency !== targetQuoteCurrency) {
-    const convertedMarkRate = convertAmountBetweenQuotesViaBtc({
-      amount: markRate,
+  if (snapshotQuoteCurrency !== targetQuoteCurrency) {
+    const convertedMarkRate =
+      markRate > 0
+        ? convertAmountBetweenQuotesViaBtc({
+            amount: markRate,
+            sourceQuoteCurrency: snapshotQuoteCurrency,
+            targetQuoteCurrency,
+            timestampMs: Number((s as any)?.timestamp || 0),
+            fiatRateSeriesCache: args.fiatRateSeriesCache,
+            nowMs: args.nowMs,
+          })
+        : markRate;
+    const convertedRemainingCostBasisFiat = convertAmountBetweenQuotesViaBtc({
+      amount: remainingCostBasisFiatRaw,
       sourceQuoteCurrency: snapshotQuoteCurrency,
       targetQuoteCurrency,
       timestampMs: Number((s as any)?.timestamp || 0),
@@ -672,10 +688,24 @@ const mapSnapshotToStored = (args: {
       nowMs: args.nowMs,
     });
 
-    markRate =
-      typeof convertedMarkRate === 'number' && convertedMarkRate > 0
-        ? convertedMarkRate
-        : 0;
+    const canUseConvertedMarkRate =
+      markRate <= 0 ||
+      (typeof convertedMarkRate === 'number' &&
+        Number.isFinite(convertedMarkRate) &&
+        convertedMarkRate > 0);
+    const canUseConvertedCostBasis =
+      typeof convertedRemainingCostBasisFiat === 'number' &&
+      Number.isFinite(convertedRemainingCostBasisFiat);
+
+    if (canUseConvertedMarkRate && canUseConvertedCostBasis) {
+      if (markRate > 0 && typeof convertedMarkRate === 'number') {
+        markRate = convertedMarkRate;
+      }
+      remainingCostBasisFiat = convertedRemainingCostBasisFiat;
+      storedQuoteCurrency = targetQuoteCurrency;
+    } else {
+      storedQuoteCurrency = snapshotQuoteCurrency;
+    }
   }
 
   return {
@@ -691,8 +721,8 @@ const mapSnapshotToStored = (args: {
       String((s as any)?.cryptoBalance || '0'),
       args.unitDecimals,
     ).toString(),
-    remainingCostBasisFiat: Number((s as any)?.remainingCostBasisFiat || 0),
-    quoteCurrency: targetQuoteCurrency || snapshotQuoteCurrency,
+    remainingCostBasisFiat,
+    quoteCurrency: storedQuoteCurrency,
     markRate,
     createdAt:
       typeof (s as any)?.createdAt === 'number'
@@ -1371,6 +1401,110 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
  * This is factored out so balance-history charts can reuse the same conversion
  * logic already used by AssetsList/portfolio PnL computations.
  */
+export type PnlWalletInputs = {
+  wallets: WalletForAnalysis[];
+  currentRatesByCoin: Record<string, number>;
+  quoteCurrency: string;
+};
+
+type PnlWalletBuildContext = {
+  wallet: Wallet;
+  walletId: string;
+  walletName: string;
+  coin: string;
+  chainLower: string;
+  tokenAddress?: string;
+  unitDecimals: number;
+  appSnaps: BalanceSnapshot[];
+  credentials: WalletForAnalysis['credentials'];
+};
+
+type PnlWalletAnalysisEntry = {
+  wallet: WalletForAnalysis;
+  normCoin: string;
+  currentRate: number;
+};
+
+const createPnlWalletBuildContext = (args: {
+  wallet: Wallet;
+  snapshotsByWalletId: {[walletId: string]: BalanceSnapshot[] | undefined};
+}): PnlWalletBuildContext | undefined => {
+  const {wallet} = args;
+
+  if ((wallet as any)?.network !== Network.mainnet) {
+    return undefined;
+  }
+
+  const walletId = String((wallet as any)?.id || '');
+  const coin = String((wallet as any)?.currencyAbbreviation || '').toLowerCase();
+  if (!walletId || !coin) {
+    return undefined;
+  }
+
+  const appSnaps = ensureSortedSnapshots(args.snapshotsByWalletId?.[walletId]);
+  if (!appSnaps.length) {
+    return undefined;
+  }
+
+  const unitInfo = getWalletUnitInfo(wallet);
+  const chainLower = String((wallet as any)?.chain || coin).toLowerCase();
+  const tokenAddress = (wallet as any)?.tokenAddress as string | undefined;
+  const credentials: WalletForAnalysis['credentials'] = {
+    chain: chainLower,
+    coin,
+    network: 'livenet',
+  };
+
+  if (tokenAddress) {
+    credentials.token = {
+      ...(credentials.token || {}),
+      decimals: unitInfo.unitDecimals,
+      address: tokenAddress,
+    };
+  }
+
+  return {
+    wallet,
+    walletId,
+    walletName: String(
+      (wallet as any)?.walletName || (wallet as any)?.name || walletId,
+    ),
+    coin,
+    chainLower,
+    tokenAddress,
+    unitDecimals: unitInfo.unitDecimals,
+    appSnaps,
+    credentials,
+  };
+};
+
+const createPnlWalletAnalysisEntry = (args: {
+  context: PnlWalletBuildContext;
+  effectiveQuoteCurrency: string;
+  rates?: Rates;
+  snapshots: BalanceSnapshotStored[];
+}): PnlWalletAnalysisEntry => {
+  const {context, effectiveQuoteCurrency, rates, snapshots} = args;
+
+  return {
+    wallet: {
+      walletId: context.walletId,
+      walletName: context.walletName,
+      currencyAbbreviation: context.coin,
+      credentials: context.credentials,
+      snapshots,
+    },
+    normCoin: normalizeCoinForPnlRates(context.coin),
+    currentRate: getQuoteRateNumForAsset({
+      rates,
+      quoteCurrency: effectiveQuoteCurrency,
+      coin: context.coin,
+      chain: String((context.wallet as any)?.chain || context.coin),
+      tokenAddress: context.tokenAddress,
+    }),
+  };
+};
+
 export const buildPnlWalletInputsFromPortfolioSnapshots = (args: {
   snapshotsByWalletId: {[walletId: string]: BalanceSnapshot[] | undefined};
   wallets: Wallet[];
@@ -1378,11 +1512,7 @@ export const buildPnlWalletInputsFromPortfolioSnapshots = (args: {
   rates?: Rates;
   fiatRateSeriesCache?: FiatRateSeriesCache;
   nowMs?: number;
-}): {
-  wallets: WalletForAnalysis[];
-  currentRatesByCoin: Record<string, number>;
-  quoteCurrency: string;
-} => {
+}): PnlWalletInputs => {
   const walletById = buildWalletByIdMap(args.wallets);
   const effectiveQuoteCurrency = getEffectiveQuoteCurrencyFromSnapshots({
     preferredQuoteCurrency: (args.quoteCurrency || '').toUpperCase(),
@@ -1404,52 +1534,22 @@ export const buildPnlWalletInputsFromPortfolioSnapshots = (args: {
     };
   }
 
-  for (const w of args.wallets || []) {
-    if ((w as any)?.network !== Network.mainnet) {
+  for (const wallet of args.wallets || []) {
+    const context = createPnlWalletBuildContext({
+      wallet,
+      snapshotsByWalletId: args.snapshotsByWalletId || {},
+    });
+    if (!context) {
       continue;
-    }
-
-    const walletId = String((w as any)?.id || '');
-    const coin = String((w as any)?.currencyAbbreviation || '').toLowerCase();
-    if (!walletId || !coin) {
-      continue;
-    }
-
-    const appSnaps = ensureSortedSnapshots(
-      args.snapshotsByWalletId?.[walletId],
-    );
-    if (!appSnaps.length) {
-      continue;
-    }
-
-    const unitInfo = getWalletUnitInfo(w);
-    const chainLower = String((w as any)?.chain || coin).toLowerCase();
-
-    const credentials: any = {
-      chain: chainLower,
-      coin,
-      network:
-        (w as any)?.network === Network.mainnet
-          ? 'livenet'
-          : String((w as any)?.network || 'livenet'),
-    };
-
-    const tokenAddress = (w as any)?.tokenAddress as string | undefined;
-    if (tokenAddress) {
-      credentials.token = {
-        ...(credentials.token || {}),
-        decimals: unitInfo.unitDecimals,
-        address: tokenAddress,
-      };
     }
 
     const snaps = mapSnapshotsToStored({
-      snapshots: appSnaps,
-      wallet: w,
-      walletId,
-      unitDecimals: unitInfo.unitDecimals,
-      fallbackChain: chainLower,
-      fallbackCoin: coin,
+      snapshots: context.appSnaps,
+      wallet: context.wallet,
+      walletId: context.walletId,
+      unitDecimals: context.unitDecimals,
+      fallbackChain: context.chainLower,
+      fallbackCoin: context.coin,
       fallbackQuoteCurrency: effectiveQuoteCurrency,
       targetQuoteCurrency: effectiveQuoteCurrency,
       fiatRateSeriesCache,
@@ -1457,28 +1557,16 @@ export const buildPnlWalletInputsFromPortfolioSnapshots = (args: {
       fallbackAssetIdToWalletIdentity: true,
     });
 
-    pnlWallets.push({
-      walletId,
-      walletName: String(
-        (w as any)?.walletName || (w as any)?.name || walletId,
-      ),
-      currencyAbbreviation: coin,
-      credentials,
+    const entry = createPnlWalletAnalysisEntry({
+      context,
+      effectiveQuoteCurrency,
+      rates: args.rates,
       snapshots: snaps,
     });
 
-    const normCoin = normalizeCoinForPnlRates(coin);
-    if (!(normCoin in currentRatesByCoin)) {
-      const currentRate = getQuoteRateNumForAsset({
-        rates: args.rates,
-        quoteCurrency: effectiveQuoteCurrency,
-        coin,
-        chain: String((w as any)?.chain || coin),
-        tokenAddress,
-      });
-      if (currentRate > 0) {
-        currentRatesByCoin[normCoin] = currentRate;
-      }
+    pnlWallets.push(entry.wallet);
+    if (!(entry.normCoin in currentRatesByCoin) && entry.currentRate > 0) {
+      currentRatesByCoin[entry.normCoin] = entry.currentRate;
     }
   }
 
@@ -1503,11 +1591,7 @@ export const buildPnlWalletInputsFromPortfolioSnapshotsAsync = async (
     yieldEverySnapshots?: number;
     yieldControl?: () => Promise<void>;
   },
-): Promise<{
-  wallets: WalletForAnalysis[];
-  currentRatesByCoin: Record<string, number>;
-  quoteCurrency: string;
-}> => {
+): Promise<PnlWalletInputs> => {
   const walletById = buildWalletByIdMap(args.wallets);
   const effectiveQuoteCurrency = getEffectiveQuoteCurrencyFromSnapshots({
     preferredQuoteCurrency: (args.quoteCurrency || '').toUpperCase(),
@@ -1535,54 +1619,23 @@ export const buildPnlWalletInputsFromPortfolioSnapshotsAsync = async (
   }
 
   for (let walletIndex = 0; walletIndex < (args.wallets || []).length; walletIndex++) {
-    const w = args.wallets[walletIndex];
-
-    if ((w as any)?.network !== Network.mainnet) {
+    const wallet = args.wallets[walletIndex];
+    const context = createPnlWalletBuildContext({
+      wallet,
+      snapshotsByWalletId: args.snapshotsByWalletId || {},
+    });
+    if (!context) {
       continue;
-    }
-
-    const walletId = String((w as any)?.id || '');
-    const coin = String((w as any)?.currencyAbbreviation || '').toLowerCase();
-    if (!walletId || !coin) {
-      continue;
-    }
-
-    const appSnaps = ensureSortedSnapshots(
-      args.snapshotsByWalletId?.[walletId],
-    );
-    if (!appSnaps.length) {
-      continue;
-    }
-
-    const unitInfo = getWalletUnitInfo(w);
-    const chainLower = String((w as any)?.chain || coin).toLowerCase();
-
-    const credentials: any = {
-      chain: chainLower,
-      coin,
-      network:
-        (w as any)?.network === Network.mainnet
-          ? 'livenet'
-          : String((w as any)?.network || 'livenet'),
-    };
-
-    const tokenAddress = (w as any)?.tokenAddress as string | undefined;
-    if (tokenAddress) {
-      credentials.token = {
-        ...(credentials.token || {}),
-        decimals: unitInfo.unitDecimals,
-        address: tokenAddress,
-      };
     }
 
     const snaps = await mapSnapshotsToStoredAsync(
       {
-        snapshots: appSnaps,
-        wallet: w,
-        walletId,
-        unitDecimals: unitInfo.unitDecimals,
-        fallbackChain: chainLower,
-        fallbackCoin: coin,
+        snapshots: context.appSnaps,
+        wallet: context.wallet,
+        walletId: context.walletId,
+        unitDecimals: context.unitDecimals,
+        fallbackChain: context.chainLower,
+        fallbackCoin: context.coin,
         fallbackQuoteCurrency: effectiveQuoteCurrency,
         targetQuoteCurrency: effectiveQuoteCurrency,
         fiatRateSeriesCache,
@@ -1595,28 +1648,16 @@ export const buildPnlWalletInputsFromPortfolioSnapshotsAsync = async (
       },
     );
 
-    pnlWallets.push({
-      walletId,
-      walletName: String(
-        (w as any)?.walletName || (w as any)?.name || walletId,
-      ),
-      currencyAbbreviation: coin,
-      credentials,
+    const entry = createPnlWalletAnalysisEntry({
+      context,
+      effectiveQuoteCurrency,
+      rates: args.rates,
       snapshots: snaps,
     });
 
-    const normCoin = normalizeCoinForPnlRates(coin);
-    if (!(normCoin in currentRatesByCoin)) {
-      const currentRate = getQuoteRateNumForAsset({
-        rates: args.rates,
-        quoteCurrency: effectiveQuoteCurrency,
-        coin,
-        chain: String((w as any)?.chain || coin),
-        tokenAddress,
-      });
-      if (currentRate > 0) {
-        currentRatesByCoin[normCoin] = currentRate;
-      }
+    pnlWallets.push(entry.wallet);
+    if (!(entry.normCoin in currentRatesByCoin) && entry.currentRate > 0) {
+      currentRatesByCoin[entry.normCoin] = entry.currentRate;
     }
 
     if ((walletIndex + 1) % yieldEveryWallets === 0) {

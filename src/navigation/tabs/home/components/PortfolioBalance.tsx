@@ -20,7 +20,7 @@ import ChartChangeRow from '../../../../components/charts/ChartChangeRow';
 import {COINBASE_ENV} from '../../../../api/coinbase/coinbase.constants';
 import {useTranslation} from 'react-i18next';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
-import {View} from 'react-native';
+import {View, type LayoutRectangle} from 'react-native';
 import Animated, {
   Easing,
   interpolate,
@@ -40,7 +40,7 @@ import {
 import type {Wallet} from '../../../../store/wallet/wallet.models';
 import CollapseContentButton from './CollapseContentButton';
 
-const PortfolioContainer = styled.View<{$leftAligned?: boolean}>`
+const PortfolioContainer = styled.View`
   justify-content: center;
   align-items: center;
   width: 100%;
@@ -113,7 +113,9 @@ const PortfolioBalance = () => {
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
   const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
 
-  const [selectedBalance, setSelectedBalance] = useState<number | undefined>();
+  const [selectedChartBalance, setSelectedChartBalance] = useState<
+    number | undefined
+  >();
   const [chartChangeRowData, setChartChangeRowData] = useState<{
     percent: number;
     deltaFiatFormatted?: string;
@@ -127,12 +129,8 @@ const PortfolioBalance = () => {
   const [chartStageWidth, setChartStageWidth] = useState(0);
   const [chartStageY, setChartStageY] = useState(0);
   const collapseButtonPressOpacity = useSharedValue(1);
-  const [collapseButtonLayout, setCollapseButtonLayout] = useState<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  }>();
+  const [collapseButtonLayout, setCollapseButtonLayout] =
+    useState<LayoutRectangle>();
 
   const visibleKeys = useMemo(
     () => getVisibleKeysFromKeys(keys, homeCarouselConfig),
@@ -145,7 +143,8 @@ const PortfolioBalance = () => {
     [visibleKeys],
   );
 
-  const totalBalance: number = visibleCurrentBalance + coinbaseBalance;
+  const totalBalanceIncludingCoinbase: number =
+    visibleCurrentBalance + coinbaseBalance;
 
   const dispatch = useAppDispatch();
 
@@ -307,8 +306,10 @@ const PortfolioBalance = () => {
     defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
   });
 
-  const displayedTotalBalance =
-    typeof selectedBalance === 'number' ? selectedBalance : totalBalance;
+  const displayedPortfolioBalance =
+    typeof selectedChartBalance === 'number'
+      ? selectedChartBalance
+      : totalBalanceIncludingCoinbase;
 
   const showPortfolioBalanceInfoModal = () => {
     dispatch(
@@ -331,7 +332,7 @@ const PortfolioBalance = () => {
   };
 
   return (
-    <PortfolioContainer $leftAligned={shouldLeftAlignTopSection}>
+    <PortfolioContainer>
       {shouldLeftAlignTopSection ? (
         <>
           <CollapseButtonHitArea
@@ -348,7 +349,16 @@ const PortfolioBalance = () => {
           </CollapseButtonHitArea>
           <CollapseButtonContainer
             onLayout={e => {
-              setCollapseButtonLayout(e.nativeEvent.layout);
+              const nextLayout = e.nativeEvent.layout;
+              setCollapseButtonLayout(prev =>
+                prev &&
+                prev.x === nextLayout.x &&
+                prev.y === nextLayout.y &&
+                prev.width === nextLayout.width &&
+                prev.height === nextLayout.height
+                  ? prev
+                  : nextLayout,
+              );
             }}
             pointerEvents={isChartCollapsed ? 'none' : 'auto'}
             style={buttonAnimatedStyle}>
@@ -376,7 +386,7 @@ const PortfolioBalance = () => {
             <>
               <PortfolioBalanceText>
                 {formatFiatAmount(
-                  displayedTotalBalance,
+                  displayedPortfolioBalance,
                   defaultAltCurrency.isoCode,
                   {
                     currencyDisplay: 'symbol',
@@ -385,7 +395,9 @@ const PortfolioBalance = () => {
               </PortfolioBalanceText>
             </>
           ) : (
-            <HiddenBalance>{maskIfHidden(true, totalBalance)}</HiddenBalance>
+            <HiddenBalance>
+              {maskIfHidden(true, totalBalanceIncludingCoinbase)}
+            </HiddenBalance>
           )}
         </TouchableOpacity>
       </PortfolioTopContent>
@@ -452,7 +464,7 @@ const PortfolioBalance = () => {
                   // NOTE: Coinbase balance is intentionally excluded from the balance chart
                   // (Option B per product requirements) because we do not have historized
                   // Coinbase balance snapshots.
-                  onSelectedBalanceChange={setSelectedBalance}
+                  onSelectedBalanceChange={setSelectedChartBalance}
                 />
                 {isChartCollapsed ? (
                   <TouchableOpacity
@@ -483,7 +495,7 @@ const PortfolioBalance = () => {
             // NOTE: Coinbase balance is intentionally excluded from the balance chart
             // (Option B per product requirements) because we do not have historized
             // Coinbase balance snapshots.
-            onSelectedBalanceChange={setSelectedBalance}
+            onSelectedBalanceChange={setSelectedChartBalance}
           />
         )
       ) : null}
