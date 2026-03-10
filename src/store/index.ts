@@ -100,6 +100,15 @@ import {logManager} from '../managers/LogManager';
 
 export const storage = new MMKV();
 
+let persistEncryptionKeyPromise: Promise<string> | undefined;
+
+export const getPersistEncryptionKey = (): Promise<string> => {
+  if (!persistEncryptionKeyPromise) {
+    persistEncryptionKeyPromise = getEncryptionKey().catch(() => getUniqueId());
+  }
+  return persistEncryptionKeyPromise;
+};
+
 const FS_BACKUP_TRIGGER_ACTIONS = new Set<string>([
   WalletActionTypes.SUCCESS_CREATE_KEY,
   WalletActionTypes.SUCCESS_IMPORT,
@@ -413,7 +422,7 @@ const getStore = async () => {
     // middlewares.push(inmmutableMiddleware);
   }
 
-  const secretKey = await getEncryptionKey().catch(() => getUniqueId());
+  const secretKey = await getPersistEncryptionKey();
 
   const rootPersistConfig = {
     ...basePersistConfig,

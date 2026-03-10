@@ -27,6 +27,10 @@ import {DeviceEmitterEvents} from '../../constants/device-emitter-events';
 import {getBillPayAccountDescription} from '../../navigation/tabs/shop/bill/utils';
 import {successFetchCatalog} from '../shop-catalog/shop-catalog.actions';
 import {logManager} from '../../managers/LogManager';
+import {
+  decryptStoredGiftCardFields,
+  giftCardNeedsDecryption,
+} from './shop.utils';
 
 export const startFetchCatalog = (): Effect => async (dispatch, getState) => {
   try {
@@ -238,12 +242,19 @@ export const startRedeemGiftCard =
     const unredeemedGiftCard = SHOP.giftCards[APP.network].find(
       card => card.invoiceId === invoiceId,
     ) as UnsoldGiftCard;
+    const redeemableGiftCard = await decryptStoredGiftCardFields(
+      unredeemedGiftCard,
+      ['accessKey'],
+    );
+    if (giftCardNeedsDecryption(redeemableGiftCard, ['accessKey'])) {
+      throw new Error('Unable to decrypt gift card access key');
+    }
     const baseUrl = BASE_BITPAY_URLS[APP.network];
     const redeemResponse = await axios
       .post(
         `${baseUrl}/gift-cards/redeem`,
         {
-          accessKey: unredeemedGiftCard.accessKey,
+          accessKey: redeemableGiftCard.accessKey,
           clientId: unredeemedGiftCard.clientId,
           invoiceId: unredeemedGiftCard.invoiceId,
         },
