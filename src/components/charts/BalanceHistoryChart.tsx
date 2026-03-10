@@ -32,7 +32,6 @@ import {
 import {formatFiatAmount} from '../../utils/helper-methods';
 import {
   getFiatChartTimeframeOptions,
-  getFiatTimeframeWindowMs,
   formatRangeOrSelectedPointLabel,
   getRangeLabelForFiatTimeframe,
   getSeriesIntervalForFiatTimeframe,
@@ -242,53 +241,6 @@ const getLatestFiatRateSeriesPointTs = (
   return maxTs > 0 ? maxTs : undefined;
 };
 
-const buildPlaceholderSeries = (args: {
-  timeframe: FiatRateInterval;
-  nowMs: number;
-  value: number;
-}): ComputedSeries => {
-  const windowMs = getFiatTimeframeWindowMs(args.timeframe);
-
-  const end = args.nowMs;
-  const start = end - windowMs;
-  const step = windowMs / (FIAT_RATE_SERIES_TARGET_POINTS - 1);
-
-  const analysisPoints: PnlAnalysisPoint[] = [];
-  const rawGraphPoints: GraphPoint[] = [];
-
-  for (let i = 0; i < FIAT_RATE_SERIES_TARGET_POINTS; i++) {
-    const ts = Math.round(start + step * i);
-    const ap: PnlAnalysisPoint = {
-      timestamp: ts,
-      totalFiatBalance: args.value,
-      totalRemainingCostBasisFiat: args.value,
-      totalUnrealizedPnlFiat: 0,
-      totalPnlPercent: 0,
-      byWalletId: {},
-    };
-    analysisPoints.push(ap);
-    rawGraphPoints.push({date: new Date(ts), value: args.value});
-  }
-
-  const graphPoints = normalizeGraphPointsForChart(rawGraphPoints);
-  const pointByTimestamp = new Map<number, PnlAnalysisPoint>();
-  for (let i = 0; i < graphPoints.length; i++) {
-    pointByTimestamp.set(graphPoints[i].date.getTime(), analysisPoints[i]);
-  }
-
-  const {minIndex, maxIndex, minPoint, maxPoint} = computeMinMax(graphPoints);
-
-  return {
-    graphPoints,
-    analysisPoints,
-    pointByTimestamp,
-    minIndex,
-    maxIndex,
-    minPoint,
-    maxPoint,
-  };
-};
-
 const computeMinMax = (points: GraphPoint[]) => {
   let minIndex = 0;
   let maxIndex = 0;
@@ -447,17 +399,15 @@ const BalanceHistoryChart = ({
     Partial<Record<FiatRateInterval, string>>
   >({});
 
-  const [displayState, setDisplayState] = useState<{
-    series: ComputedSeries;
-    timeframe: FiatRateInterval;
-  }>(() => ({
-    series: buildPlaceholderSeries({
-      timeframe: 'ALL',
-      nowMs: Date.now(),
-      value: balanceOffset,
-    }),
-    timeframe: 'ALL',
-  }));
+  const [displayState, setDisplayState] = useState<
+    | {
+        series: ComputedSeries;
+        timeframe: FiatRateInterval;
+      }
+    | undefined
+  >(
+    undefined,
+  );
 
   const enqueueComputeRef = useRef<FiatRateInterval[]>([]);
   const computingQueueRef = useRef(false);
@@ -1055,15 +1005,7 @@ const BalanceHistoryChart = ({
     setSelectedPoint(undefined);
     onSelectedBalanceChangeRef.current?.(undefined);
 
-    setDisplayState({
-      series: buildPlaceholderSeries({
-        timeframe: selectedTimeframe,
-        nowMs: Date.now(),
-        value: balanceOffset,
-      }),
-      timeframe: selectedTimeframe,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setDisplayState(undefined);
   }, [
     walletsSig,
     snapshotsSig,
@@ -1169,8 +1111,8 @@ const BalanceHistoryChart = ({
       : undefined;
   const displayedTimeframe = selectedComputedSeries
     ? selectedTimeframe
-    : displayState.timeframe;
-  const activeSeries = selectedComputedSeries || displayState.series;
+    : displayState?.timeframe ?? selectedTimeframe;
+  const activeSeries = selectedComputedSeries || displayState?.series;
 
   // Swap in the computed series once available.
   useEffect(() => {
@@ -1180,8 +1122,8 @@ const BalanceHistoryChart = ({
 
     startTransition(() => {
       setDisplayState(prev =>
-        prev.series === selectedComputedSeries &&
-        prev.timeframe === selectedTimeframe
+        prev?.series === selectedComputedSeries &&
+        prev?.timeframe === selectedTimeframe
           ? prev
           : {
               series: selectedComputedSeries,
@@ -1289,17 +1231,17 @@ const BalanceHistoryChart = ({
   quoteCurrencyRef.current = quoteCurrency;
 
   const selectedAnalysisPoint = useMemo(() => {
-    if (!selectedPoint) {
+    if (!selectedPoint || !activeSeries) {
       return undefined;
     }
     const ts = selectedPoint.date.getTime();
     return activeSeries.pointByTimestamp.get(ts);
-  }, [activeSeries.pointByTimestamp, selectedPoint]);
+  }, [activeSeries, selectedPoint]);
 
   const lastAnalysisPoint = useMemo(() => {
-    const pts = activeSeries.analysisPoints;
+    const pts = activeSeries?.analysisPoints || [];
     return pts.length ? pts[pts.length - 1] : undefined;
-  }, [activeSeries.analysisPoints]);
+  }, [activeSeries]);
 
   // IMPORTANT: For balance screens, the change row is unrealized profit vs cost basis
   // (NOT start→end balance delta). This mirrors the existing PnL engine UI elsewhere.
@@ -1349,7 +1291,7 @@ const BalanceHistoryChart = ({
 
   const onPointSelected = useCallback(
     (p: GraphPoint) => {
-      if (!gestureStarted.current) {
+      if (!gestureStarted.current || !activeSeries) {
         return;
       }
       setSelectedPoint(p);
@@ -1365,13 +1307,17 @@ const BalanceHistoryChart = ({
           : p.value;
       onSelectedBalanceChangeRef.current?.(actualBalance);
     },
-    [activeSeries.pointByTimestamp, balanceOffset],
+    [activeSeries, balanceOffset],
   );
 
   // Axis labels smoothly animate between x positions as the timeframe changes.
   // IMPORTANT: these must be stable component identities (see refs above).
   const MaxAxisLabel = useCallback(() => {
     const series = activeSeriesRef.current;
+    if (!series?.graphPoints.length) {
+      return null;
+    }
+
     return (
       <ChartAxisLabel
         value={series.maxPoint.value}
@@ -1387,6 +1333,10 @@ const BalanceHistoryChart = ({
 
   const MinAxisLabel = useCallback(() => {
     const series = activeSeriesRef.current;
+    if (!series?.graphPoints.length) {
+      return null;
+    }
+
     return (
       <ChartAxisLabel
         value={series.minPoint.value}
@@ -1505,7 +1455,7 @@ const BalanceHistoryChart = ({
             </View>
           ) : null}
           <InteractiveLineChart
-            points={displayState.series.graphPoints}
+            points={displayState?.series.graphPoints || []}
             color={chartColor}
             lineThickness={lineThickness}
             strokeScale={strokeScale}
@@ -1543,7 +1493,7 @@ const BalanceHistoryChart = ({
       ) : null}
 
       <InteractiveLineChart
-        points={activeSeries.graphPoints}
+        points={activeSeries?.graphPoints || []}
         color={chartColor}
         lineThickness={lineThickness}
         strokeScale={strokeScale}
