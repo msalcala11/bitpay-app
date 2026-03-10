@@ -1573,7 +1573,7 @@ const BalanceHistoryChart = ({
         <Animated.View style={timeframeSelectorAnimatedStyle}>
           <TimeframeSelector
             options={fiatChartTimeframeOptions}
-            selected={displayedTimeframe}
+            selected={selectedTimeframe}
             onLongPressOption={
               DEV_DIAGNOSTICS_ENABLED
                 ? tf => copyDiagnosticsToClipboard(tf, 'selector')
