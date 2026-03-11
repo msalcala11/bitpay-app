@@ -38,6 +38,7 @@ import {
   walletHasNonZeroLiveBalance,
 } from '../../../../utils/portfolio/assets';
 import {setHomeChartCollapsed} from '../../../../store/portfolio-charts';
+import type {FiatRateInterval} from '../../../../store/rate/rate.models';
 import type {Wallet} from '../../../../store/wallet/wallet.models';
 import CollapseContentButton from './CollapseContentButton';
 
@@ -137,6 +138,7 @@ const PortfolioBalance = () => {
   const collapseButtonPressOpacity = useSharedValue(1);
   const [collapseButtonLayout, setCollapseButtonLayout] =
     useState<LayoutRectangle>();
+  const selectedChartTimeframeRef = React.useRef<FiatRateInterval>('ALL');
 
   const visibleKeys = useMemo(
     () => getVisibleKeysFromKeys(keys, homeCarouselConfig),
@@ -330,6 +332,13 @@ const PortfolioBalance = () => {
     runChartCollapseAnimation(false);
   }, [runChartCollapseAnimation]);
 
+  const onSelectedChartTimeframeChange = useCallback(
+    (timeframe: FiatRateInterval) => {
+      selectedChartTimeframeRef.current = timeframe;
+    },
+    [],
+  );
+
   const quoteCurrency = getQuoteCurrency({
     portfolioQuoteCurrency: portfolio?.quoteCurrency,
     defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
@@ -492,11 +501,13 @@ const PortfolioBalance = () => {
                   wallets={walletsAcrossKeys}
                   snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
                   quoteCurrency={quoteCurrency}
+                  initialSelectedTimeframe={selectedChartTimeframeRef.current}
                   rates={rates}
                   fiatRateSeriesCache={fiatRateSeriesCache}
                   strokeScale={chartScale}
                   minStrokeScale={collapsedScale}
                   onChangeRowData={setChartChangeRowData}
+                  onSelectedTimeframeChange={onSelectedChartTimeframeChange}
                   axisLabelOpacity={axisLabelOpacity}
                   showChangeRow={false}
                   showTimeframeSelector
@@ -532,8 +543,10 @@ const PortfolioBalance = () => {
             wallets={walletsAcrossKeys}
             snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
             quoteCurrency={quoteCurrency}
+            initialSelectedTimeframe={selectedChartTimeframeRef.current}
             rates={rates}
             fiatRateSeriesCache={fiatRateSeriesCache}
+            onSelectedTimeframeChange={onSelectedChartTimeframeChange}
             // NOTE: Coinbase balance is intentionally excluded from the balance chart
             // (Option B per product requirements) because we do not have historized
             // Coinbase balance snapshots.
