@@ -72,4 +72,83 @@ describe('buildPnlAnalysisSeries', () => {
     expect(result.points[0].totalUnrealizedPnlFiat).toBe(0);
     expect(result.points[0].totalPnlPercent).toBe(0);
   });
+
+  it('starts ALL at the oldest portfolio snapshot instead of the shortest shared coin history', () => {
+    const btcStartMs = Date.UTC(2024, 0, 1, 0, 0, 0);
+    const ethRateStartMs = Date.UTC(2024, 0, 2, 0, 0, 0);
+    const ethWalletStartMs = Date.UTC(2024, 0, 3, 0, 0, 0);
+    const endMs = Date.UTC(2024, 0, 4, 0, 0, 0);
+
+    const btcWallet: WalletForAnalysis = {
+      walletId: 'wallet-btc',
+      walletName: 'BTC Wallet',
+      currencyAbbreviation: 'btc',
+      credentials: {
+        coin: 'btc',
+        chain: 'btc',
+        network: 'livenet',
+      },
+      snapshots: [
+        makeSnapshot({
+          walletId: 'wallet-btc',
+          timestamp: btcStartMs,
+          markRate: 100,
+        }),
+      ],
+    };
+
+    const ethWallet: WalletForAnalysis = {
+      walletId: 'wallet-eth',
+      walletName: 'ETH Wallet',
+      currencyAbbreviation: 'eth',
+      credentials: {
+        coin: 'eth',
+        chain: 'eth',
+        network: 'livenet',
+      },
+      snapshots: [
+        makeSnapshot({
+          id: 'tx:eth-start-balance',
+          walletId: 'wallet-eth',
+          chain: 'eth',
+          coin: 'eth',
+          assetId: 'eth:livenet',
+          timestamp: ethWalletStartMs,
+          markRate: 10,
+        }),
+      ],
+    };
+
+    const result = buildPnlAnalysisSeries({
+      wallets: [btcWallet, ethWallet],
+      timeframe: 'ALL',
+      quoteCurrency: 'USD',
+      nowMs: endMs,
+      maxPoints: 4,
+      fiatRateSeriesCache: {
+        [getFiatRateSeriesCacheKey('USD', 'btc', 'ALL')]: {
+          fetchedOn: endMs,
+          points: [
+            {ts: btcStartMs, rate: 100},
+            {ts: ethRateStartMs, rate: 110},
+            {ts: ethWalletStartMs, rate: 120},
+            {ts: endMs, rate: 130},
+          ],
+        },
+        [getFiatRateSeriesCacheKey('USD', 'eth', 'ALL')]: {
+          fetchedOn: endMs,
+          points: [
+            {ts: ethRateStartMs, rate: 10},
+            {ts: ethWalletStartMs, rate: 11},
+            {ts: endMs, rate: 12},
+          ],
+        },
+      },
+    });
+
+    expect(result.points[0].timestamp).toBe(btcStartMs);
+    expect(result.points[0].totalFiatBalance).toBe(100);
+    expect(result.points[0].byWalletId['wallet-eth']?.fiatBalance).toBe(0);
+    expect(result.points[2].byWalletId['wallet-eth']?.fiatBalance).toBe(11);
+  });
 });
