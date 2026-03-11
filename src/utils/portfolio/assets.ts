@@ -11,7 +11,10 @@ import type {
   FiatRateSeriesCache,
   Rates,
 } from '../../store/rate/rate.models';
-import {hasValidSeriesForCoin} from '../../store/rate/rate.models';
+import {
+  getFiatRateSeriesCacheKey,
+  hasValidSeriesForCoin,
+} from '../../store/rate/rate.models';
 import type {Key, Wallet} from '../../store/wallet/wallet.models';
 import type {SupportedCurrencyOption} from '../../constants/SupportedCurrencyOptions';
 import {
@@ -199,6 +202,7 @@ const getRateAtTimestampFromCache = (args: {
   timestampMs: number;
   nowMs: number;
   method?: 'nearest' | 'linear';
+  onHistoricalRateDependency?: (cacheKey: string) => void;
 }): number | undefined => {
   const preferredIntervals = getPreferredIntervalsForTimestamp({
     timestampMs: args.timestampMs,
@@ -230,6 +234,13 @@ const getRateAtTimestampFromCache = (args: {
       method: args.method || 'nearest',
     });
     if (typeof rate === 'number' && Number.isFinite(rate) && rate > 0) {
+      args.onHistoricalRateDependency?.(
+        getFiatRateSeriesCacheKey(
+          args.fiatCode,
+          normalizeCoinForPnlRates(args.currencyAbbreviation),
+          interval,
+        ),
+      );
       return rate;
     }
   }
@@ -244,6 +255,7 @@ const convertAmountBetweenQuotesViaBtc = (args: {
   timestampMs: number;
   fiatRateSeriesCache: FiatRateSeriesCache | undefined;
   nowMs: number;
+  onHistoricalRateDependency?: (cacheKey: string) => void;
 }): number | undefined => {
   const amount = toNumber(args.amount);
   if (!(amount > 0)) {
@@ -266,6 +278,7 @@ const convertAmountBetweenQuotesViaBtc = (args: {
     timestampMs: args.timestampMs,
     nowMs: args.nowMs,
     method: 'nearest',
+    onHistoricalRateDependency: args.onHistoricalRateDependency,
   });
   const targetBtcRate = getRateAtTimestampFromCache({
     fiatRateSeriesCache: args.fiatRateSeriesCache,
@@ -274,6 +287,7 @@ const convertAmountBetweenQuotesViaBtc = (args: {
     timestampMs: args.timestampMs,
     nowMs: args.nowMs,
     method: 'nearest',
+    onHistoricalRateDependency: args.onHistoricalRateDependency,
   });
 
   if (
@@ -613,6 +627,7 @@ type MapSnapshotsToStoredArgs = {
   fiatRateSeriesCache?: FiatRateSeriesCache;
   nowMs?: number;
   fallbackAssetIdToWalletIdentity: boolean;
+  onHistoricalRateDependency?: (cacheKey: string) => void;
 };
 
 const mapSnapshotToStored = (args: {
@@ -627,6 +642,7 @@ const mapSnapshotToStored = (args: {
   fiatRateSeriesCache?: FiatRateSeriesCache;
   nowMs: number;
   fallbackAssetIdToWalletIdentity: boolean;
+  onHistoricalRateDependency?: (cacheKey: string) => void;
 }): BalanceSnapshotStored => {
   const s = args.snapshot;
   const tokenAddress = (args.wallet as any)?.tokenAddress as string | undefined;
@@ -677,6 +693,7 @@ const mapSnapshotToStored = (args: {
             timestampMs: Number((s as any)?.timestamp || 0),
             fiatRateSeriesCache: args.fiatRateSeriesCache,
             nowMs: args.nowMs,
+            onHistoricalRateDependency: args.onHistoricalRateDependency,
           })
         : markRate;
     const convertedRemainingCostBasisFiat = convertAmountBetweenQuotesViaBtc({
@@ -686,6 +703,7 @@ const mapSnapshotToStored = (args: {
       timestampMs: Number((s as any)?.timestamp || 0),
       fiatRateSeriesCache: args.fiatRateSeriesCache,
       nowMs: args.nowMs,
+      onHistoricalRateDependency: args.onHistoricalRateDependency,
     });
 
     const canUseConvertedMarkRate =
@@ -1407,6 +1425,45 @@ export type PnlWalletInputs = {
   quoteCurrency: string;
 };
 
+export const buildPnlCurrentRatesByCoinFromWallets = (args: {
+  wallets: Wallet[];
+  quoteCurrency: string;
+  rates?: Rates;
+}): Record<string, number> => {
+  const out: Record<string, number> = {};
+  const quoteCurrency = String(args.quoteCurrency || '').toUpperCase();
+
+  if (!quoteCurrency || !args.rates) {
+    return out;
+  }
+
+  for (const wallet of args.wallets || []) {
+    const coin = String((wallet as any)?.currencyAbbreviation || '').toLowerCase();
+    if (!coin) {
+      continue;
+    }
+
+    const normCoin = normalizeCoinForPnlRates(coin);
+    if (normCoin in out) {
+      continue;
+    }
+
+    const currentRate = getQuoteRateNumForAsset({
+      rates: args.rates,
+      quoteCurrency,
+      coin,
+      chain: String((wallet as any)?.chain || coin),
+      tokenAddress: (wallet as any)?.tokenAddress,
+    });
+
+    if (currentRate > 0) {
+      out[normCoin] = currentRate;
+    }
+  }
+
+  return out;
+};
+
 type PnlWalletBuildContext = {
   wallet: Wallet;
   walletId: string;
@@ -1512,6 +1569,7 @@ export const buildPnlWalletInputsFromPortfolioSnapshots = (args: {
   rates?: Rates;
   fiatRateSeriesCache?: FiatRateSeriesCache;
   nowMs?: number;
+  onHistoricalRateDependency?: (cacheKey: string) => void;
 }): PnlWalletInputs => {
   const walletById = buildWalletByIdMap(args.wallets);
   const effectiveQuoteCurrency = getEffectiveQuoteCurrencyFromSnapshots({
@@ -1555,6 +1613,7 @@ export const buildPnlWalletInputsFromPortfolioSnapshots = (args: {
       fiatRateSeriesCache,
       nowMs,
       fallbackAssetIdToWalletIdentity: true,
+      onHistoricalRateDependency: args.onHistoricalRateDependency,
     });
 
     const entry = createPnlWalletAnalysisEntry({
@@ -1585,6 +1644,7 @@ export const buildPnlWalletInputsFromPortfolioSnapshotsAsync = async (
     rates?: Rates;
     fiatRateSeriesCache?: FiatRateSeriesCache;
     nowMs?: number;
+    onHistoricalRateDependency?: (cacheKey: string) => void;
   },
   asyncOpts?: {
     yieldEveryWallets?: number;
@@ -1641,6 +1701,7 @@ export const buildPnlWalletInputsFromPortfolioSnapshotsAsync = async (
         fiatRateSeriesCache,
         nowMs,
         fallbackAssetIdToWalletIdentity: true,
+        onHistoricalRateDependency: args.onHistoricalRateDependency,
       },
       {
         yieldEverySnapshots: asyncOpts?.yieldEverySnapshots,

@@ -193,6 +193,7 @@ function getRatePointsFromCache(args: {
   seriesInterval: FiatRateInterval;
   /** Original timeframe (used only for fallback ordering) */
   timeframe: PnlTimeframe;
+  onHistoricalRateDependency?: (cacheKey: string) => void;
 }): FiatRatePoint[] {
   const {fiatRateSeriesCache, quoteCurrency, coin, timeframe, seriesInterval} =
     args;
@@ -208,6 +209,7 @@ function getRatePointsFromCache(args: {
     ? firstSeries.points
     : [];
   if (firstPoints.length) {
+    args.onHistoricalRateDependency?.(firstKey);
     return firstPoints;
   }
 
@@ -221,6 +223,7 @@ function getRatePointsFromCache(args: {
     const series = fiatRateSeriesCache?.[key];
     const points = Array.isArray(series?.points) ? series.points : [];
     if (points.length) {
+      args.onHistoricalRateDependency?.(key);
       return points;
     }
   }
@@ -408,6 +411,7 @@ type BuildPnlAnalysisSeriesArgs = {
   currentRatesByCoin?: Record<string, number>;
   nowMs?: number;
   maxPoints?: number;
+  onHistoricalRateDependency?: (cacheKey: string) => void;
 };
 
 type BuildPnlAnalysisSeriesGeneratorOptions = {
@@ -503,6 +507,7 @@ function* buildPnlAnalysisSeriesGenerator(
       coin,
       seriesInterval,
       timeframe: args.timeframe,
+      onHistoricalRateDependency: args.onHistoricalRateDependency,
     });
 
     const series = buildRateSeries(
