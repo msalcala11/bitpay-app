@@ -3,7 +3,6 @@ import {
   Animated,
   Easing,
   LayoutChangeEvent,
-  TouchableWithoutFeedback,
 } from 'react-native';
 import {useIsFocused} from '@react-navigation/native';
 import styled, {useTheme} from 'styled-components/native';
@@ -82,12 +81,6 @@ export type InteractiveLineChartProps = {
   onGestureStart?: () => void;
   onGestureEnd?: () => void;
   onPointSelected?: (point: GraphPoint) => void;
-  /**
-   * Optional diagnostics hook.
-   * Long-press can be used to copy chart diagnostics.
-   */
-  onLongPress?: () => void;
-  longPressDelayMs?: number;
   showFirstPointGuideLine?: boolean;
   firstPointGuideLineColor?: string;
 };
@@ -112,8 +105,6 @@ const InteractiveLineChart = ({
   onGestureEnd,
   onGestureStart,
   onPointSelected,
-  onLongPress,
-  longPressDelayMs = 800,
   showFirstPointGuideLine = false,
   firstPointGuideLineColor,
 }: InteractiveLineChartProps): React.ReactElement => {
@@ -485,19 +476,9 @@ const InteractiveLineChart = ({
     </ChartInner>
   );
 
-  const shouldEnableDiagnosticsLongPress = !!onLongPress && !isLoading;
-
   return (
     <ChartContainer pointerEvents={isLoading ? 'none' : 'auto'}>
-      {shouldEnableDiagnosticsLongPress ? (
-        <TouchableWithoutFeedback
-          onLongPress={onLongPress}
-          delayLongPress={longPressDelayMs}>
-          {chartInner}
-        </TouchableWithoutFeedback>
-      ) : (
-        chartInner
-      )}
+      {chartInner}
     </ChartContainer>
   );
 };

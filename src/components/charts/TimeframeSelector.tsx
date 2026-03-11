@@ -22,8 +22,6 @@ type Props<T extends string> = {
   options: Array<TimeframeSelectorOption<T>>;
   selected: T;
   onSelect: (value: T) => void;
-  onLongPressOption?: (value: T) => void;
-  longPressDelayMs?: number;
 };
 
 const TimeframeContainer = styled.View`
@@ -69,8 +67,6 @@ export const TimeframeSelector = <T extends string>({
   options,
   selected,
   onSelect,
-  onLongPressOption,
-  longPressDelayMs = 700,
 }: Props<T>): React.ReactElement => {
   return (
     <TimeframeContainer>
@@ -84,12 +80,6 @@ export const TimeframeSelector = <T extends string>({
               hitSlop={TimeframeHitSlop}
               activeOpacity={ActiveOpacity}
               onPress={() => onSelect(opt.value)}
-              onLongPress={
-                onLongPressOption
-                  ? () => onLongPressOption(opt.value)
-                  : undefined
-              }
-              delayLongPress={longPressDelayMs}
               testID={opt.testID}>
               <TimeframeText active={active}>{opt.label}</TimeframeText>
             </TimeframePill>
