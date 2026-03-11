@@ -21,6 +21,7 @@ import {
 } from '../../../../../store/portfolio';
 import {clearPortfolioCharts} from '../../../../../store/portfolio-charts';
 import {clearRateState} from '../../../../../store/rate/rate.actions';
+import {ShopActions} from '../../../../../store/shop';
 import type {BalanceSnapshot} from '../../../../../store/portfolio/portfolio.models';
 import type {Wallet} from '../../../../../store/wallet/wallet.models';
 import {Network} from '../../../../../constants';
@@ -278,6 +279,20 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
     return () => task.cancel();
   }, [dispatch, isGenerating, portfolio.populateStatus?.inProgress]);
 
+  const clearShopStore = useCallback(() => {
+    if (isGenerating || portfolio.populateStatus?.inProgress) {
+      return;
+    }
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      try {
+        dispatch(ShopActions.clearShopStore());
+      } catch {}
+    });
+
+    return () => task.cancel();
+  }, [dispatch, isGenerating, portfolio.populateStatus?.inProgress]);
+
   const copySnapshotAuditCsv = useCallback(() => {
     if (isCopyingAudit) {
       return;
@@ -526,6 +541,13 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
           <DebugPillButton
             onPress={() => (isGenerating ? null : clearRatesCache())}>
             <DebugPillButtonText>{t('Clear Rates Cache')}</DebugPillButtonText>
+          </DebugPillButton>
+        </DebugButtonRow>
+
+        <DebugButtonRow>
+          <DebugPillButton
+            onPress={() => (isGenerating ? null : clearShopStore())}>
+            <DebugPillButtonText>{t('Clear Shop Store')}</DebugPillButtonText>
           </DebugPillButton>
         </DebugButtonRow>
 
