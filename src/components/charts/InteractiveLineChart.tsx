@@ -294,14 +294,20 @@ const InteractiveLineChart = ({
     [styleSignature],
   );
 
+  const pointsRefreshKey = React.useMemo(
+    () => `${styleSignature}|${focusRefreshNonce}|${layoutRefreshNonce}`,
+    [focusRefreshNonce, layoutRefreshNonce, styleSignature],
+  );
+
   // Force a new points array reference whenever either:
   //   - data changes (timeframe switch -> animation desired),
   //   - style changes (theme switch),
   //   - we regain focus after a theme switch (ensures redraw is visible),
   //   - layout happens after a theme switch (handles detach/reattach cases).
   const pointsForGraph = React.useMemo(() => {
-    return points.slice();
-  }, [points, styleSignature, focusRefreshNonce, layoutRefreshNonce]);
+    return pointsRefreshKey ? points.slice() : points.slice();
+  }, [points, pointsRefreshKey]);
+  const hasDrawablePoints = pointsForGraph.length >= 2;
 
   const firstPointGuideLine = React.useMemo(() => {
     if (!showFirstPointGuideLine || !pointsForGraph.length || !lineGraphLayout) {
@@ -400,49 +406,51 @@ const InteractiveLineChart = ({
 
   const chartInner = (
     <ChartInner onLayout={onChartLayout}>
-      <LineGraph
-        points={pointsForGraph}
-        animated={animated}
-        // `react-native-graph` can consume a Reanimated derived value here.
-        // Cast to avoid TS complaining (the lib types it as `number`).
-        lineThickness={lineThicknessForGraph as unknown as number}
-        // Keep geometry stable across theme switches.
-        verticalPadding={stableVerticalPadding}
-        horizontalPadding={stableHorizontalPadding}
-        panGestureDelay={panGestureDelay}
-        enablePanGesture={enablePanGesture}
-        color={color}
-        gradientFillColors={gradientFillColors}
-        TopAxisLabel={TopAxisLabel}
-        BottomAxisLabel={BottomAxisLabel}
-        SelectionDot={SelectionDot}
-        onGestureStart={onGestureStart}
-        onGestureEnd={onGestureEnd}
-        onPointSelected={onPointSelected}
-        onLayout={({nativeEvent: {layout}}) => {
-          const next = {
-            x: layout.x,
-            y: layout.y,
-            width: layout.width,
-            height: layout.height,
-          };
-          setLineGraphLayout(prev =>
-            prev &&
-            prev.x === next.x &&
-            prev.y === next.y &&
-            prev.width === next.width &&
-            prev.height === next.height
-              ? prev
-              : next,
-          );
-        }}
-        style={{
-          width: WIDTH,
-          height: graphHeight,
-          marginTop: graphMarginTop,
-          opacity: isLoading ? (hideLineWhileLoading ? 0 : 0.25) : 1,
-        }}
-      />
+      {hasDrawablePoints ? (
+        <LineGraph
+          points={pointsForGraph}
+          animated={animated}
+          // `react-native-graph` can consume a Reanimated derived value here.
+          // Cast to avoid TS complaining (the lib types it as `number`).
+          lineThickness={lineThicknessForGraph as unknown as number}
+          // Keep geometry stable across theme switches.
+          verticalPadding={stableVerticalPadding}
+          horizontalPadding={stableHorizontalPadding}
+          panGestureDelay={panGestureDelay}
+          enablePanGesture={enablePanGesture}
+          color={color}
+          gradientFillColors={gradientFillColors}
+          TopAxisLabel={TopAxisLabel}
+          BottomAxisLabel={BottomAxisLabel}
+          SelectionDot={SelectionDot}
+          onGestureStart={onGestureStart}
+          onGestureEnd={onGestureEnd}
+          onPointSelected={onPointSelected}
+          onLayout={({nativeEvent: {layout}}) => {
+            const next = {
+              x: layout.x,
+              y: layout.y,
+              width: layout.width,
+              height: layout.height,
+            };
+            setLineGraphLayout(prev =>
+              prev &&
+              prev.x === next.x &&
+              prev.y === next.y &&
+              prev.width === next.width &&
+              prev.height === next.height
+                ? prev
+                : next,
+            );
+          }}
+          style={{
+            width: WIDTH,
+            height: graphHeight,
+            marginTop: graphMarginTop,
+            opacity: isLoading ? (hideLineWhileLoading ? 0 : 0.25) : 1,
+          }}
+        />
+      ) : null}
       {firstPointGuideLine ? (
         <Animated.View
           pointerEvents="none"

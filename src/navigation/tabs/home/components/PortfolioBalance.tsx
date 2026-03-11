@@ -149,6 +149,13 @@ const PortfolioBalance = () => {
       visibleKeys.reduce((total, key) => total + (key.totalBalance || 0), 0),
     [visibleKeys],
   );
+  const visibleKeyIdsSig = useMemo(() => {
+    return visibleKeys
+      .map(key => String(key?.id || ''))
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b))
+      .join(',');
+  }, [visibleKeys]);
 
   const totalBalanceIncludingCoinbase: number =
     visibleCurrentBalance + coinbaseBalance;
@@ -343,8 +350,9 @@ const PortfolioBalance = () => {
     defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
   });
   const chartLifecycleKey = useMemo(
-    () => `home-portfolio-charts:${quoteCurrency}:${homeChartRemountNonce}`,
-    [homeChartRemountNonce, quoteCurrency],
+    () =>
+      `home-portfolio-charts:${quoteCurrency}:${homeChartRemountNonce}:${visibleKeyIdsSig}`,
+    [homeChartRemountNonce, quoteCurrency, visibleKeyIdsSig],
   );
 
   const displayedPortfolioBalance =
