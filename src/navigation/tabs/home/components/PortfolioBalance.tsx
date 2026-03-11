@@ -306,11 +306,15 @@ const PortfolioBalance = () => {
     defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
   });
   // Home may stay mounted while the user toggles this setting from the
-  // Settings tab. Keying the chart to the latest completed populate cycle
-  // guarantees a fresh chart instance once new portfolio data is ready.
+  // Settings tab. Key the chart to the latest populate cycle *start* so we
+  // still force a fresh instance after re-enabling portfolio, but avoid a
+  // second remount at populate completion that can throw away freshly-built
+  // chart state.
+  const chartLifecycleSeed =
+    portfolio?.populateStatus?.startedAt || portfolio?.lastPopulatedAt || 0;
   const chartLifecycleKey = useMemo(
-    () => `home-portfolio-charts:${quoteCurrency}:${portfolio?.lastPopulatedAt || 0}`,
-    [portfolio?.lastPopulatedAt, quoteCurrency],
+    () => `home-portfolio-charts:${quoteCurrency}:${chartLifecycleSeed}`,
+    [chartLifecycleSeed, quoteCurrency],
   );
 
   const displayedPortfolioBalance =
