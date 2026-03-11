@@ -288,6 +288,7 @@ export type BalanceHistoryChartProps = {
   wallets: Wallet[];
   snapshotsByWalletId: {[walletId: string]: BalanceSnapshot[] | undefined};
   quoteCurrency: string;
+  initialSelectedTimeframe?: FiatRateInterval;
   rates?: Rates;
   fiatRateSeriesCache?: FiatRateSeriesCache;
   lineColor?: string;
@@ -359,12 +360,14 @@ export type BalanceHistoryChartProps = {
     | number
     | SharedValue<number>
     | Readonly<SharedValue<number>>;
+  onSelectedTimeframeChange?: (timeframe: FiatRateInterval) => void;
 };
 
 const BalanceHistoryChart = ({
   wallets,
   snapshotsByWalletId,
   quoteCurrency,
+  initialSelectedTimeframe = 'ALL',
   rates,
   fiatRateSeriesCache,
   lineColor,
@@ -384,13 +387,14 @@ const BalanceHistoryChart = ({
   disablePanGesture = false,
   onChangeRowData,
   axisLabelOpacity = 1,
+  onSelectedTimeframeChange,
 }: BalanceHistoryChartProps): React.ReactElement | null => {
   const {t} = useTranslation();
   const theme = useTheme();
   const dispatch = useAppDispatch();
 
   const [selectedTimeframe, setSelectedTimeframe] =
-    useState<FiatRateInterval>('ALL');
+    useState<FiatRateInterval>(initialSelectedTimeframe);
 
   const [seriesByTimeframe, setSeriesByTimeframe] = useState<
     Partial<Record<FiatRateInterval, ComputedSeries>>
@@ -1743,6 +1747,7 @@ const BalanceHistoryChart = ({
             onSelect={tf => {
               setSelectedPoint(undefined);
               onSelectedBalanceChangeRef.current?.(undefined);
+              onSelectedTimeframeChange?.(tf);
               setSelectedTimeframe(tf);
             }}
           />
