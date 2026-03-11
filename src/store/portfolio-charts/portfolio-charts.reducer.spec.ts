@@ -1,6 +1,7 @@
 import {setWalletSnapshots, removeWalletSnapshots} from '../portfolio/portfolio.actions';
 import {
   pruneBalanceChartCache,
+  setHomeChartCollapsed,
   touchBalanceChartScope,
   upsertBalanceChartScopeTimeframes,
 } from './portfolio-charts.actions';
@@ -32,6 +33,16 @@ const makeTimeframe = (
 });
 
 describe('portfolioChartsReducer', () => {
+  it('persists the home chart collapsed preference', () => {
+    let state = portfolioChartsReducer(undefined, {type: '@@INIT'} as any);
+
+    state = portfolioChartsReducer(state, setHomeChartCollapsed(true));
+    expect(state.homeChartCollapsed).toBe(true);
+
+    state = portfolioChartsReducer(state, setHomeChartCollapsed(false));
+    expect(state.homeChartCollapsed).toBe(false);
+  });
+
   it('bumps the wallet snapshot version when snapshots are set', () => {
     let state = portfolioChartsReducer(undefined, {type: '@@INIT'} as any);
 

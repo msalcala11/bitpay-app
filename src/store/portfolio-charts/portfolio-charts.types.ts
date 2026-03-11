@@ -2,6 +2,7 @@ import type {CachedBalanceChartTimeframe} from './portfolio-charts.models';
 
 export enum PortfolioChartsActionTypes {
   CLEAR_PORTFOLIO_CHARTS = 'PORTFOLIO_CHARTS/CLEAR_PORTFOLIO_CHARTS',
+  SET_HOME_CHART_COLLAPSED = 'PORTFOLIO_CHARTS/SET_HOME_CHART_COLLAPSED',
   UPSERT_BALANCE_CHART_SCOPE_TIMEFRAMES = 'PORTFOLIO_CHARTS/UPSERT_BALANCE_CHART_SCOPE_TIMEFRAMES',
   PATCH_BALANCE_CHART_SCOPE_LATEST_POINTS = 'PORTFOLIO_CHARTS/PATCH_BALANCE_CHART_SCOPE_LATEST_POINTS',
   TOUCH_BALANCE_CHART_SCOPE = 'PORTFOLIO_CHARTS/TOUCH_BALANCE_CHART_SCOPE',
@@ -11,6 +12,11 @@ export enum PortfolioChartsActionTypes {
 
 export interface ClearPortfolioChartsAction {
   type: typeof PortfolioChartsActionTypes.CLEAR_PORTFOLIO_CHARTS;
+}
+
+export interface SetHomeChartCollapsedAction {
+  type: typeof PortfolioChartsActionTypes.SET_HOME_CHART_COLLAPSED;
+  payload: boolean;
 }
 
 export interface UpsertBalanceChartScopeTimeframesAction {
@@ -58,6 +64,7 @@ export interface RemoveBalanceChartScopesByWalletIdsAction {
 
 export type PortfolioChartsActionType =
   | ClearPortfolioChartsAction
+  | SetHomeChartCollapsedAction
   | UpsertBalanceChartScopeTimeframesAction
   | PatchBalanceChartScopeLatestPointsAction
   | TouchBalanceChartScopeAction

@@ -20,6 +20,7 @@ export const portfolioChartsReduxPersistBlackList: PortfolioChartsReduxPersistBl
   [];
 
 const initialState: PortfolioChartsState = {
+  homeChartCollapsed: false,
   walletSnapshotVersionById: {},
   cacheByScopeId: {},
   lruScopeIds: [],
@@ -202,6 +203,12 @@ export const portfolioChartsReducer = (
     case PortfolioChartsActionTypes.CLEAR_PORTFOLIO_CHARTS:
     case PortfolioActionTypes.CLEAR_PORTFOLIO:
       return initialState;
+
+    case PortfolioChartsActionTypes.SET_HOME_CHART_COLLAPSED:
+      return {
+        ...state,
+        homeChartCollapsed: !!action.payload,
+      };
 
     case PortfolioChartsActionTypes.UPSERT_BALANCE_CHART_SCOPE_TIMEFRAMES:
       return upsertScopeTimeframes(state, action.payload || {timeframes: []});
