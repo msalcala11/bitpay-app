@@ -100,6 +100,12 @@ type ComputedSeries = {
   maxPoint: GraphPoint;
 };
 
+type ChangeRowData = {
+  percent: number;
+  deltaFiatFormatted?: string;
+  rangeLabel?: string;
+};
+
 type ScheduledAfterInteractionsHandle = {
   cancel: () => void;
 };
@@ -419,6 +425,8 @@ const BalanceHistoryChart = ({
   const [lastErrorByTimeframe, setLastErrorByTimeframe] = useState<
     Partial<Record<FiatRateInterval, string>>
   >({});
+  const [lastResolvedChangeRowDataByTimeframe, setLastResolvedChangeRowDataByTimeframe] =
+    useState<Partial<Record<FiatRateInterval, ChangeRowData>>>({});
 
   const [displayState, setDisplayState] = useState<
     | {
@@ -1295,6 +1303,7 @@ const BalanceHistoryChart = ({
     setIsComputingByTimeframe({});
     setLastAttemptRevisionByTimeframe({});
     setLastErrorByTimeframe({});
+    setLastResolvedChangeRowDataByTimeframe({});
     setSelectedPoint(undefined);
     onSelectedBalanceChangeRef.current?.(undefined);
 
@@ -1435,6 +1444,28 @@ const BalanceHistoryChart = ({
     ? selectedTimeframe
     : displayState?.timeframe ?? selectedTimeframe;
   const activeSeries = selectedComputedSeries || displayState?.series;
+  const cachedSelectedSeries = useMemo(() => {
+    const cachedTimeframe = cachedScope?.timeframes?.[selectedTimeframe];
+    if (!cachedTimeframe) {
+      return undefined;
+    }
+
+    const status = cachedTimeframeStatusByTimeframe[selectedTimeframe] || 'missing';
+    const effectiveCachedTimeframe =
+      status === 'patchable'
+        ? patchCachedLatestPointWithSpotRates({
+            cachedTimeframe,
+            currentSpotRatesByCoin,
+          })
+        : cachedTimeframe;
+
+    return deserializeCachedTimeframeToComputedSeries(effectiveCachedTimeframe);
+  }, [
+    cachedScope?.timeframes,
+    cachedTimeframeStatusByTimeframe,
+    currentSpotRatesByCoin,
+    selectedTimeframe,
+  ]);
 
   // Swap in the computed series once available.
   useEffect(() => {
@@ -1556,38 +1587,90 @@ const BalanceHistoryChart = ({
     const pts = activeSeries?.analysisPoints || [];
     return pts.length ? pts[pts.length - 1] : undefined;
   }, [activeSeries]);
+  const cachedLastAnalysisPoint = useMemo(() => {
+    const pts = cachedSelectedSeries?.analysisPoints || [];
+    return pts.length ? pts[pts.length - 1] : undefined;
+  }, [cachedSelectedSeries]);
+  const displayedAnalysisPoint =
+    selectedAnalysisPoint ?? lastAnalysisPoint ?? cachedLastAnalysisPoint;
 
   // IMPORTANT: For balance screens, the change row is unrealized profit vs cost basis
   // (NOT start→end balance delta). This mirrors the existing PnL engine UI elsewhere.
   const pnlDeltaFiat =
-    selectedAnalysisPoint?.totalUnrealizedPnlFiat ??
-    lastAnalysisPoint?.totalUnrealizedPnlFiat ??
+    displayedAnalysisPoint?.totalUnrealizedPnlFiat ??
     0;
   const pnlPercent =
-    selectedAnalysisPoint?.totalPnlPercent ??
-    lastAnalysisPoint?.totalPnlPercent ??
+    displayedAnalysisPoint?.totalPnlPercent ??
     0;
+  const hasResolvedChangeRowData = !!displayedAnalysisPoint;
 
   const formattedDeltaFiat = useMemo(() => {
+    if (!hasResolvedChangeRowData) {
+      return undefined;
+    }
     return formatFiatAmount(pnlDeltaFiat, quoteCurrency, {
       customPrecision: 'minimal',
       currencyDisplay: 'symbol',
     });
-  }, [pnlDeltaFiat, quoteCurrency]);
+  }, [hasResolvedChangeRowData, pnlDeltaFiat, quoteCurrency]);
 
-  useEffect(() => {
-    onChangeRowData?.({
+  const resolvedChangeRowData = useMemo<ChangeRowData | undefined>(() => {
+    if (!hasResolvedChangeRowData) {
+      return undefined;
+    }
+
+    return {
       percent: pnlPercent,
       deltaFiatFormatted: formattedDeltaFiat,
       rangeLabel: rangeOrSelectedPointLabel,
+    };
+  }, [
+    formattedDeltaFiat,
+    hasResolvedChangeRowData,
+    pnlPercent,
+    rangeOrSelectedPointLabel,
+  ]);
+
+  useEffect(() => {
+    if (!resolvedChangeRowData) {
+      return;
+    }
+
+    setLastResolvedChangeRowDataByTimeframe(prev => {
+      const existing = prev[selectedTimeframe];
+      if (
+        existing?.percent === resolvedChangeRowData.percent &&
+        existing?.deltaFiatFormatted === resolvedChangeRowData.deltaFiatFormatted &&
+        existing?.rangeLabel === resolvedChangeRowData.rangeLabel
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [selectedTimeframe]: resolvedChangeRowData,
+      };
+    });
+  }, [resolvedChangeRowData, selectedTimeframe]);
+
+  const displayedChangeRowData =
+    resolvedChangeRowData ||
+    lastResolvedChangeRowDataByTimeframe[selectedTimeframe];
+
+  useEffect(() => {
+    if (!displayedChangeRowData) {
+      return;
+    }
+    onChangeRowData?.({
+      percent: displayedChangeRowData.percent,
+      deltaFiatFormatted: displayedChangeRowData.deltaFiatFormatted,
+      rangeLabel: displayedChangeRowData.rangeLabel,
       isLoading: isChartLoaderVisible,
     });
   }, [
-    formattedDeltaFiat,
+    displayedChangeRowData,
     isChartLoaderVisible,
     onChangeRowData,
-    pnlPercent,
-    rangeOrSelectedPointLabel,
   ]);
 
   const onGestureStarted = useCallback(() => {
@@ -1704,11 +1787,11 @@ const BalanceHistoryChart = ({
 
   return (
     <>
-      {showChangeRow ? (
+      {showChangeRow && displayedChangeRowData ? (
         <ChartChangeRow
-          percent={pnlPercent}
-          deltaFiatFormatted={formattedDeltaFiat}
-          rangeLabel={rangeOrSelectedPointLabel}
+          percent={displayedChangeRowData.percent}
+          deltaFiatFormatted={displayedChangeRowData.deltaFiatFormatted}
+          rangeLabel={displayedChangeRowData.rangeLabel}
           isLoading={isChartLoaderVisible}
           style={changeRowStyle}
         />
