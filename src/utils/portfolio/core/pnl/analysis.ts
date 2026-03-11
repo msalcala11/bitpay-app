@@ -372,18 +372,16 @@ function buildRateSeries(points: FiatRatePoint[], minTs?: number): RateSeries {
   return {ts: Float64Array.from(tsList), rate: Float64Array.from(rateList)};
 }
 
-function findFirstNonZeroBalanceTs(
+function findOldestSnapshotTs(
   wallets: WalletForAnalysis[],
 ): number | null {
   let best: number | null = null;
   for (const w of wallets) {
     for (const s of w.snapshots) {
-      const bal = parseAtomicToBigint(s.cryptoBalance);
-      if (bal > 0n) {
-        const ts = Number(s.timestamp);
-        if (!best || ts < best) best = ts;
-        break;
-      }
+      const ts = Number(s.timestamp);
+      if (!Number.isFinite(ts)) continue;
+      if (!best || ts < best) best = ts;
+      break;
     }
   }
   return best;
@@ -475,8 +473,8 @@ function* buildPnlAnalysisSeriesGenerator(
   let driverLen = -1;
 
   const baselineMs = getBaselineMs(args.timeframe, nowMs);
-  const firstNonZeroMs =
-    args.timeframe === 'ALL' ? findFirstNonZeroBalanceTs(wallets) : null;
+  const oldestSnapshotMs =
+    args.timeframe === 'ALL' ? findOldestSnapshotTs(wallets) : null;
 
   // ExchangeRate screen uses ALL series for 3M/1Y/5Y timeframes. Match that behavior
   // so percent changes are consistent across the app.
@@ -544,9 +542,15 @@ function* buildPnlAnalysisSeriesGenerator(
 
   const desiredStart =
     args.timeframe === 'ALL'
-      ? firstNonZeroMs ?? overlapStart
+      ? oldestSnapshotMs ?? overlapStart
       : baselineMs ?? overlapStart;
-  const startBound = Math.max(overlapStart, desiredStart);
+  // ALL should span the portfolio's full history. Wallets that do not exist
+  // yet contribute zero until their first snapshot, so we do not clamp ALL to
+  // the shortest overlapping coin-rate window.
+  const startBound =
+    args.timeframe === 'ALL'
+      ? desiredStart
+      : Math.max(overlapStart, desiredStart);
   const endBound = overlapEnd;
 
   // Always emit exactly maxPoints points (RN graph interpolation expects stable point count).
