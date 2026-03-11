@@ -21,6 +21,7 @@ export const portfolioChartsReduxPersistBlackList: PortfolioChartsReduxPersistBl
 
 const initialState: PortfolioChartsState = {
   homeChartCollapsed: false,
+  homeChartRemountNonce: 0,
   walletSnapshotVersionById: {},
   cacheByScopeId: {},
   lruScopeIds: [],
@@ -202,7 +203,10 @@ export const portfolioChartsReducer = (
   switch (action.type) {
     case PortfolioChartsActionTypes.CLEAR_PORTFOLIO_CHARTS:
     case PortfolioActionTypes.CLEAR_PORTFOLIO:
-      return initialState;
+      return {
+        ...initialState,
+        homeChartRemountNonce: (state.homeChartRemountNonce || 0) + 1,
+      };
 
     case PortfolioChartsActionTypes.SET_HOME_CHART_COLLAPSED:
       return {

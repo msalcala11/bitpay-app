@@ -49,6 +49,7 @@ export type CachedBalanceChartScope = {
 
 export interface PortfolioChartsState {
   homeChartCollapsed: boolean;
+  homeChartRemountNonce: number;
   walletSnapshotVersionById: Record<string, number | undefined>;
   cacheByScopeId: Record<string, CachedBalanceChartScope | undefined>;
   lruScopeIds: string[];
