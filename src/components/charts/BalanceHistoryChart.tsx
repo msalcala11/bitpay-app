@@ -12,7 +12,6 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import Clipboard from '@react-native-clipboard/clipboard';
 import {useTranslation} from 'react-i18next';
 import {useTheme} from 'styled-components/native';
 import type {GraphPoint} from 'react-native-graph';
@@ -82,7 +81,6 @@ const PRECOMPUTE_TIMEFRAME_ORDER: FiatRateInterval[] = [
   '1Y',
   '5Y',
 ];
-const DEV_DIAGNOSTICS_ENABLED = __DEV__;
 
 type AnalysisInputs = PnlWalletInputs;
 
@@ -437,11 +435,6 @@ const BalanceHistoryChart = ({
 
   const [selectedPoint, setSelectedPoint] = useState<GraphPoint | undefined>();
 
-  const renderCountRef = useRef(0);
-  if (DEV_DIAGNOSTICS_ENABLED) {
-    renderCountRef.current += 1;
-  }
-
   const cancelAllScheduledWork = useCallback(() => {
     for (const handle of scheduledHandlesRef.current) {
       handle.cancel();
@@ -516,14 +509,7 @@ const BalanceHistoryChart = ({
     return parts.join('|');
   }, [snapshotsByWalletId, wallets]);
 
-  const snapshotStats = useMemo(() => {
-    const stats: Array<{
-      walletId: string;
-      count: number;
-      firstTs: number | null;
-      lastTs: number | null;
-    }> = [];
-
+  const totalSnapshotCount = useMemo(() => {
     let totalCount = 0;
     for (const w of wallets || []) {
       const id = String((w as any)?.id || '');
@@ -535,21 +521,12 @@ const BalanceHistoryChart = ({
         : [];
       const count = snaps.length;
       totalCount += count;
-      if (DEV_DIAGNOSTICS_ENABLED) {
-        const firstTs = count
-          ? Number((snaps[0] as any)?.timestamp || 0)
-          : null;
-        const lastTs = count
-          ? Number((snaps[count - 1] as any)?.timestamp || 0)
-          : null;
-        stats.push({walletId: id, count, firstTs, lastTs});
-      }
     }
 
-    return {stats, totalCount};
+    return totalCount;
   }, [snapshotsByWalletId, wallets]);
 
-  const hasAnySnapshots = snapshotStats.totalCount > 0;
+  const hasAnySnapshots = totalSnapshotCount > 0;
   const analysisInputsReadyKeyRef = useRef<string | undefined>(undefined);
 
   const sortedWalletIds = useMemo(() => {
@@ -1683,114 +1660,6 @@ const BalanceHistoryChart = ({
     );
   }, []);
 
-  const copyDiagnosticsToClipboard = useCallback(
-    (
-      requestedTimeframe?: FiatRateInterval,
-      source: 'chart' | 'selector' = 'chart',
-    ) => {
-      if (!DEV_DIAGNOSTICS_ENABLED) {
-        return;
-      }
-
-      try {
-        const computedTfs = Object.keys(seriesByTimeframe || {});
-        const tf = requestedTimeframe || selectedTimeframe;
-        const requestedTimeframeRevision = getTimeframeRevision(tf);
-        const requestedTimeframeAttemptRevision = getTimeframeAttemptRevision(tf);
-        const requestedSeries =
-          seriesRevisionByTimeframe[tf] === requestedTimeframeRevision
-            ? seriesByTimeframe[tf]
-            : seriesByTimeframe[tf] &&
-              lastAttemptRevisionByTimeframe[tf] ===
-                requestedTimeframeAttemptRevision &&
-              !lastErrorByTimeframe[tf]
-            ? seriesByTimeframe[tf]
-            : undefined;
-        const requestedError =
-          lastAttemptRevisionByTimeframe[tf] === requestedTimeframeAttemptRevision
-            ? lastErrorByTimeframe[tf]
-            : undefined;
-        const requestedPoints = requestedSeries?.graphPoints || [];
-        const requestedFirstTs = requestedPoints.length
-          ? requestedPoints[0].date.getTime()
-          : undefined;
-        const requestedLastTs = requestedPoints.length
-          ? requestedPoints[requestedPoints.length - 1].date.getTime()
-          : undefined;
-        const diag = {
-          kind: 'BalanceHistoryChartDiagnostics',
-          nowMs: Date.now(),
-          renderCount: renderCountRef.current,
-          source,
-          requestedTimeframe: tf,
-          selectedTimeframe,
-          displayedTimeframe,
-          selectedTimeframeError,
-          quoteCurrency,
-          scopeId,
-          snapshotVersionSig,
-          walletsSig,
-          snapshotsSig,
-          walletsCount: (wallets || []).length,
-          snapshotStats,
-          inputsReady,
-          shouldPrepareAnalysisInputs,
-          analysisWalletsCount: analysisInputs.wallets.length,
-          analysisCoins: analysisInputs.wallets.map(w => w.currencyAbbreviation),
-          fiatRateSeriesCachePresent: !!fiatRateSeriesCache,
-          cacheRevision,
-          currentRatesRevision,
-          cachedTimeframeStatusByTimeframe,
-          computedTimeframes: computedTfs,
-          selectedTimeframeComputed: !!selectedComputedSeries,
-          isDisplayingRequestedTimeframe: displayedTimeframe === selectedTimeframe,
-          isComputingByTimeframe,
-          lastAttemptRevisionByTimeframe,
-          lastErrorByTimeframe,
-          requestedTimeframeRevision,
-          requestedTimeframeAttemptRevision,
-          requestedTimeframeComputed: !!requestedSeries,
-          requestedTimeframeError: requestedError,
-          requestedTimeframePointCount: requestedPoints.length,
-          requestedTimeframeFirstTs: requestedFirstTs,
-          requestedTimeframeLastTs: requestedLastTs,
-        };
-
-        Clipboard.setString(JSON.stringify(diag, null, 2));
-        haptic('impactLight');
-      } catch {
-        // no-op
-      }
-    },
-    [
-      analysisInputs.wallets,
-      cacheRevision,
-      cachedTimeframeStatusByTimeframe,
-      currentRatesRevision,
-      fiatRateSeriesCache,
-      displayedTimeframe,
-      getTimeframeAttemptRevision,
-      getTimeframeRevision,
-      inputsReady,
-      isComputingByTimeframe,
-      lastAttemptRevisionByTimeframe,
-      lastErrorByTimeframe,
-      quoteCurrency,
-      scopeId,
-      selectedComputedSeries,
-      selectedTimeframe,
-      selectedTimeframeError,
-      shouldPrepareAnalysisInputs,
-      seriesRevisionByTimeframe,
-      seriesByTimeframe,
-      snapshotStats,
-      snapshotVersionSig,
-      snapshotsSig,
-      wallets,
-      walletsSig,
-    ],
-  );
-
   const chartColor = lineColor || (theme.dark ? LinkBlue : Action);
   const gradientBackgroundColor =
     gradientStartColor || (theme.dark ? 'transparent' : White);
@@ -1864,11 +1733,6 @@ const BalanceHistoryChart = ({
         onGestureStart={onGestureStarted}
         onGestureEnd={onGestureEnded}
         onPointSelected={onPointSelected}
-        onLongPress={
-          DEV_DIAGNOSTICS_ENABLED
-            ? () => copyDiagnosticsToClipboard(selectedTimeframe, 'chart')
-            : undefined
-        }
       />
 
       {showTimeframeSelector ? (
@@ -1876,11 +1740,6 @@ const BalanceHistoryChart = ({
           <TimeframeSelector
             options={fiatChartTimeframeOptions}
             selected={selectedTimeframe}
-            onLongPressOption={
-              DEV_DIAGNOSTICS_ENABLED
-                ? tf => copyDiagnosticsToClipboard(tf, 'selector')
-                : undefined
-            }
             onSelect={tf => {
               setSelectedPoint(undefined);
               onSelectedBalanceChangeRef.current?.(undefined);
