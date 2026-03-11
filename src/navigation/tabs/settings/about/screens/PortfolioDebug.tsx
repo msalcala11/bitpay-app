@@ -57,7 +57,7 @@ const WalletRowMismatchText = styled(WalletRowSubTitle)`
 
 const csvEscape = (v: unknown): string => {
   const s = v == null ? '' : String(v);
-  if (/[^\x20-\x7E]|[\n\r,\"]/g.test(s)) {
+  if (/[^\x20-\x7E]|[\n\r,"]/g.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;
   }
   return s;
@@ -236,7 +236,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
       try {
         dispatch(clearPortfolio());
         dispatch(clearPortfolioCharts());
-      } catch (e) {
+      } catch {
       } finally {
         setIsGenerating(false);
       }
@@ -255,7 +255,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
     const task = InteractionManager.runAfterInteractions(async () => {
       try {
         await dispatch(populatePortfolio());
-      } catch (e) {
+      } catch {
       } finally {
         setIsGenerating(false);
       }
