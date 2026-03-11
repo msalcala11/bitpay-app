@@ -341,8 +341,6 @@ function buildRateSeries(points: FiatRatePoint[], minTs?: number): RateSeries {
     const ts = Number((p as any)?.ts);
     const rate = Number((p as any)?.rate);
     if (!Number.isFinite(ts) || !Number.isFinite(rate)) continue;
-    if (typeof minTs === 'number' && Number.isFinite(minTs) && ts < minTs)
-      continue;
 
     if (ts < prevTs) sorted = false;
     prevTs = ts;
@@ -366,7 +364,46 @@ function buildRateSeries(points: FiatRatePoint[], minTs?: number): RateSeries {
       ts[i] = tsList[j];
       rate[i] = rateList[j];
     }
+    if (
+      typeof minTs === 'number' &&
+      Number.isFinite(minTs) &&
+      ts.length > 0
+    ) {
+      let firstAtOrAfter = -1;
+      for (let i = 0; i < ts.length; i++) {
+        if (ts[i] >= minTs) {
+          firstAtOrAfter = i;
+          break;
+        }
+      }
+      if (firstAtOrAfter < 0) {
+        return {ts: new Float64Array(0), rate: new Float64Array(0)};
+      }
+      firstAtOrAfter = firstAtOrAfter > 0 ? firstAtOrAfter - 1 : 0;
+      return {
+        ts: ts.slice(firstAtOrAfter),
+        rate: rate.slice(firstAtOrAfter),
+      };
+    }
     return {ts, rate};
+  }
+
+  if (typeof minTs === 'number' && Number.isFinite(minTs)) {
+    let firstAtOrAfter = -1;
+    for (let i = 0; i < tsList.length; i++) {
+      if (tsList[i] >= minTs) {
+        firstAtOrAfter = i;
+        break;
+      }
+    }
+    if (firstAtOrAfter < 0) {
+      return {ts: new Float64Array(0), rate: new Float64Array(0)};
+    }
+    const startIdx = firstAtOrAfter > 0 ? firstAtOrAfter - 1 : 0;
+    return {
+      ts: Float64Array.from(tsList.slice(startIdx)),
+      rate: Float64Array.from(rateList.slice(startIdx)),
+    };
   }
 
   return {ts: Float64Array.from(tsList), rate: Float64Array.from(rateList)};
@@ -489,10 +526,14 @@ function* buildPnlAnalysisSeriesGenerator(
     }
   })();
 
-  // Build compact rate series per coin and compute a strict overlapping window.
+  // Build compact rate series per coin and compute the latest shared end bound.
   //
   // This avoids the heavy allocation work performed by alignTimestamps/trimTimestamps,
   // which becomes especially expensive for ALL when multiple coins have long daily histories.
+  //
+  // For bounded timeframes, keep one sample before the requested baseline so the
+  // first rendered point can still anchor at the exact timeframe start instead of
+  // jumping forward to the first post-cutoff rate sample.
   const rateSeriesByCoin: Record<string, RateSeries> = {};
 
   let overlapStart = Number.NEGATIVE_INFINITY;
@@ -544,14 +585,17 @@ function* buildPnlAnalysisSeriesGenerator(
     args.timeframe === 'ALL'
       ? oldestSnapshotMs ?? overlapStart
       : baselineMs ?? overlapStart;
-  // ALL should span the portfolio's full history. Wallets that do not exist
-  // yet contribute zero until their first snapshot, so we do not clamp ALL to
-  // the shortest overlapping coin-rate window.
-  const startBound =
-    args.timeframe === 'ALL'
-      ? desiredStart
-      : Math.max(overlapStart, desiredStart);
+  // Requested windows should keep their full start bound. Wallets that do not
+  // exist yet already contribute zero until their first snapshot, so we do not
+  // need to crop the chart to the shortest shared coin history.
+  const startBound = desiredStart;
   const endBound = overlapEnd;
+
+  if (!Number.isFinite(startBound) || endBound < startBound) {
+    throw new Error(
+      `No usable rate window found for ${quoteCurrency}:${args.timeframe}.`,
+    );
+  }
 
   // Always emit exactly maxPoints points (RN graph interpolation expects stable point count).
   const timeline = buildEvenTimeline(startBound, endBound, maxPoints);
