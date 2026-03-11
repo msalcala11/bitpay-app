@@ -1,4 +1,5 @@
 import React, {useEffect, useMemo, useState} from 'react';
+import {useWindowDimensions} from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -6,7 +7,6 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import {useTheme} from 'styled-components/native';
-import {WIDTH} from '../styled/Containers';
 import {BaseText} from '../styled/Text';
 import {formatFiatAmount} from '../../utils/helper-methods';
 import {Slate30, SlateDark} from '../../styles/colors';
@@ -18,20 +18,8 @@ import {
 export type ChartAxisLabelProps = {
   value: number;
   index: number;
-  prevIndex?: number;
-  /**
-   * Previous series length.
-   *
-   * When switching timeframes, the previous chart series can have a different
-   * number of points than the new series. `prevIndex` is relative to the
-   * previous series, so we must normalize it using the previous length.
-   *
-   * If we instead divide `prevIndex` by the *new* array length, the computed
-   * starting X can be wildly wrong (often clamped to an edge), which looks like
-   * a jump before the label animates to its final position.
-   */
-  prevArrayLength?: number;
   arrayLength: number;
+  chartWidth?: number;
   quoteCurrency: string;
   currencyAbbreviation?: string;
   type: 'min' | 'max';
@@ -44,9 +32,8 @@ const AnimatedBaseText = Animated.createAnimatedComponent(BaseText);
 const ChartAxisLabel = ({
   value,
   index,
-  prevIndex,
-  prevArrayLength,
   arrayLength,
+  chartWidth,
   quoteCurrency,
   currencyAbbreviation,
   type,
@@ -54,6 +41,7 @@ const ChartAxisLabel = ({
   contentOpacity = 1,
 }: ChartAxisLabelProps): React.ReactElement => {
   const theme = useTheme();
+  const {width: windowWidth} = useWindowDimensions();
 
   const labelText = useMemo(() => {
     return formatFiatAmount(value, quoteCurrency, {
@@ -90,6 +78,9 @@ const ChartAxisLabel = ({
       ? measuredTextLayout.width
       : estimatedTextWidth;
 
+  const effectiveChartWidth =
+    typeof chartWidth === 'number' && chartWidth > 0 ? chartWidth : windowWidth;
+
   const getPointRatio = (pointIndex: number, length: number): number => {
     if (length <= 1) {
       return 0.5;
@@ -100,23 +91,17 @@ const ChartAxisLabel = ({
     return safePointIndex / maxIndex;
   };
 
-  const resolvedPrevArrayLength =
-    typeof prevArrayLength === 'number' ? prevArrayLength : arrayLength;
-  const prevLocation =
-    getPointRatio(prevIndex ?? index, resolvedPrevArrayLength) * WIDTH -
-    textWidth / 2;
-  const location = getPointRatio(index, arrayLength) * WIDTH - textWidth / 2;
+  const location = getPointRatio(index, arrayLength) * effectiveChartWidth - textWidth / 2;
 
   const getTranslateX = (loc: number) => {
     const minLocation = 5;
-    const maxLocation = Math.max(minLocation, WIDTH - textWidth);
+    const maxLocation = Math.max(minLocation, effectiveChartWidth - textWidth);
     return Math.min(Math.max(loc, minLocation), maxLocation);
   };
 
-  const prevTranslateX = getTranslateX(prevLocation);
   const newTranslateX = getTranslateX(location);
 
-  const translateX = useSharedValue(prevTranslateX);
+  const translateX = useSharedValue(newTranslateX);
   useEffect(() => {
     if (Math.abs(translateX.value - newTranslateX) < 0.5) {
       translateX.value = newTranslateX;
@@ -133,7 +118,7 @@ const ChartAxisLabel = ({
 
   const translateY = type === 'min' ? 5 : -5;
 
-  const opacity = useSharedValue(typeof prevIndex !== 'undefined' ? 1 : 0);
+  const opacity = useSharedValue(0);
   useEffect(() => {
     opacity.value = withTiming(1, {duration: 800});
   }, [opacity]);

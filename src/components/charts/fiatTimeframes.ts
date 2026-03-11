@@ -1,6 +1,8 @@
 import type {FiatRateInterval} from '../../store/rate/rate.models';
-
-const DAY_MS = 24 * 60 * 60 * 1000;
+import {
+  getFiatTimeframeWindowMs as getSharedFiatTimeframeWindowMs,
+  getSeriesIntervalForFiatTimeframe,
+} from '../../utils/portfolio/timeframes';
 
 export const FIAT_CHART_TIMEFRAME_VALUES: FiatRateInterval[] = [
   'ALL',
@@ -21,40 +23,18 @@ export const getFiatChartTimeframeOptions = (
   }));
 };
 
-export const getSeriesIntervalForFiatTimeframe = (
-  timeframe: FiatRateInterval,
-): FiatRateInterval => {
-  switch (timeframe) {
-    case '3M':
-    case '1Y':
-    case '5Y':
-      return 'ALL';
-    default:
-      return timeframe;
-  }
-};
+export {getSeriesIntervalForFiatTimeframe};
 
-export const getFiatTimeframeWindowMs = (
+export const getFiatChartTimeframeWindowMs = (
   timeframe: FiatRateInterval,
 ): number => {
-  switch (timeframe) {
-    case '1D':
-      return 1 * DAY_MS;
-    case '1W':
-      return 7 * DAY_MS;
-    case '1M':
-      return 30 * DAY_MS;
-    case '3M':
-      return 90 * DAY_MS;
-    case '1Y':
-      return 365 * DAY_MS;
-    case '5Y':
-      return 1825 * DAY_MS;
-    case 'ALL':
-    default:
-      return 1825 * DAY_MS;
-  }
+  return timeframe === 'ALL'
+    ? getSharedFiatTimeframeWindowMs('5Y')
+    : getSharedFiatTimeframeWindowMs(timeframe);
 };
+
+/** @deprecated Use `getFiatChartTimeframeWindowMs`. */
+export const getFiatTimeframeWindowMs = getFiatChartTimeframeWindowMs;
 
 export const getRangeLabelForFiatTimeframe = (
   t: (key: string) => string,

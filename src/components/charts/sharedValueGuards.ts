@@ -7,5 +7,13 @@ export type NumberSharedValue =
 export const isNumberSharedValue = (
   value: unknown,
 ): value is NumberSharedValue => {
-  return value != null && typeof value === 'object' && 'value' in value;
+  if (value == null || typeof value !== 'object' || !('value' in value)) {
+    return false;
+  }
+
+  const sharedValue = value as {value?: unknown};
+  return (
+    typeof sharedValue.value === 'number' &&
+    Number.isFinite(sharedValue.value)
+  );
 };

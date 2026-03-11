@@ -350,6 +350,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const contactList = useAppSelector(({CONTACT}) => CONTACT.list);
   const {defaultAltCurrency, hideAllBalances} = useAppSelector(({APP}) => APP);
   const fullWalletObj = findWalletById(wallets, walletId, copayerId) as Wallet;
+  const chartWallets = useMemo(() => [fullWalletObj], [fullWalletObj]);
   const key = keys[fullWalletObj.keyId];
   const uiFormattedWallet = buildUIFormattedWallet(
     fullWalletObj,
@@ -1195,7 +1196,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
 
                   {!hideAllBalances ? (
                     <BalanceHistoryChart
-                      wallets={[fullWalletObj]}
+                      wallets={chartWallets}
                       snapshotsByWalletId={snapshotsByWalletId || {}}
                       quoteCurrency={defaultAltCurrency.isoCode}
                       rates={rates}

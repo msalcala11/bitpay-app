@@ -44,11 +44,11 @@ const makeCachedTimeframe = (
       lastTs: 300,
     },
   ],
-  lastSpotRatesByCoin: {
-    btc: 100,
+  lastSpotRatesByAssetKey: {
+    'btc|btc': 100,
   },
-  latestHoldingsByCoin: {
-    btc: {
+  latestHoldingsByAssetKey: {
+    'btc|btc': {
       units: 2,
     },
   },
@@ -94,8 +94,8 @@ describe('chartCache', () => {
     const cached = makeCachedTimeframe();
     const patched = patchCachedLatestPointWithSpotRates({
       cachedTimeframe: cached,
-      currentSpotRatesByCoin: {
-        btc: 125,
+      currentSpotRatesByAssetKey: {
+        'btc|btc': 125,
       },
     });
 
@@ -104,7 +104,7 @@ describe('chartCache', () => {
     expect(patched.totalPnlPercent[0]).toBe(0);
     expect(patched.totalPnlPercent[1]).toBe(20);
     expect(patched.totalPnlPercent[2]).toBeCloseTo(66.666666, 4);
-    expect(patched.lastSpotRatesByCoin.btc).toBe(125);
+    expect(patched.lastSpotRatesByAssetKey['btc|btc']).toBe(125);
   });
 
   it('marks cached timeframes fresh when snapshots, historical deps, and spot rates match', () => {
@@ -112,8 +112,8 @@ describe('chartCache', () => {
       getCachedTimeframeStatus({
         cachedTimeframe: makeCachedTimeframe(),
         snapshotVersionSig: 'wallet-1:1',
-        currentSpotRatesByCoin: {
-          btc: 100,
+        currentSpotRatesByAssetKey: {
+          'btc|btc': 100,
         },
         fiatRateSeriesCache: makeRateCache(),
       }),
@@ -125,8 +125,8 @@ describe('chartCache', () => {
       getCachedTimeframeStatus({
         cachedTimeframe: makeCachedTimeframe(),
         snapshotVersionSig: 'wallet-1:1',
-        currentSpotRatesByCoin: {
-          btc: 110,
+        currentSpotRatesByAssetKey: {
+          'btc|btc': 110,
         },
         fiatRateSeriesCache: makeRateCache(),
       }),
@@ -138,13 +138,42 @@ describe('chartCache', () => {
       getCachedTimeframeStatus({
         cachedTimeframe: makeCachedTimeframe(),
         snapshotVersionSig: 'wallet-1:1',
-        currentSpotRatesByCoin: {
-          btc: 100,
+        currentSpotRatesByAssetKey: {
+          'btc|btc': 100,
         },
         fiatRateSeriesCache: makeRateCache({
           fetchedOn: 101,
         }),
       }),
     ).toBe('stale_historical');
+  });
+
+  it('patches tokenized assets by full asset identity instead of ticker only', () => {
+    const cached = makeCachedTimeframe({
+      lastSpotRatesByAssetKey: {
+        'usdc|eth|0xaaa': 1,
+        'usdc|base|0xbbb': 1,
+      },
+      latestHoldingsByAssetKey: {
+        'usdc|eth|0xaaa': {units: 10},
+        'usdc|base|0xbbb': {units: 5},
+      },
+      latestRemainingCostBasisFiatTotal: 15,
+      totalFiatBalance: [15, 15, 15],
+      totalUnrealizedPnlFiat: [0, 0, 0],
+      totalPnlPercent: [0, 0, 0],
+    });
+
+    const patched = patchCachedLatestPointWithSpotRates({
+      cachedTimeframe: cached,
+      currentSpotRatesByAssetKey: {
+        'usdc|eth|0xaaa': 1.01,
+        'usdc|base|0xbbb': 0.99,
+      },
+    });
+
+    expect(patched.totalFiatBalance[2]).toBeCloseTo(15.05, 8);
+    expect(patched.lastSpotRatesByAssetKey['usdc|eth|0xaaa']).toBe(1.01);
+    expect(patched.lastSpotRatesByAssetKey['usdc|base|0xbbb']).toBe(0.99);
   });
 });

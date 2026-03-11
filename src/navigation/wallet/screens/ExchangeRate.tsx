@@ -12,7 +12,12 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {RefreshControl, ScrollView, View} from 'react-native';
+import {
+  type LayoutChangeEvent,
+  RefreshControl,
+  ScrollView,
+  View,
+} from 'react-native';
 import type {GraphPoint} from 'react-native-graph';
 import {Path, Svg} from 'react-native-svg';
 import {useTranslation} from 'react-i18next';
@@ -449,6 +454,22 @@ const ExchangeRate = () => {
   const [isAboutExpanded, setIsAboutExpanded] = useState(false);
   const [isChartLoading, setIsChartLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [chartWidth, setChartWidth] = useState<number | undefined>(undefined);
+  const chartWidthRef = useRef<number | undefined>(chartWidth);
+  chartWidthRef.current = chartWidth;
+
+  const handleChartLayout = useCallback((event: LayoutChangeEvent) => {
+    const nextWidth = event.nativeEvent.layout.width;
+    if (!Number.isFinite(nextWidth) || nextWidth <= 0) {
+      return;
+    }
+
+    setChartWidth(prev =>
+      typeof prev === 'number' && Math.abs(prev - nextWidth) < 0.5
+        ? prev
+        : nextWidth,
+    );
+  }, []);
 
   const [displayData, setDisplayData] =
     useState<ChartDataType>(defaultDisplayData);
@@ -1150,6 +1171,7 @@ const ExchangeRate = () => {
         value={displayDataRef.current.minPoint.value}
         index={displayDataRef.current.minIndex}
         arrayLength={displayDataRef.current.data.length}
+        chartWidth={chartWidthRef.current}
         quoteCurrency={quoteCurrencyRef.current}
         currencyAbbreviation={currencyAbbreviationRef.current}
         type="min"
@@ -1175,6 +1197,7 @@ const ExchangeRate = () => {
         value={maxAxisLabelValue}
         index={dd.maxIndex}
         arrayLength={dd.data.length}
+        chartWidth={chartWidthRef.current}
         quoteCurrency={quoteCurrencyRef.current}
         currencyAbbreviation={currencyAbbreviationRef.current}
         type="max"
@@ -1366,30 +1389,34 @@ const ExchangeRate = () => {
           />
         </TopSection>
 
-        <InteractiveLineChart
-          points={chartPoints}
-          animated={true}
-          gradientFillColors={[
-            gradientBackgroundColor,
-            theme.dark ? 'transparent' : White,
-          ]}
-          enablePanGesture={true}
-          panGestureDelay={100}
-          onGestureStart={onGestureStarted}
-          onPointSelected={onPointSelected}
-          onGestureEnd={onGestureEnd}
-          TopAxisLabel={MaxAxisLabel}
-          BottomAxisLabel={MinAxisLabel}
-          SelectionDot={ChartSelectionDot}
-          color={theme.dark && coinColor === Black ? White : coinColor}
-          isLoading={isChartLoading}
-        />
+        <View onLayout={handleChartLayout}>
+          <InteractiveLineChart
+            points={chartPoints}
+            chartWidth={chartWidth}
+            animated={true}
+            gradientFillColors={[
+              gradientBackgroundColor,
+              theme.dark ? 'transparent' : White,
+            ]}
+            enablePanGesture={true}
+            panGestureDelay={100}
+            onGestureStart={onGestureStarted}
+            onPointSelected={onPointSelected}
+            onGestureEnd={onGestureEnd}
+            TopAxisLabel={MaxAxisLabel}
+            BottomAxisLabel={MinAxisLabel}
+            SelectionDot={ChartSelectionDot}
+            color={theme.dark && coinColor === Black ? White : coinColor}
+            isLoading={isChartLoading}
+          />
 
-        <TimeframeSelector
-          options={fiatChartTimeframeOptions}
-          selected={selectedTimeframe}
-          onSelect={setSelectedTimeframe}
-        />
+          <TimeframeSelector
+            options={fiatChartTimeframeOptions}
+            width={chartWidth}
+            selected={selectedTimeframe}
+            onSelect={setSelectedTimeframe}
+          />
+        </View>
 
         <ActionsContainer>
           <LinkingButtons

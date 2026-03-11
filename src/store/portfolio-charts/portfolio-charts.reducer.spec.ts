@@ -24,8 +24,8 @@ const makeTimeframe = (
   walletIds: ['wallet-1'],
   snapshotVersionSig: 'wallet-1:1',
   historicalRateDeps: [],
-  lastSpotRatesByCoin: {},
-  latestHoldingsByCoin: {},
+  lastSpotRatesByAssetKey: {},
+  latestHoldingsByAssetKey: {},
   latestRemainingCostBasisFiatTotal: 0,
   ts: [100],
   totalFiatBalance: [100],
@@ -162,5 +162,43 @@ describe('portfolioChartsReducer', () => {
     expect(state.cacheByScopeId['scope-1']).toBeDefined();
     expect(state.cacheByScopeId['scope-3']).toBeDefined();
     expect(state.cacheByScopeId['scope-2']).toBeUndefined();
+  });
+
+  it('deep-copies nested timeframe payload data on upsert', () => {
+    let state = portfolioChartsReducer(undefined, {type: '@@INIT'} as any);
+    const timeframe = makeTimeframe();
+
+    timeframe.historicalRateDeps.push({
+      cacheKey: 'USD:btc:ALL',
+      fetchedOn: 123,
+      lastTs: 456,
+    });
+    timeframe.latestHoldingsByAssetKey = {
+      'btc|btc': {units: 2},
+    };
+    timeframe.lastSpotRatesByAssetKey = {
+      'btc|btc': 100,
+    };
+
+    state = portfolioChartsReducer(
+      state,
+      upsertBalanceChartScopeTimeframes({
+        scopeId: 'scope-1',
+        walletIds: ['wallet-1'],
+        quoteCurrency: 'USD',
+        balanceOffset: 0,
+        timeframes: [timeframe],
+      }),
+    );
+
+    timeframe.historicalRateDeps[0].fetchedOn = 999;
+    timeframe.latestHoldingsByAssetKey['btc|btc'].units = 999;
+    timeframe.lastSpotRatesByAssetKey['btc|btc'] = 999;
+
+    const stored = state.cacheByScopeId['scope-1']?.timeframes.ALL;
+
+    expect(stored?.historicalRateDeps[0]?.fetchedOn).toBe(123);
+    expect(stored?.latestHoldingsByAssetKey['btc|btc']?.units).toBe(2);
+    expect(stored?.lastSpotRatesByAssetKey['btc|btc']).toBe(100);
   });
 });

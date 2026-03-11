@@ -1,20 +1,19 @@
 import React from 'react';
-import {
-  Animated,
-  Easing,
-  LayoutChangeEvent,
-} from 'react-native';
+import {LayoutChangeEvent} from 'react-native';
 import {useIsFocused} from '@react-navigation/native';
 import styled, {useTheme} from 'styled-components/native';
 import {LineGraph, type GraphPoint} from 'react-native-graph';
 import type {SelectionDotProps} from 'react-native-graph';
 import Svg, {Line} from 'react-native-svg';
 import Reanimated, {
+  Easing,
   useAnimatedProps,
+  useAnimatedStyle,
   useDerivedValue,
+  useSharedValue,
+  withTiming,
 } from 'react-native-reanimated';
 import Loader from '../loader/Loader';
-import {WIDTH} from '../styled/Containers';
 import {Slate, SlateDark} from '../../styles/colors';
 import {
   isNumberSharedValue,
@@ -50,6 +49,7 @@ const FIRST_POINT_GUIDE_LINE_SVG_HEIGHT = 4;
 
 export type InteractiveLineChartProps = {
   points: GraphPoint[];
+  chartWidth?: number;
   color: string;
   gradientFillColors: [string, string];
   lineThickness?: number;
@@ -89,6 +89,7 @@ type SvgLineAnimatedProps = Partial<React.ComponentProps<typeof Line>>;
 
 const InteractiveLineChart = ({
   points,
+  chartWidth,
   color,
   gradientFillColors,
   lineThickness,
@@ -121,7 +122,7 @@ const InteractiveLineChart = ({
     width: number;
     height: number;
   } | null>(null);
-  const firstPointGuideLineTopAnim = React.useRef(new Animated.Value(0)).current;
+  const firstPointGuideLineTop = useSharedValue(0);
   const isGuideLineTopInitializedRef = React.useRef(false);
 
   const effectiveLineThickness =
@@ -305,7 +306,7 @@ const InteractiveLineChart = ({
   //   - we regain focus after a theme switch (ensures redraw is visible),
   //   - layout happens after a theme switch (handles detach/reattach cases).
   const pointsForGraph = React.useMemo(() => {
-    return pointsRefreshKey ? points.slice() : points.slice();
+    return points.slice();
   }, [points, pointsRefreshKey]);
   const hasDrawablePoints = pointsForGraph.length >= 2;
 
@@ -381,6 +382,12 @@ const InteractiveLineChart = ({
       ? firstPointGuideLine.top - FIRST_POINT_GUIDE_LINE_SVG_HEIGHT / 2
       : null;
 
+  const firstPointGuideLineAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      top: firstPointGuideLineTop.value,
+    };
+  }, [firstPointGuideLineTop]);
+
   React.useEffect(() => {
     if (firstPointGuideLineTopTarget == null) {
       isGuideLineTopInitializedRef.current = false;
@@ -388,21 +395,16 @@ const InteractiveLineChart = ({
     }
 
     if (!isGuideLineTopInitializedRef.current) {
-      firstPointGuideLineTopAnim.setValue(firstPointGuideLineTopTarget);
+      firstPointGuideLineTop.value = firstPointGuideLineTopTarget;
       isGuideLineTopInitializedRef.current = true;
       return;
     }
 
-    const anim = Animated.timing(firstPointGuideLineTopAnim, {
-      toValue: firstPointGuideLineTopTarget,
+    firstPointGuideLineTop.value = withTiming(firstPointGuideLineTopTarget, {
       duration: 260,
       easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
     });
-    anim.start();
-
-    return () => anim.stop();
-  }, [firstPointGuideLineTopAnim, firstPointGuideLineTopTarget]);
+  }, [firstPointGuideLineTop, firstPointGuideLineTopTarget]);
 
   const chartInner = (
     <ChartInner onLayout={onChartLayout}>
@@ -444,7 +446,10 @@ const InteractiveLineChart = ({
             );
           }}
           style={{
-            width: WIDTH,
+            width:
+              typeof chartWidth === 'number' && chartWidth > 0
+                ? chartWidth
+                : '100%',
             height: graphHeight,
             marginTop: graphMarginTop,
             opacity: isLoading ? (hideLineWhileLoading ? 0 : 0.25) : 1,
@@ -452,15 +457,17 @@ const InteractiveLineChart = ({
         />
       ) : null}
       {firstPointGuideLine ? (
-        <Animated.View
+        <Reanimated.View
           pointerEvents="none"
-          style={{
-            position: 'absolute',
-            left: firstPointGuideLine.left,
-            top: firstPointGuideLineTopAnim,
-            width: firstPointGuideLine.width,
-            height: FIRST_POINT_GUIDE_LINE_SVG_HEIGHT,
-          }}>
+          style={[
+            {
+              position: 'absolute',
+              left: firstPointGuideLine.left,
+              width: firstPointGuideLine.width,
+              height: FIRST_POINT_GUIDE_LINE_SVG_HEIGHT,
+            },
+            firstPointGuideLineAnimatedStyle,
+          ]}>
           <Svg
             width={firstPointGuideLine.width}
             height={FIRST_POINT_GUIDE_LINE_SVG_HEIGHT}>
@@ -474,7 +481,7 @@ const InteractiveLineChart = ({
               strokeLinecap="butt"
             />
           </Svg>
-        </Animated.View>
+        </Reanimated.View>
       ) : null}
       {isLoading ? (
         <ChartLoaderOverlay pointerEvents="none">

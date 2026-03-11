@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 import {
   InteractionManager,
+  type LayoutChangeEvent,
   StyleProp,
   View,
   ViewStyle,
@@ -40,11 +41,13 @@ import InteractiveLineChart from './InteractiveLineChart';
 import ChartAxisLabel from './ChartAxisLabel';
 import ChartSelectionDot from './ChartSelectionDot';
 import ChartChangeRow from './ChartChangeRow';
+import useBalanceChartChangeRow from './useBalanceChartChangeRow';
+import useBalanceChartLoaderState from './useBalanceChartLoaderState';
 import {Action, LinkBlue, White} from '../../styles/colors';
 import haptic from '../haptic-feedback/haptic';
 import {
   buildPnlWalletInputsFromPortfolioSnapshotsAsync,
-  buildPnlCurrentRatesByCoinFromWallets,
+  buildPnlCurrentRatesByAssetKeyFromWallets,
   type PnlWalletInputs,
 } from '../../utils/portfolio/assets';
 import {useAppDispatch, useAppSelector} from '../../utils/hooks';
@@ -66,13 +69,13 @@ import {
   deserializeCachedTimeframeToComputedSeries,
   getCachedTimeframeStatus,
   getSortedUniqueWalletIds,
+  normalizeGraphPointsForChart,
   patchCachedLatestPointWithSpotRates,
+  recomputeMinMaxFromGraphPoints,
   serializeComputedSeriesToCachedTimeframe,
 } from '../../utils/portfolio/chartCache';
 
-const CHART_LOADER_DELAY_MS = 150;
 const CHART_COMPUTE_YIELD_EVERY_POINTS = 4;
-const SCHEDULE_AFTER_INTERACTIONS_FALLBACK_MS = 700;
 const PRECOMPUTE_TIMEFRAME_ORDER: FiatRateInterval[] = [
   '1D',
   '1W',
@@ -101,45 +104,22 @@ type ComputedSeries = {
   maxPoint: GraphPoint;
 };
 
-type ChangeRowData = {
-  percent: number;
-  deltaFiatFormatted?: string;
-  rangeLabel?: string;
-};
-
 type ScheduledAfterInteractionsHandle = {
   cancel: () => void;
 };
-
-const GRAPH_DRAWABLE_EPSILON = 0.0001;
 
 const scheduleAfterInteractionsAndFrames = (
   cb: () => void | Promise<void>,
 ): ScheduledAfterInteractionsHandle => {
   let cancelled = false;
-  let didRun = false;
   let timeout: ReturnType<typeof setTimeout> | undefined;
-  let fallbackTimeout: ReturnType<typeof setTimeout> | undefined;
   let firstFrame: number | undefined;
   let secondFrame: number | undefined;
 
-  const clearScheduledTimers = () => {
-    if (fallbackTimeout) {
-      clearTimeout(fallbackTimeout);
-      fallbackTimeout = undefined;
-    }
-    if (timeout) {
-      clearTimeout(timeout);
-      timeout = undefined;
-    }
-  };
-
   const runCallback = () => {
-    if (cancelled || didRun) {
+    if (cancelled) {
       return;
     }
-    didRun = true;
-    clearScheduledTimers();
 
     timeout = setTimeout(() => {
       if (cancelled) {
@@ -161,13 +141,13 @@ const scheduleAfterInteractionsAndFrames = (
   };
 
   const task = InteractionManager.runAfterInteractions(() => {
-    if (cancelled || didRun) {
+    if (cancelled) {
       return;
     }
 
     if (typeof requestAnimationFrame === 'function') {
       firstFrame = requestAnimationFrame(() => {
-        if (cancelled || didRun) {
+        if (cancelled) {
           return;
         }
 
@@ -179,16 +159,10 @@ const scheduleAfterInteractionsAndFrames = (
     runCallback();
   });
 
-  // Some navigation/layout transitions can leave runAfterInteractions pending
-  // longer than expected. Fall back to running the work anyway so the chart
-  // cannot remain stuck in a permanent loading state for a new scope.
-  fallbackTimeout = setTimeout(runCallback, SCHEDULE_AFTER_INTERACTIONS_FALLBACK_MS);
-
   return {
     cancel: () => {
       cancelled = true;
       task.cancel();
-      clearScheduledTimers();
 
       if (
         typeof firstFrame === 'number' &&
@@ -202,60 +176,11 @@ const scheduleAfterInteractionsAndFrames = (
       ) {
         cancelAnimationFrame(secondFrame);
       }
+      if (timeout) {
+        clearTimeout(timeout);
+      }
     },
   };
-};
-
-const normalizeGraphPointsForChart = (points: GraphPoint[]): GraphPoint[] => {
-  if (!points.length) {
-    return points;
-  }
-
-  const normalized: GraphPoint[] = [];
-  const fallbackTsBase = Date.now();
-  let prevTs = Number.NEGATIVE_INFINITY;
-  let minV = Number.POSITIVE_INFINITY;
-  let maxV = Number.NEGATIVE_INFINITY;
-
-  for (let i = 0; i < points.length; i++) {
-    const src = points[i];
-    const rawTs =
-      src?.date instanceof Date ? src.date.getTime() : Number((src as any)?.date);
-    let ts = Number.isFinite(rawTs) ? rawTs : fallbackTsBase + i;
-    if (Number.isFinite(prevTs) && ts <= prevTs) {
-      ts = prevTs + 1;
-    }
-
-    const fallbackValue = normalized.length
-      ? normalized[normalized.length - 1].value
-      : 0;
-    const value = Number.isFinite(src?.value) ? src.value : fallbackValue;
-
-    normalized.push({
-      date: new Date(ts),
-      value,
-    });
-    prevTs = ts;
-
-    if (value < minV) {
-      minV = value;
-    }
-    if (value > maxV) {
-      maxV = value;
-    }
-  }
-
-  // react-native-graph may render nothing when all values are identical (0 range).
-  // Add a tiny epsilon to the last point to guarantee a drawable range without
-  // affecting formatted labels.
-  if (normalized.length >= 2 && minV === maxV) {
-    normalized[normalized.length - 1] = {
-      ...normalized[normalized.length - 1],
-      value: normalized[normalized.length - 1].value + GRAPH_DRAWABLE_EPSILON,
-    };
-  }
-
-  return normalized;
 };
 
 const getLatestFiatRateSeriesPointTs = (
@@ -281,32 +206,6 @@ const getLatestFiatRateSeriesPointTs = (
   }
 
   return maxTs > 0 ? maxTs : undefined;
-};
-
-const computeMinMax = (points: GraphPoint[]) => {
-  let minIndex = 0;
-  let maxIndex = 0;
-  let minValue = Number.POSITIVE_INFINITY;
-  let maxValue = Number.NEGATIVE_INFINITY;
-
-  for (let i = 0; i < points.length; i++) {
-    const v = points[i].value;
-    if (v < minValue) {
-      minValue = v;
-      minIndex = i;
-    }
-    if (v > maxValue) {
-      maxValue = v;
-      maxIndex = i;
-    }
-  }
-
-  return {
-    minIndex,
-    maxIndex,
-    minPoint: points[minIndex],
-    maxPoint: points[maxIndex],
-  };
 };
 
 export type BalanceHistoryChartProps = {
@@ -414,7 +313,7 @@ const BalanceHistoryChart = ({
   axisLabelOpacity = 1,
   onSelectedTimeframeChange,
 }: BalanceHistoryChartProps): React.ReactElement | null => {
-  const {t} = useTranslation();
+  const {t, i18n} = useTranslation();
   const theme = useTheme();
   const dispatch = useAppDispatch();
 
@@ -444,8 +343,6 @@ const BalanceHistoryChart = ({
   const [lastErrorByTimeframe, setLastErrorByTimeframe] = useState<
     Partial<Record<FiatRateInterval, string>>
   >({});
-  const [lastResolvedChangeRowDataByTimeframe, setLastResolvedChangeRowDataByTimeframe] =
-    useState<Partial<Record<FiatRateInterval, ChangeRowData>>>({});
 
   const [displayState, setDisplayState] = useState<
     | {
@@ -465,6 +362,22 @@ const BalanceHistoryChart = ({
   );
 
   const [selectedPoint, setSelectedPoint] = useState<GraphPoint | undefined>();
+  const [chartWidth, setChartWidth] = useState<number | undefined>(undefined);
+  const chartWidthRef = useRef<number | undefined>(chartWidth);
+  chartWidthRef.current = chartWidth;
+
+  const handleChartLayout = useCallback((event: LayoutChangeEvent) => {
+    const nextWidth = event.nativeEvent.layout.width;
+    if (!Number.isFinite(nextWidth) || nextWidth <= 0) {
+      return;
+    }
+
+    setChartWidth(prev =>
+      typeof prev === 'number' && Math.abs(prev - nextWidth) < 0.5
+        ? prev
+        : nextWidth,
+    );
+  }, []);
 
   const cancelAllScheduledWork = useCallback(() => {
     for (const handle of scheduledHandlesRef.current) {
@@ -494,6 +407,49 @@ const BalanceHistoryChart = ({
     [],
   );
 
+  const logScheduledWorkError = useCallback(
+    (label: string, error: unknown) => {
+      if (!__DEV__) {
+        return;
+      }
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof error === 'string'
+          ? error
+          : JSON.stringify(error);
+
+      console.warn(
+        `[BalanceHistoryChart] ${label} failed for scope ${scopeIdRef.current}: ${message}`,
+      );
+    },
+    [],
+  );
+
+  const scheduleTrackedWork = useCallback(
+    (
+      label: string,
+      work: () => void | Promise<void>,
+    ): ScheduledAfterInteractionsHandle => {
+      let handle: ScheduledAfterInteractionsHandle | undefined;
+
+      handle = scheduleAfterInteractionsAndFrames(async () => {
+        removeScheduledHandle(handle);
+
+        try {
+          await work();
+        } catch (error) {
+          logScheduledWorkError(label, error);
+        }
+      });
+
+      trackScheduledHandle(handle);
+      return handle;
+    },
+    [logScheduledWorkError, removeScheduledHandle, trackScheduledHandle],
+  );
+
   const invalidateComputeGeneration = useCallback(() => {
     computeGenerationRef.current += 1;
     cancelAllScheduledWork();
@@ -518,12 +474,18 @@ const BalanceHistoryChart = ({
   const lastHapticPointTsRef = useRef<number | undefined>(undefined);
   const analysisHistoricalDepKeysRef = useRef<Set<string>>(new Set());
   const lastTouchedScopeIdRef = useRef<string | undefined>(undefined);
-  const [hasCompletedInitialAllLoad, setHasCompletedInitialAllLoad] =
+  const scopeIdRef = useRef<string>('');
+  const [hasCompletedInitialSelectedTimeframeLoad, setHasCompletedInitialSelectedTimeframeLoad] =
     useState(false);
+  const [analysisHistoricalDepsRevision, setAnalysisHistoricalDepsRevision] =
+    useState('');
+  const hydratedRevisionByTimeframeRef = useRef<
+    Partial<Record<FiatRateInterval, string>>
+  >({});
 
   const walletsSig = useMemo(() => {
     return (wallets || [])
-      .map(w => String((w as any)?.id || ''))
+      .map(w => String(w.id))
       .filter(Boolean)
       .join(',');
   }, [wallets]);
@@ -531,10 +493,13 @@ const BalanceHistoryChart = ({
   const snapshotsSig = useMemo(() => {
     const parts: string[] = [];
     for (const w of wallets || []) {
-      const id = String((w as any)?.id || '');
-      if (!id) continue;
+      const id = String(w.id);
+      if (!id) {
+        continue;
+      }
       const snaps = snapshotsByWalletId?.[id] || [];
-      const last = snaps.length ? (snaps[snaps.length - 1] as any)?.timestamp : 0;
+      const lastSnapshot = snaps.length ? snaps[snaps.length - 1] : undefined;
+      const last = lastSnapshot?.timestamp ?? 0;
       parts.push(`${id}:${snaps.length}:${last || 0}`);
     }
     return parts.join('|');
@@ -543,7 +508,7 @@ const BalanceHistoryChart = ({
   const totalSnapshotCount = useMemo(() => {
     let totalCount = 0;
     for (const w of wallets || []) {
-      const id = String((w as any)?.id || '');
+      const id = String(w.id);
       if (!id) {
         continue;
       }
@@ -561,9 +526,7 @@ const BalanceHistoryChart = ({
   const analysisInputsReadyKeyRef = useRef<string | undefined>(undefined);
 
   const sortedWalletIds = useMemo(() => {
-    return getSortedUniqueWalletIds(
-      (wallets || []).map(w => String((w as any)?.id || '')),
-    );
+    return getSortedUniqueWalletIds((wallets || []).map(w => String(w.id)));
   }, [wallets]);
 
   const scopeId = useMemo(() => {
@@ -573,6 +536,7 @@ const BalanceHistoryChart = ({
       balanceOffset,
     });
   }, [balanceOffset, quoteCurrency, sortedWalletIds]);
+  scopeIdRef.current = scopeId;
 
   const snapshotVersionSig = useAppSelector(state => {
     return buildSnapshotVersionSig({
@@ -586,8 +550,8 @@ const BalanceHistoryChart = ({
     state => state.PORTFOLIO_CHARTS.cacheByScopeId[scopeId],
   );
 
-  const currentSpotRatesByCoin = useMemo(() => {
-    return buildPnlCurrentRatesByCoinFromWallets({
+  const currentSpotRatesByAssetKey = useMemo(() => {
+    return buildPnlCurrentRatesByAssetKeyFromWallets({
       wallets: wallets || [],
       quoteCurrency,
       rates,
@@ -595,11 +559,11 @@ const BalanceHistoryChart = ({
   }, [quoteCurrency, rates, wallets]);
 
   const currentRatesRevision = useMemo(() => {
-    return Object.entries(currentSpotRatesByCoin || {})
+    return Object.entries(currentSpotRatesByAssetKey || {})
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([coin, rate]) => `${coin}:${rate}`)
+      .map(([assetKey, rate]) => `${assetKey}:${rate}`)
       .join('|');
-  }, [currentSpotRatesByCoin]);
+  }, [currentSpotRatesByAssetKey]);
 
   const selectedSeriesInterval = useMemo(() => {
     return getSeriesIntervalForFiatTimeframe(selectedTimeframe);
@@ -625,21 +589,15 @@ const BalanceHistoryChart = ({
 
     for (const w of wallets || []) {
       const coinForCacheCheck = normalizeFiatRateSeriesCoin(
-        (w as any)?.currencyAbbreviation || '',
+        w.currencyAbbreviation,
       );
       if (!coinForCacheCheck) {
         continue;
       }
 
-      const chainRaw =
-        typeof (w as any)?.chain === 'string' ? (w as any).chain : '';
-      const chain = chainRaw ? chainRaw.toLowerCase() : undefined;
-      const tokenAddressRaw =
-        typeof (w as any)?.tokenAddress === 'string'
-          ? (w as any).tokenAddress
-          : '';
-      const tokenAddress = tokenAddressRaw
-        ? tokenAddressRaw.toLowerCase()
+      const chain = w.chain ? w.chain.toLowerCase() : undefined;
+      const tokenAddress = w.tokenAddress
+        ? w.tokenAddress.toLowerCase()
         : undefined;
       const dedupeKey = `${coinForCacheCheck}|${chain || ''}|${
         tokenAddress || ''
@@ -666,6 +624,7 @@ const BalanceHistoryChart = ({
 
     for (const asset of rateFetchAssets) {
       dispatch(
+        // The effect creator's thunk type is broader than this dispatch signature.
         fetchFiatRateSeriesInterval({
           fiatCode: quoteCurrency,
           interval: selectedSeriesInterval,
@@ -683,26 +642,53 @@ const BalanceHistoryChart = ({
     selectedSeriesInterval,
   ]);
 
-  const cacheRevision = useMemo(() => {
-    if (!fiatRateSeriesCache) {
-      return '0';
-    }
+  const serializeHistoricalRateDepsRevision = useCallback(
+    (historicalRateDeps: Array<{
+      cacheKey: string;
+      fetchedOn?: number;
+      lastTs?: number;
+    }>) => {
+      return (historicalRateDeps || [])
+        .filter(dep => !!dep?.cacheKey)
+        .slice()
+        .sort((a, b) => a.cacheKey.localeCompare(b.cacheKey))
+        .map(
+          dep => `${dep.cacheKey}:${dep.fetchedOn ?? 'na'}:${dep.lastTs ?? 'na'}`,
+        )
+        .join('|');
+    },
+    [],
+  );
 
-    let keysCount = 0;
-    let maxFetchedOn = 0;
-    for (const k in fiatRateSeriesCache) {
-      if (!Object.prototype.hasOwnProperty.call(fiatRateSeriesCache, k)) {
-        continue;
-      }
-      keysCount += 1;
-      const fetchedOn = (fiatRateSeriesCache as any)?.[k]?.fetchedOn;
-      if (typeof fetchedOn === 'number' && fetchedOn > maxFetchedOn) {
-        maxFetchedOn = fetchedOn;
-      }
-    }
+  const getCurrentHistoricalDepRevision = useCallback(
+    (timeframe: FiatRateInterval) => {
+      const depKeys = (cachedScope?.timeframes?.[timeframe]?.historicalRateDeps || [])
+        .map(dep => dep.cacheKey)
+        .filter(Boolean);
 
-    return `${keysCount}:${maxFetchedOn}`;
-  }, [fiatRateSeriesCache]);
+      if (depKeys.length) {
+        return serializeHistoricalRateDepsRevision(
+          buildHistoricalRateDependencyMetadataFromCache({
+            depKeys,
+            fiatRateSeriesCache,
+          }),
+        );
+      }
+
+      return analysisHistoricalDepsRevision;
+    },
+    [
+      analysisHistoricalDepsRevision,
+      cachedScope?.timeframes,
+      fiatRateSeriesCache,
+      serializeHistoricalRateDepsRevision,
+    ],
+  );
+
+  const selectedTimeframeHistoricalDepRevision = useMemo(
+    () => getCurrentHistoricalDepRevision(selectedTimeframe),
+    [getCurrentHistoricalDepRevision, selectedTimeframe],
+  );
 
   const getTimeframeRevision = useCallback(
     (
@@ -715,19 +701,26 @@ const BalanceHistoryChart = ({
         timeframe,
         snapshotVersionSig,
         historicalRateDeps,
-        currentSpotRatesByCoin,
+        currentSpotRatesByAssetKey,
       });
     },
-    [cachedScope?.timeframes, currentSpotRatesByCoin, scopeId, snapshotVersionSig],
+    [cachedScope?.timeframes, currentSpotRatesByAssetKey, scopeId, snapshotVersionSig],
   );
 
   const getTimeframeAttemptRevision = useCallback(
     (timeframe: FiatRateInterval) => {
-      return [analysisInputsBaseKey, currentRatesRevision, cacheRevision, timeframe].join(
-        '|',
-      );
+      return [
+        analysisInputsBaseKey,
+        currentRatesRevision,
+        getCurrentHistoricalDepRevision(timeframe),
+        timeframe,
+      ].join('|');
     },
-    [analysisInputsBaseKey, cacheRevision, currentRatesRevision],
+    [
+      analysisInputsBaseKey,
+      currentRatesRevision,
+      getCurrentHistoricalDepRevision,
+    ],
   );
 
   const cachedTimeframeStatusByTimeframe = useMemo(() => {
@@ -737,13 +730,18 @@ const BalanceHistoryChart = ({
       next[timeframe] = getCachedTimeframeStatus({
         cachedTimeframe: cachedScope?.timeframes?.[timeframe],
         snapshotVersionSig,
-        currentSpotRatesByCoin,
+        currentSpotRatesByAssetKey,
         fiatRateSeriesCache,
       });
     }
 
     return next;
-  }, [cachedScope?.timeframes, currentSpotRatesByCoin, fiatRateSeriesCache, snapshotVersionSig]);
+  }, [
+    cachedScope?.timeframes,
+    currentSpotRatesByAssetKey,
+    fiatRateSeriesCache,
+    snapshotVersionSig,
+  ]);
 
   const selectedTimeframeNeedsHistoricalRecompute = useMemo(() => {
     const status = cachedTimeframeStatusByTimeframe[selectedTimeframe] || 'missing';
@@ -764,7 +762,10 @@ const BalanceHistoryChart = ({
     hasAnySnapshots &&
     !!fiatRateSeriesCache &&
     (selectedTimeframeNeedsHistoricalRecompute ||
-      (hasCompletedInitialAllLoad && hasAnyBackgroundHistoricalRecomputeNeeded));
+      (
+        hasCompletedInitialSelectedTimeframeLoad &&
+        hasAnyBackgroundHistoricalRecomputeNeeded
+      ));
 
   useEffect(() => {
     analysisInputsReadyKeyRef.current = analysisInputsReadyKey;
@@ -796,6 +797,10 @@ const BalanceHistoryChart = ({
       {};
     const nextSeriesRevisionByTimeframe: Partial<Record<FiatRateInterval, string>> =
       {};
+    const nextHydratedRevisionByTimeframe = {
+      ...hydratedRevisionByTimeframeRef.current,
+    };
+    let hasHydratedUpdates = false;
 
     for (const timeframe of PRECOMPUTE_TIMEFRAME_ORDER) {
       const cachedTimeframe = cachedScope.timeframes?.[timeframe];
@@ -808,7 +813,7 @@ const BalanceHistoryChart = ({
         status === 'patchable'
           ? patchCachedLatestPointWithSpotRates({
               cachedTimeframe,
-              currentSpotRatesByCoin,
+              currentSpotRatesByAssetKey,
             })
           : cachedTimeframe;
 
@@ -816,40 +821,52 @@ const BalanceHistoryChart = ({
         patchedTimeframes.push(effectiveCachedTimeframe);
       }
 
-      nextSeriesByTimeframe[timeframe] =
-        deserializeCachedTimeframeToComputedSeries(effectiveCachedTimeframe);
-      nextSeriesRevisionByTimeframe[timeframe] =
+      const nextRevision =
         status === 'fresh' || status === 'patchable'
           ? getTimeframeRevision(
               timeframe,
               effectiveCachedTimeframe.historicalRateDeps,
             )
           : `stale:${effectiveCachedTimeframe.builtAt}:${timeframe}`;
+
+      if (hydratedRevisionByTimeframeRef.current[timeframe] === nextRevision) {
+        continue;
+      }
+
+      nextSeriesByTimeframe[timeframe] =
+        deserializeCachedTimeframeToComputedSeries(effectiveCachedTimeframe);
+      nextSeriesRevisionByTimeframe[timeframe] = nextRevision;
+      nextHydratedRevisionByTimeframe[timeframe] = nextRevision;
+      hasHydratedUpdates = true;
     }
 
-    startTransition(() => {
-      setSeriesByTimeframe(prev => ({
-        ...prev,
-        ...nextSeriesByTimeframe,
-      }));
-      setSeriesRevisionByTimeframe(prev => ({
-        ...prev,
-        ...nextSeriesRevisionByTimeframe,
-      }));
+    if (hasHydratedUpdates) {
+      hydratedRevisionByTimeframeRef.current = nextHydratedRevisionByTimeframe;
 
-      const selectedHydratedSeries = nextSeriesByTimeframe[selectedTimeframe];
-      if (selectedHydratedSeries) {
-        setDisplayState(prev =>
-          prev?.series === selectedHydratedSeries &&
-          prev?.timeframe === selectedTimeframe
-            ? prev
-            : {
-                series: selectedHydratedSeries,
-                timeframe: selectedTimeframe,
-              },
-        );
-      }
-    });
+      startTransition(() => {
+        setSeriesByTimeframe(prev => ({
+          ...prev,
+          ...nextSeriesByTimeframe,
+        }));
+        setSeriesRevisionByTimeframe(prev => ({
+          ...prev,
+          ...nextSeriesRevisionByTimeframe,
+        }));
+
+        const selectedHydratedSeries = nextSeriesByTimeframe[selectedTimeframe];
+        if (selectedHydratedSeries) {
+          setDisplayState(prev =>
+            prev?.series === selectedHydratedSeries &&
+            prev?.timeframe === selectedTimeframe
+              ? prev
+              : {
+                  series: selectedHydratedSeries,
+                  timeframe: selectedTimeframe,
+                },
+          );
+        }
+      });
+    }
 
     if (patchedTimeframes.length) {
       dispatch(
@@ -862,7 +879,7 @@ const BalanceHistoryChart = ({
   }, [
     cachedScope,
     cachedTimeframeStatusByTimeframe,
-    currentSpotRatesByCoin,
+    currentSpotRatesByAssetKey,
     dispatch,
     getTimeframeRevision,
     scopeId,
@@ -872,7 +889,12 @@ const BalanceHistoryChart = ({
   useEffect(() => {
     invalidateComputeGeneration();
     setIsComputingByTimeframe({});
-  }, [analysisInputsBaseKey, cacheRevision, currentRatesRevision, invalidateComputeGeneration]);
+  }, [
+    analysisInputsBaseKey,
+    currentRatesRevision,
+    invalidateComputeGeneration,
+    selectedTimeframeHistoricalDepRevision,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -884,6 +906,7 @@ const BalanceHistoryChart = ({
       setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
       analysisHistoricalDepKeysRef.current = new Set();
       analysisInputsReadyKeyRef.current = undefined;
+      setAnalysisHistoricalDepsRevision('');
       setAnalysisInputsReadyKey(undefined);
       return;
     }
@@ -891,11 +914,12 @@ const BalanceHistoryChart = ({
     if (shouldResetPreparedInputs) {
       setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
       analysisInputsReadyKeyRef.current = undefined;
+      setAnalysisHistoricalDepsRevision('');
       setAnalysisInputsReadyKey(undefined);
     }
 
     const generation = computeGenerationRef.current;
-    prepareHandle = scheduleAfterInteractionsAndFrames(async () => {
+    prepareHandle = scheduleTrackedWork('prepare-analysis-inputs', async () => {
       const historicalDepKeys = new Set<string>();
       const prepared = await buildPnlWalletInputsFromPortfolioSnapshotsAsync(
         {
@@ -923,18 +947,28 @@ const BalanceHistoryChart = ({
       const nextReadyKey = prepared.wallets.length
         ? analysisInputsBaseKey
         : undefined;
+      const nextHistoricalDepsRevision = serializeHistoricalRateDepsRevision(
+        buildHistoricalRateDependencyMetadataFromCache({
+          depKeys: historicalDepKeys,
+          fiatRateSeriesCache,
+        }),
+      );
       analysisHistoricalDepKeysRef.current = historicalDepKeys;
       analysisInputsReadyKeyRef.current = nextReadyKey;
       startTransition(() => {
         setAnalysisInputs(prev =>
           computeGenerationRef.current === generation ? prepared : prev,
         );
+        setAnalysisHistoricalDepsRevision(prev =>
+          computeGenerationRef.current === generation
+            ? nextHistoricalDepsRevision
+            : prev,
+        );
         setAnalysisInputsReadyKey(prev =>
           computeGenerationRef.current === generation ? nextReadyKey : prev,
         );
       });
     });
-    trackScheduledHandle(prepareHandle);
 
     return () => {
       cancelled = true;
@@ -949,8 +983,9 @@ const BalanceHistoryChart = ({
     shouldPrepareAnalysisInputs,
     snapshotsByWalletId,
     snapshotsSig,
-    trackScheduledHandle,
+    scheduleTrackedWork,
     removeScheduledHandle,
+    serializeHistoricalRateDepsRevision,
     wallets,
     walletsSig,
   ]);
@@ -984,13 +1019,14 @@ const BalanceHistoryChart = ({
       const buildAnalysis = (targetNowMs: number) =>
         buildPnlAnalysisSeriesAsync({
           wallets: analysisInputs.wallets,
-          timeframe: timeframe as any,
+          timeframe,
           quoteCurrency: analysisInputs.quoteCurrency,
-          fiatRateSeriesCache: fiatRateSeriesCache as any,
-          currentRatesByCoin:
-            Object.keys(currentSpotRatesByCoin || {}).length > 0
-              ? currentSpotRatesByCoin
+          fiatRateSeriesCache,
+          currentRatesByAssetKey:
+            Object.keys(currentSpotRatesByAssetKey || {}).length > 0
+              ? currentSpotRatesByAssetKey
               : undefined,
+          mode: 'chart',
           nowMs: targetNowMs,
           maxPoints: FIAT_RATE_SERIES_TARGET_POINTS,
           yieldEveryPoints: CHART_COMPUTE_YIELD_EVERY_POINTS,
@@ -1035,7 +1071,8 @@ const BalanceHistoryChart = ({
         pointByTimestamp.set(graphPoints[i].date.getTime(), analysisPoints[i]);
       }
 
-      const {minIndex, maxIndex, minPoint, maxPoint} = computeMinMax(graphPoints);
+      const {minIndex, maxIndex, minPoint, maxPoint} =
+        recomputeMinMaxFromGraphPoints(graphPoints);
 
       const patchMetadata = buildLatestPointPatchMetadataFromAnalysis({
         analysisPoints,
@@ -1074,7 +1111,7 @@ const BalanceHistoryChart = ({
     [
       analysisInputs,
       balanceOffset,
-      currentSpotRatesByCoin,
+      currentSpotRatesByAssetKey,
       fiatRateSeriesCache,
       snapshotVersionSig,
       sortedWalletIds,
@@ -1135,10 +1172,7 @@ const BalanceHistoryChart = ({
           : prev,
       );
 
-      let computeHandle: ScheduledAfterInteractionsHandle | undefined;
-      computeHandle = scheduleAfterInteractionsAndFrames(async () => {
-        removeScheduledHandle(computeHandle);
-
+      scheduleTrackedWork(`compute:${next}`, async () => {
         if (computeGenerationRef.current !== generation) {
           computingQueueRef.current = false;
           return;
@@ -1228,7 +1262,6 @@ const BalanceHistoryChart = ({
         );
         runNext();
       });
-      trackScheduledHandle(computeHandle);
     };
 
     runNext();
@@ -1238,11 +1271,10 @@ const BalanceHistoryChart = ({
     dispatch,
     getTimeframeAttemptRevision,
     getTimeframeRevision,
-    removeScheduledHandle,
+    scheduleTrackedWork,
     scopeId,
     selectedTimeframe,
     sortedWalletIds,
-    trackScheduledHandle,
   ]);
 
   const ensureTimeframeComputed = useCallback(
@@ -1280,13 +1312,8 @@ const BalanceHistoryChart = ({
       if (!inputsReady) {
         return;
       }
-      // Avoid retry loops after a real compute error, but do allow retrying a
-      // revision if the prior attempt never produced either a series or an
-      // error (for example, if it was interrupted during a scope transition).
-      if (
-        lastAttemptRevisionByTimeframe[tf] === attemptRevision &&
-        !!lastErrorByTimeframe[tf]
-      ) {
+      // Avoid retry loops: only attempt again when the compute inputs change.
+      if (lastAttemptRevisionByTimeframe[tf] === attemptRevision) {
         return;
       }
       enqueueTimeframeCompute(tf, !!options?.prioritize);
@@ -1321,13 +1348,14 @@ const BalanceHistoryChart = ({
     analysisInputsReadyKeyRef.current = undefined;
     setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
     setAnalysisInputsReadyKey(undefined);
-    setHasCompletedInitialAllLoad(false);
+    setAnalysisHistoricalDepsRevision('');
+    hydratedRevisionByTimeframeRef.current = {};
+    setHasCompletedInitialSelectedTimeframeLoad(false);
     setSeriesByTimeframe({});
     setSeriesRevisionByTimeframe({});
     setIsComputingByTimeframe({});
     setLastAttemptRevisionByTimeframe({});
     setLastErrorByTimeframe({});
-    setLastResolvedChangeRowDataByTimeframe({});
     setSelectedPoint(undefined);
     onSelectedBalanceChangeRef.current?.(undefined);
 
@@ -1358,7 +1386,12 @@ const BalanceHistoryChart = ({
     // Compute only the selected timeframe to avoid background JS work
     // freezing selector interactions.
     ensureTimeframeComputed(selectedTimeframe, {prioritize: true});
-  }, [cacheRevision, ensureTimeframeComputed, inputsReady, selectedTimeframe]);
+  }, [
+    ensureTimeframeComputed,
+    inputsReady,
+    selectedTimeframe,
+    selectedTimeframeHistoricalDepRevision,
+  ]);
 
   // Opportunistically precompute additional timeframes in background so taps
   // switch instantly more often and avoid heavy foreground work.
@@ -1366,7 +1399,7 @@ const BalanceHistoryChart = ({
     if (!inputsReady || !hasAnySnapshots) {
       return;
     }
-    if (!hasCompletedInitialAllLoad) {
+    if (!hasCompletedInitialSelectedTimeframeLoad) {
       return;
     }
 
@@ -1418,7 +1451,7 @@ const BalanceHistoryChart = ({
     getTimeframeAttemptRevision,
     getTimeframeRevision,
     hasAnySnapshots,
-    hasCompletedInitialAllLoad,
+    hasCompletedInitialSelectedTimeframeLoad,
     inputsReady,
     isComputingByTimeframe,
     lastErrorByTimeframe,
@@ -1468,28 +1501,6 @@ const BalanceHistoryChart = ({
     ? selectedTimeframe
     : displayState?.timeframe ?? selectedTimeframe;
   const activeSeries = selectedComputedSeries || displayState?.series;
-  const cachedSelectedSeries = useMemo(() => {
-    const cachedTimeframe = cachedScope?.timeframes?.[selectedTimeframe];
-    if (!cachedTimeframe) {
-      return undefined;
-    }
-
-    const status = cachedTimeframeStatusByTimeframe[selectedTimeframe] || 'missing';
-    const effectiveCachedTimeframe =
-      status === 'patchable'
-        ? patchCachedLatestPointWithSpotRates({
-            cachedTimeframe,
-            currentSpotRatesByCoin,
-          })
-        : cachedTimeframe;
-
-    return deserializeCachedTimeframeToComputedSeries(effectiveCachedTimeframe);
-  }, [
-    cachedScope?.timeframes,
-    cachedTimeframeStatusByTimeframe,
-    currentSpotRatesByCoin,
-    selectedTimeframe,
-  ]);
 
   // Swap in the computed series once available.
   useEffect(() => {
@@ -1515,13 +1526,52 @@ const BalanceHistoryChart = ({
     [displayedTimeframe, t],
   );
 
-  const rangeOrSelectedPointLabel = useMemo(() => {
-    return formatRangeOrSelectedPointLabel({
-      rangeLabel,
-      selectedTimeframe: displayedTimeframe,
-      selectedDate: selectedPoint?.date,
-    });
-  }, [displayedTimeframe, rangeLabel, selectedPoint?.date]);
+  const pointDisplayByTimestampMs = useMemo(() => {
+    const next = new Map<
+      number,
+      {
+        selectedLabel: string;
+        deltaFiatFormatted: string;
+      }
+    >();
+
+    if (!activeSeries?.graphPoints.length) {
+      return next;
+    }
+
+    for (let index = 0; index < activeSeries.graphPoints.length; index++) {
+      const graphPoint = activeSeries.graphPoints[index];
+      const analysisPoint = activeSeries.analysisPoints[index];
+      const timestampMs = graphPoint.date.getTime();
+      next.set(timestampMs, {
+        selectedLabel: formatRangeOrSelectedPointLabel({
+          rangeLabel,
+          selectedTimeframe: displayedTimeframe,
+          selectedDate: graphPoint.date,
+        }),
+        deltaFiatFormatted: formatFiatAmount(
+          analysisPoint?.totalUnrealizedPnlFiat ?? 0,
+          quoteCurrency,
+          {
+            customPrecision: 'minimal',
+            currencyDisplay: 'symbol',
+          },
+        ),
+      });
+    }
+
+    return next;
+  }, [activeSeries, displayedTimeframe, i18n.language, quoteCurrency, rangeLabel]);
+
+  const selectedPointDisplay = useMemo(() => {
+    if (!selectedPoint) {
+      return undefined;
+    }
+
+    return pointDisplayByTimestampMs.get(selectedPoint.date.getTime());
+  }, [pointDisplayByTimestampMs, selectedPoint]);
+
+  const rangeOrSelectedPointLabel = selectedPointDisplay?.selectedLabel ?? rangeLabel;
 
   const timeframeSelectorOpacityIsSharedValue = isNumberSharedValue(
     timeframeSelectorOpacity,
@@ -1549,40 +1599,20 @@ const BalanceHistoryChart = ({
   const hasRenderableSelectedSeries =
     !!selectedComputedSeries ||
     (displayState?.timeframe === selectedTimeframe && !!displayState?.series);
-  const isSelectedTimeframePending =
-    !hasRenderableSelectedSeries && !selectedTimeframeError;
-  const isChartLoadingRaw = hasAnySnapshots && isSelectedTimeframePending;
-  const [isChartLoaderVisible, setIsChartLoaderVisible] = useState(false);
-
-  useEffect(() => {
-    if (!isChartLoadingRaw) {
-      setIsChartLoaderVisible(false);
-      if (!hasCompletedInitialAllLoad && selectedTimeframe === 'ALL') {
-        setHasCompletedInitialAllLoad(true);
-      }
-      return;
-    }
-
-    const isInitialAllLoad = selectedTimeframe === 'ALL' && !hasCompletedInitialAllLoad;
-    if (isInitialAllLoad) {
-      setIsChartLoaderVisible(true);
-      return;
-    }
-
-    setIsChartLoaderVisible(false);
-    const timer = setTimeout(() => {
-      setIsChartLoaderVisible(true);
-    }, CHART_LOADER_DELAY_MS);
-
-    return () => clearTimeout(timer);
-  }, [hasCompletedInitialAllLoad, isChartLoadingRaw, selectedTimeframe]);
-
-  const hideGuideLineForInitialAllLoader =
-    selectedTimeframe === 'ALL' && !hasCompletedInitialAllLoad && isChartLoaderVisible;
-
   const hasAnyRenderableSeries =
     !!activeSeries ||
-    Object.values(seriesByTimeframe).some(series => !!series?.graphPoints.length);
+    PRECOMPUTE_TIMEFRAME_ORDER.some(timeframe => !!seriesByTimeframe[timeframe]?.graphPoints.length);
+  const {
+    isChartLoaderVisible,
+    isChartLoadingRaw,
+    hideGuideLineForInitialLoader,
+  } = useBalanceChartLoaderState({
+    hasAnySnapshots,
+    hasCompletedInitialSelectedTimeframeLoad,
+    hasRenderableSelectedSeries,
+    selectedTimeframeError,
+    setHasCompletedInitialSelectedTimeframeLoad,
+  });
 
   // Axis label renderers are passed to `react-native-graph` as *component
   // types*. If we recreate them on every render (e.g. via useCallback deps),
@@ -1599,87 +1629,14 @@ const BalanceHistoryChart = ({
   const quoteCurrencyRef = useRef(quoteCurrency);
   quoteCurrencyRef.current = quoteCurrency;
 
-  const selectedAnalysisPoint = useMemo(() => {
-    if (!selectedPoint || !activeSeries) {
-      return undefined;
-    }
-    const ts = selectedPoint.date.getTime();
-    return activeSeries.pointByTimestamp.get(ts);
-  }, [activeSeries, selectedPoint]);
-
-  const lastAnalysisPoint = useMemo(() => {
-    const pts = activeSeries?.analysisPoints || [];
-    return pts.length ? pts[pts.length - 1] : undefined;
-  }, [activeSeries]);
-  const cachedLastAnalysisPoint = useMemo(() => {
-    const pts = cachedSelectedSeries?.analysisPoints || [];
-    return pts.length ? pts[pts.length - 1] : undefined;
-  }, [cachedSelectedSeries]);
-  const displayedAnalysisPoint =
-    selectedAnalysisPoint ?? lastAnalysisPoint ?? cachedLastAnalysisPoint;
-
-  // IMPORTANT: For balance screens, the change row is unrealized profit vs cost basis
-  // (NOT start→end balance delta). This mirrors the existing PnL engine UI elsewhere.
-  const pnlDeltaFiat =
-    displayedAnalysisPoint?.totalUnrealizedPnlFiat ??
-    0;
-  const pnlPercent =
-    displayedAnalysisPoint?.totalPnlPercent ??
-    0;
-  const hasResolvedChangeRowData = !!displayedAnalysisPoint;
-
-  const formattedDeltaFiat = useMemo(() => {
-    if (!hasResolvedChangeRowData) {
-      return undefined;
-    }
-    return formatFiatAmount(pnlDeltaFiat, quoteCurrency, {
-      customPrecision: 'minimal',
-      currencyDisplay: 'symbol',
-    });
-  }, [hasResolvedChangeRowData, pnlDeltaFiat, quoteCurrency]);
-
-  const resolvedChangeRowData = useMemo<ChangeRowData | undefined>(() => {
-    if (!hasResolvedChangeRowData) {
-      return undefined;
-    }
-
-    return {
-      percent: pnlPercent,
-      deltaFiatFormatted: formattedDeltaFiat,
-      rangeLabel: rangeOrSelectedPointLabel,
-    };
-  }, [
-    formattedDeltaFiat,
-    hasResolvedChangeRowData,
-    pnlPercent,
-    rangeOrSelectedPointLabel,
-  ]);
-
-  useEffect(() => {
-    if (!resolvedChangeRowData) {
-      return;
-    }
-
-    setLastResolvedChangeRowDataByTimeframe(prev => {
-      const existing = prev[selectedTimeframe];
-      if (
-        existing?.percent === resolvedChangeRowData.percent &&
-        existing?.deltaFiatFormatted === resolvedChangeRowData.deltaFiatFormatted &&
-        existing?.rangeLabel === resolvedChangeRowData.rangeLabel
-      ) {
-        return prev;
-      }
-
-      return {
-        ...prev,
-        [selectedTimeframe]: resolvedChangeRowData,
-      };
-    });
-  }, [resolvedChangeRowData, selectedTimeframe]);
-
-  const displayedChangeRowData =
-    resolvedChangeRowData ||
-    lastResolvedChangeRowDataByTimeframe[selectedTimeframe];
+  const {displayedChangeRowData} = useBalanceChartChangeRow({
+    activeSeries,
+    quoteCurrency,
+    rangeLabel: rangeOrSelectedPointLabel,
+    selectedPoint,
+    selectedPointDisplay,
+    selectedTimeframe,
+  });
 
   useEffect(() => {
     if (!displayedChangeRowData) {
@@ -1744,6 +1701,7 @@ const BalanceHistoryChart = ({
         value={series.maxPoint.value}
         index={series.maxIndex}
         arrayLength={series.graphPoints.length}
+        chartWidth={chartWidthRef.current}
         quoteCurrency={quoteCurrencyRef.current}
         currencyAbbreviation={undefined}
         type="max"
@@ -1763,6 +1721,7 @@ const BalanceHistoryChart = ({
         value={series.minPoint.value}
         index={series.minIndex}
         arrayLength={series.graphPoints.length}
+        chartWidth={chartWidthRef.current}
         quoteCurrency={quoteCurrencyRef.current}
         currencyAbbreviation={undefined}
         type="min"
@@ -1786,20 +1745,23 @@ const BalanceHistoryChart = ({
               {preChartContent}
             </View>
           ) : null}
-          <InteractiveLineChart
-            points={displayState?.series.graphPoints || []}
-            color={chartColor}
-            lineThickness={lineThickness}
-            strokeScale={strokeScale}
-            minStrokeScale={minStrokeScale}
-            gradientFillColors={[
-              gradientBackgroundColor,
-              theme.dark ? 'transparent' : White,
-            ]}
-            isLoading
-            hideLineWhileLoading
-            enablePanGesture={false}
-          />
+          <View onLayout={handleChartLayout}>
+            <InteractiveLineChart
+              points={displayState?.series.graphPoints || []}
+              chartWidth={chartWidth}
+              color={chartColor}
+              lineThickness={lineThickness}
+              strokeScale={strokeScale}
+              minStrokeScale={minStrokeScale}
+              gradientFillColors={[
+                gradientBackgroundColor,
+                theme.dark ? 'transparent' : White,
+              ]}
+              isLoading
+              hideLineWhileLoading
+              enablePanGesture={false}
+            />
+          </View>
         </>
       );
     }
@@ -1824,42 +1786,46 @@ const BalanceHistoryChart = ({
         <View style={{marginTop: preChartContentTopMargin}}>{preChartContent}</View>
       ) : null}
 
-      <InteractiveLineChart
-        points={activeSeries?.graphPoints || []}
-        color={chartColor}
-        lineThickness={lineThickness}
-        strokeScale={strokeScale}
-        minStrokeScale={minStrokeScale}
-        gradientFillColors={[
-          gradientBackgroundColor,
-          theme.dark ? 'transparent' : White,
-        ]}
-        showFirstPointGuideLine={!hideGuideLineForInitialAllLoader}
-        isLoading={isChartLoaderVisible}
-        hideLineWhileLoading={!hasAnyRenderableSeries}
-        enablePanGesture={!isChartLoadingRaw && !disablePanGesture}
-        SelectionDot={ChartSelectionDot}
-        TopAxisLabel={MaxAxisLabel}
-        BottomAxisLabel={MinAxisLabel}
-        onGestureStart={onGestureStarted}
-        onGestureEnd={onGestureEnded}
-        onPointSelected={onPointSelected}
-      />
+      <View onLayout={handleChartLayout}>
+        <InteractiveLineChart
+          points={activeSeries?.graphPoints || []}
+          chartWidth={chartWidth}
+          color={chartColor}
+          lineThickness={lineThickness}
+          strokeScale={strokeScale}
+          minStrokeScale={minStrokeScale}
+          gradientFillColors={[
+            gradientBackgroundColor,
+            theme.dark ? 'transparent' : White,
+          ]}
+          showFirstPointGuideLine={!hideGuideLineForInitialLoader}
+          isLoading={isChartLoaderVisible}
+          hideLineWhileLoading={!hasAnyRenderableSeries}
+          enablePanGesture={!isChartLoadingRaw && !disablePanGesture}
+          SelectionDot={ChartSelectionDot}
+          TopAxisLabel={MaxAxisLabel}
+          BottomAxisLabel={MinAxisLabel}
+          onGestureStart={onGestureStarted}
+          onGestureEnd={onGestureEnded}
+          onPointSelected={onPointSelected}
+        />
 
-      {showTimeframeSelector ? (
-        <Animated.View style={timeframeSelectorAnimatedStyle}>
-          <TimeframeSelector
-            options={fiatChartTimeframeOptions}
-            selected={selectedTimeframe}
-            onSelect={tf => {
-              setSelectedPoint(undefined);
-              onSelectedBalanceChangeRef.current?.(undefined);
-              onSelectedTimeframeChange?.(tf);
-              setSelectedTimeframe(tf);
-            }}
-          />
-        </Animated.View>
-      ) : null}
+        {showTimeframeSelector ? (
+          <Animated.View style={timeframeSelectorAnimatedStyle}>
+            <TimeframeSelector
+              options={fiatChartTimeframeOptions}
+              width={chartWidth}
+              selected={selectedTimeframe}
+              onSelect={tf => {
+                setSelectedPoint(undefined);
+                onSelectedBalanceChangeRef.current?.(undefined);
+                onSelectedTimeframeChange?.(tf);
+                setSelectedTimeframe(tf);
+              }}
+            />
+          </Animated.View>
+        ) : null}
+      </View>
     </>
   );
 };

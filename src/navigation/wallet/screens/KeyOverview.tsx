@@ -138,13 +138,11 @@ import {
 import {isTSSKey} from '../../../store/wallet/effects/tss-send/tss-send';
 import {
   buildPortfolioGainLossSummaryFromPortfolioSnapshots,
-  getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots,
   getQuoteCurrency,
   hasSnapshotsBeforeMsForWallets,
   hasSnapshotsForWallets,
   isPopulateLoadingForWallets,
   getLegacyPercentageDifferenceFromTotals,
-  getKeyLastDayPercentageDifference,
   getPercentageDifferenceFromPercentRatio,
 } from '../../../utils/portfolio/assets';
 import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
@@ -610,26 +608,16 @@ const KeyOverview = () => {
   ]);
 
   const portfolioPercentageDifference = useMemo(() => {
-    const pnl = getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots({
-      snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
-      wallets: visibleKeyWallets,
-      quoteCurrency,
-      timeframe: '1D',
-      rates,
-      lastDayRates,
-      fiatRateSeriesCache,
-    });
-    if (!pnl.available) {
+    if (!gainLossSummary.today.available) {
       return null;
     }
-    return getPercentageDifferenceFromPercentRatio(pnl.percentRatio);
+
+    return getPercentageDifferenceFromPercentRatio(
+      gainLossSummary.today.percentRatio,
+    );
   }, [
-    fiatRateSeriesCache,
-    lastDayRates,
-    portfolio.snapshotsByWalletId,
-    quoteCurrency,
-    rates,
-    visibleKeyWallets,
+    gainLossSummary.today.available,
+    gainLossSummary.today.percentRatio,
   ]);
 
   const legacyPercentageDifference = useMemo(() => {
@@ -666,23 +654,6 @@ const KeyOverview = () => {
     visibleKeyWallets,
   ]);
 
-  const percentageDifference = useMemo(() => {
-    return getKeyLastDayPercentageDifference({
-      totalBalance,
-      hasSnapshots: hasKeySnapshots,
-      hasSnapshotsBeforePopulateStarted: hasKeySnapshotsBeforePopulateStarted,
-      isPopulateLoading: isKeyPopulateLoading,
-      legacyPercentageDifference,
-      portfolioPercentageDifference,
-    });
-  }, [
-    totalBalance,
-    hasKeySnapshots,
-    hasKeySnapshotsBeforePopulateStarted,
-    isKeyPopulateLoading,
-    legacyPercentageDifference,
-    portfolioPercentageDifference,
-  ]);
 
   const allTimeGainLossText = useMemo(() => {
     if (!gainLossSummary.total.available) {

@@ -29,6 +29,7 @@ import {
   computeBalanceSnapshotComputed,
 } from '../../utils/portfolio/core/pnl/snapshots';
 import {normalizeFiatRateSeriesCoin} from '../../utils/portfolio/core/pnl/rates';
+import {yieldToEventLoop} from '../../utils/yieldToEventLoop';
 import type {BalanceSnapshotStored} from '../../utils/portfolio/core/pnl/types';
 import {getLatestSnapshot} from '../../utils/portfolio/assets';
 import {
@@ -257,9 +258,6 @@ const buildSnapshotMismatchUpdate = (args: {
   };
 };
 
-const yieldToEventLoop = async (): Promise<void> => {
-  await new Promise<void>(resolve => setTimeout(resolve, 0));
-};
 
 const getUtcDayStartMs = (tsMs: number): number => {
   const d = new Date(tsMs);

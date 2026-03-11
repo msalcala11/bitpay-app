@@ -21,10 +21,11 @@ const ChartChangeRow = ({
   percent,
   deltaFiatFormatted,
   rangeLabel,
+  isLoading,
   style,
 }: ChartChangeRowProps): React.ReactElement => {
   return (
-    <PercentRow style={style}>
+    <PercentRow style={[style, isLoading ? {opacity: 0.55} : undefined]}>
       <Percentage
         percentageDifference={percent}
         hideArrow

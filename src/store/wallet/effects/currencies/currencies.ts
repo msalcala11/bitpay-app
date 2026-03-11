@@ -23,20 +23,9 @@ import {buildWalletObj, mapAbbreviationAndName} from '../../utils/wallet';
 import merge from 'lodash.merge';
 import {tokenManager} from '../../../../managers/TokenManager';
 import {logManager} from '../../../../managers/LogManager';
+import {yieldToEventLoop} from '../../../../utils/yieldToEventLoop';
 
 const TOKEN_OPTIONS_YIELD_EVERY = 150;
-
-const yieldToEventLoop = (): Promise<void> => {
-  return new Promise(resolve => {
-    if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(() => {
-        setTimeout(resolve, 0);
-      });
-      return;
-    }
-    setTimeout(resolve, 0);
-  });
-};
 
 export const startGetTokenOptions =
   (): Effect<Promise<void>> => async dispatch => {
@@ -44,27 +33,27 @@ export const startGetTokenOptions =
       logManager.info('starting [startGetTokenOptions]');
       let tokenOptionsByAddress: {[key in string]: Token} = {};
       let tokenDataByAddress: {[key in string]: CurrencyOpts} = {};
-      for await (const chain of SUPPORTED_VM_TOKENS) {
-        let tokens: Token[] = [];
+      for (const chain of SUPPORTED_VM_TOKENS) {
+        let tokenList: Token[] = [];
         try {
           const {data} = await axios.get<Token[]>(
             `${BASE_BWS_URL}/v1/service/oneInch/getTokens/${chain}`,
           );
-          tokens = data;
+          tokenList = data;
         } catch {
           logManager.info(
             `request: ${BASE_BWS_URL}/v1/service/oneInch/getTokens/${chain} failed - continue anyway [startGetTokenOptions]`,
           );
         }
-        if (!Array.isArray(tokens)) {
+        if (!Array.isArray(tokenList)) {
           logManager.error(
-            `Unexpected response [startGetTokenOptions]: ${tokens}`,
+            `Unexpected response [startGetTokenOptions]: ${tokenList}`,
           );
           return;
         }
 
-        for (let tokenIndex = 0; tokenIndex < tokens.length; tokenIndex++) {
-          const token = tokens[tokenIndex];
+        for (let tokenIndex = 0; tokenIndex < tokenList.length; tokenIndex++) {
+          const token = tokenList[tokenIndex];
           if (
             BitpaySupportedTokens[getCurrencyAbbreviation(token.address, chain)]
           ) {
@@ -80,11 +69,11 @@ export const startGetTokenOptions =
             tokenIndex > 0 &&
             tokenIndex % TOKEN_OPTIONS_YIELD_EVERY === 0
           ) {
-            await yieldToEventLoop();
+            await yieldToEventLoop({preferRequestAnimationFrame: true});
           }
         }
 
-        await yieldToEventLoop();
+        await yieldToEventLoop({preferRequestAnimationFrame: true});
       }
       tokenManager.setTokenOptions({tokenOptionsByAddress, tokenDataByAddress});
       logManager.info('successful [startGetTokenOptions]');

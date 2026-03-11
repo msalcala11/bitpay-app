@@ -7,6 +7,7 @@ import {
 import type {FiatRateSeriesCache} from '../fiatRateSeries';
 import {createFiatRateLookup, normalizeFiatRateSeriesCoin} from './rates';
 import {atomicToUnitNumber} from './atomic';
+import {yieldToEventLoop} from '../../../yieldToEventLoop';
 import type {
   BalanceSnapshotComputed,
   BalanceSnapshotEventType,
@@ -1320,9 +1321,6 @@ const simulateSnapshotsSync = (
   };
 };
 
-const yieldToEventLoop = async (): Promise<void> => {
-  await new Promise<void>(resolve => setTimeout(resolve, 0));
-};
 
 const simulateSnapshotsAsync = async (
   args: BuildBalanceSnapshotsArgs,

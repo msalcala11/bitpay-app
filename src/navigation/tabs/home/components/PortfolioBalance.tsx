@@ -67,15 +67,6 @@ const CollapseButtonContainer = styled(Animated.View)`
   z-index: 30;
 `;
 
-const CollapseButtonHitArea = styled(Animated.View)`
-  position: absolute;
-  right: -4px;
-  top: 11px;
-  width: 72px;
-  height: 72px;
-  z-index: 31;
-`;
-
 const PortfolioBalanceHeader = styled(TouchableOpacity)`
   flex-direction: row;
   justify-content: space-between;
@@ -355,11 +346,6 @@ const PortfolioBalance = () => {
     [homeChartRemountNonce, quoteCurrency, visibleKeyIdsSig],
   );
 
-  useEffect(() => {
-    setSelectedChartBalance(undefined);
-    setChartChangeRowData(undefined);
-  }, [chartLifecycleKey]);
-
   const displayedPortfolioBalance =
     typeof selectedChartBalance === 'number'
       ? selectedChartBalance
@@ -388,42 +374,28 @@ const PortfolioBalance = () => {
   return (
     <PortfolioContainer>
       {shouldLeftAlignTopSection ? (
-        <>
-          <CollapseButtonHitArea
-            pointerEvents={isChartCollapsed ? 'none' : 'auto'}
-            style={buttonAnimatedStyle}>
-            <TouchableOpacity
-              touchableLibrary="react-native"
-              activeOpacity={ActiveOpacity}
-              style={{flex: 1}}
-              onPressIn={onCollapseButtonPressIn}
-              onPressOut={onCollapseButtonPressOut}
-              onPress={onCollapseChartPress}
-            />
-          </CollapseButtonHitArea>
-          <CollapseButtonContainer
-            onLayout={e => {
-              const nextLayout = e.nativeEvent.layout;
-              setCollapseButtonLayout(prev =>
-                prev &&
-                prev.x === nextLayout.x &&
-                prev.y === nextLayout.y &&
-                prev.width === nextLayout.width &&
-                prev.height === nextLayout.height
-                  ? prev
-                  : nextLayout,
-              );
-            }}
-            pointerEvents={isChartCollapsed ? 'none' : 'auto'}
-            style={buttonAnimatedStyle}>
-            <CollapseContentButton
-              isActive={isCollapseButtonActive}
-              onPressIn={onCollapseButtonPressIn}
-              onPressOut={onCollapseButtonPressOut}
-              onPress={onCollapseChartPress}
-            />
-          </CollapseButtonContainer>
-        </>
+        <CollapseButtonContainer
+          onLayout={e => {
+            const nextLayout = e.nativeEvent.layout;
+            setCollapseButtonLayout(prev =>
+              prev &&
+              prev.x === nextLayout.x &&
+              prev.y === nextLayout.y &&
+              prev.width === nextLayout.width &&
+              prev.height === nextLayout.height
+                ? prev
+                : nextLayout,
+            );
+          }}
+          pointerEvents={isChartCollapsed ? 'none' : 'auto'}
+          style={buttonAnimatedStyle}>
+          <CollapseContentButton
+            isActive={isCollapseButtonActive}
+            onPressIn={onCollapseButtonPressIn}
+            onPressOut={onCollapseButtonPressOut}
+            onPress={onCollapseChartPress}
+          />
+        </CollapseButtonContainer>
       ) : null}
       <PortfolioTopContent $leftAligned={shouldLeftAlignTopSection}>
         <PortfolioBalanceHeader
