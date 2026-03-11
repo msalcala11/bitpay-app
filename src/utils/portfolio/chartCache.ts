@@ -3,8 +3,8 @@ import type {FiatRateSeriesCache, FiatRateInterval} from '../../store/rate/rate.
 import type {
   CachedBalanceChartTimeframe,
   HistoricalRateDependencyMeta,
-} from '../../store/portfolio-chart/portfolio-chart.models';
-import {BALANCE_CHART_CACHE_SCHEMA_VERSION} from '../../store/portfolio-chart/portfolio-chart.models';
+} from '../../store/portfolio-charts/portfolio-charts.models';
+import {BALANCE_CHART_CACHE_SCHEMA_VERSION} from '../../store/portfolio-charts/portfolio-charts.models';
 import type {PnlAnalysisPoint, WalletForAnalysis} from './core/pnl/analysis';
 import {normalizeFiatRateSeriesCoin} from './core/pnl/rates';
 import {getAtomicDecimals, parseAtomicToBigint} from './core/format';

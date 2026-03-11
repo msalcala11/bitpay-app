@@ -47,7 +47,7 @@ export type CachedBalanceChartScope = {
   timeframes: Partial<Record<FiatRateInterval, CachedBalanceChartTimeframe>>;
 };
 
-export interface PortfolioChartState {
+export interface PortfolioChartsState {
   walletSnapshotVersionById: Record<string, number | undefined>;
   cacheByScopeId: Record<string, CachedBalanceChartScope | undefined>;
   lruScopeIds: string[];

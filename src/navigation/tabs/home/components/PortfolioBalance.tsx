@@ -309,7 +309,7 @@ const PortfolioBalance = () => {
   // Settings tab. Keying the chart to the latest completed populate cycle
   // guarantees a fresh chart instance once new portfolio data is ready.
   const chartLifecycleKey = useMemo(
-    () => `home-portfolio-chart:${quoteCurrency}:${portfolio?.lastPopulatedAt || 0}`,
+    () => `home-portfolio-charts:${quoteCurrency}:${portfolio?.lastPopulatedAt || 0}`,
     [portfolio?.lastPopulatedAt, quoteCurrency],
   );
 

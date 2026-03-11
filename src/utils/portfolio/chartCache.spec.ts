@@ -2,7 +2,7 @@ import {getFiatRateSeriesCacheKey} from '../../store/rate/rate.models';
 import {
   BALANCE_CHART_CACHE_SCHEMA_VERSION,
   type CachedBalanceChartTimeframe,
-} from '../../store/portfolio-chart';
+} from '../../store/portfolio-charts';
 import {
   buildBalanceChartScopeId,
   deserializeCachedTimeframeToComputedSeries,
