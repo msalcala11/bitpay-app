@@ -19,6 +19,7 @@ import {
   clearPortfolio,
   populatePortfolio,
 } from '../../../../../store/portfolio';
+import {clearPortfolioCharts} from '../../../../../store/portfolio-charts';
 import {clearRateState} from '../../../../../store/rate/rate.actions';
 import type {BalanceSnapshot} from '../../../../../store/portfolio/portfolio.models';
 import type {Wallet} from '../../../../../store/wallet/wallet.models';
@@ -234,6 +235,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
     const task = InteractionManager.runAfterInteractions(() => {
       try {
         dispatch(clearPortfolio());
+        dispatch(clearPortfolioCharts());
       } catch (e) {
       } finally {
         setIsGenerating(false);
