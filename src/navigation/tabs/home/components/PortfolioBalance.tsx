@@ -483,7 +483,7 @@ const PortfolioBalance = () => {
               <View
                 onLayout={e => {
                   const h = Math.round(e.nativeEvent.layout.height);
-                  if (!isChartCollapsed && h > 0 && h !== chartBlockHeight) {
+                  if (h > 0 && h !== chartBlockHeight) {
                     setChartBlockHeight(h);
                   }
                 }}>
