@@ -1,4 +1,4 @@
-import React, {useCallback, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import styled from 'styled-components/native';
 import {BaseText, H2} from '../../../../components/styled/Text';
 import {SlateDark, White} from '../../../../styles/colors';
@@ -37,6 +37,7 @@ import {
   getVisibleWalletsFromKeys,
   walletHasNonZeroLiveBalance,
 } from '../../../../utils/portfolio/assets';
+import {setHomeChartCollapsed} from '../../../../store/portfolio-charts';
 import type {Wallet} from '../../../../store/wallet/wallet.models';
 import CollapseContentButton from './CollapseContentButton';
 
@@ -112,6 +113,9 @@ const PortfolioBalance = () => {
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
   const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
+  const persistedHomeChartCollapsed = useAppSelector(
+    ({PORTFOLIO_CHARTS}) => PORTFOLIO_CHARTS.homeChartCollapsed,
+  );
 
   const [selectedChartBalance, setSelectedChartBalance] = useState<
     number | undefined
@@ -122,9 +126,11 @@ const PortfolioBalance = () => {
     rangeLabel?: string;
     isLoading?: boolean;
   }>();
-  const [isChartCollapsed, setIsChartCollapsed] = useState(false);
+  const [isChartCollapsed, setIsChartCollapsed] = useState(
+    persistedHomeChartCollapsed,
+  );
   const [isCollapseButtonActive, setIsCollapseButtonActive] = useState(false);
-  const collapseProgress = useSharedValue(0);
+  const collapseProgress = useSharedValue(persistedHomeChartCollapsed ? 1 : 0);
   const [chartBlockHeight, setChartBlockHeight] = useState(0);
   const [chartStageWidth, setChartStageWidth] = useState(0);
   const [chartStageY, setChartStageY] = useState(0);
@@ -175,6 +181,17 @@ const PortfolioBalance = () => {
   const shouldLeftAlignTopSection = hasChartData && !hideAllBalances;
   const collapsedScale = 0.26;
   const fullChartHeight = chartBlockHeight || 330;
+
+  useEffect(() => {
+    const nextCollapsed =
+      shouldLeftAlignTopSection && persistedHomeChartCollapsed;
+    setIsChartCollapsed(nextCollapsed);
+    collapseProgress.value = nextCollapsed ? 1 : 0;
+  }, [
+    collapseProgress,
+    persistedHomeChartCollapsed,
+    shouldLeftAlignTopSection,
+  ]);
 
   const buttonAnimatedStyle = useAnimatedStyle(() => {
     return {
@@ -251,6 +268,13 @@ const PortfolioBalance = () => {
     };
   }, [collapsedTranslateX, collapsedTranslateY]);
 
+  const persistHomeChartCollapsePreference = useCallback(
+    (collapsed: boolean) => {
+      dispatch(setHomeChartCollapsed(collapsed));
+    },
+    [dispatch],
+  );
+
   const runChartCollapseAnimation = useCallback((toCollapsed: boolean) => {
     if (!shouldLeftAlignTopSection) {
       return;
@@ -269,12 +293,17 @@ const PortfolioBalance = () => {
         if (!finished) {
           return;
         }
+        runOnJS(persistHomeChartCollapsePreference)(toCollapsed);
         if (!toCollapsed) {
           runOnJS(setIsChartCollapsed)(false);
         }
       },
     );
-  }, [collapseProgress, shouldLeftAlignTopSection]);
+  }, [
+    collapseProgress,
+    persistHomeChartCollapsePreference,
+    shouldLeftAlignTopSection,
+  ]);
 
   const onCollapseButtonPressIn = useCallback(() => {
     setIsCollapseButtonActive(true);

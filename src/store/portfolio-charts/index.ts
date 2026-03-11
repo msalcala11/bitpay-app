@@ -3,6 +3,7 @@ export {
   patchBalanceChartScopeLatestPoints,
   pruneBalanceChartCache,
   removeBalanceChartScopesByWalletIds,
+  setHomeChartCollapsed,
   touchBalanceChartScope,
   upsertBalanceChartScopeTimeframes,
 } from './portfolio-charts.actions';

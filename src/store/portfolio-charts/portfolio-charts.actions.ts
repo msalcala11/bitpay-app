@@ -8,6 +8,13 @@ export const clearPortfolioCharts = (): PortfolioChartsActionType => ({
   type: PortfolioChartsActionTypes.CLEAR_PORTFOLIO_CHARTS,
 });
 
+export const setHomeChartCollapsed = (
+  payload: boolean,
+): PortfolioChartsActionType => ({
+  type: PortfolioChartsActionTypes.SET_HOME_CHART_COLLAPSED,
+  payload,
+});
+
 export const upsertBalanceChartScopeTimeframes = (payload: {
   scopeId: string;
   walletIds: string[];
