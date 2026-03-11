@@ -3,13 +3,13 @@ import {
   pruneBalanceChartCache,
   touchBalanceChartScope,
   upsertBalanceChartScopeTimeframes,
-} from './portfolio-chart.actions';
+} from './portfolio-charts.actions';
 import {
   BALANCE_CHART_CACHE_SCHEMA_VERSION,
   BALANCE_CHART_CACHE_MAX_SCOPES,
   type CachedBalanceChartTimeframe,
-} from './portfolio-chart.models';
-import {portfolioChartReducer} from './portfolio-chart.reducer';
+} from './portfolio-charts.models';
+import {portfolioChartsReducer} from './portfolio-charts.reducer';
 
 const makeTimeframe = (
   timeframe: CachedBalanceChartTimeframe['timeframe'] = 'ALL',
@@ -31,18 +31,18 @@ const makeTimeframe = (
   totalPnlPercent: [0],
 });
 
-describe('portfolioChartReducer', () => {
+describe('portfolioChartsReducer', () => {
   it('bumps the wallet snapshot version when snapshots are set', () => {
-    let state = portfolioChartReducer(undefined, {type: '@@INIT'} as any);
+    let state = portfolioChartsReducer(undefined, {type: '@@INIT'} as any);
 
-    state = portfolioChartReducer(
+    state = portfolioChartsReducer(
       state,
       setWalletSnapshots({
         walletId: 'wallet-1',
         snapshots: [],
       }),
     );
-    state = portfolioChartReducer(
+    state = portfolioChartsReducer(
       state,
       setWalletSnapshots({
         walletId: 'wallet-1',
@@ -54,9 +54,9 @@ describe('portfolioChartReducer', () => {
   });
 
   it('removes snapshot versions and cached scopes for removed wallets', () => {
-    let state = portfolioChartReducer(undefined, {type: '@@INIT'} as any);
+    let state = portfolioChartsReducer(undefined, {type: '@@INIT'} as any);
 
-    state = portfolioChartReducer(
+    state = portfolioChartsReducer(
       state,
       upsertBalanceChartScopeTimeframes({
         scopeId: 'scope:wallet-1',
@@ -66,7 +66,7 @@ describe('portfolioChartReducer', () => {
         timeframes: [makeTimeframe()],
       }),
     );
-    state = portfolioChartReducer(
+    state = portfolioChartsReducer(
       state,
       setWalletSnapshots({
         walletId: 'wallet-1',
@@ -74,7 +74,7 @@ describe('portfolioChartReducer', () => {
       }),
     );
 
-    state = portfolioChartReducer(
+    state = portfolioChartsReducer(
       state,
       removeWalletSnapshots({
         walletIds: ['wallet-1'],
@@ -87,9 +87,9 @@ describe('portfolioChartReducer', () => {
   });
 
   it('keeps the most recently touched scopes when pruning', () => {
-    let state = portfolioChartReducer(undefined, {type: '@@INIT'} as any);
+    let state = portfolioChartsReducer(undefined, {type: '@@INIT'} as any);
 
-    state = portfolioChartReducer(
+    state = portfolioChartsReducer(
       state,
       upsertBalanceChartScopeTimeframes({
         scopeId: 'scope-1',
@@ -99,7 +99,7 @@ describe('portfolioChartReducer', () => {
         timeframes: [makeTimeframe()],
       }),
     );
-    state = portfolioChartReducer(
+    state = portfolioChartsReducer(
       state,
       upsertBalanceChartScopeTimeframes({
         scopeId: 'scope-2',
@@ -109,7 +109,7 @@ describe('portfolioChartReducer', () => {
         timeframes: [makeTimeframe()],
       }),
     );
-    state = portfolioChartReducer(
+    state = portfolioChartsReducer(
       state,
       upsertBalanceChartScopeTimeframes({
         scopeId: 'scope-3',
@@ -119,14 +119,14 @@ describe('portfolioChartReducer', () => {
         timeframes: [makeTimeframe()],
       }),
     );
-    state = portfolioChartReducer(
+    state = portfolioChartsReducer(
       state,
       touchBalanceChartScope({
         scopeId: 'scope-1',
       }),
     );
 
-    state = portfolioChartReducer(
+    state = portfolioChartsReducer(
       state,
       pruneBalanceChartCache({
         maxScopes: 2,

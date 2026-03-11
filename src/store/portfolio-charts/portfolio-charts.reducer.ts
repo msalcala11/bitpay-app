@@ -4,22 +4,22 @@ import {PortfolioActionTypes} from '../portfolio/portfolio.types';
 import type {
   CachedBalanceChartScope,
   CachedBalanceChartTimeframe,
-  PortfolioChartState,
-} from './portfolio-chart.models';
+  PortfolioChartsState,
+} from './portfolio-charts.models';
 import {
   BALANCE_CHART_CACHE_MAX_SCOPES,
   BALANCE_CHART_CACHE_SCHEMA_VERSION,
-} from './portfolio-chart.models';
+} from './portfolio-charts.models';
 import {
-  PortfolioChartActionType,
-  PortfolioChartActionTypes,
-} from './portfolio-chart.types';
+  PortfolioChartsActionType,
+  PortfolioChartsActionTypes,
+} from './portfolio-charts.types';
 
-export type PortfolioChartReduxPersistBlackList = string[];
-export const portfolioChartReduxPersistBlackList: PortfolioChartReduxPersistBlackList =
+export type PortfolioChartsReduxPersistBlackList = string[];
+export const portfolioChartsReduxPersistBlackList: PortfolioChartsReduxPersistBlackList =
   [];
 
-const initialState: PortfolioChartState = {
+const initialState: PortfolioChartsState = {
   walletSnapshotVersionById: {},
   cacheByScopeId: {},
   lruScopeIds: [],
@@ -54,9 +54,9 @@ const touchScopeId = (lruScopeIds: string[], scopeId: string): string[] => {
 };
 
 const pruneCacheState = (
-  state: PortfolioChartState,
+  state: PortfolioChartsState,
   maxScopes = BALANCE_CHART_CACHE_MAX_SCOPES,
-): PortfolioChartState => {
+): PortfolioChartsState => {
   const effectiveMax = Math.max(1, Math.floor(maxScopes || 1));
   if (state.lruScopeIds.length <= effectiveMax) {
     return state;
@@ -64,7 +64,7 @@ const pruneCacheState = (
 
   const keepScopeIds = state.lruScopeIds.slice(0, effectiveMax);
   const keepScopeIdSet = new Set(keepScopeIds);
-  const nextCacheByScopeId: PortfolioChartState['cacheByScopeId'] = {};
+  const nextCacheByScopeId: PortfolioChartsState['cacheByScopeId'] = {};
 
   for (const scopeId of keepScopeIds) {
     const scope = state.cacheByScopeId[scopeId];
@@ -81,9 +81,9 @@ const pruneCacheState = (
 };
 
 const removeScopesForWalletIds = (
-  state: PortfolioChartState,
+  state: PortfolioChartsState,
   walletIds: string[],
-): PortfolioChartState => {
+): PortfolioChartsState => {
   const targetWalletIds = new Set(normalizeWalletIds(walletIds));
   if (!targetWalletIds.size) {
     return state;
@@ -139,7 +139,7 @@ const sanitizeTimeframe = (
 });
 
 const upsertScopeTimeframes = (
-  state: PortfolioChartState,
+  state: PortfolioChartsState,
   args: {
     scopeId: string;
     walletIds?: string[];
@@ -148,7 +148,7 @@ const upsertScopeTimeframes = (
     timeframes: CachedBalanceChartTimeframe[];
     lastAccessedAt?: number;
   },
-): PortfolioChartState => {
+): PortfolioChartsState => {
   const scopeId = String(args.scopeId || '');
   if (!scopeId) {
     return state;
@@ -194,19 +194,19 @@ const upsertScopeTimeframes = (
   });
 };
 
-export const portfolioChartReducer = (
-  state: PortfolioChartState = initialState,
-  action: PortfolioChartActionType | AnyAction,
-): PortfolioChartState => {
+export const portfolioChartsReducer = (
+  state: PortfolioChartsState = initialState,
+  action: PortfolioChartsActionType | AnyAction,
+): PortfolioChartsState => {
   switch (action.type) {
-    case PortfolioChartActionTypes.CLEAR_PORTFOLIO_CHART:
+    case PortfolioChartsActionTypes.CLEAR_PORTFOLIO_CHARTS:
     case PortfolioActionTypes.CLEAR_PORTFOLIO:
       return initialState;
 
-    case PortfolioChartActionTypes.UPSERT_BALANCE_CHART_SCOPE_TIMEFRAMES:
+    case PortfolioChartsActionTypes.UPSERT_BALANCE_CHART_SCOPE_TIMEFRAMES:
       return upsertScopeTimeframes(state, action.payload || {timeframes: []});
 
-    case PortfolioChartActionTypes.PATCH_BALANCE_CHART_SCOPE_LATEST_POINTS: {
+    case PortfolioChartsActionTypes.PATCH_BALANCE_CHART_SCOPE_LATEST_POINTS: {
       const scopeId = String(action.payload?.scopeId || '');
       const existingScope = state.cacheByScopeId[scopeId];
       if (!scopeId || !existingScope) {
@@ -222,7 +222,7 @@ export const portfolioChartReducer = (
       });
     }
 
-    case PortfolioChartActionTypes.TOUCH_BALANCE_CHART_SCOPE: {
+    case PortfolioChartsActionTypes.TOUCH_BALANCE_CHART_SCOPE: {
       const scopeId = String(action.payload?.scopeId || '');
       const scope = state.cacheByScopeId[scopeId];
       if (!scopeId || !scope) {
@@ -245,13 +245,13 @@ export const portfolioChartReducer = (
       });
     }
 
-    case PortfolioChartActionTypes.PRUNE_BALANCE_CHART_CACHE:
+    case PortfolioChartsActionTypes.PRUNE_BALANCE_CHART_CACHE:
       return pruneCacheState(
         state,
         action.payload?.maxScopes ?? BALANCE_CHART_CACHE_MAX_SCOPES,
       );
 
-    case PortfolioChartActionTypes.REMOVE_BALANCE_CHART_SCOPES_BY_WALLET_IDS:
+    case PortfolioChartsActionTypes.REMOVE_BALANCE_CHART_SCOPES_BY_WALLET_IDS:
       return removeScopesForWalletIds(state, action.payload?.walletIds || []);
 
     case PortfolioActionTypes.SET_WALLET_SNAPSHOTS: {

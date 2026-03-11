@@ -56,8 +56,8 @@ import {
   patchBalanceChartScopeLatestPoints,
   touchBalanceChartScope,
   upsertBalanceChartScopeTimeframes,
-} from '../../store/portfolio-chart';
-import type {CachedBalanceChartTimeframe} from '../../store/portfolio-chart';
+} from '../../store/portfolio-charts';
+import type {CachedBalanceChartTimeframe} from '../../store/portfolio-charts';
 import {
   buildBalanceChartScopeId,
   buildBalanceChartTimeframeRevision,
@@ -570,12 +570,12 @@ const BalanceHistoryChart = ({
     return buildSnapshotVersionSig({
       walletIds: sortedWalletIds,
       walletSnapshotVersionById:
-        state.PORTFOLIO_CHART.walletSnapshotVersionById || {},
+        state.PORTFOLIO_CHARTS.walletSnapshotVersionById || {},
     });
   });
 
   const cachedScope = useAppSelector(
-    state => state.PORTFOLIO_CHART.cacheByScopeId[scopeId],
+    state => state.PORTFOLIO_CHARTS.cacheByScopeId[scopeId],
   );
 
   const currentSpotRatesByCoin = useMemo(() => {

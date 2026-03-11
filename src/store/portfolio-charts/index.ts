@@ -1,26 +1,26 @@
 export {
-  clearPortfolioChart,
+  clearPortfolioCharts,
   patchBalanceChartScopeLatestPoints,
   pruneBalanceChartCache,
   removeBalanceChartScopesByWalletIds,
   touchBalanceChartScope,
   upsertBalanceChartScopeTimeframes,
-} from './portfolio-chart.actions';
+} from './portfolio-charts.actions';
 
 export {
-  portfolioChartReducer,
-  portfolioChartReduxPersistBlackList,
-} from './portfolio-chart.reducer';
+  portfolioChartsReducer,
+  portfolioChartsReduxPersistBlackList,
+} from './portfolio-charts.reducer';
 
 export type {
   CachedBalanceChartScope,
   CachedBalanceChartTimeframe,
   HistoricalRateDependencyMeta,
   LatestHoldingsByCoin,
-  PortfolioChartState,
-} from './portfolio-chart.models';
+  PortfolioChartsState,
+} from './portfolio-charts.models';
 
 export {
   BALANCE_CHART_CACHE_MAX_SCOPES,
   BALANCE_CHART_CACHE_SCHEMA_VERSION,
-} from './portfolio-chart.models';
+} from './portfolio-charts.models';
