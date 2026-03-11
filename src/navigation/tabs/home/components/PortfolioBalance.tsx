@@ -114,9 +114,8 @@ const PortfolioBalance = () => {
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
   const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
-  const persistedHomeChartCollapsed = useAppSelector(
-    ({PORTFOLIO_CHARTS}) => PORTFOLIO_CHARTS.homeChartCollapsed,
-  );
+  const {homeChartCollapsed: persistedHomeChartCollapsed, homeChartRemountNonce} =
+    useAppSelector(({PORTFOLIO_CHARTS}) => PORTFOLIO_CHARTS);
 
   const [selectedChartBalance, setSelectedChartBalance] = useState<
     number | undefined
@@ -343,16 +342,9 @@ const PortfolioBalance = () => {
     portfolioQuoteCurrency: portfolio?.quoteCurrency,
     defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
   });
-  // Home may stay mounted while the user toggles this setting from the
-  // Settings tab. Key the chart to the latest populate cycle *start* so we
-  // still force a fresh instance after re-enabling portfolio, but avoid a
-  // second remount at populate completion that can throw away freshly-built
-  // chart state.
-  const chartLifecycleSeed =
-    portfolio?.populateStatus?.startedAt || portfolio?.lastPopulatedAt || 0;
   const chartLifecycleKey = useMemo(
-    () => `home-portfolio-charts:${quoteCurrency}:${chartLifecycleSeed}`,
-    [chartLifecycleSeed, quoteCurrency],
+    () => `home-portfolio-charts:${quoteCurrency}:${homeChartRemountNonce}`,
+    [homeChartRemountNonce, quoteCurrency],
   );
 
   const displayedPortfolioBalance =

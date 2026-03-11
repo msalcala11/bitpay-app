@@ -1,5 +1,6 @@
 import {setWalletSnapshots, removeWalletSnapshots} from '../portfolio/portfolio.actions';
 import {
+  clearPortfolioCharts,
   pruneBalanceChartCache,
   setHomeChartCollapsed,
   touchBalanceChartScope,
@@ -41,6 +42,18 @@ describe('portfolioChartsReducer', () => {
 
     state = portfolioChartsReducer(state, setHomeChartCollapsed(false));
     expect(state.homeChartCollapsed).toBe(false);
+  });
+
+  it('bumps the home chart remount nonce when charts are cleared', () => {
+    let state = portfolioChartsReducer(undefined, {type: '@@INIT'} as any);
+
+    expect(state.homeChartRemountNonce).toBe(0);
+
+    state = portfolioChartsReducer(state, clearPortfolioCharts());
+    expect(state.homeChartRemountNonce).toBe(1);
+
+    state = portfolioChartsReducer(state, clearPortfolioCharts());
+    expect(state.homeChartRemountNonce).toBe(2);
   });
 
   it('bumps the wallet snapshot version when snapshots are set', () => {
