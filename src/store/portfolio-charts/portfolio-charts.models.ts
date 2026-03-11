@@ -1,6 +1,6 @@
 import type {FiatRateInterval} from '../rate/rate.models';
 
-export const BALANCE_CHART_CACHE_SCHEMA_VERSION = 2;
+export const BALANCE_CHART_CACHE_SCHEMA_VERSION = 3;
 export const BALANCE_CHART_CACHE_MAX_SCOPES = 40;
 
 export type HistoricalRateDependencyMeta = {
