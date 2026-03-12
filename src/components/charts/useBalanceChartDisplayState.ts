@@ -44,9 +44,8 @@ export const useBalanceChartDisplayState = ({
   }, [resetKey]);
 
   const selectedTimeframeRevision = getTimeframeRevision(selectedTimeframe);
-  const selectedTimeframeAttemptRevision = getTimeframeAttemptRevision(
-    selectedTimeframe,
-  );
+  const selectedTimeframeAttemptRevision =
+    getTimeframeAttemptRevision(selectedTimeframe);
 
   const selectedComputedSeries = useMemo(() => {
     if (
@@ -147,7 +146,9 @@ export const useBalanceChartDisplayState = ({
 
   const hasAnyRenderableSeries =
     !!activeSeries ||
-    Object.values(seriesByTimeframe).some(series => !!series?.graphPoints.length);
+    Object.values(seriesByTimeframe).some(
+      series => !!series?.graphPoints.length,
+    );
 
   return {
     activeSeries,

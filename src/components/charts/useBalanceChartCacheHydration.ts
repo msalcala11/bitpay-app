@@ -1,5 +1,8 @@
 import {startTransition, useEffect, useMemo, useRef, useState} from 'react';
-import type {FiatRateSeriesCache, FiatRateInterval} from '../../store/rate/rate.models';
+import type {
+  FiatRateSeriesCache,
+  FiatRateInterval,
+} from '../../store/rate/rate.models';
 import {FIAT_CHART_PRECOMPUTE_TIMEFRAME_ORDER} from './fiatTimeframes';
 import {
   patchBalanceChartScopeLatestPoints,
@@ -52,8 +55,8 @@ export const useBalanceChartCacheHydration = ({
     useState<BalanceChartRevisionByTimeframe>(EMPTY_REVISION_BY_TIMEFRAME);
   const lastTouchedScopeIdRef = useRef<string | undefined>(undefined);
 
-  const cachedTimeframeStatusByTimeframe = useMemo<BalanceChartStatusByTimeframe>(
-    () => {
+  const cachedTimeframeStatusByTimeframe =
+    useMemo<BalanceChartStatusByTimeframe>(() => {
       const next: BalanceChartStatusByTimeframe = {};
 
       for (const timeframe of FIAT_CHART_PRECOMPUTE_TIMEFRAME_ORDER) {
@@ -66,14 +69,12 @@ export const useBalanceChartCacheHydration = ({
       }
 
       return next;
-    },
-    [
+    }, [
       cachedScope?.timeframes,
       currentSpotRatesByCoin,
       fiatRateSeriesCache,
       snapshotVersionSig,
-    ],
-  );
+    ]);
 
   useEffect(() => {
     lastTouchedScopeIdRef.current = undefined;

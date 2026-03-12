@@ -37,8 +37,10 @@ export const useBalanceChartChangeRow = ({
 }: UseBalanceChartChangeRowArgs): {
   displayedChangeRowData?: ChangeRowData;
 } => {
-  const [lastResolvedChangeRowDataByTimeframe, setLastResolvedChangeRowDataByTimeframe] =
-    useState<Partial<Record<FiatRateInterval, ChangeRowData>>>({});
+  const [
+    lastResolvedChangeRowDataByTimeframe,
+    setLastResolvedChangeRowDataByTimeframe,
+  ] = useState<Partial<Record<FiatRateInterval, ChangeRowData>>>({});
 
   useEffect(() => {
     setLastResolvedChangeRowDataByTimeframe({});
@@ -71,7 +73,12 @@ export const useBalanceChartChangeRow = ({
     }
 
     return next;
-  }, [activeSeries?.analysisPoints, displayedTimeframe, quoteCurrency, rangeLabel]);
+  }, [
+    activeSeries?.analysisPoints,
+    displayedTimeframe,
+    quoteCurrency,
+    rangeLabel,
+  ]);
 
   const selectedAnalysisPoint = useMemo(() => {
     if (!selectedPoint || !activeSeries) {
@@ -99,8 +106,9 @@ export const useBalanceChartChangeRow = ({
       return undefined;
     }
 
-    const pointMetadata =
-      pointMetadataByTimestampMs.get(displayedAnalysisPoint.timestamp);
+    const pointMetadata = pointMetadataByTimestampMs.get(
+      displayedAnalysisPoint.timestamp,
+    );
 
     return {
       percent: displayedAnalysisPoint.totalPnlPercent ?? 0,
@@ -114,7 +122,8 @@ export const useBalanceChartChangeRow = ({
             currencyDisplay: 'symbol',
           },
         ),
-      rangeLabel: selectedPointMetadata?.label || pointMetadata?.label || rangeLabel,
+      rangeLabel:
+        selectedPointMetadata?.label || pointMetadata?.label || rangeLabel,
     };
   }, [
     displayedAnalysisPoint,

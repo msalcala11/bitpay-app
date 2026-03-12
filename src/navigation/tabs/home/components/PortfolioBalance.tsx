@@ -71,7 +71,6 @@ const CollapseButtonContainer = styled(Animated.View)`
   z-index: 30;
 `;
 
-
 const PortfolioBalanceHeader = styled(TouchableOpacity)`
   flex-direction: row;
   justify-content: space-between;
@@ -110,8 +109,10 @@ const PortfolioBalance = () => {
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
   const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
-  const {homeChartCollapsed: persistedHomeChartCollapsed, homeChartRemountNonce} =
-    useAppSelector(({PORTFOLIO_CHARTS}) => PORTFOLIO_CHARTS);
+  const {
+    homeChartCollapsed: persistedHomeChartCollapsed,
+    homeChartRemountNonce,
+  } = useAppSelector(({PORTFOLIO_CHARTS}) => PORTFOLIO_CHARTS);
 
   const [isChartCollapsed, setIsChartCollapsed] = useState(
     persistedHomeChartCollapsed,
@@ -223,7 +224,11 @@ const PortfolioBalance = () => {
     -fullChartHeight * 0.72 + miniChartVerticalNudge;
   const targetChartRightInset =
     collapseButtonLayout && chartStageWidth
-      ? Math.max(0, chartStageWidth - (collapseButtonLayout.x + collapseButtonLayout.width))
+      ? Math.max(
+          0,
+          chartStageWidth -
+            (collapseButtonLayout.x + collapseButtonLayout.width),
+        )
       : 12;
   const collapsedTranslateX =
     chartStageWidth > 0
@@ -245,18 +250,10 @@ const PortfolioBalance = () => {
     return {
       transform: [
         {
-          translateX: interpolate(
-            progress,
-            [0, 1],
-            [0, collapsedTranslateX],
-          ),
+          translateX: interpolate(progress, [0, 1], [0, collapsedTranslateX]),
         },
         {
-          translateY: interpolate(
-            progress,
-            [0, 1],
-            [0, collapsedTranslateY],
-          ),
+          translateY: interpolate(progress, [0, 1], [0, collapsedTranslateY]),
         },
         {scale: chartScale.value},
       ],
@@ -270,35 +267,38 @@ const PortfolioBalance = () => {
     [dispatch],
   );
 
-  const runChartCollapseAnimation = useCallback((toCollapsed: boolean) => {
-    if (!shouldLeftAlignTopSection) {
-      return;
-    }
-    if (toCollapsed) {
-      setIsChartCollapsed(true);
-    }
+  const runChartCollapseAnimation = useCallback(
+    (toCollapsed: boolean) => {
+      if (!shouldLeftAlignTopSection) {
+        return;
+      }
+      if (toCollapsed) {
+        setIsChartCollapsed(true);
+      }
 
-    collapseProgress.value = withTiming(
-      toCollapsed ? 1 : 0,
-      {
-        duration: 360,
-        easing: Easing.inOut(Easing.cubic),
-      },
-      finished => {
-        if (!finished) {
-          return;
-        }
-        runOnJS(persistHomeChartCollapsePreference)(toCollapsed);
-        if (!toCollapsed) {
-          runOnJS(setIsChartCollapsed)(false);
-        }
-      },
-    );
-  }, [
-    collapseProgress,
-    persistHomeChartCollapsePreference,
-    shouldLeftAlignTopSection,
-  ]);
+      collapseProgress.value = withTiming(
+        toCollapsed ? 1 : 0,
+        {
+          duration: 360,
+          easing: Easing.inOut(Easing.cubic),
+        },
+        finished => {
+          if (!finished) {
+            return;
+          }
+          runOnJS(persistHomeChartCollapsePreference)(toCollapsed);
+          if (!toCollapsed) {
+            runOnJS(setIsChartCollapsed)(false);
+          }
+        },
+      );
+    },
+    [
+      collapseProgress,
+      persistHomeChartCollapsePreference,
+      shouldLeftAlignTopSection,
+    ],
+  );
 
   const onCollapseButtonPressIn = useCallback(() => {
     setIsCollapseButtonActive(true);
@@ -358,13 +358,11 @@ const PortfolioBalance = () => {
   );
 
   const handleChartChangeRowData = useCallback(
-    (
-      data?: {
-        percent: number;
-        deltaFiatFormatted?: string;
-        rangeLabel?: string;
-      },
-    ) => {
+    (data?: {
+      percent: number;
+      deltaFiatFormatted?: string;
+      rangeLabel?: string;
+    }) => {
       setChartChangeRowData(data);
     },
     [setChartChangeRowData],
@@ -427,7 +425,9 @@ const PortfolioBalance = () => {
         <PortfolioBalanceHeader
           activeOpacity={ActiveOpacity}
           onPress={showPortfolioBalanceInfoModal}>
-          <PortfolioBalanceTitle>{t('Portfolio Balance')}</PortfolioBalanceTitle>
+          <PortfolioBalanceTitle>
+            {t('Portfolio Balance')}
+          </PortfolioBalanceTitle>
           <InfoSvg width={16} height={16} />
         </PortfolioBalanceHeader>
         <TouchableOpacity

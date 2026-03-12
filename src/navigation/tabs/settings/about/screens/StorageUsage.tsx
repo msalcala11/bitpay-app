@@ -129,7 +129,6 @@ const getPersistedSlicesByteSize = (
 };
 
 const StorageUsage: React.FC = () => {
-
   const navigation = useNavigation();
   const {t} = useTranslation();
   const renderValue = useCallback((value: string, width?: number) => {
@@ -260,7 +259,9 @@ const StorageUsage: React.FC = () => {
 
       const _setShopCatalogStorage = async () => {
         try {
-          const bytes = getPersistedSlicesByteSize(persistRoot, ['SHOP_CATALOG']);
+          const bytes = getPersistedSlicesByteSize(persistRoot, [
+            'SHOP_CATALOG',
+          ]);
           setShopCatalogStorage(formatBytes(bytes));
         } catch (err) {
           const errStr =

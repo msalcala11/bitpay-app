@@ -61,14 +61,10 @@ describe('portfolioChartsReducer', () => {
     expect(state.homeChartRemountNonce).toBe(2);
   });
 
-
   it('clears cached chart state and bumps the remount nonce once on clearPortfolio', () => {
     let state = portfolioChartsReducer(undefined, {type: '@@INIT'} as any);
 
-    state = portfolioChartsReducer(
-      state,
-      setHomeChartCollapsed(true),
-    );
+    state = portfolioChartsReducer(state, setHomeChartCollapsed(true));
     state = portfolioChartsReducer(
       state,
       setWalletSnapshots({
@@ -240,12 +236,14 @@ describe('portfolioChartsReducer', () => {
     timeframe.historicalRateDeps[0].fetchedOn = 999;
     timeframe.latestHoldingsByCoin.btc.units = 42;
 
-    const stored =
-      state.cacheByScopeId['scope-1']?.timeframes?.ALL as CachedBalanceChartTimeframe;
+    const stored = state.cacheByScopeId['scope-1']?.timeframes
+      ?.ALL as CachedBalanceChartTimeframe;
 
     expect(stored.historicalRateDeps[0].fetchedOn).toBe(123);
     expect(stored.latestHoldingsByCoin.btc.units).toBe(2);
-    expect(stored.historicalRateDeps[0]).not.toBe(timeframe.historicalRateDeps[0]);
+    expect(stored.historicalRateDeps[0]).not.toBe(
+      timeframe.historicalRateDeps[0],
+    );
     expect(stored.latestHoldingsByCoin.btc).not.toBe(
       timeframe.latestHoldingsByCoin.btc,
     );
@@ -305,15 +303,17 @@ describe('portfolioChartsReducer', () => {
       }),
     );
 
-    const prevStored =
-      initialState.cacheByScopeId['scope-1']?.timeframes?.ALL as CachedBalanceChartTimeframe;
-    const nextStored =
-      updatedState.cacheByScopeId['scope-1']?.timeframes?.['1D'] as CachedBalanceChartTimeframe;
+    const prevStored = initialState.cacheByScopeId['scope-1']?.timeframes
+      ?.ALL as CachedBalanceChartTimeframe;
+    const nextStored = updatedState.cacheByScopeId['scope-1']?.timeframes?.[
+      '1D'
+    ] as CachedBalanceChartTimeframe;
 
-    expect(nextStored.historicalRateDeps[0]).not.toBe(prevStored.historicalRateDeps[0]);
+    expect(nextStored.historicalRateDeps[0]).not.toBe(
+      prevStored.historicalRateDeps[0],
+    );
     expect(nextStored.latestHoldingsByCoin.btc).not.toBe(
       prevStored.latestHoldingsByCoin.btc,
     );
   });
-
 });

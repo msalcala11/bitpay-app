@@ -240,7 +240,6 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
         setIsGenerating(false);
       }
     });
-
   }, [dispatch, isGenerating]);
 
   const populate = useCallback(() => {
@@ -258,7 +257,6 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
         setIsGenerating(false);
       }
     });
-
   }, [dispatch, isGenerating, portfolio.populateStatus?.inProgress]);
 
   const clearRatesCache = useCallback(() => {
@@ -271,7 +269,6 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
         dispatch(clearRateState());
       } catch {}
     });
-
   }, [dispatch, isGenerating, portfolio.populateStatus?.inProgress]);
 
   const clearShopStore = useCallback(() => {
@@ -284,7 +281,6 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
         dispatch(ShopActions.clearShopStore());
       } catch {}
     });
-
   }, [dispatch, isGenerating, portfolio.populateStatus?.inProgress]);
 
   const copySnapshotAuditCsv = useCallback(() => {
@@ -377,7 +373,6 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
         setIsCopyingAudit(false);
       }
     });
-
   }, [
     allWallets,
     isCopyingAudit,
@@ -489,7 +484,6 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
         setIsCopyingRateDiagnostics(false);
       }
     });
-
   }, [fiatRateSeriesCache, isCopyingRateDiagnostics]);
 
   return (

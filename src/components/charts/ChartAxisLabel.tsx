@@ -10,10 +10,7 @@ import {useTheme} from 'styled-components/native';
 import {BaseText} from '../styled/Text';
 import {formatFiatAmount} from '../../utils/helper-methods';
 import {Slate30, SlateDark} from '../../styles/colors';
-import {
-  isNumberSharedValue,
-  type NumberSharedValue,
-} from './sharedValueGuards';
+import {isNumberSharedValue, type NumberSharedValue} from './sharedValueGuards';
 
 export type ChartAxisLabelProps = {
   value: number;
@@ -68,7 +65,9 @@ const ChartAxisLabel = ({
       : estimatedTextWidth;
 
   const resolvedChartWidth =
-    typeof chartWidth === 'number' && Number.isFinite(chartWidth) && chartWidth > 0
+    typeof chartWidth === 'number' &&
+    Number.isFinite(chartWidth) &&
+    chartWidth > 0
       ? chartWidth
       : windowWidth;
 

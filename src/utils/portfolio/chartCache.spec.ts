@@ -194,7 +194,10 @@ describe('chartCache', () => {
           walletId: 'wallet-2',
           walletName: 'solana usdc',
           currencyAbbreviation: 'USDC',
-          credentials: {tokenAddress: 'EPjFWdd5AufqSSqeM2q', chain: 'sol'} as any,
+          credentials: {
+            tokenAddress: 'EPjFWdd5AufqSSqeM2q',
+            chain: 'sol',
+          } as any,
           snapshots: [],
         },
       ],
@@ -204,5 +207,4 @@ describe('chartCache', () => {
     expect(patchMetadata.latestHoldingsByCoin.usdc.units).toBe(3);
     expect(patchMetadata.lastSpotRatesByCoin.usdc).toBe(100);
   });
-
 });

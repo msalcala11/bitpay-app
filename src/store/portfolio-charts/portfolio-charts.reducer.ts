@@ -284,7 +284,9 @@ export const portfolioChartsReducer = (
     }
 
     case PortfolioActionTypes.REMOVE_WALLET_SNAPSHOTS: {
-      const walletIds = normalizeBalanceChartWalletIds(action.payload?.walletIds || []);
+      const walletIds = normalizeBalanceChartWalletIds(
+        action.payload?.walletIds || [],
+      );
       if (!walletIds.length) {
         return state;
       }

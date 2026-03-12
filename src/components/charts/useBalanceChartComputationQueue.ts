@@ -38,7 +38,10 @@ import type {
 } from './balanceHistoryChart.state';
 import type {ComputedSeries} from './balanceHistoryChart.types';
 import {useTrackedInteractionWork} from './useTrackedInteractionWork';
-import {upsertBalanceChartScopeTimeframes, type HistoricalRateDependencyMeta} from '../../store/portfolio-charts';
+import {
+  upsertBalanceChartScopeTimeframes,
+  type HistoricalRateDependencyMeta,
+} from '../../store/portfolio-charts';
 import {buildBalanceChartPointByTimestampMap} from '../../utils/portfolio/balanceChartShared';
 import {CHART_COMPUTE_YIELD_EVERY_POINTS} from './useBalanceChartComputationQueue.constants';
 
@@ -174,7 +177,8 @@ export const useBalanceChartComputationQueue = ({
   );
 
   const selectedTimeframeNeedsHistoricalRecompute = useMemo(() => {
-    const status = cachedTimeframeStatusByTimeframe[selectedTimeframe] || 'missing';
+    const status =
+      cachedTimeframeStatusByTimeframe[selectedTimeframe] || 'missing';
     return status === 'missing' || status === 'stale_historical';
   }, [cachedTimeframeStatusByTimeframe, selectedTimeframe]);
 

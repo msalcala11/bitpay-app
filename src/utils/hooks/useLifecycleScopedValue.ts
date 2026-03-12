@@ -1,6 +1,6 @@
 import {useCallback, useMemo, useState} from 'react';
 
-export const useLifecycleScopedValue = <T,>(lifecycleKey: string) => {
+export const useLifecycleScopedValue = <T>(lifecycleKey: string) => {
   const [scopedState, setScopedState] = useState<{
     lifecycleKey: string;
     value?: T;

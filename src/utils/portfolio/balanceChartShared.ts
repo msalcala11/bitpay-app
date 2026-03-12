@@ -10,7 +10,9 @@ export const normalizeBalanceChartOffset = (value: unknown): number => {
   return toFiniteNumber(value, 0);
 };
 
-export const normalizeBalanceChartWalletIds = (walletIds: string[]): string[] => {
+export const normalizeBalanceChartWalletIds = (
+  walletIds: string[],
+): string[] => {
   const seen = new Set<string>();
   const out: string[] = [];
 
@@ -47,7 +49,10 @@ export const buildBalanceChartPointByTimestampMap = (args: {
   const length = Math.min(args.graphPoints.length, args.analysisPoints.length);
 
   for (let i = 0; i < length; i++) {
-    pointByTimestamp.set(args.graphPoints[i].date.getTime(), args.analysisPoints[i]);
+    pointByTimestamp.set(
+      args.graphPoints[i].date.getTime(),
+      args.analysisPoints[i],
+    );
   }
 
   return pointByTimestamp;

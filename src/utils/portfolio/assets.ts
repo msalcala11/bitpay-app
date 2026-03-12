@@ -751,7 +751,9 @@ const mapSnapshotToStored = (args: {
   };
 };
 
-const mapSnapshotsToStored = (args: MapSnapshotsToStoredArgs): BalanceSnapshotStored[] => {
+const mapSnapshotsToStored = (
+  args: MapSnapshotsToStoredArgs,
+): BalanceSnapshotStored[] => {
   const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
 
   return args.snapshots.map(snapshot =>
@@ -762,7 +764,6 @@ const mapSnapshotsToStored = (args: MapSnapshotsToStoredArgs): BalanceSnapshotSt
     }),
   );
 };
-
 
 const mapSnapshotsToStoredAsync = async (
   args: MapSnapshotsToStoredArgs,
@@ -1436,7 +1437,9 @@ export const buildPnlCurrentRatesByCoinFromWallets = (args: {
   }
 
   for (const wallet of args.wallets || []) {
-    const coin = String((wallet as any)?.currencyAbbreviation || '').toLowerCase();
+    const coin = String(
+      (wallet as any)?.currencyAbbreviation || '',
+    ).toLowerCase();
     if (!coin) {
       continue;
     }
@@ -1489,7 +1492,9 @@ const createPnlWalletBuildContext = (args: {
   }
 
   const walletId = String((wallet as any)?.id || '');
-  const coin = String((wallet as any)?.currencyAbbreviation || '').toLowerCase();
+  const coin = String(
+    (wallet as any)?.currencyAbbreviation || '',
+  ).toLowerCase();
   if (!walletId || !coin) {
     return undefined;
   }

@@ -1424,7 +1424,9 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
                   fiatRateSeriesCache={fiatRateSeriesCache}
                   onSelectedBalanceChange={setSelectedBalance}
                   preChartContent={
-                    <AccountAddressBadge address={accountItem?.receiveAddress} />
+                    <AccountAddressBadge
+                      address={accountItem?.receiveAddress}
+                    />
                   }
                 />
               </FullWidthChartContainer>

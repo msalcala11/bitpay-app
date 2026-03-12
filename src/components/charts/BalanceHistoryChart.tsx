@@ -150,8 +150,9 @@ const BalanceHistoryChart = ({
   const theme = useTheme();
   const dispatch = useAppDispatch();
 
-  const [selectedTimeframe, setSelectedTimeframe] =
-    useState<FiatRateInterval>(initialSelectedTimeframe);
+  const [selectedTimeframe, setSelectedTimeframe] = useState<FiatRateInterval>(
+    initialSelectedTimeframe,
+  );
   const [chartWidth, setChartWidth] = useState<number | undefined>(undefined);
   const [selectedPoint, setSelectedPoint] = useState<GraphPoint | undefined>();
   const [hasCompletedInitialSelectedLoad, setHasCompletedInitialSelectedLoad] =
@@ -360,8 +361,8 @@ const BalanceHistoryChart = ({
   const getTimeframeRevision = useCallback(
     (
       timeframe: FiatRateInterval,
-      historicalRateDeps =
-        getLiveHistoricalRateDepsForTimeframe(timeframe) || [],
+      historicalRateDeps = getLiveHistoricalRateDepsForTimeframe(timeframe) ||
+        [],
     ) => {
       return buildBalanceChartTimeframeRevision({
         scopeId,
@@ -455,9 +456,7 @@ const BalanceHistoryChart = ({
     ? timeframeSelectorOpacity
     : undefined;
   const timeframeSelectorOpacityNumber =
-    typeof timeframeSelectorOpacity === 'number'
-      ? timeframeSelectorOpacity
-      : 1;
+    typeof timeframeSelectorOpacity === 'number' ? timeframeSelectorOpacity : 1;
 
   const timeframeSelectorAnimatedStyle = useAnimatedStyle(() => {
     return {
@@ -598,7 +597,9 @@ const BalanceHistoryChart = ({
     }
 
     return preChartContent ? (
-      <View style={{marginTop: preChartContentTopMargin}}>{preChartContent}</View>
+      <View style={{marginTop: preChartContentTopMargin}}>
+        {preChartContent}
+      </View>
     ) : null;
   }
 
@@ -613,7 +614,9 @@ const BalanceHistoryChart = ({
         />
       ) : null}
       {preChartContent ? (
-        <View style={{marginTop: preChartContentTopMargin}}>{preChartContent}</View>
+        <View style={{marginTop: preChartContentTopMargin}}>
+          {preChartContent}
+        </View>
       ) : null}
 
       <InteractiveLineChart

@@ -14,10 +14,7 @@ type UseChartAxisLabelRenderersArgs = {
   quoteCurrency: string;
   currencyAbbreviation?: string;
   chartWidth?: number;
-  contentOpacity?:
-    | number
-    | SharedValue<number>
-    | Readonly<SharedValue<number>>;
+  contentOpacity?: number | SharedValue<number> | Readonly<SharedValue<number>>;
 };
 
 const hasRenderableAxisLabel = (label?: AxisLabelSnapshot): boolean => {

@@ -365,11 +365,7 @@ function buildRateSeries(points: FiatRatePoint[], minTs?: number): RateSeries {
       ts[i] = tsList[j];
       rate[i] = rateList[j];
     }
-    if (
-      typeof minTs === 'number' &&
-      Number.isFinite(minTs) &&
-      ts.length > 0
-    ) {
+    if (typeof minTs === 'number' && Number.isFinite(minTs) && ts.length > 0) {
       let firstAtOrAfter = -1;
       for (let i = 0; i < ts.length; i++) {
         if (ts[i] >= minTs) {
@@ -410,9 +406,7 @@ function buildRateSeries(points: FiatRatePoint[], minTs?: number): RateSeries {
   return {ts: Float64Array.from(tsList), rate: Float64Array.from(rateList)};
 }
 
-function findOldestSnapshotTs(
-  wallets: WalletForAnalysis[],
-): number | null {
+function findOldestSnapshotTs(wallets: WalletForAnalysis[]): number | null {
   let best: number | null = null;
   for (const w of wallets) {
     for (const s of w.snapshots) {
@@ -456,7 +450,6 @@ type BuildPnlAnalysisSeriesGeneratorOptions = {
 };
 
 const DEFAULT_ASYNC_YIELD_EVERY_POINTS = 4;
-
 
 function* buildPnlAnalysisSeriesGenerator(
   args: BuildPnlAnalysisSeriesArgs,
@@ -812,12 +805,11 @@ function* buildPnlAnalysisSeriesGenerator(
     const totalCryptoBalanceAtomic = singleAsset
       ? totalCryptoAtomic.toString()
       : undefined;
-    const totalCryptoBalanceFormatted =
-      shouldBuildChartOutputOnly
-        ? undefined
-        : singleAsset && totalCryptoCreds
-        ? formatAtomicAmount(totalCryptoAtomic, totalCryptoCreds)
-        : undefined;
+    const totalCryptoBalanceFormatted = shouldBuildChartOutputOnly
+      ? undefined
+      : singleAsset && totalCryptoCreds
+      ? formatAtomicAmount(totalCryptoAtomic, totalCryptoCreds)
+      : undefined;
 
     points.push({
       timestamp: ts,
@@ -840,48 +832,50 @@ function* buildPnlAnalysisSeriesGenerator(
   const assetSummaries: AssetPnlSummary[] = shouldBuildChartOutputOnly
     ? []
     : coins.map(coin => {
-    const ids = new Set(
-      wallets
-        .filter(
-          w => normalizeFiatRateSeriesCoin(w.currencyAbbreviation) === coin,
-        )
-        .map(w => w.walletId),
-    );
+        const ids = new Set(
+          wallets
+            .filter(
+              w => normalizeFiatRateSeriesCoin(w.currencyAbbreviation) === coin,
+            )
+            .map(w => w.walletId),
+        );
 
-    // Sum windowed PnL + basis for wallets in this coin group.
-    let startPnl = 0;
-    let endPnl = 0;
-    let endBasis = 0;
+        // Sum windowed PnL + basis for wallets in this coin group.
+        let startPnl = 0;
+        let endPnl = 0;
+        let endBasis = 0;
 
-    for (const w of wallets) {
-      if (!ids.has(w.walletId)) continue;
-      startPnl += first.byWalletId[w.walletId]?.unrealizedPnlFiat ?? 0;
-      endPnl += last.byWalletId[w.walletId]?.unrealizedPnlFiat ?? 0;
-      endBasis += last.byWalletId[w.walletId]?.remainingCostBasisFiat ?? 0;
-    }
+        for (const w of wallets) {
+          if (!ids.has(w.walletId)) continue;
+          startPnl += first.byWalletId[w.walletId]?.unrealizedPnlFiat ?? 0;
+          endPnl += last.byWalletId[w.walletId]?.unrealizedPnlFiat ?? 0;
+          endBasis += last.byWalletId[w.walletId]?.remainingCostBasisFiat ?? 0;
+        }
 
-    const rateStart = baselineRateByCoin[coin];
-    const rateEnd = rateCursorByCoin[coin]?.getNearest(endTs);
-    if (rateEnd === undefined)
-      throw new Error(`Missing ${quoteCurrency}:${coin} rate at ts=${endTs}.`);
-    const rateChange = rateEnd - rateStart;
-    const ratePct = rateStart > 0 ? (rateChange / rateStart) * 100 : 0;
+        const rateStart = baselineRateByCoin[coin];
+        const rateEnd = rateCursorByCoin[coin]?.getNearest(endTs);
+        if (rateEnd === undefined)
+          throw new Error(
+            `Missing ${quoteCurrency}:${coin} rate at ts=${endTs}.`,
+          );
+        const rateChange = rateEnd - rateStart;
+        const ratePct = rateStart > 0 ? (rateChange / rateStart) * 100 : 0;
 
-    const pnlPercent = endBasis > 0 ? (endPnl / endBasis) * 100 : 0;
+        const pnlPercent = endBasis > 0 ? (endPnl / endBasis) * 100 : 0;
 
-    return {
-      coin,
-      displaySymbol: coin.toUpperCase(),
-      rateStart,
-      rateEnd,
-      rateChange,
-      ratePercentChange: ratePct,
-      pnlStart: startPnl,
-      pnlEnd: endPnl,
-      pnlChange: endPnl - startPnl,
-      pnlPercent,
-    };
-  });
+        return {
+          coin,
+          displaySymbol: coin.toUpperCase(),
+          rateStart,
+          rateEnd,
+          rateChange,
+          ratePercentChange: ratePct,
+          pnlStart: startPnl,
+          pnlEnd: endPnl,
+          pnlChange: endPnl - startPnl,
+          pnlPercent,
+        };
+      });
 
   const totalSummary: TotalPnlSummary = {
     pnlStart: first.totalUnrealizedPnlFiat,

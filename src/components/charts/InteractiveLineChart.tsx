@@ -15,10 +15,7 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import Loader from '../loader/Loader';
 import {Slate, SlateDark} from '../../styles/colors';
-import {
-  isNumberSharedValue,
-  type NumberSharedValue,
-} from './sharedValueGuards';
+import {isNumberSharedValue, type NumberSharedValue} from './sharedValueGuards';
 
 const ChartContainer = styled.View`
   margin-top: 0;
@@ -160,8 +157,8 @@ const InteractiveLineChart = ({
       : effectiveLineThickness /
         Math.pow(safeStrokeScaleNumber, lineThicknessCompensationExponent);
 
-  const firstPointGuideLineAnimatedProps = useAnimatedProps<SvgLineAnimatedProps>(
-    () => {
+  const firstPointGuideLineAnimatedProps =
+    useAnimatedProps<SvgLineAnimatedProps>(() => {
       const scale = strokeScaleValue.value;
       const safeScale = scale > 0 ? scale : 1;
 
@@ -172,9 +169,7 @@ const InteractiveLineChart = ({
           FIRST_POINT_GUIDE_LINE_GAP_LENGTH / safeScale,
         ],
       };
-    },
-    [strokeScaleValue],
-  );
+    }, [strokeScaleValue]);
 
   const resolvedMinStrokeScale =
     typeof minStrokeScale === 'number' && minStrokeScale > 0
@@ -240,7 +235,11 @@ const InteractiveLineChart = ({
   const hasDrawablePoints = pointsForGraph.length >= 2;
 
   const firstPointGuideLine = React.useMemo(() => {
-    if (!showFirstPointGuideLine || !pointsForGraph.length || !lineGraphLayout) {
+    if (
+      !showFirstPointGuideLine ||
+      !pointsForGraph.length ||
+      !lineGraphLayout
+    ) {
       return null;
     }
 

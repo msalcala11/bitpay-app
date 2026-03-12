@@ -21,7 +21,8 @@ const ButtonsRow = styled.View<{maxWidth?: number; compactSpacing?: boolean}>`
     compactSpacing ? 'center' : 'space-between'};
   flex-direction: row;
   align-self: center;
-  width: ${({maxWidth = MAX_LINKING_BUTTON_ROW_WIDTH}) => Math.min(WIDTH - 24, maxWidth)}px;
+  width: ${({maxWidth = MAX_LINKING_BUTTON_ROW_WIDTH}) =>
+    Math.min(WIDTH - 24, maxWidth)}px;
   max-width: ${({maxWidth = MAX_LINKING_BUTTON_ROW_WIDTH}) => maxWidth}px;
 `;
 
