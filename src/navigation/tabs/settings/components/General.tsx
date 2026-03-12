@@ -19,6 +19,7 @@ import {
 } from '../../../../store/portfolio';
 import {clearPortfolioCharts} from '../../../../store/portfolio-charts';
 import {pruneFiatRateSeriesCache} from '../../../../store/rate/rate.actions';
+import {getAndDispatchUpdatedWalletBalances} from '../../../../store/wallet/effects/status/statusv2';
 import {useTheme} from '@react-navigation/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useAppSelector} from '../../../../utils/hooks/useAppSelector';
@@ -104,7 +105,7 @@ const General: React.FC<Props> = ({navigation}) => {
   const {t} = useTranslation();
 
   const handleToggleShowPortfolio = useCallback(
-    (value: boolean) => {
+    async (value: boolean) => {
       dispatch(AppActions.showPortfolioValue(value));
       if (!value) {
         dispatch(cancelPopulatePortfolio());
@@ -131,6 +132,22 @@ const General: React.FC<Props> = ({navigation}) => {
         dispatch(clearPortfolioCharts());
         return;
       }
+
+      try {
+        await dispatch(
+          getAndDispatchUpdatedWalletBalances({
+            context: 'homeRootOnRefresh',
+            createTokenWalletWithFunds: true,
+            skipRateUpdate: true,
+          }) as any,
+        );
+      } catch (err) {
+        logManager.warn(
+          'Could not refresh wallet balances before enabling portfolio',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+
       dispatch(
         populatePortfolio({quoteCurrency: selectedAltCurrency?.isoCode}) as any,
       );
