@@ -1271,9 +1271,25 @@ const BalanceHistoryChart = ({
       return seriesByTimeframe[selectedTimeframe];
     }
 
+    // Keep rendering the latest in-memory series for the selected timeframe
+    // while a same-revision attempt is pending. This avoids getting stuck on a
+    // spinner after timeframe switches if a refresh/re-hydration cycle is
+    // briefly interrupted before the revision bookkeeping catches up.
+    if (
+      seriesByTimeframe[selectedTimeframe] &&
+      lastAttemptRevisionByTimeframe[selectedTimeframe] ===
+        selectedTimeframeAttemptRevision &&
+      !lastErrorByTimeframe[selectedTimeframe]
+    ) {
+      return seriesByTimeframe[selectedTimeframe];
+    }
+
     return undefined;
   }, [
+    lastAttemptRevisionByTimeframe,
+    lastErrorByTimeframe,
     selectedTimeframe,
+    selectedTimeframeAttemptRevision,
     selectedTimeframeRevision,
     seriesByTimeframe,
     seriesRevisionByTimeframe,
