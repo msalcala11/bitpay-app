@@ -1,4 +1,8 @@
-import {setWalletSnapshots, removeWalletSnapshots} from '../portfolio/portfolio.actions';
+import {
+  clearPortfolio,
+  removeWalletSnapshots,
+  setWalletSnapshots,
+} from '../portfolio/portfolio.actions';
 import {
   clearPortfolioCharts,
   pruneBalanceChartCache,
@@ -14,9 +18,9 @@ import {
 import {portfolioChartsReducer} from './portfolio-charts.reducer';
 
 const makeTimeframe = (
-  timeframe: CachedBalanceChartTimeframe['timeframe'] = 'ALL',
+  overrides: Partial<CachedBalanceChartTimeframe> = {},
 ): CachedBalanceChartTimeframe => ({
-  timeframe,
+  timeframe: 'ALL',
   builtAt: 123,
   schemaVersion: BALANCE_CHART_CACHE_SCHEMA_VERSION,
   quoteCurrency: 'USD',
@@ -31,6 +35,7 @@ const makeTimeframe = (
   totalFiatBalance: [100],
   totalUnrealizedPnlFiat: [0],
   totalPnlPercent: [0],
+  ...overrides,
 });
 
 describe('portfolioChartsReducer', () => {
@@ -54,6 +59,47 @@ describe('portfolioChartsReducer', () => {
 
     state = portfolioChartsReducer(state, clearPortfolioCharts());
     expect(state.homeChartRemountNonce).toBe(2);
+  });
+
+
+  it('clears cached chart state and bumps the remount nonce once on clearPortfolio', () => {
+    let state = portfolioChartsReducer(undefined, {type: '@@INIT'} as any);
+
+    state = portfolioChartsReducer(
+      state,
+      setHomeChartCollapsed(true),
+    );
+    state = portfolioChartsReducer(
+      state,
+      setWalletSnapshots({
+        walletId: 'wallet-1',
+        snapshots: [],
+      }),
+    );
+    state = portfolioChartsReducer(
+      state,
+      upsertBalanceChartScopeTimeframes({
+        scopeId: 'scope-1',
+        walletIds: ['wallet-1'],
+        quoteCurrency: 'USD',
+        balanceOffset: 0,
+        timeframes: [makeTimeframe()],
+      }),
+    );
+
+    expect(state.homeChartCollapsed).toBe(true);
+    expect(state.homeChartRemountNonce).toBe(0);
+    expect(state.walletSnapshotVersionById['wallet-1']).toBe(1);
+    expect(state.cacheByScopeId['scope-1']).toBeDefined();
+    expect(state.lruScopeIds).toEqual(['scope-1']);
+
+    state = portfolioChartsReducer(state, clearPortfolio());
+
+    expect(state.homeChartCollapsed).toBe(false);
+    expect(state.homeChartRemountNonce).toBe(1);
+    expect(state.walletSnapshotVersionById).toEqual({});
+    expect(state.cacheByScopeId).toEqual({});
+    expect(state.lruScopeIds).toEqual([]);
   });
 
   it('bumps the wallet snapshot version when snapshots are set', () => {

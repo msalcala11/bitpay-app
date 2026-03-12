@@ -126,7 +126,7 @@ import {BitpaySupportedTokenOptsByAddress} from '../../../constants/tokens';
 import {BWCErrorMessage} from '../../../constants/BWCError';
 import ArchaxFooter from '../../../components/archax/archax-footer';
 import {useOngoingProcess, useTokenContext} from '../../../contexts';
-import BalanceHistoryChart from '../../../components/charts/BalanceHistoryChart';
+import SharedBalanceHistoryChart from '../../../components/charts/SharedBalanceHistoryChart';
 import {getDifferenceColor} from '../../../components/percentage/Percentage';
 import Button from '../../../components/button/Button';
 import {AllocationDonutLegendCard} from '../../tabs/home/components/AllocationSection';
@@ -1026,7 +1026,7 @@ const KeyOverview = () => {
 
           {!hideAllBalances ? (
             <FullWidthChartContainer>
-              <BalanceHistoryChart
+              <SharedBalanceHistoryChart
                 wallets={visibleKeyWallets}
                 snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
                 quoteCurrency={quoteCurrency}

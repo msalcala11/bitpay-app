@@ -113,11 +113,11 @@ import useExchangeRateChartData, {
   HISTORIC_TIMEFRAME_WINDOW_MS,
 } from '../hooks/useExchangeRateChartData';
 
-import ChartAxisLabel from '../../../components/charts/ChartAxisLabel';
 import ChartSelectionDot from '../../../components/charts/ChartSelectionDot';
 import InteractiveLineChart from '../../../components/charts/InteractiveLineChart';
 import TimeframeSelector from '../../../components/charts/TimeframeSelector';
 import ChartChangeRow from '../../../components/charts/ChartChangeRow';
+import {useChartAxisLabelRenderers} from '../../../components/charts/useChartAxisLabelRenderers';
 import {
   formatRangeOrSelectedPointLabel,
   getFiatChartTimeframeOptions,
@@ -1118,74 +1118,36 @@ const ExchangeRate = () => {
     return displayData.data;
   }, [displayData.data]);
 
-  // Axis label renderers are passed to `react-native-graph` as *component
-  // types*. If we recreate them on every render (e.g. via useCallback deps),
-  // React treats them as new component types and unmounts/remounts the labels.
-  // That resets internal measurement/animation state and can show up as a
-  // jarring "jump" to a clamped edge before sliding to the final position.
-  //
-  // Keep stable identities and read the latest values from refs.
-  const currencyAbbreviationRef = useRef(currencyAbbreviation);
-  currencyAbbreviationRef.current = currencyAbbreviation;
-  const quoteCurrencyRef = useRef(defaultAltCurrency.isoCode);
-  quoteCurrencyRef.current = defaultAltCurrency.isoCode;
-  const selectedTimeframeHighValueRef = useRef(selectedTimeframeHighValue);
-  selectedTimeframeHighValueRef.current = selectedTimeframeHighValue;
-  const chartWidthRef = useRef(chartWidth);
-  chartWidthRef.current = chartWidth;
+  const {MinAxisLabel, MaxAxisLabel} = useChartAxisLabelRenderers({
+    minLabel:
+      displayData.data.length &&
+      typeof displayData.minIndex === 'number' &&
+      displayData.minPoint?.value != null
+        ? {
+            value: displayData.minPoint.value,
+            index: displayData.minIndex,
+            arrayLength: displayData.data.length,
+          }
+        : undefined,
+    maxLabel:
+      displayData.data.length &&
+      typeof displayData.maxIndex === 'number' &&
+      (selectedTimeframeHighValue ?? displayData.maxPoint?.value) != null
+        ? {
+            value: selectedTimeframeHighValue ?? displayData.maxPoint?.value,
+            index: displayData.maxIndex,
+            arrayLength: displayData.data.length,
+          }
+        : undefined,
+    quoteCurrency: defaultAltCurrency.isoCode,
+    currencyAbbreviation,
+    chartWidth,
+  });
 
   useEffect(() => {
     gestureStarted.current = false;
     setSelectedPoint(undefined);
   }, [chartPoints]);
-
-  const MinAxisLabel = useCallback(() => {
-    if (
-      !displayDataRef.current.data.length ||
-      typeof displayDataRef.current.minIndex !== 'number' ||
-      displayDataRef.current.minPoint?.value == null
-    ) {
-      return null;
-    }
-
-    return (
-      <ChartAxisLabel
-        value={displayDataRef.current.minPoint.value}
-        index={displayDataRef.current.minIndex}
-        arrayLength={displayDataRef.current.data.length}
-        quoteCurrency={quoteCurrencyRef.current}
-        currencyAbbreviation={currencyAbbreviationRef.current}
-        type="min"
-        chartWidth={chartWidthRef.current}
-      />
-    );
-  }, []);
-
-  const MaxAxisLabel = useCallback(() => {
-    const dd = displayDataRef.current;
-    const maxAxisLabelValue =
-      selectedTimeframeHighValueRef.current ?? dd.maxPoint?.value;
-
-    if (
-      !dd.data.length ||
-      typeof dd.maxIndex !== 'number' ||
-      maxAxisLabelValue == null
-    ) {
-      return null;
-    }
-
-    return (
-      <ChartAxisLabel
-        value={maxAxisLabelValue}
-        index={dd.maxIndex}
-        arrayLength={dd.data.length}
-        quoteCurrency={quoteCurrencyRef.current}
-        currencyAbbreviation={currencyAbbreviationRef.current}
-        type="max"
-        chartWidth={chartWidthRef.current}
-      />
-    );
-  }, []);
 
   const onPointSelected = useCallback(
     (p: GraphPoint) => {
@@ -1395,7 +1357,7 @@ const ExchangeRate = () => {
             SelectionDot={ChartSelectionDot}
             color={theme.dark && coinColor === Black ? White : coinColor}
             isLoading={isChartLoading}
-            chartWidth={chartWidthRef.current}
+            chartWidth={chartWidth}
           />
 
           <TimeframeSelector

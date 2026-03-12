@@ -9,22 +9,18 @@ import type {PnlAnalysisPoint, WalletForAnalysis} from './core/pnl/analysis';
 import {normalizeFiatRateSeriesCoin} from './core/pnl/rates';
 import {getAtomicDecimals, parseAtomicToBigint} from './core/format';
 import {atomicToUnitNumber} from './core/pnl/atomic';
+import {
+  buildBalanceChartPointByTimestampMap,
+  getSortedUniqueWalletIds,
+  normalizeBalanceChartOffset,
+  type BalanceChartSeries,
+} from './balanceChartShared';
 
 export type CachedTimeframeStatus =
   | 'fresh'
   | 'patchable'
   | 'stale_historical'
   | 'missing';
-
-export type HydratedBalanceChartSeries = {
-  graphPoints: GraphPoint[];
-  analysisPoints: PnlAnalysisPoint[];
-  pointByTimestamp: Map<number, PnlAnalysisPoint>;
-  minIndex: number;
-  maxIndex: number;
-  minPoint: GraphPoint;
-  maxPoint: GraphPoint;
-};
 
 const GRAPH_DRAWABLE_EPSILON = 0.0001;
 const SPOT_RATE_EPSILON = 1e-9;
@@ -37,24 +33,6 @@ const toFiniteNumber = (value: unknown, fallback = 0): number => {
 const toOptionalFiniteNumber = (value: unknown): number | undefined => {
   const normalized = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(normalized) ? normalized : undefined;
-};
-
-export const normalizeBalanceChartOffset = (value: unknown): number => {
-  return toFiniteNumber(value, 0);
-};
-
-export const getSortedUniqueWalletIds = (walletIds: string[]): string[] => {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const walletId of walletIds || []) {
-    const normalized = String(walletId || '');
-    if (!normalized || seen.has(normalized)) {
-      continue;
-    }
-    seen.add(normalized);
-    out.push(normalized);
-  }
-  return out.sort((a, b) => a.localeCompare(b));
 };
 
 const toRateSignature = (ratesByCoin: Record<string, number>): string => {
@@ -353,7 +331,7 @@ export const recomputeMinMaxFromGraphPoints = (points: GraphPoint[]) => {
 
 export const deserializeCachedTimeframeToComputedSeries = (
   cachedTimeframe: CachedBalanceChartTimeframe,
-): HydratedBalanceChartSeries => {
+): BalanceChartSeries => {
   const length = Math.min(
     cachedTimeframe.ts.length,
     cachedTimeframe.totalFiatBalance.length,
@@ -389,10 +367,10 @@ export const deserializeCachedTimeframeToComputedSeries = (
   }
 
   const graphPoints = normalizeGraphPointsForChart(rawGraphPoints);
-  const pointByTimestamp = new Map<number, PnlAnalysisPoint>();
-  for (let i = 0; i < graphPoints.length; i++) {
-    pointByTimestamp.set(graphPoints[i].date.getTime(), analysisPoints[i]);
-  }
+  const pointByTimestamp = buildBalanceChartPointByTimestampMap({
+    graphPoints,
+    analysisPoints,
+  });
 
   const {minIndex, maxIndex, minPoint, maxPoint} =
     recomputeMinMaxFromGraphPoints(graphPoints);

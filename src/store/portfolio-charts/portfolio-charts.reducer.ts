@@ -14,6 +14,10 @@ import {
   PortfolioChartsActionType,
   PortfolioChartsActionTypes,
 } from './portfolio-charts.types';
+import {
+  normalizeBalanceChartOffset,
+  normalizeBalanceChartWalletIds,
+} from '../../utils/portfolio/balanceChartShared';
 
 export type PortfolioChartsReduxPersistBlackList = string[];
 export const portfolioChartsReduxPersistBlackList: PortfolioChartsReduxPersistBlackList =
@@ -25,25 +29,6 @@ const initialState: PortfolioChartsState = {
   walletSnapshotVersionById: {},
   cacheByScopeId: {},
   lruScopeIds: [],
-};
-
-const normalizeWalletIds = (walletIds: string[]): string[] => {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const walletId of walletIds || []) {
-    const normalized = String(walletId || '');
-    if (!normalized || seen.has(normalized)) {
-      continue;
-    }
-    seen.add(normalized);
-    out.push(normalized);
-  }
-  return out.sort((a, b) => a.localeCompare(b));
-};
-
-const normalizeBalanceOffset = (value: number): number => {
-  const normalized = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(normalized) ? normalized : 0;
 };
 
 const touchScopeId = (lruScopeIds: string[], scopeId: string): string[] => {
@@ -86,7 +71,7 @@ const removeScopesForWalletIds = (
   state: PortfolioChartsState,
   walletIds: string[],
 ): PortfolioChartsState => {
-  const targetWalletIds = new Set(normalizeWalletIds(walletIds));
+  const targetWalletIds = new Set(normalizeBalanceChartWalletIds(walletIds));
   if (!targetWalletIds.size) {
     return state;
   }
@@ -121,8 +106,8 @@ const sanitizeTimeframe = (
     typeof timeframe?.schemaVersion === 'number'
       ? timeframe.schemaVersion
       : BALANCE_CHART_CACHE_SCHEMA_VERSION,
-  balanceOffset: normalizeBalanceOffset(timeframe?.balanceOffset ?? 0),
-  walletIds: normalizeWalletIds(timeframe?.walletIds || []),
+  balanceOffset: normalizeBalanceChartOffset(timeframe?.balanceOffset ?? 0),
+  walletIds: normalizeBalanceChartWalletIds(timeframe?.walletIds || []),
   historicalRateDeps: Array.isArray(timeframe?.historicalRateDeps)
     ? timeframe.historicalRateDeps
         .filter(dep => !!dep?.cacheKey)
@@ -188,13 +173,13 @@ const upsertScopeTimeframes = (
 
   const nextScope: CachedBalanceChartScope = {
     scopeId,
-    walletIds: normalizeWalletIds(
+    walletIds: normalizeBalanceChartWalletIds(
       args.walletIds || existingScope?.walletIds || [],
     ),
     quoteCurrency: String(
       args.quoteCurrency || existingScope?.quoteCurrency || '',
     ).toUpperCase(),
-    balanceOffset: normalizeBalanceOffset(
+    balanceOffset: normalizeBalanceChartOffset(
       args.balanceOffset ?? existingScope?.balanceOffset ?? 0,
     ),
     lastAccessedAt:
@@ -299,7 +284,7 @@ export const portfolioChartsReducer = (
     }
 
     case PortfolioActionTypes.REMOVE_WALLET_SNAPSHOTS: {
-      const walletIds = normalizeWalletIds(action.payload?.walletIds || []);
+      const walletIds = normalizeBalanceChartWalletIds(action.payload?.walletIds || []);
       if (!walletIds.length) {
         return state;
       }

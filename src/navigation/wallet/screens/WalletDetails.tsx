@@ -23,7 +23,7 @@ import {
 } from 'react-native';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import styled from 'styled-components/native';
-import BalanceHistoryChart from '../../../components/charts/BalanceHistoryChart';
+import SharedBalanceHistoryChart from '../../../components/charts/SharedBalanceHistoryChart';
 import Settings from '../../../components/settings/Settings';
 import {
   Balance,
@@ -1202,7 +1202,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
 
                   {!hideAllBalances ? (
                     <FullWidthChartContainer>
-                      <BalanceHistoryChart
+                      <SharedBalanceHistoryChart
                         wallets={chartWallets}
                         snapshotsByWalletId={snapshotsByWalletId || {}}
                         quoteCurrency={defaultAltCurrency.isoCode}

@@ -1,0 +1,2 @@
+export const CHART_LOADER_DELAY_MS = 150;
+export const CHART_COMPUTE_YIELD_EVERY_POINTS = 4;

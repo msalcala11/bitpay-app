@@ -4,7 +4,7 @@ import type {FiatRateInterval} from '../../store/rate/rate.models';
 import type {PnlAnalysisPoint} from '../../utils/portfolio/core/pnl/analysis';
 import {formatFiatAmount} from '../../utils/helper-methods';
 import {
-  formatSelectedPointLabelForFiatTimeframe,
+  formatRangeOrSelectedPointLabel,
   getRangeLabelForFiatTimeframe,
 } from './fiatTimeframes';
 import type {ChangeRowData, ComputedSeries} from './balanceHistoryChart.types';
@@ -20,6 +20,11 @@ type UseBalanceChartChangeRowArgs = {
   resetCacheKey: string;
 };
 
+type ChangeRowPointMetadata = {
+  label: string;
+  deltaFiatFormatted: string;
+};
+
 export const useBalanceChartChangeRow = ({
   activeSeries,
   fallbackAnalysisPoint,
@@ -30,8 +35,6 @@ export const useBalanceChartChangeRow = ({
   t,
   resetCacheKey,
 }: UseBalanceChartChangeRowArgs): {
-  rangeLabel: string;
-  rangeOrSelectedPointLabel: string;
   displayedChangeRowData?: ChangeRowData;
 } => {
   const [lastResolvedChangeRowDataByTimeframe, setLastResolvedChangeRowDataByTimeframe] =
@@ -46,33 +49,29 @@ export const useBalanceChartChangeRow = ({
     [displayedTimeframe, t],
   );
 
-  const labelByTimestampMs = useMemo(() => {
-    const next = new Map<number, string>();
+  const pointMetadataByTimestampMs = useMemo(() => {
+    const next = new Map<number, ChangeRowPointMetadata>();
+
     for (const point of activeSeries?.analysisPoints || []) {
-      next.set(
-        point.timestamp,
-        formatSelectedPointLabelForFiatTimeframe({
+      next.set(point.timestamp, {
+        label: formatRangeOrSelectedPointLabel({
+          rangeLabel,
           selectedTimeframe: displayedTimeframe,
           selectedDate: new Date(point.timestamp),
         }),
-      );
+        deltaFiatFormatted: formatFiatAmount(
+          point.totalUnrealizedPnlFiat ?? 0,
+          quoteCurrency,
+          {
+            customPrecision: 'minimal',
+            currencyDisplay: 'symbol',
+          },
+        ),
+      });
     }
-    return next;
-  }, [activeSeries?.analysisPoints, displayedTimeframe]);
 
-  const deltaFiatFormattedByTimestampMs = useMemo(() => {
-    const next = new Map<number, string>();
-    for (const point of activeSeries?.analysisPoints || []) {
-      next.set(
-        point.timestamp,
-        formatFiatAmount(point.totalUnrealizedPnlFiat ?? 0, quoteCurrency, {
-          customPrecision: 'minimal',
-          currencyDisplay: 'symbol',
-        }),
-      );
-    }
     return next;
-  }, [activeSeries?.analysisPoints, quoteCurrency]);
+  }, [activeSeries?.analysisPoints, displayedTimeframe, quoteCurrency, rangeLabel]);
 
   const selectedAnalysisPoint = useMemo(() => {
     if (!selectedPoint || !activeSeries) {
@@ -90,39 +89,39 @@ export const useBalanceChartChangeRow = ({
   const displayedAnalysisPoint =
     selectedAnalysisPoint ?? lastAnalysisPoint ?? fallbackAnalysisPoint;
 
-  const selectedPointLabel =
+  const selectedPointMetadata =
     selectedPoint != null
-      ? labelByTimestampMs.get(selectedPoint.date.getTime())
+      ? pointMetadataByTimestampMs.get(selectedPoint.date.getTime())
       : undefined;
-
-  const rangeOrSelectedPointLabel = selectedPointLabel || rangeLabel;
 
   const resolvedChangeRowData = useMemo<ChangeRowData | undefined>(() => {
     if (!displayedAnalysisPoint) {
       return undefined;
     }
 
-    const timestamp = displayedAnalysisPoint.timestamp;
+    const pointMetadata =
+      pointMetadataByTimestampMs.get(displayedAnalysisPoint.timestamp);
+
     return {
       percent: displayedAnalysisPoint.totalPnlPercent ?? 0,
       deltaFiatFormatted:
-        deltaFiatFormattedByTimestampMs.get(timestamp) ||
-        formatFiatAmount(displayedAnalysisPoint.totalUnrealizedPnlFiat ?? 0, quoteCurrency, {
-          customPrecision: 'minimal',
-          currencyDisplay: 'symbol',
-        }),
-      rangeLabel:
-        (selectedPoint &&
-          labelByTimestampMs.get(selectedPoint.date.getTime())) ||
-        rangeLabel,
+        pointMetadata?.deltaFiatFormatted ||
+        formatFiatAmount(
+          displayedAnalysisPoint.totalUnrealizedPnlFiat ?? 0,
+          quoteCurrency,
+          {
+            customPrecision: 'minimal',
+            currencyDisplay: 'symbol',
+          },
+        ),
+      rangeLabel: selectedPointMetadata?.label || pointMetadata?.label || rangeLabel,
     };
   }, [
-    deltaFiatFormattedByTimestampMs,
     displayedAnalysisPoint,
-    labelByTimestampMs,
+    pointMetadataByTimestampMs,
     quoteCurrency,
     rangeLabel,
-    selectedPoint,
+    selectedPointMetadata,
   ]);
 
   useEffect(() => {
@@ -134,7 +133,8 @@ export const useBalanceChartChangeRow = ({
       const existing = prev[selectedTimeframe];
       if (
         existing?.percent === resolvedChangeRowData.percent &&
-        existing?.deltaFiatFormatted === resolvedChangeRowData.deltaFiatFormatted &&
+        existing?.deltaFiatFormatted ===
+          resolvedChangeRowData.deltaFiatFormatted &&
         existing?.rangeLabel === resolvedChangeRowData.rangeLabel
       ) {
         return prev;
@@ -148,8 +148,6 @@ export const useBalanceChartChangeRow = ({
   }, [resolvedChangeRowData, selectedTimeframe]);
 
   return {
-    rangeLabel,
-    rangeOrSelectedPointLabel,
     displayedChangeRowData:
       resolvedChangeRowData ||
       lastResolvedChangeRowDataByTimeframe[selectedTimeframe],

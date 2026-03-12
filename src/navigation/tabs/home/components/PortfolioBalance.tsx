@@ -10,12 +10,16 @@ import {
   ActiveOpacity,
   ScreenGutter,
 } from '../../../../components/styled/Containers';
-import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
+import {
+  useAppDispatch,
+  useAppSelector,
+  useLifecycleScopedValue,
+} from '../../../../utils/hooks';
 import {
   showBottomNotificationModal,
   toggleHideAllBalances,
 } from '../../../../store/app/app.actions';
-import BalanceHistoryChart from '../../../../components/charts/BalanceHistoryChart';
+import SharedBalanceHistoryChart from '../../../../components/charts/SharedBalanceHistoryChart';
 import ChartChangeRow from '../../../../components/charts/ChartChangeRow';
 import {COINBASE_ENV} from '../../../../api/coinbase/coinbase.constants';
 import {useTranslation} from 'react-i18next';
@@ -109,18 +113,6 @@ const PortfolioBalance = () => {
   const {homeChartCollapsed: persistedHomeChartCollapsed, homeChartRemountNonce} =
     useAppSelector(({PORTFOLIO_CHARTS}) => PORTFOLIO_CHARTS);
 
-  const [selectedChartBalanceState, setSelectedChartBalanceState] = useState<{
-    lifecycleKey: string;
-    balance?: number;
-  }>();
-  const [chartChangeRowDataState, setChartChangeRowDataState] = useState<{
-    lifecycleKey: string;
-    data?: {
-      percent: number;
-      deltaFiatFormatted?: string;
-      rangeLabel?: string;
-    };
-  }>();
   const [isChartCollapsed, setIsChartCollapsed] = useState(
     persistedHomeChartCollapsed,
   );
@@ -350,23 +342,19 @@ const PortfolioBalance = () => {
     [homeChartRemountNonce, quoteCurrency, visibleKeyIdsSig],
   );
 
-  const selectedChartBalance =
-    selectedChartBalanceState?.lifecycleKey === chartLifecycleKey
-      ? selectedChartBalanceState.balance
-      : undefined;
-  const chartChangeRowData =
-    chartChangeRowDataState?.lifecycleKey === chartLifecycleKey
-      ? chartChangeRowDataState.data
-      : undefined;
+  const [selectedChartBalance, setSelectedChartBalance] =
+    useLifecycleScopedValue<number>(chartLifecycleKey);
+  const [chartChangeRowData, setChartChangeRowData] = useLifecycleScopedValue<{
+    percent: number;
+    deltaFiatFormatted?: string;
+    rangeLabel?: string;
+  }>(chartLifecycleKey);
 
   const handleSelectedChartBalanceChange = useCallback(
     (balance?: number) => {
-      setSelectedChartBalanceState({
-        lifecycleKey: chartLifecycleKey,
-        balance,
-      });
+      setSelectedChartBalance(balance);
     },
-    [chartLifecycleKey],
+    [setSelectedChartBalance],
   );
 
   const handleChartChangeRowData = useCallback(
@@ -377,12 +365,9 @@ const PortfolioBalance = () => {
         rangeLabel?: string;
       },
     ) => {
-      setChartChangeRowDataState({
-        lifecycleKey: chartLifecycleKey,
-        data,
-      });
+      setChartChangeRowData(data);
     },
-    [chartLifecycleKey],
+    [setChartChangeRowData],
   );
 
   const displayedPortfolioBalance =
@@ -513,7 +498,7 @@ const PortfolioBalance = () => {
                     setChartBlockHeight(h);
                   }
                 }}>
-                <BalanceHistoryChart
+                <SharedBalanceHistoryChart
                   key={chartLifecycleKey}
                   wallets={walletsAcrossKeys}
                   snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
@@ -555,7 +540,7 @@ const PortfolioBalance = () => {
             </Animated.View>
           </ChartStage>
         ) : (
-          <BalanceHistoryChart
+          <SharedBalanceHistoryChart
             key={chartLifecycleKey}
             wallets={walletsAcrossKeys}
             snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}

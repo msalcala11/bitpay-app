@@ -54,7 +54,82 @@ const HeaderTitle = styled(Setting)`
 const storagePath =
   Platform.OS === 'ios' ? RNFS.MainBundlePath : RNFS.DocumentDirectoryPath;
 
+type PersistRootSlices = Record<string, unknown>;
+
+const getUtf8ByteLength = (value: string): number => {
+  const TextEncoderCtor = (globalThis as any)?.TextEncoder;
+  if (typeof TextEncoderCtor === 'function') {
+    return new TextEncoderCtor().encode(value).length;
+  }
+
+  let bytes = 0;
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+
+    if (code < 0x80) {
+      bytes += 1;
+      continue;
+    }
+
+    if (code < 0x800) {
+      bytes += 2;
+      continue;
+    }
+
+    if (code >= 0xd800 && code <= 0xdbff && i + 1 < value.length) {
+      const nextCode = value.charCodeAt(i + 1);
+      if (nextCode >= 0xdc00 && nextCode <= 0xdfff) {
+        bytes += 4;
+        i += 1;
+        continue;
+      }
+    }
+
+    bytes += 3;
+  }
+
+  return bytes;
+};
+
+const getSerializedByteSize = (value: unknown): number => {
+  try {
+    if (typeof value === 'string') {
+      return getUtf8ByteLength(value);
+    }
+
+    const serialized = JSON.stringify(value);
+    return serialized ? getUtf8ByteLength(serialized) : 0;
+  } catch {
+    return 0;
+  }
+};
+
+const readPersistRootSlices = (): PersistRootSlices => {
+  const root = storage.getString('persist:root');
+  if (!root) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(root);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const getPersistedSlicesByteSize = (
+  persistRoot: PersistRootSlices,
+  sliceKeys: string[],
+): number => {
+  return sliceKeys.reduce(
+    (total, sliceKey) => total + getSerializedByteSize(persistRoot?.[sliceKey]),
+    0,
+  );
+};
+
 const StorageUsage: React.FC = () => {
+
   const navigation = useNavigation();
   const {t} = useTranslation();
   const renderValue = useCallback((value: string, width?: number) => {
@@ -109,7 +184,7 @@ const StorageUsage: React.FC = () => {
   const [appSize, setAppSize] = useState<string>('');
   const [deviceFreeStorage, setDeviceFreeStorage] = useState<string>('');
   const [deviceTotalStorage, setDeviceTotalStorage] = useState<string>('');
-  const [giftCardtStorage, setGiftCardStorage] = useState<string>('');
+  const [giftCardStorage, setGiftCardStorage] = useState<string>('');
   const [walletStorage, setWalletStorage] = useState<string>('');
   const [customTokenStorage, setCustomTokenStorage] = useState<string>('');
   const [contactStorage, setContactStorage] = useState<string>('');
@@ -155,56 +230,45 @@ const StorageUsage: React.FC = () => {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
   };
 
-  const getSize = async (filePath: string, data: string): Promise<number> => {
-    try {
-      await RNFS.writeFile(filePath, data);
-      const file = await RNFS.stat(filePath);
-      await RNFS.unlink(filePath); // Delete
-      return Promise.resolve(file.size);
-    } catch (err) {
-      return Promise.reject(err);
-    }
-  };
-
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout> | undefined;
 
     const interaction = InteractionManager.runAfterInteractions(() => {
+      const persistRoot = readPersistRootSlices();
+
+      const setFormattedSerializedStorage = (
+        value: unknown,
+        setter: (nextValue: string) => void,
+      ) => {
+        setter(formatBytes(getSerializedByteSize(value)));
+      };
+
       const _setAppSize = async () => {
         try {
           const resultStorage = await RNFS.readDir(storagePath);
-          let _appSize = 0;
+          let totalAppSize = 0;
           forEach(resultStorage, data => {
-            _appSize += data.size;
+            totalAppSize += data.size;
           });
-          setAppSize(formatBytes(_appSize));
+          setAppSize(formatBytes(totalAppSize));
         } catch (err) {
           const errStr =
             err instanceof Error ? err.message : JSON.stringify(err);
           logManager.error('[setAppSize] Error ', errStr);
         }
       };
+
       const _setShopCatalogStorage = async () => {
         try {
-          const root = storage.getString('persist:root');
-          if (root) {
-            try {
-              const parsed = JSON.parse(root);
-              const data = parsed?.SHOP_CATALOG;
-              const bytes = data ? JSON.stringify(data).length : 0;
-              setShopCatalogStorage(formatBytes(bytes));
-            } catch {
-              setShopCatalogStorage('0 Bytes');
-            }
-          } else {
-            setShopCatalogStorage('0 Bytes');
-          }
+          const bytes = getPersistedSlicesByteSize(persistRoot, ['SHOP_CATALOG']);
+          setShopCatalogStorage(formatBytes(bytes));
         } catch (err) {
           const errStr =
             err instanceof Error ? err.message : JSON.stringify(err);
           logManager.error('[setShopCatalogStorage] Error ', errStr);
         }
       };
+
       const _setBackupStorage = async () => {
         try {
           const baseDir = RNFS.CachesDirectoryPath + '/bitpay/redux';
@@ -229,6 +293,7 @@ const StorageUsage: React.FC = () => {
           logManager.error('[setBackupStorage] Error ', errStr);
         }
       };
+
       const _setDeviceStorage = async () => {
         try {
           const resultDeviceStorage = await RNFS.getFSInfo();
@@ -242,6 +307,7 @@ const StorageUsage: React.FC = () => {
           logManager.error('[setDeviceStorage] Error ', errStr);
         }
       };
+
       const _setDataCounterStorage = async () => {
         try {
           const walletCounts = Object.values(keys).map(keyItem => {
@@ -252,74 +318,60 @@ const StorageUsage: React.FC = () => {
           setWalletsCount(totalWalletsCount);
           setGiftCount(giftCards.length);
           setContactCount(contacts.length);
-          const _customTokenCount = Object.values(customTokens).length;
-          setCustomTokenCount(_customTokenCount);
+          setCustomTokenCount(Object.values(customTokens).length);
         } catch (err) {
           const errStr =
             err instanceof Error ? err.message : JSON.stringify(err);
           logManager.error('[setDataCounterStorage] Error ', errStr);
         }
       };
+
       const _setWalletStorage = async () => {
         try {
-          const _walletStorageSize = await getSize(
-            RNFS.TemporaryDirectoryPath + '/wallets.txt',
-            JSON.stringify(keys),
-          );
-          setWalletStorage(formatBytes(_walletStorageSize));
+          setFormattedSerializedStorage(keys, setWalletStorage);
         } catch (err) {
           const errStr =
             err instanceof Error ? err.message : JSON.stringify(err);
           logManager.error('[setWalletStorage] Error ', errStr);
         }
       };
+
       const _setGiftCardStorage = async () => {
         try {
-          const _giftCardStorageSize = await getSize(
-            RNFS.TemporaryDirectoryPath + '/gift-cards.txt',
-            JSON.stringify(giftCards),
-          );
-          setGiftCardStorage(formatBytes(_giftCardStorageSize));
+          setFormattedSerializedStorage(giftCards, setGiftCardStorage);
         } catch (err) {
           const errStr =
             err instanceof Error ? err.message : JSON.stringify(err);
           logManager.error('[setGiftCardStorage] Error ', errStr);
         }
       };
+
       const _setCustomTokensStorage = async () => {
         try {
-          const _customTokenStorageSize = await getSize(
-            RNFS.TemporaryDirectoryPath + '/custom-tokens.txt',
-            JSON.stringify(customTokens),
-          );
-          setCustomTokenStorage(formatBytes(_customTokenStorageSize));
+          setFormattedSerializedStorage(customTokens, setCustomTokenStorage);
         } catch (err) {
           const errStr =
             err instanceof Error ? err.message : JSON.stringify(err);
           logManager.error('[setCustomTokensStorage] Error ', errStr);
         }
       };
+
       const _setContactStorage = async () => {
         try {
-          const _contactStorageSize = await getSize(
-            RNFS.TemporaryDirectoryPath + '/contacts.txt',
-            JSON.stringify(contacts),
-          );
-          setContactStorage(formatBytes(_contactStorageSize));
+          setFormattedSerializedStorage(contacts, setContactStorage);
         } catch (err) {
           const errStr =
             err instanceof Error ? err.message : JSON.stringify(err);
           logManager.error('[setContactStorage] Error ', errStr);
         }
       };
+
       const _setRatesStorage = async () => {
         try {
-          const serializedRates = JSON.stringify({rates, fiatRateSeriesCache});
-          const _ratesStorageSize = await getSize(
-            RNFS.TemporaryDirectoryPath + '/rates.txt',
-            serializedRates,
+          setFormattedSerializedStorage(
+            {rates, fiatRateSeriesCache},
+            setRatesStorage,
           );
-          setRatesStorage(formatBytes(_ratesStorageSize));
         } catch (err) {
           const errStr =
             err instanceof Error ? err.message : JSON.stringify(err);
@@ -329,53 +381,18 @@ const StorageUsage: React.FC = () => {
 
       const _setPortfolioStorage = async () => {
         try {
-          // Persisted portfolio storage spans both PORTFOLIO and PORTFOLIO_CHARTS within persist:root.
-          // This reflects the *on-disk* representation (including any transform/encryption output).
-          const root = storage.getString('persist:root');
-          if (root) {
-            try {
-              const parsed = JSON.parse(root);
-              const portfolioPersisted = parsed?.PORTFOLIO;
-              const portfolioChartsPersisted = parsed?.PORTFOLIO_CHARTS;
-              if (
-                typeof portfolioPersisted === 'string' ||
-                typeof portfolioChartsPersisted === 'string'
-              ) {
-                const persistedSizes = await Promise.all([
-                  typeof portfolioPersisted === 'string'
-                    ? getSize(
-                        RNFS.TemporaryDirectoryPath + '/portfolio-persisted.txt',
-                        portfolioPersisted,
-                      )
-                    : Promise.resolve(0),
-                  typeof portfolioChartsPersisted === 'string'
-                    ? getSize(
-                        RNFS.TemporaryDirectoryPath +
-                          '/portfolio-charts-persisted.txt',
-                        portfolioChartsPersisted,
-                      )
-                    : Promise.resolve(0),
-                ]);
-                const persistedBytes = persistedSizes.reduce(
-                  (total, size) => total + size,
-                  0,
-                );
-                setPortfolioPersistedStorage(formatBytes(persistedBytes));
-              } else {
-                setPortfolioPersistedStorage('0 Bytes');
-              }
-            } catch {
-              setPortfolioPersistedStorage('0 Bytes');
-            }
-          } else {
-            setPortfolioPersistedStorage('0 Bytes');
-          }
+          const bytes = getPersistedSlicesByteSize(persistRoot, [
+            'PORTFOLIO',
+            'PORTFOLIO_CHARTS',
+          ]);
+          setPortfolioPersistedStorage(formatBytes(bytes));
         } catch (err) {
           const errStr =
             err instanceof Error ? err.message : JSON.stringify(err);
           logManager.error('[setPortfolioStorage] Error ', errStr);
         }
       };
+
       const tasks = [
         _setAppSize,
         _setDeviceStorage,
@@ -389,6 +406,7 @@ const StorageUsage: React.FC = () => {
         _setBackupStorage,
         _setShopCatalogStorage,
       ];
+
       timeout = setTimeout(() => {
         tasks.forEach(task => task());
       }, 250);
@@ -466,7 +484,7 @@ const StorageUsage: React.FC = () => {
               {t('Gift Cards')} ({giftCount || '0'})
             </SettingTitle>
 
-            {renderValue(giftCardtStorage)}
+            {renderValue(giftCardStorage)}
           </Setting>
 
           <Hr />

@@ -39,60 +39,87 @@ const scheduleAfterInteractionsAndFrames = (args: {
   timeoutMs?: number;
 }): ScheduledAfterInteractionsHandle => {
   let cancelled = false;
-  let didRun = false;
+  let hasQueuedExecution = false;
+  let hasInvokedCallback = false;
+  let hasSettled = false;
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let watchdogTimeout: ReturnType<typeof setTimeout> | undefined;
   let firstFrame: number | undefined;
   let secondFrame: number | undefined;
+  let runningPromise: Promise<unknown> | undefined;
 
   const clearPending = () => {
-    if (typeof firstFrame === 'number' && typeof cancelAnimationFrame === 'function') {
+    if (
+      typeof firstFrame === 'number' &&
+      typeof cancelAnimationFrame === 'function'
+    ) {
       cancelAnimationFrame(firstFrame);
     }
-    if (typeof secondFrame === 'number' && typeof cancelAnimationFrame === 'function') {
+    if (
+      typeof secondFrame === 'number' &&
+      typeof cancelAnimationFrame === 'function'
+    ) {
       cancelAnimationFrame(secondFrame);
     }
     if (timeout) {
       clearTimeout(timeout);
+      timeout = undefined;
     }
     if (watchdogTimeout) {
       clearTimeout(watchdogTimeout);
+      watchdogTimeout = undefined;
     }
   };
 
   const settle = () => {
+    if (hasSettled) {
+      return;
+    }
+
+    hasSettled = true;
     clearPending();
     args.onSettled?.();
   };
 
   const execute = () => {
-    if (cancelled || didRun) {
+    if (cancelled || hasQueuedExecution) {
       return;
     }
 
-    didRun = true;
+    hasQueuedExecution = true;
     timeout = setTimeout(() => {
+      timeout = undefined;
+
       if (cancelled) {
         settle();
         return;
       }
 
+      hasInvokedCallback = true;
+
       try {
         const maybePromise = args.cb();
         if (isPromiseLike(maybePromise)) {
-          maybePromise.catch(error => {
-            args.onError?.(error);
-          });
+          runningPromise = Promise.resolve(maybePromise)
+            .catch(error => {
+              args.onError?.(error);
+            })
+            .finally(() => {
+              runningPromise = undefined;
+              settle();
+            });
+          return;
         }
       } catch (error) {
         args.onError?.(error);
       }
+
       settle();
     }, 0);
   };
 
   const task = InteractionManager.runAfterInteractions(() => {
-    if (cancelled || didRun) {
+    if (cancelled || hasQueuedExecution) {
       return;
     }
 
@@ -103,7 +130,7 @@ const scheduleAfterInteractionsAndFrames = (args: {
 
     if (typeof requestAnimationFrame === 'function') {
       firstFrame = requestAnimationFrame(() => {
-        if (cancelled || didRun) {
+        if (cancelled || hasQueuedExecution) {
           return;
         }
 
@@ -115,7 +142,10 @@ const scheduleAfterInteractionsAndFrames = (args: {
     execute();
   });
 
-  watchdogTimeout = setTimeout(execute, args.timeoutMs ?? DEFAULT_INTERACTION_WATCHDOG_MS);
+  watchdogTimeout = setTimeout(
+    execute,
+    args.timeoutMs ?? DEFAULT_INTERACTION_WATCHDOG_MS,
+  );
 
   return {
     cancel: () => {
@@ -125,7 +155,11 @@ const scheduleAfterInteractionsAndFrames = (args: {
 
       cancelled = true;
       task.cancel();
-      settle();
+      clearPending();
+
+      if (!hasInvokedCallback && !runningPromise) {
+        settle();
+      }
     },
   };
 };
@@ -139,7 +173,6 @@ export const useTrackedInteractionWork = () => {
     for (const handle of scheduledHandlesRef.current) {
       handle.cancel();
     }
-    scheduledHandlesRef.current.clear();
   }, []);
 
   const scheduleTrackedWork = useCallback(
@@ -171,7 +204,6 @@ export const useTrackedInteractionWork = () => {
 
       trackedHandle = {
         cancel: () => {
-          removeHandle();
           handle?.cancel();
         },
       };

@@ -19,7 +19,6 @@ import {
   clearPortfolio,
   populatePortfolio,
 } from '../../../../../store/portfolio';
-import {clearPortfolioCharts} from '../../../../../store/portfolio-charts';
 import {clearRateState} from '../../../../../store/rate/rate.actions';
 import {ShopActions} from '../../../../../store/shop';
 import type {BalanceSnapshot} from '../../../../../store/portfolio/portfolio.models';
@@ -233,10 +232,9 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
     }
     setIsGenerating(true);
 
-    const task = InteractionManager.runAfterInteractions(() => {
+    InteractionManager.runAfterInteractions(() => {
       try {
         dispatch(clearPortfolio());
-        dispatch(clearPortfolioCharts());
       } catch {
       } finally {
         setIsGenerating(false);
@@ -252,7 +250,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
 
     setIsGenerating(true);
 
-    const task = InteractionManager.runAfterInteractions(async () => {
+    InteractionManager.runAfterInteractions(async () => {
       try {
         await dispatch(populatePortfolio());
       } catch {
@@ -268,7 +266,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
       return;
     }
 
-    const task = InteractionManager.runAfterInteractions(() => {
+    InteractionManager.runAfterInteractions(() => {
       try {
         dispatch(clearRateState());
       } catch {}
@@ -281,7 +279,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
       return;
     }
 
-    const task = InteractionManager.runAfterInteractions(() => {
+    InteractionManager.runAfterInteractions(() => {
       try {
         dispatch(ShopActions.clearShopStore());
       } catch {}
@@ -296,7 +294,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
 
     setIsCopyingAudit(true);
 
-    const task = InteractionManager.runAfterInteractions(() => {
+    InteractionManager.runAfterInteractions(() => {
       try {
         const wallets = [...(allWallets || [])].filter((w: any) => !!w?.id);
         wallets.sort((a: any, b: any) =>
@@ -394,7 +392,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
 
     setIsCopyingRateDiagnostics(true);
 
-    const task = InteractionManager.runAfterInteractions(() => {
+    InteractionManager.runAfterInteractions(() => {
       try {
         const intervalOrder: Record<string, number> = {
           '1D': 1,

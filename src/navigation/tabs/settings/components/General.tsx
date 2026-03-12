@@ -17,7 +17,6 @@ import {
   clearPortfolio,
   populatePortfolio,
 } from '../../../../store/portfolio';
-import {clearPortfolioCharts} from '../../../../store/portfolio-charts';
 import {pruneFiatRateSeriesCache} from '../../../../store/rate/rate.actions';
 import {getAndDispatchUpdatedWalletBalances} from '../../../../store/wallet/effects/status/statusv2';
 import {useTheme} from '@react-navigation/native';
@@ -129,7 +128,6 @@ const General: React.FC<Props> = ({navigation}) => {
           );
         }
         dispatch(clearPortfolio());
-        dispatch(clearPortfolioCharts());
         return;
       }
 
