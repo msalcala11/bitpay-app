@@ -36,6 +36,7 @@ import {
   ProposalBadgeContainer,
   EmptyListContainer,
   ChevronContainer,
+  WIDTH,
 } from '../../../components/styled/Containers';
 import {RootState} from '../../../store';
 import {
@@ -183,6 +184,11 @@ const BalanceContainer = styled.View`
   margin-top: 8px;
   padding: 10px 15px;
   align-items: center;
+`;
+
+const FullWidthChartContainer = styled.View`
+  width: ${WIDTH}px;
+  align-self: center;
 `;
 
 const PercentageWrapper = styled.View`
@@ -1019,14 +1025,16 @@ const KeyOverview = () => {
           </TouchableOpacity>
 
           {!hideAllBalances ? (
-            <BalanceHistoryChart
-              wallets={visibleKeyWallets}
-              snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
-              quoteCurrency={quoteCurrency}
-              rates={rates}
-              fiatRateSeriesCache={fiatRateSeriesCache}
-              onSelectedBalanceChange={setSelectedBalance}
-            />
+            <FullWidthChartContainer>
+              <BalanceHistoryChart
+                wallets={visibleKeyWallets}
+                snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
+                quoteCurrency={quoteCurrency}
+                rates={rates}
+                fiatRateSeriesCache={fiatRateSeriesCache}
+                onSelectedBalanceChange={setSelectedBalance}
+              />
+            </FullWidthChartContainer>
           ) : null}
         </BalanceContainer>
 

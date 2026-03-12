@@ -106,6 +106,7 @@ import {
 import {
   ProposalBadgeContainer,
   ScreenGutter,
+  WIDTH,
 } from '../../../components/styled/Containers';
 import TransactionRow, {
   TRANSACTION_ROW_HEIGHT,
@@ -186,6 +187,11 @@ const TouchableRow = styled(TouchableOpacity)`
 const BalanceContainer = styled.View`
   padding: 0 15px 22px;
   flex-direction: column;
+`;
+
+const FullWidthChartContainer = styled.View`
+  width: ${WIDTH}px;
+  align-self: center;
 `;
 
 const TransactionSectionHeaderContainer = styled.View`
@@ -1195,108 +1201,110 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
                   </TouchableOpacity>
 
                   {!hideAllBalances ? (
-                    <BalanceHistoryChart
-                      wallets={chartWallets}
-                      snapshotsByWalletId={snapshotsByWalletId || {}}
-                      quoteCurrency={defaultAltCurrency.isoCode}
-                      rates={rates}
-                      fiatRateSeriesCache={fiatRateSeriesCache}
-                      lineColor={chartLineColor}
-                      gradientStartColor={chartGradientBackgroundColor}
-                      showLoaderWhenNoSnapshots={
-                        isLoading === undefined || !!isLoading || refreshing
-                      }
-                      onSelectedBalanceChange={setSelectedFiatBalance}
-                      preChartContentTopMargin={12}
-                      preChartContent={
-                        hasTopMetadataBadges ? (
-                          <>
-                            {protocolName ? (
-                              <NetworkBadgeRow>
-                                {showEvmGasWalletBadge && walletType ? (
+                    <FullWidthChartContainer>
+                      <BalanceHistoryChart
+                        wallets={chartWallets}
+                        snapshotsByWalletId={snapshotsByWalletId || {}}
+                        quoteCurrency={defaultAltCurrency.isoCode}
+                        rates={rates}
+                        fiatRateSeriesCache={fiatRateSeriesCache}
+                        lineColor={chartLineColor}
+                        gradientStartColor={chartGradientBackgroundColor}
+                        showLoaderWhenNoSnapshots={
+                          isLoading === undefined || !!isLoading || refreshing
+                        }
+                        onSelectedBalanceChange={setSelectedFiatBalance}
+                        preChartContentTopMargin={12}
+                        preChartContent={
+                          hasTopMetadataBadges ? (
+                            <>
+                              {protocolName ? (
+                                <NetworkBadgeRow>
+                                  {showEvmGasWalletBadge && walletType ? (
+                                    <NetworkBadgeContainer>
+                                      {walletType.icon ? (
+                                        <IconContainer>{walletType.icon}</IconContainer>
+                                      ) : null}
+                                      <TypeText>{walletType.title}</TypeText>
+                                    </NetworkBadgeContainer>
+                                  ) : null}
                                   <NetworkBadgeContainer>
-                                    {walletType.icon ? (
-                                      <IconContainer>{walletType.icon}</IconContainer>
-                                    ) : null}
-                                    <TypeText>{walletType.title}</TypeText>
+                                    <IconContainer>
+                                      <Icons.Network />
+                                    </IconContainer>
+                                    <TypeText>{protocolName}</TypeText>
                                   </NetworkBadgeContainer>
-                                ) : null}
-                                <NetworkBadgeContainer>
-                                  <IconContainer>
-                                    <Icons.Network />
-                                  </IconContainer>
-                                  <TypeText>{protocolName}</TypeText>
-                                </NetworkBadgeContainer>
-                                {IsShared(fullWalletObj) ? (
-                                  <NetworkBadgeContainer>
-                                    <TypeText>
-                                      Multisig {fullWalletObj.credentials.m}/
-                                      {fullWalletObj.credentials.n}
-                                    </TypeText>
-                                  </NetworkBadgeContainer>
-                                ) : null}
-                                {['xrp', 'sol'].includes(
-                                  fullWalletObj?.currencyAbbreviation,
-                                ) ? (
-                                  <TouchableOpacity
-                                    onPress={() =>
-                                      setShowBalanceDetailsModal(true)
-                                    }>
-                                    <InfoSvg />
-                                  </TouchableOpacity>
-                                ) : null}
-                              </NetworkBadgeRow>
-                            ) : null}
-                            {showSpendableRow ? (
-                              <TouchableRow
-                                onPress={() => setShowBalanceDetailsModal(true)}>
-                                <TimerSvg
-                                  width={28}
-                                  height={15}
-                                  fill={theme.dark ? White : Black}
-                                />
-                                <Small>
-                                  <Text style={{fontWeight: 'bold'}}>
-                                    {cryptoSpendableBalance}{' '}
-                                    {formatCurrencyAbbreviation(
-                                      currencyAbbreviation,
+                                  {IsShared(fullWalletObj) ? (
+                                    <NetworkBadgeContainer>
+                                      <TypeText>
+                                        Multisig {fullWalletObj.credentials.m}/
+                                        {fullWalletObj.credentials.n}
+                                      </TypeText>
+                                    </NetworkBadgeContainer>
+                                  ) : null}
+                                  {['xrp', 'sol'].includes(
+                                    fullWalletObj?.currencyAbbreviation,
+                                  ) ? (
+                                    <TouchableOpacity
+                                      onPress={() =>
+                                        setShowBalanceDetailsModal(true)
+                                      }>
+                                      <InfoSvg />
+                                    </TouchableOpacity>
+                                  ) : null}
+                                </NetworkBadgeRow>
+                              ) : null}
+                              {showSpendableRow ? (
+                                <TouchableRow
+                                  onPress={() => setShowBalanceDetailsModal(true)}>
+                                  <TimerSvg
+                                    width={28}
+                                    height={15}
+                                    fill={theme.dark ? White : Black}
+                                  />
+                                  <Small>
+                                    <Text style={{fontWeight: 'bold'}}>
+                                      {cryptoSpendableBalance}{' '}
+                                      {formatCurrencyAbbreviation(
+                                        currencyAbbreviation,
+                                      )}
+                                    </Text>
+                                    {showFiatBalance && (
+                                      <Text> ({fiatSpendableBalanceFormat})</Text>
                                     )}
-                                  </Text>
-                                  {showFiatBalance && (
-                                    <Text> ({fiatSpendableBalanceFormat})</Text>
+                                  </Small>
+                                </TouchableRow>
+                              ) : null}
+                              {hasBottomMetadataRow ? (
+                                <Row>
+                                  {walletType && !showEvmGasWalletBadge && (
+                                    <TypeContainer>
+                                      {walletType.icon ? (
+                                        <IconContainer>{walletType.icon}</IconContainer>
+                                      ) : null}
+                                      <TypeText>{walletType.title}</TypeText>
+                                    </TypeContainer>
                                   )}
-                                </Small>
-                              </TouchableRow>
-                            ) : null}
-                            {hasBottomMetadataRow ? (
-                              <Row>
-                                {walletType && !showEvmGasWalletBadge && (
-                                  <TypeContainer>
-                                    {walletType.icon ? (
-                                      <IconContainer>{walletType.icon}</IconContainer>
-                                    ) : null}
-                                    <TypeText>{walletType.title}</TypeText>
-                                  </TypeContainer>
-                                )}
-                                {showThresholdBadge ? (
-                                  <TypeContainer>
-                                    <TypeText>
-                                      Threshold {fullWalletObj.tssMetadata.m}/
-                                      {fullWalletObj.tssMetadata.n}
-                                    </TypeText>
-                                  </TypeContainer>
-                                ) : null}
-                                {showActivatedBadge ? (
-                                  <TypeContainer>
-                                    <TypeText>{t('Activated')}</TypeText>
-                                  </TypeContainer>
-                                ) : null}
-                              </Row>
-                            ) : null}
-                          </>
-                        ) : null
-                      }
-                    />
+                                  {showThresholdBadge ? (
+                                    <TypeContainer>
+                                      <TypeText>
+                                        Threshold {fullWalletObj.tssMetadata.m}/
+                                        {fullWalletObj.tssMetadata.n}
+                                      </TypeText>
+                                    </TypeContainer>
+                                  ) : null}
+                                  {showActivatedBadge ? (
+                                    <TypeContainer>
+                                      <TypeText>{t('Activated')}</TypeText>
+                                    </TypeContainer>
+                                  ) : null}
+                                </Row>
+                              ) : null}
+                            </>
+                          ) : null
+                        }
+                      />
+                    </FullWidthChartContainer>
                   ) : null}
                 </BalanceContainer>
 

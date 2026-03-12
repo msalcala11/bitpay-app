@@ -299,6 +299,11 @@ const BalanceContainer = styled.View`
   flex-direction: column;
 `;
 
+const FullWidthChartContainer = styled.View`
+  width: ${WIDTH}px;
+  align-self: center;
+`;
+
 const AssetsDataContainer = styled(Row)`
   display: flex;
   flex-direction: row;
@@ -1410,17 +1415,19 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
             </TouchableOpacity>
 
             {!hideAllBalances ? (
-              <BalanceHistoryChart
-                wallets={accountItem?.wallets || []}
-                snapshotsByWalletId={snapshotsByWalletId || {}}
-                quoteCurrency={defaultAltCurrency.isoCode}
-                rates={rates}
-                fiatRateSeriesCache={fiatRateSeriesCache}
-                onSelectedBalanceChange={setSelectedBalance}
-                preChartContent={
-                  <AccountAddressBadge address={accountItem?.receiveAddress} />
-                }
-              />
+              <FullWidthChartContainer>
+                <BalanceHistoryChart
+                  wallets={accountItem?.wallets || []}
+                  snapshotsByWalletId={snapshotsByWalletId || {}}
+                  quoteCurrency={defaultAltCurrency.isoCode}
+                  rates={rates}
+                  fiatRateSeriesCache={fiatRateSeriesCache}
+                  onSelectedBalanceChange={setSelectedBalance}
+                  preChartContent={
+                    <AccountAddressBadge address={accountItem?.receiveAddress} />
+                  }
+                />
+              </FullWidthChartContainer>
             ) : null}
           </BalanceContainer>
           <LinkingButtons
