@@ -24,12 +24,13 @@ import {
   unitStringToAtomicBigInt,
 } from '../../utils/helper-methods';
 
+import {yieldToEventLoop} from '../../utils/yieldToEventLoop';
+
 import {
   buildBalanceSnapshotsAsync,
   computeBalanceSnapshotComputed,
 } from '../../utils/portfolio/core/pnl/snapshots';
 import {normalizeFiatRateSeriesCoin} from '../../utils/portfolio/core/pnl/rates';
-import {yieldToEventLoop} from '../../utils/yieldToEventLoop';
 import type {BalanceSnapshotStored} from '../../utils/portfolio/core/pnl/types';
 import {getLatestSnapshot} from '../../utils/portfolio/assets';
 import {
@@ -257,7 +258,6 @@ const buildSnapshotMismatchUpdate = (args: {
     delta,
   };
 };
-
 
 const getUtcDayStartMs = (tsMs: number): number => {
   const d = new Date(tsMs);

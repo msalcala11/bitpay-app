@@ -1,6 +1,6 @@
 import type {FiatRateInterval} from '../rate/rate.models';
 
-export const BALANCE_CHART_CACHE_SCHEMA_VERSION = 4;
+export const BALANCE_CHART_CACHE_SCHEMA_VERSION = 3;
 export const BALANCE_CHART_CACHE_MAX_SCOPES = 40;
 
 export type HistoricalRateDependencyMeta = {
@@ -9,15 +9,12 @@ export type HistoricalRateDependencyMeta = {
   lastTs?: number;
 };
 
-export type LatestHoldingsByAssetKey = Record<
+export type LatestHoldingsByCoin = Record<
   string,
   {
     units: number;
   }
 >;
-
-/** @deprecated Use `LatestHoldingsByAssetKey`. */
-export type LatestHoldingsByCoin = LatestHoldingsByAssetKey;
 
 export type CachedBalanceChartTimeframe = {
   timeframe: FiatRateInterval;
@@ -31,8 +28,8 @@ export type CachedBalanceChartTimeframe = {
   snapshotVersionSig: string;
   historicalRateDeps: HistoricalRateDependencyMeta[];
 
-  lastSpotRatesByAssetKey: Record<string, number>;
-  latestHoldingsByAssetKey: LatestHoldingsByAssetKey;
+  lastSpotRatesByCoin: Record<string, number>;
+  latestHoldingsByCoin: LatestHoldingsByCoin;
   latestRemainingCostBasisFiatTotal: number;
 
   ts: number[];

@@ -1,5 +1,5 @@
 import React from 'react';
-import type {StyleProp, TextStyle, ViewStyle} from 'react-native';
+import type {StyleProp, ViewStyle} from 'react-native';
 import styled from 'styled-components/native';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import {ActiveOpacity} from '../styled/Containers';
@@ -19,71 +19,43 @@ export type TimeframeSelectorOption<T extends string> = {
   testID?: string;
 };
 
-type TimeframeSelectorSize = 'default' | 'compact';
-
 type Props<T extends string> = {
   options: Array<TimeframeSelectorOption<T>>;
   selected: T;
   onSelect: (value: T) => void;
-  width?: number;
-  size?: TimeframeSelectorSize;
+  width?: number | string;
+  horizontalPadding?: number;
   containerStyle?: StyleProp<ViewStyle>;
   rowStyle?: StyleProp<ViewStyle>;
-  pillStyle?: StyleProp<ViewStyle>;
-  textStyle?: StyleProp<TextStyle>;
 };
 
-const TIMEFRAME_SELECTOR_SIZES: Record<
-  TimeframeSelectorSize,
-  {
-    pillHeight: number;
-    pillMinWidth: number;
-    pillHorizontalPadding: number;
-    fontSize: number;
-    lineHeight: number;
+const getWidthValue = (width?: number | string): string => {
+  if (typeof width === 'number') {
+    return `${width}px`;
   }
-> = {
-  default: {
-    pillHeight: 34,
-    pillMinWidth: 44,
-    pillHorizontalPadding: 12,
-    fontSize: 16,
-    lineHeight: 24,
-  },
-  compact: {
-    pillHeight: 32,
-    pillMinWidth: 40,
-    pillHorizontalPadding: 10,
-    fontSize: 15,
-    lineHeight: 22,
-  },
+
+  return width || '100%';
 };
 
-const TimeframeContainer = styled.View`
-  width: 100%;
+const TimeframeContainer = styled.View<{$horizontalPadding: number}>`
   margin-top: 5px;
-  padding: 0;
+  padding: 0 ${({$horizontalPadding}) => $horizontalPadding}px;
 `;
 
-const TimeframeRow = styled.View<{$width?: number}>`
+const TimeframeRow = styled.View<{$width?: number | string}>`
   flex-direction: row;
   justify-content: space-between;
   align-self: center;
-  width: ${({$width}) =>
-    typeof $width === 'number' && $width > 0 ? `${$width}px` : '100%'};
+  width: ${({$width}) => getWidthValue($width)};
+  max-width: 100%;
 `;
 
 const TimeframeHitSlop = {top: 10, bottom: 10, left: 10, right: 10} as const;
 
-const TimeframePill = styled(TouchableOpacity)<{
-  $active: boolean;
-  $pillHeight: number;
-  $pillMinWidth: number;
-  $pillHorizontalPadding: number;
-}>`
-  height: ${({$pillHeight}) => `${$pillHeight}px`};
-  min-width: ${({$pillMinWidth}) => `${$pillMinWidth}px`};
-  padding: 0 ${({$pillHorizontalPadding}) => `${$pillHorizontalPadding}px`};
+const TimeframePill = styled(TouchableOpacity)<{$active: boolean}>`
+  height: 34px;
+  min-width: 44px;
+  padding: 0 12px;
   border-radius: 18px;
   align-items: center;
   justify-content: center;
@@ -91,14 +63,10 @@ const TimeframePill = styled(TouchableOpacity)<{
     $active ? (theme.dark ? Midnight : LightBlue) : 'transparent'};
 `;
 
-const TimeframeText = styled(BaseText)<{
-  $active: boolean;
-  $fontSize: number;
-  $lineHeight: number;
-}>`
-  font-size: ${({$fontSize}) => `${$fontSize}px`};
+const TimeframeText = styled(BaseText)<{$active: boolean}>`
+  font-size: 16px;
   font-weight: 500;
-  line-height: ${({$lineHeight}) => `${$lineHeight}px`};
+  line-height: 24px;
   color: ${({theme, $active}) =>
     $active
       ? theme.dark
@@ -114,16 +82,14 @@ export const TimeframeSelector = <T extends string>({
   selected,
   onSelect,
   width,
-  size = 'default',
+  horizontalPadding = 12,
   containerStyle,
   rowStyle,
-  pillStyle,
-  textStyle,
 }: Props<T>): React.ReactElement => {
-  const metrics = TIMEFRAME_SELECTOR_SIZES[size] || TIMEFRAME_SELECTOR_SIZES.default;
-
   return (
-    <TimeframeContainer style={containerStyle}>
+    <TimeframeContainer
+      $horizontalPadding={horizontalPadding}
+      style={containerStyle}>
       <TimeframeRow $width={width} style={rowStyle}>
         {options.map(opt => {
           const active = opt.value === selected;
@@ -131,21 +97,11 @@ export const TimeframeSelector = <T extends string>({
             <TimeframePill
               key={opt.value}
               $active={active}
-              $pillHeight={metrics.pillHeight}
-              $pillMinWidth={metrics.pillMinWidth}
-              $pillHorizontalPadding={metrics.pillHorizontalPadding}
-              style={pillStyle}
               hitSlop={TimeframeHitSlop}
               activeOpacity={ActiveOpacity}
               onPress={() => onSelect(opt.value)}
               testID={opt.testID}>
-              <TimeframeText
-                $active={active}
-                $fontSize={metrics.fontSize}
-                $lineHeight={metrics.lineHeight}
-                style={textStyle}>
-                {opt.label}
-              </TimeframeText>
+              <TimeframeText $active={active}>{opt.label}</TimeframeText>
             </TimeframePill>
           );
         })}

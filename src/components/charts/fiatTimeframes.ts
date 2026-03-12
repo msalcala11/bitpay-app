@@ -1,8 +1,5 @@
 import type {FiatRateInterval} from '../../store/rate/rate.models';
-import {
-  getFiatTimeframeWindowMs as getSharedFiatTimeframeWindowMs,
-  getSeriesIntervalForFiatTimeframe,
-} from '../../utils/portfolio/timeframes';
+
 
 export const FIAT_CHART_TIMEFRAME_VALUES: FiatRateInterval[] = [
   'ALL',
@@ -23,18 +20,19 @@ export const getFiatChartTimeframeOptions = (
   }));
 };
 
-export {getSeriesIntervalForFiatTimeframe};
-
-export const getFiatChartTimeframeWindowMs = (
+export const getSeriesIntervalForFiatTimeframe = (
   timeframe: FiatRateInterval,
-): number => {
-  return timeframe === 'ALL'
-    ? getSharedFiatTimeframeWindowMs('5Y')
-    : getSharedFiatTimeframeWindowMs(timeframe);
+): FiatRateInterval => {
+  switch (timeframe) {
+    case '3M':
+    case '1Y':
+    case '5Y':
+      return 'ALL';
+    default:
+      return timeframe;
+  }
 };
 
-/** @deprecated Use `getFiatChartTimeframeWindowMs`. */
-export const getFiatTimeframeWindowMs = getFiatChartTimeframeWindowMs;
 
 export const getRangeLabelForFiatTimeframe = (
   t: (key: string) => string,
@@ -59,6 +57,36 @@ export const getRangeLabelForFiatTimeframe = (
   }
 };
 
+export const formatSelectedPointLabelForFiatTimeframe = (args: {
+  selectedTimeframe: FiatRateInterval;
+  selectedDate: Date;
+}): string => {
+  const {selectedTimeframe, selectedDate} = args;
+
+  if (selectedTimeframe === '1D') {
+    return selectedDate.toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  }
+
+  if (selectedTimeframe === '1W' || selectedTimeframe === '1M') {
+    return selectedDate.toLocaleString([], {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  }
+
+  return selectedDate.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+};
+
 export const formatRangeOrSelectedPointLabel = (args: {
   rangeLabel: string;
   selectedTimeframe: FiatRateInterval;
@@ -69,27 +97,8 @@ export const formatRangeOrSelectedPointLabel = (args: {
     return rangeLabel;
   }
 
-  const date = selectedDate;
-  if (selectedTimeframe === '1D') {
-    return date.toLocaleTimeString([], {
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-  }
-
-  if (selectedTimeframe === '1W' || selectedTimeframe === '1M') {
-    return date.toLocaleString([], {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-  }
-
-  return date.toLocaleDateString([], {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
+  return formatSelectedPointLabelForFiatTimeframe({
+    selectedTimeframe,
+    selectedDate,
   });
 };

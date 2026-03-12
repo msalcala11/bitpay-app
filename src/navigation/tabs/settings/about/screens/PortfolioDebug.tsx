@@ -233,7 +233,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
     }
     setIsGenerating(true);
 
-    InteractionManager.runAfterInteractions(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
       try {
         dispatch(clearPortfolio());
         dispatch(clearPortfolioCharts());
@@ -242,6 +242,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
         setIsGenerating(false);
       }
     });
+
   }, [dispatch, isGenerating]);
 
   const populate = useCallback(() => {
@@ -251,7 +252,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
 
     setIsGenerating(true);
 
-    InteractionManager.runAfterInteractions(async () => {
+    const task = InteractionManager.runAfterInteractions(async () => {
       try {
         await dispatch(populatePortfolio());
       } catch {
@@ -259,6 +260,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
         setIsGenerating(false);
       }
     });
+
   }, [dispatch, isGenerating, portfolio.populateStatus?.inProgress]);
 
   const clearRatesCache = useCallback(() => {
@@ -266,11 +268,12 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
       return;
     }
 
-    InteractionManager.runAfterInteractions(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
       try {
         dispatch(clearRateState());
       } catch {}
     });
+
   }, [dispatch, isGenerating, portfolio.populateStatus?.inProgress]);
 
   const clearShopStore = useCallback(() => {
@@ -278,11 +281,12 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
       return;
     }
 
-    InteractionManager.runAfterInteractions(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
       try {
         dispatch(ShopActions.clearShopStore());
       } catch {}
     });
+
   }, [dispatch, isGenerating, portfolio.populateStatus?.inProgress]);
 
   const copySnapshotAuditCsv = useCallback(() => {
@@ -292,7 +296,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
 
     setIsCopyingAudit(true);
 
-    InteractionManager.runAfterInteractions(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
       try {
         const wallets = [...(allWallets || [])].filter((w: any) => !!w?.id);
         wallets.sort((a: any, b: any) =>
@@ -375,6 +379,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
         setIsCopyingAudit(false);
       }
     });
+
   }, [
     allWallets,
     isCopyingAudit,
@@ -389,7 +394,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
 
     setIsCopyingRateDiagnostics(true);
 
-    InteractionManager.runAfterInteractions(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
       try {
         const intervalOrder: Record<string, number> = {
           '1D': 1,
@@ -486,6 +491,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
         setIsCopyingRateDiagnostics(false);
       }
     });
+
   }, [fiatRateSeriesCache, isCopyingRateDiagnostics]);
 
   return (

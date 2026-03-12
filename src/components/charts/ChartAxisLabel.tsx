@@ -49,15 +49,6 @@ const ChartAxisLabel = ({
     });
   }, [currencyAbbreviation, quoteCurrency, value]);
 
-  // We need an accurate text width to position the label without clipping.
-  // Measuring via onLayout is correct, but between timeframes the label text can
-  // change (different number of digits). If we keep using the *previous* width
-  // until the next onLayout fires, the computed clamped X can be wildly wrong
-  // (often snapping to an edge) and then "correcting" a frame later.
-  //
-  // To avoid that jarring intermediate snap, we track the width *for the
-  // specific text we measured* and fall back to a cheap estimate for new text
-  // until its layout is measured.
   const [measuredTextLayout, setMeasuredTextLayout] = useState<{
     text: string;
     width: number;
@@ -65,11 +56,9 @@ const ChartAxisLabel = ({
 
   const estimatedTextWidth = useMemo(() => {
     const fontSize = 13;
-    // Digits and punctuation in RN's default fonts average ~0.55–0.6em.
     const avgCharWidth = fontSize * 0.58;
     const padding = 8;
     const estimated = labelText.length * avgCharWidth + padding;
-    // Keep the estimate sane; it only needs to avoid edge-clamp snaps.
     return Math.min(Math.max(estimated, 40), 220);
   }, [labelText]);
 
@@ -78,8 +67,10 @@ const ChartAxisLabel = ({
       ? measuredTextLayout.width
       : estimatedTextWidth;
 
-  const effectiveChartWidth =
-    typeof chartWidth === 'number' && chartWidth > 0 ? chartWidth : windowWidth;
+  const resolvedChartWidth =
+    typeof chartWidth === 'number' && Number.isFinite(chartWidth) && chartWidth > 0
+      ? chartWidth
+      : windowWidth;
 
   const getPointRatio = (pointIndex: number, length: number): number => {
     if (length <= 1) {
@@ -91,11 +82,12 @@ const ChartAxisLabel = ({
     return safePointIndex / maxIndex;
   };
 
-  const location = getPointRatio(index, arrayLength) * effectiveChartWidth - textWidth / 2;
+  const location =
+    getPointRatio(index, arrayLength) * resolvedChartWidth - textWidth / 2;
 
   const getTranslateX = (loc: number) => {
     const minLocation = 5;
-    const maxLocation = Math.max(minLocation, effectiveChartWidth - textWidth);
+    const maxLocation = Math.max(minLocation, resolvedChartWidth - textWidth);
     return Math.min(Math.max(loc, minLocation), maxLocation);
   };
 
@@ -151,16 +143,15 @@ const ChartAxisLabel = ({
       <Animated.View
         style={{transform: [{translateX}]}}
         onLayout={event => {
-          const w = event.nativeEvent.layout.width;
-          if (!Number.isFinite(w) || w <= 0) {
+          const width = event.nativeEvent.layout.width;
+          if (!Number.isFinite(width) || width <= 0) {
             return;
           }
           setMeasuredTextLayout(prev => {
-            // Avoid setState churn for tiny diffs.
-            if (prev.text === labelText && Math.abs(prev.width - w) < 0.5) {
+            if (prev.text === labelText && Math.abs(prev.width - width) < 0.5) {
               return prev;
             }
-            return {text: labelText, width: w};
+            return {text: labelText, width};
           });
         }}>
         <AnimatedBaseText

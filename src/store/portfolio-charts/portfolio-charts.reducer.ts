@@ -128,43 +128,23 @@ const sanitizeTimeframe = (
         .filter(dep => !!dep?.cacheKey)
         .map(dep => ({
           cacheKey: dep.cacheKey,
-          fetchedOn:
-            typeof dep.fetchedOn === 'number' && Number.isFinite(dep.fetchedOn)
-              ? dep.fetchedOn
-              : undefined,
-          lastTs:
-            typeof dep.lastTs === 'number' && Number.isFinite(dep.lastTs)
-              ? dep.lastTs
-              : undefined,
+          fetchedOn: dep.fetchedOn,
+          lastTs: dep.lastTs,
         }))
     : [],
-  lastSpotRatesByAssetKey: {
-    ...((timeframe as CachedBalanceChartTimeframe & {
-      lastSpotRatesByCoin?: Record<string, number>;
-    })?.lastSpotRatesByAssetKey ||
-      (timeframe as CachedBalanceChartTimeframe & {
-        lastSpotRatesByCoin?: Record<string, number>;
-      })?.lastSpotRatesByCoin ||
-      {}),
-  },
-  latestHoldingsByAssetKey: Object.fromEntries(
-    Object.entries(
-      ((timeframe as CachedBalanceChartTimeframe & {
-        latestHoldingsByCoin?: Record<string, {units: number}>;
-      })?.latestHoldingsByAssetKey ||
-        (timeframe as CachedBalanceChartTimeframe & {
-          latestHoldingsByCoin?: Record<string, {units: number}>;
-        })?.latestHoldingsByCoin ||
-        {}) as Record<string, {units: number}>,
-    ).map(([assetKey, holding]) => [
-      assetKey,
-      {
-        units:
-          typeof holding?.units === 'number' && Number.isFinite(holding.units)
-            ? holding.units
-            : 0,
-      },
-    ]),
+  lastSpotRatesByCoin: {...(timeframe?.lastSpotRatesByCoin || {})},
+  latestHoldingsByCoin: Object.fromEntries(
+    Object.entries(timeframe?.latestHoldingsByCoin || {}).map(
+      ([coin, holding]) => [
+        coin,
+        {
+          units:
+            typeof holding?.units === 'number' && Number.isFinite(holding.units)
+              ? holding.units
+              : 0,
+        },
+      ],
+    ),
   ),
   ts: Array.isArray(timeframe?.ts) ? timeframe.ts.slice() : [],
   totalFiatBalance: Array.isArray(timeframe?.totalFiatBalance)

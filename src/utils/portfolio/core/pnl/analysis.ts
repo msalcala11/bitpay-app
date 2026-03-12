@@ -22,14 +22,10 @@ import {
   PREF_ALL,
 } from './intervalPrefs';
 import {atomicToUnitNumber} from './atomic';
-import {yieldToEventLoop} from '../../../yieldToEventLoop';
-import {buildPortfolioAssetKey} from '../../assetKey';
-import {
-  getFiatTimeframeWindowMs,
-  getSeriesIntervalForFiatTimeframe,
-} from '../../timeframes';
+import {yieldToEventLoop} from '../../../../utils/yieldToEventLoop';
 
 const MS_PER_HOUR = 60 * 60 * 1000;
+const MS_PER_DAY = 24 * MS_PER_HOUR;
 
 export type PnlTimeframe = FiatRateInterval;
 
@@ -109,8 +105,6 @@ export type PnlAnalysisResult = {
   totalSummary: TotalPnlSummary;
 };
 
-export type BuildPnlAnalysisSeriesMode = 'full' | 'chart';
-
 function buildEvenTimeline(
   startMs: number,
   endMs: number,
@@ -135,11 +129,23 @@ function buildEvenTimeline(
 }
 
 function getWindowMs(timeframe: PnlTimeframe): number {
-  if (timeframe === 'ALL') {
-    return 0;
+  switch (timeframe) {
+    case '1D':
+      return 1 * MS_PER_DAY;
+    case '1W':
+      return 7 * MS_PER_DAY;
+    case '1M':
+      return 30 * MS_PER_DAY;
+    case '3M':
+      return 90 * MS_PER_DAY;
+    case '1Y':
+      return 365 * MS_PER_DAY;
+    case '5Y':
+      return 1825 * MS_PER_DAY;
+    case 'ALL':
+    default:
+      return 0;
   }
-
-  return getFiatTimeframeWindowMs(timeframe);
 }
 
 function roundDownToHourMs(tsMs: number): number {
@@ -439,14 +445,9 @@ type BuildPnlAnalysisSeriesArgs = {
    * ensure % changes match the ExchangeRate screen which uses a "currentRate" override.
    */
   currentRatesByCoin?: Record<string, number>;
-  /**
-   * Optional current/spot rate overrides per asset identity.
-   * Use this when multiple assets share a ticker but differ by chain/contract.
-   */
-  currentRatesByAssetKey?: Record<string, number>;
-  mode?: BuildPnlAnalysisSeriesMode;
   nowMs?: number;
   maxPoints?: number;
+  outputMode?: 'full' | 'chart';
   onHistoricalRateDependency?: (cacheKey: string) => void;
 };
 
@@ -455,6 +456,7 @@ type BuildPnlAnalysisSeriesGeneratorOptions = {
 };
 
 const DEFAULT_ASYNC_YIELD_EVERY_POINTS = 4;
+
 
 function* buildPnlAnalysisSeriesGenerator(
   args: BuildPnlAnalysisSeriesArgs,
@@ -468,9 +470,7 @@ function* buildPnlAnalysisSeriesGenerator(
       : 0;
   const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
   const maxPoints = typeof args.maxPoints === 'number' ? args.maxPoints : 91;
-  const mode = args.mode || 'full';
-  const shouldIncludeFormattedBalances = mode !== 'chart';
-  const shouldIncludeSummaries = mode !== 'chart';
+  const shouldBuildChartOutputOnly = args.outputMode === 'chart';
 
   const wallets = args.wallets.slice();
   const quoteCurrency = args.quoteCurrency.toUpperCase();
@@ -504,7 +504,16 @@ function* buildPnlAnalysisSeriesGenerator(
 
   // ExchangeRate screen uses ALL series for 3M/1Y/5Y timeframes. Match that behavior
   // so percent changes are consistent across the app.
-  const seriesInterval = getSeriesIntervalForFiatTimeframe(args.timeframe);
+  const seriesInterval: FiatRateInterval = (() => {
+    switch (args.timeframe) {
+      case '3M':
+      case '1Y':
+      case '5Y':
+        return 'ALL';
+      default:
+        return args.timeframe;
+    }
+  })();
 
   // Build compact rate series per coin and compute the latest shared end bound.
   //
@@ -588,30 +597,10 @@ function* buildPnlAnalysisSeriesGenerator(
     rateCursorByCoin[coin] = makeNearestRateCursor(rateSeriesByCoin[coin]);
   }
 
-  const getCoinOverrideRate = (coin: string): number | undefined => {
+  const getOverrideRate = (coin: string): number | undefined => {
     const overrides = args.currentRatesByCoin;
     if (!overrides) return undefined;
     const v = overrides[coin];
-    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
-  };
-
-  const getAssetOverrideRate = (wallet: WalletForAnalysis): number | undefined => {
-    const overrides = args.currentRatesByAssetKey;
-    if (!overrides) {
-      return undefined;
-    }
-
-    const assetKey = buildPortfolioAssetKey({
-      currencyAbbreviation: wallet.currencyAbbreviation,
-      chain: wallet.credentials.chain,
-      tokenAddress: wallet.credentials.token?.address,
-    });
-
-    if (!assetKey) {
-      return undefined;
-    }
-
-    const v = overrides[assetKey];
     return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
   };
 
@@ -691,7 +680,7 @@ function* buildPnlAnalysisSeriesGenerator(
     // Determine markRate based on driver coin.
     const driverRate =
       i === timeline.length - 1
-        ? getCoinOverrideRate(driverCoin) ??
+        ? getOverrideRate(driverCoin) ??
           rateCursorByCoin[driverCoin]?.getNearest(ts)
         : rateCursorByCoin[driverCoin]?.getNearest(ts);
     if (driverRate === undefined) {
@@ -703,12 +692,9 @@ function* buildPnlAnalysisSeriesGenerator(
     for (const w of wallets) {
       const st = windowStateByWalletId[w.walletId];
       const coin = st.coin;
-      const assetOverrideRate = getAssetOverrideRate(w);
       const rate =
         i === timeline.length - 1
-          ? assetOverrideRate ??
-            getCoinOverrideRate(coin) ??
-            rateCursorByCoin[coin]?.getNearest(ts)
+          ? getOverrideRate(coin) ?? rateCursorByCoin[coin]?.getNearest(ts)
           : rateCursorByCoin[coin]?.getNearest(ts);
       if (rate === undefined) {
         throw new Error(`Missing ${quoteCurrency}:${coin} rate at ts=${ts}.`);
@@ -790,9 +776,9 @@ function* buildPnlAnalysisSeriesGenerator(
 
       byWalletId[w.walletId] = {
         balanceAtomic: balAtomic.toString(),
-        formattedCryptoBalance: shouldIncludeFormattedBalances
-          ? formatAtomicAmount(balAtomic, w.credentials)
-          : '',
+        formattedCryptoBalance: shouldBuildChartOutputOnly
+          ? ''
+          : formatAtomicAmount(balAtomic, w.credentials),
         fiatBalance,
         remainingCostBasisFiat: costBasis,
         unrealizedPnlFiat,
@@ -827,7 +813,9 @@ function* buildPnlAnalysisSeriesGenerator(
       ? totalCryptoAtomic.toString()
       : undefined;
     const totalCryptoBalanceFormatted =
-      shouldIncludeFormattedBalances && singleAsset && totalCryptoCreds
+      shouldBuildChartOutputOnly
+        ? undefined
+        : singleAsset && totalCryptoCreds
         ? formatAtomicAmount(totalCryptoAtomic, totalCryptoCreds)
         : undefined;
 
@@ -849,53 +837,51 @@ function* buildPnlAnalysisSeriesGenerator(
   const first = points[0];
   const last = points[points.length - 1];
 
-  const assetSummaries: AssetPnlSummary[] = shouldIncludeSummaries
-    ? coins.map(coin => {
-        const ids = new Set(
-          wallets
-            .filter(
-              w => normalizeFiatRateSeriesCoin(w.currencyAbbreviation) === coin,
-            )
-            .map(w => w.walletId),
-        );
+  const assetSummaries: AssetPnlSummary[] = shouldBuildChartOutputOnly
+    ? []
+    : coins.map(coin => {
+    const ids = new Set(
+      wallets
+        .filter(
+          w => normalizeFiatRateSeriesCoin(w.currencyAbbreviation) === coin,
+        )
+        .map(w => w.walletId),
+    );
 
-        // Sum windowed PnL + basis for wallets in this coin group.
-        let startPnl = 0;
-        let endPnl = 0;
-        let endBasis = 0;
+    // Sum windowed PnL + basis for wallets in this coin group.
+    let startPnl = 0;
+    let endPnl = 0;
+    let endBasis = 0;
 
-        for (const w of wallets) {
-          if (!ids.has(w.walletId)) continue;
-          startPnl += first.byWalletId[w.walletId]?.unrealizedPnlFiat ?? 0;
-          endPnl += last.byWalletId[w.walletId]?.unrealizedPnlFiat ?? 0;
-          endBasis += last.byWalletId[w.walletId]?.remainingCostBasisFiat ?? 0;
-        }
+    for (const w of wallets) {
+      if (!ids.has(w.walletId)) continue;
+      startPnl += first.byWalletId[w.walletId]?.unrealizedPnlFiat ?? 0;
+      endPnl += last.byWalletId[w.walletId]?.unrealizedPnlFiat ?? 0;
+      endBasis += last.byWalletId[w.walletId]?.remainingCostBasisFiat ?? 0;
+    }
 
-        const rateStart = baselineRateByCoin[coin];
-        const rateEnd = rateCursorByCoin[coin]?.getNearest(endTs);
-        if (rateEnd === undefined)
-          throw new Error(
-            `Missing ${quoteCurrency}:${coin} rate at ts=${endTs}.`,
-          );
-        const rateChange = rateEnd - rateStart;
-        const ratePct = rateStart > 0 ? (rateChange / rateStart) * 100 : 0;
+    const rateStart = baselineRateByCoin[coin];
+    const rateEnd = rateCursorByCoin[coin]?.getNearest(endTs);
+    if (rateEnd === undefined)
+      throw new Error(`Missing ${quoteCurrency}:${coin} rate at ts=${endTs}.`);
+    const rateChange = rateEnd - rateStart;
+    const ratePct = rateStart > 0 ? (rateChange / rateStart) * 100 : 0;
 
-        const pnlPercent = endBasis > 0 ? (endPnl / endBasis) * 100 : 0;
+    const pnlPercent = endBasis > 0 ? (endPnl / endBasis) * 100 : 0;
 
-        return {
-          coin,
-          displaySymbol: coin.toUpperCase(),
-          rateStart,
-          rateEnd,
-          rateChange,
-          ratePercentChange: ratePct,
-          pnlStart: startPnl,
-          pnlEnd: endPnl,
-          pnlChange: endPnl - startPnl,
-          pnlPercent,
-        };
-      })
-    : [];
+    return {
+      coin,
+      displaySymbol: coin.toUpperCase(),
+      rateStart,
+      rateEnd,
+      rateChange,
+      ratePercentChange: ratePct,
+      pnlStart: startPnl,
+      pnlEnd: endPnl,
+      pnlChange: endPnl - startPnl,
+      pnlPercent,
+    };
+  });
 
   const totalSummary: TotalPnlSummary = {
     pnlStart: first.totalUnrealizedPnlFiat,
@@ -940,8 +926,7 @@ export async function buildPnlAnalysisSeriesAsync(
         ? yieldEveryPoints
         : DEFAULT_ASYNC_YIELD_EVERY_POINTS,
   });
-  const yieldFn =
-    yieldControl || (() => yieldToEventLoop({preferSetImmediate: true}));
+  const yieldFn = yieldControl || yieldToEventLoop;
 
   let next = generator.next();
   while (!next.done) {

@@ -5,6 +5,7 @@ import {
 } from '../../store/portfolio-charts';
 import {
   buildBalanceChartScopeId,
+  buildLatestPointPatchMetadataFromAnalysis,
   deserializeCachedTimeframeToComputedSeries,
   getCachedTimeframeStatus,
   patchCachedLatestPointWithSpotRates,
@@ -44,11 +45,11 @@ const makeCachedTimeframe = (
       lastTs: 300,
     },
   ],
-  lastSpotRatesByAssetKey: {
-    'btc|btc': 100,
+  lastSpotRatesByCoin: {
+    btc: 100,
   },
-  latestHoldingsByAssetKey: {
-    'btc|btc': {
+  latestHoldingsByCoin: {
+    btc: {
       units: 2,
     },
   },
@@ -94,8 +95,8 @@ describe('chartCache', () => {
     const cached = makeCachedTimeframe();
     const patched = patchCachedLatestPointWithSpotRates({
       cachedTimeframe: cached,
-      currentSpotRatesByAssetKey: {
-        'btc|btc': 125,
+      currentSpotRatesByCoin: {
+        btc: 125,
       },
     });
 
@@ -104,7 +105,7 @@ describe('chartCache', () => {
     expect(patched.totalPnlPercent[0]).toBe(0);
     expect(patched.totalPnlPercent[1]).toBe(20);
     expect(patched.totalPnlPercent[2]).toBeCloseTo(66.666666, 4);
-    expect(patched.lastSpotRatesByAssetKey['btc|btc']).toBe(125);
+    expect(patched.lastSpotRatesByCoin.btc).toBe(125);
   });
 
   it('marks cached timeframes fresh when snapshots, historical deps, and spot rates match', () => {
@@ -112,8 +113,8 @@ describe('chartCache', () => {
       getCachedTimeframeStatus({
         cachedTimeframe: makeCachedTimeframe(),
         snapshotVersionSig: 'wallet-1:1',
-        currentSpotRatesByAssetKey: {
-          'btc|btc': 100,
+        currentSpotRatesByCoin: {
+          btc: 100,
         },
         fiatRateSeriesCache: makeRateCache(),
       }),
@@ -125,8 +126,8 @@ describe('chartCache', () => {
       getCachedTimeframeStatus({
         cachedTimeframe: makeCachedTimeframe(),
         snapshotVersionSig: 'wallet-1:1',
-        currentSpotRatesByAssetKey: {
-          'btc|btc': 110,
+        currentSpotRatesByCoin: {
+          btc: 110,
         },
         fiatRateSeriesCache: makeRateCache(),
       }),
@@ -138,8 +139,8 @@ describe('chartCache', () => {
       getCachedTimeframeStatus({
         cachedTimeframe: makeCachedTimeframe(),
         snapshotVersionSig: 'wallet-1:1',
-        currentSpotRatesByAssetKey: {
-          'btc|btc': 100,
+        currentSpotRatesByCoin: {
+          btc: 100,
         },
         fiatRateSeriesCache: makeRateCache({
           fetchedOn: 101,
@@ -148,32 +149,60 @@ describe('chartCache', () => {
     ).toBe('stale_historical');
   });
 
-  it('patches tokenized assets by full asset identity instead of ticker only', () => {
-    const cached = makeCachedTimeframe({
-      lastSpotRatesByAssetKey: {
-        'usdc|eth|0xaaa': 1,
-        'usdc|base|0xbbb': 1,
-      },
-      latestHoldingsByAssetKey: {
-        'usdc|eth|0xaaa': {units: 10},
-        'usdc|base|0xbbb': {units: 5},
-      },
-      latestRemainingCostBasisFiatTotal: 15,
-      totalFiatBalance: [15, 15, 15],
-      totalUnrealizedPnlFiat: [0, 0, 0],
-      totalPnlPercent: [0, 0, 0],
+  it('currently merges latest-point patch metadata by normalized coin for distinct assets with the same ticker', () => {
+    const patchMetadata = buildLatestPointPatchMetadataFromAnalysis({
+      analysisPoints: [
+        {
+          timestamp: 100,
+          totalFiatBalance: 350,
+          totalRemainingCostBasisFiat: 200,
+          totalUnrealizedPnlFiat: 150,
+          totalPnlPercent: 75,
+          byWalletId: {
+            'wallet-1': {
+              balanceAtomic: '1000000000000000000',
+              formattedCryptoBalance: '1.0 USDC',
+              fiatBalance: 100,
+              remainingCostBasisFiat: 60,
+              unrealizedPnlFiat: 40,
+              markRate: 100,
+              ratePercentChange: 0,
+              pnlPercent: 66.6667,
+            },
+            'wallet-2': {
+              balanceAtomic: '2000000',
+              formattedCryptoBalance: '2.0 USDC',
+              fiatBalance: 250,
+              remainingCostBasisFiat: 140,
+              unrealizedPnlFiat: 110,
+              markRate: 125,
+              ratePercentChange: 0,
+              pnlPercent: 78.5714,
+            },
+          },
+        },
+      ],
+      wallets: [
+        {
+          walletId: 'wallet-1',
+          walletName: 'erc20 usdc',
+          currencyAbbreviation: 'USDC',
+          credentials: {tokenAddress: '0xa0b86991', chain: 'eth'} as any,
+          snapshots: [],
+        },
+        {
+          walletId: 'wallet-2',
+          walletName: 'solana usdc',
+          currencyAbbreviation: 'USDC',
+          credentials: {tokenAddress: 'EPjFWdd5AufqSSqeM2q', chain: 'sol'} as any,
+          snapshots: [],
+        },
+      ],
     });
 
-    const patched = patchCachedLatestPointWithSpotRates({
-      cachedTimeframe: cached,
-      currentSpotRatesByAssetKey: {
-        'usdc|eth|0xaaa': 1.01,
-        'usdc|base|0xbbb': 0.99,
-      },
-    });
-
-    expect(patched.totalFiatBalance[2]).toBeCloseTo(15.05, 8);
-    expect(patched.lastSpotRatesByAssetKey['usdc|eth|0xaaa']).toBe(1.01);
-    expect(patched.lastSpotRatesByAssetKey['usdc|base|0xbbb']).toBe(0.99);
+    expect(Object.keys(patchMetadata.latestHoldingsByCoin)).toEqual(['usdc']);
+    expect(patchMetadata.latestHoldingsByCoin.usdc.units).toBe(3);
+    expect(patchMetadata.lastSpotRatesByCoin.usdc).toBe(100);
   });
+
 });

@@ -24,8 +24,8 @@ const makeTimeframe = (
   walletIds: ['wallet-1'],
   snapshotVersionSig: 'wallet-1:1',
   historicalRateDeps: [],
-  lastSpotRatesByAssetKey: {},
-  latestHoldingsByAssetKey: {},
+  lastSpotRatesByCoin: {},
+  latestHoldingsByCoin: {},
   latestRemainingCostBasisFiatTotal: 0,
   ts: [100],
   totalFiatBalance: [100],
@@ -164,24 +164,24 @@ describe('portfolioChartsReducer', () => {
     expect(state.cacheByScopeId['scope-2']).toBeUndefined();
   });
 
-  it('deep-copies nested timeframe payload data on upsert', () => {
-    let state = portfolioChartsReducer(undefined, {type: '@@INIT'} as any);
-    const timeframe = makeTimeframe();
-
-    timeframe.historicalRateDeps.push({
-      cacheKey: 'USD:btc:ALL',
-      fetchedOn: 123,
-      lastTs: 456,
+  it('deep-copies nested historical deps and holdings when upserting timeframes', () => {
+    const timeframe = makeTimeframe({
+      historicalRateDeps: [
+        {
+          cacheKey: 'USD:btc:1D',
+          fetchedOn: 123,
+          lastTs: 456,
+        },
+      ],
+      latestHoldingsByCoin: {
+        btc: {
+          units: 2,
+        },
+      },
     });
-    timeframe.latestHoldingsByAssetKey = {
-      'btc|btc': {units: 2},
-    };
-    timeframe.lastSpotRatesByAssetKey = {
-      'btc|btc': 100,
-    };
 
-    state = portfolioChartsReducer(
-      state,
+    const state = portfolioChartsReducer(
+      undefined,
       upsertBalanceChartScopeTimeframes({
         scopeId: 'scope-1',
         walletIds: ['wallet-1'],
@@ -192,13 +192,82 @@ describe('portfolioChartsReducer', () => {
     );
 
     timeframe.historicalRateDeps[0].fetchedOn = 999;
-    timeframe.latestHoldingsByAssetKey['btc|btc'].units = 999;
-    timeframe.lastSpotRatesByAssetKey['btc|btc'] = 999;
+    timeframe.latestHoldingsByCoin.btc.units = 42;
 
-    const stored = state.cacheByScopeId['scope-1']?.timeframes.ALL;
+    const stored =
+      state.cacheByScopeId['scope-1']?.timeframes?.ALL as CachedBalanceChartTimeframe;
 
-    expect(stored?.historicalRateDeps[0]?.fetchedOn).toBe(123);
-    expect(stored?.latestHoldingsByAssetKey['btc|btc']?.units).toBe(2);
-    expect(stored?.lastSpotRatesByAssetKey['btc|btc']).toBe(100);
+    expect(stored.historicalRateDeps[0].fetchedOn).toBe(123);
+    expect(stored.latestHoldingsByCoin.btc.units).toBe(2);
+    expect(stored.historicalRateDeps[0]).not.toBe(timeframe.historicalRateDeps[0]);
+    expect(stored.latestHoldingsByCoin.btc).not.toBe(
+      timeframe.latestHoldingsByCoin.btc,
+    );
   });
+
+  it('does not share nested reducer state references across upserts', () => {
+    const initialState = portfolioChartsReducer(
+      undefined,
+      upsertBalanceChartScopeTimeframes({
+        scopeId: 'scope-1',
+        walletIds: ['wallet-1'],
+        quoteCurrency: 'USD',
+        balanceOffset: 0,
+        timeframes: [
+          makeTimeframe({
+            historicalRateDeps: [
+              {
+                cacheKey: 'USD:btc:1D',
+                fetchedOn: 100,
+                lastTs: 300,
+              },
+            ],
+            latestHoldingsByCoin: {
+              btc: {
+                units: 1,
+              },
+            },
+          }),
+        ],
+      }),
+    );
+
+    const updatedState = portfolioChartsReducer(
+      initialState,
+      upsertBalanceChartScopeTimeframes({
+        scopeId: 'scope-1',
+        walletIds: ['wallet-1'],
+        quoteCurrency: 'USD',
+        balanceOffset: 0,
+        timeframes: [
+          makeTimeframe({
+            timeframe: '1D',
+            historicalRateDeps: [
+              {
+                cacheKey: 'USD:btc:1D',
+                fetchedOn: 101,
+                lastTs: 301,
+              },
+            ],
+            latestHoldingsByCoin: {
+              btc: {
+                units: 3,
+              },
+            },
+          }),
+        ],
+      }),
+    );
+
+    const prevStored =
+      initialState.cacheByScopeId['scope-1']?.timeframes?.ALL as CachedBalanceChartTimeframe;
+    const nextStored =
+      updatedState.cacheByScopeId['scope-1']?.timeframes?.['1D'] as CachedBalanceChartTimeframe;
+
+    expect(nextStored.historicalRateDeps[0]).not.toBe(prevStored.historicalRateDeps[0]);
+    expect(nextStored.latestHoldingsByCoin.btc).not.toBe(
+      prevStored.latestHoldingsByCoin.btc,
+    );
+  });
+
 });

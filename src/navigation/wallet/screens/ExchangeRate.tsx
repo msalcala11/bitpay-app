@@ -12,12 +12,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {
-  type LayoutChangeEvent,
-  RefreshControl,
-  ScrollView,
-  View,
-} from 'react-native';
+import {RefreshControl, ScrollView, View} from 'react-native';
 import type {GraphPoint} from 'react-native-graph';
 import {Path, Svg} from 'react-native-svg';
 import {useTranslation} from 'react-i18next';
@@ -454,22 +449,6 @@ const ExchangeRate = () => {
   const [isAboutExpanded, setIsAboutExpanded] = useState(false);
   const [isChartLoading, setIsChartLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [chartWidth, setChartWidth] = useState<number | undefined>(undefined);
-  const chartWidthRef = useRef<number | undefined>(chartWidth);
-  chartWidthRef.current = chartWidth;
-
-  const handleChartLayout = useCallback((event: LayoutChangeEvent) => {
-    const nextWidth = event.nativeEvent.layout.width;
-    if (!Number.isFinite(nextWidth) || nextWidth <= 0) {
-      return;
-    }
-
-    setChartWidth(prev =>
-      typeof prev === 'number' && Math.abs(prev - nextWidth) < 0.5
-        ? prev
-        : nextWidth,
-    );
-  }, []);
 
   const [displayData, setDisplayData] =
     useState<ChartDataType>(defaultDisplayData);
@@ -487,6 +466,7 @@ const ExchangeRate = () => {
       }
     | undefined
   >(undefined);
+  const [chartWidth, setChartWidth] = useState<number | undefined>(undefined);
 
   const currencyAbbreviation = formatCurrencyAbbreviation(
     params?.currencyAbbreviation || 'BTC',
@@ -1151,6 +1131,8 @@ const ExchangeRate = () => {
   quoteCurrencyRef.current = defaultAltCurrency.isoCode;
   const selectedTimeframeHighValueRef = useRef(selectedTimeframeHighValue);
   selectedTimeframeHighValueRef.current = selectedTimeframeHighValue;
+  const chartWidthRef = useRef(chartWidth);
+  chartWidthRef.current = chartWidth;
 
   useEffect(() => {
     gestureStarted.current = false;
@@ -1171,10 +1153,10 @@ const ExchangeRate = () => {
         value={displayDataRef.current.minPoint.value}
         index={displayDataRef.current.minIndex}
         arrayLength={displayDataRef.current.data.length}
-        chartWidth={chartWidthRef.current}
         quoteCurrency={quoteCurrencyRef.current}
         currencyAbbreviation={currencyAbbreviationRef.current}
         type="min"
+        chartWidth={chartWidthRef.current}
       />
     );
   }, []);
@@ -1197,10 +1179,10 @@ const ExchangeRate = () => {
         value={maxAxisLabelValue}
         index={dd.maxIndex}
         arrayLength={dd.data.length}
-        chartWidth={chartWidthRef.current}
         quoteCurrency={quoteCurrencyRef.current}
         currencyAbbreviation={currencyAbbreviationRef.current}
         type="max"
+        chartWidth={chartWidthRef.current}
       />
     );
   }, []);
@@ -1361,6 +1343,13 @@ const ExchangeRate = () => {
     });
   }, [currencyName, navigation]);
 
+  const onChartLayout = useCallback(({nativeEvent: {layout}}) => {
+    const nextWidth = Math.round(layout.width);
+    if (nextWidth > 0) {
+      setChartWidth(prev => (prev === nextWidth ? prev : nextWidth));
+    }
+  }, []);
+
   return (
     <ScreenContainer>
       <ScrollView
@@ -1385,14 +1374,12 @@ const ExchangeRate = () => {
             percent={percentChangeToDisplay}
             deltaFiatFormatted={priceChangeToDisplay}
             rangeLabel={rangeOrSelectedPointLabel}
-            isLoading={isChartLoading}
           />
         </TopSection>
 
-        <View onLayout={handleChartLayout}>
+        <View onLayout={onChartLayout}>
           <InteractiveLineChart
             points={chartPoints}
-            chartWidth={chartWidth}
             animated={true}
             gradientFillColors={[
               gradientBackgroundColor,
@@ -1408,13 +1395,14 @@ const ExchangeRate = () => {
             SelectionDot={ChartSelectionDot}
             color={theme.dark && coinColor === Black ? White : coinColor}
             isLoading={isChartLoading}
+            chartWidth={chartWidthRef.current}
           />
 
           <TimeframeSelector
             options={fiatChartTimeframeOptions}
-            width={chartWidth}
             selected={selectedTimeframe}
             onSelect={setSelectedTimeframe}
+            width={chartWidth}
           />
         </View>
 

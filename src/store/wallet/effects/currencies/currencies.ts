@@ -27,6 +27,7 @@ import {yieldToEventLoop} from '../../../../utils/yieldToEventLoop';
 
 const TOKEN_OPTIONS_YIELD_EVERY = 150;
 
+
 export const startGetTokenOptions =
   (): Effect<Promise<void>> => async dispatch => {
     try {
@@ -69,11 +70,11 @@ export const startGetTokenOptions =
             tokenIndex > 0 &&
             tokenIndex % TOKEN_OPTIONS_YIELD_EVERY === 0
           ) {
-            await yieldToEventLoop({preferRequestAnimationFrame: true});
+            await yieldToEventLoop();
           }
         }
 
-        await yieldToEventLoop({preferRequestAnimationFrame: true});
+        await yieldToEventLoop();
       }
       tokenManager.setTokenOptions({tokenOptionsByAddress, tokenDataByAddress});
       logManager.info('successful [startGetTokenOptions]');

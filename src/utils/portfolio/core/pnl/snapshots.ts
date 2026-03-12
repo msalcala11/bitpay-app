@@ -7,12 +7,12 @@ import {
 import type {FiatRateSeriesCache} from '../fiatRateSeries';
 import {createFiatRateLookup, normalizeFiatRateSeriesCoin} from './rates';
 import {atomicToUnitNumber} from './atomic';
-import {yieldToEventLoop} from '../../../yieldToEventLoop';
 import type {
   BalanceSnapshotComputed,
   BalanceSnapshotEventType,
   BalanceSnapshotStored,
 } from './types';
+import {yieldToEventLoop} from '../../../../utils/yieldToEventLoop';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const COMPRESSION_AGE_MS = 90 * DAY_MS;
@@ -1320,7 +1320,6 @@ const simulateSnapshotsSync = (
     underFeeCandidates: runtime.underFeeCandidates,
   };
 };
-
 
 const simulateSnapshotsAsync = async (
   args: BuildBalanceSnapshotsArgs,

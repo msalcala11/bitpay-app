@@ -49,10 +49,10 @@ const FIRST_POINT_GUIDE_LINE_SVG_HEIGHT = 4;
 
 export type InteractiveLineChartProps = {
   points: GraphPoint[];
-  chartWidth?: number;
   color: string;
   gradientFillColors: [string, string];
   lineThickness?: number;
+  chartWidth?: number | string;
   /**
    * If the chart is being scaled by an ancestor transform, pass that scale here.
    *
@@ -89,10 +89,10 @@ type SvgLineAnimatedProps = Partial<React.ComponentProps<typeof Line>>;
 
 const InteractiveLineChart = ({
   points,
-  chartWidth,
   color,
   gradientFillColors,
   lineThickness,
+  chartWidth,
   strokeScale,
   minStrokeScale,
   isLoading,
@@ -134,43 +134,26 @@ const InteractiveLineChart = ({
   const safeStrokeScaleNumber = strokeScaleNumber > 0 ? strokeScaleNumber : 1;
   const lineThicknessCompensationExponent = strokeScaleIsSharedValue ? 0.9 : 1;
 
-  /**
-   * If an ancestor is scaling this chart view (e.g. during a collapse/expand
-   * animation), compensate stroke widths so the chart line & dash pattern keep
-   * a constant visual thickness.
-   */
   const strokeScaleValue = useDerivedValue(() => {
     'worklet';
 
-    // Support callers passing either a number or a Reanimated shared/derived value.
     if (typeof strokeScale === 'number') {
       return strokeScale;
     }
     if (strokeScale != null && typeof strokeScale === 'object') {
-      const v = (strokeScale as {value?: unknown}).value;
-      return typeof v === 'number' ? v : 1;
+      const value = (strokeScale as {value?: unknown}).value;
+      return typeof value === 'number' ? value : 1;
     }
     return 1;
   }, [strokeScale]);
 
-  // IMPORTANT: react-native-graph's LineGraph is implemented as a composite
-  // component that renders Skia primitives. Reanimated's `animatedProps`
-  // cannot update its JS props without a React re-render.
-  //
-  // However, RN Skia *does* support Reanimated shared/derived values directly.
-  // By passing a derived value as `lineThickness`, the underlying `<Path
-  // strokeWidth={lineThickness} />` updates on the UI thread without forcing
-  // React re-renders (i.e. no jank).
   const compensatedLineThickness = useDerivedValue(() => {
     'worklet';
     const scale = strokeScaleValue.value;
-    // Guard against accidental 0/negative scales.
     const safeScale = scale > 0 ? scale : 1;
     return effectiveLineThickness / Math.pow(safeScale, 0.9);
   }, [effectiveLineThickness, strokeScaleValue]);
 
-  // Prefer a plain number when we don't need dynamic compensation. This keeps
-  // behavior compatible with non-animated graph implementations.
   const lineThicknessForGraph: number | NumberSharedValue =
     strokeScaleIsSharedValue
       ? compensatedLineThickness
@@ -183,9 +166,7 @@ const InteractiveLineChart = ({
       const safeScale = scale > 0 ? scale : 1;
 
       return {
-        // Keep the dash thickness constant under the parent scale.
         strokeWidth: 1 / safeScale,
-        // Keep dash + gap lengths constant under the parent scale.
         strokeDasharray: [
           FIRST_POINT_GUIDE_LINE_DASH_LENGTH / safeScale,
           FIRST_POINT_GUIDE_LINE_GAP_LENGTH / safeScale,
@@ -195,36 +176,6 @@ const InteractiveLineChart = ({
     [strokeScaleValue],
   );
 
-  /**
-   * THEME SWITCH BEHAVIOR (important)
-   *
-   * Requirements:
-   *   - Theme changes must immediately update chart color + thickness.
-   *   - Theme changes must not trigger any visible animation.
-   *   - Timeframe switches (points changes) should continue to animate.
-   *
-   * Why theme updates can look "inconsistent":
-   *   - `react-native-graph` renders via Skia. When the chart's screen is not
-   *     focused (e.g. you're in Settings), React can still re-render props, but
-   *     the underlying native/Skia view may be detached/frozen by navigation.
-   *   - In those cases, the color update can be "lost" visually until *some*
-   *     later event forces the graph to recompute/refresh (e.g. timeframe
-   *     changes).
-   *
-   * Fix strategy:
-   *   1) Keep path geometry stable across light/dark so thickness changes don't
-   *      alter the computed path (avoids the visible "scale/morph").
-   *   2) Force a cheap redraw by passing a new `points` array reference (same
-   *      values) when:
-   *        - the style signature changes (theme switch), and
-   *        - the screen becomes focused again after a theme switch that
-   *          happened while unfocused (so the redraw occurs while visible).
-   */
-
-  // Keep geometry stable across theme switches (AnimatedLineGraph defaults
-  // verticalPadding to lineThickness). When the caller knows the minimum scale
-  // the chart will animate down to, also reserve enough static headroom for the
-  // thickest compensated stroke so the graph never clips at the top/bottom.
   const resolvedMinStrokeScale =
     typeof minStrokeScale === 'number' && minStrokeScale > 0
       ? Math.min(minStrokeScale, 1)
@@ -237,23 +188,16 @@ const InteractiveLineChart = ({
     Math.pow(resolvedMinStrokeScale, lineThicknessCompensationExponent);
 
   const stableVerticalPadding = Math.max(
-    // max thickness used across themes (light: 4, dark: 2)
     4,
     typeof lineThickness === 'number' ? lineThickness : 0,
     Math.ceil(maxCompensatedLineThickness),
   );
   const stableHorizontalPadding = 0;
 
-  // A compact signature of everything that should trigger a redraw when the
-  // graph's visual style or path geometry changes.
   const styleSignature = `${color}|${gradientFillColors[0]}|${
     gradientFillColors[1]
-  }|${effectiveLineThickness}|${stableVerticalPadding}`;
+  }|${effectiveLineThickness}|${stableVerticalPadding}|${chartWidth || 'auto'}`;
 
-  /**
-   * If the theme changes while this screen is NOT focused, we want to trigger a
-   * redraw the moment it becomes focused again.
-   */
   const lastFocusedStyleSignatureRef = React.useRef<string | null>(null);
   const [focusRefreshNonce, setFocusRefreshNonce] = React.useState(0);
 
@@ -263,28 +207,18 @@ const InteractiveLineChart = ({
     }
 
     const prev = lastFocusedStyleSignatureRef.current;
-
-    // Update the ref so it always represents the currently-focused signature.
     lastFocusedStyleSignatureRef.current = styleSignature;
 
-    // If we are focused AND the signature differs from the last time we were
-    // focused, a theme/style change happened while we were away. Force a redraw
-    // now that we're visible again.
     if (prev != null && prev !== styleSignature) {
       setFocusRefreshNonce(n => n + 1);
     }
   }, [isFocused, styleSignature]);
 
-  /**
-   * In addition to focus changes, "reattaching" the view can happen without a
-   * focus transition in some navigation setups. We treat the first layout after
-   * a theme/style change as another opportunity to force a redraw.
-   */
   const lastLayoutStyleSignatureRef = React.useRef<string | null>(null);
   const [layoutRefreshNonce, setLayoutRefreshNonce] = React.useState(0);
 
   const onChartLayout = React.useCallback(
-    (_e: LayoutChangeEvent) => {
+    (_event: LayoutChangeEvent) => {
       const prev = lastLayoutStyleSignatureRef.current;
       lastLayoutStyleSignatureRef.current = styleSignature;
 
@@ -300,11 +234,6 @@ const InteractiveLineChart = ({
     [focusRefreshNonce, layoutRefreshNonce, styleSignature],
   );
 
-  // Force a new points array reference whenever either:
-  //   - data changes (timeframe switch -> animation desired),
-  //   - style changes (theme switch),
-  //   - we regain focus after a theme switch (ensures redraw is visible),
-  //   - layout happens after a theme switch (handles detach/reattach cases).
   const pointsForGraph = React.useMemo(() => {
     return points.slice();
   }, [points, pointsRefreshKey]);
@@ -342,7 +271,6 @@ const InteractiveLineChart = ({
       ? axisLabelPadding + axisRowHeight
       : 0;
 
-    // Match react-native-graph's internal canvas sizing and Y transform.
     const canvasHeight = Math.max(
       0,
       lineGraphLayout.height - topAxisInset - bottomAxisInset,
@@ -382,12 +310,6 @@ const InteractiveLineChart = ({
       ? firstPointGuideLine.top - FIRST_POINT_GUIDE_LINE_SVG_HEIGHT / 2
       : null;
 
-  const firstPointGuideLineAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      top: firstPointGuideLineTop.value,
-    };
-  }, [firstPointGuideLineTop]);
-
   React.useEffect(() => {
     if (firstPointGuideLineTopTarget == null) {
       isGuideLineTopInitializedRef.current = false;
@@ -406,16 +328,19 @@ const InteractiveLineChart = ({
     });
   }, [firstPointGuideLineTop, firstPointGuideLineTopTarget]);
 
+  const firstPointGuideLineAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      top: firstPointGuideLineTop.value,
+    };
+  }, [firstPointGuideLineTop]);
+
   const chartInner = (
     <ChartInner onLayout={onChartLayout}>
       {hasDrawablePoints ? (
         <LineGraph
           points={pointsForGraph}
           animated={animated}
-          // `react-native-graph` can consume a Reanimated derived value here.
-          // Cast to avoid TS complaining (the lib types it as `number`).
           lineThickness={lineThicknessForGraph as unknown as number}
-          // Keep geometry stable across theme switches.
           verticalPadding={stableVerticalPadding}
           horizontalPadding={stableHorizontalPadding}
           panGestureDelay={panGestureDelay}
@@ -446,10 +371,7 @@ const InteractiveLineChart = ({
             );
           }}
           style={{
-            width:
-              typeof chartWidth === 'number' && chartWidth > 0
-                ? chartWidth
-                : '100%',
+            width: chartWidth || '100%',
             height: graphHeight,
             marginTop: graphMarginTop,
             opacity: isLoading ? (hideLineWhileLoading ? 0 : 0.25) : 1,

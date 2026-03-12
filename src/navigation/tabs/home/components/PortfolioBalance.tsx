@@ -67,6 +67,7 @@ const CollapseButtonContainer = styled(Animated.View)`
   z-index: 30;
 `;
 
+
 const PortfolioBalanceHeader = styled(TouchableOpacity)`
   flex-direction: row;
   justify-content: space-between;
@@ -108,14 +109,17 @@ const PortfolioBalance = () => {
   const {homeChartCollapsed: persistedHomeChartCollapsed, homeChartRemountNonce} =
     useAppSelector(({PORTFOLIO_CHARTS}) => PORTFOLIO_CHARTS);
 
-  const [selectedChartBalance, setSelectedChartBalance] = useState<
-    number | undefined
-  >();
-  const [chartChangeRowData, setChartChangeRowData] = useState<{
-    percent: number;
-    deltaFiatFormatted?: string;
-    rangeLabel?: string;
-    isLoading?: boolean;
+  const [selectedChartBalanceState, setSelectedChartBalanceState] = useState<{
+    lifecycleKey: string;
+    balance?: number;
+  }>();
+  const [chartChangeRowDataState, setChartChangeRowDataState] = useState<{
+    lifecycleKey: string;
+    data?: {
+      percent: number;
+      deltaFiatFormatted?: string;
+      rangeLabel?: string;
+    };
   }>();
   const [isChartCollapsed, setIsChartCollapsed] = useState(
     persistedHomeChartCollapsed,
@@ -346,10 +350,40 @@ const PortfolioBalance = () => {
     [homeChartRemountNonce, quoteCurrency, visibleKeyIdsSig],
   );
 
-  useEffect(() => {
-    setSelectedChartBalance(undefined);
-    setChartChangeRowData(undefined);
-  }, [chartLifecycleKey]);
+  const selectedChartBalance =
+    selectedChartBalanceState?.lifecycleKey === chartLifecycleKey
+      ? selectedChartBalanceState.balance
+      : undefined;
+  const chartChangeRowData =
+    chartChangeRowDataState?.lifecycleKey === chartLifecycleKey
+      ? chartChangeRowDataState.data
+      : undefined;
+
+  const handleSelectedChartBalanceChange = useCallback(
+    (balance?: number) => {
+      setSelectedChartBalanceState({
+        lifecycleKey: chartLifecycleKey,
+        balance,
+      });
+    },
+    [chartLifecycleKey],
+  );
+
+  const handleChartChangeRowData = useCallback(
+    (
+      data?: {
+        percent: number;
+        deltaFiatFormatted?: string;
+        rangeLabel?: string;
+      },
+    ) => {
+      setChartChangeRowDataState({
+        lifecycleKey: chartLifecycleKey,
+        data,
+      });
+    },
+    [chartLifecycleKey],
+  );
 
   const displayedPortfolioBalance =
     typeof selectedChartBalance === 'number'
@@ -379,28 +413,30 @@ const PortfolioBalance = () => {
   return (
     <PortfolioContainer>
       {shouldLeftAlignTopSection ? (
-        <CollapseButtonContainer
-          onLayout={e => {
-            const nextLayout = e.nativeEvent.layout;
-            setCollapseButtonLayout(prev =>
-              prev &&
-              prev.x === nextLayout.x &&
-              prev.y === nextLayout.y &&
-              prev.width === nextLayout.width &&
-              prev.height === nextLayout.height
-                ? prev
-                : nextLayout,
-            );
-          }}
-          pointerEvents={isChartCollapsed ? 'none' : 'auto'}
-          style={buttonAnimatedStyle}>
-          <CollapseContentButton
-            isActive={isCollapseButtonActive}
-            onPressIn={onCollapseButtonPressIn}
-            onPressOut={onCollapseButtonPressOut}
-            onPress={onCollapseChartPress}
-          />
-        </CollapseButtonContainer>
+        <>
+          <CollapseButtonContainer
+            onLayout={e => {
+              const nextLayout = e.nativeEvent.layout;
+              setCollapseButtonLayout(prev =>
+                prev &&
+                prev.x === nextLayout.x &&
+                prev.y === nextLayout.y &&
+                prev.width === nextLayout.width &&
+                prev.height === nextLayout.height
+                  ? prev
+                  : nextLayout,
+              );
+            }}
+            pointerEvents={isChartCollapsed ? 'none' : 'auto'}
+            style={buttonAnimatedStyle}>
+            <CollapseContentButton
+              isActive={isCollapseButtonActive}
+              onPressIn={onCollapseButtonPressIn}
+              onPressOut={onCollapseButtonPressOut}
+              onPress={onCollapseChartPress}
+            />
+          </CollapseButtonContainer>
+        </>
       ) : null}
       <PortfolioTopContent $leftAligned={shouldLeftAlignTopSection}>
         <PortfolioBalanceHeader
@@ -438,7 +474,6 @@ const PortfolioBalance = () => {
           percent={chartChangeRowData.percent}
           deltaFiatFormatted={chartChangeRowData.deltaFiatFormatted}
           rangeLabel={chartChangeRowData.rangeLabel}
-          isLoading={chartChangeRowData.isLoading}
           style={{
             width: '100%',
             justifyContent: 'flex-start',
@@ -488,7 +523,7 @@ const PortfolioBalance = () => {
                   fiatRateSeriesCache={fiatRateSeriesCache}
                   strokeScale={chartScale}
                   minStrokeScale={collapsedScale}
-                  onChangeRowData={setChartChangeRowData}
+                  onChangeRowData={handleChartChangeRowData}
                   onSelectedTimeframeChange={onSelectedChartTimeframeChange}
                   axisLabelOpacity={axisLabelOpacity}
                   showChangeRow={false}
@@ -498,7 +533,7 @@ const PortfolioBalance = () => {
                   // NOTE: Coinbase balance is intentionally excluded from the balance chart
                   // (Option B per product requirements) because we do not have historized
                   // Coinbase balance snapshots.
-                  onSelectedBalanceChange={setSelectedChartBalance}
+                  onSelectedBalanceChange={handleSelectedChartBalanceChange}
                 />
                 {isChartCollapsed ? (
                   <TouchableOpacity
@@ -532,7 +567,7 @@ const PortfolioBalance = () => {
             // NOTE: Coinbase balance is intentionally excluded from the balance chart
             // (Option B per product requirements) because we do not have historized
             // Coinbase balance snapshots.
-            onSelectedBalanceChange={setSelectedChartBalance}
+            onSelectedBalanceChange={handleSelectedChartBalanceChange}
           />
         )
       ) : null}

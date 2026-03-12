@@ -3,39 +3,76 @@ import type {GraphPoint} from 'react-native-graph';
 import type {FiatRateInterval} from '../../store/rate/rate.models';
 import type {PnlAnalysisPoint} from '../../utils/portfolio/core/pnl/analysis';
 import {formatFiatAmount} from '../../utils/helper-methods';
-
-export type ChangeRowData = {
-  percent: number;
-  deltaFiatFormatted?: string;
-  rangeLabel?: string;
-};
-
-type BalanceChartAnalysisSeries = {
-  analysisPoints: PnlAnalysisPoint[];
-  pointByTimestamp: Map<number, PnlAnalysisPoint>;
-};
+import {
+  formatSelectedPointLabelForFiatTimeframe,
+  getRangeLabelForFiatTimeframe,
+} from './fiatTimeframes';
+import type {ChangeRowData, ComputedSeries} from './balanceHistoryChart.types';
 
 type UseBalanceChartChangeRowArgs = {
-  activeSeries?: BalanceChartAnalysisSeries;
-  quoteCurrency: string;
-  rangeLabel: string;
+  activeSeries?: ComputedSeries;
+  fallbackAnalysisPoint?: PnlAnalysisPoint;
   selectedPoint?: GraphPoint;
-  selectedPointDisplay?: {
-    deltaFiatFormatted?: string;
-  };
   selectedTimeframe: FiatRateInterval;
+  displayedTimeframe: FiatRateInterval;
+  quoteCurrency: string;
+  t: (key: string) => string;
+  resetCacheKey: string;
 };
 
 export const useBalanceChartChangeRow = ({
   activeSeries,
-  quoteCurrency,
-  rangeLabel,
+  fallbackAnalysisPoint,
   selectedPoint,
-  selectedPointDisplay,
   selectedTimeframe,
-}: UseBalanceChartChangeRowArgs) => {
+  displayedTimeframe,
+  quoteCurrency,
+  t,
+  resetCacheKey,
+}: UseBalanceChartChangeRowArgs): {
+  rangeLabel: string;
+  rangeOrSelectedPointLabel: string;
+  displayedChangeRowData?: ChangeRowData;
+} => {
   const [lastResolvedChangeRowDataByTimeframe, setLastResolvedChangeRowDataByTimeframe] =
     useState<Partial<Record<FiatRateInterval, ChangeRowData>>>({});
+
+  useEffect(() => {
+    setLastResolvedChangeRowDataByTimeframe({});
+  }, [resetCacheKey]);
+
+  const rangeLabel = useMemo(
+    () => getRangeLabelForFiatTimeframe(t, displayedTimeframe),
+    [displayedTimeframe, t],
+  );
+
+  const labelByTimestampMs = useMemo(() => {
+    const next = new Map<number, string>();
+    for (const point of activeSeries?.analysisPoints || []) {
+      next.set(
+        point.timestamp,
+        formatSelectedPointLabelForFiatTimeframe({
+          selectedTimeframe: displayedTimeframe,
+          selectedDate: new Date(point.timestamp),
+        }),
+      );
+    }
+    return next;
+  }, [activeSeries?.analysisPoints, displayedTimeframe]);
+
+  const deltaFiatFormattedByTimestampMs = useMemo(() => {
+    const next = new Map<number, string>();
+    for (const point of activeSeries?.analysisPoints || []) {
+      next.set(
+        point.timestamp,
+        formatFiatAmount(point.totalUnrealizedPnlFiat ?? 0, quoteCurrency, {
+          customPrecision: 'minimal',
+          currencyDisplay: 'symbol',
+        }),
+      );
+    }
+    return next;
+  }, [activeSeries?.analysisPoints, quoteCurrency]);
 
   const selectedAnalysisPoint = useMemo(() => {
     if (!selectedPoint || !activeSeries) {
@@ -46,46 +83,47 @@ export const useBalanceChartChangeRow = ({
   }, [activeSeries, selectedPoint]);
 
   const lastAnalysisPoint = useMemo(() => {
-    const pts = activeSeries?.analysisPoints || [];
-    return pts.length ? pts[pts.length - 1] : undefined;
-  }, [activeSeries]);
+    const points = activeSeries?.analysisPoints || [];
+    return points.length ? points[points.length - 1] : undefined;
+  }, [activeSeries?.analysisPoints]);
 
-  const displayedAnalysisPoint = selectedAnalysisPoint ?? lastAnalysisPoint;
-  const hasResolvedChangeRowData = !!displayedAnalysisPoint;
-  const pnlDeltaFiat = displayedAnalysisPoint?.totalUnrealizedPnlFiat ?? 0;
-  const pnlPercent = displayedAnalysisPoint?.totalPnlPercent ?? 0;
+  const displayedAnalysisPoint =
+    selectedAnalysisPoint ?? lastAnalysisPoint ?? fallbackAnalysisPoint;
 
-  const formattedDeltaFiat = useMemo(() => {
-    if (!hasResolvedChangeRowData) {
-      return undefined;
-    }
+  const selectedPointLabel =
+    selectedPoint != null
+      ? labelByTimestampMs.get(selectedPoint.date.getTime())
+      : undefined;
 
-    if (selectedPointDisplay?.deltaFiatFormatted) {
-      return selectedPointDisplay.deltaFiatFormatted;
-    }
-
-    return formatFiatAmount(pnlDeltaFiat, quoteCurrency, {
-      customPrecision: 'minimal',
-      currencyDisplay: 'symbol',
-    });
-  }, [
-    hasResolvedChangeRowData,
-    pnlDeltaFiat,
-    quoteCurrency,
-    selectedPointDisplay?.deltaFiatFormatted,
-  ]);
+  const rangeOrSelectedPointLabel = selectedPointLabel || rangeLabel;
 
   const resolvedChangeRowData = useMemo<ChangeRowData | undefined>(() => {
-    if (!hasResolvedChangeRowData) {
+    if (!displayedAnalysisPoint) {
       return undefined;
     }
 
+    const timestamp = displayedAnalysisPoint.timestamp;
     return {
-      percent: pnlPercent,
-      deltaFiatFormatted: formattedDeltaFiat,
-      rangeLabel,
+      percent: displayedAnalysisPoint.totalPnlPercent ?? 0,
+      deltaFiatFormatted:
+        deltaFiatFormattedByTimestampMs.get(timestamp) ||
+        formatFiatAmount(displayedAnalysisPoint.totalUnrealizedPnlFiat ?? 0, quoteCurrency, {
+          customPrecision: 'minimal',
+          currencyDisplay: 'symbol',
+        }),
+      rangeLabel:
+        (selectedPoint &&
+          labelByTimestampMs.get(selectedPoint.date.getTime())) ||
+        rangeLabel,
     };
-  }, [formattedDeltaFiat, hasResolvedChangeRowData, pnlPercent, rangeLabel]);
+  }, [
+    deltaFiatFormattedByTimestampMs,
+    displayedAnalysisPoint,
+    labelByTimestampMs,
+    quoteCurrency,
+    rangeLabel,
+    selectedPoint,
+  ]);
 
   useEffect(() => {
     if (!resolvedChangeRowData) {
@@ -110,8 +148,11 @@ export const useBalanceChartChangeRow = ({
   }, [resolvedChangeRowData, selectedTimeframe]);
 
   return {
+    rangeLabel,
+    rangeOrSelectedPointLabel,
     displayedChangeRowData:
-      resolvedChangeRowData || lastResolvedChangeRowDataByTimeframe[selectedTimeframe],
+      resolvedChangeRowData ||
+      lastResolvedChangeRowDataByTimeframe[selectedTimeframe],
   };
 };
 

@@ -139,11 +139,7 @@ import {isTSSKey} from '../../../store/wallet/effects/tss-send/tss-send';
 import {
   buildPortfolioGainLossSummaryFromPortfolioSnapshots,
   getQuoteCurrency,
-  hasSnapshotsBeforeMsForWallets,
-  hasSnapshotsForWallets,
   isPopulateLoadingForWallets,
-  getLegacyPercentageDifferenceFromTotals,
-  getPercentageDifferenceFromPercentRatio,
 } from '../../../utils/portfolio/assets';
 import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
 
@@ -606,54 +602,6 @@ const KeyOverview = () => {
     totalBalanceLastDay,
     visibleKeyWallets,
   ]);
-
-  const portfolioPercentageDifference = useMemo(() => {
-    if (!gainLossSummary.today.available) {
-      return null;
-    }
-
-    return getPercentageDifferenceFromPercentRatio(
-      gainLossSummary.today.percentRatio,
-    );
-  }, [
-    gainLossSummary.today.available,
-    gainLossSummary.today.percentRatio,
-  ]);
-
-  const legacyPercentageDifference = useMemo(() => {
-    return getLegacyPercentageDifferenceFromTotals({
-      totalBalance,
-      totalBalanceLastDay,
-    });
-  }, [totalBalance, totalBalanceLastDay]);
-
-  const hasKeySnapshots = useMemo(() => {
-    return hasSnapshotsForWallets({
-      snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
-      wallets: visibleKeyWallets,
-    });
-  }, [portfolio.snapshotsByWalletId, visibleKeyWallets]);
-
-  const hasKeySnapshotsBeforePopulateStarted = useMemo(() => {
-    const startedAt = portfolio.populateStatus?.startedAt;
-    if (
-      !portfolio.populateStatus?.inProgress ||
-      typeof startedAt !== 'number'
-    ) {
-      return true;
-    }
-    return hasSnapshotsBeforeMsForWallets({
-      snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
-      wallets: visibleKeyWallets,
-      cutoffMs: startedAt,
-    });
-  }, [
-    portfolio.populateStatus?.inProgress,
-    portfolio.populateStatus?.startedAt,
-    portfolio.snapshotsByWalletId,
-    visibleKeyWallets,
-  ]);
-
 
   const allTimeGainLossText = useMemo(() => {
     if (!gainLossSummary.total.available) {

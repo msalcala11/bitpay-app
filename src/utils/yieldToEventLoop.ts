@@ -1,37 +1,15 @@
-export type YieldToEventLoopOptions = {
-  preferRequestAnimationFrame?: boolean;
-  preferSetImmediate?: boolean;
-};
-
-export const yieldToEventLoop = (
-  options: YieldToEventLoopOptions = {},
-): Promise<void> => {
+export const yieldToEventLoop = (): Promise<void> => {
   return new Promise(resolve => {
-    const finish = () => setTimeout(resolve, 0);
+    const setImmediateFn = (globalThis as {
+      setImmediate?: (callback: () => void) => unknown;
+    }).setImmediate;
 
-    if (options.preferRequestAnimationFrame) {
-      const requestAnimationFrameFn = (globalThis as {
-        requestAnimationFrame?: (callback: () => void) => unknown;
-      }).requestAnimationFrame;
-
-      if (typeof requestAnimationFrameFn === 'function') {
-        requestAnimationFrameFn(finish);
-        return;
-      }
+    if (typeof setImmediateFn === 'function') {
+      setImmediateFn(resolve);
+      return;
     }
 
-    if (options.preferSetImmediate) {
-      const setImmediateFn = (globalThis as {
-        setImmediate?: (callback: () => void) => unknown;
-      }).setImmediate;
-
-      if (typeof setImmediateFn === 'function') {
-        setImmediateFn(resolve);
-        return;
-      }
-    }
-
-    finish();
+    setTimeout(resolve, 0);
   });
 };
 
