@@ -76,6 +76,7 @@ import {
 } from '../../utils/portfolio/chartCache';
 
 const CHART_COMPUTE_YIELD_EVERY_POINTS = 4;
+const SCHEDULE_AFTER_INTERACTIONS_FALLBACK_MS = 700;
 const PRECOMPUTE_TIMEFRAME_ORDER: FiatRateInterval[] = [
   '1D',
   '1W',
@@ -112,14 +113,30 @@ const scheduleAfterInteractionsAndFrames = (
   cb: () => void | Promise<void>,
 ): ScheduledAfterInteractionsHandle => {
   let cancelled = false;
+  let didRun = false;
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let fallbackTimeout: ReturnType<typeof setTimeout> | undefined;
   let firstFrame: number | undefined;
   let secondFrame: number | undefined;
 
+  const clearScheduledTimers = () => {
+    if (fallbackTimeout) {
+      clearTimeout(fallbackTimeout);
+      fallbackTimeout = undefined;
+    }
+    if (timeout) {
+      clearTimeout(timeout);
+      timeout = undefined;
+    }
+  };
+
   const runCallback = () => {
-    if (cancelled) {
+    if (cancelled || didRun) {
       return;
     }
+
+    didRun = true;
+    clearScheduledTimers();
 
     timeout = setTimeout(() => {
       if (cancelled) {
@@ -141,13 +158,13 @@ const scheduleAfterInteractionsAndFrames = (
   };
 
   const task = InteractionManager.runAfterInteractions(() => {
-    if (cancelled) {
+    if (cancelled || didRun) {
       return;
     }
 
     if (typeof requestAnimationFrame === 'function') {
       firstFrame = requestAnimationFrame(() => {
-        if (cancelled) {
+        if (cancelled || didRun) {
           return;
         }
 
@@ -159,10 +176,19 @@ const scheduleAfterInteractionsAndFrames = (
     runCallback();
   });
 
+  // Some navigation/layout transitions can leave runAfterInteractions pending
+  // longer than expected. Fall back to running the work anyway so the chart
+  // queue cannot remain stuck forever for a new scope.
+  fallbackTimeout = setTimeout(
+    runCallback,
+    SCHEDULE_AFTER_INTERACTIONS_FALLBACK_MS,
+  );
+
   return {
     cancel: () => {
       cancelled = true;
       task.cancel();
+      clearScheduledTimers();
 
       if (
         typeof firstFrame === 'number' &&
@@ -175,9 +201,6 @@ const scheduleAfterInteractionsAndFrames = (
         typeof cancelAnimationFrame === 'function'
       ) {
         cancelAnimationFrame(secondFrame);
-      }
-      if (timeout) {
-        clearTimeout(timeout);
       }
     },
   };
@@ -1312,8 +1335,14 @@ const BalanceHistoryChart = ({
       if (!inputsReady) {
         return;
       }
-      // Avoid retry loops: only attempt again when the compute inputs change.
-      if (lastAttemptRevisionByTimeframe[tf] === attemptRevision) {
+      // Avoid retry loops after a real compute error, but do allow retrying a
+      // revision if the prior attempt never produced either a series or an
+      // error (for example, if it was interrupted during a timeframe/scope
+      // transition).
+      if (
+        lastAttemptRevisionByTimeframe[tf] === attemptRevision &&
+        !!lastErrorByTimeframe[tf]
+      ) {
         return;
       }
       enqueueTimeframeCompute(tf, !!options?.prioritize);

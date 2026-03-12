@@ -346,6 +346,11 @@ const PortfolioBalance = () => {
     [homeChartRemountNonce, quoteCurrency, visibleKeyIdsSig],
   );
 
+  useEffect(() => {
+    setSelectedChartBalance(undefined);
+    setChartChangeRowData(undefined);
+  }, [chartLifecycleKey]);
+
   const displayedPortfolioBalance =
     typeof selectedChartBalance === 'number'
       ? selectedChartBalance
