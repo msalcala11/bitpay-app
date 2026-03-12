@@ -460,11 +460,35 @@ const BalanceHistoryChart = ({
     selectedSeriesInterval,
   ]);
 
+  const getCachedTimeframeHistoricalDepKeys = useCallback(
+    (timeframe: FiatRateInterval) => {
+      return (cachedScope?.timeframes?.[timeframe]?.historicalRateDeps || [])
+        .map(dep => dep?.cacheKey)
+        .filter((cacheKey): cacheKey is string => !!cacheKey);
+    },
+    [cachedScope?.timeframes],
+  );
+
+  const getLiveHistoricalRateDepsForTimeframe = useCallback(
+    (timeframe: FiatRateInterval) => {
+      const cachedDepKeys = getCachedTimeframeHistoricalDepKeys(timeframe);
+      if (!cachedDepKeys.length) {
+        return undefined;
+      }
+
+      return buildHistoricalRateDependencyMetadataFromCache({
+        depKeys: cachedDepKeys,
+        fiatRateSeriesCache,
+      });
+    },
+    [fiatRateSeriesCache, getCachedTimeframeHistoricalDepKeys],
+  );
+
   const getTimeframeRevision = useCallback(
     (
       timeframe: FiatRateInterval,
       historicalRateDeps =
-        cachedScope?.timeframes?.[timeframe]?.historicalRateDeps || [],
+        getLiveHistoricalRateDepsForTimeframe(timeframe) || [],
     ) => {
       return buildBalanceChartTimeframeRevision({
         scopeId,
@@ -475,8 +499,8 @@ const BalanceHistoryChart = ({
       });
     },
     [
-      cachedScope?.timeframes,
       currentSpotRatesByCoin,
+      getLiveHistoricalRateDepsForTimeframe,
       scopeId,
       snapshotVersionSig,
     ],
@@ -484,17 +508,18 @@ const BalanceHistoryChart = ({
 
   const getTimeframeHistoricalRevision = useCallback(
     (timeframe: FiatRateInterval) => {
-      const cachedHistoricalRateDeps =
-        cachedScope?.timeframes?.[timeframe]?.historicalRateDeps;
-      if (cachedHistoricalRateDeps?.length) {
-        return buildHistoricalRateDependencyRevision({
-          historicalRateDeps: cachedHistoricalRateDeps,
-        });
+      const liveHistoricalRateDeps = getLiveHistoricalRateDepsForTimeframe(timeframe);
+      if (liveHistoricalRateDeps?.length) {
+        return (
+          buildHistoricalRateDependencyRevision({
+            historicalRateDeps: liveHistoricalRateDeps,
+          }) || 'none'
+        );
       }
 
       return analysisHistoricalDepRevision;
     },
-    [analysisHistoricalDepRevision, cachedScope?.timeframes],
+    [analysisHistoricalDepRevision, getLiveHistoricalRateDepsForTimeframe],
   );
 
   const getTimeframeAttemptRevision = useCallback(
@@ -1074,13 +1099,6 @@ const BalanceHistoryChart = ({
         return;
       }
       if (
-        seriesByTimeframe[tf] &&
-        lastAttemptRevisionByTimeframe[tf] === attemptRevision &&
-        !lastErrorByTimeframe[tf]
-      ) {
-        return;
-      }
-      if (
         isComputingByTimeframe[tf] &&
         lastAttemptRevisionByTimeframe[tf] === attemptRevision
       ) {
@@ -1092,8 +1110,13 @@ const BalanceHistoryChart = ({
       if (!inputsReady) {
         return;
       }
-      // Avoid retry loops: only attempt again when the compute inputs change.
-      if (lastAttemptRevisionByTimeframe[tf] === attemptRevision) {
+      // Suppress same-revision auto-retries only after an explicit compute
+      // failure. Interrupted/cancelled attempts must be able to retry without
+      // requiring unrelated input changes.
+      if (
+        lastAttemptRevisionByTimeframe[tf] === attemptRevision &&
+        !!lastErrorByTimeframe[tf]
+      ) {
         return;
       }
       enqueueTimeframeCompute(tf, !!options?.prioritize);
@@ -1200,19 +1223,15 @@ const BalanceHistoryChart = ({
         return false;
       }
       if (
-        seriesByTimeframe[tf] &&
-        lastAttemptRevisionByTimeframe[tf] === attemptRevision &&
-        !lastErrorByTimeframe[tf]
-      ) {
-        return false;
-      }
-      if (
         isComputingByTimeframe[tf] &&
         lastAttemptRevisionByTimeframe[tf] === attemptRevision
       ) {
         return false;
       }
-      if (lastAttemptRevisionByTimeframe[tf] === attemptRevision) {
+      if (
+        lastAttemptRevisionByTimeframe[tf] === attemptRevision &&
+        !!lastErrorByTimeframe[tf]
+      ) {
         return false;
       }
       return true;
@@ -1252,21 +1271,9 @@ const BalanceHistoryChart = ({
       return seriesByTimeframe[selectedTimeframe];
     }
 
-    if (
-      seriesByTimeframe[selectedTimeframe] &&
-      lastAttemptRevisionByTimeframe[selectedTimeframe] ===
-        selectedTimeframeAttemptRevision &&
-      !lastErrorByTimeframe[selectedTimeframe]
-    ) {
-      return seriesByTimeframe[selectedTimeframe];
-    }
-
     return undefined;
   }, [
-    lastAttemptRevisionByTimeframe,
-    lastErrorByTimeframe,
     selectedTimeframe,
-    selectedTimeframeAttemptRevision,
     selectedTimeframeRevision,
     seriesByTimeframe,
     seriesRevisionByTimeframe,
