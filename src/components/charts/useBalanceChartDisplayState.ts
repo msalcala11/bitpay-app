@@ -54,21 +54,9 @@ export const useBalanceChartDisplayState = ({
       return seriesByTimeframe[selectedTimeframe];
     }
 
-    if (
-      seriesByTimeframe[selectedTimeframe] &&
-      lastAttemptRevisionByTimeframe[selectedTimeframe] ===
-        selectedTimeframeAttemptRevision &&
-      !lastErrorByTimeframe[selectedTimeframe]
-    ) {
-      return seriesByTimeframe[selectedTimeframe];
-    }
-
     return undefined;
   }, [
-    lastAttemptRevisionByTimeframe,
-    lastErrorByTimeframe,
     selectedTimeframe,
-    selectedTimeframeAttemptRevision,
     selectedTimeframeRevision,
     seriesByTimeframe,
     seriesRevisionByTimeframe,
