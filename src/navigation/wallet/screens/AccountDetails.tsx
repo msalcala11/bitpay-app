@@ -239,10 +239,13 @@ const Row = styled.View`
   align-items: flex-end;
 `;
 
-const WalletListHeader = styled(TouchableOpacity)<{
+const WalletListHeader = styled(TouchableOpacity)`
+  padding: 10px;
+`;
+
+const WalletListHeaderLabel = styled.View<{
   isActive: boolean;
 }>`
-  padding: 10px;
   opacity: ${({isActive}) => (isActive ? 1 : 0.4)};
 `;
 
@@ -1499,29 +1502,35 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
         <AssetsDataContainer>
           <HeaderListContainer>
             <WalletListHeader
-              isActive={isWalletsTab}
+              activeOpacity={1}
               onPress={() => {
                 setActiveTab('wallets');
               }}>
-              <H5>{t('Wallets')}</H5>
+              <WalletListHeaderLabel isActive={isWalletsTab}>
+                <H5>{t('Wallets')}</H5>
+              </WalletListHeaderLabel>
             </WalletListHeader>
             {showPortfolioValue ? (
               <WalletListHeader
-                isActive={isAllocationTab}
+                activeOpacity={1}
                 onPress={() => {
                   setActiveTab('allocation');
                 }}>
-                <H5>{t('Allocation')}</H5>
+                <WalletListHeaderLabel isActive={isAllocationTab}>
+                  <H5>{t('Allocation')}</H5>
+                </WalletListHeaderLabel>
               </WalletListHeader>
             ) : null}
             <WalletListHeader
-              isActive={isActivityTab}
+              activeOpacity={1}
               onPress={async () => {
                 setActiveTab('activity');
                 await sleep(200);
                 debouncedLoadHistory(selectedChainFilterOption);
               }}>
-              <H5>{t('Activity')}</H5>
+              <WalletListHeaderLabel isActive={isActivityTab}>
+                <H5>{t('Activity')}</H5>
+              </WalletListHeaderLabel>
             </WalletListHeader>
           </HeaderListContainer>
           {isSvmAccount || (isSmallScreen && showPortfolioValue) ? null : (
@@ -1659,6 +1668,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   return (
     <AccountDetailsContainer>
       <SectionList
+        extraData={activeTab}
         refreshControl={
           <RefreshControl
             tintColor={theme.dark ? White : SlateDark}
