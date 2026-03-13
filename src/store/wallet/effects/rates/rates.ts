@@ -1,8 +1,7 @@
-import {Effect, RootState} from '../../../index';
+import {Effect} from '../../../index';
 import axios from 'axios';
 import {BASE_FIATRATES_MARKETSTATS_URL_DEVELOPMENT} from '@env';
 import {BASE_BWS_URL} from '../../../../constants/config';
-import {Network} from '../../../../constants';
 import {SUPPORTED_VM_TOKENS} from '../../../../constants/currencies';
 import {
   FiatRatePoint,
@@ -83,17 +82,17 @@ const getFiatRateSeriesUrl = (
   const normalizedCoin = normalizeFiatRateSeriesCoin(coin).trim();
   const normalizedChain = (chain || '').trim();
   const normalizedTokenAddress = (tokenAddress || '').trim();
-  const hasTokenIdentity =
-    !!normalizedCoin && !!normalizedChain && !!normalizedTokenAddress;
   const coinQuery = normalizedCoin
     ? `coin=${encodeURIComponent(normalizedCoin)}`
     : '';
-  const chainQuery = hasTokenIdentity
-    ? `&chain=${encodeURIComponent(normalizedChain)}`
-    : '';
-  const tokenAddressQuery = hasTokenIdentity
-    ? `&tokenAddress=${encodeURIComponent(normalizedTokenAddress)}`
-    : '';
+  const chainQuery =
+    normalizedCoin && normalizedChain
+      ? `&chain=${encodeURIComponent(normalizedChain)}`
+      : '';
+  const tokenAddressQuery =
+    normalizedCoin && normalizedTokenAddress
+      ? `&tokenAddress=${encodeURIComponent(normalizedTokenAddress)}`
+      : '';
   if (!days) {
     return coinQuery
       ? `${FIAT_RATE_SERIES_BASE_URL}/${codeUpper}?${coinQuery}${chainQuery}${tokenAddressQuery}`
@@ -102,145 +101,6 @@ const getFiatRateSeriesUrl = (
   return coinQuery
     ? `${FIAT_RATE_SERIES_BASE_URL}/${codeUpper}?days=${days}&${coinQuery}${chainQuery}${tokenAddressQuery}`
     : `${FIAT_RATE_SERIES_BASE_URL}/${codeUpper}?days=${days}`;
-};
-
-const normalizeFiatRateSeriesRequestChain = (
-  chain?: string,
-): string | undefined => {
-  const normalized = (chain || '').trim().toLowerCase();
-  return normalized || undefined;
-};
-
-const normalizeFiatRateSeriesRequestTokenAddress = (
-  tokenAddress?: string,
-): string | undefined => {
-  const normalized = (tokenAddress || '').trim();
-  return normalized || undefined;
-};
-
-type FiatRateSeriesTokenRequestResolution = {
-  chain?: string;
-  tokenAddress?: string;
-  requiresTokenIdentity: boolean;
-  ambiguous: boolean;
-};
-
-const getFiatRateSeriesTokenWalletCandidates = (
-  state: RootState,
-  coin: string,
-): {
-  candidates: Array<{chain: string; tokenAddress: string}>;
-  hasNonTokenWalletMatch: boolean;
-} => {
-  const normalizedCoin = normalizeFiatRateSeriesCoin(coin);
-  if (!normalizedCoin) {
-    return {candidates: [], hasNonTokenWalletMatch: false};
-  }
-
-  const byIdentity = new Map<string, {chain: string; tokenAddress: string}>();
-  let hasNonTokenWalletMatch = false;
-  for (const key of Object.values(state.WALLET?.keys || {})) {
-    for (const wallet of ((key as any)?.wallets || []) as Wallet[]) {
-      if (wallet?.network !== Network.mainnet) {
-        continue;
-      }
-
-      if (
-        normalizeFiatRateSeriesCoin(wallet?.currencyAbbreviation || '') !==
-        normalizedCoin
-      ) {
-        continue;
-      }
-
-      const walletChain = normalizeFiatRateSeriesRequestChain(wallet?.chain);
-      const walletTokenAddress = normalizeFiatRateSeriesRequestTokenAddress(
-        wallet?.tokenAddress,
-      );
-      if (!walletChain) {
-        continue;
-      }
-
-      if (!walletTokenAddress) {
-        hasNonTokenWalletMatch = true;
-        continue;
-      }
-
-      const dedupeKey = `${walletChain}:${walletTokenAddress}`;
-      if (!byIdentity.has(dedupeKey)) {
-        byIdentity.set(dedupeKey, {
-          chain: walletChain,
-          tokenAddress: walletTokenAddress,
-        });
-      }
-    }
-  }
-
-  return {
-    candidates: Array.from(byIdentity.values()).sort((a, b) => {
-      const byChain = a.chain.localeCompare(b.chain);
-      return byChain || a.tokenAddress.localeCompare(b.tokenAddress);
-    }),
-    hasNonTokenWalletMatch,
-  };
-};
-
-const resolveFiatRateSeriesTokenRequest = (args: {
-  state: RootState;
-  coin: string;
-  chain?: string;
-  tokenAddress?: string;
-}): FiatRateSeriesTokenRequestResolution => {
-  const chain = normalizeFiatRateSeriesRequestChain(args.chain);
-  const tokenAddress = normalizeFiatRateSeriesRequestTokenAddress(
-    args.tokenAddress,
-  );
-  const {candidates, hasNonTokenWalletMatch} =
-    getFiatRateSeriesTokenWalletCandidates(args.state, args.coin);
-  const requiresTokenIdentity =
-    !!tokenAddress || (candidates.length > 0 && !hasNonTokenWalletMatch);
-
-  if (!requiresTokenIdentity) {
-    return {
-      chain,
-      tokenAddress,
-      requiresTokenIdentity: false,
-      ambiguous: false,
-    };
-  }
-
-  if (chain && tokenAddress) {
-    return {
-      chain,
-      tokenAddress,
-      requiresTokenIdentity: true,
-      ambiguous: false,
-    };
-  }
-
-  const matchingCandidates = candidates.filter(candidate => {
-    if (chain && candidate.chain !== chain) {
-      return false;
-    }
-    if (tokenAddress && candidate.tokenAddress !== tokenAddress) {
-      return false;
-    }
-    return true;
-  });
-
-  if (matchingCandidates.length === 1) {
-    return {
-      ...matchingCandidates[0],
-      requiresTokenIdentity: true,
-      ambiguous: false,
-    };
-  }
-
-  return {
-    chain,
-    tokenAddress,
-    requiresTokenIdentity: true,
-    ambiguous: matchingCandidates.length > 1 || candidates.length > 1,
-  };
 };
 
 const hasValidFiatRateSeriesInCache = (args: {
@@ -699,41 +559,6 @@ export const fetchFiatRateSeriesInterval =
     const cached = fiatRateSeriesCache[cacheKey];
     const normalizedCoinForCacheCheck =
       normalizeFiatRateSeriesCoin(coinForCacheCheck);
-    const targetCoinForTokenResolution =
-      normalizeFiatRateSeriesCoin(coin || coinForCacheCheck);
-    const tokenRequestResolution = targetCoinForTokenResolution
-      ? resolveFiatRateSeriesTokenRequest({
-          state: getState(),
-          coin: targetCoinForTokenResolution,
-          chain,
-          tokenAddress,
-        })
-      : {
-          chain: normalizeFiatRateSeriesRequestChain(chain),
-          tokenAddress: normalizeFiatRateSeriesRequestTokenAddress(
-            tokenAddress,
-          ),
-          requiresTokenIdentity: false,
-          ambiguous: false,
-        };
-    const resolvedChain = tokenRequestResolution.chain;
-    const resolvedTokenAddress = tokenRequestResolution.tokenAddress;
-    const canMakeTokenCoinSpecificRequest =
-      !tokenRequestResolution.requiresTokenIdentity ||
-      (!!resolvedChain && !!resolvedTokenAddress);
-    const logSkippedTokenCoinSpecificRequest = () => {
-      if (!targetCoinForTokenResolution) {
-        return;
-      }
-      const reason = tokenRequestResolution.ambiguous
-        ? 'multiple wallet token identities match this symbol'
-        : 'chain/tokenAddress are missing';
-      logManager.warn(
-        `fetchFiatRateSeriesInterval: skipping coin-specific token request without unique chain/tokenAddress (${(
-          fiatCode || ''
-        ).toUpperCase()}/${targetCoinForTokenResolution}/${interval}) ${reason}`,
-      );
-    };
 
     if (
       !force &&
@@ -756,10 +581,6 @@ export const fetchFiatRateSeriesInterval =
       normalizedCoinForCacheCheck !== 'btc' &&
       hasFreshDefaultBtcSeries;
     if (shouldSkipDefaultFetchForCoinSpecificRequest) {
-      if (!canMakeTokenCoinSpecificRequest) {
-        logSkippedTokenCoinSpecificRequest();
-        return false;
-      }
       return await dispatch(
         fetchFiatRateSeriesInterval({
           fiatCode,
@@ -768,8 +589,8 @@ export const fetchFiatRateSeriesInterval =
           force,
           allowedCoins,
           coin: normalizedCoinForCacheCheck,
-          chain: resolvedChain,
-          tokenAddress: resolvedTokenAddress,
+          chain,
+          tokenAddress,
         }),
       );
     }
@@ -786,18 +607,12 @@ export const fetchFiatRateSeriesInterval =
     let updateCount = 0;
     let requestFailed = false;
     const fetchAndStoreSeries = async (): Promise<void> => {
-      if (normalizedRequestedCoin && !canMakeTokenCoinSpecificRequest) {
-        requestFailed = true;
-        logSkippedTokenCoinSpecificRequest();
-        return;
-      }
-
       const url = getFiatRateSeriesUrl(
         fiatCode,
         interval,
         normalizedRequestedCoin || undefined,
-        resolvedChain,
-        resolvedTokenAddress,
+        chain,
+        tokenAddress,
       );
       const contextCoin =
         normalizeFiatRateSeriesCoin(
@@ -938,10 +753,6 @@ export const fetchFiatRateSeriesInterval =
       if (!canAttemptCoinSpecificFallback) {
         return false;
       }
-      if (!canMakeTokenCoinSpecificRequest) {
-        logSkippedTokenCoinSpecificRequest();
-        return false;
-      }
       return await dispatch(
         fetchFiatRateSeriesInterval({
           fiatCode,
@@ -950,8 +761,8 @@ export const fetchFiatRateSeriesInterval =
           force,
           allowedCoins,
           coin: normalizedCoinForCacheCheck,
-          chain: resolvedChain,
-          tokenAddress: resolvedTokenAddress,
+          chain,
+          tokenAddress,
         }),
       );
     }
@@ -973,10 +784,6 @@ export const fetchFiatRateSeriesInterval =
         !!normalizedCoinForCacheCheck &&
         (!allowedCoinsSet || allowedCoinsSet.has(normalizedCoinForCacheCheck));
       if (!canAttemptCoinSpecificFallback) {
-        return updateCount > 0;
-      }
-      if (!canMakeTokenCoinSpecificRequest) {
-        logSkippedTokenCoinSpecificRequest();
         return updateCount > 0;
       }
 
@@ -1004,8 +811,8 @@ export const fetchFiatRateSeriesInterval =
           force,
           allowedCoins,
           coin: normalizedCoinForCacheCheck,
-          chain: resolvedChain,
-          tokenAddress: resolvedTokenAddress,
+          chain,
+          tokenAddress,
         }),
       );
     } finally {
