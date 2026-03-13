@@ -804,9 +804,6 @@ const BalanceHistoryChart = ({
       }
 
       const status = cachedTimeframeStatusByTimeframe[timeframe] || 'missing';
-      if (status === 'stale_historical') {
-        continue;
-      }
       const effectiveCachedTimeframe =
         status === 'patchable'
           ? patchCachedLatestPointWithSpotRates({
@@ -851,15 +848,6 @@ const BalanceHistoryChart = ({
                 timeframe: selectedTimeframe,
               },
         );
-      } else {
-        const selectedCachedStatus =
-          cachedTimeframeStatusByTimeframe[selectedTimeframe] || 'missing';
-        if (
-          selectedCachedStatus === 'stale_historical' ||
-          selectedCachedStatus === 'missing'
-        ) {
-          setDisplayState(prev => (prev ? undefined : prev));
-        }
       }
     });
 
@@ -1487,9 +1475,6 @@ const BalanceHistoryChart = ({
     }
 
     const status = cachedTimeframeStatusByTimeframe[selectedTimeframe] || 'missing';
-    if (status === 'stale_historical' || status === 'missing') {
-      return undefined;
-    }
     const effectiveCachedTimeframe =
       status === 'patchable'
         ? patchCachedLatestPointWithSpotRates({

@@ -1006,7 +1006,7 @@ export const getWalletIdsToPopulateFromSnapshots = (args: {
     [walletId: string]: SnapshotBalanceMismatch | undefined;
   } = {};
 
-  const mainnetWalletIdsWithSnapshotBalanceMismatch: string[] = [];
+  const mainnetWalletIdsWithSnapshotBalanceMismatchThatChanged: string[] = [];
   const mainnetWalletIdsMissingSnapshots: string[] = [];
 
   const mismatchEquals = (
@@ -1062,7 +1062,6 @@ export const getWalletIdsToPopulateFromSnapshots = (args: {
 
     const prevMismatch = prevMismatchesByWalletId[w.id];
     if (liveAtomic !== snapAtomic) {
-      mainnetWalletIdsWithSnapshotBalanceMismatch.push(w.id);
       const computedUnitsHeld = atomicToUnitString(snapAtomic, unitDecimals);
       const currentWalletBalance = atomicToUnitString(liveAtomic, unitDecimals);
       const deltaAtomic = snapAtomic - liveAtomic;
@@ -1074,6 +1073,7 @@ export const getWalletIdsToPopulateFromSnapshots = (args: {
       };
 
       if (!mismatchEquals(prevMismatch, mismatch)) {
+        mainnetWalletIdsWithSnapshotBalanceMismatchThatChanged.push(w.id);
         snapshotBalanceMismatchUpdates[w.id] = mismatch;
       }
     } else if (prevMismatch) {
@@ -1085,7 +1085,7 @@ export const getWalletIdsToPopulateFromSnapshots = (args: {
     walletIdsToPopulate: Array.from(
       new Set([
         ...mainnetWalletIdsMissingSnapshots,
-        ...mainnetWalletIdsWithSnapshotBalanceMismatch,
+        ...mainnetWalletIdsWithSnapshotBalanceMismatchThatChanged,
       ]),
     ),
     snapshotBalanceMismatchUpdates,

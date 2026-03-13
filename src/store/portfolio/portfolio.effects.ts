@@ -340,18 +340,7 @@ export const maybePopulatePortfolioForWallets =
     const prevMismatchesByWalletId =
       state.PORTFOLIO?.snapshotBalanceMismatchesByWalletId || {};
 
-    const latestWalletsById = new Map(
-      getMainnetWalletsFromKeys(state.WALLET?.keys || {}).map(wallet => [
-        String(wallet?.id || ''),
-        wallet,
-      ]),
-    );
-    const walletsScope = (Array.isArray(args.wallets) ? args.wallets : [])
-      .map(wallet => {
-        const walletId = String(wallet?.id || '');
-        return latestWalletsById.get(walletId) || wallet;
-      })
-      .filter(Boolean);
+    const walletsScope = Array.isArray(args.wallets) ? args.wallets : [];
     if (!walletsScope.length) {
       return;
     }
@@ -388,7 +377,7 @@ export const maybePopulatePortfolioForWallets =
     });
 
     if (walletIdsWithCurrentRates.length) {
-      await dispatch(
+      dispatch(
         populatePortfolio({
           quoteCurrency,
           walletIds: walletIdsWithCurrentRates,
