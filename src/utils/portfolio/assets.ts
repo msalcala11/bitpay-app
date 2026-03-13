@@ -1167,6 +1167,73 @@ const getQuoteRateNumForAsset = (args: {
   return toNumber(rate);
 };
 
+type WalletCurrentRateOverride = {
+  assetId: string;
+  normalizedCoin: string;
+  currentRate: number;
+};
+
+const getWalletCurrentRateOverride = (args: {
+  wallet: Wallet;
+  quoteCurrency: string;
+  rates?: Rates;
+}): WalletCurrentRateOverride | undefined => {
+  const coin = String(
+    (args.wallet as any)?.currencyAbbreviation || '',
+  ).toLowerCase();
+  if (!coin) {
+    return undefined;
+  }
+
+  const currentRate = getQuoteRateNumForAsset({
+    rates: args.rates,
+    quoteCurrency: args.quoteCurrency,
+    coin,
+    chain: String((args.wallet as any)?.chain || coin),
+    tokenAddress: (args.wallet as any)?.tokenAddress,
+  });
+
+  if (!(currentRate > 0)) {
+    return undefined;
+  }
+
+  return {
+    assetId: getPortfolioAssetIdFromWallet(args.wallet as any),
+    normalizedCoin: normalizeCoinForPnlRates(coin),
+    currentRate,
+  };
+};
+
+const addWalletCurrentRateOverrides = (args: {
+  wallet: Wallet;
+  quoteCurrency: string;
+  rates?: Rates;
+  currentRatesByCoin?: Record<string, number>;
+  currentRatesByAssetId?: Record<string, number>;
+}): void => {
+  const rateOverride = getWalletCurrentRateOverride(args);
+  if (!rateOverride) {
+    return;
+  }
+
+  if (
+    args.currentRatesByCoin &&
+    !(rateOverride.normalizedCoin in args.currentRatesByCoin)
+  ) {
+    args.currentRatesByCoin[rateOverride.normalizedCoin] =
+      rateOverride.currentRate;
+  }
+
+  if (
+    args.currentRatesByAssetId &&
+    rateOverride.assetId &&
+    !(rateOverride.assetId in args.currentRatesByAssetId)
+  ) {
+    args.currentRatesByAssetId[rateOverride.assetId] =
+      rateOverride.currentRate;
+  }
+};
+
 const getEffectiveQuoteCurrencyFromSnapshots = (args: {
   preferredQuoteCurrency: string;
   snapshotsByWalletId: {[walletId: string]: BalanceSnapshot[] | undefined};
@@ -1295,6 +1362,7 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
   // allocation box summaries are consistent everywhere.
   const pnlWallets: WalletForAnalysis[] = [];
   const currentRatesByCoin: Record<string, number> = {};
+  const currentRatesByAssetId: Record<string, number> = {};
 
   for (const w of args.wallets || []) {
     if ((w as any)?.network !== Network.mainnet) continue;
@@ -1352,19 +1420,13 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
       snapshots: snaps,
     });
 
-    const normCoin = normalizeCoinForPnlRates(coin);
-    if (!(normCoin in currentRatesByCoin)) {
-      const currentRate = getQuoteRateNumForAsset({
-        rates: args.rates,
-        quoteCurrency: effectiveQuoteCurrency,
-        coin,
-        chain: String((w as any)?.chain || coin),
-        tokenAddress,
-      });
-      if (currentRate > 0) {
-        currentRatesByCoin[normCoin] = currentRate;
-      }
-    }
+    addWalletCurrentRateOverrides({
+      wallet: w,
+      quoteCurrency: effectiveQuoteCurrency,
+      rates: args.rates,
+      currentRatesByCoin,
+      currentRatesByAssetId,
+    });
   }
 
   if (!pnlWallets.length) {
@@ -1381,6 +1443,10 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
       currentRatesByCoin:
         Object.keys(currentRatesByCoin).length > 0
           ? currentRatesByCoin
+          : undefined,
+      currentRatesByAssetId:
+        Object.keys(currentRatesByAssetId).length > 0
+          ? currentRatesByAssetId
           : undefined,
       nowMs,
       maxPoints: 2,
@@ -1438,29 +1504,12 @@ export const buildPnlCurrentRatesByAssetIdFromWallets = (args: {
   }
 
   for (const wallet of args.wallets || []) {
-    const coin = String(
-      (wallet as any)?.currencyAbbreviation || '',
-    ).toLowerCase();
-    if (!coin) {
-      continue;
-    }
-
-    const assetId = getPortfolioAssetIdFromWallet(wallet as any);
-    if (!assetId || assetId in out) {
-      continue;
-    }
-
-    const currentRate = getQuoteRateNumForAsset({
-      rates: args.rates,
+    addWalletCurrentRateOverrides({
+      wallet,
       quoteCurrency,
-      coin,
-      chain: String((wallet as any)?.chain || coin),
-      tokenAddress: (wallet as any)?.tokenAddress,
+      rates: args.rates,
+      currentRatesByAssetId: out,
     });
-
-    if (currentRate > 0) {
-      out[assetId] = currentRate;
-    }
   }
 
   return out;
@@ -1479,29 +1528,12 @@ export const buildPnlCurrentRatesByCoinFromWallets = (args: {
   }
 
   for (const wallet of args.wallets || []) {
-    const coin = String(
-      (wallet as any)?.currencyAbbreviation || '',
-    ).toLowerCase();
-    if (!coin) {
-      continue;
-    }
-
-    const normCoin = normalizeCoinForPnlRates(coin);
-    if (normCoin in out) {
-      continue;
-    }
-
-    const currentRate = getQuoteRateNumForAsset({
-      rates: args.rates,
+    addWalletCurrentRateOverrides({
+      wallet,
       quoteCurrency,
-      coin,
-      chain: String((wallet as any)?.chain || coin),
-      tokenAddress: (wallet as any)?.tokenAddress,
+      rates: args.rates,
+      currentRatesByCoin: out,
     });
-
-    if (currentRate > 0) {
-      out[normCoin] = currentRate;
-    }
   }
 
   return out;
@@ -1937,6 +1969,10 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
   const repWalletByAssetKey = new Map<string, Wallet>();
   const coinByAssetKey = new Map<string, string>();
   const pnlWalletsByRateCoin = new Map<string, WalletForAnalysis[]>();
+  const currentRatesByAssetIdByRateCoin = new Map<
+    string,
+    Record<string, number>
+  >();
   const seenPnlWalletIds = new Set<string>();
 
   const currentRatesByCoin: Record<string, number> = {};
@@ -1977,14 +2013,32 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       }
     }
 
+    const currentRatesByAssetIdForRateCoin =
+      currentRatesByAssetIdByRateCoin.get(normCoin) || {};
+
     for (const w of groupWallets) {
       const pw = toPnlWallet(w);
       if (!pw) continue;
       if (seenPnlWalletIds.has(pw.walletId)) continue;
+
+      addWalletCurrentRateOverrides({
+        wallet: w,
+        quoteCurrency,
+        rates: args.rates,
+        currentRatesByAssetId: currentRatesByAssetIdForRateCoin,
+      });
+
       seenPnlWalletIds.add(pw.walletId);
       const existing = pnlWalletsByRateCoin.get(normCoin) || [];
       existing.push(pw);
       pnlWalletsByRateCoin.set(normCoin, existing);
+    }
+
+    if (Object.keys(currentRatesByAssetIdForRateCoin).length > 0) {
+      currentRatesByAssetIdByRateCoin.set(
+        normCoin,
+        currentRatesByAssetIdForRateCoin,
+      );
     }
   }
 
@@ -2005,6 +2059,10 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
           ? {[rateCoin]: currentRate}
           : undefined;
 
+      const currentRatesByAssetId = currentRatesByAssetIdByRateCoin.get(
+        rateCoin,
+      );
+
       try {
         const res = buildPnlAnalysisSeries({
           wallets: walletsForCoin,
@@ -2012,6 +2070,11 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
           quoteCurrency,
           fiatRateSeriesCache: fiatRateSeriesCache as any,
           currentRatesByCoin: currentRateOverride,
+          currentRatesByAssetId:
+            currentRatesByAssetId &&
+            Object.keys(currentRatesByAssetId).length > 0
+              ? currentRatesByAssetId
+              : undefined,
           nowMs,
           maxPoints: 2,
         });
