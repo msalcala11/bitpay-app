@@ -20,6 +20,7 @@ export type BalanceChartStatusByTimeframe = Partial<
 
 export type BalanceChartDisplayState =
   | {
+      revision: string;
       series: ComputedSeries;
       timeframe: FiatRateInterval;
     }

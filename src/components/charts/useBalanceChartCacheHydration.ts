@@ -21,6 +21,7 @@ import {
   getCachedTimeframeStatus,
   patchCachedLatestPointWithSpotRates,
 } from '../../utils/portfolio/chartCache';
+import {debugBalanceChartRepeatedEffect} from './balanceChartDebug';
 
 const EMPTY_SERIES_BY_TIMEFRAME: BalanceChartSeriesByTimeframe = {};
 const EMPTY_REVISION_BY_TIMEFRAME: BalanceChartRevisionByTimeframe = {};
@@ -54,6 +55,7 @@ export const useBalanceChartCacheHydration = ({
   const [seriesRevisionByTimeframe, setSeriesRevisionByTimeframe] =
     useState<BalanceChartRevisionByTimeframe>(EMPTY_REVISION_BY_TIMEFRAME);
   const lastTouchedScopeIdRef = useRef<string | undefined>(undefined);
+  const lastPatchDispatchSignatureRef = useRef<string | undefined>(undefined);
 
   const cachedTimeframeStatusByTimeframe =
     useMemo<BalanceChartStatusByTimeframe>(() => {
@@ -78,6 +80,7 @@ export const useBalanceChartCacheHydration = ({
 
   useEffect(() => {
     lastTouchedScopeIdRef.current = undefined;
+    lastPatchDispatchSignatureRef.current = undefined;
     setSeriesByTimeframe(EMPTY_SERIES_BY_TIMEFRAME);
     setSeriesRevisionByTimeframe(EMPTY_REVISION_BY_TIMEFRAME);
   }, [quoteCurrency, scopeId]);
@@ -91,6 +94,14 @@ export const useBalanceChartCacheHydration = ({
     }
 
     lastTouchedScopeIdRef.current = scopeId;
+    debugBalanceChartRepeatedEffect({
+      effectName: 'cacheHydration.touchScope',
+      scopeId,
+      signature: scopeId,
+      payload: {
+        timeframes: Object.keys(cachedScope.timeframes || {}).sort(),
+      },
+    });
     dispatch(
       touchBalanceChartScope({
         scopeId,
@@ -106,6 +117,7 @@ export const useBalanceChartCacheHydration = ({
     const patchedTimeframes: CachedBalanceChartTimeframe[] = [];
     const nextSeriesByTimeframe: BalanceChartSeriesByTimeframe = {};
     const nextSeriesRevisionByTimeframe: BalanceChartRevisionByTimeframe = {};
+    const patchableTimeframes: FiatRateInterval[] = [];
 
     for (const timeframe of FIAT_CHART_PRECOMPUTE_TIMEFRAME_ORDER) {
       const cachedTimeframe = cachedScope.timeframes?.[timeframe];
@@ -114,6 +126,9 @@ export const useBalanceChartCacheHydration = ({
       }
 
       const status = cachedTimeframeStatusByTimeframe[timeframe] || 'missing';
+      if (status === 'patchable') {
+        patchableTimeframes.push(timeframe);
+      }
       const effectiveCachedTimeframe =
         status === 'patchable'
           ? patchCachedLatestPointWithSpotRates({
@@ -149,13 +164,45 @@ export const useBalanceChartCacheHydration = ({
     });
 
     if (patchedTimeframes.length) {
+      const patchDispatchSignature = [
+        scopeId,
+        patchableTimeframes.sort().join(','),
+        patchedTimeframes
+          .map(timeframe => timeframe.timeframe)
+          .sort()
+          .join(','),
+      ].join('|');
+      const isDuplicatePatchDispatch =
+        lastPatchDispatchSignatureRef.current === patchDispatchSignature;
+
+      debugBalanceChartRepeatedEffect({
+        effectName: 'cacheHydration.patchScope',
+        scopeId,
+        signature: patchDispatchSignature,
+        payload: {
+          patchableTimeframes: patchableTimeframes.sort(),
+          patchedTimeframes: patchedTimeframes
+            .map(timeframe => timeframe.timeframe)
+            .sort(),
+          duplicateDispatchSuppressed: isDuplicatePatchDispatch,
+        },
+      });
+
+      if (isDuplicatePatchDispatch) {
+        return;
+      }
+
+      lastPatchDispatchSignatureRef.current = patchDispatchSignature;
       dispatch(
         patchBalanceChartScopeLatestPoints({
           scopeId,
           timeframes: patchedTimeframes,
         }),
       );
+      return;
     }
+
+    lastPatchDispatchSignatureRef.current = undefined;
   }, [
     cachedScope,
     cachedTimeframeStatusByTimeframe,

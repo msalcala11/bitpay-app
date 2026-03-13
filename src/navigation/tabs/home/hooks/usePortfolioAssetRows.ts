@@ -319,11 +319,22 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
 
         if (hasSupportTransition) {
           const now = Date.now();
+          const portfolioState = store.getState().PORTFOLIO;
           const isPopulateAlreadyInProgress =
-            !!store.getState().PORTFOLIO?.populateStatus?.inProgress;
+            !!portfolioState?.populateStatus?.inProgress;
+          const lastPopulatedAt = portfolioState?.lastPopulatedAt;
+          // If a user-triggered/full populate just completed, let the new
+          // snapshots settle instead of immediately kicking off a second Home-
+          // driven populate when historical-rate support flips to available.
+          const recentPopulateCooldownUntil = Math.max(
+            lastPopulateTriggerAtRef.current,
+            typeof lastPopulatedAt === 'number' && Number.isFinite(lastPopulatedAt)
+              ? lastPopulatedAt
+              : 0,
+          );
           if (
             !isPopulateAlreadyInProgress &&
-            now - lastPopulateTriggerAtRef.current >=
+            now - recentPopulateCooldownUntil >=
               SUPPORT_TRANSITION_POPULATE_THROTTLE_MS
           ) {
             lastPopulateTriggerAtRef.current = now;

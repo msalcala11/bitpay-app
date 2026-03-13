@@ -45,6 +45,7 @@ import {
 } from '../../store/portfolio-charts';
 import {buildBalanceChartPointByTimestampMap} from '../../utils/portfolio/balanceChartShared';
 import {CHART_COMPUTE_YIELD_EVERY_POINTS} from './useBalanceChartComputationQueue.constants';
+import {debugBalanceChartRepeatedEffect} from './balanceChartDebug';
 
 const EMPTY_BOOLEAN_BY_TIMEFRAME: BalanceChartBooleanByTimeframe = {};
 const EMPTY_REVISION_BY_TIMEFRAME: BalanceChartRevisionByTimeframe = {};
@@ -255,6 +256,11 @@ export const useBalanceChartComputationQueue = ({
   }, [analysisInputsReadyKey]);
 
   useEffect(() => {
+    debugBalanceChartRepeatedEffect({
+      effectName: 'computeQueue.resetScope',
+      scopeId,
+      signature: `${scopeId}|${quoteCurrency}`,
+    });
     invalidateComputeGeneration();
     analysisHistoricalDepKeysRef.current = new Set();
     analysisInputsReadyKeyRef.current = undefined;
@@ -267,6 +273,15 @@ export const useBalanceChartComputationQueue = ({
   }, [invalidateComputeGeneration, quoteCurrency, scopeId]);
 
   useEffect(() => {
+    debugBalanceChartRepeatedEffect({
+      effectName: 'computeQueue.invalidateInputs',
+      scopeId,
+      signature: [
+        analysisInputsBaseKey,
+        currentRatesRevision,
+        selectedTimeframeHistoricalRevision,
+      ].join('|'),
+    });
     invalidateComputeGeneration();
     setIsComputingByTimeframe(EMPTY_BOOLEAN_BY_TIMEFRAME);
   }, [

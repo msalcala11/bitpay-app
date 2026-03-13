@@ -7,6 +7,7 @@ import type {
   BalanceChartSeriesByTimeframe,
 } from './balanceHistoryChart.state';
 import {CHART_LOADER_DELAY_MS} from './useBalanceChartComputationQueue.constants';
+import {debugBalanceChartRepeatedEffect} from './balanceChartDebug';
 
 export type UseBalanceChartDisplayStateArgs = {
   getTimeframeAttemptRevision: (timeframe: FiatRateInterval) => string;
@@ -39,6 +40,11 @@ export const useBalanceChartDisplayState = ({
   const [isChartLoaderVisible, setIsChartLoaderVisible] = useState(false);
 
   useEffect(() => {
+    debugBalanceChartRepeatedEffect({
+      effectName: 'displayState.reset',
+      scopeId: resetKey,
+      signature: resetKey,
+    });
     setDisplayState(undefined);
     setIsChartLoaderVisible(false);
   }, [resetKey]);
@@ -81,18 +87,24 @@ export const useBalanceChartDisplayState = ({
       return;
     }
 
+    debugBalanceChartRepeatedEffect({
+      effectName: 'displayState.promoteSelectedSeries',
+      scopeId: resetKey,
+      signature: `${selectedTimeframe}|${selectedTimeframeRevision}`,
+    });
     startTransition(() => {
       setDisplayState(prev =>
-        prev?.series === selectedComputedSeries &&
+        prev?.revision === selectedTimeframeRevision &&
         prev?.timeframe === selectedTimeframe
           ? prev
           : {
+              revision: selectedTimeframeRevision,
               series: selectedComputedSeries,
               timeframe: selectedTimeframe,
             },
       );
     });
-  }, [selectedComputedSeries, selectedTimeframe]);
+  }, [selectedComputedSeries, selectedTimeframe, selectedTimeframeRevision]);
 
   const hasRenderableSelectedSeries =
     !!selectedComputedSeries ||
