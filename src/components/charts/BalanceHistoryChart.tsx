@@ -1811,13 +1811,16 @@ const BalanceHistoryChart = ({
 
   return (
     <>
-      {showChangeRow && displayedChangeRowData ? (
+      {showChangeRow ? (
         <ChartChangeRow
-          percent={displayedChangeRowData.percent}
-          deltaFiatFormatted={displayedChangeRowData.deltaFiatFormatted}
-          rangeLabel={displayedChangeRowData.rangeLabel}
+          percent={displayedChangeRowData?.percent ?? 0}
+          deltaFiatFormatted={displayedChangeRowData?.deltaFiatFormatted}
+          rangeLabel={displayedChangeRowData?.rangeLabel}
           isLoading={isChartLoaderVisible}
-          style={changeRowStyle}
+          style={[
+            changeRowStyle,
+            !displayedChangeRowData ? {opacity: 0} : null,
+          ]}
         />
       ) : null}
       {preChartContent ? (
