@@ -4,7 +4,7 @@ import type {FiatRateInterval} from '../../store/rate/rate.models';
 import type {PnlAnalysisPoint} from '../../utils/portfolio/core/pnl/analysis';
 import {formatFiatAmount} from '../../utils/helper-methods';
 import {
-  formatRangeOrSelectedPointLabel,
+  formatSelectedPointLabelForFiatTimeframe,
   getRangeLabelForFiatTimeframe,
 } from './fiatTimeframes';
 import type {ChangeRowData, ComputedSeries} from './balanceHistoryChart.types';
@@ -21,8 +21,52 @@ type UseBalanceChartChangeRowArgs = {
 };
 
 type ChangeRowPointMetadata = {
-  label: string;
+  selectedPointLabel: string;
   deltaFiatFormatted: string;
+};
+
+export const resolveBalanceChartChangeRowData = (args: {
+  displayedAnalysisPoint?: PnlAnalysisPoint;
+  pointMetadataByTimestampMs: Map<number, ChangeRowPointMetadata>;
+  quoteCurrency: string;
+  rangeLabel: string;
+  selectedPoint?: GraphPoint;
+}): ChangeRowData | undefined => {
+  const {
+    displayedAnalysisPoint,
+    pointMetadataByTimestampMs,
+    quoteCurrency,
+    rangeLabel,
+    selectedPoint,
+  } = args;
+
+  if (!displayedAnalysisPoint) {
+    return undefined;
+  }
+
+  const pointMetadata = pointMetadataByTimestampMs.get(
+    displayedAnalysisPoint.timestamp,
+  );
+  const selectedPointLabel =
+    selectedPoint != null
+      ? pointMetadataByTimestampMs.get(selectedPoint.date.getTime())
+          ?.selectedPointLabel
+      : undefined;
+
+  return {
+    percent: displayedAnalysisPoint.totalPnlPercent ?? 0,
+    deltaFiatFormatted:
+      pointMetadata?.deltaFiatFormatted ||
+      formatFiatAmount(
+        displayedAnalysisPoint.totalUnrealizedPnlFiat ?? 0,
+        quoteCurrency,
+        {
+          customPrecision: 'minimal',
+          currencyDisplay: 'symbol',
+        },
+      ),
+    rangeLabel: selectedPointLabel || rangeLabel,
+  };
 };
 
 export const useBalanceChartChangeRow = ({
@@ -56,8 +100,7 @@ export const useBalanceChartChangeRow = ({
 
     for (const point of activeSeries?.analysisPoints || []) {
       next.set(point.timestamp, {
-        label: formatRangeOrSelectedPointLabel({
-          rangeLabel,
+        selectedPointLabel: formatSelectedPointLabelForFiatTimeframe({
           selectedTimeframe: displayedTimeframe,
           selectedDate: new Date(point.timestamp),
         }),
@@ -96,41 +139,20 @@ export const useBalanceChartChangeRow = ({
   const displayedAnalysisPoint =
     selectedAnalysisPoint ?? lastAnalysisPoint ?? fallbackAnalysisPoint;
 
-  const selectedPointMetadata =
-    selectedPoint != null
-      ? pointMetadataByTimestampMs.get(selectedPoint.date.getTime())
-      : undefined;
-
   const resolvedChangeRowData = useMemo<ChangeRowData | undefined>(() => {
-    if (!displayedAnalysisPoint) {
-      return undefined;
-    }
-
-    const pointMetadata = pointMetadataByTimestampMs.get(
-      displayedAnalysisPoint.timestamp,
-    );
-
-    return {
-      percent: displayedAnalysisPoint.totalPnlPercent ?? 0,
-      deltaFiatFormatted:
-        pointMetadata?.deltaFiatFormatted ||
-        formatFiatAmount(
-          displayedAnalysisPoint.totalUnrealizedPnlFiat ?? 0,
-          quoteCurrency,
-          {
-            customPrecision: 'minimal',
-            currencyDisplay: 'symbol',
-          },
-        ),
-      rangeLabel:
-        selectedPointMetadata?.label || pointMetadata?.label || rangeLabel,
-    };
+    return resolveBalanceChartChangeRowData({
+      displayedAnalysisPoint,
+      pointMetadataByTimestampMs,
+      quoteCurrency,
+      rangeLabel,
+      selectedPoint,
+    });
   }, [
     displayedAnalysisPoint,
     pointMetadataByTimestampMs,
     quoteCurrency,
     rangeLabel,
-    selectedPointMetadata,
+    selectedPoint,
   ]);
 
   useEffect(() => {
