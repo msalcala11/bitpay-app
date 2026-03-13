@@ -233,4 +233,39 @@ describe('getWalletIdsToPopulateFromSnapshots missing snapshot detection', () =>
     expect(result.walletIdsToPopulate).toEqual([]);
     expect(result.snapshotBalanceMismatchUpdates).toEqual({});
   });
+
+  it('keeps repopulating wallets with an unresolved balance mismatch even when the mismatch is unchanged', () => {
+    const wallet = makeWallet({
+      id: 'coin-mismatch',
+      chain: 'btc',
+      currencyAbbreviation: 'btc',
+      crypto: '0.00000084',
+      sat: 84,
+    });
+
+    const result = getWalletIdsToPopulateFromSnapshots({
+      wallets: [wallet],
+      snapshotsByWalletId: {
+        'coin-mismatch': [
+          {
+            id: 'tx:1',
+            timestamp: 1,
+            eventType: 'tx',
+            cryptoBalance: '0.00000042',
+          },
+        ],
+      },
+      previousSnapshotBalanceMismatchesByWalletId: {
+        'coin-mismatch': {
+          walletId: 'coin-mismatch',
+          computedUnitsHeld: '0',
+          currentWalletBalance: '0',
+          delta: '0',
+        },
+      },
+    });
+
+    expect(result.walletIdsToPopulate).toEqual(['coin-mismatch']);
+    expect(result.snapshotBalanceMismatchUpdates).toEqual({});
+  });
 });

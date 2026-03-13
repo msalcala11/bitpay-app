@@ -23,6 +23,7 @@ import {
 } from '../../../store/app/app.selectors';
 import {getAndDispatchUpdatedWalletBalances} from '../../../store/wallet/effects/status/statusv2';
 import {
+  fetchFiatRateSeriesAllIntervals,
   fetchFiatRateSeriesInterval,
   refreshRatesForPortfolioPnl,
 } from '../../../store/wallet/effects';
@@ -78,6 +79,7 @@ import {getPortfolioAllocationTotalFiat} from '../../../utils/portfolio/allocati
 import type {Key} from '../../../store/wallet/wallet.models';
 import type {Rate, Rates} from '../../../store/rate/rate.models';
 import {getCoinAndChainFromCurrencyCode} from '../../bitpay-id/utils/bitpay-id-utils';
+import {normalizeFiatRateSeriesCoin} from '../../../utils/portfolio/core/pnl/rates';
 import {
   findSupportedCurrencyOptionForAsset,
   getQuoteCurrency,
@@ -118,6 +120,10 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   );
   const showPortfolioValue = useAppSelector(({APP}) => APP.showPortfolioValue);
   const hasKeys = Object.values(keys).length;
+  const visibleWallets = useMemo(
+    () => getVisibleWalletsFromKeys(keys, homeCarouselConfig),
+    [homeCarouselConfig, keys],
+  );
 
   const portfolioAllocationTotalFiat = useMemo(() => {
     return getPortfolioAllocationTotalFiat({
@@ -127,10 +133,55 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   }, [homeCarouselConfig, keys]);
 
   const hasAnyVisibleWalletBalance = useMemo(() => {
-    const visibleWallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
-
     return visibleWallets.some(walletHasNonZeroLiveBalance);
-  }, [homeCarouselConfig, keys]);
+  }, [visibleWallets]);
+
+  const historicalRateRefreshAssets = useMemo(() => {
+    const assets: Array<{
+      currencyAbbreviation: string;
+      chain?: string;
+      tokenAddress?: string;
+    }> = [];
+    const seen = new Set<string>();
+
+    for (const wallet of visibleWallets) {
+      const rawCoin = String(
+        (wallet as any)?.currencyAbbreviation || '',
+      ).toLowerCase();
+      const currencyAbbreviation = normalizeFiatRateSeriesCoin(rawCoin);
+      if (!currencyAbbreviation) {
+        continue;
+      }
+
+      const chainRaw =
+        typeof (wallet as any)?.chain === 'string' ? (wallet as any).chain : '';
+      const chain = chainRaw ? chainRaw.toLowerCase() : undefined;
+      const tokenAddressRaw =
+        typeof (wallet as any)?.tokenAddress === 'string'
+          ? (wallet as any).tokenAddress
+          : '';
+      const tokenAddress = tokenAddressRaw
+        ? tokenAddressRaw.toLowerCase()
+        : undefined;
+      const attachTokenParams = !!tokenAddress && rawCoin === currencyAbbreviation;
+      const dedupeKey = `${currencyAbbreviation}|${
+        attachTokenParams ? chain || '' : ''
+      }|${attachTokenParams ? tokenAddress || '' : ''}`;
+
+      if (seen.has(dedupeKey)) {
+        continue;
+      }
+      seen.add(dedupeKey);
+
+      assets.push({
+        currencyAbbreviation,
+        chain: attachTokenParams ? chain : undefined,
+        tokenAddress: attachTokenParams ? tokenAddress : undefined,
+      });
+    }
+
+    return assets;
+  }, [visibleWallets]);
 
   const showPortfolioAllocationSection =
     portfolioAllocationTotalFiat > 0 || hasAnyVisibleWalletBalance;
@@ -320,6 +371,20 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
         ),
         dispatch(requestBrazeContentRefresh()),
       ]);
+
+      await Promise.allSettled(
+        historicalRateRefreshAssets.map(asset =>
+          dispatch(
+            fetchFiatRateSeriesAllIntervals({
+              fiatCode: quoteCurrency,
+              currencyAbbreviation: asset.currencyAbbreviation,
+              force: true,
+              chain: asset.chain,
+              tokenAddress: asset.tokenAddress,
+            }) as any,
+          ),
+        ),
+      );
 
       await dispatch(
         maybePopulatePortfolioForWallets({
