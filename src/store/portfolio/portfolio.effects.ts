@@ -377,11 +377,11 @@ export const maybePopulatePortfolioForWallets =
     });
 
     if (walletIdsWithCurrentRates.length) {
-      dispatch(
+      await dispatch(
         populatePortfolio({
           quoteCurrency,
           walletIds: walletIdsWithCurrentRates,
-        }),
+        }) as any,
       );
     }
   };
@@ -655,13 +655,26 @@ export const populatePortfolio =
 
     const keys = state.WALLET?.keys || {};
     const wallets = getMainnetWalletsFromKeys(keys);
+    const existingSnapshotsByWalletId = state.PORTFOLIO?.snapshotsByWalletId || {};
 
     const walletIdsFilter = Array.isArray(args?.walletIds)
       ? new Set(args?.walletIds)
       : undefined;
     const walletsToPopulateUnordered = (
       walletIdsFilter ? wallets.filter(w => walletIdsFilter.has(w.id)) : wallets
-    ).filter(walletHasNonZeroLiveBalance);
+    ).filter(wallet => {
+      if (walletHasNonZeroLiveBalance(wallet)) {
+        return true;
+      }
+
+      // When a specific wallet subset is explicitly requested (for example,
+      // after a send drains a wallet to zero), still allow that wallet to be
+      // repopulated if it already has snapshots that now mismatch its live
+      // balance.
+      return !!(
+        walletIdsFilter && getLatestSnapshot(existingSnapshotsByWalletId[wallet.id])
+      );
+    });
     let walletsToPopulate = sortWalletsByAssetAndBalanceDesc(
       walletsToPopulateUnordered,
     );

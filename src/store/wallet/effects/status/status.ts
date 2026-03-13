@@ -40,6 +40,48 @@ import {createWalletAddress} from '../address/address';
 import {detectAndCreateTokensForEachEvmWallet} from '../create/create';
 import uniqBy from 'lodash.uniqby';
 import {logManager} from '../../../../managers/LogManager';
+import {maybePopulatePortfolioForWallets} from '../../../portfolio/portfolio.effects';
+import {getQuoteCurrency} from '../../../../utils/portfolio/assets';
+
+const maybePopulatePortfolioChartsForWalletIds = async ({
+  dispatch,
+  getState,
+  walletIds,
+}: {
+  dispatch: any;
+  getState: () => any;
+  walletIds: string[];
+}): Promise<void> => {
+  const uniqueWalletIds = Array.from(
+    new Set((walletIds || []).filter((walletId): walletId is string => !!walletId)),
+  );
+
+  if (!uniqueWalletIds.length) {
+    return;
+  }
+
+  const state = getState();
+  const keys = (state.WALLET?.keys || {}) as Record<string, Key>;
+  const wallets = (Object.values(keys) as Key[])
+    .flatMap((walletKey: Key) => walletKey.wallets || [])
+    .filter((wallet: Wallet) => uniqueWalletIds.includes(wallet.id));
+
+  if (!wallets.length) {
+    return;
+  }
+
+  const quoteCurrency = getQuoteCurrency({
+    portfolioQuoteCurrency: state.PORTFOLIO?.quoteCurrency,
+    defaultAltCurrencyIsoCode: state.APP?.defaultAltCurrency?.isoCode,
+  }).toUpperCase();
+
+  await dispatch(
+    maybePopulatePortfolioForWallets({
+      wallets,
+      quoteCurrency,
+    }) as any,
+  );
+};
 
 /*
  * post broadcasting of payment
@@ -100,7 +142,9 @@ export const waitForTargetAmountAndUpdateWallet =
             // expected amount - update balance
             if (totalAmount === targetAmount) {
               clearInterval(interval);
-              dispatch(startUpdateWalletStatus({key, wallet, force: true}));
+              const updatedWalletIds = new Set<string>([wallet.id]);
+
+              await dispatch(startUpdateWalletStatus({key, wallet, force: true}));
 
               // update recipient balance if local
               if (recipient) {
@@ -110,7 +154,9 @@ export const waitForTargetAmountAndUpdateWallet =
                     WALLET: {keys},
                   } = getState();
                   const recipientKey = keys[keyId];
-                  const recipientWallet = findWalletById(key.wallets, walletId);
+                  const recipientWallet = recipientKey
+                    ? findWalletById(recipientKey.wallets, walletId)
+                    : undefined;
                   if (recipientKey && recipientWallet) {
                     await dispatch(
                       startUpdateWalletStatus({
@@ -119,16 +165,22 @@ export const waitForTargetAmountAndUpdateWallet =
                         force: true,
                       }),
                     );
+                    updatedWalletIds.add(walletId);
                     console.log('updated recipient wallet');
                   }
                 }
               }
               DeviceEventEmitter.emit(DeviceEmitterEvents.WALLET_LOAD_HISTORY);
+              await dispatch(updatePortfolioBalance());
+              await maybePopulatePortfolioChartsForWalletIds({
+                dispatch,
+                getState,
+                walletIds: Array.from(updatedWalletIds),
+              });
               DeviceEventEmitter.emit(
                 DeviceEmitterEvents.SET_REFRESHING,
                 false,
               );
-              await dispatch(updatePortfolioBalance());
             }
           },
         );

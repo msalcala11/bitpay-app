@@ -228,4 +228,46 @@ describe('buildPnlAnalysisSeries', () => {
     expect(result.points[0].totalFiatBalance).toBe(99);
     expect(result.points[0].byWalletId['wallet-eth']?.fiatBalance).toBe(0);
   });
+
+  it('extends the final point to now when newer snapshots exist past the latest rate sample', () => {
+    const startMs = Date.UTC(2026, 0, 1, 0, 0, 0);
+    const lastRateMs = Date.UTC(2026, 0, 2, 0, 0, 0);
+    const nowMs = Date.UTC(2026, 0, 2, 12, 0, 0);
+
+    const wallet = makeWallet([
+      makeSnapshot({
+        timestamp: startMs,
+        markRate: 100,
+      }),
+      makeSnapshot({
+        id: 'tx:receive',
+        timestamp: nowMs,
+        cryptoBalance: '200000000',
+        markRate: 120,
+      }),
+    ]);
+
+    const result = buildPnlAnalysisSeries({
+      wallets: [wallet],
+      timeframe: '1D',
+      quoteCurrency: 'USD',
+      nowMs,
+      maxPoints: 3,
+      currentRatesByCoin: {
+        btc: 120,
+      },
+      fiatRateSeriesCache: {
+        [getFiatRateSeriesCacheKey('USD', 'btc', '1D')]: {
+          fetchedOn: nowMs,
+          points: [
+            {ts: startMs, rate: 100},
+            {ts: lastRateMs, rate: 110},
+          ],
+        },
+      },
+    });
+
+    expect(result.points[2].timestamp).toBe(nowMs);
+    expect(result.points[2].totalFiatBalance).toBe(240);
+  });
 });

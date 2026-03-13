@@ -424,6 +424,21 @@ function findOldestSnapshotTs(
   return best;
 }
 
+function findNewestSnapshotTs(
+  wallets: WalletForAnalysis[],
+): number | null {
+  let best: number | null = null;
+  for (const w of wallets) {
+    for (let i = w.snapshots.length - 1; i >= 0; i--) {
+      const ts = Number(w.snapshots[i]?.timestamp);
+      if (!Number.isFinite(ts)) continue;
+      if (!best || ts > best) best = ts;
+      break;
+    }
+  }
+  return best;
+}
+
 function isSingleAsset(wallets: WalletForAnalysis[]): boolean {
   const coins = new Set<string>();
   for (const w of wallets) {
@@ -512,6 +527,7 @@ function* buildPnlAnalysisSeriesGenerator(
   const baselineMs = getBaselineMs(args.timeframe, nowMs);
   const oldestSnapshotMs =
     args.timeframe === 'ALL' ? findOldestSnapshotTs(wallets) : null;
+  const newestSnapshotMs = findNewestSnapshotTs(wallets);
 
   // ExchangeRate screen uses ALL series for 3M/1Y/5Y timeframes. Match that behavior
   // so percent changes are consistent across the app.
@@ -601,6 +617,13 @@ function* buildPnlAnalysisSeriesGenerator(
   const timeline = buildEvenTimeline(startBound, endBound, maxPoints);
   if (!timeline.length)
     throw new Error('Failed to build an analysis timeline.');
+  if (
+    newestSnapshotMs !== null &&
+    newestSnapshotMs > endBound &&
+    nowMs > timeline[timeline.length - 1]
+  ) {
+    timeline[timeline.length - 1] = nowMs;
+  }
 
   // Nearest-rate cursors, sampled on the shared timeline.
   const rateCursorByCoin: Record<string, RateCursor> = {};
