@@ -483,9 +483,18 @@ const ensureFiatRateSeriesInterval = async (args: {
   currencyAbbreviation: string;
   interval: FiatRateInterval;
   allowedCoins?: string[];
+  chain?: string;
+  tokenAddress?: string;
 }): Promise<boolean> => {
-  const {dispatch, fiatCode, currencyAbbreviation, interval, allowedCoins} =
-    args;
+  const {
+    dispatch,
+    fiatCode,
+    currencyAbbreviation,
+    interval,
+    allowedCoins,
+    chain,
+    tokenAddress,
+  } = args;
   const coinForCacheCheck = normalizeFiatRateSeriesCoin(currencyAbbreviation);
   return dispatch(
     fetchFiatRateSeriesInterval({
@@ -493,6 +502,8 @@ const ensureFiatRateSeriesInterval = async (args: {
       interval,
       coinForCacheCheck,
       allowedCoins,
+      chain,
+      tokenAddress,
     }),
   );
 };
@@ -514,6 +525,8 @@ const ensureFiatRateSeriesIntervalOnce = async (args: {
   currencyAbbreviation: string;
   interval: FiatRateInterval;
   allowedCoins?: string[];
+  chain?: string;
+  tokenAddress?: string;
 }): Promise<boolean> => {
   const {
     dispatch,
@@ -522,6 +535,8 @@ const ensureFiatRateSeriesIntervalOnce = async (args: {
     currencyAbbreviation,
     interval,
     allowedCoins,
+    chain,
+    tokenAddress,
   } = args;
   const loadedIntervalKey = getLoadedFiatRateSeriesIntervalKey({
     fiatCode,
@@ -538,6 +553,8 @@ const ensureFiatRateSeriesIntervalOnce = async (args: {
     currencyAbbreviation,
     interval,
     allowedCoins,
+    chain,
+    tokenAddress,
   });
 };
 
@@ -577,6 +594,8 @@ const ensureWalletHasHistoricalFiatRates = async (args: {
   loadedIntervals: Set<string>;
   fiatCode: string;
   currencyAbbreviation: string;
+  chain?: string;
+  tokenAddress?: string;
 }): Promise<boolean> => {
   if (
     hasFiatRateSeriesPointsInCache({
@@ -595,6 +614,8 @@ const ensureWalletHasHistoricalFiatRates = async (args: {
     fiatCode: args.fiatCode,
     currencyAbbreviation: args.currencyAbbreviation,
     interval: 'ALL',
+    chain: args.chain,
+    tokenAddress: args.tokenAddress,
   });
   if (!didFetch) {
     // Best-effort fetch failed; treat as unavailable unless cache already exists.
@@ -692,6 +713,8 @@ export const populatePortfolio =
               loadedIntervals: preflightLoadedIntervals,
               fiatCode: targetQuoteCurrency,
               currencyAbbreviation: wallet.currencyAbbreviation,
+              chain: wallet.tokenAddress ? wallet.chain : undefined,
+              tokenAddress: wallet.tokenAddress || undefined,
             });
 
       if (typeof cachedHistoricalSupport !== 'boolean') {
@@ -838,6 +861,8 @@ export const populatePortfolio =
                 loadedIntervals,
                 fiatCode: targetQuoteCurrency,
                 currencyAbbreviation: wallet.currencyAbbreviation,
+                chain: wallet.tokenAddress ? wallet.chain : undefined,
+                tokenAddress: wallet.tokenAddress || undefined,
               });
 
         if (typeof cachedHistoricalSupport !== 'boolean') {
@@ -1068,6 +1093,8 @@ export const populatePortfolio =
             fiatCode: quoteCurrency,
             currencyAbbreviation: wallet.currencyAbbreviation,
             interval,
+            chain: wallet.tokenAddress ? wallet.chain : undefined,
+            tokenAddress: wallet.tokenAddress || undefined,
           });
         }
 
