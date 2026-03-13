@@ -24,6 +24,7 @@ import {
   White,
 } from '../../../../../styles/colors';
 import {useAppSelector} from '../../../../../utils/hooks';
+import {getErrorString} from '../../../../../utils/helper-methods';
 import {storage} from '../../../../../store';
 import {logManager} from '../../../../../managers/LogManager';
 import {AboutScreens} from '../AboutGroup';
@@ -251,8 +252,7 @@ const StorageUsage: React.FC = () => {
           });
           setAppSize(formatBytes(totalAppSize));
         } catch (err) {
-          const errStr =
-            err instanceof Error ? err.message : JSON.stringify(err);
+          const errStr = getErrorString(err);
           logManager.error('[setAppSize] Error ', errStr);
         }
       };
@@ -264,8 +264,7 @@ const StorageUsage: React.FC = () => {
           ]);
           setShopCatalogStorage(formatBytes(bytes));
         } catch (err) {
-          const errStr =
-            err instanceof Error ? err.message : JSON.stringify(err);
+          const errStr = getErrorString(err);
           logManager.error('[setShopCatalogStorage] Error ', errStr);
         }
       };
@@ -289,8 +288,7 @@ const StorageUsage: React.FC = () => {
           }
           setBackupStorage(formatBytes(bytes));
         } catch (err) {
-          const errStr =
-            err instanceof Error ? err.message : JSON.stringify(err);
+          const errStr = getErrorString(err);
           logManager.error('[setBackupStorage] Error ', errStr);
         }
       };
@@ -303,8 +301,7 @@ const StorageUsage: React.FC = () => {
             setDeviceTotalStorage(formatBytes(resultDeviceStorage.totalSpace));
           }
         } catch (err) {
-          const errStr =
-            err instanceof Error ? err.message : JSON.stringify(err);
+          const errStr = getErrorString(err);
           logManager.error('[setDeviceStorage] Error ', errStr);
         }
       };
@@ -321,8 +318,7 @@ const StorageUsage: React.FC = () => {
           setContactCount(contacts.length);
           setCustomTokenCount(Object.values(customTokens).length);
         } catch (err) {
-          const errStr =
-            err instanceof Error ? err.message : JSON.stringify(err);
+          const errStr = getErrorString(err);
           logManager.error('[setDataCounterStorage] Error ', errStr);
         }
       };
@@ -331,8 +327,7 @@ const StorageUsage: React.FC = () => {
         try {
           setFormattedSerializedStorage(keys, setWalletStorage);
         } catch (err) {
-          const errStr =
-            err instanceof Error ? err.message : JSON.stringify(err);
+          const errStr = getErrorString(err);
           logManager.error('[setWalletStorage] Error ', errStr);
         }
       };
@@ -341,8 +336,7 @@ const StorageUsage: React.FC = () => {
         try {
           setFormattedSerializedStorage(giftCards, setGiftCardStorage);
         } catch (err) {
-          const errStr =
-            err instanceof Error ? err.message : JSON.stringify(err);
+          const errStr = getErrorString(err);
           logManager.error('[setGiftCardStorage] Error ', errStr);
         }
       };
@@ -351,8 +345,7 @@ const StorageUsage: React.FC = () => {
         try {
           setFormattedSerializedStorage(customTokens, setCustomTokenStorage);
         } catch (err) {
-          const errStr =
-            err instanceof Error ? err.message : JSON.stringify(err);
+          const errStr = getErrorString(err);
           logManager.error('[setCustomTokensStorage] Error ', errStr);
         }
       };
@@ -361,8 +354,7 @@ const StorageUsage: React.FC = () => {
         try {
           setFormattedSerializedStorage(contacts, setContactStorage);
         } catch (err) {
-          const errStr =
-            err instanceof Error ? err.message : JSON.stringify(err);
+          const errStr = getErrorString(err);
           logManager.error('[setContactStorage] Error ', errStr);
         }
       };
@@ -374,8 +366,7 @@ const StorageUsage: React.FC = () => {
             setRatesStorage,
           );
         } catch (err) {
-          const errStr =
-            err instanceof Error ? err.message : JSON.stringify(err);
+          const errStr = getErrorString(err);
           logManager.error('[setRatesStorage] Error ', errStr);
         }
       };
@@ -388,8 +379,7 @@ const StorageUsage: React.FC = () => {
           ]);
           setPortfolioPersistedStorage(formatBytes(bytes));
         } catch (err) {
-          const errStr =
-            err instanceof Error ? err.message : JSON.stringify(err);
+          const errStr = getErrorString(err);
           logManager.error('[setPortfolioStorage] Error ', errStr);
         }
       };

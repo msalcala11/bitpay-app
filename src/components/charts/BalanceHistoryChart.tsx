@@ -21,7 +21,10 @@ import ChartChangeRow from './ChartChangeRow';
 import {useBalanceChartChangeRow} from './useBalanceChartChangeRow';
 import {Action, LinkBlue, White} from '../../styles/colors';
 import haptic from '../haptic-feedback/haptic';
-import {buildPnlCurrentRatesByCoinFromWallets} from '../../utils/portfolio/assets';
+import {
+  buildPnlCurrentRatesByAssetIdFromWallets,
+  buildPnlCurrentRatesByCoinFromWallets,
+} from '../../utils/portfolio/assets';
 import {useAppDispatch, useAppSelector} from '../../utils/hooks';
 import {fetchFiatRateSeriesInterval} from '../../store/wallet/effects';
 import {normalizeFiatRateSeriesCoin} from '../../utils/portfolio/core/pnl/rates';
@@ -168,54 +171,88 @@ const BalanceHistoryChart = ({
     onSelectedBalanceChangeRef.current = onSelectedBalanceChange;
   }, [onSelectedBalanceChange]);
 
-  const walletsSig = useMemo(() => {
-    return (wallets || [])
-      .map(wallet => String(wallet.id || ''))
-      .filter(Boolean)
-      .join(',');
-  }, [wallets]);
-
-  const snapshotsSig = useMemo(() => {
-    const parts: string[] = [];
-    for (const wallet of wallets || []) {
-      const walletId = String(wallet.id || '');
-      if (!walletId) {
-        continue;
-      }
-
-      const snapshots = snapshotsByWalletId?.[walletId] || [];
-      const lastSnapshotTs = snapshots.length ? snapshots.at(-1)?.timestamp : 0;
-      parts.push(`${walletId}:${snapshots.length}:${lastSnapshotTs || 0}`);
-    }
-
-    return parts.join('|');
-  }, [snapshotsByWalletId, wallets]);
-
-  const totalSnapshotCount = useMemo(() => {
-    let totalCount = 0;
-
-    for (const wallet of wallets || []) {
-      const walletId = String(wallet.id || '');
-      if (!walletId) {
-        continue;
-      }
-
-      const snapshots = Array.isArray(snapshotsByWalletId?.[walletId])
-        ? (snapshotsByWalletId?.[walletId] as BalanceSnapshot[])
-        : [];
-      totalCount += snapshots.length;
-    }
-
-    return totalCount;
-  }, [snapshotsByWalletId, wallets]);
-
-  const hasAnySnapshots = totalSnapshotCount > 0;
-
   const sortedWalletIds = useMemo(() => {
     return getSortedUniqueWalletIds(
       (wallets || []).map(wallet => String(wallet.id || '')),
     );
   }, [wallets]);
+
+  const relevantWallets = useMemo(() => {
+    const walletById = new Map<string, Wallet>();
+
+    for (const wallet of wallets || []) {
+      const walletId = String(wallet.id || '');
+      if (!walletId || walletById.has(walletId)) {
+        continue;
+      }
+      walletById.set(walletId, wallet);
+    }
+
+    return sortedWalletIds
+      .map(walletId => walletById.get(walletId))
+      .filter((wallet): wallet is Wallet => !!wallet);
+  }, [sortedWalletIds, wallets]);
+
+  const relevantSnapshotsByWalletId = useMemo(() => {
+    const next: {[walletId: string]: BalanceSnapshot[] | undefined} = {};
+
+    for (const walletId of sortedWalletIds) {
+      next[walletId] = snapshotsByWalletId?.[walletId];
+    }
+
+    return next;
+  }, [snapshotsByWalletId, sortedWalletIds]);
+
+  const walletsSig = useMemo(() => {
+    return relevantWallets
+      .map(wallet => {
+        const walletId = String(wallet.id || '');
+        const currencyAbbreviation = String(
+          wallet.currencyAbbreviation || '',
+        ).toLowerCase();
+        const chain = String(wallet.chain || '').toLowerCase();
+        const tokenAddress = String(wallet.tokenAddress || '').toLowerCase();
+        const network = String(wallet.network || '').toLowerCase();
+
+        return [
+          walletId,
+          currencyAbbreviation,
+          chain,
+          tokenAddress,
+          network,
+        ].join(':');
+      })
+      .join(',');
+  }, [relevantWallets]);
+
+  const snapshotsSig = useMemo(() => {
+    const parts: string[] = [];
+    for (const walletId of sortedWalletIds) {
+      const snapshots = relevantSnapshotsByWalletId?.[walletId] || [];
+      const lastSnapshot = snapshots.length
+        ? snapshots[snapshots.length - 1]
+        : undefined;
+      const lastSnapshotTs = lastSnapshot?.timestamp || 0;
+      parts.push(`${walletId}:${snapshots.length}:${lastSnapshotTs || 0}`);
+    }
+
+    return parts.join('|');
+  }, [relevantSnapshotsByWalletId, sortedWalletIds]);
+
+  const totalSnapshotCount = useMemo(() => {
+    let totalCount = 0;
+
+    for (const walletId of sortedWalletIds) {
+      const snapshots = Array.isArray(relevantSnapshotsByWalletId?.[walletId])
+        ? (relevantSnapshotsByWalletId?.[walletId] as BalanceSnapshot[])
+        : [];
+      totalCount += snapshots.length;
+    }
+
+    return totalCount;
+  }, [relevantSnapshotsByWalletId, sortedWalletIds]);
+
+  const hasAnySnapshots = totalSnapshotCount > 0;
 
   const scopeId = useMemo(() => {
     return buildBalanceChartScopeId({
@@ -247,18 +284,32 @@ const BalanceHistoryChart = ({
 
   const currentSpotRatesByCoin = useMemo(() => {
     return buildPnlCurrentRatesByCoinFromWallets({
-      wallets: wallets || [],
+      wallets: relevantWallets,
       quoteCurrency,
       rates,
     });
-  }, [quoteCurrency, rates, wallets]);
+  }, [quoteCurrency, rates, relevantWallets]);
+
+  const currentSpotRatesByAssetId = useMemo(() => {
+    return buildPnlCurrentRatesByAssetIdFromWallets({
+      wallets: relevantWallets,
+      quoteCurrency,
+      rates,
+    });
+  }, [quoteCurrency, rates, relevantWallets]);
 
   const currentRatesRevision = useMemo(() => {
-    return Object.entries(currentSpotRatesByCoin || {})
+    const byCoinRevision = Object.entries(currentSpotRatesByCoin || {})
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([coin, rate]) => `${coin}:${rate}`)
       .join('|');
-  }, [currentSpotRatesByCoin]);
+    const byAssetIdRevision = Object.entries(currentSpotRatesByAssetId || {})
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([assetId, rate]) => `${assetId}:${rate}`)
+      .join('|');
+
+    return `${byCoinRevision}||${byAssetIdRevision}`;
+  }, [currentSpotRatesByAssetId, currentSpotRatesByCoin]);
 
   const selectedSeriesInterval = useMemo(() => {
     return getSeriesIntervalForFiatTimeframe(selectedTimeframe);
@@ -277,7 +328,7 @@ const BalanceHistoryChart = ({
     }> = [];
     const seen = new Set<string>();
 
-    for (const wallet of wallets || []) {
+    for (const wallet of relevantWallets) {
       const coinForCacheCheck = normalizeFiatRateSeriesCoin(
         wallet.currencyAbbreviation || '',
       );
@@ -308,7 +359,7 @@ const BalanceHistoryChart = ({
     }
 
     return assets;
-  }, [wallets]);
+  }, [relevantWallets]);
 
   useEffect(() => {
     if (!hasAnySnapshots || !quoteCurrency || !rateFetchAssets.length) {
@@ -369,11 +420,11 @@ const BalanceHistoryChart = ({
         timeframe,
         snapshotVersionSig,
         historicalRateDeps,
-        currentSpotRatesByCoin,
+        currentSpotRatesByAssetId,
       });
     },
     [
-      currentSpotRatesByCoin,
+      currentSpotRatesByAssetId,
       getLiveHistoricalRateDepsForTimeframe,
       scopeId,
       snapshotVersionSig,
@@ -388,7 +439,7 @@ const BalanceHistoryChart = ({
     setSeriesRevisionByTimeframe,
   } = useBalanceChartCacheHydration({
     cachedScope,
-    currentSpotRatesByCoin,
+    currentSpotRatesByAssetId,
     dispatch,
     fiatRateSeriesCache,
     quoteCurrency,
@@ -405,6 +456,7 @@ const BalanceHistoryChart = ({
     balanceOffset,
     cachedTimeframeStatusByTimeframe,
     currentRatesRevision,
+    currentSpotRatesByAssetId,
     currentSpotRatesByCoin,
     dispatch,
     fiatRateSeriesCache,
@@ -420,10 +472,10 @@ const BalanceHistoryChart = ({
     setSeriesByTimeframe,
     setSeriesRevisionByTimeframe,
     snapshotVersionSig,
-    snapshotsByWalletId,
+    snapshotsByWalletId: relevantSnapshotsByWalletId,
     snapshotsSig,
     sortedWalletIds,
-    wallets,
+    wallets: relevantWallets,
     walletsSig,
   });
 

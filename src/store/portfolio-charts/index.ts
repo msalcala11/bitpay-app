@@ -17,7 +17,7 @@ export type {
   CachedBalanceChartScope,
   CachedBalanceChartTimeframe,
   HistoricalRateDependencyMeta,
-  LatestHoldingsByCoin,
+  LatestHoldingsByAssetId,
   PortfolioChartsState,
 } from './portfolio-charts.models';
 

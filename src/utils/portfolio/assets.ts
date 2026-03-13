@@ -50,6 +50,7 @@ import {
   createSupportedCurrencyOptionLookup,
   type SupportedCurrencyOptionLookup,
 } from './supportedCurrencyOptionsLookup';
+import {getPortfolioAssetIdFromWallet} from './assetIdentity';
 import {yieldToEventLoop} from '../yieldToEventLoop';
 
 export type GainLossMode = FiatRateInterval;
@@ -1422,6 +1423,47 @@ export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
 export type PnlWalletInputs = {
   wallets: WalletForAnalysis[];
   quoteCurrency: string;
+};
+
+export const buildPnlCurrentRatesByAssetIdFromWallets = (args: {
+  wallets: Wallet[];
+  quoteCurrency: string;
+  rates?: Rates;
+}): Record<string, number> => {
+  const out: Record<string, number> = {};
+  const quoteCurrency = String(args.quoteCurrency || '').toUpperCase();
+
+  if (!quoteCurrency || !args.rates) {
+    return out;
+  }
+
+  for (const wallet of args.wallets || []) {
+    const coin = String(
+      (wallet as any)?.currencyAbbreviation || '',
+    ).toLowerCase();
+    if (!coin) {
+      continue;
+    }
+
+    const assetId = getPortfolioAssetIdFromWallet(wallet as any);
+    if (!assetId || assetId in out) {
+      continue;
+    }
+
+    const currentRate = getQuoteRateNumForAsset({
+      rates: args.rates,
+      quoteCurrency,
+      coin,
+      chain: String((wallet as any)?.chain || coin),
+      tokenAddress: (wallet as any)?.tokenAddress,
+    });
+
+    if (currentRate > 0) {
+      out[assetId] = currentRate;
+    }
+  }
+
+  return out;
 };
 
 export const buildPnlCurrentRatesByCoinFromWallets = (args: {

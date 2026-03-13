@@ -27,7 +27,7 @@ const EMPTY_REVISION_BY_TIMEFRAME: BalanceChartRevisionByTimeframe = {};
 
 export type UseBalanceChartCacheHydrationArgs = {
   cachedScope?: CachedBalanceChartScope;
-  currentSpotRatesByCoin: Record<string, number>;
+  currentSpotRatesByAssetId: Record<string, number>;
   dispatch: (action: any) => void;
   fiatRateSeriesCache?: FiatRateSeriesCache;
   quoteCurrency: string;
@@ -41,7 +41,7 @@ export type UseBalanceChartCacheHydrationArgs = {
 
 export const useBalanceChartCacheHydration = ({
   cachedScope,
-  currentSpotRatesByCoin,
+  currentSpotRatesByAssetId,
   dispatch,
   fiatRateSeriesCache,
   quoteCurrency,
@@ -63,7 +63,7 @@ export const useBalanceChartCacheHydration = ({
         next[timeframe] = getCachedTimeframeStatus({
           cachedTimeframe: cachedScope?.timeframes?.[timeframe],
           snapshotVersionSig,
-          currentSpotRatesByCoin,
+          currentSpotRatesByAssetId,
           fiatRateSeriesCache,
         });
       }
@@ -71,7 +71,7 @@ export const useBalanceChartCacheHydration = ({
       return next;
     }, [
       cachedScope?.timeframes,
-      currentSpotRatesByCoin,
+      currentSpotRatesByAssetId,
       fiatRateSeriesCache,
       snapshotVersionSig,
     ]);
@@ -118,7 +118,7 @@ export const useBalanceChartCacheHydration = ({
         status === 'patchable'
           ? patchCachedLatestPointWithSpotRates({
               cachedTimeframe,
-              currentSpotRatesByCoin,
+              currentSpotRatesByAssetId,
             })
           : cachedTimeframe;
 
@@ -159,7 +159,7 @@ export const useBalanceChartCacheHydration = ({
   }, [
     cachedScope,
     cachedTimeframeStatusByTimeframe,
-    currentSpotRatesByCoin,
+    currentSpotRatesByAssetId,
     dispatch,
     getTimeframeRevision,
     scopeId,

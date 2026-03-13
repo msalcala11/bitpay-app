@@ -21,6 +21,7 @@ import {
   buildPnlWalletInputsFromPortfolioSnapshotsAsync,
   type PnlWalletInputs,
 } from '../../utils/portfolio/assets';
+import {getErrorString} from '../../utils/helper-methods';
 import {
   buildHistoricalRateDependencyMetadataFromCache,
   buildHistoricalRateDependencyRevision,
@@ -81,6 +82,7 @@ export type UseBalanceChartComputationQueueArgs = {
   balanceOffset: number;
   cachedTimeframeStatusByTimeframe: BalanceChartStatusByTimeframe;
   currentRatesRevision: string;
+  currentSpotRatesByAssetId: Record<string, number>;
   currentSpotRatesByCoin: Record<string, number>;
   dispatch: (action: any) => void;
   fiatRateSeriesCache?: FiatRateSeriesCache;
@@ -114,6 +116,7 @@ export const useBalanceChartComputationQueue = ({
   balanceOffset,
   cachedTimeframeStatusByTimeframe,
   currentRatesRevision,
+  currentSpotRatesByAssetId,
   currentSpotRatesByCoin,
   dispatch,
   fiatRateSeriesCache,
@@ -155,8 +158,18 @@ export const useBalanceChartComputationQueue = ({
   const computeGenerationRef = useRef(0);
   const analysisHistoricalDepKeysRef = useRef<Set<string>>(new Set());
   const analysisInputsReadyKeyRef = useRef<string | undefined>(undefined);
+  const snapshotsByWalletIdRef = useRef(snapshotsByWalletId);
+  const walletsRef = useRef(wallets);
   const {cancelAllScheduledWork, scheduleTrackedWork} =
     useTrackedInteractionWork();
+
+  useEffect(() => {
+    snapshotsByWalletIdRef.current = snapshotsByWalletId;
+  }, [snapshotsByWalletId]);
+
+  useEffect(() => {
+    walletsRef.current = wallets;
+  }, [wallets]);
 
   const invalidateComputeGeneration = useCallback(() => {
     computeGenerationRef.current += 1;
@@ -290,8 +303,8 @@ export const useBalanceChartComputationQueue = ({
         const historicalDepKeys = new Set<string>();
         const prepared = await buildPnlWalletInputsFromPortfolioSnapshotsAsync(
           {
-            snapshotsByWalletId: snapshotsByWalletId || {},
-            wallets: wallets || [],
+            snapshotsByWalletId: snapshotsByWalletIdRef.current || {},
+            wallets: walletsRef.current || [],
             quoteCurrency,
             fiatRateSeriesCache,
             onHistoricalRateDependency: cacheKey => {
@@ -349,9 +362,7 @@ export const useBalanceChartComputationQueue = ({
     scheduleTrackedWork,
     scopeId,
     shouldPrepareAnalysisInputs,
-    snapshotsByWalletId,
     snapshotsSig,
-    wallets,
     walletsSig,
   ]);
 
@@ -387,6 +398,10 @@ export const useBalanceChartComputationQueue = ({
           timeframe,
           quoteCurrency: analysisInputs.quoteCurrency,
           fiatRateSeriesCache,
+          currentRatesByAssetId:
+            Object.keys(currentSpotRatesByAssetId || {}).length > 0
+              ? currentSpotRatesByAssetId
+              : undefined,
           currentRatesByCoin:
             Object.keys(currentSpotRatesByCoin || {}).length > 0
               ? currentSpotRatesByCoin
@@ -477,6 +492,7 @@ export const useBalanceChartComputationQueue = ({
     [
       analysisInputs,
       balanceOffset,
+      currentSpotRatesByAssetId,
       currentSpotRatesByCoin,
       fiatRateSeriesCache,
       snapshotVersionSig,
@@ -593,12 +609,7 @@ export const useBalanceChartComputationQueue = ({
               return;
             }
 
-            const msg =
-              e instanceof Error
-                ? e.message
-                : typeof e === 'string'
-                ? e
-                : JSON.stringify(e);
+            const msg = typeof e === 'string' ? e : getErrorString(e);
             setLastErrorByTimeframe(prev =>
               computeGenerationRef.current === generation
                 ? {...prev, [next]: msg}

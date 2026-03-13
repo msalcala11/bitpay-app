@@ -45,11 +45,11 @@ const makeCachedTimeframe = (
       lastTs: 300,
     },
   ],
-  lastSpotRatesByCoin: {
-    btc: 100,
+  lastSpotRatesByAssetId: {
+    'btc:btc': 100,
   },
-  latestHoldingsByCoin: {
-    btc: {
+  latestHoldingsByAssetId: {
+    'btc:btc': {
       units: 2,
     },
   },
@@ -95,8 +95,8 @@ describe('chartCache', () => {
     const cached = makeCachedTimeframe();
     const patched = patchCachedLatestPointWithSpotRates({
       cachedTimeframe: cached,
-      currentSpotRatesByCoin: {
-        btc: 125,
+      currentSpotRatesByAssetId: {
+        'btc:btc': 125,
       },
     });
 
@@ -105,7 +105,7 @@ describe('chartCache', () => {
     expect(patched.totalPnlPercent[0]).toBe(0);
     expect(patched.totalPnlPercent[1]).toBe(20);
     expect(patched.totalPnlPercent[2]).toBeCloseTo(66.666666, 4);
-    expect(patched.lastSpotRatesByCoin.btc).toBe(125);
+    expect(patched.lastSpotRatesByAssetId['btc:btc']).toBe(125);
   });
 
   it('marks cached timeframes fresh when snapshots, historical deps, and spot rates match', () => {
@@ -113,8 +113,8 @@ describe('chartCache', () => {
       getCachedTimeframeStatus({
         cachedTimeframe: makeCachedTimeframe(),
         snapshotVersionSig: 'wallet-1:1',
-        currentSpotRatesByCoin: {
-          btc: 100,
+        currentSpotRatesByAssetId: {
+          'btc:btc': 100,
         },
         fiatRateSeriesCache: makeRateCache(),
       }),
@@ -126,8 +126,8 @@ describe('chartCache', () => {
       getCachedTimeframeStatus({
         cachedTimeframe: makeCachedTimeframe(),
         snapshotVersionSig: 'wallet-1:1',
-        currentSpotRatesByCoin: {
-          btc: 110,
+        currentSpotRatesByAssetId: {
+          'btc:btc': 110,
         },
         fiatRateSeriesCache: makeRateCache(),
       }),
@@ -139,8 +139,8 @@ describe('chartCache', () => {
       getCachedTimeframeStatus({
         cachedTimeframe: makeCachedTimeframe(),
         snapshotVersionSig: 'wallet-1:1',
-        currentSpotRatesByCoin: {
-          btc: 100,
+        currentSpotRatesByAssetId: {
+          'btc:btc': 100,
         },
         fiatRateSeriesCache: makeRateCache({
           fetchedOn: 101,
@@ -149,7 +149,7 @@ describe('chartCache', () => {
     ).toBe('stale_historical');
   });
 
-  it('currently merges latest-point patch metadata by normalized coin for distinct assets with the same ticker', () => {
+  it('keeps latest-point patch metadata distinct for assets that share a ticker', () => {
     const patchMetadata = buildLatestPointPatchMetadataFromAnalysis({
       analysisPoints: [
         {
@@ -203,8 +203,50 @@ describe('chartCache', () => {
       ],
     });
 
-    expect(Object.keys(patchMetadata.latestHoldingsByCoin)).toEqual(['usdc']);
-    expect(patchMetadata.latestHoldingsByCoin.usdc.units).toBe(3);
-    expect(patchMetadata.lastSpotRatesByCoin.usdc).toBe(100);
+    expect(Object.keys(patchMetadata.latestHoldingsByAssetId).sort()).toEqual([
+      'eth:usdc:0xa0b86991',
+      'sol:usdc:epjfwdd5aufqssqem2q',
+    ]);
+    expect(
+      patchMetadata.latestHoldingsByAssetId['eth:usdc:0xa0b86991'].units,
+    ).toBe(1);
+    expect(
+      patchMetadata.latestHoldingsByAssetId['sol:usdc:epjfwdd5aufqssqem2q']
+        .units,
+    ).toBe(2);
+    expect(patchMetadata.lastSpotRatesByAssetId['eth:usdc:0xa0b86991']).toBe(
+      100,
+    );
+    expect(
+      patchMetadata.lastSpotRatesByAssetId['sol:usdc:epjfwdd5aufqssqem2q'],
+    ).toBe(125);
+  });
+
+  it('patches the latest point using asset-specific spot rates for same-ticker assets', () => {
+    const patched = patchCachedLatestPointWithSpotRates({
+      cachedTimeframe: makeCachedTimeframe({
+        lastSpotRatesByAssetId: {
+          'eth:usdc:0xa0b86991': 100,
+          'sol:usdc:epjfwdd5aufqssqem2q': 125,
+        },
+        latestHoldingsByAssetId: {
+          'eth:usdc:0xa0b86991': {
+            units: 1,
+          },
+          'sol:usdc:epjfwdd5aufqssqem2q': {
+            units: 2,
+          },
+        },
+        latestRemainingCostBasisFiatTotal: 200,
+      }),
+      currentSpotRatesByAssetId: {
+        'eth:usdc:0xa0b86991': 110,
+        'sol:usdc:epjfwdd5aufqssqem2q': 120,
+      },
+    });
+
+    expect(patched.totalFiatBalance[2]).toBe(350);
+    expect(patched.totalUnrealizedPnlFiat[2]).toBe(150);
+    expect(patched.totalPnlPercent[2]).toBe(75);
   });
 });

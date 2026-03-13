@@ -28,8 +28,8 @@ const makeTimeframe = (
   walletIds: ['wallet-1'],
   snapshotVersionSig: 'wallet-1:1',
   historicalRateDeps: [],
-  lastSpotRatesByCoin: {},
-  latestHoldingsByCoin: {},
+  lastSpotRatesByAssetId: {},
+  latestHoldingsByAssetId: {},
   latestRemainingCostBasisFiatTotal: 0,
   ts: [100],
   totalFiatBalance: [100],
@@ -206,6 +206,36 @@ describe('portfolioChartsReducer', () => {
     expect(state.cacheByScopeId['scope-2']).toBeUndefined();
   });
 
+  it('drops stale scope ids from the LRU list when pruning', () => {
+    const baseState = portfolioChartsReducer(
+      undefined,
+      upsertBalanceChartScopeTimeframes({
+        scopeId: 'scope-1',
+        walletIds: ['wallet-1'],
+        quoteCurrency: 'USD',
+        balanceOffset: 0,
+        timeframes: [makeTimeframe()],
+      }),
+    );
+
+    const corruptedState = {
+      ...baseState,
+      lruScopeIds: ['missing-scope', 'scope-1'],
+    };
+
+    const pruned = portfolioChartsReducer(
+      corruptedState,
+      pruneBalanceChartCache({
+        maxScopes: 2,
+      }),
+    );
+
+    expect(pruned.lruScopeIds).toEqual(['scope-1']);
+    expect(pruned.cacheByScopeId).toEqual({
+      'scope-1': baseState.cacheByScopeId['scope-1'],
+    });
+  });
+
   it('deep-copies nested historical deps and holdings when upserting timeframes', () => {
     const timeframe = makeTimeframe({
       historicalRateDeps: [
@@ -215,8 +245,8 @@ describe('portfolioChartsReducer', () => {
           lastTs: 456,
         },
       ],
-      latestHoldingsByCoin: {
-        btc: {
+      latestHoldingsByAssetId: {
+        'btc:btc': {
           units: 2,
         },
       },
@@ -234,18 +264,18 @@ describe('portfolioChartsReducer', () => {
     );
 
     timeframe.historicalRateDeps[0].fetchedOn = 999;
-    timeframe.latestHoldingsByCoin.btc.units = 42;
+    timeframe.latestHoldingsByAssetId['btc:btc'].units = 42;
 
     const stored = state.cacheByScopeId['scope-1']?.timeframes
       ?.ALL as CachedBalanceChartTimeframe;
 
     expect(stored.historicalRateDeps[0].fetchedOn).toBe(123);
-    expect(stored.latestHoldingsByCoin.btc.units).toBe(2);
+    expect(stored.latestHoldingsByAssetId['btc:btc'].units).toBe(2);
     expect(stored.historicalRateDeps[0]).not.toBe(
       timeframe.historicalRateDeps[0],
     );
-    expect(stored.latestHoldingsByCoin.btc).not.toBe(
-      timeframe.latestHoldingsByCoin.btc,
+    expect(stored.latestHoldingsByAssetId['btc:btc']).not.toBe(
+      timeframe.latestHoldingsByAssetId['btc:btc'],
     );
   });
 
@@ -266,8 +296,8 @@ describe('portfolioChartsReducer', () => {
                 lastTs: 300,
               },
             ],
-            latestHoldingsByCoin: {
-              btc: {
+            latestHoldingsByAssetId: {
+              'btc:btc': {
                 units: 1,
               },
             },
@@ -293,8 +323,8 @@ describe('portfolioChartsReducer', () => {
                 lastTs: 301,
               },
             ],
-            latestHoldingsByCoin: {
-              btc: {
+            latestHoldingsByAssetId: {
+              'btc:btc': {
                 units: 3,
               },
             },
@@ -312,8 +342,8 @@ describe('portfolioChartsReducer', () => {
     expect(nextStored.historicalRateDeps[0]).not.toBe(
       prevStored.historicalRateDeps[0],
     );
-    expect(nextStored.latestHoldingsByCoin.btc).not.toBe(
-      prevStored.latestHoldingsByCoin.btc,
+    expect(nextStored.latestHoldingsByAssetId['btc:btc']).not.toBe(
+      prevStored.latestHoldingsByAssetId['btc:btc'],
     );
   });
 });

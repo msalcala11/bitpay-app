@@ -23,6 +23,7 @@ import {
 } from './intervalPrefs';
 import {atomicToUnitNumber} from './atomic';
 import {yieldToEventLoop} from '../../../../utils/yieldToEventLoop';
+import {getPortfolioAssetIdFromWalletCredentials} from '../../assetIdentity';
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
@@ -439,6 +440,7 @@ type BuildPnlAnalysisSeriesArgs = {
    * ensure % changes match the ExchangeRate screen which uses a "currentRate" override.
    */
   currentRatesByCoin?: Record<string, number>;
+  currentRatesByAssetId?: Record<string, number>;
   nowMs?: number;
   maxPoints?: number;
   outputMode?: 'full' | 'chart';
@@ -597,10 +599,18 @@ function* buildPnlAnalysisSeriesGenerator(
     return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
   };
 
+  const getAssetOverrideRate = (assetId: string): number | undefined => {
+    const overrides = args.currentRatesByAssetId;
+    if (!overrides) return undefined;
+    const v = overrides[assetId];
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
+  };
+
   // Windowed cost basis state (reset to value at interval start).
   // We iterate forward through snapshots during timeline generation so this is O(points + txs).
   type WindowBasisState = {
     walletId: string;
+    assetId: string;
     coin: string;
     decimals: number;
     snapshots: BalanceSnapshotStored[];
@@ -635,6 +645,10 @@ function* buildPnlAnalysisSeriesGenerator(
     const coin = normalizeFiatRateSeriesCoin(w.currencyAbbreviation);
     const decimals = getAtomicDecimals(w.credentials);
     const snaps = w.snapshots;
+    const assetId = getPortfolioAssetIdFromWalletCredentials(
+      w.credentials,
+      w.currencyAbbreviation,
+    );
 
     const lastIdx = findLastSnapshotIndexAtOrBefore(snaps, startTs);
     const unitsAtomic =
@@ -645,6 +659,7 @@ function* buildPnlAnalysisSeriesGenerator(
 
     windowStateByWalletId[w.walletId] = {
       walletId: w.walletId,
+      assetId,
       coin,
       decimals,
       snapshots: snaps,
@@ -673,7 +688,12 @@ function* buildPnlAnalysisSeriesGenerator(
     // Determine markRate based on driver coin.
     const driverRate =
       i === timeline.length - 1
-        ? getOverrideRate(driverCoin) ??
+        ? (wallets.length === 1
+            ? getAssetOverrideRate(
+                windowStateByWalletId[wallets[0].walletId]?.assetId || '',
+              )
+            : undefined) ??
+          getOverrideRate(driverCoin) ??
           rateCursorByCoin[driverCoin]?.getNearest(ts)
         : rateCursorByCoin[driverCoin]?.getNearest(ts);
     if (driverRate === undefined) {
@@ -687,7 +707,9 @@ function* buildPnlAnalysisSeriesGenerator(
       const coin = st.coin;
       const rate =
         i === timeline.length - 1
-          ? getOverrideRate(coin) ?? rateCursorByCoin[coin]?.getNearest(ts)
+          ? getAssetOverrideRate(st.assetId) ??
+            getOverrideRate(coin) ??
+            rateCursorByCoin[coin]?.getNearest(ts)
           : rateCursorByCoin[coin]?.getNearest(ts);
       if (rate === undefined) {
         throw new Error(`Missing ${quoteCurrency}:${coin} rate at ts=${ts}.`);

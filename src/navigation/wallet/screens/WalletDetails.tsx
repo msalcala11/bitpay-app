@@ -705,7 +705,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
 
   const updateWalletStatusAndProfileBalance = async () => {
     await dispatch(startUpdateWalletStatus({key, wallet: fullWalletObj}));
-    dispatch(updatePortfolioBalance);
+    dispatch(updatePortfolioBalance());
   };
 
   useEffect(() => {

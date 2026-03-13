@@ -45,25 +45,34 @@ const pruneCacheState = (
   maxScopes = BALANCE_CHART_CACHE_MAX_SCOPES,
 ): PortfolioChartsState => {
   const effectiveMax = Math.max(1, Math.floor(maxScopes || 1));
-  if (state.lruScopeIds.length <= effectiveMax) {
-    return state;
-  }
-
-  const keepScopeIds = state.lruScopeIds.slice(0, effectiveMax);
-  const keepScopeIdSet = new Set(keepScopeIds);
+  const keptScopeIds = state.lruScopeIds
+    .filter(scopeId => !!state.cacheByScopeId[scopeId])
+    .slice(0, effectiveMax);
   const nextCacheByScopeId: PortfolioChartsState['cacheByScopeId'] = {};
 
-  for (const scopeId of keepScopeIds) {
+  for (const scopeId of keptScopeIds) {
     const scope = state.cacheByScopeId[scopeId];
     if (scope) {
       nextCacheByScopeId[scopeId] = scope;
     }
   }
 
+  const cacheByScopeIdKeys = Object.keys(state.cacheByScopeId);
+  const isUnchanged =
+    keptScopeIds.length === state.lruScopeIds.length &&
+    cacheByScopeIdKeys.length === keptScopeIds.length &&
+    keptScopeIds.every(
+      (scopeId, index) => state.lruScopeIds[index] === scopeId,
+    );
+
+  if (isUnchanged) {
+    return state;
+  }
+
   return {
     ...state,
     cacheByScopeId: nextCacheByScopeId,
-    lruScopeIds: keepScopeIds.filter(scopeId => keepScopeIdSet.has(scopeId)),
+    lruScopeIds: keptScopeIds,
   };
 };
 
@@ -100,48 +109,65 @@ const removeScopesForWalletIds = (
 
 const sanitizeTimeframe = (
   timeframe: CachedBalanceChartTimeframe,
-): CachedBalanceChartTimeframe => ({
-  ...timeframe,
-  schemaVersion:
-    typeof timeframe?.schemaVersion === 'number'
-      ? timeframe.schemaVersion
-      : BALANCE_CHART_CACHE_SCHEMA_VERSION,
-  balanceOffset: normalizeBalanceChartOffset(timeframe?.balanceOffset ?? 0),
-  walletIds: normalizeBalanceChartWalletIds(timeframe?.walletIds || []),
-  historicalRateDeps: Array.isArray(timeframe?.historicalRateDeps)
-    ? timeframe.historicalRateDeps
-        .filter(dep => !!dep?.cacheKey)
-        .map(dep => ({
-          cacheKey: dep.cacheKey,
-          fetchedOn: dep.fetchedOn,
-          lastTs: dep.lastTs,
-        }))
-    : [],
-  lastSpotRatesByCoin: {...(timeframe?.lastSpotRatesByCoin || {})},
-  latestHoldingsByCoin: Object.fromEntries(
-    Object.entries(timeframe?.latestHoldingsByCoin || {}).map(
-      ([coin, holding]) => [
-        coin,
+): CachedBalanceChartTimeframe => {
+  const {
+    lastSpotRatesByCoin: _legacyLastSpotRatesByCoin,
+    latestHoldingsByCoin: _legacyLatestHoldingsByCoin,
+    ...timeframeRest
+  } = timeframe as CachedBalanceChartTimeframe & {
+    lastSpotRatesByCoin?: Record<string, number>;
+    latestHoldingsByCoin?: Record<string, {units?: number}>;
+  };
+  const lastSpotRatesByAssetId =
+    (timeframe as any)?.lastSpotRatesByAssetId ||
+    (timeframe as any)?.lastSpotRatesByCoin ||
+    {};
+  const latestHoldingsByAssetId =
+    (timeframe as any)?.latestHoldingsByAssetId ||
+    (timeframe as any)?.latestHoldingsByCoin ||
+    {};
+
+  return {
+    ...timeframeRest,
+    schemaVersion:
+      typeof timeframe?.schemaVersion === 'number'
+        ? timeframe.schemaVersion
+        : BALANCE_CHART_CACHE_SCHEMA_VERSION,
+    balanceOffset: normalizeBalanceChartOffset(timeframe?.balanceOffset ?? 0),
+    walletIds: normalizeBalanceChartWalletIds(timeframe?.walletIds || []),
+    historicalRateDeps: Array.isArray(timeframe?.historicalRateDeps)
+      ? timeframe.historicalRateDeps
+          .filter(dep => !!dep?.cacheKey)
+          .map(dep => ({
+            cacheKey: dep.cacheKey,
+            fetchedOn: dep.fetchedOn,
+            lastTs: dep.lastTs,
+          }))
+      : [],
+    lastSpotRatesByAssetId: {...lastSpotRatesByAssetId},
+    latestHoldingsByAssetId: Object.fromEntries(
+      Object.entries(latestHoldingsByAssetId).map(([assetId, holding]) => [
+        assetId,
         {
           units:
             typeof holding?.units === 'number' && Number.isFinite(holding.units)
               ? holding.units
               : 0,
         },
-      ],
+      ]),
     ),
-  ),
-  ts: Array.isArray(timeframe?.ts) ? timeframe.ts.slice() : [],
-  totalFiatBalance: Array.isArray(timeframe?.totalFiatBalance)
-    ? timeframe.totalFiatBalance.slice()
-    : [],
-  totalUnrealizedPnlFiat: Array.isArray(timeframe?.totalUnrealizedPnlFiat)
-    ? timeframe.totalUnrealizedPnlFiat.slice()
-    : [],
-  totalPnlPercent: Array.isArray(timeframe?.totalPnlPercent)
-    ? timeframe.totalPnlPercent.slice()
-    : [],
-});
+    ts: Array.isArray(timeframe?.ts) ? timeframe.ts.slice() : [],
+    totalFiatBalance: Array.isArray(timeframe?.totalFiatBalance)
+      ? timeframe.totalFiatBalance.slice()
+      : [],
+    totalUnrealizedPnlFiat: Array.isArray(timeframe?.totalUnrealizedPnlFiat)
+      ? timeframe.totalUnrealizedPnlFiat.slice()
+      : [],
+    totalPnlPercent: Array.isArray(timeframe?.totalPnlPercent)
+      ? timeframe.totalPnlPercent.slice()
+      : [],
+  };
+};
 
 const upsertScopeTimeframes = (
   state: PortfolioChartsState,
