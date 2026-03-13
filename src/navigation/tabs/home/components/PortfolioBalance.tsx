@@ -456,17 +456,20 @@ const PortfolioBalance = () => {
         </TouchableOpacity>
       </PortfolioTopContent>
 
-      {shouldLeftAlignTopSection && chartChangeRowData ? (
+      {shouldLeftAlignTopSection ? (
         <ChartChangeRow
-          percent={chartChangeRowData.percent}
-          deltaFiatFormatted={chartChangeRowData.deltaFiatFormatted}
-          rangeLabel={chartChangeRowData.rangeLabel}
-          isLoading={chartChangeRowData.isLoading}
-          style={{
-            width: '100%',
-            justifyContent: 'flex-start',
-            paddingLeft: 12,
-          }}
+          percent={chartChangeRowData?.percent ?? 0}
+          deltaFiatFormatted={chartChangeRowData?.deltaFiatFormatted}
+          rangeLabel={chartChangeRowData?.rangeLabel}
+          isLoading={chartChangeRowData?.isLoading}
+          style={[
+            {
+              width: '100%',
+              justifyContent: 'flex-start',
+              paddingLeft: 12,
+            },
+            !chartChangeRowData ? {opacity: 0} : null,
+          ]}
         />
       ) : null}
 
