@@ -1206,6 +1206,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
                         isLoading === undefined || !!isLoading || refreshing
                       }
                       onSelectedBalanceChange={setSelectedFiatBalance}
+                      changeRowStyle={{marginTop: 2}}
                       preChartContentTopMargin={12}
                       preChartContent={
                         hasTopMetadataBadges ? (
