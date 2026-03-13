@@ -38,17 +38,14 @@ export const useStackScreenOptions = (theme: {
   const paddingBottom = useContentPaddingBottom();
   const paddingTop = useContentPaddingTop();
 
-  return React.useMemo(
-    () => ({
-      ...baseNavigatorOptions,
-      headerTransparent: true,
-      headerStyle: {backgroundColor: theme.colors.background},
-      headerShadowVisible: false,
-      headerTintColor: theme.colors.text,
-      headerTitleAlign: 'center' as const,
-      contentStyle: {paddingBottom, paddingTop},
-      header: (props: any) => <CustomHeader {...props} />,
-    }),
-    [paddingBottom, paddingTop, theme.colors.background, theme.colors.text],
-  );
+  return {
+    ...baseNavigatorOptions,
+    headerTransparent: true,
+    headerStyle: {backgroundColor: theme.colors.background},
+    headerShadowVisible: false,
+    headerTintColor: theme.colors.text,
+    headerTitleAlign: 'center' as const,
+    contentStyle: {paddingBottom, paddingTop},
+    header: (props: any) => <CustomHeader {...props} />,
+  };
 };

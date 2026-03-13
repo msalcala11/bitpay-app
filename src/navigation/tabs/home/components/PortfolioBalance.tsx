@@ -13,7 +13,6 @@ import {
 import {
   useAppDispatch,
   useAppSelector,
-  useLifecycleScopedValue,
 } from '../../../../utils/hooks';
 import {
   showBottomNotificationModal,
@@ -109,10 +108,9 @@ const PortfolioBalance = () => {
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
   const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
-  const {
-    homeChartCollapsed: persistedHomeChartCollapsed,
-    homeChartRemountNonce,
-  } = useAppSelector(({PORTFOLIO_CHARTS}) => PORTFOLIO_CHARTS);
+  const {homeChartCollapsed: persistedHomeChartCollapsed} = useAppSelector(
+    ({PORTFOLIO_CHARTS}) => PORTFOLIO_CHARTS,
+  );
 
   const [isChartCollapsed, setIsChartCollapsed] = useState(
     persistedHomeChartCollapsed,
@@ -336,19 +334,27 @@ const PortfolioBalance = () => {
     portfolioQuoteCurrency: portfolio?.quoteCurrency,
     defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
   });
-  const chartLifecycleKey = useMemo(
-    () =>
-      `home-portfolio-charts:${quoteCurrency}:${homeChartRemountNonce}:${visibleKeyIdsSig}`,
-    [homeChartRemountNonce, quoteCurrency, visibleKeyIdsSig],
+  const chartScopeKey = useMemo(
+    () => `home-portfolio-charts:${quoteCurrency}:${visibleKeyIdsSig}`,
+    [quoteCurrency, visibleKeyIdsSig],
   );
 
-  const [selectedChartBalance, setSelectedChartBalance] =
-    useLifecycleScopedValue<number>(chartLifecycleKey);
-  const [chartChangeRowData, setChartChangeRowData] = useLifecycleScopedValue<{
-    percent: number;
-    deltaFiatFormatted?: string;
-    rangeLabel?: string;
-  }>(chartLifecycleKey);
+  const [selectedChartBalance, setSelectedChartBalance] = useState<
+    number | undefined
+  >();
+  const [chartChangeRowData, setChartChangeRowData] = useState<
+    | {
+        percent: number;
+        deltaFiatFormatted?: string;
+        rangeLabel?: string;
+      }
+    | undefined
+  >();
+
+  useEffect(() => {
+    setSelectedChartBalance(undefined);
+    setChartChangeRowData(undefined);
+  }, [chartScopeKey]);
 
   const handleSelectedChartBalanceChange = useCallback(
     (balance?: number) => {
@@ -499,13 +505,14 @@ const PortfolioBalance = () => {
                   }
                 }}>
                 <SharedBalanceHistoryChart
-                  key={chartLifecycleKey}
+                  key={chartScopeKey}
                   wallets={walletsAcrossKeys}
                   snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
                   quoteCurrency={quoteCurrency}
                   initialSelectedTimeframe={selectedChartTimeframeRef.current}
                   rates={rates}
                   fiatRateSeriesCache={fiatRateSeriesCache}
+                  persistAllTimeframe
                   strokeScale={chartScale}
                   minStrokeScale={collapsedScale}
                   onChangeRowData={handleChartChangeRowData}
@@ -541,13 +548,14 @@ const PortfolioBalance = () => {
           </ChartStage>
         ) : (
           <SharedBalanceHistoryChart
-            key={chartLifecycleKey}
+            key={chartScopeKey}
             wallets={walletsAcrossKeys}
             snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
             quoteCurrency={quoteCurrency}
             initialSelectedTimeframe={selectedChartTimeframeRef.current}
             rates={rates}
             fiatRateSeriesCache={fiatRateSeriesCache}
+            persistAllTimeframe
             onSelectedTimeframeChange={onSelectedChartTimeframeChange}
             // NOTE: Coinbase balance is intentionally excluded from the balance chart
             // (Option B per product requirements) because we do not have historized
