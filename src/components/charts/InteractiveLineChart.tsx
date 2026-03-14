@@ -304,13 +304,13 @@ const InteractiveLineChart = ({
   //   - style changes (theme switch),
   //   - we regain focus after a theme switch (ensures redraw is visible),
   //   - layout happens after a theme switch (handles detach/reattach cases).
-  const pointsForGraph = React.useMemo(() => {
-    // Intentionally invalidate this memo when style/layout refreshes require a
-    // fresh points array identity even if the point values themselves match.
-    // eslint-disable-next-line no-void
-    void pointsRefreshKey;
-    return points.slice();
-  }, [points, pointsRefreshKey]);
+  const {pointsForGraph} = React.useMemo(
+    () => ({
+      refreshKey: pointsRefreshKey,
+      pointsForGraph: points.slice(),
+    }),
+    [points, pointsRefreshKey],
+  );
   const hasDrawablePoints = pointsForGraph.length >= 2;
 
   const firstPointGuideLine = React.useMemo(() => {
