@@ -157,7 +157,6 @@ import ChevronDownSvgDark from '../../../../assets/img/chevron-down-darkmode.svg
 import KeySvg from '../../../../assets/img/key.svg';
 import ReceiveAddress from '../components/ReceiveAddress';
 import {IsVMChain} from '../../../store/wallet/utils/currency';
-import {LogActions} from '../../../store/log/';
 import uniqBy from 'lodash.uniqby';
 import OptionsSheet, {Option} from '../components/OptionsSheet';
 import Settings from '../../../components/settings/Settings';
