@@ -160,7 +160,6 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
 
   const {walletNameById, allWallets} = useMemo(() => {
     const nameMap: {[walletId: string]: string | undefined} = {};
-    const walletMap: {[walletId: string]: Wallet | undefined} = {};
     const all: Wallet[] = [];
     for (const key of Object.values(walletKeys || {}) as any[]) {
       const wallets: Wallet[] = Array.isArray(key?.wallets) ? key.wallets : [];
@@ -168,11 +167,10 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
         all.push(w);
         if (w?.id) {
           nameMap[w.id] = w.walletName;
-          walletMap[w.id] = w;
         }
       }
     }
-    return {walletNameById: nameMap, walletById: walletMap, allWallets: all};
+    return {walletNameById: nameMap, allWallets: all};
   }, [walletKeys]);
 
   const {mainnetWallets, testnetWallets, mainnetWalletsWithZeroBalance} =

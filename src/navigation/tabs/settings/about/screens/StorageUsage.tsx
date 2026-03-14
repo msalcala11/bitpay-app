@@ -109,7 +109,7 @@ const StorageUsage: React.FC = () => {
   const [appSize, setAppSize] = useState<string>('');
   const [deviceFreeStorage, setDeviceFreeStorage] = useState<string>('');
   const [deviceTotalStorage, setDeviceTotalStorage] = useState<string>('');
-  const [giftCardtStorage, setGiftCardStorage] = useState<string>('');
+  const [giftCardStorage, setGiftCardStorage] = useState<string>('');
   const [walletStorage, setWalletStorage] = useState<string>('');
   const [customTokenStorage, setCustomTokenStorage] = useState<string>('');
   const [contactStorage, setContactStorage] = useState<string>('');
@@ -466,7 +466,7 @@ const StorageUsage: React.FC = () => {
               {t('Gift Cards')} ({giftCount || '0'})
             </SettingTitle>
 
-            {renderValue(giftCardtStorage)}
+            {renderValue(giftCardStorage)}
           </Setting>
 
           <Hr />
