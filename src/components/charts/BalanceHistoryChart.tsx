@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from 'react';
@@ -71,6 +72,13 @@ import {
   normalizeGraphPointsForChart,
   recomputeMinMaxFromGraphPoints,
 } from '../../utils/portfolio/chartGraph';
+import {
+  balanceHistoryChartOrchestrationReducer,
+  createInitialBalanceHistoryChartOrchestrationState,
+  getTimeframeComputeDisposition,
+  selectComputedSeriesForAttempt,
+  selectTimeframeErrorForAttempt,
+} from './balanceHistoryChartOrchestration';
 
 const CHART_LOADER_DELAY_MS = 150;
 const CHART_COMPUTE_YIELD_EVERY_POINTS = 4;
@@ -347,33 +355,17 @@ const BalanceHistoryChart = ({
     initialSelectedTimeframe,
   );
 
-  const [seriesByTimeframe, setSeriesByTimeframe] = useState<
-    Partial<Record<FiatRateInterval, ComputedSeries>>
-  >({});
-  const [seriesRevisionByTimeframe, setSeriesRevisionByTimeframe] = useState<
-    Partial<Record<FiatRateInterval, string>>
-  >({});
-
-  const [isComputingByTimeframe, setIsComputingByTimeframe] = useState<
-    Partial<Record<FiatRateInterval, boolean>>
-  >({});
+  const [timeframeState, dispatchTimeframeState] = useReducer(
+    balanceHistoryChartOrchestrationReducer<ComputedSeries, ChangeRowData>,
+    undefined,
+    createInitialBalanceHistoryChartOrchestrationState,
+  );
   const [analysisInputs, setAnalysisInputs] = useState<AnalysisInputs>(() => ({
     ...EMPTY_ANALYSIS_INPUTS(quoteCurrency),
   }));
   const [analysisInputsReadyKey, setAnalysisInputsReadyKey] = useState<
     string | undefined
   >(undefined);
-
-  const [lastAttemptRevisionByTimeframe, setLastAttemptRevisionByTimeframe] =
-    useState<Partial<Record<FiatRateInterval, string>>>({});
-
-  const [lastErrorByTimeframe, setLastErrorByTimeframe] = useState<
-    Partial<Record<FiatRateInterval, string>>
-  >({});
-  const [
-    lastResolvedChangeRowDataByTimeframe,
-    setLastResolvedChangeRowDataByTimeframe,
-  ] = useState<Partial<Record<FiatRateInterval, ChangeRowData>>>({});
 
   const [displayState, setDisplayState] = useState<
     | {
@@ -391,6 +383,7 @@ const BalanceHistoryChart = ({
   );
 
   const [selectedPoint, setSelectedPoint] = useState<GraphPoint | undefined>();
+  const timeframeStateByTimeframe = timeframeState.byTimeframe;
 
   const cancelAllScheduledWork = useCallback(() => {
     for (const handle of scheduledHandlesRef.current) {
@@ -425,6 +418,7 @@ const BalanceHistoryChart = ({
     cancelAllScheduledWork();
     enqueueComputeRef.current = [];
     computingQueueRef.current = false;
+    return computeGenerationRef.current;
   }, [cancelAllScheduledWork]);
 
   // NOTE: Some call sites may pass inline callbacks. Avoid re-running effects
@@ -446,27 +440,6 @@ const BalanceHistoryChart = ({
   const lastTouchedScopeIdRef = useRef<string | undefined>(undefined);
   const [hasCompletedInitialAllLoad, setHasCompletedInitialAllLoad] =
     useState(false);
-
-  const walletsSig = useMemo(() => {
-    return (wallets || [])
-      .map(w => String((w as any)?.id || ''))
-      .filter(Boolean)
-      .join(',');
-  }, [wallets]);
-
-  const snapshotsSig = useMemo(() => {
-    const parts: string[] = [];
-    for (const w of wallets || []) {
-      const id = String((w as any)?.id || '');
-      if (!id) continue;
-      const snaps = snapshotsByWalletId?.[id] || [];
-      const last = snaps.length
-        ? (snaps[snaps.length - 1] as any)?.timestamp
-        : 0;
-      parts.push(`${id}:${snaps.length}:${last || 0}`);
-    }
-    return parts.join('|');
-  }, [snapshotsByWalletId, wallets]);
 
   const totalSnapshotCount = useMemo(() => {
     let totalCount = 0;
@@ -740,11 +713,14 @@ const BalanceHistoryChart = ({
     }
 
     const patchedTimeframes: CachedBalanceChartTimeframe[] = [];
-    const nextSeriesByTimeframe: Partial<
-      Record<FiatRateInterval, ComputedSeries>
-    > = {};
-    const nextSeriesRevisionByTimeframe: Partial<
-      Record<FiatRateInterval, string>
+    const hydratedTimeframes: Partial<
+      Record<
+        FiatRateInterval,
+        {
+          series: ComputedSeries;
+          seriesRevision: string;
+        }
+      >
     > = {};
 
     for (const timeframe of PRECOMPUTE_TIMEFRAME_ORDER) {
@@ -766,28 +742,28 @@ const BalanceHistoryChart = ({
         patchedTimeframes.push(effectiveCachedTimeframe);
       }
 
-      nextSeriesByTimeframe[timeframe] =
-        deserializeCachedTimeframeToComputedSeries(effectiveCachedTimeframe);
-      nextSeriesRevisionByTimeframe[timeframe] =
-        status === 'fresh' || status === 'patchable'
-          ? getTimeframeRevision(
-              timeframe,
-              effectiveCachedTimeframe.historicalRateDeps,
-            )
-          : `stale:${effectiveCachedTimeframe.builtAt}:${timeframe}`;
+      hydratedTimeframes[timeframe] = {
+        series: deserializeCachedTimeframeToComputedSeries(
+          effectiveCachedTimeframe,
+        ),
+        seriesRevision:
+          status === 'fresh' || status === 'patchable'
+            ? getTimeframeRevision(
+                timeframe,
+                effectiveCachedTimeframe.historicalRateDeps,
+              )
+            : `stale:${effectiveCachedTimeframe.builtAt}:${timeframe}`,
+      };
     }
 
     startTransition(() => {
-      setSeriesByTimeframe(prev => ({
-        ...prev,
-        ...nextSeriesByTimeframe,
-      }));
-      setSeriesRevisionByTimeframe(prev => ({
-        ...prev,
-        ...nextSeriesRevisionByTimeframe,
-      }));
+      dispatchTimeframeState({
+        type: 'mergeHydratedSeries',
+        updates: hydratedTimeframes,
+      });
 
-      const selectedHydratedSeries = nextSeriesByTimeframe[selectedTimeframe];
+      const selectedHydratedSeries =
+        hydratedTimeframes[selectedTimeframe]?.series;
       if (selectedHydratedSeries) {
         setDisplayState(prev =>
           prev?.series === selectedHydratedSeries &&
@@ -820,8 +796,13 @@ const BalanceHistoryChart = ({
   ]);
 
   useEffect(() => {
-    invalidateComputeGeneration();
-    setIsComputingByTimeframe({});
+    const generation = invalidateComputeGeneration();
+    startTransition(() => {
+      dispatchTimeframeState({
+        type: 'advanceGeneration',
+        generation,
+      });
+    });
   }, [
     analysisInputsBaseKey,
     cacheRevision,
@@ -903,11 +884,9 @@ const BalanceHistoryChart = ({
     rates,
     shouldPrepareAnalysisInputs,
     snapshotsByWalletId,
-    snapshotsSig,
     trackScheduledHandle,
     removeScheduledHandle,
     wallets,
-    walletsSig,
   ]);
 
   const inputsReady =
@@ -1076,21 +1055,12 @@ const BalanceHistoryChart = ({
       const generation = computeGenerationRef.current;
       const attemptRevision = getTimeframeAttemptRevision(next);
 
-      setIsComputingByTimeframe(prev =>
-        computeGenerationRef.current === generation
-          ? {...prev, [next]: true}
-          : prev,
-      );
-      setLastAttemptRevisionByTimeframe(prev =>
-        computeGenerationRef.current === generation
-          ? {...prev, [next]: attemptRevision}
-          : prev,
-      );
-      setLastErrorByTimeframe(prev =>
-        computeGenerationRef.current === generation
-          ? {...prev, [next]: undefined}
-          : prev,
-      );
+      dispatchTimeframeState({
+        type: 'startCompute',
+        timeframe: next,
+        attemptRevision,
+        generation,
+      });
 
       let computeHandle: ScheduledAfterInteractionsHandle | undefined;
       computeHandle = scheduleAfterInteractionsAndFrames(async () => {
@@ -1114,19 +1084,14 @@ const BalanceHistoryChart = ({
           }
 
           startTransition(() => {
-            setSeriesByTimeframe(prev =>
-              computeGenerationRef.current === generation
-                ? {...prev, [next]: computed.series}
-                : prev,
-            );
-            setSeriesRevisionByTimeframe(prev =>
-              computeGenerationRef.current === generation
-                ? {
-                    ...prev,
-                    [next]: timeframeRevision,
-                  }
-                : prev,
-            );
+            dispatchTimeframeState({
+              type: 'resolveCompute',
+              timeframe: next,
+              attemptRevision,
+              series: computed.series,
+              seriesRevision: timeframeRevision,
+              generation,
+            });
             if (next === selectedTimeframe) {
               setDisplayState(prev =>
                 prev?.series === computed.series && prev?.timeframe === next
@@ -1138,11 +1103,6 @@ const BalanceHistoryChart = ({
               );
             }
           });
-          setLastErrorByTimeframe(prev =>
-            computeGenerationRef.current === generation
-              ? {...prev, [next]: undefined}
-              : prev,
-          );
           if (computeGenerationRef.current === generation) {
             dispatch(
               upsertBalanceChartScopeTimeframes({
@@ -1166,23 +1126,19 @@ const BalanceHistoryChart = ({
               : typeof e === 'string'
               ? e
               : JSON.stringify(e);
-          setLastErrorByTimeframe(prev =>
-            computeGenerationRef.current === generation
-              ? {...prev, [next]: msg}
-              : prev,
-          );
+          dispatchTimeframeState({
+            type: 'rejectCompute',
+            timeframe: next,
+            attemptRevision,
+            error: msg,
+            generation,
+          });
         }
 
         if (computeGenerationRef.current !== generation) {
           computingQueueRef.current = false;
           return;
         }
-
-        setIsComputingByTimeframe(prev =>
-          computeGenerationRef.current === generation
-            ? {...prev, [next]: false}
-            : prev,
-        );
         runNext();
       });
       trackScheduledHandle(computeHandle);
@@ -1202,67 +1158,50 @@ const BalanceHistoryChart = ({
     trackScheduledHandle,
   ]);
 
-  const ensureTimeframeComputed = useCallback(
-    (tf: FiatRateInterval, options?: {prioritize?: boolean}) => {
+  const getComputeDispositionForTimeframe = useCallback(
+    (
+      tf: FiatRateInterval,
+      retryPolicy: 'retry_interrupted_attempts' | 'suppress_after_attempt',
+    ) => {
       const cachedStatus = cachedTimeframeStatusByTimeframe[tf] || 'missing';
       const timeframeRevision = getTimeframeRevision(tf);
       const attemptRevision = getTimeframeAttemptRevision(tf);
 
-      if (cachedStatus === 'fresh' || cachedStatus === 'patchable') {
-        return;
-      }
-
-      if (
-        seriesByTimeframe[tf] &&
-        seriesRevisionByTimeframe[tf] === timeframeRevision
-      ) {
-        return;
-      }
-      if (
-        seriesByTimeframe[tf] &&
-        lastAttemptRevisionByTimeframe[tf] === attemptRevision &&
-        !lastErrorByTimeframe[tf]
-      ) {
-        return;
-      }
-      if (
-        isComputingByTimeframe[tf] &&
-        lastAttemptRevisionByTimeframe[tf] === attemptRevision
-      ) {
-        return;
-      }
-      if (!hasAnySnapshots) {
-        return;
-      }
-      if (!inputsReady) {
-        return;
-      }
-      // Avoid retry loops after a real compute error, but do allow retrying a
-      // revision if the prior attempt never produced either a series or an
-      // error (for example, if it was interrupted during a scope transition).
-      if (
-        lastAttemptRevisionByTimeframe[tf] === attemptRevision &&
-        !!lastErrorByTimeframe[tf]
-      ) {
-        return;
-      }
-      enqueueTimeframeCompute(tf, !!options?.prioritize);
-      processQueue();
+      return getTimeframeComputeDisposition({
+        cachedStatus,
+        timeframeRevision,
+        attemptRevision,
+        timeframeState: timeframeStateByTimeframe[tf],
+        hasAnySnapshots,
+        inputsReady,
+        retryPolicy,
+      });
     },
     [
       cachedTimeframeStatusByTimeframe,
-      enqueueTimeframeCompute,
       getTimeframeAttemptRevision,
       getTimeframeRevision,
       hasAnySnapshots,
       inputsReady,
-      isComputingByTimeframe,
-      lastErrorByTimeframe,
-      lastAttemptRevisionByTimeframe,
-      processQueue,
-      seriesRevisionByTimeframe,
-      seriesByTimeframe,
+      timeframeStateByTimeframe,
     ],
+  );
+
+  const ensureTimeframeComputed = useCallback(
+    (tf: FiatRateInterval, options?: {prioritize?: boolean}) => {
+      const disposition = getComputeDispositionForTimeframe(
+        tf,
+        'retry_interrupted_attempts',
+      );
+
+      if (!disposition.shouldQueue) {
+        return;
+      }
+
+      enqueueTimeframeCompute(tf, !!options?.prioritize);
+      processQueue();
+    },
+    [enqueueTimeframeCompute, getComputeDispositionForTimeframe, processQueue],
   );
 
   const ensureTimeframeComputedRef = useRef(ensureTimeframeComputed);
@@ -1272,19 +1211,17 @@ const BalanceHistoryChart = ({
 
   // Reset only when the chart scope changes (wallet set / quote / balance offset).
   useEffect(() => {
-    invalidateComputeGeneration();
+    const generation = invalidateComputeGeneration();
     analysisHistoricalDepKeysRef.current = new Set();
     lastTouchedScopeIdRef.current = undefined;
     analysisInputsReadyKeyRef.current = undefined;
     setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
     setAnalysisInputsReadyKey(undefined);
     setHasCompletedInitialAllLoad(false);
-    setSeriesByTimeframe({});
-    setSeriesRevisionByTimeframe({});
-    setIsComputingByTimeframe({});
-    setLastAttemptRevisionByTimeframe({});
-    setLastErrorByTimeframe({});
-    setLastResolvedChangeRowDataByTimeframe({});
+    dispatchTimeframeState({
+      type: 'resetAll',
+      generation,
+    });
     setSelectedPoint(undefined);
     onSelectedBalanceChangeRef.current?.(undefined);
 
@@ -1328,39 +1265,11 @@ const BalanceHistoryChart = ({
     }
 
     const nextToPrecompute = PRECOMPUTE_TIMEFRAME_ORDER.find(tf => {
-      const cachedStatus = cachedTimeframeStatusByTimeframe[tf] || 'missing';
-      const timeframeRevision = getTimeframeRevision(tf);
-      const attemptRevision = getTimeframeAttemptRevision(tf);
-
       if (tf === selectedTimeframe) {
         return false;
       }
-      if (cachedStatus === 'fresh' || cachedStatus === 'patchable') {
-        return false;
-      }
-      if (
-        seriesByTimeframe[tf] &&
-        seriesRevisionByTimeframe[tf] === timeframeRevision
-      ) {
-        return false;
-      }
-      if (
-        seriesByTimeframe[tf] &&
-        lastAttemptRevisionByTimeframe[tf] === attemptRevision &&
-        !lastErrorByTimeframe[tf]
-      ) {
-        return false;
-      }
-      if (
-        isComputingByTimeframe[tf] &&
-        lastAttemptRevisionByTimeframe[tf] === attemptRevision
-      ) {
-        return false;
-      }
-      if (lastAttemptRevisionByTimeframe[tf] === attemptRevision) {
-        return false;
-      }
-      return true;
+      return getComputeDispositionForTimeframe(tf, 'suppress_after_attempt')
+        .shouldQueue;
     });
 
     if (!nextToPrecompute) {
@@ -1370,56 +1279,34 @@ const BalanceHistoryChart = ({
     enqueueTimeframeCompute(nextToPrecompute, false);
     processQueue();
   }, [
-    cachedTimeframeStatusByTimeframe,
     enqueueTimeframeCompute,
-    getTimeframeAttemptRevision,
-    getTimeframeRevision,
+    getComputeDispositionForTimeframe,
     hasAnySnapshots,
     hasCompletedInitialAllLoad,
     inputsReady,
-    isComputingByTimeframe,
-    lastErrorByTimeframe,
-    lastAttemptRevisionByTimeframe,
     processQueue,
     selectedTimeframe,
-    seriesRevisionByTimeframe,
-    seriesByTimeframe,
   ]);
 
   const selectedTimeframeRevision = getTimeframeRevision(selectedTimeframe);
   const selectedTimeframeAttemptRevision =
     getTimeframeAttemptRevision(selectedTimeframe);
   const selectedComputedSeries = useMemo(() => {
-    if (
-      seriesRevisionByTimeframe[selectedTimeframe] === selectedTimeframeRevision
-    ) {
-      return seriesByTimeframe[selectedTimeframe];
-    }
-
-    if (
-      seriesByTimeframe[selectedTimeframe] &&
-      lastAttemptRevisionByTimeframe[selectedTimeframe] ===
-        selectedTimeframeAttemptRevision &&
-      !lastErrorByTimeframe[selectedTimeframe]
-    ) {
-      return seriesByTimeframe[selectedTimeframe];
-    }
-
-    return undefined;
+    return selectComputedSeriesForAttempt({
+      timeframeState: timeframeStateByTimeframe[selectedTimeframe],
+      timeframeRevision: selectedTimeframeRevision,
+      attemptRevision: selectedTimeframeAttemptRevision,
+    });
   }, [
-    lastAttemptRevisionByTimeframe,
-    lastErrorByTimeframe,
     selectedTimeframe,
     selectedTimeframeAttemptRevision,
     selectedTimeframeRevision,
-    seriesByTimeframe,
-    seriesRevisionByTimeframe,
+    timeframeStateByTimeframe,
   ]);
-  const selectedTimeframeError =
-    lastAttemptRevisionByTimeframe[selectedTimeframe] ===
-    selectedTimeframeAttemptRevision
-      ? lastErrorByTimeframe[selectedTimeframe]
-      : undefined;
+  const selectedTimeframeError = selectTimeframeErrorForAttempt({
+    timeframeState: timeframeStateByTimeframe[selectedTimeframe],
+    attemptRevision: selectedTimeframeAttemptRevision,
+  });
   const displayedTimeframe = selectedComputedSeries
     ? selectedTimeframe
     : displayState?.timeframe ?? selectedTimeframe;
@@ -1540,8 +1427,8 @@ const BalanceHistoryChart = ({
 
   const hasAnyRenderableSeries =
     !!activeSeries ||
-    Object.values(seriesByTimeframe).some(
-      series => !!series?.graphPoints.length,
+    Object.values(timeframeStateByTimeframe).some(
+      state => !!state?.series?.graphPoints.length,
     );
 
   // Axis label renderers are passed to `react-native-graph` as *component
@@ -1616,27 +1503,27 @@ const BalanceHistoryChart = ({
       return;
     }
 
-    setLastResolvedChangeRowDataByTimeframe(prev => {
-      const existing = prev[selectedTimeframe];
-      if (
-        existing?.percent === resolvedChangeRowData.percent &&
-        existing?.deltaFiatFormatted ===
-          resolvedChangeRowData.deltaFiatFormatted &&
-        existing?.rangeLabel === resolvedChangeRowData.rangeLabel
-      ) {
-        return prev;
-      }
+    const existing =
+      timeframeStateByTimeframe[selectedTimeframe]?.lastResolvedChangeRowData;
+    if (
+      existing?.percent === resolvedChangeRowData.percent &&
+      existing?.deltaFiatFormatted ===
+        resolvedChangeRowData.deltaFiatFormatted &&
+      existing?.rangeLabel === resolvedChangeRowData.rangeLabel
+    ) {
+      return;
+    }
 
-      return {
-        ...prev,
-        [selectedTimeframe]: resolvedChangeRowData,
-      };
+    dispatchTimeframeState({
+      type: 'setResolvedChangeRowData',
+      timeframe: selectedTimeframe,
+      data: resolvedChangeRowData,
     });
-  }, [resolvedChangeRowData, selectedTimeframe]);
+  }, [resolvedChangeRowData, selectedTimeframe, timeframeStateByTimeframe]);
 
   const displayedChangeRowData =
     resolvedChangeRowData ||
-    lastResolvedChangeRowDataByTimeframe[selectedTimeframe];
+    timeframeStateByTimeframe[selectedTimeframe]?.lastResolvedChangeRowData;
 
   useEffect(() => {
     if (!displayedChangeRowData) {
