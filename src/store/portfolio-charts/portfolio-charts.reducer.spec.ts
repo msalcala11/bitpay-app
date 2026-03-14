@@ -166,4 +166,56 @@ describe('portfolioChartsReducer', () => {
     expect(state.cacheByScopeId['scope-3']).toBeDefined();
     expect(state.cacheByScopeId['scope-2']).toBeUndefined();
   });
+
+  it('deduplicates legacy duplicate LRU scope ids before pruning', () => {
+    let state = portfolioChartsReducer(undefined, {type: '@@INIT'} as any);
+
+    state = portfolioChartsReducer(
+      state,
+      upsertBalanceChartScopeTimeframes({
+        scopeId: 'scope-1',
+        walletIds: ['wallet-1'],
+        quoteCurrency: 'USD',
+        balanceOffset: 0,
+        timeframes: [makeTimeframe()],
+      }),
+    );
+    state = portfolioChartsReducer(
+      state,
+      upsertBalanceChartScopeTimeframes({
+        scopeId: 'scope-2',
+        walletIds: ['wallet-2'],
+        quoteCurrency: 'USD',
+        balanceOffset: 0,
+        timeframes: [makeTimeframe()],
+      }),
+    );
+    state = portfolioChartsReducer(
+      state,
+      upsertBalanceChartScopeTimeframes({
+        scopeId: 'scope-3',
+        walletIds: ['wallet-3'],
+        quoteCurrency: 'USD',
+        balanceOffset: 0,
+        timeframes: [makeTimeframe()],
+      }),
+    );
+
+    state = {
+      ...state,
+      lruScopeIds: ['scope-1', 'scope-1', 'scope-2', 'scope-3'],
+    };
+
+    state = portfolioChartsReducer(
+      state,
+      pruneBalanceChartCache({
+        maxScopes: 2,
+      }),
+    );
+
+    expect(state.lruScopeIds).toEqual(['scope-1', 'scope-2']);
+    expect(state.cacheByScopeId['scope-1']).toBeDefined();
+    expect(state.cacheByScopeId['scope-2']).toBeDefined();
+    expect(state.cacheByScopeId['scope-3']).toBeUndefined();
+  });
 });

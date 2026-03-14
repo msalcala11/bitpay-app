@@ -55,17 +55,40 @@ const touchScopeId = (lruScopeIds: string[], scopeId: string): string[] => {
   return next;
 };
 
+const dedupeLruScopeIds = (lruScopeIds: string[]): string[] => {
+  const seen = new Set<string>();
+  const next: string[] = [];
+
+  for (const scopeId of lruScopeIds) {
+    if (seen.has(scopeId)) {
+      continue;
+    }
+    seen.add(scopeId);
+    next.push(scopeId);
+  }
+
+  return next;
+};
+
 const pruneCacheState = (
   state: PortfolioChartsState,
   maxScopes = BALANCE_CHART_CACHE_MAX_SCOPES,
 ): PortfolioChartsState => {
   const effectiveMax = Math.max(1, Math.floor(maxScopes || 1));
-  if (state.lruScopeIds.length <= effectiveMax) {
-    return state;
+  const dedupedLruScopeIds = dedupeLruScopeIds(state.lruScopeIds);
+
+  if (dedupedLruScopeIds.length <= effectiveMax) {
+    if (dedupedLruScopeIds.length === state.lruScopeIds.length) {
+      return state;
+    }
+
+    return {
+      ...state,
+      lruScopeIds: dedupedLruScopeIds,
+    };
   }
 
-  const keepScopeIds = state.lruScopeIds.slice(0, effectiveMax);
-  const keepScopeIdSet = new Set(keepScopeIds);
+  const keepScopeIds = dedupedLruScopeIds.slice(0, effectiveMax);
   const nextCacheByScopeId: PortfolioChartsState['cacheByScopeId'] = {};
 
   for (const scopeId of keepScopeIds) {
@@ -78,7 +101,7 @@ const pruneCacheState = (
   return {
     ...state,
     cacheByScopeId: nextCacheByScopeId,
-    lruScopeIds: keepScopeIds.filter(scopeId => keepScopeIdSet.has(scopeId)),
+    lruScopeIds: keepScopeIds,
   };
 };
 
