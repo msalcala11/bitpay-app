@@ -16,7 +16,7 @@ import {
   GetTransactionHistory,
 } from '../wallet/effects/transactions/transactions';
 import {GetPrecision} from '../wallet/utils/currency';
-import type {Wallet} from '../wallet/wallet.models';
+import type {Key, Wallet} from '../wallet/wallet.models';
 import {
   getRateByCurrencyName,
   getErrorString,
@@ -340,10 +340,43 @@ export const maybePopulatePortfolioForWallets =
     const prevMismatchesByWalletId =
       state.PORTFOLIO?.snapshotBalanceMismatchesByWalletId || {};
 
-    const walletsScope = Array.isArray(args.wallets) ? args.wallets : [];
-    if (!walletsScope.length) {
+    // Some call sites can hand us wallet objects captured before a balance
+    // refresh finishes. Re-hydrate by id from the latest Redux state so
+    // snapshot repopulation always uses the newest live balances when possible.
+    const walletsScopeInput = Array.isArray(args.wallets) ? args.wallets : [];
+    if (!walletsScopeInput.length) {
       return;
     }
+
+    const walletIdsScope = walletsScopeInput
+      .map(w => String((w as any)?.id || ''))
+      .filter(Boolean);
+
+    const keys = (state.WALLET?.keys || {}) as Record<string, Key>;
+    const allWalletsFromState = (Object.values(keys) as Key[]).flatMap(
+      (walletKey: Key) => walletKey.wallets || [],
+    );
+    const walletsByIdFromState = new Map(
+      allWalletsFromState
+        .filter(w => !!w?.id)
+        .map(w => [String(w.id), w] as const),
+    );
+    const fallbackWalletsById = new Map(
+      walletsScopeInput
+        .filter(w => !!w?.id)
+        .map(w => [String(w.id), w] as const),
+    );
+
+    const walletsScope: Wallet[] = walletIdsScope.length
+      ? Array.from(new Set(walletIdsScope))
+          .map(walletId => {
+            return (
+              walletsByIdFromState.get(walletId) ||
+              fallbackWalletsById.get(walletId)
+            );
+          })
+          .filter((w): w is Wallet => !!w)
+      : walletsScopeInput;
 
     const {walletIdsToPopulate, snapshotBalanceMismatchUpdates} =
       getWalletIdsToPopulateFromSnapshots({
