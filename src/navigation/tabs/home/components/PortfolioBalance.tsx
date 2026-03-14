@@ -126,7 +126,6 @@ const PortfolioBalance = () => {
     percent: number;
     deltaFiatFormatted?: string;
     rangeLabel?: string;
-    isLoading?: boolean;
   }>();
   const [isChartCollapsed, setIsChartCollapsed] = useState(
     persistedHomeChartCollapsed,
@@ -464,7 +463,6 @@ const PortfolioBalance = () => {
           percent={chartChangeRowData?.percent ?? 0}
           deltaFiatFormatted={chartChangeRowData?.deltaFiatFormatted}
           rangeLabel={chartChangeRowData?.rangeLabel}
-          isLoading={chartChangeRowData?.isLoading}
           style={[
             {
               width: '100%',

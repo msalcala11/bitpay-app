@@ -309,7 +309,6 @@ export type BalanceHistoryChartProps = {
     percent: number;
     deltaFiatFormatted?: string;
     rangeLabel?: string;
-    isLoading?: boolean;
   }) => void;
   /**
    * Optional opacity for min/max axis labels.
@@ -1533,9 +1532,8 @@ const BalanceHistoryChart = ({
       percent: displayedChangeRowData.percent,
       deltaFiatFormatted: displayedChangeRowData.deltaFiatFormatted,
       rangeLabel: displayedChangeRowData.rangeLabel,
-      isLoading: isChartLoaderVisible,
     });
-  }, [displayedChangeRowData, isChartLoaderVisible, onChangeRowData]);
+  }, [displayedChangeRowData, onChangeRowData]);
 
   const onGestureStarted = useCallback(() => {
     gestureStarted.current = true;
@@ -1658,7 +1656,6 @@ const BalanceHistoryChart = ({
           percent={displayedChangeRowData?.percent ?? 0}
           deltaFiatFormatted={displayedChangeRowData?.deltaFiatFormatted}
           rangeLabel={displayedChangeRowData?.rangeLabel}
-          isLoading={isChartLoaderVisible}
           style={[
             changeRowStyle,
             !displayedChangeRowData ? {opacity: 0} : null,

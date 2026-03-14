@@ -13,7 +13,6 @@ export type ChartChangeRowProps = {
   percent: number;
   deltaFiatFormatted?: string;
   rangeLabel?: string;
-  isLoading?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 

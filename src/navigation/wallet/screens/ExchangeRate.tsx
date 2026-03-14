@@ -1362,7 +1362,6 @@ const ExchangeRate = () => {
             percent={percentChangeToDisplay}
             deltaFiatFormatted={priceChangeToDisplay}
             rangeLabel={rangeOrSelectedPointLabel}
-            isLoading={isChartLoading}
           />
         </TopSection>
 
