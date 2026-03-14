@@ -10,6 +10,9 @@ import {findWalletById} from '../../utils/wallet';
 import type {Key, Recipient, Status, Wallet} from '../../wallet.models';
 import {startUpdateWalletStatus} from './status';
 
+const POLL_INTERVAL_MS = 5000;
+const MAX_STATUS_REQUESTS = 5;
+
 const maybePopulatePortfolioChartsForWalletIds = async ({
   dispatch,
   getState,
@@ -19,13 +22,11 @@ const maybePopulatePortfolioChartsForWalletIds = async ({
   getState: () => any;
   walletIds: string[];
 }): Promise<void> => {
-  const uniqueWalletIds = Array.from(
-    new Set(
-      (walletIds || []).filter((walletId): walletId is string => !!walletId),
-    ),
+  const uniqueWalletIds = new Set(
+    (walletIds || []).filter((walletId): walletId is string => !!walletId),
   );
 
-  if (!uniqueWalletIds.length) {
+  if (!uniqueWalletIds.size) {
     return;
   }
 
@@ -34,7 +35,7 @@ const maybePopulatePortfolioChartsForWalletIds = async ({
   const wallets = (Object.values(keys) as Key[])
     .flatMap((walletKey: Key) => walletKey.wallets || [])
     .filter((currentWallet: Wallet) =>
-      uniqueWalletIds.includes(currentWallet.id),
+      uniqueWalletIds.has(currentWallet.id),
     );
 
   if (!wallets.length) {
@@ -52,6 +53,131 @@ const maybePopulatePortfolioChartsForWalletIds = async ({
       quoteCurrency,
     }) as any,
   );
+};
+
+const getErrorMessage = (err: unknown): string => {
+  return err instanceof Error ? err.message : JSON.stringify(err);
+};
+
+const getWalletStatus = async (
+  wallet: Wallet,
+): Promise<{err?: unknown; status?: Status}> => {
+  const {
+    credentials: {token, multisigEthInfo},
+  } = wallet;
+
+  return new Promise((resolve, reject) => {
+    try {
+      wallet.getStatus(
+        {
+          tokenAddress: token ? token.address : null,
+          multisigContractAddress: multisigEthInfo
+            ? multisigEthInfo.multisigContractAddress
+            : null,
+          network: wallet.network,
+        },
+        (err: unknown, status: Status) => resolve({err, status}),
+      );
+    } catch (err) {
+      reject(err);
+    }
+  });
+};
+
+const getComparableTotalAmount = ({
+  wallet,
+  status,
+}: {
+  wallet: Wallet;
+  status?: Status;
+}): number | undefined => {
+  const totalAmount = status?.balance?.totalAmount;
+
+  if (typeof totalAmount !== 'number' || !Number.isFinite(totalAmount)) {
+    return undefined;
+  }
+
+  if (['xrp', 'sol'].includes(wallet.chain)) {
+    const lockedConfirmedAmount = status?.balance?.lockedConfirmedAmount;
+    if (
+      typeof lockedConfirmedAmount === 'number' &&
+      Number.isFinite(lockedConfirmedAmount)
+    ) {
+      return totalAmount - lockedConfirmedAmount;
+    }
+  }
+
+  return totalAmount;
+};
+
+const hasReachedTargetAmount = ({
+  wallet,
+  status,
+  targetAmount,
+}: {
+  wallet: Wallet;
+  status?: Status;
+  targetAmount: number;
+}): boolean => {
+  const comparableTotalAmount = getComparableTotalAmount({wallet, status});
+
+  if (typeof comparableTotalAmount !== 'number') {
+    return false;
+  }
+
+  return targetAmount <= wallet.balance.sat
+    ? comparableTotalAmount <= targetAmount
+    : comparableTotalAmount >= targetAmount;
+};
+
+const refreshWalletsAfterTargetAmount = async ({
+  dispatch,
+  getState,
+  key,
+  wallet,
+  recipient,
+}: {
+  dispatch: any;
+  getState: () => any;
+  key: Key;
+  wallet: Wallet;
+  recipient?: Recipient;
+}): Promise<void> => {
+  const updatedWalletIds = new Set<string>([wallet.id]);
+
+  await dispatch(startUpdateWalletStatus({key, wallet, force: true}));
+
+  if (recipient) {
+    const {walletId, keyId} = recipient;
+    if (walletId && keyId) {
+      const {
+        WALLET: {keys},
+      } = getState();
+      const recipientKey = keys[keyId];
+      const recipientWallet = recipientKey
+        ? findWalletById(recipientKey.wallets, walletId)
+        : undefined;
+
+      if (recipientKey && recipientWallet) {
+        await dispatch(
+          startUpdateWalletStatus({
+            key: recipientKey,
+            wallet: recipientWallet as Wallet,
+            force: true,
+          }),
+        );
+        updatedWalletIds.add(walletId);
+      }
+    }
+  }
+
+  DeviceEventEmitter.emit(DeviceEmitterEvents.WALLET_LOAD_HISTORY);
+  await dispatch(updatePortfolioBalance());
+  await maybePopulatePortfolioChartsForWalletIds({
+    dispatch,
+    getState,
+    walletIds: Array.from(updatedWalletIds),
+  });
 };
 
 /*
@@ -74,101 +200,100 @@ export const waitForTargetAmountAndUpdateWallet =
     recipient?: Recipient;
   }): Effect =>
   async (dispatch, getState) => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let isPollingComplete = false;
+
+    const stopPolling = () => {
+      if (isPollingComplete) {
+        return;
+      }
+
+      isPollingComplete = true;
+
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = undefined;
+      }
+
+      DeviceEventEmitter.emit(DeviceEmitterEvents.SET_REFRESHING, false);
+    };
+
     try {
       // Update history for showing confirming transactions
       DeviceEventEmitter.emit(DeviceEmitterEvents.WALLET_LOAD_HISTORY);
 
-      let retry = 0;
+      let requestCount = 0;
 
-      // wait for expected balance
-      const interval = setInterval(() => {
-        console.log('waiting for target balance', retry);
-        retry++;
-
-        if (retry > 5) {
-          DeviceEventEmitter.emit(DeviceEmitterEvents.SET_REFRESHING, false);
-          clearInterval(interval);
+      const scheduleNextPoll = () => {
+        if (isPollingComplete) {
           return;
         }
 
-        const {
-          credentials: {token, multisigEthInfo},
-        } = wallet;
+        timeout = setTimeout(async () => {
+          if (isPollingComplete) {
+            return;
+          }
 
-        wallet.getStatus(
-          {
-            tokenAddress: token ? token.address : null,
-            multisigContractAddress: multisigEthInfo
-              ? multisigEthInfo.multisigContractAddress
-              : null,
-            network: wallet.network,
-          },
-          async (err: any, status: Status) => {
+          requestCount += 1;
+
+          if (requestCount > MAX_STATUS_REQUESTS) {
+            stopPolling();
+            return;
+          }
+
+          try {
+            const {err, status} = await getWalletStatus(wallet);
+
             if (err) {
-              const errStr =
-                err instanceof Error ? err.message : JSON.stringify(err);
               logManager.error(
-                `error [waitForTargetAmountAndUpdateWallet]: ${errStr}`,
+                `error [waitForTargetAmountAndUpdateWallet]: ${getErrorMessage(
+                  err,
+                )}`,
               );
             }
 
-            const totalAmount = status?.balance?.totalAmount;
+            if (!hasReachedTargetAmount({wallet, status, targetAmount})) {
+              scheduleNextPoll();
+              return;
+            }
 
-            // TODO ETH totalAmount !== targetAmount while the transaction is unconfirmed
-            // expected amount - update balance
-            if (totalAmount === targetAmount) {
-              clearInterval(interval);
-              const updatedWalletIds = new Set<string>([wallet.id]);
-
-              await dispatch(
-                startUpdateWalletStatus({key, wallet, force: true}),
-              );
-
-              // update recipient balance if local
-              if (recipient) {
-                const {walletId, keyId} = recipient;
-                if (walletId && keyId) {
-                  const {
-                    WALLET: {keys},
-                  } = getState();
-                  const recipientKey = keys[keyId];
-                  const recipientWallet = recipientKey
-                    ? findWalletById(recipientKey.wallets, walletId)
-                    : undefined;
-                  if (recipientKey && recipientWallet) {
-                    await dispatch(
-                      startUpdateWalletStatus({
-                        key: recipientKey,
-                        wallet: recipientWallet as Wallet,
-                        force: true,
-                      }),
-                    );
-                    updatedWalletIds.add(walletId);
-                    console.log('updated recipient wallet');
-                  }
-                }
-              }
-
-              DeviceEventEmitter.emit(DeviceEmitterEvents.WALLET_LOAD_HISTORY);
-              await dispatch(updatePortfolioBalance());
-              await maybePopulatePortfolioChartsForWalletIds({
+            try {
+              await refreshWalletsAfterTargetAmount({
                 dispatch,
                 getState,
-                walletIds: Array.from(updatedWalletIds),
+                key,
+                wallet,
+                recipient,
               });
-              DeviceEventEmitter.emit(
-                DeviceEmitterEvents.SET_REFRESHING,
-                false,
+            } catch (refreshErr) {
+              logManager.error(
+                `error [waitForTargetAmountAndUpdateWallet]: ${getErrorMessage(
+                  refreshErr,
+                )}`,
               );
+            } finally {
+              stopPolling();
             }
-          },
-        );
-      }, 5000);
+
+            return;
+          } catch (err) {
+            logManager.error(
+              `error [waitForTargetAmountAndUpdateWallet]: ${getErrorMessage(
+                err,
+              )}`,
+            );
+          }
+
+          scheduleNextPoll();
+        }, POLL_INTERVAL_MS);
+      };
+
+      scheduleNextPoll();
     } catch (err) {
-      const errstring =
-        err instanceof Error ? err.message : JSON.stringify(err);
+      const errstring = getErrorMessage(err);
       logManager.error(
         `Error WaitingForTargetAmountAndUpdateWallet: ${errstring}`,
       );
+      stopPolling();
     }
   };
