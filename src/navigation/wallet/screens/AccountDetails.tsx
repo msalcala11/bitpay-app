@@ -1388,7 +1388,9 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     accountAllocationData.rows,
   ]);
 
-  const renderListHeaderComponent = useCallback(() => {
+  const lockedBalanceCurrencyAbbreviation = key.wallets[1].currencyAbbreviation;
+
+  const listHeaderComponent = useMemo(() => {
     const isWalletsTab = activeTab === 'wallets';
     const isAllocationTab = activeTab === 'allocation';
     const isActivityTab = activeTab === 'activity';
@@ -1491,9 +1493,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
               <TailContainer>
                 <Value>
                   {accountItem?.fiatLockedBalanceFormat}{' '}
-                  {formatCurrencyAbbreviation(
-                    key.wallets[1].currencyAbbreviation,
-                  )}
+                  {formatCurrencyAbbreviation(lockedBalanceCurrencyAbbreviation)}
                 </Value>
               </TailContainer>
             </LockedBalanceContainer>
@@ -1574,18 +1574,27 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     );
   }, [
     activeTab,
+    accountItem?.fiatLockedBalanceFormat,
     accountItem?.receiveAddress,
+    accountItem?.wallets,
+    debouncedLoadHistory,
+    defaultAltCurrency.isoCode,
     dispatch,
+    fiatRateSeriesCache,
     groupedHistory,
     hideAllBalances,
     isSmallScreen,
     isSvmAccount,
+    lockedBalanceCurrencyAbbreviation,
     memorizedAssetsByChainList,
     navigation,
-    groupedHistory,
+    rates,
+    searchResultsAssets,
+    searchResultsHistory,
     searchVal,
     selectedChainFilterOption,
     showPortfolioValue,
+    snapshotsByWalletId,
     t,
     totalBalance,
   ]);
@@ -1676,7 +1685,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
             onRefresh={onRefresh}
           />
         }
-        ListHeaderComponent={renderListHeaderComponent()}
+        ListHeaderComponent={listHeaderComponent}
         ListFooterComponent={
           activeTab === 'wallets'
             ? listFooterComponentAssetsTab
