@@ -12,6 +12,7 @@ import {startUpdateWalletStatus} from './status';
 
 const POLL_INTERVAL_MS = 5000;
 const MAX_STATUS_REQUESTS = 5;
+const MAX_POLLING_DURATION_MS = POLL_INTERVAL_MS * (MAX_STATUS_REQUESTS + 1);
 
 const maybePopulatePortfolioChartsForWalletIds = async ({
   dispatch,
@@ -201,6 +202,7 @@ export const waitForTargetAmountAndUpdateWallet =
   }): Effect =>
   async (dispatch, getState) => {
     let timeout: ReturnType<typeof setTimeout> | undefined;
+    let deadlineTimeout: ReturnType<typeof setTimeout> | undefined;
     let isPollingComplete = false;
 
     const stopPolling = () => {
@@ -215,6 +217,11 @@ export const waitForTargetAmountAndUpdateWallet =
         timeout = undefined;
       }
 
+      if (deadlineTimeout) {
+        clearTimeout(deadlineTimeout);
+        deadlineTimeout = undefined;
+      }
+
       DeviceEventEmitter.emit(DeviceEmitterEvents.SET_REFRESHING, false);
     };
 
@@ -223,6 +230,9 @@ export const waitForTargetAmountAndUpdateWallet =
       DeviceEventEmitter.emit(DeviceEmitterEvents.WALLET_LOAD_HISTORY);
 
       let requestCount = 0;
+      deadlineTimeout = setTimeout(() => {
+        stopPolling();
+      }, MAX_POLLING_DURATION_MS);
 
       const scheduleNextPoll = () => {
         if (isPollingComplete) {
@@ -243,6 +253,10 @@ export const waitForTargetAmountAndUpdateWallet =
 
           try {
             const {err, status} = await getWalletStatus(wallet);
+
+            if (isPollingComplete) {
+              return;
+            }
 
             if (err) {
               logManager.error(

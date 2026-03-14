@@ -144,7 +144,7 @@ describe('waitForTargetAmountAndUpdateWallet', () => {
     await flushPromises();
     expect(wallet.getStatus).toHaveBeenCalledTimes(1);
 
-    jest.advanceTimersByTime(20000);
+    jest.advanceTimersByTime(15000);
     await flushPromises();
     expect(wallet.getStatus).toHaveBeenCalledTimes(1);
 
@@ -154,6 +154,45 @@ describe('waitForTargetAmountAndUpdateWallet', () => {
     jest.advanceTimersByTime(5000);
     await flushPromises();
     expect(wallet.getStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops refreshing at the overall deadline when getStatus never settles', async () => {
+    const pendingCallbacks: Array<(err?: unknown, status?: any) => void> = [];
+    const wallet = createWallet({
+      getStatus: jest.fn((_opts: unknown, cb: (err?: unknown, status?: any) => void) => {
+        pendingCallbacks.push(cb);
+      }),
+    });
+    const key = {id: 'key-1', wallets: [wallet]};
+    const getState = () => createState({key});
+    const dispatch = jest.fn((action: unknown) => Promise.resolve(action));
+
+    await waitForTargetAmountAndUpdateWallet({
+      key,
+      wallet,
+      targetAmount: 500,
+    })(dispatch, getState);
+
+    jest.advanceTimersByTime(5000);
+    await flushPromises();
+    expect(wallet.getStatus).toHaveBeenCalledTimes(1);
+
+    jest.advanceTimersByTime(25000);
+    await flushPromises();
+
+    expect(mockStartUpdateWalletStatus).not.toHaveBeenCalled();
+    expect(mockMaybePopulatePortfolioForWallets).not.toHaveBeenCalled();
+    expect(
+      mockEmit.mock.calls.filter(
+        ([eventName]) => eventName === DeviceEmitterEvents.SET_REFRESHING,
+      ),
+    ).toEqual([[DeviceEmitterEvents.SET_REFRESHING, false]]);
+
+    pendingCallbacks[0](undefined, {balance: {totalAmount: 499}});
+    await flushPromises(12);
+
+    expect(mockStartUpdateWalletStatus).not.toHaveBeenCalled();
+    expect(mockMaybePopulatePortfolioForWallets).not.toHaveBeenCalled();
   });
 
   it('refreshes the source and recipient wallets once the target balance is reached or passed', async () => {
