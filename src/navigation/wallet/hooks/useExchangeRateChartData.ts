@@ -10,7 +10,6 @@ import {calculatePercentageDifference} from '../../../utils/helper-methods';
 import {downsampleSeries} from '../../../utils/portfolio/rate';
 import {
   ensureSortedByTsAsc,
-  getMaxRate,
   lowerBoundByTs,
 } from '../../../utils/portfolio/timeSeries';
 
@@ -19,24 +18,25 @@ export interface ChartDisplayDataType {
   value: number;
 }
 
+export interface ChartExtremaPointType {
+  index: number;
+  point: ChartDisplayDataType;
+}
+
 export interface ChartDataType {
   data: ChartDisplayDataType[];
   percentChange: number;
   priceChange: number;
-  maxIndex?: number;
-  maxPoint?: ChartDisplayDataType;
-  minIndex?: number;
-  minPoint?: ChartDisplayDataType;
+  renderedMaxPoint?: ChartExtremaPointType;
+  renderedMinPoint?: ChartExtremaPointType;
 }
 
 export const defaultDisplayData: ChartDataType = {
   data: [],
   percentChange: 0,
   priceChange: 0,
-  maxIndex: undefined,
-  maxPoint: undefined,
-  minIndex: undefined,
-  minPoint: undefined,
+  renderedMaxPoint: undefined,
+  renderedMinPoint: undefined,
 };
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -48,7 +48,7 @@ export const HISTORIC_TIMEFRAME_WINDOW_MS: Record<'3M' | '1Y' | '5Y', number> =
   };
 const SPOT_RATE_MATCH_EPSILON = 1e-12;
 
-const getFormattedData = (
+export const formatExchangeRateChartData = (
   historicFiatRates: Array<{ts: number; rate: number}>,
 ): ChartDataType => {
   const ratesSorted = ensureSortedByTsAsc(historicFiatRates);
@@ -65,10 +65,8 @@ const getFormattedData = (
     value: value.rate,
   }));
 
-  let maxPoint: ChartDisplayDataType | undefined;
-  let minPoint: ChartDisplayDataType | undefined;
-  let maxIndex: number | undefined;
-  let minIndex: number | undefined;
+  let renderedMaxPoint: ChartExtremaPointType | undefined;
+  let renderedMinPoint: ChartExtremaPointType | undefined;
 
   for (let index = 0; index < scaledData.length; index++) {
     const point = scaledData[index];
@@ -76,13 +74,17 @@ const getFormattedData = (
       continue;
     }
 
-    if (typeof maxPoint === 'undefined' || point.value > maxPoint.value) {
-      maxPoint = point;
-      maxIndex = index;
+    if (
+      typeof renderedMaxPoint === 'undefined' ||
+      point.value > renderedMaxPoint.point.value
+    ) {
+      renderedMaxPoint = {index, point};
     }
-    if (typeof minPoint === 'undefined' || point.value < minPoint.value) {
-      minPoint = point;
-      minIndex = index;
+    if (
+      typeof renderedMinPoint === 'undefined' ||
+      point.value < renderedMinPoint.point.value
+    ) {
+      renderedMinPoint = {index, point};
     }
   }
 
@@ -91,10 +93,8 @@ const getFormattedData = (
       data: scaledData,
       percentChange: 0,
       priceChange: 0,
-      maxIndex,
-      maxPoint,
-      minIndex,
-      minPoint,
+      renderedMaxPoint,
+      renderedMinPoint,
     };
   }
   const percentChange = calculatePercentageDifference(
@@ -106,10 +106,8 @@ const getFormattedData = (
     data: scaledData,
     percentChange,
     priceChange: rates[rates.length - 1].rate - rates[0].rate,
-    maxIndex,
-    maxPoint,
-    minIndex,
-    minPoint,
+    renderedMaxPoint,
+    renderedMinPoint,
   };
 };
 
@@ -123,7 +121,6 @@ type Args = {
 type Result = {
   pointsForChartRaw: FiatRatePoint[] | undefined;
   displayData: ChartDataType | undefined;
-  selectedTimeframeHighValue: number | undefined;
 };
 
 const useExchangeRateChartData = ({
@@ -192,17 +189,12 @@ const useExchangeRateChartData = ({
     if (typeof pointsForChartRaw === 'undefined') {
       return undefined;
     }
-    return getFormattedData(pointsForChartRaw);
-  }, [pointsForChartRaw]);
-
-  const selectedTimeframeHighValue = useMemo(() => {
-    return getMaxRate(pointsForChartRaw);
+    return formatExchangeRateChartData(pointsForChartRaw);
   }, [pointsForChartRaw]);
 
   return {
     pointsForChartRaw,
     displayData,
-    selectedTimeframeHighValue,
   };
 };
 

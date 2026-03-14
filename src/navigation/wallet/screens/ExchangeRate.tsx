@@ -720,16 +720,13 @@ const ExchangeRate = () => {
     rates,
   ]);
 
-  const {
-    pointsForChartRaw,
-    displayData: derivedDisplayData,
-    selectedTimeframeHighValue,
-  } = useExchangeRateChartData({
-    selectedSeriesPoints: selectedSeries?.points,
-    selectedTimeframe,
-    seriesDataInterval,
-    currentFiatRate,
-  });
+  const {pointsForChartRaw, displayData: derivedDisplayData} =
+    useExchangeRateChartData({
+      selectedSeriesPoints: selectedSeries?.points,
+      selectedTimeframe,
+      seriesDataInterval,
+      currentFiatRate,
+    });
 
   useEffect(() => {
     if (
@@ -1128,8 +1125,6 @@ const ExchangeRate = () => {
   currencyAbbreviationRef.current = currencyAbbreviation;
   const quoteCurrencyRef = useRef(defaultAltCurrency.isoCode);
   quoteCurrencyRef.current = defaultAltCurrency.isoCode;
-  const selectedTimeframeHighValueRef = useRef(selectedTimeframeHighValue);
-  selectedTimeframeHighValueRef.current = selectedTimeframeHighValue;
 
   useEffect(() => {
     gestureStarted.current = false;
@@ -1137,19 +1132,16 @@ const ExchangeRate = () => {
   }, [chartPoints]);
 
   const MinAxisLabel = useCallback(() => {
-    if (
-      !displayDataRef.current.data.length ||
-      typeof displayDataRef.current.minIndex !== 'number' ||
-      displayDataRef.current.minPoint?.value == null
-    ) {
+    const dd = displayDataRef.current;
+    if (!dd.data.length || dd.renderedMinPoint?.point.value == null) {
       return null;
     }
 
     return (
       <ChartAxisLabel
-        value={displayDataRef.current.minPoint.value}
-        index={displayDataRef.current.minIndex}
-        arrayLength={displayDataRef.current.data.length}
+        value={dd.renderedMinPoint.point.value}
+        index={dd.renderedMinPoint.index}
+        arrayLength={dd.data.length}
         quoteCurrency={quoteCurrencyRef.current}
         currencyAbbreviation={currencyAbbreviationRef.current}
         type="min"
@@ -1159,21 +1151,15 @@ const ExchangeRate = () => {
 
   const MaxAxisLabel = useCallback(() => {
     const dd = displayDataRef.current;
-    const maxAxisLabelValue =
-      selectedTimeframeHighValueRef.current ?? dd.maxPoint?.value;
 
-    if (
-      !dd.data.length ||
-      typeof dd.maxIndex !== 'number' ||
-      maxAxisLabelValue == null
-    ) {
+    if (!dd.data.length || dd.renderedMaxPoint?.point.value == null) {
       return null;
     }
 
     return (
       <ChartAxisLabel
-        value={maxAxisLabelValue}
-        index={dd.maxIndex}
+        value={dd.renderedMaxPoint.point.value}
+        index={dd.renderedMaxPoint.index}
         arrayLength={dd.data.length}
         quoteCurrency={quoteCurrencyRef.current}
         currencyAbbreviation={currencyAbbreviationRef.current}
