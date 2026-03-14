@@ -12,7 +12,7 @@ import React, {
 } from 'react';
 import {RootState} from '../../../store';
 import {useTranslation} from 'react-i18next';
-import {WalletGroupParamList, WalletScreens} from '../WalletGroup';
+import {WalletGroupParamList} from '../WalletGroup';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {
   Wallet,
