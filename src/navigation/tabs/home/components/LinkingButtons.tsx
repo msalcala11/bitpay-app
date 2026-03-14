@@ -16,19 +16,22 @@ import {ExternalServicesScreens} from '../../../services/ExternalServicesGroup';
 
 const MAX_LINKING_BUTTON_ROW_WIDTH = 450;
 
-const ButtonsRow = styled.View<{maxWidth?: number; compactSpacing?: boolean}>`
-  justify-content: ${({compactSpacing}) =>
-    compactSpacing ? 'center' : 'space-between'};
+const ButtonsRow = styled.View<{
+  $maxWidth?: number;
+  $compactSpacing?: boolean;
+}>`
+  justify-content: ${({$compactSpacing}) =>
+    $compactSpacing ? 'center' : 'space-between'};
   flex-direction: row;
   align-self: center;
-  width: ${({maxWidth = MAX_LINKING_BUTTON_ROW_WIDTH}) =>
-    Math.min(WIDTH - 24, maxWidth)}px;
-  max-width: ${({maxWidth = MAX_LINKING_BUTTON_ROW_WIDTH}) => maxWidth}px;
+  width: ${({$maxWidth = MAX_LINKING_BUTTON_ROW_WIDTH}) =>
+    Math.min(WIDTH - 24, $maxWidth)}px;
+  max-width: ${({$maxWidth = MAX_LINKING_BUTTON_ROW_WIDTH}) => $maxWidth}px;
 `;
 
-const ButtonContainer = styled.View<{compactSpacing?: boolean}>`
+const ButtonContainer = styled.View<{$compactSpacing?: boolean}>`
   align-items: center;
-  margin: ${({compactSpacing}) => (compactSpacing ? '0 30px' : '0')};
+  margin: ${({$compactSpacing}) => ($compactSpacing ? '0 30px' : '0')};
 `;
 
 const ButtonText = styled(BaseText)`
@@ -220,14 +223,14 @@ const LinkingButtons = ({buy, sell, receive, send, swap, maxWidth}: Props) => {
   const compactSpacing = visibleButtons.length <= 3;
 
   return (
-    <ButtonsRow maxWidth={maxWidth} compactSpacing={compactSpacing}>
+    <ButtonsRow $maxWidth={maxWidth} $compactSpacing={compactSpacing}>
       {visibleButtons.map(({key, label, cta, img}: ButtonListProps) => {
         const isDisabled =
           ['buy', 'sell', 'swap'].includes(key) &&
           (!appWasInit || !tokensDataLoaded);
 
         return (
-          <ButtonContainer key={key} compactSpacing={compactSpacing}>
+          <ButtonContainer key={key} $compactSpacing={compactSpacing}>
             <LinkButton
               activeOpacity={ActiveOpacity}
               touchableLibrary="react-native"

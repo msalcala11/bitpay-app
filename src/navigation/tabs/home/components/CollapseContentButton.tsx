@@ -10,7 +10,7 @@ import {
 } from '../../../../styles/colors';
 
 const CircleButton = styled(TouchableOpacity)<{
-  borderColor: string;
+  $borderColor: string;
   $isActive: boolean;
   $activeBackgroundColor: string;
 }>`
@@ -18,7 +18,7 @@ const CircleButton = styled(TouchableOpacity)<{
   height: 40px;
   border-radius: 20px;
   border-width: 1px;
-  border-color: ${({borderColor}) => borderColor};
+  border-color: ${({$borderColor}) => $borderColor};
   background-color: ${({$isActive, $activeBackgroundColor}) =>
     $isActive ? $activeBackgroundColor : 'transparent'};
   align-items: center;
@@ -53,7 +53,7 @@ const CollapseContentButton: React.FC<Props> = ({
 
   return (
     <CircleButton
-      borderColor={borderColor}
+      $borderColor={borderColor}
       $isActive={isActive}
       $activeBackgroundColor={activeBackgroundColor}
       touchableLibrary="react-native"
