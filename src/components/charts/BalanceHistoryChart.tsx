@@ -43,7 +43,7 @@ import {Action, LinkBlue, White} from '../../styles/colors';
 import haptic from '../haptic-feedback/haptic';
 import {
   buildPnlWalletInputsFromPortfolioSnapshotsAsync,
-  buildPnlCurrentRatesByCoinFromWallets,
+  buildPnlCurrentRatesByCoinFromPortfolioSnapshots,
   type PnlWalletInputs,
 } from '../../utils/portfolio/assets';
 import {useAppDispatch, useAppSelector} from '../../utils/hooks';
@@ -486,20 +486,41 @@ const BalanceHistoryChart = ({
     state => state.PORTFOLIO_CHARTS.cacheByScopeId[scopeId],
   );
 
-  const currentSpotRatesByCoin = useMemo(() => {
-    return buildPnlCurrentRatesByCoinFromWallets({
+  const liveCurrentSpotRatesByCoin = useMemo(() => {
+    return buildPnlCurrentRatesByCoinFromPortfolioSnapshots({
+      snapshotsByWalletId: snapshotsByWalletId || {},
       wallets: wallets || [],
       quoteCurrency,
       rates,
     });
-  }, [quoteCurrency, rates, wallets]);
+  }, [quoteCurrency, rates, snapshotsByWalletId, wallets]);
 
   const currentRatesRevision = useMemo(() => {
-    return Object.entries(currentSpotRatesByCoin || {})
+    return Object.entries(liveCurrentSpotRatesByCoin || {})
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([coin, rate]) => `${coin}:${rate}`)
       .join('|');
-  }, [currentSpotRatesByCoin]);
+  }, [liveCurrentSpotRatesByCoin]);
+
+  const preparedCurrentRatesRevision = useMemo(() => {
+    return Object.entries(analysisInputs.currentRatesByCoin || {})
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([coin, rate]) => `${coin}:${rate}`)
+      .join('|');
+  }, [analysisInputs.currentRatesByCoin]);
+
+  // Prefer the prepared rate map once it has caught up with the latest spot
+  // inputs, but fall back to the live map so cache patching reacts immediately.
+  const currentSpotRatesByCoin = useMemo(() => {
+    return preparedCurrentRatesRevision === currentRatesRevision
+      ? analysisInputs.currentRatesByCoin
+      : liveCurrentSpotRatesByCoin;
+  }, [
+    analysisInputs.currentRatesByCoin,
+    currentRatesRevision,
+    liveCurrentSpotRatesByCoin,
+    preparedCurrentRatesRevision,
+  ]);
 
   const selectedSeriesInterval = useMemo(() => {
     return getSeriesIntervalForFiatTimeframe(selectedTimeframe);
