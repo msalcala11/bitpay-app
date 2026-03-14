@@ -6,12 +6,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {
-  InteractionManager,
-  StyleProp,
-  View,
-  ViewStyle,
-} from 'react-native';
+import {InteractionManager, StyleProp, View, ViewStyle} from 'react-native';
 import {useTranslation} from 'react-i18next';
 import {useTheme} from 'styled-components/native';
 import type {GraphPoint} from 'react-native-graph';
@@ -19,7 +14,10 @@ import Animated, {
   type SharedValue,
   useAnimatedStyle,
 } from 'react-native-reanimated';
-import type {FiatRateSeriesCache, FiatRateInterval} from '../../store/rate/rate.models';
+import type {
+  FiatRateSeriesCache,
+  FiatRateInterval,
+} from '../../store/rate/rate.models';
 import type {Rates} from '../../store/rate/rate.models';
 import type {BalanceSnapshot} from '../../store/portfolio/portfolio.models';
 import type {Wallet} from '../../store/wallet/wallet.models';
@@ -182,7 +180,10 @@ const scheduleAfterInteractionsAndFrames = (
   // Some navigation/layout transitions can leave runAfterInteractions pending
   // longer than expected. Fall back to running the work anyway so the chart
   // cannot remain stuck in a permanent loading state for a new scope.
-  fallbackTimeout = setTimeout(runCallback, SCHEDULE_AFTER_INTERACTIONS_FALLBACK_MS);
+  fallbackTimeout = setTimeout(
+    runCallback,
+    SCHEDULE_AFTER_INTERACTIONS_FALLBACK_MS,
+  );
 
   return {
     cancel: () => {
@@ -220,7 +221,9 @@ const normalizeGraphPointsForChart = (points: GraphPoint[]): GraphPoint[] => {
   for (let i = 0; i < points.length; i++) {
     const src = points[i];
     const rawTs =
-      src?.date instanceof Date ? src.date.getTime() : Number((src as any)?.date);
+      src?.date instanceof Date
+        ? src.date.getTime()
+        : Number((src as any)?.date);
     let ts = Number.isFinite(rawTs) ? rawTs : fallbackTsBase + i;
     if (Number.isFinite(prevTs) && ts <= prevTs) {
       ts = prevTs + 1;
@@ -418,8 +421,9 @@ const BalanceHistoryChart = ({
   const theme = useTheme();
   const dispatch = useAppDispatch();
 
-  const [selectedTimeframe, setSelectedTimeframe] =
-    useState<FiatRateInterval>(initialSelectedTimeframe);
+  const [selectedTimeframe, setSelectedTimeframe] = useState<FiatRateInterval>(
+    initialSelectedTimeframe,
+  );
 
   const [seriesByTimeframe, setSeriesByTimeframe] = useState<
     Partial<Record<FiatRateInterval, ComputedSeries>>
@@ -444,8 +448,10 @@ const BalanceHistoryChart = ({
   const [lastErrorByTimeframe, setLastErrorByTimeframe] = useState<
     Partial<Record<FiatRateInterval, string>>
   >({});
-  const [lastResolvedChangeRowDataByTimeframe, setLastResolvedChangeRowDataByTimeframe] =
-    useState<Partial<Record<FiatRateInterval, ChangeRowData>>>({});
+  const [
+    lastResolvedChangeRowDataByTimeframe,
+    setLastResolvedChangeRowDataByTimeframe,
+  ] = useState<Partial<Record<FiatRateInterval, ChangeRowData>>>({});
 
   const [displayState, setDisplayState] = useState<
     | {
@@ -453,9 +459,7 @@ const BalanceHistoryChart = ({
         timeframe: FiatRateInterval;
       }
     | undefined
-  >(
-    undefined,
-  );
+  >(undefined);
 
   const enqueueComputeRef = useRef<FiatRateInterval[]>([]);
   const computingQueueRef = useRef(false);
@@ -534,7 +538,9 @@ const BalanceHistoryChart = ({
       const id = String((w as any)?.id || '');
       if (!id) continue;
       const snaps = snapshotsByWalletId?.[id] || [];
-      const last = snaps.length ? (snaps[snaps.length - 1] as any)?.timestamp : 0;
+      const last = snaps.length
+        ? (snaps[snaps.length - 1] as any)?.timestamp
+        : 0;
       parts.push(`${id}:${snaps.length}:${last || 0}`);
     }
     return parts.join('|');
@@ -707,8 +713,8 @@ const BalanceHistoryChart = ({
   const getTimeframeRevision = useCallback(
     (
       timeframe: FiatRateInterval,
-      historicalRateDeps =
-        cachedScope?.timeframes?.[timeframe]?.historicalRateDeps || [],
+      historicalRateDeps = cachedScope?.timeframes?.[timeframe]
+        ?.historicalRateDeps || [],
     ) => {
       return buildBalanceChartTimeframeRevision({
         scopeId,
@@ -718,20 +724,33 @@ const BalanceHistoryChart = ({
         currentSpotRatesByCoin,
       });
     },
-    [cachedScope?.timeframes, currentSpotRatesByCoin, scopeId, snapshotVersionSig],
+    [
+      cachedScope?.timeframes,
+      currentSpotRatesByCoin,
+      scopeId,
+      snapshotVersionSig,
+    ],
   );
 
   const getTimeframeAttemptRevision = useCallback(
     (timeframe: FiatRateInterval) => {
-      return [analysisInputsBaseKey, currentRatesRevision, cacheRevision, timeframe].join(
-        '|',
-      );
+      return [
+        analysisInputsBaseKey,
+        currentRatesRevision,
+        cacheRevision,
+        timeframe,
+      ].join('|');
     },
     [analysisInputsBaseKey, cacheRevision, currentRatesRevision],
   );
 
   const cachedTimeframeStatusByTimeframe = useMemo(() => {
-    const next: Partial<Record<FiatRateInterval, 'fresh' | 'patchable' | 'stale_historical' | 'missing'>> = {};
+    const next: Partial<
+      Record<
+        FiatRateInterval,
+        'fresh' | 'patchable' | 'stale_historical' | 'missing'
+      >
+    > = {};
 
     for (const timeframe of PRECOMPUTE_TIMEFRAME_ORDER) {
       next[timeframe] = getCachedTimeframeStatus({
@@ -743,10 +762,16 @@ const BalanceHistoryChart = ({
     }
 
     return next;
-  }, [cachedScope?.timeframes, currentSpotRatesByCoin, fiatRateSeriesCache, snapshotVersionSig]);
+  }, [
+    cachedScope?.timeframes,
+    currentSpotRatesByCoin,
+    fiatRateSeriesCache,
+    snapshotVersionSig,
+  ]);
 
   const selectedTimeframeNeedsHistoricalRecompute = useMemo(() => {
-    const status = cachedTimeframeStatusByTimeframe[selectedTimeframe] || 'missing';
+    const status =
+      cachedTimeframeStatusByTimeframe[selectedTimeframe] || 'missing';
     return status === 'missing' || status === 'stale_historical';
   }, [cachedTimeframeStatusByTimeframe, selectedTimeframe]);
 
@@ -764,7 +789,8 @@ const BalanceHistoryChart = ({
     hasAnySnapshots &&
     !!fiatRateSeriesCache &&
     (selectedTimeframeNeedsHistoricalRecompute ||
-      (hasCompletedInitialAllLoad && hasAnyBackgroundHistoricalRecomputeNeeded));
+      (hasCompletedInitialAllLoad &&
+        hasAnyBackgroundHistoricalRecomputeNeeded));
 
   useEffect(() => {
     analysisInputsReadyKeyRef.current = analysisInputsReadyKey;
@@ -792,10 +818,12 @@ const BalanceHistoryChart = ({
     }
 
     const patchedTimeframes: CachedBalanceChartTimeframe[] = [];
-    const nextSeriesByTimeframe: Partial<Record<FiatRateInterval, ComputedSeries>> =
-      {};
-    const nextSeriesRevisionByTimeframe: Partial<Record<FiatRateInterval, string>> =
-      {};
+    const nextSeriesByTimeframe: Partial<
+      Record<FiatRateInterval, ComputedSeries>
+    > = {};
+    const nextSeriesRevisionByTimeframe: Partial<
+      Record<FiatRateInterval, string>
+    > = {};
 
     for (const timeframe of PRECOMPUTE_TIMEFRAME_ORDER) {
       const cachedTimeframe = cachedScope.timeframes?.[timeframe];
@@ -872,7 +900,12 @@ const BalanceHistoryChart = ({
   useEffect(() => {
     invalidateComputeGeneration();
     setIsComputingByTimeframe({});
-  }, [analysisInputsBaseKey, cacheRevision, currentRatesRevision, invalidateComputeGeneration]);
+  }, [
+    analysisInputsBaseKey,
+    cacheRevision,
+    currentRatesRevision,
+    invalidateComputeGeneration,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1005,7 +1038,8 @@ const BalanceHistoryChart = ({
       try {
         res = await buildAnalysis(nowMs);
       } catch (firstError) {
-        const fallbackNowMs = getLatestFiatRateSeriesPointTs(fiatRateSeriesCache);
+        const fallbackNowMs =
+          getLatestFiatRateSeriesPointTs(fiatRateSeriesCache);
         if (
           !fallbackNowMs ||
           !Number.isFinite(fallbackNowMs) ||
@@ -1035,7 +1069,8 @@ const BalanceHistoryChart = ({
         pointByTimestamp.set(graphPoints[i].date.getTime(), analysisPoints[i]);
       }
 
-      const {minIndex, maxIndex, minPoint, maxPoint} = computeMinMax(graphPoints);
+      const {minIndex, maxIndex, minPoint, maxPoint} =
+        computeMinMax(graphPoints);
 
       const patchMetadata = buildLatestPointPatchMetadataFromAnalysis({
         analysisPoints,
@@ -1430,9 +1465,8 @@ const BalanceHistoryChart = ({
   ]);
 
   const selectedTimeframeRevision = getTimeframeRevision(selectedTimeframe);
-  const selectedTimeframeAttemptRevision = getTimeframeAttemptRevision(
-    selectedTimeframe,
-  );
+  const selectedTimeframeAttemptRevision =
+    getTimeframeAttemptRevision(selectedTimeframe);
   const selectedComputedSeries = useMemo(() => {
     if (
       seriesRevisionByTimeframe[selectedTimeframe] === selectedTimeframeRevision
@@ -1474,7 +1508,8 @@ const BalanceHistoryChart = ({
       return undefined;
     }
 
-    const status = cachedTimeframeStatusByTimeframe[selectedTimeframe] || 'missing';
+    const status =
+      cachedTimeframeStatusByTimeframe[selectedTimeframe] || 'missing';
     const effectiveCachedTimeframe =
       status === 'patchable'
         ? patchCachedLatestPointWithSpotRates({
@@ -1531,9 +1566,7 @@ const BalanceHistoryChart = ({
     : undefined;
 
   const timeframeSelectorOpacityNumber =
-    typeof timeframeSelectorOpacity === 'number'
-      ? timeframeSelectorOpacity
-      : 1;
+    typeof timeframeSelectorOpacity === 'number' ? timeframeSelectorOpacity : 1;
 
   const timeframeSelectorAnimatedStyle = useAnimatedStyle(() => {
     return {
@@ -1563,7 +1596,8 @@ const BalanceHistoryChart = ({
       return;
     }
 
-    const isInitialAllLoad = selectedTimeframe === 'ALL' && !hasCompletedInitialAllLoad;
+    const isInitialAllLoad =
+      selectedTimeframe === 'ALL' && !hasCompletedInitialAllLoad;
     if (isInitialAllLoad) {
       setIsChartLoaderVisible(true);
       return;
@@ -1578,11 +1612,15 @@ const BalanceHistoryChart = ({
   }, [hasCompletedInitialAllLoad, isChartLoadingRaw, selectedTimeframe]);
 
   const hideGuideLineForInitialAllLoader =
-    selectedTimeframe === 'ALL' && !hasCompletedInitialAllLoad && isChartLoaderVisible;
+    selectedTimeframe === 'ALL' &&
+    !hasCompletedInitialAllLoad &&
+    isChartLoaderVisible;
 
   const hasAnyRenderableSeries =
     !!activeSeries ||
-    Object.values(seriesByTimeframe).some(series => !!series?.graphPoints.length);
+    Object.values(seriesByTimeframe).some(
+      series => !!series?.graphPoints.length,
+    );
 
   // Axis label renderers are passed to `react-native-graph` as *component
   // types*. If we recreate them on every render (e.g. via useCallback deps),
@@ -1620,12 +1658,8 @@ const BalanceHistoryChart = ({
 
   // IMPORTANT: For balance screens, the change row is unrealized profit vs cost basis
   // (NOT start→end balance delta). This mirrors the existing PnL engine UI elsewhere.
-  const pnlDeltaFiat =
-    displayedAnalysisPoint?.totalUnrealizedPnlFiat ??
-    0;
-  const pnlPercent =
-    displayedAnalysisPoint?.totalPnlPercent ??
-    0;
+  const pnlDeltaFiat = displayedAnalysisPoint?.totalUnrealizedPnlFiat ?? 0;
+  const pnlPercent = displayedAnalysisPoint?.totalPnlPercent ?? 0;
   const hasResolvedChangeRowData = !!displayedAnalysisPoint;
 
   const formattedDeltaFiat = useMemo(() => {
@@ -1664,7 +1698,8 @@ const BalanceHistoryChart = ({
       const existing = prev[selectedTimeframe];
       if (
         existing?.percent === resolvedChangeRowData.percent &&
-        existing?.deltaFiatFormatted === resolvedChangeRowData.deltaFiatFormatted &&
+        existing?.deltaFiatFormatted ===
+          resolvedChangeRowData.deltaFiatFormatted &&
         existing?.rangeLabel === resolvedChangeRowData.rangeLabel
       ) {
         return prev;
@@ -1691,11 +1726,7 @@ const BalanceHistoryChart = ({
       rangeLabel: displayedChangeRowData.rangeLabel,
       isLoading: isChartLoaderVisible,
     });
-  }, [
-    displayedChangeRowData,
-    isChartLoaderVisible,
-    onChangeRowData,
-  ]);
+  }, [displayedChangeRowData, isChartLoaderVisible, onChangeRowData]);
 
   const onGestureStarted = useCallback(() => {
     gestureStarted.current = true;
@@ -1805,7 +1836,9 @@ const BalanceHistoryChart = ({
     }
 
     return preChartContent ? (
-      <View style={{marginTop: preChartContentTopMargin}}>{preChartContent}</View>
+      <View style={{marginTop: preChartContentTopMargin}}>
+        {preChartContent}
+      </View>
     ) : null;
   }
 
@@ -1824,7 +1857,9 @@ const BalanceHistoryChart = ({
         />
       ) : null}
       {preChartContent ? (
-        <View style={{marginTop: preChartContentTopMargin}}>{preChartContent}</View>
+        <View style={{marginTop: preChartContentTopMargin}}>
+          {preChartContent}
+        </View>
       ) : null}
 
       <InteractiveLineChart

@@ -156,9 +156,7 @@ export const clearedShopCatalogFields = (): ShopActionType => ({
   type: ShopActionTypes.CLEARED_SHOP_CATALOG_FIELDS,
 });
 
-export const isJoinedWaitlist = (
-  joinedWaitlist: boolean,
-): ShopActionType => ({
+export const isJoinedWaitlist = (joinedWaitlist: boolean): ShopActionType => ({
   type: ShopActionTypes.IS_JOINED_WAITLIST,
   payload: {isJoinedWaitlist: joinedWaitlist},
 });

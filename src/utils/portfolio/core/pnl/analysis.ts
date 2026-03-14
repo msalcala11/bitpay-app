@@ -364,11 +364,7 @@ function buildRateSeries(points: FiatRatePoint[], minTs?: number): RateSeries {
       ts[i] = tsList[j];
       rate[i] = rateList[j];
     }
-    if (
-      typeof minTs === 'number' &&
-      Number.isFinite(minTs) &&
-      ts.length > 0
-    ) {
+    if (typeof minTs === 'number' && Number.isFinite(minTs) && ts.length > 0) {
       let firstAtOrAfter = -1;
       for (let i = 0; i < ts.length; i++) {
         if (ts[i] >= minTs) {
@@ -409,9 +405,7 @@ function buildRateSeries(points: FiatRatePoint[], minTs?: number): RateSeries {
   return {ts: Float64Array.from(tsList), rate: Float64Array.from(rateList)};
 }
 
-function findOldestSnapshotTs(
-  wallets: WalletForAnalysis[],
-): number | null {
+function findOldestSnapshotTs(wallets: WalletForAnalysis[]): number | null {
   let best: number | null = null;
   for (const w of wallets) {
     for (const s of w.snapshots) {
@@ -424,9 +418,7 @@ function findOldestSnapshotTs(
   return best;
 }
 
-function findNewestSnapshotTs(
-  wallets: WalletForAnalysis[],
-): number | null {
+function findNewestSnapshotTs(wallets: WalletForAnalysis[]): number | null {
   let best: number | null = null;
   for (const w of wallets) {
     for (let i = w.snapshots.length - 1; i >= 0; i--) {
@@ -472,9 +464,11 @@ const DEFAULT_ASYNC_YIELD_EVERY_POINTS = 4;
 
 const yieldToEventLoop = (): Promise<void> => {
   return new Promise(resolve => {
-    const setImmediateFn = (globalThis as {
-      setImmediate?: (callback: () => void) => unknown;
-    }).setImmediate;
+    const setImmediateFn = (
+      globalThis as {
+        setImmediate?: (callback: () => void) => unknown;
+      }
+    ).setImmediate;
 
     if (typeof setImmediateFn === 'function') {
       setImmediateFn(resolve);

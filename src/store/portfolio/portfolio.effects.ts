@@ -688,7 +688,8 @@ export const populatePortfolio =
 
     const keys = state.WALLET?.keys || {};
     const wallets = getMainnetWalletsFromKeys(keys);
-    const existingSnapshotsByWalletId = state.PORTFOLIO?.snapshotsByWalletId || {};
+    const existingSnapshotsByWalletId =
+      state.PORTFOLIO?.snapshotsByWalletId || {};
 
     const walletIdsFilter = Array.isArray(args?.walletIds)
       ? new Set(args?.walletIds)
@@ -705,7 +706,8 @@ export const populatePortfolio =
       // repopulated if it already has snapshots that now mismatch its live
       // balance.
       return !!(
-        walletIdsFilter && getLatestSnapshot(existingSnapshotsByWalletId[wallet.id])
+        walletIdsFilter &&
+        getLatestSnapshot(existingSnapshotsByWalletId[wallet.id])
       );
     });
     let walletsToPopulate = sortWalletsByAssetAndBalanceDesc(

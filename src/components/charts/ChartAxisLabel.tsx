@@ -10,10 +10,7 @@ import {WIDTH} from '../styled/Containers';
 import {BaseText} from '../styled/Text';
 import {formatFiatAmount} from '../../utils/helper-methods';
 import {Slate30, SlateDark} from '../../styles/colors';
-import {
-  isNumberSharedValue,
-  type NumberSharedValue,
-} from './sharedValueGuards';
+import {isNumberSharedValue, type NumberSharedValue} from './sharedValueGuards';
 
 export type ChartAxisLabelProps = {
   value: number;

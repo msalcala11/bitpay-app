@@ -76,10 +76,7 @@ export const startGetTokenOptions =
             tokenOptionsByAddress,
             tokenDataByAddress,
           });
-          if (
-            tokenIndex > 0 &&
-            tokenIndex % TOKEN_OPTIONS_YIELD_EVERY === 0
-          ) {
+          if (tokenIndex > 0 && tokenIndex % TOKEN_OPTIONS_YIELD_EVERY === 0) {
             await yieldToEventLoop();
           }
         }

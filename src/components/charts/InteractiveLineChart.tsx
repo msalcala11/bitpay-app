@@ -1,9 +1,5 @@
 import React from 'react';
-import {
-  Animated,
-  Easing,
-  LayoutChangeEvent,
-} from 'react-native';
+import {Animated, Easing, LayoutChangeEvent} from 'react-native';
 import {useIsFocused} from '@react-navigation/native';
 import styled, {useTheme} from 'styled-components/native';
 import {LineGraph, type GraphPoint} from 'react-native-graph';
@@ -16,10 +12,7 @@ import Reanimated, {
 import Loader from '../loader/Loader';
 import {WIDTH} from '../styled/Containers';
 import {Slate, SlateDark} from '../../styles/colors';
-import {
-  isNumberSharedValue,
-  type NumberSharedValue,
-} from './sharedValueGuards';
+import {isNumberSharedValue, type NumberSharedValue} from './sharedValueGuards';
 
 const ChartContainer = styled.View`
   margin-top: 0;
@@ -121,7 +114,9 @@ const InteractiveLineChart = ({
     width: number;
     height: number;
   } | null>(null);
-  const firstPointGuideLineTopAnim = React.useRef(new Animated.Value(0)).current;
+  const firstPointGuideLineTopAnim = React.useRef(
+    new Animated.Value(0),
+  ).current;
   const isGuideLineTopInitializedRef = React.useRef(false);
 
   const effectiveLineThickness =
@@ -176,8 +171,8 @@ const InteractiveLineChart = ({
       : effectiveLineThickness /
         Math.pow(safeStrokeScaleNumber, lineThicknessCompensationExponent);
 
-  const firstPointGuideLineAnimatedProps = useAnimatedProps<SvgLineAnimatedProps>(
-    () => {
+  const firstPointGuideLineAnimatedProps =
+    useAnimatedProps<SvgLineAnimatedProps>(() => {
       const scale = strokeScaleValue.value;
       const safeScale = scale > 0 ? scale : 1;
 
@@ -190,9 +185,7 @@ const InteractiveLineChart = ({
           FIRST_POINT_GUIDE_LINE_GAP_LENGTH / safeScale,
         ],
       };
-    },
-    [strokeScaleValue],
-  );
+    }, [strokeScaleValue]);
 
   /**
    * THEME SWITCH BEHAVIOR (important)
@@ -245,9 +238,7 @@ const InteractiveLineChart = ({
 
   // A compact signature of everything that should trigger a redraw when the
   // graph's visual style or path geometry changes.
-  const styleSignature = `${color}|${gradientFillColors[0]}|${
-    gradientFillColors[1]
-  }|${effectiveLineThickness}|${stableVerticalPadding}`;
+  const styleSignature = `${color}|${gradientFillColors[0]}|${gradientFillColors[1]}|${effectiveLineThickness}|${stableVerticalPadding}`;
 
   /**
    * If the theme changes while this screen is NOT focused, we want to trigger a
@@ -310,7 +301,11 @@ const InteractiveLineChart = ({
   const hasDrawablePoints = pointsForGraph.length >= 2;
 
   const firstPointGuideLine = React.useMemo(() => {
-    if (!showFirstPointGuideLine || !pointsForGraph.length || !lineGraphLayout) {
+    if (
+      !showFirstPointGuideLine ||
+      !pointsForGraph.length ||
+      !lineGraphLayout
+    ) {
       return null;
     }
 

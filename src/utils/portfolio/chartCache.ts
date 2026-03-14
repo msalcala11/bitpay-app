@@ -1,5 +1,8 @@
 import type {GraphPoint} from 'react-native-graph';
-import type {FiatRateSeriesCache, FiatRateInterval} from '../../store/rate/rate.models';
+import type {
+  FiatRateSeriesCache,
+  FiatRateInterval,
+} from '../../store/rate/rate.models';
 import type {
   CachedBalanceChartTimeframe,
   HistoricalRateDependencyMeta,
@@ -72,7 +75,9 @@ const toHistoricalDepSignature = (
     .filter(dep => !!dep?.cacheKey)
     .slice()
     .sort((a, b) => a.cacheKey.localeCompare(b.cacheKey))
-    .map(dep => `${dep.cacheKey}:${dep.fetchedOn ?? 'na'}:${dep.lastTs ?? 'na'}`)
+    .map(
+      dep => `${dep.cacheKey}:${dep.fetchedOn ?? 'na'}:${dep.lastTs ?? 'na'}`,
+    )
     .join('|');
 };
 
@@ -171,7 +176,9 @@ const getPatchableSpotRateChange = (args: {
   cachedTimeframe: CachedBalanceChartTimeframe;
   currentSpotRatesByCoin: Record<string, number>;
 }): {patchable: boolean; changed: boolean} => {
-  const relevantCoins = Object.keys(args.cachedTimeframe.latestHoldingsByCoin || {})
+  const relevantCoins = Object.keys(
+    args.cachedTimeframe.latestHoldingsByCoin || {},
+  )
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b));
 
@@ -182,12 +189,22 @@ const getPatchableSpotRateChange = (args: {
   let changed = false;
   for (const coin of relevantCoins) {
     const currentRate = args.currentSpotRatesByCoin?.[coin];
-    if (!(typeof currentRate === 'number' && Number.isFinite(currentRate) && currentRate > 0)) {
+    if (
+      !(
+        typeof currentRate === 'number' &&
+        Number.isFinite(currentRate) &&
+        currentRate > 0
+      )
+    ) {
       return {patchable: false, changed};
     }
     const cachedRate = args.cachedTimeframe.lastSpotRatesByCoin?.[coin];
     if (
-      !(typeof cachedRate === 'number' && Number.isFinite(cachedRate) && cachedRate > 0)
+      !(
+        typeof cachedRate === 'number' &&
+        Number.isFinite(cachedRate) &&
+        cachedRate > 0
+      )
     ) {
       changed = true;
       continue;
@@ -273,7 +290,9 @@ const normalizeGraphPointsForChart = (points: GraphPoint[]): GraphPoint[] => {
   for (let i = 0; i < points.length; i++) {
     const src = points[i];
     const rawTs =
-      src?.date instanceof Date ? src.date.getTime() : Number((src as any)?.date);
+      src?.date instanceof Date
+        ? src.date.getTime()
+        : Number((src as any)?.date);
     let ts = Number.isFinite(rawTs) ? rawTs : fallbackTsBase + i;
     if (Number.isFinite(prevTs) && ts <= prevTs) {
       ts = prevTs + 1;
@@ -349,13 +368,20 @@ export const deserializeCachedTimeframeToComputedSeries = (
 
   for (let i = 0; i < length; i++) {
     const timestamp = toFiniteNumber(cachedTimeframe.ts[i], Date.now() + i);
-    const totalFiatBalance = toFiniteNumber(cachedTimeframe.totalFiatBalance[i], 0);
+    const totalFiatBalance = toFiniteNumber(
+      cachedTimeframe.totalFiatBalance[i],
+      0,
+    );
     const totalUnrealizedPnlFiat = toFiniteNumber(
       cachedTimeframe.totalUnrealizedPnlFiat[i],
       0,
     );
-    const totalRemainingCostBasisFiat = totalFiatBalance - totalUnrealizedPnlFiat;
-    const totalPnlPercent = toFiniteNumber(cachedTimeframe.totalPnlPercent[i], 0);
+    const totalRemainingCostBasisFiat =
+      totalFiatBalance - totalUnrealizedPnlFiat;
+    const totalPnlPercent = toFiniteNumber(
+      cachedTimeframe.totalPnlPercent[i],
+      0,
+    );
 
     analysisPoints.push({
       timestamp,
@@ -367,7 +393,9 @@ export const deserializeCachedTimeframeToComputedSeries = (
     });
     rawGraphPoints.push({
       date: new Date(timestamp),
-      value: totalFiatBalance + normalizeBalanceChartOffset(cachedTimeframe.balanceOffset),
+      value:
+        totalFiatBalance +
+        normalizeBalanceChartOffset(cachedTimeframe.balanceOffset),
     });
   }
 
@@ -468,7 +496,9 @@ export const serializeComputedSeriesToCachedTimeframe = (args: {
   for (const point of args.analysisPoints || []) {
     ts.push(toFiniteNumber(point?.timestamp, Date.now()));
     totalFiatBalance.push(toFiniteNumber(point?.totalFiatBalance, 0));
-    totalUnrealizedPnlFiat.push(toFiniteNumber(point?.totalUnrealizedPnlFiat, 0));
+    totalUnrealizedPnlFiat.push(
+      toFiniteNumber(point?.totalUnrealizedPnlFiat, 0),
+    );
     totalPnlPercent.push(toFiniteNumber(point?.totalPnlPercent, 0));
   }
 
@@ -559,7 +589,9 @@ export const patchCachedLatestPointWithSpotRates = (args: {
   const nextLastSpotRatesByCoin = {
     ...args.cachedTimeframe.lastSpotRatesByCoin,
   };
-  for (const coin of Object.keys(args.cachedTimeframe.latestHoldingsByCoin || {})) {
+  for (const coin of Object.keys(
+    args.cachedTimeframe.latestHoldingsByCoin || {},
+  )) {
     const currentRate = args.currentSpotRatesByCoin[coin];
     if (Number.isFinite(currentRate) && currentRate > 0) {
       nextLastSpotRatesByCoin[coin] = currentRate;

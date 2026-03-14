@@ -344,7 +344,8 @@ const StorageUsage: React.FC = () => {
                 const persistedSizes = await Promise.all([
                   typeof portfolioPersisted === 'string'
                     ? getSize(
-                        RNFS.TemporaryDirectoryPath + '/portfolio-persisted.txt',
+                        RNFS.TemporaryDirectoryPath +
+                          '/portfolio-persisted.txt',
                         portfolioPersisted,
                       )
                     : Promise.resolve(0),

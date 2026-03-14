@@ -1,4 +1,7 @@
-import {setWalletSnapshots, removeWalletSnapshots} from '../portfolio/portfolio.actions';
+import {
+  setWalletSnapshots,
+  removeWalletSnapshots,
+} from '../portfolio/portfolio.actions';
 import {
   clearPortfolioCharts,
   pruneBalanceChartCache,

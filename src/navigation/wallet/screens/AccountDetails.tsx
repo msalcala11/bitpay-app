@@ -1492,7 +1492,9 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
               <TailContainer>
                 <Value>
                   {accountItem?.fiatLockedBalanceFormat}{' '}
-                  {formatCurrencyAbbreviation(lockedBalanceCurrencyAbbreviation)}
+                  {formatCurrencyAbbreviation(
+                    lockedBalanceCurrencyAbbreviation,
+                  )}
                 </Value>
               </TailContainer>
             </LockedBalanceContainer>
