@@ -67,6 +67,10 @@ import {
   patchCachedLatestPointWithSpotRates,
   serializeComputedSeriesToCachedTimeframe,
 } from '../../utils/portfolio/chartCache';
+import {
+  normalizeGraphPointsForChart,
+  recomputeMinMaxFromGraphPoints,
+} from '../../utils/portfolio/chartGraph';
 
 const CHART_LOADER_DELAY_MS = 150;
 const CHART_COMPUTE_YIELD_EVERY_POINTS = 4;
@@ -108,8 +112,6 @@ type ChangeRowData = {
 type ScheduledAfterInteractionsHandle = {
   cancel: () => void;
 };
-
-const GRAPH_DRAWABLE_EPSILON = 0.0001;
 
 const scheduleAfterInteractionsAndFrames = (
   cb: () => void | Promise<void>,
@@ -207,60 +209,6 @@ const scheduleAfterInteractionsAndFrames = (
   };
 };
 
-const normalizeGraphPointsForChart = (points: GraphPoint[]): GraphPoint[] => {
-  if (!points.length) {
-    return points;
-  }
-
-  const normalized: GraphPoint[] = [];
-  const fallbackTsBase = Date.now();
-  let prevTs = Number.NEGATIVE_INFINITY;
-  let minV = Number.POSITIVE_INFINITY;
-  let maxV = Number.NEGATIVE_INFINITY;
-
-  for (let i = 0; i < points.length; i++) {
-    const src = points[i];
-    const rawTs =
-      src?.date instanceof Date
-        ? src.date.getTime()
-        : Number((src as any)?.date);
-    let ts = Number.isFinite(rawTs) ? rawTs : fallbackTsBase + i;
-    if (Number.isFinite(prevTs) && ts <= prevTs) {
-      ts = prevTs + 1;
-    }
-
-    const fallbackValue = normalized.length
-      ? normalized[normalized.length - 1].value
-      : 0;
-    const value = Number.isFinite(src?.value) ? src.value : fallbackValue;
-
-    normalized.push({
-      date: new Date(ts),
-      value,
-    });
-    prevTs = ts;
-
-    if (value < minV) {
-      minV = value;
-    }
-    if (value > maxV) {
-      maxV = value;
-    }
-  }
-
-  // react-native-graph may render nothing when all values are identical (0 range).
-  // Add a tiny epsilon to the last point to guarantee a drawable range without
-  // affecting formatted labels.
-  if (normalized.length >= 2 && minV === maxV) {
-    normalized[normalized.length - 1] = {
-      ...normalized[normalized.length - 1],
-      value: normalized[normalized.length - 1].value + GRAPH_DRAWABLE_EPSILON,
-    };
-  }
-
-  return normalized;
-};
-
 const getLatestFiatRateSeriesPointTs = (
   cache?: FiatRateSeriesCache,
 ): number | undefined => {
@@ -284,32 +232,6 @@ const getLatestFiatRateSeriesPointTs = (
   }
 
   return maxTs > 0 ? maxTs : undefined;
-};
-
-const computeMinMax = (points: GraphPoint[]) => {
-  let minIndex = 0;
-  let maxIndex = 0;
-  let minValue = Number.POSITIVE_INFINITY;
-  let maxValue = Number.NEGATIVE_INFINITY;
-
-  for (let i = 0; i < points.length; i++) {
-    const v = points[i].value;
-    if (v < minValue) {
-      minValue = v;
-      minIndex = i;
-    }
-    if (v > maxValue) {
-      maxValue = v;
-      maxIndex = i;
-    }
-  }
-
-  return {
-    minIndex,
-    maxIndex,
-    minPoint: points[minIndex],
-    maxPoint: points[maxIndex],
-  };
 };
 
 export type BalanceHistoryChartProps = {
@@ -1070,7 +992,7 @@ const BalanceHistoryChart = ({
       }
 
       const {minIndex, maxIndex, minPoint, maxPoint} =
-        computeMinMax(graphPoints);
+        recomputeMinMaxFromGraphPoints(graphPoints);
 
       const patchMetadata = buildLatestPointPatchMetadataFromAnalysis({
         analysisPoints,

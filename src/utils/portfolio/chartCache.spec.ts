@@ -61,6 +61,10 @@ const makeCachedTimeframe = (
 });
 
 describe('chartCache', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('builds scope ids that are order-insensitive for the same wallet set', () => {
     const a = buildBalanceChartScopeId({
       walletIds: ['wallet-b', 'wallet-a', 'wallet-a'],
@@ -88,6 +92,25 @@ describe('chartCache', () => {
     expect(hydrated.graphPoints[0].value).toBe(105);
     expect(hydrated.analysisPoints[2].totalRemainingCostBasisFiat).toBe(150);
     expect(hydrated.pointByTimestamp.get(300)?.totalFiatBalance).toBe(200);
+  });
+
+  it('normalizes cached duplicate and invalid timestamps while preserving point order', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    const hydrated = deserializeCachedTimeframeToComputedSeries(
+      makeCachedTimeframe({
+        ts: [300, 'bad-ts' as unknown as number, 300],
+        totalFiatBalance: [100, 100, 100],
+      }),
+    );
+
+    expect(hydrated.graphPoints.map(point => point.date.getTime())).toEqual([
+      300, 1_001, 1_002,
+    ]);
+    expect(hydrated.pointByTimestamp.get(300)?.timestamp).toBe(300);
+    expect(hydrated.pointByTimestamp.get(1_001)?.timestamp).toBe(1_001);
+    expect(hydrated.pointByTimestamp.get(1_002)?.timestamp).toBe(300);
+    expect(hydrated.maxIndex).toBe(2);
+    expect(hydrated.maxPoint.value).toBeCloseTo(100.0001, 6);
   });
 
   it('patches only the latest point when only spot rates change', () => {
