@@ -1,9 +1,10 @@
 import {getFiatRateSeriesCacheKey} from '../fiatRateSeries';
-import {buildPnlAnalysisSeries} from './analysis';
+import {buildPnlAnalysisSeries, buildRateSeries} from './analysis';
 import type {WalletForAnalysis} from './analysis';
 import type {BalanceSnapshotStored} from './types';
 
 const BTC_ATOMIC = '100000000';
+const ETH_ATOMIC = '1000000000000000000';
 
 const makeSnapshot = (
   overrides: Partial<BalanceSnapshotStored> = {},
@@ -33,6 +34,66 @@ const makeWallet = (snapshots: BalanceSnapshotStored[]): WalletForAnalysis => ({
     network: 'livenet',
   },
   snapshots,
+});
+
+describe('buildRateSeries', () => {
+  it('keeps one point before the cutoff for sorted input', () => {
+    const result = buildRateSeries(
+      [
+        {ts: 1000, rate: 10},
+        {ts: 2000, rate: 20},
+        {ts: 3000, rate: 30},
+        {ts: 4000, rate: 40},
+      ],
+      2500,
+    );
+
+    expect(Array.from(result.ts)).toEqual([2000, 3000, 4000]);
+    expect(Array.from(result.rate)).toEqual([20, 30, 40]);
+  });
+
+  it('sorts unsorted input before applying the cutoff window', () => {
+    const result = buildRateSeries(
+      [
+        {ts: 4000, rate: 40},
+        {ts: 1000, rate: 10},
+        {ts: 3000, rate: 30},
+        {ts: 2000, rate: 20},
+      ],
+      2500,
+    );
+
+    expect(Array.from(result.ts)).toEqual([2000, 3000, 4000]);
+    expect(Array.from(result.rate)).toEqual([20, 30, 40]);
+  });
+
+  it('uses the first duplicate timestamp at or after the cutoff', () => {
+    const result = buildRateSeries(
+      [
+        {ts: 1000, rate: 10},
+        {ts: 2000, rate: 20},
+        {ts: 2000, rate: 21},
+        {ts: 3000, rate: 30},
+      ],
+      2000,
+    );
+
+    expect(Array.from(result.ts)).toEqual([1000, 2000, 2000, 3000]);
+    expect(Array.from(result.rate)).toEqual([10, 20, 21, 30]);
+  });
+
+  it('returns an empty series when no points exist at or after the cutoff', () => {
+    const result = buildRateSeries(
+      [
+        {ts: 1000, rate: 10},
+        {ts: 2000, rate: 20},
+      ],
+      3000,
+    );
+
+    expect(Array.from(result.ts)).toEqual([]);
+    expect(Array.from(result.rate)).toEqual([]);
+  });
 });
 
 describe('buildPnlAnalysisSeries', () => {
@@ -114,6 +175,7 @@ describe('buildPnlAnalysisSeries', () => {
           coin: 'eth',
           assetId: 'eth:livenet',
           timestamp: ethWalletStartMs,
+          cryptoBalance: ETH_ATOMIC,
           markRate: 10,
         }),
       ],
@@ -193,6 +255,7 @@ describe('buildPnlAnalysisSeries', () => {
           coin: 'eth',
           assetId: 'eth:livenet',
           timestamp: ethWalletStartMs,
+          cryptoBalance: ETH_ATOMIC,
           markRate: 10,
         }),
       ],

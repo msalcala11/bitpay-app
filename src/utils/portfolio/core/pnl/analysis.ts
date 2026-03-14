@@ -284,6 +284,24 @@ type RateSeries = {
   rate: Float64Array;
 };
 
+function findFirstTimestampAtOrAfter(
+  ts: ArrayLike<number>,
+  target: number,
+): number {
+  const len = ts.length;
+  if (!len) return -1;
+
+  let lo = 0;
+  let hi = len;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (ts[mid] < target) lo = mid + 1;
+    else hi = mid;
+  }
+
+  return lo < len ? lo : -1;
+}
+
 function makeNearestRateCursor(series: RateSeries): RateCursor {
   // points must be sorted ascending by ts.
   let lo = 0;
@@ -330,7 +348,10 @@ function makeNearestRateCursor(series: RateSeries): RateCursor {
   };
 }
 
-function buildRateSeries(points: FiatRatePoint[], minTs?: number): RateSeries {
+export function buildRateSeries(
+  points: FiatRatePoint[],
+  minTs?: number,
+): RateSeries {
   const tsList: number[] = [];
   const rateList: number[] = [];
 
@@ -365,13 +386,7 @@ function buildRateSeries(points: FiatRatePoint[], minTs?: number): RateSeries {
       rate[i] = rateList[j];
     }
     if (typeof minTs === 'number' && Number.isFinite(minTs) && ts.length > 0) {
-      let firstAtOrAfter = -1;
-      for (let i = 0; i < ts.length; i++) {
-        if (ts[i] >= minTs) {
-          firstAtOrAfter = i;
-          break;
-        }
-      }
+      let firstAtOrAfter = findFirstTimestampAtOrAfter(ts, minTs);
       if (firstAtOrAfter < 0) {
         return {ts: new Float64Array(0), rate: new Float64Array(0)};
       }
@@ -385,13 +400,7 @@ function buildRateSeries(points: FiatRatePoint[], minTs?: number): RateSeries {
   }
 
   if (typeof minTs === 'number' && Number.isFinite(minTs)) {
-    let firstAtOrAfter = -1;
-    for (let i = 0; i < tsList.length; i++) {
-      if (tsList[i] >= minTs) {
-        firstAtOrAfter = i;
-        break;
-      }
-    }
+    let firstAtOrAfter = findFirstTimestampAtOrAfter(tsList, minTs);
     if (firstAtOrAfter < 0) {
       return {ts: new Float64Array(0), rate: new Float64Array(0)};
     }
