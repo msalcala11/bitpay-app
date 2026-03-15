@@ -29,7 +29,7 @@ import {atomicToUnitNumber} from './atomic';
 import {
   getFiatTimeframeSeriesInterval,
   getFiatTimeframeWindowMs,
-} from '../../../fiatTimeframes';
+} from '../fiatTimeframes';
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 
