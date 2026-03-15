@@ -83,17 +83,36 @@ const tokenThemeByCoin: {[key in string]: string} = Object.values(
   return acc;
 }, {} as {[key in string]: string});
 
+const tokenThemeByAddress: {[key in string]: string} = Object.values(
+  BitpaySupportedTokens,
+).reduce((acc, token) => {
+  const tokenAddress = (token.address || '').toLowerCase();
+  const color = token.theme?.coinColor;
+  if (tokenAddress && color && !acc[tokenAddress]) {
+    acc[tokenAddress] = color;
+  }
+  return acc;
+}, {} as {[key in string]: string});
+
 const getAssetColor = (
   currencyAbbreviation: string,
   chain?: string,
+  tokenAddress?: string,
 ): {light: string; dark: string} => {
   const coinKey = (currencyAbbreviation || '').toLowerCase();
   const chainKey = (chain || '').toLowerCase();
+  const tokenAddressKey = (tokenAddress || '').toLowerCase();
+
+  const coinThemeColor = BitpaySupportedCoins[coinKey]?.theme?.coinColor;
+  const tokenThemeColor =
+    tokenThemeByAddress[tokenAddressKey] ||
+    (tokenAddressKey ? tokenThemeByCoin[coinKey] : undefined) ||
+    (!coinThemeColor ? tokenThemeByCoin[coinKey] : undefined);
 
   const themeColor =
-    BitpaySupportedCoins[coinKey]?.theme?.coinColor ||
-    BitpaySupportedCoins[chainKey]?.theme?.coinColor ||
-    tokenThemeByCoin[coinKey];
+    tokenThemeColor ||
+    coinThemeColor ||
+    BitpaySupportedCoins[chainKey]?.theme?.coinColor;
 
   return themeColor
     ? {light: themeColor, dark: themeColor}
@@ -163,7 +182,7 @@ export const buildAllocationDataFromWalletRows = (
     return {
       ...a,
       percent,
-      color: getAssetColor(a.currencyAbbreviation, a.chain),
+      color: getAssetColor(a.currencyAbbreviation, a.chain, a.tokenAddress),
     };
   });
 
