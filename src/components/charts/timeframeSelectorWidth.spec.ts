@@ -9,7 +9,7 @@ describe('getTimeframeSelectorWidth', () => {
     expect(getTimeframeSelectorWidth(20, '12px')).toBe(0);
   });
 
-  it('clamps the width to the shared maximum', () => {
-    expect(getTimeframeSelectorWidth(600, '12px')).toBe(450);
+  it('does not clamp wider layouts', () => {
+    expect(getTimeframeSelectorWidth(600, '12px')).toBe(576);
   });
 });
