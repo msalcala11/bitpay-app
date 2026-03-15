@@ -349,7 +349,6 @@ const InteractiveLineChart = ({
   //   - layout happens after a theme switch (handles detach/reattach cases).
   const pointsForGraph = React.useMemo(
     () => points.slice(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [points, pointsRefreshKey],
   );
   const hasDrawablePoints = pointsForGraph.length >= 2;
