@@ -17,6 +17,7 @@ import {
   hasValidSeriesForCoin,
 } from '../../store/rate/rate.models';
 import type {Key, Wallet} from '../../store/wallet/wallet.models';
+import {IsSVMChain} from '../../store/wallet/utils/currency';
 import type {SupportedCurrencyOption} from '../../constants/SupportedCurrencyOptions';
 import {
   BitpaySupportedCoins,
@@ -233,11 +234,17 @@ export const getPortfolioWalletTokenAddress = (
   return toOptionalString(wallet?.tokenAddress);
 };
 
-export const getPortfolioWalletTokenAddressLower = (
+export const getPortfolioWalletTokenAddressNormalized = (
   wallet: Wallet | undefined,
 ): string | undefined => {
   const tokenAddress = getPortfolioWalletTokenAddress(wallet);
-  return tokenAddress ? tokenAddress.toLowerCase() : undefined;
+  if (!tokenAddress) {
+    return undefined;
+  }
+
+  return IsSVMChain(getPortfolioWalletChain(wallet))
+    ? tokenAddress
+    : tokenAddress.toLowerCase();
 };
 
 export const isPortfolioWalletOnMainnet = (
@@ -824,7 +831,9 @@ const mapSnapshotToStored = (args: {
   onHistoricalRateDependency?: (cacheKey: string) => void;
 }): BalanceSnapshotStored => {
   const s = args.snapshot;
-  const tokenAddressLower = getPortfolioWalletTokenAddressLower(args.wallet);
+  const tokenAddressNormalized = getPortfolioWalletTokenAddressNormalized(
+    args.wallet,
+  );
   const snapshotChain = getPortfolioSnapshotChain(
     s,
     getPortfolioWalletChain(args.wallet),
@@ -841,8 +850,8 @@ const mapSnapshotToStored = (args: {
   const assetCoin = args.fallbackAssetIdToWalletIdentity
     ? coinForFields
     : snapshotCoin;
-  const assetId = tokenAddressLower
-    ? `${assetChain}:${assetCoin}:${tokenAddressLower}`
+  const assetId = tokenAddressNormalized
+    ? `${assetChain}:${assetCoin}:${tokenAddressNormalized}`
     : `${assetChain}:${assetCoin}`;
   const snapshotQuoteCurrency = getPortfolioSnapshotQuoteCurrency(
     s,
@@ -2005,9 +2014,9 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     }
 
     const chain = getPortfolioWalletChainLower(w);
-    const tokenAddress = getPortfolioWalletTokenAddress(w);
+    const tokenAddress = getPortfolioWalletTokenAddressNormalized(w);
     const assetId = tokenAddress
-      ? `${chain}:${coin}:${tokenAddress.toLowerCase()}`
+      ? `${chain}:${coin}:${tokenAddress}`
       : `${chain}:${coin}`;
     return {key: assetId, coin};
   };

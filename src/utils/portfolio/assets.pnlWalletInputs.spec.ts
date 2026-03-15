@@ -25,6 +25,10 @@ jest.mock('./rate', () => ({
   getFiatRateFromSeriesCacheAtTimestamp: jest.fn(),
 }));
 
+jest.mock('../../store/wallet/utils/currency', () => ({
+  IsSVMChain: (chain: string) => String(chain || '').toLowerCase() === 'sol',
+}));
+
 jest.mock('./core/pnl/analysis', () => ({
   buildPnlAnalysisSeries: jest.fn(() => ({points: []})),
 }));
@@ -122,6 +126,7 @@ import {
 } from './assets';
 
 const USDC_TOKEN_ADDRESS = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
+const SVM_TOKEN_ADDRESS = 'AbCDeFGHJKLMNPQRSTuvWXYZ123456789';
 
 const makeWallet = (args: {
   id: string;
@@ -370,6 +375,50 @@ describe('Pnl wallet input builders', () => {
       currentRatesByCoin: {},
       quoteCurrency: 'EUR',
     });
+  });
+
+  it('preserves SVM token address casing in stored snapshot asset ids', () => {
+    const wallet = makeWallet({
+      id: 'wallet-sol-usdc',
+      chain: 'sol',
+      currencyAbbreviation: 'usdc',
+      walletName: 'Sol USDC Wallet',
+      tokenAddress: SVM_TOKEN_ADDRESS,
+      tokenDecimals: 6,
+    });
+    const snapshotsByWalletId = {
+      [wallet.id]: [
+        makeSnapshot({
+          id: 'sol-usdc-1',
+          chain: 'sol',
+          coin: 'usdc',
+          assetId: `sol:usdc:${SVM_TOKEN_ADDRESS}`,
+          timestamp: 1_000,
+          cryptoBalance: '10',
+          remainingCostBasisFiat: 10,
+          costBasisRateFiat: 1,
+        }),
+      ],
+    };
+
+    const result = buildPnlWalletInputsFromPortfolioSnapshots({
+      snapshotsByWalletId,
+      wallets: [wallet],
+      quoteCurrency: 'USD',
+      rates: {
+        [SVM_TOKEN_ADDRESS]: makeRate(1),
+      },
+      fiatRateSeriesCache: {},
+      nowMs: 5_000,
+    });
+
+    expect(result.wallets).toHaveLength(1);
+    expect(result.wallets[0].credentials.token?.address).toBe(
+      SVM_TOKEN_ADDRESS,
+    );
+    expect(result.wallets[0].snapshots[0].assetId).toBe(
+      `sol:usdc:${SVM_TOKEN_ADDRESS}`,
+    );
   });
 
   it('aborts async wallet input preparation at yield boundaries', async () => {

@@ -99,9 +99,18 @@ jest.mock('../../utils/portfolio/assets', () => ({
     snapshotsByWalletId: Record<string, unknown[] | undefined> | undefined,
     walletId: string,
   ) => snapshotsByWalletId?.[walletId] || [],
-  getPortfolioWalletTokenAddressLower: (wallet?: {tokenAddress?: string}) => {
+  getPortfolioWalletTokenAddressNormalized: (wallet?: {
+    chain?: string;
+    tokenAddress?: string;
+  }) => {
     const tokenAddress = String(wallet?.tokenAddress || '');
-    return tokenAddress ? tokenAddress.toLowerCase() : undefined;
+    if (!tokenAddress) {
+      return undefined;
+    }
+
+    return String(wallet?.chain || '').toLowerCase() === 'sol'
+      ? tokenAddress
+      : tokenAddress.toLowerCase();
   },
 }));
 
@@ -207,6 +216,25 @@ const snapshot = {
   quoteCurrency: 'USD',
 } as BalanceSnapshot;
 
+const svmTokenAddress = 'AbCDeFGHJKLMNPQRSTuvWXYZ123456789';
+const svmWallet = {
+  ...wallet,
+  id: 'wallet-sol-1',
+  walletName: 'Sol Wallet 1',
+  chain: 'sol',
+  currencyAbbreviation: 'usdc',
+  tokenAddress: svmTokenAddress,
+} as Wallet;
+
+const svmSnapshot = {
+  ...snapshot,
+  id: 'snapshot-sol-1',
+  walletId: 'wallet-sol-1',
+  chain: 'sol',
+  coin: 'usdc',
+  assetId: `sol:usdc:${svmTokenAddress}`,
+} as BalanceSnapshot;
+
 const flushAsyncWork = async (iterations = 4) => {
   for (let i = 0; i < iterations; i += 1) {
     await act(async () => {
@@ -273,6 +301,37 @@ describe('BalanceHistoryChart', () => {
     );
     expect(screen.getByTestId('interactive-line-chart')).toHaveTextContent(
       'ready:0',
+    );
+  });
+
+  it('preserves SVM token address case in fiat-rate fetch requests', async () => {
+    mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.mockResolvedValue({
+      wallets: [],
+      currentRatesByCoin: {},
+      quoteCurrency: 'USD',
+    });
+
+    render(
+      <BalanceHistoryChart
+        wallets={[svmWallet]}
+        snapshotsByWalletId={{
+          [svmWallet.id]: [svmSnapshot],
+        }}
+        quoteCurrency="USD"
+        fiatRateSeriesCache={{}}
+      />,
+    );
+
+    await flushAsyncWork(1);
+
+    expect(mockDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'FETCH_FIAT_RATE_SERIES_INTERVAL',
+        payload: expect.objectContaining({
+          chain: 'sol',
+          tokenAddress: svmTokenAddress,
+        }),
+      }),
     );
   });
 });

@@ -50,7 +50,7 @@ import {
   getPortfolioWalletCurrencyAbbreviation,
   getPortfolioWalletId,
   getPortfolioWalletSnapshots,
-  getPortfolioWalletTokenAddressLower,
+  getPortfolioWalletTokenAddressNormalized,
   type PnlWalletInputs,
 } from '../../utils/portfolio/assets';
 import {useAppDispatch, useAppSelector} from '../../utils/hooks';
@@ -483,7 +483,7 @@ const BalanceHistoryChart = ({
 
       const chainLower = getPortfolioWalletChainLower(w);
       const chain = chainLower || undefined;
-      const tokenAddress = getPortfolioWalletTokenAddressLower(w);
+      const tokenAddress = getPortfolioWalletTokenAddressNormalized(w);
       const dedupeKey = `${coinForCacheCheck}|${chain || ''}|${
         tokenAddress || ''
       }`;
