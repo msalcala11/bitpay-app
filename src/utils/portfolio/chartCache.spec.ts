@@ -44,10 +44,10 @@ const makeCachedTimeframe = (
       lastTs: 300,
     },
   ],
-  lastSpotRatesByCoin: {
+  lastSpotRatesByRateKey: {
     btc: 100,
   },
-  latestHoldingsByCoin: {
+  latestHoldingsByRateKey: {
     btc: {
       units: 2,
     },
@@ -117,7 +117,7 @@ describe('chartCache', () => {
     const cached = makeCachedTimeframe();
     const patched = patchCachedLatestPointWithSpotRates({
       cachedTimeframe: cached,
-      currentSpotRatesByCoin: {
+      currentSpotRatesByRateKey: {
         btc: 125,
       },
     });
@@ -127,7 +127,7 @@ describe('chartCache', () => {
     expect(patched.totalPnlPercent[0]).toBe(0);
     expect(patched.totalPnlPercent[1]).toBe(20);
     expect(patched.totalPnlPercent[2]).toBeCloseTo(66.666666, 4);
-    expect(patched.lastSpotRatesByCoin.btc).toBe(125);
+    expect(patched.lastSpotRatesByRateKey.btc).toBe(125);
   });
 
   it('marks cached timeframes fresh when snapshots, historical deps, and spot rates match', () => {
@@ -135,7 +135,7 @@ describe('chartCache', () => {
       getCachedTimeframeStatus({
         cachedTimeframe: makeCachedTimeframe(),
         snapshotVersionSig: 'wallet-1:1',
-        currentSpotRatesByCoin: {
+        currentSpotRatesByRateKey: {
           btc: 100,
         },
         fiatRateSeriesCache: makeRateCache(),
@@ -148,7 +148,7 @@ describe('chartCache', () => {
       getCachedTimeframeStatus({
         cachedTimeframe: makeCachedTimeframe(),
         snapshotVersionSig: 'wallet-1:1',
-        currentSpotRatesByCoin: {
+        currentSpotRatesByRateKey: {
           btc: 110,
         },
         fiatRateSeriesCache: makeRateCache(),
@@ -161,7 +161,7 @@ describe('chartCache', () => {
       getCachedTimeframeStatus({
         cachedTimeframe: makeCachedTimeframe(),
         snapshotVersionSig: 'wallet-1:1',
-        currentSpotRatesByCoin: {
+        currentSpotRatesByRateKey: {
           btc: 100,
         },
         fiatRateSeriesCache: makeRateCache({

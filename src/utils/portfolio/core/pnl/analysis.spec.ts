@@ -418,7 +418,7 @@ describe('buildPnlAnalysisSeries', () => {
       quoteCurrency: 'USD',
       nowMs,
       maxPoints: 3,
-      currentRatesByCoin: {
+      currentRatesByRateKey: {
         btc: 120,
       },
       fiatRateSeriesCache: {

@@ -99,11 +99,11 @@ const getWalletHistoricalRateKey = (wallet: WalletForAnalysis): string => {
   });
 };
 
-const toRateSignature = (ratesByCoin: Record<string, number>): string => {
-  return Object.entries(ratesByCoin || {})
+const toRateSignature = (ratesByRateKey: Record<string, number>): string => {
+  return Object.entries(ratesByRateKey || {})
     .filter(([, rate]) => Number.isFinite(rate))
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([coin, rate]) => `${coin}:${Number(rate)}`)
+    .map(([rateKey, rate]) => `${rateKey}:${Number(rate)}`)
     .join('|');
 };
 
@@ -218,21 +218,21 @@ const isSpotRateDifferent = (a: number, b: number): boolean => {
 
 const getPatchableSpotRateChange = (args: {
   cachedTimeframe: CachedBalanceChartTimeframe;
-  currentSpotRatesByCoin: Record<string, number>;
+  currentSpotRatesByRateKey: Record<string, number>;
 }): {patchable: boolean; changed: boolean} => {
-  const relevantCoins = Object.keys(
-    args.cachedTimeframe.latestHoldingsByCoin || {},
+  const relevantRateKeys = Object.keys(
+    args.cachedTimeframe.latestHoldingsByRateKey || {},
   )
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b));
 
-  if (!relevantCoins.length) {
+  if (!relevantRateKeys.length) {
     return {patchable: false, changed: false};
   }
 
   let changed = false;
-  for (const coin of relevantCoins) {
-    const currentRate = args.currentSpotRatesByCoin?.[coin];
+  for (const rateKey of relevantRateKeys) {
+    const currentRate = args.currentSpotRatesByRateKey?.[rateKey];
     if (
       !(
         typeof currentRate === 'number' &&
@@ -242,7 +242,7 @@ const getPatchableSpotRateChange = (args: {
     ) {
       return {patchable: false, changed};
     }
-    const cachedRate = args.cachedTimeframe.lastSpotRatesByCoin?.[coin];
+    const cachedRate = args.cachedTimeframe.lastSpotRatesByRateKey?.[rateKey];
     if (
       !(
         typeof cachedRate === 'number' &&
@@ -267,7 +267,7 @@ const getPatchableSpotRateChange = (args: {
 export const getCachedTimeframeStatus = (args: {
   cachedTimeframe?: CachedBalanceChartTimeframe;
   snapshotVersionSig: string;
-  currentSpotRatesByCoin: Record<string, number>;
+  currentSpotRatesByRateKey: Record<string, number>;
   fiatRateSeriesCache: FiatRateSeriesCache | undefined;
 }): CachedTimeframeStatus => {
   const cachedTimeframe = args.cachedTimeframe;
@@ -294,7 +294,7 @@ export const getCachedTimeframeStatus = (args: {
 
   const spotRateChange = getPatchableSpotRateChange({
     cachedTimeframe,
-    currentSpotRatesByCoin: args.currentSpotRatesByCoin,
+    currentSpotRatesByRateKey: args.currentSpotRatesByRateKey,
   });
   if (spotRateChange.patchable && spotRateChange.changed) {
     return 'patchable';
@@ -308,7 +308,7 @@ export const buildBalanceChartTimeframeRevision = (args: {
   timeframe: FiatRateInterval;
   snapshotVersionSig: string;
   historicalRateDeps: HistoricalRateDependencyMeta[];
-  currentSpotRatesByCoin: Record<string, number>;
+  currentSpotRatesByRateKey: Record<string, number>;
 }): string => {
   return [
     `v${BALANCE_CHART_CACHE_SCHEMA_VERSION}`,
@@ -316,7 +316,7 @@ export const buildBalanceChartTimeframeRevision = (args: {
     args.timeframe,
     args.snapshotVersionSig,
     toHistoricalDepSignature(args.historicalRateDeps || []),
-    toRateSignature(args.currentSpotRatesByCoin || {}),
+    toRateSignature(args.currentSpotRatesByRateKey || {}),
   ].join('|');
 };
 
@@ -390,8 +390,8 @@ export const buildLatestPointPatchMetadataFromAnalysis = (args: {
   analysisPoints: PnlAnalysisPoint[];
   wallets: WalletForAnalysis[];
 }): {
-  lastSpotRatesByCoin: Record<string, number>;
-  latestHoldingsByCoin: Record<string, {units: number}>;
+  lastSpotRatesByRateKey: Record<string, number>;
+  latestHoldingsByRateKey: Record<string, {units: number}>;
   latestRemainingCostBasisFiatTotal: number;
 } => {
   const analysisPoints = args.analysisPoints || [];
@@ -399,8 +399,8 @@ export const buildLatestPointPatchMetadataFromAnalysis = (args: {
     ? analysisPoints[analysisPoints.length - 1]
     : undefined;
 
-  const latestHoldingsByCoin: Record<string, {units: number}> = {};
-  const lastSpotRatesByCoin: Record<string, number> = {};
+  const latestHoldingsByRateKey: Record<string, {units: number}> = {};
+  const lastSpotRatesByRateKey: Record<string, number> = {};
 
   if (latestPoint) {
     for (const wallet of args.wallets || []) {
@@ -413,26 +413,26 @@ export const buildLatestPointPatchMetadataFromAnalysis = (args: {
         parseAtomicToBigint(walletPoint.balanceAtomic || '0'),
         decimals,
       );
-      const coin = getWalletHistoricalRateKey(wallet);
-      if (!latestHoldingsByCoin[coin]) {
-        latestHoldingsByCoin[coin] = {units: 0};
+      const rateKey = getWalletHistoricalRateKey(wallet);
+      if (!latestHoldingsByRateKey[rateKey]) {
+        latestHoldingsByRateKey[rateKey] = {units: 0};
       }
-      latestHoldingsByCoin[coin].units += units;
+      latestHoldingsByRateKey[rateKey].units += units;
 
       if (
-        !(coin in lastSpotRatesByCoin) &&
+        !(rateKey in lastSpotRatesByRateKey) &&
         typeof walletPoint.markRate === 'number' &&
         Number.isFinite(walletPoint.markRate) &&
         walletPoint.markRate > 0
       ) {
-        lastSpotRatesByCoin[coin] = walletPoint.markRate;
+        lastSpotRatesByRateKey[rateKey] = walletPoint.markRate;
       }
     }
   }
 
   return {
-    lastSpotRatesByCoin,
-    latestHoldingsByCoin,
+    lastSpotRatesByRateKey,
+    latestHoldingsByRateKey,
     latestRemainingCostBasisFiatTotal: toFiniteNumber(
       latestPoint?.totalRemainingCostBasisFiat,
       0,
@@ -449,8 +449,8 @@ export const serializeComputedSeriesToCachedTimeframe = (args: {
   historicalRateDeps: HistoricalRateDependencyMeta[];
   analysisPoints: PnlAnalysisPoint[];
   patchMetadata: {
-    lastSpotRatesByCoin: Record<string, number>;
-    latestHoldingsByCoin: Record<string, {units: number}>;
+    lastSpotRatesByRateKey: Record<string, number>;
+    latestHoldingsByRateKey: Record<string, {units: number}>;
     latestRemainingCostBasisFiatTotal: number;
   };
   builtAt?: number;
@@ -489,8 +489,12 @@ export const serializeComputedSeriesToCachedTimeframe = (args: {
         fetchedOn: toOptionalFiniteNumber(dep.fetchedOn),
         lastTs: toOptionalFiniteNumber(dep.lastTs),
       })),
-    lastSpotRatesByCoin: {...(args.patchMetadata?.lastSpotRatesByCoin || {})},
-    latestHoldingsByCoin: {...(args.patchMetadata?.latestHoldingsByCoin || {})},
+    lastSpotRatesByRateKey: {
+      ...(args.patchMetadata?.lastSpotRatesByRateKey || {}),
+    },
+    latestHoldingsByRateKey: {
+      ...(args.patchMetadata?.latestHoldingsByRateKey || {}),
+    },
     latestRemainingCostBasisFiatTotal: toFiniteNumber(
       args.patchMetadata?.latestRemainingCostBasisFiatTotal,
       0,
@@ -504,12 +508,12 @@ export const serializeComputedSeriesToCachedTimeframe = (args: {
 
 export const patchCachedLatestPointWithSpotRates = (args: {
   cachedTimeframe: CachedBalanceChartTimeframe;
-  currentSpotRatesByCoin: Record<string, number>;
+  currentSpotRatesByRateKey: Record<string, number>;
   patchedAt?: number;
 }): CachedBalanceChartTimeframe => {
   const spotRateChange = getPatchableSpotRateChange({
     cachedTimeframe: args.cachedTimeframe,
-    currentSpotRatesByCoin: args.currentSpotRatesByCoin,
+    currentSpotRatesByRateKey: args.currentSpotRatesByRateKey,
   });
 
   if (!spotRateChange.patchable || !spotRateChange.changed) {
@@ -522,11 +526,11 @@ export const patchCachedLatestPointWithSpotRates = (args: {
   }
 
   let latestTotalFiatBalance = 0;
-  for (const [coin, entry] of Object.entries(
-    args.cachedTimeframe.latestHoldingsByCoin || {},
+  for (const [rateKey, entry] of Object.entries(
+    args.cachedTimeframe.latestHoldingsByRateKey || {},
   )) {
     const units = toFiniteNumber(entry?.units, 0);
-    const currentRate = args.currentSpotRatesByCoin?.[coin];
+    const currentRate = args.currentSpotRatesByRateKey?.[rateKey];
     if (!(Number.isFinite(currentRate) && currentRate > 0)) {
       return args.cachedTimeframe;
     }
@@ -553,15 +557,15 @@ export const patchCachedLatestPointWithSpotRates = (args: {
   nextTotalUnrealizedPnlFiat[lastIndex] = latestTotalUnrealizedPnlFiat;
   nextTotalPnlPercent[lastIndex] = latestTotalPnlPercent;
 
-  const nextLastSpotRatesByCoin = {
-    ...args.cachedTimeframe.lastSpotRatesByCoin,
+  const nextLastSpotRatesByRateKey = {
+    ...args.cachedTimeframe.lastSpotRatesByRateKey,
   };
-  for (const coin of Object.keys(
-    args.cachedTimeframe.latestHoldingsByCoin || {},
+  for (const rateKey of Object.keys(
+    args.cachedTimeframe.latestHoldingsByRateKey || {},
   )) {
-    const currentRate = args.currentSpotRatesByCoin[coin];
+    const currentRate = args.currentSpotRatesByRateKey[rateKey];
     if (Number.isFinite(currentRate) && currentRate > 0) {
-      nextLastSpotRatesByCoin[coin] = currentRate;
+      nextLastSpotRatesByRateKey[rateKey] = currentRate;
     }
   }
 
@@ -571,7 +575,7 @@ export const patchCachedLatestPointWithSpotRates = (args: {
       typeof args.patchedAt === 'number' && Number.isFinite(args.patchedAt)
         ? args.patchedAt
         : Date.now(),
-    lastSpotRatesByCoin: nextLastSpotRatesByCoin,
+    lastSpotRatesByRateKey: nextLastSpotRatesByRateKey,
     totalFiatBalance: nextTotalFiatBalance,
     totalUnrealizedPnlFiat: nextTotalUnrealizedPnlFiat,
     totalPnlPercent: nextTotalPnlPercent,

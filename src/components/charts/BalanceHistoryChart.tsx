@@ -52,7 +52,7 @@ import {Action, LinkBlue, White} from '../../styles/colors';
 import haptic from '../haptic-feedback/haptic';
 import {
   buildPnlWalletInputsFromPortfolioSnapshotsAsync,
-  buildPnlCurrentRatesByCoinFromPortfolioSnapshots,
+  buildPnlCurrentRatesByRateKeyFromPortfolioSnapshots,
   getPortfolioWalletChainLower,
   getPortfolioWalletCurrencyAbbreviation,
   getPortfolioWalletId,
@@ -124,7 +124,7 @@ type AnalysisInputs = PnlWalletInputs;
 
 const EMPTY_ANALYSIS_INPUTS = (quoteCurrency: string): AnalysisInputs => ({
   wallets: [],
-  currentRatesByCoin: {},
+  currentRatesByRateKey: {},
   quoteCurrency: (quoteCurrency || '').toUpperCase(),
 });
 
@@ -495,8 +495,8 @@ const BalanceHistoryChart = ({
     return next;
   }, [snapshotVersionSig, snapshotsByWalletId, sortedWalletIds]);
 
-  const liveCurrentSpotRatesByCoin = useMemo(() => {
-    return buildPnlCurrentRatesByCoinFromPortfolioSnapshots({
+  const liveCurrentSpotRatesByRateKey = useMemo(() => {
+    return buildPnlCurrentRatesByRateKeyFromPortfolioSnapshots({
       snapshotsByWalletId: snapshotsByWalletId || {},
       wallets: wallets || [],
       quoteCurrency,
@@ -505,29 +505,29 @@ const BalanceHistoryChart = ({
   }, [quoteCurrency, rates, snapshotsByWalletId, wallets]);
 
   const currentRatesRevision = useMemo(() => {
-    return Object.entries(liveCurrentSpotRatesByCoin || {})
+    return Object.entries(liveCurrentSpotRatesByRateKey || {})
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([coin, rate]) => `${coin}:${rate}`)
+      .map(([rateKey, rate]) => `${rateKey}:${rate}`)
       .join('|');
-  }, [liveCurrentSpotRatesByCoin]);
+  }, [liveCurrentSpotRatesByRateKey]);
 
   const preparedCurrentRatesRevision = useMemo(() => {
-    return Object.entries(analysisInputs.currentRatesByCoin || {})
+    return Object.entries(analysisInputs.currentRatesByRateKey || {})
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([coin, rate]) => `${coin}:${rate}`)
+      .map(([rateKey, rate]) => `${rateKey}:${rate}`)
       .join('|');
-  }, [analysisInputs.currentRatesByCoin]);
+  }, [analysisInputs.currentRatesByRateKey]);
 
   // Prefer the prepared rate map once it has caught up with the latest spot
   // inputs, but fall back to the live map so cache patching reacts immediately.
-  const currentSpotRatesByCoin = useMemo(() => {
+  const currentSpotRatesByRateKey = useMemo(() => {
     return preparedCurrentRatesRevision === currentRatesRevision
-      ? analysisInputs.currentRatesByCoin
-      : liveCurrentSpotRatesByCoin;
+      ? analysisInputs.currentRatesByRateKey
+      : liveCurrentSpotRatesByRateKey;
   }, [
-    analysisInputs.currentRatesByCoin,
+    analysisInputs.currentRatesByRateKey,
     currentRatesRevision,
-    liveCurrentSpotRatesByCoin,
+    liveCurrentSpotRatesByRateKey,
     preparedCurrentRatesRevision,
   ]);
 
@@ -710,12 +710,12 @@ const BalanceHistoryChart = ({
         timeframe,
         snapshotVersionSig,
         historicalRateDeps,
-        currentSpotRatesByCoin,
+        currentSpotRatesByRateKey,
       });
     },
     [
       cachedScope?.timeframes,
-      currentSpotRatesByCoin,
+      currentSpotRatesByRateKey,
       scopeId,
       snapshotVersionSig,
     ],
@@ -754,7 +754,7 @@ const BalanceHistoryChart = ({
           timeframe,
         ),
         snapshotVersionSig,
-        currentSpotRatesByCoin,
+        currentSpotRatesByRateKey,
         fiatRateSeriesCache,
       });
     }
@@ -762,7 +762,7 @@ const BalanceHistoryChart = ({
     return next;
   }, [
     cachedScope?.timeframes,
-    currentSpotRatesByCoin,
+    currentSpotRatesByRateKey,
     fiatRateSeriesCache,
     snapshotVersionSig,
   ]);
@@ -840,7 +840,7 @@ const BalanceHistoryChart = ({
         status === 'patchable'
           ? patchCachedLatestPointWithSpotRates({
               cachedTimeframe,
-              currentSpotRatesByCoin,
+              currentSpotRatesByRateKey,
             })
           : cachedTimeframe;
 
@@ -894,7 +894,7 @@ const BalanceHistoryChart = ({
   }, [
     cachedScope,
     cachedTimeframeStatusByTimeframe,
-    currentSpotRatesByCoin,
+    currentSpotRatesByRateKey,
     dispatch,
     getTimeframeRevision,
     scopeId,
@@ -1077,9 +1077,9 @@ const BalanceHistoryChart = ({
           timeframe,
           quoteCurrency: analysisInputs.quoteCurrency,
           fiatRateSeriesCache,
-          currentRatesByCoin:
-            Object.keys(currentSpotRatesByCoin || {}).length > 0
-              ? currentSpotRatesByCoin
+          currentRatesByRateKey:
+            Object.keys(currentSpotRatesByRateKey || {}).length > 0
+              ? currentSpotRatesByRateKey
               : undefined,
           nowMs: targetNowMs,
           maxPoints: FIAT_RATE_SERIES_TARGET_POINTS,
@@ -1171,7 +1171,7 @@ const BalanceHistoryChart = ({
     [
       analysisInputs,
       balanceOffset,
-      currentSpotRatesByCoin,
+      currentSpotRatesByRateKey,
       fiatRateSeriesCache,
       snapshotVersionSig,
       sortedWalletIds,
@@ -1464,7 +1464,7 @@ const BalanceHistoryChart = ({
       status === 'patchable'
         ? patchCachedLatestPointWithSpotRates({
             cachedTimeframe,
-            currentSpotRatesByCoin,
+            currentSpotRatesByRateKey,
           })
         : cachedTimeframe;
 
@@ -1472,7 +1472,7 @@ const BalanceHistoryChart = ({
   }, [
     cachedScope?.timeframes,
     cachedTimeframeStatusByTimeframe,
-    currentSpotRatesByCoin,
+    currentSpotRatesByRateKey,
     selectedTimeframe,
   ]);
 

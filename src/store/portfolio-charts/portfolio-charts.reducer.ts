@@ -149,8 +149,8 @@ const sanitizeTimeframe = (
   historicalRateDeps: Array.isArray(timeframe?.historicalRateDeps)
     ? timeframe.historicalRateDeps.filter(dep => !!dep?.cacheKey)
     : [],
-  lastSpotRatesByCoin: {...(timeframe?.lastSpotRatesByCoin || {})},
-  latestHoldingsByCoin: {...(timeframe?.latestHoldingsByCoin || {})},
+  lastSpotRatesByRateKey: {...(timeframe?.lastSpotRatesByRateKey || {})},
+  latestHoldingsByRateKey: {...(timeframe?.latestHoldingsByRateKey || {})},
   ts: Array.isArray(timeframe?.ts) ? timeframe.ts.slice() : [],
   totalFiatBalance: Array.isArray(timeframe?.totalFiatBalance)
     ? timeframe.totalFiatBalance.slice()

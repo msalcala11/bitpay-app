@@ -120,7 +120,7 @@ jest.mock('../helper-methods', () => {
 import type {BalanceSnapshot} from '../../store/portfolio/portfolio.models';
 import type {Wallet} from '../../store/wallet/wallet.models';
 import {
-  buildPnlCurrentRatesByCoinFromPortfolioSnapshots,
+  buildPnlCurrentRatesByRateKeyFromPortfolioSnapshots,
   buildPnlWalletInputsFromPortfolioSnapshots,
   buildPnlWalletInputsFromPortfolioSnapshotsAsync,
   getPortfolioWalletId,
@@ -316,7 +316,7 @@ describe('Pnl wallet input builders', () => {
         yieldControl,
       },
     );
-    const liveRates = buildPnlCurrentRatesByCoinFromPortfolioSnapshots({
+    const liveRates = buildPnlCurrentRatesByRateKeyFromPortfolioSnapshots({
       snapshotsByWalletId,
       wallets,
       quoteCurrency: '',
@@ -324,7 +324,7 @@ describe('Pnl wallet input builders', () => {
     });
 
     expect(asyncBuilt).toEqual(sync);
-    expect(sync.currentRatesByCoin).toEqual(liveRates);
+    expect(sync.currentRatesByRateKey).toEqual(liveRates);
     expect(sync.quoteCurrency).toBe('USD');
     expect(sync.wallets.map(wallet => wallet.walletId)).toEqual([
       'wallet-btc',
@@ -333,9 +333,9 @@ describe('Pnl wallet input builders', () => {
     expect(
       sync.wallets[0].snapshots.map(snapshot => snapshot.timestamp),
     ).toEqual([1_000, 2_000]);
-    expect(sync.currentRatesByCoin).toEqual({
+    expect(sync.currentRatesByRateKey).toEqual({
       btc: 65_000,
-      usdc: 1,
+      [`usdc|eth|${USDC_TOKEN_ADDRESS}`]: 1,
     });
     expect(yieldControl).toHaveBeenCalled();
   });
@@ -384,7 +384,7 @@ describe('Pnl wallet input builders', () => {
     expect(asyncBuilt).toEqual(sync);
     expect(sync).toEqual({
       wallets: [],
-      currentRatesByCoin: {},
+      currentRatesByRateKey: {},
       quoteCurrency: 'EUR',
     });
   });

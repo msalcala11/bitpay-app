@@ -80,7 +80,7 @@ export type PnlAnalysisPoint = {
 };
 
 export type AssetPnlSummary = {
-  coin: string;
+  rateKey: string;
   displaySymbol: string;
   rateStart: number;
   rateEnd: number;
@@ -102,8 +102,8 @@ export type TotalPnlSummary = {
 export type PnlAnalysisResult = {
   timeframe: PnlTimeframe;
   quoteCurrency: string;
-  driverCoin: string;
-  coins: string[];
+  driverRateKey: string;
+  rateKeys: string[];
   wallets: WalletForAnalysis[];
   points: PnlAnalysisPoint[];
 
@@ -493,11 +493,11 @@ type BuildPnlAnalysisSeriesArgs = {
   quoteCurrency: string;
   fiatRateSeriesCache: FiatRateSeriesCache;
   /**
-   * Optional current/spot rate overrides per coin (e.g. from app Rates / market stats).
+   * Optional current/spot rate overrides per rate key (e.g. from app Rates / market stats).
    * When provided, the final point in the series will use this rate. This helps
    * ensure % changes match the ExchangeRate screen which uses a "currentRate" override.
    */
-  currentRatesByCoin?: Record<string, number>;
+  currentRatesByRateKey?: Record<string, number>;
   nowMs?: number;
   maxPoints?: number;
   onHistoricalRateDependency?: (cacheKey: string) => void;
@@ -555,16 +555,16 @@ function* buildPnlAnalysisSeriesGenerator(
     }
   }
 
-  const coins = Array.from(rateIdentitiesByKey.keys()).sort((a, b) =>
+  const rateKeys = Array.from(rateIdentitiesByKey.keys()).sort((a, b) =>
     a.localeCompare(b),
   );
 
-  if (coins.length === 0) {
+  if (rateKeys.length === 0) {
     return {
       timeframe: args.timeframe,
       quoteCurrency,
-      driverCoin: '',
-      coins: [],
+      driverRateKey: '',
+      rateKeys: [],
       wallets,
       points: [],
       assetSummaries: [],
@@ -572,8 +572,8 @@ function* buildPnlAnalysisSeriesGenerator(
     };
   }
 
-  // Driver coin: longest series wins; tie-break alphabetically.
-  let driverCoin = coins[0];
+  // Driver rate key: longest series wins; tie-break alphabetically.
+  let driverRateKey = rateKeys[0];
   let driverLen = -1;
 
   const baselineMs = getBaselineMs(args.timeframe, nowMs);
@@ -585,21 +585,21 @@ function* buildPnlAnalysisSeriesGenerator(
   // so percent changes are consistent across the app.
   const seriesInterval = getFiatTimeframeSeriesInterval(args.timeframe);
 
-  // Build compact rate series per coin and compute the latest shared end bound.
+  // Build compact rate series per rate key and compute the latest shared end bound.
   //
   // This avoids the heavy allocation work performed by alignTimestamps/trimTimestamps,
-  // which becomes especially expensive for ALL when multiple coins have long daily histories.
+  // which becomes especially expensive for ALL when multiple assets have long daily histories.
   //
   // For bounded timeframes, keep one sample before the requested baseline so the
   // first rendered point can still anchor at the exact timeframe start instead of
   // jumping forward to the first post-cutoff rate sample.
-  const rateSeriesByCoin: Record<string, RateSeries> = {};
+  const rateSeriesByRateKey: Record<string, RateSeries> = {};
 
   let overlapStart = Number.NEGATIVE_INFINITY;
   let overlapEnd = Number.POSITIVE_INFINITY;
 
-  for (const coin of coins) {
-    const rateIdentity = rateIdentitiesByKey.get(coin);
+  for (const rateKey of rateKeys) {
+    const rateIdentity = rateIdentitiesByKey.get(rateKey);
     if (!rateIdentity) {
       continue;
     }
@@ -618,17 +618,17 @@ function* buildPnlAnalysisSeriesGenerator(
     );
     if (!series.ts.length) {
       throw new Error(
-        `Rates exist but no usable points after filtering for ${quoteCurrency}:${coin}:${args.timeframe}.`,
+        `Rates exist but no usable points after filtering for ${quoteCurrency}:${rateKey}:${args.timeframe}.`,
       );
     }
 
-    rateSeriesByCoin[coin] = series;
+    rateSeriesByRateKey[rateKey] = series;
 
     if (
       series.ts.length > driverLen ||
-      (series.ts.length === driverLen && coin < driverCoin)
+      (series.ts.length === driverLen && rateKey < driverRateKey)
     ) {
-      driverCoin = coin;
+      driverRateKey = rateKey;
       driverLen = series.ts.length;
     }
 
@@ -641,7 +641,9 @@ function* buildPnlAnalysisSeriesGenerator(
     !Number.isFinite(overlapEnd) ||
     overlapEnd < overlapStart
   ) {
-    throw new Error('No overlapping rate window found across selected coins.');
+    throw new Error(
+      'No overlapping rate window found across selected historical rate keys.',
+    );
   }
 
   const desiredStart =
@@ -650,7 +652,7 @@ function* buildPnlAnalysisSeriesGenerator(
       : baselineMs ?? overlapStart;
   // Requested windows should keep their full start bound. Wallets that do not
   // exist yet already contribute zero until their first snapshot, so we do not
-  // need to crop the chart to the shortest shared coin history.
+  // need to crop the chart to the shortest shared asset history.
   const startBound = desiredStart;
   const endBound = overlapEnd;
 
@@ -673,15 +675,17 @@ function* buildPnlAnalysisSeriesGenerator(
   }
 
   // Nearest-rate cursors, sampled on the shared timeline.
-  const rateCursorByCoin: Record<string, RateCursor> = {};
-  for (const coin of coins) {
-    rateCursorByCoin[coin] = makeNearestRateCursor(rateSeriesByCoin[coin]);
+  const rateCursorByRateKey: Record<string, RateCursor> = {};
+  for (const rateKey of rateKeys) {
+    rateCursorByRateKey[rateKey] = makeNearestRateCursor(
+      rateSeriesByRateKey[rateKey],
+    );
   }
 
-  const getOverrideRate = (coin: string): number | undefined => {
-    const overrides = args.currentRatesByCoin;
+  const getOverrideRate = (rateKey: string): number | undefined => {
+    const overrides = args.currentRatesByRateKey;
     if (!overrides) return undefined;
-    const v = overrides[coin];
+    const v = overrides[rateKey];
     return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
   };
 
@@ -702,17 +706,17 @@ function* buildPnlAnalysisSeriesGenerator(
   const singleAsset = isSingleAsset(wallets);
   const points: PnlAnalysisPoint[] = [];
 
-  const baselineRateByCoin: Record<string, number> = {};
-  for (const coin of coins) {
+  const baselineRateByRateKey: Record<string, number> = {};
+  for (const rateKey of rateKeys) {
     // Keep the baseline anchored to the same sampled rate used by the first
     // rendered point so the chart always starts at exactly 0 PnL / 0%.
-    const r0 = rateCursorByCoin[coin]?.getNearest(timeline[0]);
+    const r0 = rateCursorByRateKey[rateKey]?.getNearest(timeline[0]);
     if (r0 === undefined) {
       throw new Error(
-        `Missing ${quoteCurrency}:${coin} rate at ts=${timeline[0]}.`,
+        `Missing ${quoteCurrency}:${rateKey} rate at ts=${timeline[0]}.`,
       );
     }
-    baselineRateByCoin[coin] = r0;
+    baselineRateByRateKey[rateKey] = r0;
   }
 
   const startTs = timeline[0];
@@ -731,7 +735,7 @@ function* buildPnlAnalysisSeriesGenerator(
     const unitsAtomic =
       lastIdx >= 0 ? parseAtomicToBigint(snaps[lastIdx].cryptoBalance) : 0n;
     const unitsNumber = atomicToUnitNumber(unitsAtomic, decimals);
-    const startRate = baselineRateByCoin[rateIdentity.key];
+    const startRate = baselineRateByRateKey[rateIdentity.key];
     const basisFiat = unitsNumber * startRate;
 
     windowStateByWalletId[w.walletId] = {
@@ -761,15 +765,15 @@ function* buildPnlAnalysisSeriesGenerator(
     let totalCryptoAtomic: bigint = 0n;
     let totalCryptoCreds: WalletCredentials | null = null;
 
-    // Determine markRate based on driver coin.
+    // Determine markRate based on the driver rate key.
     const driverRate =
       i === timeline.length - 1
-        ? getOverrideRate(driverCoin) ??
-          rateCursorByCoin[driverCoin]?.getNearest(ts)
-        : rateCursorByCoin[driverCoin]?.getNearest(ts);
+        ? getOverrideRate(driverRateKey) ??
+          rateCursorByRateKey[driverRateKey]?.getNearest(ts)
+        : rateCursorByRateKey[driverRateKey]?.getNearest(ts);
     if (driverRate === undefined) {
       throw new Error(
-        `Missing ${quoteCurrency}:${driverCoin} rate at ts=${ts}.`,
+        `Missing ${quoteCurrency}:${driverRateKey} rate at ts=${ts}.`,
       );
     }
 
@@ -778,13 +782,14 @@ function* buildPnlAnalysisSeriesGenerator(
       if (!st) {
         continue;
       }
-      const coin = st.rateKey;
+      const rateKey = st.rateKey;
       const rate =
         i === timeline.length - 1
-          ? getOverrideRate(coin) ?? rateCursorByCoin[coin]?.getNearest(ts)
-          : rateCursorByCoin[coin]?.getNearest(ts);
+          ? getOverrideRate(rateKey) ??
+            rateCursorByRateKey[rateKey]?.getNearest(ts)
+          : rateCursorByRateKey[rateKey]?.getNearest(ts);
       if (rate === undefined) {
-        throw new Error(`Missing ${quoteCurrency}:${coin} rate at ts=${ts}.`);
+        throw new Error(`Missing ${quoteCurrency}:${rateKey} rate at ts=${ts}.`);
       }
 
       // Advance window basis state by processing all snapshots up to this timestamp.
@@ -799,7 +804,7 @@ function* buildPnlAnalysisSeriesGenerator(
         if (delta > 0n) {
           let markRate = Number((s as any).markRate);
           if (!Number.isFinite(markRate) || markRate <= 0) {
-            const fallback = rateCursorByCoin[coin]?.getNearest(sTs);
+            const fallback = rateCursorByRateKey[rateKey]?.getNearest(sTs);
             markRate = fallback === undefined ? rate : fallback;
           }
           const deltaUnits = atomicToUnitNumber(delta, st.decimals);
@@ -858,7 +863,7 @@ function* buildPnlAnalysisSeriesGenerator(
       const pnlPercent =
         costBasis > 0 ? (unrealizedPnlFiat / costBasis) * 100 : 0;
 
-      const base = baselineRateByCoin[coin] || rate;
+      const base = baselineRateByRateKey[rateKey] || rate;
       const walletRatePct = base > 0 ? ((rate - base) / base) * 100 : 0;
 
       byWalletId[w.walletId] = {
@@ -888,7 +893,7 @@ function* buildPnlAnalysisSeriesGenerator(
         ? (totalUnrealizedPnlFiat / totalRemainingCostBasisFiat) * 100
         : 0;
 
-    const driverBase = baselineRateByCoin[driverCoin] || driverRate;
+    const driverBase = baselineRateByRateKey[driverRateKey] || driverRate;
     const ratePercentChange =
       driverBase > 0
         ? ((driverRate - driverBase) / driverBase) * 100
@@ -920,15 +925,15 @@ function* buildPnlAnalysisSeriesGenerator(
   const first = points[0];
   const last = points[points.length - 1];
 
-  const assetSummaries: AssetPnlSummary[] = coins.map(coin => {
-    const rateIdentity = rateIdentitiesByKey.get(coin);
+  const assetSummaries: AssetPnlSummary[] = rateKeys.map(rateKey => {
+    const rateIdentity = rateIdentitiesByKey.get(rateKey);
     const ids = new Set(
       wallets
-        .filter(w => rateIdentityByWalletId.get(w.walletId)?.key === coin)
+        .filter(w => rateIdentityByWalletId.get(w.walletId)?.key === rateKey)
         .map(w => w.walletId),
     );
 
-    // Sum windowed PnL + basis for wallets in this coin group.
+    // Sum windowed PnL + basis for wallets in this rate-key group.
     let startPnl = 0;
     let endPnl = 0;
     let endBasis = 0;
@@ -940,18 +945,20 @@ function* buildPnlAnalysisSeriesGenerator(
       endBasis += last.byWalletId[w.walletId]?.remainingCostBasisFiat ?? 0;
     }
 
-    const rateStart = baselineRateByCoin[coin];
-    const rateEnd = rateCursorByCoin[coin]?.getNearest(endTs);
+    const rateStart = baselineRateByRateKey[rateKey];
+    const rateEnd = rateCursorByRateKey[rateKey]?.getNearest(endTs);
     if (rateEnd === undefined)
-      throw new Error(`Missing ${quoteCurrency}:${coin} rate at ts=${endTs}.`);
+      throw new Error(
+        `Missing ${quoteCurrency}:${rateKey} rate at ts=${endTs}.`,
+      );
     const rateChange = rateEnd - rateStart;
     const ratePct = rateStart > 0 ? (rateChange / rateStart) * 100 : 0;
 
     const pnlPercent = endBasis > 0 ? (endPnl / endBasis) * 100 : 0;
 
     return {
-      coin,
-      displaySymbol: rateIdentity?.displaySymbol || coin.toUpperCase(),
+      rateKey,
+      displaySymbol: rateIdentity?.displaySymbol || rateKey.toUpperCase(),
       rateStart,
       rateEnd,
       rateChange,
@@ -973,8 +980,8 @@ function* buildPnlAnalysisSeriesGenerator(
   return {
     timeframe: args.timeframe,
     quoteCurrency,
-    driverCoin,
-    coins,
+    driverRateKey,
+    rateKeys,
     wallets,
     points,
     assetSummaries,

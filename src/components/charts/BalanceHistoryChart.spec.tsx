@@ -18,7 +18,7 @@ const mockBuildBalanceChartTimeframeRevision = jest.fn(
       .map(dep => `${dep.cacheKey || 'na'}:${dep.fetchedOn ?? 'na'}:${dep.lastTs ?? 'na'}`)
       .join(',')}`,
 );
-const mockBuildPnlCurrentRatesByCoinFromPortfolioSnapshots = jest.fn(
+const mockBuildPnlCurrentRatesByRateKeyFromPortfolioSnapshots = jest.fn(
   () => ({}),
 );
 const mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync = jest.fn();
@@ -98,8 +98,11 @@ jest.mock('../../utils/portfolio/core/pnl/analysis', () => ({
     mockBuildPnlAnalysisSeriesAsync(...args),
 }));
 jest.mock('../../utils/portfolio/assets', () => ({
-  buildPnlCurrentRatesByCoinFromPortfolioSnapshots: (...args: unknown[]) =>
-    mockBuildPnlCurrentRatesByCoinFromPortfolioSnapshots.apply(undefined, args),
+  buildPnlCurrentRatesByRateKeyFromPortfolioSnapshots: (...args: unknown[]) =>
+    mockBuildPnlCurrentRatesByRateKeyFromPortfolioSnapshots.apply(
+      undefined,
+      args,
+    ),
   buildPnlWalletInputsFromPortfolioSnapshotsAsync: (...args: unknown[]) =>
     mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.apply(undefined, args),
   getPortfolioWalletChainLower: (wallet?: {chain?: string}) =>
@@ -341,7 +344,7 @@ describe('BalanceHistoryChart', () => {
   it('prepares analysis inputs on initial mount and remount', async () => {
     mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.mockResolvedValue({
       wallets: [],
-      currentRatesByCoin: {},
+      currentRatesByRateKey: {},
       quoteCurrency: 'USD',
     });
 
@@ -386,7 +389,7 @@ describe('BalanceHistoryChart', () => {
   it('preserves SVM token address case in fiat-rate fetch requests', async () => {
     mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.mockResolvedValue({
       wallets: [],
-      currentRatesByCoin: {},
+      currentRatesByRateKey: {},
       quoteCurrency: 'USD',
     });
 
@@ -417,7 +420,7 @@ describe('BalanceHistoryChart', () => {
   it('does not rerun analysis-input preparation on unrelated cache or snapshot writes', async () => {
     mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.mockResolvedValue({
       wallets: [],
-      currentRatesByCoin: {},
+      currentRatesByRateKey: {},
       quoteCurrency: 'USD',
     });
     const rates = {};
@@ -528,7 +531,7 @@ describe('BalanceHistoryChart', () => {
               snapshots: [],
             },
           ],
-          currentRatesByCoin: {
+          currentRatesByRateKey: {
             eth: 2500,
           },
           quoteCurrency: 'EUR',
@@ -539,8 +542,8 @@ describe('BalanceHistoryChart', () => {
       points: createMockAnalysisPoints(),
       timeframe: '1D',
       quoteCurrency: 'EUR',
-      driverCoin: 'eth',
-      coins: ['eth'],
+      driverRateKey: 'eth',
+      rateKeys: ['eth'],
       wallets: [],
       assetSummaries: [],
       totalSummary: {
