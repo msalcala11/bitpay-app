@@ -23,12 +23,13 @@ type Props<T extends string> = {
   selected: T;
   onSelect: (value: T) => void;
   width?: number;
+  horizontalInset?: string;
 };
 
-const TimeframeContainer = styled.View`
+const TimeframeContainer = styled.View<{$horizontalInset?: string}>`
   margin-top: 5px;
   width: 100%;
-  padding: 0;
+  padding: 0 ${({$horizontalInset = '0'}) => $horizontalInset};
 `;
 
 const TimeframeRow = styled.View`
@@ -70,9 +71,12 @@ export const TimeframeSelector = <T extends string>({
   selected,
   onSelect,
   width,
+  horizontalInset,
 }: Props<T>): React.ReactElement => {
   return (
-    <TimeframeContainer>
+    <TimeframeContainer
+      testID="timeframe-selector-container"
+      $horizontalInset={horizontalInset}>
       <TimeframeRow
         testID="timeframe-selector-row"
         style={typeof width === 'number' ? {width} : undefined}>

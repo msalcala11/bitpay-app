@@ -1381,6 +1381,7 @@ const ExchangeRate = () => {
         <TimeframeSelector
           options={fiatChartTimeframeOptions}
           selected={selectedTimeframe}
+          horizontalInset={ScreenGutter}
           onSelect={setSelectedTimeframe}
         />
 

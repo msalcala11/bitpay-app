@@ -31,6 +31,7 @@ import {
   RefreshControl,
   SectionList,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import BalanceHistoryChart from '../../../components/charts/BalanceHistoryChart';
@@ -93,7 +94,6 @@ import {
   HeaderRightContainer,
   ProposalBadgeContainer,
   ScreenGutter,
-  WIDTH,
 } from '../../../components/styled/Containers';
 import SearchComponent, {
   SearchableItem,
@@ -375,6 +375,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   const {showOngoingProcess, hideOngoingProcess} = useOngoingProcess();
   const {tokenOptionsByAddress} = useTokenContext();
   const theme = useTheme();
+  const {width: windowWidth} = useWindowDimensions();
   const {defaultAltCurrency, hideAllBalances, showPortfolioValue} =
     useAppSelector(({APP}) => APP);
   const contactList = useAppSelector(({CONTACT}) => CONTACT.list);
@@ -394,7 +395,11 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   const selectedChainFilterOption = useAppSelector(
     ({APP}) => APP.selectedChainFilterOption,
   );
-  const isSmallScreen = WIDTH < 400;
+  const isSmallScreen = windowWidth < 400;
+  const timeframeSelectorWidth = Math.min(
+    Math.max(windowWidth - Number.parseInt(ScreenGutter, 10) * 2, 0),
+    450,
+  );
   const network = useAppSelector(({APP}) => APP.network);
   const [history, setHistory] = useState<any[]>([]);
   const [accountTransactionsHistory, setAccountTransactionsHistory] = useState<{
@@ -1421,6 +1426,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
                 quoteCurrency={defaultAltCurrency.isoCode}
                 rates={rates}
                 fiatRateSeriesCache={fiatRateSeriesCache}
+                timeframeSelectorWidth={timeframeSelectorWidth}
                 onSelectedBalanceChange={setSelectedBalance}
                 preChartContent={
                   <AccountAddressBadge address={accountItem?.receiveAddress} />

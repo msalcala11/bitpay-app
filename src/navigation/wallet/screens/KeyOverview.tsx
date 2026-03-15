@@ -14,7 +14,7 @@ import {
   useTheme,
 } from '@react-navigation/native';
 import {FlashList} from '@shopify/flash-list';
-import {LogBox, RefreshControl, View} from 'react-native';
+import {LogBox, RefreshControl, View, useWindowDimensions} from 'react-native';
 import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 import {TouchableOpacity} from 'react-native-gesture-handler';
 import styled from 'styled-components/native';
@@ -356,6 +356,7 @@ const KeyOverview = () => {
   const logger = useLogger();
   const theme = useTheme();
   const isFocused = useIsFocused();
+  const {width: windowWidth} = useWindowDimensions();
   const showArchaxBanner = useAppSelector(({APP}) => APP.showArchaxBanner);
   const {showOngoingProcess, hideOngoingProcess} = useOngoingProcess();
   const {tokenOptionsByAddress} = useTokenContext();
@@ -372,6 +373,10 @@ const KeyOverview = () => {
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
   const linkedCoinbase = useAppSelector(
     ({COINBASE}) => !!COINBASE.token[COINBASE_ENV],
+  );
+  const timeframeSelectorWidth = Math.max(
+    windowWidth - Number.parseInt(ScreenGutter, 10) * 2,
+    0,
   );
 
   const [showKeyDropdown, setShowKeyDropdown] = useState(false);
@@ -1106,6 +1111,7 @@ const KeyOverview = () => {
               quoteCurrency={quoteCurrency}
               rates={rates}
               fiatRateSeriesCache={fiatRateSeriesCache}
+              timeframeSelectorWidth={timeframeSelectorWidth}
               onSelectedBalanceChange={setSelectedBalance}
             />
           ) : null}

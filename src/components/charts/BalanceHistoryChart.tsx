@@ -214,6 +214,8 @@ export type BalanceHistoryChartProps = {
     | number
     | SharedValue<number>
     | Readonly<SharedValue<number>>;
+  timeframeSelectorHorizontalInset?: string;
+  timeframeSelectorWidth?: number;
   /**
    * Disable chart scrubbing interactions.
    */
@@ -257,6 +259,8 @@ const BalanceHistoryChart = ({
   showChangeRow = true,
   showTimeframeSelector = true,
   timeframeSelectorOpacity = 1,
+  timeframeSelectorHorizontalInset,
+  timeframeSelectorWidth,
   disablePanGesture = false,
   onChangeRowData,
   axisLabelOpacity = 1,
@@ -1684,6 +1688,8 @@ const BalanceHistoryChart = ({
           <TimeframeSelector
             options={fiatChartTimeframeOptions}
             selected={selectedTimeframe}
+            width={timeframeSelectorWidth}
+            horizontalInset={timeframeSelectorHorizontalInset}
             onSelect={tf => {
               setSelectedPoint(undefined);
               onSelectedBalanceChangeRef.current?.(undefined);

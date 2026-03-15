@@ -20,6 +20,7 @@ import {
   Share,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import {useStore} from 'react-redux';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
@@ -332,6 +333,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const dispatch = useAppDispatch();
   const reduxStore = useStore();
   const theme = useTheme();
+  const {width: windowWidth} = useWindowDimensions();
   const {t} = useTranslation();
   const [showWalletOptions, setShowWalletOptions] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -349,6 +351,10 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   );
 
   const locationData = useAppSelector(({LOCATION}) => LOCATION.locationData);
+  const timeframeSelectorWidth = Math.min(
+    Math.max(windowWidth - Number.parseInt(ScreenGutter, 10) * 2, 0),
+    450,
+  );
 
   const wallets = Object.values(keys).flatMap(k => k.wallets);
 
@@ -1244,6 +1250,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
                       isLoading === undefined || !!isLoading || refreshing
                     }
                     onSelectedBalanceChange={setSelectedFiatBalance}
+                    timeframeSelectorWidth={timeframeSelectorWidth}
                     changeRowStyle={{marginTop: 2}}
                     preChartContentTopMargin={12}
                     preChartContent={

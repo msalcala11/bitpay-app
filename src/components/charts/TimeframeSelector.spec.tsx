@@ -46,6 +46,26 @@ describe('TimeframeSelector', () => {
     expect(screen.getByTestId('timeframe-selector-row')).toHaveStyle({
       width: '100%',
     });
+    expect(screen.getByTestId('timeframe-selector-container')).toHaveStyle({
+      paddingLeft: 0,
+      paddingRight: 0,
+    });
+  });
+
+  it('supports an optional horizontal inset', () => {
+    const screen = renderWithTheme(
+      <TimeframeSelector
+        options={[...options]}
+        selected="1D"
+        onSelect={() => null}
+        horizontalInset="12px"
+      />,
+    );
+
+    expect(screen.getByTestId('timeframe-selector-container')).toHaveStyle({
+      paddingLeft: 12,
+      paddingRight: 12,
+    });
   });
 
   it('supports explicit narrow and wide widths', () => {

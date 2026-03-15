@@ -521,6 +521,7 @@ const PortfolioBalance = () => {
                   showChangeRow={false}
                   showTimeframeSelector
                   timeframeSelectorOpacity={timeframeSelectorOpacity}
+                  timeframeSelectorHorizontalInset={ScreenGutter}
                   disablePanGesture={isChartCollapsed}
                   // NOTE: Coinbase balance is intentionally excluded from the balance chart
                   // (Option B per product requirements) because we do not have historized
@@ -556,6 +557,7 @@ const PortfolioBalance = () => {
             rates={rates}
             fiatRateSeriesCache={fiatRateSeriesCache}
             onSelectedTimeframeChange={onSelectedChartTimeframeChange}
+            timeframeSelectorHorizontalInset={ScreenGutter}
             // NOTE: Coinbase balance is intentionally excluded from the balance chart
             // (Option B per product requirements) because we do not have historized
             // Coinbase balance snapshots.
