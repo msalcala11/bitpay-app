@@ -348,7 +348,10 @@ const InteractiveLineChart = ({
   //   - we regain focus after a theme switch (ensures redraw is visible),
   //   - layout happens after a theme switch (handles detach/reattach cases).
   const pointsForGraph = React.useMemo(
-    () => points.slice(),
+    () => ({
+      pointsForGraph: points.slice(),
+      pointsRefreshKey,
+    }).pointsForGraph,
     [points, pointsRefreshKey],
   );
   const hasDrawablePoints = pointsForGraph.length >= 2;
