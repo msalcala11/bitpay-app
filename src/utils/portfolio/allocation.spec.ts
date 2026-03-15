@@ -3,22 +3,28 @@ jest.mock('../../constants/currencies', () => ({
     eth: {
       theme: {
         coinColor: '#6b71d6',
+        backgroundColor: '#6b71d6',
+        gradientBackgroundColor: '#6b71d6',
       },
     },
   },
   BitpaySupportedTokens: {
-    usdt_eth: {
+    '0xdac17f958d2ee523a2206206994597c13d831ec7_e': {
       coin: 'usdt',
       chain: 'eth',
       address: '0xdac17f958d2ee523a2206206994597c13d831ec7',
       theme: {
         coinColor: '#089098',
+        backgroundColor: '#089098',
+        gradientBackgroundColor: '#089098',
       },
     },
   },
 }));
 
 jest.mock('../helper-methods', () => ({
+  addTokenChainSuffix: (name: string, chain: string) =>
+    `${String(name).toLowerCase()}_${chain === 'eth' ? 'e' : chain}`,
   formatCurrencyAbbreviation: (value: string) => (value || '').toUpperCase(),
   formatFiatAmount: (value: number, isoCode: string) =>
     `${(isoCode || '').toUpperCase()} ${value.toFixed(2)}`,
