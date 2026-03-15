@@ -297,10 +297,10 @@ const BalanceHistoryChart = ({
   const [analysisInputs, setAnalysisInputs] = useState<AnalysisInputs>(() => ({
     ...EMPTY_ANALYSIS_INPUTS(quoteCurrency),
   }));
-  const [analysisInputsReadyKey, setAnalysisInputsReadyKey] = useState<
+  const [analysisInputsReadyRevision, setAnalysisInputsReadyRevision] = useState<
     string | undefined
   >(undefined);
-  const [analysisInputsErrorKey, setAnalysisInputsErrorKey] = useState<
+  const [analysisInputsErrorRevision, setAnalysisInputsErrorRevision] = useState<
     string | undefined
   >(undefined);
 
@@ -378,6 +378,10 @@ const BalanceHistoryChart = ({
   const lastHapticPointTsRef = useRef<number | undefined>(undefined);
   const analysisHistoricalDepKeysRef = useRef<Set<string>>(new Set());
   const lastTouchedScopeIdRef = useRef<string | undefined>(undefined);
+  const prepScopedDepIdentityIdsRef = useRef<WeakMap<object, number>>(
+    new WeakMap(),
+  );
+  const prepScopedDepIdentityNextIdRef = useRef(1);
   const [hasCompletedInitialAllLoad, setHasCompletedInitialAllLoad] =
     useState(false);
 
@@ -395,11 +399,23 @@ const BalanceHistoryChart = ({
   }, [snapshotsByWalletId, wallets]);
 
   const hasAnySnapshots = totalSnapshotCount > 0;
-  const analysisInputsReadyKeyRef = useRef<string | undefined>(undefined);
+  const analysisInputsReadyRevisionRef = useRef<string | undefined>(undefined);
   const scopedWalletsRef = useRef<Wallet[]>([]);
   const scopedSnapshotsByWalletIdRef = useRef<BalanceSnapshotsByWalletId>({});
   const scopedSnapshotsVersionRef = useRef<string | undefined>(undefined);
   const fiatRateSeriesCacheRef = useRef(fiatRateSeriesCache);
+
+  const getPrepScopedDepIdentityId = useCallback((value: object): number => {
+    const existingId = prepScopedDepIdentityIdsRef.current.get(value);
+    if (typeof existingId === 'number') {
+      return existingId;
+    }
+
+    const nextId = prepScopedDepIdentityNextIdRef.current;
+    prepScopedDepIdentityNextIdRef.current += 1;
+    prepScopedDepIdentityIdsRef.current.set(value, nextId);
+    return nextId;
+  }, []);
 
   const scopedWallets = useMemo(() => {
     const previous = scopedWalletsRef.current;
@@ -659,6 +675,21 @@ const BalanceHistoryChart = ({
     });
   }, [fiatRateSeriesCache, prepFiatRateSeriesCacheKeys]);
 
+  const preparedInputsTargetRevision = useMemo(() => {
+    return [
+      analysisInputsBaseKey,
+      prepCacheRevision,
+      `wallets:${getPrepScopedDepIdentityId(scopedWallets)}`,
+      `snapshots:${getPrepScopedDepIdentityId(scopedSnapshotsByWalletId)}`,
+    ].join('|');
+  }, [
+    analysisInputsBaseKey,
+    getPrepScopedDepIdentityId,
+    prepCacheRevision,
+    scopedSnapshotsByWalletId,
+    scopedWallets,
+  ]);
+
   useEffect(() => {
     fiatRateSeriesCacheRef.current = fiatRateSeriesCache;
   }, [fiatRateSeriesCache]);
@@ -690,13 +721,19 @@ const BalanceHistoryChart = ({
   const getTimeframeAttemptRevision = useCallback(
     (timeframe: FiatRateInterval) => {
       return [
-        analysisInputsBaseKey,
+        preparedInputsTargetRevision,
+        analysisInputsReadyRevision || 'pending',
         currentRatesRevision,
         cacheRevision,
         timeframe,
       ].join('|');
     },
-    [analysisInputsBaseKey, cacheRevision, currentRatesRevision],
+    [
+      analysisInputsReadyRevision,
+      cacheRevision,
+      currentRatesRevision,
+      preparedInputsTargetRevision,
+    ],
   );
 
   const cachedTimeframeStatusByTimeframe = useMemo(() => {
@@ -751,8 +788,8 @@ const BalanceHistoryChart = ({
         hasAnyBackgroundHistoricalRecomputeNeeded));
 
   useEffect(() => {
-    analysisInputsReadyKeyRef.current = analysisInputsReadyKey;
-  }, [analysisInputsReadyKey]);
+    analysisInputsReadyRevisionRef.current = analysisInputsReadyRevision;
+  }, [analysisInputsReadyRevision]);
 
   useEffect(() => {
     if (!cachedScope) {
@@ -870,10 +907,10 @@ const BalanceHistoryChart = ({
       });
     });
   }, [
-    analysisInputsBaseKey,
     cacheRevision,
     currentRatesRevision,
     invalidateComputeGeneration,
+    preparedInputsTargetRevision,
   ]);
 
   // Reset only when the chart scope changes (wallet set / quote / balance offset).
@@ -881,10 +918,10 @@ const BalanceHistoryChart = ({
     const generation = invalidateComputeGeneration();
     analysisHistoricalDepKeysRef.current = new Set();
     lastTouchedScopeIdRef.current = undefined;
-    analysisInputsReadyKeyRef.current = undefined;
+    analysisInputsReadyRevisionRef.current = undefined;
     setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
-    setAnalysisInputsReadyKey(undefined);
-    setAnalysisInputsErrorKey(undefined);
+    setAnalysisInputsReadyRevision(undefined);
+    setAnalysisInputsErrorRevision(undefined);
     setHasCompletedInitialAllLoad(false);
     dispatchTimeframeState({
       type: 'resetAll',
@@ -899,22 +936,22 @@ const BalanceHistoryChart = ({
   useEffect(() => {
     let prepareHandle: ScheduledAfterInteractionsHandle | undefined;
     const shouldResetPreparedInputs =
-      analysisInputsReadyKeyRef.current !== analysisInputsBaseKey;
+      analysisInputsReadyRevisionRef.current !== preparedInputsTargetRevision;
 
     if (!hasAnySnapshots || !shouldPrepareAnalysisInputs) {
       setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
       analysisHistoricalDepKeysRef.current = new Set();
-      analysisInputsReadyKeyRef.current = undefined;
-      setAnalysisInputsReadyKey(undefined);
-      setAnalysisInputsErrorKey(undefined);
+      analysisInputsReadyRevisionRef.current = undefined;
+      setAnalysisInputsReadyRevision(undefined);
+      setAnalysisInputsErrorRevision(undefined);
       return;
     }
 
     if (shouldResetPreparedInputs) {
       setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
-      analysisInputsReadyKeyRef.current = undefined;
-      setAnalysisInputsReadyKey(undefined);
-      setAnalysisInputsErrorKey(undefined);
+      analysisInputsReadyRevisionRef.current = undefined;
+      setAnalysisInputsReadyRevision(undefined);
+      setAnalysisInputsErrorRevision(undefined);
     }
 
     const generation = computeGenerationRef.current;
@@ -945,19 +982,19 @@ const BalanceHistoryChart = ({
           return;
         }
 
-        const nextReadyKey = prepared.wallets.length
-          ? analysisInputsBaseKey
+        const nextReadyRevision = prepared.wallets.length
+          ? preparedInputsTargetRevision
           : undefined;
         analysisHistoricalDepKeysRef.current = historicalDepKeys;
-        analysisInputsReadyKeyRef.current = nextReadyKey;
+        analysisInputsReadyRevisionRef.current = nextReadyRevision;
         startTransition(() => {
           if (computeGenerationRef.current !== generation) {
             return;
           }
 
           setAnalysisInputs(prepared);
-          setAnalysisInputsReadyKey(nextReadyKey);
-          setAnalysisInputsErrorKey(undefined);
+          setAnalysisInputsReadyRevision(nextReadyRevision);
+          setAnalysisInputsErrorRevision(undefined);
         });
       },
       onError: error => {
@@ -970,15 +1007,15 @@ const BalanceHistoryChart = ({
 
         logBalanceHistoryChartError('prepare failed', error);
         analysisHistoricalDepKeysRef.current = new Set();
-        analysisInputsReadyKeyRef.current = undefined;
+        analysisInputsReadyRevisionRef.current = undefined;
         startTransition(() => {
           if (computeGenerationRef.current !== generation) {
             return;
           }
 
           setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
-          setAnalysisInputsReadyKey(undefined);
-          setAnalysisInputsErrorKey(analysisInputsBaseKey);
+          setAnalysisInputsReadyRevision(undefined);
+          setAnalysisInputsErrorRevision(preparedInputsTargetRevision);
         });
       },
     });
@@ -988,9 +1025,9 @@ const BalanceHistoryChart = ({
       removeScheduledHandle(prepareHandle, true);
     };
   }, [
-    analysisInputsBaseKey,
     hasAnySnapshots,
     prepCacheRevision,
+    preparedInputsTargetRevision,
     quoteCurrency,
     rates,
     scopedSnapshotsByWalletId,
@@ -1001,13 +1038,13 @@ const BalanceHistoryChart = ({
   ]);
 
   const hasAnalysisPreparationError =
-    analysisInputsErrorKey === analysisInputsBaseKey;
+    analysisInputsErrorRevision === preparedInputsTargetRevision;
 
   const inputsReady =
     shouldPrepareAnalysisInputs &&
     !!fiatRateSeriesCache &&
     analysisInputs.wallets.length > 0 &&
-    analysisInputsReadyKey === analysisInputsBaseKey &&
+    analysisInputsReadyRevision === preparedInputsTargetRevision &&
     !hasAnalysisPreparationError;
 
   const computeSeriesForTimeframe = useCallback(

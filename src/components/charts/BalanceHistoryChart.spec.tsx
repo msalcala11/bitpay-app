@@ -1,10 +1,23 @@
 import React from 'react';
 import {act, cleanup, render} from '@testing-library/react-native';
+import {FIAT_RATE_SERIES_TARGET_POINTS} from '../../store/rate/rate.models';
 import type {BalanceSnapshot} from '../../store/portfolio/portfolio.models';
 import type {Wallet} from '../../store/wallet/wallet.models';
 import BalanceHistoryChart from './BalanceHistoryChart';
 
 const mockBuildPnlAnalysisSeriesAsync = jest.fn();
+const mockBuildBalanceChartTimeframeRevision = jest.fn(
+  ({
+    timeframe,
+    historicalRateDeps = [],
+  }: {
+    timeframe: string;
+    historicalRateDeps?: Array<{cacheKey?: string; fetchedOn?: number; lastTs?: number}>;
+  }) =>
+    `revision:${timeframe}:${historicalRateDeps
+      .map(dep => `${dep.cacheKey || 'na'}:${dep.fetchedOn ?? 'na'}:${dep.lastTs ?? 'na'}`)
+      .join(',')}`,
+);
 const mockBuildPnlCurrentRatesByCoinFromPortfolioSnapshots = jest.fn(
   () => ({}),
 );
@@ -29,8 +42,8 @@ jest.mock('../../utils/portfolio/chartCache', () => {
   return {
     ...actual,
     buildBalanceChartScopeId: () => 'scope-1',
-    buildBalanceChartTimeframeRevision: ({timeframe}: {timeframe: string}) =>
-      `revision:${timeframe}`,
+    buildBalanceChartTimeframeRevision: (...args: unknown[]) =>
+      mockBuildBalanceChartTimeframeRevision(...args),
     buildSnapshotVersionSig: () => 'snapshot-sig',
     getCachedTimeframeStatus: () => 'missing',
     getSortedUniqueWalletIds: (walletIds: string[]) => walletIds,
@@ -244,6 +257,27 @@ const flushAsyncWork = async (iterations = 4) => {
   }
 };
 
+const createMockAnalysisPoints = () =>
+  Array.from({length: FIAT_RATE_SERIES_TARGET_POINTS}, (_, index) => ({
+    timestamp: 1_000 + index * 1_000,
+    totalFiatBalance: 100 + index,
+    totalRemainingCostBasisFiat: 80 + index,
+    totalUnrealizedPnlFiat: 20,
+    totalPnlPercent: 5,
+    byWalletId: {
+      'wallet-eth-1': {
+        balanceAtomic: '1',
+        formattedCryptoBalance: '1',
+        fiatBalance: 100 + index,
+        remainingCostBasisFiat: 80 + index,
+        unrealizedPnlFiat: 20,
+        markRate: 100 + index,
+        ratePercentChange: 2,
+        pnlPercent: 5,
+      },
+    },
+  }));
+
 describe('BalanceHistoryChart', () => {
   beforeEach(() => {
     jest.useFakeTimers();
@@ -451,5 +485,126 @@ describe('BalanceHistoryChart', () => {
     expect(mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync).toHaveBeenCalledTimes(
       1,
     );
+  });
+
+  it('reruns prep and selected-timeframe compute when a prep-only FX cache key changes', async () => {
+    const ethWallet = {
+      ...wallet,
+      id: 'wallet-eth-1',
+      chain: 'eth',
+      currencyAbbreviation: 'eth',
+      credentials: {
+        coin: 'eth',
+        chain: 'eth',
+        network: 'livenet',
+      },
+    } as Wallet;
+    const usdSnapshot = {
+      ...snapshot,
+      id: 'snapshot-eth-1',
+      walletId: 'wallet-eth-1',
+      chain: 'eth',
+      coin: 'eth',
+      assetId: 'eth:livenet',
+      quoteCurrency: 'USD',
+    } as BalanceSnapshot;
+    const prepOnlyFxCacheKey = 'USD:btc:ALL';
+    const stableChartRateCacheKey = 'EUR:eth:1D';
+
+    mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.mockImplementation(
+      async ({onHistoricalRateDependency}) => {
+        onHistoricalRateDependency?.(prepOnlyFxCacheKey);
+        return {
+          wallets: [
+            {
+              walletId: 'wallet-eth-1',
+              walletName: 'Wallet ETH 1',
+              currencyAbbreviation: 'eth',
+              credentials: {
+                coin: 'eth',
+                chain: 'eth',
+                network: 'livenet',
+              },
+              snapshots: [],
+            },
+          ],
+          currentRatesByCoin: {
+            eth: 2500,
+          },
+          quoteCurrency: 'EUR',
+        };
+      },
+    );
+    mockBuildPnlAnalysisSeriesAsync.mockResolvedValue({
+      points: createMockAnalysisPoints(),
+      timeframe: '1D',
+      quoteCurrency: 'EUR',
+      driverCoin: 'eth',
+      coins: ['eth'],
+      wallets: [],
+      assetSummaries: [],
+      totalSummary: {
+        pnlStart: 80,
+        pnlEnd: 100,
+        pnlChange: 20,
+        pnlPercent: 25,
+      },
+    });
+
+    const screen = render(
+      <BalanceHistoryChart
+        wallets={[ethWallet]}
+        snapshotsByWalletId={{
+          [ethWallet.id]: [usdSnapshot],
+        }}
+        quoteCurrency="EUR"
+        initialSelectedTimeframe="1D"
+        fiatRateSeriesCache={{
+          [prepOnlyFxCacheKey]: {
+            fetchedOn: 100,
+            points: [{ts: 1_000, rate: 1.1}],
+          },
+          [stableChartRateCacheKey]: {
+            fetchedOn: 200,
+            points: [{ts: 1_000, rate: 2_500}],
+          },
+        }}
+      />,
+    );
+
+    await flushAsyncWork(6);
+
+    expect(mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(mockBuildPnlAnalysisSeriesAsync).toHaveBeenCalledTimes(1);
+
+    screen.rerender(
+      <BalanceHistoryChart
+        wallets={[ethWallet]}
+        snapshotsByWalletId={{
+          [ethWallet.id]: [usdSnapshot],
+        }}
+        quoteCurrency="EUR"
+        initialSelectedTimeframe="1D"
+        fiatRateSeriesCache={{
+          [prepOnlyFxCacheKey]: {
+            fetchedOn: 101,
+            points: [{ts: 2_000, rate: 1.2}],
+          },
+          [stableChartRateCacheKey]: {
+            fetchedOn: 200,
+            points: [{ts: 1_000, rate: 2_500}],
+          },
+        }}
+      />,
+    );
+
+    await flushAsyncWork(6);
+
+    expect(mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync).toHaveBeenCalledTimes(
+      2,
+    );
+    expect(mockBuildPnlAnalysisSeriesAsync).toHaveBeenCalledTimes(2);
   });
 });
