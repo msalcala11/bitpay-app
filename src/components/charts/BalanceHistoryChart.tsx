@@ -878,6 +878,26 @@ const BalanceHistoryChart = ({
     invalidateComputeGeneration,
   ]);
 
+  // Reset only when the chart scope changes (wallet set / quote / balance offset).
+  useEffect(() => {
+    const generation = invalidateComputeGeneration();
+    analysisHistoricalDepKeysRef.current = new Set();
+    lastTouchedScopeIdRef.current = undefined;
+    analysisInputsReadyKeyRef.current = undefined;
+    setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
+    setAnalysisInputsReadyKey(undefined);
+    setAnalysisInputsErrorKey(undefined);
+    setHasCompletedInitialAllLoad(false);
+    dispatchTimeframeState({
+      type: 'resetAll',
+      generation,
+    });
+    setSelectedPoint(undefined);
+    onSelectedBalanceChangeRef.current?.(undefined);
+
+    setDisplayState(undefined);
+  }, [invalidateComputeGeneration, quoteCurrency, scopeId]);
+
   useEffect(() => {
     let prepareHandle: ScheduledAfterInteractionsHandle | undefined;
     const shouldResetPreparedInputs =
@@ -1307,26 +1327,6 @@ const BalanceHistoryChart = ({
   useEffect(() => {
     ensureTimeframeComputedRef.current = ensureTimeframeComputed;
   }, [ensureTimeframeComputed]);
-
-  // Reset only when the chart scope changes (wallet set / quote / balance offset).
-  useEffect(() => {
-    const generation = invalidateComputeGeneration();
-    analysisHistoricalDepKeysRef.current = new Set();
-    lastTouchedScopeIdRef.current = undefined;
-    analysisInputsReadyKeyRef.current = undefined;
-    setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
-    setAnalysisInputsReadyKey(undefined);
-    setAnalysisInputsErrorKey(undefined);
-    setHasCompletedInitialAllLoad(false);
-    dispatchTimeframeState({
-      type: 'resetAll',
-      generation,
-    });
-    setSelectedPoint(undefined);
-    onSelectedBalanceChangeRef.current?.(undefined);
-
-    setDisplayState(undefined);
-  }, [invalidateComputeGeneration, quoteCurrency, scopeId]);
 
   // On timeframe change, keep the previously rendered series visible while
   // the new timeframe computes (shown with reduced opacity behind loader).

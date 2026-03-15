@@ -304,6 +304,51 @@ describe('BalanceHistoryChart', () => {
     );
   });
 
+  it('prepares analysis inputs on initial mount and remount', async () => {
+    mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.mockResolvedValue({
+      wallets: [],
+      currentRatesByCoin: {},
+      quoteCurrency: 'USD',
+    });
+
+    const firstRender = render(
+      <BalanceHistoryChart
+        wallets={[wallet]}
+        snapshotsByWalletId={{
+          [wallet.id]: [snapshot],
+        }}
+        quoteCurrency="USD"
+        fiatRateSeriesCache={{}}
+      />,
+    );
+
+    await flushAsyncWork();
+
+    expect(mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync).toHaveBeenCalledTimes(
+      1,
+    );
+
+    firstRender.unmount();
+    mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.mockClear();
+
+    render(
+      <BalanceHistoryChart
+        wallets={[wallet]}
+        snapshotsByWalletId={{
+          [wallet.id]: [snapshot],
+        }}
+        quoteCurrency="USD"
+        fiatRateSeriesCache={{}}
+      />,
+    );
+
+    await flushAsyncWork();
+
+    expect(mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync).toHaveBeenCalledTimes(
+      1,
+    );
+  });
+
   it('preserves SVM token address case in fiat-rate fetch requests', async () => {
     mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.mockResolvedValue({
       wallets: [],
@@ -360,25 +405,6 @@ describe('BalanceHistoryChart', () => {
     ] as BalanceSnapshot[];
 
     const screen = render(
-      <BalanceHistoryChart
-        wallets={[wallet]}
-        snapshotsByWalletId={{
-          [wallet.id]: relevantSnapshots,
-          'wallet-2': unrelatedSnapshotsA,
-        }}
-        quoteCurrency="USD"
-        fiatRateSeriesCache={{
-          'USD:eth:ALL': {
-            fetchedOn: 100,
-            points: [],
-          },
-        }}
-      />,
-    );
-
-    await flushAsyncWork();
-
-    screen.rerender(
       <BalanceHistoryChart
         wallets={[wallet]}
         snapshotsByWalletId={{
