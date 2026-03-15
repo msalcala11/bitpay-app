@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {InteractionManager, StyleProp, View, ViewStyle} from 'react-native';
+import {StyleProp, View, ViewStyle} from 'react-native';
 import {useTranslation} from 'react-i18next';
 import {useTheme} from 'styled-components/native';
 import type {GraphPoint} from 'react-native-graph';
@@ -50,6 +50,7 @@ import {useAppDispatch, useAppSelector} from '../../utils/hooks';
 import {fetchFiatRateSeriesInterval} from '../../store/wallet/effects';
 import {normalizeFiatRateSeriesCoin} from '../../utils/portfolio/core/pnl/rates';
 import {isNumberSharedValue} from './sharedValueGuards';
+import {logManager} from '../../managers/LogManager';
 import {
   patchBalanceChartScopeLatestPoints,
   touchBalanceChartScope,
@@ -68,6 +69,7 @@ import {
   patchCachedLatestPointWithSpotRates,
   serializeComputedSeriesToCachedTimeframe,
 } from '../../utils/portfolio/chartCache';
+import {isAbortError} from '../../utils/abort';
 import {
   normalizeGraphPointsForChart,
   recomputeMinMaxFromGraphPoints,
@@ -79,10 +81,13 @@ import {
   selectComputedSeriesForAttempt,
   selectTimeframeErrorForAttempt,
 } from './balanceHistoryChartOrchestration';
+import {
+  scheduleAfterInteractionsAndFrames,
+  type ScheduledAfterInteractionsHandle,
+} from '../../utils/scheduleAfterInteractionsAndFrames';
 
 const CHART_LOADER_DELAY_MS = 150;
 const CHART_COMPUTE_YIELD_EVERY_POINTS = 4;
-const SCHEDULE_AFTER_INTERACTIONS_FALLBACK_MS = 700;
 const PRECOMPUTE_TIMEFRAME_ORDER: FiatRateInterval[] = [
   '1D',
   '1W',
@@ -117,106 +122,6 @@ type ChangeRowData = {
   rangeLabel?: string;
 };
 
-type ScheduledAfterInteractionsHandle = {
-  cancel: () => void;
-};
-
-const scheduleAfterInteractionsAndFrames = (
-  cb: () => void | Promise<void>,
-): ScheduledAfterInteractionsHandle => {
-  let cancelled = false;
-  let didRun = false;
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  let fallbackTimeout: ReturnType<typeof setTimeout> | undefined;
-  let firstFrame: number | undefined;
-  let secondFrame: number | undefined;
-
-  const clearScheduledTimers = () => {
-    if (fallbackTimeout) {
-      clearTimeout(fallbackTimeout);
-      fallbackTimeout = undefined;
-    }
-    if (timeout) {
-      clearTimeout(timeout);
-      timeout = undefined;
-    }
-  };
-
-  const runCallback = () => {
-    if (cancelled || didRun) {
-      return;
-    }
-    didRun = true;
-    clearScheduledTimers();
-
-    timeout = setTimeout(() => {
-      if (cancelled) {
-        return;
-      }
-
-      try {
-        const maybePromise = cb();
-        if (
-          maybePromise &&
-          typeof (maybePromise as Promise<unknown>).catch === 'function'
-        ) {
-          (maybePromise as Promise<unknown>).catch(() => undefined);
-        }
-      } catch {
-        // no-op
-      }
-    }, 0);
-  };
-
-  const task = InteractionManager.runAfterInteractions(() => {
-    if (cancelled || didRun) {
-      return;
-    }
-
-    if (typeof requestAnimationFrame === 'function') {
-      firstFrame = requestAnimationFrame(() => {
-        if (cancelled || didRun) {
-          return;
-        }
-
-        secondFrame = requestAnimationFrame(runCallback);
-      });
-      return;
-    }
-
-    runCallback();
-  });
-
-  // Some navigation/layout transitions can leave runAfterInteractions pending
-  // longer than expected. Fall back to running the work anyway so the chart
-  // cannot remain stuck in a permanent loading state for a new scope.
-  fallbackTimeout = setTimeout(
-    runCallback,
-    SCHEDULE_AFTER_INTERACTIONS_FALLBACK_MS,
-  );
-
-  return {
-    cancel: () => {
-      cancelled = true;
-      task.cancel();
-      clearScheduledTimers();
-
-      if (
-        typeof firstFrame === 'number' &&
-        typeof cancelAnimationFrame === 'function'
-      ) {
-        cancelAnimationFrame(firstFrame);
-      }
-      if (
-        typeof secondFrame === 'number' &&
-        typeof cancelAnimationFrame === 'function'
-      ) {
-        cancelAnimationFrame(secondFrame);
-      }
-    },
-  };
-};
-
 const getLatestFiatRateSeriesPointTs = (
   cache?: FiatRateSeriesCache,
 ): number | undefined => {
@@ -240,6 +145,26 @@ const getLatestFiatRateSeriesPointTs = (
   }
 
   return maxTs > 0 ? maxTs : undefined;
+};
+
+const formatChartError = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+};
+
+const logBalanceHistoryChartError = (context: string, error: unknown) => {
+  logManager.error(`[BalanceHistoryChart] ${context}`, formatChartError(error));
 };
 
 export type BalanceHistoryChartProps = {
@@ -365,6 +290,9 @@ const BalanceHistoryChart = ({
   const [analysisInputsReadyKey, setAnalysisInputsReadyKey] = useState<
     string | undefined
   >(undefined);
+  const [analysisInputsErrorKey, setAnalysisInputsErrorKey] = useState<
+    string | undefined
+  >(undefined);
 
   const [displayState, setDisplayState] = useState<
     | {
@@ -394,6 +322,9 @@ const BalanceHistoryChart = ({
   const trackScheduledHandle = useCallback(
     (handle: ScheduledAfterInteractionsHandle) => {
       scheduledHandlesRef.current.add(handle);
+      void handle.done.finally(() => {
+        scheduledHandlesRef.current.delete(handle);
+      });
     },
     [],
   );
@@ -831,7 +762,6 @@ const BalanceHistoryChart = ({
   ]);
 
   useEffect(() => {
-    let cancelled = false;
     let prepareHandle: ScheduledAfterInteractionsHandle | undefined;
     const shouldResetPreparedInputs =
       analysisInputsReadyKeyRef.current !== analysisInputsBaseKey;
@@ -841,6 +771,7 @@ const BalanceHistoryChart = ({
       analysisHistoricalDepKeysRef.current = new Set();
       analysisInputsReadyKeyRef.current = undefined;
       setAnalysisInputsReadyKey(undefined);
+      setAnalysisInputsErrorKey(undefined);
       return;
     }
 
@@ -848,58 +779,83 @@ const BalanceHistoryChart = ({
       setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
       analysisInputsReadyKeyRef.current = undefined;
       setAnalysisInputsReadyKey(undefined);
+      setAnalysisInputsErrorKey(undefined);
     }
 
     const generation = computeGenerationRef.current;
-    prepareHandle = scheduleAfterInteractionsAndFrames(async () => {
-      const historicalDepKeys = new Set<string>();
-      const prepared = await buildPnlWalletInputsFromPortfolioSnapshotsAsync(
-        {
-          snapshotsByWalletId: snapshotsByWalletId || {},
-          wallets: wallets || [],
-          quoteCurrency,
-          rates,
-          fiatRateSeriesCache,
-          onHistoricalRateDependency: cacheKey => {
-            if (cacheKey) {
-              historicalDepKeys.add(cacheKey);
-            }
+    prepareHandle = scheduleAfterInteractionsAndFrames({
+      callback: async signal => {
+        const historicalDepKeys = new Set<string>();
+        const prepared = await buildPnlWalletInputsFromPortfolioSnapshotsAsync(
+          {
+            snapshotsByWalletId: snapshotsByWalletId || {},
+            wallets: wallets || [],
+            quoteCurrency,
+            rates,
+            fiatRateSeriesCache,
+            onHistoricalRateDependency: cacheKey => {
+              if (cacheKey) {
+                historicalDepKeys.add(cacheKey);
+              }
+            },
           },
-        },
-        {
-          yieldEveryWallets: 1,
-          yieldEverySnapshots: 150,
-        },
-      );
-
-      if (cancelled || computeGenerationRef.current !== generation) {
-        return;
-      }
-
-      const nextReadyKey = prepared.wallets.length
-        ? analysisInputsBaseKey
-        : undefined;
-      analysisHistoricalDepKeysRef.current = historicalDepKeys;
-      analysisInputsReadyKeyRef.current = nextReadyKey;
-      startTransition(() => {
-        setAnalysisInputs(prev =>
-          computeGenerationRef.current === generation ? prepared : prev,
+          {
+            signal,
+            yieldEveryWallets: 1,
+            yieldEverySnapshots: 150,
+          },
         );
-        setAnalysisInputsReadyKey(prev =>
-          computeGenerationRef.current === generation ? nextReadyKey : prev,
-        );
-      });
+
+        if (computeGenerationRef.current !== generation) {
+          return;
+        }
+
+        const nextReadyKey = prepared.wallets.length
+          ? analysisInputsBaseKey
+          : undefined;
+        analysisHistoricalDepKeysRef.current = historicalDepKeys;
+        analysisInputsReadyKeyRef.current = nextReadyKey;
+        startTransition(() => {
+          if (computeGenerationRef.current !== generation) {
+            return;
+          }
+
+          setAnalysisInputs(prepared);
+          setAnalysisInputsReadyKey(nextReadyKey);
+          setAnalysisInputsErrorKey(undefined);
+        });
+      },
+      onError: error => {
+        if (
+          computeGenerationRef.current !== generation ||
+          isAbortError(error)
+        ) {
+          return;
+        }
+
+        logBalanceHistoryChartError('prepare failed', error);
+        analysisHistoricalDepKeysRef.current = new Set();
+        analysisInputsReadyKeyRef.current = undefined;
+        startTransition(() => {
+          if (computeGenerationRef.current !== generation) {
+            return;
+          }
+
+          setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
+          setAnalysisInputsReadyKey(undefined);
+          setAnalysisInputsErrorKey(analysisInputsBaseKey);
+        });
+      },
     });
     trackScheduledHandle(prepareHandle);
 
     return () => {
-      cancelled = true;
       removeScheduledHandle(prepareHandle, true);
     };
   }, [
+    analysisInputsBaseKey,
     fiatRateSeriesCache,
     hasAnySnapshots,
-    analysisInputsBaseKey,
     quoteCurrency,
     rates,
     shouldPrepareAnalysisInputs,
@@ -909,15 +865,20 @@ const BalanceHistoryChart = ({
     wallets,
   ]);
 
+  const hasAnalysisPreparationError =
+    analysisInputsErrorKey === analysisInputsBaseKey;
+
   const inputsReady =
     shouldPrepareAnalysisInputs &&
     !!fiatRateSeriesCache &&
     analysisInputs.wallets.length > 0 &&
-    analysisInputsReadyKey === analysisInputsBaseKey;
+    analysisInputsReadyKey === analysisInputsBaseKey &&
+    !hasAnalysisPreparationError;
 
   const computeSeriesForTimeframe = useCallback(
     async (
       timeframe: FiatRateInterval,
+      signal: AbortSignal,
     ): Promise<{
       cacheEntry: ReturnType<typeof serializeComputedSeriesToCachedTimeframe>;
       series: ComputedSeries;
@@ -947,6 +908,7 @@ const BalanceHistoryChart = ({
               : undefined,
           nowMs: targetNowMs,
           maxPoints: FIAT_RATE_SERIES_TARGET_POINTS,
+          signal,
           yieldEveryPoints: CHART_COMPUTE_YIELD_EVERY_POINTS,
           onHistoricalRateDependency: cacheKey => {
             if (cacheKey) {
@@ -959,6 +921,10 @@ const BalanceHistoryChart = ({
       try {
         res = await buildAnalysis(nowMs);
       } catch (firstError) {
+        if (isAbortError(firstError)) {
+          throw firstError;
+        }
+
         const fallbackNowMs =
           getLatestFiatRateSeriesPointTs(fiatRateSeriesCache);
         if (
@@ -1082,84 +1048,81 @@ const BalanceHistoryChart = ({
         generation,
       });
 
-      let computeHandle: ScheduledAfterInteractionsHandle | undefined;
-      computeHandle = scheduleAfterInteractionsAndFrames(async () => {
-        removeScheduledHandle(computeHandle);
+      const computeHandle = scheduleAfterInteractionsAndFrames({
+        callback: async signal => {
+          try {
+            if (computeGenerationRef.current !== generation) {
+              return;
+            }
 
-        if (computeGenerationRef.current !== generation) {
-          computingQueueRef.current = false;
-          return;
-        }
+            const computed = await computeSeriesForTimeframe(next, signal);
+            const timeframeRevision = getTimeframeRevision(
+              next,
+              computed.cacheEntry.historicalRateDeps,
+            );
 
-        try {
-          const computed = await computeSeriesForTimeframe(next);
-          const timeframeRevision = getTimeframeRevision(
-            next,
-            computed.cacheEntry.historicalRateDeps,
-          );
+            if (computeGenerationRef.current !== generation) {
+              return;
+            }
 
-          if (computeGenerationRef.current !== generation) {
-            computingQueueRef.current = false;
-            return;
-          }
-
-          startTransition(() => {
-            dispatchTimeframeState({
-              type: 'resolveCompute',
-              timeframe: next,
-              attemptRevision,
-              series: computed.series,
-              seriesRevision: timeframeRevision,
-              generation,
+            startTransition(() => {
+              dispatchTimeframeState({
+                type: 'resolveCompute',
+                timeframe: next,
+                attemptRevision,
+                series: computed.series,
+                seriesRevision: timeframeRevision,
+                generation,
+              });
+              if (next === selectedTimeframe) {
+                setDisplayState(prev =>
+                  prev?.series === computed.series && prev?.timeframe === next
+                    ? prev
+                    : {
+                        series: computed.series,
+                        timeframe: next,
+                      },
+                );
+              }
             });
-            if (next === selectedTimeframe) {
-              setDisplayState(prev =>
-                prev?.series === computed.series && prev?.timeframe === next
-                  ? prev
-                  : {
-                      series: computed.series,
-                      timeframe: next,
-                    },
+            if (computeGenerationRef.current === generation) {
+              dispatch(
+                upsertBalanceChartScopeTimeframes({
+                  scopeId,
+                  walletIds: sortedWalletIds,
+                  quoteCurrency: computed.cacheEntry.quoteCurrency,
+                  balanceOffset,
+                  timeframes: [computed.cacheEntry],
+                }),
               );
             }
-          });
-          if (computeGenerationRef.current === generation) {
-            dispatch(
-              upsertBalanceChartScopeTimeframes({
-                scopeId,
-                walletIds: sortedWalletIds,
-                quoteCurrency: computed.cacheEntry.quoteCurrency,
-                balanceOffset,
-                timeframes: [computed.cacheEntry],
-              }),
-            );
-          }
-        } catch (e: unknown) {
-          if (computeGenerationRef.current !== generation) {
-            computingQueueRef.current = false;
-            return;
-          }
+          } catch (error: unknown) {
+            if (
+              computeGenerationRef.current !== generation ||
+              signal.aborted ||
+              isAbortError(error)
+            ) {
+              return;
+            }
 
-          const msg =
-            e instanceof Error
-              ? e.message
-              : typeof e === 'string'
-              ? e
-              : JSON.stringify(e);
-          dispatchTimeframeState({
-            type: 'rejectCompute',
-            timeframe: next,
-            attemptRevision,
-            error: msg,
-            generation,
-          });
-        }
+            const msg = formatChartError(error);
+            logBalanceHistoryChartError(`compute failed for ${next}`, error);
+            dispatchTimeframeState({
+              type: 'rejectCompute',
+              timeframe: next,
+              attemptRevision,
+              error: msg,
+              generation,
+            });
+          } finally {
+            if (computeGenerationRef.current !== generation) {
+              computingQueueRef.current = false;
+              return;
+            }
 
-        if (computeGenerationRef.current !== generation) {
-          computingQueueRef.current = false;
-          return;
-        }
-        runNext();
+            runNext();
+          }
+        },
       });
       trackScheduledHandle(computeHandle);
     };
@@ -1171,7 +1134,6 @@ const BalanceHistoryChart = ({
     dispatch,
     getTimeframeAttemptRevision,
     getTimeframeRevision,
-    removeScheduledHandle,
     scopeId,
     selectedTimeframe,
     sortedWalletIds,
@@ -1237,6 +1199,7 @@ const BalanceHistoryChart = ({
     analysisInputsReadyKeyRef.current = undefined;
     setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
     setAnalysisInputsReadyKey(undefined);
+    setAnalysisInputsErrorKey(undefined);
     setHasCompletedInitialAllLoad(false);
     dispatchTimeframeState({
       type: 'resetAll',
@@ -1412,7 +1375,9 @@ const BalanceHistoryChart = ({
     !!selectedComputedSeries ||
     (displayState?.timeframe === selectedTimeframe && !!displayState?.series);
   const isSelectedTimeframePending =
-    !hasRenderableSelectedSeries && !selectedTimeframeError;
+    !hasRenderableSelectedSeries &&
+    !selectedTimeframeError &&
+    !hasAnalysisPreparationError;
   const isChartLoadingRaw = hasAnySnapshots && isSelectedTimeframePending;
   const [isChartLoaderVisible, setIsChartLoaderVisible] = useState(false);
 

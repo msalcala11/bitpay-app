@@ -31,7 +31,9 @@ jest.mock('./core/pnl/analysis', () => ({
 
 jest.mock('./core/pnl/rates', () => ({
   normalizeFiatRateSeriesCoin: (coin: string) =>
-    String(coin || '').trim().toLowerCase(),
+    String(coin || '')
+      .trim()
+      .toLowerCase(),
 }));
 
 jest.mock('./core/format', () => ({
@@ -83,7 +85,9 @@ jest.mock('../helper-methods', () => {
         normalizedChain === 'sol';
 
       if (isToken) {
-        return `${normalizedName}_${suffixByChain[normalizedChain] || normalizedChain}`;
+        return `${normalizedName}_${
+          suffixByChain[normalizedChain] || normalizedChain
+        }`;
       }
 
       return normalizedName;
@@ -366,5 +370,63 @@ describe('Pnl wallet input builders', () => {
       currentRatesByCoin: {},
       quoteCurrency: 'EUR',
     });
+  });
+
+  it('aborts async wallet input preparation at yield boundaries', async () => {
+    const wallets = [
+      makeWallet({
+        id: 'wallet-btc',
+        chain: 'btc',
+        currencyAbbreviation: 'btc',
+      }),
+    ];
+    const snapshotsByWalletId = {
+      'wallet-btc': [
+        makeSnapshot({
+          id: 'btc-1',
+          chain: 'btc',
+          coin: 'btc',
+          assetId: 'btc:btc',
+          timestamp: 1_000,
+          cryptoBalance: '0.5',
+          remainingCostBasisFiat: 20_000,
+          costBasisRateFiat: 40_000,
+        }),
+        makeSnapshot({
+          id: 'btc-2',
+          chain: 'btc',
+          coin: 'btc',
+          assetId: 'btc:btc',
+          timestamp: 2_000,
+          cryptoBalance: '1',
+          remainingCostBasisFiat: 40_000,
+          costBasisRateFiat: 40_000,
+        }),
+      ],
+    };
+    const controller = new AbortController();
+    const yieldControl = jest.fn(async () => {
+      controller.abort();
+    });
+
+    await expect(
+      buildPnlWalletInputsFromPortfolioSnapshotsAsync(
+        {
+          snapshotsByWalletId,
+          wallets,
+          quoteCurrency: 'USD',
+          fiatRateSeriesCache: {},
+        },
+        {
+          signal: controller.signal,
+          yieldEveryWallets: 1,
+          yieldEverySnapshots: 1,
+          yieldControl,
+        },
+      ),
+    ).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    expect(yieldControl).toHaveBeenCalled();
   });
 });

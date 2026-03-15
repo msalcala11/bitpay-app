@@ -9,6 +9,7 @@ import {
   getAtomicDecimals,
   parseAtomicToBigint,
 } from '../format';
+import {throwIfAbortSignalAborted} from '../../../abort';
 import type {WalletCredentials} from '../types';
 import type {BalanceSnapshotStored} from './types';
 import {normalizeFiatRateSeriesCoin} from './rates';
@@ -946,11 +947,12 @@ export function buildPnlAnalysisSeries(
 
 export async function buildPnlAnalysisSeriesAsync(
   args: BuildPnlAnalysisSeriesArgs & {
+    signal?: AbortSignal;
     yieldEveryPoints?: number;
     yieldControl?: () => Promise<void>;
   },
 ): Promise<PnlAnalysisResult> {
-  const {yieldEveryPoints, yieldControl, ...rest} = args;
+  const {signal, yieldEveryPoints, yieldControl, ...rest} = args;
   const generator = buildPnlAnalysisSeriesGenerator(rest, {
     yieldEveryPoints:
       typeof yieldEveryPoints === 'number'
@@ -959,9 +961,13 @@ export async function buildPnlAnalysisSeriesAsync(
   });
   const yieldFn = yieldControl || yieldToEventLoop;
 
+  throwIfAbortSignalAborted(signal);
+
   let next = generator.next();
   while (!next.done) {
+    throwIfAbortSignalAborted(signal);
     await yieldFn();
+    throwIfAbortSignalAborted(signal);
     next = generator.next();
   }
   return next.value;

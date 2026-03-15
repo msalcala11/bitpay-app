@@ -36,6 +36,7 @@ import {
   getRateByCurrencyName,
   unitStringToAtomicBigInt,
 } from '../helper-methods';
+import {throwIfAbortSignalAborted} from '../abort';
 
 // PnL engine (lifted from the web harness). Keep these imports path-stable so the
 // engine code stays easily portable between RN + web.
@@ -770,6 +771,7 @@ const yieldToEventLoop = async (): Promise<void> =>
 const mapSnapshotsToStoredAsync = async (
   args: MapSnapshotsToStoredArgs,
   asyncOpts?: {
+    signal?: AbortSignal;
     yieldEverySnapshots?: number;
     yieldControl?: () => Promise<void>;
   },
@@ -782,7 +784,10 @@ const mapSnapshotsToStoredAsync = async (
   const yieldControl = asyncOpts?.yieldControl || yieldToEventLoop;
   const out: BalanceSnapshotStored[] = [];
 
+  throwIfAbortSignalAborted(asyncOpts?.signal);
+
   for (let i = 0; i < args.snapshots.length; i++) {
+    throwIfAbortSignalAborted(asyncOpts?.signal);
     out.push(
       mapSnapshotToStored({
         ...args,
@@ -793,6 +798,7 @@ const mapSnapshotsToStoredAsync = async (
 
     if ((i + 1) % yieldEverySnapshots === 0) {
       await yieldControl();
+      throwIfAbortSignalAborted(asyncOpts?.signal);
     }
   }
 
@@ -1444,14 +1450,12 @@ const buildPreparedPortfolioPnlWalletPlan = (args: {
   quoteCurrency: string;
   nowMs?: number;
 }): PreparedPortfolioPnlWalletPlan => {
-  const {
-    effectiveQuoteCurrency,
-    earliestSnapshotTimestampMs,
-  } = buildPortfolioSnapshotContext({
-    wallets: args.wallets,
-    snapshotsByWalletId: args.snapshotsByWalletId || {},
-    preferredQuoteCurrency: (args.quoteCurrency || '').toUpperCase(),
-  });
+  const {effectiveQuoteCurrency, earliestSnapshotTimestampMs} =
+    buildPortfolioSnapshotContext({
+      wallets: args.wallets,
+      snapshotsByWalletId: args.snapshotsByWalletId || {},
+      preferredQuoteCurrency: (args.quoteCurrency || '').toUpperCase(),
+    });
 
   const walletContexts: PnlWalletBuildContext[] = [];
   for (const wallet of args.wallets || []) {
@@ -1521,10 +1525,7 @@ const appendPnlWalletAnalysisEntry = (args: {
   const {inputs, entry} = args;
 
   inputs.wallets.push(entry.wallet);
-  if (
-    !(entry.normCoin in inputs.currentRatesByCoin) &&
-    entry.currentRate > 0
-  ) {
+  if (!(entry.normCoin in inputs.currentRatesByCoin) && entry.currentRate > 0) {
     inputs.currentRatesByCoin[entry.normCoin] = entry.currentRate;
   }
 };
@@ -1621,6 +1622,7 @@ const buildPnlWalletInputsFromPreparedPlanAsync = async (
     onHistoricalRateDependency?: (cacheKey: string) => void;
   },
   asyncOpts?: {
+    signal?: AbortSignal;
     yieldEveryWallets?: number;
     yieldEverySnapshots?: number;
     yieldControl?: () => Promise<void>;
@@ -1638,11 +1640,14 @@ const buildPnlWalletInputsFromPreparedPlanAsync = async (
     return inputs;
   }
 
+  throwIfAbortSignalAborted(asyncOpts?.signal);
+
   for (
     let walletIndex = 0;
     walletIndex < args.plan.walletContexts.length;
     walletIndex++
   ) {
+    throwIfAbortSignalAborted(asyncOpts?.signal);
     const context = args.plan.walletContexts[walletIndex];
     const snaps = await mapSnapshotsToStoredAsync(
       buildPnlWalletMapArgs({
@@ -1653,6 +1658,7 @@ const buildPnlWalletInputsFromPreparedPlanAsync = async (
         onHistoricalRateDependency: args.onHistoricalRateDependency,
       }),
       {
+        signal: asyncOpts?.signal,
         yieldEverySnapshots: asyncOpts?.yieldEverySnapshots,
         yieldControl,
       },
@@ -1670,6 +1676,7 @@ const buildPnlWalletInputsFromPreparedPlanAsync = async (
 
     if ((walletIndex + 1) % yieldEveryWallets === 0) {
       await yieldControl();
+      throwIfAbortSignalAborted(asyncOpts?.signal);
     }
   }
 
@@ -1721,6 +1728,7 @@ export const buildPnlWalletInputsFromPortfolioSnapshotsAsync = async (
     onHistoricalRateDependency?: (cacheKey: string) => void;
   },
   asyncOpts?: {
+    signal?: AbortSignal;
     yieldEveryWallets?: number;
     yieldEverySnapshots?: number;
     yieldControl?: () => Promise<void>;

@@ -1,5 +1,9 @@
 import {getFiatRateSeriesCacheKey} from '../fiatRateSeries';
-import {buildPnlAnalysisSeries, buildRateSeries} from './analysis';
+import {
+  buildPnlAnalysisSeries,
+  buildPnlAnalysisSeriesAsync,
+  buildRateSeries,
+} from './analysis';
 import type {WalletForAnalysis} from './analysis';
 import type {BalanceSnapshotStored} from './types';
 
@@ -332,5 +336,46 @@ describe('buildPnlAnalysisSeries', () => {
 
     expect(result.points[2].timestamp).toBe(nowMs);
     expect(result.points[2].totalFiatBalance).toBe(240);
+  });
+
+  it('aborts async analysis generation at yield boundaries', async () => {
+    const startMs = Date.UTC(2026, 0, 1, 0, 0, 0);
+    const endMs = Date.UTC(2026, 0, 2, 0, 0, 0);
+    const controller = new AbortController();
+    const yieldControl = jest.fn(async () => {
+      controller.abort();
+    });
+
+    await expect(
+      buildPnlAnalysisSeriesAsync({
+        wallets: [
+          makeWallet([
+            makeSnapshot({
+              timestamp: startMs,
+              markRate: 100,
+            }),
+          ]),
+        ],
+        timeframe: '1D',
+        quoteCurrency: 'USD',
+        nowMs: endMs,
+        maxPoints: 5,
+        signal: controller.signal,
+        yieldEveryPoints: 1,
+        yieldControl,
+        fiatRateSeriesCache: {
+          [getFiatRateSeriesCacheKey('USD', 'btc', '1D')]: {
+            fetchedOn: endMs,
+            points: [
+              {ts: startMs, rate: 100},
+              {ts: endMs, rate: 110},
+            ],
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    expect(yieldControl).toHaveBeenCalled();
   });
 });
