@@ -38,13 +38,17 @@ export type CachedBalanceChartTimeframe = {
   totalPnlPercent: number[];
 };
 
+export type CachedBalanceChartTimeframes = Partial<
+  Record<FiatRateInterval, CachedBalanceChartTimeframe>
+>;
+
 export type CachedBalanceChartScope = {
   scopeId: string;
   walletIds: string[];
   quoteCurrency: string;
   balanceOffset: number;
   lastAccessedAt: number;
-  timeframes: Partial<Record<FiatRateInterval, CachedBalanceChartTimeframe>>;
+  timeframes: CachedBalanceChartTimeframes;
 };
 
 export interface PortfolioChartsState {
