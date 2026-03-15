@@ -443,11 +443,15 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     ({COINBASE}) => !!COINBASE.token[COINBASE_ENV],
   );
 
-  const keyFullWalletObjs = uniqBy(
-    key.wallets.filter(w => w.receiveAddress === selectedAccountAddress),
-    wallet => {
-      return wallet.id;
-    },
+  const keyFullWalletObjs = useMemo(
+    () =>
+      uniqBy(
+        key.wallets.filter(w => w.receiveAddress === selectedAccountAddress),
+        wallet => {
+          return wallet.id;
+        },
+      ),
+    [key, selectedAccountAddress],
   );
   let pendingTxps: AccountProposalsProps = {};
   keyFullWalletObjs.forEach(x => {
@@ -1423,7 +1427,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
 
             {!hideAllBalances ? (
               <BalanceHistoryChart
-                wallets={accountItem?.wallets || []}
+                wallets={keyFullWalletObjs}
                 snapshotsByWalletId={snapshotsByWalletId || {}}
                 quoteCurrency={defaultAltCurrency.isoCode}
                 rates={rates}
@@ -1588,7 +1592,6 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     activeTab,
     accountItem?.fiatLockedBalanceFormat,
     accountItem?.receiveAddress,
-    accountItem?.wallets,
     debouncedLoadHistory,
     defaultAltCurrency.isoCode,
     dispatch,
@@ -1597,6 +1600,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     hideAllBalances,
     isSmallScreen,
     isSvmAccount,
+    keyFullWalletObjs,
     lockedBalanceCurrencyAbbreviation,
     memorizedAssetsByChainList,
     navigation,
