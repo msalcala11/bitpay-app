@@ -26,6 +26,7 @@ import {useStore} from 'react-redux';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import styled from 'styled-components/native';
 import BalanceHistoryChart from '../../../components/charts/BalanceHistoryChart';
+import {getTimeframeSelectorWidth} from '../../../components/charts/timeframeSelectorWidth';
 import Settings from '../../../components/settings/Settings';
 import {
   Balance,
@@ -350,9 +351,9 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   );
 
   const locationData = useAppSelector(({LOCATION}) => LOCATION.locationData);
-  const timeframeSelectorWidth = Math.min(
-    Math.max(windowWidth - Number.parseInt(ScreenGutter, 10) * 2, 0),
-    450,
+  const timeframeSelectorWidth = getTimeframeSelectorWidth(
+    windowWidth,
+    ScreenGutter,
   );
 
   const wallets = Object.values(keys).flatMap(k => k.wallets);

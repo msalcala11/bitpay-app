@@ -126,6 +126,7 @@ import {BWCErrorMessage} from '../../../constants/BWCError';
 import ArchaxFooter from '../../../components/archax/archax-footer';
 import {useOngoingProcess, useTokenContext} from '../../../contexts';
 import BalanceHistoryChart from '../../../components/charts/BalanceHistoryChart';
+import {getTimeframeSelectorWidth} from '../../../components/charts/timeframeSelectorWidth';
 import {getDifferenceColor} from '../../../components/percentage/Percentage';
 import Button from '../../../components/button/Button';
 import {AllocationDonutLegendCard} from '../../tabs/home/components/AllocationSection';
@@ -374,9 +375,9 @@ const KeyOverview = () => {
   const linkedCoinbase = useAppSelector(
     ({COINBASE}) => !!COINBASE.token[COINBASE_ENV],
   );
-  const timeframeSelectorWidth = Math.max(
-    windowWidth - Number.parseInt(ScreenGutter, 10) * 2,
-    0,
+  const timeframeSelectorWidth = getTimeframeSelectorWidth(
+    windowWidth,
+    ScreenGutter,
   );
 
   const [showKeyDropdown, setShowKeyDropdown] = useState(false);

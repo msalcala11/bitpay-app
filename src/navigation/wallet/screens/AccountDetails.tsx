@@ -35,6 +35,7 @@ import {
 } from 'react-native';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import BalanceHistoryChart from '../../../components/charts/BalanceHistoryChart';
+import {getTimeframeSelectorWidth} from '../../../components/charts/timeframeSelectorWidth';
 import {
   Badge,
   Balance,
@@ -396,9 +397,9 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     ({APP}) => APP.selectedChainFilterOption,
   );
   const isSmallScreen = windowWidth < 400;
-  const timeframeSelectorWidth = Math.min(
-    Math.max(windowWidth - Number.parseInt(ScreenGutter, 10) * 2, 0),
-    450,
+  const timeframeSelectorWidth = getTimeframeSelectorWidth(
+    windowWidth,
+    ScreenGutter,
   );
   const network = useAppSelector(({APP}) => APP.network);
   const [history, setHistory] = useState<any[]>([]);
