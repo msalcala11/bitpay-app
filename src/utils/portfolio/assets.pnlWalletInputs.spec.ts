@@ -123,6 +123,8 @@ import {
   buildPnlCurrentRatesByCoinFromPortfolioSnapshots,
   buildPnlWalletInputsFromPortfolioSnapshots,
   buildPnlWalletInputsFromPortfolioSnapshotsAsync,
+  getPortfolioWalletId,
+  getPortfolioWalletTokenAddress,
 } from './assets';
 
 const USDC_TOKEN_ADDRESS = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
@@ -195,6 +197,16 @@ const makeRate = (rate: number, code = 'USD') => [
 ];
 
 describe('Pnl wallet input builders', () => {
+  it('preserves zero-like values when normalizing wallet strings', () => {
+    expect(getPortfolioWalletId({id: 0} as Wallet)).toBe('0');
+    expect(getPortfolioWalletTokenAddress({tokenAddress: 0} as Wallet)).toBe(
+      '0',
+    );
+    expect(
+      getPortfolioWalletTokenAddress({tokenAddress: null} as unknown as Wallet),
+    ).toBeUndefined();
+  });
+
   it('keeps sync, async, and live current-rate preparation aligned', async () => {
     const wallets = [
       makeWallet({

@@ -179,11 +179,12 @@ const toNumber = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
-const toStringOrEmpty = (value: unknown): string => String(value || '');
+const toStringOrEmpty = (value: unknown): string =>
+  value === null || value === undefined ? '' : String(value);
 
 const toOptionalString = (value: unknown): string | undefined => {
   const normalized = toStringOrEmpty(value);
-  return normalized ? normalized : undefined;
+  return normalized === '' ? undefined : normalized;
 };
 
 type WalletWithRuntimeName = Wallet & {
