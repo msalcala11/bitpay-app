@@ -41,23 +41,25 @@ const TimeframeRow = styled.View`
 
 const TimeframeHitSlop = {top: 10, bottom: 10, left: 10, right: 10} as const;
 
-const TimeframePill = styled(TouchableOpacity)<{active: boolean}>`
+type TimeframeSelectorStyledProps = {$active: boolean};
+
+const TimeframePill = styled(TouchableOpacity)<TimeframeSelectorStyledProps>`
   height: 34px;
   min-width: 44px;
   padding: 0 12px;
   border-radius: 18px;
   align-items: center;
   justify-content: center;
-  background-color: ${({theme, active}) =>
-    active ? (theme.dark ? Midnight : LightBlue) : 'transparent'};
+  background-color: ${({theme, $active}) =>
+    $active ? (theme.dark ? Midnight : LightBlue) : 'transparent'};
 `;
 
-const TimeframeText = styled(BaseText)<{active: boolean}>`
+const TimeframeText = styled(BaseText)<TimeframeSelectorStyledProps>`
   font-size: 16px;
   font-weight: 500;
   line-height: 24px;
-  color: ${({theme, active}) =>
-    active
+  color: ${({theme, $active}) =>
+    $active
       ? theme.dark
         ? LinkBlue
         : Action
@@ -85,12 +87,12 @@ export const TimeframeSelector = <T extends string>({
           return (
             <TimeframePill
               key={opt.value}
-              active={active}
+              $active={active}
               hitSlop={TimeframeHitSlop}
               activeOpacity={ActiveOpacity}
               onPress={() => onSelect(opt.value)}
               testID={opt.testID}>
-              <TimeframeText active={active}>{opt.label}</TimeframeText>
+              <TimeframeText $active={active}>{opt.label}</TimeframeText>
             </TimeframePill>
           );
         })}

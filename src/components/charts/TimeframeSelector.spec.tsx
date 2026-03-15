@@ -24,10 +24,10 @@ jest.mock('../styled/Text', () => {
 });
 
 const options = [
-  {value: '1D', label: '1D'},
-  {value: '1W', label: '1W'},
-  {value: '1M', label: '1M'},
-  {value: 'ALL', label: 'All'},
+  {value: '1D', label: '1D', testID: 'timeframe-pill-1d'},
+  {value: '1W', label: '1W', testID: 'timeframe-pill-1w'},
+  {value: '1M', label: '1M', testID: 'timeframe-pill-1m'},
+  {value: 'ALL', label: 'All', testID: 'timeframe-pill-all'},
 ] as const;
 
 const renderWithTheme = (component: React.ReactElement) =>
@@ -96,5 +96,18 @@ describe('TimeframeSelector', () => {
     expect(screen.getByTestId('timeframe-selector-row')).toHaveStyle({
       width: 420,
     });
+  });
+
+  it('does not forward transient active props to native components', () => {
+    const screen = renderWithTheme(
+      <TimeframeSelector
+        options={[...options]}
+        selected="1D"
+        onSelect={() => null}
+      />,
+    );
+
+    expect(screen.getByTestId('timeframe-pill-1d').props.active).toBeUndefined();
+    expect(screen.getByText('1D').props.active).toBeUndefined();
   });
 });
