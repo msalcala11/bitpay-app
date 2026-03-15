@@ -59,6 +59,11 @@ const getErrorMessage = (err: unknown): string => {
   return formatUnknownError(err);
 };
 
+const getNextPollDelay = (requestStartedAt: number): number => {
+  const elapsedMs = Date.now() - requestStartedAt;
+  return Math.max(0, POLL_INTERVAL_MS - elapsedMs);
+};
+
 const getWalletStatus = async (
   wallet: Wallet,
 ): Promise<{err?: unknown; status?: Status}> => {
@@ -233,7 +238,7 @@ export const waitForTargetAmountAndUpdateWallet =
         stopPolling();
       }, MAX_POLLING_DURATION_MS);
 
-      const scheduleNextPoll = () => {
+      const scheduleNextPoll = (delayMs = POLL_INTERVAL_MS) => {
         if (isPollingComplete) {
           return;
         }
@@ -249,6 +254,8 @@ export const waitForTargetAmountAndUpdateWallet =
             stopPolling();
             return;
           }
+
+          const requestStartedAt = Date.now();
 
           try {
             const {err, status} = await getWalletStatus(wallet);
@@ -266,7 +273,7 @@ export const waitForTargetAmountAndUpdateWallet =
             }
 
             if (!hasReachedTargetAmount({wallet, status, targetAmount})) {
-              scheduleNextPoll();
+              scheduleNextPoll(getNextPollDelay(requestStartedAt));
               return;
             }
 
@@ -297,8 +304,8 @@ export const waitForTargetAmountAndUpdateWallet =
             );
           }
 
-          scheduleNextPoll();
-        }, POLL_INTERVAL_MS);
+          scheduleNextPoll(getNextPollDelay(requestStartedAt));
+        }, delayMs);
       };
 
       scheduleNextPoll();

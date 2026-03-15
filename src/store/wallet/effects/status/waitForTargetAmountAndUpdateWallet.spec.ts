@@ -40,10 +40,18 @@ import {DeviceEmitterEvents} from '../../../../constants/device-emitter-events';
 import {WalletActionTypes} from '../../wallet.types';
 import {waitForTargetAmountAndUpdateWallet} from './waitForTargetAmountAndUpdateWallet';
 
+let mockNow = 0;
+
 const flushPromises = async (iterations = 8) => {
   for (let i = 0; i < iterations; i += 1) {
     await Promise.resolve();
   }
+};
+
+const advanceTime = async (ms: number, flushIterations = 8) => {
+  mockNow += ms;
+  jest.advanceTimersByTime(ms);
+  await flushPromises(flushIterations);
 };
 
 const createWallet = (overrides: Partial<any> = {}) => {
@@ -95,6 +103,8 @@ describe('waitForTargetAmountAndUpdateWallet', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.clearAllMocks();
+    mockNow = 0;
+    jest.spyOn(Date, 'now').mockImplementation(() => mockNow);
 
     mockStartUpdateWalletStatus.mockImplementation((args: unknown) => ({
       type: 'START_UPDATE_WALLET_STATUS',
@@ -114,6 +124,7 @@ describe('waitForTargetAmountAndUpdateWallet', () => {
 
   afterEach(() => {
     jest.clearAllTimers();
+    jest.restoreAllMocks();
     jest.useRealTimers();
   });
 
@@ -136,20 +147,65 @@ describe('waitForTargetAmountAndUpdateWallet', () => {
       targetAmount: 500,
     })(dispatch, getState);
 
-    jest.advanceTimersByTime(5000);
-    await flushPromises();
+    await advanceTime(5000);
     expect(wallet.getStatus).toHaveBeenCalledTimes(1);
 
-    jest.advanceTimersByTime(15000);
-    await flushPromises();
+    await advanceTime(15000);
     expect(wallet.getStatus).toHaveBeenCalledTimes(1);
 
     pendingCallbacks[0](undefined, {balance: {totalAmount: 900}});
     await flushPromises();
 
-    jest.advanceTimersByTime(5000);
-    await flushPromises();
+    await advanceTime(5000);
     expect(wallet.getStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps request starts roughly 5s apart by subtracting request latency from the next delay', async () => {
+    const pendingCallbacks: Array<(err?: unknown, status?: any) => void> = [];
+    let requestNumber = 0;
+    const wallet = createWallet({
+      getStatus: jest.fn(
+        (_opts: unknown, cb: (err?: unknown, status?: any) => void) => {
+          requestNumber += 1;
+
+          if (requestNumber === 1) {
+            setTimeout(() => {
+              cb(undefined, {balance: {totalAmount: 900}});
+            }, 3000);
+            return;
+          }
+
+          pendingCallbacks.push(cb);
+        },
+      ),
+    });
+    const key = {id: 'key-1', wallets: [wallet]};
+    const getState = () => createState({key});
+    const dispatch = jest.fn((action: unknown) => Promise.resolve(action));
+
+    await waitForTargetAmountAndUpdateWallet({
+      key,
+      wallet,
+      targetAmount: 500,
+    })(dispatch, getState);
+
+    await advanceTime(5000);
+    expect(wallet.getStatus).toHaveBeenCalledTimes(1);
+
+    await advanceTime(2999);
+    expect(wallet.getStatus).toHaveBeenCalledTimes(1);
+
+    await advanceTime(1, 12);
+    expect(wallet.getStatus).toHaveBeenCalledTimes(1);
+
+    await advanceTime(1999);
+    expect(wallet.getStatus).toHaveBeenCalledTimes(1);
+
+    await advanceTime(1);
+    expect(wallet.getStatus).toHaveBeenCalledTimes(2);
+
+    pendingCallbacks[0](undefined, {balance: {totalAmount: 499}});
+    await flushPromises(12);
   });
 
   it('stops refreshing at the overall deadline when getStatus never settles', async () => {
@@ -171,12 +227,10 @@ describe('waitForTargetAmountAndUpdateWallet', () => {
       targetAmount: 500,
     })(dispatch, getState);
 
-    jest.advanceTimersByTime(5000);
-    await flushPromises();
+    await advanceTime(5000);
     expect(wallet.getStatus).toHaveBeenCalledTimes(1);
 
-    jest.advanceTimersByTime(25000);
-    await flushPromises();
+    await advanceTime(25000);
 
     expect(mockStartUpdateWalletStatus).not.toHaveBeenCalled();
     expect(mockMaybePopulatePortfolioForWallets).not.toHaveBeenCalled();
@@ -218,8 +272,7 @@ describe('waitForTargetAmountAndUpdateWallet', () => {
       } as any,
     })(dispatch, getState);
 
-    jest.advanceTimersByTime(5000);
-    await flushPromises();
+    await advanceTime(5000);
     pendingCallbacks[0](undefined, {balance: {totalAmount: 499}});
     await flushPromises(12);
 
@@ -254,8 +307,7 @@ describe('waitForTargetAmountAndUpdateWallet', () => {
       ),
     ).toEqual([[DeviceEmitterEvents.SET_REFRESHING, false]]);
 
-    jest.advanceTimersByTime(20000);
-    await flushPromises();
+    await advanceTime(20000);
     expect(wallet.getStatus).toHaveBeenCalledTimes(1);
   });
 
@@ -278,8 +330,7 @@ describe('waitForTargetAmountAndUpdateWallet', () => {
     })(dispatch, getState);
 
     for (let i = 0; i < 6; i += 1) {
-      jest.advanceTimersByTime(5000);
-      await flushPromises();
+      await advanceTime(5000);
     }
 
     expect(wallet.getStatus).toHaveBeenCalledTimes(5);
