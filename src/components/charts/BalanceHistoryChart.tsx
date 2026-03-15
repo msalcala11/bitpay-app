@@ -87,6 +87,10 @@ import {
   scheduleAfterInteractionsAndFrames,
   type ScheduledAfterInteractionsHandle,
 } from '../../utils/scheduleAfterInteractionsAndFrames';
+import {
+  computeFiatRateSeriesCacheRevision,
+  getRelevantFiatRateSeriesCacheKeys,
+} from './balanceHistoryChartRateCacheRevision';
 
 const CHART_LOADER_DELAY_MS = 150;
 const CHART_COMPUTE_YIELD_EVERY_POINTS = 4;
@@ -513,6 +517,24 @@ const BalanceHistoryChart = ({
     return assets;
   }, [wallets]);
 
+  const relevantRateCacheCoins = useMemo(() => {
+    return Array.from(
+      new Set(
+        rateFetchAssets
+          .map(asset => asset.coinForCacheCheck)
+          .filter((coin): coin is string => !!coin),
+      ),
+    ).sort((a, b) => a.localeCompare(b));
+  }, [rateFetchAssets]);
+
+  const relevantFiatRateSeriesCacheKeys = useMemo(() => {
+    return getRelevantFiatRateSeriesCacheKeys({
+      fiatCode: quoteCurrency,
+      coins: relevantRateCacheCoins,
+      timeframes: PRECOMPUTE_TIMEFRAME_ORDER,
+    });
+  }, [quoteCurrency, relevantRateCacheCoins]);
+
   useEffect(() => {
     if (!hasAnySnapshots || !quoteCurrency || !rateFetchAssets.length) {
       return;
@@ -538,25 +560,11 @@ const BalanceHistoryChart = ({
   ]);
 
   const cacheRevision = useMemo(() => {
-    if (!fiatRateSeriesCache) {
-      return '0';
-    }
-
-    let keysCount = 0;
-    let maxFetchedOn = 0;
-    for (const k in fiatRateSeriesCache) {
-      if (!Object.prototype.hasOwnProperty.call(fiatRateSeriesCache, k)) {
-        continue;
-      }
-      keysCount += 1;
-      const fetchedOn = (fiatRateSeriesCache as any)?.[k]?.fetchedOn;
-      if (typeof fetchedOn === 'number' && fetchedOn > maxFetchedOn) {
-        maxFetchedOn = fetchedOn;
-      }
-    }
-
-    return `${keysCount}:${maxFetchedOn}`;
-  }, [fiatRateSeriesCache]);
+    return computeFiatRateSeriesCacheRevision({
+      fiatRateSeriesCache,
+      relevantKeys: relevantFiatRateSeriesCacheKeys,
+    });
+  }, [fiatRateSeriesCache, relevantFiatRateSeriesCacheKeys]);
 
   const getTimeframeRevision = useCallback(
     (
