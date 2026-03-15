@@ -535,20 +535,25 @@ const ensureFiatRateSeriesInterval = async (args: {
       interval,
       coinForCacheCheck,
       allowedCoins,
-      chain,
+      chain: tokenAddress ? chain : undefined,
       tokenAddress,
     }),
   );
 };
 
-const getLoadedFiatRateSeriesIntervalKey = (args: {
+export const getLoadedFiatRateSeriesIntervalKey = (args: {
   fiatCode: string;
   currencyAbbreviation: string;
   interval: FiatRateInterval;
+  chain?: string;
+  tokenAddress?: string;
 }): string => {
   const fiatCode = (args.fiatCode || '').toUpperCase();
   const coin = normalizeFiatRateSeriesCoin(args.currencyAbbreviation);
-  return `${fiatCode}:${coin}:${args.interval}`;
+  return getFiatRateSeriesCacheKey(fiatCode, coin, args.interval, {
+    chain: args.tokenAddress ? args.chain : undefined,
+    tokenAddress: args.tokenAddress,
+  });
 };
 
 const ensureFiatRateSeriesIntervalOnce = async (args: {
@@ -575,6 +580,8 @@ const ensureFiatRateSeriesIntervalOnce = async (args: {
     fiatCode,
     currencyAbbreviation,
     interval,
+    chain,
+    tokenAddress,
   });
   if (loadedIntervals.has(loadedIntervalKey)) {
     return true;
@@ -613,10 +620,15 @@ const hasFiatRateSeriesPointsInCache = (args: {
   fiatCode: string;
   currencyAbbreviation: string;
   interval: FiatRateInterval;
+  chain?: string;
+  tokenAddress?: string;
 }): boolean => {
   const fiatCode = (args.fiatCode || '').toUpperCase();
   const coin = normalizeFiatRateSeriesCoin(args.currencyAbbreviation);
-  const cacheKey = getFiatRateSeriesCacheKey(fiatCode, coin, args.interval);
+  const cacheKey = getFiatRateSeriesCacheKey(fiatCode, coin, args.interval, {
+    chain: args.tokenAddress ? args.chain : undefined,
+    tokenAddress: args.tokenAddress,
+  });
   const series = args.getState().RATE?.fiatRateSeriesCache?.[cacheKey];
   return Array.isArray(series?.points) && series.points.length > 0;
 };
@@ -636,6 +648,8 @@ const ensureWalletHasHistoricalFiatRates = async (args: {
       fiatCode: args.fiatCode,
       currencyAbbreviation: args.currencyAbbreviation,
       interval: 'ALL',
+      chain: args.tokenAddress ? args.chain : undefined,
+      tokenAddress: args.tokenAddress,
     })
   ) {
     return true;
@@ -647,7 +661,7 @@ const ensureWalletHasHistoricalFiatRates = async (args: {
     fiatCode: args.fiatCode,
     currencyAbbreviation: args.currencyAbbreviation,
     interval: 'ALL',
-    chain: args.chain,
+    chain: args.tokenAddress ? args.chain : undefined,
     tokenAddress: args.tokenAddress,
   });
   if (!didFetch) {
@@ -657,6 +671,8 @@ const ensureWalletHasHistoricalFiatRates = async (args: {
       fiatCode: args.fiatCode,
       currencyAbbreviation: args.currencyAbbreviation,
       interval: 'ALL',
+      chain: args.tokenAddress ? args.chain : undefined,
+      tokenAddress: args.tokenAddress,
     });
   }
 
@@ -665,6 +681,8 @@ const ensureWalletHasHistoricalFiatRates = async (args: {
     fiatCode: args.fiatCode,
     currencyAbbreviation: args.currencyAbbreviation,
     interval: 'ALL',
+    chain: args.tokenAddress ? args.chain : undefined,
+    tokenAddress: args.tokenAddress,
   });
 };
 

@@ -20,6 +20,44 @@ describe('balanceHistoryChartRateCacheRevision', () => {
     ]);
   });
 
+  it('keeps same-coin assets on different chains/tokens as distinct relevant keys', () => {
+    expect(
+      getRelevantFiatRateSeriesCacheKeys({
+        fiatCode: 'usd',
+        assets: [
+          {
+            coin: 'usdc',
+            chain: 'eth',
+            tokenAddress: '0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          },
+          {
+            coin: 'usdc',
+            chain: 'base',
+            tokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+          },
+        ],
+        timeframes: ['1D', '3M'],
+      }),
+    ).toEqual([
+      getFiatRateSeriesCacheKey('USD', 'usdc', '1D', {
+        chain: 'base',
+        tokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+      }),
+      getFiatRateSeriesCacheKey('USD', 'usdc', 'ALL', {
+        chain: 'base',
+        tokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+      }),
+      getFiatRateSeriesCacheKey('USD', 'usdc', '1D', {
+        chain: 'eth',
+        tokenAddress: '0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      }),
+      getFiatRateSeriesCacheKey('USD', 'usdc', 'ALL', {
+        chain: 'eth',
+        tokenAddress: '0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      }),
+    ]);
+  });
+
   it('changes revision when a relevant cache entry updates', () => {
     const relevantKeys = getRelevantFiatRateSeriesCacheKeys({
       fiatCode: 'USD',

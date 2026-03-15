@@ -1,3 +1,10 @@
+import {
+  type FiatRateSeriesAssetIdentity,
+  getFiatRateSeriesAssetKey as getSharedFiatRateSeriesAssetKey,
+  getFiatRateSeriesCacheKey as getSharedFiatRateSeriesCacheKey,
+  parseFiatRateSeriesCacheKey as parseSharedFiatRateSeriesCacheKey,
+} from '../../utils/portfolio/core/fiatRateSeries';
+
 export interface Rate {
   code: string;
   fetchedOn: number;
@@ -54,26 +61,33 @@ export type FiatRateSeriesCache = {
 };
 
 export type FiatRateSeriesCacheEntry = NonNullable<FiatRateSeriesCache[string]>;
+export type {FiatRateSeriesAssetIdentity};
 
 export type RatesCacheKey = {
   [key: number]: number | undefined;
 };
 
+export const getFiatRateSeriesAssetKey = getSharedFiatRateSeriesAssetKey;
+export const parseFiatRateSeriesCacheKey = parseSharedFiatRateSeriesCacheKey;
+
 export const getFiatRateSeriesCacheKey = (
   fiatCode: string,
   coin: string,
   interval: FiatRateInterval,
+  identity?: Omit<FiatRateSeriesAssetIdentity, 'coin'>,
 ): string => {
-  return `${(fiatCode || '').toUpperCase()}:${(
-    coin || ''
-  ).toLowerCase()}:${interval}`;
+  return getSharedFiatRateSeriesCacheKey(fiatCode, coin, interval, identity);
 };
+
+export const getFiatRateSeriesLoadedIntervalKey = getFiatRateSeriesCacheKey;
 
 export const hasValidSeriesForCoin = (args: {
   cache: FiatRateSeriesCache | undefined;
   fiatCodeUpper: string;
   normalizedCoin: string;
   intervals: ReadonlyArray<FiatRateInterval>;
+  chain?: string;
+  tokenAddress?: string;
 }): boolean => {
   const fiatCodeUpper = (args.fiatCodeUpper || '').toUpperCase();
   const normalizedCoin = (args.normalizedCoin || '').trim().toLowerCase();
@@ -86,6 +100,10 @@ export const hasValidSeriesForCoin = (args: {
       fiatCodeUpper,
       normalizedCoin,
       interval,
+      {
+        chain: args.chain,
+        tokenAddress: args.tokenAddress,
+      },
     );
     const points = args.cache?.[cacheKey]?.points;
     if (!Array.isArray(points) || !points.length) {

@@ -1029,6 +1029,8 @@ const createSimulationSetup = (
     coin: rateCoin,
     cache: fiatRateSeriesCache,
     nowMs,
+    chain: args.wallet.tokenAddress ? String(args.wallet.chain || '') : undefined,
+    tokenAddress: args.wallet.tokenAddress,
   });
 
   const feePaidByWallet = (tx: NormalizedTx): boolean =>

@@ -296,6 +296,104 @@ describe('buildPnlAnalysisSeries', () => {
     expect(result.points[0].byWalletId['wallet-eth']?.fiatBalance).toBe(0);
   });
 
+  it('uses distinct historical series for same-coin wallets with different token metadata', () => {
+    const startMs = Date.UTC(2026, 0, 1, 0, 0, 0);
+    const endMs = Date.UTC(2026, 0, 2, 0, 0, 0);
+
+    const ethUsdcWallet: WalletForAnalysis = {
+      walletId: 'wallet-usdc-eth',
+      walletName: 'USDC on Ethereum',
+      currencyAbbreviation: 'usdc',
+      credentials: {
+        coin: 'usdc',
+        chain: 'eth',
+        network: 'livenet',
+        token: {
+          address: '0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          decimals: 6,
+        },
+      },
+      snapshots: [
+        makeSnapshot({
+          walletId: 'wallet-usdc-eth',
+          chain: 'eth',
+          coin: 'usdc',
+          assetId: 'eth:usdc:0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          cryptoBalance: '1000000',
+          timestamp: startMs,
+          markRate: 1,
+        }),
+      ],
+    };
+
+    const baseUsdcWallet: WalletForAnalysis = {
+      walletId: 'wallet-usdc-base',
+      walletName: 'USDC on Base',
+      currencyAbbreviation: 'usdc',
+      credentials: {
+        coin: 'usdc',
+        chain: 'base',
+        network: 'livenet',
+        token: {
+          address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+          decimals: 6,
+        },
+      },
+      snapshots: [
+        makeSnapshot({
+          walletId: 'wallet-usdc-base',
+          chain: 'base',
+          coin: 'usdc',
+          assetId: 'base:usdc:0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+          cryptoBalance: '1000000',
+          timestamp: startMs,
+          markRate: 2,
+        }),
+      ],
+    };
+
+    const result = buildPnlAnalysisSeries({
+      wallets: [ethUsdcWallet, baseUsdcWallet],
+      timeframe: '1D',
+      quoteCurrency: 'USD',
+      nowMs: endMs,
+      maxPoints: 2,
+      fiatRateSeriesCache: {
+        [getFiatRateSeriesCacheKey('USD', 'usdc', '1D', {
+          chain: 'eth',
+          tokenAddress: '0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+        })]: {
+          fetchedOn: endMs,
+          points: [
+            {ts: startMs, rate: 1},
+            {ts: endMs, rate: 1.1},
+          ],
+        },
+        [getFiatRateSeriesCacheKey('USD', 'usdc', '1D', {
+          chain: 'base',
+          tokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+        })]: {
+          fetchedOn: endMs,
+          points: [
+            {ts: startMs, rate: 2},
+            {ts: endMs, rate: 2.2},
+          ],
+        },
+      },
+    });
+
+    expect(result.points[0].byWalletId['wallet-usdc-eth']?.fiatBalance).toBe(1);
+    expect(result.points[0].byWalletId['wallet-usdc-base']?.fiatBalance).toBe(
+      2,
+    );
+    expect(result.points[1].byWalletId['wallet-usdc-eth']?.fiatBalance).toBe(
+      1.1,
+    );
+    expect(result.points[1].byWalletId['wallet-usdc-base']?.fiatBalance).toBe(
+      2.2,
+    );
+  });
+
   it('extends the final point to now when newer snapshots exist past the latest rate sample', () => {
     const startMs = Date.UTC(2026, 0, 1, 0, 0, 0);
     const lastRateMs = Date.UTC(2026, 0, 2, 0, 0, 0);

@@ -122,6 +122,7 @@ import {
   getFiatChartTimeframeOptions,
   getRangeLabelForFiatTimeframe,
 } from '../../../components/charts/fiatTimeframes';
+import {IsSVMChain} from '../../../store/wallet/utils/currency';
 
 const formatCompactNumber = (value: number, maximumFractionDigits = 2) => {
   const abs = Math.abs(value);
@@ -480,18 +481,27 @@ const ExchangeRate = () => {
   );
 
   const assetContext = useMemo(
-    () => ({
-      currencyAbbreviation: (
-        params?.currencyAbbreviation || 'btc'
-      ).toLowerCase(),
-      chain: (
+    () => {
+      const chain = (
         params?.chain ||
         params?.currencyAbbreviation ||
         'btc'
-      ).toLowerCase(),
-      network: params?.network?.toLowerCase(),
-      tokenAddress: params?.tokenAddress?.toLowerCase(),
-    }),
+      ).toLowerCase();
+      const rawTokenAddress = params?.tokenAddress?.trim();
+
+      return {
+        currencyAbbreviation: (
+          params?.currencyAbbreviation || 'btc'
+        ).toLowerCase(),
+        chain,
+        network: params?.network?.toLowerCase(),
+        tokenAddress: rawTokenAddress
+          ? IsSVMChain(chain)
+            ? rawTokenAddress
+            : rawTokenAddress.toLowerCase()
+          : undefined,
+      };
+    },
     [
       params?.chain,
       params?.currencyAbbreviation,
@@ -545,13 +555,27 @@ const ExchangeRate = () => {
     [selectedTimeframe],
   );
 
+  const historicalRateIdentity = useMemo(
+    () => ({
+      chain: assetContext.tokenAddress ? assetContext.chain : undefined,
+      tokenAddress: assetContext.tokenAddress || undefined,
+    }),
+    [assetContext.chain, assetContext.tokenAddress],
+  );
+
   const selectedSeriesKey = useMemo(() => {
     return getFiatRateSeriesCacheKey(
       selectedFiatCodeUpper,
       normalizedCoin,
       seriesDataInterval,
+      historicalRateIdentity,
     );
-  }, [normalizedCoin, selectedFiatCodeUpper, seriesDataInterval]);
+  }, [
+    historicalRateIdentity,
+    normalizedCoin,
+    selectedFiatCodeUpper,
+    seriesDataInterval,
+  ]);
 
   const selectedSeries = fiatRateSeriesCache[selectedSeriesKey];
 
@@ -570,6 +594,7 @@ const ExchangeRate = () => {
           selectedFiatCodeUpper,
           normalizedCoin,
           interval,
+          historicalRateIdentity,
         );
         const cachedSeries = fiatRateSeriesCacheRef.current[cacheKey];
         if (!cachedSeries?.fetchedOn) {
@@ -611,6 +636,7 @@ const ExchangeRate = () => {
     assetContext.currencyAbbreviation,
     assetContext.tokenAddress,
     dispatch,
+    historicalRateIdentity,
     hasValidNormalizedCoin,
     normalizedCoin,
     selectedFiatCodeUpper,
@@ -786,6 +812,7 @@ const ExchangeRate = () => {
         selectedFiatCodeUpper,
         normalizedCoin,
         seriesDataInterval,
+        historicalRateIdentity,
       );
       const cached = fiatRateSeriesCache[cacheKey];
       const isStale = cached
@@ -810,6 +837,8 @@ const ExchangeRate = () => {
             currencyAbbreviation: assetContext.currencyAbbreviation,
             interval: seriesDataInterval,
             spotRate: currentFiatRate,
+            chain: historicalRateIdentity.chain,
+            tokenAddress: historicalRateIdentity.tokenAddress,
           }),
         );
         if (!didAppend) {
@@ -837,6 +866,7 @@ const ExchangeRate = () => {
     fiatRateSeriesCache,
     hasWalletsForAsset,
     hasValidNormalizedCoin,
+    historicalRateIdentity,
     normalizedCoin,
     selectedFiatCodeUpper,
     seriesDataInterval,
@@ -898,24 +928,28 @@ const ExchangeRate = () => {
         selectedFiatCodeUpper,
         normalizedCoin,
         '1D',
+        historicalRateIdentity,
       ),
       oneWeek: getFiatRateSeriesCacheKey(
         selectedFiatCodeUpper,
         normalizedCoin,
         '1W',
+        historicalRateIdentity,
       ),
       oneMonth: getFiatRateSeriesCacheKey(
         selectedFiatCodeUpper,
         normalizedCoin,
         '1M',
+        historicalRateIdentity,
       ),
       all: getFiatRateSeriesCacheKey(
         selectedFiatCodeUpper,
         normalizedCoin,
         'ALL',
+        historicalRateIdentity,
       ),
     }),
-    [normalizedCoin, selectedFiatCodeUpper],
+    [historicalRateIdentity, normalizedCoin, selectedFiatCodeUpper],
   );
 
   const oneDaySeriesForAllIntervalsHigh =

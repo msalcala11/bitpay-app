@@ -11,7 +11,7 @@ import type {
 } from '../../store/portfolio-charts/portfolio-charts.models';
 import {BALANCE_CHART_CACHE_SCHEMA_VERSION} from '../../store/portfolio-charts/portfolio-charts.models';
 import type {PnlAnalysisPoint, WalletForAnalysis} from './core/pnl/analysis';
-import {normalizeFiatRateSeriesCoin} from './core/pnl/rates';
+import {getFiatRateSeriesAssetKey} from './core/fiatRateSeries';
 import {getAtomicDecimals, parseAtomicToBigint} from './core/format';
 import {atomicToUnitNumber} from './core/pnl/atomic';
 import {
@@ -81,6 +81,22 @@ export const getSortedUniqueWalletIds = (walletIds: string[]): string[] => {
     out.push(normalized);
   }
   return out.sort((a, b) => a.localeCompare(b));
+};
+
+const getWalletHistoricalRateKey = (wallet: WalletForAnalysis): string => {
+  const rawTokenAddress = wallet?.credentials?.token?.address;
+  const tokenAddress =
+    typeof rawTokenAddress === 'string' && rawTokenAddress.trim()
+      ? rawTokenAddress
+      : undefined;
+
+  return getFiatRateSeriesAssetKey(wallet.currencyAbbreviation, {
+    chain:
+      tokenAddress && wallet?.credentials?.chain
+        ? String(wallet.credentials.chain)
+        : undefined,
+    tokenAddress,
+  });
 };
 
 const toRateSignature = (ratesByCoin: Record<string, number>): string => {
@@ -397,7 +413,7 @@ export const buildLatestPointPatchMetadataFromAnalysis = (args: {
         parseAtomicToBigint(walletPoint.balanceAtomic || '0'),
         decimals,
       );
-      const coin = normalizeFiatRateSeriesCoin(wallet.currencyAbbreviation);
+      const coin = getWalletHistoricalRateKey(wallet);
       if (!latestHoldingsByCoin[coin]) {
         latestHoldingsByCoin[coin] = {units: 0};
       }

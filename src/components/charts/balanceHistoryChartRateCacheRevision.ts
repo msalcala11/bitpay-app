@@ -1,4 +1,5 @@
 import type {
+  FiatRateSeriesAssetIdentity,
   FiatRateInterval,
   FiatRateSeriesCache,
 } from '../../store/rate/rate.models';
@@ -7,13 +8,21 @@ import {getSeriesIntervalForFiatTimeframe} from './fiatTimeframes';
 
 export const getRelevantFiatRateSeriesCacheKeys = (args: {
   fiatCode: string;
-  coins: string[];
+  coins?: string[];
+  assets?: FiatRateSeriesAssetIdentity[];
   timeframes: FiatRateInterval[];
 }): string[] => {
   const keys = new Set<string>();
 
-  for (const coin of args.coins || []) {
-    if (typeof coin !== 'string' || !coin.trim()) {
+  const assets =
+    args.assets ||
+    (args.coins || []).map(coin => ({
+      coin,
+    }));
+
+  for (const asset of assets) {
+    const coin = typeof asset?.coin === 'string' ? asset.coin : '';
+    if (!coin.trim()) {
       continue;
     }
 
@@ -23,6 +32,10 @@ export const getRelevantFiatRateSeriesCacheKeys = (args: {
           args.fiatCode,
           coin,
           getSeriesIntervalForFiatTimeframe(timeframe),
+          {
+            chain: asset?.chain,
+            tokenAddress: asset?.tokenAddress,
+          },
         ),
       );
     }

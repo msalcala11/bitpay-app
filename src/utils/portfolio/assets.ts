@@ -46,6 +46,7 @@ import {
   buildPnlAnalysisSeries,
   type WalletForAnalysis,
 } from './core/pnl/analysis';
+import {getFiatRateSeriesAssetKey} from './core/fiatRateSeries';
 import {normalizeFiatRateSeriesCoin as normalizeCoinForPnlRates} from './core/pnl/rates';
 import type {BalanceSnapshotStored} from './core/pnl/types';
 import {formatBigIntDecimal} from './core/format';
@@ -1550,7 +1551,7 @@ type PnlWalletBuildContext = {
 
 type PnlWalletAnalysisEntry = {
   wallet: WalletForAnalysis;
-  normCoin: string;
+  rateKey: string;
   currentRate: number;
 };
 
@@ -1670,6 +1671,15 @@ const getPnlCurrentRateForWalletContext = (args: {
   });
 };
 
+const getPnlHistoricalRateKeyForWalletContext = (
+  context: Pick<PnlWalletBuildContext, 'coin' | 'chainLower' | 'tokenAddress'>,
+): string => {
+  return getFiatRateSeriesAssetKey(context.coin, {
+    chain: context.tokenAddress ? context.chainLower : undefined,
+    tokenAddress: context.tokenAddress,
+  });
+};
+
 const buildPnlCurrentRatesByCoinFromWalletContexts = (args: {
   walletContexts: PnlWalletBuildContext[];
   effectiveQuoteCurrency: string;
@@ -1678,8 +1688,8 @@ const buildPnlCurrentRatesByCoinFromWalletContexts = (args: {
   const currentRatesByCoin: Record<string, number> = {};
 
   for (const context of args.walletContexts || []) {
-    const normCoin = normalizeCoinForPnlRates(context.coin);
-    if (normCoin in currentRatesByCoin) {
+    const rateKey = getPnlHistoricalRateKeyForWalletContext(context);
+    if (rateKey in currentRatesByCoin) {
       continue;
     }
 
@@ -1689,7 +1699,7 @@ const buildPnlCurrentRatesByCoinFromWalletContexts = (args: {
       rates: args.rates,
     });
     if (currentRate > 0) {
-      currentRatesByCoin[normCoin] = currentRate;
+      currentRatesByCoin[rateKey] = currentRate;
     }
   }
 
@@ -1703,8 +1713,8 @@ const appendPnlWalletAnalysisEntry = (args: {
   const {inputs, entry} = args;
 
   inputs.wallets.push(entry.wallet);
-  if (!(entry.normCoin in inputs.currentRatesByCoin) && entry.currentRate > 0) {
-    inputs.currentRatesByCoin[entry.normCoin] = entry.currentRate;
+  if (!(entry.rateKey in inputs.currentRatesByCoin) && entry.currentRate > 0) {
+    inputs.currentRatesByCoin[entry.rateKey] = entry.currentRate;
   }
 };
 
@@ -1745,7 +1755,7 @@ const createPnlWalletAnalysisEntry = (args: {
       credentials: context.credentials,
       snapshots,
     },
-    normCoin: normalizeCoinForPnlRates(context.coin),
+    rateKey: getPnlHistoricalRateKeyForWalletContext(context),
     currentRate: getPnlCurrentRateForWalletContext({
       context,
       effectiveQuoteCurrency,
@@ -2089,8 +2099,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
   }
 
   // Precompute representative wallet per asset key and bucket analysis wallets
-  // by normalized rate coin. This keeps one coin's stale/missing cache entries
-  // from poisoning PnL for every asset row.
+  // by the exact historical-rate identity used by the backend/cache.
   const repWalletByAssetKey = new Map<string, Wallet>();
   const coinByAssetKey = new Map<string, string>();
   const pnlWalletsByRateCoin = new Map<string, WalletForAnalysis[]>();
@@ -2118,8 +2127,13 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     repWalletByAssetKey.set(assetKey, repWallet);
     coinByAssetKey.set(assetKey, coin);
 
-    const normCoin = normalizeCoinForPnlRates(coin);
-    if (!(normCoin in currentRatesByCoin)) {
+    const rateKey = getFiatRateSeriesAssetKey(coin, {
+      chain: getPortfolioWalletTokenAddress(repWallet)
+        ? getPortfolioWalletChainLower(repWallet, coin)
+        : undefined,
+      tokenAddress: getPortfolioWalletTokenAddress(repWallet),
+    });
+    if (!(rateKey in currentRatesByCoin)) {
       const currentRate = getQuoteRateNumForAsset({
         rates: args.rates,
         quoteCurrency,
@@ -2128,7 +2142,7 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
         tokenAddress: getPortfolioWalletTokenAddress(repWallet),
       });
       if (currentRate > 0) {
-        currentRatesByCoin[normCoin] = currentRate;
+        currentRatesByCoin[rateKey] = currentRate;
       }
     }
 
@@ -2137,9 +2151,9 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
       if (!pw) continue;
       if (seenPnlWalletIds.has(pw.walletId)) continue;
       seenPnlWalletIds.add(pw.walletId);
-      const existing = pnlWalletsByRateCoin.get(normCoin) || [];
+      const existing = pnlWalletsByRateCoin.get(rateKey) || [];
       existing.push(pw);
-      pnlWalletsByRateCoin.set(normCoin, existing);
+      pnlWalletsByRateCoin.set(rateKey, existing);
     }
   }
 
@@ -2213,7 +2227,12 @@ export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
     let hasRate = false;
     let hasPnl = false;
 
-    const rateCoin = normalizeCoinForPnlRates(coin);
+    const rateCoin = getFiatRateSeriesAssetKey(coin, {
+      chain: getPortfolioWalletTokenAddress(repWallet)
+        ? getPortfolioWalletChainLower(repWallet, coin)
+        : undefined,
+      tokenAddress: getPortfolioWalletTokenAddress(repWallet),
+    });
     const lastPoint = lastPointByRateCoin.get(rateCoin);
     if (lastPoint) {
       let basis = 0;

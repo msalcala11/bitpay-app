@@ -563,23 +563,21 @@ const BalanceHistoryChart = ({
     return assets;
   }, [wallets]);
 
-  const relevantRateCacheCoins = useMemo(() => {
-    return Array.from(
-      new Set(
-        rateFetchAssets
-          .map(asset => asset.coinForCacheCheck)
-          .filter((coin): coin is string => !!coin),
-      ),
-    ).sort((a, b) => a.localeCompare(b));
+  const relevantRateCacheAssets = useMemo(() => {
+    return rateFetchAssets.map(asset => ({
+      coin: asset.coinForCacheCheck,
+      chain: asset.chain,
+      tokenAddress: asset.tokenAddress,
+    }));
   }, [rateFetchAssets]);
 
   const relevantFiatRateSeriesCacheKeys = useMemo(() => {
     return getRelevantFiatRateSeriesCacheKeys({
       fiatCode: quoteCurrency,
-      coins: relevantRateCacheCoins,
+      assets: relevantRateCacheAssets,
       timeframes: PRECOMPUTE_TIMEFRAME_ORDER,
     });
-  }, [quoteCurrency, relevantRateCacheCoins]);
+  }, [quoteCurrency, relevantRateCacheAssets]);
 
   useEffect(() => {
     if (!hasAnySnapshots || !quoteCurrency || !rateFetchAssets.length) {

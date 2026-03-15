@@ -3,7 +3,10 @@ import type {
   FiatRateSeriesCache,
   FiatRatePoint,
 } from '../fiatRateSeries';
-import {getFiatRateSeriesCacheKey} from '../fiatRateSeries';
+import {
+  getFiatRateSeriesAssetKey,
+  getFiatRateSeriesCacheKey,
+} from '../fiatRateSeries';
 import {
   formatAtomicAmount,
   getAtomicDecimals,
@@ -189,21 +192,30 @@ function getFallbackOrderForTimeframe(
 function getRatePointsFromCache(args: {
   fiatRateSeriesCache: FiatRateSeriesCache;
   quoteCurrency: string;
-  coin: string;
+  rateIdentity: WalletRateIdentity;
   /** Cache interval to query (may differ from timeframe; e.g. 3M/1Y/5Y use ALL in the app) */
   seriesInterval: FiatRateInterval;
   /** Original timeframe (used only for fallback ordering) */
   timeframe: PnlTimeframe;
   onHistoricalRateDependency?: (cacheKey: string) => void;
 }): FiatRatePoint[] {
-  const {fiatRateSeriesCache, quoteCurrency, coin, timeframe, seriesInterval} =
-    args;
+  const {
+    fiatRateSeriesCache,
+    quoteCurrency,
+    rateIdentity,
+    timeframe,
+    seriesInterval,
+  } = args;
 
   // Ensure the requested seriesInterval is attempted first (e.g. 3M/1Y/5Y use ALL).
   const firstKey = getFiatRateSeriesCacheKey(
     quoteCurrency,
-    coin,
+    rateIdentity.coin,
     seriesInterval,
+    {
+      chain: rateIdentity.chain,
+      tokenAddress: rateIdentity.tokenAddress,
+    },
   );
   const firstSeries = fiatRateSeriesCache?.[firstKey];
   const firstPoints = Array.isArray(firstSeries?.points)
@@ -220,7 +232,15 @@ function getRatePointsFromCache(args: {
   const fallbackIntervals = getFallbackOrderForTimeframe(timeframe);
   for (const interval of fallbackIntervals) {
     if (interval === seriesInterval) continue;
-    const key = getFiatRateSeriesCacheKey(quoteCurrency, coin, interval);
+    const key = getFiatRateSeriesCacheKey(
+      quoteCurrency,
+      rateIdentity.coin,
+      interval,
+      {
+        chain: rateIdentity.chain,
+        tokenAddress: rateIdentity.tokenAddress,
+      },
+    );
     const series = fiatRateSeriesCache?.[key];
     const points = Array.isArray(series?.points) ? series.points : [];
     if (points.length) {
@@ -231,8 +251,12 @@ function getRatePointsFromCache(args: {
 
   const wantedKey = getFiatRateSeriesCacheKey(
     quoteCurrency,
-    coin,
+    rateIdentity.coin,
     seriesInterval,
+    {
+      chain: rateIdentity.chain,
+      tokenAddress: rateIdentity.tokenAddress,
+    },
   );
   throw new Error(
     `Missing cached rate for ${wantedKey}. Fetch rates first (1D/1W/1M/3M/1Y/5Y/ALL).`,
@@ -442,13 +466,45 @@ function findNewestSnapshotTs(wallets: WalletForAnalysis[]): number | null {
 }
 
 function isSingleAsset(wallets: WalletForAnalysis[]): boolean {
-  const coins = new Set<string>();
+  const rateKeys = new Set<string>();
   for (const w of wallets) {
-    coins.add(normalizeFiatRateSeriesCoin(w.currencyAbbreviation));
-    if (coins.size > 1) return false;
+    rateKeys.add(getWalletRateIdentity(w).key);
+    if (rateKeys.size > 1) return false;
   }
-  return coins.size === 1;
+  return rateKeys.size === 1;
 }
+
+type WalletRateIdentity = {
+  key: string;
+  coin: string;
+  chain?: string;
+  tokenAddress?: string;
+  displaySymbol: string;
+};
+
+const getWalletRateIdentity = (wallet: WalletForAnalysis): WalletRateIdentity => {
+  const coin = normalizeFiatRateSeriesCoin(wallet.currencyAbbreviation);
+  const rawTokenAddress = wallet?.credentials?.token?.address;
+  const tokenAddress =
+    typeof rawTokenAddress === 'string' && rawTokenAddress.trim()
+      ? rawTokenAddress
+      : undefined;
+  const chain =
+    tokenAddress && wallet?.credentials?.chain
+      ? String(wallet.credentials.chain)
+      : undefined;
+
+  return {
+    key: getFiatRateSeriesAssetKey(coin, {
+      chain,
+      tokenAddress,
+    }),
+    coin,
+    ...(chain ? {chain} : {}),
+    ...(tokenAddress ? {tokenAddress} : {}),
+    displaySymbol: String(wallet.currencyAbbreviation || coin).toUpperCase(),
+  };
+};
 
 type BuildPnlAnalysisSeriesArgs = {
   wallets: WalletForAnalysis[];
@@ -505,11 +561,22 @@ function* buildPnlAnalysisSeriesGenerator(
   const wallets = args.wallets.slice();
   const quoteCurrency = args.quoteCurrency.toUpperCase();
 
-  const coins = Array.from(
-    new Set(
-      wallets.map(w => normalizeFiatRateSeriesCoin(w.currencyAbbreviation)),
-    ),
-  ).sort((a, b) => a.localeCompare(b));
+  const rateIdentitiesByKey = new Map<string, WalletRateIdentity>();
+  const rateIdentityByWalletId = new Map<string, WalletRateIdentity>();
+  for (const wallet of wallets) {
+    const rateIdentity = getWalletRateIdentity(wallet);
+    if (!rateIdentity.key) {
+      continue;
+    }
+    rateIdentityByWalletId.set(wallet.walletId, rateIdentity);
+    if (!rateIdentitiesByKey.has(rateIdentity.key)) {
+      rateIdentitiesByKey.set(rateIdentity.key, rateIdentity);
+    }
+  }
+
+  const coins = Array.from(rateIdentitiesByKey.keys()).sort((a, b) =>
+    a.localeCompare(b),
+  );
 
   if (coins.length === 0) {
     return {
@@ -560,10 +627,14 @@ function* buildPnlAnalysisSeriesGenerator(
   let overlapEnd = Number.POSITIVE_INFINITY;
 
   for (const coin of coins) {
+    const rateIdentity = rateIdentitiesByKey.get(coin);
+    if (!rateIdentity) {
+      continue;
+    }
     const raw = getRatePointsFromCache({
       fiatRateSeriesCache: args.fiatRateSeriesCache,
       quoteCurrency,
-      coin,
+      rateIdentity,
       seriesInterval,
       timeframe: args.timeframe,
       onHistoricalRateDependency: args.onHistoricalRateDependency,
@@ -646,7 +717,7 @@ function* buildPnlAnalysisSeriesGenerator(
   // We iterate forward through snapshots during timeline generation so this is O(points + txs).
   type WindowBasisState = {
     walletId: string;
-    coin: string;
+    rateKey: string;
     decimals: number;
     snapshots: BalanceSnapshotStored[];
     nextIdx: number; // next snapshot index to process (> startTs)
@@ -677,7 +748,10 @@ function* buildPnlAnalysisSeriesGenerator(
 
   const windowStateByWalletId: Record<string, WindowBasisState> = {};
   for (const w of wallets) {
-    const coin = normalizeFiatRateSeriesCoin(w.currencyAbbreviation);
+    const rateIdentity = rateIdentityByWalletId.get(w.walletId);
+    if (!rateIdentity?.key) {
+      continue;
+    }
     const decimals = getAtomicDecimals(w.credentials);
     const snaps = w.snapshots;
 
@@ -685,12 +759,12 @@ function* buildPnlAnalysisSeriesGenerator(
     const unitsAtomic =
       lastIdx >= 0 ? parseAtomicToBigint(snaps[lastIdx].cryptoBalance) : 0n;
     const unitsNumber = atomicToUnitNumber(unitsAtomic, decimals);
-    const startRate = baselineRateByCoin[coin];
+    const startRate = baselineRateByCoin[rateIdentity.key];
     const basisFiat = unitsNumber * startRate;
 
     windowStateByWalletId[w.walletId] = {
       walletId: w.walletId,
-      coin,
+      rateKey: rateIdentity.key,
       decimals,
       snapshots: snaps,
       nextIdx: findFirstSnapshotIndexAfter(snaps, startTs),
@@ -729,7 +803,10 @@ function* buildPnlAnalysisSeriesGenerator(
 
     for (const w of wallets) {
       const st = windowStateByWalletId[w.walletId];
-      const coin = st.coin;
+      if (!st) {
+        continue;
+      }
+      const coin = st.rateKey;
       const rate =
         i === timeline.length - 1
           ? getOverrideRate(coin) ?? rateCursorByCoin[coin]?.getNearest(ts)
@@ -872,11 +949,10 @@ function* buildPnlAnalysisSeriesGenerator(
   const last = points[points.length - 1];
 
   const assetSummaries: AssetPnlSummary[] = coins.map(coin => {
+    const rateIdentity = rateIdentitiesByKey.get(coin);
     const ids = new Set(
       wallets
-        .filter(
-          w => normalizeFiatRateSeriesCoin(w.currencyAbbreviation) === coin,
-        )
+        .filter(w => rateIdentityByWalletId.get(w.walletId)?.key === coin)
         .map(w => w.walletId),
     );
 
@@ -903,7 +979,7 @@ function* buildPnlAnalysisSeriesGenerator(
 
     return {
       coin,
-      displaySymbol: coin.toUpperCase(),
+      displaySymbol: rateIdentity?.displaySymbol || coin.toUpperCase(),
       rateStart,
       rateEnd,
       rateChange,
