@@ -1394,7 +1394,8 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   ]);
 
   const lockedBalanceCurrencyAbbreviation =
-    accountItem?.wallets?.[1]?.currencyAbbreviation;
+    accountItem?.wallets?.[1]?.currencyAbbreviation ??
+    accountItem?.wallets?.[0]?.currencyAbbreviation;
 
   const listHeaderComponent = useMemo(() => {
     const isWalletsTab = activeTab === 'wallets';
@@ -1489,8 +1490,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
               },
             }}
           />
-          {Number(accountItem?.fiatLockedBalanceFormat) > 0 &&
-          lockedBalanceCurrencyAbbreviation ? (
+          {Number(accountItem?.fiatLockedBalanceFormat) > 0 ? (
             <LockedBalanceContainer onPress={() => {}}>
               <View>
                 <Description numberOfLines={1} ellipsizeMode={'tail'}>
@@ -1500,10 +1500,12 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
 
               <TailContainer>
                 <Value>
-                  {accountItem?.fiatLockedBalanceFormat}{' '}
-                  {formatCurrencyAbbreviation(
-                    lockedBalanceCurrencyAbbreviation,
-                  )}
+                  {accountItem?.fiatLockedBalanceFormat}
+                  {lockedBalanceCurrencyAbbreviation
+                    ? ` ${formatCurrencyAbbreviation(
+                        lockedBalanceCurrencyAbbreviation,
+                      )}`
+                    : ''}
                 </Value>
               </TailContainer>
             </LockedBalanceContainer>
