@@ -86,7 +86,35 @@ export type InteractiveLineChartProps = {
   firstPointGuideLineColor?: string;
 };
 
+type AxisLabelComponent =
+  React.ComponentType<InteractiveLineChartAxisLabelProps>;
 type SvgLineAnimatedProps = Partial<React.ComponentProps<typeof Line>>;
+
+const useStableAxisLabelWrapper = (
+  AxisLabel: AxisLabelComponent | undefined,
+  width: number | undefined,
+  displayName: string,
+): AxisLabelComponent | undefined => {
+  const axisLabelRef = React.useRef(AxisLabel);
+  const widthRef = React.useRef(width);
+
+  axisLabelRef.current = AxisLabel;
+  widthRef.current = width;
+
+  const StableAxisLabel = React.useMemo<AxisLabelComponent>(() => {
+    const StableAxisLabelComponent = () => {
+      const CurrentAxisLabel = axisLabelRef.current;
+      return CurrentAxisLabel ? (
+        <CurrentAxisLabel width={widthRef.current} />
+      ) : null;
+    };
+
+    StableAxisLabelComponent.displayName = displayName;
+    return StableAxisLabelComponent;
+  }, [displayName]);
+
+  return AxisLabel ? StableAxisLabel : undefined;
+};
 
 const InteractiveLineChart = ({
   points,
@@ -319,28 +347,22 @@ const InteractiveLineChart = ({
   //   - style changes (theme switch),
   //   - we regain focus after a theme switch (ensures redraw is visible),
   //   - layout happens after a theme switch (handles detach/reattach cases).
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const pointsForGraph = React.useMemo(
     () => points.slice(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [points, pointsRefreshKey],
   );
   const hasDrawablePoints = pointsForGraph.length >= 2;
-  const ResolvedTopAxisLabel = React.useMemo(() => {
-    if (!TopAxisLabel) {
-      return undefined;
-    }
-
-    const AxisLabel = TopAxisLabel;
-    return () => <AxisLabel width={resolvedChartWidth} />;
-  }, [TopAxisLabel, resolvedChartWidth]);
-  const ResolvedBottomAxisLabel = React.useMemo(() => {
-    if (!BottomAxisLabel) {
-      return undefined;
-    }
-
-    const AxisLabel = BottomAxisLabel;
-    return () => <AxisLabel width={resolvedChartWidth} />;
-  }, [BottomAxisLabel, resolvedChartWidth]);
+  const ResolvedTopAxisLabel = useStableAxisLabelWrapper(
+    TopAxisLabel,
+    resolvedChartWidth,
+    'InteractiveLineChartTopAxisLabel',
+  );
+  const ResolvedBottomAxisLabel = useStableAxisLabelWrapper(
+    BottomAxisLabel,
+    resolvedChartWidth,
+    'InteractiveLineChartBottomAxisLabel',
+  );
 
   const firstPointGuideLine = React.useMemo(() => {
     if (

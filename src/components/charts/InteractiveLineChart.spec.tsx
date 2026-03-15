@@ -7,8 +7,6 @@ import InteractiveLineChart from './InteractiveLineChart';
 const mockLineGraph = jest.fn();
 
 jest.mock('react-native-reanimated', () => {
-  const ReactNative = require('react-native');
-
   return {
     __esModule: true,
     default: {
@@ -107,6 +105,47 @@ describe('InteractiveLineChart', () => {
     });
     expect(screen.getByTestId('top-axis-width')).toHaveTextContent('420');
     expect(screen.getByTestId('bottom-axis-width')).toHaveTextContent('420');
+  });
+
+  it('does not remount axis labels when derived width changes', () => {
+    const onMount = jest.fn();
+    const onUnmount = jest.fn();
+    const TopAxisLabel = ({width}: {width?: number}) => {
+      React.useEffect(() => {
+        onMount();
+        return () => onUnmount();
+      }, []);
+
+      return <Text testID="stable-axis-width">{String(width)}</Text>;
+    };
+
+    const screen = renderWithTheme(
+      <InteractiveLineChart
+        points={points}
+        color="#0044ff"
+        gradientFillColors={['#ffffff', '#000000']}
+        TopAxisLabel={TopAxisLabel}
+      />,
+    );
+
+    expect(onMount).toHaveBeenCalledTimes(1);
+    expect(onUnmount).not.toHaveBeenCalled();
+
+    fireEvent(screen.getByTestId('interactive-line-chart-inner'), 'layout', {
+      nativeEvent: {layout: {x: 0, y: 0, width: 240, height: 220}},
+    });
+
+    expect(screen.getByTestId('stable-axis-width')).toHaveTextContent('240');
+    expect(onMount).toHaveBeenCalledTimes(1);
+    expect(onUnmount).not.toHaveBeenCalled();
+
+    fireEvent(screen.getByTestId('interactive-line-chart-inner'), 'layout', {
+      nativeEvent: {layout: {x: 0, y: 0, width: 420, height: 220}},
+    });
+
+    expect(screen.getByTestId('stable-axis-width')).toHaveTextContent('420');
+    expect(onMount).toHaveBeenCalledTimes(1);
+    expect(onUnmount).not.toHaveBeenCalled();
   });
 
   it('honors an explicit width override', () => {
