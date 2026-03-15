@@ -311,6 +311,48 @@ describe('waitForTargetAmountAndUpdateWallet', () => {
     expect(wallet.getStatus).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the original completion direction if wallet.balance.sat mutates mid-poll', async () => {
+    const pendingCallbacks: Array<(err?: unknown, status?: any) => void> = [];
+    const wallet = createWallet({
+      getStatus: jest.fn(
+        (_opts: unknown, cb: (err?: unknown, status?: any) => void) => {
+          pendingCallbacks.push(cb);
+        },
+      ),
+    });
+    const key = {id: 'key-1', wallets: [wallet]};
+    const getState = () => createState({key});
+    const dispatch = jest.fn((action: unknown) => Promise.resolve(action));
+
+    await waitForTargetAmountAndUpdateWallet({
+      key,
+      wallet,
+      targetAmount: 500,
+    })(dispatch, getState);
+
+    await advanceTime(5000);
+    expect(wallet.getStatus).toHaveBeenCalledTimes(1);
+
+    wallet.balance.sat = 400;
+    pendingCallbacks[0](undefined, {balance: {totalAmount: 700}});
+    await flushPromises(12);
+
+    expect(mockStartUpdateWalletStatus).not.toHaveBeenCalled();
+
+    await advanceTime(5000);
+    expect(wallet.getStatus).toHaveBeenCalledTimes(2);
+
+    pendingCallbacks[1](undefined, {balance: {totalAmount: 499}});
+    await flushPromises(12);
+
+    expect(mockStartUpdateWalletStatus).toHaveBeenCalledTimes(1);
+    expect(mockStartUpdateWalletStatus).toHaveBeenCalledWith({
+      key,
+      wallet,
+      force: true,
+    });
+  });
+
   it('continues polling after status errors and stops refreshing after timing out', async () => {
     const wallet = createWallet({
       getStatus: jest.fn(

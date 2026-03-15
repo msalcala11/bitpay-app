@@ -119,10 +119,12 @@ const hasReachedTargetAmount = ({
   wallet,
   status,
   targetAmount,
+  initialBalanceSat,
 }: {
   wallet: Wallet;
   status?: Status;
   targetAmount: number;
+  initialBalanceSat: number;
 }): boolean => {
   const comparableTotalAmount = getComparableTotalAmount({wallet, status});
 
@@ -130,7 +132,7 @@ const hasReachedTargetAmount = ({
     return false;
   }
 
-  return targetAmount <= wallet.balance.sat
+  return targetAmount <= initialBalanceSat
     ? comparableTotalAmount <= targetAmount
     : comparableTotalAmount >= targetAmount;
 };
@@ -208,6 +210,7 @@ export const waitForTargetAmountAndUpdateWallet =
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let deadlineTimeout: ReturnType<typeof setTimeout> | undefined;
     let isPollingComplete = false;
+    const initialBalanceSat = wallet.balance.sat;
 
     const stopPolling = () => {
       if (isPollingComplete) {
@@ -272,7 +275,14 @@ export const waitForTargetAmountAndUpdateWallet =
               );
             }
 
-            if (!hasReachedTargetAmount({wallet, status, targetAmount})) {
+            if (
+              !hasReachedTargetAmount({
+                wallet,
+                status,
+                targetAmount,
+                initialBalanceSat,
+              })
+            ) {
               scheduleNextPoll(getNextPollDelay(requestStartedAt));
               return;
             }
