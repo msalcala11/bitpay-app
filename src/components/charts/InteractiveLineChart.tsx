@@ -86,34 +86,17 @@ export type InteractiveLineChartProps = {
   firstPointGuideLineColor?: string;
 };
 
-type AxisLabelComponent =
-  React.ComponentType<InteractiveLineChartAxisLabelProps>;
+type AxisLabelRendererProps = Record<string, unknown>;
+type AxisLabelRenderer = (
+  props?: AxisLabelRendererProps,
+) => React.ReactElement | null;
 type SvgLineAnimatedProps = Partial<React.ComponentProps<typeof Line>>;
 
-const useStableAxisLabelWrapper = (
-  AxisLabel: AxisLabelComponent | undefined,
-  width: number | undefined,
-  displayName: string,
-): AxisLabelComponent | undefined => {
-  const axisLabelRef = React.useRef(AxisLabel);
-  const widthRef = React.useRef(width);
-
-  axisLabelRef.current = AxisLabel;
-  widthRef.current = width;
-
-  const StableAxisLabel = React.useMemo<AxisLabelComponent>(() => {
-    const StableAxisLabelComponent = () => {
-      const CurrentAxisLabel = axisLabelRef.current;
-      return CurrentAxisLabel ? (
-        <CurrentAxisLabel width={widthRef.current} />
-      ) : null;
-    };
-
-    StableAxisLabelComponent.displayName = displayName;
-    return StableAxisLabelComponent;
-  }, [displayName]);
-
-  return AxisLabel ? StableAxisLabel : undefined;
+const clonePointsForGraph = (
+  points: GraphPoint[],
+  _refreshInputs: readonly [string, number, number],
+): GraphPoint[] => {
+  return points.slice();
 };
 
 const InteractiveLineChart = ({
@@ -156,6 +139,13 @@ const InteractiveLineChart = ({
   const isGuideLineTopInitializedRef = React.useRef(false);
   const resolvedChartWidth =
     typeof width === 'number' && width > 0 ? width : chartWidth;
+  const resolvedChartWidthRef = React.useRef(resolvedChartWidth);
+  const topAxisLabelRef = React.useRef(TopAxisLabel);
+  const bottomAxisLabelRef = React.useRef(BottomAxisLabel);
+
+  resolvedChartWidthRef.current = resolvedChartWidth;
+  topAxisLabelRef.current = TopAxisLabel;
+  bottomAxisLabelRef.current = BottomAxisLabel;
 
   const effectiveLineThickness =
     typeof lineThickness === 'number' ? lineThickness : theme.dark ? 2 : 4;
@@ -337,33 +327,49 @@ const InteractiveLineChart = ({
     [styleSignature, width],
   );
 
-  const pointsRefreshKey = React.useMemo(
-    () => `${styleSignature}|${focusRefreshNonce}|${layoutRefreshNonce}`,
-    [focusRefreshNonce, layoutRefreshNonce, styleSignature],
-  );
-
   // Force a new points array reference whenever either:
   //   - data changes (timeframe switch -> animation desired),
   //   - style changes (theme switch),
   //   - we regain focus after a theme switch (ensures redraw is visible),
   //   - layout happens after a theme switch (handles detach/reattach cases).
   const pointsForGraph = React.useMemo(
-    () => ({
-      pointsForGraph: points.slice(),
-      pointsRefreshKey,
-    }).pointsForGraph,
-    [points, pointsRefreshKey],
+    () =>
+      clonePointsForGraph(points, [
+        styleSignature,
+        focusRefreshNonce,
+        layoutRefreshNonce,
+      ]),
+    [points, styleSignature, focusRefreshNonce, layoutRefreshNonce],
   );
   const hasDrawablePoints = pointsForGraph.length >= 2;
-  const ResolvedTopAxisLabel = useStableAxisLabelWrapper(
-    TopAxisLabel,
-    resolvedChartWidth,
-    'InteractiveLineChartTopAxisLabel',
-  );
-  const ResolvedBottomAxisLabel = useStableAxisLabelWrapper(
-    BottomAxisLabel,
-    resolvedChartWidth,
-    'InteractiveLineChartBottomAxisLabel',
+  const ResolvedTopAxisLabel = React.useCallback<AxisLabelRenderer>(props => {
+    const CurrentAxisLabel = topAxisLabelRef.current;
+    if (!CurrentAxisLabel) {
+      return null;
+    }
+
+    return (
+      <CurrentAxisLabel
+        {...(props as InteractiveLineChartAxisLabelProps)}
+        width={resolvedChartWidthRef.current}
+      />
+    );
+  }, []);
+  const ResolvedBottomAxisLabel = React.useCallback<AxisLabelRenderer>(
+    props => {
+      const CurrentAxisLabel = bottomAxisLabelRef.current;
+      if (!CurrentAxisLabel) {
+        return null;
+      }
+
+      return (
+        <CurrentAxisLabel
+          {...(props as InteractiveLineChartAxisLabelProps)}
+          width={resolvedChartWidthRef.current}
+        />
+      );
+    },
+    [],
   );
 
   const firstPointGuideLine = React.useMemo(() => {
@@ -481,8 +487,10 @@ const InteractiveLineChart = ({
           enablePanGesture={enablePanGesture}
           color={color}
           gradientFillColors={gradientFillColors}
-          TopAxisLabel={ResolvedTopAxisLabel}
-          BottomAxisLabel={ResolvedBottomAxisLabel}
+          TopAxisLabel={TopAxisLabel ? ResolvedTopAxisLabel : undefined}
+          BottomAxisLabel={
+            BottomAxisLabel ? ResolvedBottomAxisLabel : undefined
+          }
           SelectionDot={SelectionDot}
           onGestureStart={onGestureStart}
           onGestureEnd={onGestureEnd}

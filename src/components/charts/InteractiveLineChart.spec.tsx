@@ -128,6 +128,8 @@ describe('InteractiveLineChart', () => {
       />,
     );
 
+    const initialTopAxisRenderer = mockLineGraph.mock.lastCall?.[0]?.TopAxisLabel;
+
     expect(onMount).toHaveBeenCalledTimes(1);
     expect(onUnmount).not.toHaveBeenCalled();
 
@@ -135,17 +137,25 @@ describe('InteractiveLineChart', () => {
       nativeEvent: {layout: {x: 0, y: 0, width: 240, height: 220}},
     });
 
+    const topAxisRendererAfterFirstLayout =
+      mockLineGraph.mock.lastCall?.[0]?.TopAxisLabel;
+
     expect(screen.getByTestId('stable-axis-width')).toHaveTextContent('240');
     expect(onMount).toHaveBeenCalledTimes(1);
     expect(onUnmount).not.toHaveBeenCalled();
+    expect(topAxisRendererAfterFirstLayout).toBe(initialTopAxisRenderer);
 
     fireEvent(screen.getByTestId('interactive-line-chart-inner'), 'layout', {
       nativeEvent: {layout: {x: 0, y: 0, width: 420, height: 220}},
     });
 
+    const topAxisRendererAfterSecondLayout =
+      mockLineGraph.mock.lastCall?.[0]?.TopAxisLabel;
+
     expect(screen.getByTestId('stable-axis-width')).toHaveTextContent('420');
     expect(onMount).toHaveBeenCalledTimes(1);
     expect(onUnmount).not.toHaveBeenCalled();
+    expect(topAxisRendererAfterSecondLayout).toBe(initialTopAxisRenderer);
   });
 
   it('honors an explicit width override', () => {
