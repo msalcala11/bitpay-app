@@ -22,6 +22,7 @@ import {useTranslation} from 'react-i18next';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import {View, type LayoutRectangle} from 'react-native';
 import Animated, {
+  cancelAnimation,
   Easing,
   interpolate,
   runOnJS,
@@ -65,15 +66,6 @@ const CollapseButtonContainer = styled(Animated.View)`
   right: 12px;
   top: 27px;
   z-index: 30;
-`;
-
-const CollapseButtonHitArea = styled(Animated.View)`
-  position: absolute;
-  right: -4px;
-  top: 11px;
-  width: 72px;
-  height: 72px;
-  z-index: 31;
 `;
 
 const PortfolioBalanceHeader = styled(TouchableOpacity)`
@@ -195,6 +187,7 @@ const PortfolioBalance = () => {
     const nextCollapsed =
       shouldLeftAlignTopSection && persistedHomeChartCollapsed;
     setIsChartCollapsed(nextCollapsed);
+    cancelAnimation(collapseProgress);
     collapseProgress.value = nextCollapsed ? 1 : 0;
   }, [
     collapseProgress,
@@ -289,6 +282,7 @@ const PortfolioBalance = () => {
         setIsChartCollapsed(true);
       }
 
+      cancelAnimation(collapseProgress);
       collapseProgress.value = withTiming(
         toCollapsed ? 1 : 0,
         {
@@ -315,6 +309,7 @@ const PortfolioBalance = () => {
 
   const onCollapseButtonPressIn = useCallback(() => {
     setIsCollapseButtonActive(true);
+    cancelAnimation(collapseButtonPressOpacity);
     collapseButtonPressOpacity.value = withTiming(ActiveOpacity, {
       duration: 80,
       easing: Easing.linear,
@@ -323,6 +318,7 @@ const PortfolioBalance = () => {
 
   const onCollapseButtonPressOut = useCallback(() => {
     setIsCollapseButtonActive(false);
+    cancelAnimation(collapseButtonPressOpacity);
     collapseButtonPressOpacity.value = withTiming(1, {
       duration: 120,
       easing: Easing.linear,
@@ -349,6 +345,8 @@ const PortfolioBalance = () => {
     portfolioQuoteCurrency: portfolio?.quoteCurrency,
     defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
   });
+  const collapseChartAccessibilityLabel = t('Collapse portfolio chart');
+  const expandChartAccessibilityLabel = t('Expand portfolio chart');
   const chartLifecycleKey = useMemo(
     () =>
       `home-portfolio-charts:${quoteCurrency}:${homeChartRemountNonce}:${visibleKeyIdsSig}`,
@@ -394,42 +392,37 @@ const PortfolioBalance = () => {
   return (
     <PortfolioContainer>
       {shouldLeftAlignTopSection ? (
-        <>
-          <CollapseButtonHitArea
-            pointerEvents={isChartCollapsed ? 'none' : 'auto'}
-            style={buttonAnimatedStyle}>
-            <TouchableOpacity
-              touchableLibrary="react-native"
-              activeOpacity={ActiveOpacity}
-              style={{flex: 1}}
-              onPressIn={onCollapseButtonPressIn}
-              onPressOut={onCollapseButtonPressOut}
-              onPress={onCollapseChartPress}
-            />
-          </CollapseButtonHitArea>
-          <CollapseButtonContainer
-            onLayout={e => {
-              const nextLayout = e.nativeEvent.layout;
-              setCollapseButtonLayout(prev =>
-                prev &&
-                prev.x === nextLayout.x &&
-                prev.y === nextLayout.y &&
-                prev.width === nextLayout.width &&
-                prev.height === nextLayout.height
-                  ? prev
-                  : nextLayout,
-              );
+        <CollapseButtonContainer
+          onLayout={e => {
+            const nextLayout = e.nativeEvent.layout;
+            setCollapseButtonLayout(prev =>
+              prev &&
+              prev.x === nextLayout.x &&
+              prev.y === nextLayout.y &&
+              prev.width === nextLayout.width &&
+              prev.height === nextLayout.height
+                ? prev
+                : nextLayout,
+            );
+          }}
+          pointerEvents={isChartCollapsed ? 'none' : 'auto'}
+          accessibilityElementsHidden={isChartCollapsed}
+          importantForAccessibility={
+            isChartCollapsed ? 'no-hide-descendants' : 'yes'
+          }
+          style={buttonAnimatedStyle}>
+          <CollapseContentButton
+            isActive={isCollapseButtonActive}
+            onPressIn={onCollapseButtonPressIn}
+            onPressOut={onCollapseButtonPressOut}
+            onPress={onCollapseChartPress}
+            accessibilityLabel={collapseChartAccessibilityLabel}
+            accessibilityState={{
+              expanded: !isChartCollapsed,
+              selected: isCollapseButtonActive,
             }}
-            pointerEvents={isChartCollapsed ? 'none' : 'auto'}
-            style={buttonAnimatedStyle}>
-            <CollapseContentButton
-              isActive={isCollapseButtonActive}
-              onPressIn={onCollapseButtonPressIn}
-              onPressOut={onCollapseButtonPressOut}
-              onPress={onCollapseChartPress}
-            />
-          </CollapseButtonContainer>
-        </>
+          />
+        </CollapseButtonContainer>
       ) : null}
       <PortfolioTopContent $leftAligned={shouldLeftAlignTopSection}>
         <PortfolioBalanceHeader
@@ -547,7 +540,10 @@ const PortfolioBalance = () => {
                       bottom: 0,
                       zIndex: 50,
                     }}
-                    onPressIn={onExpandChartPress}
+                    accessibilityRole="button"
+                    accessibilityLabel={expandChartAccessibilityLabel}
+                    accessibilityState={{expanded: false}}
+                    onPress={onExpandChartPress}
                   />
                 ) : null}
               </View>

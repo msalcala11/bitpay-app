@@ -1,5 +1,5 @@
 import React from 'react';
-import {act, render} from '@testing-library/react-native';
+import {act, fireEvent, render} from '@testing-library/react-native';
 import {ThemeProvider} from 'styled-components/native';
 import PortfolioBalance from './PortfolioBalance';
 
@@ -81,6 +81,7 @@ jest.mock('react-native-reanimated', () => {
       cubic: jest.fn(),
       inOut: jest.fn(() => jest.fn()),
     },
+    cancelAnimation: jest.fn(),
     interpolate: (value: number, input: number[], output: number[]) => {
       if (value <= input[0]) {
         return output[0];
@@ -126,7 +127,32 @@ jest.mock('@components/base/TouchableOpacity', () => {
   };
 });
 
-jest.mock('./CollapseContentButton', () => () => null);
+jest.mock('./CollapseContentButton', () => {
+  const ReactNative = require('react-native');
+
+  return ({
+    onPress,
+    onPressIn,
+    onPressOut,
+    accessibilityLabel,
+    accessibilityState,
+  }: {
+    onPress?: () => void;
+    onPressIn?: () => void;
+    onPressOut?: () => void;
+    accessibilityLabel?: string;
+    accessibilityState?: Record<string, unknown>;
+  }) => (
+    <ReactNative.TouchableOpacity
+      onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={accessibilityState}
+    />
+  );
+});
 jest.mock('./InfoSvg', () => () => null);
 jest.mock('../../../../components/styled/Text', () => {
   const ReactNative = require('react-native');
@@ -193,7 +219,7 @@ jest.mock('../../../../components/charts/ChartChangeRow', () => {
 });
 
 jest.mock('../../../../components/charts/BalanceHistoryChart', () => {
-  const React = require('react');
+  const ReactMock = require('react');
   const ReactNative = require('react-native');
 
   return ({
@@ -205,7 +231,7 @@ jest.mock('../../../../components/charts/BalanceHistoryChart', () => {
       rangeLabel?: string;
     }) => void;
   }) => {
-    React.useEffect(() => {
+    ReactMock.useEffect(() => {
       onChangeRowData?.({
         percent: 12.3,
         deltaFiatFormatted: '$45.67',
@@ -225,17 +251,22 @@ const theme = {
   },
 };
 
+const renderPortfolioBalance = () =>
+  render(
+    <ThemeProvider theme={theme}>
+      <PortfolioBalance />
+    </ThemeProvider>,
+  );
+
 describe('PortfolioBalance', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockState.APP.hideAllBalances = false;
+    mockState.PORTFOLIO_CHARTS.homeChartCollapsed = false;
   });
 
   it('keeps the initial chart change-row callback result on first mount', async () => {
-    const screen = render(
-      <ThemeProvider theme={theme}>
-        <PortfolioBalance />
-      </ThemeProvider>,
-    );
+    const screen = renderPortfolioBalance();
 
     await act(async () => {
       await Promise.resolve();
@@ -244,5 +275,53 @@ describe('PortfolioBalance', () => {
     expect(screen.getByTestId('chart-change-row')).toHaveTextContent(
       '12.3|$45.67|All time',
     );
+  });
+
+  it('exposes collapse control accessibility state and pressed feedback', () => {
+    const screen = renderPortfolioBalance();
+
+    const collapseButton = screen.getByLabelText('Collapse portfolio chart');
+
+    expect(collapseButton.props.accessibilityState).toMatchObject({
+      expanded: true,
+      selected: false,
+    });
+
+    fireEvent(collapseButton, 'pressIn');
+    expect(
+      screen.getByLabelText('Collapse portfolio chart').props
+        .accessibilityState,
+    ).toMatchObject({
+      expanded: true,
+      selected: true,
+    });
+
+    fireEvent(collapseButton, 'pressOut');
+    expect(
+      screen.getByLabelText('Collapse portfolio chart').props
+        .accessibilityState,
+    ).toMatchObject({
+      expanded: true,
+      selected: false,
+    });
+  });
+
+  it('expands the collapsed chart on press instead of pressIn', () => {
+    mockState.PORTFOLIO_CHARTS.homeChartCollapsed = true;
+    const screen = renderPortfolioBalance();
+    const expandOverlay = screen.getByLabelText('Expand portfolio chart');
+
+    expect(expandOverlay.props.accessibilityState).toMatchObject({
+      expanded: false,
+    });
+
+    fireEvent(expandOverlay, 'pressIn');
+    expect(mockDispatch).not.toHaveBeenCalled();
+
+    fireEvent.press(expandOverlay);
+    expect(mockDispatch).toHaveBeenCalledWith({
+      type: 'SET_HOME_CHART_COLLAPSED',
+      payload: false,
+    });
   });
 });

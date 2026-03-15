@@ -1,9 +1,11 @@
 import React from 'react';
 import styled, {useTheme} from 'styled-components/native';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
+import {type AccessibilityState} from 'react-native';
 import * as Svg from 'react-native-svg';
 import {
   CharcoalBlack,
+  NeutralSlate,
   Slate30,
   SlateDark,
   White,
@@ -38,18 +40,22 @@ type Props = {
   onPressIn?: () => void;
   onPressOut?: () => void;
   isActive?: boolean;
+  accessibilityLabel?: string;
+  accessibilityState?: AccessibilityState;
 };
 
 const CollapseContentButton: React.FC<Props> = ({
-  onPress = () => undefined,
+  onPress,
   onPressIn,
   onPressOut,
   isActive = false,
+  accessibilityLabel,
+  accessibilityState,
 }) => {
   const theme = useTheme();
   const borderColor = theme.dark ? SlateDark : Slate30;
   const iconFill = theme.dark ? White : CharcoalBlack;
-  const activeBackgroundColor = theme.dark ? CharcoalBlack : '#f6f7f8';
+  const activeBackgroundColor = theme.dark ? CharcoalBlack : NeutralSlate;
 
   return (
     <CircleButton
@@ -60,6 +66,9 @@ const CollapseContentButton: React.FC<Props> = ({
       onPress={onPress}
       onPressIn={onPressIn}
       onPressOut={onPressOut}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={accessibilityState}
       hitSlop={{top: 16, bottom: 16, left: 16, right: 16}}>
       <CollapseContentButtonIcon fill={iconFill} />
     </CircleButton>
