@@ -1,12 +1,10 @@
 import type {GraphPoint} from 'react-native-graph';
 import type {
   FiatRateSeriesCache,
-  FiatRateSeriesCacheEntry,
   FiatRateInterval,
 } from '../../store/rate/rate.models';
 import type {
   CachedBalanceChartTimeframe,
-  CachedBalanceChartTimeframes,
   HistoricalRateDependencyMeta,
 } from '../../store/portfolio-charts/portfolio-charts.models';
 import {BALANCE_CHART_CACHE_SCHEMA_VERSION} from '../../store/portfolio-charts/portfolio-charts.models';
@@ -49,24 +47,6 @@ const toOptionalFiniteNumber = (value: unknown): number | undefined => {
 
 export const normalizeBalanceChartOffset = (value: unknown): number => {
   return toFiniteNumber(value, 0);
-};
-
-export const getFiatRateSeriesCacheEntry = (
-  cache: FiatRateSeriesCache | undefined,
-  cacheKey: string,
-): FiatRateSeriesCacheEntry | undefined => {
-  if (!cacheKey) {
-    return undefined;
-  }
-
-  return cache?.[cacheKey];
-};
-
-export const getCachedBalanceChartTimeframe = (
-  timeframes: CachedBalanceChartTimeframes | undefined,
-  timeframe: FiatRateInterval,
-): CachedBalanceChartTimeframe | undefined => {
-  return timeframes?.[timeframe];
 };
 
 export const getSortedUniqueWalletIds = (walletIds: string[]): string[] => {
@@ -140,7 +120,7 @@ const getLatestSeriesPointTs = (
   cache: FiatRateSeriesCache | undefined,
   cacheKey: string,
 ): number | undefined => {
-  const points = getFiatRateSeriesCacheEntry(cache, cacheKey)?.points;
+  const points = cache?.[cacheKey]?.points;
   if (!Array.isArray(points) || !points.length) {
     return undefined;
   }
@@ -159,9 +139,7 @@ export const buildHistoricalRateDependencyMetadataFromCache = (args: {
 
   return cacheKeys.map(cacheKey => ({
     cacheKey,
-    fetchedOn: toOptionalFiniteNumber(
-      getFiatRateSeriesCacheEntry(cache, cacheKey)?.fetchedOn,
-    ),
+    fetchedOn: toOptionalFiniteNumber(cache?.[cacheKey]?.fetchedOn),
     lastTs: getLatestSeriesPointTs(cache, cacheKey),
   }));
 };
@@ -174,10 +152,7 @@ const haveHistoricalRateDependenciesChanged = (args: {
     if (!dep?.cacheKey) {
       continue;
     }
-    const current = getFiatRateSeriesCacheEntry(
-      args.fiatRateSeriesCache,
-      dep.cacheKey,
-    );
+    const current = args.fiatRateSeriesCache?.[dep.cacheKey];
     if (!current) {
       return true;
     }

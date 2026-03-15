@@ -53,8 +53,6 @@ export type FiatRateSeriesCache = {
   [key in string]?: FiatRateSeries;
 };
 
-export type FiatRateSeriesCacheEntry = NonNullable<FiatRateSeriesCache[string]>;
-
 export type RatesCacheKey = {
   [key: number]: number | undefined;
 };

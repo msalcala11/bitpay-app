@@ -20,7 +20,7 @@ import type {
   FiatRateInterval,
 } from '../../store/rate/rate.models';
 import type {Rates} from '../../store/rate/rate.models';
-import type {BalanceSnapshotsByWalletId} from '../../store/portfolio/portfolio.models';
+import type {BalanceSnapshot} from '../../store/portfolio/portfolio.models';
 import type {Wallet} from '../../store/wallet/wallet.models';
 import {FIAT_RATE_SERIES_TARGET_POINTS} from '../../store/rate/rate.models';
 import {
@@ -46,11 +46,6 @@ import haptic from '../haptic-feedback/haptic';
 import {
   buildPnlWalletInputsFromPortfolioSnapshotsAsync,
   buildPnlCurrentRatesByCoinFromPortfolioSnapshots,
-  getPortfolioWalletChainLower,
-  getPortfolioWalletCurrencyAbbreviation,
-  getPortfolioWalletId,
-  getPortfolioWalletSnapshots,
-  getPortfolioWalletTokenAddressLower,
   type PnlWalletInputs,
 } from '../../utils/portfolio/assets';
 import {useAppDispatch, useAppSelector} from '../../utils/hooks';
@@ -71,7 +66,6 @@ import {
   buildLatestPointPatchMetadataFromAnalysis,
   buildSnapshotVersionSig,
   deserializeCachedTimeframeToComputedSeries,
-  getCachedBalanceChartTimeframe,
   getCachedTimeframeStatus,
   getSortedUniqueWalletIds,
   patchCachedLatestPointWithSpotRates,
@@ -161,15 +155,12 @@ const getLatestFiatRateSeriesPointTs = (
 };
 
 const logBalanceHistoryChartError = (context: string, error: unknown) => {
-  logManager.error(
-    `[BalanceHistoryChart] ${context}`,
-    formatUnknownError(error),
-  );
+  logManager.error(`[BalanceHistoryChart] ${context}`, formatUnknownError(error));
 };
 
 export type BalanceHistoryChartProps = {
   wallets: Wallet[];
-  snapshotsByWalletId: BalanceSnapshotsByWalletId;
+  snapshotsByWalletId: {[walletId: string]: BalanceSnapshot[] | undefined};
   quoteCurrency: string;
   initialSelectedTimeframe?: FiatRateInterval;
   rates?: Rates;
@@ -378,11 +369,15 @@ const BalanceHistoryChart = ({
   const totalSnapshotCount = useMemo(() => {
     let totalCount = 0;
     for (const w of wallets || []) {
-      const id = getPortfolioWalletId(w);
+      const id = String((w as any)?.id || '');
       if (!id) {
         continue;
       }
-      totalCount += getPortfolioWalletSnapshots(snapshotsByWalletId, id).length;
+      const snaps = Array.isArray(snapshotsByWalletId?.[id])
+        ? (snapshotsByWalletId?.[id] as BalanceSnapshot[])
+        : [];
+      const count = snaps.length;
+      totalCount += count;
     }
 
     return totalCount;
@@ -392,7 +387,9 @@ const BalanceHistoryChart = ({
   const analysisInputsReadyKeyRef = useRef<string | undefined>(undefined);
 
   const sortedWalletIds = useMemo(() => {
-    return getSortedUniqueWalletIds((wallets || []).map(getPortfolioWalletId));
+    return getSortedUniqueWalletIds(
+      (wallets || []).map(w => String((w as any)?.id || '')),
+    );
   }, [wallets]);
 
   const scopeId = useMemo(() => {
@@ -475,15 +472,22 @@ const BalanceHistoryChart = ({
 
     for (const w of wallets || []) {
       const coinForCacheCheck = normalizeFiatRateSeriesCoin(
-        getPortfolioWalletCurrencyAbbreviation(w),
+        (w as any)?.currencyAbbreviation || '',
       );
       if (!coinForCacheCheck) {
         continue;
       }
 
-      const chainLower = getPortfolioWalletChainLower(w);
-      const chain = chainLower || undefined;
-      const tokenAddress = getPortfolioWalletTokenAddressLower(w);
+      const chainRaw =
+        typeof (w as any)?.chain === 'string' ? (w as any).chain : '';
+      const chain = chainRaw ? chainRaw.toLowerCase() : undefined;
+      const tokenAddressRaw =
+        typeof (w as any)?.tokenAddress === 'string'
+          ? (w as any).tokenAddress
+          : '';
+      const tokenAddress = tokenAddressRaw
+        ? tokenAddressRaw.toLowerCase()
+        : undefined;
       const dedupeKey = `${coinForCacheCheck}|${chain || ''}|${
         tokenAddress || ''
       }`;
@@ -533,7 +537,7 @@ const BalanceHistoryChart = ({
           coinForCacheCheck: asset.coinForCacheCheck,
           chain: asset.chain,
           tokenAddress: asset.tokenAddress,
-        }),
+        }) as any,
       );
     }
   }, [
@@ -554,10 +558,8 @@ const BalanceHistoryChart = ({
   const getTimeframeRevision = useCallback(
     (
       timeframe: FiatRateInterval,
-      historicalRateDeps = getCachedBalanceChartTimeframe(
-        cachedScope?.timeframes,
-        timeframe,
-      )?.historicalRateDeps || [],
+      historicalRateDeps = cachedScope?.timeframes?.[timeframe]
+        ?.historicalRateDeps || [],
     ) => {
       return buildBalanceChartTimeframeRevision({
         scopeId,
@@ -597,10 +599,7 @@ const BalanceHistoryChart = ({
 
     for (const timeframe of PRECOMPUTE_TIMEFRAME_ORDER) {
       next[timeframe] = getCachedTimeframeStatus({
-        cachedTimeframe: getCachedBalanceChartTimeframe(
-          cachedScope?.timeframes,
-          timeframe,
-        ),
+        cachedTimeframe: cachedScope?.timeframes?.[timeframe],
         snapshotVersionSig,
         currentSpotRatesByCoin,
         fiatRateSeriesCache,
@@ -675,10 +674,7 @@ const BalanceHistoryChart = ({
     > = {};
 
     for (const timeframe of PRECOMPUTE_TIMEFRAME_ORDER) {
-      const cachedTimeframe = getCachedBalanceChartTimeframe(
-        cachedScope.timeframes,
-        timeframe,
-      );
+      const cachedTimeframe = cachedScope.timeframes?.[timeframe];
       if (!cachedTimeframe) {
         continue;
       }
@@ -902,9 +898,9 @@ const BalanceHistoryChart = ({
       const buildAnalysis = (targetNowMs: number) =>
         buildPnlAnalysisSeriesAsync({
           wallets: analysisInputs.wallets,
-          timeframe,
+          timeframe: timeframe as any,
           quoteCurrency: analysisInputs.quoteCurrency,
-          fiatRateSeriesCache,
+          fiatRateSeriesCache: fiatRateSeriesCache as any,
           currentRatesByCoin:
             Object.keys(currentSpotRatesByCoin || {}).length > 0
               ? currentSpotRatesByCoin
@@ -1298,10 +1294,7 @@ const BalanceHistoryChart = ({
     : displayState?.timeframe ?? selectedTimeframe;
   const activeSeries = selectedComputedSeries || displayState?.series;
   const cachedSelectedSeries = useMemo(() => {
-    const cachedTimeframe = getCachedBalanceChartTimeframe(
-      cachedScope?.timeframes,
-      selectedTimeframe,
-    );
+    const cachedTimeframe = cachedScope?.timeframes?.[selectedTimeframe];
     if (!cachedTimeframe) {
       return undefined;
     }

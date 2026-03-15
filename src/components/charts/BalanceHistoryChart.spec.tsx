@@ -1,7 +1,5 @@
 import React from 'react';
 import {act, cleanup, render} from '@testing-library/react-native';
-import type {BalanceSnapshot} from '../../store/portfolio/portfolio.models';
-import type {Wallet} from '../../store/wallet/wallet.models';
 import BalanceHistoryChart from './BalanceHistoryChart';
 
 const mockBuildPnlAnalysisSeriesAsync = jest.fn();
@@ -86,23 +84,9 @@ jest.mock('../../utils/portfolio/core/pnl/analysis', () => ({
 }));
 jest.mock('../../utils/portfolio/assets', () => ({
   buildPnlCurrentRatesByCoinFromPortfolioSnapshots: (...args: unknown[]) =>
-    mockBuildPnlCurrentRatesByCoinFromPortfolioSnapshots.apply(undefined, args),
+    mockBuildPnlCurrentRatesByCoinFromPortfolioSnapshots(...args),
   buildPnlWalletInputsFromPortfolioSnapshotsAsync: (...args: unknown[]) =>
-    mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.apply(undefined, args),
-  getPortfolioWalletChainLower: (wallet?: {chain?: string}) =>
-    String(wallet?.chain || '').toLowerCase(),
-  getPortfolioWalletCurrencyAbbreviation: (wallet?: {
-    currencyAbbreviation?: string;
-  }) => String(wallet?.currencyAbbreviation || ''),
-  getPortfolioWalletId: (wallet?: {id?: string}) => String(wallet?.id || ''),
-  getPortfolioWalletSnapshots: (
-    snapshotsByWalletId: Record<string, unknown[] | undefined> | undefined,
-    walletId: string,
-  ) => snapshotsByWalletId?.[walletId] || [],
-  getPortfolioWalletTokenAddressLower: (wallet?: {tokenAddress?: string}) => {
-    const tokenAddress = String(wallet?.tokenAddress || '');
-    return tokenAddress ? tokenAddress.toLowerCase() : undefined;
-  },
+    mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync(...args),
 }));
 
 const mockDispatch = jest.fn();
@@ -188,7 +172,7 @@ const wallet = {
     sat: 0,
     crypto: '0',
   },
-} as Wallet;
+} as any;
 
 const snapshot = {
   id: 'snapshot-1',
@@ -201,11 +185,9 @@ const snapshot = {
   eventType: 'tx',
   cryptoBalance: '1',
   remainingCostBasisFiat: 40_000,
-  avgCostFiatPerUnit: 40_000,
-  unrealizedPnlFiat: 0,
   costBasisRateFiat: 40_000,
   quoteCurrency: 'USD',
-} as BalanceSnapshot;
+} as any;
 
 const flushAsyncWork = async (iterations = 4) => {
   for (let i = 0; i < iterations; i += 1) {

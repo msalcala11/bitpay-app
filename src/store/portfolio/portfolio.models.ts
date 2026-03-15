@@ -3,7 +3,6 @@ export type BalanceSnapshotDirection = 'incoming' | 'outgoing';
 
 export interface BalanceSnapshot {
   id: string;
-  walletId?: string;
   chain: string;
   coin: string;
   network: string;
@@ -23,10 +22,6 @@ export interface BalanceSnapshot {
   quoteCurrency: string;
   createdAt?: number;
 }
-
-export type BalanceSnapshotsByWalletId = {
-  [walletId: string]: BalanceSnapshot[] | undefined;
-};
 
 export interface PortfolioPopulateError {
   walletId: string;
@@ -57,7 +52,7 @@ export interface PortfolioPopulateStatus {
 }
 
 export interface PortfolioState {
-  snapshotsByWalletId: BalanceSnapshotsByWalletId;
+  snapshotsByWalletId: {[walletId: string]: BalanceSnapshot[] | undefined};
   lastPopulatedAt?: number;
   quoteCurrency?: string;
   populateStatus: PortfolioPopulateStatus;
