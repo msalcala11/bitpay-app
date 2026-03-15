@@ -75,13 +75,7 @@ const createWallet = (overrides: Partial<any> = {}) => {
   return wallet;
 };
 
-const createState = ({
-  key,
-  recipientKey,
-}: {
-  key: any;
-  recipientKey?: any;
-}) => {
+const createState = ({key, recipientKey}: {key: any; recipientKey?: any}) => {
   const keys: Record<string, any> = {
     [key.id]: key,
   };
@@ -126,9 +120,11 @@ describe('waitForTargetAmountAndUpdateWallet', () => {
   it('does not overlap status polls while a previous request is still in flight', async () => {
     const pendingCallbacks: Array<(err?: unknown, status?: any) => void> = [];
     const wallet = createWallet({
-      getStatus: jest.fn((_opts: unknown, cb: (err?: unknown, status?: any) => void) => {
-        pendingCallbacks.push(cb);
-      }),
+      getStatus: jest.fn(
+        (_opts: unknown, cb: (err?: unknown, status?: any) => void) => {
+          pendingCallbacks.push(cb);
+        },
+      ),
     });
     const key = {id: 'key-1', wallets: [wallet]};
     const getState = () => createState({key});
@@ -159,9 +155,11 @@ describe('waitForTargetAmountAndUpdateWallet', () => {
   it('stops refreshing at the overall deadline when getStatus never settles', async () => {
     const pendingCallbacks: Array<(err?: unknown, status?: any) => void> = [];
     const wallet = createWallet({
-      getStatus: jest.fn((_opts: unknown, cb: (err?: unknown, status?: any) => void) => {
-        pendingCallbacks.push(cb);
-      }),
+      getStatus: jest.fn(
+        (_opts: unknown, cb: (err?: unknown, status?: any) => void) => {
+          pendingCallbacks.push(cb);
+        },
+      ),
     });
     const key = {id: 'key-1', wallets: [wallet]};
     const getState = () => createState({key});
@@ -198,9 +196,11 @@ describe('waitForTargetAmountAndUpdateWallet', () => {
   it('refreshes the source and recipient wallets once the target balance is reached or passed', async () => {
     const pendingCallbacks: Array<(err?: unknown, status?: any) => void> = [];
     const wallet = createWallet({
-      getStatus: jest.fn((_opts: unknown, cb: (err?: unknown, status?: any) => void) => {
-        pendingCallbacks.push(cb);
-      }),
+      getStatus: jest.fn(
+        (_opts: unknown, cb: (err?: unknown, status?: any) => void) => {
+          pendingCallbacks.push(cb);
+        },
+      ),
     });
     const recipientWallet = createWallet({id: 'wallet-2'});
     const key = {id: 'key-1', wallets: [wallet]};

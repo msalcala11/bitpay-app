@@ -36,9 +36,7 @@ const maybePopulatePortfolioChartsForWalletIds = async ({
   const keys = (state.WALLET?.keys || {}) as Record<string, Key>;
   const wallets = (Object.values(keys) as Key[])
     .flatMap((walletKey: Key) => walletKey.wallets || [])
-    .filter((currentWallet: Wallet) =>
-      uniqueWalletIds.has(currentWallet.id),
-    );
+    .filter((currentWallet: Wallet) => uniqueWalletIds.has(currentWallet.id));
 
   if (!wallets.length) {
     return;

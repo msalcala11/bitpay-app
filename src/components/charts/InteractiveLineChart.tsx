@@ -320,10 +320,10 @@ const InteractiveLineChart = ({
   //   - we regain focus after a theme switch (ensures redraw is visible),
   //   - layout happens after a theme switch (handles detach/reattach cases).
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const pointsForGraph = React.useMemo(() => points.slice(), [
-    points,
-    pointsRefreshKey,
-  ]);
+  const pointsForGraph = React.useMemo(
+    () => points.slice(),
+    [points, pointsRefreshKey],
+  );
   const hasDrawablePoints = pointsForGraph.length >= 2;
   const ResolvedTopAxisLabel = React.useMemo(() => {
     if (!TopAxisLabel) {

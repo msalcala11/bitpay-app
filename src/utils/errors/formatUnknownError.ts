@@ -55,7 +55,7 @@ export const formatUnknownError = (
     const message =
       err instanceof Error
         ? err.message || err.name
-      : typeof err === 'string'
+        : typeof err === 'string'
         ? err
         : safeStringify(err) ?? String(err);
 
