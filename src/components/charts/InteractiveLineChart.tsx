@@ -14,17 +14,16 @@ import Reanimated, {
   withTiming,
 } from 'react-native-reanimated';
 import Loader from '../loader/Loader';
-import {WIDTH} from '../styled/Containers';
 import {Slate, SlateDark} from '../../styles/colors';
 import {isNumberSharedValue, type NumberSharedValue} from './sharedValueGuards';
 
 const ChartContainer = styled.View`
-  margin-top: 0;
+  width: 100%;
 `;
 
 const ChartInner = styled.View`
   position: relative;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
   height: 220px;
 `;
@@ -45,10 +44,15 @@ const FIRST_POINT_GUIDE_LINE_DASH_LENGTH = 2.5;
 const FIRST_POINT_GUIDE_LINE_GAP_LENGTH = 4.1;
 const FIRST_POINT_GUIDE_LINE_SVG_HEIGHT = 4;
 
+export type InteractiveLineChartAxisLabelProps = {
+  width?: number;
+};
+
 export type InteractiveLineChartProps = {
   points: GraphPoint[];
   color: string;
   gradientFillColors: [string, string];
+  width?: number;
   lineThickness?: number;
   /**
    * If the chart is being scaled by an ancestor transform, pass that scale here.
@@ -73,8 +77,8 @@ export type InteractiveLineChartProps = {
   panGestureDelay?: number;
   animated?: boolean;
   SelectionDot?: React.ComponentType<SelectionDotProps>;
-  TopAxisLabel?: React.ComponentType;
-  BottomAxisLabel?: React.ComponentType;
+  TopAxisLabel?: React.ComponentType<InteractiveLineChartAxisLabelProps>;
+  BottomAxisLabel?: React.ComponentType<InteractiveLineChartAxisLabelProps>;
   onGestureStart?: () => void;
   onGestureEnd?: () => void;
   onPointSelected?: (point: GraphPoint) => void;
@@ -88,6 +92,7 @@ const InteractiveLineChart = ({
   points,
   color,
   gradientFillColors,
+  width,
   lineThickness,
   strokeScale,
   minStrokeScale,
@@ -112,6 +117,7 @@ const InteractiveLineChart = ({
   const axisLabelPadding = 20;
   const axisRowHeight = 17;
 
+  const [chartWidth, setChartWidth] = React.useState<number>();
   const [lineGraphLayout, setLineGraphLayout] = React.useState<{
     x: number;
     y: number;
@@ -120,6 +126,8 @@ const InteractiveLineChart = ({
   } | null>(null);
   const firstPointGuideLineTop = useSharedValue(0);
   const isGuideLineTopInitializedRef = React.useRef(false);
+  const resolvedChartWidth =
+    typeof width === 'number' && width > 0 ? width : chartWidth;
 
   const effectiveLineThickness =
     typeof lineThickness === 'number' ? lineThickness : theme.dark ? 2 : 4;
@@ -283,7 +291,14 @@ const InteractiveLineChart = ({
   const [layoutRefreshNonce, setLayoutRefreshNonce] = React.useState(0);
 
   const onChartLayout = React.useCallback(
-    (_e: LayoutChangeEvent) => {
+    ({nativeEvent: {layout}}: LayoutChangeEvent) => {
+      if (!(typeof width === 'number' && width > 0)) {
+        const nextWidth = Math.round(layout.width);
+        if (Number.isFinite(nextWidth) && nextWidth > 0) {
+          setChartWidth(prev => (prev === nextWidth ? prev : nextWidth));
+        }
+      }
+
       const prev = lastLayoutStyleSignatureRef.current;
       lastLayoutStyleSignatureRef.current = styleSignature;
 
@@ -291,7 +306,7 @@ const InteractiveLineChart = ({
         setLayoutRefreshNonce(n => n + 1);
       }
     },
-    [styleSignature],
+    [styleSignature, width],
   );
 
   const pointsRefreshKey = React.useMemo(
@@ -310,6 +325,22 @@ const InteractiveLineChart = ({
     pointsRefreshKey,
   ]);
   const hasDrawablePoints = pointsForGraph.length >= 2;
+  const ResolvedTopAxisLabel = React.useMemo(() => {
+    if (!TopAxisLabel) {
+      return undefined;
+    }
+
+    const AxisLabel = TopAxisLabel;
+    return () => <AxisLabel width={resolvedChartWidth} />;
+  }, [TopAxisLabel, resolvedChartWidth]);
+  const ResolvedBottomAxisLabel = React.useMemo(() => {
+    if (!BottomAxisLabel) {
+      return undefined;
+    }
+
+    const AxisLabel = BottomAxisLabel;
+    return () => <AxisLabel width={resolvedChartWidth} />;
+  }, [BottomAxisLabel, resolvedChartWidth]);
 
   const firstPointGuideLine = React.useMemo(() => {
     if (
@@ -410,9 +441,10 @@ const InteractiveLineChart = ({
   }, [firstPointGuideLineTop, firstPointGuideLineTopTarget]);
 
   const chartInner = (
-    <ChartInner onLayout={onChartLayout}>
+    <ChartInner testID="interactive-line-chart-inner" onLayout={onChartLayout}>
       {hasDrawablePoints ? (
         <LineGraph
+          testID="interactive-line-chart-graph"
           points={pointsForGraph}
           animated={animated}
           // `react-native-graph` can consume a Reanimated derived value here.
@@ -425,8 +457,8 @@ const InteractiveLineChart = ({
           enablePanGesture={enablePanGesture}
           color={color}
           gradientFillColors={gradientFillColors}
-          TopAxisLabel={TopAxisLabel}
-          BottomAxisLabel={BottomAxisLabel}
+          TopAxisLabel={ResolvedTopAxisLabel}
+          BottomAxisLabel={ResolvedBottomAxisLabel}
           SelectionDot={SelectionDot}
           onGestureStart={onGestureStart}
           onGestureEnd={onGestureEnd}
@@ -449,7 +481,7 @@ const InteractiveLineChart = ({
             );
           }}
           style={{
-            width: WIDTH,
+            width: resolvedChartWidth ?? '100%',
             height: graphHeight,
             marginTop: graphMarginTop,
             opacity: isLoading ? (hideLineWhileLoading ? 0 : 0.25) : 1,

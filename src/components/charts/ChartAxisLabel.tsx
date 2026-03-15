@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -6,28 +6,16 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import {useTheme} from 'styled-components/native';
-import {WIDTH} from '../styled/Containers';
 import {BaseText} from '../styled/Text';
 import {formatFiatAmount} from '../../utils/helper-methods';
 import {Slate30, SlateDark} from '../../styles/colors';
 import {isNumberSharedValue, type NumberSharedValue} from './sharedValueGuards';
+import {getChartAxisLabelTranslateX} from './chartLayout';
 
 export type ChartAxisLabelProps = {
   value: number;
   index: number;
-  prevIndex?: number;
-  /**
-   * Previous series length.
-   *
-   * When switching timeframes, the previous chart series can have a different
-   * number of points than the new series. `prevIndex` is relative to the
-   * previous series, so we must normalize it using the previous length.
-   *
-   * If we instead divide `prevIndex` by the *new* array length, the computed
-   * starting X can be wildly wrong (often clamped to an edge), which looks like
-   * a jump before the label animates to its final position.
-   */
-  prevArrayLength?: number;
+  width?: number;
   arrayLength: number;
   quoteCurrency: string;
   currencyAbbreviation?: string;
@@ -41,8 +29,7 @@ const AnimatedBaseText = Animated.createAnimatedComponent(BaseText);
 const ChartAxisLabel = ({
   value,
   index,
-  prevIndex,
-  prevArrayLength,
+  width,
   arrayLength,
   quoteCurrency,
   currencyAbbreviation,
@@ -71,6 +58,10 @@ const ChartAxisLabel = ({
     text: string;
     width: number;
   }>({text: '', width: 50});
+  const [measuredContainerWidth, setMeasuredContainerWidth] = useState<
+    number | undefined
+  >();
+  const hasMeasuredTranslateRef = useRef(false);
 
   const estimatedTextWidth = useMemo(() => {
     const fontSize = 13;
@@ -86,35 +77,31 @@ const ChartAxisLabel = ({
     measuredTextLayout.text === labelText && measuredTextLayout.width > 0
       ? measuredTextLayout.width
       : estimatedTextWidth;
+  const resolvedWidth =
+    typeof width === 'number' && width > 0 ? width : measuredContainerWidth;
+  const newTranslateX =
+    resolvedWidth && resolvedWidth > 0
+      ? getChartAxisLabelTranslateX({
+          index,
+          arrayLength,
+          chartWidth: resolvedWidth,
+          textWidth,
+        })
+      : 0;
 
-  const getPointRatio = (pointIndex: number, length: number): number => {
-    if (length <= 1) {
-      return 0.5;
+  const translateX = useSharedValue(newTranslateX);
+  useEffect(() => {
+    if (!resolvedWidth || resolvedWidth <= 0) {
+      hasMeasuredTranslateRef.current = false;
+      return;
     }
 
-    const maxIndex = length - 1;
-    const safePointIndex = Math.min(Math.max(pointIndex, 0), maxIndex);
-    return safePointIndex / maxIndex;
-  };
+    if (!hasMeasuredTranslateRef.current) {
+      translateX.value = newTranslateX;
+      hasMeasuredTranslateRef.current = true;
+      return;
+    }
 
-  const resolvedPrevArrayLength =
-    typeof prevArrayLength === 'number' ? prevArrayLength : arrayLength;
-  const prevLocation =
-    getPointRatio(prevIndex ?? index, resolvedPrevArrayLength) * WIDTH -
-    textWidth / 2;
-  const location = getPointRatio(index, arrayLength) * WIDTH - textWidth / 2;
-
-  const getTranslateX = (loc: number) => {
-    const minLocation = 5;
-    const maxLocation = Math.max(minLocation, WIDTH - textWidth);
-    return Math.min(Math.max(loc, minLocation), maxLocation);
-  };
-
-  const prevTranslateX = getTranslateX(prevLocation);
-  const newTranslateX = getTranslateX(location);
-
-  const translateX = useSharedValue(prevTranslateX);
-  useEffect(() => {
     if (Math.abs(translateX.value - newTranslateX) < 0.5) {
       translateX.value = newTranslateX;
       return;
@@ -126,11 +113,11 @@ const ChartAxisLabel = ({
       damping: 400,
       velocity: 0,
     });
-  }, [newTranslateX, translateX]);
+  }, [newTranslateX, resolvedWidth, translateX]);
 
   const translateY = type === 'min' ? 5 : -5;
 
-  const opacity = useSharedValue(typeof prevIndex !== 'undefined' ? 1 : 0);
+  const opacity = useSharedValue(0);
   useEffect(() => {
     opacity.value = withTiming(1, {duration: 800});
   }, [opacity]);
@@ -155,10 +142,25 @@ const ChartAxisLabel = ({
 
   return (
     <Animated.View
+      onLayout={event => {
+        if (typeof width === 'number' && width > 0) {
+          return;
+        }
+
+        const nextWidth = Math.round(event.nativeEvent.layout.width);
+        if (!Number.isFinite(nextWidth) || nextWidth <= 0) {
+          return;
+        }
+
+        setMeasuredContainerWidth(prev =>
+          prev === nextWidth ? prev : nextWidth,
+        );
+      }}
       style={{
+        width: '100%',
         flexDirection: 'row',
         transform: [{translateY}],
-        opacity,
+        opacity: resolvedWidth && resolvedWidth > 0 ? opacity : 0,
       }}>
       <Animated.View
         style={{transform: [{translateX}]}}

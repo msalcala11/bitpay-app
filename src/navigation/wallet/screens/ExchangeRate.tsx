@@ -115,7 +115,9 @@ import useExchangeRateChartData, {
 
 import ChartAxisLabel from '../../../components/charts/ChartAxisLabel';
 import ChartSelectionDot from '../../../components/charts/ChartSelectionDot';
-import InteractiveLineChart from '../../../components/charts/InteractiveLineChart';
+import InteractiveLineChart, {
+  type InteractiveLineChartAxisLabelProps,
+} from '../../../components/charts/InteractiveLineChart';
 import TimeframeSelector from '../../../components/charts/TimeframeSelector';
 import ChartChangeRow from '../../../components/charts/ChartChangeRow';
 import {
@@ -1110,9 +1112,7 @@ const ExchangeRate = () => {
     timeframeChange,
   ]);
 
-  const chartPoints = useMemo(() => {
-    return displayData.data;
-  }, [displayData.data]);
+  const chartPoints = displayData.data;
 
   // Axis label renderers are passed to `react-native-graph` as *component
   // types*. If we recreate them on every render (e.g. via useCallback deps),
@@ -1131,42 +1131,50 @@ const ExchangeRate = () => {
     setSelectedPoint(undefined);
   }, [chartPoints]);
 
-  const MinAxisLabel = useCallback(() => {
-    const dd = displayDataRef.current;
-    if (!dd.data.length || dd.renderedMinPoint?.point.value == null) {
-      return null;
-    }
+  const MinAxisLabel = useCallback(
+    ({width}: InteractiveLineChartAxisLabelProps) => {
+      const dd = displayDataRef.current;
+      if (!dd.data.length || dd.renderedMinPoint?.point.value == null) {
+        return null;
+      }
 
-    return (
-      <ChartAxisLabel
-        value={dd.renderedMinPoint.point.value}
-        index={dd.renderedMinPoint.index}
-        arrayLength={dd.data.length}
-        quoteCurrency={quoteCurrencyRef.current}
-        currencyAbbreviation={currencyAbbreviationRef.current}
-        type="min"
-      />
-    );
-  }, []);
+      return (
+        <ChartAxisLabel
+          width={width}
+          value={dd.renderedMinPoint.point.value}
+          index={dd.renderedMinPoint.index}
+          arrayLength={dd.data.length}
+          quoteCurrency={quoteCurrencyRef.current}
+          currencyAbbreviation={currencyAbbreviationRef.current}
+          type="min"
+        />
+      );
+    },
+    [],
+  );
 
-  const MaxAxisLabel = useCallback(() => {
-    const dd = displayDataRef.current;
+  const MaxAxisLabel = useCallback(
+    ({width}: InteractiveLineChartAxisLabelProps) => {
+      const dd = displayDataRef.current;
 
-    if (!dd.data.length || dd.renderedMaxPoint?.point.value == null) {
-      return null;
-    }
+      if (!dd.data.length || dd.renderedMaxPoint?.point.value == null) {
+        return null;
+      }
 
-    return (
-      <ChartAxisLabel
-        value={dd.renderedMaxPoint.point.value}
-        index={dd.renderedMaxPoint.index}
-        arrayLength={dd.data.length}
-        quoteCurrency={quoteCurrencyRef.current}
-        currencyAbbreviation={currencyAbbreviationRef.current}
-        type="max"
-      />
-    );
-  }, []);
+      return (
+        <ChartAxisLabel
+          width={width}
+          value={dd.renderedMaxPoint.point.value}
+          index={dd.renderedMaxPoint.index}
+          arrayLength={dd.data.length}
+          quoteCurrency={quoteCurrencyRef.current}
+          currencyAbbreviation={currencyAbbreviationRef.current}
+          type="max"
+        />
+      );
+    },
+    [],
+  );
 
   const onPointSelected = useCallback(
     (p: GraphPoint) => {

@@ -1,7 +1,7 @@
 import React from 'react';
 import styled from 'styled-components/native';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
-import {ActiveOpacity, WIDTH} from '../styled/Containers';
+import {ActiveOpacity} from '../styled/Containers';
 import {BaseText} from '../styled/Text';
 import {
   Action,
@@ -22,18 +22,20 @@ type Props<T extends string> = {
   options: Array<TimeframeSelectorOption<T>>;
   selected: T;
   onSelect: (value: T) => void;
+  width?: number;
 };
 
 const TimeframeContainer = styled.View`
   margin-top: 5px;
-  padding: 0 0px;
+  width: 100%;
+  padding: 0;
 `;
 
 const TimeframeRow = styled.View`
   flex-direction: row;
   justify-content: space-between;
   align-self: center;
-  width: ${WIDTH - 24}px;
+  width: 100%;
 `;
 
 const TimeframeHitSlop = {top: 10, bottom: 10, left: 10, right: 10} as const;
@@ -67,10 +69,13 @@ export const TimeframeSelector = <T extends string>({
   options,
   selected,
   onSelect,
+  width,
 }: Props<T>): React.ReactElement => {
   return (
     <TimeframeContainer>
-      <TimeframeRow>
+      <TimeframeRow
+        testID="timeframe-selector-row"
+        style={typeof width === 'number' ? {width} : undefined}>
         {options.map(opt => {
           const active = opt.value === selected;
           return (

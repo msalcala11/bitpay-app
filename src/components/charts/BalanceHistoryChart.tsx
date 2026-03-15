@@ -35,7 +35,9 @@ import {
   getSeriesIntervalForFiatTimeframe,
 } from './fiatTimeframes';
 import TimeframeSelector from './TimeframeSelector';
-import InteractiveLineChart from './InteractiveLineChart';
+import InteractiveLineChart, {
+  type InteractiveLineChartAxisLabelProps,
+} from './InteractiveLineChart';
 import ChartAxisLabel from './ChartAxisLabel';
 import ChartSelectionDot from './ChartSelectionDot';
 import ChartChangeRow from './ChartChangeRow';
@@ -1557,43 +1559,51 @@ const BalanceHistoryChart = ({
 
   // Axis labels smoothly animate between x positions as the timeframe changes.
   // IMPORTANT: these must be stable component identities (see refs above).
-  const MaxAxisLabel = useCallback(() => {
-    const series = activeSeriesRef.current;
-    if (!series?.graphPoints.length) {
-      return null;
-    }
+  const MaxAxisLabel = useCallback(
+    ({width}: InteractiveLineChartAxisLabelProps) => {
+      const series = activeSeriesRef.current;
+      if (!series?.graphPoints.length) {
+        return null;
+      }
 
-    return (
-      <ChartAxisLabel
-        value={series.maxPoint.value}
-        index={series.maxIndex}
-        arrayLength={series.graphPoints.length}
-        quoteCurrency={quoteCurrencyRef.current}
-        currencyAbbreviation={undefined}
-        type="max"
-        contentOpacity={axisLabelOpacityRef.current}
-      />
-    );
-  }, []);
+      return (
+        <ChartAxisLabel
+          width={width}
+          value={series.maxPoint.value}
+          index={series.maxIndex}
+          arrayLength={series.graphPoints.length}
+          quoteCurrency={quoteCurrencyRef.current}
+          currencyAbbreviation={undefined}
+          type="max"
+          contentOpacity={axisLabelOpacityRef.current}
+        />
+      );
+    },
+    [],
+  );
 
-  const MinAxisLabel = useCallback(() => {
-    const series = activeSeriesRef.current;
-    if (!series?.graphPoints.length) {
-      return null;
-    }
+  const MinAxisLabel = useCallback(
+    ({width}: InteractiveLineChartAxisLabelProps) => {
+      const series = activeSeriesRef.current;
+      if (!series?.graphPoints.length) {
+        return null;
+      }
 
-    return (
-      <ChartAxisLabel
-        value={series.minPoint.value}
-        index={series.minIndex}
-        arrayLength={series.graphPoints.length}
-        quoteCurrency={quoteCurrencyRef.current}
-        currencyAbbreviation={undefined}
-        type="min"
-        contentOpacity={axisLabelOpacityRef.current}
-      />
-    );
-  }, []);
+      return (
+        <ChartAxisLabel
+          width={width}
+          value={series.minPoint.value}
+          index={series.minIndex}
+          arrayLength={series.graphPoints.length}
+          quoteCurrency={quoteCurrencyRef.current}
+          currencyAbbreviation={undefined}
+          type="min"
+          contentOpacity={axisLabelOpacityRef.current}
+        />
+      );
+    },
+    [],
+  );
 
   const chartColor = lineColor || (theme.dark ? LinkBlue : Action);
   const gradientBackgroundColor =
