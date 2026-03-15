@@ -354,8 +354,14 @@ const PortfolioBalance = () => {
       `home-portfolio-charts:${quoteCurrency}:${homeChartRemountNonce}:${visibleKeyIdsSig}`,
     [homeChartRemountNonce, quoteCurrency, visibleKeyIdsSig],
   );
+  const hasInitializedChartLifecycleRef = React.useRef(false);
 
   useEffect(() => {
+    if (!hasInitializedChartLifecycleRef.current) {
+      hasInitializedChartLifecycleRef.current = true;
+      return;
+    }
+
     setSelectedChartBalance(undefined);
     setChartChangeRowData(undefined);
   }, [chartLifecycleKey]);
