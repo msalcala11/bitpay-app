@@ -14,6 +14,13 @@ jest.mock('../../constants/currencies', () => ({
         gradientBackgroundColor: '#1B4ADD',
       },
     },
+    btc: {
+      theme: {
+        coinColor: '#f7931a',
+        backgroundColor: '#f7931a',
+        gradientBackgroundColor: '#f7931a',
+      },
+    },
   },
   BitpaySupportedTokens: {
     '0xdac17f958d2ee523a2206206994597c13d831ec7_e': {
@@ -65,10 +72,23 @@ describe('getAssetTheme', () => {
     });
   });
 
-  it('falls back to the chain theme for native assets on L2 chains', () => {
+  it('uses the canonical asset theme for native ETH across networks', () => {
     expect(
       getAssetTheme({
         currencyAbbreviation: 'eth',
+        chain: 'base',
+      }),
+    ).toEqual({
+      coinColor: '#6b71d6',
+      backgroundColor: '#6b71d6',
+      gradientBackgroundColor: '#6b71d6',
+    });
+  });
+
+  it('falls back to the chain theme when there is no canonical asset theme', () => {
+    expect(
+      getAssetTheme({
+        currencyAbbreviation: 'unknown',
         chain: 'base',
       }),
     ).toEqual({

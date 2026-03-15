@@ -38,6 +38,9 @@ export const getAssetTheme = (args: AssetThemeArgs): AssetTheme | undefined => {
   const currencyAbbreviation = normalize(args.currencyAbbreviation);
   const tokenAddress =
     typeof args.tokenAddress === 'string' ? args.tokenAddress.trim() : '';
+  const assetTheme = currencyAbbreviation
+    ? BitpaySupportedCoins[currencyAbbreviation]?.theme
+    : undefined;
 
   if (tokenAddress && chain) {
     const tokenKey = addTokenChainSuffix(tokenAddress, chain);
@@ -52,10 +55,13 @@ export const getAssetTheme = (args: AssetThemeArgs): AssetTheme | undefined => {
     return fallbackTokenTheme;
   }
 
-  const coinKey = chain || currencyAbbreviation;
-  if (!coinKey) {
+  if (assetTheme) {
+    return assetTheme;
+  }
+
+  if (!chain) {
     return undefined;
   }
 
-  return BitpaySupportedCoins[coinKey]?.theme;
+  return BitpaySupportedCoins[chain]?.theme;
 };
