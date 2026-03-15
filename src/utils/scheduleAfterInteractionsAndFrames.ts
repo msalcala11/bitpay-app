@@ -48,12 +48,19 @@ export const scheduleAfterInteractionsAndFrames = (args: {
       return;
     }
 
-    args.onError?.(error);
+    try {
+      args.onError?.(error);
+    } catch {
+      // Secondary error handlers should not break the callback lifecycle.
+    }
   };
 
   const runCallback = () => {
-    if (cancelled || didRun) {
+    if (cancelled) {
       finish();
+      return;
+    }
+    if (didRun) {
       return;
     }
 
@@ -74,15 +81,21 @@ export const scheduleAfterInteractionsAndFrames = (args: {
   };
 
   const task = InteractionManager.runAfterInteractions(() => {
-    if (cancelled || didRun) {
+    if (cancelled) {
       finish();
+      return;
+    }
+    if (didRun) {
       return;
     }
 
     if (typeof requestAnimationFrame === 'function') {
       firstFrame = requestAnimationFrame(() => {
-        if (cancelled || didRun) {
+        if (cancelled) {
           finish();
+          return;
+        }
+        if (didRun) {
           return;
         }
 

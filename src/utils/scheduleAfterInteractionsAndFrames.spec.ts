@@ -97,4 +97,84 @@ describe('scheduleAfterInteractionsAndFrames', () => {
 
     expect(onError).toHaveBeenCalledWith(error);
   });
+
+  it('keeps done pending while a fallback-started callback is still running', async () => {
+    let interactionCallback: (() => void) | undefined;
+    jest
+      .spyOn(InteractionManager, 'runAfterInteractions')
+      .mockImplementation(callback => {
+        interactionCallback = callback;
+        return {cancel: jest.fn()} as any;
+      });
+
+    const requestedFrames: Array<FrameRequestCallback> = [];
+    globalWithAnimation.requestAnimationFrame = jest.fn(callback => {
+      requestedFrames.push(callback);
+      return requestedFrames.length;
+    }) as typeof requestAnimationFrame;
+    globalWithAnimation.cancelAnimationFrame = jest.fn();
+
+    let resolveCallback: (() => void) | undefined;
+    const callback = jest.fn(
+      () =>
+        new Promise<void>(resolve => {
+          resolveCallback = resolve;
+        }),
+    );
+    const handle = scheduleAfterInteractionsAndFrames({
+      callback,
+      fallbackMs: 25,
+    });
+
+    let doneResolved = false;
+    void handle.done.then(() => {
+      doneResolved = true;
+    });
+
+    jest.advanceTimersByTime(25);
+    jest.runOnlyPendingTimers();
+    await Promise.resolve();
+
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(doneResolved).toBe(false);
+
+    interactionCallback?.();
+    await Promise.resolve();
+
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(requestedFrames).toHaveLength(0);
+    expect(doneResolved).toBe(false);
+
+    resolveCallback?.();
+    await Promise.resolve();
+    await handle.done;
+
+    expect(doneResolved).toBe(true);
+  });
+
+  it('ignores exceptions thrown by onError handlers', async () => {
+    jest
+      .spyOn(InteractionManager, 'runAfterInteractions')
+      .mockImplementation(callback => {
+        callback();
+        return {cancel: jest.fn()} as any;
+      });
+
+    const error = new Error('boom');
+    const onError = jest.fn(() => {
+      throw new Error('secondary');
+    });
+    const handle = scheduleAfterInteractionsAndFrames({
+      callback: async () => {
+        throw error;
+      },
+      onError,
+    });
+
+    jest.runOnlyPendingTimers();
+    await Promise.resolve();
+    await handle.done;
+
+    expect(onError).toHaveBeenCalledWith(error);
+  });
 });
