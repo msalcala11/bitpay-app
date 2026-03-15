@@ -20,7 +20,10 @@ import type {
   FiatRateInterval,
 } from '../../store/rate/rate.models';
 import type {Rates} from '../../store/rate/rate.models';
-import {getFiatRateSeriesCacheKey} from '../../store/rate/rate.models';
+import {
+  FIAT_RATE_SERIES_CACHED_INTERVALS,
+  getFiatRateSeriesCacheKey,
+} from '../../store/rate/rate.models';
 import type {
   BalanceSnapshot,
   BalanceSnapshotsByWalletId,
@@ -114,7 +117,7 @@ const PRECOMPUTE_TIMEFRAME_ORDER: FiatRateInterval[] = [
   '1Y',
   '5Y',
 ];
-const PREP_FX_CACHE_INTERVALS: FiatRateInterval[] = ['1D', '1W', '1M', 'ALL'];
+const PREP_FX_CACHE_INTERVALS = FIAT_RATE_SERIES_CACHED_INTERVALS;
 const EMPTY_BALANCE_SNAPSHOTS: BalanceSnapshot[] = [];
 
 type AnalysisInputs = PnlWalletInputs;
