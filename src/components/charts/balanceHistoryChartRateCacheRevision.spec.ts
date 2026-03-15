@@ -43,9 +43,9 @@ describe('balanceHistoryChartRateCacheRevision', () => {
     };
     const updatedCache = {
       ...initialCache,
-      [relevantKeys[1]]: {
-        ...initialCache[relevantKeys[1]],
-        fetchedOn: 21,
+      [relevantKeys[0]]: {
+        ...initialCache[relevantKeys[0]],
+        fetchedOn: 15,
       },
     };
 
@@ -54,13 +54,46 @@ describe('balanceHistoryChartRateCacheRevision', () => {
         fiatRateSeriesCache: initialCache,
         relevantKeys,
       }),
-    ).toBe('2:20');
-    expect(
+    ).not.toBe(
       computeFiatRateSeriesCacheRevision({
         fiatRateSeriesCache: updatedCache,
         relevantKeys,
       }),
-    ).toBe('2:21');
+    );
+  });
+
+  it('stays stable and does not throw when relevant keys are missing', () => {
+    const relevantKeys = getRelevantFiatRateSeriesCacheKeys({
+      fiatCode: 'USD',
+      coins: ['btc', 'eth'],
+      timeframes: ['1D', 'ALL'],
+    });
+    const cacheWithOnlyUnrelatedEntries = {
+      [getFiatRateSeriesCacheKey('USD', 'doge', 'ALL')]: {
+        fetchedOn: 500,
+        points: [],
+      },
+      malformed: null,
+    } as any;
+
+    expect(() =>
+      computeFiatRateSeriesCacheRevision({
+        fiatRateSeriesCache: cacheWithOnlyUnrelatedEntries,
+        relevantKeys,
+      }),
+    ).not.toThrow();
+    expect(
+      computeFiatRateSeriesCacheRevision({
+        fiatRateSeriesCache: cacheWithOnlyUnrelatedEntries,
+        relevantKeys,
+      }),
+    ).toContain('0:0');
+    expect(
+      computeFiatRateSeriesCacheRevision({
+        fiatRateSeriesCache: undefined,
+        relevantKeys,
+      }),
+    ).toContain('0:0');
   });
 
   it('does not change revision when only unrelated cache entries update', () => {
@@ -103,39 +136,5 @@ describe('balanceHistoryChartRateCacheRevision', () => {
         relevantKeys,
       }),
     );
-  });
-
-  it('stays stable and does not throw when relevant keys are missing', () => {
-    const relevantKeys = getRelevantFiatRateSeriesCacheKeys({
-      fiatCode: 'USD',
-      coins: ['btc', 'eth'],
-      timeframes: ['1D', 'ALL'],
-    });
-    const cacheWithOnlyUnrelatedEntries = {
-      [getFiatRateSeriesCacheKey('USD', 'doge', 'ALL')]: {
-        fetchedOn: 500,
-        points: [],
-      },
-      malformed: null,
-    } as any;
-
-    expect(() =>
-      computeFiatRateSeriesCacheRevision({
-        fiatRateSeriesCache: cacheWithOnlyUnrelatedEntries,
-        relevantKeys,
-      }),
-    ).not.toThrow();
-    expect(
-      computeFiatRateSeriesCacheRevision({
-        fiatRateSeriesCache: cacheWithOnlyUnrelatedEntries,
-        relevantKeys,
-      }),
-    ).toBe('0:0');
-    expect(
-      computeFiatRateSeriesCacheRevision({
-        fiatRateSeriesCache: undefined,
-        relevantKeys,
-      }),
-    ).toBe('0:0');
   });
 });

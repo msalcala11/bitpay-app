@@ -38,20 +38,33 @@ export const computeFiatRateSeriesCacheRevision = (args: {
   let keysPresentCount = 0;
   let maxFetchedOn = 0;
   const cache = args.fiatRateSeriesCache;
-  const relevantKeys = new Set(args.relevantKeys || []);
+  const relevantKeys = Array.from(new Set(args.relevantKeys || [])).sort(
+    (a, b) => a.localeCompare(b),
+  );
+  const fetchedOnSignatureParts: string[] = [];
 
   for (const key of relevantKeys) {
     if (!Object.prototype.hasOwnProperty.call(cache || {}, key)) {
+      fetchedOnSignatureParts.push(`${key}:missing`);
       continue;
     }
 
     keysPresentCount += 1;
 
     const fetchedOn = cache?.[key]?.fetchedOn;
+    const fetchedOnSig =
+      typeof fetchedOn === 'number' && Number.isFinite(fetchedOn)
+        ? fetchedOn
+        : 'na';
+    fetchedOnSignatureParts.push(`${key}:${fetchedOnSig}`);
+
     if (typeof fetchedOn === 'number' && Number.isFinite(fetchedOn)) {
       maxFetchedOn = Math.max(maxFetchedOn, fetchedOn);
     }
   }
 
-  return `${keysPresentCount}:${maxFetchedOn}`;
+  return [
+    `${keysPresentCount}:${maxFetchedOn}`,
+    fetchedOnSignatureParts.join('|'),
+  ].join(':');
 };
