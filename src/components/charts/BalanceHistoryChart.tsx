@@ -20,11 +20,7 @@ import type {
   FiatRateInterval,
 } from '../../store/rate/rate.models';
 import type {Rates} from '../../store/rate/rate.models';
-import {getFiatRateSeriesCacheKey} from '../../store/rate/rate.models';
-import type {
-  BalanceSnapshot,
-  BalanceSnapshotsByWalletId,
-} from '../../store/portfolio/portfolio.models';
+import type {BalanceSnapshotsByWalletId} from '../../store/portfolio/portfolio.models';
 import type {Wallet} from '../../store/wallet/wallet.models';
 import {FIAT_RATE_SERIES_TARGET_POINTS} from '../../store/rate/rate.models';
 import {
@@ -114,8 +110,6 @@ const PRECOMPUTE_TIMEFRAME_ORDER: FiatRateInterval[] = [
   '1Y',
   '5Y',
 ];
-const PREP_FX_CACHE_INTERVALS: FiatRateInterval[] = ['1D', '1W', '1M', 'ALL'];
-const EMPTY_BALANCE_SNAPSHOTS: BalanceSnapshot[] = [];
 
 type AnalysisInputs = PnlWalletInputs;
 
@@ -396,32 +390,6 @@ const BalanceHistoryChart = ({
 
   const hasAnySnapshots = totalSnapshotCount > 0;
   const analysisInputsReadyKeyRef = useRef<string | undefined>(undefined);
-  const scopedWalletsRef = useRef<Wallet[]>([]);
-  const scopedSnapshotsByWalletIdRef = useRef<BalanceSnapshotsByWalletId>({});
-  const scopedSnapshotsVersionRef = useRef<string | undefined>(undefined);
-  const fiatRateSeriesCacheRef = useRef(fiatRateSeriesCache);
-
-  const scopedWallets = useMemo(() => {
-    const previous = scopedWalletsRef.current;
-    const next = wallets || [];
-    let didChange = previous.length !== next.length;
-
-    if (!didChange) {
-      for (let i = 0; i < next.length; i++) {
-        if (previous[i] !== next[i]) {
-          didChange = true;
-          break;
-        }
-      }
-    }
-
-    if (!didChange) {
-      return previous;
-    }
-
-    scopedWalletsRef.current = next;
-    return next;
-  }, [wallets]);
 
   const sortedWalletIds = useMemo(() => {
     return getSortedUniqueWalletIds((wallets || []).map(getPortfolioWalletId));
@@ -446,35 +414,6 @@ const BalanceHistoryChart = ({
   const cachedScope = useAppSelector(
     state => state.PORTFOLIO_CHARTS.cacheByScopeId[scopeId],
   );
-
-  const scopedSnapshotsByWalletId = useMemo(() => {
-    const previous = scopedSnapshotsByWalletIdRef.current;
-    const next: BalanceSnapshotsByWalletId = {};
-    let didChange = scopedSnapshotsVersionRef.current !== snapshotVersionSig;
-
-    for (const walletId of sortedWalletIds) {
-      const snapshots = Array.isArray(snapshotsByWalletId?.[walletId])
-        ? snapshotsByWalletId[walletId]
-        : EMPTY_BALANCE_SNAPSHOTS;
-      next[walletId] = snapshots;
-      if (previous[walletId] !== snapshots) {
-        didChange = true;
-      }
-    }
-
-    const previousWalletIds = Object.keys(previous);
-    if (previousWalletIds.length !== sortedWalletIds.length) {
-      didChange = true;
-    }
-
-    if (!didChange) {
-      return previous;
-    }
-
-    scopedSnapshotsByWalletIdRef.current = next;
-    scopedSnapshotsVersionRef.current = snapshotVersionSig;
-    return next;
-  }, [snapshotVersionSig, snapshotsByWalletId, sortedWalletIds]);
 
   const liveCurrentSpotRatesByCoin = useMemo(() => {
     return buildPnlCurrentRatesByCoinFromPortfolioSnapshots({
@@ -611,59 +550,6 @@ const BalanceHistoryChart = ({
       relevantKeys: relevantFiatRateSeriesCacheKeys,
     });
   }, [fiatRateSeriesCache, relevantFiatRateSeriesCacheKeys]);
-
-  const prepFiatRateSeriesCacheKeys = useMemo(() => {
-    const targetQuoteCurrency = (quoteCurrency || '').toUpperCase();
-    if (!targetQuoteCurrency) {
-      return [];
-    }
-
-    const quoteCurrencies = new Set<string>();
-    let needsTargetQuoteCurrencySeries = false;
-
-    for (const snapshots of Object.values(scopedSnapshotsByWalletId)) {
-      for (const snapshot of snapshots || EMPTY_BALANCE_SNAPSHOTS) {
-        const snapshotQuoteCurrency = (snapshot?.quoteCurrency || '').toUpperCase();
-        if (
-          !snapshotQuoteCurrency ||
-          snapshotQuoteCurrency === targetQuoteCurrency
-        ) {
-          continue;
-        }
-
-        quoteCurrencies.add(snapshotQuoteCurrency);
-        needsTargetQuoteCurrencySeries = true;
-      }
-    }
-
-    if (!needsTargetQuoteCurrencySeries) {
-      return [];
-    }
-
-    quoteCurrencies.add(targetQuoteCurrency);
-
-    const keys = new Set<string>();
-    for (const fiatCode of Array.from(quoteCurrencies).sort((a, b) =>
-      a.localeCompare(b),
-    )) {
-      for (const interval of PREP_FX_CACHE_INTERVALS) {
-        keys.add(getFiatRateSeriesCacheKey(fiatCode, 'btc', interval));
-      }
-    }
-
-    return Array.from(keys).sort((a, b) => a.localeCompare(b));
-  }, [quoteCurrency, scopedSnapshotsByWalletId]);
-
-  const prepCacheRevision = useMemo(() => {
-    return computeFiatRateSeriesCacheRevision({
-      fiatRateSeriesCache,
-      relevantKeys: prepFiatRateSeriesCacheKeys,
-    });
-  }, [fiatRateSeriesCache, prepFiatRateSeriesCacheKeys]);
-
-  useEffect(() => {
-    fiatRateSeriesCacheRef.current = fiatRateSeriesCache;
-  }, [fiatRateSeriesCache]);
 
   const getTimeframeRevision = useCallback(
     (
@@ -905,11 +791,11 @@ const BalanceHistoryChart = ({
         const historicalDepKeys = new Set<string>();
         const prepared = await buildPnlWalletInputsFromPortfolioSnapshotsAsync(
           {
-            snapshotsByWalletId: scopedSnapshotsByWalletId,
-            wallets: scopedWallets,
+            snapshotsByWalletId: snapshotsByWalletId || {},
+            wallets: wallets || [],
             quoteCurrency,
             rates,
-            fiatRateSeriesCache: fiatRateSeriesCacheRef.current,
+            fiatRateSeriesCache,
             onHistoricalRateDependency: cacheKey => {
               if (cacheKey) {
                 historicalDepKeys.add(cacheKey);
@@ -971,15 +857,15 @@ const BalanceHistoryChart = ({
     };
   }, [
     analysisInputsBaseKey,
+    fiatRateSeriesCache,
     hasAnySnapshots,
-    prepCacheRevision,
     quoteCurrency,
     rates,
-    scopedSnapshotsByWalletId,
-    scopedWallets,
     shouldPrepareAnalysisInputs,
+    snapshotsByWalletId,
     trackScheduledHandle,
     removeScheduledHandle,
+    wallets,
   ]);
 
   const hasAnalysisPreparationError =
