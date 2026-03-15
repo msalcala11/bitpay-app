@@ -70,6 +70,7 @@ import {
   getFiatRateChangeForTimeframe,
   getFiatRateSeriesIntervalForTimeframe,
 } from '../../../utils/portfolio/rate';
+import {getFiatTimeframeWindowMs} from '../../../utils/fiatTimeframes';
 import {
   ensureSortedByTsAsc,
   getMaxRate,
@@ -107,7 +108,6 @@ import {HISTORIC_RATES_CACHE_DURATION} from '../../../constants/wallet';
 import useExchangeRateChartData, {
   type ChartDataType,
   defaultDisplayData,
-  HISTORIC_TIMEFRAME_WINDOW_MS,
 } from '../hooks/useExchangeRateChartData';
 
 import ChartAxisLabel from '../../../components/charts/ChartAxisLabel';
@@ -998,13 +998,11 @@ const ExchangeRate = () => {
       const allPointsSortedByTs = ensureSortedByTsAsc<FiatRatePoint>(
         allPointsForAllIntervalsHigh,
       );
-      const derivedWindows: Array<{windowMs: number}> = [
-        {windowMs: HISTORIC_TIMEFRAME_WINDOW_MS['3M']},
-        {windowMs: HISTORIC_TIMEFRAME_WINDOW_MS['1Y']},
-        {windowMs: HISTORIC_TIMEFRAME_WINDOW_MS['5Y']},
-      ];
-
-      for (const {windowMs} of derivedWindows) {
+      for (const timeframe of ['3M', '1Y', '5Y'] as const) {
+        const windowMs = getFiatTimeframeWindowMs(timeframe);
+        if (typeof windowMs !== 'number') {
+          continue;
+        }
         const cutoffTs = now - windowMs;
         const startIdx = lowerBoundByTs(allPointsSortedByTs, cutoffTs);
         const high = getMaxRateFromIndex(allPointsSortedByTs, startIdx);

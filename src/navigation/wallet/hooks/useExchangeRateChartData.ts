@@ -1,12 +1,12 @@
 import {useMemo} from 'react';
 import {
   CachedFiatRateInterval,
-  DateRanges,
   FiatRateInterval,
   FiatRatePoint,
   FIAT_RATE_SERIES_TARGET_POINTS,
 } from '../../../store/rate/rate.models';
 import {calculatePercentageDifference} from '../../../utils/helper-methods';
+import {getFiatTimeframeWindowMs} from '../../../utils/fiatTimeframes';
 import {downsampleSeries} from '../../../utils/portfolio/rate';
 import {
   ensureSortedByTsAsc,
@@ -39,13 +39,6 @@ export const defaultDisplayData: ChartDataType = {
   renderedMinPoint: undefined,
 };
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-export const HISTORIC_TIMEFRAME_WINDOW_MS: Record<'3M' | '1Y' | '5Y', number> =
-  {
-    '3M': DateRanges.Quarter * MS_PER_DAY,
-    '1Y': DateRanges.Year * MS_PER_DAY,
-    '5Y': DateRanges.FiveYears * MS_PER_DAY,
-  };
 const SPOT_RATE_MATCH_EPSILON = 1e-12;
 
 export const formatExchangeRateChartData = (
@@ -135,20 +128,9 @@ const useExchangeRateChartData = ({
     }
 
     const pointsToDisplay: FiatRatePoint[] = (() => {
-      if (
-        seriesDataInterval === 'ALL' &&
-        selectedTimeframe !== 'ALL' &&
-        (selectedTimeframe === '3M' ||
-          selectedTimeframe === '1Y' ||
-          selectedTimeframe === '5Y')
-      ) {
+      const windowMs = getFiatTimeframeWindowMs(selectedTimeframe);
+      if (seriesDataInterval === 'ALL' && typeof windowMs === 'number') {
         const now = Date.now();
-        const windowMs =
-          selectedTimeframe === '3M'
-            ? HISTORIC_TIMEFRAME_WINDOW_MS['3M']
-            : selectedTimeframe === '1Y'
-            ? HISTORIC_TIMEFRAME_WINDOW_MS['1Y']
-            : HISTORIC_TIMEFRAME_WINDOW_MS['5Y'];
         const cutoffTs = now - windowMs;
         const pointsSortedByTs = ensureSortedByTsAsc(selectedSeriesPoints);
         const startIdx = lowerBoundByTs(pointsSortedByTs, cutoffTs);

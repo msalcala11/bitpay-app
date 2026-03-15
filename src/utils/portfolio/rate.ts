@@ -7,6 +7,10 @@ import type {
 import {getFiatRateSeriesCacheKey} from '../../store/rate/rate.models';
 import {normalizeFiatRateSeriesCoin} from './core/pnl/rates';
 import {getLastDayTimestampStartOfHourMs} from '../helper-methods';
+import {
+  getFiatTimeframeSeriesInterval,
+  getFiatTimeframeWindowMs,
+} from '../fiatTimeframes';
 
 export type RatePoint = {
   ts: number;
@@ -150,28 +154,11 @@ export const getFiatRateFromSeriesCacheAtTimestamp = (args: {
 };
 
 const MS_PER_HOUR = 60 * 60 * 1000;
-const MS_PER_DAY = 24 * MS_PER_HOUR;
 
 export const getWindowMsForFiatRateTimeframe = (
   timeframe: FiatRateInterval,
-): number => {
-  switch (timeframe) {
-    case '1D':
-      return 1 * MS_PER_DAY;
-    case '1W':
-      return 7 * MS_PER_DAY;
-    case '1M':
-      return 30 * MS_PER_DAY;
-    case '3M':
-      return 90 * MS_PER_DAY;
-    case '1Y':
-      return 365 * MS_PER_DAY;
-    case '5Y':
-      return 1825 * MS_PER_DAY;
-    case 'ALL':
-    default:
-      return 0;
-  }
+): number | undefined => {
+  return getFiatTimeframeWindowMs(timeframe);
 };
 
 const roundDownToHourMs = (tsMs: number): number => {
@@ -193,7 +180,7 @@ export const getFiatRateBaselineTsForTimeframe = (args: {
   }
 
   const windowMs = getWindowMsForFiatRateTimeframe(args.timeframe);
-  if (!windowMs) {
+  if (typeof windowMs !== 'number') {
     return undefined;
   }
 
@@ -203,20 +190,13 @@ export const getFiatRateBaselineTsForTimeframe = (args: {
 export const getFiatRateSeriesIntervalForTimeframe = (
   timeframe: FiatRateInterval,
 ): CachedFiatRateInterval => {
-  switch (timeframe) {
-    case '3M':
-    case '1Y':
-    case '5Y':
-      return 'ALL';
-    default:
-      return timeframe;
-  }
+  return getFiatTimeframeSeriesInterval(timeframe);
 };
 
 export type FiatRateTimeframeConfig = {
-  windowMs: number;
+  windowMs?: number;
   baselineTimestampMs?: number;
-  seriesInterval: FiatRateInterval;
+  seriesInterval: CachedFiatRateInterval;
 };
 
 export const getFiatRateTimeframeConfig = (args: {

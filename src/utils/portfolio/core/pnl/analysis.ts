@@ -26,9 +26,12 @@ import {
   PREF_ALL,
 } from './intervalPrefs';
 import {atomicToUnitNumber} from './atomic';
+import {
+  getFiatTimeframeSeriesInterval,
+  getFiatTimeframeWindowMs,
+} from '../../../fiatTimeframes';
 
 const MS_PER_HOUR = 60 * 60 * 1000;
-const MS_PER_DAY = 24 * MS_PER_HOUR;
 
 export type PnlTimeframe = FiatRateInterval;
 
@@ -131,62 +134,40 @@ function buildEvenTimeline(
   return out;
 }
 
-function getWindowMs(timeframe: PnlTimeframe): number {
-  switch (timeframe) {
-    case '1D':
-      return 1 * MS_PER_DAY;
-    case '1W':
-      return 7 * MS_PER_DAY;
-    case '1M':
-      return 30 * MS_PER_DAY;
-    case '3M':
-      return 90 * MS_PER_DAY;
-    case '1Y':
-      return 365 * MS_PER_DAY;
-    case '5Y':
-      return 1825 * MS_PER_DAY;
-    case 'ALL':
-    default:
-      return 0;
-  }
-}
-
 function roundDownToHourMs(tsMs: number): number {
   return Math.floor(tsMs / MS_PER_HOUR) * MS_PER_HOUR;
 }
+
+const FALLBACK_ORDER_BY_TIMEFRAME: Record<
+  PnlTimeframe,
+  readonly FiatRateInterval[]
+> = {
+  '1D': PREF_1D,
+  '1W': PREF_1W,
+  '1M': PREF_1M,
+  '3M': PREF_3M,
+  '1Y': PREF_1Y,
+  '5Y': PREF_5Y,
+  ALL: PREF_ALL,
+};
 
 function getBaselineMs(
   timeframe: PnlTimeframe,
   nowMs: number,
 ): number | undefined {
-  if (timeframe === 'ALL') return undefined;
-  const win = getWindowMs(timeframe);
-  if (!win) return undefined;
-  return roundDownToHourMs(nowMs - win);
+  const windowMs = getFiatTimeframeWindowMs(timeframe);
+  if (typeof windowMs !== 'number') {
+    return undefined;
+  }
+  return roundDownToHourMs(nowMs - windowMs);
 }
 
 function getFallbackOrderForTimeframe(
   timeframe: PnlTimeframe,
 ): readonly FiatRateInterval[] {
-  switch (timeframe) {
-    case '1D':
-      return PREF_1D;
-    case '1W':
-      return PREF_1W;
-    case '1M':
-      return PREF_1M;
-    case '3M':
-      return PREF_3M;
-    case '1Y':
-      return PREF_1Y;
-    case '5Y':
-      return PREF_5Y;
-    case 'ALL':
-    default:
-      // ALL series may be missing for very new wallets unless rates were fetched explicitly.
-      // Prefer widest coverage first, but allow shorter windows for brand-new wallets.
-      return PREF_ALL;
-  }
+  // ALL series may be missing for very new wallets unless rates were fetched explicitly.
+  // Prefer widest coverage first, but allow shorter windows for brand-new wallets.
+  return FALLBACK_ORDER_BY_TIMEFRAME[timeframe];
 }
 
 function getRatePointsFromCache(args: {
@@ -602,16 +583,7 @@ function* buildPnlAnalysisSeriesGenerator(
 
   // ExchangeRate screen uses ALL series for 3M/1Y/5Y timeframes. Match that behavior
   // so percent changes are consistent across the app.
-  const seriesInterval: FiatRateInterval = (() => {
-    switch (args.timeframe) {
-      case '3M':
-      case '1Y':
-      case '5Y':
-        return 'ALL';
-      default:
-        return args.timeframe;
-    }
-  })();
+  const seriesInterval = getFiatTimeframeSeriesInterval(args.timeframe);
 
   // Build compact rate series per coin and compute the latest shared end bound.
   //
