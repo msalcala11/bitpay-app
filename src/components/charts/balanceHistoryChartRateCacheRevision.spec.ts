@@ -100,6 +100,44 @@ describe('balanceHistoryChartRateCacheRevision', () => {
     );
   });
 
+  it('changes revision when relevant lastTs changes without a fetchedOn change', () => {
+    const relevantKeys = getRelevantFiatRateSeriesCacheKeys({
+      fiatCode: 'USD',
+      coins: ['btc'],
+      timeframes: ['1W'],
+    });
+    const initialCache = {
+      [relevantKeys[0]]: {
+        fetchedOn: 10,
+        points: [
+          {ts: 100, rate: 1},
+          {ts: 200, rate: 2},
+        ],
+      },
+    };
+    const updatedCache = {
+      [relevantKeys[0]]: {
+        fetchedOn: 10,
+        points: [
+          {ts: 100, rate: 1},
+          {ts: 250, rate: 2},
+        ],
+      },
+    };
+
+    expect(
+      computeFiatRateSeriesCacheRevision({
+        fiatRateSeriesCache: initialCache,
+        relevantKeys,
+      }),
+    ).not.toBe(
+      computeFiatRateSeriesCacheRevision({
+        fiatRateSeriesCache: updatedCache,
+        relevantKeys,
+      }),
+    );
+  });
+
   it('stays stable and does not throw when relevant keys are missing', () => {
     const relevantKeys = getRelevantFiatRateSeriesCacheKeys({
       fiatCode: 'USD',

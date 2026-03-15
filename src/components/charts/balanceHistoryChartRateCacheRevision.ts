@@ -64,12 +64,16 @@ export const computeFiatRateSeriesCacheRevision = (args: {
 
     keysPresentCount += 1;
 
-    const fetchedOn = cache?.[key]?.fetchedOn;
+    const entry = cache?.[key];
+    const fetchedOn = entry?.fetchedOn;
     const fetchedOnSig =
       typeof fetchedOn === 'number' && Number.isFinite(fetchedOn)
         ? fetchedOn
         : 'na';
-    fetchedOnSignatureParts.push(`${key}:${fetchedOnSig}`);
+    const points = Array.isArray(entry?.points) ? entry.points : undefined;
+    const lastPointTs = points?.length ? Number(points[points.length - 1]?.ts) : NaN;
+    const lastTsSig = Number.isFinite(lastPointTs) ? lastPointTs : 'na';
+    fetchedOnSignatureParts.push(`${key}:${fetchedOnSig}:${lastTsSig}`);
 
     if (typeof fetchedOn === 'number' && Number.isFinite(fetchedOn)) {
       maxFetchedOn = Math.max(maxFetchedOn, fetchedOn);
