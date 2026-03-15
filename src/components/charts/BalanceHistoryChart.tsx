@@ -91,6 +91,7 @@ import {
   computeFiatRateSeriesCacheRevision,
   getRelevantFiatRateSeriesCacheKeys,
 } from './balanceHistoryChartRateCacheRevision';
+import {formatUnknownError} from '../../utils/errors/formatUnknownError';
 
 const CHART_LOADER_DELAY_MS = 150;
 const CHART_COMPUTE_YIELD_EVERY_POINTS = 4;
@@ -153,24 +154,8 @@ const getLatestFiatRateSeriesPointTs = (
   return maxTs > 0 ? maxTs : undefined;
 };
 
-const formatChartError = (error: unknown): string => {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  if (typeof error === 'string') {
-    return error;
-  }
-
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return String(error);
-  }
-};
-
 const logBalanceHistoryChartError = (context: string, error: unknown) => {
-  logManager.error(`[BalanceHistoryChart] ${context}`, formatChartError(error));
+  logManager.error(`[BalanceHistoryChart] ${context}`, formatUnknownError(error));
 };
 
 export type BalanceHistoryChartProps = {
@@ -1115,7 +1100,7 @@ const BalanceHistoryChart = ({
               return;
             }
 
-            const msg = formatChartError(error);
+            const msg = formatUnknownError(error);
             logBalanceHistoryChartError(`compute failed for ${next}`, error);
             dispatchTimeframeState({
               type: 'rejectCompute',

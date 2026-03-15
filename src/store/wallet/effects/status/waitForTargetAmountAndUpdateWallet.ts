@@ -3,6 +3,7 @@ import {DeviceEventEmitter} from 'react-native';
 import {Effect} from '../../../index';
 import {DeviceEmitterEvents} from '../../../../constants/device-emitter-events';
 import {logManager} from '../../../../managers/LogManager';
+import {formatUnknownError} from '../../../../utils/errors/formatUnknownError';
 import {getQuoteCurrency} from '../../../../utils/portfolio/assets';
 import {maybePopulatePortfolioForWallets} from '../../../portfolio';
 import {updatePortfolioBalance} from '../../wallet.actions';
@@ -57,7 +58,7 @@ const maybePopulatePortfolioChartsForWalletIds = async ({
 };
 
 const getErrorMessage = (err: unknown): string => {
-  return err instanceof Error ? err.message : JSON.stringify(err);
+  return formatUnknownError(err);
 };
 
 const getWalletStatus = async (
