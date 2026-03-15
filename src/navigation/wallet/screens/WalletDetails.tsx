@@ -70,7 +70,6 @@ import {
   White,
 } from '../../../styles/colors';
 import {
-  addTokenChainSuffix,
   formatCurrencyAbbreviation,
   getProtocolName,
   shouldScale,
@@ -132,10 +131,10 @@ import TimerSvg from '../../../../assets/img/timer.svg';
 import InfoSvg from '../../../../assets/img/info.svg';
 import {
   BitpaySupportedCoins,
-  BitpaySupportedTokens,
   SUPPORTED_VM_TOKENS,
 } from '../../../constants/currencies';
 import ContactIcon from '../../tabs/contacts/components/ContactIcon';
+import {getAssetTheme} from '../../../utils/portfolio/assetTheme';
 import {
   TransactionIcons,
   TRANSACTION_ICON_SIZE,
@@ -615,30 +614,25 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const formattedCryptoBalance = `${cryptoBalance} ${formatCurrencyAbbreviation(
     currencyAbbreviation,
   )}`;
-  const tokenTheme = useMemo(() => {
-    const tokenAddressLower =
-      typeof tokenAddress === 'string' ? tokenAddress.toLowerCase() : '';
-    const chainLower = typeof chain === 'string' ? chain.toLowerCase() : '';
-    if (!tokenAddressLower || !chainLower) {
-      return undefined;
-    }
-    const tokenKey = addTokenChainSuffix(tokenAddressLower, chainLower);
-    return BitpaySupportedTokens[tokenKey]?.theme;
-  }, [chain, tokenAddress]);
-  const coinTheme = useMemo(() => {
-    const coinKey = (chain || currencyAbbreviation || 'btc').toLowerCase();
-    return BitpaySupportedCoins[coinKey]?.theme;
-  }, [chain, currencyAbbreviation]);
+  const assetTheme = useMemo(
+    () =>
+      getAssetTheme({
+        currencyAbbreviation,
+        chain,
+        tokenAddress,
+      }),
+    [chain, currencyAbbreviation, tokenAddress],
+  );
   const chartLineColor = useMemo(() => {
-    const coinColor = (tokenTheme ?? coinTheme)?.coinColor;
+    const coinColor = assetTheme?.coinColor;
     if (!coinColor) {
       return undefined;
     }
     return theme.dark && coinColor === Black ? White : coinColor;
-  }, [tokenTheme, coinTheme, theme.dark]);
+  }, [assetTheme, theme.dark]);
   const chartGradientBackgroundColor = useMemo(() => {
-    return (tokenTheme ?? coinTheme)?.gradientBackgroundColor;
-  }, [tokenTheme, coinTheme]);
+    return assetTheme?.gradientBackgroundColor;
+  }, [assetTheme]);
 
   const [history, setHistory] = useState<any[]>([]);
   const [groupedHistory, setGroupedHistory] = useState<any[]>([]);
