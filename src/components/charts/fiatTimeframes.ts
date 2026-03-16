@@ -13,10 +13,7 @@ export const getFiatChartTimeframeOptions = (
 ): Array<{label: string; value: FiatRateInterval}> => {
   return FIAT_CHART_TIMEFRAME_VALUES.map(value => ({
     value,
-    label:
-      value === 'ALL'
-        ? t(getFiatTimeframeMetadata(value).displayLabel)
-        : getFiatTimeframeMetadata(value).displayLabel,
+    label: t(getFiatTimeframeMetadata(value).displayLabel)
   }));
 };
 
