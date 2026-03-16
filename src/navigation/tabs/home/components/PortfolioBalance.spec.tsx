@@ -332,8 +332,8 @@ describe('PortfolioBalance', () => {
     const screen = renderPortfolioBalance();
 
     expect(screen.getByText('USD 1234567890123')).toHaveStyle({
-      fontSize: 32,
-      lineHeight: 48,
+      fontSize: 28,
+      lineHeight: 40,
     });
   });
 });
