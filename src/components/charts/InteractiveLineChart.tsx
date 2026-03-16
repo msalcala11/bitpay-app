@@ -151,8 +151,12 @@ const InteractiveLineChart = ({
     typeof lineThickness === 'number' ? lineThickness : theme.dark ? 2 : 4;
 
   const strokeScaleIsSharedValue = isNumberSharedValue(strokeScale);
+  const sharedStrokeScale = strokeScaleIsSharedValue ? strokeScale : undefined;
 
-  const strokeScaleNumber = typeof strokeScale === 'number' ? strokeScale : 1;
+  const strokeScaleNumber =
+    typeof strokeScale === 'number' && Number.isFinite(strokeScale)
+      ? strokeScale
+      : 1;
   const safeStrokeScaleNumber = strokeScaleNumber > 0 ? strokeScaleNumber : 1;
   const lineThicknessCompensationExponent = strokeScaleIsSharedValue ? 0.9 : 1;
 
@@ -165,15 +169,9 @@ const InteractiveLineChart = ({
     'worklet';
 
     // Support callers passing either a number or a Reanimated shared/derived value.
-    if (typeof strokeScale === 'number') {
-      return strokeScale;
-    }
-    if (strokeScale != null && typeof strokeScale === 'object') {
-      const v = (strokeScale as {value?: unknown}).value;
-      return typeof v === 'number' ? v : 1;
-    }
-    return 1;
-  }, [strokeScale]);
+    const scale = sharedStrokeScale?.value ?? strokeScaleNumber;
+    return Number.isFinite(scale) ? scale : 1;
+  }, [sharedStrokeScale, strokeScaleNumber]);
 
   // IMPORTANT: react-native-graph's LineGraph is implemented as a composite
   // component that renders Skia primitives. Reanimated's `animatedProps`

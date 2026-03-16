@@ -12,7 +12,6 @@ import {useTranslation} from 'react-i18next';
 import {useTheme} from 'styled-components/native';
 import type {GraphPoint} from 'react-native-graph';
 import Animated, {
-  type SharedValue,
   useAnimatedStyle,
 } from 'react-native-reanimated';
 import type {
@@ -63,7 +62,10 @@ import {
 import {useAppDispatch, useAppSelector} from '../../utils/hooks';
 import {fetchFiatRateSeriesInterval} from '../../store/wallet/effects';
 import {normalizeFiatRateSeriesCoin} from '../../utils/portfolio/core/pnl/rates';
-import {isNumberSharedValue} from './sharedValueGuards';
+import {
+  isNumberSharedValue,
+  type NumberSharedValue,
+} from './sharedValueGuards';
 import {logManager} from '../../managers/LogManager';
 import {
   patchBalanceChartScopeLatestPoints,
@@ -190,7 +192,7 @@ export type BalanceHistoryChartProps = {
    * strokes (and guide line dash pattern) will be compensated so they remain
    * visually constant under scaling.
    */
-  strokeScale?: number | SharedValue<number> | Readonly<SharedValue<number>>;
+  strokeScale?: number | NumberSharedValue;
   /**
    * Optional lower bound for `strokeScale`. When provided, the chart can
    * reserve enough static path padding up-front to avoid edge clipping at the
@@ -230,8 +232,7 @@ export type BalanceHistoryChartProps = {
    */
   timeframeSelectorOpacity?:
     | number
-    | SharedValue<number>
-    | Readonly<SharedValue<number>>;
+    | NumberSharedValue;
   timeframeSelectorHorizontalInset?: string;
   timeframeSelectorWidth?: number;
   /**
@@ -251,8 +252,7 @@ export type BalanceHistoryChartProps = {
    */
   axisLabelOpacity?:
     | number
-    | SharedValue<number>
-    | Readonly<SharedValue<number>>;
+    | NumberSharedValue;
   onSelectedTimeframeChange?: (timeframe: FiatRateInterval) => void;
 };
 
@@ -1516,13 +1516,18 @@ const BalanceHistoryChart = ({
     : undefined;
 
   const timeframeSelectorOpacityNumber =
-    typeof timeframeSelectorOpacity === 'number' ? timeframeSelectorOpacity : 1;
+    typeof timeframeSelectorOpacity === 'number' &&
+    Number.isFinite(timeframeSelectorOpacity)
+      ? timeframeSelectorOpacity
+      : 1;
 
   const timeframeSelectorAnimatedStyle = useAnimatedStyle(() => {
+    const sharedOpacity = sharedTimeframeSelectorOpacity?.value;
     return {
-      opacity: sharedTimeframeSelectorOpacity
-        ? sharedTimeframeSelectorOpacity.value
-        : timeframeSelectorOpacityNumber,
+      opacity:
+        typeof sharedOpacity === 'number' && Number.isFinite(sharedOpacity)
+          ? sharedOpacity
+          : timeframeSelectorOpacityNumber,
     };
   }, [sharedTimeframeSelectorOpacity, timeframeSelectorOpacityNumber]);
 

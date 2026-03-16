@@ -130,13 +130,17 @@ const ChartAxisLabel = ({
     : undefined;
 
   const contentOpacityNumber =
-    typeof contentOpacity === 'number' ? contentOpacity : 1;
+    typeof contentOpacity === 'number' && Number.isFinite(contentOpacity)
+      ? contentOpacity
+      : 1;
 
   const contentOpacityAnimatedStyle = useAnimatedStyle(() => {
+    const sharedOpacity = sharedContentOpacity?.value;
     return {
-      opacity: sharedContentOpacity
-        ? sharedContentOpacity.value
-        : contentOpacityNumber,
+      opacity:
+        typeof sharedOpacity === 'number' && Number.isFinite(sharedOpacity)
+          ? sharedOpacity
+          : contentOpacityNumber,
     };
   }, [contentOpacityNumber, sharedContentOpacity]);
 
