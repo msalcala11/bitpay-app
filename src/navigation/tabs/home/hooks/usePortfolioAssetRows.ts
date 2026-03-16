@@ -25,6 +25,7 @@ import {
 } from '../../../../utils/portfolio/assets';
 import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
 import {
+  getHistoricalRateAssetRequestItemsForVisibleWalletGroups,
   getMissingHistoricalRateAssetRequests,
   hasHistoricalRateSeriesForAsset,
 } from './portfolioAssetHistoryRequests';
@@ -144,14 +145,22 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
   const unsupportedAssetRequestKeysRef = useRef<Set<string>>(new Set());
   const lastPopulateTriggerAtRef = useRef<number>(0);
 
+  const historicalRateRequestItems = useMemo(() => {
+    return getHistoricalRateAssetRequestItemsForVisibleWalletGroups(wallets);
+  }, [wallets]);
+
   const missingHistoricalAssetRequests = useMemo(() => {
     return getMissingHistoricalRateAssetRequests({
       fiatCode: quoteCurrency,
-      items: visibleItems,
+      items: historicalRateRequestItems,
       cache: fiatRateSeriesCache,
       intervals: CACHED_INTERVALS,
     });
-  }, [fiatRateSeriesCache, quoteCurrency, visibleItems]);
+  }, [
+    fiatRateSeriesCache,
+    historicalRateRequestItems,
+    quoteCurrency,
+  ]);
 
   useEffect(() => {
     const activeAssetRequestKeys = new Set(

@@ -12,6 +12,7 @@ import {
   normalizeFiatRateSeriesChain,
   normalizeFiatRateSeriesTokenAddress,
 } from '../../../../utils/portfolio/core/fiatRateSeries';
+import type {Wallet} from '../../../../store/wallet/wallet.models';
 
 export type HistoricalRateAssetRequest = {
   requestKey: string;
@@ -20,10 +21,72 @@ export type HistoricalRateAssetRequest = {
   tokenAddress?: string;
 };
 
-type AssetRowIdentity = Pick<
+export type HistoricalRateAssetIdentityInput = Pick<
   AssetRowItem,
   'currencyAbbreviation' | 'chain' | 'tokenAddress'
 >;
+
+const getWalletCurrencyAbbreviationLower = (wallet: Wallet): string => {
+  return String(wallet?.currencyAbbreviation || '').toLowerCase();
+};
+
+const getWalletChainLower = (wallet: Wallet): string => {
+  return String(wallet?.chain || '').toLowerCase();
+};
+
+const getWalletTokenAddress = (wallet: Wallet): string | undefined => {
+  const tokenAddress = String(wallet?.tokenAddress || '').trim();
+  return tokenAddress || undefined;
+};
+
+const isMainnetWallet = (wallet: Wallet): boolean => {
+  return String(wallet?.network || '').toLowerCase() === 'livenet';
+};
+
+const toPositiveNumber = (value: unknown): number => {
+  const normalized =
+    typeof value === 'string' ? Number(value.replace(/,/g, '')) : Number(value);
+  return Number.isFinite(normalized) && normalized > 0 ? normalized : 0;
+};
+
+const walletHasVisibleLiveBalance = (wallet: Wallet): boolean => {
+  return (
+    toPositiveNumber(wallet?.balance?.crypto) > 0 ||
+    toPositiveNumber(wallet?.balance?.sat) > 0 ||
+    toPositiveNumber(wallet?.balance?.satConfirmedLocked) > 0 ||
+    toPositiveNumber(wallet?.balance?.satPending) > 0
+  );
+};
+
+const normalizeHistoricalRateAssetIdentity = (
+  identity: HistoricalRateAssetIdentityInput,
+):
+  | {
+      currencyAbbreviation: string;
+      chain?: string;
+      tokenAddress?: string;
+    }
+  | undefined => {
+  const coin = normalizeFiatRateSeriesCoin(identity.currencyAbbreviation);
+  if (!coin) {
+    return undefined;
+  }
+
+  const rawTokenAddress = String(identity.tokenAddress || '').trim() || undefined;
+  const chain = rawTokenAddress
+    ? normalizeFiatRateSeriesChain(identity.chain)
+    : undefined;
+  const tokenAddress = normalizeFiatRateSeriesTokenAddress(
+    chain,
+    rawTokenAddress,
+  );
+
+  return {
+    currencyAbbreviation: coin,
+    ...(chain ? {chain} : {}),
+    ...(tokenAddress ? {tokenAddress} : {}),
+  };
+};
 
 export const getHistoricalRateAssetRequestKey = (args: {
   fiatCode: string;
@@ -43,27 +106,19 @@ export const getHistoricalRateAssetRequestKey = (args: {
 };
 
 export const getHistoricalRateAssetRequestFromItem = (
-  item: AssetRowIdentity,
+  item: HistoricalRateAssetIdentityInput,
   fiatCode: string,
 ): HistoricalRateAssetRequest | undefined => {
-  const coin = normalizeFiatRateSeriesCoin(item.currencyAbbreviation);
-  if (!coin) {
+  const normalized = normalizeHistoricalRateAssetIdentity(item);
+  if (!normalized) {
     return undefined;
   }
 
-  const rawTokenAddress = String(item.tokenAddress || '').trim() || undefined;
-  const chain = rawTokenAddress
-    ? normalizeFiatRateSeriesChain(item.chain)
-    : undefined;
-  const tokenAddress = normalizeFiatRateSeriesTokenAddress(
-    chain,
-    rawTokenAddress,
-  );
   const requestKey = getHistoricalRateAssetRequestKey({
     fiatCode,
-    coin,
-    chain,
-    tokenAddress,
+    coin: normalized.currencyAbbreviation,
+    chain: normalized.chain,
+    tokenAddress: normalized.tokenAddress,
   });
 
   if (!requestKey) {
@@ -72,10 +127,70 @@ export const getHistoricalRateAssetRequestFromItem = (
 
   return {
     requestKey,
-    coin,
-    chain,
-    tokenAddress,
+    coin: normalized.currencyAbbreviation,
+    chain: normalized.chain,
+    tokenAddress: normalized.tokenAddress,
   };
+};
+
+export const getHistoricalRateAssetRequestItemsForVisibleWalletGroups = (
+  wallets: Wallet[] | undefined,
+): HistoricalRateAssetIdentityInput[] => {
+  const walletsByDisplayGroupKey = new Map<string, Wallet[]>();
+
+  for (const wallet of wallets || []) {
+    if (!isMainnetWallet(wallet)) {
+      continue;
+    }
+
+    const groupKey = getWalletCurrencyAbbreviationLower(wallet);
+    if (!groupKey) {
+      continue;
+    }
+
+    const groupedWallets = walletsByDisplayGroupKey.get(groupKey) || [];
+    groupedWallets.push(wallet);
+    walletsByDisplayGroupKey.set(groupKey, groupedWallets);
+  }
+
+  const requestItemsByAssetKey = new Map<
+    string,
+    HistoricalRateAssetIdentityInput
+  >();
+
+  for (const groupedWallets of walletsByDisplayGroupKey.values()) {
+    if (!groupedWallets.some(walletHasVisibleLiveBalance)) {
+      continue;
+    }
+
+    for (const wallet of groupedWallets) {
+      const normalized = normalizeHistoricalRateAssetIdentity({
+        currencyAbbreviation: getWalletCurrencyAbbreviationLower(wallet),
+        chain: getWalletChainLower(wallet),
+        tokenAddress: getWalletTokenAddress(wallet),
+      });
+      if (!normalized) {
+        continue;
+      }
+
+      const assetKey = getFiatRateSeriesAssetKey(
+        normalized.currencyAbbreviation,
+        {
+          chain: normalized.chain,
+          tokenAddress: normalized.tokenAddress,
+        },
+      );
+      if (!assetKey) {
+        continue;
+      }
+
+      requestItemsByAssetKey.set(assetKey, normalized);
+    }
+  }
+
+  return Array.from(requestItemsByAssetKey.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([, item]) => item);
 };
 
 export const hasHistoricalRateSeriesForAsset = (args: {
@@ -98,7 +213,7 @@ export const hasHistoricalRateSeriesForAsset = (args: {
 
 export const getMissingHistoricalRateAssetRequests = (args: {
   fiatCode: string;
-  items: AssetRowIdentity[];
+  items: HistoricalRateAssetIdentityInput[];
   cache: FiatRateSeriesCache | undefined;
   intervals: ReadonlyArray<CachedFiatRateInterval>;
 }): HistoricalRateAssetRequest[] => {

@@ -4,6 +4,7 @@ import {
 } from '../../../../store/rate/rate.models';
 import {
   getHistoricalRateAssetRequestFromItem,
+  getHistoricalRateAssetRequestItemsForVisibleWalletGroups,
   getMissingHistoricalRateAssetRequests,
   hasHistoricalRateSeriesForAsset,
 } from './portfolioAssetHistoryRequests';
@@ -49,6 +50,61 @@ describe('portfolioAssetHistoryRequests', () => {
     expect(requests.map(request => request.requestKey)).toEqual([
       'USD:usdc|base|0xbbb',
       'USD:usdc|eth|0xaaa',
+    ]);
+  });
+
+  it('derives requests for all underlying identities in a visible collapsed wallet group', () => {
+    const requestItems = getHistoricalRateAssetRequestItemsForVisibleWalletGroups(
+      [
+        {
+          id: 'base-usdc',
+          chain: 'base',
+          currencyAbbreviation: 'usdc',
+          tokenAddress: '0xbbb',
+          network: 'livenet',
+          balance: {crypto: '1'},
+          credentials: {
+            token: {
+              decimals: 6,
+            },
+          },
+        },
+        {
+          id: 'eth-usdc',
+          chain: 'eth',
+          currencyAbbreviation: 'usdc',
+          tokenAddress: '0xaaa',
+          network: 'livenet',
+          balance: {crypto: '0'},
+          credentials: {
+            token: {
+              decimals: 6,
+            },
+          },
+        },
+      ] as any,
+    );
+
+    expect(
+      getMissingHistoricalRateAssetRequests({
+        fiatCode: 'USD',
+        items: requestItems,
+        cache: {},
+        intervals: FIAT_RATE_SERIES_CACHED_INTERVALS,
+      }),
+    ).toEqual([
+      {
+        requestKey: 'USD:usdc|base|0xbbb',
+        coin: 'usdc',
+        chain: 'base',
+        tokenAddress: '0xbbb',
+      },
+      {
+        requestKey: 'USD:usdc|eth|0xaaa',
+        coin: 'usdc',
+        chain: 'eth',
+        tokenAddress: '0xaaa',
+      },
     ]);
   });
 
