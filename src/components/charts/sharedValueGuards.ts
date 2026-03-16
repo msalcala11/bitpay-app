@@ -17,7 +17,6 @@ export const isNumberSharedValue = (
 
   const sharedValue = value as {value?: unknown};
   return (
-    typeof sharedValue.value === 'number' &&
-    Number.isFinite(sharedValue.value)
+    typeof sharedValue.value === 'number' && Number.isFinite(sharedValue.value)
   );
 };

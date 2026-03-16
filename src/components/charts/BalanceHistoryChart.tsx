@@ -11,9 +11,7 @@ import {StyleProp, View, ViewStyle} from 'react-native';
 import {useTranslation} from 'react-i18next';
 import {useTheme} from 'styled-components/native';
 import type {GraphPoint} from 'react-native-graph';
-import Animated, {
-  useAnimatedStyle,
-} from 'react-native-reanimated';
+import Animated, {useAnimatedStyle} from 'react-native-reanimated';
 import type {
   FiatRateSeriesCache,
   FiatRateInterval,
@@ -62,10 +60,7 @@ import {
 import {useAppDispatch, useAppSelector} from '../../utils/hooks';
 import {fetchFiatRateSeriesInterval} from '../../store/wallet/effects';
 import {normalizeFiatRateSeriesCoin} from '../../utils/portfolio/core/pnl/rates';
-import {
-  isNumberSharedValue,
-  type NumberSharedValue,
-} from './sharedValueGuards';
+import {isNumberSharedValue, type NumberSharedValue} from './sharedValueGuards';
 import {logManager} from '../../managers/LogManager';
 import {
   patchBalanceChartScopeLatestPoints,
@@ -230,9 +225,7 @@ export type BalanceHistoryChartProps = {
   /**
    * Optional opacity for the timeframe selector row.
    */
-  timeframeSelectorOpacity?:
-    | number
-    | NumberSharedValue;
+  timeframeSelectorOpacity?: number | NumberSharedValue;
   timeframeSelectorHorizontalInset?: string;
   timeframeSelectorWidth?: number;
   /**
@@ -250,9 +243,7 @@ export type BalanceHistoryChartProps = {
   /**
    * Optional opacity for min/max axis labels.
    */
-  axisLabelOpacity?:
-    | number
-    | NumberSharedValue;
+  axisLabelOpacity?: number | NumberSharedValue;
   onSelectedTimeframeChange?: (timeframe: FiatRateInterval) => void;
 };
 

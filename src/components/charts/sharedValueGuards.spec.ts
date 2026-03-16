@@ -20,8 +20,6 @@ describe('isNumberSharedValue', () => {
   it('returns false for non-finite numeric values', () => {
     expect(isNumberSharedValue({value: Number.NaN})).toBe(false);
     expect(isNumberSharedValue({value: Number.POSITIVE_INFINITY})).toBe(false);
-    expect(isNumberSharedValue({value: Number.NEGATIVE_INFINITY})).toBe(
-      false,
-    );
+    expect(isNumberSharedValue({value: Number.NEGATIVE_INFINITY})).toBe(false);
   });
 });
