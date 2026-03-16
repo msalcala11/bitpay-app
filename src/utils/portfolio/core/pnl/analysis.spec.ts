@@ -3,6 +3,7 @@ import {
   buildPnlAnalysisSeries,
   buildPnlAnalysisSeriesAsync,
   buildRateSeries,
+  pnlAnalysisInternals,
 } from './analysis';
 import type {WalletForAnalysis} from './analysis';
 import type {BalanceSnapshotStored} from './types';
@@ -392,6 +393,68 @@ describe('buildPnlAnalysisSeries', () => {
     expect(result.points[1].byWalletId['wallet-usdc-base']?.fiatBalance).toBe(
       2.2,
     );
+  });
+
+  it('reuses one nearest-rate lookup per timeline point for wallets sharing a rate key', () => {
+    const startMs = Date.UTC(2026, 0, 1, 0, 0, 0);
+    const endMs = Date.UTC(2026, 0, 2, 0, 0, 0);
+
+    const wallets: WalletForAnalysis[] = ['wallet-1', 'wallet-2', 'wallet-3'].map(
+      walletId => ({
+        walletId,
+        walletName: `BTC Wallet ${walletId}`,
+        currencyAbbreviation: 'btc',
+        credentials: {
+          coin: 'btc',
+          chain: 'btc',
+          network: 'livenet',
+        },
+        snapshots: [
+          makeSnapshot({
+            walletId,
+            timestamp: startMs,
+            markRate: 100,
+          }),
+        ],
+      }),
+    );
+
+    const makeCursor = pnlAnalysisInternals.makeNearestRateCursor;
+    let getNearestSpy: jest.Mock<number | undefined, [number]> | undefined;
+    const factorySpy = jest
+      .spyOn(pnlAnalysisInternals, 'makeNearestRateCursor')
+      .mockImplementation(series => {
+        const cursor = makeCursor(series);
+        const getNearest = jest.fn((ts: number) => cursor.getNearest(ts));
+        getNearestSpy = getNearest;
+        return {getNearest};
+      });
+
+    try {
+      const result = buildPnlAnalysisSeries({
+        wallets,
+        timeframe: '1D',
+        quoteCurrency: 'USD',
+        nowMs: endMs,
+        maxPoints: 4,
+        fiatRateSeriesCache: {
+          [getFiatRateSeriesCacheKey('USD', 'btc', '1D')]: {
+            fetchedOn: endMs,
+            points: [
+              {ts: startMs, rate: 100},
+              {ts: endMs, rate: 110},
+            ],
+          },
+        },
+      });
+
+      expect(factorySpy).toHaveBeenCalledTimes(1);
+      expect(getNearestSpy).toBeDefined();
+      expect(getNearestSpy).toHaveBeenCalledTimes(6);
+      expect(result.points[3].totalFiatBalance).toBe(330);
+    } finally {
+      factorySpy.mockRestore();
+    }
   });
 
   it('extends the final point to now when newer snapshots exist past the latest rate sample', () => {

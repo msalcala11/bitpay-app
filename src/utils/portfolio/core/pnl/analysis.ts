@@ -354,6 +354,10 @@ function makeNearestRateCursor(series: RateSeries): RateCursor {
   };
 }
 
+export const pnlAnalysisInternals = {
+  makeNearestRateCursor,
+};
+
 export function buildRateSeries(
   points: FiatRatePoint[],
   minTs?: number,
@@ -679,7 +683,7 @@ function* buildPnlAnalysisSeriesGenerator(
   // Nearest-rate cursors, sampled on the shared timeline.
   const rateCursorByRateKey: Record<string, RateCursor> = {};
   for (const rateKey of rateKeys) {
-    rateCursorByRateKey[rateKey] = makeNearestRateCursor(
+    rateCursorByRateKey[rateKey] = pnlAnalysisInternals.makeNearestRateCursor(
       rateSeriesByRateKey[rateKey],
     );
   }
@@ -759,6 +763,22 @@ function* buildPnlAnalysisSeriesGenerator(
     }
 
     const ts = timeline[i];
+    const isLastTimelinePoint = i === timeline.length - 1;
+    const rateAtTsByRateKey: Record<string, number> = {};
+
+    for (const rateKey of rateKeys) {
+      const rate =
+        isLastTimelinePoint
+          ? getOverrideRate(rateKey) ??
+            rateCursorByRateKey[rateKey]?.getNearest(ts)
+          : rateCursorByRateKey[rateKey]?.getNearest(ts);
+      if (rate === undefined) {
+        throw new Error(
+          `Missing ${quoteCurrency}:${rateKey} rate at ts=${ts}.`,
+        );
+      }
+      rateAtTsByRateKey[rateKey] = rate;
+    }
 
     const byWalletId: Record<string, WalletPoint> = {};
     let totalFiatBalance = 0;
@@ -768,16 +788,7 @@ function* buildPnlAnalysisSeriesGenerator(
     let totalCryptoCreds: WalletCredentials | null = null;
 
     // Determine markRate based on the driver rate key.
-    const driverRate =
-      i === timeline.length - 1
-        ? getOverrideRate(driverRateKey) ??
-          rateCursorByRateKey[driverRateKey]?.getNearest(ts)
-        : rateCursorByRateKey[driverRateKey]?.getNearest(ts);
-    if (driverRate === undefined) {
-      throw new Error(
-        `Missing ${quoteCurrency}:${driverRateKey} rate at ts=${ts}.`,
-      );
-    }
+    const driverRate = rateAtTsByRateKey[driverRateKey];
 
     for (const w of wallets) {
       const st = windowStateByWalletId[w.walletId];
@@ -785,16 +796,7 @@ function* buildPnlAnalysisSeriesGenerator(
         continue;
       }
       const rateKey = st.rateKey;
-      const rate =
-        i === timeline.length - 1
-          ? getOverrideRate(rateKey) ??
-            rateCursorByRateKey[rateKey]?.getNearest(ts)
-          : rateCursorByRateKey[rateKey]?.getNearest(ts);
-      if (rate === undefined) {
-        throw new Error(
-          `Missing ${quoteCurrency}:${rateKey} rate at ts=${ts}.`,
-        );
-      }
+      const rate = rateAtTsByRateKey[rateKey];
 
       // Advance window basis state by processing all snapshots up to this timestamp.
       while (st.nextIdx < st.snapshots.length) {
