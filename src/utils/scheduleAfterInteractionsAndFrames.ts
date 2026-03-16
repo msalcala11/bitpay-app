@@ -15,7 +15,6 @@ export const scheduleAfterInteractionsAndFrames = (args: {
   onError?: (error: unknown) => void;
 }): ScheduledAfterInteractionsHandle => {
   const controller = new AbortController();
-  let cancelled = false;
   let didRun = false;
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let fallbackTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -28,7 +27,11 @@ export const scheduleAfterInteractionsAndFrames = (args: {
   });
 
   const finish = () => {
-    resolveDone?.();
+    if (!resolveDone) {
+      return;
+    }
+
+    resolveDone();
     resolveDone = undefined;
   };
 
@@ -43,6 +46,38 @@ export const scheduleAfterInteractionsAndFrames = (args: {
     }
   };
 
+  const clearScheduledFrames = () => {
+    if (typeof cancelAnimationFrame !== 'function') {
+      return;
+    }
+
+    if (typeof firstFrame === 'number') {
+      cancelAnimationFrame(firstFrame);
+      firstFrame = undefined;
+    }
+    if (typeof secondFrame === 'number') {
+      cancelAnimationFrame(secondFrame);
+      secondFrame = undefined;
+    }
+  };
+
+  const finishIfCancelled = () => {
+    if (!controller.signal.aborted) {
+      return false;
+    }
+
+    finish();
+    return true;
+  };
+
+  const shouldSkipScheduling = () => {
+    if (finishIfCancelled()) {
+      return true;
+    }
+
+    return didRun;
+  };
+
   const reportError = (error: unknown) => {
     if (controller.signal.aborted || isAbortError(error)) {
       return;
@@ -55,51 +90,46 @@ export const scheduleAfterInteractionsAndFrames = (args: {
     }
   };
 
-  const runCallback = () => {
-    if (cancelled) {
-      finish();
+  const executeCallback = () => {
+    timeout = undefined;
+
+    if (finishIfCancelled()) {
       return;
     }
-    if (didRun) {
+
+    Promise.resolve()
+      .then(() => args.callback(controller.signal))
+      .catch(reportError)
+      .finally(finish);
+  };
+
+  const runCallback = () => {
+    if (shouldSkipScheduling()) {
       return;
     }
 
     didRun = true;
     clearScheduledTimers();
-
-    timeout = setTimeout(() => {
-      if (cancelled) {
-        finish();
-        return;
-      }
-
-      Promise.resolve()
-        .then(() => args.callback(controller.signal))
-        .catch(reportError)
-        .finally(finish);
-    }, 0);
+    timeout = setTimeout(executeCallback, 0);
   };
 
   const task = InteractionManager.runAfterInteractions(() => {
-    if (cancelled) {
-      finish();
-      return;
-    }
-    if (didRun) {
+    if (shouldSkipScheduling()) {
       return;
     }
 
     if (typeof requestAnimationFrame === 'function') {
       firstFrame = requestAnimationFrame(() => {
-        if (cancelled) {
-          finish();
-          return;
-        }
-        if (didRun) {
+        firstFrame = undefined;
+
+        if (shouldSkipScheduling()) {
           return;
         }
 
-        secondFrame = requestAnimationFrame(runCallback);
+        secondFrame = requestAnimationFrame(() => {
+          secondFrame = undefined;
+          runCallback();
+        });
       });
       return;
     }
@@ -107,7 +137,7 @@ export const scheduleAfterInteractionsAndFrames = (args: {
     runCallback();
   });
 
-  if (!cancelled && !didRun) {
+  if (!controller.signal.aborted && !didRun) {
     fallbackTimeout = setTimeout(
       runCallback,
       Math.max(
@@ -121,28 +151,14 @@ export const scheduleAfterInteractionsAndFrames = (args: {
 
   return {
     cancel: () => {
-      if (cancelled) {
+      if (controller.signal.aborted) {
         return;
       }
 
-      cancelled = true;
       controller.abort();
       task.cancel();
       clearScheduledTimers();
-
-      if (
-        typeof firstFrame === 'number' &&
-        typeof cancelAnimationFrame === 'function'
-      ) {
-        cancelAnimationFrame(firstFrame);
-      }
-      if (
-        typeof secondFrame === 'number' &&
-        typeof cancelAnimationFrame === 'function'
-      ) {
-        cancelAnimationFrame(secondFrame);
-      }
-
+      clearScheduledFrames();
       finish();
     },
     done,
