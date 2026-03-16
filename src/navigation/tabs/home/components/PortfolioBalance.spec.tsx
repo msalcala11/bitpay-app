@@ -263,6 +263,7 @@ describe('PortfolioBalance', () => {
     jest.clearAllMocks();
     mockState.APP.hideAllBalances = false;
     mockState.PORTFOLIO_CHARTS.homeChartCollapsed = false;
+    mockState.WALLET.keys['key-1'].totalBalance = 123.45;
   });
 
   it('keeps the initial chart change-row callback result on first mount', async () => {
@@ -322,6 +323,17 @@ describe('PortfolioBalance', () => {
     expect(mockDispatch).toHaveBeenCalledWith({
       type: 'SET_HOME_CHART_COLLAPSED',
       payload: false,
+    });
+  });
+
+  it('uses a smaller balance font for long fiat values', () => {
+    mockState.WALLET.keys['key-1'].totalBalance = 1234567890123;
+
+    const screen = renderPortfolioBalance();
+
+    expect(screen.getByText('USD 1234567890123')).toHaveStyle({
+      fontSize: 32,
+      lineHeight: 48,
     });
   });
 });

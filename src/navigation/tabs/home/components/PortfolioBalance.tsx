@@ -5,6 +5,7 @@ import {SlateDark, White} from '../../../../styles/colors';
 import {useSelector} from 'react-redux';
 import {RootState} from '../../../../store';
 import {formatFiatAmount} from '../../../../utils/helper-methods';
+import {shouldUseCompactFiatAmountText} from '../../../../utils/fiatAmountText';
 import InfoSvg from './InfoSvg';
 import {
   ActiveOpacity,
@@ -81,10 +82,10 @@ const PortfolioBalanceTitle = styled(BaseText)`
   color: ${({theme: {dark}}) => (dark ? White : SlateDark)};
 `;
 
-const PortfolioBalanceText = styled(BaseText)`
-  font-size: 39px;
+const PortfolioBalanceText = styled(BaseText)<{$isCompact?: boolean}>`
+  font-size: ${({$isCompact}) => ($isCompact ? '32px' : '39px')};
   font-weight: 700;
-  line-height: 59px;
+  line-height: ${({$isCompact}) => ($isCompact ? '48px' : '59px')};
   color: ${({theme}) => theme.colors.text};
   margin: 2px 0;
 `;
@@ -368,6 +369,18 @@ const PortfolioBalance = () => {
     typeof selectedChartBalance === 'number'
       ? selectedChartBalance
       : totalBalanceIncludingCoinbase;
+  const formattedPortfolioBalance = useMemo(() => {
+    return formatFiatAmount(
+      displayedPortfolioBalance,
+      defaultAltCurrency.isoCode,
+      {
+        currencyDisplay: 'symbol',
+      },
+    );
+  }, [defaultAltCurrency.isoCode, displayedPortfolioBalance]);
+  const shouldUseCompactPortfolioBalanceText = useMemo(() => {
+    return shouldUseCompactFiatAmountText(formattedPortfolioBalance);
+  }, [formattedPortfolioBalance]);
 
   const showPortfolioBalanceInfoModal = () => {
     dispatch(
@@ -439,14 +452,9 @@ const PortfolioBalance = () => {
           }}>
           {!hideAllBalances ? (
             <>
-              <PortfolioBalanceText>
-                {formatFiatAmount(
-                  displayedPortfolioBalance,
-                  defaultAltCurrency.isoCode,
-                  {
-                    currencyDisplay: 'symbol',
-                  },
-                )}
+              <PortfolioBalanceText
+                $isCompact={shouldUseCompactPortfolioBalanceText}>
+                {formattedPortfolioBalance}
               </PortfolioBalanceText>
             </>
           ) : (

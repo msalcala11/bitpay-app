@@ -60,6 +60,7 @@ import {
   formatFiatAmount,
   getRateByCurrencyName,
 } from '../../../utils/helper-methods';
+import {shouldUseCompactFiatAmountText} from '../../../utils/fiatAmountText';
 import {getAssetTheme} from '../../../utils/portfolio/assetTheme';
 import {
   findSupportedCurrencyOptionForAsset,
@@ -1005,6 +1006,12 @@ const ExchangeRate = () => {
     defaultAltCurrency.isoCode,
   ]);
 
+  const shouldUseCompactTopPriceText = useMemo(() => {
+    return shouldUseCompactFiatAmountText(
+      formattedAllIntervalsHighPrice || formattedTopPrice,
+    );
+  }, [formattedAllIntervalsHighPrice, formattedTopPrice]);
+
   const timeframeChange = useMemo(() => {
     if (!selectedFiatCodeUpper || !normalizedCoin) {
       return undefined;
@@ -1319,10 +1326,7 @@ const ExchangeRate = () => {
         }>
         <TopSection>
           <AbbreviationLabel>{currencyAbbreviation}</AbbreviationLabel>
-          <PriceText
-            isLargeNumber={
-              (formattedAllIntervalsHighPrice || formattedTopPrice).length > 11
-            }>
+          <PriceText isLargeNumber={shouldUseCompactTopPriceText}>
             {formattedTopPrice}
           </PriceText>
           <ChartChangeRow
