@@ -283,6 +283,18 @@ const svmSnapshot = {
   assetId: `sol:usdc:${svmTokenAddress}`,
 } as BalanceSnapshot;
 
+const createDeferred = <T,>() => {
+  let resolve: (value: T | PromiseLike<T>) => void = () => {};
+  const promise = new Promise<T>(res => {
+    resolve = res;
+  });
+
+  return {
+    promise,
+    resolve,
+  };
+};
+
 const flushAsyncWork = async (iterations = 4) => {
   for (let i = 0; i < iterations; i += 1) {
     await act(async () => {
@@ -292,26 +304,61 @@ const flushAsyncWork = async (iterations = 4) => {
   }
 };
 
-const createMockAnalysisPoints = () =>
-  Array.from({length: FIAT_RATE_SERIES_TARGET_POINTS}, (_, index) => ({
+const createMockAnalysisPoints = (args?: {
+  walletId?: string;
+  baseBalance?: number;
+}) => {
+  const walletId = args?.walletId || 'wallet-eth-1';
+  const baseBalance = args?.baseBalance ?? 100;
+
+  return Array.from({length: FIAT_RATE_SERIES_TARGET_POINTS}, (_, index) => ({
     timestamp: 1_000 + index * 1_000,
-    totalFiatBalance: 100 + index,
-    totalRemainingCostBasisFiat: 80 + index,
+    totalFiatBalance: baseBalance + index,
+    totalRemainingCostBasisFiat: baseBalance - 20 + index,
     totalUnrealizedPnlFiat: 20,
     totalPnlPercent: 5,
     byWalletId: {
-      'wallet-eth-1': {
+      [walletId]: {
         balanceAtomic: '1',
         formattedCryptoBalance: '1',
-        fiatBalance: 100 + index,
-        remainingCostBasisFiat: 80 + index,
+        fiatBalance: baseBalance + index,
+        remainingCostBasisFiat: baseBalance - 20 + index,
         unrealizedPnlFiat: 20,
-        markRate: 100 + index,
+        markRate: baseBalance + index,
         ratePercentChange: 2,
         pnlPercent: 5,
       },
     },
   }));
+};
+
+const createMockAnalysisSeriesResult = (args: {
+  timeframe: string;
+  walletId?: string;
+  baseBalance?: number;
+  quoteCurrency?: string;
+}) => {
+  const baseBalance = args.baseBalance ?? 100;
+
+  return {
+    points: createMockAnalysisPoints({
+      walletId: args.walletId,
+      baseBalance,
+    }),
+    timeframe: args.timeframe,
+    quoteCurrency: args.quoteCurrency || 'USD',
+    driverRateKey: 'eth',
+    rateKeys: ['eth'],
+    wallets: [],
+    assetSummaries: [],
+    totalSummary: {
+      pnlStart: baseBalance - 20,
+      pnlEnd: baseBalance,
+      pnlChange: 20,
+      pnlPercent: 25,
+    },
+  };
+};
 
 const getIntervalFetchDispatches = () =>
   mockDispatch.mock.calls
@@ -636,6 +683,136 @@ describe('BalanceHistoryChart', () => {
         }),
       }),
     ]);
+  });
+
+  it('does not swap to a stale completed timeframe while a newer selection is pending', async () => {
+    const ethWallet = {
+      ...wallet,
+      id: 'wallet-eth-1',
+      chain: 'eth',
+      currencyAbbreviation: 'eth',
+      credentials: {
+        coin: 'eth',
+        chain: 'eth',
+        network: 'livenet',
+      },
+    } as Wallet;
+    const ethSnapshot = {
+      ...snapshot,
+      id: 'snapshot-eth-rapid-switch',
+      walletId: 'wallet-eth-1',
+      chain: 'eth',
+      coin: 'eth',
+      assetId: 'eth:livenet',
+    } as BalanceSnapshot;
+    const oneWeekCompute = createDeferred<
+      ReturnType<typeof createMockAnalysisSeriesResult>
+    >();
+    const oneMonthCompute = createDeferred<
+      ReturnType<typeof createMockAnalysisSeriesResult>
+    >();
+    const onChangeRowData = jest.fn();
+
+    mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.mockResolvedValue({
+      wallets: [
+        {
+          walletId: 'wallet-eth-1',
+          walletName: 'Wallet ETH 1',
+          currencyAbbreviation: 'eth',
+          credentials: {
+            coin: 'eth',
+            chain: 'eth',
+            network: 'livenet',
+          },
+          snapshots: [],
+        },
+      ],
+      currentRatesByRateKey: {
+        eth: 2500,
+      },
+      quoteCurrency: 'USD',
+    });
+    mockBuildPnlAnalysisSeriesAsync.mockImplementation(
+      async ({timeframe}: {timeframe: string}) => {
+        switch (timeframe) {
+          case '1D':
+            return createMockAnalysisSeriesResult({
+              timeframe,
+              walletId: 'wallet-eth-1',
+              baseBalance: 100,
+            });
+          case '1W':
+            return oneWeekCompute.promise;
+          case '1M':
+            return oneMonthCompute.promise;
+          default:
+            throw new Error(`Unexpected timeframe ${timeframe}`);
+        }
+      },
+    );
+
+    const screen = render(
+      <BalanceHistoryChart
+        wallets={[ethWallet]}
+        snapshotsByWalletId={{
+          [ethWallet.id]: [ethSnapshot],
+        }}
+        quoteCurrency="USD"
+        initialSelectedTimeframe="1D"
+        fiatRateSeriesCache={{}}
+        onChangeRowData={onChangeRowData}
+      />,
+    );
+
+    await flushAsyncWork(6);
+
+    expect(onChangeRowData).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        rangeLabel: 'Last Day',
+      }),
+    );
+
+    fireEvent.press(screen.getByTestId('timeframe-1W'));
+    await flushAsyncWork(2);
+
+    fireEvent.press(screen.getByTestId('timeframe-1M'));
+    await flushAsyncWork(2);
+
+    expect(onChangeRowData).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        rangeLabel: 'Last Day',
+      }),
+    );
+
+    oneWeekCompute.resolve(
+      createMockAnalysisSeriesResult({
+        timeframe: '1W',
+        walletId: 'wallet-eth-1',
+        baseBalance: 200,
+      }),
+    );
+    await flushAsyncWork(4);
+
+    expect(onChangeRowData).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        rangeLabel: 'Last Day',
+      }),
+    );
+
+    oneMonthCompute.resolve(
+      createMockAnalysisSeriesResult({
+        timeframe: '1M',
+        walletId: 'wallet-eth-1',
+        baseBalance: 300,
+      }),
+    );
+    await flushAsyncWork(4);
+
+    expect(onChangeRowData).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        rangeLabel: 'Past Month',
+      }),
+    );
   });
 
   it('does not rerun analysis-input preparation on unrelated cache or snapshot writes', async () => {

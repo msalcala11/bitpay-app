@@ -59,6 +59,9 @@ export const useBalanceHistoryChartComputeQueue = <
 }) => {
   const enqueueComputeRef = useRef<FiatRateInterval[]>([]);
   const computingQueueRef = useRef(false);
+  const selectedTimeframeRef = useRef(args.selectedTimeframe);
+
+  selectedTimeframeRef.current = args.selectedTimeframe;
 
   const resetComputeQueue = useCallback(() => {
     enqueueComputeRef.current = [];
@@ -149,7 +152,7 @@ export const useBalanceHistoryChartComputeQueue = <
                 generation,
               });
 
-              if (nextTimeframe === args.selectedTimeframe) {
+              if (nextTimeframe === selectedTimeframeRef.current) {
                 args.setDisplayState(previous =>
                   previous?.series === computed.series &&
                   previous?.timeframe === nextTimeframe
@@ -214,7 +217,6 @@ export const useBalanceHistoryChartComputeQueue = <
     args.getTimeframeRevision,
     args.onComputeError,
     args.scopeId,
-    args.selectedTimeframe,
     args.setDisplayState,
     args.sortedWalletIds,
     args.trackScheduledHandle,
