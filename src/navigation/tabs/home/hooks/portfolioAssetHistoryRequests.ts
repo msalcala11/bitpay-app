@@ -50,7 +50,7 @@ const isMainnetWallet = (wallet: Wallet): boolean => {
 
 const walletHasStoredSnapshots = (
   wallet: Wallet,
-  snapshotsByWalletId: BalanceSnapshotsByWalletId | undefined,
+  snapshotsByWalletId: BalanceSnapshotsByWalletId,
 ): boolean => {
   const walletId = String(wallet?.id || '');
   if (!walletId) {
