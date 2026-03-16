@@ -67,9 +67,7 @@ import {
   getVisibleWalletsFromKeys,
   walletHasNonZeroLiveBalance,
 } from '../../../utils/portfolio/assets';
-import {
-  getFiatRateSeriesIntervalForTimeframe,
-} from '../../../utils/portfolio/rate';
+import {getFiatRateSeriesIntervalForTimeframe} from '../../../utils/portfolio/rate';
 import {getFiatTimeframeMetadata} from '../../../utils/fiatTimeframes';
 import {
   ensureSortedByTsAsc,

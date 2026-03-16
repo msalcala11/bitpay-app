@@ -25,6 +25,10 @@ const BASE_USDC_IDENTITY = {
 
 describe('getExchangeRateTimeframeChange', () => {
   it('uses the same identity as the selected chart series', () => {
+    const selectedSeries = [
+      {ts: BASELINE_TS, rate: 10},
+      {ts: NOW_MS, rate: 15},
+    ];
     const fiatRateSeriesCache: FiatRateSeriesCache = {
       [getFiatRateSeriesCacheKey('USD', 'usdc', '1D', ETH_USDC_IDENTITY)]: {
         fetchedOn: NOW_MS,
@@ -35,10 +39,7 @@ describe('getExchangeRateTimeframeChange', () => {
       },
       [getFiatRateSeriesCacheKey('USD', 'usdc', '1D', BASE_USDC_IDENTITY)]: {
         fetchedOn: NOW_MS,
-        points: [
-          {ts: BASELINE_TS, rate: 10},
-          {ts: NOW_MS, rate: 15},
-        ],
+        points: selectedSeries,
       },
     };
     const selectedSeriesKey = getFiatRateSeriesCacheKey(
@@ -47,7 +48,6 @@ describe('getExchangeRateTimeframeChange', () => {
       '1D',
       BASE_USDC_IDENTITY,
     );
-    const selectedSeries = fiatRateSeriesCache[selectedSeriesKey]?.points;
 
     const result = getExchangeRateTimeframeChange({
       fiatRateSeriesCache,
@@ -58,15 +58,14 @@ describe('getExchangeRateTimeframeChange', () => {
       nowMs: NOW_MS,
     });
 
-    expect(selectedSeries).toEqual([
-      {ts: BASELINE_TS, rate: 10},
-      {ts: NOW_MS, rate: 15},
-    ]);
+    expect(fiatRateSeriesCache[selectedSeriesKey]?.points).toEqual(
+      selectedSeries,
+    );
     expect(result).toEqual({
       timeframe: '1D',
-      baselineTimestampMs: selectedSeries![0].ts,
-      baselineRate: selectedSeries![0].rate,
-      currentRate: selectedSeries![1].rate,
+      baselineTimestampMs: selectedSeries[0].ts,
+      baselineRate: selectedSeries[0].rate,
+      currentRate: selectedSeries[1].rate,
       priceChange: 5,
       percentChange: 50,
       percentRatio: 0.5,
