@@ -30,7 +30,9 @@ export const buildHydratedBalanceChartTimeframes = <TSeries>(args: {
   timeframes?: Partial<Record<FiatRateInterval, CachedBalanceChartTimeframe>>;
   timeframeOrder: FiatRateInterval[];
   selectedTimeframe: FiatRateInterval;
-  cachedStatusByTimeframe: Partial<Record<FiatRateInterval, CachedTimeframeStatus>>;
+  cachedStatusByTimeframe: Partial<
+    Record<FiatRateInterval, CachedTimeframeStatus>
+  >;
   currentSpotRatesByRateKey: Record<string, number>;
   deserializeTimeframe: (
     cachedTimeframe: CachedBalanceChartTimeframe,

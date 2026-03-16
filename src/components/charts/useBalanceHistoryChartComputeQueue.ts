@@ -14,52 +14,49 @@ import type {
   TimeframeComputeDisposition,
 } from './balanceHistoryChartOrchestration';
 
-type RetryPolicy =
-  | 'retry_interrupted_attempts'
-  | 'suppress_after_attempt';
+type RetryPolicy = 'retry_interrupted_attempts' | 'suppress_after_attempt';
 
-export const useBalanceHistoryChartComputeQueue = <TSeries, TChangeRowData>(
-  args: {
-    computeGenerationRef: MutableRefObject<number>;
-    computeSeriesForTimeframe: (
-      timeframe: FiatRateInterval,
-      signal: AbortSignal,
-    ) => Promise<{
-      cacheEntry: CachedBalanceChartTimeframe;
-      series: TSeries;
-    }>;
-    dispatch: Dispatch<any>;
-    dispatchTimeframeState: Dispatch<
-      BalanceHistoryChartOrchestrationAction<TSeries, TChangeRowData>
-    >;
-    getComputeDispositionForTimeframe: (
-      timeframe: FiatRateInterval,
-      retryPolicy: RetryPolicy,
-    ) => TimeframeComputeDisposition;
-    getTimeframeAttemptRevision: (timeframe: FiatRateInterval) => string;
-    getTimeframeRevision: (
-      timeframe: FiatRateInterval,
-      historicalRateDeps?: CachedBalanceChartTimeframe['historicalRateDeps'],
-    ) => string;
-    selectedTimeframe: FiatRateInterval;
-    scopeId: string;
-    sortedWalletIds: string[];
-    balanceOffset: number;
-    setDisplayState: Dispatch<
-      SetStateAction<
-        | {
-            series: TSeries;
-            timeframe: FiatRateInterval;
-          }
-        | undefined
-      >
-    >;
-    trackScheduledHandle: (
-      handle: ScheduledAfterInteractionsHandle,
-    ) => void;
-    onComputeError: (context: string, error: unknown) => void;
-  },
-) => {
+export const useBalanceHistoryChartComputeQueue = <
+  TSeries,
+  TChangeRowData,
+>(args: {
+  computeGenerationRef: MutableRefObject<number>;
+  computeSeriesForTimeframe: (
+    timeframe: FiatRateInterval,
+    signal: AbortSignal,
+  ) => Promise<{
+    cacheEntry: CachedBalanceChartTimeframe;
+    series: TSeries;
+  }>;
+  dispatch: Dispatch<any>;
+  dispatchTimeframeState: Dispatch<
+    BalanceHistoryChartOrchestrationAction<TSeries, TChangeRowData>
+  >;
+  getComputeDispositionForTimeframe: (
+    timeframe: FiatRateInterval,
+    retryPolicy: RetryPolicy,
+  ) => TimeframeComputeDisposition;
+  getTimeframeAttemptRevision: (timeframe: FiatRateInterval) => string;
+  getTimeframeRevision: (
+    timeframe: FiatRateInterval,
+    historicalRateDeps?: CachedBalanceChartTimeframe['historicalRateDeps'],
+  ) => string;
+  selectedTimeframe: FiatRateInterval;
+  scopeId: string;
+  sortedWalletIds: string[];
+  balanceOffset: number;
+  setDisplayState: Dispatch<
+    SetStateAction<
+      | {
+          series: TSeries;
+          timeframe: FiatRateInterval;
+        }
+      | undefined
+    >
+  >;
+  trackScheduledHandle: (handle: ScheduledAfterInteractionsHandle) => void;
+  onComputeError: (context: string, error: unknown) => void;
+}) => {
   const enqueueComputeRef = useRef<FiatRateInterval[]>([]);
   const computingQueueRef = useRef(false);
 
@@ -185,10 +182,7 @@ export const useBalanceHistoryChartComputeQueue = <TSeries, TChangeRowData>(
               return;
             }
 
-            args.onComputeError(
-              `compute failed for ${nextTimeframe}`,
-              error,
-            );
+            args.onComputeError(`compute failed for ${nextTimeframe}`, error);
             args.dispatchTimeframeState({
               type: 'rejectCompute',
               timeframe: nextTimeframe,

@@ -91,10 +91,7 @@ export const useBalanceHistoryChartSelectionState = (args: {
       args.timeframeStateByTimeframe[args.selectedTimeframe]
         ?.lastResolvedChangeRowData;
     if (
-      areBalanceHistoryChartChangeRowDataEqual(
-        existing,
-        resolvedChangeRowData,
-      )
+      areBalanceHistoryChartChangeRowDataEqual(existing, resolvedChangeRowData)
     ) {
       return;
     }

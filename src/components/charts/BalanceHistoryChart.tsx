@@ -271,11 +271,8 @@ const BalanceHistoryChart = ({
 
   const computeGenerationRef = useRef(0);
   const timeframeStateByTimeframe = timeframeState.byTimeframe;
-  const {
-    cancelAllScheduledWork,
-    trackScheduledHandle,
-    removeScheduledHandle,
-  } = useScheduledAfterInteractionsRegistry();
+  const {cancelAllScheduledWork, trackScheduledHandle, removeScheduledHandle} =
+    useScheduledAfterInteractionsRegistry();
 
   // NOTE: Some call sites may pass inline callbacks. Avoid re-running effects
   // (and thus triggering render loops) when the callback identity changes.
@@ -946,8 +943,7 @@ const BalanceHistoryChart = ({
 
     const effectiveCachedTimeframe = getEffectiveCachedBalanceChartTimeframe({
       cachedTimeframe,
-      status:
-        cachedTimeframeStatusByTimeframe[selectedTimeframe] || 'missing',
+      status: cachedTimeframeStatusByTimeframe[selectedTimeframe] || 'missing',
       currentSpotRatesByRateKey,
     });
 
@@ -1003,12 +999,11 @@ const BalanceHistoryChart = ({
     onChangeRowData,
   });
 
-  const {MaxAxisLabel, MinAxisLabel} =
-    useStableBalanceHistoryChartAxisLabels({
-      activeSeries,
-      axisLabelOpacity,
-      quoteCurrency,
-    });
+  const {MaxAxisLabel, MinAxisLabel} = useStableBalanceHistoryChartAxisLabels({
+    activeSeries,
+    axisLabelOpacity,
+    quoteCurrency,
+  });
 
   const ensureTimeframeComputedRef = useRef(ensureTimeframeComputed);
   useEffect(() => {
