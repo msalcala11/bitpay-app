@@ -129,36 +129,42 @@ describe('portfolioAssetHistoryRequests', () => {
     ]);
   });
 
-  it('derives requests for all underlying identities in a visible collapsed wallet group', () => {
+  it('keeps zero-balance same-symbol siblings when they already have snapshots', () => {
     const requestItems =
-      getHistoricalRateAssetRequestItemsForVisibleWalletGroups([
-        {
-          id: 'base-usdc',
-          chain: 'base',
-          currencyAbbreviation: 'usdc',
-          tokenAddress: '0xbbb',
-          network: 'livenet',
-          balance: {crypto: '1'},
-          credentials: {
-            token: {
-              decimals: 6,
+      getHistoricalRateAssetRequestItemsForVisibleWalletGroups(
+        [
+          {
+            id: 'base-usdc',
+            chain: 'base',
+            currencyAbbreviation: 'usdc',
+            tokenAddress: '0xbbb',
+            network: 'livenet',
+            balance: {crypto: '1'},
+            credentials: {
+              token: {
+                decimals: 6,
+              },
             },
           },
-        },
-        {
-          id: 'eth-usdc',
-          chain: 'eth',
-          currencyAbbreviation: 'usdc',
-          tokenAddress: '0xaaa',
-          network: 'livenet',
-          balance: {crypto: '0'},
-          credentials: {
-            token: {
-              decimals: 6,
+          {
+            id: 'eth-usdc',
+            chain: 'eth',
+            currencyAbbreviation: 'usdc',
+            tokenAddress: '0xaaa',
+            network: 'livenet',
+            balance: {crypto: '0'},
+            credentials: {
+              token: {
+                decimals: 6,
+              },
             },
           },
+        ] as any,
+        {
+          'base-usdc': [{} as any],
+          'eth-usdc': [{} as any],
         },
-      ] as any);
+      );
 
     expect(
       getMissingHistoricalRateAssetRequests({
@@ -179,6 +185,59 @@ describe('portfolioAssetHistoryRequests', () => {
         coin: 'usdc',
         chain: 'eth',
         tokenAddress: '0xaaa',
+      },
+    ]);
+  });
+
+  it('skips zero-balance same-symbol siblings that have no snapshots', () => {
+    const requestItems =
+      getHistoricalRateAssetRequestItemsForVisibleWalletGroups(
+        [
+          {
+            id: 'base-usdc',
+            chain: 'base',
+            currencyAbbreviation: 'usdc',
+            tokenAddress: '0xbbb',
+            network: 'livenet',
+            balance: {crypto: '1'},
+            credentials: {
+              token: {
+                decimals: 6,
+              },
+            },
+          },
+          {
+            id: 'eth-usdc',
+            chain: 'eth',
+            currencyAbbreviation: 'usdc',
+            tokenAddress: '0xaaa',
+            network: 'livenet',
+            balance: {crypto: '0'},
+            credentials: {
+              token: {
+                decimals: 6,
+              },
+            },
+          },
+        ] as any,
+        {
+          'base-usdc': [{} as any],
+        },
+      );
+
+    expect(
+      getMissingHistoricalRateAssetRequests({
+        fiatCode: 'USD',
+        items: requestItems,
+        cache: {},
+        intervals: FIAT_RATE_SERIES_CACHED_INTERVALS,
+      }),
+    ).toEqual([
+      {
+        requestKey: 'USD:usdc|base|0xbbb',
+        coin: 'usdc',
+        chain: 'base',
+        tokenAddress: '0xbbb',
       },
     ]);
   });

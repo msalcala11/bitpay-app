@@ -146,8 +146,11 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
   const lastPopulateTriggerAtRef = useRef<number>(0);
 
   const historicalRateRequestItems = useMemo(() => {
-    return getHistoricalRateAssetRequestItemsForVisibleWalletGroups(wallets);
-  }, [wallets]);
+    return getHistoricalRateAssetRequestItemsForVisibleWalletGroups(
+      wallets,
+      snapshotsByWalletId,
+    );
+  }, [snapshotsByWalletId, wallets]);
 
   const missingHistoricalAssetRequests = useMemo(() => {
     return getMissingHistoricalRateAssetRequests({

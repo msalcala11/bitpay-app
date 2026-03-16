@@ -1,7 +1,9 @@
 import {
+  getPortfolioWalletSnapshots,
   walletHasNonZeroLiveBalance,
   type AssetRowItem,
 } from '../../../../utils/portfolio/assets';
+import type {BalanceSnapshotsByWalletId} from '../../../../store/portfolio/portfolio.models';
 import type {
   CachedFiatRateInterval,
   FiatRateSeriesCache,
@@ -44,6 +46,33 @@ const getWalletTokenAddress = (wallet: Wallet): string | undefined => {
 
 const isMainnetWallet = (wallet: Wallet): boolean => {
   return String(wallet?.network || '').toLowerCase() === 'livenet';
+};
+
+const walletHasStoredSnapshots = (
+  wallet: Wallet,
+  snapshotsByWalletId: BalanceSnapshotsByWalletId | undefined,
+): boolean => {
+  const walletId = String(wallet?.id || '');
+  if (!walletId) {
+    return false;
+  }
+
+  return getPortfolioWalletSnapshots(snapshotsByWalletId, walletId).length > 0;
+};
+
+const shouldIncludeWalletInHistoricalRateRequests = (args: {
+  wallet: Wallet;
+  snapshotsByWalletId?: BalanceSnapshotsByWalletId;
+}): boolean => {
+  if (walletHasNonZeroLiveBalance(args.wallet)) {
+    return true;
+  }
+
+  if (!args.snapshotsByWalletId) {
+    return true;
+  }
+
+  return walletHasStoredSnapshots(args.wallet, args.snapshotsByWalletId);
 };
 
 const normalizeHistoricalRateAssetIdentity = (
@@ -124,6 +153,7 @@ export const getHistoricalRateAssetRequestFromItem = (
 
 export const getHistoricalRateAssetRequestItemsForVisibleWalletGroups = (
   wallets: Wallet[] | undefined,
+  snapshotsByWalletId?: BalanceSnapshotsByWalletId,
 ): HistoricalRateAssetIdentityInput[] => {
   const walletsByDisplayGroupKey = new Map<string, Wallet[]>();
 
@@ -153,6 +183,15 @@ export const getHistoricalRateAssetRequestItemsForVisibleWalletGroups = (
     }
 
     for (const wallet of groupedWallets) {
+      if (
+        !shouldIncludeWalletInHistoricalRateRequests({
+          wallet,
+          snapshotsByWalletId,
+        })
+      ) {
+        continue;
+      }
+
       const normalized = normalizeHistoricalRateAssetIdentity({
         currencyAbbreviation: getWalletCurrencyAbbreviationLower(wallet),
         chain: getWalletChainLower(wallet),
