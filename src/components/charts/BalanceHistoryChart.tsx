@@ -82,6 +82,7 @@ import {
   getSortedUniqueWalletIds,
   patchCachedLatestPointWithSpotRates,
   serializeComputedSeriesToCachedTimeframe,
+  stableRateMapRevision,
 } from '../../utils/portfolio/chartCache';
 import {isAbortError} from '../../utils/abort';
 import {
@@ -486,7 +487,7 @@ const BalanceHistoryChart = ({
     return next;
   }, [snapshotVersionSig, snapshotsByWalletId, sortedWalletIds]);
 
-  const liveCurrentSpotRatesByRateKey = useMemo(() => {
+  const liveSpotRatesByRateKey = useMemo(() => {
     return buildPnlCurrentRatesByRateKeyFromPortfolioSnapshots({
       snapshotsByWalletId: snapshotsByWalletId || {},
       wallets: wallets || [],
@@ -495,31 +496,27 @@ const BalanceHistoryChart = ({
     });
   }, [quoteCurrency, rates, snapshotsByWalletId, wallets]);
 
-  const currentRatesRevision = useMemo(() => {
-    return Object.entries(liveCurrentSpotRatesByRateKey || {})
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([rateKey, rate]) => `${rateKey}:${rate}`)
-      .join('|');
-  }, [liveCurrentSpotRatesByRateKey]);
+  const preparedSpotRatesByRateKey = analysisInputs.currentRatesByRateKey;
 
-  const preparedCurrentRatesRevision = useMemo(() => {
-    return Object.entries(analysisInputs.currentRatesByRateKey || {})
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([rateKey, rate]) => `${rateKey}:${rate}`)
-      .join('|');
-  }, [analysisInputs.currentRatesByRateKey]);
+  const liveSpotRatesRevision = useMemo(() => {
+    return stableRateMapRevision(liveSpotRatesByRateKey);
+  }, [liveSpotRatesByRateKey]);
+
+  const preparedSpotRatesRevision = useMemo(() => {
+    return stableRateMapRevision(preparedSpotRatesByRateKey);
+  }, [preparedSpotRatesByRateKey]);
 
   // Prefer the prepared rate map once it has caught up with the latest spot
   // inputs, but fall back to the live map so cache patching reacts immediately.
   const currentSpotRatesByRateKey = useMemo(() => {
-    return preparedCurrentRatesRevision === currentRatesRevision
-      ? analysisInputs.currentRatesByRateKey
-      : liveCurrentSpotRatesByRateKey;
+    return preparedSpotRatesRevision === liveSpotRatesRevision
+      ? preparedSpotRatesByRateKey
+      : liveSpotRatesByRateKey;
   }, [
-    analysisInputs.currentRatesByRateKey,
-    currentRatesRevision,
-    liveCurrentSpotRatesByRateKey,
-    preparedCurrentRatesRevision,
+    liveSpotRatesByRateKey,
+    liveSpotRatesRevision,
+    preparedSpotRatesByRateKey,
+    preparedSpotRatesRevision,
   ]);
 
   const selectedSeriesInterval = useMemo(() => {
@@ -735,7 +732,7 @@ const BalanceHistoryChart = ({
       return [
         preparedInputsTargetRevision,
         analysisInputsReadyRevision || 'pending',
-        currentRatesRevision,
+        liveSpotRatesRevision,
         cacheRevision,
         timeframe,
       ].join('|');
@@ -743,7 +740,7 @@ const BalanceHistoryChart = ({
     [
       analysisInputsReadyRevision,
       cacheRevision,
-      currentRatesRevision,
+      liveSpotRatesRevision,
       preparedInputsTargetRevision,
     ],
   );
@@ -920,7 +917,7 @@ const BalanceHistoryChart = ({
     });
   }, [
     cacheRevision,
-    currentRatesRevision,
+    liveSpotRatesRevision,
     invalidateComputeGeneration,
     preparedInputsTargetRevision,
   ]);

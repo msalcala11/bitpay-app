@@ -99,7 +99,9 @@ const getWalletHistoricalRateKey = (wallet: WalletForAnalysis): string => {
   });
 };
 
-const toRateSignature = (ratesByRateKey: Record<string, number>): string => {
+export const stableRateMapRevision = (
+  ratesByRateKey?: Record<string, number>,
+): string => {
   return Object.entries(ratesByRateKey || {})
     .filter(([, rate]) => Number.isFinite(rate))
     .sort(([a], [b]) => a.localeCompare(b))
@@ -316,7 +318,7 @@ export const buildBalanceChartTimeframeRevision = (args: {
     args.timeframe,
     args.snapshotVersionSig,
     toHistoricalDepSignature(args.historicalRateDeps || []),
-    toRateSignature(args.currentSpotRatesByRateKey || {}),
+    stableRateMapRevision(args.currentSpotRatesByRateKey),
   ].join('|');
 };
 

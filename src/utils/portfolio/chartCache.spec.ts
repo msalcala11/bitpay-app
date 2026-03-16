@@ -8,6 +8,7 @@ import {
   deserializeCachedTimeframeToComputedSeries,
   getCachedTimeframeStatus,
   patchCachedLatestPointWithSpotRates,
+  stableRateMapRevision,
 } from './chartCache';
 
 const DEP_CACHE_KEY = getFiatRateSeriesCacheKey('USD', 'btc', 'ALL');
@@ -78,6 +79,17 @@ describe('chartCache', () => {
     });
 
     expect(a).toBe(b);
+  });
+
+  it('builds stable rate-map revisions with sorted finite entries only', () => {
+    expect(
+      stableRateMapRevision({
+        zec: 2,
+        btc: 1,
+        eth: Number.NaN,
+        doge: Number.POSITIVE_INFINITY,
+      }),
+    ).toBe('btc:1|zec:2');
   });
 
   it('deserializes cached arrays back into computed chart series', () => {
