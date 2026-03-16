@@ -111,37 +111,17 @@ const hasValidFiatRateSeriesInCache = (args: {
   requireFresh?: boolean;
   chain?: string;
   tokenAddress?: string;
-}): boolean => {
-  const hasValidSeries = hasValidSeriesForCoin({
+}): boolean =>
+  hasValidSeriesForCoin({
     cache: args.fiatRateSeriesCache,
     fiatCodeUpper: args.fiatCode,
     normalizedCoin: args.coin,
     intervals: [args.interval],
+    requireFresh: args.requireFresh,
+    freshnessDurationSeconds: HISTORIC_RATES_CACHE_DURATION,
     chain: args.chain,
     tokenAddress: args.tokenAddress,
   });
-  if (!hasValidSeries) {
-    return false;
-  }
-  if (!args.requireFresh) {
-    return true;
-  }
-
-  const cacheKey = getFiatRateSeriesCacheKey(
-    args.fiatCode,
-    args.coin,
-    args.interval,
-    {
-      chain: args.chain,
-      tokenAddress: args.tokenAddress,
-    },
-  );
-  const fetchedOn = args.fiatRateSeriesCache?.[cacheKey]?.fetchedOn;
-  return (
-    typeof fetchedOn === 'number' &&
-    !isCacheKeyStale(fetchedOn, HISTORIC_RATES_CACHE_DURATION)
-  );
-};
 
 const getFiatRateSeriesCadenceMs = (
   points: FiatRatePoint[],

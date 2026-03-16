@@ -4,6 +4,7 @@ import {
   getFiatRateSeriesCacheKey as getSharedFiatRateSeriesCacheKey,
   parseFiatRateSeriesCacheKey as parseSharedFiatRateSeriesCacheKey,
 } from '../../utils/portfolio/core/fiatRateSeries';
+import {HISTORIC_RATES_CACHE_DURATION} from '../../constants/wallet';
 
 export interface Rate {
   code: string;
@@ -86,6 +87,8 @@ export const hasValidSeriesForCoin = (args: {
   fiatCodeUpper: string;
   normalizedCoin: string;
   intervals: ReadonlyArray<FiatRateInterval>;
+  requireFresh?: boolean;
+  freshnessDurationSeconds?: number;
   chain?: string;
   tokenAddress?: string;
 }): boolean => {
@@ -105,7 +108,8 @@ export const hasValidSeriesForCoin = (args: {
         tokenAddress: args.tokenAddress,
       },
     );
-    const points = args.cache?.[cacheKey]?.points;
+    const cachedSeries = args.cache?.[cacheKey];
+    const points = cachedSeries?.points;
     if (!Array.isArray(points) || !points.length) {
       return false;
     }
@@ -115,6 +119,22 @@ export const hasValidSeriesForCoin = (args: {
       )
     ) {
       return false;
+    }
+    if (args.requireFresh) {
+      const freshnessDurationSeconds = Math.max(
+        0,
+        args.freshnessDurationSeconds ?? HISTORIC_RATES_CACHE_DURATION,
+      );
+      const fetchedOn = cachedSeries?.fetchedOn;
+      if (
+        !(
+          typeof fetchedOn === 'number' &&
+          Number.isFinite(fetchedOn) &&
+          Date.now() - fetchedOn <= freshnessDurationSeconds * 1000
+        )
+      ) {
+        return false;
+      }
     }
   }
 

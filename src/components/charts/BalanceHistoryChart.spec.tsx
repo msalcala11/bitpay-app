@@ -1,6 +1,8 @@
 import React from 'react';
-import {act, cleanup, render} from '@testing-library/react-native';
+import {act, cleanup, fireEvent, render} from '@testing-library/react-native';
+import {HISTORIC_RATES_CACHE_DURATION} from '../../constants/wallet';
 import {FIAT_RATE_SERIES_TARGET_POINTS} from '../../store/rate/rate.models';
+import {getFiatRateSeriesCacheKey} from '../../store/rate/rate.models';
 import type {BalanceSnapshot} from '../../store/portfolio/portfolio.models';
 import type {Wallet} from '../../store/wallet/wallet.models';
 import BalanceHistoryChart from './BalanceHistoryChart';
@@ -192,7 +194,28 @@ jest.mock('styled-components/native', () => ({
   }),
 }));
 
-jest.mock('./TimeframeSelector', () => () => null);
+jest.mock('./TimeframeSelector', () => {
+  const ReactNative = require('react-native');
+
+  return ({
+    onSelect,
+    options = [],
+  }: {
+    onSelect?: (timeframe: string) => void;
+    options?: Array<{label: string; value: string}>;
+  }) => (
+    <ReactNative.View>
+      {options.map(option => (
+        <ReactNative.Pressable
+          key={option.value}
+          testID={`timeframe-${option.value}`}
+          onPress={() => onSelect?.(option.value)}>
+          <ReactNative.Text>{option.label}</ReactNative.Text>
+        </ReactNative.Pressable>
+      ))}
+    </ReactNative.View>
+  );
+});
 jest.mock('./ChartAxisLabel', () => () => null);
 jest.mock('./ChartSelectionDot', () => () => null);
 jest.mock('./ChartChangeRow', () => () => null);
@@ -290,9 +313,15 @@ const createMockAnalysisPoints = () =>
     },
   }));
 
+const getIntervalFetchDispatches = () =>
+  mockDispatch.mock.calls
+    .map(([action]) => action)
+    .filter(action => action?.type === 'FETCH_FIAT_RATE_SERIES_INTERVAL');
+
 describe('BalanceHistoryChart', () => {
   beforeEach(() => {
     jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-03-15T12:00:00.000Z'));
     jest.clearAllMocks();
   });
 
@@ -424,6 +453,189 @@ describe('BalanceHistoryChart', () => {
         }),
       }),
     );
+  });
+
+  it('skips selected-interval fetches when the cache entry is already fresh', async () => {
+    mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.mockResolvedValue({
+      wallets: [],
+      currentRatesByRateKey: {},
+      quoteCurrency: 'USD',
+    });
+
+    render(
+      <BalanceHistoryChart
+        wallets={[wallet]}
+        snapshotsByWalletId={{
+          [wallet.id]: [snapshot],
+        }}
+        quoteCurrency="USD"
+        fiatRateSeriesCache={{
+          [getFiatRateSeriesCacheKey('USD', 'btc', 'ALL')]: {
+            fetchedOn: Date.now() - 1_000,
+            points: [{ts: 1_000, rate: 40_000}],
+          },
+        }}
+      />,
+    );
+
+    await flushAsyncWork(1);
+
+    expect(getIntervalFetchDispatches()).toHaveLength(0);
+  });
+
+  it('still fetches selected-interval history when the cache entry is stale', async () => {
+    mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.mockResolvedValue({
+      wallets: [],
+      currentRatesByRateKey: {},
+      quoteCurrency: 'USD',
+    });
+
+    render(
+      <BalanceHistoryChart
+        wallets={[wallet]}
+        snapshotsByWalletId={{
+          [wallet.id]: [snapshot],
+        }}
+        quoteCurrency="USD"
+        fiatRateSeriesCache={{
+          [getFiatRateSeriesCacheKey('USD', 'btc', 'ALL')]: {
+            fetchedOn:
+              Date.now() - (HISTORIC_RATES_CACHE_DURATION * 1000 + 1_000),
+            points: [{ts: 1_000, rate: 40_000}],
+          },
+        }}
+      />,
+    );
+
+    await flushAsyncWork(1);
+
+    expect(getIntervalFetchDispatches()).toEqual([
+      expect.objectContaining({
+        type: 'FETCH_FIAT_RATE_SERIES_INTERVAL',
+        payload: expect.objectContaining({
+          fiatCode: 'USD',
+          interval: 'ALL',
+          coinForCacheCheck: 'btc',
+          chain: undefined,
+          tokenAddress: undefined,
+        }),
+      }),
+    ]);
+  });
+
+  it('dispatches exactly once per unique missing asset identity', async () => {
+    mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.mockResolvedValue({
+      wallets: [],
+      currentRatesByRateKey: {},
+      quoteCurrency: 'USD',
+    });
+
+    const usdcEthWallet = {
+      ...wallet,
+      id: 'wallet-usdc-eth',
+      chain: 'eth',
+      currencyAbbreviation: 'usdc',
+      credentials: {
+        coin: 'usdc',
+        chain: 'eth',
+        network: 'livenet',
+      },
+    } as Wallet;
+    const usdcBaseWallet = {
+      ...wallet,
+      id: 'wallet-usdc-base',
+      chain: 'base',
+      currencyAbbreviation: 'usdc',
+      credentials: {
+        coin: 'usdc',
+        chain: 'base',
+        network: 'livenet',
+      },
+    } as Wallet;
+    const usdcEthSnapshot = {
+      ...snapshot,
+      id: 'snapshot-usdc-eth',
+      walletId: usdcEthWallet.id,
+      chain: 'eth',
+      coin: 'usdc',
+      assetId: 'eth:usdc',
+    } as BalanceSnapshot;
+    const usdcBaseSnapshot = {
+      ...snapshot,
+      id: 'snapshot-usdc-base',
+      walletId: usdcBaseWallet.id,
+      chain: 'base',
+      coin: 'usdc',
+      assetId: 'base:usdc',
+    } as BalanceSnapshot;
+
+    render(
+      <BalanceHistoryChart
+        wallets={[usdcEthWallet, usdcBaseWallet]}
+        snapshotsByWalletId={{
+          [usdcEthWallet.id]: [usdcEthSnapshot],
+          [usdcBaseWallet.id]: [usdcBaseSnapshot],
+        }}
+        quoteCurrency="USD"
+        fiatRateSeriesCache={{}}
+      />,
+    );
+
+    await flushAsyncWork(1);
+
+    expect(getIntervalFetchDispatches()).toEqual([
+      expect.objectContaining({
+        type: 'FETCH_FIAT_RATE_SERIES_INTERVAL',
+        payload: expect.objectContaining({
+          fiatCode: 'USD',
+          interval: 'ALL',
+          coinForCacheCheck: 'usdc',
+          chain: undefined,
+          tokenAddress: undefined,
+        }),
+      }),
+    ]);
+  });
+
+  it('still evaluates selected-timeframe fetches when the timeframe changes', async () => {
+    mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.mockResolvedValue({
+      wallets: [],
+      currentRatesByRateKey: {},
+      quoteCurrency: 'USD',
+    });
+
+    const screen = render(
+      <BalanceHistoryChart
+        wallets={[wallet]}
+        snapshotsByWalletId={{
+          [wallet.id]: [snapshot],
+        }}
+        quoteCurrency="USD"
+        fiatRateSeriesCache={{
+          [getFiatRateSeriesCacheKey('USD', 'btc', 'ALL')]: {
+            fetchedOn: Date.now() - 1_000,
+            points: [{ts: 1_000, rate: 40_000}],
+          },
+        }}
+      />,
+    );
+
+    await flushAsyncWork(1);
+    expect(getIntervalFetchDispatches()).toHaveLength(0);
+
+    fireEvent.press(screen.getByTestId('timeframe-1D'));
+    await flushAsyncWork(1);
+
+    expect(getIntervalFetchDispatches()).toEqual([
+      expect.objectContaining({
+        type: 'FETCH_FIAT_RATE_SERIES_INTERVAL',
+        payload: expect.objectContaining({
+          fiatCode: 'USD',
+          interval: '1D',
+          coinForCacheCheck: 'btc',
+        }),
+      }),
+    ]);
   });
 
   it('does not rerun analysis-input preparation on unrelated cache or snapshot writes', async () => {

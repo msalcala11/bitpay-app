@@ -19,7 +19,9 @@ import type {
 import type {Rates} from '../../store/rate/rate.models';
 import {
   FIAT_RATE_SERIES_CACHED_INTERVALS,
+  getFiatRateSeriesAssetKey,
   getFiatRateSeriesCacheKey,
+  hasValidSeriesForCoin,
 } from '../../store/rate/rate.models';
 import type {
   BalanceSnapshot,
@@ -540,7 +542,7 @@ const BalanceHistoryChart = ({
       chain?: string;
       tokenAddress?: string;
     }> = [];
-    const seen = new Set<string>();
+    const seenAssetKeys = new Set<string>();
 
     for (const w of wallets || []) {
       const coinForCacheCheck = normalizeFiatRateSeriesCoin(
@@ -551,19 +553,20 @@ const BalanceHistoryChart = ({
       }
 
       const chainLower = getPortfolioWalletChainLower(w);
-      const chain = chainLower || undefined;
       const tokenAddress = getPortfolioWalletTokenAddressNormalized(w);
-      const dedupeKey = `${coinForCacheCheck}|${chain || ''}|${
-        tokenAddress || ''
-      }`;
-      if (seen.has(dedupeKey)) {
+      const chain = tokenAddress ? chainLower || undefined : undefined;
+      const assetKey = getFiatRateSeriesAssetKey(coinForCacheCheck, {
+        chain,
+        tokenAddress,
+      });
+      if (!assetKey || seenAssetKeys.has(assetKey)) {
         continue;
       }
-      seen.add(dedupeKey);
+      seenAssetKeys.add(assetKey);
 
       assets.push({
         coinForCacheCheck,
-        chain: tokenAddress ? chain : undefined,
+        chain,
         tokenAddress,
       });
     }
@@ -593,6 +596,20 @@ const BalanceHistoryChart = ({
     }
 
     for (const asset of rateFetchAssets) {
+      if (
+        hasValidSeriesForCoin({
+          cache: fiatRateSeriesCache,
+          fiatCodeUpper: quoteCurrency,
+          normalizedCoin: asset.coinForCacheCheck,
+          intervals: [selectedSeriesInterval],
+          requireFresh: true,
+          chain: asset.chain,
+          tokenAddress: asset.tokenAddress,
+        })
+      ) {
+        continue;
+      }
+
       dispatch(
         fetchFiatRateSeriesInterval({
           fiatCode: quoteCurrency,
@@ -605,6 +622,7 @@ const BalanceHistoryChart = ({
     }
   }, [
     dispatch,
+    fiatRateSeriesCache,
     hasAnySnapshots,
     quoteCurrency,
     rateFetchAssets,
