@@ -1,4 +1,5 @@
 import {useMemo} from 'react';
+import type {GraphPoint} from 'react-native-graph';
 import {
   CachedFiatRateInterval,
   FiatRateInterval,
@@ -6,17 +7,18 @@ import {
   FIAT_RATE_SERIES_TARGET_POINTS,
 } from '../../../store/rate/rate.models';
 import {calculatePercentageDifference} from '../../../utils/helper-methods';
-import {getFiatTimeframeWindowMs} from '../../../utils/fiatTimeframes';
+import {getFiatTimeframeMetadata} from '../../../utils/fiatTimeframes';
+import {
+  normalizeGraphPointsForChart,
+  recomputeMinMaxFromGraphPoints,
+} from '../../../utils/portfolio/chartGraph';
 import {downsampleSeries} from '../../../utils/portfolio/rate';
 import {
   ensureSortedByTsAsc,
   lowerBoundByTs,
 } from '../../../utils/portfolio/timeSeries';
 
-export interface ChartDisplayDataType {
-  date: Date;
-  value: number;
-}
+export type ChartDisplayDataType = GraphPoint;
 
 export interface ChartExtremaPointType {
   index: number;
@@ -40,11 +42,24 @@ export const defaultDisplayData: ChartDataType = {
 };
 
 const SPOT_RATE_MATCH_EPSILON = 1e-12;
+const buildRenderedExtremaPoint = (
+  index: number,
+  point: ChartDisplayDataType | undefined,
+): ChartExtremaPointType | undefined => {
+  return point ? {index, point} : undefined;
+};
+
+type FormatExchangeRateChartDataOptions = {
+  assumeSortedByTsAsc?: boolean;
+};
 
 export const formatExchangeRateChartData = (
   historicFiatRates: Array<{ts: number; rate: number}>,
+  options: FormatExchangeRateChartDataOptions = {},
 ): ChartDataType => {
-  const ratesSorted = ensureSortedByTsAsc(historicFiatRates);
+  const ratesSorted = options.assumeSortedByTsAsc
+    ? historicFiatRates
+    : ensureSortedByTsAsc(historicFiatRates);
   if (!ratesSorted.length) {
     return defaultDisplayData;
   }
@@ -53,33 +68,16 @@ export const formatExchangeRateChartData = (
     strategy: 'lttb',
     mode: 'per_coin',
   });
-  const scaledData = rates.map(value => ({
-    date: new Date(value.ts),
-    value: value.rate,
-  }));
-
-  let renderedMaxPoint: ChartExtremaPointType | undefined;
-  let renderedMinPoint: ChartExtremaPointType | undefined;
-
-  for (let index = 0; index < scaledData.length; index++) {
-    const point = scaledData[index];
-    if (Number.isNaN(point.value)) {
-      continue;
-    }
-
-    if (
-      typeof renderedMaxPoint === 'undefined' ||
-      point.value > renderedMaxPoint.point.value
-    ) {
-      renderedMaxPoint = {index, point};
-    }
-    if (
-      typeof renderedMinPoint === 'undefined' ||
-      point.value < renderedMinPoint.point.value
-    ) {
-      renderedMinPoint = {index, point};
-    }
-  }
+  const scaledData = normalizeGraphPointsForChart(
+    rates.map(value => ({
+      date: new Date(value.ts),
+      value: value.rate,
+    })),
+  ) as ChartDisplayDataType[];
+  const {maxIndex, maxPoint, minIndex, minPoint} =
+    recomputeMinMaxFromGraphPoints(scaledData);
+  const renderedMaxPoint = buildRenderedExtremaPoint(maxIndex, maxPoint);
+  const renderedMinPoint = buildRenderedExtremaPoint(minIndex, minPoint);
 
   if (rates.length < 2) {
     return {
@@ -116,6 +114,55 @@ type Result = {
   displayData: ChartDataType | undefined;
 };
 
+type PrepareExchangeRateChartPointsArgs = Args & {
+  nowMs?: number;
+};
+
+export const prepareExchangeRateChartPoints = ({
+  selectedSeriesPoints,
+  selectedTimeframe,
+  seriesDataInterval,
+  currentFiatRate,
+  nowMs,
+}: PrepareExchangeRateChartPointsArgs): FiatRatePoint[] | undefined => {
+  if (!selectedSeriesPoints) {
+    return undefined;
+  }
+
+  const pointsSortedByTs = ensureSortedByTsAsc(selectedSeriesPoints);
+  const {windowMs} = getFiatTimeframeMetadata(selectedTimeframe);
+  const pointsToDisplay =
+    seriesDataInterval === 'ALL' && typeof windowMs === 'number'
+      ? pointsSortedByTs.slice(
+          lowerBoundByTs(
+            pointsSortedByTs,
+            (typeof nowMs === 'number' ? nowMs : Date.now()) - windowMs,
+          ),
+        )
+      : pointsSortedByTs;
+
+  if (!pointsToDisplay.length) {
+    return pointsToDisplay;
+  }
+  if (!Number.isFinite(currentFiatRate)) {
+    return pointsToDisplay;
+  }
+
+  const lastIdx = pointsToDisplay.length - 1;
+  const last = pointsToDisplay[lastIdx];
+  if (
+    !last ||
+    Math.abs(last.rate - currentFiatRate) <= SPOT_RATE_MATCH_EPSILON
+  ) {
+    return pointsToDisplay;
+  }
+
+  // Never mutate cached series points in Redux; only override in-memory for rendering.
+  const copy = [...pointsToDisplay];
+  copy[lastIdx] = {...last, rate: currentFiatRate};
+  return copy;
+};
+
 const useExchangeRateChartData = ({
   selectedSeriesPoints,
   selectedTimeframe,
@@ -123,43 +170,12 @@ const useExchangeRateChartData = ({
   currentFiatRate,
 }: Args): Result => {
   const pointsForChartRaw = useMemo<FiatRatePoint[] | undefined>(() => {
-    if (!selectedSeriesPoints) {
-      return undefined;
-    }
-
-    const pointsToDisplay: FiatRatePoint[] = (() => {
-      const windowMs = getFiatTimeframeWindowMs(selectedTimeframe);
-      if (seriesDataInterval === 'ALL' && typeof windowMs === 'number') {
-        const now = Date.now();
-        const cutoffTs = now - windowMs;
-        const pointsSortedByTs = ensureSortedByTsAsc(selectedSeriesPoints);
-        const startIdx = lowerBoundByTs(pointsSortedByTs, cutoffTs);
-        return pointsSortedByTs.slice(startIdx);
-      }
-      return selectedSeriesPoints;
-    })();
-
-    if (
-      !pointsToDisplay.length ||
-      !currentFiatRate ||
-      !Number.isFinite(currentFiatRate)
-    ) {
-      return pointsToDisplay;
-    }
-
-    const lastIdx = pointsToDisplay.length - 1;
-    const last = pointsToDisplay[lastIdx];
-    if (
-      !last ||
-      Math.abs(last.rate - currentFiatRate) <= SPOT_RATE_MATCH_EPSILON
-    ) {
-      return pointsToDisplay;
-    }
-
-    // Never mutate cached series points in Redux; only override in-memory for rendering.
-    const copy = [...pointsToDisplay];
-    copy[lastIdx] = {...last, rate: currentFiatRate};
-    return copy;
+    return prepareExchangeRateChartPoints({
+      selectedSeriesPoints,
+      selectedTimeframe,
+      seriesDataInterval,
+      currentFiatRate,
+    });
   }, [
     currentFiatRate,
     selectedSeriesPoints,
@@ -171,7 +187,9 @@ const useExchangeRateChartData = ({
     if (typeof pointsForChartRaw === 'undefined') {
       return undefined;
     }
-    return formatExchangeRateChartData(pointsForChartRaw);
+    return formatExchangeRateChartData(pointsForChartRaw, {
+      assumeSortedByTsAsc: true,
+    });
   }, [pointsForChartRaw]);
 
   return {

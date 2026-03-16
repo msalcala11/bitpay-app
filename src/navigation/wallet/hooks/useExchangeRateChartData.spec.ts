@@ -9,7 +9,11 @@ jest.mock('../../../utils/helper-methods', () => ({
 }));
 
 import {FIAT_RATE_SERIES_TARGET_POINTS} from '../../../store/rate/rate.models';
-import {formatExchangeRateChartData} from './useExchangeRateChartData';
+import {GRAPH_DRAWABLE_EPSILON} from '../../../utils/portfolio/chartGraph';
+import {
+  formatExchangeRateChartData,
+  prepareExchangeRateChartPoints,
+} from './useExchangeRateChartData';
 
 const buildSeededSeries = ({seed}: {seed: number}) => {
   let state = seed >>> 0;
@@ -53,5 +57,76 @@ describe('formatExchangeRateChartData', () => {
     expect(displayData.data[displayData.renderedMaxPoint!.index].value).toBe(
       displayData.renderedMaxPoint!.point.value,
     );
+  });
+
+  it('keeps constant-rate input drawable after normalization', () => {
+    const displayData = formatExchangeRateChartData([
+      {ts: 100, rate: 7},
+      {ts: 200, rate: 7},
+      {ts: 300, rate: 7},
+    ]);
+
+    expect(displayData.data.map(point => point.value)).toEqual([
+      7,
+      7,
+      7 + GRAPH_DRAWABLE_EPSILON,
+    ]);
+    expect(displayData.priceChange).toBe(0);
+    expect(displayData.percentChange).toBe(0);
+    expect(displayData.renderedMinPoint).toEqual({
+      index: 0,
+      point: displayData.data[0],
+    });
+    expect(displayData.renderedMaxPoint).toEqual({
+      index: 2,
+      point: displayData.data[2],
+    });
+  });
+});
+
+describe('prepareExchangeRateChartPoints', () => {
+  it('does not treat a zero current fiat rate as missing', () => {
+    const input = [
+      {ts: 100, rate: 10},
+      {ts: 200, rate: 12},
+    ];
+
+    const prepared = prepareExchangeRateChartPoints({
+      selectedSeriesPoints: input,
+      selectedTimeframe: '1D',
+      seriesDataInterval: '1D',
+      currentFiatRate: 0,
+    });
+
+    expect(prepared).toEqual([
+      {ts: 100, rate: 10},
+      {ts: 200, rate: 0},
+    ]);
+    expect(input[1].rate).toBe(12);
+  });
+
+  it('does not patch the last point for non-finite spot rates', () => {
+    const input = [
+      {ts: 100, rate: 10},
+      {ts: 200, rate: 12},
+    ];
+
+    expect(
+      prepareExchangeRateChartPoints({
+        selectedSeriesPoints: input,
+        selectedTimeframe: '1D',
+        seriesDataInterval: '1D',
+        currentFiatRate: Number.NaN,
+      }),
+    ).toBe(input);
+
+    expect(
+      prepareExchangeRateChartPoints({
+        selectedSeriesPoints: input,
+        selectedTimeframe: '1D',
+        seriesDataInterval: '1D',
+        currentFiatRate: Number.POSITIVE_INFINITY,
+      }),
+    ).toBe(input);
   });
 });
