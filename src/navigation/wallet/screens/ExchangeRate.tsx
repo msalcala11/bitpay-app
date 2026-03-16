@@ -68,7 +68,6 @@ import {
   walletHasNonZeroLiveBalance,
 } from '../../../utils/portfolio/assets';
 import {
-  getFiatRateChangeForTimeframe,
   getFiatRateSeriesIntervalForTimeframe,
 } from '../../../utils/portfolio/rate';
 import {getFiatTimeframeMetadata} from '../../../utils/fiatTimeframes';
@@ -110,6 +109,7 @@ import useExchangeRateChartData, {
   type ChartDataType,
   defaultDisplayData,
 } from '../hooks/useExchangeRateChartData';
+import {getExchangeRateTimeframeChange} from './ExchangeRate.utils';
 
 import ChartAxisLabel from '../../../components/charts/ChartAxisLabel';
 import ChartSelectionDot from '../../../components/charts/ChartSelectionDot';
@@ -1013,21 +1013,18 @@ const ExchangeRate = () => {
   }, [formattedAllIntervalsHighPrice, formattedTopPrice]);
 
   const timeframeChange = useMemo(() => {
-    if (!selectedFiatCodeUpper || !normalizedCoin) {
-      return undefined;
-    }
-
-    return getFiatRateChangeForTimeframe({
+    return getExchangeRateTimeframeChange({
       fiatRateSeriesCache,
       fiatCode: selectedFiatCodeUpper,
-      currencyAbbreviation: normalizedCoin,
+      normalizedCoin,
       timeframe: selectedTimeframe,
       currentRate: currentFiatRate,
-      method: 'linear',
+      historicalRateIdentity,
     });
   }, [
     currentFiatRate,
     fiatRateSeriesCache,
+    historicalRateIdentity,
     normalizedCoin,
     selectedFiatCodeUpper,
     selectedTimeframe,

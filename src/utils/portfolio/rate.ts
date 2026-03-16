@@ -2,6 +2,7 @@ import type {
   CachedFiatRateInterval,
   FiatRateInterval,
   FiatRatePoint,
+  FiatRateSeriesAssetIdentity,
   FiatRateSeriesCache,
 } from '../../store/rate/rate.models';
 import {getFiatRateSeriesCacheKey} from '../../store/rate/rate.models';
@@ -31,11 +32,14 @@ export type DownsampleOptions = {
   driverCoin?: string;
 };
 
+type FiatRateSeriesReaderIdentity = Omit<FiatRateSeriesAssetIdentity, 'coin'>;
+
 const getFiatRateSeriesPoints = (args: {
   fiatRateSeriesCache: FiatRateSeriesCache | undefined;
   fiatCode: string;
   currencyAbbreviation: string;
   interval: FiatRateInterval;
+  identity?: FiatRateSeriesReaderIdentity;
 }): FiatRatePoint[] | undefined => {
   const cache = args.fiatRateSeriesCache;
   if (!cache) {
@@ -47,6 +51,7 @@ const getFiatRateSeriesPoints = (args: {
     args.fiatCode,
     coin,
     args.interval,
+    args.identity,
   );
   const series = cache[cacheKey];
   const points = Array.isArray(series?.points) ? series.points : [];
@@ -134,12 +139,14 @@ export const getFiatRateFromSeriesCacheAtTimestamp = (args: {
   interval: FiatRateInterval;
   timestampMs: number;
   method?: 'nearest' | 'linear';
+  identity?: FiatRateSeriesReaderIdentity;
 }): number | undefined => {
   const points = getFiatRateSeriesPoints({
     fiatRateSeriesCache: args.fiatRateSeriesCache,
     fiatCode: args.fiatCode,
     currencyAbbreviation: args.currencyAbbreviation,
     interval: args.interval,
+    identity: args.identity,
   });
   if (!points) {
     return undefined;
@@ -232,6 +239,7 @@ export const getFiatRateChangeForTimeframe = (args: {
   nowMs?: number;
   currentRate?: number;
   method?: 'nearest' | 'linear';
+  identity?: FiatRateSeriesReaderIdentity;
 }): FiatRateChangeForTimeframe | undefined => {
   const cache = args.fiatRateSeriesCache;
   if (!cache) {
@@ -250,6 +258,7 @@ export const getFiatRateChangeForTimeframe = (args: {
     fiatCode: args.fiatCode,
     currencyAbbreviation: args.currencyAbbreviation,
     interval: seriesInterval,
+    identity: args.identity,
   });
   if (!points) {
     return undefined;
@@ -265,6 +274,7 @@ export const getFiatRateChangeForTimeframe = (args: {
           interval: seriesInterval,
           timestampMs: nowMs,
           method: 'nearest',
+          identity: args.identity,
         });
   if (!(typeof currentRate === 'number' && Number.isFinite(currentRate))) {
     return undefined;
@@ -290,6 +300,7 @@ export const getFiatRateChangeForTimeframe = (args: {
       interval: seriesInterval,
       timestampMs: baselineTimestampMs,
       method,
+      identity: args.identity,
     });
     if (!(typeof baselineRate === 'number' && Number.isFinite(baselineRate))) {
       return undefined;
