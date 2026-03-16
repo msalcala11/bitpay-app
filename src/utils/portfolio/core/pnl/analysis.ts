@@ -767,11 +767,10 @@ function* buildPnlAnalysisSeriesGenerator(
     const rateAtTsByRateKey: Record<string, number> = {};
 
     for (const rateKey of rateKeys) {
-      const rate =
-        isLastTimelinePoint
-          ? getOverrideRate(rateKey) ??
-            rateCursorByRateKey[rateKey]?.getNearest(ts)
-          : rateCursorByRateKey[rateKey]?.getNearest(ts);
+      const rate = isLastTimelinePoint
+        ? getOverrideRate(rateKey) ??
+          rateCursorByRateKey[rateKey]?.getNearest(ts)
+        : rateCursorByRateKey[rateKey]?.getNearest(ts);
       if (rate === undefined) {
         throw new Error(
           `Missing ${quoteCurrency}:${rateKey} rate at ts=${ts}.`,

@@ -399,25 +399,27 @@ describe('buildPnlAnalysisSeries', () => {
     const startMs = Date.UTC(2026, 0, 1, 0, 0, 0);
     const endMs = Date.UTC(2026, 0, 2, 0, 0, 0);
 
-    const wallets: WalletForAnalysis[] = ['wallet-1', 'wallet-2', 'wallet-3'].map(
-      walletId => ({
-        walletId,
-        walletName: `BTC Wallet ${walletId}`,
-        currencyAbbreviation: 'btc',
-        credentials: {
-          coin: 'btc',
-          chain: 'btc',
-          network: 'livenet',
-        },
-        snapshots: [
-          makeSnapshot({
-            walletId,
-            timestamp: startMs,
-            markRate: 100,
-          }),
-        ],
-      }),
-    );
+    const wallets: WalletForAnalysis[] = [
+      'wallet-1',
+      'wallet-2',
+      'wallet-3',
+    ].map(walletId => ({
+      walletId,
+      walletName: `BTC Wallet ${walletId}`,
+      currencyAbbreviation: 'btc',
+      credentials: {
+        coin: 'btc',
+        chain: 'btc',
+        network: 'livenet',
+      },
+      snapshots: [
+        makeSnapshot({
+          walletId,
+          timestamp: startMs,
+          markRate: 100,
+        }),
+      ],
+    }));
 
     const makeCursor = pnlAnalysisInternals.makeNearestRateCursor;
     let getNearestSpy: jest.Mock<number | undefined, [number]> | undefined;
