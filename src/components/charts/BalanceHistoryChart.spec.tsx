@@ -705,12 +705,10 @@ describe('BalanceHistoryChart', () => {
       coin: 'eth',
       assetId: 'eth:livenet',
     } as BalanceSnapshot;
-    const oneWeekCompute = createDeferred<
-      ReturnType<typeof createMockAnalysisSeriesResult>
-    >();
-    const oneMonthCompute = createDeferred<
-      ReturnType<typeof createMockAnalysisSeriesResult>
-    >();
+    const oneWeekCompute =
+      createDeferred<ReturnType<typeof createMockAnalysisSeriesResult>>();
+    const oneMonthCompute =
+      createDeferred<ReturnType<typeof createMockAnalysisSeriesResult>>();
     const onChangeRowData = jest.fn();
 
     mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.mockResolvedValue({
