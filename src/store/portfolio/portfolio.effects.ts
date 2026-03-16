@@ -47,6 +47,7 @@ import {
   getWalletIdsToPopulateFromSnapshots,
   getSnapshotAtomicBalanceFromCryptoBalance,
   getWalletLiveAtomicBalance,
+  walletHasNonZeroLiveBalance,
 } from '../../utils/portfolio/assets';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -137,21 +138,6 @@ const getMainnetWalletsFromKeys = (keys: Record<string, any>): Wallet[] => {
   return Object.values(keys || {})
     .flatMap((k: any) => (k?.wallets ? k.wallets : []))
     .filter((w: Wallet) => w?.network === Network.mainnet);
-};
-
-const walletHasNonZeroLiveBalance = (wallet: Wallet): boolean => {
-  const sat = (wallet as any)?.balance?.sat;
-  if (typeof sat === 'number' && Number.isFinite(sat)) {
-    return sat > 0;
-  }
-
-  const crypto = (wallet as any)?.balance?.crypto;
-  if (typeof crypto === 'string') {
-    const parsed = Number(crypto.replace(/,/g, ''));
-    return Number.isFinite(parsed) ? parsed > 0 : false;
-  }
-
-  return false;
 };
 
 const getWalletLiveFiatBalanceSortValue = (wallet: Wallet): number => {

@@ -90,7 +90,10 @@ jest.mock('../helper-methods', () => {
   };
 });
 
-import {getWalletIdsToPopulateFromSnapshots} from './assets';
+import {
+  getWalletIdsToPopulateFromSnapshots,
+  walletHasNonZeroLiveBalance,
+} from './assets';
 
 const makeWallet = (args: {
   id: string;
@@ -232,5 +235,29 @@ describe('getWalletIdsToPopulateFromSnapshots missing snapshot detection', () =>
 
     expect(result.walletIdsToPopulate).toEqual([]);
     expect(result.snapshotBalanceMismatchUpdates).toEqual({});
+  });
+});
+
+describe('walletHasNonZeroLiveBalance', () => {
+  it('treats decimal crypto strings as non-zero when atomic balance fields are unavailable', () => {
+    const coinWallet = makeWallet({
+      id: 'coin-decimal-only',
+      chain: 'btc',
+      currencyAbbreviation: 'btc',
+      crypto: '0.00000001',
+      sat: Number.NaN,
+    });
+
+    const tokenWallet = makeWallet({
+      id: 'token-decimal-only',
+      chain: 'eth',
+      currencyAbbreviation: 'usdc',
+      tokenAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      crypto: '0.000001',
+      sat: 0,
+    });
+
+    expect(walletHasNonZeroLiveBalance(coinWallet)).toBe(true);
+    expect(walletHasNonZeroLiveBalance(tokenWallet)).toBe(true);
   });
 });
