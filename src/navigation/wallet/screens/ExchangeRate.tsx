@@ -480,35 +480,32 @@ const ExchangeRate = () => {
     [params?.chain, params?.currencyAbbreviation, params?.tokenAddress],
   );
 
-  const assetContext = useMemo(
-    () => {
-      const chain = (
-        params?.chain ||
-        params?.currencyAbbreviation ||
-        'btc'
-      ).toLowerCase();
-      const rawTokenAddress = params?.tokenAddress?.trim();
+  const assetContext = useMemo(() => {
+    const chain = (
+      params?.chain ||
+      params?.currencyAbbreviation ||
+      'btc'
+    ).toLowerCase();
+    const rawTokenAddress = params?.tokenAddress?.trim();
 
-      return {
-        currencyAbbreviation: (
-          params?.currencyAbbreviation || 'btc'
-        ).toLowerCase(),
-        chain,
-        network: params?.network?.toLowerCase(),
-        tokenAddress: rawTokenAddress
-          ? IsSVMChain(chain)
-            ? rawTokenAddress
-            : rawTokenAddress.toLowerCase()
-          : undefined,
-      };
-    },
-    [
-      params?.chain,
-      params?.currencyAbbreviation,
-      params?.network,
-      params?.tokenAddress,
-    ],
-  );
+    return {
+      currencyAbbreviation: (
+        params?.currencyAbbreviation || 'btc'
+      ).toLowerCase(),
+      chain,
+      network: params?.network?.toLowerCase(),
+      tokenAddress: rawTokenAddress
+        ? IsSVMChain(chain)
+          ? rawTokenAddress
+          : rawTokenAddress.toLowerCase()
+        : undefined,
+    };
+  }, [
+    params?.chain,
+    params?.currencyAbbreviation,
+    params?.network,
+    params?.tokenAddress,
+  ]);
 
   const assetCurrencyOption = useMemo(
     () =>

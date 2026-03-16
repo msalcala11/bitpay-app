@@ -463,7 +463,9 @@ type WalletRateIdentity = {
   displaySymbol: string;
 };
 
-const getWalletRateIdentity = (wallet: WalletForAnalysis): WalletRateIdentity => {
+const getWalletRateIdentity = (
+  wallet: WalletForAnalysis,
+): WalletRateIdentity => {
   const coin = normalizeFiatRateSeriesCoin(wallet.currencyAbbreviation);
   const rawTokenAddress = wallet?.credentials?.token?.address;
   const tokenAddress =
@@ -789,7 +791,9 @@ function* buildPnlAnalysisSeriesGenerator(
             rateCursorByRateKey[rateKey]?.getNearest(ts)
           : rateCursorByRateKey[rateKey]?.getNearest(ts);
       if (rate === undefined) {
-        throw new Error(`Missing ${quoteCurrency}:${rateKey} rate at ts=${ts}.`);
+        throw new Error(
+          `Missing ${quoteCurrency}:${rateKey} rate at ts=${ts}.`,
+        );
       }
 
       // Advance window basis state by processing all snapshots up to this timestamp.

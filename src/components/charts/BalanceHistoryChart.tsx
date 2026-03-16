@@ -300,12 +300,10 @@ const BalanceHistoryChart = ({
   const [analysisInputs, setAnalysisInputs] = useState<AnalysisInputs>(() => ({
     ...EMPTY_ANALYSIS_INPUTS(quoteCurrency),
   }));
-  const [analysisInputsReadyRevision, setAnalysisInputsReadyRevision] = useState<
-    string | undefined
-  >(undefined);
-  const [analysisInputsErrorRevision, setAnalysisInputsErrorRevision] = useState<
-    string | undefined
-  >(undefined);
+  const [analysisInputsReadyRevision, setAnalysisInputsReadyRevision] =
+    useState<string | undefined>(undefined);
+  const [analysisInputsErrorRevision, setAnalysisInputsErrorRevision] =
+    useState<string | undefined>(undefined);
 
   const [displayState, setDisplayState] = useState<
     | {
@@ -640,7 +638,9 @@ const BalanceHistoryChart = ({
 
     for (const snapshots of Object.values(scopedSnapshotsByWalletId)) {
       for (const snapshot of snapshots || EMPTY_BALANCE_SNAPSHOTS) {
-        const snapshotQuoteCurrency = (snapshot?.quoteCurrency || '').toUpperCase();
+        const snapshotQuoteCurrency = (
+          snapshot?.quoteCurrency || ''
+        ).toUpperCase();
         if (
           !snapshotQuoteCurrency ||
           snapshotQuoteCurrency === targetQuoteCurrency

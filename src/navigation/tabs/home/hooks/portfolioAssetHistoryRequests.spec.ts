@@ -54,8 +54,8 @@ describe('portfolioAssetHistoryRequests', () => {
   });
 
   it('derives requests for all underlying identities in a visible collapsed wallet group', () => {
-    const requestItems = getHistoricalRateAssetRequestItemsForVisibleWalletGroups(
-      [
+    const requestItems =
+      getHistoricalRateAssetRequestItemsForVisibleWalletGroups([
         {
           id: 'base-usdc',
           chain: 'base',
@@ -82,8 +82,7 @@ describe('portfolioAssetHistoryRequests', () => {
             },
           },
         },
-      ] as any,
-    );
+      ] as any);
 
     expect(
       getMissingHistoricalRateAssetRequests({

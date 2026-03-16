@@ -46,7 +46,9 @@ export const normalizeFiatRateSeriesCoin = (
 export const normalizeFiatRateSeriesChain = (
   chain?: string,
 ): string | undefined => {
-  const normalized = String(chain || '').trim().toLowerCase();
+  const normalized = String(chain || '')
+    .trim()
+    .toLowerCase();
   return normalized || undefined;
 };
 
@@ -92,8 +94,10 @@ export const getFiatRateSeriesAssetKey = (
 
 export const parseFiatRateSeriesAssetKey = (
   assetKey: string,
-): Required<Pick<FiatRateSeriesAssetIdentity, 'coin'>> &
-  Pick<FiatRateSeriesAssetIdentity, 'chain' | 'tokenAddress'> | undefined => {
+):
+  | (Required<Pick<FiatRateSeriesAssetIdentity, 'coin'>> &
+      Pick<FiatRateSeriesAssetIdentity, 'chain' | 'tokenAddress'>)
+  | undefined => {
   if (!assetKey || typeof assetKey !== 'string') {
     return undefined;
   }
@@ -135,12 +139,14 @@ export const getFiatRateSeriesCacheKey = (
 
 export const parseFiatRateSeriesCacheKey = (
   cacheKey: string,
-): ({
-  fiatCode: string;
-  interval: string;
-  assetKey: string;
-} & Required<Pick<FiatRateSeriesAssetIdentity, 'coin'>> &
-  Pick<FiatRateSeriesAssetIdentity, 'chain' | 'tokenAddress'>) | undefined => {
+):
+  | ({
+      fiatCode: string;
+      interval: string;
+      assetKey: string;
+    } & Required<Pick<FiatRateSeriesAssetIdentity, 'coin'>> &
+      Pick<FiatRateSeriesAssetIdentity, 'chain' | 'tokenAddress'>)
+  | undefined => {
   if (!cacheKey || typeof cacheKey !== 'string') {
     return undefined;
   }

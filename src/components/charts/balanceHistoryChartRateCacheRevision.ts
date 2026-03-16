@@ -71,7 +71,9 @@ export const computeFiatRateSeriesCacheRevision = (args: {
         ? fetchedOn
         : 'na';
     const points = Array.isArray(entry?.points) ? entry.points : undefined;
-    const lastPointTs = points?.length ? Number(points[points.length - 1]?.ts) : NaN;
+    const lastPointTs = points?.length
+      ? Number(points[points.length - 1]?.ts)
+      : NaN;
     const lastTsSig = Number.isFinite(lastPointTs) ? lastPointTs : 'na';
     fetchedOnSignatureParts.push(`${key}:${fetchedOnSig}:${lastTsSig}`);
 

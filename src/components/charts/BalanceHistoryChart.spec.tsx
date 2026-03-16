@@ -12,10 +12,19 @@ const mockBuildBalanceChartTimeframeRevision = jest.fn(
     historicalRateDeps = [],
   }: {
     timeframe: string;
-    historicalRateDeps?: Array<{cacheKey?: string; fetchedOn?: number; lastTs?: number}>;
+    historicalRateDeps?: Array<{
+      cacheKey?: string;
+      fetchedOn?: number;
+      lastTs?: number;
+    }>;
   }) =>
     `revision:${timeframe}:${historicalRateDeps
-      .map(dep => `${dep.cacheKey || 'na'}:${dep.fetchedOn ?? 'na'}:${dep.lastTs ?? 'na'}`)
+      .map(
+        dep =>
+          `${dep.cacheKey || 'na'}:${dep.fetchedOn ?? 'na'}:${
+            dep.lastTs ?? 'na'
+          }`,
+      )
       .join(',')}`,
 );
 const mockBuildPnlCurrentRatesByRateKeyFromPortfolioSnapshots = jest.fn(
@@ -361,9 +370,9 @@ describe('BalanceHistoryChart', () => {
 
     await flushAsyncWork();
 
-    expect(mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync).toHaveBeenCalledTimes(
-      1,
-    );
+    expect(
+      mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync,
+    ).toHaveBeenCalledTimes(1);
 
     firstRender.unmount();
     mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync.mockClear();
@@ -381,9 +390,9 @@ describe('BalanceHistoryChart', () => {
 
     await flushAsyncWork();
 
-    expect(mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync).toHaveBeenCalledTimes(
-      1,
-    );
+    expect(
+      mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync,
+    ).toHaveBeenCalledTimes(1);
   });
 
   it('preserves SVM token address case in fiat-rate fetch requests', async () => {
@@ -461,9 +470,9 @@ describe('BalanceHistoryChart', () => {
 
     await flushAsyncWork();
 
-    expect(mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync).toHaveBeenCalledTimes(
-      1,
-    );
+    expect(
+      mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync,
+    ).toHaveBeenCalledTimes(1);
 
     screen.rerender(
       <BalanceHistoryChart
@@ -485,9 +494,9 @@ describe('BalanceHistoryChart', () => {
 
     await flushAsyncWork();
 
-    expect(mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync).toHaveBeenCalledTimes(
-      1,
-    );
+    expect(
+      mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync,
+    ).toHaveBeenCalledTimes(1);
   });
 
   it('reruns prep and selected-timeframe compute when a prep-only FX cache key changes', async () => {
@@ -577,9 +586,9 @@ describe('BalanceHistoryChart', () => {
 
     await flushAsyncWork(6);
 
-    expect(mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync).toHaveBeenCalledTimes(
-      1,
-    );
+    expect(
+      mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync,
+    ).toHaveBeenCalledTimes(1);
     expect(mockBuildPnlAnalysisSeriesAsync).toHaveBeenCalledTimes(1);
 
     screen.rerender(
@@ -605,9 +614,9 @@ describe('BalanceHistoryChart', () => {
 
     await flushAsyncWork(6);
 
-    expect(mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync).toHaveBeenCalledTimes(
-      2,
-    );
+    expect(
+      mockBuildPnlWalletInputsFromPortfolioSnapshotsAsync,
+    ).toHaveBeenCalledTimes(2);
     expect(mockBuildPnlAnalysisSeriesAsync).toHaveBeenCalledTimes(2);
   });
 });

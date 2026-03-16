@@ -107,7 +107,9 @@ describe('TimeframeSelector', () => {
       />,
     );
 
-    expect(screen.getByTestId('timeframe-pill-1d').props.active).toBeUndefined();
+    expect(
+      screen.getByTestId('timeframe-pill-1d').props.active,
+    ).toBeUndefined();
     expect(screen.getByText('1D').props.active).toBeUndefined();
   });
 });

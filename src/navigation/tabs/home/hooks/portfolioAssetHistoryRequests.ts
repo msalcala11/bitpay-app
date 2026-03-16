@@ -72,7 +72,8 @@ const normalizeHistoricalRateAssetIdentity = (
     return undefined;
   }
 
-  const rawTokenAddress = String(identity.tokenAddress || '').trim() || undefined;
+  const rawTokenAddress =
+    String(identity.tokenAddress || '').trim() || undefined;
   const chain = rawTokenAddress
     ? normalizeFiatRateSeriesChain(identity.chain)
     : undefined;

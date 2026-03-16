@@ -156,11 +156,7 @@ const usePortfolioAssetRows = ({gainLossMode, keyId}: Args): Result => {
       cache: fiatRateSeriesCache,
       intervals: CACHED_INTERVALS,
     });
-  }, [
-    fiatRateSeriesCache,
-    historicalRateRequestItems,
-    quoteCurrency,
-  ]);
+  }, [fiatRateSeriesCache, historicalRateRequestItems, quoteCurrency]);
 
   useEffect(() => {
     const activeAssetRequestKeys = new Set(

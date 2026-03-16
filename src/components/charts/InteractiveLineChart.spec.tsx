@@ -128,7 +128,8 @@ describe('InteractiveLineChart', () => {
       />,
     );
 
-    const initialTopAxisRenderer = mockLineGraph.mock.lastCall?.[0]?.TopAxisLabel;
+    const initialTopAxisRenderer =
+      mockLineGraph.mock.lastCall?.[0]?.TopAxisLabel;
 
     expect(onMount).toHaveBeenCalledTimes(1);
     expect(onUnmount).not.toHaveBeenCalled();

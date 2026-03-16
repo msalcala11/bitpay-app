@@ -1,6 +1,10 @@
-jest.mock('@env', () => ({
-  BASE_FIATRATES_MARKETSTATS_URL_DEVELOPMENT: '',
-}), {virtual: true});
+jest.mock(
+  '@env',
+  () => ({
+    BASE_FIATRATES_MARKETSTATS_URL_DEVELOPMENT: '',
+  }),
+  {virtual: true},
+);
 
 jest.mock('../../../../constants/config', () => ({
   BASE_BWS_URL: 'https://bws.test',
@@ -71,7 +75,7 @@ type Deferred<T> = {
   reject: (error?: unknown) => void;
 };
 
-const createDeferred = <T,>(): Deferred<T> => {
+const createDeferred = <T>(): Deferred<T> => {
   let resolve!: (value: T) => void;
   let reject!: (error?: unknown) => void;
   const promise = new Promise<T>((res, rej) => {
@@ -114,7 +118,9 @@ describe('fetchFiatRateSeriesInterval', () => {
   });
 
   it('dedupes concurrent requests for the same asset-specific identity', async () => {
-    const deferred = createDeferred<{data: Array<{ts: number; rate: number}>}>();
+    const deferred = createDeferred<{
+      data: Array<{ts: number; rate: number}>;
+    }>();
     (axios.get as jest.Mock).mockImplementation(() => deferred.promise);
 
     const {dispatch, getState} = createThunkHarness();
