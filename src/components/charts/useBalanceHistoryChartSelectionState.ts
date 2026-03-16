@@ -87,6 +87,12 @@ export const useBalanceHistoryChartSelectionState = (args: {
       return;
     }
 
+    // While a newly selected timeframe is pending we may still be rendering
+    // the previously displayed series; don't cache that data under the new key.
+    if (args.displayedTimeframe !== args.selectedTimeframe) {
+      return;
+    }
+
     const existing =
       args.timeframeStateByTimeframe[args.selectedTimeframe]
         ?.lastResolvedChangeRowData;
@@ -102,6 +108,7 @@ export const useBalanceHistoryChartSelectionState = (args: {
       data: resolvedChangeRowData,
     });
   }, [
+    args.displayedTimeframe,
     args.dispatchTimeframeState,
     args.selectedTimeframe,
     args.timeframeStateByTimeframe,
