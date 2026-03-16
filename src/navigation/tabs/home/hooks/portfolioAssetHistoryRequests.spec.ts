@@ -244,25 +244,28 @@ describe('portfolioAssetHistoryRequests', () => {
 
   it('ignores grouped wallets whose only balance signal is non-visible pending sat data', () => {
     expect(
-      getHistoricalRateAssetRequestItemsForVisibleWalletGroups([
-        {
-          id: 'eth-usdc-pending-only',
-          chain: 'eth',
-          currencyAbbreviation: 'usdc',
-          tokenAddress: '0xaaa',
-          network: 'livenet',
-          balance: {
-            crypto: '0',
-            sat: 0,
-            satPending: 1000,
-          },
-          credentials: {
-            token: {
-              decimals: 6,
+      getHistoricalRateAssetRequestItemsForVisibleWalletGroups(
+        [
+          {
+            id: 'eth-usdc-pending-only',
+            chain: 'eth',
+            currencyAbbreviation: 'usdc',
+            tokenAddress: '0xaaa',
+            network: 'livenet',
+            balance: {
+              crypto: '0',
+              sat: 0,
+              satPending: 1000,
+            },
+            credentials: {
+              token: {
+                decimals: 6,
+              },
             },
           },
-        },
-      ] as any),
+        ] as any,
+        {},
+      ),
     ).toEqual([]);
   });
 

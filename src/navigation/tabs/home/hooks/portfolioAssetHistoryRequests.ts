@@ -62,13 +62,9 @@ const walletHasStoredSnapshots = (
 
 const shouldIncludeWalletInHistoricalRateRequests = (args: {
   wallet: Wallet;
-  snapshotsByWalletId?: BalanceSnapshotsByWalletId;
+  snapshotsByWalletId: BalanceSnapshotsByWalletId;
 }): boolean => {
   if (walletHasNonZeroLiveBalance(args.wallet)) {
-    return true;
-  }
-
-  if (!args.snapshotsByWalletId) {
     return true;
   }
 
@@ -153,7 +149,7 @@ export const getHistoricalRateAssetRequestFromItem = (
 
 export const getHistoricalRateAssetRequestItemsForVisibleWalletGroups = (
   wallets: Wallet[] | undefined,
-  snapshotsByWalletId?: BalanceSnapshotsByWalletId,
+  snapshotsByWalletId: BalanceSnapshotsByWalletId,
 ): HistoricalRateAssetIdentityInput[] => {
   const walletsByDisplayGroupKey = new Map<string, Wallet[]>();
 
