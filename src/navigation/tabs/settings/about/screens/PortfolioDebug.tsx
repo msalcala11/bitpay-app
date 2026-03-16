@@ -25,7 +25,11 @@ import {ShopActions} from '../../../../../store/shop';
 import type {BalanceSnapshot} from '../../../../../store/portfolio/portfolio.models';
 import type {Wallet} from '../../../../../store/wallet/wallet.models';
 import {Network} from '../../../../../constants';
-import type {FiatRatePoint} from '../../../../../store/rate/rate.models';
+import {
+  parseFiatRateSeriesCacheKey,
+  type FiatRatePoint,
+  type FiatRateSeriesCacheEntry,
+} from '../../../../../store/rate/rate.models';
 
 type PortfolioDebugScreenProps = NativeStackScreenProps<
   AboutGroupParamList,
@@ -68,27 +72,6 @@ type DerivedMismatch = {
   deltaUnits: string;
   liveUnits: string;
   snapshotUnits: string;
-};
-
-const parseFiatRateSeriesCacheKey = (
-  cacheKey: string,
-): {fiatCode: string; coin: string; interval: string} | undefined => {
-  if (!cacheKey || typeof cacheKey !== 'string') {
-    return undefined;
-  }
-  const first = cacheKey.indexOf(':');
-  if (first <= 0) {
-    return undefined;
-  }
-  const second = cacheKey.indexOf(':', first + 1);
-  if (second <= first + 1) {
-    return undefined;
-  }
-  return {
-    fiatCode: cacheKey.slice(0, first).toUpperCase(),
-    coin: cacheKey.slice(first + 1, second).toLowerCase(),
-    interval: cacheKey.slice(second + 1),
-  };
 };
 
 const getFiniteTsBounds = (
@@ -411,12 +394,15 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
 
         const defaultIntervals = ['1D', '1W', '1M', '3M', '1Y', '5Y', 'ALL'];
         const discoveredIntervals = new Set<string>();
-        const byPair = new Map<
+        const byAsset = new Map<
           string,
           {
             fiatCode: string;
+            assetKey: string;
             coin: string;
-            byInterval: Map<string, any>;
+            chain: string;
+            tokenAddress: string;
+            byInterval: Map<string, FiatRateSeriesCacheEntry | undefined>;
           }
         >();
 
@@ -428,17 +414,27 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
             continue;
           }
           discoveredIntervals.add(parsed.interval);
-          const pairKey = `${parsed.fiatCode}:${parsed.coin}`;
-          let pair = byPair.get(pairKey);
-          if (!pair) {
-            pair = {
+          const assetKey = parsed.assetKey || parsed.coin;
+          const pairKey = `${parsed.fiatCode}:${assetKey}`;
+          let asset = byAsset.get(pairKey);
+          if (!asset) {
+            asset = {
               fiatCode: parsed.fiatCode,
+              assetKey,
               coin: parsed.coin,
-              byInterval: new Map<string, any>(),
+              chain: parsed.chain || '',
+              tokenAddress: parsed.tokenAddress || '',
+              byInterval: new Map<
+                string,
+                FiatRateSeriesCacheEntry | undefined
+              >(),
             };
-            byPair.set(pairKey, pair);
+            byAsset.set(pairKey, asset);
           }
-          pair.byInterval.set(parsed.interval, series);
+          asset.byInterval.set(
+            parsed.interval,
+            series as FiatRateSeriesCacheEntry | undefined,
+          );
         }
 
         const intervals = Array.from(
@@ -452,7 +448,13 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
           return a.localeCompare(b);
         });
 
-        const headers = ['fiatCode', 'coin'];
+        const headers = [
+          'fiatCode',
+          'assetKey',
+          'coin',
+          'chain',
+          'tokenAddress',
+        ];
         for (const interval of intervals) {
           headers.push(`${interval}_ratesStored`);
           headers.push(`${interval}_startTsMs`);
@@ -461,16 +463,34 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
           headers.push(`${interval}_endIso`);
         }
 
-        const sortedPairs = Array.from(byPair.values()).sort((a, b) => {
+        const sortedPairs = Array.from(byAsset.values()).sort((a, b) => {
           const fiatCmp = a.fiatCode.localeCompare(b.fiatCode);
           if (fiatCmp !== 0) {
             return fiatCmp;
           }
-          return a.coin.localeCompare(b.coin);
+          const coinCmp = a.coin.localeCompare(b.coin);
+          if (coinCmp !== 0) {
+            return coinCmp;
+          }
+          const chainCmp = a.chain.localeCompare(b.chain);
+          if (chainCmp !== 0) {
+            return chainCmp;
+          }
+          const tokenCmp = a.tokenAddress.localeCompare(b.tokenAddress);
+          if (tokenCmp !== 0) {
+            return tokenCmp;
+          }
+          return a.assetKey.localeCompare(b.assetKey);
         });
 
         const csvRows = sortedPairs.map(pair => {
-          const row: Array<string | number> = [pair.fiatCode, pair.coin];
+          const row: Array<string | number> = [
+            pair.fiatCode,
+            pair.assetKey,
+            pair.coin,
+            pair.chain,
+            pair.tokenAddress,
+          ];
           for (const interval of intervals) {
             const series = pair.byInterval.get(interval);
             const points = Array.isArray(series?.points)
