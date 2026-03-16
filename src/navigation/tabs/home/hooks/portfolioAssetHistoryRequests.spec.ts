@@ -1,3 +1,79 @@
+jest.mock('../../../../constants', () => ({
+  Network: {
+    mainnet: 'livenet',
+  },
+}));
+
+jest.mock('../../../../constants/currencies', () => ({
+  BitpaySupportedCoins: {
+    btc: {unitInfo: {unitDecimals: 8, unitToSatoshi: 1e8}},
+    eth: {unitInfo: {unitDecimals: 18, unitToSatoshi: 1e18}},
+    base: {unitInfo: {unitDecimals: 18, unitToSatoshi: 1e18}},
+  },
+  BitpaySupportedUtxoCoins: {
+    btc: {unitInfo: {unitDecimals: 8, unitToSatoshi: 1e8}},
+  },
+  BitpaySupportedTokens: {
+    '0xaaa_eth': {
+      unitInfo: {unitDecimals: 6, unitToSatoshi: 1e6},
+    },
+    '0xbbb_base': {
+      unitInfo: {unitDecimals: 6, unitToSatoshi: 1e6},
+    },
+  },
+}));
+
+jest.mock('../../../../utils/helper-methods', () => {
+  const unitStringToAtomicBigInt = (
+    unitString: string,
+    unitDecimals: number,
+  ): bigint => {
+    const raw = String(unitString || '0')
+      .replace(/,/g, '')
+      .trim();
+    if (!raw) {
+      return 0n;
+    }
+
+    const isNegative = raw.startsWith('-');
+    const unsigned = raw.replace(/^[-+]/, '');
+    const [wholeRaw, fractionRaw = ''] = unsigned.split('.');
+    const whole = wholeRaw || '0';
+    const fraction = fractionRaw
+      .padEnd(unitDecimals, '0')
+      .slice(0, unitDecimals);
+    const combined = `${whole}${fraction}`.replace(/^0+(?=\d)/, '') || '0';
+    const atomic = BigInt(combined);
+
+    return isNegative ? -atomic : atomic;
+  };
+
+  return {
+    formatCurrencyAbbreviation: (value: string) => value,
+    formatFiatAmount: () => '0',
+    atomicToUnitString: () => '0',
+    getCurrencyAbbreviation: (name: string, chain: string) => {
+      const _name = String(name || '').toLowerCase();
+      const _chain = String(chain || '').toLowerCase();
+      const suffixByChain: {[chain: string]: string} = {
+        eth: 'eth',
+        base: 'base',
+        sol: 'sol',
+      };
+
+      const isToken = (_name !== _chain && _name !== 'eth') || _chain === 'sol';
+      if (isToken) {
+        return `${_name}_${suffixByChain[_chain] || _chain}`;
+      }
+
+      return _name;
+    },
+    calculatePercentageDifference: () => 0,
+    getRateByCurrencyName: () => undefined,
+    unitStringToAtomicBigInt,
+  };
+});
+
 import {
   FIAT_RATE_SERIES_CACHED_INTERVALS,
   getFiatRateSeriesCacheKey,
@@ -105,6 +181,30 @@ describe('portfolioAssetHistoryRequests', () => {
         tokenAddress: '0xaaa',
       },
     ]);
+  });
+
+  it('ignores grouped wallets whose only balance signal is non-visible pending sat data', () => {
+    expect(
+      getHistoricalRateAssetRequestItemsForVisibleWalletGroups([
+        {
+          id: 'eth-usdc-pending-only',
+          chain: 'eth',
+          currencyAbbreviation: 'usdc',
+          tokenAddress: '0xaaa',
+          network: 'livenet',
+          balance: {
+            crypto: '0',
+            sat: 0,
+            satPending: 1000,
+          },
+          credentials: {
+            token: {
+              decimals: 6,
+            },
+          },
+        },
+      ] as any),
+    ).toEqual([]);
   });
 
   it('treats cached token history as valid only for the matching identity', () => {

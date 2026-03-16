@@ -1,4 +1,7 @@
-import type {AssetRowItem} from '../../../../utils/portfolio/assets';
+import {
+  walletHasNonZeroLiveBalance,
+  type AssetRowItem,
+} from '../../../../utils/portfolio/assets';
 import type {
   CachedFiatRateInterval,
   FiatRateSeriesCache,
@@ -41,21 +44,6 @@ const getWalletTokenAddress = (wallet: Wallet): string | undefined => {
 
 const isMainnetWallet = (wallet: Wallet): boolean => {
   return String(wallet?.network || '').toLowerCase() === 'livenet';
-};
-
-const toPositiveNumber = (value: unknown): number => {
-  const normalized =
-    typeof value === 'string' ? Number(value.replace(/,/g, '')) : Number(value);
-  return Number.isFinite(normalized) && normalized > 0 ? normalized : 0;
-};
-
-const walletHasVisibleLiveBalance = (wallet: Wallet): boolean => {
-  return (
-    toPositiveNumber(wallet?.balance?.crypto) > 0 ||
-    toPositiveNumber(wallet?.balance?.sat) > 0 ||
-    toPositiveNumber(wallet?.balance?.satConfirmedLocked) > 0 ||
-    toPositiveNumber(wallet?.balance?.satPending) > 0
-  );
 };
 
 const normalizeHistoricalRateAssetIdentity = (
@@ -160,7 +148,7 @@ export const getHistoricalRateAssetRequestItemsForVisibleWalletGroups = (
   >();
 
   for (const groupedWallets of walletsByDisplayGroupKey.values()) {
-    if (!groupedWallets.some(walletHasVisibleLiveBalance)) {
+    if (!groupedWallets.some(walletHasNonZeroLiveBalance)) {
       continue;
     }
 
