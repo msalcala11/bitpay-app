@@ -973,6 +973,8 @@ const BalanceHistoryChart = ({
     timeframeState: timeframeStateByTimeframe[selectedTimeframe],
     attemptRevision: selectedTimeframeAttemptRevision,
   });
+  const selectedCachedTimeframeStatus =
+    cachedTimeframeStatusByTimeframe[selectedTimeframe] || 'missing';
   const displayedTimeframe = selectedComputedSeries
     ? selectedTimeframe
     : displayState?.timeframe ?? selectedTimeframe;
@@ -1325,13 +1327,20 @@ const BalanceHistoryChart = ({
   }, [sharedTimeframeSelectorOpacity, timeframeSelectorOpacityNumber]);
 
   // Only show the loader when the selected timeframe does not have a computed
-  // series yet. If we already have selected-timeframe data, keep it visible at
-  // full opacity even if background refresh/recompute work is still happening.
+  // series yet and cannot switch immediately from a fresh cached timeframe.
+  // If we already have selected-timeframe data, or a fresh cached series is
+  // ready to hydrate, avoid flashing the loader during the switch.
   const hasRenderableSelectedSeries =
     !!selectedComputedSeries ||
     (displayState?.timeframe === selectedTimeframe && !!displayState?.series);
+  const selectedTimeframeHasFreshCachedData =
+    !!cachedScope?.timeframes?.[selectedTimeframe] &&
+    (selectedCachedTimeframeStatus === 'fresh' ||
+      selectedCachedTimeframeStatus === 'patchable');
+  const canRenderSelectedTimeframeImmediately =
+    hasRenderableSelectedSeries || selectedTimeframeHasFreshCachedData;
   const isSelectedTimeframePending =
-    !hasRenderableSelectedSeries &&
+    !canRenderSelectedTimeframeImmediately &&
     !selectedTimeframeError &&
     !hasAnalysisPreparationError;
   const isChartLoadingRaw =
@@ -1347,18 +1356,7 @@ const BalanceHistoryChart = ({
       return;
     }
 
-    const isInitialInteractiveLoad = !hasCompletedInitialInteractiveLoad;
-    if (isInitialInteractiveLoad) {
-      setIsChartLoaderVisible(true);
-      return;
-    }
-
-    setIsChartLoaderVisible(false);
-    const timer = setTimeout(() => {
-      setIsChartLoaderVisible(true);
-    }, CHART_LOADER_DELAY_MS);
-
-    return () => clearTimeout(timer);
+    setIsChartLoaderVisible(true);
   }, [
     hasCompletedInitialInteractiveLoad,
     hasRenderableSelectedSeries,
