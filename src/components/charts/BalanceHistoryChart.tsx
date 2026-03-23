@@ -116,6 +116,19 @@ const PRECOMPUTE_TIMEFRAME_ORDER: FiatRateInterval[] = [
 const PREP_FX_CACHE_INTERVALS = FIAT_RATE_SERIES_CACHED_INTERVALS;
 const EMPTY_BALANCE_SNAPSHOTS: BalanceSnapshot[] = [];
 
+const yieldToMainThread = (): Promise<void> => {
+  return new Promise(resolve => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => {
+        setTimeout(resolve, 0);
+      });
+      return;
+    }
+
+    setTimeout(resolve, 0);
+  });
+};
+
 type AnalysisInputs = PnlWalletInputs;
 type ComputedSeries = HydratedBalanceChartSeries;
 
@@ -753,6 +766,7 @@ const BalanceHistoryChart = ({
         Array.from(analysisHistoricalDepKeysRef.current || []),
       );
 
+      const isInteractiveTimeframe = timeframe === selectedTimeframe;
       const buildAnalysis = (targetNowMs: number) =>
         buildPnlAnalysisSeriesAsync({
           wallets: analysisInputs.wallets,
@@ -766,7 +780,15 @@ const BalanceHistoryChart = ({
           nowMs: targetNowMs,
           maxPoints: FIAT_RATE_SERIES_TARGET_POINTS,
           signal,
-          yieldEveryPoints: CHART_COMPUTE_YIELD_EVERY_POINTS,
+          walletDetailMode: 'last_point',
+          computeExactExtrema: false,
+          computeAssetSummaries: false,
+          yieldEveryPoints: isInteractiveTimeframe
+            ? 1
+            : CHART_COMPUTE_YIELD_EVERY_POINTS,
+          yieldEveryWallets: isInteractiveTimeframe ? 4 : 12,
+          yieldEverySnapshotAdvances: isInteractiveTimeframe ? 16 : 48,
+          yieldControl: yieldToMainThread,
           onHistoricalRateDependency: cacheKey => {
             if (cacheKey) {
               historicalDepKeys.add(cacheKey);
@@ -858,6 +880,7 @@ const BalanceHistoryChart = ({
       balanceOffset,
       currentSpotRatesByRateKey,
       fiatRateSeriesCache,
+      selectedTimeframe,
       snapshotVersionSig,
       sortedWalletIds,
     ],
@@ -894,6 +917,8 @@ const BalanceHistoryChart = ({
   );
 
   const {
+    activeTimeframeRef,
+    cancelActiveTimeframeCompute,
     ensureTimeframeComputed,
     queueTimeframeCompute,
     retainOnlyQueuedTimeframe,
@@ -1112,7 +1137,8 @@ const BalanceHistoryChart = ({
           {
             signal,
             yieldEveryWallets: 1,
-            yieldEverySnapshots: 150,
+            yieldEverySnapshots: 15,
+            yieldControl: yieldToMainThread,
           },
         );
 
@@ -1196,12 +1222,28 @@ const BalanceHistoryChart = ({
   // every render due to callback identity or internal helper identity changes.
   useEffect(() => {
     clearSelection();
+
+    const interruptedTimeframe =
+      activeTimeframeRef.current &&
+      activeTimeframeRef.current !== selectedTimeframe
+        ? cancelActiveTimeframeCompute()
+        : undefined;
+
+    if (interruptedTimeframe) {
+      dispatchTimeframeState({
+        type: 'cancelCompute',
+        timeframe: interruptedTimeframe,
+      });
+    }
+
     retainOnlyQueuedTimeframe(selectedTimeframe);
 
     // Compute selected timeframe (if possible) after painting.
     ensureTimeframeComputedRef.current(selectedTimeframe, {prioritize: true});
   }, [
+    activeTimeframeRef,
     balanceOffset,
+    cancelActiveTimeframeCompute,
     clearSelection,
     retainOnlyQueuedTimeframe,
     selectedTimeframe,

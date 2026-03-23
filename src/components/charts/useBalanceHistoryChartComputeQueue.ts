@@ -57,15 +57,59 @@ export const useBalanceHistoryChartComputeQueue = <
   trackScheduledHandle: (handle: ScheduledAfterInteractionsHandle) => void;
   onComputeError: (context: string, error: unknown) => void;
 }) => {
+  const {
+    balanceOffset,
+    computeGenerationRef,
+    computeSeriesForTimeframe,
+    dispatch,
+    dispatchTimeframeState,
+    getComputeDispositionForTimeframe,
+    getTimeframeAttemptRevision,
+    getTimeframeRevision,
+    onComputeError,
+    scopeId,
+    selectedTimeframe,
+    setDisplayState,
+    sortedWalletIds,
+    trackScheduledHandle,
+  } = args;
   const enqueueComputeRef = useRef<FiatRateInterval[]>([]);
   const computingQueueRef = useRef(false);
-  const selectedTimeframeRef = useRef(args.selectedTimeframe);
+  const selectedTimeframeRef = useRef(selectedTimeframe);
+  const activeTimeframeRef = useRef<FiatRateInterval | undefined>(undefined);
+  const activeHandleRef = useRef<ScheduledAfterInteractionsHandle | undefined>(
+    undefined,
+  );
+  const queueGenerationRef = useRef(0);
 
-  selectedTimeframeRef.current = args.selectedTimeframe;
+  selectedTimeframeRef.current = selectedTimeframe;
 
   const resetComputeQueue = useCallback(() => {
+    queueGenerationRef.current += 1;
     enqueueComputeRef.current = [];
     computingQueueRef.current = false;
+    activeTimeframeRef.current = undefined;
+
+    const activeHandle = activeHandleRef.current;
+    activeHandleRef.current = undefined;
+    activeHandle?.cancel();
+  }, []);
+
+  const cancelActiveTimeframeCompute = useCallback(() => {
+    const activeTimeframe = activeTimeframeRef.current;
+    const activeHandle = activeHandleRef.current;
+
+    if (!activeTimeframe && !activeHandle) {
+      return undefined;
+    }
+
+    queueGenerationRef.current += 1;
+    computingQueueRef.current = false;
+    activeTimeframeRef.current = undefined;
+    activeHandleRef.current = undefined;
+    activeHandle?.cancel();
+
+    return activeTimeframe;
   }, []);
 
   const retainOnlyQueuedTimeframe = useCallback(
@@ -104,18 +148,27 @@ export const useBalanceHistoryChartComputeQueue = <
     }
 
     computingQueueRef.current = true;
+    const queueGeneration = queueGenerationRef.current;
 
     const runNext = () => {
+      if (queueGenerationRef.current !== queueGeneration) {
+        return;
+      }
+
       const nextTimeframe = enqueueComputeRef.current.shift();
       if (!nextTimeframe) {
+        activeTimeframeRef.current = undefined;
+        activeHandleRef.current = undefined;
         computingQueueRef.current = false;
         return;
       }
 
-      const generation = args.computeGenerationRef.current;
-      const attemptRevision = args.getTimeframeAttemptRevision(nextTimeframe);
+      activeTimeframeRef.current = nextTimeframe;
 
-      args.dispatchTimeframeState({
+      const generation = computeGenerationRef.current;
+      const attemptRevision = getTimeframeAttemptRevision(nextTimeframe);
+
+      dispatchTimeframeState({
         type: 'startCompute',
         timeframe: nextTimeframe,
         attemptRevision,
@@ -125,25 +178,33 @@ export const useBalanceHistoryChartComputeQueue = <
       const computeHandle = scheduleAfterInteractionsAndFrames({
         callback: async signal => {
           try {
-            if (args.computeGenerationRef.current !== generation) {
+            if (queueGenerationRef.current !== queueGeneration) {
               return;
             }
 
-            const computed = await args.computeSeriesForTimeframe(
+            if (computeGenerationRef.current !== generation) {
+              return;
+            }
+
+            const computed = await computeSeriesForTimeframe(
               nextTimeframe,
               signal,
             );
-            const timeframeRevision = args.getTimeframeRevision(
+            const timeframeRevision = getTimeframeRevision(
               nextTimeframe,
               computed.cacheEntry.historicalRateDeps,
             );
 
-            if (args.computeGenerationRef.current !== generation) {
+            if (
+              queueGenerationRef.current !== queueGeneration ||
+              computeGenerationRef.current !== generation ||
+              signal.aborted
+            ) {
               return;
             }
 
             startTransition(() => {
-              args.dispatchTimeframeState({
+              dispatchTimeframeState({
                 type: 'resolveCompute',
                 timeframe: nextTimeframe,
                 attemptRevision,
@@ -153,7 +214,7 @@ export const useBalanceHistoryChartComputeQueue = <
               });
 
               if (nextTimeframe === selectedTimeframeRef.current) {
-                args.setDisplayState(previous =>
+                setDisplayState(previous =>
                   previous?.series === computed.series &&
                   previous?.timeframe === nextTimeframe
                     ? previous
@@ -165,28 +226,32 @@ export const useBalanceHistoryChartComputeQueue = <
               }
             });
 
-            if (args.computeGenerationRef.current === generation) {
-              args.dispatch(
+            if (
+              queueGenerationRef.current === queueGeneration &&
+              computeGenerationRef.current === generation &&
+              !signal.aborted
+            ) {
+              dispatch(
                 upsertBalanceChartScopeTimeframes({
-                  scopeId: args.scopeId,
-                  walletIds: args.sortedWalletIds,
+                  scopeId,
+                  walletIds: sortedWalletIds,
                   quoteCurrency: computed.cacheEntry.quoteCurrency,
-                  balanceOffset: args.balanceOffset,
+                  balanceOffset,
                   timeframes: [computed.cacheEntry],
                 }),
               );
             }
           } catch (error: unknown) {
             if (
-              args.computeGenerationRef.current !== generation ||
+              computeGenerationRef.current !== generation ||
               signal.aborted ||
               isAbortError(error)
             ) {
               return;
             }
 
-            args.onComputeError(`compute failed for ${nextTimeframe}`, error);
-            args.dispatchTimeframeState({
+            onComputeError(`compute failed for ${nextTimeframe}`, error);
+            dispatchTimeframeState({
               type: 'rejectCompute',
               timeframe: nextTimeframe,
               attemptRevision,
@@ -194,7 +259,18 @@ export const useBalanceHistoryChartComputeQueue = <
               generation,
             });
           } finally {
-            if (args.computeGenerationRef.current !== generation) {
+            if (activeHandleRef.current === computeHandle) {
+              activeHandleRef.current = undefined;
+            }
+            if (activeTimeframeRef.current === nextTimeframe) {
+              activeTimeframeRef.current = undefined;
+            }
+
+            if (queueGenerationRef.current !== queueGeneration) {
+              return;
+            }
+
+            if (computeGenerationRef.current !== generation) {
               computingQueueRef.current = false;
               return;
             }
@@ -203,23 +279,24 @@ export const useBalanceHistoryChartComputeQueue = <
           }
         },
       });
-      args.trackScheduledHandle(computeHandle);
+      activeHandleRef.current = computeHandle;
+      trackScheduledHandle(computeHandle);
     };
 
     runNext();
   }, [
-    args.balanceOffset,
-    args.computeGenerationRef,
-    args.computeSeriesForTimeframe,
-    args.dispatch,
-    args.dispatchTimeframeState,
-    args.getTimeframeAttemptRevision,
-    args.getTimeframeRevision,
-    args.onComputeError,
-    args.scopeId,
-    args.setDisplayState,
-    args.sortedWalletIds,
-    args.trackScheduledHandle,
+    balanceOffset,
+    computeGenerationRef,
+    computeSeriesForTimeframe,
+    dispatch,
+    dispatchTimeframeState,
+    getTimeframeAttemptRevision,
+    getTimeframeRevision,
+    onComputeError,
+    scopeId,
+    setDisplayState,
+    sortedWalletIds,
+    trackScheduledHandle,
   ]);
 
   const queueTimeframeCompute = useCallback(
@@ -238,7 +315,7 @@ export const useBalanceHistoryChartComputeQueue = <
         retryPolicy?: RetryPolicy;
       },
     ) => {
-      const disposition = args.getComputeDispositionForTimeframe(
+      const disposition = getComputeDispositionForTimeframe(
         timeframe,
         options?.retryPolicy || 'retry_interrupted_attempts',
       );
@@ -248,10 +325,12 @@ export const useBalanceHistoryChartComputeQueue = <
 
       queueTimeframeCompute(timeframe, !!options?.prioritize);
     },
-    [args, queueTimeframeCompute],
+    [getComputeDispositionForTimeframe, queueTimeframeCompute],
   );
 
   return {
+    activeTimeframeRef,
+    cancelActiveTimeframeCompute,
     ensureTimeframeComputed,
     queueTimeframeCompute,
     retainOnlyQueuedTimeframe,

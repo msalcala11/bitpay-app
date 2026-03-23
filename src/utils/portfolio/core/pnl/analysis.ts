@@ -45,7 +45,7 @@ export type WalletForAnalysis = {
 
 export type WalletPoint = {
   balanceAtomic: string;
-  formattedCryptoBalance: string;
+  formattedCryptoBalance?: string;
   fiatBalance: number;
   // Windowed "cost basis" used for interval PnL% (reset to value at interval start).
   // This is NOT the lifetime remainingCostBasisFiat from snapshots.
@@ -54,8 +54,8 @@ export type WalletPoint = {
 
   // Per-wallet rate + performance (for table columns)
   markRate: number;
-  ratePercentChange: number;
-  pnlPercent: number;
+  ratePercentChange?: number;
+  pnlPercent?: number;
 };
 
 export type PnlAnalysisPoint = {
@@ -75,8 +75,9 @@ export type PnlAnalysisPoint = {
   // Windowed interval PnL% (see above). Percent.
   totalPnlPercent: number;
 
-  // Per-wallet
-  byWalletId: Record<string, WalletPoint>;
+  // Per-wallet. Optional so lighter call sites (such as balance charts) can
+  // skip allocating per-wallet breakdowns for every sampled point.
+  byWalletId?: Record<string, WalletPoint>;
 };
 
 export type AssetPnlSummary = {
@@ -887,6 +888,35 @@ type BuildPnlAnalysisSeriesArgs = {
   nowMs?: number;
   maxPoints?: number;
   onHistoricalRateDependency?: (cacheKey: string) => void;
+  /**
+   * Controls how much per-wallet data is retained on each sampled point.
+   * 'all' preserves legacy behavior; 'last_point' keeps only the final point's
+   * breakdown; 'none' omits point-level wallet breakdowns entirely.
+   */
+  walletDetailMode?: 'all' | 'last_point' | 'none';
+  /**
+   * Optional cooperative yield cadence within the per-point wallet loop.
+   * Applies only to the async wrapper, where yielded iterations await.
+   */
+  yieldEveryWallets?: number;
+  /**
+   * Optional cooperative yield cadence while advancing a wallet through many
+   * snapshots inside a single sampled point. This keeps large token sets and
+   * bursty transaction histories from monopolizing the JS thread between yields.
+   */
+  yieldEverySnapshotAdvances?: number;
+  /**
+   * Exact extrema can be expensive to compute on large multi-wallet portfolios.
+   * Callers that can tolerate sampled extrema may disable this to reduce first
+   * interactive load latency. Defaults to true.
+   */
+  computeExactExtrema?: boolean;
+  /**
+   * Asset summaries are currently unused by production callers and require
+   * point-level wallet breakdowns. Callers may disable them to avoid extra
+   * work. Defaults to true.
+   */
+  computeAssetSummaries?: boolean;
 };
 
 type BuildPnlAnalysisSeriesGeneratorOptions = {
@@ -899,14 +929,10 @@ const DEFAULT_ASYNC_YIELD_EVERY_EXTREMA_ITERATIONS = 256;
 
 const yieldToEventLoop = (): Promise<void> => {
   return new Promise(resolve => {
-    const setImmediateFn = (
-      globalThis as {
-        setImmediate?: (callback: () => void) => unknown;
-      }
-    ).setImmediate;
-
-    if (typeof setImmediateFn === 'function') {
-      setImmediateFn(resolve);
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => {
+        setTimeout(resolve, 0);
+      });
       return;
     }
 
@@ -932,6 +958,21 @@ function* buildPnlAnalysisSeriesGenerator(
       : 0;
   const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
   const maxPoints = typeof args.maxPoints === 'number' ? args.maxPoints : 91;
+  const walletDetailMode = args.walletDetailMode || 'all';
+  const yieldEveryWallets =
+    typeof args.yieldEveryWallets === 'number' &&
+    Number.isFinite(args.yieldEveryWallets) &&
+    args.yieldEveryWallets > 0
+      ? Math.floor(args.yieldEveryWallets)
+      : 0;
+  const yieldEverySnapshotAdvances =
+    typeof args.yieldEverySnapshotAdvances === 'number' &&
+    Number.isFinite(args.yieldEverySnapshotAdvances) &&
+    args.yieldEverySnapshotAdvances > 0
+      ? Math.floor(args.yieldEverySnapshotAdvances)
+      : 0;
+  const shouldComputeExactExtrema = args.computeExactExtrema !== false;
+  const shouldComputeAssetSummaries = args.computeAssetSummaries !== false;
 
   const wallets = args.wallets.slice();
   const quoteCurrency = args.quoteCurrency.toUpperCase();
@@ -1167,7 +1208,11 @@ function* buildPnlAnalysisSeriesGenerator(
       rateAtTsByRateKey[rateKey] = rate;
     }
 
-    const byWalletId: Record<string, WalletPoint> = {};
+    const includeWalletPointDetails =
+      walletDetailMode === 'all' ||
+      (walletDetailMode === 'last_point' && isLastTimelinePoint);
+    const byWalletId: Record<string, WalletPoint> | undefined =
+      includeWalletPointDetails ? {} : undefined;
     let totalFiatBalance = 0;
     let totalRemainingCostBasisFiat = 0;
 
@@ -1176,8 +1221,17 @@ function* buildPnlAnalysisSeriesGenerator(
 
     // Determine markRate based on the driver rate key.
     const driverRate = rateAtTsByRateKey[driverRateKey];
+    let walletLoopIterations = 0;
 
     for (const w of wallets) {
+      if (
+        yieldEveryWallets > 0 &&
+        walletLoopIterations > 0 &&
+        walletLoopIterations % yieldEveryWallets === 0
+      ) {
+        yield;
+      }
+      walletLoopIterations++;
       const st = windowStateByWalletId[w.walletId];
       if (!st) {
         continue;
@@ -1186,7 +1240,17 @@ function* buildPnlAnalysisSeriesGenerator(
       const rate = rateAtTsByRateKey[rateKey];
 
       // Advance window basis state by processing all snapshots up to this timestamp.
+      let snapshotAdvanceIterations = 0;
       while (st.nextIdx < st.snapshots.length) {
+        if (
+          yieldEverySnapshotAdvances > 0 &&
+          snapshotAdvanceIterations > 0 &&
+          snapshotAdvanceIterations % yieldEverySnapshotAdvances === 0
+        ) {
+          yield;
+        }
+        snapshotAdvanceIterations++;
+
         const s = st.snapshots[st.nextIdx];
         const sTs = Number(s.timestamp);
         if (!Number.isFinite(sTs) || sTs > ts || sTs > endTs) break;
@@ -1253,22 +1317,30 @@ function* buildPnlAnalysisSeriesGenerator(
       const units = st.unitsNumber;
       const fiatBalance = units * rate;
       const unrealizedPnlFiat = fiatBalance - costBasis;
-      const pnlPercent =
-        costBasis > 0 ? (unrealizedPnlFiat / costBasis) * 100 : 0;
 
-      const base = baselineRateByRateKey[rateKey] || rate;
-      const walletRatePct = base > 0 ? ((rate - base) / base) * 100 : 0;
+      if (includeWalletPointDetails && byWalletId) {
+        const walletPoint: WalletPoint = {
+          balanceAtomic: balAtomic.toString(),
+          fiatBalance,
+          remainingCostBasisFiat: costBasis,
+          unrealizedPnlFiat,
+          markRate: rate,
+        };
 
-      byWalletId[w.walletId] = {
-        balanceAtomic: balAtomic.toString(),
-        formattedCryptoBalance: formatAtomicAmount(balAtomic, w.credentials),
-        fiatBalance,
-        remainingCostBasisFiat: costBasis,
-        unrealizedPnlFiat,
-        markRate: rate,
-        ratePercentChange: walletRatePct,
-        pnlPercent,
-      };
+        if (walletDetailMode === 'all') {
+          const base = baselineRateByRateKey[rateKey] || rate;
+          walletPoint.ratePercentChange =
+            base > 0 ? ((rate - base) / base) * 100 : 0;
+          walletPoint.pnlPercent =
+            costBasis > 0 ? (unrealizedPnlFiat / costBasis) * 100 : 0;
+          walletPoint.formattedCryptoBalance = formatAtomicAmount(
+            balAtomic,
+            w.credentials,
+          );
+        }
+
+        byWalletId[w.walletId] = walletPoint;
+      }
 
       totalFiatBalance += fiatBalance;
       totalRemainingCostBasisFiat += costBasis;
@@ -1314,65 +1386,73 @@ function* buildPnlAnalysisSeriesGenerator(
     });
   }
 
-  const exactExtrema = yield* buildExactTotalFiatBalanceExtremaGenerator({
-    wallets,
-    rateKeys,
-    rateIdentityByWalletId,
-    rateSeriesByRateKey,
-    startTs,
-    endTs,
-    getOverrideRate,
-    yieldEveryIterations: yieldEveryExtremaIterations,
-  });
+  const exactExtrema = shouldComputeExactExtrema
+    ? yield* buildExactTotalFiatBalanceExtremaGenerator({
+        wallets,
+        rateKeys,
+        rateIdentityByWalletId,
+        rateSeriesByRateKey,
+        startTs,
+        endTs,
+        getOverrideRate,
+        yieldEveryIterations: yieldEveryExtremaIterations,
+      })
+    : undefined;
 
   // Summaries
   const first = points[0];
   const last = points[points.length - 1];
 
-  const assetSummaries: AssetPnlSummary[] = rateKeys.map(rateKey => {
-    const rateIdentity = rateIdentitiesByKey.get(rateKey);
-    const ids = new Set(
-      wallets
-        .filter(w => rateIdentityByWalletId.get(w.walletId)?.key === rateKey)
-        .map(w => w.walletId),
-    );
+  const assetSummaries: AssetPnlSummary[] =
+    shouldComputeAssetSummaries && walletDetailMode === 'all'
+      ? rateKeys.map(rateKey => {
+          const rateIdentity = rateIdentitiesByKey.get(rateKey);
+          const ids = new Set(
+            wallets
+              .filter(
+                w => rateIdentityByWalletId.get(w.walletId)?.key === rateKey,
+              )
+              .map(w => w.walletId),
+          );
 
-    // Sum windowed PnL + basis for wallets in this rate-key group.
-    let startPnl = 0;
-    let endPnl = 0;
-    let endBasis = 0;
+          // Sum windowed PnL + basis for wallets in this rate-key group.
+          let startPnl = 0;
+          let endPnl = 0;
+          let endBasis = 0;
 
-    for (const w of wallets) {
-      if (!ids.has(w.walletId)) continue;
-      startPnl += first.byWalletId[w.walletId]?.unrealizedPnlFiat ?? 0;
-      endPnl += last.byWalletId[w.walletId]?.unrealizedPnlFiat ?? 0;
-      endBasis += last.byWalletId[w.walletId]?.remainingCostBasisFiat ?? 0;
-    }
+          for (const w of wallets) {
+            if (!ids.has(w.walletId)) continue;
+            startPnl += first.byWalletId?.[w.walletId]?.unrealizedPnlFiat ?? 0;
+            endPnl += last.byWalletId?.[w.walletId]?.unrealizedPnlFiat ?? 0;
+            endBasis +=
+              last.byWalletId?.[w.walletId]?.remainingCostBasisFiat ?? 0;
+          }
 
-    const rateStart = baselineRateByRateKey[rateKey];
-    const rateEnd = rateCursorByRateKey[rateKey]?.getNearest(endTs);
-    if (rateEnd === undefined)
-      throw new Error(
-        `Missing ${quoteCurrency}:${rateKey} rate at ts=${endTs}.`,
-      );
-    const rateChange = rateEnd - rateStart;
-    const ratePct = rateStart > 0 ? (rateChange / rateStart) * 100 : 0;
+          const rateStart = baselineRateByRateKey[rateKey];
+          const rateEnd = rateCursorByRateKey[rateKey]?.getNearest(endTs);
+          if (rateEnd === undefined)
+            throw new Error(
+              `Missing ${quoteCurrency}:${rateKey} rate at ts=${endTs}.`,
+            );
+          const rateChange = rateEnd - rateStart;
+          const ratePct = rateStart > 0 ? (rateChange / rateStart) * 100 : 0;
 
-    const pnlPercent = endBasis > 0 ? (endPnl / endBasis) * 100 : 0;
+          const pnlPercent = endBasis > 0 ? (endPnl / endBasis) * 100 : 0;
 
-    return {
-      rateKey,
-      displaySymbol: rateIdentity?.displaySymbol || rateKey.toUpperCase(),
-      rateStart,
-      rateEnd,
-      rateChange,
-      ratePercentChange: ratePct,
-      pnlStart: startPnl,
-      pnlEnd: endPnl,
-      pnlChange: endPnl - startPnl,
-      pnlPercent,
-    };
-  });
+          return {
+            rateKey,
+            displaySymbol: rateIdentity?.displaySymbol || rateKey.toUpperCase(),
+            rateStart,
+            rateEnd,
+            rateChange,
+            ratePercentChange: ratePct,
+            pnlStart: startPnl,
+            pnlEnd: endPnl,
+            pnlChange: endPnl - startPnl,
+            pnlPercent,
+          };
+        })
+      : [];
 
   const totalSummary: TotalPnlSummary = {
     pnlStart: first.totalUnrealizedPnlFiat,
