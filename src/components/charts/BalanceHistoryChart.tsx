@@ -644,23 +644,10 @@ const BalanceHistoryChart = ({
     return status === 'missing' || status === 'stale_historical';
   }, [cachedTimeframeStatusByTimeframe, selectedTimeframe]);
 
-  const hasAnyBackgroundHistoricalRecomputeNeeded = useMemo(() => {
-    return PRECOMPUTE_TIMEFRAME_ORDER.some(timeframe => {
-      if (timeframe === selectedTimeframe) {
-        return false;
-      }
-
-      const status = cachedTimeframeStatusByTimeframe[timeframe] || 'missing';
-      return status === 'missing' || status === 'stale_historical';
-    });
-  }, [cachedTimeframeStatusByTimeframe, selectedTimeframe]);
-
   const shouldPrepareAnalysisInputs =
     hasAnyChartableSnapshots &&
     !!fiatRateSeriesCache &&
-    (selectedTimeframeNeedsHistoricalRecompute ||
-      (hasCompletedInitialInteractiveLoad &&
-        hasAnyBackgroundHistoricalRecomputeNeeded));
+    selectedTimeframeNeedsHistoricalRecompute;
 
   useEffect(() => {
     analysisInputsReadyRevisionRef.current = analysisInputsReadyRevision;
@@ -920,7 +907,6 @@ const BalanceHistoryChart = ({
     activeTimeframeRef,
     cancelActiveTimeframeCompute,
     ensureTimeframeComputed,
-    queueTimeframeCompute,
     retainOnlyQueuedTimeframe,
     resetComputeQueue,
   } = useBalanceHistoryChartComputeQueue<ComputedSeries, ChangeRowData>({
@@ -1267,41 +1253,6 @@ const BalanceHistoryChart = ({
     ensureTimeframeComputed,
     inputsReady,
     liveSpotRatesRevision,
-    selectedTimeframe,
-  ]);
-
-  // Opportunistically precompute additional timeframes in background so taps
-  // switch instantly more often and avoid heavy foreground work.
-  useEffect(() => {
-    if (!inputsReady || !hasAnyChartableSnapshots) {
-      return;
-    }
-    if (!hasCompletedInitialInteractiveLoad) {
-      return;
-    }
-
-    const nextToPrecompute = PRECOMPUTE_TIMEFRAME_ORDER.find(timeframe => {
-      if (timeframe === selectedTimeframe) {
-        return false;
-      }
-
-      return getComputeDispositionForTimeframe(
-        timeframe,
-        'suppress_after_attempt',
-      ).shouldQueue;
-    });
-
-    if (!nextToPrecompute) {
-      return;
-    }
-
-    queueTimeframeCompute(nextToPrecompute, false);
-  }, [
-    getComputeDispositionForTimeframe,
-    hasAnyChartableSnapshots,
-    hasCompletedInitialInteractiveLoad,
-    inputsReady,
-    queueTimeframeCompute,
     selectedTimeframe,
   ]);
 
