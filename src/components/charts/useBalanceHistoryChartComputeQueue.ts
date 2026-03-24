@@ -56,6 +56,7 @@ export const useBalanceHistoryChartComputeQueue = <
   >;
   trackScheduledHandle: (handle: ScheduledAfterInteractionsHandle) => void;
   onComputeError: (context: string, error: unknown) => void;
+  onTimeframeComputeScheduled?: (timeframe: FiatRateInterval) => void;
 }) => {
   const {
     balanceOffset,
@@ -67,6 +68,7 @@ export const useBalanceHistoryChartComputeQueue = <
     getTimeframeAttemptRevision,
     getTimeframeRevision,
     onComputeError,
+    onTimeframeComputeScheduled,
     scopeId,
     selectedTimeframe,
     setDisplayState,
@@ -279,6 +281,7 @@ export const useBalanceHistoryChartComputeQueue = <
           }
         },
       });
+      onTimeframeComputeScheduled?.(nextTimeframe);
       activeHandleRef.current = computeHandle;
       trackScheduledHandle(computeHandle);
     };
@@ -293,6 +296,7 @@ export const useBalanceHistoryChartComputeQueue = <
     getTimeframeAttemptRevision,
     getTimeframeRevision,
     onComputeError,
+    onTimeframeComputeScheduled,
     scopeId,
     setDisplayState,
     sortedWalletIds,

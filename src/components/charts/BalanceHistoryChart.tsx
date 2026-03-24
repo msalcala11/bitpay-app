@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import {StyleProp, View, ViewStyle} from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import {useTranslation} from 'react-i18next';
 import {useTheme} from 'styled-components/native';
 import type {GraphPoint} from 'react-native-graph';
@@ -87,6 +88,7 @@ import {
   scheduleAfterInteractionsAndFrames,
   type ScheduledAfterInteractionsHandle,
 } from '../../utils/scheduleAfterInteractionsAndFrames';
+import {showBottomNotificationModal} from '../../store/app/app.actions';
 import {
   buildBalanceHistoryChartPrepFiatRateSeriesCacheKeys,
   buildBalanceHistoryChartRateFetchAssets,
@@ -110,6 +112,9 @@ import {useStableBalanceHistoryChartAxisLabels} from './useStableBalanceHistoryC
 
 const CHART_LOADER_DELAY_MS = 150;
 const CHART_COMPUTE_YIELD_EVERY_POINTS = 4;
+const INTERACTIVE_CHART_COMPUTE_YIELD_EVERY_POINTS = 0;
+const INTERACTIVE_CHART_COMPUTE_YIELD_EVERY_WALLETS = 24;
+const INTERACTIVE_CHART_COMPUTE_YIELD_EVERY_SNAPSHOT_ADVANCES = 128;
 const PRECOMPUTE_TIMEFRAME_ORDER: FiatRateInterval[] = [
   ...FIAT_CHART_DISPLAY_ORDER,
 ];
@@ -117,16 +122,7 @@ const PREP_FX_CACHE_INTERVALS = FIAT_RATE_SERIES_CACHED_INTERVALS;
 const EMPTY_BALANCE_SNAPSHOTS: BalanceSnapshot[] = [];
 
 const yieldToMainThread = (): Promise<void> => {
-  return new Promise(resolve => {
-    if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(() => {
-        setTimeout(resolve, 0);
-      });
-      return;
-    }
-
-    setTimeout(resolve, 0);
-  });
+  return new Promise(resolve => setTimeout(resolve, 0));
 };
 
 type AnalysisInputs = PnlWalletInputs;
@@ -143,6 +139,185 @@ const logBalanceHistoryChartError = (context: string, error: unknown) => {
     `[BalanceHistoryChart] ${context}`,
     formatUnknownError(error),
   );
+};
+
+type BalanceChartTimingCacheStatus =
+  | 'fresh'
+  | 'patchable'
+  | 'stale_historical'
+  | 'missing';
+
+type BalanceChartTimingResultSource =
+  | 'fresh_cache'
+  | 'patchable_cache'
+  | 'computed'
+  | 'existing_series';
+
+type BalanceChartRenderTiming = {
+  requestId: number;
+  timeframe: FiatRateInterval;
+  quoteCurrency: string;
+  walletCount: number;
+  snapshotCount: number;
+  cacheStatusAtRequest: BalanceChartTimingCacheStatus;
+  requestedAtMs: number;
+  status: 'pending' | 'ready' | 'error';
+  resultSource?: BalanceChartTimingResultSource;
+  prepareScheduledAtMs?: number;
+  prepareStartedAtMs?: number;
+  prepareEndedAtMs?: number;
+  computeScheduledAtMs?: number;
+  computeStartedAtMs?: number;
+  analysisStartedAtMs?: number;
+  analysisEndedAtMs?: number;
+  postprocessStartedAtMs?: number;
+  postprocessEndedAtMs?: number;
+  displayReadyAtMs?: number;
+  errorMessage?: string;
+};
+
+const getChartTimingNowMs = (): number => {
+  const perf = globalThis.performance;
+  if (perf && typeof perf.now === 'function') {
+    return perf.now();
+  }
+
+  return Date.now();
+};
+
+const formatChartTimingMs = (ms: number): string => {
+  const rounded = ms >= 100 ? Math.round(ms) : Math.round(ms * 10) / 10;
+  return `${rounded} ms`;
+};
+
+const formatChartTimingWindow = (args: {
+  startMs?: number;
+  endMs?: number;
+  nowMs: number;
+  fallback: string;
+}): string => {
+  if (typeof args.startMs !== 'number') {
+    return args.fallback;
+  }
+
+  const endMs = typeof args.endMs === 'number' ? args.endMs : args.nowMs;
+  const durationMs = Math.max(0, endMs - args.startMs);
+  return typeof args.endMs === 'number'
+    ? formatChartTimingMs(durationMs)
+    : `${formatChartTimingMs(durationMs)} (in progress)`;
+};
+
+const buildBalanceChartTimingClipboardText = (
+  timing: BalanceChartRenderTiming,
+): string => {
+  const nowMs = getChartTimingNowMs();
+  const isCacheHit =
+    timing.resultSource === 'fresh_cache' ||
+    timing.resultSource === 'patchable_cache';
+  const sourceLabel =
+    timing.resultSource === 'fresh_cache'
+      ? 'fresh cache'
+      : timing.resultSource === 'patchable_cache'
+      ? 'patchable cache'
+      : timing.resultSource === 'computed'
+      ? 'historical recompute'
+      : timing.resultSource === 'existing_series'
+      ? 'existing series'
+      : timing.computeStartedAtMs
+      ? 'historical recompute (pending)'
+      : timing.cacheStatusAtRequest === 'fresh'
+      ? 'fresh cache (pending hydration)'
+      : timing.cacheStatusAtRequest === 'patchable'
+      ? 'patchable cache (pending hydration)'
+      : 'pending';
+
+  const prepareStartFallback = isCacheHit
+    ? 'skipped (cache hit)'
+    : timing.computeStartedAtMs
+    ? 'skipped (inputs already ready)'
+    : 'not started';
+  const prepareDurationFallback = isCacheHit
+    ? 'skipped (cache hit)'
+    : timing.computeStartedAtMs
+    ? 'skipped (inputs already ready)'
+    : 'not started';
+  const computeScheduleFallback = isCacheHit ? 'skipped (cache hit)' : 'not scheduled';
+  const analysisFallback = isCacheHit ? 'skipped (cache hit)' : 'not started';
+  const postprocessFallback = isCacheHit ? 'skipped (cache hit)' : 'not started';
+
+  const lines = [
+    'Balance chart render timings',
+    `timeframe: ${timing.timeframe}`,
+    `status: ${timing.status}`,
+    `source: ${sourceLabel}`,
+    `cache status at request: ${timing.cacheStatusAtRequest}`,
+    `wallets in scope: ${timing.walletCount}`,
+    `snapshots in scope: ${timing.snapshotCount}`,
+    `quote currency: ${timing.quoteCurrency}`,
+    `total elapsed: ${formatChartTimingWindow({
+      startMs: timing.requestedAtMs,
+      endMs: timing.displayReadyAtMs,
+      nowMs,
+      fallback: 'not started',
+    })}`,
+    `request -> prep start: ${formatChartTimingWindow({
+      startMs: timing.requestedAtMs,
+      endMs: timing.prepareStartedAtMs,
+      nowMs,
+      fallback: prepareStartFallback,
+    })}`,
+    `prepare inputs: ${formatChartTimingWindow({
+      startMs: timing.prepareStartedAtMs,
+      endMs: timing.prepareEndedAtMs,
+      nowMs,
+      fallback: prepareDurationFallback,
+    })}`,
+    `request -> compute scheduled: ${formatChartTimingWindow({
+      startMs: timing.requestedAtMs,
+      endMs: timing.computeScheduledAtMs,
+      nowMs,
+      fallback: computeScheduleFallback,
+    })}`,
+    `request -> compute start: ${formatChartTimingWindow({
+      startMs: timing.requestedAtMs,
+      endMs: timing.computeStartedAtMs,
+      nowMs,
+      fallback: isCacheHit ? 'skipped (cache hit)' : 'not started',
+    })}`,
+    `prepare end -> compute start: ${formatChartTimingWindow({
+      startMs: timing.prepareEndedAtMs,
+      endMs: timing.computeStartedAtMs,
+      nowMs,
+      fallback:
+        typeof timing.prepareEndedAtMs === 'number'
+          ? 'waiting for compute start'
+          : prepareDurationFallback,
+    })}`,
+    `analysis: ${formatChartTimingWindow({
+      startMs: timing.analysisStartedAtMs,
+      endMs: timing.analysisEndedAtMs,
+      nowMs,
+      fallback: analysisFallback,
+    })}`,
+    `postprocess + serialize: ${formatChartTimingWindow({
+      startMs: timing.postprocessStartedAtMs,
+      endMs: timing.postprocessEndedAtMs,
+      nowMs,
+      fallback: postprocessFallback,
+    })}`,
+    `compute total: ${formatChartTimingWindow({
+      startMs: timing.computeStartedAtMs,
+      endMs: timing.postprocessEndedAtMs,
+      nowMs,
+      fallback: isCacheHit ? 'skipped (cache hit)' : 'not started',
+    })}`,
+  ];
+
+  if (timing.errorMessage) {
+    lines.push(`error: ${timing.errorMessage}`);
+  }
+
+  return lines.join('\n');
 };
 
 export type BalanceHistoryChartProps = {
@@ -280,6 +455,10 @@ const BalanceHistoryChart = ({
   const [isChartLoaderVisible, setIsChartLoaderVisible] = useState(false);
 
   const computeGenerationRef = useRef(0);
+  const chartRenderTimingNextIdRef = useRef(1);
+  const chartRenderTimingRef = useRef<BalanceChartRenderTiming | undefined>(
+    undefined,
+  );
   const timeframeStateByTimeframe = timeframeState.byTimeframe;
   const {cancelAllScheduledWork, trackScheduledHandle, removeScheduledHandle} =
     useScheduledAfterInteractionsRegistry();
@@ -302,6 +481,9 @@ const BalanceHistoryChart = ({
   const scopedSnapshotsByWalletIdRef = useRef<BalanceSnapshotsByWalletId>({});
   const scopedSnapshotsVersionRef = useRef<string | undefined>(undefined);
   const fiatRateSeriesCacheRef = useRef(fiatRateSeriesCache);
+  const cachedTimeframeStatusByTimeframeRef = useRef<
+    Partial<Record<FiatRateInterval, BalanceChartTimingCacheStatus>>
+  >({});
 
   const {hasAnySnapshots, hasAnyChartableSnapshots, hasAnyMainnetWallet} =
     useMemo(() => {
@@ -421,6 +603,41 @@ const BalanceHistoryChart = ({
     scopedSnapshotsVersionRef.current = snapshotVersionSig;
     return next;
   }, [snapshotVersionSig, snapshotsByWalletId, sortedWalletIds]);
+
+  const scopedSnapshotCount = useMemo(() => {
+    let count = 0;
+
+    for (const walletId of sortedWalletIds) {
+      count += scopedSnapshotsByWalletId[walletId]?.length || 0;
+    }
+
+    return count;
+  }, [scopedSnapshotsByWalletId, sortedWalletIds]);
+
+  const updateChartRenderTiming = useCallback(
+    (
+      requestId: number | undefined,
+      timeframe: FiatRateInterval,
+      updater: (timing: BalanceChartRenderTiming) => void,
+    ): BalanceChartRenderTiming | undefined => {
+      if (typeof requestId !== 'number') {
+        return undefined;
+      }
+
+      const current = chartRenderTimingRef.current;
+      if (
+        !current ||
+        current.requestId !== requestId ||
+        current.timeframe !== timeframe
+      ) {
+        return undefined;
+      }
+
+      updater(current);
+      return current;
+    },
+    [],
+  );
 
   const liveSpotRatesByRateKey = useMemo(() => {
     return buildPnlCurrentRatesByRateKeyFromPortfolioSnapshots({
@@ -650,6 +867,35 @@ const BalanceHistoryChart = ({
     selectedTimeframeNeedsHistoricalRecompute;
 
   useEffect(() => {
+    cachedTimeframeStatusByTimeframeRef.current = cachedTimeframeStatusByTimeframe;
+  }, [cachedTimeframeStatusByTimeframe]);
+
+  useEffect(() => {
+    const requestId = chartRenderTimingNextIdRef.current;
+    chartRenderTimingNextIdRef.current += 1;
+    const cacheStatusAtRequest =
+      cachedTimeframeStatusByTimeframeRef.current[selectedTimeframe] || 'missing';
+
+    chartRenderTimingRef.current = {
+      requestId,
+      timeframe: selectedTimeframe,
+      quoteCurrency: (quoteCurrency || '').toUpperCase(),
+      walletCount: scopedWallets.length,
+      snapshotCount: scopedSnapshotCount,
+      cacheStatusAtRequest,
+      requestedAtMs: getChartTimingNowMs(),
+      status: 'pending',
+    };
+  }, [
+    quoteCurrency,
+    scopedSnapshotCount,
+    scopedWallets.length,
+    selectedTimeframe,
+    snapshotVersionSig,
+    scopeId,
+  ]);
+
+  useEffect(() => {
     analysisInputsReadyRevisionRef.current = analysisInputsReadyRevision;
   }, [analysisInputsReadyRevision]);
 
@@ -741,6 +987,19 @@ const BalanceHistoryChart = ({
       series: ComputedSeries;
     }> => {
       const nowMs = Date.now();
+      const timingRequestId =
+        chartRenderTimingRef.current?.timeframe === timeframe
+          ? chartRenderTimingRef.current.requestId
+          : undefined;
+      const computeStartedAtMs = getChartTimingNowMs();
+
+      updateChartRenderTiming(timingRequestId, timeframe, timing => {
+        if (!timing.computeScheduledAtMs) {
+          timing.computeScheduledAtMs = computeStartedAtMs;
+        }
+        timing.computeStartedAtMs = computeStartedAtMs;
+        timing.resultSource = 'computed';
+      });
 
       if (!fiatRateSeriesCache) {
         throw new Error('fiatRateSeriesCache missing');
@@ -771,10 +1030,14 @@ const BalanceHistoryChart = ({
           computeExactExtrema: false,
           computeAssetSummaries: false,
           yieldEveryPoints: isInteractiveTimeframe
-            ? 1
+            ? INTERACTIVE_CHART_COMPUTE_YIELD_EVERY_POINTS
             : CHART_COMPUTE_YIELD_EVERY_POINTS,
-          yieldEveryWallets: isInteractiveTimeframe ? 4 : 12,
-          yieldEverySnapshotAdvances: isInteractiveTimeframe ? 16 : 48,
+          yieldEveryWallets: isInteractiveTimeframe
+            ? INTERACTIVE_CHART_COMPUTE_YIELD_EVERY_WALLETS
+            : 12,
+          yieldEverySnapshotAdvances: isInteractiveTimeframe
+            ? INTERACTIVE_CHART_COMPUTE_YIELD_EVERY_SNAPSHOT_ADVANCES
+            : 48,
           yieldControl: yieldToMainThread,
           onHistoricalRateDependency: cacheKey => {
             if (cacheKey) {
@@ -784,6 +1047,11 @@ const BalanceHistoryChart = ({
         });
 
       let result: Awaited<ReturnType<typeof buildPnlAnalysisSeriesAsync>>;
+      const analysisStartedAtMs = getChartTimingNowMs();
+      updateChartRenderTiming(timingRequestId, timeframe, timing => {
+        timing.analysisStartedAtMs = analysisStartedAtMs;
+      });
+
       try {
         result = await buildAnalysis(nowMs);
       } catch (firstError) {
@@ -802,6 +1070,11 @@ const BalanceHistoryChart = ({
         }
         result = await buildAnalysis(fallbackNowMs);
       }
+      const analysisEndedAtMs = getChartTimingNowMs();
+      updateChartRenderTiming(timingRequestId, timeframe, timing => {
+        timing.analysisEndedAtMs = analysisEndedAtMs;
+        timing.postprocessStartedAtMs = analysisEndedAtMs;
+      });
 
       const analysisPoints = result.points || [];
       if (analysisPoints.length !== FIAT_RATE_SERIES_TARGET_POINTS) {
@@ -848,6 +1121,10 @@ const BalanceHistoryChart = ({
         exactExtrema: result.exactExtrema,
         patchMetadata,
       });
+      const postprocessEndedAtMs = getChartTimingNowMs();
+      updateChartRenderTiming(timingRequestId, timeframe, timing => {
+        timing.postprocessEndedAtMs = postprocessEndedAtMs;
+      });
 
       return {
         cacheEntry,
@@ -870,6 +1147,7 @@ const BalanceHistoryChart = ({
       selectedTimeframe,
       snapshotVersionSig,
       sortedWalletIds,
+      updateChartRenderTiming,
     ],
   );
 
@@ -903,6 +1181,48 @@ const BalanceHistoryChart = ({
     ],
   );
 
+  const onTimeframeComputeScheduled = useCallback(
+    (timeframe: FiatRateInterval) => {
+      const timingRequestId =
+        chartRenderTimingRef.current?.timeframe === timeframe
+          ? chartRenderTimingRef.current.requestId
+          : undefined;
+
+      updateChartRenderTiming(timingRequestId, timeframe, timing => {
+        if (!timing.computeScheduledAtMs) {
+          timing.computeScheduledAtMs = getChartTimingNowMs();
+        }
+      });
+    },
+    [updateChartRenderTiming],
+  );
+
+  const onComputeQueueError = useCallback(
+    (context: string, error: unknown) => {
+      const timeframeMatch = context.match(/compute failed for (.+)$/);
+      const timeframe = timeframeMatch?.[1] as FiatRateInterval | undefined;
+      const timingRequestId =
+        timeframe && chartRenderTimingRef.current?.timeframe === timeframe
+          ? chartRenderTimingRef.current.requestId
+          : undefined;
+
+      updateChartRenderTiming(timingRequestId, timeframe || selectedTimeframe, timing => {
+        const now = getChartTimingNowMs();
+        timing.status = 'error';
+        timing.errorMessage = formatUnknownError(error);
+        if (!timing.analysisEndedAtMs && timing.analysisStartedAtMs) {
+          timing.analysisEndedAtMs = now;
+        }
+        if (!timing.postprocessEndedAtMs && timing.postprocessStartedAtMs) {
+          timing.postprocessEndedAtMs = now;
+        }
+      });
+
+      logBalanceHistoryChartError(context, error);
+    },
+    [selectedTimeframe, updateChartRenderTiming],
+  );
+
   const {
     activeTimeframeRef,
     cancelActiveTimeframeCompute,
@@ -918,7 +1238,8 @@ const BalanceHistoryChart = ({
     getComputeDispositionForTimeframe,
     getTimeframeAttemptRevision,
     getTimeframeRevision,
-    onComputeError: logBalanceHistoryChartError,
+    onComputeError: onComputeQueueError,
+    onTimeframeComputeScheduled,
     scopeId,
     selectedTimeframe,
     setDisplayState,
@@ -1008,6 +1329,44 @@ const BalanceHistoryChart = ({
     });
   }, [selectedComputedSeries, selectedTimeframe]);
 
+  useEffect(() => {
+    const currentTiming = chartRenderTimingRef.current;
+    if (
+      !currentTiming ||
+      currentTiming.timeframe !== selectedTimeframe ||
+      currentTiming.displayReadyAtMs
+    ) {
+      return;
+    }
+
+    const hasSelectedSeries =
+      !!selectedComputedSeries ||
+      (displayState?.timeframe === selectedTimeframe && !!displayState?.series);
+    if (!hasSelectedSeries) {
+      return;
+    }
+
+    currentTiming.displayReadyAtMs = getChartTimingNowMs();
+    currentTiming.status = 'ready';
+
+    if (!currentTiming.resultSource) {
+      if (currentTiming.computeStartedAtMs) {
+        currentTiming.resultSource = 'computed';
+      } else if (currentTiming.cacheStatusAtRequest === 'patchable') {
+        currentTiming.resultSource = 'patchable_cache';
+      } else if (currentTiming.cacheStatusAtRequest === 'fresh') {
+        currentTiming.resultSource = 'fresh_cache';
+      } else {
+        currentTiming.resultSource = 'existing_series';
+      }
+    }
+  }, [
+    displayState?.series,
+    displayState?.timeframe,
+    selectedComputedSeries,
+    selectedTimeframe,
+  ]);
+
   const rangeLabel = useMemo(
     () => getRangeLabelForFiatTimeframe(t, displayedTimeframe),
     [displayedTimeframe, t],
@@ -1032,6 +1391,30 @@ const BalanceHistoryChart = ({
     onSelectedBalanceChangeRef,
     onChangeRowData,
   });
+
+  const handleCopyChartTiming = useCallback(() => {
+    const timing = chartRenderTimingRef.current;
+    const clipboardText = timing
+      ? buildBalanceChartTimingClipboardText(timing)
+      : 'No balance chart timing data recorded yet.';
+
+    Clipboard.setString(clipboardText);
+    dispatch(
+      showBottomNotificationModal({
+        type: 'success',
+        title: t('Copied'),
+        message: t('Chart timings copied to clipboard'),
+        enableBackdropDismiss: true,
+        actions: [
+          {
+            text: t('OK'),
+            action: () => {},
+            primary: true,
+          },
+        ],
+      }),
+    );
+  }, [dispatch, t]);
 
   const {MaxAxisLabel, MinAxisLabel} = useStableBalanceHistoryChartAxisLabels({
     activeSeries,
@@ -1081,6 +1464,10 @@ const BalanceHistoryChart = ({
     let prepareHandle: ScheduledAfterInteractionsHandle | undefined;
     const shouldResetPreparedInputs =
       analysisInputsReadyRevisionRef.current !== preparedInputsTargetRevision;
+    const timingRequestId =
+      chartRenderTimingRef.current?.timeframe === selectedTimeframe
+        ? chartRenderTimingRef.current.requestId
+        : undefined;
 
     if (!hasAnyChartableSnapshots || !shouldPrepareAnalysisInputs) {
       setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
@@ -1106,8 +1493,18 @@ const BalanceHistoryChart = ({
     }
 
     const generation = computeGenerationRef.current;
+    updateChartRenderTiming(timingRequestId, selectedTimeframe, timing => {
+      if (!timing.prepareScheduledAtMs) {
+        timing.prepareScheduledAtMs = getChartTimingNowMs();
+      }
+    });
     prepareHandle = scheduleAfterInteractionsAndFrames({
       callback: async signal => {
+        const prepareStartedAtMs = getChartTimingNowMs();
+        updateChartRenderTiming(timingRequestId, selectedTimeframe, timing => {
+          timing.prepareStartedAtMs = prepareStartedAtMs;
+        });
+
         const historicalDepKeys = new Set<string>();
         const prepared = await buildPnlWalletInputsFromPortfolioSnapshotsAsync(
           {
@@ -1146,6 +1543,14 @@ const BalanceHistoryChart = ({
             new Error('Prepared analysis inputs were empty.'),
           );
         }
+        const prepareEndedAtMs = getChartTimingNowMs();
+        updateChartRenderTiming(timingRequestId, selectedTimeframe, timing => {
+          timing.prepareEndedAtMs = prepareEndedAtMs;
+          if (!didPrepareWallets) {
+            timing.status = 'error';
+            timing.errorMessage = 'Prepared analysis inputs were empty.';
+          }
+        });
         startTransition(() => {
           if (computeGenerationRef.current !== generation) {
             return;
@@ -1174,6 +1579,12 @@ const BalanceHistoryChart = ({
         logBalanceHistoryChartError('prepare failed', error);
         analysisHistoricalDepKeysRef.current = new Set();
         analysisInputsReadyRevisionRef.current = undefined;
+        updateChartRenderTiming(timingRequestId, selectedTimeframe, timing => {
+          const now = getChartTimingNowMs();
+          timing.prepareEndedAtMs = now;
+          timing.status = 'error';
+          timing.errorMessage = formatUnknownError(error);
+        });
         startTransition(() => {
           if (computeGenerationRef.current !== generation) {
             return;
@@ -1201,7 +1612,9 @@ const BalanceHistoryChart = ({
     shouldPrepareAnalysisInputs,
     timeframeState.generation,
     trackScheduledHandle,
+    updateChartRenderTiming,
     removeScheduledHandle,
+    selectedTimeframe,
   ]);
 
   // On timeframe change, keep the previously rendered series visible while
@@ -1401,6 +1814,7 @@ const BalanceHistoryChart = ({
           percent={displayedChangeRowData?.percent ?? 0}
           deltaFiatFormatted={displayedChangeRowData?.deltaFiatFormatted}
           rangeLabel={displayedChangeRowData?.rangeLabel}
+          onLongPress={displayedChangeRowData ? handleCopyChartTiming : undefined}
           style={[
             changeRowStyle,
             !displayedChangeRowData ? {opacity: 0} : null,
