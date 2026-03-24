@@ -1125,7 +1125,7 @@ const BalanceHistoryChart = ({
           {
             signal,
             yieldEveryWallets: 1,
-            yieldEverySnapshots: 15,
+            yieldEverySnapshots: 100,
             yieldControl: yieldToMainThread,
           },
         );
