@@ -107,6 +107,13 @@ import {useBalanceHistoryChartComputeQueue} from './useBalanceHistoryChartComput
 import {useBalanceHistoryChartSelectionState} from './useBalanceHistoryChartSelectionState';
 import {useScheduledAfterInteractionsRegistry} from './useScheduledAfterInteractionsRegistry';
 import {useStableBalanceHistoryChartAxisLabels} from './useStableBalanceHistoryChartAxisLabels';
+import {
+  getPerfClockNowMs,
+  measurePerfSync,
+  recordPerfEvent,
+  startPerfSpan,
+  type PerfMetadata,
+} from '../../utils/perfLogger';
 
 const CHART_LOADER_DELAY_MS = 150;
 const CHART_COMPUTE_YIELD_EVERY_POINTS = 4;
@@ -136,6 +143,7 @@ export type BalanceHistoryChartProps = {
   wallets: Wallet[];
   snapshotsByWalletId: BalanceSnapshotsByWalletId;
   quoteCurrency: string;
+  perfContext?: string;
   initialSelectedTimeframe?: FiatRateInterval;
   rates?: Rates;
   fiatRateSeriesCache?: FiatRateSeriesCache;
@@ -210,6 +218,7 @@ const BalanceHistoryChart = ({
   wallets,
   snapshotsByWalletId,
   quoteCurrency,
+  perfContext = 'BalanceHistoryChart',
   initialSelectedTimeframe = DEFAULT_BALANCE_CHART_TIMEFRAME,
   rates,
   fiatRateSeriesCache,
@@ -290,8 +299,13 @@ const BalanceHistoryChart = ({
   const scopedSnapshotsVersionRef = useRef<string | undefined>(undefined);
   const fiatRateSeriesCacheRef = useRef(fiatRateSeriesCache);
 
-  const {hasAnySnapshots, hasAnyChartableSnapshots, hasAnyMainnetWallet} =
-    useMemo(() => {
+  const {
+    chartableSnapshotCount,
+    hasAnySnapshots,
+    hasAnyChartableSnapshots,
+    hasAnyMainnetWallet,
+    totalSnapshotCount,
+  } = useMemo(() => {
       let totalSnapshotCount = 0;
       let totalChartableSnapshotCount = 0;
       let anyMainnetWallet = false;
@@ -317,9 +331,11 @@ const BalanceHistoryChart = ({
       }
 
       return {
+        chartableSnapshotCount: totalChartableSnapshotCount,
         hasAnySnapshots: totalSnapshotCount > 0,
         hasAnyChartableSnapshots: totalChartableSnapshotCount > 0,
         hasAnyMainnetWallet: anyMainnetWallet,
+        totalSnapshotCount,
       };
     }, [snapshotsByWalletId, wallets]);
 
@@ -369,6 +385,30 @@ const BalanceHistoryChart = ({
     });
   }, [balanceOffset, quoteCurrency, sortedWalletIds]);
 
+  const buildPerfMetadata = useCallback(
+    (metadata?: PerfMetadata): PerfMetadata => {
+      return {
+        balanceOffset,
+        chartableSnapshotCount,
+        perfContext,
+        quoteCurrency: quoteCurrency.toUpperCase(),
+        scopeId,
+        totalSnapshotCount,
+        walletCount: sortedWalletIds.length,
+        ...metadata,
+      };
+    },
+    [
+      balanceOffset,
+      chartableSnapshotCount,
+      perfContext,
+      quoteCurrency,
+      scopeId,
+      sortedWalletIds.length,
+      totalSnapshotCount,
+    ],
+  );
+
   const snapshotVersionSig = useAppSelector(state => {
     return buildSnapshotVersionSig({
       walletIds: sortedWalletIds,
@@ -410,13 +450,20 @@ const BalanceHistoryChart = ({
   }, [snapshotVersionSig, snapshotsByWalletId, sortedWalletIds]);
 
   const liveSpotRatesByRateKey = useMemo(() => {
-    return buildPnlCurrentRatesByRateKeyFromPortfolioSnapshots({
-      snapshotsByWalletId: snapshotsByWalletId || {},
-      wallets: wallets || [],
-      quoteCurrency,
-      rates,
-    });
-  }, [quoteCurrency, rates, snapshotsByWalletId, wallets]);
+    return measurePerfSync(
+      'balance_chart.build_live_spot_rates',
+      () =>
+        buildPnlCurrentRatesByRateKeyFromPortfolioSnapshots({
+          snapshotsByWalletId: snapshotsByWalletId || {},
+          wallets: wallets || [],
+          quoteCurrency,
+          rates,
+        }),
+      buildPerfMetadata({
+        ratesAssetCount: Object.keys(rates || {}).length,
+      }),
+    );
+  }, [buildPerfMetadata, quoteCurrency, rates, snapshotsByWalletId, wallets]);
 
   const preparedSpotRatesByRateKey = analysisInputs.currentRatesByRateKey;
 
@@ -678,15 +725,23 @@ const BalanceHistoryChart = ({
     }
 
     const {patchedTimeframes, hydratedTimeframes, selectedHydratedSeries} =
-      buildHydratedBalanceChartTimeframes<ComputedSeries>({
-        timeframes: cachedScope.timeframes,
-        timeframeOrder: PRECOMPUTE_TIMEFRAME_ORDER,
-        selectedTimeframe,
-        cachedStatusByTimeframe: cachedTimeframeStatusByTimeframe,
-        currentSpotRatesByRateKey,
-        deserializeTimeframe: deserializeCachedTimeframeToComputedSeries,
-        getTimeframeRevision,
-      });
+      measurePerfSync(
+        'balance_chart.hydrate_cached_scope',
+        () =>
+          buildHydratedBalanceChartTimeframes<ComputedSeries>({
+            timeframes: cachedScope.timeframes,
+            timeframeOrder: PRECOMPUTE_TIMEFRAME_ORDER,
+            selectedTimeframe,
+            cachedStatusByTimeframe: cachedTimeframeStatusByTimeframe,
+            currentSpotRatesByRateKey,
+            deserializeTimeframe: deserializeCachedTimeframeToComputedSeries,
+            getTimeframeRevision,
+          }),
+        buildPerfMetadata({
+          cachedTimeframeCount: cachedScope.timeframes.length,
+          selectedTimeframe,
+        }),
+      );
 
     startTransition(() => {
       dispatchTimeframeState({
@@ -716,6 +771,7 @@ const BalanceHistoryChart = ({
       );
     }
   }, [
+    buildPerfMetadata,
     cachedScope,
     cachedTimeframeStatusByTimeframe,
     currentSpotRatesByRateKey,
@@ -794,6 +850,14 @@ const BalanceHistoryChart = ({
         ) {
           throw firstError;
         }
+
+        recordPerfEvent(
+          'balance_chart.compute_fallback_now_ms',
+          buildPerfMetadata({
+            fallbackNowMs,
+            timeframe,
+          }),
+        );
         result = await buildAnalysis(fallbackNowMs);
       }
 
@@ -859,6 +923,7 @@ const BalanceHistoryChart = ({
     [
       analysisInputs,
       balanceOffset,
+      buildPerfMetadata,
       currentSpotRatesByRateKey,
       fiatRateSeriesCache,
       snapshotVersionSig,
@@ -903,6 +968,7 @@ const BalanceHistoryChart = ({
     resetComputeQueue,
   } = useBalanceHistoryChartComputeQueue<ComputedSeries, ChangeRowData>({
     balanceOffset,
+    buildPerfMetadata,
     computeGenerationRef,
     computeSeriesForTimeframe,
     dispatch,
@@ -1036,6 +1102,15 @@ const BalanceHistoryChart = ({
 
   useEffect(() => {
     const generation = invalidateComputeGeneration();
+    recordPerfEvent(
+      'balance_chart.compute_generation_advanced',
+      buildPerfMetadata({
+        cacheRevision,
+        generation,
+        liveSpotRatesRevision,
+        preparedInputsTargetRevision,
+      }),
+    );
     startTransition(() => {
       dispatchTimeframeState({
         type: 'advanceGeneration',
@@ -1043,6 +1118,7 @@ const BalanceHistoryChart = ({
       });
     });
   }, [
+    buildPerfMetadata,
     cacheRevision,
     liveSpotRatesRevision,
     invalidateComputeGeneration,
@@ -1052,6 +1128,12 @@ const BalanceHistoryChart = ({
   // Reset only when the chart scope changes (wallet set / quote / balance offset).
   useEffect(() => {
     const generation = invalidateComputeGeneration();
+    recordPerfEvent(
+      'balance_chart.scope_reset',
+      buildPerfMetadata({
+        generation,
+      }),
+    );
     analysisHistoricalDepKeysRef.current = new Set();
     lastTouchedScopeIdRef.current = undefined;
     analysisInputsReadyRevisionRef.current = undefined;
@@ -1065,10 +1147,19 @@ const BalanceHistoryChart = ({
     });
     clearSelection();
     setDisplayState(undefined);
-  }, [clearSelection, invalidateComputeGeneration, quoteCurrency, scopeId]);
+  }, [
+    buildPerfMetadata,
+    clearSelection,
+    invalidateComputeGeneration,
+    quoteCurrency,
+    scopeId,
+  ]);
 
   useEffect(() => {
     let prepareHandle: ScheduledAfterInteractionsHandle | undefined;
+    let prepareSpan:
+      | ReturnType<typeof startPerfSpan>
+      | undefined;
     const shouldResetPreparedInputs =
       analysisInputsReadyRevisionRef.current !== preparedInputsTargetRevision;
 
@@ -1096,8 +1187,27 @@ const BalanceHistoryChart = ({
     }
 
     const generation = computeGenerationRef.current;
+    const prepareQueuedAtMs = getPerfClockNowMs();
+    recordPerfEvent(
+      'balance_chart.prepare_enqueued',
+      buildPerfMetadata({
+        generation,
+        preparedInputsTargetRevision,
+        selectedTimeframe,
+      }),
+    );
     prepareHandle = scheduleAfterInteractionsAndFrames({
       callback: async signal => {
+        const prepareStartedAtMs = getPerfClockNowMs();
+        prepareSpan = startPerfSpan(
+          'balance_chart.prepare_inputs',
+          buildPerfMetadata({
+            generation,
+            preparedInputsTargetRevision,
+            queueWaitMs: prepareStartedAtMs - prepareQueuedAtMs,
+            selectedTimeframe,
+          }),
+        );
         const historicalDepKeys = new Set<string>();
         const prepared = await buildPnlWalletInputsFromPortfolioSnapshotsAsync(
           {
@@ -1120,6 +1230,10 @@ const BalanceHistoryChart = ({
         );
 
         if (computeGenerationRef.current !== generation) {
+          prepareSpan.cancel({
+            historicalRateDependencyCount: historicalDepKeys.size,
+            reason: 'generation_changed',
+          });
           return;
         }
 
@@ -1130,10 +1244,19 @@ const BalanceHistoryChart = ({
         analysisHistoricalDepKeysRef.current = historicalDepKeys;
         analysisInputsReadyRevisionRef.current = nextReadyRevision;
         if (!didPrepareWallets) {
+          prepareSpan.finish({
+            historicalRateDependencyCount: historicalDepKeys.size,
+            preparedWalletCount: 0,
+          });
           logBalanceHistoryChartError(
             'prepare produced no wallets',
             new Error('Prepared analysis inputs were empty.'),
           );
+        } else {
+          prepareSpan.finish({
+            historicalRateDependencyCount: historicalDepKeys.size,
+            preparedWalletCount: prepared.wallets.length,
+          });
         }
         startTransition(() => {
           if (computeGenerationRef.current !== generation) {
@@ -1157,9 +1280,13 @@ const BalanceHistoryChart = ({
           computeGenerationRef.current !== generation ||
           isAbortError(error)
         ) {
+          prepareSpan?.cancel({
+            reason: isAbortError(error) ? 'aborted' : 'generation_changed',
+          });
           return;
         }
 
+        prepareSpan?.fail(error);
         logBalanceHistoryChartError('prepare failed', error);
         analysisHistoricalDepKeysRef.current = new Set();
         analysisInputsReadyRevisionRef.current = undefined;
@@ -1180,6 +1307,7 @@ const BalanceHistoryChart = ({
       removeScheduledHandle(prepareHandle, true);
     };
   }, [
+    buildPerfMetadata,
     hasAnyChartableSnapshots,
     inputsReady,
     preparedInputsTargetRevision,
@@ -1456,6 +1584,13 @@ const BalanceHistoryChart = ({
             horizontalInset={timeframeSelectorHorizontalInset}
             onSelect={timeframe => {
               clearSelection();
+              recordPerfEvent(
+                'balance_chart.timeframe_selected',
+                buildPerfMetadata({
+                  nextTimeframe: timeframe,
+                  previousTimeframe: selectedTimeframe,
+                }),
+              );
               onSelectedTimeframeChange?.(timeframe);
               setSelectedTimeframe(timeframe);
             }}

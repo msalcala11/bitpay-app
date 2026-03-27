@@ -101,6 +101,11 @@ import {MMKV} from 'react-native-mmkv';
 import {getErrorString} from '../utils/helper-methods';
 import {AppDispatch} from '../utils/hooks';
 import {logManager} from '../managers/LogManager';
+import {
+  measurePerfAsync,
+  measurePerfSync,
+  recordPerfEvent,
+} from '../utils/perfLogger';
 
 export const storage = new MMKV();
 
@@ -173,7 +178,14 @@ const restoreFromBackup = (reason: string): Promise<string | null> => {
 export const reduxStorage: Storage = {
   setItem: async (key, value) => {
     try {
-      storage.set(key, value);
+      measurePerfSync(
+        'persist.storage.mmkv_set_item',
+        () => storage.set(key, value),
+        {
+          storageKey: key,
+          valueLength: value?.length ?? 0,
+        },
+      );
     } catch (err) {
       addLog(
         LogActions.persistLog(
@@ -190,7 +202,15 @@ export const reduxStorage: Storage = {
         const hasBackup = await backupFileExists();
         if (backupTriggerAction || !hasBackup) {
           const triggerLabel = backupTriggerAction ?? 'no existing backup';
-          backupPersistRoot(value)
+          measurePerfAsync(
+            'persist.storage.backup_persist_root',
+            () => backupPersistRoot(value),
+            {
+              storageKey: key,
+              triggerLabel,
+              valueLength: value.length,
+            },
+          )
             .then(() =>
               logManager.debug(
                 `Backed up store to filesystem, triggered by ${triggerLabel}.`,
@@ -416,6 +436,32 @@ const getStore = async () => {
   }
 
   const secretKey = await getEncryptionKey().catch(() => getUniqueId());
+  const baseEncryptTransform = encryptTransform({
+    secretKey,
+    onError: err => {
+      const errStr =
+        err instanceof Error ? err.message : JSON.stringify(err);
+
+      store.dispatch(
+        LogActions.persistLog(
+          LogActions.error(`Encrypt transform failed - ${errStr}`),
+        ),
+      );
+    },
+    unencryptedStores: [
+      'APP',
+      'MARKET_STATS',
+      'PORTFOLIO',
+      'PORTFOLIO_CHARTS',
+      'RATE',
+      'SHOP',
+      'SHOP_CATALOG',
+      'WALLET',
+    ],
+  }) as {
+    in: (state: unknown, key: string, fullState: unknown) => unknown;
+    out: (state: unknown, key: string, fullState: unknown) => unknown;
+  };
 
   const rootPersistConfig = {
     ...basePersistConfig,
@@ -425,45 +471,59 @@ const getStore = async () => {
       transformContacts,
       transformPortfolioPopulateStatus,
       transformPortfolioSnapshotSeries,
-      createTransform<RootState, RootState, RootState>((inboundState, key) => {
-        // Clear out nested blacklisted fields before encrypting and persisting
-        if (typeof key === 'string') {
-          const reducerPersistBlackList =
-            reducerPersistBlackLists[key as keyof typeof reducers];
-          if (reducerPersistBlackList?.length) {
-            const fieldOverrides = reducerPersistBlackList.reduce(
-              (all, field) => ({...all, [field]: undefined}),
-              {},
-            );
-            return {...inboundState, ...fieldOverrides};
-          }
-        }
-        return inboundState;
-      }),
+      createTransform<RootState, RootState, RootState>(
+        (inboundState, key) =>
+          measurePerfSync(
+            'persist.transform.clear_blacklisted_fields.inbound',
+            () => {
+              // Clear out nested blacklisted fields before encrypting and persisting
+              if (typeof key === 'string') {
+                const reducerPersistBlackList =
+                  reducerPersistBlackLists[key as keyof typeof reducers];
+                if (reducerPersistBlackList?.length) {
+                  const fieldOverrides = reducerPersistBlackList.reduce(
+                    (all, field) => ({...all, [field]: undefined}),
+                    {},
+                  );
+                  return {...inboundState, ...fieldOverrides};
+                }
+              }
+              return inboundState;
+            },
+            {
+              reduxKey: key,
+            },
+          ),
+      ),
       encryptSpecificFields(secretKey),
-      encryptTransform({
-        secretKey,
-        onError: err => {
-          const errStr =
-            err instanceof Error ? err.message : JSON.stringify(err);
-
-          store.dispatch(
-            LogActions.persistLog(
-              LogActions.error(`Encrypt transform failed - ${errStr}`),
-            ),
-          );
-        },
-        unencryptedStores: [
-          'APP',
-          'MARKET_STATS',
-          'PORTFOLIO',
-          'PORTFOLIO_CHARTS',
-          'RATE',
-          'SHOP',
-          'SHOP_CATALOG',
-          'WALLET',
-        ],
-      }),
+      createTransform(
+        (inboundState, key, fullState) =>
+          measurePerfSync(
+            'persist.transform.encrypt_transform.inbound',
+            () =>
+              baseEncryptTransform.in(
+                inboundState,
+                key as string,
+                fullState,
+              ),
+            {
+              reduxKey: key,
+            },
+          ),
+        (outboundState, key, fullState) =>
+          measurePerfSync(
+            'persist.transform.encrypt_transform.outbound',
+            () =>
+              baseEncryptTransform.out(
+                outboundState,
+                key as string,
+                fullState,
+              ),
+            {
+              reduxKey: key,
+            },
+          ),
+      ),
     ],
   };
 
@@ -480,6 +540,9 @@ const getStore = async () => {
           try {
             const keysCount = storage.getAllKeys().length;
             logManager.info(`persist/PERSIST start - storageKeys:${keysCount}`);
+            recordPerfEvent('persist.lifecycle.persist', {
+              storageKeyCount: keysCount,
+            });
           } catch (_) {}
         } else if (
           action.type === 'persist/REHYDRATE' &&
@@ -509,6 +572,11 @@ const getStore = async () => {
                 sizeByReduxKey,
               )}`,
             );
+            recordPerfEvent('persist.lifecycle.rehydrate', {
+              durationMs: took,
+              sizeByReduxKey,
+              totalSize,
+            });
           } catch (_) {}
         }
       }

@@ -151,6 +151,7 @@ import {isTSSKey} from '../../../store/wallet/effects/tss-send/tss-send';
 import {logManager} from '../../../managers/LogManager';
 import type {RootState} from '../../../store';
 import {getQuoteCurrency} from '../../../utils/portfolio/assets';
+import {measurePerfAsync, recordPerfEvent} from '../../../utils/perfLogger';
 
 export type WalletDetailsScreenParamList = {
   walletId: string;
@@ -406,11 +407,21 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
       defaultAltCurrencyIsoCode: state.APP?.defaultAltCurrency?.isoCode,
     }).toUpperCase();
 
-    await dispatch(
-      maybePopulatePortfolioForWallets({
-        wallets: [wallet],
+    await measurePerfAsync(
+      'screen.wallet_details.populate_portfolio_for_chart',
+      async () => {
+        await dispatch(
+          maybePopulatePortfolioForWallets({
+            wallets: [wallet],
+            quoteCurrency,
+          }) as any,
+        );
+      },
+      {
         quoteCurrency,
-      }) as any,
+        screen: 'WalletDetails',
+        walletId: wallet.id,
+      },
     );
   }, [dispatch, getLatestWalletFromReduxState]);
 
@@ -754,6 +765,10 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   };
 
   useEffect(() => {
+    recordPerfEvent('screen.focus', {
+      screen: 'WalletDetails',
+      walletId: fullWalletObj?.id,
+    });
     dispatch(
       Analytics.track('View Wallet', {
         coin: fullWalletObj?.currencyAbbreviation,
@@ -1315,6 +1330,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
                       wallets={[fullWalletObj]}
                       snapshotsByWalletId={snapshotsByWalletId || {}}
                       quoteCurrency={defaultAltCurrency.isoCode}
+                      perfContext="WalletDetails"
                       rates={rates}
                       fiatRateSeriesCache={fiatRateSeriesCache}
                       lineColor={chartLineColor}

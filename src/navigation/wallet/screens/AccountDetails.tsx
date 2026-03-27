@@ -173,6 +173,11 @@ import {ExternalServicesScreens} from '../../services/ExternalServicesGroup';
 import {AllocationDonutLegendCard} from '../../tabs/home/components/AllocationSection';
 import {AllocationRowsList} from '../../tabs/home/screens/Allocation';
 import {buildAllocationDataFromWalletRows} from '../../../utils/portfolio/allocation';
+import {
+  measurePerfAsync,
+  measurePerfSync,
+  recordPerfEvent,
+} from '../../../utils/perfLogger';
 
 export type AccountDetailsScreenParamList = {
   selectedAccountAddress: string;
@@ -444,10 +449,20 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
 
   const keyFullWalletObjs = useMemo(
     () =>
-      uniqBy(
-        key.wallets.filter(w => w.receiveAddress === selectedAccountAddress),
-        wallet => {
-          return wallet.id;
+      measurePerfSync(
+        'screen.account_details.key_full_wallet_objs',
+        () =>
+          uniqBy(
+            key.wallets.filter(w => w.receiveAddress === selectedAccountAddress),
+            wallet => {
+              return wallet.id;
+            },
+          ),
+        {
+          keyId: key?.id,
+          screen: 'AccountDetails',
+          selectedAccountAddress,
+          walletCount: key?.wallets?.length || 0,
         },
       ),
     [key, selectedAccountAddress],
@@ -462,10 +477,17 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   });
   const pendingProposalsCount = Object.values(pendingTxps).length;
   const memorizedAccountList = useMemo(() => {
-    return (
-      buildAccountList(key, defaultAltCurrency.isoCode, rates, dispatch, {
-        filterByHideWallet: true,
-      }).filter(({chains}) => IsVMChain(chains[0])) || {}
+    return measurePerfSync(
+      'screen.account_details.build_account_list',
+      () =>
+        buildAccountList(key, defaultAltCurrency.isoCode, rates, dispatch, {
+          filterByHideWallet: true,
+        }).filter(({chains}) => IsVMChain(chains[0])) || {},
+      {
+        keyId: key?.id,
+        screen: 'AccountDetails',
+        walletCount: key?.wallets?.length || 0,
+      },
     );
   }, [dispatch, key, defaultAltCurrency.isoCode, rates]);
 
@@ -789,17 +811,32 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   const loadHistoryRef = useRef(debouncedLoadHistory);
 
   const updateWalletStatusAndProfileBalance = async () => {
-    await dispatch(
-      startUpdateAllWalletStatusForKey({
-        key,
+    await measurePerfAsync(
+      'screen.account_details.update_wallet_status_and_balance',
+      async () => {
+        await dispatch(
+          startUpdateAllWalletStatusForKey({
+            key,
+            accountAddress: accountItem?.receiveAddress,
+            force: true,
+          }),
+        );
+        dispatch(updatePortfolioBalance());
+      },
+      {
         accountAddress: accountItem?.receiveAddress,
-        force: true,
-      }),
+        keyId: key?.id,
+        screen: 'AccountDetails',
+      },
     );
-    dispatch(updatePortfolioBalance());
   };
 
   useEffect(() => {
+    recordPerfEvent('screen.focus', {
+      accountAddress: selectedAccountAddress,
+      keyId: key?.id,
+      screen: 'AccountDetails',
+    });
     dispatch(Analytics.track('View Account'));
     const timer = setTimeout(() => {
       updateWalletStatusAndProfileBalance();
@@ -1290,21 +1327,33 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await sleep(1000);
     try {
-      await dispatch(startGetRates({}));
-      activeTab === 'activity'
-        ? await debouncedLoadHistory(selectedChainFilterOption, true)
-        : await dispatch(
-            startUpdateAllWalletStatusForKey({
-              key,
-              accountAddress: accountItem?.receiveAddress,
-              force: true,
-              createTokenWalletWithFunds: true,
-            }),
-          );
-      dispatch(updatePortfolioBalance());
-      setNeedActionTxps(pendingTxps);
+      await measurePerfAsync(
+        'screen.account_details.on_refresh',
+        async () => {
+          await sleep(1000);
+          await dispatch(startGetRates({}));
+          activeTab === 'activity'
+            ? await debouncedLoadHistory(selectedChainFilterOption, true)
+            : await dispatch(
+                startUpdateAllWalletStatusForKey({
+                  key,
+                  accountAddress: accountItem?.receiveAddress,
+                  force: true,
+                  createTokenWalletWithFunds: true,
+                }),
+              );
+          dispatch(updatePortfolioBalance());
+          setNeedActionTxps(pendingTxps);
+        },
+        {
+          accountAddress: accountItem?.receiveAddress,
+          activeTab,
+          keyId: key?.id,
+          screen: 'AccountDetails',
+          selectedChainFilterOption,
+        },
+      );
     } catch (err) {
       dispatch(showBottomNotificationModal(BalanceUpdateError()));
     }
@@ -1321,27 +1370,39 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   }, [t]);
 
   const accountAllocationData = useMemo(() => {
-    if (activeTab !== 'allocation') {
-      return {
-        totalFiat: 0,
-        legendItems: [],
-        slices: [],
-        rows: [],
-      };
-    }
+    return measurePerfSync(
+      'screen.account_details.allocation_data',
+      () => {
+        if (activeTab !== 'allocation') {
+          return {
+            totalFiat: 0,
+            legendItems: [],
+            slices: [],
+            rows: [],
+          };
+        }
 
-    const wallets = (accountItem?.wallets || []) as WalletRowProps[];
-    const filteredWallets = selectedChainFilterOption
-      ? wallets.filter(w => w.chain === selectedChainFilterOption)
-      : wallets;
+        const wallets = (accountItem?.wallets || []) as WalletRowProps[];
+        const filteredWallets = selectedChainFilterOption
+          ? wallets.filter(w => w.chain === selectedChainFilterOption)
+          : wallets;
 
-    return buildAllocationDataFromWalletRows(
-      filteredWallets,
-      defaultAltCurrency.isoCode,
+        return buildAllocationDataFromWalletRows(
+          filteredWallets,
+          defaultAltCurrency.isoCode,
+        );
+      },
+      {
+        activeTab,
+        keyId: key?.id,
+        screen: 'AccountDetails',
+        selectedChainFilterOption,
+      },
     );
   }, [
     activeTab,
     accountItem?.wallets,
+    key?.id,
     defaultAltCurrency.isoCode,
     selectedChainFilterOption,
   ]);
@@ -1368,7 +1429,15 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   }, [isLoading, errorLoadingTxs, groupedHistory, ghostTownEmptyState]);
 
   const memorizedAssetsByChainList = useMemo(() => {
-    return buildAssetsByChainList(accountItem, defaultAltCurrency.isoCode);
+    return measurePerfSync(
+      'screen.account_details.assets_by_chain_list',
+      () => buildAssetsByChainList(accountItem, defaultAltCurrency.isoCode),
+      {
+        keyId: key?.id,
+        screen: 'AccountDetails',
+        walletCount: accountItem?.wallets?.length || 0,
+      },
+    );
   }, [key, accountItem, defaultAltCurrency.isoCode]);
 
   const allocationHasAnyBalance = useMemo(() => {
@@ -1434,6 +1503,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
                 wallets={keyFullWalletObjs}
                 snapshotsByWalletId={snapshotsByWalletId || {}}
                 quoteCurrency={defaultAltCurrency.isoCode}
+                perfContext="AccountDetails"
                 rates={rates}
                 fiatRateSeriesCache={fiatRateSeriesCache}
                 timeframeSelectorWidth={timeframeSelectorWidth}

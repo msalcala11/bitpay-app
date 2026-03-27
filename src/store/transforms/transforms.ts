@@ -30,6 +30,7 @@ import {
   packBalanceSnapshotsToSeries,
 } from '../../utils/portfolio/core/pnl/snapshotSeries';
 import type {BalanceSnapshotStored} from '../../utils/portfolio/core/pnl/types';
+import {measurePerfSync} from '../../utils/perfLogger';
 
 const getUtcDayStartMs = (tsMs: number): number => {
   const d = new Date(tsMs);
@@ -288,148 +289,170 @@ export const transformPortfolioSnapshotSeries = createTransform<
   any
 >(
   inboundState => {
-    if (!ENABLE_PORTFOLIO_SNAPSHOT_SERIES_PERSIST_COMPRESSION) {
-      return inboundState;
-    }
-    try {
-      const map = (inboundState as any)?.snapshotsByWalletId || {};
-      const outMap: Record<string, any> = {};
+    return measurePerfSync(
+      'persist.transform.portfolio_snapshot_series.inbound',
+      () => {
+        if (!ENABLE_PORTFOLIO_SNAPSHOT_SERIES_PERSIST_COMPRESSION) {
+          return inboundState;
+        }
+        try {
+          const map = (inboundState as any)?.snapshotsByWalletId || {};
+          const outMap: Record<string, any> = {};
 
-      for (const [walletId, snapsRaw] of Object.entries(map)) {
-        const snaps = Array.isArray(snapsRaw)
-          ? (snapsRaw as BalanceSnapshot[])
-          : [];
-        if (!snaps.length) continue;
-        const orderedSnaps = ensureChronologicalByTimestamp(snaps);
+          for (const [walletId, snapsRaw] of Object.entries(map)) {
+            const snaps = Array.isArray(snapsRaw)
+              ? (snapsRaw as BalanceSnapshot[])
+              : [];
+            if (!snaps.length) continue;
+            const orderedSnaps = ensureChronologicalByTimestamp(snaps);
 
-        const compressionEnabled = orderedSnaps.some(
-          s => s.eventType === 'daily',
-        );
-        const lastSnapshot = orderedSnaps[orderedSnaps.length - 1];
-        const createdAt = toFiniteNumber(lastSnapshot?.createdAt, Date.now());
+            const compressionEnabled = orderedSnaps.some(
+              s => s.eventType === 'daily',
+            );
+            const lastSnapshot = orderedSnaps[orderedSnaps.length - 1];
+            const createdAt = toFiniteNumber(lastSnapshot?.createdAt, Date.now());
 
-        const minimal: BalanceSnapshotStored[] = orderedSnaps.map(s => {
-          const snapshot = (s || {}) as Partial<BalanceSnapshot> & {
-            walletId?: unknown;
-            markRate?: unknown;
-          };
-          const markRate = getSnapshotMarkRate(snapshot);
+            const minimal: BalanceSnapshotStored[] = orderedSnaps.map(s => {
+              const snapshot = (s || {}) as Partial<BalanceSnapshot> & {
+                walletId?: unknown;
+                markRate?: unknown;
+              };
+              const markRate = getSnapshotMarkRate(snapshot);
+
+              return {
+                id: String(snapshot.id || ''),
+                walletId: String(snapshot.walletId || walletId),
+                chain: String(snapshot.chain || ''),
+                coin: String(snapshot.coin || ''),
+                network: String(snapshot.network || ''),
+                assetId: String(snapshot.assetId || ''),
+                timestamp: toFiniteNumber(snapshot.timestamp, 0),
+                eventType: toSnapshotEventType(snapshot.eventType),
+                txIds: Array.isArray(snapshot.txIds)
+                  ? snapshot.txIds.map(String)
+                  : undefined,
+                // In this app's PORTFOLIO store, cryptoBalance is a UNIT string,
+                // even though BalanceSnapshotStored's core comment calls it atomic.
+                cryptoBalance: String(snapshot.cryptoBalance || '0'),
+                balanceDeltaAtomic: snapshot.balanceDeltaAtomic,
+                remainingCostBasisFiat: toFiniteNumber(
+                  snapshot.remainingCostBasisFiat,
+                  0,
+                ),
+                quoteCurrency: String(
+                  snapshot.quoteCurrency ||
+                    (inboundState as any)?.quoteCurrency ||
+                    '',
+                ),
+                markRate: toFiniteNumber(markRate, 0),
+                createdAt:
+                  typeof snapshot.createdAt === 'number'
+                    ? snapshot.createdAt
+                    : undefined,
+              };
+            });
+
+            const series = packBalanceSnapshotsToSeries({
+              snapshots: minimal,
+              compressionEnabled,
+              createdAt,
+            });
+
+            if (series) {
+              outMap[walletId] = series;
+            }
+          }
 
           return {
-            id: String(snapshot.id || ''),
-            walletId: String(snapshot.walletId || walletId),
-            chain: String(snapshot.chain || ''),
-            coin: String(snapshot.coin || ''),
-            network: String(snapshot.network || ''),
-            assetId: String(snapshot.assetId || ''),
-            timestamp: toFiniteNumber(snapshot.timestamp, 0),
-            eventType: toSnapshotEventType(snapshot.eventType),
-            txIds: Array.isArray(snapshot.txIds)
-              ? snapshot.txIds.map(String)
-              : undefined,
-            // In this app's PORTFOLIO store, cryptoBalance is a UNIT string,
-            // even though BalanceSnapshotStored's core comment calls it atomic.
-            cryptoBalance: String(snapshot.cryptoBalance || '0'),
-            balanceDeltaAtomic: snapshot.balanceDeltaAtomic,
-            remainingCostBasisFiat: toFiniteNumber(
-              snapshot.remainingCostBasisFiat,
-              0,
-            ),
-            quoteCurrency: String(
-              snapshot.quoteCurrency ||
-                (inboundState as any)?.quoteCurrency ||
-                '',
-            ),
-            markRate: toFiniteNumber(markRate, 0),
-            createdAt:
-              typeof snapshot.createdAt === 'number'
-                ? snapshot.createdAt
-                : undefined,
+            ...inboundState,
+            snapshotsByWalletId: outMap as any,
           };
-        });
-
-        const series = packBalanceSnapshotsToSeries({
-          snapshots: minimal,
-          compressionEnabled,
-          createdAt,
-        });
-
-        if (series) {
-          outMap[walletId] = series;
+        } catch (_) {
+          return inboundState;
         }
-      }
-
-      return {
-        ...inboundState,
-        snapshotsByWalletId: outMap as any,
-      };
-    } catch (_) {
-      return inboundState;
-    }
+      },
+      {
+        reduxKey: 'PORTFOLIO',
+        snapshotWalletCount: Object.keys(
+          (inboundState as any)?.snapshotsByWalletId || {},
+        ).length,
+      },
+    );
   },
   outboundState => {
-    try {
-      const map = (outboundState as any)?.snapshotsByWalletId || {};
-      const outMap: Record<string, BalanceSnapshot[]> = {};
+    return measurePerfSync(
+      'persist.transform.portfolio_snapshot_series.outbound',
+      () => {
+        try {
+          const map = (outboundState as any)?.snapshotsByWalletId || {};
+          const outMap: Record<string, BalanceSnapshot[]> = {};
 
-      for (const [walletId, value] of Object.entries(map)) {
-        if (isBalanceSnapshotSeries(value)) {
-          const minimal = ensureChronologicalByTimestamp(
-            hydrateBalanceSnapshotsFromSeries(value),
-          );
-          const snaps: BalanceSnapshot[] = minimal.map(s => {
-            const units = toFiniteNumber(s.cryptoBalance, 0);
-            const markRate = toFiniteNumber(s.markRate, 0);
-            const fiatBalance = units * markRate;
-            const remainingCostBasisFiat = toFiniteNumber(
-              s.remainingCostBasisFiat || 0,
-              0,
-            );
-            const avgCostFiatPerUnit =
-              units > 0 ? remainingCostBasisFiat / units : 0;
-            const unrealizedPnlFiat = fiatBalance - remainingCostBasisFiat;
-            const txIds =
-              Array.isArray(s.txIds) && s.txIds.length > 1
-                ? s.txIds
-                : undefined;
+          for (const [walletId, value] of Object.entries(map)) {
+            if (isBalanceSnapshotSeries(value)) {
+              const minimal = ensureChronologicalByTimestamp(
+                hydrateBalanceSnapshotsFromSeries(value),
+              );
+              const snaps: BalanceSnapshot[] = minimal.map(s => {
+                const units = toFiniteNumber(s.cryptoBalance, 0);
+                const markRate = toFiniteNumber(s.markRate, 0);
+                const fiatBalance = units * markRate;
+                const remainingCostBasisFiat = toFiniteNumber(
+                  s.remainingCostBasisFiat || 0,
+                  0,
+                );
+                const avgCostFiatPerUnit =
+                  units > 0 ? remainingCostBasisFiat / units : 0;
+                const unrealizedPnlFiat = fiatBalance - remainingCostBasisFiat;
+                const txIds =
+                  Array.isArray(s.txIds) && s.txIds.length > 1
+                    ? s.txIds
+                    : undefined;
 
-            return {
-              id: s.id,
-              chain: s.chain,
-              coin: s.coin,
-              network: s.network,
-              assetId: s.assetId,
-              timestamp: s.timestamp,
-              dayStartMs:
-                s.eventType === 'daily'
-                  ? getUtcDayStartMs(s.timestamp)
-                  : undefined,
-              eventType: s.eventType,
-              txIds,
-              balanceDeltaAtomic: s.balanceDeltaAtomic,
-              cryptoBalance: s.cryptoBalance,
-              avgCostFiatPerUnit,
-              remainingCostBasisFiat,
-              unrealizedPnlFiat,
-              costBasisRateFiat: markRate,
-              quoteCurrency: s.quoteCurrency,
-              createdAt: s.createdAt,
-            } as BalanceSnapshot;
-          });
-          outMap[walletId] = snaps;
-        } else if (Array.isArray(value)) {
-          // Support uncompressed/raw snapshots when inbound packing is disabled.
-          outMap[walletId] = value as BalanceSnapshot[];
+                return {
+                  id: s.id,
+                  chain: s.chain,
+                  coin: s.coin,
+                  network: s.network,
+                  assetId: s.assetId,
+                  timestamp: s.timestamp,
+                  dayStartMs:
+                    s.eventType === 'daily'
+                      ? getUtcDayStartMs(s.timestamp)
+                      : undefined,
+                  eventType: s.eventType,
+                  txIds,
+                  balanceDeltaAtomic: s.balanceDeltaAtomic,
+                  cryptoBalance: s.cryptoBalance,
+                  avgCostFiatPerUnit,
+                  remainingCostBasisFiat,
+                  unrealizedPnlFiat,
+                  costBasisRateFiat: markRate,
+                  quoteCurrency: s.quoteCurrency,
+                  createdAt: s.createdAt,
+                } as BalanceSnapshot;
+              });
+              outMap[walletId] = snaps;
+            } else if (Array.isArray(value)) {
+              // Support uncompressed/raw snapshots when inbound packing is disabled.
+              outMap[walletId] = value as BalanceSnapshot[];
+            }
+          }
+
+          return {
+            ...outboundState,
+            snapshotsByWalletId: outMap,
+          };
+        } catch (_) {
+          return outboundState;
         }
-      }
-
-      return {
-        ...outboundState,
-        snapshotsByWalletId: outMap,
-      };
-    } catch (_) {
-      return outboundState;
-    }
+      },
+      {
+        reduxKey: 'PORTFOLIO',
+        snapshotWalletCount: Object.keys(
+          (outboundState as any)?.snapshotsByWalletId || {},
+        ).length,
+      },
+    );
   },
   {whitelist: ['PORTFOLIO']},
 );
@@ -440,21 +463,39 @@ export const encryptSpecificFields = (secretKey: string) => {
     (inboundState, key) => {
       if (key === 'WALLET') {
         try {
-          return encryptWalletStore(inboundState, secretKey);
+          return measurePerfSync(
+            'persist.transform.encrypt_specific_fields.inbound',
+            () => encryptWalletStore(inboundState, secretKey),
+            {
+              reduxKey: key,
+            },
+          );
         } catch (error) {
           logTransformFailure('encrypt', 'Wallet', error);
         }
       }
       if (key === 'APP') {
         try {
-          return encryptAppStore(inboundState, secretKey);
+          return measurePerfSync(
+            'persist.transform.encrypt_specific_fields.inbound',
+            () => encryptAppStore(inboundState, secretKey),
+            {
+              reduxKey: key,
+            },
+          );
         } catch (error) {
           logTransformFailure('encrypt', 'App', error);
         }
       }
       if (key === 'SHOP') {
         try {
-          return encryptShopStore(inboundState, secretKey);
+          return measurePerfSync(
+            'persist.transform.encrypt_specific_fields.inbound',
+            () => encryptShopStore(inboundState, secretKey),
+            {
+              reduxKey: key,
+            },
+          );
         } catch (error) {
           logTransformFailure('encrypt', 'Shop', error);
         }
@@ -465,21 +506,39 @@ export const encryptSpecificFields = (secretKey: string) => {
     (outboundState, key) => {
       if (key === 'WALLET') {
         try {
-          return decryptWalletStore(outboundState, secretKey);
+          return measurePerfSync(
+            'persist.transform.encrypt_specific_fields.outbound',
+            () => decryptWalletStore(outboundState, secretKey),
+            {
+              reduxKey: key,
+            },
+          );
         } catch (error) {
           logTransformFailure('decrypt', 'Wallet', error);
         }
       }
       if (key === 'APP') {
         try {
-          return decryptAppStore(outboundState, secretKey);
+          return measurePerfSync(
+            'persist.transform.encrypt_specific_fields.outbound',
+            () => decryptAppStore(outboundState, secretKey),
+            {
+              reduxKey: key,
+            },
+          );
         } catch (error) {
           logTransformFailure('decrypt', 'App', error);
         }
       }
       if (key === 'SHOP') {
         try {
-          return decryptShopStore(outboundState, secretKey);
+          return measurePerfSync(
+            'persist.transform.encrypt_specific_fields.outbound',
+            () => decryptShopStore(outboundState, secretKey),
+            {
+              reduxKey: key,
+            },
+          );
         } catch (error) {
           logTransformFailure('decrypt', 'Shop', error);
         }

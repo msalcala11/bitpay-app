@@ -139,6 +139,7 @@ const AssetBalanceHistoryScreen = ({
             wallets={shared.assetWallets}
             snapshotsByWalletId={snapshotsByWalletId}
             quoteCurrency={shared.resolvedQuoteCurrency}
+            perfContext="AssetBalanceHistoryScreen"
             rates={shared.rates}
             fiatRateSeriesCache={shared.fiatRateSeriesCache}
             lineColor={shared.chartLineColor}

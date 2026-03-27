@@ -87,6 +87,11 @@ import {
   walletHasNonZeroLiveBalance,
 } from '../../../utils/portfolio/assets';
 import {sortNewestFirst} from '../../../utils/braze';
+import {
+  measurePerfAsync,
+  measurePerfSync,
+  recordPerfEvent,
+} from '../../../utils/perfLogger';
 
 export type HomeScreenProps = NativeStackScreenProps<
   TabsStackParamList,
@@ -123,16 +128,36 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   const hasKeys = Object.values(keys).length;
 
   const portfolioAllocationTotalFiat = useMemo(() => {
-    return getPortfolioAllocationTotalFiat({
-      keys,
-      homeCarouselConfig,
-    });
+    return measurePerfSync(
+      'screen.home_root.portfolio_allocation_total_fiat',
+      () =>
+        getPortfolioAllocationTotalFiat({
+          keys,
+          homeCarouselConfig,
+        }),
+      {
+        keyCount: Object.keys(keys || {}).length,
+        screen: 'HomeRoot',
+      },
+    );
   }, [homeCarouselConfig, keys]);
 
   const hasAnyVisibleWalletBalance = useMemo(() => {
-    const visibleWallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
+    return measurePerfSync(
+      'screen.home_root.has_any_visible_wallet_balance',
+      () => {
+        const visibleWallets = getVisibleWalletsFromKeys(
+          keys,
+          homeCarouselConfig,
+        );
 
-    return visibleWallets.some(walletHasNonZeroLiveBalance);
+        return visibleWallets.some(walletHasNonZeroLiveBalance);
+      },
+      {
+        keyCount: Object.keys(keys || {}).length,
+        screen: 'HomeRoot',
+      },
+    );
   }, [homeCarouselConfig, keys]);
 
   const showPortfolioAllocationSection =
@@ -190,109 +215,122 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
     defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
   }).toUpperCase();
   const memoizedExchangeRates: Array<ExchangeRateItemProps> = useMemo(() => {
-    const baselineTimestampMs = getLastDayTimestampStartOfHourMs();
-    const result = (
-      Object.entries(lastDayRates) as Array<[string, Rate[]]>
-    ).reduce((ratesList, [key, lastDayRate]) => {
-      const lastDayRateForDefaultCurrency = lastDayRate.find(
-        ({code}: {code: string}) => code === quoteCurrency,
-      );
-      const rateForDefaultCurrency = rates[key].find(
-        ({code}: {code: string}) => code === quoteCurrency,
-      );
-      const {coin: targetCoin, chain: targetChain} =
-        getCoinAndChainFromCurrencyCode(key);
-      const option = findSupportedCurrencyOptionForAsset({
-        options: SupportedCurrencyOptions,
-        currencyAbbreviation: targetCoin,
-        chain: targetChain,
-      });
-
-      if (option && option.chain && option.currencyAbbreviation) {
-        const currencyName = getCurrencyAbbreviation(
-          option?.tokenAddress
-            ? option?.tokenAddress
-            : option?.currencyAbbreviation,
-          option?.chain,
-        );
-        const isStableCoin =
-          BitpaySupportedCoins[currencyName]?.properties?.isStableCoin ||
-          BitpaySupportedTokens[currencyName]?.properties?.isStableCoin;
-
-        if (
-          rateForDefaultCurrency?.rate &&
-          !isStableCoin &&
-          EXCHANGE_RATES_CURRENCIES.includes(
-            option.currencyAbbreviation.toLowerCase(),
-          )
-        ) {
-          const prevRateFromSeries = getFiatRateFromSeriesCacheAtTimestamp({
-            fiatRateSeriesCache,
-            fiatCode: quoteCurrency,
-            currencyAbbreviation: option.currencyAbbreviation,
-            interval: '1D',
-            timestampMs: baselineTimestampMs,
-            method: 'linear',
+    return measurePerfSync(
+      'screen.home_root.exchange_rates_list',
+      () => {
+        const baselineTimestampMs = getLastDayTimestampStartOfHourMs();
+        const result = (
+          Object.entries(lastDayRates) as Array<[string, Rate[]]>
+        ).reduce((ratesList, [key, lastDayRate]) => {
+          const lastDayRateForDefaultCurrency = lastDayRate.find(
+            ({code}: {code: string}) => code === quoteCurrency,
+          );
+          const rateForDefaultCurrency = rates[key].find(
+            ({code}: {code: string}) => code === quoteCurrency,
+          );
+          const {coin: targetCoin, chain: targetChain} =
+            getCoinAndChainFromCurrencyCode(key);
+          const option = findSupportedCurrencyOptionForAsset({
+            options: SupportedCurrencyOptions,
+            currencyAbbreviation: targetCoin,
+            chain: targetChain,
           });
-          const prevRate =
-            prevRateFromSeries ?? lastDayRateForDefaultCurrency?.rate;
 
-          if (!(prevRate && prevRate > 0)) {
-            return ratesList;
+          if (option && option.chain && option.currencyAbbreviation) {
+            const currencyName = getCurrencyAbbreviation(
+              option?.tokenAddress
+                ? option?.tokenAddress
+                : option?.currencyAbbreviation,
+              option?.chain,
+            );
+            const isStableCoin =
+              BitpaySupportedCoins[currencyName]?.properties?.isStableCoin ||
+              BitpaySupportedTokens[currencyName]?.properties?.isStableCoin;
+
+            if (
+              rateForDefaultCurrency?.rate &&
+              !isStableCoin &&
+              EXCHANGE_RATES_CURRENCIES.includes(
+                option.currencyAbbreviation.toLowerCase(),
+              )
+            ) {
+              const prevRateFromSeries = getFiatRateFromSeriesCacheAtTimestamp({
+                fiatRateSeriesCache,
+                fiatCode: quoteCurrency,
+                currencyAbbreviation: option.currencyAbbreviation,
+                interval: '1D',
+                timestampMs: baselineTimestampMs,
+                method: 'linear',
+              });
+              const prevRate =
+                prevRateFromSeries ?? lastDayRateForDefaultCurrency?.rate;
+
+              if (!(prevRate && prevRate > 0)) {
+                return ratesList;
+              }
+
+              const {
+                id,
+                img,
+                currencyName,
+                currencyAbbreviation,
+                chain,
+                tokenAddress,
+              } = option;
+
+              const percentChange = calculatePercentageDifference(
+                rateForDefaultCurrency.rate,
+                prevRate,
+              );
+
+              ratesList.push({
+                id,
+                img,
+                currencyName,
+                currencyAbbreviation,
+                chain,
+                tokenAddress,
+                average: percentChange,
+                currentPrice: rateForDefaultCurrency.rate,
+              });
+            }
           }
+          return ratesList;
+        }, [] as ExchangeRateItemProps[]);
 
-          const {
-            id,
-            img,
-            currencyName,
-            currencyAbbreviation,
-            chain,
-            tokenAddress,
-          } = option;
-
-          const percentChange = calculatePercentageDifference(
-            rateForDefaultCurrency.rate,
-            prevRate,
+        return result.sort((a, b) => {
+          const indexA = EXCHANGE_RATES_CURRENCIES.indexOf(
+            a.currencyAbbreviation.toLowerCase(),
+          );
+          const indexB = EXCHANGE_RATES_CURRENCIES.indexOf(
+            b.currencyAbbreviation.toLowerCase(),
           );
 
-          ratesList.push({
-            id,
-            img,
-            currencyName,
-            currencyAbbreviation,
-            chain,
-            tokenAddress: tokenAddress,
-            average: percentChange,
-            currentPrice: rateForDefaultCurrency.rate,
-          });
-        }
-      }
-      return ratesList;
-    }, [] as ExchangeRateItemProps[]);
-
-    return result.sort((a, b) => {
-      const indexA = EXCHANGE_RATES_CURRENCIES.indexOf(
-        a.currencyAbbreviation.toLowerCase(),
-      );
-      const indexB = EXCHANGE_RATES_CURRENCIES.indexOf(
-        b.currencyAbbreviation.toLowerCase(),
-      );
-
-      if (indexA !== -1 && indexB !== -1) {
-        return indexA - indexB;
-      }
-      if (indexA !== -1) {
-        return -1;
-      }
-      if (indexB !== -1) {
-        return 1;
-      }
-      return a.currencyName.localeCompare(b.currencyName);
-    });
+          if (indexA !== -1 && indexB !== -1) {
+            return indexA - indexB;
+          }
+          if (indexA !== -1) {
+            return -1;
+          }
+          if (indexB !== -1) {
+            return 1;
+          }
+          return a.currencyName.localeCompare(b.currencyName);
+        });
+      },
+      {
+        lastDayRateAssetCount: Object.keys(lastDayRates || {}).length,
+        quoteCurrency,
+        screen: 'HomeRoot',
+      },
+    );
   }, [fiatRateSeriesCache, lastDayRates, quoteCurrency, rates]);
 
   useEffect(() => {
     return navigation.addListener('focus', () => {
+      recordPerfEvent('screen.focus', {
+        screen: 'HomeRoot',
+      });
       if (!appIsLoading) {
         dispatch(updatePortfolioBalance());
       } // portfolio balance is updated in app init
@@ -302,48 +340,61 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([
-        dispatch(
-          refreshRatesForPortfolioPnl({context: 'homeRootOnRefresh'}) as any,
-        ),
-        dispatch(
-          fetchFiatRateSeriesInterval({
-            fiatCode: quoteCurrency,
-            interval: '1D',
-            coinForCacheCheck: 'btc',
-            force: true,
-          }) as any,
-        ),
-        dispatch(
-          getAndDispatchUpdatedWalletBalances({
-            context: 'homeRootOnRefresh',
-            createTokenWalletWithFunds: true,
-            skipRateUpdate: true,
-          }) as any,
-        ),
-        dispatch(requestBrazeContentRefresh()),
-      ]);
+      await measurePerfAsync(
+        'screen.home_root.on_refresh',
+        async () => {
+          await Promise.all([
+            dispatch(
+              refreshRatesForPortfolioPnl({context: 'homeRootOnRefresh'}) as any,
+            ),
+            dispatch(
+              fetchFiatRateSeriesInterval({
+                fiatCode: quoteCurrency,
+                interval: '1D',
+                coinForCacheCheck: 'btc',
+                force: true,
+              }) as any,
+            ),
+            dispatch(
+              getAndDispatchUpdatedWalletBalances({
+                context: 'homeRootOnRefresh',
+                createTokenWalletWithFunds: true,
+                skipRateUpdate: true,
+              }) as any,
+            ),
+            dispatch(requestBrazeContentRefresh()),
+          ]);
 
-      const refreshedState = reduxStore.getState() as RootState;
-      const refreshedKeys = refreshedState.WALLET.keys as Record<string, Key>;
-      const refreshedWallets = (Object.values(refreshedKeys) as Key[]).flatMap(
-        (key: Key) => key.wallets || [],
-      );
-      const refreshedQuoteCurrency = getQuoteCurrency({
-        portfolioQuoteCurrency: refreshedState.PORTFOLIO?.quoteCurrency,
-        defaultAltCurrencyIsoCode:
-          refreshedState.APP?.defaultAltCurrency?.isoCode,
-      }).toUpperCase();
+          const refreshedState = reduxStore.getState() as RootState;
+          const refreshedKeys = refreshedState.WALLET.keys as Record<
+            string,
+            Key
+          >;
+          const refreshedWallets = (
+            Object.values(refreshedKeys) as Key[]
+          ).flatMap((key: Key) => key.wallets || []);
+          const refreshedQuoteCurrency = getQuoteCurrency({
+            portfolioQuoteCurrency: refreshedState.PORTFOLIO?.quoteCurrency,
+            defaultAltCurrencyIsoCode:
+              refreshedState.APP?.defaultAltCurrency?.isoCode,
+          }).toUpperCase();
 
-      await dispatch(
-        maybePopulatePortfolioForWallets({
-          // IMPORTANT: read wallets from the latest Redux state after the
-          // balance refresh finishes so portfolio snapshots (and thus the
-          // chart) are repopulated with up-to-date wallet balances and any
-          // newly created token wallets with funds.
-          wallets: refreshedWallets,
-          quoteCurrency: refreshedQuoteCurrency,
-        }) as any,
+          await dispatch(
+            maybePopulatePortfolioForWallets({
+              // IMPORTANT: read wallets from the latest Redux state after the
+              // balance refresh finishes so portfolio snapshots (and thus the
+              // chart) are repopulated with up-to-date wallet balances and any
+              // newly created token wallets with funds.
+              wallets: refreshedWallets,
+              quoteCurrency: refreshedQuoteCurrency,
+            }) as any,
+          );
+        },
+        {
+          quoteCurrency,
+          screen: 'HomeRoot',
+          walletCount: wallets.length,
+        },
       );
     } catch (err) {
       dispatch(showBottomNotificationModal(BalanceUpdateError()));

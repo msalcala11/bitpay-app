@@ -13,6 +13,13 @@ import type {
   BalanceHistoryChartOrchestrationAction,
   TimeframeComputeDisposition,
 } from './balanceHistoryChartOrchestration';
+import {
+  getPerfClockNowMs,
+  measurePerfSync,
+  recordPerfEvent,
+  startPerfSpan,
+  type PerfMetadata,
+} from '../../utils/perfLogger';
 
 type RetryPolicy = 'retry_interrupted_attempts' | 'suppress_after_attempt';
 
@@ -21,6 +28,7 @@ export const useBalanceHistoryChartComputeQueue = <
   TChangeRowData,
 >(args: {
   computeGenerationRef: MutableRefObject<number>;
+  buildPerfMetadata: (metadata?: PerfMetadata) => PerfMetadata;
   computeSeriesForTimeframe: (
     timeframe: FiatRateInterval,
     signal: AbortSignal,
@@ -60,12 +68,16 @@ export const useBalanceHistoryChartComputeQueue = <
   const enqueueComputeRef = useRef<FiatRateInterval[]>([]);
   const computingQueueRef = useRef(false);
   const selectedTimeframeRef = useRef(args.selectedTimeframe);
+  const timeframeQueuedAtMsRef = useRef<
+    Partial<Record<FiatRateInterval, number>>
+  >({});
 
   selectedTimeframeRef.current = args.selectedTimeframe;
 
   const resetComputeQueue = useCallback(() => {
     enqueueComputeRef.current = [];
     computingQueueRef.current = false;
+    timeframeQueuedAtMsRef.current = {};
   }, []);
 
   const retainOnlyQueuedTimeframe = useCallback(
@@ -85,6 +97,13 @@ export const useBalanceHistoryChartComputeQueue = <
         if (prioritize && existingIndex > 0) {
           queue.splice(existingIndex, 1);
           queue.unshift(timeframe);
+          recordPerfEvent(
+            'balance_chart.compute_reprioritized',
+            args.buildPerfMetadata({
+              prioritize,
+              timeframe,
+            }),
+          );
         }
         return;
       }
@@ -94,8 +113,17 @@ export const useBalanceHistoryChartComputeQueue = <
       } else {
         queue.push(timeframe);
       }
+
+      timeframeQueuedAtMsRef.current[timeframe] = getPerfClockNowMs();
+      recordPerfEvent(
+        'balance_chart.compute_enqueued',
+        args.buildPerfMetadata({
+          prioritize,
+          timeframe,
+        }),
+      );
     },
-    [],
+    [args],
   );
 
   const processQueue = useCallback(() => {
@@ -114,6 +142,9 @@ export const useBalanceHistoryChartComputeQueue = <
 
       const generation = args.computeGenerationRef.current;
       const attemptRevision = args.getTimeframeAttemptRevision(nextTimeframe);
+      const scheduledAtMs = getPerfClockNowMs();
+      const queuedAtMs =
+        timeframeQueuedAtMsRef.current[nextTimeframe] || scheduledAtMs;
 
       args.dispatchTimeframeState({
         type: 'startCompute',
@@ -124,8 +155,22 @@ export const useBalanceHistoryChartComputeQueue = <
 
       const computeHandle = scheduleAfterInteractionsAndFrames({
         callback: async signal => {
+          const computeStartedAtMs = getPerfClockNowMs();
+          const computeSpan = startPerfSpan(
+            'balance_chart.compute',
+            args.buildPerfMetadata({
+              attemptRevision,
+              generation,
+              queueWaitMs: computeStartedAtMs - queuedAtMs,
+              scheduledWaitMs: computeStartedAtMs - scheduledAtMs,
+              timeframe: nextTimeframe,
+            }),
+          );
           try {
             if (args.computeGenerationRef.current !== generation) {
+              computeSpan.cancel({
+                reason: 'generation_changed_before_start',
+              });
               return;
             }
 
@@ -139,8 +184,18 @@ export const useBalanceHistoryChartComputeQueue = <
             );
 
             if (args.computeGenerationRef.current !== generation) {
+              computeSpan.cancel({
+                reason: 'generation_changed_after_compute',
+              });
               return;
             }
+
+            computeSpan.finish({
+              graphPointCount: (computed.series as any)?.graphPoints?.length,
+              historicalRateDependencyCount:
+                computed.cacheEntry.historicalRateDeps?.length || 0,
+              timeframeRevision,
+            });
 
             startTransition(() => {
               args.dispatchTimeframeState({
@@ -166,13 +221,21 @@ export const useBalanceHistoryChartComputeQueue = <
             });
 
             if (args.computeGenerationRef.current === generation) {
-              args.dispatch(
-                upsertBalanceChartScopeTimeframes({
-                  scopeId: args.scopeId,
-                  walletIds: args.sortedWalletIds,
-                  quoteCurrency: computed.cacheEntry.quoteCurrency,
-                  balanceOffset: args.balanceOffset,
-                  timeframes: [computed.cacheEntry],
+              measurePerfSync(
+                'balance_chart.cache_upsert_dispatch',
+                () =>
+                  args.dispatch(
+                    upsertBalanceChartScopeTimeframes({
+                      scopeId: args.scopeId,
+                      walletIds: args.sortedWalletIds,
+                      quoteCurrency: computed.cacheEntry.quoteCurrency,
+                      balanceOffset: args.balanceOffset,
+                      timeframes: [computed.cacheEntry],
+                    }),
+                  ),
+                args.buildPerfMetadata({
+                  timeframe: nextTimeframe,
+                  timeframeRevision,
                 }),
               );
             }
@@ -182,9 +245,16 @@ export const useBalanceHistoryChartComputeQueue = <
               signal.aborted ||
               isAbortError(error)
             ) {
+              computeSpan.cancel({
+                reason:
+                  signal.aborted || isAbortError(error)
+                    ? 'aborted'
+                    : 'generation_changed_on_error',
+              });
               return;
             }
 
+            computeSpan.fail(error);
             args.onComputeError(`compute failed for ${nextTimeframe}`, error);
             args.dispatchTimeframeState({
               type: 'rejectCompute',
@@ -196,9 +266,11 @@ export const useBalanceHistoryChartComputeQueue = <
           } finally {
             if (args.computeGenerationRef.current !== generation) {
               computingQueueRef.current = false;
+              delete timeframeQueuedAtMsRef.current[nextTimeframe];
               return;
             }
 
+            delete timeframeQueuedAtMsRef.current[nextTimeframe];
             runNext();
           }
         },
@@ -209,6 +281,7 @@ export const useBalanceHistoryChartComputeQueue = <
     runNext();
   }, [
     args.balanceOffset,
+    args.buildPerfMetadata,
     args.computeGenerationRef,
     args.computeSeriesForTimeframe,
     args.dispatch,

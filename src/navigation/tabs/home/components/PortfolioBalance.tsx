@@ -44,6 +44,7 @@ import {setHomeChartCollapsed} from '../../../../store/portfolio-charts';
 import type {FiatRateInterval} from '../../../../store/rate/rate.models';
 import type {Wallet} from '../../../../store/wallet/wallet.models';
 import CollapseContentButton from './CollapseContentButton';
+import {measurePerfSync} from '../../../../utils/perfLogger';
 
 const PortfolioContainer = styled.View`
   justify-content: center;
@@ -137,7 +138,15 @@ const PortfolioBalance = () => {
   );
 
   const visibleKeys = useMemo(
-    () => getVisibleKeysFromKeys(keys, homeCarouselConfig),
+    () =>
+      measurePerfSync(
+        'screen.home_root.visible_keys',
+        () => getVisibleKeysFromKeys(keys, homeCarouselConfig),
+        {
+          homeCarouselConfigCount: homeCarouselConfig?.length,
+          screen: 'HomeRoot',
+        },
+      ),
     [homeCarouselConfig, keys],
   );
 
@@ -160,23 +169,33 @@ const PortfolioBalance = () => {
   const dispatch = useAppDispatch();
 
   const walletsAcrossKeys: Wallet[] = useMemo(() => {
-    const allWallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
-    const snapshotsMap = portfolio?.snapshotsByWalletId || {};
+    return measurePerfSync(
+      'screen.home_root.wallets_across_keys',
+      () => {
+        const allWallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
+        const snapshotsMap = portfolio?.snapshotsByWalletId || {};
 
-    const byId = new Map<string, Wallet>();
-    for (const w of allWallets) {
-      if (!w?.id) {
-        continue;
-      }
-      const hasSnaps = !!snapshotsMap[w.id]?.length;
-      if (!walletHasNonZeroLiveBalance(w) && !hasSnaps) {
-        continue;
-      }
-      if (!byId.has(w.id)) {
-        byId.set(w.id, w);
-      }
-    }
-    return Array.from(byId.values());
+        const byId = new Map<string, Wallet>();
+        for (const w of allWallets) {
+          if (!w?.id) {
+            continue;
+          }
+          const hasSnaps = !!snapshotsMap[w.id]?.length;
+          if (!walletHasNonZeroLiveBalance(w) && !hasSnaps) {
+            continue;
+          }
+          if (!byId.has(w.id)) {
+            byId.set(w.id, w);
+          }
+        }
+        return Array.from(byId.values());
+      },
+      {
+        screen: 'HomeRoot',
+        snapshotWalletCount: Object.keys(portfolio?.snapshotsByWalletId || {})
+          .length,
+      },
+    );
   }, [homeCarouselConfig, keys, portfolio?.snapshotsByWalletId]);
 
   const hasChartData = useMemo(() => {
@@ -520,6 +539,7 @@ const PortfolioBalance = () => {
                   wallets={walletsAcrossKeys}
                   snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
                   quoteCurrency={quoteCurrency}
+                  perfContext="HomeRoot"
                   initialSelectedTimeframe={selectedChartTimeframeRef.current}
                   rates={rates}
                   fiatRateSeriesCache={fiatRateSeriesCache}
@@ -566,6 +586,7 @@ const PortfolioBalance = () => {
             wallets={walletsAcrossKeys}
             snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
             quoteCurrency={quoteCurrency}
+            perfContext="HomeRoot"
             initialSelectedTimeframe={selectedChartTimeframeRef.current}
             rates={rates}
             fiatRateSeriesCache={fiatRateSeriesCache}

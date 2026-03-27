@@ -139,6 +139,11 @@ import {
   isPopulateLoadingForWallets,
 } from '../../../utils/portfolio/assets';
 import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
+import {
+  measurePerfAsync,
+  measurePerfSync,
+  recordPerfEvent,
+} from '../../../utils/perfLogger';
 
 LogBox.ignoreLogs([
   'Non-serializable values were found in the navigation state',
@@ -370,9 +375,18 @@ const KeyOverview = () => {
   );
 
   const memoizedAccountList = useMemo(() => {
-    return buildAccountList(key, defaultAltCurrency.isoCode, rates, dispatch, {
-      filterByHideWallet: true,
-    });
+    return measurePerfSync(
+      'screen.key_overview.build_account_list',
+      () =>
+        buildAccountList(key, defaultAltCurrency.isoCode, rates, dispatch, {
+          filterByHideWallet: true,
+        }),
+      {
+        keyId: key?.id,
+        screen: 'KeyOverview',
+        walletCount: key?.wallets?.length || 0,
+      },
+    );
   }, [dispatch, key, defaultAltCurrency.isoCode, rates]);
 
   const pendingTxpCount = useMemo(() => {
@@ -573,6 +587,10 @@ const KeyOverview = () => {
     const state = reduxStore.getState() as RootState;
     if (state.PORTFOLIO?.populateStatus?.inProgress) {
       pendingKeyBalanceChartRefreshRef.current = true;
+      recordPerfEvent('screen.key_overview.chart_refresh_deferred', {
+        keyId: id,
+        screen: 'KeyOverview',
+      });
       return;
     }
 
@@ -588,15 +606,26 @@ const KeyOverview = () => {
       defaultAltCurrencyIsoCode: state.APP?.defaultAltCurrency?.isoCode,
     }).toUpperCase();
 
-    await dispatch(
-      maybePopulatePortfolioForWallets({
-        // IMPORTANT: re-read the latest Redux wallet objects after any
-        // balance/rate refresh completes so chart snapshot population does not
-        // get stuck using stale wallet balances from the first render. Keep the
-        // wallet scope aligned with the wallets visible in KeyOverview.
-        wallets: latestVisibleWallets,
+    await measurePerfAsync(
+      'screen.key_overview.populate_portfolio_for_chart',
+      async () => {
+        await dispatch(
+          maybePopulatePortfolioForWallets({
+            // IMPORTANT: re-read the latest Redux wallet objects after any
+            // balance/rate refresh completes so chart snapshot population does
+            // not get stuck using stale wallet balances from the first render.
+            // Keep the wallet scope aligned with the wallets visible in KeyOverview.
+            wallets: latestVisibleWallets,
+            quoteCurrency: latestQuoteCurrency,
+          }) as any,
+        );
+      },
+      {
+        keyId: id,
         quoteCurrency: latestQuoteCurrency,
-      }) as any,
+        screen: 'KeyOverview',
+        walletCount: latestVisibleWallets.length,
+      },
     );
   }, [dispatch, id, reduxStore]);
 
@@ -637,35 +666,49 @@ const KeyOverview = () => {
   }, [portfolio.populateStatus, visibleKeyWallets]);
 
   const gainLossSummary = useMemo(() => {
-    const summary = buildPortfolioGainLossSummaryFromPortfolioSnapshots({
-      snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
-      wallets: visibleKeyWallets,
-      quoteCurrency,
-      rates,
-      lastDayRates,
-      fiatRateSeriesCache,
-    });
+    return measurePerfSync(
+      'screen.key_overview.gain_loss_summary',
+      () => {
+        const summary = buildPortfolioGainLossSummaryFromPortfolioSnapshots({
+          snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
+          wallets: visibleKeyWallets,
+          quoteCurrency,
+          rates,
+          lastDayRates,
+          fiatRateSeriesCache,
+        });
 
-    if (summary.today.available) {
-      return summary;
-    }
+        if (summary.today.available) {
+          return summary;
+        }
 
-    const baseline =
-      typeof totalBalanceLastDay === 'number' ? totalBalanceLastDay : 0;
-    const deltaFiat = totalBalance - baseline;
-    const percentRatio = baseline > 0 ? deltaFiat / baseline : 0;
+        const baseline =
+          typeof totalBalanceLastDay === 'number' ? totalBalanceLastDay : 0;
+        const deltaFiat = totalBalance - baseline;
+        const percentRatio = baseline > 0 ? deltaFiat / baseline : 0;
 
-    return {
-      ...summary,
-      today: {
-        ...summary.today,
-        deltaFiat,
-        percentRatio,
-        available: true,
+        return {
+          ...summary,
+          today: {
+            ...summary.today,
+            deltaFiat,
+            percentRatio,
+            available: true,
+          },
+        };
       },
-    };
+      {
+        keyId: key?.id,
+        quoteCurrency,
+        screen: 'KeyOverview',
+        snapshotWalletCount: Object.keys(portfolio.snapshotsByWalletId || {})
+          .length,
+        visibleWalletCount: visibleKeyWallets.length,
+      },
+    );
   }, [
     fiatRateSeriesCache,
+    key?.id,
     lastDayRates,
     portfolio.snapshotsByWalletId,
     quoteCurrency,
@@ -965,21 +1008,32 @@ const KeyOverview = () => {
 
       try {
         setIsViewUpdating(true);
-        await dispatch(
-          refreshRatesForPortfolioPnl({context: 'homeRootOnRefresh'}) as any,
+        await measurePerfAsync(
+          'screen.key_overview.update_status',
+          async () => {
+            await dispatch(
+              refreshRatesForPortfolioPnl({context: 'homeRootOnRefresh'}) as any,
+            );
+            await Promise.all([
+              dispatch(
+                startUpdateAllWalletStatusForKey({
+                  key,
+                  force: forceUpdate,
+                  createTokenWalletWithFunds: forceUpdate,
+                }),
+              ),
+              sleep(1000),
+            ]);
+            dispatch(updatePortfolioBalance());
+            await maybeRefreshKeyBalanceChart();
+          },
+          {
+            forceUpdate: !!forceUpdate,
+            keyId: key.id,
+            screen: 'KeyOverview',
+            walletCount: key.wallets.length,
+          },
         );
-        await Promise.all([
-          dispatch(
-            startUpdateAllWalletStatusForKey({
-              key,
-              force: forceUpdate,
-              createTokenWalletWithFunds: forceUpdate,
-            }),
-          ),
-          sleep(1000),
-        ]);
-        dispatch(updatePortfolioBalance());
-        await maybeRefreshKeyBalanceChart();
         setIsViewUpdating(false);
       } catch {
         setIsViewUpdating(false);
@@ -1000,6 +1054,10 @@ const KeyOverview = () => {
       return;
     }
 
+    recordPerfEvent('screen.focus', {
+      keyId: viewedKeyId,
+      screen: 'KeyOverview',
+    });
     dispatch(Analytics.track('View Key'));
     updateStatusForKeyRef.current(false);
   }, [dispatch, isFocused, viewedKeyId]);
@@ -1113,6 +1171,7 @@ const KeyOverview = () => {
               wallets={visibleKeyWallets}
               snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
               quoteCurrency={quoteCurrency}
+              perfContext="KeyOverview"
               rates={rates}
               fiatRateSeriesCache={fiatRateSeriesCache}
               timeframeSelectorWidth={timeframeSelectorWidth}

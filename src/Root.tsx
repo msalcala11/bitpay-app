@@ -160,6 +160,7 @@ import {isNarrowHeight} from './components/styled/Containers';
 import {useOngoingProcess} from './contexts';
 import {Keys} from './store/wallet/wallet.reducer';
 import {logManager} from './managers/LogManager';
+import PerfLogsFloatingButton from './components/debug/PerfLogsFloatingButton';
 
 const BWC = BwcProvider.getInstance();
 
@@ -1061,6 +1062,9 @@ export default () => {
           <PaymentSent />
         </NavigationContainer>
       </HeaderShownContext.Provider>
+      <PerfLogsFloatingButton
+        getCurrentRouteName={() => navigationRef.getCurrentRoute()?.name}
+      />
     </SafeAreaView>
   );
 };
