@@ -51,6 +51,7 @@ type PerfLogsFloatingButtonProps = {
 
 const EVENT_LOOP_SAMPLE_MS = 250;
 const EVENT_LOOP_LAG_THRESHOLD_MS = 120;
+const FLOATING_BUTTON_BOTTOM_OFFSET = -80;
 
 const PerfLogsFloatingButton = ({
   getCurrentRouteName,
@@ -154,7 +155,10 @@ const PerfLogsFloatingButton = ({
     <FloatingContainer
       pointerEvents="box-none"
       style={{
-        bottom: Math.max(insets.bottom + 16, 28),
+        bottom: Math.max(
+          insets.bottom + FLOATING_BUTTON_BOTTOM_OFFSET,
+          76,
+        ),
       }}>
       <FloatingButton
         $backgroundColor={theme.dark ? '#173757' : '#1a3b8b'}
