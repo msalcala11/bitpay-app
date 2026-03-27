@@ -316,6 +316,19 @@ export const useBalanceHistoryChartComputeQueue = <
         options?.retryPolicy || 'retry_interrupted_attempts',
       );
       if (!disposition.shouldQueue) {
+        if (options?.prioritize || timeframe === selectedTimeframeRef.current) {
+          recordPerfEvent(
+            'balance_chart.compute_skipped',
+            args.buildPerfMetadata({
+              prioritize: !!options?.prioritize,
+              reason: disposition.reason,
+              retryPolicy:
+                options?.retryPolicy || 'retry_interrupted_attempts',
+              timeframe,
+              ...disposition.details,
+            }),
+          );
+        }
         return;
       }
 

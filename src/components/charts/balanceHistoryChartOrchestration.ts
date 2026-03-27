@@ -242,9 +242,25 @@ type TimeframeComputeRetryPolicy =
   | 'retry_interrupted_attempts'
   | 'suppress_after_attempt';
 
+export type TimeframeComputeDispositionDetails = {
+  attemptRevision: string;
+  cachedStatus: CachedTimeframeStatus;
+  hasAnySnapshots: boolean;
+  hasError: boolean;
+  hasSeries: boolean;
+  inputsReady: boolean;
+  isComputing: boolean;
+  lastAttemptRevision?: string;
+  timeframeRevision: string;
+};
+
 export type TimeframeComputeDisposition =
-  | {shouldQueue: true}
   | {
+      details: TimeframeComputeDispositionDetails;
+      shouldQueue: true;
+    }
+  | {
+      details: TimeframeComputeDispositionDetails;
       shouldQueue: false;
       reason:
         | 'cached'
@@ -267,13 +283,24 @@ export const getTimeframeComputeDisposition = <TSeries, TChangeRowData>(args: {
   retryPolicy: TimeframeComputeRetryPolicy;
 }): TimeframeComputeDisposition => {
   const state = args.timeframeState;
+  const details: TimeframeComputeDispositionDetails = {
+    attemptRevision: args.attemptRevision,
+    cachedStatus: args.cachedStatus,
+    hasAnySnapshots: args.hasAnySnapshots,
+    hasError: !!state?.lastError,
+    hasSeries: !!state?.series,
+    inputsReady: args.inputsReady,
+    isComputing: !!state?.isComputing,
+    lastAttemptRevision: state?.lastAttemptRevision,
+    timeframeRevision: args.timeframeRevision,
+  };
 
   if (args.cachedStatus === 'fresh' || args.cachedStatus === 'patchable') {
-    return {shouldQueue: false, reason: 'cached'};
+    return {details, shouldQueue: false, reason: 'cached'};
   }
 
   if (state?.series && state.seriesRevision === args.timeframeRevision) {
-    return {shouldQueue: false, reason: 'current_series'};
+    return {details, shouldQueue: false, reason: 'current_series'};
   }
 
   if (
@@ -281,27 +308,28 @@ export const getTimeframeComputeDisposition = <TSeries, TChangeRowData>(args: {
     state.lastAttemptRevision === args.attemptRevision &&
     !state.lastError
   ) {
-    return {shouldQueue: false, reason: 'successful_attempt'};
+    return {details, shouldQueue: false, reason: 'successful_attempt'};
   }
 
   if (
     state?.isComputing &&
     state.lastAttemptRevision === args.attemptRevision
   ) {
-    return {shouldQueue: false, reason: 'already_computing'};
+    return {details, shouldQueue: false, reason: 'already_computing'};
   }
 
   if (!args.hasAnySnapshots) {
-    return {shouldQueue: false, reason: 'no_snapshots'};
+    return {details, shouldQueue: false, reason: 'no_snapshots'};
   }
 
   if (!args.inputsReady) {
-    return {shouldQueue: false, reason: 'inputs_not_ready'};
+    return {details, shouldQueue: false, reason: 'inputs_not_ready'};
   }
 
   if (state?.lastAttemptRevision === args.attemptRevision) {
     if (state.lastError) {
       return {
+        details,
         shouldQueue: false,
         reason: 'retry_suppressed_after_error',
       };
@@ -309,13 +337,14 @@ export const getTimeframeComputeDisposition = <TSeries, TChangeRowData>(args: {
 
     if (args.retryPolicy === 'suppress_after_attempt') {
       return {
+        details,
         shouldQueue: false,
         reason: 'retry_suppressed_after_attempt',
       };
     }
   }
 
-  return {shouldQueue: true};
+  return {details, shouldQueue: true};
 };
 
 export const selectComputedSeriesForAttempt = <TSeries, TChangeRowData>(args: {

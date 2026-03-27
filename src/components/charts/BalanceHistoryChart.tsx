@@ -98,8 +98,9 @@ import {
   getEffectiveCachedBalanceChartTimeframe,
 } from './balanceHistoryChartHydration';
 import {
-  computeFiatRateSeriesCacheRevision,
+  buildFiatRateSeriesCacheRevisionInfo,
   getRelevantFiatRateSeriesCacheKeys,
+  summarizeFiatRateSeriesCacheRevisionChange,
 } from './balanceHistoryChartRateCacheRevision';
 import {type ChangeRowData} from './balanceHistoryChartSelection';
 import {formatUnknownError} from '../../utils/errors/formatUnknownError';
@@ -131,6 +132,74 @@ const EMPTY_ANALYSIS_INPUTS = (quoteCurrency: string): AnalysisInputs => ({
   currentRatesByRateKey: {},
   quoteCurrency: (quoteCurrency || '').toUpperCase(),
 });
+
+const summarizeRateMapChange = (
+  previousRatesByRateKey?: Record<string, number>,
+  nextRatesByRateKey?: Record<string, number>,
+  maxSampleSize = 6,
+) => {
+  const previousEntries = previousRatesByRateKey || {};
+  const nextEntries = nextRatesByRateKey || {};
+  const rateKeys = Array.from(
+    new Set([...Object.keys(previousEntries), ...Object.keys(nextEntries)]),
+  ).sort((a, b) => a.localeCompare(b));
+  const changedRateKeysSample: string[] = [];
+  let addedRateKeyCount = 0;
+  let changedRateKeyCount = 0;
+  let largestRateDelta = 0;
+  let largestRateDeltaKey: string | undefined;
+  let removedRateKeyCount = 0;
+  let updatedRateKeyCount = 0;
+
+  for (const rateKey of rateKeys) {
+    const previousHasRate = Object.prototype.hasOwnProperty.call(
+      previousEntries,
+      rateKey,
+    );
+    const nextHasRate = Object.prototype.hasOwnProperty.call(nextEntries, rateKey);
+    const previousRate = previousEntries[rateKey];
+    const nextRate = nextEntries[rateKey];
+    const reasons: string[] = [];
+
+    if (!previousHasRate && nextHasRate) {
+      addedRateKeyCount += 1;
+      reasons.push('added');
+    } else if (previousHasRate && !nextHasRate) {
+      removedRateKeyCount += 1;
+      reasons.push('removed');
+    } else if (previousRate !== nextRate) {
+      updatedRateKeyCount += 1;
+      reasons.push('rate');
+      const delta = Math.abs(Number(nextRate || 0) - Number(previousRate || 0));
+      if (delta > largestRateDelta) {
+        largestRateDelta = delta;
+        largestRateDeltaKey = rateKey;
+      }
+    }
+
+    if (!reasons.length) {
+      continue;
+    }
+
+    changedRateKeyCount += 1;
+
+    if (changedRateKeysSample.length < Math.max(1, maxSampleSize)) {
+      changedRateKeysSample.push(`${rateKey}:${reasons.join(',')}`);
+    }
+  }
+
+  return {
+    addedRateKeyCount,
+    changedRateKeyCount,
+    changedRateKeysSample,
+    largestRateDelta,
+    largestRateDeltaKey,
+    nextRateKeyCount: Object.keys(nextEntries).length,
+    previousRateKeyCount: Object.keys(previousEntries).length,
+    removedRateKeyCount,
+    updatedRateKeyCount,
+  };
+};
 
 const logBalanceHistoryChartError = (context: string, error: unknown) => {
   logManager.error(
@@ -564,12 +633,13 @@ const BalanceHistoryChart = ({
     selectedSeriesInterval,
   ]);
 
-  const cacheRevision = useMemo(() => {
-    return computeFiatRateSeriesCacheRevision({
+  const relevantFiatRateSeriesCacheRevisionInfo = useMemo(() => {
+    return buildFiatRateSeriesCacheRevisionInfo({
       fiatRateSeriesCache,
       relevantKeys: relevantFiatRateSeriesCacheKeys,
     });
   }, [fiatRateSeriesCache, relevantFiatRateSeriesCacheKeys]);
+  const cacheRevision = relevantFiatRateSeriesCacheRevisionInfo.revision;
 
   const prepFiatRateSeriesCacheKeys = useMemo(() => {
     return buildBalanceHistoryChartPrepFiatRateSeriesCacheKeys({
@@ -579,12 +649,13 @@ const BalanceHistoryChart = ({
     });
   }, [quoteCurrency, scopedSnapshotsByWalletId]);
 
-  const prepCacheRevision = useMemo(() => {
-    return computeFiatRateSeriesCacheRevision({
+  const prepFiatRateSeriesCacheRevisionInfo = useMemo(() => {
+    return buildFiatRateSeriesCacheRevisionInfo({
       fiatRateSeriesCache,
       relevantKeys: prepFiatRateSeriesCacheKeys,
     });
   }, [fiatRateSeriesCache, prepFiatRateSeriesCacheKeys]);
+  const prepCacheRevision = prepFiatRateSeriesCacheRevisionInfo.revision;
 
   const preparedInputsTargetRevision = useMemo(() => {
     return [
@@ -699,9 +770,155 @@ const BalanceHistoryChart = ({
       (hasCompletedInitialInteractiveLoad &&
         hasAnyBackgroundHistoricalRecomputeNeeded));
 
+  const previousRelevantRateCacheRevisionInfoRef = useRef(
+    relevantFiatRateSeriesCacheRevisionInfo,
+  );
+  const previousPrepRateCacheRevisionInfoRef = useRef(
+    prepFiatRateSeriesCacheRevisionInfo,
+  );
+  const previousLiveSpotRatesByRateKeyRef = useRef(liveSpotRatesByRateKey);
+  const previousGenerationInputsRef = useRef<{
+    cacheRevision: string;
+    liveSpotRatesRevision: string;
+    preparedInputsTargetRevision: string;
+  }>();
+
   useEffect(() => {
     analysisInputsReadyRevisionRef.current = analysisInputsReadyRevision;
   }, [analysisInputsReadyRevision]);
+
+  useEffect(() => {
+    const previousRatesByRateKey = previousLiveSpotRatesByRateKeyRef.current;
+    previousLiveSpotRatesByRateKeyRef.current = liveSpotRatesByRateKey;
+
+    if (!previousRatesByRateKey) {
+      return;
+    }
+
+    const rateMapChange = summarizeRateMapChange(
+      previousRatesByRateKey,
+      liveSpotRatesByRateKey,
+    );
+
+    if (!rateMapChange.changedRateKeyCount) {
+      return;
+    }
+
+    recordPerfEvent(
+      'balance_chart.live_spot_rates_changed',
+      buildPerfMetadata({
+        addedRateKeyCount: rateMapChange.addedRateKeyCount,
+        changedRateKeyCount: rateMapChange.changedRateKeyCount,
+        changedRateKeysSample: rateMapChange.changedRateKeysSample,
+        largestRateDelta: rateMapChange.largestRateDelta,
+        largestRateDeltaKey: rateMapChange.largestRateDeltaKey,
+        nextRateKeyCount: rateMapChange.nextRateKeyCount,
+        previousRateKeyCount: rateMapChange.previousRateKeyCount,
+        removedRateKeyCount: rateMapChange.removedRateKeyCount,
+        updatedRateKeyCount: rateMapChange.updatedRateKeyCount,
+      }),
+    );
+  }, [buildPerfMetadata, liveSpotRatesByRateKey]);
+
+  useEffect(() => {
+    const previousInfo = previousRelevantRateCacheRevisionInfoRef.current;
+    previousRelevantRateCacheRevisionInfoRef.current =
+      relevantFiatRateSeriesCacheRevisionInfo;
+
+    if (!previousInfo || previousInfo.revision === cacheRevision) {
+      return;
+    }
+
+    const cacheChangeSummary = summarizeFiatRateSeriesCacheRevisionChange({
+      nextState: relevantFiatRateSeriesCacheRevisionInfo.state,
+      previousState: previousInfo.state,
+    });
+
+    if (!cacheChangeSummary.changedKeyCount) {
+      return;
+    }
+
+    recordPerfEvent(
+      'balance_chart.relevant_rate_cache_revision_changed',
+      buildPerfMetadata({
+        addedRelevantCacheKeyCount: cacheChangeSummary.addedCount,
+        cacheRevision,
+        changedRelevantCacheKeyCount: cacheChangeSummary.changedKeyCount,
+        changedRelevantCacheKeyReasonSample:
+          cacheChangeSummary.changedKeyReasonSample,
+        changedRelevantCacheKeysSample:
+          cacheChangeSummary.changedKeySample,
+        fetchedOnChangedRelevantCacheKeyCount:
+          cacheChangeSummary.fetchedOnChangedCount,
+        lastTsChangedRelevantCacheKeyCount:
+          cacheChangeSummary.lastTsChangedCount,
+        missingRelevantCacheKeyCount: cacheChangeSummary.missingKeyCount,
+        pointCountChangedRelevantCacheKeyCount:
+          cacheChangeSummary.pointCountChangedCount,
+        presentRelevantCacheKeyCount: cacheChangeSummary.presentKeyCount,
+        removedRelevantCacheKeyCount: cacheChangeSummary.removedCount,
+        selectedTimeframe,
+        selectedTimeframeCacheStatus:
+          cachedTimeframeStatusByTimeframe[selectedTimeframe] || 'missing',
+        selectedTimeframeNeedsHistoricalRecompute,
+        totalRelevantCacheKeyCount: cacheChangeSummary.totalKeyCount,
+      }),
+    );
+  }, [
+    buildPerfMetadata,
+    cacheRevision,
+    cachedTimeframeStatusByTimeframe,
+    relevantFiatRateSeriesCacheRevisionInfo,
+    selectedTimeframe,
+    selectedTimeframeNeedsHistoricalRecompute,
+  ]);
+
+  useEffect(() => {
+    const previousInfo = previousPrepRateCacheRevisionInfoRef.current;
+    previousPrepRateCacheRevisionInfoRef.current =
+      prepFiatRateSeriesCacheRevisionInfo;
+
+    if (!previousInfo || previousInfo.revision === prepCacheRevision) {
+      return;
+    }
+
+    const prepCacheChangeSummary = summarizeFiatRateSeriesCacheRevisionChange({
+      nextState: prepFiatRateSeriesCacheRevisionInfo.state,
+      previousState: previousInfo.state,
+    });
+
+    if (!prepCacheChangeSummary.changedKeyCount) {
+      return;
+    }
+
+    recordPerfEvent(
+      'balance_chart.prep_rate_cache_revision_changed',
+      buildPerfMetadata({
+        addedPrepCacheKeyCount: prepCacheChangeSummary.addedCount,
+        changedPrepCacheKeyCount: prepCacheChangeSummary.changedKeyCount,
+        changedPrepCacheKeyReasonSample:
+          prepCacheChangeSummary.changedKeyReasonSample,
+        changedPrepCacheKeysSample: prepCacheChangeSummary.changedKeySample,
+        fetchedOnChangedPrepCacheKeyCount:
+          prepCacheChangeSummary.fetchedOnChangedCount,
+        lastTsChangedPrepCacheKeyCount:
+          prepCacheChangeSummary.lastTsChangedCount,
+        missingPrepCacheKeyCount: prepCacheChangeSummary.missingKeyCount,
+        pointCountChangedPrepCacheKeyCount:
+          prepCacheChangeSummary.pointCountChangedCount,
+        prepCacheRevision,
+        preparedInputsTargetRevision,
+        presentPrepCacheKeyCount: prepCacheChangeSummary.presentKeyCount,
+        removedPrepCacheKeyCount: prepCacheChangeSummary.removedCount,
+        totalPrepCacheKeyCount: prepCacheChangeSummary.totalKeyCount,
+      }),
+    );
+  }, [
+    buildPerfMetadata,
+    prepCacheRevision,
+    prepFiatRateSeriesCacheRevisionInfo,
+    preparedInputsTargetRevision,
+  ]);
 
   useEffect(() => {
     if (!cachedScope) {
@@ -1101,13 +1318,42 @@ const BalanceHistoryChart = ({
   }, [ensureTimeframeComputed]);
 
   useEffect(() => {
+    const previousGenerationInputs = previousGenerationInputsRef.current;
+    previousGenerationInputsRef.current = {
+      cacheRevision,
+      liveSpotRatesRevision,
+      preparedInputsTargetRevision,
+    };
+    const changedInputKinds = previousGenerationInputs
+      ? [
+          previousGenerationInputs.cacheRevision !== cacheRevision
+            ? 'cache_revision'
+            : undefined,
+          previousGenerationInputs.liveSpotRatesRevision !== liveSpotRatesRevision
+            ? 'live_spot_rates'
+            : undefined,
+          previousGenerationInputs.preparedInputsTargetRevision !==
+          preparedInputsTargetRevision
+            ? 'prepared_inputs'
+            : undefined,
+        ].filter(Boolean)
+      : ['initial_mount'];
     const generation = invalidateComputeGeneration();
     recordPerfEvent(
       'balance_chart.compute_generation_advanced',
       buildPerfMetadata({
+        cacheRevisionChanged: !!previousGenerationInputs &&
+          previousGenerationInputs.cacheRevision !== cacheRevision,
         cacheRevision,
+        changedInputKinds,
         generation,
+        liveSpotRatesRevisionChanged: !!previousGenerationInputs &&
+          previousGenerationInputs.liveSpotRatesRevision !==
+            liveSpotRatesRevision,
         liveSpotRatesRevision,
+        preparedInputsTargetRevisionChanged: !!previousGenerationInputs &&
+          previousGenerationInputs.preparedInputsTargetRevision !==
+            preparedInputsTargetRevision,
         preparedInputsTargetRevision,
       }),
     );

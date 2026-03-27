@@ -1,5 +1,12 @@
 import {useScrollToTop, useTheme} from '@react-navigation/native';
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {
+  Profiler,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {useTranslation} from 'react-i18next';
 import {
   AppState,
@@ -92,6 +99,7 @@ import {
   measurePerfSync,
   recordPerfEvent,
 } from '../../../utils/perfLogger';
+import {summarizeReactPerfSnapshotChanges} from '../../../utils/reactPerf';
 
 export type HomeScreenProps = NativeStackScreenProps<
   TabsStackParamList,
@@ -170,6 +178,18 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
     ({BITPAY_ID}) => BITPAY_ID.passkeyCredentials,
   );
   const [showSecureAccountBanner, setShowSecureAccountBanner] = useState(false);
+  const lastChartTimeframeInteractionRef = useRef<
+    | {
+        nextTimeframe: string;
+        previousTimeframe: string;
+        selectedAtMs: number;
+        sequence: number;
+      }
+    | undefined
+  >(undefined);
+  const previousProfilerInputsRef = useRef<
+    Record<string, boolean | number | string | undefined> | undefined
+  >(undefined);
 
   // Check if user has passkey
   useEffect(() => {
@@ -465,41 +485,150 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
     return () => subscriptionAppStateChange.remove();
   }, [handleAppStateChange]);
 
+  const onChartTimeframeInteraction = useCallback(
+    (interaction: {
+      nextTimeframe: string;
+      previousTimeframe: string;
+      selectedAtMs: number;
+      sequence: number;
+    }) => {
+      lastChartTimeframeInteractionRef.current = interaction;
+      recordPerfEvent('screen.home_root.timeframe_interaction_observed', {
+        nextTimeframe: interaction.nextTimeframe,
+        previousTimeframe: interaction.previousTimeframe,
+        screen: 'HomeRoot',
+        selectionSequence: interaction.sequence,
+      });
+    },
+    [],
+  );
+
+  const profilerInputs = useMemo(
+    () => ({
+      appIsLoading,
+      exchangeRateCount: memoizedExchangeRates.length,
+      hasKeys: Boolean(hasKeys),
+      homeCarouselConfigCount: homeCarouselConfig?.length || 0,
+      keyCount: Object.keys(keys || {}).length,
+      marketingCardCount: memoizedMarketingCards.length,
+      pendingTxpCount: pendingTxps.length,
+      quoteCurrency,
+      refreshing,
+      showArchaxBanner,
+      showPortfolioAllocationSection,
+      showPortfolioValue,
+      showSecureAccountBanner,
+      shopWithCryptoCardCount: memoizedShopWithCryptoCards.length,
+      snapshotWalletCount: Object.keys(portfolio?.snapshotsByWalletId || {})
+        .length,
+      walletCount: wallets.length,
+    }),
+    [
+      appIsLoading,
+      hasKeys,
+      homeCarouselConfig,
+      keys,
+      memoizedExchangeRates.length,
+      memoizedMarketingCards.length,
+      memoizedShopWithCryptoCards.length,
+      pendingTxps.length,
+      portfolio?.snapshotsByWalletId,
+      quoteCurrency,
+      refreshing,
+      showArchaxBanner,
+      showPortfolioAllocationSection,
+      showPortfolioValue,
+      showSecureAccountBanner,
+      wallets.length,
+    ],
+  );
+
+  const onProfilerRender = useCallback(
+    (
+      id: string,
+      phase: 'mount' | 'update' | 'nested-update',
+      actualDuration: number,
+      baseDuration: number,
+      startTime: number,
+      commitTime: number,
+    ) => {
+      const changeSummary = summarizeReactPerfSnapshotChanges({
+        next: profilerInputs,
+        previous: previousProfilerInputsRef.current,
+      });
+      previousProfilerInputsRef.current = profilerInputs;
+
+      const interaction = lastChartTimeframeInteractionRef.current;
+      const timeSinceTimeframeSelectionMs =
+        interaction &&
+        commitTime >= interaction.selectedAtMs &&
+        commitTime - interaction.selectedAtMs <= 5000
+          ? commitTime - interaction.selectedAtMs
+          : undefined;
+
+      recordPerfEvent('screen.home_root.react_commit', {
+        actualDurationMs: actualDuration,
+        addedKeyCount: changeSummary.addedKeyCount,
+        baseDurationMs: baseDuration,
+        changedKeyCount: changeSummary.changedKeyCount,
+        changedKeyValueSample: changeSummary.changedKeyValueSample,
+        changedKeysSample: changeSummary.changedKeysSample,
+        commitLagMs: commitTime - startTime,
+        hasRecentTimeframeSelection:
+          typeof timeSinceTimeframeSelectionMs === 'number',
+        interactionNextTimeframe: interaction?.nextTimeframe,
+        interactionPreviousTimeframe: interaction?.previousTimeframe,
+        interactionSequence: interaction?.sequence,
+        nextKeyCount: changeSummary.nextKeyCount,
+        phase,
+        previousKeyCount: changeSummary.previousKeyCount,
+        profilerId: id,
+        removedKeyCount: changeSummary.removedKeyCount,
+        screen: 'HomeRoot',
+        timeSinceTimeframeSelectionMs,
+      });
+    },
+    [profilerInputs],
+  );
+
   return (
     <TabContainer>
       {appIsLoading ? null : (
-        <>
-          <HeaderContainer>
-            <HeaderLeftContainer>
-              <ScanButton />
-            </HeaderLeftContainer>
-            {pendingTxps.length ? (
-              <ProposalBadgeContainer
-                onPress={onPressTxpBadge}
-                style={{marginRight: 8}}>
-                <ProposalBadge>{pendingTxps.length}</ProposalBadge>
-              </ProposalBadgeContainer>
-            ) : null}
-            <ProfileButton />
-          </HeaderContainer>
-          <ScrollView
-            ref={scrollViewRef}
-            // Prevent iOS from injecting automatic top insets which creates a gap
-            // between the Archax banner and the Home header when the scene is edge-to-edge
-            contentInsetAdjustmentBehavior="never"
-            refreshControl={
-              <RefreshControl
-                tintColor={theme.dark ? White : SlateDark}
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-              />
-            }>
-            {/* ////////////////////////////// PORTFOLIO BALANCE */}
-            {showPortfolioValue ? (
-              <HomeSection style={{marginTop: 20, marginBottom: 20}}>
-                <PortfolioBalance />
-              </HomeSection>
-            ) : null}
+        <Profiler id="HomeRoot.ScrollContent" onRender={onProfilerRender}>
+          <>
+            <HeaderContainer>
+              <HeaderLeftContainer>
+                <ScanButton />
+              </HeaderLeftContainer>
+              {pendingTxps.length ? (
+                <ProposalBadgeContainer
+                  onPress={onPressTxpBadge}
+                  style={{marginRight: 8}}>
+                  <ProposalBadge>{pendingTxps.length}</ProposalBadge>
+                </ProposalBadgeContainer>
+              ) : null}
+              <ProfileButton />
+            </HeaderContainer>
+            <ScrollView
+              ref={scrollViewRef}
+              // Prevent iOS from injecting automatic top insets which creates a gap
+              // between the Archax banner and the Home header when the scene is edge-to-edge
+              contentInsetAdjustmentBehavior="never"
+              refreshControl={
+                <RefreshControl
+                  tintColor={theme.dark ? White : SlateDark}
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                />
+              }>
+              {/* ////////////////////////////// PORTFOLIO BALANCE */}
+              {showPortfolioValue ? (
+                <HomeSection style={{marginTop: 20, marginBottom: 20}}>
+                  <PortfolioBalance
+                    onChartTimeframeInteraction={onChartTimeframeInteraction}
+                  />
+                </HomeSection>
+              ) : null}
 
             {/* ////////////////////////////// CTA BUY SWAP RECEIVE SEND BUTTONS */}
             {hasKeys && showPortfolioValue ? (
@@ -589,9 +718,10 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
               </HomeSection>
             ) : null}
 
-            {showArchaxBanner && <ArchaxFooter />}
-          </ScrollView>
-        </>
+              {showArchaxBanner && <ArchaxFooter />}
+            </ScrollView>
+          </>
+        </Profiler>
       )}
       <KeyMigrationFailureModal />
     </TabContainer>

@@ -1,4 +1,11 @@
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {
+  Profiler,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import styled from 'styled-components/native';
 import {BaseText, H2} from '../../../../components/styled/Text';
 import {SlateDark, White} from '../../../../styles/colors';
@@ -44,7 +51,12 @@ import {setHomeChartCollapsed} from '../../../../store/portfolio-charts';
 import type {FiatRateInterval} from '../../../../store/rate/rate.models';
 import type {Wallet} from '../../../../store/wallet/wallet.models';
 import CollapseContentButton from './CollapseContentButton';
-import {measurePerfSync} from '../../../../utils/perfLogger';
+import {
+  getPerfClockNowMs,
+  measurePerfSync,
+  recordPerfEvent,
+} from '../../../../utils/perfLogger';
+import {summarizeReactPerfSnapshotChanges} from '../../../../utils/reactPerf';
 
 const PortfolioContainer = styled.View`
   justify-content: center;
@@ -97,7 +109,20 @@ const HiddenBalance = styled(H2)`
   margin: 6px 0;
 `;
 
-const PortfolioBalance = () => {
+type PortfolioBalanceProps = {
+  onChartTimeframeInteraction?: (interaction: {
+    nextTimeframe: FiatRateInterval;
+    previousTimeframe: FiatRateInterval;
+    selectedAtMs: number;
+    sequence: number;
+  }) => void;
+};
+
+const TIMEFRAME_INTERACTION_WINDOW_MS = 5000;
+
+const PortfolioBalance = ({
+  onChartTimeframeInteraction,
+}: PortfolioBalanceProps) => {
   const {t} = useTranslation();
   const coinbaseBalance =
     useAppSelector(({COINBASE}) => COINBASE.balance[COINBASE_ENV]) || 0.0;
@@ -133,9 +158,22 @@ const PortfolioBalance = () => {
   const collapseButtonPressOpacity = useSharedValue(1);
   const [collapseButtonLayout, setCollapseButtonLayout] =
     useState<LayoutRectangle>();
-  const selectedChartTimeframeRef = React.useRef<FiatRateInterval>(
+  const selectedChartTimeframeRef = useRef<FiatRateInterval>(
     DEFAULT_BALANCE_CHART_TIMEFRAME,
   );
+  const lastTimeframeInteractionRef = useRef<
+    | {
+        nextTimeframe: FiatRateInterval;
+        previousTimeframe: FiatRateInterval;
+        selectedAtMs: number;
+        sequence: number;
+      }
+    | undefined
+  >(undefined);
+  const timeframeInteractionSequenceRef = useRef(0);
+  const previousProfilerInputsRef = useRef<
+    Record<string, boolean | number | string | undefined> | undefined
+  >(undefined);
 
   const visibleKeys = useMemo(
     () =>
@@ -359,9 +397,23 @@ const PortfolioBalance = () => {
 
   const onSelectedChartTimeframeChange = useCallback(
     (timeframe: FiatRateInterval) => {
+      const previousTimeframe = selectedChartTimeframeRef.current;
+      if (previousTimeframe === timeframe) {
+        return;
+      }
+
       selectedChartTimeframeRef.current = timeframe;
+      timeframeInteractionSequenceRef.current += 1;
+      const nextInteraction = {
+        nextTimeframe: timeframe,
+        previousTimeframe,
+        selectedAtMs: getPerfClockNowMs(),
+        sequence: timeframeInteractionSequenceRef.current,
+      };
+      lastTimeframeInteractionRef.current = nextInteraction;
+      onChartTimeframeInteraction?.(nextInteraction);
     },
-    [],
+    [onChartTimeframeInteraction],
   );
 
   const quoteCurrency = getQuoteCurrency({
@@ -424,182 +476,269 @@ const PortfolioBalance = () => {
     );
   };
 
+  const profilerInputs = useMemo(
+    () => ({
+      chartBlockHeight,
+      chartLifecycleKey,
+      chartStageWidth,
+      chartStageY: Math.round(chartStageY),
+      hasChartData,
+      hideAllBalances,
+      isChartCollapsed,
+      isCollapseButtonActive,
+      persistedHomeChartCollapsed,
+      quoteCurrency,
+      selectedTimeframe: selectedChartTimeframeRef.current,
+      showTopSection: shouldLeftAlignTopSection,
+      snapshotWalletCount: Object.keys(portfolio?.snapshotsByWalletId || {})
+        .length,
+      visibleKeyCount: visibleKeys.length,
+      walletCount: walletsAcrossKeys.length,
+    }),
+    [
+      chartBlockHeight,
+      chartLifecycleKey,
+      chartStageWidth,
+      chartStageY,
+      hasChartData,
+      hideAllBalances,
+      isChartCollapsed,
+      isCollapseButtonActive,
+      persistedHomeChartCollapsed,
+      portfolio?.snapshotsByWalletId,
+      quoteCurrency,
+      shouldLeftAlignTopSection,
+      visibleKeys.length,
+      walletsAcrossKeys.length,
+    ],
+  );
+
+  const onProfilerRender = useCallback(
+    (
+      id: string,
+      phase: 'mount' | 'update' | 'nested-update',
+      actualDuration: number,
+      baseDuration: number,
+      startTime: number,
+      commitTime: number,
+    ) => {
+      const changeSummary = summarizeReactPerfSnapshotChanges({
+        next: profilerInputs,
+        previous: previousProfilerInputsRef.current,
+      });
+      previousProfilerInputsRef.current = profilerInputs;
+
+      const interaction = lastTimeframeInteractionRef.current;
+      const timeSinceTimeframeSelectionMs =
+        interaction &&
+        commitTime >= interaction.selectedAtMs &&
+        commitTime - interaction.selectedAtMs <= TIMEFRAME_INTERACTION_WINDOW_MS
+          ? commitTime - interaction.selectedAtMs
+          : undefined;
+
+      recordPerfEvent('screen.home_root.portfolio_balance.react_commit', {
+        actualDurationMs: actualDuration,
+        addedKeyCount: changeSummary.addedKeyCount,
+        baseDurationMs: baseDuration,
+        changedKeyCount: changeSummary.changedKeyCount,
+        changedKeyValueSample: changeSummary.changedKeyValueSample,
+        changedKeysSample: changeSummary.changedKeysSample,
+        commitLagMs: commitTime - startTime,
+        currentSelectedTimeframe: selectedChartTimeframeRef.current,
+        hasRecentTimeframeSelection:
+          typeof timeSinceTimeframeSelectionMs === 'number',
+        interactionNextTimeframe: interaction?.nextTimeframe,
+        interactionPreviousTimeframe: interaction?.previousTimeframe,
+        interactionSequence: interaction?.sequence,
+        nextKeyCount: changeSummary.nextKeyCount,
+        phase,
+        previousKeyCount: changeSummary.previousKeyCount,
+        profilerId: id,
+        removedKeyCount: changeSummary.removedKeyCount,
+        timeSinceTimeframeSelectionMs,
+      });
+    },
+    [profilerInputs],
+  );
+
   return (
-    <PortfolioContainer>
-      {shouldLeftAlignTopSection ? (
-        <CollapseButtonContainer
-          onLayout={e => {
-            const nextLayout = e.nativeEvent.layout;
-            setCollapseButtonLayout(prev =>
-              prev &&
-              prev.x === nextLayout.x &&
-              prev.y === nextLayout.y &&
-              prev.width === nextLayout.width &&
-              prev.height === nextLayout.height
-                ? prev
-                : nextLayout,
-            );
-          }}
-          pointerEvents={isChartCollapsed ? 'none' : 'auto'}
-          accessibilityElementsHidden={isChartCollapsed}
-          importantForAccessibility={
-            isChartCollapsed ? 'no-hide-descendants' : 'yes'
-          }
-          style={buttonAnimatedStyle}>
-          <CollapseContentButton
-            isActive={isCollapseButtonActive}
-            onPressIn={onCollapseButtonPressIn}
-            onPressOut={onCollapseButtonPressOut}
-            onPress={onCollapseChartPress}
-            accessibilityLabel={collapseChartAccessibilityLabel}
-            accessibilityState={{
-              expanded: !isChartCollapsed,
-              selected: isCollapseButtonActive,
-            }}
-          />
-        </CollapseButtonContainer>
-      ) : null}
-      <PortfolioTopContent $leftAligned={shouldLeftAlignTopSection}>
-        <PortfolioBalanceHeader
-          activeOpacity={ActiveOpacity}
-          onPress={showPortfolioBalanceInfoModal}>
-          <PortfolioBalanceTitle>
-            {t('Portfolio Balance')}
-          </PortfolioBalanceTitle>
-          <InfoSvg width={16} height={16} />
-        </PortfolioBalanceHeader>
-        <TouchableOpacity
-          onLongPress={() => {
-            dispatch(toggleHideAllBalances());
-          }}>
-          {!hideAllBalances ? (
-            <>
-              <PortfolioBalanceText
-                $isCompact={shouldUseCompactPortfolioBalanceText}>
-                {formattedPortfolioBalance}
-              </PortfolioBalanceText>
-            </>
-          ) : (
-            <HiddenBalance>
-              {maskIfHidden(true, totalBalanceIncludingCoinbase)}
-            </HiddenBalance>
-          )}
-        </TouchableOpacity>
-      </PortfolioTopContent>
-
-      {shouldLeftAlignTopSection ? (
-        <ChartChangeRow
-          percent={chartChangeRowData?.percent ?? 0}
-          deltaFiatFormatted={chartChangeRowData?.deltaFiatFormatted}
-          rangeLabel={chartChangeRowData?.rangeLabel}
-          style={[
-            {
-              width: '100%',
-              justifyContent: 'flex-start',
-              paddingLeft: 12,
-            },
-            !chartChangeRowData ? {opacity: 0} : null,
-          ]}
-        />
-      ) : null}
-
-      {!hideAllBalances ? (
-        hasChartData ? (
-          <ChartStage
+    <Profiler id="HomeRoot.PortfolioBalance" onRender={onProfilerRender}>
+      <PortfolioContainer>
+        {shouldLeftAlignTopSection ? (
+          <CollapseButtonContainer
             onLayout={e => {
-              const {width, y} = e.nativeEvent.layout;
-              if (width > 0 && width !== chartStageWidth) {
-                setChartStageWidth(width);
-              }
-              if (y !== chartStageY) {
-                setChartStageY(y);
-              }
+              const nextLayout = e.nativeEvent.layout;
+              setCollapseButtonLayout(prev =>
+                prev &&
+                prev.x === nextLayout.x &&
+                prev.y === nextLayout.y &&
+                prev.width === nextLayout.width &&
+                prev.height === nextLayout.height
+                  ? prev
+                  : nextLayout,
+              );
+            }}
+            pointerEvents={isChartCollapsed ? 'none' : 'auto'}
+            accessibilityElementsHidden={isChartCollapsed}
+            importantForAccessibility={
+              isChartCollapsed ? 'no-hide-descendants' : 'yes'
+            }
+            style={buttonAnimatedStyle}>
+            <CollapseContentButton
+              isActive={isCollapseButtonActive}
+              onPressIn={onCollapseButtonPressIn}
+              onPressOut={onCollapseButtonPressOut}
+              onPress={onCollapseChartPress}
+              accessibilityLabel={collapseChartAccessibilityLabel}
+              accessibilityState={{
+                expanded: !isChartCollapsed,
+                selected: isCollapseButtonActive,
+              }}
+            />
+          </CollapseButtonContainer>
+        ) : null}
+        <PortfolioTopContent $leftAligned={shouldLeftAlignTopSection}>
+          <PortfolioBalanceHeader
+            activeOpacity={ActiveOpacity}
+            onPress={showPortfolioBalanceInfoModal}>
+            <PortfolioBalanceTitle>
+              {t('Portfolio Balance')}
+            </PortfolioBalanceTitle>
+            <InfoSvg width={16} height={16} />
+          </PortfolioBalanceHeader>
+          <TouchableOpacity
+            onLongPress={() => {
+              dispatch(toggleHideAllBalances());
             }}>
-            <Animated.View style={chartSpacerAnimatedStyle} />
-            <Animated.View
-              style={[
-                {
-                  position: 'absolute',
-                  left: 0,
-                  right: 0,
-                  top: 0,
-                  zIndex: isChartCollapsed ? 20 : 1,
-                },
-                chartWrapperAnimatedStyle,
-              ]}>
-              <View
-                onLayout={e => {
-                  const h = Math.round(e.nativeEvent.layout.height);
-                  if (h > 0 && h !== chartBlockHeight) {
-                    setChartBlockHeight(h);
-                  }
-                }}>
-                <BalanceHistoryChart
-                  key={chartLifecycleKey}
-                  wallets={walletsAcrossKeys}
-                  snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
-                  quoteCurrency={quoteCurrency}
-                  perfContext="HomeRoot"
-                  initialSelectedTimeframe={selectedChartTimeframeRef.current}
-                  rates={rates}
-                  fiatRateSeriesCache={fiatRateSeriesCache}
-                  strokeScale={chartScale}
-                  minStrokeScale={collapsedScale}
-                  onChangeRowData={setChartChangeRowData}
-                  onSelectedTimeframeChange={onSelectedChartTimeframeChange}
-                  axisLabelOpacity={axisLabelOpacity}
-                  showChangeRow={false}
-                  showTimeframeSelector
-                  timeframeSelectorOpacity={timeframeSelectorOpacity}
-                  timeframeSelectorHorizontalInset={ScreenGutter}
-                  disablePanGesture={isChartCollapsed}
-                  // NOTE: Coinbase balance is intentionally excluded from the balance chart
-                  // (Option B per product requirements) because we do not have historized
-                  // Coinbase balance snapshots.
-                  onSelectedBalanceChange={setSelectedChartBalance}
-                />
-                {isChartCollapsed ? (
-                  <TouchableOpacity
-                    touchableLibrary="react-native"
-                    activeOpacity={ActiveOpacity}
-                    hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
-                    style={{
-                      position: 'absolute',
-                      left: 0,
-                      right: 0,
-                      top: 0,
-                      bottom: 0,
-                      zIndex: 50,
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={expandChartAccessibilityLabel}
-                    accessibilityState={{expanded: false}}
-                    onPress={onExpandChartPress}
-                  />
-                ) : null}
-              </View>
-            </Animated.View>
-          </ChartStage>
-        ) : (
-          <BalanceHistoryChart
-            key={chartLifecycleKey}
-            wallets={walletsAcrossKeys}
-            snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
-            quoteCurrency={quoteCurrency}
-            perfContext="HomeRoot"
-            initialSelectedTimeframe={selectedChartTimeframeRef.current}
-            rates={rates}
-            fiatRateSeriesCache={fiatRateSeriesCache}
-            onSelectedTimeframeChange={onSelectedChartTimeframeChange}
-            timeframeSelectorHorizontalInset={ScreenGutter}
-            // NOTE: Coinbase balance is intentionally excluded from the balance chart
-            // (Option B per product requirements) because we do not have historized
-            // Coinbase balance snapshots.
-            onSelectedBalanceChange={setSelectedChartBalance}
+            {!hideAllBalances ? (
+              <>
+                <PortfolioBalanceText
+                  $isCompact={shouldUseCompactPortfolioBalanceText}>
+                  {formattedPortfolioBalance}
+                </PortfolioBalanceText>
+              </>
+            ) : (
+              <HiddenBalance>
+                {maskIfHidden(true, totalBalanceIncludingCoinbase)}
+              </HiddenBalance>
+            )}
+          </TouchableOpacity>
+        </PortfolioTopContent>
+
+        {shouldLeftAlignTopSection ? (
+          <ChartChangeRow
+            percent={chartChangeRowData?.percent ?? 0}
+            deltaFiatFormatted={chartChangeRowData?.deltaFiatFormatted}
+            rangeLabel={chartChangeRowData?.rangeLabel}
+            style={[
+              {
+                width: '100%',
+                justifyContent: 'flex-start',
+                paddingLeft: 12,
+              },
+              !chartChangeRowData ? {opacity: 0} : null,
+            ]}
           />
-        )
-      ) : null}
-    </PortfolioContainer>
+        ) : null}
+
+        {!hideAllBalances ? (
+          hasChartData ? (
+            <ChartStage
+              onLayout={e => {
+                const {width, y} = e.nativeEvent.layout;
+                if (width > 0 && width !== chartStageWidth) {
+                  setChartStageWidth(width);
+                }
+                if (y !== chartStageY) {
+                  setChartStageY(y);
+                }
+              }}>
+              <Animated.View style={chartSpacerAnimatedStyle} />
+              <Animated.View
+                style={[
+                  {
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    zIndex: isChartCollapsed ? 20 : 1,
+                  },
+                  chartWrapperAnimatedStyle,
+                ]}>
+                <View
+                  onLayout={e => {
+                    const h = Math.round(e.nativeEvent.layout.height);
+                    if (h > 0 && h !== chartBlockHeight) {
+                      setChartBlockHeight(h);
+                    }
+                  }}>
+                  <BalanceHistoryChart
+                    key={chartLifecycleKey}
+                    wallets={walletsAcrossKeys}
+                    snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
+                    quoteCurrency={quoteCurrency}
+                    perfContext="HomeRoot"
+                    initialSelectedTimeframe={selectedChartTimeframeRef.current}
+                    rates={rates}
+                    fiatRateSeriesCache={fiatRateSeriesCache}
+                    strokeScale={chartScale}
+                    minStrokeScale={collapsedScale}
+                    onChangeRowData={setChartChangeRowData}
+                    onSelectedTimeframeChange={onSelectedChartTimeframeChange}
+                    axisLabelOpacity={axisLabelOpacity}
+                    showChangeRow={false}
+                    showTimeframeSelector
+                    timeframeSelectorOpacity={timeframeSelectorOpacity}
+                    timeframeSelectorHorizontalInset={ScreenGutter}
+                    disablePanGesture={isChartCollapsed}
+                    // NOTE: Coinbase balance is intentionally excluded from the balance chart
+                    // (Option B per product requirements) because we do not have historized
+                    // Coinbase balance snapshots.
+                    onSelectedBalanceChange={setSelectedChartBalance}
+                  />
+                  {isChartCollapsed ? (
+                    <TouchableOpacity
+                      touchableLibrary="react-native"
+                      activeOpacity={ActiveOpacity}
+                      hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        right: 0,
+                        top: 0,
+                        bottom: 0,
+                        zIndex: 50,
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={expandChartAccessibilityLabel}
+                      accessibilityState={{expanded: false}}
+                      onPress={onExpandChartPress}
+                    />
+                  ) : null}
+                </View>
+              </Animated.View>
+            </ChartStage>
+          ) : (
+            <BalanceHistoryChart
+              key={chartLifecycleKey}
+              wallets={walletsAcrossKeys}
+              snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
+              quoteCurrency={quoteCurrency}
+              perfContext="HomeRoot"
+              initialSelectedTimeframe={selectedChartTimeframeRef.current}
+              rates={rates}
+              fiatRateSeriesCache={fiatRateSeriesCache}
+              onSelectedTimeframeChange={onSelectedChartTimeframeChange}
+              timeframeSelectorHorizontalInset={ScreenGutter}
+              // NOTE: Coinbase balance is intentionally excluded from the balance chart
+              // (Option B per product requirements) because we do not have historized
+              // Coinbase balance snapshots.
+              onSelectedBalanceChange={setSelectedChartBalance}
+            />
+          )
+        ) : null}
+      </PortfolioContainer>
+    </Profiler>
   );
 };
 
