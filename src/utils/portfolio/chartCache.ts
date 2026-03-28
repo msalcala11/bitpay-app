@@ -294,17 +294,45 @@ export const buildBalanceChartScopeId = (args: {
 
 export const buildSnapshotVersionSig = (args: {
   walletIds: string[];
-  walletSnapshotVersionById: Record<string, number | undefined>;
+  walletSnapshotVersionById: Record<string, string | number | undefined>;
 }): string => {
   return getSortedUniqueWalletIds(args.walletIds || [])
-    .map(
-      walletId =>
-        `${walletId}:${Math.max(
-          0,
-          Math.floor(args.walletSnapshotVersionById?.[walletId] || 0),
-        )}`,
-    )
+    .map(walletId => {
+      const rawToken = args.walletSnapshotVersionById?.[walletId];
+      if (typeof rawToken === 'string' && rawToken) {
+        return `${walletId}:${rawToken}`;
+      }
+
+      return `${walletId}:${Math.max(0, Math.floor(Number(rawToken) || 0))}`;
+    })
     .join('|');
+};
+
+export const parseSnapshotVersionSig = (
+  snapshotVersionSig: string | undefined,
+): Record<string, string | undefined> => {
+  const byWalletId: Record<string, string | undefined> = {};
+
+  for (const entry of String(snapshotVersionSig || '').split('|')) {
+    if (!entry) {
+      continue;
+    }
+
+    const separatorIndex = entry.lastIndexOf(':');
+    if (separatorIndex <= 0 || separatorIndex >= entry.length - 1) {
+      continue;
+    }
+
+    const walletId = entry.slice(0, separatorIndex);
+    const token = entry.slice(separatorIndex + 1);
+    if (!walletId || !token) {
+      continue;
+    }
+
+    byWalletId[walletId] = token;
+  }
+
+  return byWalletId;
 };
 
 const getLatestSeriesPointTs = (
