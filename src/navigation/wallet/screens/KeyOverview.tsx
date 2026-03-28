@@ -338,6 +338,8 @@ const HeaderRightContainer = styled(_HeaderRightContainer)`
 const TIMEFRAME_INTERACTION_WINDOW_MS = 5000;
 const KEY_OVERVIEW_DERIVED_UI_FALLBACK_MS = 350;
 const KEY_OVERVIEW_CHART_REFRESH_FALLBACK_MS = 900;
+const KEY_OVERVIEW_STATUS_REFRESH_FALLBACK_MS = 1200;
+const KEY_OVERVIEW_FOCUS_STATUS_REFRESH_DELAY_MS = 1200;
 const KEY_OVERVIEW_TIMEFRAME_QUIET_WINDOW_MS = 1500;
 
 type KeyOverviewAccountListState = {
@@ -475,6 +477,8 @@ const KeyOverview = () => {
   >(undefined);
   const scheduledKeyBalanceChartRefreshRef =
     useRef<ScheduledAfterInteractionsHandle | null>(null);
+  const scheduledStatusRefreshRef =
+    useRef<ScheduledAfterInteractionsHandle | null>(null);
   const pendingKeyBalanceChartRefreshRef = useRef<
     | {
         reason: string;
@@ -512,6 +516,11 @@ const KeyOverview = () => {
   const cancelScheduledKeyBalanceChartRefresh = useCallback(() => {
     scheduledKeyBalanceChartRefreshRef.current?.cancel();
     scheduledKeyBalanceChartRefreshRef.current = null;
+  }, []);
+
+  const cancelScheduledStatusRefresh = useCallback(() => {
+    scheduledStatusRefreshRef.current?.cancel();
+    scheduledStatusRefreshRef.current = null;
   }, []);
 
   const pendingTxpCount = useMemo(() => {
@@ -711,6 +720,7 @@ const KeyOverview = () => {
   }, []);
 
   useEffect(() => {
+    cancelScheduledStatusRefresh();
     cancelScheduledAccountListRefresh();
     cancelScheduledGainLossSummaryRefresh();
     setAccountListState(createInitialKeyOverviewAccountListState);
@@ -721,6 +731,7 @@ const KeyOverview = () => {
     );
     setSearchResults([]);
   }, [
+    cancelScheduledStatusRefresh,
     cancelScheduledAccountListRefresh,
     cancelScheduledGainLossSummaryRefresh,
     id,
@@ -1020,10 +1031,12 @@ const KeyOverview = () => {
 
   useEffect(() => {
     return () => {
+      cancelScheduledStatusRefresh();
       cancelScheduledAccountListRefresh();
       cancelScheduledGainLossSummaryRefresh();
     };
   }, [
+    cancelScheduledStatusRefresh,
     cancelScheduledAccountListRefresh,
     cancelScheduledGainLossSummaryRefresh,
   ]);
@@ -1642,8 +1655,97 @@ const KeyOverview = () => {
     updateStatusForKeyRef.current = updateStatusForKey;
   }, [updateStatusForKey]);
 
+  const scheduleStatusRefresh = useCallback(
+    (reason: string, forceUpdate?: boolean) => {
+      if (!isFocused || !viewedKeyId) {
+        return;
+      }
+
+      cancelScheduledStatusRefresh();
+      recordPerfEvent('screen.key_overview.status_refresh_scheduled', {
+        forceUpdate: !!forceUpdate,
+        keyId: viewedKeyId,
+        reason,
+        screen: 'KeyOverview',
+      });
+
+      const handle = scheduleAfterInteractionsAndFrames({
+        callback: async signal => {
+          if (signal.aborted) {
+            return;
+          }
+
+          if (reason === 'focus') {
+            recordPerfEvent('screen.key_overview.status_refresh_deferred', {
+              deferReason: 'initial_focus_window',
+              delayMs: KEY_OVERVIEW_FOCUS_STATUS_REFRESH_DELAY_MS,
+              forceUpdate: !!forceUpdate,
+              keyId: viewedKeyId,
+              reason,
+              screen: 'KeyOverview',
+            });
+            await sleep(KEY_OVERVIEW_FOCUS_STATUS_REFRESH_DELAY_MS);
+          }
+
+          if (signal.aborted) {
+            return;
+          }
+
+          const remainingQuietWindowMs =
+            getRemainingTimeframeQuietWindowMs();
+          if (remainingQuietWindowMs > 0) {
+            recordPerfEvent('screen.key_overview.status_refresh_deferred', {
+              deferReason: 'recent_timeframe_interaction',
+              delayMs: remainingQuietWindowMs,
+              forceUpdate: !!forceUpdate,
+              keyId: viewedKeyId,
+              reason,
+              screen: 'KeyOverview',
+            });
+            await sleep(remainingQuietWindowMs);
+          }
+
+          if (signal.aborted) {
+            return;
+          }
+
+          recordPerfEvent('screen.key_overview.status_refresh_applied', {
+            forceUpdate: !!forceUpdate,
+            keyId: viewedKeyId,
+            reason,
+            screen: 'KeyOverview',
+          });
+          await updateStatusForKeyRef.current(forceUpdate);
+        },
+        fallbackMs: KEY_OVERVIEW_STATUS_REFRESH_FALLBACK_MS,
+        onError: err => {
+          const errStr =
+            err instanceof Error ? err.message : JSON.stringify(err);
+          logger.error(
+            `error [KeyOverview - scheduleStatusRefresh]: ${errStr}`,
+          );
+        },
+      });
+
+      scheduledStatusRefreshRef.current = handle;
+      void handle.done.finally(() => {
+        if (scheduledStatusRefreshRef.current === handle) {
+          scheduledStatusRefreshRef.current = null;
+        }
+      });
+    },
+    [
+      cancelScheduledStatusRefresh,
+      getRemainingTimeframeQuietWindowMs,
+      isFocused,
+      logger,
+      viewedKeyId,
+    ],
+  );
+
   useEffect(() => {
     if (!isFocused || !viewedKeyId) {
+      cancelScheduledStatusRefresh();
       return;
     }
 
@@ -1652,10 +1754,17 @@ const KeyOverview = () => {
       screen: 'KeyOverview',
     });
     dispatch(Analytics.track('View Key'));
-    updateStatusForKeyRef.current(false);
-  }, [dispatch, isFocused, viewedKeyId]);
+    scheduleStatusRefresh('focus');
+  }, [
+    cancelScheduledStatusRefresh,
+    dispatch,
+    isFocused,
+    scheduleStatusRefresh,
+    viewedKeyId,
+  ]);
 
   const onRefresh = async () => {
+    cancelScheduledStatusRefresh();
     setRefreshing(true);
     try {
       await updateStatusForKey(true);
