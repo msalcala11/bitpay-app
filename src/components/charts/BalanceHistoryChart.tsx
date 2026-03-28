@@ -283,6 +283,7 @@ export type BalanceHistoryChartProps = {
    */
   axisLabelOpacity?: number | NumberSharedValue;
   onSelectedTimeframeChange?: (timeframe: FiatRateInterval) => void;
+  enableBackgroundPrecompute?: boolean;
 };
 
 const BalanceHistoryChart = ({
@@ -313,6 +314,7 @@ const BalanceHistoryChart = ({
   onChangeRowData,
   axisLabelOpacity = 1,
   onSelectedTimeframeChange,
+  enableBackgroundPrecompute = true,
 }: BalanceHistoryChartProps): React.ReactElement | null => {
   const {t} = useTranslation();
   const theme = useTheme();
@@ -1678,6 +1680,9 @@ const BalanceHistoryChart = ({
   // Opportunistically precompute additional timeframes in background so taps
   // switch instantly more often and avoid heavy foreground work.
   useEffect(() => {
+    if (!enableBackgroundPrecompute) {
+      return;
+    }
     if (!inputsReady || !hasAnyChartableSnapshots) {
       return;
     }
@@ -1702,6 +1707,7 @@ const BalanceHistoryChart = ({
 
     queueTimeframeCompute(nextToPrecompute, false);
   }, [
+    enableBackgroundPrecompute,
     getComputeDispositionForTimeframe,
     hasAnyChartableSnapshots,
     hasCompletedInitialInteractiveLoad,

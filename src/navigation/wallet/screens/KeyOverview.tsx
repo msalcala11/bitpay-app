@@ -338,6 +338,7 @@ const HeaderRightContainer = styled(_HeaderRightContainer)`
 const TIMEFRAME_INTERACTION_WINDOW_MS = 5000;
 const KEY_OVERVIEW_DERIVED_UI_FALLBACK_MS = 350;
 const KEY_OVERVIEW_CHART_REFRESH_FALLBACK_MS = 900;
+const KEY_OVERVIEW_TIMEFRAME_QUIET_WINDOW_MS = 1500;
 
 type KeyOverviewAccountListState = {
   accountList: AccountRowProps[];
@@ -427,7 +428,7 @@ const KeyOverview = () => {
     previousScreenProfilerInputsRef.current = undefined;
     previousBalanceSectionProfilerInputsRef.current = undefined;
     previousChartRefreshScopeRef.current = undefined;
-    pendingKeyBalanceChartRefreshRef.current = false;
+    pendingKeyBalanceChartRefreshRef.current = null;
     scheduledKeyBalanceChartRefreshRef.current?.cancel();
     scheduledKeyBalanceChartRefreshRef.current = null;
   }, [id]);
@@ -474,6 +475,13 @@ const KeyOverview = () => {
   >(undefined);
   const scheduledKeyBalanceChartRefreshRef =
     useRef<ScheduledAfterInteractionsHandle | null>(null);
+  const pendingKeyBalanceChartRefreshRef = useRef<
+    | {
+        reason: string;
+        selectionSequence: number;
+      }
+    | null
+  >(null);
   const selectedChainFilterOption = useAppSelector(
     ({APP}) => APP.selectedChainFilterOption,
   );
@@ -807,17 +815,29 @@ const KeyOverview = () => {
       }
 
       cancelScheduledAccountListRefresh();
+      const selectionSequence = timeframeInteractionSequenceRef.current;
       recordPerfEvent('screen.key_overview.account_list_refresh_scheduled', {
         keyId: id,
         reason,
         screen: 'KeyOverview',
+        selectionSequence,
       });
 
       const handle = scheduleAfterInteractionsAndFrames({
         callback: signal => {
+          if (
+            signal.aborted ||
+            selectionSequence !== timeframeInteractionSequenceRef.current
+          ) {
+            return;
+          }
+
           const nextAccountList = buildNextKeyOverviewAccountList();
 
-          if (signal.aborted) {
+          if (
+            signal.aborted ||
+            selectionSequence !== timeframeInteractionSequenceRef.current
+          ) {
             return;
           }
 
@@ -826,11 +846,15 @@ const KeyOverview = () => {
             keyId: id,
             reason,
             screen: 'KeyOverview',
+            selectionSequence,
             visibleWalletCount: visibleKeyWallets.length,
           });
 
           startTransition(() => {
-            if (signal.aborted) {
+            if (
+              signal.aborted ||
+              selectionSequence !== timeframeInteractionSequenceRef.current
+            ) {
               return;
             }
 
@@ -889,21 +913,33 @@ const KeyOverview = () => {
       }
 
       cancelScheduledGainLossSummaryRefresh();
+      const selectionSequence = timeframeInteractionSequenceRef.current;
       recordPerfEvent(
         'screen.key_overview.gain_loss_summary_refresh_scheduled',
         {
           keyId: id,
           reason,
           screen: 'KeyOverview',
+          selectionSequence,
         },
       );
 
       const handle = scheduleAfterInteractionsAndFrames({
         callback: signal => {
+          if (
+            signal.aborted ||
+            selectionSequence !== timeframeInteractionSequenceRef.current
+          ) {
+            return;
+          }
+
           const nextGainLossSummary =
             buildNextKeyOverviewGainLossSummary();
 
-          if (signal.aborted) {
+          if (
+            signal.aborted ||
+            selectionSequence !== timeframeInteractionSequenceRef.current
+          ) {
             return;
           }
 
@@ -914,13 +950,17 @@ const KeyOverview = () => {
               quoteCurrency: nextGainLossSummary.quoteCurrency,
               reason,
               screen: 'KeyOverview',
+              selectionSequence,
               totalAvailable: nextGainLossSummary.total.available,
               visibleWalletCount: deferredVisibleKeyWallets.length,
             },
           );
 
           startTransition(() => {
-            if (signal.aborted) {
+            if (
+              signal.aborted ||
+              selectionSequence !== timeframeInteractionSequenceRef.current
+            ) {
               return;
             }
 
@@ -1004,6 +1044,10 @@ const KeyOverview = () => {
         sequence: timeframeInteractionSequenceRef.current,
       };
       lastChartTimeframeInteractionRef.current = interaction;
+      pendingKeyBalanceChartRefreshRef.current = null;
+      cancelScheduledAccountListRefresh();
+      cancelScheduledGainLossSummaryRefresh();
+      cancelScheduledKeyBalanceChartRefresh();
       recordPerfEvent('screen.key_overview.timeframe_interaction_observed', {
         nextTimeframe: interaction.nextTimeframe,
         previousTimeframe: interaction.previousTimeframe,
@@ -1011,7 +1055,11 @@ const KeyOverview = () => {
         selectionSequence: interaction.sequence,
       });
     },
-    [],
+    [
+      cancelScheduledAccountListRefresh,
+      cancelScheduledGainLossSummaryRefresh,
+      cancelScheduledKeyBalanceChartRefresh,
+    ],
   );
 
   const visibleKeyWalletIdsSig = useMemo(() => {
@@ -1029,57 +1077,90 @@ const KeyOverview = () => {
       .join(',');
   }, [visibleKeyWallets]);
 
-  // If we try to populate portfolio snapshots while another populate pass is
-  // already running, the thunk may no-op. Track a pending request so we can
-  // retry once populate finishes, preventing the balance chart from getting
-  // stuck in a perpetual loading state.
-  const pendingKeyBalanceChartRefreshRef = useRef(false);
-
-  const maybeRefreshKeyBalanceChart = useCallback(async () => {
-    const state = reduxStore.getState() as RootState;
-    if (state.PORTFOLIO?.populateStatus?.inProgress) {
-      pendingKeyBalanceChartRefreshRef.current = true;
-      recordPerfEvent('screen.key_overview.chart_refresh_deferred', {
-        keyId: id,
-        screen: 'KeyOverview',
-      });
-      return;
+  const getRemainingTimeframeQuietWindowMs = useCallback(() => {
+    const interaction = lastChartTimeframeInteractionRef.current;
+    if (!interaction) {
+      return 0;
     }
 
-    pendingKeyBalanceChartRefreshRef.current = false;
-    const latestKey = state.WALLET?.keys?.[id] as Key | undefined;
-    const latestVisibleWallets = getVisibleWalletsForKey(latestKey);
-    if (!latestVisibleWallets.length) {
-      return;
-    }
+    const elapsedMs = getPerfClockNowMs() - interaction.selectedAtMs;
+    return Math.max(0, KEY_OVERVIEW_TIMEFRAME_QUIET_WINDOW_MS - elapsedMs);
+  }, []);
 
-    const latestQuoteCurrency = getQuoteCurrency({
-      portfolioQuoteCurrency: state.PORTFOLIO?.quoteCurrency,
-      defaultAltCurrencyIsoCode: state.APP?.defaultAltCurrency?.isoCode,
-    }).toUpperCase();
+  const shouldDeferForRecentTimeframeInteraction = useCallback(
+    (reason: string) => {
+      if (
+        reason !== 'status_update' &&
+        reason !== 'retry_after_populate' &&
+        reason !== 'retry_after_timeframe_interaction'
+      ) {
+        return false;
+      }
 
-    await measurePerfAsync(
-      'screen.key_overview.populate_portfolio_for_chart',
-      async () => {
-        await dispatch(
-          maybePopulatePortfolioForWallets({
-            // IMPORTANT: re-read the latest Redux wallet objects after any
-            // balance/rate refresh completes so chart snapshot population does
-            // not get stuck using stale wallet balances from the first render.
-            // Keep the wallet scope aligned with the wallets visible in KeyOverview.
-            wallets: latestVisibleWallets,
-            quoteCurrency: latestQuoteCurrency,
-          }) as any,
-        );
-      },
-      {
-        keyId: id,
-        quoteCurrency: latestQuoteCurrency,
-        screen: 'KeyOverview',
-        walletCount: latestVisibleWallets.length,
-      },
-    );
-  }, [dispatch, id, reduxStore]);
+      return getRemainingTimeframeQuietWindowMs() > 0;
+    },
+    [getRemainingTimeframeQuietWindowMs],
+  );
+
+  const maybeRefreshKeyBalanceChart = useCallback(
+    async (args: {reason: string; selectionSequence: number}) => {
+      if (args.selectionSequence !== timeframeInteractionSequenceRef.current) {
+        pendingKeyBalanceChartRefreshRef.current = null;
+        return;
+      }
+
+      const state = reduxStore.getState() as RootState;
+      if (state.PORTFOLIO?.populateStatus?.inProgress) {
+        pendingKeyBalanceChartRefreshRef.current = {
+          reason: args.reason,
+          selectionSequence: args.selectionSequence,
+        };
+        recordPerfEvent('screen.key_overview.chart_refresh_deferred', {
+          deferReason: 'populate_in_progress',
+          keyId: id,
+          reason: args.reason,
+          screen: 'KeyOverview',
+          selectionSequence: args.selectionSequence,
+        });
+        return;
+      }
+
+      pendingKeyBalanceChartRefreshRef.current = null;
+      const latestKey = state.WALLET?.keys?.[id] as Key | undefined;
+      const latestVisibleWallets = getVisibleWalletsForKey(latestKey);
+      if (!latestVisibleWallets.length) {
+        return;
+      }
+
+      const latestQuoteCurrency = getQuoteCurrency({
+        portfolioQuoteCurrency: state.PORTFOLIO?.quoteCurrency,
+        defaultAltCurrencyIsoCode: state.APP?.defaultAltCurrency?.isoCode,
+      }).toUpperCase();
+
+      await measurePerfAsync(
+        'screen.key_overview.populate_portfolio_for_chart',
+        async () => {
+          await dispatch(
+            maybePopulatePortfolioForWallets({
+              // IMPORTANT: re-read the latest Redux wallet objects after any
+              // balance/rate refresh completes so chart snapshot population does
+              // not get stuck using stale wallet balances from the first render.
+              // Keep the wallet scope aligned with the wallets visible in KeyOverview.
+              wallets: latestVisibleWallets,
+              quoteCurrency: latestQuoteCurrency,
+            }) as any,
+          );
+        },
+        {
+          keyId: id,
+          quoteCurrency: latestQuoteCurrency,
+          screen: 'KeyOverview',
+          walletCount: latestVisibleWallets.length,
+        },
+      );
+    },
+    [dispatch, id, reduxStore],
+  );
 
   const scheduleKeyBalanceChartRefresh = useCallback(
     (reason: string) => {
@@ -1088,19 +1169,44 @@ const KeyOverview = () => {
       }
 
       cancelScheduledKeyBalanceChartRefresh();
+      const selectionSequence = timeframeInteractionSequenceRef.current;
       recordPerfEvent('screen.key_overview.chart_refresh_scheduled', {
         keyId: id,
         reason,
         screen: 'KeyOverview',
+        selectionSequence,
       });
 
       const handle = scheduleAfterInteractionsAndFrames({
         callback: async signal => {
-          if (signal.aborted) {
+          if (
+            signal.aborted ||
+            selectionSequence !== timeframeInteractionSequenceRef.current
+          ) {
             return;
           }
 
-          await maybeRefreshKeyBalanceChart();
+          if (shouldDeferForRecentTimeframeInteraction(reason)) {
+            const remainingQuietWindowMs = getRemainingTimeframeQuietWindowMs();
+            recordPerfEvent('screen.key_overview.chart_refresh_deferred', {
+              deferReason: 'recent_timeframe_interaction',
+              keyId: id,
+              reason,
+              remainingQuietWindowMs,
+              screen: 'KeyOverview',
+              selectionSequence,
+            });
+            await sleep(remainingQuietWindowMs);
+          }
+
+          if (
+            signal.aborted ||
+            selectionSequence !== timeframeInteractionSequenceRef.current
+          ) {
+            return;
+          }
+
+          await maybeRefreshKeyBalanceChart({reason, selectionSequence});
         },
         fallbackMs: KEY_OVERVIEW_CHART_REFRESH_FALLBACK_MS,
         onError: err => {
@@ -1121,10 +1227,12 @@ const KeyOverview = () => {
     },
     [
       cancelScheduledKeyBalanceChartRefresh,
+      getRemainingTimeframeQuietWindowMs,
       id,
       isFocused,
       logger,
       maybeRefreshKeyBalanceChart,
+      shouldDeferForRecentTimeframeInteraction,
     ],
   );
 
@@ -1170,6 +1278,14 @@ const KeyOverview = () => {
       portfolio.populateStatus?.inProgress ||
       !pendingKeyBalanceChartRefreshRef.current
     ) {
+      return;
+    }
+
+    if (
+      pendingKeyBalanceChartRefreshRef.current.selectionSequence !==
+      timeframeInteractionSequenceRef.current
+    ) {
+      pendingKeyBalanceChartRefreshRef.current = null;
       return;
     }
 
@@ -1722,6 +1838,7 @@ const KeyOverview = () => {
                 snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
                 quoteCurrency={quoteCurrency}
                 perfContext="KeyOverview"
+                enableBackgroundPrecompute={false}
                 initialSelectedTimeframe={selectedChartTimeframeRef.current}
                 rates={rates}
                 fiatRateSeriesCache={fiatRateSeriesCache}
