@@ -1,4 +1,5 @@
 import React, {
+  Profiler,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -121,6 +122,7 @@ import {BWCErrorMessage} from '../../../constants/BWCError';
 import ArchaxFooter from '../../../components/archax/archax-footer';
 import {useOngoingProcess, useTokenContext} from '../../../contexts';
 import BalanceHistoryChart from '../../../components/charts/BalanceHistoryChart';
+import {DEFAULT_BALANCE_CHART_TIMEFRAME} from '../../../components/charts/fiatTimeframes';
 import {getTimeframeSelectorWidth} from '../../../components/charts/timeframeSelectorWidth';
 import {getDifferenceColor} from '../../../components/percentage/Percentage';
 import Button from '../../../components/button/Button';
@@ -140,10 +142,12 @@ import {
 } from '../../../utils/portfolio/assets';
 import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
 import {
+  getPerfClockNowMs,
   measurePerfAsync,
   measurePerfSync,
   recordPerfEvent,
 } from '../../../utils/perfLogger';
+import {summarizeReactPerfSnapshotChanges} from '../../../utils/reactPerf';
 
 LogBox.ignoreLogs([
   'Non-serializable values were found in the navigation state',
@@ -323,6 +327,8 @@ const HeaderRightContainer = styled(_HeaderRightContainer)`
   align-items: center;
 `;
 
+const TIMEFRAME_INTERACTION_WINDOW_MS = 5000;
+
 const KeyOverview = () => {
   const {t} = useTranslation();
   const {
@@ -363,6 +369,11 @@ const KeyOverview = () => {
 
   useEffect(() => {
     setSelectedBalance(undefined);
+    selectedChartTimeframeRef.current = DEFAULT_BALANCE_CHART_TIMEFRAME;
+    lastChartTimeframeInteractionRef.current = undefined;
+    timeframeInteractionSequenceRef.current = 0;
+    previousScreenProfilerInputsRef.current = undefined;
+    previousBalanceSectionProfilerInputsRef.current = undefined;
   }, [id]);
   const hasMultipleKeys =
     Object.values(keys).filter(k => k.backupComplete).length > 1;
@@ -370,6 +381,25 @@ const KeyOverview = () => {
   const [searchVal, setSearchVal] = useState('');
   const [isViewUpdating, setIsViewUpdating] = useState(false);
   const [searchResults, setSearchResults] = useState([] as AccountRowProps[]);
+  const selectedChartTimeframeRef = useRef<FiatRateInterval>(
+    DEFAULT_BALANCE_CHART_TIMEFRAME,
+  );
+  const lastChartTimeframeInteractionRef = useRef<
+    | {
+        nextTimeframe: FiatRateInterval;
+        previousTimeframe: FiatRateInterval;
+        selectedAtMs: number;
+        sequence: number;
+      }
+    | undefined
+  >(undefined);
+  const timeframeInteractionSequenceRef = useRef(0);
+  const previousScreenProfilerInputsRef = useRef<
+    Record<string, boolean | number | string | undefined> | undefined
+  >(undefined);
+  const previousBalanceSectionProfilerInputsRef = useRef<
+    Record<string, boolean | number | string | undefined> | undefined
+  >(undefined);
   const selectedChainFilterOption = useAppSelector(
     ({APP}) => APP.selectedChainFilterOption,
   );
@@ -561,6 +591,32 @@ const KeyOverview = () => {
       defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
     });
   }, [defaultAltCurrency?.isoCode, portfolio.quoteCurrency]);
+
+  const onSelectedChartTimeframeChange = useCallback(
+    (timeframe: FiatRateInterval) => {
+      const previousTimeframe = selectedChartTimeframeRef.current;
+      if (previousTimeframe === timeframe) {
+        return;
+      }
+
+      selectedChartTimeframeRef.current = timeframe;
+      timeframeInteractionSequenceRef.current += 1;
+      const interaction = {
+        nextTimeframe: timeframe,
+        previousTimeframe,
+        selectedAtMs: getPerfClockNowMs(),
+        sequence: timeframeInteractionSequenceRef.current,
+      };
+      lastChartTimeframeInteractionRef.current = interaction;
+      recordPerfEvent('screen.key_overview.timeframe_interaction_observed', {
+        nextTimeframe: interaction.nextTimeframe,
+        previousTimeframe: interaction.previousTimeframe,
+        screen: 'KeyOverview',
+        selectionSequence: interaction.sequence,
+      });
+    },
+    [],
+  );
 
   const visibleKeyWalletIdsSig = useMemo(() => {
     return Array.from(
@@ -1143,42 +1199,118 @@ const KeyOverview = () => {
     [hideAllBalances, onPressItem],
   );
 
+  const balanceSectionProfilerInputs = useMemo(
+    () => ({
+      hasSelectedBalance: typeof selectedBalance === 'number',
+      hideAllBalances,
+      quoteCurrency,
+      snapshotWalletCount: Object.keys(portfolio?.snapshotsByWalletId || {})
+        .length,
+      timeframeSelectorWidth,
+      visibleWalletCount: visibleKeyWallets.length,
+    }),
+    [
+      hideAllBalances,
+      portfolio?.snapshotsByWalletId,
+      quoteCurrency,
+      selectedBalance,
+      timeframeSelectorWidth,
+      visibleKeyWallets.length,
+    ],
+  );
+
+  const onBalanceSectionProfilerRender = useCallback(
+    (
+      profilerId: string,
+      phase: 'mount' | 'update' | 'nested-update',
+      actualDuration: number,
+      baseDuration: number,
+      startTime: number,
+      commitTime: number,
+    ) => {
+      const changeSummary = summarizeReactPerfSnapshotChanges({
+        next: balanceSectionProfilerInputs,
+        previous: previousBalanceSectionProfilerInputsRef.current,
+      });
+      previousBalanceSectionProfilerInputsRef.current =
+        balanceSectionProfilerInputs;
+
+      const interaction = lastChartTimeframeInteractionRef.current;
+      const timeSinceTimeframeSelectionMs =
+        interaction &&
+        commitTime >= interaction.selectedAtMs &&
+        commitTime - interaction.selectedAtMs <= TIMEFRAME_INTERACTION_WINDOW_MS
+          ? commitTime - interaction.selectedAtMs
+          : undefined;
+
+      recordPerfEvent('screen.key_overview.balance_section.react_commit', {
+        actualDurationMs: actualDuration,
+        addedKeyCount: changeSummary.addedKeyCount,
+        baseDurationMs: baseDuration,
+        changedKeyCount: changeSummary.changedKeyCount,
+        changedKeyValueSample: changeSummary.changedKeyValueSample,
+        changedKeysSample: changeSummary.changedKeysSample,
+        commitLagMs: commitTime - startTime,
+        currentSelectedTimeframe: selectedChartTimeframeRef.current,
+        hasRecentTimeframeSelection:
+          typeof timeSinceTimeframeSelectionMs === 'number',
+        interactionNextTimeframe: interaction?.nextTimeframe,
+        interactionPreviousTimeframe: interaction?.previousTimeframe,
+        interactionSequence: interaction?.sequence,
+        nextKeyCount: changeSummary.nextKeyCount,
+        phase,
+        previousKeyCount: changeSummary.previousKeyCount,
+        profilerId,
+        removedKeyCount: changeSummary.removedKeyCount,
+        screen: 'KeyOverview',
+        timeSinceTimeframeSelectionMs,
+      });
+    },
+    [balanceSectionProfilerInputs],
+  );
+
   const listHeaderComponent = useMemo(() => {
     return (
       <>
-        <BalanceContainer>
-          <TouchableOpacity
-            onLongPress={() => {
-              dispatch(toggleHideAllBalances());
-            }}>
-            {!hideAllBalances ? (
-              <Balance scale={shouldScale(totalBalance)}>
-                {formatFiatAmount(
-                  selectedBalance ?? totalBalance,
-                  defaultAltCurrency.isoCode,
-                  {
-                    currencyDisplay: 'symbol',
-                  },
-                )}
-              </Balance>
-            ) : (
-              <H2>****</H2>
-            )}
-          </TouchableOpacity>
+        <Profiler
+          id="KeyOverview.BalanceSection"
+          onRender={onBalanceSectionProfilerRender}>
+          <BalanceContainer>
+            <TouchableOpacity
+              onLongPress={() => {
+                dispatch(toggleHideAllBalances());
+              }}>
+              {!hideAllBalances ? (
+                <Balance scale={shouldScale(totalBalance)}>
+                  {formatFiatAmount(
+                    selectedBalance ?? totalBalance,
+                    defaultAltCurrency.isoCode,
+                    {
+                      currencyDisplay: 'symbol',
+                    },
+                  )}
+                </Balance>
+              ) : (
+                <H2>****</H2>
+              )}
+            </TouchableOpacity>
 
-          {!hideAllBalances ? (
-            <BalanceHistoryChart
-              wallets={visibleKeyWallets}
-              snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
-              quoteCurrency={quoteCurrency}
-              perfContext="KeyOverview"
-              rates={rates}
-              fiatRateSeriesCache={fiatRateSeriesCache}
-              timeframeSelectorWidth={timeframeSelectorWidth}
-              onSelectedBalanceChange={setSelectedBalance}
-            />
-          ) : null}
-        </BalanceContainer>
+            {!hideAllBalances ? (
+              <BalanceHistoryChart
+                wallets={visibleKeyWallets}
+                snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
+                quoteCurrency={quoteCurrency}
+                perfContext="KeyOverview"
+                initialSelectedTimeframe={selectedChartTimeframeRef.current}
+                rates={rates}
+                fiatRateSeriesCache={fiatRateSeriesCache}
+                timeframeSelectorWidth={timeframeSelectorWidth}
+                onSelectedBalanceChange={setSelectedBalance}
+                onSelectedTimeframeChange={onSelectedChartTimeframeChange}
+              />
+            ) : null}
+          </BalanceContainer>
+        </Profiler>
 
         <WalletListHeader>
           <H5>{t('My Wallets')}</H5>
@@ -1209,6 +1341,8 @@ const KeyOverview = () => {
     fiatRateSeriesCache,
     hideAllBalances,
     memoizedAccountList,
+    onBalanceSectionProfilerRender,
+    onSelectedChartTimeframeChange,
     portfolio?.snapshotsByWalletId,
     quoteCurrency,
     rates,
@@ -1377,83 +1511,183 @@ const KeyOverview = () => {
     selectedChainFilterOption,
   ]);
 
+  const screenProfilerInputs = useMemo(
+    () => ({
+      accountCount: memoizedAccountList.length,
+      hasKey: Boolean(key),
+      hideAllBalances,
+      isFocused,
+      isKeyPopulateLoading,
+      isLoadingInitial,
+      pendingTxpCount,
+      quoteCurrency,
+      refreshing,
+      renderDataCount: renderDataComponent.length,
+      searchResultsCount: searchResults.length,
+      searchValLength: searchVal.length,
+      selectedChainFilterApplied: Boolean(selectedChainFilterOption),
+      showArchaxBanner,
+      showKeyDropdown,
+      showKeyOptions,
+      showPortfolioValue,
+      snapshotWalletCount: Object.keys(portfolio?.snapshotsByWalletId || {})
+        .length,
+      visibleWalletCount: visibleKeyWallets.length,
+      walletCount: key?.wallets?.length || 0,
+    }),
+    [
+      hideAllBalances,
+      isFocused,
+      isKeyPopulateLoading,
+      isLoadingInitial,
+      key,
+      memoizedAccountList.length,
+      pendingTxpCount,
+      portfolio?.snapshotsByWalletId,
+      quoteCurrency,
+      refreshing,
+      renderDataComponent.length,
+      searchResults.length,
+      searchVal.length,
+      selectedChainFilterOption,
+      showArchaxBanner,
+      showKeyDropdown,
+      showKeyOptions,
+      showPortfolioValue,
+      visibleKeyWallets.length,
+    ],
+  );
+
+  const onScreenProfilerRender = useCallback(
+    (
+      profilerId: string,
+      phase: 'mount' | 'update' | 'nested-update',
+      actualDuration: number,
+      baseDuration: number,
+      startTime: number,
+      commitTime: number,
+    ) => {
+      const changeSummary = summarizeReactPerfSnapshotChanges({
+        next: screenProfilerInputs,
+        previous: previousScreenProfilerInputsRef.current,
+      });
+      previousScreenProfilerInputsRef.current = screenProfilerInputs;
+
+      const interaction = lastChartTimeframeInteractionRef.current;
+      const timeSinceTimeframeSelectionMs =
+        interaction &&
+        commitTime >= interaction.selectedAtMs &&
+        commitTime - interaction.selectedAtMs <= TIMEFRAME_INTERACTION_WINDOW_MS
+          ? commitTime - interaction.selectedAtMs
+          : undefined;
+
+      recordPerfEvent('screen.key_overview.react_commit', {
+        actualDurationMs: actualDuration,
+        addedKeyCount: changeSummary.addedKeyCount,
+        baseDurationMs: baseDuration,
+        changedKeyCount: changeSummary.changedKeyCount,
+        changedKeyValueSample: changeSummary.changedKeyValueSample,
+        changedKeysSample: changeSummary.changedKeysSample,
+        commitLagMs: commitTime - startTime,
+        currentSelectedTimeframe: selectedChartTimeframeRef.current,
+        hasRecentTimeframeSelection:
+          typeof timeSinceTimeframeSelectionMs === 'number',
+        interactionNextTimeframe: interaction?.nextTimeframe,
+        interactionPreviousTimeframe: interaction?.previousTimeframe,
+        interactionSequence: interaction?.sequence,
+        nextKeyCount: changeSummary.nextKeyCount,
+        phase,
+        previousKeyCount: changeSummary.previousKeyCount,
+        profilerId,
+        removedKeyCount: changeSummary.removedKeyCount,
+        screen: 'KeyOverview',
+        timeSinceTimeframeSelectionMs,
+      });
+    },
+    [screenProfilerInputs],
+  );
+
   return (
     <OverviewContainer>
-      <FlashList<AccountRowProps>
-        refreshControl={
-          <RefreshControl
-            tintColor={theme.dark ? White : SlateDark}
-            refreshing={refreshing}
-            onRefresh={() => onRefresh()}
-          />
-        }
-        ListHeaderComponent={listHeaderComponent}
-        ListFooterComponent={renderListFooterComponent}
-        data={renderDataComponent}
-        renderItem={memoizedRenderItem}
-        ListEmptyComponent={listEmptyComponent}
-      />
-
-      {keyOptions.length > 0 ? (
-        <OptionsSheet
-          isVisible={showKeyOptions}
-          title={t('Key Options')}
-          options={keyOptions}
-          closeModal={() => setShowKeyOptions(false)}
-        />
-      ) : null}
-
-      <SheetModal
-        isVisible={showKeyDropdown}
-        placement={'top'}
-        onBackdropPress={() => setShowKeyDropdown(false)}>
-        <KeyDropdown>
-          <HeaderTitle style={{margin: 15}}>{t('Other Keys')}</HeaderTitle>
-          <KeyDropdownOptionsContainer>
-            {Object.values(keys)
-              .filter(_key => _key.backupComplete && _key.id !== id)
-              .map(_key => (
-                <DropdownOption
-                  key={_key.id}
-                  optionId={_key.id}
-                  optionName={_key.keyName}
-                  wallets={_key.wallets}
-                  totalBalance={_key.totalBalance}
-                  onPress={keyId => {
-                    setShowKeyDropdown(false);
-                    navigation.setParams({
-                      id: keyId,
-                    } as any);
-                  }}
-                  defaultAltCurrencyIsoCode={defaultAltCurrency.isoCode}
-                  hideKeyBalance={hideAllBalances}
-                />
-              ))}
-            {linkedCoinbase ? (
-              <CoinbaseDropdownOption
-                onPress={() => {
-                  setShowKeyDropdown(false);
-                  navigation.dispatch(
-                    CommonActions.reset({
-                      index: 1,
-                      routes: [
-                        {
-                          name: RootStacks.TABS,
-                          params: {screen: TabsScreens.HOME},
-                        },
-                        {
-                          name: CoinbaseScreens.ROOT,
-                          params: {},
-                        },
-                      ],
-                    }),
-                  );
-                }}
+      <Profiler id="KeyOverview.ScreenContent" onRender={onScreenProfilerRender}>
+        <>
+          <FlashList<AccountRowProps>
+            refreshControl={
+              <RefreshControl
+                tintColor={theme.dark ? White : SlateDark}
+                refreshing={refreshing}
+                onRefresh={() => onRefresh()}
               />
-            ) : null}
-          </KeyDropdownOptionsContainer>
-        </KeyDropdown>
-      </SheetModal>
+            }
+            ListHeaderComponent={listHeaderComponent}
+            ListFooterComponent={renderListFooterComponent}
+            data={renderDataComponent}
+            renderItem={memoizedRenderItem}
+            ListEmptyComponent={listEmptyComponent}
+          />
+
+          {keyOptions.length > 0 ? (
+            <OptionsSheet
+              isVisible={showKeyOptions}
+              title={t('Key Options')}
+              options={keyOptions}
+              closeModal={() => setShowKeyOptions(false)}
+            />
+          ) : null}
+
+          <SheetModal
+            isVisible={showKeyDropdown}
+            placement={'top'}
+            onBackdropPress={() => setShowKeyDropdown(false)}>
+            <KeyDropdown>
+              <HeaderTitle style={{margin: 15}}>{t('Other Keys')}</HeaderTitle>
+              <KeyDropdownOptionsContainer>
+                {Object.values(keys)
+                  .filter(_key => _key.backupComplete && _key.id !== id)
+                  .map(_key => (
+                    <DropdownOption
+                      key={_key.id}
+                      optionId={_key.id}
+                      optionName={_key.keyName}
+                      wallets={_key.wallets}
+                      totalBalance={_key.totalBalance}
+                      onPress={keyId => {
+                        setShowKeyDropdown(false);
+                        navigation.setParams({
+                          id: keyId,
+                        } as any);
+                      }}
+                      defaultAltCurrencyIsoCode={defaultAltCurrency.isoCode}
+                      hideKeyBalance={hideAllBalances}
+                    />
+                  ))}
+                {linkedCoinbase ? (
+                  <CoinbaseDropdownOption
+                    onPress={() => {
+                      setShowKeyDropdown(false);
+                      navigation.dispatch(
+                        CommonActions.reset({
+                          index: 1,
+                          routes: [
+                            {
+                              name: RootStacks.TABS,
+                              params: {screen: TabsScreens.HOME},
+                            },
+                            {
+                              name: CoinbaseScreens.ROOT,
+                              params: {},
+                            },
+                          ],
+                        }),
+                      );
+                    }}
+                  />
+                ) : null}
+              </KeyDropdownOptionsContainer>
+            </KeyDropdown>
+          </SheetModal>
+        </>
+      </Profiler>
     </OverviewContainer>
   );
 };
