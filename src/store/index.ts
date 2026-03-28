@@ -92,6 +92,7 @@ import {
   portfolioReducer,
   portfolioReduxPersistBlackList,
 } from './portfolio/portfolio.reducer';
+import {PortfolioActionTypes} from './portfolio/portfolio.types';
 import {
   portfolioChartsReducer,
   portfolioChartsReduxPersistBlackList,
@@ -146,6 +147,14 @@ const getRateCacheUpdateBatchType = (keyCount: number) => {
 
 // Module-scoped logger that safely logs before and after store initialization
 let storeDispatch: ((action: AnyAction) => void) | null = null;
+let persistorRef:
+  | {
+      flush: () => Promise<unknown>;
+      pause: () => void;
+      persist: () => void;
+    }
+  | null = null;
+let isPersistPausedForPortfolioPopulate = false;
 const addLog = (log: AddLog) => {
   try {
     if (storeDispatch) {
@@ -432,6 +441,76 @@ const getStore = async () => {
       return next(action);
     };
 
+  const portfolioPopulatePersistControlMiddleware =
+    (): Middleware => store => next => (action: AnyAction) => {
+      const actionType = action?.type;
+
+      if (actionType === PortfolioActionTypes.START_POPULATE_PORTFOLIO) {
+        if (!isPersistPausedForPortfolioPopulate) {
+          persistorRef?.pause();
+          isPersistPausedForPortfolioPopulate = true;
+          recordPerfEvent('persist.lifecycle.pause_for_portfolio_populate', {
+            actionType,
+            hasPersistor: !!persistorRef,
+            quoteCurrency:
+              typeof action?.payload?.quoteCurrency === 'string'
+                ? action.payload.quoteCurrency
+                : undefined,
+          });
+        }
+
+        return next(action);
+      }
+
+      const result = next(action);
+
+      if (
+        ![
+          PortfolioActionTypes.CANCEL_POPULATE_PORTFOLIO,
+          PortfolioActionTypes.FAIL_POPULATE_PORTFOLIO,
+          PortfolioActionTypes.FINISH_POPULATE_PORTFOLIO,
+        ].includes(actionType)
+      ) {
+        return result;
+      }
+
+      if (!isPersistPausedForPortfolioPopulate) {
+        return result;
+      }
+
+      isPersistPausedForPortfolioPopulate = false;
+      const portfolioState = store.getState()?.PORTFOLIO;
+      const flushPersistor = persistorRef;
+
+      recordPerfEvent('persist.lifecycle.resume_for_portfolio_populate', {
+        actionType,
+        hasPersistor: !!flushPersistor,
+        quoteCurrency: portfolioState?.quoteCurrency,
+        snapshotWalletCount: Object.keys(
+          portfolioState?.snapshotsByWalletId || {},
+        ).length,
+      });
+
+      if (!flushPersistor) {
+        return result;
+      }
+
+      flushPersistor.persist();
+      void measurePerfAsync(
+        'persist.lifecycle.flush_after_portfolio_populate',
+        () => flushPersistor.flush(),
+        {
+          actionType,
+          quoteCurrency: portfolioState?.quoteCurrency,
+          snapshotWalletCount: Object.keys(
+            portfolioState?.snapshotsByWalletId || {},
+          ).length,
+        },
+      );
+
+      return result;
+    };
+
   const rateCacheWriteLogger = (): Middleware => {
     const recentBatchStateByGroup = new Map<
       string,
@@ -563,6 +642,7 @@ const getStore = async () => {
 
   middlewares.push(lastActionMiddleware());
   middlewares.push(cleanupPortfolioOnDeleteKeyMiddleware);
+  middlewares.push(portfolioPopulatePersistControlMiddleware());
   middlewares.push(rateCacheWriteLogger());
 
   if (__DEV__ && !(DISABLE_DEVELOPMENT_LOGGING === 'true')) {
@@ -742,6 +822,7 @@ const getStore = async () => {
   initLogs.drainAndDispatch(storeDispatch);
 
   const persistor = persistStore(store);
+  persistorRef = persistor;
 
   if (__DEV__) {
     // persistor.purge().then(() => console.log('purged persistence'));
