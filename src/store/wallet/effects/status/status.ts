@@ -234,6 +234,7 @@ export const updateKeyStatus =
           wallet => wallet.receiveAddress === accountAddress,
         );
       }
+      const walletsToUpdateById = new Set(walletsToUpdate.map(wallet => wallet.id));
 
       // remove token wallets from getStatusAll
       const noTokenWallets = walletsToUpdate.filter(wallet => {
@@ -312,6 +313,12 @@ export const updateKeyStatus =
 
         const balances = uniqBy(key.wallets, 'id').map(wallet => {
           const {balance: cachedBalance, pendingTxps} = wallet;
+          const shouldReuseCachedBalance =
+            !!accountAddress && !walletsToUpdateById.has(wallet.id);
+
+          if (shouldReuseCachedBalance) {
+            return cachedBalance;
+          }
 
           if (!bulkStatus) {
             const newBalance = {
