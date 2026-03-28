@@ -32,6 +32,7 @@ type PerfSpan = {
 
 type SensitiveAliasKind =
   | 'address'
+  | 'key'
   | 'revision'
   | 'scope'
   | 'snapshot_sig'
@@ -50,6 +51,13 @@ const ADDRESS_KEY_NAMES = new Set([
 const WALLET_ID_KEY_NAMES = new Set([
   'walletid',
   'walletids',
+]);
+
+const KEY_ID_KEY_NAMES = new Set([
+  'chartlifecyclekey',
+  'keyid',
+  'keyids',
+  'visiblekeyidssig',
 ]);
 
 const TRANSACTION_ID_KEY_NAMES = new Set([
@@ -191,11 +199,13 @@ class PerfLogger {
   private static instance: PerfLogger;
   private entries: PerfLogEntry[] = [];
   private listeners: Set<(data: PerfLogData) => void> = new Set();
+  private isListenerNotificationQueued = false;
   private nextId = 1;
   private startedAtIso = new Date().toISOString();
   private startedClockMs = getClockNowMs();
   private sensitiveAliasMaps: Record<SensitiveAliasKind, Map<string, string>> = {
     address: new Map(),
+    key: new Map(),
     revision: new Map(),
     scope: new Map(),
     snapshot_sig: new Map(),
@@ -204,6 +214,7 @@ class PerfLogger {
   };
   private sensitiveAliasCounts: Record<SensitiveAliasKind, number> = {
     address: 0,
+    key: 0,
     revision: 0,
     scope: 0,
     snapshot_sig: 0,
@@ -238,6 +249,7 @@ class PerfLogger {
     this.startedClockMs = getClockNowMs();
     this.sensitiveAliasMaps = {
       address: new Map(),
+      key: new Map(),
       revision: new Map(),
       scope: new Map(),
       snapshot_sig: new Map(),
@@ -246,6 +258,7 @@ class PerfLogger {
     };
     this.sensitiveAliasCounts = {
       address: 0,
+      key: 0,
       revision: 0,
       scope: 0,
       snapshot_sig: 0,
@@ -459,8 +472,18 @@ class PerfLogger {
   }
 
   private notifyListeners() {
-    const data = this.getLogData();
-    this.listeners.forEach(listener => listener(data));
+    if (this.isListenerNotificationQueued) {
+      return;
+    }
+
+    // Perf events can be recorded during render for instrumentation; flush
+    // subscribers asynchronously so React doesn't see cross-component setState.
+    this.isListenerNotificationQueued = true;
+    Promise.resolve().then(() => {
+      this.isListenerNotificationQueued = false;
+      const data = this.getLogData();
+      this.listeners.forEach(listener => listener(data));
+    });
   }
 
   private getSensitiveAlias(kind: SensitiveAliasKind, rawValue: string): string {
@@ -520,6 +543,31 @@ class PerfLogger {
     return nextValue;
   }
 
+  private redactKeyLikeStrings(rawValue: string): string {
+    return rawValue.replace(
+      /\b(chartLifecycleKey|visibleKeyIdsSig):([^\s]+)/g,
+      (_match, fieldName: string, fieldValue: string) => {
+        const redactedFieldValue = String(fieldValue || '')
+          .split('->')
+          .map(segment => {
+            const normalizedSegment = String(segment || '');
+            if (
+              !normalizedSegment ||
+              normalizedSegment === 'null' ||
+              normalizedSegment === 'undefined'
+            ) {
+              return normalizedSegment;
+            }
+
+            return this.getSensitiveAlias('key', normalizedSegment);
+          })
+          .join('->');
+
+        return `${fieldName}:${redactedFieldValue}`;
+      },
+    );
+  }
+
   private sanitizePerfMetadataValue(key: string | undefined, value: unknown): unknown {
     if (value == null) {
       return value;
@@ -538,6 +586,10 @@ class PerfLogger {
         return value.map(item =>
           this.getSensitiveAlias('wallet', String(item || '')),
         );
+      }
+
+      if (KEY_ID_KEY_NAMES.has(normalizedKey)) {
+        return value.map(item => this.getSensitiveAlias('key', String(item || '')));
       }
 
       if (TRANSACTION_ID_KEY_NAMES.has(normalizedKey)) {
@@ -564,6 +616,10 @@ class PerfLogger {
       return this.getSensitiveAlias('wallet', String(value));
     }
 
+    if (KEY_ID_KEY_NAMES.has(normalizedKey)) {
+      return this.getSensitiveAlias('key', String(value));
+    }
+
     if (ADDRESS_KEY_NAMES.has(normalizedKey)) {
       return this.getSensitiveAlias('address', String(value));
     }
@@ -585,7 +641,9 @@ class PerfLogger {
     }
 
     if (typeof value === 'string') {
-      return this.redactAddressLikeStrings(this.redactKnownIdsInString(value));
+      return this.redactKeyLikeStrings(
+        this.redactAddressLikeStrings(this.redactKnownIdsInString(value)),
+      );
     }
 
     return value;
