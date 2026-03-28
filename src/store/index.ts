@@ -745,6 +745,17 @@ const getStore = async () => {
   }
 
   const secretKey = await getEncryptionKey().catch(() => getUniqueId());
+  const unencryptedStores = [
+    'APP',
+    'MARKET_STATS',
+    'PORTFOLIO',
+    'PORTFOLIO_CHARTS',
+    'RATE',
+    'SHOP',
+    'SHOP_CATALOG',
+    'WALLET',
+  ];
+  const unencryptedStoreSet = new Set(unencryptedStores);
   const baseEncryptTransform = encryptTransform({
     secretKey,
     onError: err => {
@@ -757,16 +768,7 @@ const getStore = async () => {
         ),
       );
     },
-    unencryptedStores: [
-      'APP',
-      'MARKET_STATS',
-      'PORTFOLIO',
-      'PORTFOLIO_CHARTS',
-      'RATE',
-      'SHOP',
-      'SHOP_CATALOG',
-      'WALLET',
-    ],
+    unencryptedStores,
   }) as {
     in: (state: unknown, key: string, fullState: unknown) => unknown;
     out: (state: unknown, key: string, fullState: unknown) => unknown;
@@ -808,7 +810,7 @@ const getStore = async () => {
       createTransform(
         (inboundState, key, fullState) =>
           measurePerfSync(
-            'persist.transform.encrypt_transform.inbound',
+            'persist.transform.encrypt_or_stringify.inbound',
             () =>
               baseEncryptTransform.in(
                 inboundState,
@@ -817,11 +819,13 @@ const getStore = async () => {
               ),
             {
               reduxKey: key,
+              unencrypted:
+                typeof key === 'string' && unencryptedStoreSet.has(key),
             },
           ),
         (outboundState, key, fullState) =>
           measurePerfSync(
-            'persist.transform.encrypt_transform.outbound',
+            'persist.transform.encrypt_or_stringify.outbound',
             () =>
               baseEncryptTransform.out(
                 outboundState,
@@ -830,6 +834,8 @@ const getStore = async () => {
               ),
             {
               reduxKey: key,
+              unencrypted:
+                typeof key === 'string' && unencryptedStoreSet.has(key),
             },
           ),
       ),
