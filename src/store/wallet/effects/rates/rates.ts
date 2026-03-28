@@ -117,6 +117,183 @@ const buildRateCachePerfDebug = (args: {
   };
 };
 
+type PendingRateCacheBatchState = {
+  activeRequestCount: number;
+  pendingPerfDebugs: RateCachePerfDebug[];
+  pendingRequestResolvers: Array<() => void>;
+  pendingUpdates: FiatRateSeriesCache;
+};
+
+type RateCacheUpsertDispatch = (
+  action: ReturnType<typeof upsertFiatRateSeriesCache>,
+) => unknown;
+
+const pendingRateCacheBatchStateByGroup = new Map<
+  string,
+  PendingRateCacheBatchState
+>();
+
+const getRateCacheBatchDispatchGroup = (args: {
+  source: RateCachePerfDebug['source'];
+  fiatCode: string;
+  requestedInterval: FiatRateInterval;
+}) => {
+  return [
+    args.source,
+    (args.fiatCode || '').toUpperCase(),
+    args.requestedInterval,
+  ].join('|');
+};
+
+const getPendingRateCacheBatchState = (batchDispatchGroup: string) => {
+  const existingState = pendingRateCacheBatchStateByGroup.get(batchDispatchGroup);
+  if (existingState) {
+    return existingState;
+  }
+
+  const nextState: PendingRateCacheBatchState = {
+    activeRequestCount: 0,
+    pendingPerfDebugs: [],
+    pendingRequestResolvers: [],
+    pendingUpdates: {},
+  };
+  pendingRateCacheBatchStateByGroup.set(batchDispatchGroup, nextState);
+  return nextState;
+};
+
+const beginPendingRateCacheBatchRequest = (batchDispatchGroup: string) => {
+  const state = getPendingRateCacheBatchState(batchDispatchGroup);
+  state.activeRequestCount += 1;
+
+  return new Promise<void>(resolve => {
+    state.pendingRequestResolvers.push(resolve);
+  });
+};
+
+const queuePendingRateCacheBatchUpdates = (args: {
+  batchDispatchGroup: string;
+  perfDebug: RateCachePerfDebug;
+  updates: FiatRateSeriesCache;
+}) => {
+  const state = getPendingRateCacheBatchState(args.batchDispatchGroup);
+  state.pendingPerfDebugs.push(args.perfDebug);
+  state.pendingUpdates = {
+    ...state.pendingUpdates,
+    ...args.updates,
+  };
+};
+
+const buildCoalescedRateCachePerfDebug = (args: {
+  batchDispatchGroup: string;
+  pendingPerfDebugs: RateCachePerfDebug[];
+}): RateCachePerfDebug | undefined => {
+  const pendingPerfDebugs = args.pendingPerfDebugs.filter(Boolean);
+  if (!pendingPerfDebugs.length) {
+    return undefined;
+  }
+
+  if (pendingPerfDebugs.length === 1) {
+    return pendingPerfDebugs[0];
+  }
+
+  const firstPerfDebug = pendingPerfDebugs[0];
+  const responseCoinCount = pendingPerfDebugs.reduce((total, perfDebug) => {
+    return total + (perfDebug.responseCoinCount || 0);
+  }, 0);
+
+  return {
+    ...firstPerfDebug,
+    allowedCoinCount:
+      pendingPerfDebugs.every(
+        perfDebug => perfDebug.allowedCoinCount === firstPerfDebug.allowedCoinCount,
+      )
+        ? firstPerfDebug.allowedCoinCount
+        : undefined,
+    batchGroup: `${args.batchDispatchGroup}|coalesced`,
+    coinForCacheCheck:
+      pendingPerfDebugs.every(
+        perfDebug => perfDebug.coinForCacheCheck === firstPerfDebug.coinForCacheCheck,
+      )
+        ? firstPerfDebug.coinForCacheCheck
+        : undefined,
+    coalescedWriteCount: pendingPerfDebugs.length,
+    force: pendingPerfDebugs.some(perfDebug => !!perfDebug.force),
+    hasIdentity: pendingPerfDebugs.some(perfDebug => !!perfDebug.hasIdentity),
+    requestMode: 'coalesced',
+    requestedCoin:
+      pendingPerfDebugs.every(
+        perfDebug => perfDebug.requestedCoin === firstPerfDebug.requestedCoin,
+      )
+        ? firstPerfDebug.requestedCoin
+        : undefined,
+    responseCoinCount: responseCoinCount || undefined,
+  };
+};
+
+const flushPendingRateCacheBatchGroup = (args: {
+  batchDispatchGroup: string;
+  dispatch: RateCacheUpsertDispatch;
+}) => {
+  const state = pendingRateCacheBatchStateByGroup.get(args.batchDispatchGroup);
+  if (!state) {
+    return;
+  }
+
+  const pendingUpdates = state.pendingUpdates;
+  const pendingPerfDebugs = state.pendingPerfDebugs;
+  const pendingRequestResolvers = state.pendingRequestResolvers;
+  pendingRateCacheBatchStateByGroup.delete(args.batchDispatchGroup);
+
+  try {
+    if (Object.keys(pendingUpdates).length) {
+      const coalescedPerfDebug = buildCoalescedRateCachePerfDebug({
+        batchDispatchGroup: args.batchDispatchGroup,
+        pendingPerfDebugs,
+      });
+      if ((coalescedPerfDebug?.coalescedWriteCount || 0) > 1) {
+        const updateSummary = summarizeRateCacheKeys({
+          cacheKeys: Object.keys(pendingUpdates),
+        });
+        recordPerfEvent('rate_cache.upsert_coalesced', {
+          ...coalescedPerfDebug,
+          distinctCoinCount: updateSummary.distinctCoinCount,
+          updateBatchType: getRateCacheUpdateBatchType(updateSummary.keyCount),
+          updateKeyCount: updateSummary.keyCount,
+          updateKeyCountByCoin: updateSummary.keyCountByCoin,
+          updateKeyCountByInterval: updateSummary.keyCountByInterval,
+          updateKeysSample: updateSummary.cacheKeysSample,
+        });
+      }
+
+      args.dispatch(
+        upsertFiatRateSeriesCache({
+          perfDebug: coalescedPerfDebug,
+          updates: pendingUpdates,
+        }),
+      );
+    }
+  } finally {
+    pendingRequestResolvers.forEach(resolve => resolve());
+  }
+};
+
+const completePendingRateCacheBatchRequest = (args: {
+  batchDispatchGroup: string;
+  dispatch: RateCacheUpsertDispatch;
+}) => {
+  const state = pendingRateCacheBatchStateByGroup.get(args.batchDispatchGroup);
+  if (!state) {
+    return;
+  }
+
+  state.activeRequestCount = Math.max(0, state.activeRequestCount - 1);
+  if (state.activeRequestCount > 0) {
+    return;
+  }
+
+  flushPendingRateCacheBatchGroup(args);
+};
+
 const getFiatRateSeriesUrl = (
   fiatCode: string,
   interval: FiatRateInterval,
@@ -665,6 +842,11 @@ export const fetchFiatRateSeriesInterval =
     }
 
     const normalizedRequestedCoin = normalizeFiatRateSeriesCoin(coin);
+    const batchDispatchGroup = getRateCacheBatchDispatchGroup({
+      source: 'fetchFiatRateSeriesInterval',
+      fiatCode,
+      requestedInterval: interval,
+    });
     const inFlightKey = getFiatRateSeriesInFlightKey({
       fiatCode,
       interval,
@@ -836,7 +1018,11 @@ export const fetchFiatRateSeriesInterval =
           updateKeysSample: updateSummary.cacheKeysSample,
         });
 
-        dispatch(upsertFiatRateSeriesCache({perfDebug, updates}));
+        queuePendingRateCacheBatchUpdates({
+          batchDispatchGroup,
+          perfDebug,
+          updates,
+        });
       } else if (coin) {
         const payloadCoins = Object.keys(responseByCoin)
           .map(c => (c || '').toLowerCase())
@@ -897,6 +1083,7 @@ export const fetchFiatRateSeriesInterval =
       resolveInFlightRequest = resolve;
     });
     fiatRateSeriesRequestsInFlightByKey.set(inFlightKey, ownedInFlightRequest);
+    const waitForBatchFlush = beginPendingRateCacheBatchRequest(batchDispatchGroup);
 
     try {
       await fetchAndStoreSeries();
@@ -943,8 +1130,16 @@ export const fetchFiatRateSeriesInterval =
         }),
       );
     } finally {
-      resolveInFlightRequest?.();
-      fiatRateSeriesRequestsInFlightByKey.delete(inFlightKey);
+      try {
+        completePendingRateCacheBatchRequest({
+          batchDispatchGroup,
+          dispatch,
+        });
+        await waitForBatchFlush;
+      } finally {
+        fiatRateSeriesRequestsInFlightByKey.delete(inFlightKey);
+        resolveInFlightRequest?.();
+      }
     }
   };
 
@@ -1121,16 +1316,26 @@ export const refreshFiatRateSeries =
       updateKeysSample: [cacheKey],
     });
 
-    dispatch(
-      upsertFiatRateSeriesCache({
-        perfDebug,
-        updates: {
-          [cacheKey]: {
-            fetchedOn: now,
-            points,
-          },
+    const batchDispatchGroup = getRateCacheBatchDispatchGroup({
+      source: 'refreshFiatRateSeries',
+      fiatCode,
+      requestedInterval: interval,
+    });
+    const waitForBatchFlush = beginPendingRateCacheBatchRequest(batchDispatchGroup);
+    queuePendingRateCacheBatchUpdates({
+      batchDispatchGroup,
+      perfDebug,
+      updates: {
+        [cacheKey]: {
+          fetchedOn: now,
+          points,
         },
-      }),
-    );
+      },
+    });
+    completePendingRateCacheBatchRequest({
+      batchDispatchGroup,
+      dispatch,
+    });
+    await waitForBatchFlush;
     return true;
   };

@@ -12,10 +12,15 @@ export type RateCachePerfDebug = {
   allowedCoinCount?: number;
   batchGroup: string;
   coinForCacheCheck?: string;
+  coalescedWriteCount?: number;
   fiatCode: string;
   force?: boolean;
   hasIdentity?: boolean;
-  requestMode: 'default' | 'coin_specific' | 'patch_latest_point';
+  requestMode:
+    | 'default'
+    | 'coin_specific'
+    | 'patch_latest_point'
+    | 'coalesced';
   requestedCoin?: string;
   requestedInterval: FiatRateInterval;
   responseCoinCount?: number;
@@ -148,4 +153,3 @@ export const summarizeRateCacheMutation = (args: {
     updatedKeyCount,
   };
 };
-

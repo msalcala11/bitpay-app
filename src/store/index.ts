@@ -531,6 +531,7 @@ const getStore = async () => {
         batchWindowSingleKeyActionCount: nextBatchState.singleKeyActionCount,
         batchWindowUniqueKeyCount: nextBatchState.uniqueCacheKeys.size,
         coinForCacheCheck: perfDebug.coinForCacheCheck,
+        coalescedWriteCount: perfDebug.coalescedWriteCount,
         distinctCoinCount: updateKeySummary.distinctCoinCount,
         fetchedOnChangedKeyCount: mutationSummary.fetchedOnChangedKeyCount,
         fiatCode: perfDebug.fiatCode,
