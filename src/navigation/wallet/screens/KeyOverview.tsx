@@ -464,9 +464,27 @@ const KeyOverview = () => {
   );
   const deferredKeyForDerivedUi = useDeferredValue(key);
   const deferredRates = useDeferredValue(rates);
-  const accountList = derivedUiState.accountList;
+  const immediateAccountList = useMemo(() => {
+    if (!key) {
+      return [];
+    }
+
+    return buildAccountList(
+      key,
+      defaultAltCurrency.isoCode,
+      rates,
+      dispatch,
+      {
+        filterByHideWallet: true,
+      },
+    );
+  }, [defaultAltCurrency.isoCode, dispatch, key, rates]);
+  const accountList = derivedUiState.hasHydrated
+    ? derivedUiState.accountList
+    : immediateAccountList;
   const gainLossSummary = derivedUiState.gainLossSummary;
-  const isLoadingInitial = !derivedUiState.hasHydrated;
+  const isLoadingInitial =
+    !derivedUiState.hasHydrated && immediateAccountList.length === 0;
 
   const cancelScheduledKeyBalanceChartRefresh = useCallback(() => {
     scheduledKeyBalanceChartRefreshRef.current?.cancel();
