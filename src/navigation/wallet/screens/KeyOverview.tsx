@@ -339,8 +339,12 @@ const TIMEFRAME_INTERACTION_WINDOW_MS = 5000;
 const KEY_OVERVIEW_DERIVED_UI_FALLBACK_MS = 350;
 const KEY_OVERVIEW_CHART_REFRESH_FALLBACK_MS = 900;
 
-type KeyOverviewDerivedUiState = {
+type KeyOverviewAccountListState = {
   accountList: AccountRowProps[];
+  hasHydrated: boolean;
+};
+
+type KeyOverviewGainLossSummaryState = {
   gainLossSummary: PortfolioGainLossSummary;
   hasHydrated: boolean;
 };
@@ -364,10 +368,15 @@ const buildEmptyKeyOverviewGainLossSummary = (
   };
 };
 
-const createInitialKeyOverviewDerivedUiState = (
-  quoteCurrency: string,
-): KeyOverviewDerivedUiState => ({
+const createInitialKeyOverviewAccountListState =
+  (): KeyOverviewAccountListState => ({
   accountList: [],
+  hasHydrated: false,
+});
+
+const createInitialKeyOverviewGainLossSummaryState = (
+  quoteCurrency: string,
+): KeyOverviewGainLossSummaryState => ({
   gainLossSummary: buildEmptyKeyOverviewGainLossSummary(quoteCurrency),
   hasHydrated: false,
 });
@@ -427,9 +436,15 @@ const KeyOverview = () => {
   const [searchVal, setSearchVal] = useState('');
   const [isViewUpdating, setIsViewUpdating] = useState(false);
   const [searchResults, setSearchResults] = useState([] as AccountRowProps[]);
-  const [derivedUiState, setDerivedUiState] =
-    useState<KeyOverviewDerivedUiState>(() =>
-      createInitialKeyOverviewDerivedUiState(defaultAltCurrency.isoCode),
+  const [accountListState, setAccountListState] =
+    useState<KeyOverviewAccountListState>(
+      createInitialKeyOverviewAccountListState,
+    );
+  const [gainLossSummaryState, setGainLossSummaryState] =
+    useState<KeyOverviewGainLossSummaryState>(() =>
+      createInitialKeyOverviewGainLossSummaryState(
+        defaultAltCurrency.isoCode,
+      ),
     );
   const selectedChartTimeframeRef = useRef<FiatRateInterval>(
     DEFAULT_BALANCE_CHART_TIMEFRAME,
@@ -479,12 +494,12 @@ const KeyOverview = () => {
       },
     );
   }, [defaultAltCurrency.isoCode, dispatch, key, rates]);
-  const accountList = derivedUiState.hasHydrated
-    ? derivedUiState.accountList
+  const accountList = accountListState.hasHydrated
+    ? accountListState.accountList
     : immediateAccountList;
-  const gainLossSummary = derivedUiState.gainLossSummary;
+  const gainLossSummary = gainLossSummaryState.gainLossSummary;
   const isLoadingInitial =
-    !derivedUiState.hasHydrated && immediateAccountList.length === 0;
+    !accountListState.hasHydrated && immediateAccountList.length === 0;
 
   const cancelScheduledKeyBalanceChartRefresh = useCallback(() => {
     scheduledKeyBalanceChartRefreshRef.current?.cancel();
@@ -672,23 +687,64 @@ const KeyOverview = () => {
   );
   const deferredTotalBalance = useDeferredValue(totalBalance);
   const deferredTotalBalanceLastDay = useDeferredValue(totalBalanceLastDay);
-  const scheduledDerivedUiRefreshRef =
+  const scheduledAccountListRefreshRef =
+    useRef<ScheduledAfterInteractionsHandle | null>(null);
+  const scheduledGainLossSummaryRefreshRef =
     useRef<ScheduledAfterInteractionsHandle | null>(null);
 
-  const cancelScheduledDerivedUiRefresh = useCallback(() => {
-    scheduledDerivedUiRefreshRef.current?.cancel();
-    scheduledDerivedUiRefreshRef.current = null;
+  const cancelScheduledAccountListRefresh = useCallback(() => {
+    scheduledAccountListRefreshRef.current?.cancel();
+    scheduledAccountListRefreshRef.current = null;
+  }, []);
+
+  const cancelScheduledGainLossSummaryRefresh = useCallback(() => {
+    scheduledGainLossSummaryRefreshRef.current?.cancel();
+    scheduledGainLossSummaryRefreshRef.current = null;
   }, []);
 
   useEffect(() => {
-    cancelScheduledDerivedUiRefresh();
-    setDerivedUiState(previousState =>
-      createInitialKeyOverviewDerivedUiState(
+    cancelScheduledAccountListRefresh();
+    cancelScheduledGainLossSummaryRefresh();
+    setAccountListState(createInitialKeyOverviewAccountListState);
+    setGainLossSummaryState(previousState =>
+      createInitialKeyOverviewGainLossSummaryState(
         previousState.gainLossSummary.quoteCurrency,
       ),
     );
     setSearchResults([]);
-  }, [cancelScheduledDerivedUiRefresh, id]);
+  }, [
+    cancelScheduledAccountListRefresh,
+    cancelScheduledGainLossSummaryRefresh,
+    id,
+  ]);
+
+  const buildNextKeyOverviewAccountList = useCallback(() => {
+    return measurePerfSync(
+      'screen.key_overview.build_account_list',
+      () =>
+        deferredKeyForDerivedUi
+          ? buildAccountList(
+              deferredKeyForDerivedUi,
+              defaultAltCurrency.isoCode,
+              deferredRates,
+              dispatch,
+              {
+                filterByHideWallet: true,
+              },
+            )
+          : [],
+      {
+        keyId: deferredKeyForDerivedUi?.id,
+        screen: 'KeyOverview',
+        walletCount: deferredKeyForDerivedUi?.wallets?.length || 0,
+      },
+    );
+  }, [
+    defaultAltCurrency.isoCode,
+    deferredKeyForDerivedUi,
+    deferredRates,
+    dispatch,
+  ]);
 
   const buildNextKeyOverviewGainLossSummary = useCallback(() => {
     return measurePerfSync(
@@ -744,14 +800,14 @@ const KeyOverview = () => {
     key?.id,
   ]);
 
-  const scheduleDerivedUiRefresh = useCallback(
+  const scheduleAccountListRefresh = useCallback(
     (reason: string) => {
       if (!isFocused) {
         return;
       }
 
-      cancelScheduledDerivedUiRefresh();
-      recordPerfEvent('screen.key_overview.derived_ui_refresh_scheduled', {
+      cancelScheduledAccountListRefresh();
+      recordPerfEvent('screen.key_overview.account_list_refresh_scheduled', {
         keyId: id,
         reason,
         screen: 'KeyOverview',
@@ -759,46 +815,18 @@ const KeyOverview = () => {
 
       const handle = scheduleAfterInteractionsAndFrames({
         callback: signal => {
-          const nextAccountList = measurePerfSync(
-            'screen.key_overview.build_account_list',
-            () =>
-              deferredKeyForDerivedUi
-                ? buildAccountList(
-                    deferredKeyForDerivedUi,
-                    defaultAltCurrency.isoCode,
-                    deferredRates,
-                    dispatch,
-                    {
-                      filterByHideWallet: true,
-                    },
-                  )
-                : [],
-            {
-              keyId: deferredKeyForDerivedUi?.id,
-              screen: 'KeyOverview',
-              walletCount: deferredKeyForDerivedUi?.wallets?.length || 0,
-            },
-          );
+          const nextAccountList = buildNextKeyOverviewAccountList();
 
           if (signal.aborted) {
             return;
           }
 
-          const nextGainLossSummary =
-            buildNextKeyOverviewGainLossSummary();
-
-          if (signal.aborted) {
-            return;
-          }
-
-          recordPerfEvent('screen.key_overview.derived_ui_refresh_applied', {
+          recordPerfEvent('screen.key_overview.account_list_refresh_applied', {
             accountCount: nextAccountList.length,
             keyId: id,
-            quoteCurrency: nextGainLossSummary.quoteCurrency,
             reason,
             screen: 'KeyOverview',
-            totalAvailable: nextGainLossSummary.total.available,
-            visibleWalletCount: deferredVisibleKeyWallets.length,
+            visibleWalletCount: visibleKeyWallets.length,
           });
 
           startTransition(() => {
@@ -806,8 +834,97 @@ const KeyOverview = () => {
               return;
             }
 
-            setDerivedUiState({
+            setAccountListState({
               accountList: nextAccountList,
+              hasHydrated: true,
+            });
+          });
+        },
+        fallbackMs: KEY_OVERVIEW_DERIVED_UI_FALLBACK_MS,
+        onError: err => {
+          const errStr =
+            err instanceof Error ? err.message : JSON.stringify(err);
+          logger.error(
+            `error [KeyOverview - scheduleAccountListRefresh]: ${errStr}`,
+          );
+        },
+      });
+
+      scheduledAccountListRefreshRef.current = handle;
+      void handle.done.finally(() => {
+        if (scheduledAccountListRefreshRef.current === handle) {
+          scheduledAccountListRefreshRef.current = null;
+        }
+      });
+    },
+    [
+      buildNextKeyOverviewAccountList,
+      cancelScheduledAccountListRefresh,
+      id,
+      isFocused,
+      logger,
+      visibleKeyWallets.length,
+    ],
+  );
+
+  useEffect(() => {
+    if (!isFocused) {
+      cancelScheduledAccountListRefresh();
+      return;
+    }
+
+    scheduleAccountListRefresh('inputs_changed');
+  }, [
+    cancelScheduledAccountListRefresh,
+    deferredKeyForDerivedUi,
+    deferredRates,
+    isFocused,
+    scheduleAccountListRefresh,
+  ]);
+
+  const scheduleGainLossSummaryRefresh = useCallback(
+    (reason: string) => {
+      if (!isFocused) {
+        return;
+      }
+
+      cancelScheduledGainLossSummaryRefresh();
+      recordPerfEvent(
+        'screen.key_overview.gain_loss_summary_refresh_scheduled',
+        {
+          keyId: id,
+          reason,
+          screen: 'KeyOverview',
+        },
+      );
+
+      const handle = scheduleAfterInteractionsAndFrames({
+        callback: signal => {
+          const nextGainLossSummary =
+            buildNextKeyOverviewGainLossSummary();
+
+          if (signal.aborted) {
+            return;
+          }
+
+          recordPerfEvent(
+            'screen.key_overview.gain_loss_summary_refresh_applied',
+            {
+              keyId: id,
+              quoteCurrency: nextGainLossSummary.quoteCurrency,
+              reason,
+              screen: 'KeyOverview',
+              totalAvailable: nextGainLossSummary.total.available,
+              visibleWalletCount: deferredVisibleKeyWallets.length,
+            },
+          );
+
+          startTransition(() => {
+            if (signal.aborted) {
+              return;
+            }
+
+            setGainLossSummaryState({
               gainLossSummary: nextGainLossSummary,
               hasHydrated: true,
             });
@@ -818,26 +935,22 @@ const KeyOverview = () => {
           const errStr =
             err instanceof Error ? err.message : JSON.stringify(err);
           logger.error(
-            `error [KeyOverview - scheduleDerivedUiRefresh]: ${errStr}`,
+            `error [KeyOverview - scheduleGainLossSummaryRefresh]: ${errStr}`,
           );
         },
       });
 
-      scheduledDerivedUiRefreshRef.current = handle;
+      scheduledGainLossSummaryRefreshRef.current = handle;
       void handle.done.finally(() => {
-        if (scheduledDerivedUiRefreshRef.current === handle) {
-          scheduledDerivedUiRefreshRef.current = null;
+        if (scheduledGainLossSummaryRefreshRef.current === handle) {
+          scheduledGainLossSummaryRefreshRef.current = null;
         }
       });
     },
     [
       buildNextKeyOverviewGainLossSummary,
-      cancelScheduledDerivedUiRefresh,
-      defaultAltCurrency.isoCode,
-      deferredKeyForDerivedUi,
-      deferredRates,
+      cancelScheduledGainLossSummaryRefresh,
       deferredVisibleKeyWallets.length,
-      dispatch,
       id,
       isFocused,
       logger,
@@ -846,15 +959,14 @@ const KeyOverview = () => {
 
   useEffect(() => {
     if (!isFocused) {
-      cancelScheduledDerivedUiRefresh();
+      cancelScheduledGainLossSummaryRefresh();
       return;
     }
 
-    scheduleDerivedUiRefresh('inputs_changed');
+    scheduleGainLossSummaryRefresh('inputs_changed');
   }, [
-    cancelScheduledDerivedUiRefresh,
+    cancelScheduledGainLossSummaryRefresh,
     deferredFiatRateSeriesCache,
-    deferredKeyForDerivedUi,
     deferredLastDayRates,
     deferredQuoteCurrency,
     deferredRates,
@@ -862,17 +974,19 @@ const KeyOverview = () => {
     deferredTotalBalance,
     deferredTotalBalanceLastDay,
     deferredVisibleKeyWallets,
-    defaultAltCurrency.isoCode,
-    dispatch,
     isFocused,
-    scheduleDerivedUiRefresh,
+    scheduleGainLossSummaryRefresh,
   ]);
 
   useEffect(() => {
     return () => {
-      cancelScheduledDerivedUiRefresh();
+      cancelScheduledAccountListRefresh();
+      cancelScheduledGainLossSummaryRefresh();
     };
-  }, [cancelScheduledDerivedUiRefresh]);
+  }, [
+    cancelScheduledAccountListRefresh,
+    cancelScheduledGainLossSummaryRefresh,
+  ]);
 
   const onSelectedChartTimeframeChange = useCallback(
     (timeframe: FiatRateInterval) => {
@@ -1146,7 +1260,7 @@ const KeyOverview = () => {
     return gainLossSummary.today.deltaFiat >= 0;
   }, [gainLossSummary.today.deltaFiat]);
   const showGainLossSkeleton =
-    isKeyPopulateLoading || !derivedUiState.hasHydrated;
+    isKeyPopulateLoading || !gainLossSummaryState.hasHydrated;
 
   const _tokenOptionsByAddress = useAppSelector(({WALLET}: RootState) => {
     return {
