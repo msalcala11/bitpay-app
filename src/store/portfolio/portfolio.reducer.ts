@@ -3,7 +3,7 @@ import type {PortfolioState} from './portfolio.models';
 
 type PortfolioReduxPersistBlackList = string[];
 export const portfolioReduxPersistBlackList: PortfolioReduxPersistBlackList =
-  [];
+  ['populateStatus', 'snapshotBalanceMismatchesByWalletId'];
 
 const initialState: PortfolioState = {
   snapshotsByWalletId: {},
