@@ -778,6 +778,7 @@ const getStore = async () => {
   const rootPersistConfig = {
     ...basePersistConfig,
     key: 'root',
+    blacklist: ['SHOP_CATALOG'],
     transforms: [
       bindWalletKeys,
       transformContacts,
