@@ -100,6 +100,8 @@ import {
 import {
   buildFiatRateSeriesCacheRevisionInfo,
   getRelevantFiatRateSeriesCacheKeys,
+  summarizeFiatRateSeriesCacheKeyOwnership,
+  summarizeFiatRateSeriesDependencyPlan,
   summarizeFiatRateSeriesCacheRevisionChange,
 } from './balanceHistoryChartRateCacheRevision';
 import {type ChangeRowData} from './balanceHistoryChartSelection';
@@ -590,6 +592,14 @@ const BalanceHistoryChart = ({
     });
   }, [quoteCurrency, relevantRateCacheAssets]);
 
+  const relevantRateDependencyPlanSummary = useMemo(() => {
+    return summarizeFiatRateSeriesDependencyPlan({
+      relevantCacheKeys: relevantFiatRateSeriesCacheKeys,
+      selectedTimeframe,
+      timeframes: PRECOMPUTE_TIMEFRAME_ORDER,
+    });
+  }, [relevantFiatRateSeriesCacheKeys, selectedTimeframe]);
+
   useEffect(() => {
     if (
       !hasAnyChartableSnapshots ||
@@ -833,6 +843,12 @@ const BalanceHistoryChart = ({
       nextState: relevantFiatRateSeriesCacheRevisionInfo.state,
       previousState: previousInfo.state,
     });
+    const changedRelevantCacheKeyOwnershipSummary =
+      summarizeFiatRateSeriesCacheKeyOwnership({
+        cacheKeys: cacheChangeSummary.changedKeySample,
+        selectedTimeframe,
+        timeframes: PRECOMPUTE_TIMEFRAME_ORDER,
+      });
 
     if (!cacheChangeSummary.changedKeyCount) {
       return;
@@ -846,8 +862,16 @@ const BalanceHistoryChart = ({
         changedRelevantCacheKeyCount: cacheChangeSummary.changedKeyCount,
         changedRelevantCacheKeyReasonSample:
           cacheChangeSummary.changedKeyReasonSample,
+        changedRelevantCacheKeyCountByInterval:
+          changedRelevantCacheKeyOwnershipSummary.cacheKeyCountByInterval,
+        changedRelevantCacheKeyOwnershipSample:
+          changedRelevantCacheKeyOwnershipSummary.cacheKeyOwnershipSample,
         changedRelevantCacheKeysSample:
           cacheChangeSummary.changedKeySample,
+        changedRelevantSelectedIntervalCacheKeyCount:
+          changedRelevantCacheKeyOwnershipSummary.selectedIntervalCacheKeyCount,
+        changedRelevantBackgroundCacheKeyCount:
+          changedRelevantCacheKeyOwnershipSummary.backgroundCacheKeyCount,
         fetchedOnChangedRelevantCacheKeyCount:
           cacheChangeSummary.fetchedOnChangedCount,
         lastTsChangedRelevantCacheKeyCount:
@@ -860,6 +884,12 @@ const BalanceHistoryChart = ({
         selectedTimeframe,
         selectedTimeframeCacheStatus:
           cachedTimeframeStatusByTimeframe[selectedTimeframe] || 'missing',
+        selectedTimeframeSeriesInterval:
+          relevantRateDependencyPlanSummary.selectedSeriesInterval,
+        selectedTimeframeSharedIntervalTimeframeCount:
+          relevantRateDependencyPlanSummary.selectedSeriesIntervalSharedTimeframeCount,
+        selectedTimeframeSharedIntervalTimeframes:
+          relevantRateDependencyPlanSummary.selectedSeriesIntervalSharedTimeframes,
         selectedTimeframeNeedsHistoricalRecompute,
         totalRelevantCacheKeyCount: cacheChangeSummary.totalKeyCount,
       }),
@@ -869,8 +899,50 @@ const BalanceHistoryChart = ({
     cacheRevision,
     cachedTimeframeStatusByTimeframe,
     relevantFiatRateSeriesCacheRevisionInfo,
+    relevantRateDependencyPlanSummary.selectedSeriesInterval,
+    relevantRateDependencyPlanSummary.selectedSeriesIntervalSharedTimeframeCount,
+    relevantRateDependencyPlanSummary.selectedSeriesIntervalSharedTimeframes,
     selectedTimeframe,
     selectedTimeframeNeedsHistoricalRecompute,
+  ]);
+
+  useEffect(() => {
+    if (!hasAnyChartableSnapshots || !relevantFiatRateSeriesCacheKeys.length) {
+      return;
+    }
+
+    recordPerfEvent(
+      'balance_chart.relevant_rate_dependency_plan',
+      buildPerfMetadata({
+        backgroundRelevantCacheKeyCount:
+          relevantRateDependencyPlanSummary.backgroundCacheKeyCount,
+        precomputeTimeframeIntervalMap:
+          relevantRateDependencyPlanSummary.timeframeIntervalMap,
+        relevantCacheKeyCountByInterval:
+          relevantRateDependencyPlanSummary.cacheKeyCountByInterval,
+        relevantCacheKeyOwnershipSample:
+          relevantRateDependencyPlanSummary.cacheKeyOwnershipSample,
+        relevantRateCacheAssetCount: relevantRateCacheAssets.length,
+        selectedRelevantCacheKeyCount:
+          relevantRateDependencyPlanSummary.selectedIntervalCacheKeyCount,
+        selectedTimeframe,
+        selectedTimeframeSeriesInterval:
+          relevantRateDependencyPlanSummary.selectedSeriesInterval,
+        selectedTimeframeSharedIntervalTimeframeCount:
+          relevantRateDependencyPlanSummary.selectedSeriesIntervalSharedTimeframeCount,
+        selectedTimeframeSharedIntervalTimeframes:
+          relevantRateDependencyPlanSummary.selectedSeriesIntervalSharedTimeframes,
+        totalRelevantCacheKeyCount:
+          relevantRateDependencyPlanSummary.totalCacheKeyCount,
+      }),
+    );
+  }, [
+    buildPerfMetadata,
+    hasAnyChartableSnapshots,
+    relevantFiatRateSeriesCacheKeys.length,
+    relevantRateCacheAssets.length,
+    relevantRateDependencyPlanSummary,
+    selectedTimeframe,
   ]);
 
   useEffect(() => {

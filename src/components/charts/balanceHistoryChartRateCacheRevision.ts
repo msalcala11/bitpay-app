@@ -3,7 +3,10 @@ import type {
   FiatRateInterval,
   FiatRateSeriesCache,
 } from '../../store/rate/rate.models';
-import {getFiatRateSeriesCacheKey} from '../../store/rate/rate.models';
+import {
+  getFiatRateSeriesCacheKey,
+  parseFiatRateSeriesCacheKey,
+} from '../../store/rate/rate.models';
 import {getSeriesIntervalForFiatTimeframe} from './fiatTimeframes';
 
 export type FiatRateSeriesCacheRevisionStateEntry = {
@@ -35,6 +38,68 @@ export type FiatRateSeriesCacheRevisionChangeSummary = {
   presentKeyCount: number;
   removedCount: number;
   totalKeyCount: number;
+};
+
+export type FiatRateSeriesCacheKeyOwnershipSummary = {
+  backgroundCacheKeyCount: number;
+  cacheKeyCountByInterval: Record<string, number>;
+  cacheKeyOwnershipSample: string[];
+  selectedIntervalCacheKeyCount: number;
+  selectedSeriesInterval: string;
+  selectedSeriesIntervalSharedTimeframeCount: number;
+  selectedSeriesIntervalSharedTimeframes: FiatRateInterval[];
+  totalCacheKeyCount: number;
+  unknownIntervalCacheKeyCount: number;
+};
+
+export type FiatRateSeriesDependencyPlanSummary =
+  FiatRateSeriesCacheKeyOwnershipSummary & {
+    timeframeIntervalMap: string[];
+  };
+
+const FIAT_RATE_SERIES_INTERVAL_ORDER = ['1D', '1W', '1M', 'ALL'] as const;
+
+const compareFiatRateSeriesIntervals = (a: string, b: string) => {
+  const aIndex = FIAT_RATE_SERIES_INTERVAL_ORDER.indexOf(
+    a as (typeof FIAT_RATE_SERIES_INTERVAL_ORDER)[number],
+  );
+  const bIndex = FIAT_RATE_SERIES_INTERVAL_ORDER.indexOf(
+    b as (typeof FIAT_RATE_SERIES_INTERVAL_ORDER)[number],
+  );
+
+  if (aIndex === -1 && bIndex === -1) {
+    return a.localeCompare(b);
+  }
+
+  if (aIndex === -1) {
+    return 1;
+  }
+
+  if (bIndex === -1) {
+    return -1;
+  }
+
+  return aIndex - bIndex;
+};
+
+const getTimeframesBySeriesInterval = (
+  timeframes: FiatRateInterval[],
+): Map<string, FiatRateInterval[]> => {
+  const next = new Map<string, FiatRateInterval[]>();
+
+  for (const timeframe of timeframes || []) {
+    const interval = getSeriesIntervalForFiatTimeframe(timeframe);
+    const existing = next.get(interval);
+
+    if (existing) {
+      existing.push(timeframe);
+      continue;
+    }
+
+    next.set(interval, [timeframe]);
+  }
+
+  return next;
 };
 
 const getRevisionStateEntry = (
@@ -240,5 +305,96 @@ export const summarizeFiatRateSeriesCacheRevisionChange = (args: {
     presentKeyCount: nextState.filter(entry => entry.present).length,
     removedCount,
     totalKeyCount: nextState.length,
+  };
+};
+
+export const summarizeFiatRateSeriesCacheKeyOwnership = (args: {
+  cacheKeys: string[];
+  timeframes: FiatRateInterval[];
+  selectedTimeframe: FiatRateInterval;
+  maxSampleSize?: number;
+}): FiatRateSeriesCacheKeyOwnershipSummary => {
+  const selectedSeriesInterval = getSeriesIntervalForFiatTimeframe(
+    args.selectedTimeframe,
+  );
+  const timeframesBySeriesInterval = getTimeframesBySeriesInterval(
+    args.timeframes || [],
+  );
+  const selectedSeriesIntervalSharedTimeframes =
+    timeframesBySeriesInterval.get(selectedSeriesInterval)?.slice() || [];
+  const cacheKeyCountByInterval: Record<string, number> = {};
+  const cacheKeyOwnershipSample: string[] = [];
+  const maxSampleSize = Math.max(1, args.maxSampleSize || 6);
+  let selectedIntervalCacheKeyCount = 0;
+  let unknownIntervalCacheKeyCount = 0;
+
+  for (const cacheKey of Array.from(new Set(args.cacheKeys || []))) {
+    const interval = parseFiatRateSeriesCacheKey(cacheKey)?.interval;
+    const normalizedInterval =
+      typeof interval === 'string' && interval.trim() ? interval : 'unknown';
+    const ownerTimeframes =
+      timeframesBySeriesInterval.get(normalizedInterval)?.slice() || [];
+
+    cacheKeyCountByInterval[normalizedInterval] =
+      (cacheKeyCountByInterval[normalizedInterval] || 0) + 1;
+
+    if (normalizedInterval === selectedSeriesInterval) {
+      selectedIntervalCacheKeyCount += 1;
+    } else if (normalizedInterval === 'unknown') {
+      unknownIntervalCacheKeyCount += 1;
+    }
+
+    if (cacheKeyOwnershipSample.length < maxSampleSize) {
+      cacheKeyOwnershipSample.push(
+        `${cacheKey}<=${ownerTimeframes.join(',') || normalizedInterval}`,
+      );
+    }
+  }
+
+  const totalCacheKeyCount = Object.values(cacheKeyCountByInterval).reduce(
+    (sum, count) => sum + count,
+    0,
+  );
+
+  return {
+    backgroundCacheKeyCount: Math.max(
+      0,
+      totalCacheKeyCount - selectedIntervalCacheKeyCount,
+    ),
+    cacheKeyCountByInterval: Object.fromEntries(
+      Object.entries(cacheKeyCountByInterval).sort(([a], [b]) =>
+        compareFiatRateSeriesIntervals(a, b),
+      ),
+    ),
+    cacheKeyOwnershipSample,
+    selectedIntervalCacheKeyCount,
+    selectedSeriesInterval,
+    selectedSeriesIntervalSharedTimeframeCount:
+      selectedSeriesIntervalSharedTimeframes.length,
+    selectedSeriesIntervalSharedTimeframes,
+    totalCacheKeyCount,
+    unknownIntervalCacheKeyCount,
+  };
+};
+
+export const summarizeFiatRateSeriesDependencyPlan = (args: {
+  relevantCacheKeys: string[];
+  timeframes: FiatRateInterval[];
+  selectedTimeframe: FiatRateInterval;
+  maxSampleSize?: number;
+}): FiatRateSeriesDependencyPlanSummary => {
+  const timeframeIntervalMap = Array.from(new Set(args.timeframes || [])).map(
+    timeframe => `${timeframe}->${getSeriesIntervalForFiatTimeframe(timeframe)}`,
+  );
+  const ownershipSummary = summarizeFiatRateSeriesCacheKeyOwnership({
+    cacheKeys: args.relevantCacheKeys,
+    timeframes: args.timeframes,
+    selectedTimeframe: args.selectedTimeframe,
+    maxSampleSize: args.maxSampleSize,
+  });
+
+  return {
+    ...ownershipSummary,
+    timeframeIntervalMap,
   };
 };
