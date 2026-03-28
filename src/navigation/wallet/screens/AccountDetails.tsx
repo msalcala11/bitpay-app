@@ -1748,6 +1748,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
                 snapshotsByWalletId={snapshotsByWalletId || {}}
                 quoteCurrency={defaultAltCurrency.isoCode}
                 enableBackgroundPrecompute={false}
+                isActive={isFocused}
                 perfContext="AccountDetails"
                 rates={rates}
                 fiatRateSeriesCache={fiatRateSeriesCache}

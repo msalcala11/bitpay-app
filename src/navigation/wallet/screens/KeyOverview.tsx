@@ -1838,6 +1838,7 @@ const KeyOverview = () => {
                 snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
                 quoteCurrency={quoteCurrency}
                 perfContext="KeyOverview"
+                isActive={isFocused}
                 enableBackgroundPrecompute={false}
                 initialSelectedTimeframe={selectedChartTimeframeRef.current}
                 rates={rates}

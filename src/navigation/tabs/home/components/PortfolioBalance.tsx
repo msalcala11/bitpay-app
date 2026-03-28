@@ -6,6 +6,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import {useIsFocused} from '@react-navigation/native';
 import styled from 'styled-components/native';
 import {BaseText, H2} from '../../../../components/styled/Text';
 import {SlateDark, White} from '../../../../styles/colors';
@@ -124,6 +125,7 @@ const PortfolioBalance = ({
   onChartTimeframeInteraction,
 }: PortfolioBalanceProps) => {
   const {t} = useTranslation();
+  const isFocused = useIsFocused();
   const coinbaseBalance =
     useAppSelector(({COINBASE}) => COINBASE.balance[COINBASE_ENV]) || 0.0;
 
@@ -678,6 +680,7 @@ const PortfolioBalance = ({
                     snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
                     quoteCurrency={quoteCurrency}
                     perfContext="HomeRoot"
+                    isActive={isFocused}
                     initialSelectedTimeframe={selectedChartTimeframeRef.current}
                     rates={rates}
                     fiatRateSeriesCache={fiatRateSeriesCache}
@@ -725,6 +728,7 @@ const PortfolioBalance = ({
               snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
               quoteCurrency={quoteCurrency}
               perfContext="HomeRoot"
+              isActive={isFocused}
               initialSelectedTimeframe={selectedChartTimeframeRef.current}
               rates={rates}
               fiatRateSeriesCache={fiatRateSeriesCache}

@@ -1,4 +1,4 @@
-import {useNavigation, useTheme} from '@react-navigation/native';
+import {useIsFocused, useNavigation, useTheme} from '@react-navigation/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {FlashList} from '@shopify/flash-list';
 import i18next from 'i18next';
@@ -332,6 +332,7 @@ const getWalletType = (
 
 const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const navigation = useNavigation();
+  const isFocused = useIsFocused();
   const dispatch = useAppDispatch();
   const reduxStore = useStore();
   const theme = useTheme();
@@ -1331,6 +1332,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
                       snapshotsByWalletId={snapshotsByWalletId || {}}
                       quoteCurrency={defaultAltCurrency.isoCode}
                       perfContext="WalletDetails"
+                      isActive={isFocused}
                       rates={rates}
                       fiatRateSeriesCache={fiatRateSeriesCache}
                       lineColor={chartLineColor}

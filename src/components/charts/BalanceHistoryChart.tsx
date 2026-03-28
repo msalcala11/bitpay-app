@@ -284,6 +284,7 @@ export type BalanceHistoryChartProps = {
   axisLabelOpacity?: number | NumberSharedValue;
   onSelectedTimeframeChange?: (timeframe: FiatRateInterval) => void;
   enableBackgroundPrecompute?: boolean;
+  isActive?: boolean;
 };
 
 const BalanceHistoryChart = ({
@@ -315,6 +316,7 @@ const BalanceHistoryChart = ({
   axisLabelOpacity = 1,
   onSelectedTimeframeChange,
   enableBackgroundPrecompute = true,
+  isActive = true,
 }: BalanceHistoryChartProps): React.ReactElement | null => {
   const {t} = useTranslation();
   const theme = useTheme();
@@ -995,6 +997,9 @@ const BalanceHistoryChart = ({
   ]);
 
   useEffect(() => {
+    if (!isActive) {
+      return;
+    }
     if (!cachedScope) {
       return;
     }
@@ -1008,9 +1013,12 @@ const BalanceHistoryChart = ({
         scopeId,
       }),
     );
-  }, [cachedScope, dispatch, scopeId]);
+  }, [cachedScope, dispatch, isActive, scopeId]);
 
   useEffect(() => {
+    if (!isActive) {
+      return;
+    }
     if (!cachedScope) {
       return;
     }
@@ -1068,6 +1076,7 @@ const BalanceHistoryChart = ({
     currentSpotRatesByRateKey,
     dispatch,
     getTimeframeRevision,
+    isActive,
     scopeId,
     selectedTimeframe,
   ]);
@@ -1288,6 +1297,20 @@ const BalanceHistoryChart = ({
     };
   }, [invalidateComputeGeneration]);
 
+  useEffect(() => {
+    if (isActive) {
+      return;
+    }
+
+    const generation = invalidateComputeGeneration();
+    recordPerfEvent(
+      'balance_chart.inactive_pause',
+      buildPerfMetadata({
+        generation,
+      }),
+    );
+  }, [buildPerfMetadata, invalidateComputeGeneration, isActive]);
+
   const selectedTimeframeRevision = getTimeframeRevision(selectedTimeframe);
   const selectedTimeframeAttemptRevision =
     getTimeframeAttemptRevision(selectedTimeframe);
@@ -1483,6 +1506,10 @@ const BalanceHistoryChart = ({
     const shouldResetPreparedInputs =
       analysisInputsReadyRevisionRef.current !== preparedInputsTargetRevision;
 
+    if (!isActive) {
+      return;
+    }
+
     if (!hasAnyChartableSnapshots || !shouldPrepareAnalysisInputs) {
       setAnalysisInputs(EMPTY_ANALYSIS_INPUTS(quoteCurrency));
       analysisHistoricalDepKeysRef.current = new Set();
@@ -1630,6 +1657,7 @@ const BalanceHistoryChart = ({
     buildPerfMetadata,
     hasAnyChartableSnapshots,
     inputsReady,
+    isActive,
     preparedInputsTargetRevision,
     quoteCurrency,
     rates,
@@ -1646,6 +1674,10 @@ const BalanceHistoryChart = ({
   // IMPORTANT: depend ONLY on timeframe/balanceOffset so we don't re-run on
   // every render due to callback identity or internal helper identity changes.
   useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
     clearSelection();
     retainOnlyQueuedTimeframe(selectedTimeframe);
 
@@ -1654,6 +1686,7 @@ const BalanceHistoryChart = ({
   }, [
     balanceOffset,
     clearSelection,
+    isActive,
     retainOnlyQueuedTimeframe,
     selectedTimeframe,
   ]);
@@ -1662,6 +1695,10 @@ const BalanceHistoryChart = ({
   // retry the selected timeframe so first-render loaders do not get stuck on
   // aborted attempts.
   useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
     if (!inputsReady) {
       return;
     }
@@ -1673,6 +1710,7 @@ const BalanceHistoryChart = ({
     cacheRevision,
     ensureTimeframeComputed,
     inputsReady,
+    isActive,
     liveSpotRatesRevision,
     selectedTimeframe,
   ]);
@@ -1680,7 +1718,7 @@ const BalanceHistoryChart = ({
   // Opportunistically precompute additional timeframes in background so taps
   // switch instantly more often and avoid heavy foreground work.
   useEffect(() => {
-    if (!enableBackgroundPrecompute) {
+    if (!isActive || !enableBackgroundPrecompute) {
       return;
     }
     if (!inputsReady || !hasAnyChartableSnapshots) {
@@ -1712,6 +1750,7 @@ const BalanceHistoryChart = ({
     hasAnyChartableSnapshots,
     hasCompletedInitialInteractiveLoad,
     inputsReady,
+    isActive,
     queueTimeframeCompute,
     selectedTimeframe,
   ]);
@@ -1792,6 +1831,7 @@ const BalanceHistoryChart = ({
   // is visible and nothing is actively computing it.
   useEffect(() => {
     if (
+      !isActive ||
       !isChartLoadingRaw ||
       !inputsReady ||
       !!selectedTimeframeError ||
@@ -1810,6 +1850,7 @@ const BalanceHistoryChart = ({
     ensureTimeframeComputed,
     hasAnalysisPreparationError,
     inputsReady,
+    isActive,
     isChartLoadingRaw,
     selectedTimeframe,
     selectedTimeframeError,
