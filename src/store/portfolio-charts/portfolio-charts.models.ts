@@ -52,6 +52,7 @@ export type CachedBalanceChartTimeframes = Partial<
 
 export type CachedBalanceChartScope = {
   scopeId: string;
+  snapshotVersionSig: string;
   walletIds: string[];
   quoteCurrency: string;
   balanceOffset: number;

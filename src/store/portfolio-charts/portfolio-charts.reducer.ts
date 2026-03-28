@@ -191,8 +191,14 @@ const upsertScopeTimeframes = (
     nextTimeframes[timeframe.timeframe] = sanitizeTimeframe(timeframe);
   }
 
+  const nextScopeSnapshotVersionSig =
+    (args.timeframes || [])
+      .map(timeframe => String(timeframe?.snapshotVersionSig || ''))
+      .find(Boolean) || String(existingScope?.snapshotVersionSig || '');
+
   const nextScope: CachedBalanceChartScope = {
     scopeId,
+    snapshotVersionSig: nextScopeSnapshotVersionSig,
     walletIds: normalizeWalletIds(
       args.walletIds || existingScope?.walletIds || [],
     ),

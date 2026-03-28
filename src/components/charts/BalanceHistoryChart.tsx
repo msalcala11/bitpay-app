@@ -486,17 +486,12 @@ const BalanceHistoryChart = ({
     ],
   );
 
-  const snapshotVersionSig = useAppSelector(state => {
-    return buildSnapshotVersionSig({
-      walletIds: sortedWalletIds,
-      walletSnapshotVersionById:
-        state.PORTFOLIO_CHARTS.walletSnapshotVersionById || {},
-    });
-  });
-
   const snapshotVersionState = useAppSelector(state => {
     const walletSnapshotVersionById =
       state.PORTFOLIO_CHARTS.walletSnapshotVersionById || {};
+    const persistedScopeSnapshotVersionSig = String(
+      state.PORTFOLIO_CHARTS.cacheByScopeId[scopeId]?.snapshotVersionSig || '',
+    );
     let walletSnapshotVersionEntryCount = 0;
     let zeroSnapshotVersionWalletCount = 0;
     let nonZeroSnapshotVersionWalletCount = 0;
@@ -523,12 +518,28 @@ const BalanceHistoryChart = ({
       }
     }
 
+    const computedSnapshotVersionSig = buildSnapshotVersionSig({
+      walletIds: sortedWalletIds,
+      walletSnapshotVersionById,
+    });
+    const usingPersistedScopeSnapshotVersionSig =
+      !!persistedScopeSnapshotVersionSig &&
+      walletSnapshotVersionEntryCount === 0 &&
+      nonZeroSnapshotVersionWalletCount === 0;
+
     return {
+      persistedScopeSnapshotVersionSigLength:
+        persistedScopeSnapshotVersionSig.length,
+      snapshotVersionSig: usingPersistedScopeSnapshotVersionSig
+        ? persistedScopeSnapshotVersionSig
+        : computedSnapshotVersionSig,
       nonZeroSnapshotVersionWalletCount,
+      usingPersistedScopeSnapshotVersionSig,
       walletSnapshotVersionEntryCount,
       zeroSnapshotVersionWalletCount,
     };
   });
+  const snapshotVersionSig = snapshotVersionState.snapshotVersionSig;
 
   const cachedScope = useAppSelector(
     state => state.PORTFOLIO_CHARTS.cacheByScopeId[scopeId],
@@ -892,9 +903,11 @@ const BalanceHistoryChart = ({
   useEffect(() => {
     const signature = [
       snapshotVersionSig.length,
+      snapshotVersionState.persistedScopeSnapshotVersionSigLength,
       snapshotVersionState.walletSnapshotVersionEntryCount,
       snapshotVersionState.zeroSnapshotVersionWalletCount,
       snapshotVersionState.nonZeroSnapshotVersionWalletCount,
+      snapshotVersionState.usingPersistedScopeSnapshotVersionSig,
       sortedWalletIds.length,
     ].join('|');
 
@@ -910,7 +923,11 @@ const BalanceHistoryChart = ({
         currentWalletCount: sortedWalletIds.length,
         nonZeroSnapshotVersionWalletCount:
           snapshotVersionState.nonZeroSnapshotVersionWalletCount,
+        persistedScopeSnapshotVersionSigLength:
+          snapshotVersionState.persistedScopeSnapshotVersionSigLength,
         snapshotVersionSigLength: snapshotVersionSig.length,
+        usingPersistedScopeSnapshotVersionSig:
+          snapshotVersionState.usingPersistedScopeSnapshotVersionSig,
         walletSnapshotVersionEntryCount:
           snapshotVersionState.walletSnapshotVersionEntryCount,
         zeroSnapshotVersionWalletCount:
@@ -921,6 +938,8 @@ const BalanceHistoryChart = ({
     buildPerfMetadata,
     snapshotVersionSig.length,
     snapshotVersionState.nonZeroSnapshotVersionWalletCount,
+    snapshotVersionState.persistedScopeSnapshotVersionSigLength,
+    snapshotVersionState.usingPersistedScopeSnapshotVersionSig,
     snapshotVersionState.walletSnapshotVersionEntryCount,
     snapshotVersionState.zeroSnapshotVersionWalletCount,
     sortedWalletIds.length,
@@ -945,6 +964,8 @@ const BalanceHistoryChart = ({
       detail.renderablePointCount,
       detail.spotRateChanged,
       detail.spotRatePatchable,
+      snapshotVersionState.persistedScopeSnapshotVersionSigLength,
+      snapshotVersionState.usingPersistedScopeSnapshotVersionSig,
       snapshotVersionState.walletSnapshotVersionEntryCount,
       snapshotVersionState.zeroSnapshotVersionWalletCount,
       snapshotVersionState.nonZeroSnapshotVersionWalletCount,
@@ -974,12 +995,16 @@ const BalanceHistoryChart = ({
         missingHistoricalDepCount: detail.missingHistoricalDepCount,
         nonZeroSnapshotVersionWalletCount:
           snapshotVersionState.nonZeroSnapshotVersionWalletCount,
+        persistedScopeSnapshotVersionSigLength:
+          snapshotVersionState.persistedScopeSnapshotVersionSigLength,
         reason: detail.reason,
         renderablePointCount: detail.renderablePointCount,
         selectedTimeframe,
         spotRateChanged: detail.spotRateChanged,
         spotRatePatchable: detail.spotRatePatchable,
         status: detail.status,
+        usingPersistedScopeSnapshotVersionSig:
+          snapshotVersionState.usingPersistedScopeSnapshotVersionSig,
         walletSnapshotVersionEntryCount:
           snapshotVersionState.walletSnapshotVersionEntryCount,
         zeroSnapshotVersionWalletCount:
@@ -991,6 +1016,8 @@ const BalanceHistoryChart = ({
     selectedCachedTimeframeStatusDetails,
     selectedTimeframe,
     snapshotVersionState.nonZeroSnapshotVersionWalletCount,
+    snapshotVersionState.persistedScopeSnapshotVersionSigLength,
+    snapshotVersionState.usingPersistedScopeSnapshotVersionSig,
     snapshotVersionState.walletSnapshotVersionEntryCount,
     snapshotVersionState.zeroSnapshotVersionWalletCount,
   ]);
