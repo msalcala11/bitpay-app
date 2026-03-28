@@ -68,10 +68,12 @@ import {
   deserializeCachedTimeframeToComputedSeries,
   getCachedBalanceChartTimeframe,
   getCachedTimeframeStatus,
+  getCachedTimeframeStatusDetails,
   resolveBalanceChartSeriesExtrema,
   getSortedUniqueWalletIds,
   serializeComputedSeriesToCachedTimeframe,
   stableRateMapRevision,
+  type CachedTimeframeStatusDetails,
   type HydratedBalanceChartSeries,
 } from '../../utils/portfolio/chartCache';
 import {isAbortError} from '../../utils/abort';
@@ -492,6 +494,42 @@ const BalanceHistoryChart = ({
     });
   });
 
+  const snapshotVersionState = useAppSelector(state => {
+    const walletSnapshotVersionById =
+      state.PORTFOLIO_CHARTS.walletSnapshotVersionById || {};
+    let walletSnapshotVersionEntryCount = 0;
+    let zeroSnapshotVersionWalletCount = 0;
+    let nonZeroSnapshotVersionWalletCount = 0;
+
+    for (const walletId of sortedWalletIds) {
+      const rawVersion = walletSnapshotVersionById[walletId];
+      if (rawVersion !== undefined) {
+        walletSnapshotVersionEntryCount += 1;
+      }
+
+      const normalizedVersion = Math.max(
+        0,
+        Math.floor(
+          typeof rawVersion === 'number' && Number.isFinite(rawVersion)
+            ? rawVersion
+            : 0,
+        ),
+      );
+
+      if (normalizedVersion > 0) {
+        nonZeroSnapshotVersionWalletCount += 1;
+      } else {
+        zeroSnapshotVersionWalletCount += 1;
+      }
+    }
+
+    return {
+      nonZeroSnapshotVersionWalletCount,
+      walletSnapshotVersionEntryCount,
+      zeroSnapshotVersionWalletCount,
+    };
+  });
+
   const cachedScope = useAppSelector(
     state => state.PORTFOLIO_CHARTS.cacheByScopeId[scopeId],
   );
@@ -732,23 +770,20 @@ const BalanceHistoryChart = ({
     ],
   );
 
-  const cachedTimeframeStatusByTimeframe = useMemo(() => {
-    const next: Partial<
-      Record<
-        FiatRateInterval,
-        'fresh' | 'patchable' | 'stale_historical' | 'missing'
-      >
-    > = {};
+  const cachedTimeframeStatusDetailsByTimeframe = useMemo(() => {
+    const next: Partial<Record<FiatRateInterval, CachedTimeframeStatusDetails>> =
+      {};
 
     for (const timeframe of PRECOMPUTE_TIMEFRAME_ORDER) {
-      next[timeframe] = getCachedTimeframeStatus({
+      next[timeframe] = getCachedTimeframeStatusDetails({
         cachedTimeframe: getCachedBalanceChartTimeframe(
           cachedScope?.timeframes,
           timeframe,
         ),
-        snapshotVersionSig,
         currentSpotRatesByRateKey,
+        currentWalletCount: sortedWalletIds.length,
         fiatRateSeriesCache,
+        snapshotVersionSig,
       });
     }
 
@@ -758,6 +793,57 @@ const BalanceHistoryChart = ({
     currentSpotRatesByRateKey,
     fiatRateSeriesCache,
     snapshotVersionSig,
+    sortedWalletIds.length,
+  ]);
+
+  const cachedTimeframeStatusByTimeframe = useMemo(() => {
+    const next: Partial<
+      Record<
+        FiatRateInterval,
+        'fresh' | 'patchable' | 'stale_historical' | 'missing'
+      >
+    > = {};
+
+    for (const timeframe of PRECOMPUTE_TIMEFRAME_ORDER) {
+      next[timeframe] =
+        cachedTimeframeStatusDetailsByTimeframe[timeframe]?.status ||
+        getCachedTimeframeStatus({
+          cachedTimeframe: getCachedBalanceChartTimeframe(
+            cachedScope?.timeframes,
+            timeframe,
+          ),
+          snapshotVersionSig,
+          currentSpotRatesByRateKey,
+          fiatRateSeriesCache,
+        });
+    }
+
+    return next;
+  }, [
+    cachedTimeframeStatusDetailsByTimeframe,
+    cachedScope?.timeframes,
+    currentSpotRatesByRateKey,
+    fiatRateSeriesCache,
+    snapshotVersionSig,
+  ]);
+
+  const selectedCachedTimeframeStatusDetails = useMemo(() => {
+    return (
+      cachedTimeframeStatusDetailsByTimeframe[selectedTimeframe] ||
+      getCachedTimeframeStatusDetails({
+        currentSpotRatesByRateKey,
+        currentWalletCount: sortedWalletIds.length,
+        fiatRateSeriesCache,
+        snapshotVersionSig,
+      })
+    );
+  }, [
+    cachedTimeframeStatusDetailsByTimeframe,
+    currentSpotRatesByRateKey,
+    fiatRateSeriesCache,
+    selectedTimeframe,
+    snapshotVersionSig,
+    sortedWalletIds.length,
   ]);
 
   const selectedTimeframeNeedsHistoricalRecompute = useMemo(() => {
@@ -791,6 +877,8 @@ const BalanceHistoryChart = ({
     prepFiatRateSeriesCacheRevisionInfo,
   );
   const previousLiveSpotRatesByRateKeyRef = useRef(liveSpotRatesByRateKey);
+  const previousSnapshotVersionStateSigRef = useRef<string>();
+  const previousSelectedCachedStatusDetailSigRef = useRef<string>();
   const previousGenerationInputsRef = useRef<{
     cacheRevision: string;
     liveSpotRatesRevision: string;
@@ -800,6 +888,112 @@ const BalanceHistoryChart = ({
   useEffect(() => {
     analysisInputsReadyRevisionRef.current = analysisInputsReadyRevision;
   }, [analysisInputsReadyRevision]);
+
+  useEffect(() => {
+    const signature = [
+      snapshotVersionSig.length,
+      snapshotVersionState.walletSnapshotVersionEntryCount,
+      snapshotVersionState.zeroSnapshotVersionWalletCount,
+      snapshotVersionState.nonZeroSnapshotVersionWalletCount,
+      sortedWalletIds.length,
+    ].join('|');
+
+    if (previousSnapshotVersionStateSigRef.current === signature) {
+      return;
+    }
+
+    previousSnapshotVersionStateSigRef.current = signature;
+
+    recordPerfEvent(
+      'balance_chart.snapshot_version_sig_state',
+      buildPerfMetadata({
+        currentWalletCount: sortedWalletIds.length,
+        nonZeroSnapshotVersionWalletCount:
+          snapshotVersionState.nonZeroSnapshotVersionWalletCount,
+        snapshotVersionSigLength: snapshotVersionSig.length,
+        walletSnapshotVersionEntryCount:
+          snapshotVersionState.walletSnapshotVersionEntryCount,
+        zeroSnapshotVersionWalletCount:
+          snapshotVersionState.zeroSnapshotVersionWalletCount,
+      }),
+    );
+  }, [
+    buildPerfMetadata,
+    snapshotVersionSig.length,
+    snapshotVersionState.nonZeroSnapshotVersionWalletCount,
+    snapshotVersionState.walletSnapshotVersionEntryCount,
+    snapshotVersionState.zeroSnapshotVersionWalletCount,
+    sortedWalletIds.length,
+  ]);
+
+  useEffect(() => {
+    const detail = selectedCachedTimeframeStatusDetails;
+    const signature = [
+      selectedTimeframe,
+      detail.status,
+      detail.reason,
+      detail.builtAtAgeMs ?? 'na',
+      detail.cachedWalletCount,
+      detail.currentWalletCount,
+      detail.cachedSnapshotVersionSigLength,
+      detail.currentSnapshotVersionSigLength,
+      detail.historicalDepCount,
+      detail.missingHistoricalDepCount,
+      detail.lastTsChangedHistoricalDepCount,
+      detail.fetchedOnOnlyChangedHistoricalDepCount,
+      detail.hasRenderableSeries,
+      detail.renderablePointCount,
+      detail.spotRateChanged,
+      detail.spotRatePatchable,
+      snapshotVersionState.walletSnapshotVersionEntryCount,
+      snapshotVersionState.zeroSnapshotVersionWalletCount,
+      snapshotVersionState.nonZeroSnapshotVersionWalletCount,
+    ].join('|');
+
+    if (previousSelectedCachedStatusDetailSigRef.current === signature) {
+      return;
+    }
+
+    previousSelectedCachedStatusDetailSigRef.current = signature;
+
+    recordPerfEvent(
+      'balance_chart.selected_cached_status_reason',
+      buildPerfMetadata({
+        builtAtAgeMs: detail.builtAtAgeMs,
+        cachedSnapshotVersionSigLength: detail.cachedSnapshotVersionSigLength,
+        cachedWalletCount: detail.cachedWalletCount,
+        currentSnapshotVersionSigLength:
+          detail.currentSnapshotVersionSigLength,
+        currentWalletCount: detail.currentWalletCount,
+        fetchedOnOnlyChangedHistoricalDepCount:
+          detail.fetchedOnOnlyChangedHistoricalDepCount,
+        hasRenderableSeries: detail.hasRenderableSeries,
+        historicalDepCount: detail.historicalDepCount,
+        lastTsChangedHistoricalDepCount:
+          detail.lastTsChangedHistoricalDepCount,
+        missingHistoricalDepCount: detail.missingHistoricalDepCount,
+        nonZeroSnapshotVersionWalletCount:
+          snapshotVersionState.nonZeroSnapshotVersionWalletCount,
+        reason: detail.reason,
+        renderablePointCount: detail.renderablePointCount,
+        selectedTimeframe,
+        spotRateChanged: detail.spotRateChanged,
+        spotRatePatchable: detail.spotRatePatchable,
+        status: detail.status,
+        walletSnapshotVersionEntryCount:
+          snapshotVersionState.walletSnapshotVersionEntryCount,
+        zeroSnapshotVersionWalletCount:
+          snapshotVersionState.zeroSnapshotVersionWalletCount,
+      }),
+    );
+  }, [
+    buildPerfMetadata,
+    selectedCachedTimeframeStatusDetails,
+    selectedTimeframe,
+    snapshotVersionState.nonZeroSnapshotVersionWalletCount,
+    snapshotVersionState.walletSnapshotVersionEntryCount,
+    snapshotVersionState.zeroSnapshotVersionWalletCount,
+  ]);
 
   useEffect(() => {
     const previousRatesByRateKey = previousLiveSpotRatesByRateKeyRef.current;

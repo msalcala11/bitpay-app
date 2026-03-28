@@ -29,6 +29,32 @@ export type CachedTimeframeStatus =
   | 'stale_historical'
   | 'missing';
 
+export type CachedTimeframeStatusReason =
+  | 'fresh'
+  | 'missing_cache'
+  | 'schema_version'
+  | 'snapshot_version_sig'
+  | 'historical_rate_deps'
+  | 'spot_rate_patchable';
+
+export type CachedTimeframeStatusDetails = {
+  status: CachedTimeframeStatus;
+  reason: CachedTimeframeStatusReason;
+  builtAtAgeMs?: number;
+  cachedWalletCount: number;
+  currentWalletCount: number;
+  cachedSnapshotVersionSigLength: number;
+  currentSnapshotVersionSigLength: number;
+  historicalDepCount: number;
+  missingHistoricalDepCount: number;
+  lastTsChangedHistoricalDepCount: number;
+  fetchedOnOnlyChangedHistoricalDepCount: number;
+  hasRenderableSeries: boolean;
+  renderablePointCount: number;
+  spotRateChanged: boolean;
+  spotRatePatchable: boolean;
+};
+
 export type HydratedBalanceChartSeries = {
   graphPoints: GraphPoint[];
   analysisPoints: PnlAnalysisPoint[];
@@ -311,31 +337,59 @@ export const buildHistoricalRateDependencyMetadataFromCache = (args: {
   }));
 };
 
-const haveHistoricalRateDependenciesChanged = (args: {
+const summarizeHistoricalRateDependencyChanges = (args: {
   historicalRateDeps: HistoricalRateDependencyMeta[];
   fiatRateSeriesCache: FiatRateSeriesCache | undefined;
-}): boolean => {
+}) => {
+  let missingCount = 0;
+  let lastTsChangedCount = 0;
+  let fetchedOnOnlyChangedCount = 0;
+
   for (const dep of args.historicalRateDeps || []) {
     if (!dep?.cacheKey) {
       continue;
     }
+
     const current = getFiatRateSeriesCacheEntry(
       args.fiatRateSeriesCache,
       dep.cacheKey,
     );
+
     if (!current) {
-      return true;
+      missingCount += 1;
+      continue;
     }
+
     const currentFetchedOn = toOptionalFiniteNumber(current.fetchedOn);
     const currentLastTs = getLatestSeriesPointTs(
       args.fiatRateSeriesCache,
       dep.cacheKey,
     );
-    if (dep.fetchedOn !== currentFetchedOn || dep.lastTs !== currentLastTs) {
-      return true;
+
+    if (dep.lastTs !== currentLastTs) {
+      lastTsChangedCount += 1;
+      continue;
+    }
+
+    if (dep.fetchedOn !== currentFetchedOn) {
+      fetchedOnOnlyChangedCount += 1;
     }
   }
-  return false;
+
+  return {
+    fetchedOnOnlyChangedCount,
+    lastTsChangedCount,
+    missingCount,
+  };
+};
+
+const haveHistoricalRateDependenciesChanged = (args: {
+  historicalRateDeps: HistoricalRateDependencyMeta[];
+  fiatRateSeriesCache: FiatRateSeriesCache | undefined;
+}): boolean => {
+  return (
+    summarizeHistoricalRateDependencyChanges(args).lastTsChangedCount > 0
+  );
 };
 
 const isSpotRateDifferent = (a: number, b: number): boolean => {
@@ -393,43 +447,140 @@ const getPatchableSpotRateChange = (args: {
   };
 };
 
-export const getCachedTimeframeStatus = (args: {
+const getCachedTimeframeRenderablePointCount = (
+  cachedTimeframe?: CachedBalanceChartTimeframe,
+): number => {
+  if (!cachedTimeframe) {
+    return 0;
+  }
+
+  return Math.min(
+    cachedTimeframe.ts?.length || 0,
+    cachedTimeframe.totalFiatBalance?.length || 0,
+    cachedTimeframe.totalUnrealizedPnlFiat?.length || 0,
+    cachedTimeframe.totalPnlPercent?.length || 0,
+  );
+};
+
+export const getCachedTimeframeStatusDetails = (args: {
   cachedTimeframe?: CachedBalanceChartTimeframe;
   snapshotVersionSig: string;
   currentSpotRatesByRateKey: Record<string, number>;
   fiatRateSeriesCache: FiatRateSeriesCache | undefined;
-}): CachedTimeframeStatus => {
+  currentWalletCount?: number;
+}): CachedTimeframeStatusDetails => {
   const cachedTimeframe = args.cachedTimeframe;
+  const currentWalletCount = Math.max(
+    0,
+    Math.floor(args.currentWalletCount || 0),
+  );
+  const renderablePointCount =
+    getCachedTimeframeRenderablePointCount(cachedTimeframe);
+  const baseDetails = {
+    builtAtAgeMs:
+      typeof cachedTimeframe?.builtAt === 'number' &&
+      Number.isFinite(cachedTimeframe.builtAt)
+        ? Math.max(0, Date.now() - cachedTimeframe.builtAt)
+        : undefined,
+    cachedSnapshotVersionSigLength: String(
+      cachedTimeframe?.snapshotVersionSig || '',
+    ).length,
+    cachedWalletCount: Array.isArray(cachedTimeframe?.walletIds)
+      ? cachedTimeframe.walletIds.length
+      : 0,
+    currentSnapshotVersionSigLength: String(args.snapshotVersionSig || '').length,
+    currentWalletCount,
+    fetchedOnOnlyChangedHistoricalDepCount: 0,
+    hasRenderableSeries: renderablePointCount > 0,
+    historicalDepCount: Array.isArray(cachedTimeframe?.historicalRateDeps)
+      ? cachedTimeframe.historicalRateDeps.length
+      : 0,
+    lastTsChangedHistoricalDepCount: 0,
+    missingHistoricalDepCount: 0,
+    renderablePointCount,
+    spotRateChanged: false,
+    spotRatePatchable: false,
+  };
+
   if (!cachedTimeframe) {
-    return 'missing';
+    return {
+      ...baseDetails,
+      reason: 'missing_cache',
+      status: 'missing',
+    };
   }
 
   if (cachedTimeframe.schemaVersion !== BALANCE_CHART_CACHE_SCHEMA_VERSION) {
-    return 'stale_historical';
+    return {
+      ...baseDetails,
+      reason: 'schema_version',
+      status: 'stale_historical',
+    };
   }
 
   if (cachedTimeframe.snapshotVersionSig !== args.snapshotVersionSig) {
-    return 'stale_historical';
+    return {
+      ...baseDetails,
+      reason: 'snapshot_version_sig',
+      status: 'stale_historical',
+    };
   }
 
-  if (
-    haveHistoricalRateDependenciesChanged({
-      historicalRateDeps: cachedTimeframe.historicalRateDeps || [],
-      fiatRateSeriesCache: args.fiatRateSeriesCache,
-    })
-  ) {
-    return 'stale_historical';
+  const historicalRateDepSummary = summarizeHistoricalRateDependencyChanges({
+    historicalRateDeps: cachedTimeframe.historicalRateDeps || [],
+    fiatRateSeriesCache: args.fiatRateSeriesCache,
+  });
+
+  if (historicalRateDepSummary.lastTsChangedCount > 0) {
+    return {
+      ...baseDetails,
+      fetchedOnOnlyChangedHistoricalDepCount:
+        historicalRateDepSummary.fetchedOnOnlyChangedCount,
+      lastTsChangedHistoricalDepCount:
+        historicalRateDepSummary.lastTsChangedCount,
+      missingHistoricalDepCount: historicalRateDepSummary.missingCount,
+      reason: 'historical_rate_deps',
+      status: 'stale_historical',
+    };
   }
 
   const spotRateChange = getPatchableSpotRateChange({
     cachedTimeframe,
     currentSpotRatesByRateKey: args.currentSpotRatesByRateKey,
   });
+
   if (spotRateChange.patchable && spotRateChange.changed) {
-    return 'patchable';
+    return {
+      ...baseDetails,
+      fetchedOnOnlyChangedHistoricalDepCount:
+        historicalRateDepSummary.fetchedOnOnlyChangedCount,
+      missingHistoricalDepCount: historicalRateDepSummary.missingCount,
+      reason: 'spot_rate_patchable',
+      spotRateChanged: true,
+      spotRatePatchable: true,
+      status: 'patchable',
+    };
   }
 
-  return 'fresh';
+  return {
+    ...baseDetails,
+    fetchedOnOnlyChangedHistoricalDepCount:
+      historicalRateDepSummary.fetchedOnOnlyChangedCount,
+    missingHistoricalDepCount: historicalRateDepSummary.missingCount,
+    reason: 'fresh',
+    spotRateChanged: spotRateChange.changed,
+    spotRatePatchable: spotRateChange.patchable,
+    status: 'fresh',
+  };
+};
+
+export const getCachedTimeframeStatus = (args: {
+  cachedTimeframe?: CachedBalanceChartTimeframe;
+  snapshotVersionSig: string;
+  currentSpotRatesByRateKey: Record<string, number>;
+  fiatRateSeriesCache: FiatRateSeriesCache | undefined;
+}): CachedTimeframeStatus => {
+  return getCachedTimeframeStatusDetails(args).status;
 };
 
 export const buildBalanceChartTimeframeRevision = (args: {
