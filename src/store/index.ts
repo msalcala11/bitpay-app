@@ -25,6 +25,7 @@ import {
 import {
   bindWalletKeys,
   transformContacts,
+  transformPortfolioChartsWarmStart,
   transformPortfolioPopulateStatus,
   transformPortfolioSnapshotSeries,
   encryptSpecificFields,
@@ -782,6 +783,7 @@ const getStore = async () => {
       transformContacts,
       transformPortfolioPopulateStatus,
       transformPortfolioSnapshotSeries,
+      transformPortfolioChartsWarmStart,
       createTransform<RootState, RootState, RootState>(
         (inboundState, key) =>
           measurePerfSync(

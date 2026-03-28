@@ -17,7 +17,7 @@ import {
 
 export type PortfolioChartsReduxPersistBlackList = string[];
 export const portfolioChartsReduxPersistBlackList: PortfolioChartsReduxPersistBlackList =
-  ['walletSnapshotVersionById', 'cacheByScopeId', 'lruScopeIds'];
+  ['walletSnapshotVersionById'];
 
 const initialState: PortfolioChartsState = {
   homeChartCollapsed: false,

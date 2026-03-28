@@ -10,6 +10,11 @@ import {
 } from '../../constants/currencies';
 import {ContactState} from '../contact/contact.reducer';
 import {WalletState} from '../wallet/wallet.reducer';
+import type {
+  CachedBalanceChartScope,
+  CachedBalanceChartTimeframes,
+  PortfolioChartsState,
+} from '../portfolio-charts/portfolio-charts.models';
 import {buildWalletObj} from '../wallet/utils/wallet';
 import {ContactRowProps} from '../../components/list/ContactRow';
 import {getErrorString} from '../../utils/helper-methods';
@@ -31,6 +36,7 @@ import {
 } from '../../utils/portfolio/core/pnl/snapshotSeries';
 import type {BalanceSnapshotStored} from '../../utils/portfolio/core/pnl/types';
 import {measurePerfSync} from '../../utils/perfLogger';
+import type {FiatRateInterval} from '../rate/rate.models';
 
 const getUtcDayStartMs = (tsMs: number): number => {
   const d = new Date(tsMs);
@@ -40,6 +46,78 @@ const getUtcDayStartMs = (tsMs: number): number => {
 const toFiniteNumber = (value: unknown, fallback = 0): number => {
   const n = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
+};
+
+const PORTFOLIO_CHARTS_WARM_START_SCOPE_LIMIT = 4;
+const PORTFOLIO_CHARTS_WARM_START_TIMEFRAMES: FiatRateInterval[] = [
+  '1D',
+  '1W',
+  '1M',
+  'ALL',
+];
+
+const trimPortfolioChartsWarmStartTimeframes = (
+  timeframes: CachedBalanceChartTimeframes | undefined,
+): CachedBalanceChartTimeframes => {
+  const next: CachedBalanceChartTimeframes = {};
+
+  for (const timeframe of PORTFOLIO_CHARTS_WARM_START_TIMEFRAMES) {
+    const cachedTimeframe = timeframes?.[timeframe];
+    if (cachedTimeframe) {
+      next[timeframe] = cachedTimeframe;
+    }
+  }
+
+  return next;
+};
+
+const trimPortfolioChartsWarmStartState = (
+  state: PortfolioChartsState,
+): PortfolioChartsState => {
+  const cacheByScopeId = state?.cacheByScopeId || {};
+  const candidateScopeIds = [
+    ...(Array.isArray(state?.lruScopeIds) ? state.lruScopeIds : []),
+    ...Object.keys(cacheByScopeId),
+  ];
+  const seenScopeIds = new Set<string>();
+  const nextLruScopeIds: string[] = [];
+  const nextCacheByScopeId: Record<string, CachedBalanceChartScope> = {};
+
+  for (const rawScopeId of candidateScopeIds) {
+    const scopeId = String(rawScopeId || '');
+    if (!scopeId || seenScopeIds.has(scopeId)) {
+      continue;
+    }
+
+    const cachedScope = cacheByScopeId[scopeId];
+    if (!cachedScope) {
+      continue;
+    }
+
+    const trimmedTimeframes = trimPortfolioChartsWarmStartTimeframes(
+      cachedScope.timeframes,
+    );
+    if (!Object.keys(trimmedTimeframes).length) {
+      continue;
+    }
+
+    seenScopeIds.add(scopeId);
+    nextLruScopeIds.push(scopeId);
+    nextCacheByScopeId[scopeId] = {
+      ...cachedScope,
+      timeframes: trimmedTimeframes,
+    };
+
+    if (nextLruScopeIds.length >= PORTFOLIO_CHARTS_WARM_START_SCOPE_LIMIT) {
+      break;
+    }
+  }
+
+  return {
+    ...state,
+    cacheByScopeId: nextCacheByScopeId,
+    lruScopeIds: nextLruScopeIds,
+  };
 };
 
 const getSnapshotMarkRate = (
@@ -455,6 +533,31 @@ export const transformPortfolioSnapshotSeries = createTransform<
     );
   },
   {whitelist: ['PORTFOLIO']},
+);
+
+export const transformPortfolioChartsWarmStart = createTransform<
+  PortfolioChartsState,
+  PortfolioChartsState
+>(
+  inboundState =>
+    measurePerfSync(
+      'persist.transform.portfolio_charts_warm_start.inbound',
+      () => trimPortfolioChartsWarmStartState(inboundState),
+      {
+        reduxKey: 'PORTFOLIO_CHARTS',
+        scopeCount: Object.keys(inboundState?.cacheByScopeId || {}).length,
+      },
+    ),
+  outboundState =>
+    measurePerfSync(
+      'persist.transform.portfolio_charts_warm_start.outbound',
+      () => trimPortfolioChartsWarmStartState(outboundState),
+      {
+        reduxKey: 'PORTFOLIO_CHARTS',
+        scopeCount: Object.keys(outboundState?.cacheByScopeId || {}).length,
+      },
+    ),
+  {whitelist: ['PORTFOLIO_CHARTS']},
 );
 
 export const encryptSpecificFields = (secretKey: string) => {
