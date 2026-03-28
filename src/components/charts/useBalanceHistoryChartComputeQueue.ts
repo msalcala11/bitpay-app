@@ -145,6 +145,16 @@ export const useBalanceHistoryChartComputeQueue = <
       const scheduledAtMs = getPerfClockNowMs();
       const queuedAtMs =
         timeframeQueuedAtMsRef.current[nextTimeframe] || scheduledAtMs;
+      const getCurrentAttemptRevision = () =>
+        args.getTimeframeAttemptRevision(nextTimeframe);
+      const clearStaleAttemptState = () => {
+        args.dispatchTimeframeState({
+          type: 'cancelCompute',
+          timeframe: nextTimeframe,
+          attemptRevision,
+          generation,
+        });
+      };
 
       args.dispatchTimeframeState({
         type: 'startCompute',
@@ -174,6 +184,17 @@ export const useBalanceHistoryChartComputeQueue = <
               return;
             }
 
+            const currentAttemptRevisionBeforeStart =
+              getCurrentAttemptRevision();
+            if (currentAttemptRevisionBeforeStart !== attemptRevision) {
+              clearStaleAttemptState();
+              computeSpan.cancel({
+                currentAttemptRevision: currentAttemptRevisionBeforeStart,
+                reason: 'attempt_revision_changed_before_start',
+              });
+              return;
+            }
+
             const computed = await args.computeSeriesForTimeframe(
               nextTimeframe,
               signal,
@@ -186,6 +207,17 @@ export const useBalanceHistoryChartComputeQueue = <
             if (args.computeGenerationRef.current !== generation) {
               computeSpan.cancel({
                 reason: 'generation_changed_after_compute',
+              });
+              return;
+            }
+
+            const currentAttemptRevisionAfterCompute =
+              getCurrentAttemptRevision();
+            if (currentAttemptRevisionAfterCompute !== attemptRevision) {
+              clearStaleAttemptState();
+              computeSpan.cancel({
+                currentAttemptRevision: currentAttemptRevisionAfterCompute,
+                reason: 'attempt_revision_changed_after_compute',
               });
               return;
             }

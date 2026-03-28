@@ -1421,48 +1421,54 @@ const BalanceHistoryChart = ({
       liveSpotRatesRevision,
       preparedInputsTargetRevision,
     };
+    const cacheRevisionChanged =
+      !!previousGenerationInputs &&
+      previousGenerationInputs.cacheRevision !== cacheRevision;
+    const liveSpotRatesRevisionChanged =
+      !!previousGenerationInputs &&
+      previousGenerationInputs.liveSpotRatesRevision !== liveSpotRatesRevision;
+    const preparedInputsTargetRevisionChanged =
+      !!previousGenerationInputs &&
+      previousGenerationInputs.preparedInputsTargetRevision !==
+        preparedInputsTargetRevision;
     const changedInputKinds = previousGenerationInputs
       ? [
-          previousGenerationInputs.cacheRevision !== cacheRevision
-            ? 'cache_revision'
-            : undefined,
-          previousGenerationInputs.liveSpotRatesRevision !== liveSpotRatesRevision
-            ? 'live_spot_rates'
-            : undefined,
-          previousGenerationInputs.preparedInputsTargetRevision !==
-          preparedInputsTargetRevision
-            ? 'prepared_inputs'
-            : undefined,
+          cacheRevisionChanged ? 'cache_revision' : undefined,
+          liveSpotRatesRevisionChanged ? 'live_spot_rates' : undefined,
+          preparedInputsTargetRevisionChanged ? 'prepared_inputs' : undefined,
         ].filter(Boolean)
       : ['initial_mount'];
-    const generation = invalidateComputeGeneration();
+    const shouldAdvanceGeneration =
+      !previousGenerationInputs || preparedInputsTargetRevisionChanged;
+    const generation = shouldAdvanceGeneration
+      ? invalidateComputeGeneration()
+      : computeGenerationRef.current;
     recordPerfEvent(
       'balance_chart.compute_generation_advanced',
       buildPerfMetadata({
-        cacheRevisionChanged: !!previousGenerationInputs &&
-          previousGenerationInputs.cacheRevision !== cacheRevision,
+        cacheRevisionChanged,
         cacheRevision,
         changedInputKinds,
         generation,
-        liveSpotRatesRevisionChanged: !!previousGenerationInputs &&
-          previousGenerationInputs.liveSpotRatesRevision !==
-            liveSpotRatesRevision,
+        generationAdvanced: shouldAdvanceGeneration,
+        liveSpotRatesRevisionChanged,
         liveSpotRatesRevision,
-        preparedInputsTargetRevisionChanged: !!previousGenerationInputs &&
-          previousGenerationInputs.preparedInputsTargetRevision !==
-            preparedInputsTargetRevision,
+        preparedInputsTargetRevisionChanged,
         preparedInputsTargetRevision,
       }),
     );
-    startTransition(() => {
-      dispatchTimeframeState({
-        type: 'advanceGeneration',
-        generation,
+    if (shouldAdvanceGeneration) {
+      startTransition(() => {
+        dispatchTimeframeState({
+          type: 'advanceGeneration',
+          generation,
+        });
       });
-    });
+    }
   }, [
     buildPerfMetadata,
     cacheRevision,
+    computeGenerationRef,
     liveSpotRatesRevision,
     invalidateComputeGeneration,
     preparedInputsTargetRevision,

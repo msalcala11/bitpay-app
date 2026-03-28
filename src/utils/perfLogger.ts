@@ -74,6 +74,7 @@ const REVISION_KEY_NAMES = new Set([
   'analysisinputsbasekey',
   'attemptrevision',
   'cacherevision',
+  'currentattemptrevision',
   'lastattemptrevision',
   'prepcacherevision',
   'preparedinputstargetrevision',

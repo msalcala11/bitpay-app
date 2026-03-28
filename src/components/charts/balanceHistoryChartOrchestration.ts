@@ -53,6 +53,13 @@ type RejectComputeAction = {
   generation: number;
 };
 
+type CancelComputeAction = {
+  type: 'cancelCompute';
+  timeframe: FiatRateInterval;
+  attemptRevision: string;
+  generation: number;
+};
+
 type SetResolvedChangeRowDataAction<TChangeRowData> = {
   type: 'setResolvedChangeRowData';
   timeframe: FiatRateInterval;
@@ -74,6 +81,7 @@ export type BalanceHistoryChartOrchestrationAction<TSeries, TChangeRowData> =
   | StartComputeAction
   | ResolveComputeAction<TSeries>
   | RejectComputeAction
+  | CancelComputeAction
   | SetResolvedChangeRowDataAction<TChangeRowData>
   | AdvanceGenerationAction
   | ResetAllAction;
@@ -187,6 +195,24 @@ export const balanceHistoryChartOrchestrationReducer = <
         lastAttemptRevision: action.attemptRevision,
         lastError: action.error,
       }));
+
+    case 'cancelCompute':
+      if (action.generation !== state.generation) {
+        return state;
+      }
+      return updateTimeframeEntry(state, action.timeframe, current => {
+        if (
+          !current.isComputing ||
+          current.lastAttemptRevision !== action.attemptRevision
+        ) {
+          return current;
+        }
+
+        return {
+          ...current,
+          isComputing: false,
+        };
+      });
 
     case 'setResolvedChangeRowData':
       return updateTimeframeEntry(state, action.timeframe, current => {
