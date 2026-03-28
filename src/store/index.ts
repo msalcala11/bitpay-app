@@ -140,6 +140,7 @@ const FS_BACKUP_TRIGGER_ACTIONS = new Set<string>([
 let backupTriggerAction: string | null = null;
 const RATE_CACHE_BATCH_WINDOW_MS = 5000;
 const RATE_CACHE_BATCH_GROUP_LIMIT = 40;
+const PORTFOLIO_POPULATE_PERSIST_CHECKPOINT_WALLET_INTERVAL = 5;
 
 const getRateCacheUpdateBatchType = (keyCount: number) => {
   return keyCount > 1 ? 'multi_key' : 'single_key';
@@ -155,6 +156,20 @@ let persistorRef:
     }
   | null = null;
 let isPersistPausedForPortfolioPopulate = false;
+let portfolioPopulatePersistSessionId = 0;
+let portfolioPopulateLastScheduledCheckpointWalletsCompleted = 0;
+let portfolioPopulatePersistOperation: Promise<void> = Promise.resolve();
+
+const queuePortfolioPopulatePersistOperation = (
+  operation: () => Promise<void>,
+) => {
+  portfolioPopulatePersistOperation = portfolioPopulatePersistOperation
+    .catch(() => {})
+    .then(operation)
+    .catch(() => {});
+  return portfolioPopulatePersistOperation;
+};
+
 const addLog = (log: AddLog) => {
   try {
     if (storeDispatch) {
@@ -449,6 +464,8 @@ const getStore = async () => {
         if (!isPersistPausedForPortfolioPopulate) {
           persistorRef?.pause();
           isPersistPausedForPortfolioPopulate = true;
+          portfolioPopulatePersistSessionId += 1;
+          portfolioPopulateLastScheduledCheckpointWalletsCompleted = 0;
           recordPerfEvent('persist.lifecycle.pause_for_portfolio_populate', {
             actionType,
             hasPersistor: !!persistorRef,
@@ -463,6 +480,75 @@ const getStore = async () => {
       }
 
       const result = next(action);
+
+      if (
+        actionType === PortfolioActionTypes.UPDATE_POPULATE_PROGRESS &&
+        isPersistPausedForPortfolioPopulate
+      ) {
+        const portfolioState = store.getState()?.PORTFOLIO;
+        const walletsCompleted = Number(
+          portfolioState?.populateStatus?.walletsCompleted || 0,
+        );
+
+        if (
+          walletsCompleted > 0 &&
+          walletsCompleted >=
+            portfolioPopulateLastScheduledCheckpointWalletsCompleted +
+              PORTFOLIO_POPULATE_PERSIST_CHECKPOINT_WALLET_INTERVAL
+        ) {
+          const checkpointWalletsCompleted = walletsCompleted;
+          const checkpointPersistor = persistorRef;
+          const checkpointSessionId = portfolioPopulatePersistSessionId;
+          const snapshotWalletCount = Object.keys(
+            portfolioState?.snapshotsByWalletId || {},
+          ).length;
+
+          portfolioPopulateLastScheduledCheckpointWalletsCompleted =
+            checkpointWalletsCompleted;
+
+          recordPerfEvent('persist.lifecycle.checkpoint_for_portfolio_populate', {
+            actionType,
+            hasPersistor: !!checkpointPersistor,
+            quoteCurrency: portfolioState?.quoteCurrency,
+            snapshotWalletCount,
+            walletsCompleted: checkpointWalletsCompleted,
+          });
+
+          if (checkpointPersistor) {
+            void queuePortfolioPopulatePersistOperation(async () => {
+              if (
+                checkpointSessionId !== portfolioPopulatePersistSessionId ||
+                !isPersistPausedForPortfolioPopulate ||
+                persistorRef !== checkpointPersistor
+              ) {
+                return;
+              }
+
+              checkpointPersistor.persist();
+              await measurePerfAsync(
+                'persist.lifecycle.flush_checkpoint_during_portfolio_populate',
+                () => checkpointPersistor.flush(),
+                {
+                  actionType,
+                  quoteCurrency: portfolioState?.quoteCurrency,
+                  snapshotWalletCount,
+                  walletsCompleted: checkpointWalletsCompleted,
+                },
+              );
+
+              if (
+                checkpointSessionId === portfolioPopulatePersistSessionId &&
+                isPersistPausedForPortfolioPopulate &&
+                persistorRef === checkpointPersistor
+              ) {
+                checkpointPersistor.pause();
+              }
+            });
+          }
+        }
+
+        return result;
+      }
 
       if (
         ![
@@ -495,18 +581,20 @@ const getStore = async () => {
         return result;
       }
 
-      flushPersistor.persist();
-      void measurePerfAsync(
-        'persist.lifecycle.flush_after_portfolio_populate',
-        () => flushPersistor.flush(),
-        {
-          actionType,
-          quoteCurrency: portfolioState?.quoteCurrency,
-          snapshotWalletCount: Object.keys(
-            portfolioState?.snapshotsByWalletId || {},
-          ).length,
-        },
-      );
+      void queuePortfolioPopulatePersistOperation(async () => {
+        flushPersistor.persist();
+        await measurePerfAsync(
+          'persist.lifecycle.flush_after_portfolio_populate',
+          () => flushPersistor.flush(),
+          {
+            actionType,
+            quoteCurrency: portfolioState?.quoteCurrency,
+            snapshotWalletCount: Object.keys(
+              portfolioState?.snapshotsByWalletId || {},
+            ).length,
+          },
+        );
+      });
 
       return result;
     };
