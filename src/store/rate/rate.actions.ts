@@ -1,6 +1,7 @@
 import {CacheKeys, DateRanges, Rates} from './rate.models';
 import {RateActionType, RateActionTypes} from './rate.types';
 import type {FiatRateSeriesCache} from './rate.models';
+import type {RateCachePerfDebug} from './rateCachePerf';
 
 export const successGetRates = (payload: {
   rates: Rates;
@@ -23,6 +24,7 @@ export const updateCacheKey = (payload: {
 });
 
 export const upsertFiatRateSeriesCache = (payload: {
+  perfDebug?: RateCachePerfDebug;
   updates: FiatRateSeriesCache;
 }): RateActionType => ({
   type: RateActionTypes.UPSERT_FIAT_RATE_SERIES_CACHE,

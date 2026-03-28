@@ -49,6 +49,11 @@ import {logManager} from '../../../../managers/LogManager';
 import type {Key, Wallet} from '../../wallet.models';
 import {normalizeFiatRateSeriesCoin} from '../../../../utils/portfolio/core/pnl/rates';
 import {isSortedByTsAsc} from '../../../../utils/portfolio/timeSeries';
+import {recordPerfEvent} from '../../../../utils/perfLogger';
+import {
+  summarizeRateCacheKeys,
+  type RateCachePerfDebug,
+} from '../../../rate/rateCachePerf';
 
 const FIATRATES_MARKETSTATS_BASE_URL =
   __DEV__ && BASE_FIATRATES_MARKETSTATS_URL_DEVELOPMENT
@@ -68,6 +73,48 @@ const FIAT_RATE_SERIES_INTERVAL_DAYS: Record<
   '1Y': 365,
   '5Y': 1825,
   ALL: undefined,
+};
+
+const getRateCacheUpdateBatchType = (keyCount: number) => {
+  return keyCount > 1 ? 'multi_key' : 'single_key';
+};
+
+const buildRateCachePerfDebug = (args: {
+  source: RateCachePerfDebug['source'];
+  fiatCode: string;
+  requestedInterval: FiatRateInterval;
+  requestMode: RateCachePerfDebug['requestMode'];
+  requestedCoin?: string;
+  coinForCacheCheck?: string;
+  allowedCoinCount?: number;
+  responseCoinCount?: number;
+  force?: boolean;
+  hasIdentity?: boolean;
+}): RateCachePerfDebug => {
+  const requestedCoin = normalizeFiatRateSeriesCoin(args.requestedCoin);
+  const coinForCacheCheck = normalizeFiatRateSeriesCoin(args.coinForCacheCheck);
+  const targetCoin = requestedCoin || coinForCacheCheck || 'default';
+
+  return {
+    allowedCoinCount: args.allowedCoinCount,
+    batchGroup: [
+      args.source,
+      (args.fiatCode || '').toUpperCase(),
+      args.requestedInterval,
+      args.requestMode,
+      targetCoin,
+      args.hasIdentity ? 'identity' : 'coin',
+    ].join('|'),
+    coinForCacheCheck,
+    fiatCode: (args.fiatCode || '').toUpperCase(),
+    force: !!args.force,
+    hasIdentity: !!args.hasIdentity,
+    requestMode: args.requestMode,
+    requestedCoin: requestedCoin || undefined,
+    requestedInterval: args.requestedInterval,
+    responseCoinCount: args.responseCoinCount,
+    source: args.source,
+  };
 };
 
 const getFiatRateSeriesUrl = (
@@ -763,7 +810,33 @@ export const fetchFiatRateSeriesInterval =
 
       updateCount = Object.keys(updates).length;
       if (updateCount) {
-        dispatch(upsertFiatRateSeriesCache({updates}));
+        const updateSummary = summarizeRateCacheKeys({
+          cacheKeys: Object.keys(updates),
+        });
+        const perfDebug = buildRateCachePerfDebug({
+          source: 'fetchFiatRateSeriesInterval',
+          fiatCode,
+          requestedInterval: interval,
+          requestMode: normalizedRequestedCoin ? 'coin_specific' : 'default',
+          requestedCoin: normalizedRequestedCoin || undefined,
+          coinForCacheCheck: normalizedCoinForCacheCheck,
+          allowedCoinCount: allowedCoinsSet?.size,
+          responseCoinCount: Object.keys(responseByCoin).length,
+          force,
+          hasIdentity: !!chain || !!tokenAddress,
+        });
+
+        recordPerfEvent('rate_cache.upsert_prepared', {
+          ...perfDebug,
+          distinctCoinCount: updateSummary.distinctCoinCount,
+          updateBatchType: getRateCacheUpdateBatchType(updateSummary.keyCount),
+          updateKeyCount: updateSummary.keyCount,
+          updateKeyCountByCoin: updateSummary.keyCountByCoin,
+          updateKeyCountByInterval: updateSummary.keyCountByInterval,
+          updateKeysSample: updateSummary.cacheKeysSample,
+        });
+
+        dispatch(upsertFiatRateSeriesCache({perfDebug, updates}));
       } else if (coin) {
         const payloadCoins = Object.keys(responseByCoin)
           .map(c => (c || '').toLowerCase())
@@ -1027,8 +1100,30 @@ export const refreshFiatRateSeries =
       points = points.slice(points.length - targetLength);
     }
 
+    const perfDebug = buildRateCachePerfDebug({
+      source: 'refreshFiatRateSeries',
+      fiatCode,
+      requestedInterval: interval,
+      requestMode: 'patch_latest_point',
+      requestedCoin: coin,
+      coinForCacheCheck: coin,
+      force: false,
+      hasIdentity: !!chain || !!tokenAddress,
+      responseCoinCount: 1,
+    });
+    recordPerfEvent('rate_cache.upsert_prepared', {
+      ...perfDebug,
+      distinctCoinCount: 1,
+      updateBatchType: 'single_key',
+      updateKeyCount: 1,
+      updateKeyCountByCoin: {[coin || 'unknown']: 1},
+      updateKeyCountByInterval: {[interval]: 1},
+      updateKeysSample: [cacheKey],
+    });
+
     dispatch(
       upsertFiatRateSeriesCache({
+        perfDebug,
         updates: {
           [cacheKey]: {
             fetchedOn: now,

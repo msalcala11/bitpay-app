@@ -72,6 +72,11 @@ import {
   CoinbaseReduxPersistBlackList,
 } from './coinbase/coinbase.reducer';
 import {rateReducer, rateReduxPersistBlackList} from './rate/rate.reducer';
+import {RateActionTypes} from './rate/rate.types';
+import {
+  summarizeRateCacheKeys,
+  summarizeRateCacheMutation,
+} from './rate/rateCachePerf';
 import {LogActions} from './log';
 import * as initLogs from './log/initLogs';
 import {
@@ -132,6 +137,12 @@ const FS_BACKUP_TRIGGER_ACTIONS = new Set<string>([
 ]);
 
 let backupTriggerAction: string | null = null;
+const RATE_CACHE_BATCH_WINDOW_MS = 5000;
+const RATE_CACHE_BATCH_GROUP_LIMIT = 40;
+
+const getRateCacheUpdateBatchType = (keyCount: number) => {
+  return keyCount > 1 ? 'multi_key' : 'single_key';
+};
 
 // Module-scoped logger that safely logs before and after store initialization
 let storeDispatch: ((action: AnyAction) => void) | null = null;
@@ -421,8 +432,137 @@ const getStore = async () => {
       return next(action);
     };
 
+  const rateCacheWriteLogger = (): Middleware => {
+    const recentBatchStateByGroup = new Map<
+      string,
+      {
+        actionCount: number;
+        lastActionAtMs: number;
+        multiKeyActionCount: number;
+        singleKeyActionCount: number;
+        startedAtMs: number;
+        uniqueCacheKeys: Set<string>;
+      }
+    >();
+
+    const pruneRecentBatchState = (nowMs: number) => {
+      Array.from(recentBatchStateByGroup.entries()).forEach(([group, state]) => {
+        if (nowMs - state.lastActionAtMs > RATE_CACHE_BATCH_WINDOW_MS) {
+          recentBatchStateByGroup.delete(group);
+        }
+      });
+
+      if (recentBatchStateByGroup.size <= RATE_CACHE_BATCH_GROUP_LIMIT) {
+        return;
+      }
+
+      Array.from(recentBatchStateByGroup.entries())
+        .sort(([, a], [, b]) => a.lastActionAtMs - b.lastActionAtMs)
+        .slice(0, recentBatchStateByGroup.size - RATE_CACHE_BATCH_GROUP_LIMIT)
+        .forEach(([group]) => {
+          recentBatchStateByGroup.delete(group);
+        });
+    };
+
+    return store => next => (action: AnyAction) => {
+      if (action?.type !== RateActionTypes.UPSERT_FIAT_RATE_SERIES_CACHE) {
+        return next(action);
+      }
+
+      const previousCache = store.getState()?.RATE?.fiatRateSeriesCache || {};
+      const updates = action?.payload?.updates || {};
+      const perfDebug = action?.payload?.perfDebug || {};
+      const updateKeys = Object.keys(updates).filter(Boolean);
+      const updateKeySummary = summarizeRateCacheKeys({
+        cacheKeys: updateKeys,
+      });
+      const batchGroup =
+        typeof perfDebug.batchGroup === 'string' && perfDebug.batchGroup
+          ? perfDebug.batchGroup
+          : [
+              perfDebug.source || 'unknown',
+              perfDebug.fiatCode || 'unknown',
+              perfDebug.requestedInterval || 'unknown',
+            ].join('|');
+
+      const result = next(action);
+      const nextCache = store.getState()?.RATE?.fiatRateSeriesCache || {};
+      const mutationSummary = summarizeRateCacheMutation({
+        previousCache,
+        nextCache,
+        updatedCacheKeys: updateKeys,
+      });
+      const nowMs = Date.now();
+      pruneRecentBatchState(nowMs);
+
+      const currentBatchState = recentBatchStateByGroup.get(batchGroup);
+      const nextBatchState =
+        currentBatchState &&
+        nowMs - currentBatchState.lastActionAtMs <= RATE_CACHE_BATCH_WINDOW_MS
+          ? currentBatchState
+          : {
+              actionCount: 0,
+              lastActionAtMs: nowMs,
+              multiKeyActionCount: 0,
+              singleKeyActionCount: 0,
+              startedAtMs: nowMs,
+              uniqueCacheKeys: new Set<string>(),
+            };
+
+      nextBatchState.actionCount += 1;
+      nextBatchState.lastActionAtMs = nowMs;
+      if (updateKeySummary.keyCount > 1) {
+        nextBatchState.multiKeyActionCount += 1;
+      } else {
+        nextBatchState.singleKeyActionCount += 1;
+      }
+      updateKeys.forEach(cacheKey => nextBatchState.uniqueCacheKeys.add(cacheKey));
+      recentBatchStateByGroup.set(batchGroup, nextBatchState);
+
+      recordPerfEvent('rate_cache.upsert_applied', {
+        actionType: action.type,
+        addedKeyCount: mutationSummary.addedKeyCount,
+        allowedCoinCount: perfDebug.allowedCoinCount,
+        appliedKeyCount: mutationSummary.appliedKeyCount,
+        batchGroup,
+        batchWindowActionCount: nextBatchState.actionCount,
+        batchWindowMs: nowMs - nextBatchState.startedAtMs,
+        batchWindowMultiKeyActionCount: nextBatchState.multiKeyActionCount,
+        batchWindowSingleKeyActionCount: nextBatchState.singleKeyActionCount,
+        batchWindowUniqueKeyCount: nextBatchState.uniqueCacheKeys.size,
+        coinForCacheCheck: perfDebug.coinForCacheCheck,
+        distinctCoinCount: updateKeySummary.distinctCoinCount,
+        fetchedOnChangedKeyCount: mutationSummary.fetchedOnChangedKeyCount,
+        fiatCode: perfDebug.fiatCode,
+        force: perfDebug.force,
+        hasIdentity: perfDebug.hasIdentity,
+        lastTsChangedKeyCount: mutationSummary.lastTsChangedKeyCount,
+        likelyBatchOpportunity:
+          nextBatchState.actionCount >= 2 &&
+          nextBatchState.singleKeyActionCount === nextBatchState.actionCount &&
+          nextBatchState.uniqueCacheKeys.size >= 2,
+        pointCountChangedKeyCount: mutationSummary.pointCountChangedKeyCount,
+        requestMode: perfDebug.requestMode,
+        requestedCoin: perfDebug.requestedCoin,
+        requestedInterval: perfDebug.requestedInterval,
+        responseCoinCount: perfDebug.responseCoinCount,
+        source: perfDebug.source || 'unknown',
+        unchangedKeyCount: mutationSummary.unchangedKeyCount,
+        updateBatchType: getRateCacheUpdateBatchType(updateKeySummary.keyCount),
+        updateKeyCount: updateKeySummary.keyCount,
+        updateKeyCountByCoin: updateKeySummary.keyCountByCoin,
+        updateKeyCountByInterval: updateKeySummary.keyCountByInterval,
+        updateKeysSample: updateKeySummary.cacheKeysSample,
+        updatedKeyCount: mutationSummary.updatedKeyCount,
+      });
+
+      return result;
+    };
+  };
+
   middlewares.push(lastActionMiddleware());
   middlewares.push(cleanupPortfolioOnDeleteKeyMiddleware);
+  middlewares.push(rateCacheWriteLogger());
 
   if (__DEV__ && !(DISABLE_DEVELOPMENT_LOGGING === 'true')) {
     // @ts-ignore

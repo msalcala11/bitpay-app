@@ -1,4 +1,5 @@
 import {CacheKeys, DateRanges, FiatRateSeriesCache, Rates} from './rate.models';
+import type {RateCachePerfDebug} from './rateCachePerf';
 
 export enum RateActionTypes {
   SUCCESS_GET_RATES = 'RATE/SUCCESS_GET_RATES',
@@ -20,6 +21,7 @@ interface successGetRates {
 interface upsertFiatRateSeriesCache {
   type: typeof RateActionTypes.UPSERT_FIAT_RATE_SERIES_CACHE;
   payload: {
+    perfDebug?: RateCachePerfDebug;
     updates: FiatRateSeriesCache;
   };
 }
