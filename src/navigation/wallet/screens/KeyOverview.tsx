@@ -1,5 +1,6 @@
 import React, {
   Profiler,
+  startTransition,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -140,6 +141,7 @@ import {
   getVisibleWalletsForKey,
   getQuoteCurrency,
   isPopulateLoadingForWallets,
+  type PortfolioGainLossSummary,
 } from '../../../utils/portfolio/assets';
 import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
 import {
@@ -153,6 +155,7 @@ import {
   scheduleAfterInteractionsAndFrames,
   type ScheduledAfterInteractionsHandle,
 } from '../../../utils/scheduleAfterInteractionsAndFrames';
+import type {FiatRateInterval} from '../../../store/rate/rate.models';
 
 LogBox.ignoreLogs([
   'Non-serializable values were found in the navigation state',
@@ -333,7 +336,41 @@ const HeaderRightContainer = styled(_HeaderRightContainer)`
 `;
 
 const TIMEFRAME_INTERACTION_WINDOW_MS = 5000;
+const KEY_OVERVIEW_DERIVED_UI_FALLBACK_MS = 350;
 const KEY_OVERVIEW_CHART_REFRESH_FALLBACK_MS = 900;
+
+type KeyOverviewDerivedUiState = {
+  accountList: AccountRowProps[];
+  gainLossSummary: PortfolioGainLossSummary;
+  hasHydrated: boolean;
+};
+
+const buildEmptyKeyOverviewGainLossSummary = (
+  quoteCurrency: string,
+): PortfolioGainLossSummary => {
+  const normalizedQuoteCurrency = (quoteCurrency || 'USD').toUpperCase();
+  return {
+    quoteCurrency: normalizedQuoteCurrency,
+    total: {
+      available: false,
+      deltaFiat: 0,
+      percentRatio: 0,
+    },
+    today: {
+      available: false,
+      deltaFiat: 0,
+      percentRatio: 0,
+    },
+  };
+};
+
+const createInitialKeyOverviewDerivedUiState = (
+  quoteCurrency: string,
+): KeyOverviewDerivedUiState => ({
+  accountList: [],
+  gainLossSummary: buildEmptyKeyOverviewGainLossSummary(quoteCurrency),
+  hasHydrated: false,
+});
 
 const KeyOverview = () => {
   const {t} = useTranslation();
@@ -387,10 +424,13 @@ const KeyOverview = () => {
   }, [id]);
   const hasMultipleKeys =
     Object.values(keys).filter(k => k.backupComplete).length > 1;
-  const [isLoadingInitial, setIsLoadingInitial] = useState(true);
   const [searchVal, setSearchVal] = useState('');
   const [isViewUpdating, setIsViewUpdating] = useState(false);
   const [searchResults, setSearchResults] = useState([] as AccountRowProps[]);
+  const [derivedUiState, setDerivedUiState] =
+    useState<KeyOverviewDerivedUiState>(() =>
+      createInitialKeyOverviewDerivedUiState(defaultAltCurrency.isoCode),
+    );
   const selectedChartTimeframeRef = useRef<FiatRateInterval>(
     DEFAULT_BALANCE_CHART_TIMEFRAME,
   );
@@ -424,37 +464,14 @@ const KeyOverview = () => {
   );
   const deferredKeyForDerivedUi = useDeferredValue(key);
   const deferredRates = useDeferredValue(rates);
+  const accountList = derivedUiState.accountList;
+  const gainLossSummary = derivedUiState.gainLossSummary;
+  const isLoadingInitial = !derivedUiState.hasHydrated;
 
   const cancelScheduledKeyBalanceChartRefresh = useCallback(() => {
     scheduledKeyBalanceChartRefreshRef.current?.cancel();
     scheduledKeyBalanceChartRefreshRef.current = null;
   }, []);
-
-  const memoizedAccountList = useMemo(() => {
-    return measurePerfSync(
-      'screen.key_overview.build_account_list',
-      () =>
-        buildAccountList(
-          deferredKeyForDerivedUi,
-          defaultAltCurrency.isoCode,
-          deferredRates,
-          dispatch,
-          {
-            filterByHideWallet: true,
-          },
-        ),
-      {
-        keyId: deferredKeyForDerivedUi?.id,
-        screen: 'KeyOverview',
-        walletCount: deferredKeyForDerivedUi?.wallets?.length || 0,
-      },
-    );
-  }, [
-    deferredKeyForDerivedUi,
-    deferredRates,
-    dispatch,
-    defaultAltCurrency.isoCode,
-  ]);
 
   const pendingTxpCount = useMemo(() => {
     return (
@@ -467,7 +484,7 @@ const KeyOverview = () => {
   const missingChainsAccountsCount = useMemo(() => {
     const supportedEvmChainCount = Object.keys(BitpaySupportedEvmCoins).length;
 
-    return memoizedAccountList.reduce((count, {chains}) => {
+    return accountList.reduce((count, {chains}) => {
       return (
         count +
         (IsEVMChain(chains[0]) && chains.length !== supportedEvmChainCount
@@ -475,7 +492,7 @@ const KeyOverview = () => {
           : 0)
       );
     }, 0);
-  }, [memoizedAccountList]);
+  }, [accountList]);
 
   const hasMissingEvmNetworks = missingChainsAccountsCount > 0;
 
@@ -637,6 +654,207 @@ const KeyOverview = () => {
   );
   const deferredTotalBalance = useDeferredValue(totalBalance);
   const deferredTotalBalanceLastDay = useDeferredValue(totalBalanceLastDay);
+  const scheduledDerivedUiRefreshRef =
+    useRef<ScheduledAfterInteractionsHandle | null>(null);
+
+  const cancelScheduledDerivedUiRefresh = useCallback(() => {
+    scheduledDerivedUiRefreshRef.current?.cancel();
+    scheduledDerivedUiRefreshRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    cancelScheduledDerivedUiRefresh();
+    setDerivedUiState(previousState =>
+      createInitialKeyOverviewDerivedUiState(
+        previousState.gainLossSummary.quoteCurrency,
+      ),
+    );
+    setSearchResults([]);
+  }, [cancelScheduledDerivedUiRefresh, id]);
+
+  const buildNextKeyOverviewGainLossSummary = useCallback(() => {
+    return measurePerfSync(
+      'screen.key_overview.gain_loss_summary',
+      () => {
+        const summary = buildPortfolioGainLossSummaryFromPortfolioSnapshots({
+          snapshotsByWalletId: deferredSnapshotsByWalletId,
+          wallets: deferredVisibleKeyWallets,
+          quoteCurrency: deferredQuoteCurrency,
+          rates: deferredRates,
+          lastDayRates: deferredLastDayRates,
+          fiatRateSeriesCache: deferredFiatRateSeriesCache,
+        });
+
+        if (summary.today.available) {
+          return summary;
+        }
+
+        const baseline =
+          typeof deferredTotalBalanceLastDay === 'number'
+            ? deferredTotalBalanceLastDay
+            : 0;
+        const deltaFiat = deferredTotalBalance - baseline;
+        const percentRatio = baseline > 0 ? deltaFiat / baseline : 0;
+
+        return {
+          ...summary,
+          today: {
+            ...summary.today,
+            deltaFiat,
+            percentRatio,
+            available: true,
+          },
+        };
+      },
+      {
+        keyId: key?.id,
+        quoteCurrency: deferredQuoteCurrency,
+        screen: 'KeyOverview',
+        snapshotWalletCount: Object.keys(deferredSnapshotsByWalletId).length,
+        visibleWalletCount: deferredVisibleKeyWallets.length,
+      },
+    );
+  }, [
+    deferredFiatRateSeriesCache,
+    deferredLastDayRates,
+    deferredQuoteCurrency,
+    deferredRates,
+    deferredSnapshotsByWalletId,
+    deferredTotalBalance,
+    deferredTotalBalanceLastDay,
+    deferredVisibleKeyWallets,
+    key?.id,
+  ]);
+
+  const scheduleDerivedUiRefresh = useCallback(
+    (reason: string) => {
+      if (!isFocused) {
+        return;
+      }
+
+      cancelScheduledDerivedUiRefresh();
+      recordPerfEvent('screen.key_overview.derived_ui_refresh_scheduled', {
+        keyId: id,
+        reason,
+        screen: 'KeyOverview',
+      });
+
+      const handle = scheduleAfterInteractionsAndFrames({
+        callback: signal => {
+          const nextAccountList = measurePerfSync(
+            'screen.key_overview.build_account_list',
+            () =>
+              deferredKeyForDerivedUi
+                ? buildAccountList(
+                    deferredKeyForDerivedUi,
+                    defaultAltCurrency.isoCode,
+                    deferredRates,
+                    dispatch,
+                    {
+                      filterByHideWallet: true,
+                    },
+                  )
+                : [],
+            {
+              keyId: deferredKeyForDerivedUi?.id,
+              screen: 'KeyOverview',
+              walletCount: deferredKeyForDerivedUi?.wallets?.length || 0,
+            },
+          );
+
+          if (signal.aborted) {
+            return;
+          }
+
+          const nextGainLossSummary =
+            buildNextKeyOverviewGainLossSummary();
+
+          if (signal.aborted) {
+            return;
+          }
+
+          recordPerfEvent('screen.key_overview.derived_ui_refresh_applied', {
+            accountCount: nextAccountList.length,
+            keyId: id,
+            quoteCurrency: nextGainLossSummary.quoteCurrency,
+            reason,
+            screen: 'KeyOverview',
+            totalAvailable: nextGainLossSummary.total.available,
+            visibleWalletCount: deferredVisibleKeyWallets.length,
+          });
+
+          startTransition(() => {
+            if (signal.aborted) {
+              return;
+            }
+
+            setDerivedUiState({
+              accountList: nextAccountList,
+              gainLossSummary: nextGainLossSummary,
+              hasHydrated: true,
+            });
+          });
+        },
+        fallbackMs: KEY_OVERVIEW_DERIVED_UI_FALLBACK_MS,
+        onError: err => {
+          const errStr =
+            err instanceof Error ? err.message : JSON.stringify(err);
+          logger.error(
+            `error [KeyOverview - scheduleDerivedUiRefresh]: ${errStr}`,
+          );
+        },
+      });
+
+      scheduledDerivedUiRefreshRef.current = handle;
+      void handle.done.finally(() => {
+        if (scheduledDerivedUiRefreshRef.current === handle) {
+          scheduledDerivedUiRefreshRef.current = null;
+        }
+      });
+    },
+    [
+      buildNextKeyOverviewGainLossSummary,
+      cancelScheduledDerivedUiRefresh,
+      defaultAltCurrency.isoCode,
+      deferredKeyForDerivedUi,
+      deferredRates,
+      deferredVisibleKeyWallets.length,
+      dispatch,
+      id,
+      isFocused,
+      logger,
+    ],
+  );
+
+  useEffect(() => {
+    if (!isFocused) {
+      cancelScheduledDerivedUiRefresh();
+      return;
+    }
+
+    scheduleDerivedUiRefresh('inputs_changed');
+  }, [
+    cancelScheduledDerivedUiRefresh,
+    deferredFiatRateSeriesCache,
+    deferredKeyForDerivedUi,
+    deferredLastDayRates,
+    deferredQuoteCurrency,
+    deferredRates,
+    deferredSnapshotsByWalletId,
+    deferredTotalBalance,
+    deferredTotalBalanceLastDay,
+    deferredVisibleKeyWallets,
+    defaultAltCurrency.isoCode,
+    dispatch,
+    isFocused,
+    scheduleDerivedUiRefresh,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      cancelScheduledDerivedUiRefresh();
+    };
+  }, [cancelScheduledDerivedUiRefresh]);
 
   const onSelectedChartTimeframeChange = useCallback(
     (timeframe: FiatRateInterval) => {
@@ -843,60 +1061,6 @@ const KeyOverview = () => {
     });
   }, [portfolio.populateStatus, visibleKeyWallets]);
 
-  const gainLossSummary = useMemo(() => {
-    return measurePerfSync(
-      'screen.key_overview.gain_loss_summary',
-      () => {
-        const summary = buildPortfolioGainLossSummaryFromPortfolioSnapshots({
-          snapshotsByWalletId: deferredSnapshotsByWalletId,
-          wallets: deferredVisibleKeyWallets,
-          quoteCurrency: deferredQuoteCurrency,
-          rates: deferredRates,
-          lastDayRates: deferredLastDayRates,
-          fiatRateSeriesCache: deferredFiatRateSeriesCache,
-        });
-
-        if (summary.today.available) {
-          return summary;
-        }
-
-        const baseline =
-          typeof deferredTotalBalanceLastDay === 'number'
-            ? deferredTotalBalanceLastDay
-            : 0;
-        const deltaFiat = deferredTotalBalance - baseline;
-        const percentRatio = baseline > 0 ? deltaFiat / baseline : 0;
-
-        return {
-          ...summary,
-          today: {
-            ...summary.today,
-            deltaFiat,
-            percentRatio,
-            available: true,
-          },
-        };
-      },
-      {
-        keyId: key?.id,
-        quoteCurrency: deferredQuoteCurrency,
-        screen: 'KeyOverview',
-        snapshotWalletCount: Object.keys(deferredSnapshotsByWalletId).length,
-        visibleWalletCount: deferredVisibleKeyWallets.length,
-      },
-    );
-  }, [
-    deferredFiatRateSeriesCache,
-    deferredLastDayRates,
-    deferredQuoteCurrency,
-    deferredRates,
-    deferredSnapshotsByWalletId,
-    deferredTotalBalance,
-    deferredTotalBalanceLastDay,
-    deferredVisibleKeyWallets,
-    key?.id,
-  ]);
-
   const allTimeGainLossText = useMemo(() => {
     if (!gainLossSummary.total.available) {
       return null;
@@ -963,6 +1127,8 @@ const KeyOverview = () => {
   const todayIsPositive = useMemo(() => {
     return gainLossSummary.today.deltaFiat >= 0;
   }, [gainLossSummary.today.deltaFiat]);
+  const showGainLossSkeleton =
+    isKeyPopulateLoading || !derivedUiState.hasHydrated;
 
   const _tokenOptionsByAddress = useAppSelector(({WALLET}: RootState) => {
     return {
@@ -1447,11 +1613,8 @@ const KeyOverview = () => {
               searchVal={searchVal}
               setSearchVal={setSearchVal}
               searchResults={searchResults}
-              setSearchResults={nextSearchResults => {
-                setSearchResults(nextSearchResults);
-                setIsLoadingInitial(false);
-              }}
-              searchFullList={memoizedAccountList}
+              setSearchResults={setSearchResults}
+              searchFullList={accountList}
               context={'keyoverview'}
             />
           </View>
@@ -1463,7 +1626,7 @@ const KeyOverview = () => {
     dispatch,
     fiatRateSeriesCache,
     hideAllBalances,
-    memoizedAccountList,
+    accountList,
     onBalanceSectionProfilerRender,
     onSelectedChartTimeframeChange,
     portfolio?.snapshotsByWalletId,
@@ -1550,12 +1713,12 @@ const KeyOverview = () => {
                   <AllocationDivider />
 
                   <AllocationRow>
-                    {allTimeGainLossText !== null ? (
+                    {allTimeGainLossText !== null || showGainLossSkeleton ? (
                       <AllocationColumn style={{paddingRight: 12}}>
                         <AllocationLabel>
                           All-Time Gain / Loss ($)
                         </AllocationLabel>
-                        {isKeyPopulateLoading ? (
+                        {showGainLossSkeleton ? (
                           <AllocationMetricSkeleton />
                         ) : (
                           <AllocationMetricValue positive={allTimeIsPositive}>
@@ -1573,7 +1736,7 @@ const KeyOverview = () => {
                       <AllocationLabel style={{textAlign: 'right'}}>
                         Today's Gain / Loss ($)
                       </AllocationLabel>
-                      {isKeyPopulateLoading ? (
+                      {showGainLossSkeleton ? (
                         <AllocationMetricSkeleton align="right" />
                       ) : (
                         <AllocationMetricValue
@@ -1602,11 +1765,11 @@ const KeyOverview = () => {
     defaultAltCurrency.isoCode,
     hideAllBalances,
     id,
-    isKeyPopulateLoading,
     key,
     navigation,
     showPortfolioValue,
     showArchaxBanner,
+    showGainLossSkeleton,
     todayGainLossText,
     todayIsPositive,
     totalBalance,
@@ -1625,18 +1788,13 @@ const KeyOverview = () => {
 
   const renderDataComponent = useMemo(() => {
     return !searchVal && !selectedChainFilterOption
-      ? memoizedAccountList
+      ? accountList
       : searchResults;
-  }, [
-    memoizedAccountList,
-    searchResults,
-    searchVal,
-    selectedChainFilterOption,
-  ]);
+  }, [accountList, searchResults, searchVal, selectedChainFilterOption]);
 
   const screenProfilerInputs = useMemo(
     () => ({
-      accountCount: memoizedAccountList.length,
+      accountCount: accountList.length,
       hasKey: Boolean(key),
       hideAllBalances,
       isFocused,
@@ -1659,12 +1817,12 @@ const KeyOverview = () => {
       walletCount: key?.wallets?.length || 0,
     }),
     [
+      accountList.length,
       hideAllBalances,
       isFocused,
       isKeyPopulateLoading,
       isLoadingInitial,
       key,
-      memoizedAccountList.length,
       pendingTxpCount,
       portfolio?.snapshotsByWalletId,
       quoteCurrency,
