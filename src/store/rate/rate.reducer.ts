@@ -4,7 +4,9 @@ import {RateActionType, RateActionTypes} from './rate.types';
 import {DEFAULT_DATE_RANGE} from '../../constants/rate';
 
 type RateReduxPersistBlackList = string[];
-export const rateReduxPersistBlackList: RateReduxPersistBlackList = [];
+export const rateReduxPersistBlackList: RateReduxPersistBlackList = [
+  'fiatRateSeriesCache',
+];
 
 const getFiatCodeFromSeriesCacheKey = (
   cacheKey: string,
