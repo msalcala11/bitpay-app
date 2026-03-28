@@ -1,6 +1,7 @@
 import React, {
   Profiler,
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -148,6 +149,10 @@ import {
   recordPerfEvent,
 } from '../../../utils/perfLogger';
 import {summarizeReactPerfSnapshotChanges} from '../../../utils/reactPerf';
+import {
+  scheduleAfterInteractionsAndFrames,
+  type ScheduledAfterInteractionsHandle,
+} from '../../../utils/scheduleAfterInteractionsAndFrames';
 
 LogBox.ignoreLogs([
   'Non-serializable values were found in the navigation state',
@@ -328,6 +333,7 @@ const HeaderRightContainer = styled(_HeaderRightContainer)`
 `;
 
 const TIMEFRAME_INTERACTION_WINDOW_MS = 5000;
+const KEY_OVERVIEW_CHART_REFRESH_FALLBACK_MS = 900;
 
 const KeyOverview = () => {
   const {t} = useTranslation();
@@ -374,6 +380,10 @@ const KeyOverview = () => {
     timeframeInteractionSequenceRef.current = 0;
     previousScreenProfilerInputsRef.current = undefined;
     previousBalanceSectionProfilerInputsRef.current = undefined;
+    previousChartRefreshScopeRef.current = undefined;
+    pendingKeyBalanceChartRefreshRef.current = false;
+    scheduledKeyBalanceChartRefreshRef.current?.cancel();
+    scheduledKeyBalanceChartRefreshRef.current = null;
   }, [id]);
   const hasMultipleKeys =
     Object.values(keys).filter(k => k.backupComplete).length > 1;
@@ -400,24 +410,51 @@ const KeyOverview = () => {
   const previousBalanceSectionProfilerInputsRef = useRef<
     Record<string, boolean | number | string | undefined> | undefined
   >(undefined);
+  const previousChartRefreshScopeRef = useRef<
+    | {
+        quoteCurrency: string;
+        visibleKeyWalletIdsSig: string;
+      }
+    | undefined
+  >(undefined);
+  const scheduledKeyBalanceChartRefreshRef =
+    useRef<ScheduledAfterInteractionsHandle | null>(null);
   const selectedChainFilterOption = useAppSelector(
     ({APP}) => APP.selectedChainFilterOption,
   );
+  const deferredKeyForDerivedUi = useDeferredValue(key);
+  const deferredRates = useDeferredValue(rates);
+
+  const cancelScheduledKeyBalanceChartRefresh = useCallback(() => {
+    scheduledKeyBalanceChartRefreshRef.current?.cancel();
+    scheduledKeyBalanceChartRefreshRef.current = null;
+  }, []);
 
   const memoizedAccountList = useMemo(() => {
     return measurePerfSync(
       'screen.key_overview.build_account_list',
       () =>
-        buildAccountList(key, defaultAltCurrency.isoCode, rates, dispatch, {
-          filterByHideWallet: true,
-        }),
+        buildAccountList(
+          deferredKeyForDerivedUi,
+          defaultAltCurrency.isoCode,
+          deferredRates,
+          dispatch,
+          {
+            filterByHideWallet: true,
+          },
+        ),
       {
-        keyId: key?.id,
+        keyId: deferredKeyForDerivedUi?.id,
         screen: 'KeyOverview',
-        walletCount: key?.wallets?.length || 0,
+        walletCount: deferredKeyForDerivedUi?.wallets?.length || 0,
       },
     );
-  }, [dispatch, key, defaultAltCurrency.isoCode, rates]);
+  }, [
+    deferredKeyForDerivedUi,
+    deferredRates,
+    dispatch,
+    defaultAltCurrency.isoCode,
+  ]);
 
   const pendingTxpCount = useMemo(() => {
     return (
@@ -591,6 +628,15 @@ const KeyOverview = () => {
       defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
     });
   }, [defaultAltCurrency?.isoCode, portfolio.quoteCurrency]);
+  const deferredQuoteCurrency = useDeferredValue(quoteCurrency);
+  const deferredVisibleKeyWallets = useDeferredValue(visibleKeyWallets);
+  const deferredLastDayRates = useDeferredValue(lastDayRates);
+  const deferredFiatRateSeriesCache = useDeferredValue(fiatRateSeriesCache);
+  const deferredSnapshotsByWalletId = useDeferredValue(
+    portfolio.snapshotsByWalletId || {},
+  );
+  const deferredTotalBalance = useDeferredValue(totalBalance);
+  const deferredTotalBalanceLastDay = useDeferredValue(totalBalanceLastDay);
 
   const onSelectedChartTimeframeChange = useCallback(
     (timeframe: FiatRateInterval) => {
@@ -685,16 +731,86 @@ const KeyOverview = () => {
     );
   }, [dispatch, id, reduxStore]);
 
+  const scheduleKeyBalanceChartRefresh = useCallback(
+    (reason: string) => {
+      if (!isFocused) {
+        return;
+      }
+
+      cancelScheduledKeyBalanceChartRefresh();
+      recordPerfEvent('screen.key_overview.chart_refresh_scheduled', {
+        keyId: id,
+        reason,
+        screen: 'KeyOverview',
+      });
+
+      const handle = scheduleAfterInteractionsAndFrames({
+        callback: async signal => {
+          if (signal.aborted) {
+            return;
+          }
+
+          await maybeRefreshKeyBalanceChart();
+        },
+        fallbackMs: KEY_OVERVIEW_CHART_REFRESH_FALLBACK_MS,
+        onError: err => {
+          const errStr =
+            err instanceof Error ? err.message : JSON.stringify(err);
+          logger.error(
+            `error [KeyOverview - scheduleKeyBalanceChartRefresh]: ${errStr}`,
+          );
+        },
+      });
+
+      scheduledKeyBalanceChartRefreshRef.current = handle;
+      void handle.done.finally(() => {
+        if (scheduledKeyBalanceChartRefreshRef.current === handle) {
+          scheduledKeyBalanceChartRefreshRef.current = null;
+        }
+      });
+    },
+    [
+      cancelScheduledKeyBalanceChartRefresh,
+      id,
+      isFocused,
+      logger,
+      maybeRefreshKeyBalanceChart,
+    ],
+  );
+
   useEffect(() => {
     if (!isFocused) {
+      cancelScheduledKeyBalanceChartRefresh();
       return;
     }
 
-    maybeRefreshKeyBalanceChart();
+    const nextScope = {
+      quoteCurrency,
+      visibleKeyWalletIdsSig,
+    };
+    const previousScope = previousChartRefreshScopeRef.current;
+    previousChartRefreshScopeRef.current = nextScope;
+
+    // Let the current snapshots render immediately on initial focus. The
+    // focus-driven status update path will schedule a background repopulation
+    // with the latest wallet objects once it completes.
+    if (!previousScope) {
+      return;
+    }
+
+    if (
+      previousScope.quoteCurrency === nextScope.quoteCurrency &&
+      previousScope.visibleKeyWalletIdsSig === nextScope.visibleKeyWalletIdsSig
+    ) {
+      return;
+    }
+
+    scheduleKeyBalanceChartRefresh('focus_or_scope_change');
   }, [
+    cancelScheduledKeyBalanceChartRefresh,
     isFocused,
-    maybeRefreshKeyBalanceChart,
     quoteCurrency,
+    scheduleKeyBalanceChartRefresh,
     visibleKeyWalletIdsSig,
   ]);
 
@@ -707,12 +823,18 @@ const KeyOverview = () => {
       return;
     }
 
-    maybeRefreshKeyBalanceChart();
+    scheduleKeyBalanceChartRefresh('retry_after_populate');
   }, [
     isFocused,
-    maybeRefreshKeyBalanceChart,
     portfolio.populateStatus?.inProgress,
+    scheduleKeyBalanceChartRefresh,
   ]);
+
+  useEffect(() => {
+    return () => {
+      cancelScheduledKeyBalanceChartRefresh();
+    };
+  }, [cancelScheduledKeyBalanceChartRefresh]);
 
   const isKeyPopulateLoading = useMemo(() => {
     return isPopulateLoadingForWallets({
@@ -726,12 +848,12 @@ const KeyOverview = () => {
       'screen.key_overview.gain_loss_summary',
       () => {
         const summary = buildPortfolioGainLossSummaryFromPortfolioSnapshots({
-          snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
-          wallets: visibleKeyWallets,
-          quoteCurrency,
-          rates,
-          lastDayRates,
-          fiatRateSeriesCache,
+          snapshotsByWalletId: deferredSnapshotsByWalletId,
+          wallets: deferredVisibleKeyWallets,
+          quoteCurrency: deferredQuoteCurrency,
+          rates: deferredRates,
+          lastDayRates: deferredLastDayRates,
+          fiatRateSeriesCache: deferredFiatRateSeriesCache,
         });
 
         if (summary.today.available) {
@@ -739,8 +861,10 @@ const KeyOverview = () => {
         }
 
         const baseline =
-          typeof totalBalanceLastDay === 'number' ? totalBalanceLastDay : 0;
-        const deltaFiat = totalBalance - baseline;
+          typeof deferredTotalBalanceLastDay === 'number'
+            ? deferredTotalBalanceLastDay
+            : 0;
+        const deltaFiat = deferredTotalBalance - baseline;
         const percentRatio = baseline > 0 ? deltaFiat / baseline : 0;
 
         return {
@@ -755,23 +879,22 @@ const KeyOverview = () => {
       },
       {
         keyId: key?.id,
-        quoteCurrency,
+        quoteCurrency: deferredQuoteCurrency,
         screen: 'KeyOverview',
-        snapshotWalletCount: Object.keys(portfolio.snapshotsByWalletId || {})
-          .length,
-        visibleWalletCount: visibleKeyWallets.length,
+        snapshotWalletCount: Object.keys(deferredSnapshotsByWalletId).length,
+        visibleWalletCount: deferredVisibleKeyWallets.length,
       },
     );
   }, [
-    fiatRateSeriesCache,
+    deferredFiatRateSeriesCache,
+    deferredLastDayRates,
+    deferredQuoteCurrency,
+    deferredRates,
+    deferredSnapshotsByWalletId,
+    deferredTotalBalance,
+    deferredTotalBalanceLastDay,
+    deferredVisibleKeyWallets,
     key?.id,
-    lastDayRates,
-    portfolio.snapshotsByWalletId,
-    quoteCurrency,
-    rates,
-    totalBalance,
-    totalBalanceLastDay,
-    visibleKeyWallets,
   ]);
 
   const allTimeGainLossText = useMemo(() => {
@@ -1081,7 +1204,7 @@ const KeyOverview = () => {
               sleep(1000),
             ]);
             dispatch(updatePortfolioBalance());
-            await maybeRefreshKeyBalanceChart();
+            scheduleKeyBalanceChartRefresh('status_update');
           },
           {
             forceUpdate: !!forceUpdate,
@@ -1096,7 +1219,7 @@ const KeyOverview = () => {
         dispatch(showBottomNotificationModal(BalanceUpdateError()));
       }
     },
-    [dispatch, isViewUpdating, key, logger, maybeRefreshKeyBalanceChart],
+    [dispatch, isViewUpdating, key, logger, scheduleKeyBalanceChartRefresh],
   );
 
   const updateStatusForKeyRef = useRef(updateStatusForKey);
