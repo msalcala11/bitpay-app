@@ -27,13 +27,22 @@ import {ProcessPendingTxps} from '../transactions/transactions';
 import {FormatAmount} from '../amount/amount';
 import {BwcProvider} from '../../../../lib/bwc';
 import {IsERCToken, IsUtxoChain} from '../../utils/currency';
-import {convertToFiat} from '../../../../utils/helper-methods';
+import {convertToFiat, sleep} from '../../../../utils/helper-methods';
 import {Network} from '../../../../constants';
 import _ from 'lodash';
 import {createWalletAddress} from '../address/address';
 import {detectAndCreateTokensForEachEvmWallet} from '../create/create';
 import uniqBy from 'lodash.uniqby';
 import {logManager} from '../../../../managers/LogManager';
+import {recordPerfEvent} from '../../../../utils/perfLogger';
+
+export type UpdateKeyStatusChunking = {
+  perfContext?: string;
+  walletsPerYield?: number;
+  yieldMs?: number;
+};
+
+const DEFAULT_UPDATE_KEY_STATUS_YIELD_MS = 0;
 export const startUpdateWalletStatus =
   ({key, wallet, force}: {key: Key; wallet: Wallet; force?: boolean}): Effect =>
   async (dispatch, getState) => {
@@ -185,11 +194,13 @@ export const updateKeyStatus =
     accountAddress,
     force,
     dataOnly,
+    chunking,
   }: {
     key: Key;
     force: boolean | undefined;
     accountAddress?: string;
     dataOnly?: boolean;
+    chunking?: UpdateKeyStatusChunking;
   }): Effect<
     Promise<
       | {
@@ -291,6 +302,46 @@ export const updateKeyStatus =
           pendingTxps: any[];
           singleAddress: boolean;
         }> = [];
+        const uniqueWallets = uniqBy(key.wallets, 'id');
+        const bulkStatusByWalletId = new Map<string, BulkStatus>();
+
+        bulkStatus.forEach(statusEntry => {
+          const walletId =
+            typeof statusEntry.tokenAddress === 'string'
+              ? `${statusEntry.walletId}-${statusEntry.tokenAddress}`
+              : statusEntry.walletId;
+          bulkStatusByWalletId.set(walletId, statusEntry);
+        });
+
+        const walletsPerYield =
+          typeof chunking?.walletsPerYield === 'number' &&
+          chunking.walletsPerYield > 0
+            ? Math.max(1, Math.floor(chunking.walletsPerYield))
+            : 0;
+        const shouldYieldBetweenChunks =
+          walletsPerYield > 0 && uniqueWallets.length > walletsPerYield;
+        const totalChunkCount = shouldYieldBetweenChunks
+          ? Math.ceil(uniqueWallets.length / walletsPerYield)
+          : 1;
+        const yieldMs =
+          typeof chunking?.yieldMs === 'number' && chunking.yieldMs >= 0
+            ? chunking.yieldMs
+            : DEFAULT_UPDATE_KEY_STATUS_YIELD_MS;
+        const perfContext = chunking?.perfContext ?? 'WalletStatus';
+
+        if (shouldYieldBetweenChunks) {
+          recordPerfEvent('wallet.status.update_key_chunking_enabled', {
+            dataOnly: !!dataOnly,
+            keyId: key.id,
+            perfContext,
+            scopedToAccount: !!accountAddress,
+            totalChunkCount,
+            walletCount: uniqueWallets.length,
+            walletCountToUpdate: walletsToUpdate.length,
+            walletsPerYield,
+            yieldMs,
+          });
+        }
 
         const updateBalance = (
           wallet: Wallet,
@@ -311,13 +362,17 @@ export const updateKeyStatus =
           return newBalance;
         };
 
-        const balances = uniqBy(key.wallets, 'id').map(wallet => {
+        const balances: WalletBalance[] = [];
+
+        for (let index = 0; index < uniqueWallets.length; index++) {
+          const wallet = uniqueWallets[index];
           const {balance: cachedBalance, pendingTxps} = wallet;
           const shouldReuseCachedBalance =
             !!accountAddress && !walletsToUpdateById.has(wallet.id);
 
           if (shouldReuseCachedBalance) {
-            return cachedBalance;
+            balances.push(cachedBalance);
+            continue;
           }
 
           if (!bulkStatus) {
@@ -334,20 +389,12 @@ export const updateKeyStatus =
               ),
             } as WalletBalance;
 
-            return updateBalance(wallet, newBalance, pendingTxps);
+            balances.push(updateBalance(wallet, newBalance, pendingTxps));
+            continue;
           }
 
           const {status, success} =
-            bulkStatus.find(bStatus => {
-              if (typeof bStatus.tokenAddress === 'string') {
-                return (
-                  bStatus.tokenAddress === wallet.credentials.token?.address &&
-                  `${bStatus.walletId}-${bStatus.tokenAddress}` === wallet.id
-                );
-              }
-
-              return bStatus.walletId === wallet.id;
-            }) || {};
+            bulkStatusByWalletId.get(wallet.id) || {};
 
           const amountHasChanged =
             status?.balance?.availableAmount !== cachedBalance?.satAvailable;
@@ -404,7 +451,7 @@ export const updateKeyStatus =
               `Wallet to be updated: ${wallet.currencyAbbreviation} ${wallet.id} - status updated`,
             );
 
-            return newBalance;
+            balances.push(newBalance);
           } else {
             const newBalance = {
               ...cachedBalance,
@@ -419,9 +466,46 @@ export const updateKeyStatus =
               ),
             } as WalletBalance;
 
-            return updateBalance(wallet, newBalance, pendingTxps);
+            balances.push(updateBalance(wallet, newBalance, pendingTxps));
           }
-        });
+
+          if (
+            shouldYieldBetweenChunks &&
+            index < uniqueWallets.length - 1 &&
+            (index + 1) % walletsPerYield === 0
+          ) {
+            const processedWalletCount = index + 1;
+            recordPerfEvent('wallet.status.update_key_chunk_yield', {
+              chunkIndex: Math.ceil(processedWalletCount / walletsPerYield),
+              dataOnly: !!dataOnly,
+              keyId: key.id,
+              perfContext,
+              processedWalletCount,
+              remainingWalletCount:
+                uniqueWallets.length - processedWalletCount,
+              scopedToAccount: !!accountAddress,
+              totalChunkCount,
+              walletCount: uniqueWallets.length,
+              walletsPerYield,
+              yieldMs,
+            });
+            await sleep(yieldMs);
+          }
+        }
+
+        if (shouldYieldBetweenChunks) {
+          recordPerfEvent('wallet.status.update_key_chunking_completed', {
+            dataOnly: !!dataOnly,
+            keyId: key.id,
+            perfContext,
+            scopedToAccount: !!accountAddress,
+            totalChunkCount,
+            walletCount: uniqueWallets.length,
+            walletCountToUpdate: walletsToUpdate.length,
+            walletsPerYield,
+            yieldMs,
+          });
+        }
 
         logManager.info(`Key: ${key.id} - status updated`);
 
@@ -461,17 +545,19 @@ export const startUpdateAllWalletStatusForKeys =
     keys,
     accountAddress,
     force,
+    chunking,
   }: {
     keys: Key[];
     accountAddress?: string;
     force?: boolean;
+    chunking?: UpdateKeyStatusChunking;
   }): Effect<Promise<void>> =>
   async (dispatch, getState) => {
     return new Promise(async (resolve, reject) => {
       try {
         logManager.info('starting [startUpdateAllWalletStatusForKeys]');
         const keyUpdatesPromises = keys.map(key =>
-          dispatch(updateKeyStatus({key, accountAddress, force})),
+          dispatch(updateKeyStatus({key, accountAddress, force, chunking})),
         );
         const keyUpdates = (await Promise.all(keyUpdatesPromises)).filter(
           Boolean,
@@ -539,11 +625,13 @@ export const startUpdateAllWalletStatusForKey =
     accountAddress,
     force,
     createTokenWalletWithFunds,
+    chunking,
   }: {
     key: Key;
     accountAddress?: string;
     force?: boolean;
     createTokenWalletWithFunds?: boolean;
+    chunking?: UpdateKeyStatusChunking;
   }): Effect<Promise<void>> =>
   async dispatch => {
     const keys = [key];
@@ -560,7 +648,12 @@ export const startUpdateAllWalletStatusForKey =
 
     return !key.isReadOnly
       ? dispatch(
-          startUpdateAllWalletStatusForKeys({keys, accountAddress, force}),
+          startUpdateAllWalletStatusForKeys({
+            keys,
+            accountAddress,
+            force,
+            chunking,
+          }),
         )
       : dispatch(
           startUpdateAllWalletStatusForReadOnlyKeys({

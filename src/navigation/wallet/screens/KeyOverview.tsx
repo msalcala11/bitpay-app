@@ -47,7 +47,9 @@ import {
   showBottomNotificationModal,
   toggleHideAllBalances,
 } from '../../../store/app/app.actions';
-import {startUpdateAllWalletStatusForKey} from '../../../store/wallet/effects/status/status';
+import {
+  startUpdateAllWalletStatusForKey,
+} from '../../../store/wallet/effects/status/status';
 import {
   successAddWallet,
   updatePortfolioBalance,
@@ -341,6 +343,7 @@ const KEY_OVERVIEW_CHART_REFRESH_FALLBACK_MS = 900;
 const KEY_OVERVIEW_STATUS_REFRESH_FALLBACK_MS = 1200;
 const KEY_OVERVIEW_FOCUS_STATUS_REFRESH_DELAY_MS = 1200;
 const KEY_OVERVIEW_TIMEFRAME_QUIET_WINDOW_MS = 1500;
+const KEY_OVERVIEW_STATUS_COMPLETION_DELAY_MS = 1500;
 
 type KeyOverviewAccountListState = {
   accountList: AccountRowProps[];
@@ -433,6 +436,9 @@ const KeyOverview = () => {
     pendingKeyBalanceChartRefreshRef.current = null;
     scheduledKeyBalanceChartRefreshRef.current?.cancel();
     scheduledKeyBalanceChartRefreshRef.current = null;
+    scheduledStatusRefreshCompletionRef.current?.cancel();
+    scheduledStatusRefreshCompletionRef.current = null;
+    isBackgroundStatusRefreshInProgressRef.current = false;
   }, [id]);
   const hasMultipleKeys =
     Object.values(keys).filter(k => k.backupComplete).length > 1;
@@ -479,6 +485,9 @@ const KeyOverview = () => {
     useRef<ScheduledAfterInteractionsHandle | null>(null);
   const scheduledStatusRefreshRef =
     useRef<ScheduledAfterInteractionsHandle | null>(null);
+  const scheduledStatusRefreshCompletionRef =
+    useRef<ScheduledAfterInteractionsHandle | null>(null);
+  const isBackgroundStatusRefreshInProgressRef = useRef(false);
   const pendingKeyBalanceChartRefreshRef = useRef<
     | {
         reason: string;
@@ -521,6 +530,11 @@ const KeyOverview = () => {
   const cancelScheduledStatusRefresh = useCallback(() => {
     scheduledStatusRefreshRef.current?.cancel();
     scheduledStatusRefreshRef.current = null;
+  }, []);
+
+  const cancelScheduledStatusRefreshCompletion = useCallback(() => {
+    scheduledStatusRefreshCompletionRef.current?.cancel();
+    scheduledStatusRefreshCompletionRef.current = null;
   }, []);
 
   const pendingTxpCount = useMemo(() => {
@@ -1032,10 +1046,12 @@ const KeyOverview = () => {
   useEffect(() => {
     return () => {
       cancelScheduledStatusRefresh();
+      cancelScheduledStatusRefreshCompletion();
       cancelScheduledAccountListRefresh();
       cancelScheduledGainLossSummaryRefresh();
     };
   }, [
+    cancelScheduledStatusRefreshCompletion,
     cancelScheduledStatusRefresh,
     cancelScheduledAccountListRefresh,
     cancelScheduledGainLossSummaryRefresh,
@@ -1611,42 +1627,92 @@ const KeyOverview = () => {
         );
         return;
       }
+      if (isBackgroundStatusRefreshInProgressRef.current && !forceUpdate) {
+        logger.debug(
+          'KeyOverview background status refresh is already in progress. Skip starting another one.',
+        );
+        return;
+      }
 
       try {
+        if (forceUpdate) {
+          cancelScheduledStatusRefreshCompletion();
+          isBackgroundStatusRefreshInProgressRef.current = true;
+          await measurePerfAsync(
+            'screen.key_overview.update_status',
+            async () => {
+              await dispatch(
+                refreshRatesForPortfolioPnl({context: 'homeRootOnRefresh'}) as any,
+              );
+              const latestState = reduxStore.getState() as RootState;
+              const latestKey = latestState.WALLET.keys[id];
+              if (!latestKey) {
+                return;
+              }
+              await Promise.all([
+                dispatch(
+                  startUpdateAllWalletStatusForKey({
+                    key: latestKey,
+                    force: true,
+                    createTokenWalletWithFunds: true,
+                  }),
+                ),
+                sleep(1000),
+              ]);
+              dispatch(updatePortfolioBalance());
+              scheduleKeyBalanceChartRefresh('status_update_manual');
+            },
+            {
+              forceUpdate: true,
+              keyId: key.id,
+              phase: 'manual_full',
+              screen: 'KeyOverview',
+              walletCount: key.wallets.length,
+            },
+          );
+          return;
+        }
+
         setIsViewUpdating(true);
         await measurePerfAsync(
-          'screen.key_overview.update_status',
+          'screen.key_overview.update_status_foreground',
           async () => {
             await dispatch(
               refreshRatesForPortfolioPnl({context: 'homeRootOnRefresh'}) as any,
             );
-            await Promise.all([
-              dispatch(
-                startUpdateAllWalletStatusForKey({
-                  key,
-                  force: forceUpdate,
-                  createTokenWalletWithFunds: forceUpdate,
-                }),
-              ),
-              sleep(1000),
-            ]);
-            dispatch(updatePortfolioBalance());
-            scheduleKeyBalanceChartRefresh('status_update');
           },
           {
-            forceUpdate: !!forceUpdate,
+            forceUpdate: false,
             keyId: key.id,
+            phase: 'foreground_rates_only',
             screen: 'KeyOverview',
             walletCount: key.wallets.length,
           },
         );
-        setIsViewUpdating(false);
       } catch {
-        setIsViewUpdating(false);
+        if (forceUpdate) {
+          isBackgroundStatusRefreshInProgressRef.current = false;
+        }
         dispatch(showBottomNotificationModal(BalanceUpdateError()));
+      } finally {
+        if (!forceUpdate) {
+          setIsViewUpdating(false);
+        }
+        if (forceUpdate) {
+          isBackgroundStatusRefreshInProgressRef.current = false;
+        }
       }
     },
-    [dispatch, isViewUpdating, key, logger, scheduleKeyBalanceChartRefresh],
+    [
+      cancelScheduledStatusRefreshCompletion,
+      dispatch,
+      id,
+      isViewUpdating,
+      key,
+      logger,
+      reduxStore,
+      scheduleKeyBalanceChartRefresh,
+    ],
   );
 
   const updateStatusForKeyRef = useRef(updateStatusForKey);
@@ -1655,6 +1721,155 @@ const KeyOverview = () => {
     updateStatusForKeyRef.current = updateStatusForKey;
   }, [updateStatusForKey]);
 
+  const runScheduledStatusRefreshCompletion = useCallback(
+    async (reason: string) => {
+      if (!key || isBackgroundStatusRefreshInProgressRef.current) {
+        return;
+      }
+
+      isBackgroundStatusRefreshInProgressRef.current = true;
+      try {
+        await measurePerfAsync(
+          'screen.key_overview.update_status',
+          async () => {
+            const latestState = reduxStore.getState() as RootState;
+            const latestKey = latestState.WALLET.keys[id];
+            if (!latestKey) {
+              return;
+            }
+
+            await dispatch(
+              startUpdateAllWalletStatusForKey({
+                key: latestKey,
+                force: false,
+                createTokenWalletWithFunds: false,
+              }),
+            );
+            dispatch(updatePortfolioBalance());
+            scheduleKeyBalanceChartRefresh('status_update_background');
+          },
+          {
+            forceUpdate: false,
+            keyId: key.id,
+            phase: reason,
+            screen: 'KeyOverview',
+            walletCount: key.wallets.length,
+          },
+        );
+      } finally {
+        isBackgroundStatusRefreshInProgressRef.current = false;
+      }
+    },
+    [dispatch, id, key, reduxStore, scheduleKeyBalanceChartRefresh],
+  );
+
+  const runScheduledStatusRefreshCompletionRef = useRef(
+    runScheduledStatusRefreshCompletion,
+  );
+
+  useEffect(() => {
+    runScheduledStatusRefreshCompletionRef.current =
+      runScheduledStatusRefreshCompletion;
+  }, [runScheduledStatusRefreshCompletion]);
+
+  const scheduleStatusRefreshCompletion = useCallback(
+    (reason: string) => {
+      if (!isFocused || !viewedKeyId) {
+        return;
+      }
+
+      cancelScheduledStatusRefreshCompletion();
+      recordPerfEvent('screen.key_overview.status_refresh_completion_scheduled', {
+        keyId: viewedKeyId,
+        reason,
+        screen: 'KeyOverview',
+      });
+
+      const handle = scheduleAfterInteractionsAndFrames({
+        callback: async signal => {
+          if (signal.aborted) {
+            return;
+          }
+
+          recordPerfEvent(
+            'screen.key_overview.status_refresh_completion_deferred',
+            {
+              deferReason: 'post_foreground_grace_window',
+              delayMs: KEY_OVERVIEW_STATUS_COMPLETION_DELAY_MS,
+              keyId: viewedKeyId,
+              reason,
+              screen: 'KeyOverview',
+            },
+          );
+          await sleep(KEY_OVERVIEW_STATUS_COMPLETION_DELAY_MS);
+
+          if (signal.aborted) {
+            return;
+          }
+
+          const remainingQuietWindowMs =
+            getRemainingTimeframeQuietWindowMs();
+          if (remainingQuietWindowMs > 0) {
+            recordPerfEvent(
+              'screen.key_overview.status_refresh_completion_deferred',
+              {
+                deferReason: 'recent_timeframe_interaction',
+                delayMs: remainingQuietWindowMs,
+                keyId: viewedKeyId,
+                reason,
+                screen: 'KeyOverview',
+              },
+            );
+            await sleep(remainingQuietWindowMs);
+          }
+
+          if (signal.aborted) {
+            return;
+          }
+
+          recordPerfEvent('screen.key_overview.status_refresh_completion_applied', {
+            keyId: viewedKeyId,
+            reason,
+            screen: 'KeyOverview',
+          });
+          try {
+            await runScheduledStatusRefreshCompletionRef.current(
+              'background_completion',
+            );
+          } catch (err) {
+            const errStr =
+              err instanceof Error ? err.message : JSON.stringify(err);
+            logger.error(
+              `error [KeyOverview - scheduleStatusRefreshCompletion]: ${errStr}`,
+            );
+          }
+        },
+        fallbackMs: KEY_OVERVIEW_STATUS_REFRESH_FALLBACK_MS,
+        onError: err => {
+          const errStr =
+            err instanceof Error ? err.message : JSON.stringify(err);
+          logger.error(
+            `error [KeyOverview - scheduleStatusRefreshCompletion]: ${errStr}`,
+          );
+        },
+      });
+
+      scheduledStatusRefreshCompletionRef.current = handle;
+      void handle.done.finally(() => {
+        if (scheduledStatusRefreshCompletionRef.current === handle) {
+          scheduledStatusRefreshCompletionRef.current = null;
+        }
+      });
+    },
+    [
+      cancelScheduledStatusRefreshCompletion,
+      getRemainingTimeframeQuietWindowMs,
+      isFocused,
+      logger,
+      viewedKeyId,
+    ],
+  );
+
   const scheduleStatusRefresh = useCallback(
     (reason: string, forceUpdate?: boolean) => {
       if (!isFocused || !viewedKeyId) {
@@ -1662,6 +1877,7 @@ const KeyOverview = () => {
       }
 
       cancelScheduledStatusRefresh();
+      cancelScheduledStatusRefreshCompletion();
       recordPerfEvent('screen.key_overview.status_refresh_scheduled', {
         forceUpdate: !!forceUpdate,
         keyId: viewedKeyId,
@@ -1716,6 +1932,9 @@ const KeyOverview = () => {
             screen: 'KeyOverview',
           });
           await updateStatusForKeyRef.current(forceUpdate);
+          if (!forceUpdate) {
+            scheduleStatusRefreshCompletion('post_foreground_status_refresh');
+          }
         },
         fallbackMs: KEY_OVERVIEW_STATUS_REFRESH_FALLBACK_MS,
         onError: err => {
@@ -1735,10 +1954,12 @@ const KeyOverview = () => {
       });
     },
     [
+      cancelScheduledStatusRefreshCompletion,
       cancelScheduledStatusRefresh,
       getRemainingTimeframeQuietWindowMs,
       isFocused,
       logger,
+      scheduleStatusRefreshCompletion,
       viewedKeyId,
     ],
   );
@@ -1746,6 +1967,7 @@ const KeyOverview = () => {
   useEffect(() => {
     if (!isFocused || !viewedKeyId) {
       cancelScheduledStatusRefresh();
+      cancelScheduledStatusRefreshCompletion();
       return;
     }
 
@@ -1756,6 +1978,7 @@ const KeyOverview = () => {
     dispatch(Analytics.track('View Key'));
     scheduleStatusRefresh('focus');
   }, [
+    cancelScheduledStatusRefreshCompletion,
     cancelScheduledStatusRefresh,
     dispatch,
     isFocused,
@@ -1765,6 +1988,7 @@ const KeyOverview = () => {
 
   const onRefresh = async () => {
     cancelScheduledStatusRefresh();
+    cancelScheduledStatusRefreshCompletion();
     setRefreshing(true);
     try {
       await updateStatusForKey(true);

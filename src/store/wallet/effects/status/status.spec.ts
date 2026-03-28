@@ -12,6 +12,10 @@ jest.mock('../../../../managers/LogManager', () => ({
   },
 }));
 
+jest.mock('../../../../utils/perfLogger', () => ({
+  recordPerfEvent: jest.fn(),
+}));
+
 import {BwcProvider} from '../../../../lib/bwc';
 import {updateKeyStatus} from './status';
 
@@ -136,5 +140,115 @@ describe('updateKeyStatus', () => {
         walletId: 'wallet-scoped',
       }),
     ]);
+  });
+
+  it('supports chunked post-fetch processing without changing balances', async () => {
+    const getStatusAll = jest.fn(
+      (
+        _credentials: unknown,
+        _opts: unknown,
+        cb: (err: null, bulkStatus: unknown[]) => void,
+      ) => cb(null, []),
+    );
+
+    (BwcProvider.getInstance as jest.Mock).mockReturnValue({
+      getClient: () => ({
+        bulkClient: {
+          getStatusAll,
+        },
+      }),
+    });
+
+    const key = {
+      id: 'key-2',
+      wallets: [
+        {
+          id: 'wallet-1',
+          receiveAddress: 'account-1',
+          pendingTxps: [],
+          singleAddress: false,
+          pendingTssSession: false,
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+          network: 'livenet',
+          balance: createBalance({fiat: 10, fiatLastDay: 8}),
+          credentials: {
+            copayerId: 'copayer-1',
+            isComplete: () => true,
+          },
+        },
+        {
+          id: 'wallet-2',
+          receiveAddress: 'account-2',
+          pendingTxps: [],
+          singleAddress: false,
+          pendingTssSession: false,
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+          network: 'livenet',
+          balance: createBalance({fiat: 20, fiatLastDay: 17}),
+          credentials: {
+            copayerId: 'copayer-2',
+            isComplete: () => true,
+          },
+        },
+        {
+          id: 'wallet-3',
+          receiveAddress: 'account-3',
+          pendingTxps: [],
+          singleAddress: false,
+          pendingTssSession: false,
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+          network: 'livenet',
+          balance: createBalance({fiat: 30, fiatLastDay: 24}),
+          credentials: {
+            copayerId: 'copayer-3',
+            isComplete: () => true,
+          },
+        },
+      ],
+    };
+
+    const state = {
+      APP: {
+        defaultAltCurrency: {
+          isoCode: 'USD',
+        },
+      },
+      RATE: {
+        rates: {},
+        lastDayRates: {},
+      },
+      WALLET: {
+        balanceCacheKey: {},
+        useUnconfirmedFunds: false,
+      },
+    };
+
+    const getState = () => state;
+    const dispatch = (action: any) =>
+      typeof action === 'function' ? action(dispatch, getState) : action;
+
+    const result = await updateKeyStatus({
+      key: key as any,
+      force: true,
+      dataOnly: true,
+      chunking: {
+        perfContext: 'KeyOverview',
+        walletsPerYield: 1,
+        yieldMs: 0,
+      },
+    })(dispatch as any, getState as any);
+
+    expect(getStatusAll).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(
+      expect.objectContaining({
+        keyId: 'key-2',
+        totalBalance: 60,
+        totalBalanceLastDay: 49,
+      }),
+    );
+    expect(result?.walletUpdates).toHaveLength(3);
   });
 });
