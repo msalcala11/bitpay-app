@@ -9,6 +9,7 @@ export type LogData = {
 class LogManager {
   private static instance: LogManager;
   private listeners: Set<(data: LogData) => void> = new Set();
+  private isListenerNotificationQueued = false;
   private logs: LogEntry[] = [];
   private maxLogs: number = 1000;
 
@@ -56,8 +57,18 @@ class LogManager {
   }
 
   private notifyListeners() {
-    const data = this.getLogData();
-    this.listeners.forEach(listener => listener(data));
+    if (this.isListenerNotificationQueued) {
+      return;
+    }
+
+    // Some helper paths still emit debug logs during render. Flush listeners on
+    // the next tick so React doesn't see cross-component state updates.
+    this.isListenerNotificationQueued = true;
+    setTimeout(() => {
+      this.isListenerNotificationQueued = false;
+      const data = this.getLogData();
+      this.listeners.forEach(listener => listener(data));
+    }, 0);
   }
 
   private _log(
