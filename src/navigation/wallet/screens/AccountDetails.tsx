@@ -1,4 +1,9 @@
-import {CommonActions, useNavigation, useTheme} from '@react-navigation/native';
+import {
+  CommonActions,
+  useIsFocused,
+  useNavigation,
+  useTheme,
+} from '@react-navigation/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import _ from 'lodash';
 import React, {
@@ -174,10 +179,16 @@ import {AllocationDonutLegendCard} from '../../tabs/home/components/AllocationSe
 import {AllocationRowsList} from '../../tabs/home/screens/Allocation';
 import {buildAllocationDataFromWalletRows} from '../../../utils/portfolio/allocation';
 import {
+  getPerfClockNowMs,
   measurePerfAsync,
   measurePerfSync,
   recordPerfEvent,
 } from '../../../utils/perfLogger';
+import {
+  scheduleAfterInteractionsAndFrames,
+  type ScheduledAfterInteractionsHandle,
+} from '../../../utils/scheduleAfterInteractionsAndFrames';
+import type {FiatRateInterval} from '../../../store/rate/rate.models';
 
 export type AccountDetailsScreenParamList = {
   selectedAccountAddress: string;
@@ -217,6 +228,10 @@ export interface AssetsByChainListProps extends SearchableItem {
 }
 
 type AccountDetailsTab = 'wallets' | 'allocation' | 'activity';
+
+const ACCOUNT_DETAILS_AUTO_STATUS_REFRESH_INITIAL_DELAY_MS = 3000;
+const ACCOUNT_DETAILS_TIMEFRAME_QUIET_WINDOW_MS = 1500;
+const ACCOUNT_DETAILS_STATUS_REFRESH_FALLBACK_MS = 1200;
 
 export interface GroupedHistoryProps extends SearchableItem {
   title: string;
@@ -375,6 +390,7 @@ const AccountAddressBadge = ({address}: AccountAddressBadgeProps) => {
 };
 
 const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
+  const isFocused = useIsFocused();
   const navigation = useNavigation();
   const dispatch = useAppDispatch();
   const {showOngoingProcess, hideOngoingProcess} = useOngoingProcess();
@@ -443,6 +459,21 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     [] as AssetsByChainListProps[],
   );
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
+  const latestKeyRef = useRef(key);
+  const latestAccountReceiveAddressRef = useRef<string | undefined>(undefined);
+  const scheduledStatusRefreshRef =
+    useRef<ScheduledAfterInteractionsHandle | null>(null);
+  const selectedChartTimeframeRef = useRef<FiatRateInterval>('1D');
+  const timeframeInteractionSequenceRef = useRef(0);
+  const lastChartTimeframeInteractionRef = useRef<{
+    nextTimeframe: FiatRateInterval;
+    previousTimeframe: FiatRateInterval | undefined;
+    selectedAtMs: number;
+    sequence: number;
+  } | null>(null);
+  const autoStatusRefreshFocusedAtMsRef = useRef(getPerfClockNowMs());
+  const hasCompletedInitialStatusRefreshRef = useRef(false);
+  const isAutoStatusRefreshRunningRef = useRef(false);
   const linkedCoinbase = useAppSelector(
     ({COINBASE}) => !!COINBASE.token[COINBASE_ENV],
   );
@@ -504,6 +535,15 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   const accountItem = memorizedAccountList.find(
     a => a.receiveAddress === selectedAccountAddress,
   )!;
+
+  useEffect(() => {
+    latestKeyRef.current = key;
+  }, [key]);
+
+  useEffect(() => {
+    latestAccountReceiveAddressRef.current = accountItem?.receiveAddress;
+  }, [accountItem?.receiveAddress]);
+
   const totalBalance =
     typeof selectedBalance === 'number'
       ? formatFiatAmount(selectedBalance, defaultAltCurrency.isoCode, {
@@ -810,26 +850,208 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
 
   const loadHistoryRef = useRef(debouncedLoadHistory);
 
-  const updateWalletStatusAndProfileBalance = async () => {
+  const cancelScheduledStatusRefresh = useCallback(() => {
+    scheduledStatusRefreshRef.current?.cancel();
+    scheduledStatusRefreshRef.current = null;
+  }, []);
+
+  const getRemainingInitialStatusRefreshDelayMs = useCallback(() => {
+    const elapsedMs =
+      getPerfClockNowMs() - autoStatusRefreshFocusedAtMsRef.current;
+    return Math.max(
+      0,
+      ACCOUNT_DETAILS_AUTO_STATUS_REFRESH_INITIAL_DELAY_MS - elapsedMs,
+    );
+  }, []);
+
+  const getRemainingTimeframeQuietWindowMs = useCallback(() => {
+    const interaction = lastChartTimeframeInteractionRef.current;
+    if (!interaction) {
+      return 0;
+    }
+
+    const elapsedMs = getPerfClockNowMs() - interaction.selectedAtMs;
+    return Math.max(0, ACCOUNT_DETAILS_TIMEFRAME_QUIET_WINDOW_MS - elapsedMs);
+  }, []);
+
+  const updateWalletStatusAndProfileBalance = useCallback(async () => {
+    const latestKey = latestKeyRef.current;
+    const latestAccountAddress = latestAccountReceiveAddressRef.current;
+
+    if (!latestKey) {
+      return;
+    }
+
     await measurePerfAsync(
       'screen.account_details.update_wallet_status_and_balance',
       async () => {
         await dispatch(
           startUpdateAllWalletStatusForKey({
-            key,
-            accountAddress: accountItem?.receiveAddress,
+            key: latestKey,
+            accountAddress: latestAccountAddress,
             force: true,
           }),
         );
         dispatch(updatePortfolioBalance());
       },
       {
-        accountAddress: accountItem?.receiveAddress,
-        keyId: key?.id,
+        accountAddress: latestAccountAddress,
+        keyId: latestKey?.id,
         screen: 'AccountDetails',
       },
     );
-  };
+  }, [dispatch]);
+
+  const scheduleWalletStatusAndProfileBalance = useCallback(
+    (reason: string) => {
+      if (
+        !isFocused ||
+        hasCompletedInitialStatusRefreshRef.current ||
+        isAutoStatusRefreshRunningRef.current
+      ) {
+        return;
+      }
+
+      cancelScheduledStatusRefresh();
+      const selectionSequence = timeframeInteractionSequenceRef.current;
+      recordPerfEvent('screen.account_details.status_refresh_scheduled', {
+        accountAddress: latestAccountReceiveAddressRef.current,
+        keyId: latestKeyRef.current?.id,
+        reason,
+        screen: 'AccountDetails',
+        selectionSequence,
+      });
+
+      const handle = scheduleAfterInteractionsAndFrames({
+        callback: async signal => {
+          if (
+            signal.aborted ||
+            !isFocused ||
+            hasCompletedInitialStatusRefreshRef.current ||
+            isAutoStatusRefreshRunningRef.current ||
+            selectionSequence !== timeframeInteractionSequenceRef.current
+          ) {
+            return;
+          }
+
+          const remainingInitialDelayMs =
+            getRemainingInitialStatusRefreshDelayMs();
+          if (remainingInitialDelayMs > 0) {
+            recordPerfEvent('screen.account_details.status_refresh_deferred', {
+              accountAddress: latestAccountReceiveAddressRef.current,
+              deferReason: 'initial_grace_window',
+              keyId: latestKeyRef.current?.id,
+              reason,
+              remainingDelayMs: remainingInitialDelayMs,
+              screen: 'AccountDetails',
+              selectionSequence,
+            });
+            await sleep(remainingInitialDelayMs);
+          }
+
+          const remainingTimeframeQuietWindowMs =
+            getRemainingTimeframeQuietWindowMs();
+          if (remainingTimeframeQuietWindowMs > 0) {
+            recordPerfEvent('screen.account_details.status_refresh_deferred', {
+              accountAddress: latestAccountReceiveAddressRef.current,
+              deferReason: 'recent_timeframe_interaction',
+              keyId: latestKeyRef.current?.id,
+              reason,
+              remainingDelayMs: remainingTimeframeQuietWindowMs,
+              screen: 'AccountDetails',
+              selectionSequence,
+            });
+            await sleep(remainingTimeframeQuietWindowMs);
+          }
+
+          if (
+            signal.aborted ||
+            !isFocused ||
+            hasCompletedInitialStatusRefreshRef.current ||
+            isAutoStatusRefreshRunningRef.current ||
+            selectionSequence !== timeframeInteractionSequenceRef.current
+          ) {
+            return;
+          }
+
+          isAutoStatusRefreshRunningRef.current = true;
+          try {
+            await updateWalletStatusAndProfileBalance();
+            hasCompletedInitialStatusRefreshRef.current = true;
+            recordPerfEvent('screen.account_details.status_refresh_applied', {
+              accountAddress: latestAccountReceiveAddressRef.current,
+              keyId: latestKeyRef.current?.id,
+              reason,
+              screen: 'AccountDetails',
+              selectionSequence,
+            });
+          } finally {
+            isAutoStatusRefreshRunningRef.current = false;
+          }
+        },
+        fallbackMs: ACCOUNT_DETAILS_STATUS_REFRESH_FALLBACK_MS,
+        onError: err => {
+          const errStr =
+            err instanceof Error ? err.message : JSON.stringify(err);
+          logManager.error(
+            `[AccountDetails] Error scheduling status refresh: ${errStr}`,
+          );
+        },
+      });
+
+      scheduledStatusRefreshRef.current = handle;
+      void handle.done.finally(() => {
+        if (scheduledStatusRefreshRef.current === handle) {
+          scheduledStatusRefreshRef.current = null;
+        }
+      });
+    },
+    [
+      cancelScheduledStatusRefresh,
+      getRemainingInitialStatusRefreshDelayMs,
+      getRemainingTimeframeQuietWindowMs,
+      isFocused,
+      updateWalletStatusAndProfileBalance,
+    ],
+  );
+
+  const onSelectedChartTimeframeChange = useCallback(
+    (timeframe: FiatRateInterval) => {
+      const previousTimeframe = selectedChartTimeframeRef.current;
+      if (previousTimeframe === timeframe) {
+        return;
+      }
+
+      selectedChartTimeframeRef.current = timeframe;
+      timeframeInteractionSequenceRef.current += 1;
+      const interaction = {
+        nextTimeframe: timeframe,
+        previousTimeframe,
+        selectedAtMs: getPerfClockNowMs(),
+        sequence: timeframeInteractionSequenceRef.current,
+      };
+      lastChartTimeframeInteractionRef.current = interaction;
+
+      recordPerfEvent('screen.account_details.timeframe_interaction_observed', {
+        accountAddress: latestAccountReceiveAddressRef.current,
+        keyId: latestKeyRef.current?.id,
+        nextTimeframe: interaction.nextTimeframe,
+        previousTimeframe: interaction.previousTimeframe,
+        screen: 'AccountDetails',
+        selectionSequence: interaction.sequence,
+      });
+
+      if (
+        !hasCompletedInitialStatusRefreshRef.current &&
+        !isAutoStatusRefreshRunningRef.current
+      ) {
+        scheduleWalletStatusAndProfileBalance(
+          'retry_after_timeframe_interaction',
+        );
+      }
+    },
+    [scheduleWalletStatusAndProfileBalance],
+  );
 
   useEffect(() => {
     recordPerfEvent('screen.focus', {
@@ -838,12 +1060,34 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
       screen: 'AccountDetails',
     });
     dispatch(Analytics.track('View Account'));
-    const timer = setTimeout(() => {
-      updateWalletStatusAndProfileBalance();
-    }, 1000);
-
-    return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    selectedChartTimeframeRef.current = '1D';
+    timeframeInteractionSequenceRef.current = 0;
+    lastChartTimeframeInteractionRef.current = null;
+    autoStatusRefreshFocusedAtMsRef.current = getPerfClockNowMs();
+    hasCompletedInitialStatusRefreshRef.current = false;
+    isAutoStatusRefreshRunningRef.current = false;
+    cancelScheduledStatusRefresh();
+  }, [cancelScheduledStatusRefresh, keyId, selectedAccountAddress]);
+
+  useEffect(() => {
+    if (!isFocused) {
+      cancelScheduledStatusRefresh();
+      return;
+    }
+
+    scheduleWalletStatusAndProfileBalance('focus_initial');
+
+    return () => {
+      cancelScheduledStatusRefresh();
+    };
+  }, [
+    cancelScheduledStatusRefresh,
+    isFocused,
+    scheduleWalletStatusAndProfileBalance,
+  ]);
 
   useEffect(() => {
     setNeedActionTxps(pendingTxps);
@@ -1503,11 +1747,13 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
                 wallets={keyFullWalletObjs}
                 snapshotsByWalletId={snapshotsByWalletId || {}}
                 quoteCurrency={defaultAltCurrency.isoCode}
+                enableBackgroundPrecompute={false}
                 perfContext="AccountDetails"
                 rates={rates}
                 fiatRateSeriesCache={fiatRateSeriesCache}
                 timeframeSelectorWidth={timeframeSelectorWidth}
                 onSelectedBalanceChange={setSelectedBalance}
+                onSelectedTimeframeChange={onSelectedChartTimeframeChange}
                 preChartContent={
                   <AccountAddressBadge address={accountItem?.receiveAddress} />
                 }
@@ -1678,6 +1924,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     lockedBalanceCurrencyAbbreviation,
     memorizedAssetsByChainList,
     navigation,
+    onSelectedChartTimeframeChange,
     rates,
     searchResultsAssets,
     searchResultsHistory,
