@@ -51,9 +51,10 @@ const ChartStage = styled.View`
 const CollapseButtonContainer = styled(Animated.View)`
   position: absolute;
   right: 12px;
-  top: 27px;
   z-index: 30;
 `;
+
+const COLLAPSE_BUTTON_TOP = 27;
 
 type PortfolioBalanceChartSectionProps = {
   defaultAltCurrencyIsoCode: string;
@@ -223,7 +224,7 @@ const PortfolioBalanceChartSection = ({
       : fallbackCollapsedTranslateX;
   const targetChartTopInStage =
     collapseButtonLayout && chartStageWidth
-      ? collapseButtonLayout.y - chartStageY
+      ? collapseButtonLayout.y
       : undefined;
   const collapsedTranslateY =
     typeof targetChartTopInStage === 'number'
@@ -410,7 +411,12 @@ const PortfolioBalanceChartSection = ({
         importantForAccessibility={
           isChartCollapsed ? 'no-hide-descendants' : 'yes'
         }
-        style={buttonAnimatedStyle}>
+        style={[
+          buttonAnimatedStyle,
+          {
+            top: COLLAPSE_BUTTON_TOP - chartStageY,
+          },
+        ]}>
         <CollapseContentButton
           isActive={isCollapseButtonActive}
           onPressIn={onCollapseButtonPressIn}
