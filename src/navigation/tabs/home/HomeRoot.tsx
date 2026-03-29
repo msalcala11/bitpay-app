@@ -8,17 +8,8 @@ import React, {
   useState,
 } from 'react';
 import {useTranslation} from 'react-i18next';
-import {
-  AppState,
-  AppStateStatus,
-  RefreshControl,
-  ScrollView,
-} from 'react-native';
-import {
-  EXCHANGE_RATES_CURRENCIES,
-  STATIC_CONTENT_CARDS_ENABLED,
-} from '../../../constants/config';
-import {SupportedCurrencyOptions} from '../../../constants/SupportedCurrencyOptions';
+import {RefreshControl, ScrollView} from 'react-native';
+import {STATIC_CONTENT_CARDS_ENABLED} from '../../../constants/config';
 import {
   setShowKeyMigrationFailureModal,
   showBottomNotificationModal,
@@ -35,21 +26,13 @@ import {
 } from '../../../store/wallet/effects';
 import {updatePortfolioBalance} from '../../../store/wallet/wallet.actions';
 import {SlateDark, White} from '../../../styles/colors';
-import {
-  calculatePercentageDifference,
-  getCurrencyAbbreviation,
-  getLastDayTimestampStartOfHourMs,
-} from '../../../utils/helper-methods';
-import {getFiatRateFromSeriesCacheAtTimestamp} from '../../../utils/portfolio/rate';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {BalanceUpdateError} from '../../wallet/components/ErrorMessages';
 import Crypto from './components/Crypto';
-import ExchangeRatesList, {
-  ExchangeRateItemProps,
-} from './components/exchange-rates/ExchangeRatesList';
 import ProfileButton from './components/HeaderProfileButton';
 import ScanButton from './components/HeaderScanButton';
 import HomeSection from './components/HomeSection';
+import HomeExchangeRatesSection from './components/HomeExchangeRatesSection';
 import LinkingButtons from './components/LinkingButtons';
 import MockOffers from './components/offers/MockOffers';
 import OffersCarousel from './components/offers/OffersCarousel';
@@ -74,10 +57,6 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RootStackParamList} from '../../../Root';
 import type {RootState} from '../../../store';
 import {TabsScreens, TabsStackParamList} from '../TabsStack';
-import {
-  BitpaySupportedCoins,
-  BitpaySupportedTokens,
-} from '../../../constants/currencies';
 import {Network} from '../../../constants';
 import SecurePasskeyBanner from './components/SecurePasskeyBanner';
 import DefaultMarketingCards from './components/DefaultMarketingCards';
@@ -85,10 +64,7 @@ import AllocationSection from './components/AllocationSection';
 import AssetsSection from './components/AssetsSection';
 import {getPortfolioAllocationTotalFiat} from '../../../utils/portfolio/allocation';
 import type {Key} from '../../../store/wallet/wallet.models';
-import type {Rate, Rates} from '../../../store/rate/rate.models';
-import {getCoinAndChainFromCurrencyCode} from '../../bitpay-id/utils/bitpay-id-utils';
 import {
-  findSupportedCurrencyOptionForAsset,
   getQuoteCurrency,
   getVisibleWalletsFromKeys,
   walletHasNonZeroLiveBalance,
@@ -121,10 +97,8 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   const pendingTxps = wallets.flatMap(w => w.pendingTxps);
   const appIsLoading = useAppSelector(({APP}) => APP.appIsLoading);
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
-  const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
-  const rates = useAppSelector(({RATE}) => RATE.rates) as Rates;
-  const fiatRateSeriesCache = useAppSelector(
-    ({RATE}) => RATE.fiatRateSeriesCache,
+  const portfolioQuoteCurrency = useAppSelector(
+    ({PORTFOLIO}) => PORTFOLIO.quoteCurrency,
   );
   const keyMigrationFailure = useAppSelector(
     ({APP}) => APP.keyMigrationFailure,
@@ -228,123 +202,10 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
     return [...cards].sort(sortNewestFirst);
   }, [brazeShopWithCrypto]);
 
-  // Exchange Rates
-  const lastDayRates = useAppSelector(({RATE}) => RATE.lastDayRates) as Rates;
   const quoteCurrency = getQuoteCurrency({
-    portfolioQuoteCurrency: portfolio.quoteCurrency,
+    portfolioQuoteCurrency,
     defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
   }).toUpperCase();
-  const memoizedExchangeRates: Array<ExchangeRateItemProps> = useMemo(() => {
-    return measurePerfSync(
-      'screen.home_root.exchange_rates_list',
-      () => {
-        const baselineTimestampMs = getLastDayTimestampStartOfHourMs();
-        const result = (
-          Object.entries(lastDayRates) as Array<[string, Rate[]]>
-        ).reduce((ratesList, [key, lastDayRate]) => {
-          const lastDayRateForDefaultCurrency = lastDayRate.find(
-            ({code}: {code: string}) => code === quoteCurrency,
-          );
-          const rateForDefaultCurrency = rates[key].find(
-            ({code}: {code: string}) => code === quoteCurrency,
-          );
-          const {coin: targetCoin, chain: targetChain} =
-            getCoinAndChainFromCurrencyCode(key);
-          const option = findSupportedCurrencyOptionForAsset({
-            options: SupportedCurrencyOptions,
-            currencyAbbreviation: targetCoin,
-            chain: targetChain,
-          });
-
-          if (option && option.chain && option.currencyAbbreviation) {
-            const currencyName = getCurrencyAbbreviation(
-              option?.tokenAddress
-                ? option?.tokenAddress
-                : option?.currencyAbbreviation,
-              option?.chain,
-            );
-            const isStableCoin =
-              BitpaySupportedCoins[currencyName]?.properties?.isStableCoin ||
-              BitpaySupportedTokens[currencyName]?.properties?.isStableCoin;
-
-            if (
-              rateForDefaultCurrency?.rate &&
-              !isStableCoin &&
-              EXCHANGE_RATES_CURRENCIES.includes(
-                option.currencyAbbreviation.toLowerCase(),
-              )
-            ) {
-              const prevRateFromSeries = getFiatRateFromSeriesCacheAtTimestamp({
-                fiatRateSeriesCache,
-                fiatCode: quoteCurrency,
-                currencyAbbreviation: option.currencyAbbreviation,
-                interval: '1D',
-                timestampMs: baselineTimestampMs,
-                method: 'linear',
-              });
-              const prevRate =
-                prevRateFromSeries ?? lastDayRateForDefaultCurrency?.rate;
-
-              if (!(prevRate && prevRate > 0)) {
-                return ratesList;
-              }
-
-              const {
-                id,
-                img,
-                currencyName,
-                currencyAbbreviation,
-                chain,
-                tokenAddress,
-              } = option;
-
-              const percentChange = calculatePercentageDifference(
-                rateForDefaultCurrency.rate,
-                prevRate,
-              );
-
-              ratesList.push({
-                id,
-                img,
-                currencyName,
-                currencyAbbreviation,
-                chain,
-                tokenAddress,
-                average: percentChange,
-                currentPrice: rateForDefaultCurrency.rate,
-              });
-            }
-          }
-          return ratesList;
-        }, [] as ExchangeRateItemProps[]);
-
-        return result.sort((a, b) => {
-          const indexA = EXCHANGE_RATES_CURRENCIES.indexOf(
-            a.currencyAbbreviation.toLowerCase(),
-          );
-          const indexB = EXCHANGE_RATES_CURRENCIES.indexOf(
-            b.currencyAbbreviation.toLowerCase(),
-          );
-
-          if (indexA !== -1 && indexB !== -1) {
-            return indexA - indexB;
-          }
-          if (indexA !== -1) {
-            return -1;
-          }
-          if (indexB !== -1) {
-            return 1;
-          }
-          return a.currencyName.localeCompare(b.currencyName);
-        });
-      },
-      {
-        lastDayRateAssetCount: Object.keys(lastDayRates || {}).length,
-        quoteCurrency,
-        screen: 'HomeRoot',
-      },
-    );
-  }, [fiatRateSeriesCache, lastDayRates, quoteCurrency, rates]);
 
   useEffect(() => {
     return navigation.addListener('focus', () => {
@@ -416,7 +277,7 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
           walletCount: wallets.length,
         },
       );
-    } catch (err) {
+    } catch {
       dispatch(showBottomNotificationModal(BalanceUpdateError()));
     } finally {
       setRefreshing(false);
@@ -437,53 +298,6 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
 
   const scrollViewRef = useRef<ScrollView>(null);
   useScrollToTop(scrollViewRef);
-
-  const exchangeRatesRef = useRef(memoizedExchangeRates);
-  useEffect(() => {
-    exchangeRatesRef.current = memoizedExchangeRates;
-  }, [memoizedExchangeRates]);
-
-  const handleAppStateChange = useCallback(
-    (status: AppStateStatus) => {
-      if (status !== 'active' || !currencyAbbreviation) {
-        return;
-      }
-
-      navigation.setParams({
-        currencyAbbreviation: undefined,
-      });
-
-      const {coin: targetAbbreviation} =
-        getCoinAndChainFromCurrencyCode(currencyAbbreviation);
-      const exchangeRatesSection = exchangeRatesRef.current.find(
-        ({currencyAbbreviation: abbr}) =>
-          abbr.toLowerCase() === targetAbbreviation,
-      );
-
-      if (!exchangeRatesSection) {
-        return;
-      }
-
-      navigation
-        .getParent<NativeStackNavigationProp<RootStackParamList>>()
-        ?.navigate('ExchangeRate', {
-          currencyName: exchangeRatesSection.currencyName,
-          currencyAbbreviation: exchangeRatesSection.currencyAbbreviation,
-          chain: exchangeRatesSection.chain,
-          tokenAddress: exchangeRatesSection.tokenAddress,
-        });
-    },
-    [currencyAbbreviation, navigation],
-  );
-
-  useEffect(() => {
-    const subscriptionAppStateChange = AppState.addEventListener(
-      'change',
-      handleAppStateChange,
-    );
-
-    return () => subscriptionAppStateChange.remove();
-  }, [handleAppStateChange]);
 
   const onChartTimeframeInteraction = useCallback(
     (interaction: {
@@ -506,7 +320,6 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   const profilerInputs = useMemo(
     () => ({
       appIsLoading,
-      exchangeRateCount: memoizedExchangeRates.length,
       hasKeys: Boolean(hasKeys),
       homeCarouselConfigCount: homeCarouselConfig?.length || 0,
       keyCount: Object.keys(keys || {}).length,
@@ -519,8 +332,6 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
       showPortfolioValue,
       showSecureAccountBanner,
       shopWithCryptoCardCount: memoizedShopWithCryptoCards.length,
-      snapshotWalletCount: Object.keys(portfolio?.snapshotsByWalletId || {})
-        .length,
       walletCount: wallets.length,
     }),
     [
@@ -528,11 +339,9 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
       hasKeys,
       homeCarouselConfig,
       keys,
-      memoizedExchangeRates.length,
       memoizedMarketingCards.length,
       memoizedShopWithCryptoCards.length,
       pendingTxps.length,
-      portfolio?.snapshotsByWalletId,
       quoteCurrency,
       refreshing,
       showArchaxBanner,
@@ -630,33 +439,33 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
                 </HomeSection>
               ) : null}
 
-            {/* ////////////////////////////// CTA BUY SWAP RECEIVE SEND BUTTONS */}
-            {hasKeys && showPortfolioValue ? (
-              <HomeSection style={{marginBottom: 25}}>
-                <LinkingButtons
-                  receive={{
-                    cta: () => {
-                      dispatch(
-                        Analytics.track('Clicked Receive Crypto', {
-                          context: 'HomeRoot',
-                        }),
-                      );
-                      dispatch(receiveCrypto(navigation, 'HomeRoot'));
-                    },
-                  }}
-                  send={{
-                    cta: () => {
-                      dispatch(
-                        Analytics.track('Clicked Send Crypto', {
-                          context: 'HomeRoot',
-                        }),
-                      );
-                      dispatch(sendCrypto('HomeRoot'));
-                    },
-                  }}
-                />
-              </HomeSection>
-            ) : null}
+              {/* ////////////////////////////// CTA BUY SWAP RECEIVE SEND BUTTONS */}
+              {hasKeys && showPortfolioValue ? (
+                <HomeSection style={{marginBottom: 25}}>
+                  <LinkingButtons
+                    receive={{
+                      cta: () => {
+                        dispatch(
+                          Analytics.track('Clicked Receive Crypto', {
+                            context: 'HomeRoot',
+                          }),
+                        );
+                        dispatch(receiveCrypto(navigation, 'HomeRoot'));
+                      },
+                    }}
+                    send={{
+                      cta: () => {
+                        dispatch(
+                          Analytics.track('Clicked Send Crypto', {
+                            context: 'HomeRoot',
+                          }),
+                        );
+                        dispatch(sendCrypto('HomeRoot'));
+                      },
+                    }}
+                  />
+                </HomeSection>
+              ) : null}
 
             {/* ////////////////////////////// MARKETING */}
             {memoizedMarketingCards.length ? (
@@ -708,15 +517,11 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
               </HomeSection>
             ) : null}
 
-            {/* ////////////////////////////// EXCHANGE RATES */}
-            {!showArchaxBanner && memoizedExchangeRates.length ? (
-              <HomeSection title={t('Exchange Rates')} label="24H">
-                <ExchangeRatesList
-                  items={memoizedExchangeRates}
-                  defaultAltCurrencyIsoCode={defaultAltCurrency.isoCode}
-                />
-              </HomeSection>
-            ) : null}
+            <HomeExchangeRatesSection
+              currencyAbbreviation={currencyAbbreviation}
+              navigation={navigation}
+              showArchaxBanner={showArchaxBanner}
+            />
 
               {showArchaxBanner && <ArchaxFooter />}
             </ScrollView>
