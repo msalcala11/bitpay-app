@@ -7,7 +7,6 @@ import {
 import {HistoricRate, Rates} from '../../../rate/rate.models';
 import {FormatAmountStr} from '../amount/amount';
 import {BwcProvider} from '../../../../lib/bwc';
-import uniqBy from 'lodash.uniqby';
 import {SAFE_CONFIRMATIONS} from '../../../../constants/wallet';
 import {
   IsCustomERCToken,
@@ -497,6 +496,44 @@ const GetNewTransactions =
     });
   };
 
+const appendUniqueTransactionsByTxid = (
+  primary: any[],
+  secondary: any[],
+): any[] => {
+  const merged: any[] = [];
+  const seen = new Set<any>();
+
+  for (const tx of primary) {
+    if (!tx) {
+      continue;
+    }
+    const key = (tx as any).txid;
+    if (key !== undefined && key !== null && key !== '' && seen.has(key)) {
+      continue;
+    }
+    if (key !== undefined && key !== null && key !== '') {
+      seen.add(key);
+    }
+    merged.push(tx);
+  }
+
+  for (const tx of secondary) {
+    if (!tx) {
+      continue;
+    }
+    const key = (tx as any).txid;
+    if (key !== undefined && key !== null && key !== '' && seen.has(key)) {
+      continue;
+    }
+    if (key !== undefined && key !== null && key !== '') {
+      seen.add(key);
+    }
+    merged.push(tx);
+  }
+
+  return merged;
+};
+
 export const GetTransactionHistoryFromServer = (
   wallet: Wallet,
   skip: number,
@@ -773,6 +810,7 @@ export const GetTransactionHistory =
     isExportHistoryView = false,
     skipWalletProcessing = false,
     skipUiFriendlyList = false,
+    skipHistoryMerge = false,
   }: {
     wallet: Wallet;
     transactionsHistory: any[];
@@ -783,6 +821,7 @@ export const GetTransactionHistory =
     isExportHistoryView?: boolean;
     skipWalletProcessing?: boolean;
     skipUiFriendlyList?: boolean;
+    skipHistoryMerge?: boolean;
   }): Effect<
     Promise<{transactions: any[]; loadMore: boolean; hasConfirmingTxs: boolean}>
   > =>
@@ -856,13 +895,18 @@ export const GetTransactionHistory =
           );
         }
 
-        const array = transactions
-          .concat(transactionsHistory)
-          .filter((txs: any) => txs);
+        if (skipHistoryMerge) {
+          return resolve({
+            transactions,
+            loadMore,
+            hasConfirmingTxs: false,
+          });
+        }
 
-        const newHistory = uniqBy(array, x => {
-          return (x as any).txid;
-        });
+        const newHistory = appendUniqueTransactionsByTxid(
+          transactions,
+          transactionsHistory,
+        );
 
         let hasConfirmingTxs: boolean = false;
         if (!skip) {

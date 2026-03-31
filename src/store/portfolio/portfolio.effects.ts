@@ -879,6 +879,8 @@ export const populatePortfolio =
         let loadMore = true;
         let iters = 0;
         let acc: any[] = [];
+        const accTxids = new Set<string>();
+        let oldestTxTs = Number.POSITIVE_INFINITY;
 
         const incrementalResnapshotCutoffMs = incrementalEligible
           ? Date.now() - PORTFOLIO_INCREMENTAL_RESNAPSHOT_WINDOW_MS
@@ -898,10 +900,34 @@ export const populatePortfolio =
               isAccountDetailsView: true,
               skipWalletProcessing: true,
               skipUiFriendlyList: true,
+              skipHistoryMerge: true,
             }),
           );
           bumpTxRequestsMade();
-          acc = result?.transactions || acc;
+          const pageTxs = result?.transactions || [];
+          for (const tx of pageTxs) {
+            const txid = (tx as any)?.txid;
+            if (
+              txid !== undefined &&
+              txid !== null &&
+              txid !== '' &&
+              accTxids.has(txid)
+            ) {
+              continue;
+            }
+            if (txid !== undefined && txid !== null && txid !== '') {
+              accTxids.add(txid);
+            }
+            acc.push(tx);
+            const ts = getTxTimestampMs(tx);
+            if (
+              typeof ts === 'number' &&
+              Number.isFinite(ts) &&
+              ts < oldestTxTs
+            ) {
+              oldestTxTs = ts;
+            }
+          }
           loadMore = !!result?.loadMore;
           iters++;
 
@@ -910,16 +936,7 @@ export const populatePortfolio =
           }
 
           if (typeof incrementalResnapshotCutoffMs === 'number') {
-            let oldestTs = Number.POSITIVE_INFINITY;
-            for (const t of acc) {
-              const ts = getTxTimestampMs(t);
-              if (typeof ts === 'number' && Number.isFinite(ts)) {
-                if (ts < oldestTs) {
-                  oldestTs = ts;
-                }
-              }
-            }
-            if (oldestTs <= incrementalResnapshotCutoffMs) {
+            if (oldestTxTs <= incrementalResnapshotCutoffMs) {
               break;
             }
             if (iters >= PORTFOLIO_INCREMENTAL_MAX_PAGES) {
