@@ -669,6 +669,10 @@ export type BuildBalanceSnapshotsAsyncOpts = {
   // Yield control to the event loop every N processed txs.
   // Helps keep the JS thread responsive in RN/browser.
   yieldEvery?: number;
+  // Time budget for a compute slice before yielding back to the event loop.
+  yieldAfterMs?: number;
+  // Optional hook invoked after a yield, useful for pausing around higher-priority work.
+  onYield?: () => Promise<void> | void;
 };
 
 type TxGroup = {
@@ -1324,6 +1328,15 @@ const yieldToEventLoop = async (): Promise<void> => {
   await new Promise<void>(resolve => setTimeout(resolve, 0));
 };
 
+const yieldControl = async (
+  onYield?: (() => Promise<void> | void) | undefined,
+): Promise<void> => {
+  await yieldToEventLoop();
+  if (typeof onYield === 'function') {
+    await onYield();
+  }
+};
+
 const simulateSnapshotsAsync = async (
   args: BuildBalanceSnapshotsArgs,
   prepared: PreparedTxHistory,
@@ -1342,8 +1355,31 @@ const simulateSnapshotsAsync = async (
     assetId,
   } = prepared;
 
-  const yieldEvery = Math.max(1, Math.floor(asyncOpts.yieldEvery ?? 1000));
+  const yieldEvery = Math.max(
+    1,
+    Math.floor(asyncOpts.yieldEvery ?? Number.MAX_SAFE_INTEGER),
+  );
+  const yieldAfterMs = Math.max(4, Math.floor(asyncOpts.yieldAfterMs ?? 12));
   const setup = createSimulationSetup(args, prepared, feeOverrides);
+  let lastYieldAt = Date.now();
+  let processedSinceLastYield = 0;
+  let processedSinceYieldCheck = 0;
+
+  const maybeYield = async (force: boolean = false): Promise<void> => {
+    const now = Date.now();
+    if (
+      !force &&
+      processedSinceLastYield < yieldEvery &&
+      now - lastYieldAt < yieldAfterMs
+    ) {
+      return;
+    }
+
+    processedSinceLastYield = 0;
+    processedSinceYieldCheck = 0;
+    await yieldControl(asyncOpts.onYield);
+    lastYieldAt = Date.now();
+  };
 
   // 1) Reorder txs that share the same timestamp (+ blockheight) to avoid temporary underflows.
   const toProcessOrdered = reorderTxsToPreventUnderflow(
@@ -1389,8 +1425,10 @@ const simulateSnapshotsAsync = async (
       lastTs = processed.ts;
       lastRate = processed.markRate;
 
-      if (runtime.processedTxs % yieldEvery === 0) {
-        await yieldToEventLoop();
+      processedSinceLastYield++;
+      processedSinceYieldCheck++;
+      if (processedSinceYieldCheck >= 8) {
+        await maybeYield();
       }
     }
 
@@ -1407,8 +1445,8 @@ const simulateSnapshotsAsync = async (
     );
 
     // Also yield between groups on large wallets (daily groups can be big).
-    if (gi % 25 === 0) {
-      await yieldToEventLoop();
+    if (gi > 0 && gi % 10 === 0) {
+      await maybeYield(true);
     }
   }
 
@@ -1526,6 +1564,8 @@ export async function buildBalanceSnapshotsAsync(
   asyncOpts: BuildBalanceSnapshotsAsyncOpts = {},
 ): Promise<BalanceSnapshotStored[]> {
   const prepared = prepareTxHistory(args);
+  await yieldControl(asyncOpts.onYield);
+
   const first = await simulateSnapshotsAsync(
     args,
     prepared,
@@ -1542,6 +1582,7 @@ export async function buildBalanceSnapshotsAsync(
     walletBalanceAtomicString: (args.wallet as any)?.balanceAtomic,
   });
   if (overrides) {
+    await yieldControl(asyncOpts.onYield);
     return (
       await simulateSnapshotsAsync(args, prepared, overrides, false, asyncOpts)
     ).out;

@@ -287,12 +287,25 @@ export const transformPortfolioPopulateStatus = createTransform<
 
 // Persist portfolio snapshots in a compact series format to reduce storage + parse costs.
 const ENABLE_PORTFOLIO_SNAPSHOT_SERIES_PERSIST_COMPRESSION = true;
+// Diagnostic lever: skip persisting full portfolio snapshots while populate is in progress.
+// This trims a large JS serialization path so we can confirm whether persistence is causing UI hitching.
+const BYPASS_PORTFOLIO_SNAPSHOT_PERSIST_DURING_POPULATE = true;
 
 export const transformPortfolioSnapshotSeries = createTransform<
   PortfolioState,
   any
 >(
   inboundState => {
+    if (
+      BYPASS_PORTFOLIO_SNAPSHOT_PERSIST_DURING_POPULATE &&
+      inboundState?.populateStatus?.inProgress
+    ) {
+      return {
+        ...inboundState,
+        snapshotsByWalletId: {},
+      };
+    }
+
     if (!ENABLE_PORTFOLIO_SNAPSHOT_SERIES_PERSIST_COMPRESSION) {
       return inboundState;
     }

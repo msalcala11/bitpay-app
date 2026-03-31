@@ -2,6 +2,7 @@ import BitAuth from 'bitauth';
 import i18n, {t} from 'i18next';
 import {debounce} from 'lodash';
 import {
+  AppState,
   DeviceEventEmitter,
   EmitterSubscription,
   Linking,
@@ -171,6 +172,220 @@ const SSL_PINS = {
   GOOGLE_WE1: 'kIdp6NNEd8wsugYyyIYFsi1ylMCED3hZbSR8ZFsa/A4=',
 };
 
+const INITIAL_PORTFOLIO_POPULATE_IDLE_MS = 4000;
+const INITIAL_PORTFOLIO_POPULATE_POLL_MS = 500;
+const INITIAL_PORTFOLIO_POPULATE_EAGER_ROUTE_NAMES = new Set<string>([
+  TabsScreens.HOME,
+  WalletScreens.KEY_OVERVIEW,
+]);
+const INITIAL_PORTFOLIO_POPULATE_BLOCKED_ROUTE_NAMES = new Set<string>([
+  'WalletConnectConfirm',
+  WalletScreens.TRANSACTION_PROPOSAL_DETAILS,
+  WalletScreens.TRANSACTION_PROPOSAL_NOTIFICATIONS,
+  WalletScreens.CONFIRM,
+  WalletScreens.GIFT_CARD_CONFIRM,
+  WalletScreens.PAY_PRO_CONFIRM,
+  'BillConfirm',
+]);
+
+type InitialPortfolioPopulatePlan = {
+  quoteCurrency: string;
+  mode: 'populate_all' | 'populate_wallets' | 'prepare_rates' | 'none';
+  walletIds?: string[];
+  snapshotBalanceMismatchUpdates: ReturnType<
+    typeof getWalletIdsToPopulateFromSnapshots
+  >['snapshotBalanceMismatchUpdates'];
+};
+
+const getInitialPortfolioPopulateRouteName = (): string | undefined => {
+  if (!navigationRef.isReady()) {
+    return undefined;
+  }
+
+  return (
+    navigationRef.getCurrentRoute()?.name ??
+    navigationRef.getState()?.routes?.slice(-1)[0]?.name
+  );
+};
+
+const shouldDeferInitialPortfolioPopulate = (state: RootState): boolean => {
+  const routeName = getInitialPortfolioPopulateRouteName();
+
+  return (
+    AppState.currentState !== 'active' ||
+    !navigationRef.isReady() ||
+    state.APP?.checkingBiometricForSending === true ||
+    state.APP?.showPinModal === true ||
+    state.APP?.showBiometricModal === true ||
+    state.APP?.showDecryptPasswordModal === true ||
+    !!state.APP?.activeModalId ||
+    (!!routeName &&
+      INITIAL_PORTFOLIO_POPULATE_BLOCKED_ROUTE_NAMES.has(routeName))
+  );
+};
+
+const buildInitialPortfolioPopulatePlan = (
+  state: RootState,
+): InitialPortfolioPopulatePlan | null => {
+  if (state.APP?.showPortfolioValue === false) {
+    return null;
+  }
+  if (state.PORTFOLIO?.populateStatus?.inProgress) {
+    return null;
+  }
+
+  const quoteCurrency =
+    state.APP?.defaultAltCurrency?.isoCode ||
+    state.PORTFOLIO?.quoteCurrency ||
+    'USD';
+
+  const snapshotsByWalletId = state.PORTFOLIO?.snapshotsByWalletId || {};
+  const portfolioIsEmpty =
+    !snapshotsByWalletId || Object.keys(snapshotsByWalletId).length === 0;
+
+  const keys = state.WALLET?.keys || {};
+  const wallets = Object.values(keys)
+    .flatMap((k: any) => (k?.wallets ? k.wallets : []))
+    .filter((w: any) => w?.network === Network.mainnet);
+
+  if (!wallets.length) {
+    return null;
+  }
+
+  if (portfolioIsEmpty) {
+    return {
+      quoteCurrency,
+      mode: 'populate_all',
+      snapshotBalanceMismatchUpdates: {},
+    };
+  }
+
+  const {walletIdsToPopulate, snapshotBalanceMismatchUpdates} =
+    getWalletIdsToPopulateFromSnapshots({
+      wallets,
+      snapshotsByWalletId,
+      previousSnapshotBalanceMismatchesByWalletId:
+        state.PORTFOLIO?.snapshotBalanceMismatchesByWalletId || {},
+    });
+
+  const hasFiatLoading = isFiatLoadingForWallets({
+    quoteCurrency,
+    wallets,
+    snapshotsByWalletId,
+    fiatRateSeriesCache: state.RATE?.fiatRateSeriesCache || {},
+  });
+
+  if (hasFiatLoading) {
+    return {
+      quoteCurrency,
+      mode: 'prepare_rates',
+      snapshotBalanceMismatchUpdates,
+    };
+  }
+
+  if (walletIdsToPopulate.length) {
+    return {
+      quoteCurrency,
+      mode: 'populate_wallets',
+      walletIds: walletIdsToPopulate,
+      snapshotBalanceMismatchUpdates,
+    };
+  }
+
+  if (!Object.keys(snapshotBalanceMismatchUpdates).length) {
+    return null;
+  }
+
+  return {
+    quoteCurrency,
+    mode: 'none',
+    snapshotBalanceMismatchUpdates,
+  };
+};
+
+const runInitialPortfolioPopulatePlan = (args: {
+  dispatch: AppDispatch;
+  getState: () => RootState;
+}): boolean => {
+  const plan = buildInitialPortfolioPopulatePlan(args.getState());
+
+  if (!plan) {
+    return false;
+  }
+
+  if (Object.keys(plan.snapshotBalanceMismatchUpdates).length) {
+    args.dispatch(
+      setSnapshotBalanceMismatchesByWalletIdUpdates(
+        plan.snapshotBalanceMismatchUpdates,
+      ),
+    );
+  }
+
+  switch (plan.mode) {
+    case 'populate_all':
+      args.dispatch(populatePortfolio({quoteCurrency: plan.quoteCurrency}));
+      return true;
+    case 'populate_wallets':
+      if (!plan.walletIds?.length) {
+        return false;
+      }
+      args.dispatch(
+        populatePortfolio({
+          quoteCurrency: plan.quoteCurrency,
+          walletIds: plan.walletIds,
+        }),
+      );
+      return true;
+    case 'prepare_rates':
+      args.dispatch(
+        preparePortfolioFiatRateCachesForQuoteCurrencySwitch({
+          quoteCurrency: plan.quoteCurrency,
+        }),
+      );
+      return true;
+    case 'none':
+    default:
+      return false;
+  }
+};
+
+const scheduleInitialPortfolioPopulateWhenSafe = (args: {
+  dispatch: AppDispatch;
+  getState: () => RootState;
+}) => {
+  void (async () => {
+    let lastRouteName = getInitialPortfolioPopulateRouteName();
+    let lastInteractionAt = Date.now();
+
+    while (true) {
+      const state = args.getState();
+      const plan = buildInitialPortfolioPopulatePlan(state);
+      if (!plan) {
+        return;
+      }
+
+      const routeName = getInitialPortfolioPopulateRouteName();
+      const blocked = shouldDeferInitialPortfolioPopulate(state);
+
+      if (routeName !== lastRouteName || blocked) {
+        lastRouteName = routeName;
+        lastInteractionAt = Date.now();
+      }
+
+      const isEagerRoute =
+        !!routeName && INITIAL_PORTFOLIO_POPULATE_EAGER_ROUTE_NAMES.has(routeName);
+      const idleForMs = Date.now() - lastInteractionAt;
+
+      if (!blocked && (isEagerRoute || idleForMs >= INITIAL_PORTFOLIO_POPULATE_IDLE_MS)) {
+        runInitialPortfolioPopulatePlan(args);
+        return;
+      }
+
+      await sleep(INITIAL_PORTFOLIO_POPULATE_POLL_MS);
+    }
+  })().catch(() => {});
+};
+
 export const startAppInit = (): Effect => async (dispatch, getState) => {
   try {
     logManager.info(
@@ -293,80 +508,10 @@ export const startAppInit = (): Effect => async (dispatch, getState) => {
 
     walletInitPromise
       .then(() => {
-        const stateAfterWalletInit = getState();
-        if (stateAfterWalletInit.APP?.showPortfolioValue === false) {
-          return;
-        }
-        if (stateAfterWalletInit.PORTFOLIO?.populateStatus?.inProgress) {
-          return;
-        }
-
-        const quoteCurrency =
-          stateAfterWalletInit.APP?.defaultAltCurrency?.isoCode ||
-          stateAfterWalletInit.PORTFOLIO?.quoteCurrency ||
-          'USD';
-
-        const snapshotsByWalletId =
-          stateAfterWalletInit.PORTFOLIO?.snapshotsByWalletId || {};
-        const portfolioIsEmpty =
-          !snapshotsByWalletId || Object.keys(snapshotsByWalletId).length === 0;
-
-        const keys = stateAfterWalletInit.WALLET?.keys || {};
-        const wallets = Object.values(keys)
-          .flatMap((k: any) => (k?.wallets ? k.wallets : []))
-          .filter((w: any) => w?.network === Network.mainnet);
-
-        if (!wallets.length) {
-          return;
-        }
-
-        if (portfolioIsEmpty) {
-          dispatch(populatePortfolio({quoteCurrency}));
-          return;
-        }
-
-        const {walletIdsToPopulate, snapshotBalanceMismatchUpdates} =
-          getWalletIdsToPopulateFromSnapshots({
-            wallets,
-            snapshotsByWalletId,
-            previousSnapshotBalanceMismatchesByWalletId:
-              stateAfterWalletInit.PORTFOLIO
-                ?.snapshotBalanceMismatchesByWalletId || {},
-          });
-
-        if (Object.keys(snapshotBalanceMismatchUpdates).length) {
-          dispatch(
-            setSnapshotBalanceMismatchesByWalletIdUpdates(
-              snapshotBalanceMismatchUpdates,
-            ),
-          );
-        }
-
-        const hasFiatLoading = isFiatLoadingForWallets({
-          quoteCurrency,
-          wallets,
-          snapshotsByWalletId,
-          fiatRateSeriesCache:
-            stateAfterWalletInit.RATE?.fiatRateSeriesCache || {},
+        scheduleInitialPortfolioPopulateWhenSafe({
+          dispatch,
+          getState,
         });
-
-        if (hasFiatLoading) {
-          dispatch(
-            preparePortfolioFiatRateCachesForQuoteCurrencySwitch({
-              quoteCurrency,
-            }),
-          );
-          return;
-        }
-
-        if (walletIdsToPopulate.length) {
-          dispatch(
-            populatePortfolio({
-              quoteCurrency,
-              walletIds: walletIdsToPopulate,
-            }),
-          );
-        }
       })
       .catch(() => {});
 

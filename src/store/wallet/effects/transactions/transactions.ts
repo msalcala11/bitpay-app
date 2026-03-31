@@ -773,6 +773,7 @@ export const GetTransactionHistory =
     isExportHistoryView = false,
     skipWalletProcessing = false,
     skipUiFriendlyList = false,
+    returnPageTransactionsOnly = false,
   }: {
     wallet: Wallet;
     transactionsHistory: any[];
@@ -783,6 +784,7 @@ export const GetTransactionHistory =
     isExportHistoryView?: boolean;
     skipWalletProcessing?: boolean;
     skipUiFriendlyList?: boolean;
+    returnPageTransactionsOnly?: boolean;
   }): Effect<
     Promise<{transactions: any[]; loadMore: boolean; hasConfirmingTxs: boolean}>
   > =>
@@ -856,13 +858,12 @@ export const GetTransactionHistory =
           );
         }
 
-        const array = transactions
-          .concat(transactionsHistory)
-          .filter((txs: any) => txs);
-
-        const newHistory = uniqBy(array, x => {
-          return (x as any).txid;
-        });
+        const pageTransactions = transactions.filter((txs: any) => txs);
+        const newHistory = returnPageTransactionsOnly
+          ? pageTransactions
+          : uniqBy(pageTransactions.concat(transactionsHistory), x => {
+              return (x as any).txid;
+            });
 
         let hasConfirmingTxs: boolean = false;
         if (!skip) {

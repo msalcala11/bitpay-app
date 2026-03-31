@@ -1,4 +1,5 @@
 import {Effect, RootState} from '..';
+import {AppState} from 'react-native';
 import {Network} from '../../constants';
 import {
   getFiatRateSeriesCacheKey,
@@ -22,6 +23,7 @@ import {
   getErrorString,
   atomicToUnitString,
   unitStringToAtomicBigInt,
+  sleep,
 } from '../../utils/helper-methods';
 
 import {
@@ -48,6 +50,7 @@ import {
   getSnapshotAtomicBalanceFromCryptoBalance,
   getWalletLiveAtomicBalance,
 } from '../../utils/portfolio/assets';
+import {navigationRef} from '../../Root';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const POPULATE_FIAT_RATE_INTERVALS: FiatRateInterval[] = [
@@ -62,6 +65,20 @@ const PORTFOLIO_COMPRESS_OLD_TXS_TO_DAILY_SNAPSHOTS = true;
 const PORTFOLIO_ENABLE_INCREMENTAL_UPDATES = true;
 const PORTFOLIO_INCREMENTAL_MAX_PAGES = 10;
 const PORTFOLIO_INCREMENTAL_RESNAPSHOT_WINDOW_MS = MS_PER_DAY;
+const PORTFOLIO_POPULATE_PAUSE_POLL_MS = 200;
+const PORTFOLIO_POPULATE_POST_INTERACTION_COOLDOWN_MS = 600;
+const PORTFOLIO_POPULATE_SIM_YIELD_AFTER_MS = 10;
+const PORTFOLIO_POPULATE_ABORTED_ERROR_MESSAGE =
+  'PORTFOLIO_POPULATE_ABORTED';
+const PORTFOLIO_POPULATE_PAUSE_ROUTE_NAMES = new Set<string>([
+  'WalletConnectConfirm',
+  'TransactionProposalDetails',
+  'TransactionProposalNotifications',
+  'Confirm',
+  'GiftCardConfirm',
+  'PayProConfirm',
+  'BillConfirm',
+]);
 
 const resolveQuoteCurrency = (
   ...candidates: Array<string | undefined>
@@ -259,6 +276,103 @@ const buildSnapshotMismatchUpdate = (args: {
 
 const yieldToEventLoop = async (): Promise<void> => {
   await new Promise<void>(resolve => setTimeout(resolve, 0));
+};
+
+const getPortfolioCurrentRouteName = (): string | undefined => {
+  if (!navigationRef.isReady()) {
+    return undefined;
+  }
+
+  return (
+    navigationRef.getCurrentRoute()?.name ??
+    navigationRef.getState()?.routes?.slice(-1)[0]?.name
+  );
+};
+
+const shouldPausePortfolioWork = (state: RootState): boolean => {
+  const routeName = getPortfolioCurrentRouteName();
+
+  return (
+    AppState.currentState !== 'active' ||
+    state.APP?.checkingBiometricForSending === true ||
+    state.APP?.showPinModal === true ||
+    state.APP?.showBiometricModal === true ||
+    state.APP?.showDecryptPasswordModal === true ||
+    !!state.APP?.activeModalId ||
+    (!!routeName && PORTFOLIO_POPULATE_PAUSE_ROUTE_NAMES.has(routeName))
+  );
+};
+
+const waitForPortfolioWorkSlot = async (args: {
+  getState: () => RootState;
+  shouldAbort: () => boolean;
+  yieldFirst?: boolean;
+}): Promise<boolean> => {
+  if (args.yieldFirst) {
+    await yieldToEventLoop();
+  }
+
+  let wasPaused = false;
+
+  while (true) {
+    if (args.shouldAbort()) {
+      return false;
+    }
+
+    const state = args.getState();
+    if (!shouldPausePortfolioWork(state)) {
+      if (!wasPaused) {
+        return true;
+      }
+
+      await sleep(PORTFOLIO_POPULATE_POST_INTERACTION_COOLDOWN_MS);
+      if (args.shouldAbort()) {
+        return false;
+      }
+
+      if (!shouldPausePortfolioWork(args.getState())) {
+        return true;
+      }
+
+      wasPaused = true;
+      continue;
+    }
+
+    wasPaused = true;
+    await sleep(PORTFOLIO_POPULATE_PAUSE_POLL_MS);
+  }
+};
+
+const dedupeTransactionsByTxid = (transactions: any[]): any[] => {
+  const seenTxids = new Set<string>();
+  const deduped: any[] = [];
+
+  for (const tx of transactions) {
+    if (!tx) {
+      continue;
+    }
+
+    const txidCandidate =
+      typeof tx?.txid === 'string' && tx.txid
+        ? tx.txid
+        : typeof tx?.id === 'string' && tx.id
+        ? tx.id
+        : undefined;
+
+    if (!txidCandidate) {
+      deduped.push(tx);
+      continue;
+    }
+
+    if (seenTxids.has(txidCandidate)) {
+      continue;
+    }
+
+    seenTxids.add(txidCandidate);
+    deduped.push(tx);
+  }
+
+  return deduped;
 };
 
 const getUtcDayStartMs = (tsMs: number): number => {
@@ -758,6 +872,11 @@ export const populatePortfolio =
       if (shouldAbort()) {
         return;
       }
+
+      if (!(await waitForPortfolioWorkSlot({getState, shouldAbort}))) {
+        return;
+      }
+
       dispatch(updatePopulateProgress({currentWalletId: wallet.id}));
       setWalletStatus({dispatch, walletId: wallet.id, status: 'in_progress'});
 
@@ -885,6 +1004,11 @@ export const populatePortfolio =
           if (shouldAbort()) {
             return;
           }
+
+          if (!(await waitForPortfolioWorkSlot({getState, shouldAbort}))) {
+            return;
+          }
+
           const result = await dispatch(
             GetTransactionHistory({
               wallet,
@@ -895,15 +1019,24 @@ export const populatePortfolio =
               isAccountDetailsView: true,
               skipWalletProcessing: true,
               skipUiFriendlyList: true,
+              returnPageTransactionsOnly: true,
             }),
           );
           bumpTxRequestsMade();
-          acc = result?.transactions || acc;
+          if (Array.isArray(result?.transactions) && result.transactions.length) {
+            acc = acc.concat(result.transactions);
+          }
           loadMore = !!result?.loadMore;
           iters++;
 
-          if (iters % 2 === 0) {
-            await yieldToEventLoop();
+          if (
+            !(await waitForPortfolioWorkSlot({
+              getState,
+              shouldAbort,
+              yieldFirst: true,
+            }))
+          ) {
+            return;
           }
 
           if (typeof incrementalResnapshotCutoffMs === 'number') {
@@ -926,7 +1059,20 @@ export const populatePortfolio =
         }
 
         const nowMsForMissingTs = Date.now();
-        for (const tx of acc) {
+        for (let txIdx = 0; txIdx < acc.length; txIdx++) {
+          if (
+            txIdx > 0 &&
+            txIdx % 250 === 0 &&
+            !(await waitForPortfolioWorkSlot({
+              getState,
+              shouldAbort,
+              yieldFirst: true,
+            }))
+          ) {
+            return;
+          }
+
+          const tx = acc[txIdx];
           if (!tx) {
             continue;
           }
@@ -947,9 +1093,17 @@ export const populatePortfolio =
           }
         }
 
-        const txs = acc.filter(tx => tx);
+        const txs = dedupeTransactionsByTxid(acc.filter(tx => tx));
 
-        await yieldToEventLoop();
+        if (
+          !(await waitForPortfolioWorkSlot({
+            getState,
+            shouldAbort,
+            yieldFirst: true,
+          }))
+        ) {
+          return;
+        }
 
         if (!txs.length) {
           if (existingSnapshots.length) {
@@ -1109,6 +1263,10 @@ export const populatePortfolio =
         const fiatRateSeriesCache = getState().RATE?.fiatRateSeriesCache || {};
 
         let lastProgress = 0;
+        if (!(await waitForPortfolioWorkSlot({getState, shouldAbort}))) {
+          return;
+        }
+
         const storedSnaps = await buildBalanceSnapshotsAsync({
           wallet: walletSummary as any,
           credentials,
@@ -1128,6 +1286,17 @@ export const populatePortfolio =
             if (delta > 0) {
               bumpTxsProcessed(delta);
               lastProgress = next;
+            }
+          },
+        }, {
+          yieldAfterMs: PORTFOLIO_POPULATE_SIM_YIELD_AFTER_MS,
+          onYield: async () => {
+            const canContinue = await waitForPortfolioWorkSlot({
+              getState,
+              shouldAbort,
+            });
+            if (!canContinue) {
+              throw new Error(PORTFOLIO_POPULATE_ABORTED_ERROR_MESSAGE);
             }
           },
         });
@@ -1195,6 +1364,16 @@ export const populatePortfolio =
         }
 
         if (snapshots.length) {
+          if (
+            !(await waitForPortfolioWorkSlot({
+              getState,
+              shouldAbort,
+              yieldFirst: true,
+            }))
+          ) {
+            return;
+          }
+
           snapshots = ensureSnapshotsSortedByTimestamp(snapshots);
           dispatch(setWalletSnapshots({walletId: wallet.id, snapshots}));
         }
@@ -1232,6 +1411,9 @@ export const populatePortfolio =
         });
       } catch (e) {
         const msg = getErrorString(e);
+        if (msg === PORTFOLIO_POPULATE_ABORTED_ERROR_MESSAGE) {
+          return;
+        }
         addPopulateError({dispatch, walletId: wallet.id, message: msg});
         setWalletStatus({dispatch, walletId: wallet.id, status: 'error'});
         walletsCompleted = updateWalletsCompleted({
@@ -1243,7 +1425,7 @@ export const populatePortfolio =
       }
     };
 
-    const concurrency = Math.min(3, walletsToPopulate.length);
+    const concurrency = Math.min(1, walletsToPopulate.length);
     let nextIndex = 0;
     const workers = new Array(concurrency).fill(null).map(async () => {
       while (nextIndex < walletsToPopulate.length) {
