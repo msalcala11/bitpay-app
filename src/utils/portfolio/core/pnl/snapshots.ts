@@ -365,6 +365,20 @@ const normalizeTx = (tx: Tx, originalIndex: number): NormalizedTx => {
 const normalizeTxs = (txs: Tx[]): NormalizedTx[] =>
   txs.map((tx, i) => normalizeTx(tx, i));
 
+const normalizeTxsAsync = async (
+  txs: Tx[],
+  yieldEvery: number,
+): Promise<NormalizedTx[]> => {
+  const out: NormalizedTx[] = [];
+  for (let i = 0; i < txs.length; i++) {
+    out.push(normalizeTx(txs[i], i));
+    if ((i + 1) % yieldEvery === 0) {
+      await yieldToEventLoop();
+    }
+  }
+  return out;
+};
+
 const sortAndDedupeTxs = (txs: NormalizedTx[]): NormalizedTx[] => {
   const INF = Number.POSITIVE_INFINITY;
 
@@ -448,6 +462,58 @@ const inferWalletEvmAddresses = (txs: NormalizedTx[]): Set<string> => {
     // Unknown action: best-effort from/to hints.
     // This is intentionally conservative (we don't want to accidentally treat external senders as "ours").
     if (rawAmountAtomic > 0n && to) addrs.add(to);
+  }
+
+  return addrs;
+};
+
+const hasEvmSignalsAsync = async (
+  txs: NormalizedTx[],
+  yieldEvery: number,
+): Promise<boolean> => {
+  for (let i = 0; i < txs.length; i++) {
+    const tx = txs[i];
+    if (tx.from || tx.to || tx.effectFroms.length > 0 || tx.effectTos.length > 0)
+      return true;
+    if ((i + 1) % yieldEvery === 0) {
+      await yieldToEventLoop();
+    }
+  }
+  return false;
+};
+
+const inferWalletEvmAddressesAsync = async (
+  txs: NormalizedTx[],
+  yieldEvery: number,
+): Promise<Set<string>> => {
+  const addrs = new Set<string>();
+
+  for (let i = 0; i < txs.length; i++) {
+    const {
+      action,
+      rawAmountAtomic,
+      absAmountAtomic,
+      from,
+      to,
+      effectFroms,
+      effectTos,
+    } = txs[i];
+
+    if (action === 'sent' || action === 'moved') {
+      if (from) addrs.add(from);
+      for (const ef of effectFroms) addrs.add(ef);
+    } else if (action === 'received') {
+      if (absAmountAtomic > 0n && to) {
+        addrs.add(to);
+      }
+      for (const et of effectTos) addrs.add(et);
+    } else if (rawAmountAtomic > 0n && to) {
+      addrs.add(to);
+    }
+
+    if ((i + 1) % yieldEvery === 0) {
+      await yieldToEventLoop();
+    }
   }
 
   return addrs;
@@ -827,6 +893,128 @@ const prepareTxHistory = (
   const historyHasOpStackL1FeeField = opStack
     ? dedupedSorted.some(tx => tx.l1FeeAtomic > 0n || tx.operatorFeeAtomic > 0n)
     : false;
+
+  return {
+    walletId,
+    chain,
+    coin,
+    network,
+    assetId,
+    applyFeesToBalance,
+    compressionEnabled,
+    decimals,
+    nowMs,
+    dedupedSorted,
+    toProcessBase,
+    walletEvmAddresses,
+    isOpStackChain: opStack,
+    historyHasOpStackL1FeeField,
+  };
+};
+
+const prepareTxHistoryAsync = async (
+  args: BuildBalanceSnapshotsArgs,
+  asyncOpts: BuildBalanceSnapshotsAsyncOpts,
+): Promise<PreparedTxHistory> => {
+  const {wallet, credentials, latestSnapshot = null, compression} = args;
+
+  const yieldEvery = Math.max(1, Math.floor(asyncOpts.yieldEvery ?? 1000));
+  const nowMs = args.nowMs ?? Date.now();
+  const decimals = getAtomicDecimals(credentials);
+
+  const walletId = String(wallet.walletId);
+  const chain = String(wallet.chain || '').toLowerCase();
+  const coin = String(wallet.currencyAbbreviation || '').toLowerCase();
+  const network = String(wallet.network || '').toLowerCase();
+  const assetId = getAssetIdFromWallet(wallet);
+
+  const applyFeesToBalance = !wallet.tokenAddress;
+  const compressionEnabled = !!compression?.enabled;
+
+  const normalized = await normalizeTxsAsync(args.txs || [], yieldEvery);
+  await yieldToEventLoop();
+  const dedupedSorted = sortAndDedupeTxs(normalized);
+  await yieldToEventLoop();
+
+  let walletEvmAddresses: Set<string> | null = null;
+  if (applyFeesToBalance) {
+    const hasEvmSignals =
+      isEvmChain(chain) || (await hasEvmSignalsAsync(dedupedSorted, yieldEvery));
+    walletEvmAddresses = hasEvmSignals
+      ? await inferWalletEvmAddressesAsync(dedupedSorted, yieldEvery)
+      : null;
+  }
+
+  let cursorIndex = -1;
+  const latestTs = latestSnapshot?.timestamp ?? -Infinity;
+
+  if (latestSnapshot) {
+    const latestTxIdList = getLatestSnapshotTxIds(latestSnapshot);
+
+    const indexByTxid = new Map<string, number>();
+    for (let i = 0; i < dedupedSorted.length; i++) {
+      indexByTxid.set(dedupedSorted[i].id, i);
+      if ((i + 1) % yieldEvery === 0) {
+        await yieldToEventLoop();
+      }
+    }
+
+    for (const id of latestTxIdList) {
+      const idx = indexByTxid.get(id);
+      if (idx !== undefined) cursorIndex = Math.max(cursorIndex, idx);
+    }
+
+    if (cursorIndex >= 0 && latestSnapshot.eventType === 'tx') {
+      const cursorTx = dedupedSorted[cursorIndex];
+      const ts0 = cursorTx.tsMs;
+      if (ts0 > 0) {
+        const bh0 = cursorTx.blockHeight;
+        let end = cursorIndex;
+        for (let i = cursorIndex + 1; i < dedupedSorted.length; i++) {
+          const t = dedupedSorted[i];
+          if (t.tsMs !== ts0) break;
+          if (t.blockHeight !== bh0) break;
+          end = i;
+          if ((i + 1) % yieldEvery === 0) {
+            await yieldToEventLoop();
+          }
+        }
+        cursorIndex = end;
+      }
+    }
+
+    if (cursorIndex === -1 && Number.isFinite(latestTs)) {
+      for (let i = 0; i < dedupedSorted.length; i++) {
+        const ts = dedupedSorted[i].tsMs;
+        if (ts > latestTs) {
+          cursorIndex = i - 1;
+          break;
+        }
+        if ((i + 1) % yieldEvery === 0) {
+          await yieldToEventLoop();
+        }
+      }
+      if (cursorIndex === -1) cursorIndex = dedupedSorted.length - 1;
+    }
+  }
+
+  const toProcessBase =
+    cursorIndex >= 0 ? dedupedSorted.slice(cursorIndex + 1) : dedupedSorted;
+
+  const opStack = isOpStackChain(chain);
+  let historyHasOpStackL1FeeField = false;
+  if (opStack) {
+    for (let i = 0; i < dedupedSorted.length; i++) {
+      const tx = dedupedSorted[i];
+      if (tx.l1FeeAtomic > 0n || tx.operatorFeeAtomic > 0n) {
+        historyHasOpStackL1FeeField = true;
+        break;
+      }
+      if ((i + 1) % yieldEvery === 0) {
+        await yieldToEventLoop();
+      }
+    }
+  }
 
   return {
     walletId,
@@ -1656,7 +1844,7 @@ export async function buildBalanceSnapshotsAsync(
   args: BuildBalanceSnapshotsArgs,
   asyncOpts: BuildBalanceSnapshotsAsyncOpts = {},
 ): Promise<BalanceSnapshotStored[]> {
-  const prepared = prepareTxHistory(args);
+  const prepared = await prepareTxHistoryAsync(args, asyncOpts);
   const first = await simulateSnapshotsAsync(
     args,
     prepared,
