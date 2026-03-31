@@ -48,6 +48,7 @@ import {
   getSnapshotAtomicBalanceFromCryptoBalance,
   getWalletLiveAtomicBalance,
 } from '../../utils/portfolio/assets';
+import {InteractionManager} from 'react-native';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const POPULATE_FIAT_RATE_INTERVALS: FiatRateInterval[] = [
@@ -258,7 +259,9 @@ const buildSnapshotMismatchUpdate = (args: {
 };
 
 const yieldToEventLoop = async (): Promise<void> => {
-  await new Promise<void>(resolve => setTimeout(resolve, 0));
+  await new Promise<void>(resolve => {
+    InteractionManager.runAfterInteractions(() => resolve());
+  });
 };
 
 const getUtcDayStartMs = (tsMs: number): number => {
@@ -1109,28 +1112,31 @@ export const populatePortfolio =
         const fiatRateSeriesCache = getState().RATE?.fiatRateSeriesCache || {};
 
         let lastProgress = 0;
-        const storedSnaps = await buildBalanceSnapshotsAsync({
-          wallet: walletSummary as any,
-          credentials,
-          txs: txsToProcess,
-          quoteCurrency: walletSnapshotQuoteCurrency,
-          bridgeQuoteCurrency,
-          fiatRateSeriesCache: fiatRateSeriesCache as any,
-          latestSnapshot: latestSnapshotForEngine,
-          compression: {enabled: PORTFOLIO_COMPRESS_OLD_TXS_TO_DAILY_SNAPSHOTS},
-          nowMs,
-          onProgress: p => {
-            const next =
-              typeof (p as any)?.processed === 'number'
-                ? (p as any).processed
-                : 0;
-            const delta = next - lastProgress;
-            if (delta > 0) {
-              bumpTxsProcessed(delta);
-              lastProgress = next;
-            }
+        const storedSnaps = await buildBalanceSnapshotsAsync(
+          {
+            wallet: walletSummary as any,
+            credentials,
+            txs: txsToProcess,
+            quoteCurrency: walletSnapshotQuoteCurrency,
+            bridgeQuoteCurrency,
+            fiatRateSeriesCache: fiatRateSeriesCache as any,
+            latestSnapshot: latestSnapshotForEngine,
+            compression: {enabled: PORTFOLIO_COMPRESS_OLD_TXS_TO_DAILY_SNAPSHOTS},
+            nowMs,
+            onProgress: p => {
+              const next =
+                typeof (p as any)?.processed === 'number'
+                  ? (p as any).processed
+                  : 0;
+              const delta = next - lastProgress;
+              if (delta > 0) {
+                bumpTxsProcessed(delta);
+                lastProgress = next;
+              }
+            },
           },
-        });
+          {yieldEvery: 250},
+        );
 
         // Ensure our global tx processed counter catches up if onProgress didn't
         // fire at the end.
@@ -1243,7 +1249,7 @@ export const populatePortfolio =
       }
     };
 
-    const concurrency = Math.min(3, walletsToPopulate.length);
+    const concurrency = Math.min(1, walletsToPopulate.length);
     let nextIndex = 0;
     const workers = new Array(concurrency).fill(null).map(async () => {
       while (nextIndex < walletsToPopulate.length) {

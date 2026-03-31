@@ -1,4 +1,5 @@
 import type {Tx, WalletCredentials, WalletSummary} from '../types';
+import {InteractionManager} from 'react-native';
 import {
   formatAtomicAmount,
   getAtomicDecimals,
@@ -1321,7 +1322,9 @@ const simulateSnapshotsSync = (
 };
 
 const yieldToEventLoop = async (): Promise<void> => {
-  await new Promise<void>(resolve => setTimeout(resolve, 0));
+  await new Promise<void>(resolve => {
+    InteractionManager.runAfterInteractions(() => resolve());
+  });
 };
 
 const simulateSnapshotsAsync = async (
