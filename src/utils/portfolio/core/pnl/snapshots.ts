@@ -898,6 +898,68 @@ const reorderTxsToPreventUnderflow = (
   return out;
 };
 
+const reorderTxsToPreventUnderflowAsync = async (
+  txs: NormalizedTx[],
+  startingBalanceAtomic: bigint,
+  getDeltaAtomic: (tx: NormalizedTx) => bigint,
+  yieldEvery: number,
+): Promise<NormalizedTx[]> => {
+  const out: NormalizedTx[] = [];
+  let simBalanceAtomic = startingBalanceAtomic;
+  let processed = 0;
+
+  for (let i = 0; i < txs.length; ) {
+    const ts = txs[i].tsMs;
+    const bh = txs[i].blockHeight;
+
+    let j = i + 1;
+    while (j < txs.length) {
+      const t2 = txs[j];
+      if (t2.tsMs !== ts) break;
+      if (t2.blockHeight !== bh) break;
+      j++;
+    }
+
+    // Avoid allocating an intermediate batch array for the common case where there are no ties.
+    if (j === i + 1) {
+      const tx = txs[i];
+      out.push(tx);
+      // Simulate balance evolution with "no negative balances" semantics (matches applyOutflow clamping).
+      simBalanceAtomic += getDeltaAtomic(tx);
+      if (simBalanceAtomic < 0n) simBalanceAtomic = 0n;
+      processed++;
+      if (processed % yieldEvery === 0) {
+        await yieldToEventLoop();
+      }
+      i = j;
+      continue;
+    }
+
+    const batch = txs.slice(i, j);
+    const orderedBatch = reorderTxBatchToPreventUnderflow(
+      batch,
+      simBalanceAtomic,
+      getDeltaAtomic,
+    );
+
+    for (const tx of orderedBatch) {
+      out.push(tx);
+
+      // Simulate balance evolution with "no negative balances" semantics (matches applyOutflow clamping).
+      simBalanceAtomic += getDeltaAtomic(tx);
+      if (simBalanceAtomic < 0n) simBalanceAtomic = 0n;
+      processed++;
+      if (processed % yieldEvery === 0) {
+        await yieldToEventLoop();
+      }
+    }
+
+    i = j;
+  }
+
+  return out;
+};
+
 const groupTxsForCompression = (
   txsOrdered: NormalizedTx[],
   nowMs: number,
@@ -943,6 +1005,70 @@ const groupTxsForCompression = (
 
     flushDaily();
     groups.push({eventType: 'tx', txs: [tx]});
+  }
+  flushDaily();
+
+  return groups;
+};
+
+const groupTxsForCompressionAsync = async (
+  txsOrdered: NormalizedTx[],
+  nowMs: number,
+  compressionEnabled: boolean,
+  yieldEvery: number,
+): Promise<TxGroup[]> => {
+  const groups: TxGroup[] = [];
+  let processed = 0;
+
+  if (!compressionEnabled) {
+    for (const tx of txsOrdered) {
+      groups.push({eventType: 'tx', txs: [tx]});
+      processed++;
+      if (processed % yieldEvery === 0) {
+        await yieldToEventLoop();
+      }
+    }
+    return groups;
+  }
+
+  const cutoffMs = nowMs - COMPRESSION_AGE_MS;
+  let curDayIdx: number | null = null;
+  let curDayTxs: NormalizedTx[] = [];
+
+  const flushDaily = () => {
+    if (!curDayTxs.length) return;
+    if (curDayTxs.length === 1) {
+      groups.push({eventType: 'tx', txs: [curDayTxs[0]]});
+    } else {
+      groups.push({
+        eventType: 'daily',
+        txs: curDayTxs,
+        dayIdx: curDayIdx ?? undefined,
+      });
+    }
+    curDayTxs = [];
+    curDayIdx = null;
+  };
+
+  for (const tx of txsOrdered) {
+    const ts = tx.tsMs;
+
+    if (ts && ts < cutoffMs) {
+      const dayIdx = utcDayIndex(ts);
+      if (curDayIdx !== null && dayIdx !== curDayIdx) {
+        flushDaily();
+      }
+      curDayIdx = dayIdx;
+      curDayTxs.push(tx);
+    } else {
+      flushDaily();
+      groups.push({eventType: 'tx', txs: [tx]});
+    }
+
+    processed++;
+    if (processed % yieldEvery === 0) {
+      await yieldToEventLoop();
+    }
   }
   flushDaily();
 
@@ -1349,17 +1475,19 @@ const simulateSnapshotsAsync = async (
   const setup = createSimulationSetup(args, prepared, feeOverrides);
 
   // 1) Reorder txs that share the same timestamp (+ blockheight) to avoid temporary underflows.
-  const toProcessOrdered = reorderTxsToPreventUnderflow(
+  const toProcessOrdered = await reorderTxsToPreventUnderflowAsync(
     toProcessBase,
     setup.state.balanceAtomic,
     setup.getDeltaAtomic,
+    yieldEvery,
   );
 
   // 2) Group txs for optional daily compression (older than 90 days).
-  const groups = groupTxsForCompression(
+  const groups = await groupTxsForCompressionAsync(
     toProcessOrdered,
     nowMs,
     compressionEnabled,
+    yieldEvery,
   );
 
   // 3) Apply each group, producing a snapshot for each tx (or each day if compressed).
