@@ -379,29 +379,31 @@ const normalizeTxsAsync = async (
   return out;
 };
 
-const sortAndDedupeTxs = (txs: NormalizedTx[]): NormalizedTx[] => {
+const compareNormalizedTxs = (a: NormalizedTx, b: NormalizedTx): number => {
   const INF = Number.POSITIVE_INFINITY;
 
+  if (a.tsMs !== b.tsMs) return a.tsMs - b.tsMs;
+
+  const bha = a.blockHeight ?? INF;
+  const bhb = b.blockHeight ?? INF;
+  if (bha !== bhb) return bha - bhb;
+
+  const ia = a.txIndex ?? INF;
+  const ib = b.txIndex ?? INF;
+  if (ia !== ib) return ia - ib;
+
+  if (a.nonce !== null && b.nonce !== null && a.nonce !== b.nonce) {
+    return a.nonce - b.nonce;
+  }
+
+  return a.originalIndex - b.originalIndex;
+};
+
+const sortAndDedupeTxs = (txs: NormalizedTx[]): NormalizedTx[] => {
   // Sort ascending (time -> blockheight -> tx index -> nonce -> original order).
   // IMPORTANT: we intentionally avoid using txid lexicographic ordering as a tie-breaker because it can scramble
   // same-block transactions (same timestamp) and create temporary balance underflows that don't exist on-chain.
-  const sorted = txs.slice().sort((a, b) => {
-    if (a.tsMs !== b.tsMs) return a.tsMs - b.tsMs;
-
-    const bha = a.blockHeight ?? INF;
-    const bhb = b.blockHeight ?? INF;
-    if (bha !== bhb) return bha - bhb;
-
-    const ia = a.txIndex ?? INF;
-    const ib = b.txIndex ?? INF;
-    if (ia !== ib) return ia - ib;
-
-    if (a.nonce !== null && b.nonce !== null && a.nonce !== b.nonce) {
-      return a.nonce - b.nonce;
-    }
-
-    return a.originalIndex - b.originalIndex;
-  });
+  const sorted = txs.slice().sort(compareNormalizedTxs);
 
   const deduped: NormalizedTx[] = [];
   const seen = new Set<string>();
@@ -411,6 +413,60 @@ const sortAndDedupeTxs = (txs: NormalizedTx[]): NormalizedTx[] => {
     seen.add(ntx.id);
     deduped.push(ntx);
   }
+  return deduped;
+};
+
+const sortAndDedupeTxsAsync = async (
+  txs: NormalizedTx[],
+  yieldEvery: number,
+): Promise<NormalizedTx[]> => {
+  const chunkSize = Math.max(1000, yieldEvery * 4);
+  const chunks: NormalizedTx[][] = [];
+
+  for (let i = 0; i < txs.length; i += chunkSize) {
+    chunks.push(txs.slice(i, i + chunkSize).sort(compareNormalizedTxs));
+    await yieldToEventLoop();
+  }
+
+  const deduped: NormalizedTx[] = [];
+  const seen = new Set<string>();
+  const chunkIndexes = new Array(chunks.length).fill(0);
+  let processed = 0;
+
+  while (chunks.length) {
+    let bestChunkIndex = -1;
+    let bestTx: NormalizedTx | undefined;
+
+    for (let i = 0; i < chunks.length; i++) {
+      const idx = chunkIndexes[i];
+      const tx = chunks[i][idx];
+      if (!tx) {
+        continue;
+      }
+      if (!bestTx || compareNormalizedTxs(tx, bestTx) < 0) {
+        bestTx = tx;
+        bestChunkIndex = i;
+      }
+    }
+
+    if (bestChunkIndex === -1 || !bestTx) {
+      break;
+    }
+
+    chunkIndexes[bestChunkIndex]++;
+    if (!bestTx.id || !seen.has(bestTx.id)) {
+      if (bestTx.id) {
+        seen.add(bestTx.id);
+      }
+      deduped.push(bestTx);
+    }
+
+    processed++;
+    if (processed % yieldEvery === 0) {
+      await yieldToEventLoop();
+    }
+  }
+
   return deduped;
 };
 
@@ -932,9 +988,7 @@ const prepareTxHistoryAsync = async (
   const compressionEnabled = !!compression?.enabled;
 
   const normalized = await normalizeTxsAsync(args.txs || [], yieldEvery);
-  await yieldToEventLoop();
-  const dedupedSorted = sortAndDedupeTxs(normalized);
-  await yieldToEventLoop();
+  const dedupedSorted = await sortAndDedupeTxsAsync(normalized, yieldEvery);
 
   let walletEvmAddresses: Set<string> | null = null;
   if (applyFeesToBalance) {
