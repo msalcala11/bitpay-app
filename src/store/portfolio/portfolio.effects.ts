@@ -49,6 +49,7 @@ import {
   getWalletLiveAtomicBalance,
 } from '../../utils/portfolio/assets';
 import {InteractionManager} from 'react-native';
+import {waitForPortfolioPopulateHomeRootVisible} from './portfolio.visibility';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const POPULATE_FIAT_RATE_INTERVALS: FiatRateInterval[] = [
@@ -258,7 +259,13 @@ const buildSnapshotMismatchUpdate = (args: {
   };
 };
 
-const yieldToEventLoop = async (): Promise<void> => {
+const yieldToEventLoop = async (shouldAbort?: () => boolean): Promise<void> => {
+  const canProceed = await waitForPortfolioPopulateHomeRootVisible({
+    shouldAbort,
+  });
+  if (!canProceed) {
+    return;
+  }
   await new Promise<void>(resolve => {
     InteractionManager.runAfterInteractions(() => resolve());
   });
@@ -890,6 +897,12 @@ export const populatePortfolio =
           if (shouldAbort()) {
             return;
           }
+          const canProceed = await waitForPortfolioPopulateHomeRootVisible({
+            shouldAbort,
+          });
+          if (!canProceed) {
+            return;
+          }
           const result = await dispatch(
             GetTransactionHistory({
               wallet,
@@ -932,7 +945,10 @@ export const populatePortfolio =
           iters++;
 
           if (iters % 2 === 0) {
-            await yieldToEventLoop();
+            await yieldToEventLoop(shouldAbort);
+            if (shouldAbort()) {
+              return;
+            }
           }
 
           if (typeof incrementalResnapshotCutoffMs === 'number') {
@@ -969,7 +985,10 @@ export const populatePortfolio =
 
         const txs = acc.filter(tx => tx);
 
-        await yieldToEventLoop();
+        await yieldToEventLoop(shouldAbort);
+        if (shouldAbort()) {
+          return;
+        }
 
         if (!txs.length) {
           if (existingSnapshots.length) {
@@ -1152,7 +1171,7 @@ export const populatePortfolio =
               }
             },
           },
-          {yieldEvery: 250},
+          {yieldEvery: 250, shouldAbort},
         );
 
         // Ensure our global tx processed counter catches up if onProgress didn't
@@ -1271,6 +1290,12 @@ export const populatePortfolio =
     const workers = new Array(concurrency).fill(null).map(async () => {
       while (nextIndex < walletsToPopulate.length) {
         if (shouldAbort()) {
+          return;
+        }
+        const canProceed = await waitForPortfolioPopulateHomeRootVisible({
+          shouldAbort,
+        });
+        if (!canProceed) {
           return;
         }
         const wallet = walletsToPopulate[nextIndex];

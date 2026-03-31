@@ -16,6 +16,8 @@ export {
   preparePortfolioFiatRateCachesForQuoteCurrencySwitch,
 } from './portfolio.effects';
 
+export {setPortfolioPopulateHomeRootVisible} from './portfolio.visibility';
+
 export {
   portfolioReducer,
   portfolioReduxPersistBlackList,

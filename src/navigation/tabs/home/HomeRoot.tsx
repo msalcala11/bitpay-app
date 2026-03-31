@@ -1,4 +1,4 @@
-import {useScrollToTop, useTheme} from '@react-navigation/native';
+import {useIsFocused, useScrollToTop, useTheme} from '@react-navigation/native';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import {
@@ -56,7 +56,10 @@ import {
   receiveCrypto,
   sendCrypto,
 } from '../../../store/wallet/effects/send/send';
-import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
+import {
+  maybePopulatePortfolioForWallets,
+  setPortfolioPopulateHomeRootVisible,
+} from '../../../store/portfolio';
 import {Analytics} from '../../../store/analytics/analytics.effects';
 import {withErrorFallback} from '../TabScreenErrorFallback';
 import TabContainer from '../TabContainer';
@@ -96,7 +99,11 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   const dispatch = useAppDispatch();
   const {currencyAbbreviation} = route.params || {};
   const theme = useTheme();
+  const isFocused = useIsFocused();
   const [refreshing, setRefreshing] = useState(false);
+  const [appStateStatus, setAppStateStatus] = useState<AppStateStatus>(
+    AppState.currentState,
+  );
   const brazeMarketingCarousel = useAppSelector(selectBrazeMarketingCarousel);
   const brazeShopWithCrypto = useAppSelector(selectBrazeShopWithCrypto);
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
@@ -356,6 +363,7 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
 
   const handleAppStateChange = useCallback(
     (status: AppStateStatus) => {
+      setAppStateStatus(status);
       if (status !== 'active' || !currencyAbbreviation) {
         return;
       }
@@ -395,6 +403,16 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
 
     return () => subscriptionAppStateChange.remove();
   }, [handleAppStateChange]);
+
+  useEffect(() => {
+    const isDirectlyVisible =
+      isFocused && appStateStatus === 'active' && !appIsLoading;
+    setPortfolioPopulateHomeRootVisible(isDirectlyVisible);
+
+    return () => {
+      setPortfolioPopulateHomeRootVisible(false);
+    };
+  }, [appIsLoading, appStateStatus, isFocused]);
 
   return (
     <TabContainer>

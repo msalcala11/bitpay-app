@@ -1,5 +1,6 @@
 import type {Tx, WalletCredentials, WalletSummary} from '../types';
 import {InteractionManager} from 'react-native';
+import {waitForPortfolioPopulateHomeRootVisible} from '../../../../store/portfolio/portfolio.visibility';
 import {
   formatAtomicAmount,
   getAtomicDecimals,
@@ -368,12 +369,13 @@ const normalizeTxs = (txs: Tx[]): NormalizedTx[] =>
 const normalizeTxsAsync = async (
   txs: Tx[],
   yieldEvery: number,
+  shouldAbort?: () => boolean,
 ): Promise<NormalizedTx[]> => {
   const out: NormalizedTx[] = [];
   for (let i = 0; i < txs.length; i++) {
     out.push(normalizeTx(txs[i], i));
     if ((i + 1) % yieldEvery === 0) {
-      await yieldToEventLoop();
+      await yieldToEventLoop(shouldAbort);
     }
   }
   return out;
@@ -419,13 +421,14 @@ const sortAndDedupeTxs = (txs: NormalizedTx[]): NormalizedTx[] => {
 const sortAndDedupeTxsAsync = async (
   txs: NormalizedTx[],
   yieldEvery: number,
+  shouldAbort?: () => boolean,
 ): Promise<NormalizedTx[]> => {
   const chunkSize = Math.max(1000, yieldEvery * 4);
   const chunks: NormalizedTx[][] = [];
 
   for (let i = 0; i < txs.length; i += chunkSize) {
     chunks.push(txs.slice(i, i + chunkSize).sort(compareNormalizedTxs));
-    await yieldToEventLoop();
+    await yieldToEventLoop(shouldAbort);
   }
 
   const deduped: NormalizedTx[] = [];
@@ -463,7 +466,7 @@ const sortAndDedupeTxsAsync = async (
 
     processed++;
     if (processed % yieldEvery === 0) {
-      await yieldToEventLoop();
+      await yieldToEventLoop(shouldAbort);
     }
   }
 
@@ -526,13 +529,14 @@ const inferWalletEvmAddresses = (txs: NormalizedTx[]): Set<string> => {
 const hasEvmSignalsAsync = async (
   txs: NormalizedTx[],
   yieldEvery: number,
+  shouldAbort?: () => boolean,
 ): Promise<boolean> => {
   for (let i = 0; i < txs.length; i++) {
     const tx = txs[i];
     if (tx.from || tx.to || tx.effectFroms.length > 0 || tx.effectTos.length > 0)
       return true;
     if ((i + 1) % yieldEvery === 0) {
-      await yieldToEventLoop();
+      await yieldToEventLoop(shouldAbort);
     }
   }
   return false;
@@ -541,6 +545,7 @@ const hasEvmSignalsAsync = async (
 const inferWalletEvmAddressesAsync = async (
   txs: NormalizedTx[],
   yieldEvery: number,
+  shouldAbort?: () => boolean,
 ): Promise<Set<string>> => {
   const addrs = new Set<string>();
 
@@ -568,7 +573,7 @@ const inferWalletEvmAddressesAsync = async (
     }
 
     if ((i + 1) % yieldEvery === 0) {
-      await yieldToEventLoop();
+      await yieldToEventLoop(shouldAbort);
     }
   }
 
@@ -792,6 +797,7 @@ export type BuildBalanceSnapshotsAsyncOpts = {
   // Yield control to the event loop every N processed txs.
   // Helps keep the JS thread responsive in RN/browser.
   yieldEvery?: number;
+  shouldAbort?: () => boolean;
 };
 
 type TxGroup = {
@@ -975,6 +981,7 @@ const prepareTxHistoryAsync = async (
   const {wallet, credentials, latestSnapshot = null, compression} = args;
 
   const yieldEvery = Math.max(1, Math.floor(asyncOpts.yieldEvery ?? 1000));
+  const shouldAbort = asyncOpts.shouldAbort;
   const nowMs = args.nowMs ?? Date.now();
   const decimals = getAtomicDecimals(credentials);
 
@@ -987,15 +994,28 @@ const prepareTxHistoryAsync = async (
   const applyFeesToBalance = !wallet.tokenAddress;
   const compressionEnabled = !!compression?.enabled;
 
-  const normalized = await normalizeTxsAsync(args.txs || [], yieldEvery);
-  const dedupedSorted = await sortAndDedupeTxsAsync(normalized, yieldEvery);
+  const normalized = await normalizeTxsAsync(
+    args.txs || [],
+    yieldEvery,
+    shouldAbort,
+  );
+  const dedupedSorted = await sortAndDedupeTxsAsync(
+    normalized,
+    yieldEvery,
+    shouldAbort,
+  );
 
   let walletEvmAddresses: Set<string> | null = null;
   if (applyFeesToBalance) {
     const hasEvmSignals =
-      isEvmChain(chain) || (await hasEvmSignalsAsync(dedupedSorted, yieldEvery));
+      isEvmChain(chain) ||
+      (await hasEvmSignalsAsync(dedupedSorted, yieldEvery, shouldAbort));
     walletEvmAddresses = hasEvmSignals
-      ? await inferWalletEvmAddressesAsync(dedupedSorted, yieldEvery)
+      ? await inferWalletEvmAddressesAsync(
+          dedupedSorted,
+          yieldEvery,
+          shouldAbort,
+        )
       : null;
   }
 
@@ -1009,7 +1029,7 @@ const prepareTxHistoryAsync = async (
     for (let i = 0; i < dedupedSorted.length; i++) {
       indexByTxid.set(dedupedSorted[i].id, i);
       if ((i + 1) % yieldEvery === 0) {
-        await yieldToEventLoop();
+        await yieldToEventLoop(shouldAbort);
       }
     }
 
@@ -1030,7 +1050,7 @@ const prepareTxHistoryAsync = async (
           if (t.blockHeight !== bh0) break;
           end = i;
           if ((i + 1) % yieldEvery === 0) {
-            await yieldToEventLoop();
+            await yieldToEventLoop(shouldAbort);
           }
         }
         cursorIndex = end;
@@ -1045,7 +1065,7 @@ const prepareTxHistoryAsync = async (
           break;
         }
         if ((i + 1) % yieldEvery === 0) {
-          await yieldToEventLoop();
+          await yieldToEventLoop(shouldAbort);
         }
       }
       if (cursorIndex === -1) cursorIndex = dedupedSorted.length - 1;
@@ -1065,7 +1085,7 @@ const prepareTxHistoryAsync = async (
         break;
       }
       if ((i + 1) % yieldEvery === 0) {
-        await yieldToEventLoop();
+        await yieldToEventLoop(shouldAbort);
       }
     }
   }
@@ -1145,6 +1165,7 @@ const reorderTxsToPreventUnderflowAsync = async (
   startingBalanceAtomic: bigint,
   getDeltaAtomic: (tx: NormalizedTx) => bigint,
   yieldEvery: number,
+  shouldAbort?: () => boolean,
 ): Promise<NormalizedTx[]> => {
   const out: NormalizedTx[] = [];
   let simBalanceAtomic = startingBalanceAtomic;
@@ -1171,7 +1192,7 @@ const reorderTxsToPreventUnderflowAsync = async (
       if (simBalanceAtomic < 0n) simBalanceAtomic = 0n;
       processed++;
       if (processed % yieldEvery === 0) {
-        await yieldToEventLoop();
+        await yieldToEventLoop(shouldAbort);
       }
       i = j;
       continue;
@@ -1192,7 +1213,7 @@ const reorderTxsToPreventUnderflowAsync = async (
       if (simBalanceAtomic < 0n) simBalanceAtomic = 0n;
       processed++;
       if (processed % yieldEvery === 0) {
-        await yieldToEventLoop();
+        await yieldToEventLoop(shouldAbort);
       }
     }
 
@@ -1258,6 +1279,7 @@ const groupTxsForCompressionAsync = async (
   nowMs: number,
   compressionEnabled: boolean,
   yieldEvery: number,
+  shouldAbort?: () => boolean,
 ): Promise<TxGroup[]> => {
   const groups: TxGroup[] = [];
   let processed = 0;
@@ -1267,7 +1289,7 @@ const groupTxsForCompressionAsync = async (
       groups.push({eventType: 'tx', txs: [tx]});
       processed++;
       if (processed % yieldEvery === 0) {
-        await yieldToEventLoop();
+        await yieldToEventLoop(shouldAbort);
       }
     }
     return groups;
@@ -1309,7 +1331,7 @@ const groupTxsForCompressionAsync = async (
 
     processed++;
     if (processed % yieldEvery === 0) {
-      await yieldToEventLoop();
+      await yieldToEventLoop(shouldAbort);
     }
   }
   flushDaily();
@@ -1689,7 +1711,13 @@ const simulateSnapshotsSync = (
   };
 };
 
-const yieldToEventLoop = async (): Promise<void> => {
+const yieldToEventLoop = async (shouldAbort?: () => boolean): Promise<void> => {
+  const canProceed = await waitForPortfolioPopulateHomeRootVisible({
+    shouldAbort,
+  });
+  if (!canProceed) {
+    return;
+  }
   await new Promise<void>(resolve => {
     InteractionManager.runAfterInteractions(() => resolve());
   });
@@ -1714,6 +1742,7 @@ const simulateSnapshotsAsync = async (
   } = prepared;
 
   const yieldEvery = Math.max(1, Math.floor(asyncOpts.yieldEvery ?? 1000));
+  const shouldAbort = asyncOpts.shouldAbort;
   const setup = createSimulationSetup(args, prepared, feeOverrides);
 
   // 1) Reorder txs that share the same timestamp (+ blockheight) to avoid temporary underflows.
@@ -1722,6 +1751,7 @@ const simulateSnapshotsAsync = async (
     setup.state.balanceAtomic,
     setup.getDeltaAtomic,
     yieldEvery,
+    shouldAbort,
   );
 
   // 2) Group txs for optional daily compression (older than 90 days).
@@ -1730,6 +1760,7 @@ const simulateSnapshotsAsync = async (
     nowMs,
     compressionEnabled,
     yieldEvery,
+    shouldAbort,
   );
 
   // 3) Apply each group, producing a snapshot for each tx (or each day if compressed).
@@ -1763,7 +1794,7 @@ const simulateSnapshotsAsync = async (
       lastRate = processed.markRate;
 
       if (runtime.processedTxs % yieldEvery === 0) {
-        await yieldToEventLoop();
+        await yieldToEventLoop(shouldAbort);
       }
     }
 
@@ -1781,7 +1812,7 @@ const simulateSnapshotsAsync = async (
 
     // Also yield between groups on large wallets (daily groups can be big).
     if (gi % 25 === 0) {
-      await yieldToEventLoop();
+      await yieldToEventLoop(shouldAbort);
     }
   }
 
