@@ -1,4 +1,4 @@
-let homeRootDirectlyVisible = false;
+const visiblePortfolioPopulateScreens = new Set<string>();
 const visibilityListeners = new Set<() => void>();
 
 const notifyVisibilityListeners = () => {
@@ -7,11 +7,25 @@ const notifyVisibilityListeners = () => {
   listeners.forEach(listener => listener());
 };
 
-export const setPortfolioPopulateHomeRootVisible = (visible: boolean) => {
-  homeRootDirectlyVisible = visible;
+export const setPortfolioPopulateScreenVisible = (
+  screenId: string,
+  visible: boolean,
+) => {
   if (visible) {
+    visiblePortfolioPopulateScreens.add(screenId);
     notifyVisibilityListeners();
+    return;
   }
+
+  visiblePortfolioPopulateScreens.delete(screenId);
+};
+
+export const setPortfolioPopulateHomeRootVisible = (visible: boolean) => {
+  setPortfolioPopulateScreenVisible('HomeRoot', visible);
+};
+
+export const isPortfolioPopulateScreenVisible = () => {
+  return visiblePortfolioPopulateScreens.size > 0;
 };
 
 export const waitForPortfolioPopulateHomeRootVisible = async (args?: {
@@ -21,7 +35,7 @@ export const waitForPortfolioPopulateHomeRootVisible = async (args?: {
   const shouldAbort = args?.shouldAbort;
   const pollIntervalMs = args?.pollIntervalMs ?? 500;
 
-  while (!homeRootDirectlyVisible) {
+  while (!isPortfolioPopulateScreenVisible()) {
     if (shouldAbort?.()) {
       return false;
     }

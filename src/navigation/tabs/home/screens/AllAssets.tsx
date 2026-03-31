@@ -1,12 +1,14 @@
 import React, {
   useCallback,
   useDeferredValue,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useState,
 } from 'react';
-import {TextInput} from 'react-native';
+import {AppState, AppStateStatus, TextInput} from 'react-native';
 import {FlashList, ListRenderItemInfo} from '@shopify/flash-list';
+import {useIsFocused} from '@react-navigation/native';
 import styled, {useTheme} from 'styled-components/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useTranslation} from 'react-i18next';
@@ -32,6 +34,7 @@ import {
 } from '../../../../constants/currencies';
 import {getCurrencyAbbreviation} from '../../../../utils/helper-methods';
 import {useAssetIconResolver} from '../hooks/useAssetIconResolver';
+import {setPortfolioPopulateScreenVisible} from '../../../../store/portfolio';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AllAssets'>;
 const LIST_HORIZONTAL_GUTTER = Number.parseInt(ScreenGutter, 10);
@@ -86,6 +89,7 @@ const EmptySubtext = styled(BaseText)`
 const AllAssets: React.FC<Props> = ({navigation, route}) => {
   const {t} = useTranslation();
   const theme = useTheme();
+  const isFocused = useIsFocused();
   const commonOptions = useStackScreenOptions(theme);
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
   const populateInProgress = !!portfolio.populateStatus?.inProgress;
@@ -93,6 +97,9 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
 
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
   const [query, setQuery] = useState('');
+  const [appStateStatus, setAppStateStatus] = useState<AppStateStatus>(
+    AppState.currentState,
+  );
   const deferredQuery = useDeferredValue(query);
 
   const {visibleItems, isFiatLoading, isPopulateLoadingByKey} =
@@ -107,6 +114,20 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
       headerTitle: () => <HeaderTitle>{t('Assets')}</HeaderTitle>,
     });
   }, [commonOptions, navigation, t]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', setAppStateStatus);
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    const isDirectlyVisible = isFocused && appStateStatus === 'active';
+    setPortfolioPopulateScreenVisible('AllAssets', isDirectlyVisible);
+
+    return () => {
+      setPortfolioPopulateScreenVisible('AllAssets', false);
+    };
+  }, [appStateStatus, isFocused]);
 
   const normalizedDeferredQuery = deferredQuery.trim().toLowerCase();
   const hasActiveQuery = query.trim().length > 0;
