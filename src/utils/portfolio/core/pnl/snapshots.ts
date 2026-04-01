@@ -1353,7 +1353,7 @@ const simulateSnapshotsAsync = async (
     assetId,
   } = prepared;
 
-  const yieldEvery = Math.max(1, Math.floor(asyncOpts.yieldEvery ?? 1000));
+  const yieldEvery = Math.max(1, Math.floor(asyncOpts.yieldEvery ?? 250));
   const setup = createSimulationSetup(args, prepared, feeOverrides);
 
   // 1) Reorder txs that share the same timestamp (+ blockheight) to avoid temporary underflows.

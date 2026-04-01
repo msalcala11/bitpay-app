@@ -1322,7 +1322,7 @@ export const populatePortfolio =
       }
     };
 
-    const concurrency = Math.min(3, walletsToPopulate.length);
+    const concurrency = Math.min(1, walletsToPopulate.length);
     let nextIndex = 0;
     const workers = new Array(concurrency).fill(null).map(async () => {
       while (nextIndex < walletsToPopulate.length) {
