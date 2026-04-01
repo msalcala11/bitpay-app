@@ -1,5 +1,8 @@
 import {Effect, RootState} from '..';
+import {AppState} from 'react-native';
+import {navigationRef} from '../../Root';
 import {Network} from '../../constants';
+import {TabsScreens} from '../../navigation/tabs/TabsStack';
 import {
   getFiatRateSeriesCacheKey,
   type FiatRateInterval,
@@ -62,6 +65,14 @@ const PORTFOLIO_COMPRESS_OLD_TXS_TO_DAILY_SNAPSHOTS = true;
 const PORTFOLIO_ENABLE_INCREMENTAL_UPDATES = true;
 const PORTFOLIO_INCREMENTAL_MAX_PAGES = 10;
 const PORTFOLIO_INCREMENTAL_RESNAPSHOT_WINDOW_MS = MS_PER_DAY;
+const PORTFOLIO_POPULATE_ALLOWED_ROUTE_NAMES = new Set<string>([
+  TabsScreens.HOME,
+  'AllAssets',
+  'Allocation',
+]);
+const PORTFOLIO_POPULATE_PAUSE_POLL_MS = 250;
+const PORTFOLIO_POPULATE_ABORTED_ERROR_MESSAGE =
+  'PORTFOLIO_POPULATE_ABORTED';
 
 const resolveQuoteCurrency = (
   ...candidates: Array<string | undefined>
@@ -257,8 +268,48 @@ const buildSnapshotMismatchUpdate = (args: {
   };
 };
 
-const yieldToEventLoop = async (): Promise<void> => {
+const getPortfolioPopulateRouteName = (): string | undefined => {
+  if (!navigationRef.isReady()) {
+    return undefined;
+  }
+
+  return (
+    navigationRef.getCurrentRoute()?.name ??
+    navigationRef.getState()?.routes?.slice(-1)[0]?.name
+  );
+};
+
+const shouldPausePortfolioPopulate = (): boolean => {
+  const routeName = getPortfolioPopulateRouteName();
+
+  return (
+    AppState.currentState !== 'active' ||
+    !routeName ||
+    !PORTFOLIO_POPULATE_ALLOWED_ROUTE_NAMES.has(routeName)
+  );
+};
+
+const waitForPortfolioWorkSlot = async (
+  shouldAbort?: () => boolean,
+): Promise<boolean> => {
+  while (shouldPausePortfolioPopulate()) {
+    if (shouldAbort?.()) {
+      return false;
+    }
+
+    await new Promise<void>(resolve =>
+      setTimeout(resolve, PORTFOLIO_POPULATE_PAUSE_POLL_MS),
+    );
+  }
+
+  return !shouldAbort?.();
+};
+
+const yieldToEventLoop = async (
+  shouldAbort?: () => boolean,
+): Promise<boolean> => {
   await new Promise<void>(resolve => setTimeout(resolve, 0));
+  return waitForPortfolioWorkSlot(shouldAbort);
 };
 
 const getUtcDayStartMs = (tsMs: number): number => {
@@ -758,6 +809,11 @@ export const populatePortfolio =
       if (shouldAbort()) {
         return;
       }
+
+      if (!(await waitForPortfolioWorkSlot(shouldAbort))) {
+        return;
+      }
+
       dispatch(updatePopulateProgress({currentWalletId: wallet.id}));
       setWalletStatus({dispatch, walletId: wallet.id, status: 'in_progress'});
 
@@ -885,6 +941,9 @@ export const populatePortfolio =
           if (shouldAbort()) {
             return;
           }
+          if (!(await waitForPortfolioWorkSlot(shouldAbort))) {
+            return;
+          }
           const result = await dispatch(
             GetTransactionHistory({
               wallet,
@@ -903,7 +962,9 @@ export const populatePortfolio =
           iters++;
 
           if (iters % 2 === 0) {
-            await yieldToEventLoop();
+            if (!(await yieldToEventLoop(shouldAbort))) {
+              return;
+            }
           }
 
           if (typeof incrementalResnapshotCutoffMs === 'number') {
@@ -949,7 +1010,9 @@ export const populatePortfolio =
 
         const txs = acc.filter(tx => tx);
 
-        await yieldToEventLoop();
+        if (!(await yieldToEventLoop(shouldAbort))) {
+          return;
+        }
 
         if (!txs.length) {
           if (existingSnapshots.length) {
@@ -1109,6 +1172,9 @@ export const populatePortfolio =
         const fiatRateSeriesCache = getState().RATE?.fiatRateSeriesCache || {};
 
         let lastProgress = 0;
+        if (!(await waitForPortfolioWorkSlot(shouldAbort))) {
+          return;
+        }
         const storedSnaps = await buildBalanceSnapshotsAsync({
           wallet: walletSummary as any,
           credentials,
@@ -1128,6 +1194,13 @@ export const populatePortfolio =
             if (delta > 0) {
               bumpTxsProcessed(delta);
               lastProgress = next;
+            }
+          },
+        }, {
+          yieldEvery: 250,
+          onYield: async () => {
+            if (!(await waitForPortfolioWorkSlot(shouldAbort))) {
+              throw new Error(PORTFOLIO_POPULATE_ABORTED_ERROR_MESSAGE);
             }
           },
         });
@@ -1195,6 +1268,9 @@ export const populatePortfolio =
         }
 
         if (snapshots.length) {
+          if (!(await waitForPortfolioWorkSlot(shouldAbort))) {
+            return;
+          }
           snapshots = ensureSnapshotsSortedByTimestamp(snapshots);
           dispatch(setWalletSnapshots({walletId: wallet.id, snapshots}));
         }
@@ -1232,6 +1308,9 @@ export const populatePortfolio =
         });
       } catch (e) {
         const msg = getErrorString(e);
+        if (msg === PORTFOLIO_POPULATE_ABORTED_ERROR_MESSAGE) {
+          return;
+        }
         addPopulateError({dispatch, walletId: wallet.id, message: msg});
         setWalletStatus({dispatch, walletId: wallet.id, status: 'error'});
         walletsCompleted = updateWalletsCompleted({
