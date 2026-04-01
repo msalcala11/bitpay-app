@@ -1,7 +1,6 @@
-import React, {useCallback, useEffect, useLayoutEffect, useMemo, useState} from 'react';
-import {AppState, AppStateStatus, ImageRequireSource, View} from 'react-native';
+import React, {useCallback, useLayoutEffect, useMemo} from 'react';
+import {ImageRequireSource, View} from 'react-native';
 import {FlashList, ListRenderItemInfo} from '@shopify/flash-list';
-import {useIsFocused} from '@react-navigation/native';
 import styled, {useTheme} from 'styled-components/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useTranslation} from 'react-i18next';
@@ -25,7 +24,6 @@ import {getVisibleWalletsFromKeys} from '../../../../utils/portfolio/assets';
 import {LightBlack, Slate30, SlateDark} from '../../../../styles/colors';
 import {maskIfHidden} from '../../../../utils/hideBalances';
 import {useAssetIconResolver} from '../hooks/useAssetIconResolver';
-import {setPortfolioPopulateScreenVisible} from '../../../../store/portfolio/portfolio.visibility';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Allocation'>;
 
@@ -240,12 +238,8 @@ export const AllocationRowsList: React.FC<{
 const Allocation: React.FC<Props> = ({navigation, route}) => {
   const theme = useTheme();
   const {t} = useTranslation();
-  const isFocused = useIsFocused();
   const commonOptions = useStackScreenOptions(theme);
   const dispatch = useAppDispatch();
-  const [appStateStatus, setAppStateStatus] = useState<AppStateStatus>(
-    AppState.currentState,
-  );
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
   const {rates} = useAppSelector(({RATE}) => RATE);
   const {defaultAltCurrency} = useAppSelector(({APP}) => APP);
@@ -258,25 +252,6 @@ const Allocation: React.FC<Props> = ({navigation, route}) => {
       headerTitle: () => <HeaderTitle>{t('Allocation')}</HeaderTitle>,
     });
   }, [navigation, commonOptions, t]);
-
-  useEffect(() => {
-    const subscriptionAppStateChange = AppState.addEventListener(
-      'change',
-      setAppStateStatus,
-    );
-
-    return () => subscriptionAppStateChange.remove();
-  }, []);
-
-  useEffect(() => {
-    const isDirectlyVisible = isFocused && appStateStatus === 'active';
-
-    setPortfolioPopulateScreenVisible('Allocation', isDirectlyVisible);
-
-    return () => {
-      setPortfolioPopulateScreenVisible('Allocation', false);
-    };
-  }, [appStateStatus, isFocused]);
 
   const walletRows: AllocationWallet[] = useMemo(() => {
     const keyId = route.params?.keyId;
