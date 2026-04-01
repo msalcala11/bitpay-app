@@ -70,8 +70,7 @@ const PORTFOLIO_POPULATE_ALLOWED_ROUTE_NAMES = new Set<string>([
   'Allocation',
 ]);
 const PORTFOLIO_POPULATE_PAUSE_POLL_MS = 250;
-const PORTFOLIO_POPULATE_ABORTED_ERROR_MESSAGE =
-  'PORTFOLIO_POPULATE_ABORTED';
+const PORTFOLIO_POPULATE_ABORTED_ERROR_MESSAGE = 'PORTFOLIO_POPULATE_ABORTED';
 
 const resolveQuoteCurrency = (
   ...candidates: Array<string | undefined>
@@ -1174,35 +1173,40 @@ export const populatePortfolio =
         if (!(await waitForPortfolioWorkSlot(shouldAbort))) {
           return;
         }
-        const storedSnaps = await buildBalanceSnapshotsAsync({
-          wallet: walletSummary as any,
-          credentials,
-          txs: txsToProcess,
-          quoteCurrency: walletSnapshotQuoteCurrency,
-          bridgeQuoteCurrency,
-          fiatRateSeriesCache: fiatRateSeriesCache as any,
-          latestSnapshot: latestSnapshotForEngine,
-          compression: {enabled: PORTFOLIO_COMPRESS_OLD_TXS_TO_DAILY_SNAPSHOTS},
-          nowMs,
-          onProgress: p => {
-            const next =
-              typeof (p as any)?.processed === 'number'
-                ? (p as any).processed
-                : 0;
-            const delta = next - lastProgress;
-            if (delta > 0) {
-              bumpTxsProcessed(delta);
-              lastProgress = next;
-            }
+        const storedSnaps = await buildBalanceSnapshotsAsync(
+          {
+            wallet: walletSummary as any,
+            credentials,
+            txs: txsToProcess,
+            quoteCurrency: walletSnapshotQuoteCurrency,
+            bridgeQuoteCurrency,
+            fiatRateSeriesCache: fiatRateSeriesCache as any,
+            latestSnapshot: latestSnapshotForEngine,
+            compression: {
+              enabled: PORTFOLIO_COMPRESS_OLD_TXS_TO_DAILY_SNAPSHOTS,
+            },
+            nowMs,
+            onProgress: p => {
+              const next =
+                typeof (p as any)?.processed === 'number'
+                  ? (p as any).processed
+                  : 0;
+              const delta = next - lastProgress;
+              if (delta > 0) {
+                bumpTxsProcessed(delta);
+                lastProgress = next;
+              }
+            },
           },
-        }, {
-          yieldEvery: 250,
-          onYield: async () => {
-            if (!(await waitForPortfolioWorkSlot(shouldAbort))) {
-              throw new Error(PORTFOLIO_POPULATE_ABORTED_ERROR_MESSAGE);
-            }
+          {
+            yieldEvery: 250,
+            onYield: async () => {
+              if (!(await waitForPortfolioWorkSlot(shouldAbort))) {
+                throw new Error(PORTFOLIO_POPULATE_ABORTED_ERROR_MESSAGE);
+              }
+            },
           },
-        });
+        );
 
         // Ensure our global tx processed counter catches up if onProgress didn't
         // fire at the end.
