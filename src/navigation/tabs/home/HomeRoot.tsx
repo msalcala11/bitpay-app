@@ -1,4 +1,4 @@
-import {useScrollToTop, useTheme} from '@react-navigation/native';
+import {useIsFocused, useScrollToTop, useTheme} from '@react-navigation/native';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import {
@@ -57,6 +57,7 @@ import {
   sendCrypto,
 } from '../../../store/wallet/effects/send/send';
 import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
+import {setPortfolioPopulateScreenVisible} from '../../../store/portfolio/portfolio.visibility';
 import {Analytics} from '../../../store/analytics/analytics.effects';
 import {withErrorFallback} from '../TabScreenErrorFallback';
 import TabContainer from '../TabContainer';
@@ -95,7 +96,11 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   const {t} = useTranslation();
   const dispatch = useAppDispatch();
   const {currencyAbbreviation} = route.params || {};
+  const isFocused = useIsFocused();
   const theme = useTheme();
+  const [appStateStatus, setAppStateStatus] = useState<AppStateStatus>(
+    AppState.currentState,
+  );
   const [refreshing, setRefreshing] = useState(false);
   const brazeMarketingCarousel = useAppSelector(selectBrazeMarketingCarousel);
   const brazeShopWithCrypto = useAppSelector(selectBrazeShopWithCrypto);
@@ -356,6 +361,8 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
 
   const handleAppStateChange = useCallback(
     (status: AppStateStatus) => {
+      setAppStateStatus(status);
+
       if (status !== 'active' || !currencyAbbreviation) {
         return;
       }
@@ -395,6 +402,17 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
 
     return () => subscriptionAppStateChange.remove();
   }, [handleAppStateChange]);
+
+  useEffect(() => {
+    const isDirectlyVisible =
+      isFocused && appStateStatus === 'active' && !appIsLoading;
+
+    setPortfolioPopulateScreenVisible('HomeRoot', isDirectlyVisible);
+
+    return () => {
+      setPortfolioPopulateScreenVisible('HomeRoot', false);
+    };
+  }, [appIsLoading, appStateStatus, isFocused]);
 
   return (
     <TabContainer>

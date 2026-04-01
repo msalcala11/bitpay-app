@@ -1,8 +1,5 @@
 import {Effect, RootState} from '..';
-import {AppState} from 'react-native';
-import {navigationRef} from '../../Root';
 import {Network} from '../../constants';
-import {TabsScreens} from '../../navigation/tabs/TabsStack';
 import {
   getFiatRateSeriesCacheKey,
   type FiatRateInterval,
@@ -51,6 +48,7 @@ import {
   getSnapshotAtomicBalanceFromCryptoBalance,
   getWalletLiveAtomicBalance,
 } from '../../utils/portfolio/assets';
+import {waitForPortfolioPopulateScreenVisible} from './portfolio.visibility';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const POPULATE_FIAT_RATE_INTERVALS: FiatRateInterval[] = [
@@ -65,12 +63,6 @@ const PORTFOLIO_COMPRESS_OLD_TXS_TO_DAILY_SNAPSHOTS = true;
 const PORTFOLIO_ENABLE_INCREMENTAL_UPDATES = true;
 const PORTFOLIO_INCREMENTAL_MAX_PAGES = 10;
 const PORTFOLIO_INCREMENTAL_RESNAPSHOT_WINDOW_MS = MS_PER_DAY;
-const PORTFOLIO_POPULATE_ALLOWED_ROUTE_NAMES = new Set<string>([
-  TabsScreens.HOME,
-  'AllAssets',
-  'Allocation',
-]);
-const PORTFOLIO_POPULATE_PAUSE_POLL_MS = 250;
 const PORTFOLIO_POPULATE_ABORTED_ERROR_MESSAGE =
   'PORTFOLIO_POPULATE_ABORTED';
 
@@ -268,42 +260,12 @@ const buildSnapshotMismatchUpdate = (args: {
   };
 };
 
-const getPortfolioPopulateRouteName = (): string | undefined => {
-  if (!navigationRef.isReady()) {
-    return undefined;
-  }
-
-  return (
-    navigationRef.getCurrentRoute()?.name ??
-    navigationRef.getState()?.routes?.slice(-1)[0]?.name
-  );
-};
-
-const shouldPausePortfolioPopulate = (): boolean => {
-  const routeName = getPortfolioPopulateRouteName();
-
-  return (
-    AppState.currentState !== 'active' ||
-    !routeName ||
-    !PORTFOLIO_POPULATE_ALLOWED_ROUTE_NAMES.has(routeName)
-  );
-};
-
 const waitForPortfolioWorkSlot = async (
   shouldAbort?: () => boolean,
-): Promise<boolean> => {
-  while (shouldPausePortfolioPopulate()) {
-    if (shouldAbort?.()) {
-      return false;
-    }
-
-    await new Promise<void>(resolve =>
-      setTimeout(resolve, PORTFOLIO_POPULATE_PAUSE_POLL_MS),
-    );
-  }
-
-  return !shouldAbort?.();
-};
+): Promise<boolean> =>
+  waitForPortfolioPopulateScreenVisible({
+    shouldAbort,
+  });
 
 const yieldToEventLoop = async (
   shouldAbort?: () => boolean,
