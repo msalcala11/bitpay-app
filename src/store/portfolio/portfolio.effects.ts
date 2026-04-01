@@ -64,11 +64,6 @@ const PORTFOLIO_COMPRESS_OLD_TXS_TO_DAILY_SNAPSHOTS = true;
 const PORTFOLIO_ENABLE_INCREMENTAL_UPDATES = true;
 const PORTFOLIO_INCREMENTAL_MAX_PAGES = 10;
 const PORTFOLIO_INCREMENTAL_RESNAPSHOT_WINDOW_MS = MS_PER_DAY;
-const PORTFOLIO_POPULATE_ALLOWED_ROUTE_NAMES = new Set<string>([
-  'Home',
-  'AllAssets',
-  'Allocation',
-]);
 const PORTFOLIO_POPULATE_PAUSE_POLL_MS = 250;
 const PORTFOLIO_POPULATE_ABORTED_ERROR_MESSAGE =
   'PORTFOLIO_POPULATE_ABORTED';
@@ -267,24 +262,37 @@ const buildSnapshotMismatchUpdate = (args: {
   };
 };
 
-const getPortfolioPopulateRouteName = (): string | undefined => {
-  if (!navigationRef.isReady()) {
-    return undefined;
+const shouldPausePortfolioPopulate = (): boolean => {
+  if (AppState.currentState !== 'active' || !navigationRef.isReady()) {
+    return true;
   }
 
-  return (
-    navigationRef.getCurrentRoute()?.name ??
-    navigationRef.getState()?.routes?.slice(-1)[0]?.name
-  );
-};
+  const state = navigationRef.getState();
+  const rootRoutes = state?.routes || [];
+  const root = rootRoutes[
+    typeof state?.index === 'number' && state.index >= 0
+      ? state.index
+      : rootRoutes.length - 1
+  ] as
+    | {
+        name?: unknown;
+        state?: {
+          index?: number;
+          routes?: Array<{name?: unknown}>;
+        };
+      }
+    | undefined;
+  const tabRoutes = root?.state?.routes || [];
+  const tab = tabRoutes[
+    typeof root?.state?.index === 'number' && root.state.index >= 0
+      ? root.state.index
+      : tabRoutes.length - 1
+  ];
 
-const shouldPausePortfolioPopulate = (): boolean => {
-  const routeName = getPortfolioPopulateRouteName();
-
-  return (
-    AppState.currentState !== 'active' ||
-    !routeName ||
-    !PORTFOLIO_POPULATE_ALLOWED_ROUTE_NAMES.has(routeName)
+  return !(
+    root?.name === 'AllAssets' ||
+    root?.name === 'Allocation' ||
+    (root?.name === 'Tabs' && tab?.name === 'Home')
   );
 };
 
