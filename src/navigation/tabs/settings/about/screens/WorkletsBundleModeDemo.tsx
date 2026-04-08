@@ -20,6 +20,10 @@ import {
   getRNRuntimeInfo,
   getWorkletsBundleModeRuntime,
   primeWalletTxHistoryWorkerSession,
+  runQuickCryptoHashSmokeTestOnWorker,
+  runTransferredNitroHashSmokeTestOnWorker,
+  type WorkerQuickCryptoHashSmokeTestResult,
+  type WorkerTransferredNitroHashSmokeTestResult,
   type WorkerTxHistoryBatchResult,
   type WorkerTxHistorySessionSummary,
   type WorkletsTxHistoryWalletSnapshot,
@@ -272,7 +276,17 @@ const doesSessionMatchWallet = (
 
 const WorkletsBundleModeDemo = (_props: Props) => {
   const [priming, setPriming] = useState(false);
+  const [quickCryptoLoading, setQuickCryptoLoading] = useState(false);
+  const [transferredHashLoading, setTransferredHashLoading] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [quickCryptoError, setQuickCryptoError] = useState<string | null>(null);
+  const [quickCryptoResult, setQuickCryptoResult] =
+    useState<WorkerQuickCryptoHashSmokeTestResult | null>(null);
+  const [transferredHashError, setTransferredHashError] = useState<
+    string | null
+  >(null);
+  const [transferredHashResult, setTransferredHashResult] =
+    useState<WorkerTransferredNitroHashSmokeTestResult | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<WorkerTxHistorySessionSummary | null>(
@@ -361,6 +375,36 @@ const WorkletsBundleModeDemo = (_props: Props) => {
     }
   };
 
+  const handleQuickCryptoSmokeTest = async () => {
+    setQuickCryptoLoading(true);
+    setQuickCryptoError(null);
+    setQuickCryptoResult(null);
+
+    try {
+      const nextResult = await runQuickCryptoHashSmokeTestOnWorker();
+      setQuickCryptoResult(nextResult);
+    } catch (err: unknown) {
+      setQuickCryptoError(toErrorMessage(err));
+    } finally {
+      setQuickCryptoLoading(false);
+    }
+  };
+
+  const handleTransferredNitroHashSmokeTest = async () => {
+    setTransferredHashLoading(true);
+    setTransferredHashError(null);
+    setTransferredHashResult(null);
+
+    try {
+      const nextResult = await runTransferredNitroHashSmokeTestOnWorker();
+      setTransferredHashResult(nextResult);
+    } catch (err: unknown) {
+      setTransferredHashError(toErrorMessage(err));
+    } finally {
+      setTransferredHashLoading(false);
+    }
+  };
+
   const handleFetch = async () => {
     if (!selectedWallet) {
       return;
@@ -404,6 +448,13 @@ const WorkletsBundleModeDemo = (_props: Props) => {
         <Card>
           <SectionTitle>Bundle Mode txhistory worker-session demo</SectionTitle>
           <SectionBody>
+            Before trying worklet-side signing, this screen can run a very
+            small QuickCrypto smoke test in two variants: first by importing
+            `react-native-quick-crypto` directly inside the worker runtime,
+            then by creating the underlying Nitro `Hash` Hybrid Object on RN
+            and passing that object into the worker.
+          </SectionBody>
+          <SectionBody>
             This iteration primes the selected wallet into a dedicated Worklets
             worker once, then that worker executes multiple paged
             /v1/txhistory/ requests while the RN runtime signs each prepared
@@ -421,6 +472,49 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             Worker Runtime fetches using request paths derived from the worker
             session sequence.
           </Smallest>
+        </Card>
+
+        <Card>
+          <SectionTitle>QuickCrypto worker smoke test</SectionTitle>
+          <SectionBody>
+            This uses the direct package-root import path inside the worker
+            runtime and attempts a fixed SHA-256 digest. It is meant to answer
+            one narrow question: does `react-native-quick-crypto` import and
+            run a sync hash successfully in Bundle Mode on this branch?
+          </SectionBody>
+          <Button
+            state={quickCryptoLoading ? 'loading' : undefined}
+            disabled={
+              priming ||
+              loading ||
+              quickCryptoLoading ||
+              transferredHashLoading
+            }
+            onPress={handleQuickCryptoSmokeTest}
+            accessibilityLabel="Run the QuickCrypto worker smoke test">
+            Run QuickCrypto SHA-256 smoke test
+          </Button>
+        </Card>
+
+        <Card>
+          <SectionTitle>Transferred Nitro Hash smoke test</SectionTitle>
+          <SectionBody>
+            This creates QuickCrypto&apos;s underlying Nitro `Hash` Hybrid
+            Object on the RN runtime, passes that object across runtimes, and
+            calls its hash methods from inside the worker runtime.
+          </SectionBody>
+          <Button
+            state={transferredHashLoading ? 'loading' : undefined}
+            disabled={
+              priming ||
+              loading ||
+              quickCryptoLoading ||
+              transferredHashLoading
+            }
+            onPress={handleTransferredNitroHashSmokeTest}
+            accessibilityLabel="Run the transferred Nitro Hash worker smoke test">
+            Run transferred Nitro Hash smoke test
+          </Button>
         </Card>
 
         <Card>
@@ -469,7 +563,13 @@ const WorkletsBundleModeDemo = (_props: Props) => {
           <Spacer />
           <Button
             state={priming ? 'loading' : undefined}
-            disabled={!selectedWallet || priming || loading}
+            disabled={
+              !selectedWallet ||
+              priming ||
+              loading ||
+              quickCryptoLoading ||
+              transferredHashLoading
+            }
             onPress={primeSelectedWalletOnWorker}
             accessibilityLabel="Prime worker session with the selected wallet">
             Prime selected wallet on worker runtime
@@ -478,7 +578,13 @@ const WorkletsBundleModeDemo = (_props: Props) => {
           <Spacer />
           <Button
             state={loading ? 'loading' : undefined}
-            disabled={!selectedWallet || priming || loading}
+            disabled={
+              !selectedWallet ||
+              priming ||
+              loading ||
+              quickCryptoLoading ||
+              transferredHashLoading
+            }
             onPress={handleFetch}
             accessibilityLabel="Fetch multiple txhistory pages with worker runtime fetches">
             Fetch 3 txhistory pages via worker
@@ -497,6 +603,30 @@ const WorkletsBundleModeDemo = (_props: Props) => {
           </Card>
         ) : null}
 
+        {quickCryptoLoading ? (
+          <Card>
+            <StatusRow>
+              <ActivityIndicator />
+              <LoadingText>
+                Importing `react-native-quick-crypto` inside the worker runtime
+                and running a sync SHA-256 digest…
+              </LoadingText>
+            </StatusRow>
+          </Card>
+        ) : null}
+
+        {transferredHashLoading ? (
+          <Card>
+            <StatusRow>
+              <ActivityIndicator />
+              <LoadingText>
+                Creating a Nitro `Hash` Hybrid Object on RN and exercising it
+                from inside the worker runtime…
+              </LoadingText>
+            </StatusRow>
+          </Card>
+        ) : null}
+
         {loading ? (
           <Card>
             <StatusRow>
@@ -506,6 +636,133 @@ const WorkletsBundleModeDemo = (_props: Props) => {
                 request signing…
               </LoadingText>
             </StatusRow>
+          </Card>
+        ) : null}
+
+        {quickCryptoError ? (
+          <Card>
+            <SectionTitle>QuickCrypto smoke test failed</SectionTitle>
+            <RawOutput selectable>{quickCryptoError}</RawOutput>
+          </Card>
+        ) : null}
+
+        {quickCryptoResult ? (
+          <Card>
+            <SectionTitle>QuickCrypto smoke test</SectionTitle>
+            <MetaText>
+              Worker runtime kind:{' '}
+              {RUNTIME_KIND_LABELS[quickCryptoResult.runtimeKind] || 'Unknown'} (
+              {quickCryptoResult.runtimeKind})
+            </MetaText>
+            <MetaText>
+              Confirmed worker runtime:{' '}
+              {quickCryptoResult.isWorkerRuntime ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>Executed at: {quickCryptoResult.executedAtIso}</MetaText>
+            <MetaText>
+              `createHash` available:{' '}
+              {quickCryptoResult.hasCreateHash ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              `install` export available:{' '}
+              {quickCryptoResult.hasInstall ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              `setImmediate` available:{' '}
+              {quickCryptoResult.hasSetImmediate ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              `process.nextTick` available:{' '}
+              {quickCryptoResult.hasProcessNextTick ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              Digest matches expected:{' '}
+              {quickCryptoResult.matchesExpected ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>Input: {quickCryptoResult.input}</MetaText>
+            <MetaText>Digest: {quickCryptoResult.digestHex}</MetaText>
+            <MetaText>
+              Expected: {quickCryptoResult.expectedDigestHex}
+            </MetaText>
+            <MetaText>Module kind: {quickCryptoResult.moduleKind}</MetaText>
+            <MetaText>
+              Exported keys preview:{' '}
+              {quickCryptoResult.exportedKeysPreview.join(', ') || 'none'}
+            </MetaText>
+            <Spacer />
+            <SectionTitle>QuickCrypto JSON</SectionTitle>
+            <RawOutput selectable>
+              {JSON.stringify(quickCryptoResult, null, 2)}
+            </RawOutput>
+          </Card>
+        ) : null}
+
+        {transferredHashError ? (
+          <Card>
+            <SectionTitle>Transferred Nitro Hash smoke test failed</SectionTitle>
+            <RawOutput selectable>{transferredHashError}</RawOutput>
+          </Card>
+        ) : null}
+
+        {transferredHashResult ? (
+          <Card>
+            <SectionTitle>Transferred Nitro Hash smoke test</SectionTitle>
+            <MetaText>
+              Worker runtime kind:{' '}
+              {RUNTIME_KIND_LABELS[transferredHashResult.runtimeKind] ||
+                'Unknown'}{' '}
+              ({transferredHashResult.runtimeKind})
+            </MetaText>
+            <MetaText>
+              Confirmed worker runtime:{' '}
+              {transferredHashResult.isWorkerRuntime ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              Executed at: {transferredHashResult.executedAtIso}
+            </MetaText>
+            <MetaText>
+              `createHash` available:{' '}
+              {transferredHashResult.hasCreateHash ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              `update` available:{' '}
+              {transferredHashResult.hasUpdate ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              `digest` available:{' '}
+              {transferredHashResult.hasDigest ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              `getSupportedHashAlgorithms` available:{' '}
+              {transferredHashResult.hasGetSupportedHashAlgorithms
+                ? 'yes'
+                : 'no'}
+            </MetaText>
+            <MetaText>
+              `getOpenSSLVersion` available:{' '}
+              {transferredHashResult.hasGetOpenSSLVersion ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              Supports `sha256`:{' '}
+              {transferredHashResult.supportsSha256 ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              Digest matches expected:{' '}
+              {transferredHashResult.matchesExpected ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>Input: {transferredHashResult.input}</MetaText>
+            <MetaText>Digest: {transferredHashResult.digestHex}</MetaText>
+            <MetaText>
+              Expected: {transferredHashResult.expectedDigestHex}
+            </MetaText>
+            <MetaText>
+              OpenSSL version: {transferredHashResult.opensslVersion || 'n/a'}
+            </MetaText>
+            <Spacer />
+            <SectionTitle>Transferred Hash JSON</SectionTitle>
+            <RawOutput selectable>
+              {JSON.stringify(transferredHashResult, null, 2)}
+            </RawOutput>
           </Card>
         ) : null}
 

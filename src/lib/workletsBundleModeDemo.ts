@@ -16,6 +16,41 @@ export type RNRuntimeInfo = {
   isRNRuntime: boolean;
 };
 
+export type WorkerQuickCryptoHashSmokeTestResult = {
+  runtimeKind: number;
+  isWorkerRuntime: boolean;
+  workerRuntimeName: string;
+  executedAtIso: string;
+  input: string;
+  expectedDigestHex: string;
+  digestHex: string;
+  matchesExpected: boolean;
+  moduleKind: string;
+  hasCreateHash: boolean;
+  hasInstall: boolean;
+  hasSetImmediate: boolean;
+  hasProcessNextTick: boolean;
+  exportedKeysPreview: string[];
+};
+
+export type WorkerTransferredNitroHashSmokeTestResult = {
+  runtimeKind: number;
+  isWorkerRuntime: boolean;
+  workerRuntimeName: string;
+  executedAtIso: string;
+  input: string;
+  expectedDigestHex: string;
+  digestHex: string;
+  matchesExpected: boolean;
+  supportsSha256: boolean;
+  opensslVersion?: string;
+  hasCreateHash: boolean;
+  hasUpdate: boolean;
+  hasDigest: boolean;
+  hasGetSupportedHashAlgorithms: boolean;
+  hasGetOpenSSLVersion: boolean;
+};
+
 export type WorkletsTxHistoryWalletSnapshot = {
   walletId: string;
   walletName?: string;
@@ -138,12 +173,27 @@ type WorkerTxHistoryRequestKeyDetails = {
   requestPubKeyMatchesDerived?: boolean;
 };
 
+type NitroModulesLike = {
+  createHybridObject<T = unknown>(name: string): T;
+};
+
+type QuickCryptoHashHybrid = {
+  createHash(algorithm: string, outputLength?: number): void;
+  update(data: ArrayBuffer | string): void;
+  digest(encoding?: string): ArrayBuffer;
+  getSupportedHashAlgorithms(): string[];
+  getOpenSSLVersion(): string;
+};
+
 const WORKER_RUNTIME_NAME = 'bitpay-txhistory-worker';
 const BWC_CLIENT_VERSION_HEADER = 'bwc-11.7.0';
 const DEFAULT_TXHISTORY_LIMIT = 10;
 const DEFAULT_TXHISTORY_PAGE_COUNT = 3;
 const WORKER_TXHISTORY_SESSION_KEY = '__bitpayTxHistoryWorkerSession';
 const TXHISTORY_BASE_PATH = '/v1/txhistory/';
+const QUICK_CRYPTO_SMOKE_TEST_INPUT = 'bitpay-worklets-quickcrypto-smoke-test';
+const QUICK_CRYPTO_SMOKE_TEST_EXPECTED_SHA256 =
+  '18291c43112406c1e201ab3306a9335ec47eff1bc34bab335757c045f937cddc';
 
 let workletsBundleModeRuntime: WorkletRuntime | undefined;
 
@@ -233,6 +283,34 @@ const getBitcoreLibForWorker = () => {
 const getBitcoreLibForRN = () => {
   const importedBitcoreLib = require('@bitpay-labs/bitcore-lib') as any;
   return importedBitcoreLib?.default || importedBitcoreLib;
+};
+
+const getQuickCryptoForWorker = () => {
+  'worklet';
+
+  const importedQuickCrypto = require('react-native-quick-crypto') as any;
+  return importedQuickCrypto?.default || importedQuickCrypto;
+};
+
+const getNitroModulesForRN = (): NitroModulesLike => {
+  const importedNitroModules = require('react-native-nitro-modules') as any;
+  const nitroModules =
+    importedNitroModules?.NitroModules ||
+    importedNitroModules?.default?.NitroModules;
+
+  if (typeof nitroModules?.createHybridObject !== 'function') {
+    throw new Error(
+      'react-native-nitro-modules.NitroModules.createHybridObject() is unavailable on the RN runtime.',
+    );
+  }
+
+  return nitroModules as NitroModulesLike;
+};
+
+const createQuickCryptoHashHybridOnRN = (): QuickCryptoHashHybrid => {
+  return getNitroModulesForRN().createHybridObject<QuickCryptoHashHybrid>(
+    'Hash',
+  );
 };
 
 const getWorkerRequestKeyDetails = (
@@ -639,6 +717,152 @@ export const getRNRuntimeInfo = (): RNRuntimeInfo => ({
   runtimeKind: getRuntimeKind(),
   isRNRuntime: isRNRuntime(),
 });
+
+export const runQuickCryptoHashSmokeTestOnWorker = async (): Promise<WorkerQuickCryptoHashSmokeTestResult> => {
+  return runOnRuntimeAsync(
+    getWorkletsBundleModeRuntime(),
+    (
+      input: string,
+      expectedDigestHex: string,
+      workerRuntimeName: string,
+    ): WorkerQuickCryptoHashSmokeTestResult => {
+      'worklet';
+
+      ensureSigningGlobalsForWorker();
+
+      const globalRef = globalThis as any;
+      const hasSetImmediate = typeof globalRef.setImmediate === 'function';
+      const hasProcessNextTick =
+        typeof globalRef.process?.nextTick === 'function';
+
+      try {
+        const quickCrypto = getQuickCryptoForWorker();
+        const digestHex = quickCrypto
+          .createHash('sha256')
+          .update(input)
+          .digest('hex');
+
+        return {
+          runtimeKind: getRuntimeKind(),
+          isWorkerRuntime: isWorkerRuntime(),
+          workerRuntimeName,
+          executedAtIso: new Date().toISOString(),
+          input,
+          expectedDigestHex,
+          digestHex,
+          matchesExpected: digestHex === expectedDigestHex,
+          moduleKind: typeof quickCrypto,
+          hasCreateHash: typeof quickCrypto?.createHash === 'function',
+          hasInstall: typeof quickCrypto?.install === 'function',
+          hasSetImmediate,
+          hasProcessNextTick,
+          exportedKeysPreview: Object.keys(quickCrypto || {}).slice(0, 20),
+        };
+      } catch (err: unknown) {
+        throw new Error(
+          `QuickCrypto worker hash smoke test failed. setImmediate=${
+            hasSetImmediate ? 'yes' : 'no'
+          }, process.nextTick=${
+            hasProcessNextTick ? 'yes' : 'no'
+          }. ${toWorkerErrorMessage(err)}`,
+        );
+      }
+    },
+    QUICK_CRYPTO_SMOKE_TEST_INPUT,
+    QUICK_CRYPTO_SMOKE_TEST_EXPECTED_SHA256,
+    WORKER_RUNTIME_NAME,
+  );
+};
+
+export const runTransferredNitroHashSmokeTestOnWorker = async (): Promise<WorkerTransferredNitroHashSmokeTestResult> => {
+  let hashHybrid: QuickCryptoHashHybrid;
+
+  try {
+    hashHybrid = createQuickCryptoHashHybridOnRN();
+  } catch (err: unknown) {
+    throw new Error(
+      `RN Nitro Hash setup failed before crossing runtimes. ${
+        toRuntimeError(err).message
+      }`,
+    );
+  }
+
+  return runOnRuntimeAsync(
+    getWorkletsBundleModeRuntime(),
+    (
+      input: string,
+      expectedDigestHex: string,
+      workerRuntimeName: string,
+      workerHashHybrid: QuickCryptoHashHybrid,
+    ): WorkerTransferredNitroHashSmokeTestResult => {
+      'worklet';
+
+      ensureSigningGlobalsForWorker();
+
+      const hasCreateHash =
+        typeof workerHashHybrid?.createHash === 'function';
+      const hasUpdate = typeof workerHashHybrid?.update === 'function';
+      const hasDigest = typeof workerHashHybrid?.digest === 'function';
+      const hasGetSupportedHashAlgorithms =
+        typeof workerHashHybrid?.getSupportedHashAlgorithms === 'function';
+      const hasGetOpenSSLVersion =
+        typeof workerHashHybrid?.getOpenSSLVersion === 'function';
+
+      try {
+        const supportedAlgorithms = hasGetSupportedHashAlgorithms
+          ? workerHashHybrid.getSupportedHashAlgorithms()
+          : [];
+        const supportsSha256 = supportedAlgorithms.includes('sha256');
+
+        if (!hasCreateHash || !hasUpdate || !hasDigest) {
+          throw new Error(
+            `Transferred Hash hybrid object is missing required methods. createHash=${
+              hasCreateHash ? 'yes' : 'no'
+            }, update=${hasUpdate ? 'yes' : 'no'}, digest=${
+              hasDigest ? 'yes' : 'no'
+            }.`,
+          );
+        }
+
+        workerHashHybrid.createHash('sha256');
+        workerHashHybrid.update(input);
+        const digestHex = NodeBuffer.from(workerHashHybrid.digest()).toString(
+          'hex',
+        );
+
+        return {
+          runtimeKind: getRuntimeKind(),
+          isWorkerRuntime: isWorkerRuntime(),
+          workerRuntimeName,
+          executedAtIso: new Date().toISOString(),
+          input,
+          expectedDigestHex,
+          digestHex,
+          matchesExpected: digestHex === expectedDigestHex,
+          supportsSha256,
+          opensslVersion: hasGetOpenSSLVersion
+            ? workerHashHybrid.getOpenSSLVersion()
+            : undefined,
+          hasCreateHash,
+          hasUpdate,
+          hasDigest,
+          hasGetSupportedHashAlgorithms,
+          hasGetOpenSSLVersion,
+        };
+      } catch (err: unknown) {
+        throw new Error(
+          `Transferred Nitro Hash worker smoke test failed. ${toWorkerErrorMessage(
+            err,
+          )}`,
+        );
+      }
+    },
+    QUICK_CRYPTO_SMOKE_TEST_INPUT,
+    QUICK_CRYPTO_SMOKE_TEST_EXPECTED_SHA256,
+    WORKER_RUNTIME_NAME,
+    hashHybrid,
+  );
+};
 
 export const primeWalletTxHistoryWorkerSession = async (
   wallet: WorkletsTxHistoryWalletSnapshot,
