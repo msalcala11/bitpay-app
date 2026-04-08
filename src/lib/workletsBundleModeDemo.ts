@@ -10,6 +10,7 @@ import {
 import {Buffer as NodeBuffer} from 'buffer';
 import processPolyfill from 'process';
 import {BASE_BWS_URL} from '../constants/config';
+import type {BoxedBwsSigner} from './nitro/bwsSigner';
 
 export type RNRuntimeInfo = {
   runtimeKind: number;
@@ -95,6 +96,7 @@ export type WorkerTxHistoryBatchResult = {
   runtimeKind: number;
   isWorkerRuntime: boolean;
   workerRuntimeName: string;
+  signingMode: WorkerTxHistorySigningMode;
   fetchedAtIso: string;
   totalDurationMs: number;
   requestedPageCount: number;
@@ -108,6 +110,10 @@ export type WorkerTxHistoryBatchResult = {
   pages: WorkerTxHistoryPageResult[];
 };
 
+export type WorkerTxHistorySigningMode =
+  | 'rn_runtime'
+  | 'worker_nitro_bws_signer';
+
 type TxHistoryRequestWalletContext = Pick<
   WorkletsTxHistoryWalletSnapshot,
   'tokenAddress' | 'multisigContractAddress'
@@ -119,6 +125,11 @@ type WorkerTxHistoryPreparedRequest = {
   limit: number;
   requestPath: string;
   signature: string;
+};
+
+type WorkerBwsSigner = {
+  deriveRequestPubKey(requestPrivKeyHex: string): string;
+  signBwsGetRequest(requestPath: string, requestPrivKeyHex: string): string;
 };
 
 type WorkerTxHistorySession = {
@@ -478,6 +489,85 @@ const buildPreparedTxHistoryRequestsForSession = (
   return requests;
 };
 
+const getWorkerBwsSigner = (
+  boxedBwsSigner: BoxedBwsSigner | null | undefined,
+): WorkerBwsSigner | null => {
+  'worklet';
+
+  if (!boxedBwsSigner) {
+    return null;
+  }
+
+  return boxedBwsSigner.unbox() as unknown as WorkerBwsSigner;
+};
+
+const assertWorkerBwsSignerRequestKeyDetails = (
+  bwsSigner: WorkerBwsSigner,
+  requestKey: WorkerTxHistoryRequestKeyDetails,
+  requestPrivKey: string,
+) => {
+  'worklet';
+
+  const derivedRequestPubKey = bwsSigner.deriveRequestPubKey(requestPrivKey);
+  if (derivedRequestPubKey !== requestKey.derivedRequestPubKey) {
+    throw new Error(
+      `BwsSigner derived requestPubKey ${toHexPreview(
+        derivedRequestPubKey,
+      )} but the worker session expects ${toHexPreview(
+        requestKey.derivedRequestPubKey,
+      )}.`,
+    );
+  }
+
+  assertWorkerRequestKeyDetails(requestKey);
+};
+
+const createNitroSignedTxHistoryRequestForPrimedWallet = (
+  session: WorkerTxHistorySession,
+  bwsSigner: WorkerBwsSigner,
+  pageIndex: number,
+  skip: number,
+  limit: number,
+): WorkerTxHistoryPreparedRequest => {
+  'worklet';
+
+  const requestPath = buildTxHistoryRequestPath(
+    session.wallet,
+    skip,
+    limit,
+    session.initializedAtMs + session.requestSequence + 1,
+  );
+
+  let signature: string;
+  try {
+    assertWorkerBwsSignerRequestKeyDetails(
+      bwsSigner,
+      session.requestKey,
+      session.wallet.requestPrivKey,
+    );
+    signature = bwsSigner.signBwsGetRequest(
+      requestPath,
+      session.wallet.requestPrivKey,
+    );
+  } catch (err: unknown) {
+    throw new Error(
+      `Worker Nitro signing failed for txhistory page ${
+        pageIndex + 1
+      } (${requestPath}). ${toWorkerErrorMessage(err)}`,
+    );
+  }
+
+  session.requestSequence += 1;
+
+  return {
+    pageIndex,
+    skip,
+    limit,
+    requestPath,
+    signature,
+  };
+};
+
 const tryParseJson = (text: string) => {
   'worklet';
 
@@ -688,6 +778,7 @@ export const fetchPrimedWalletTxHistoryPageOnWorker = async (opts?: {
   skip?: number;
   limit?: number;
   wallet?: WorkletsTxHistoryWalletSnapshot;
+  boxedBwsSigner?: BoxedBwsSigner | null;
 }): Promise<{
   session: WorkerTxHistorySessionSummary;
   page: WorkerTxHistoryPageResult;
@@ -701,6 +792,7 @@ export const fetchPrimedWalletTxHistoryPageOnWorker = async (opts?: {
 
   const batchResult = await fetchManyWalletTxHistoryPagesOnWorker({
     wallet,
+    boxedBwsSigner: opts?.boxedBwsSigner,
     initialSkip: opts?.skip,
     pageSize: opts?.limit,
     pageCount: 1,
@@ -719,6 +811,7 @@ export const fetchPrimedWalletTxHistoryPageOnWorker = async (opts?: {
 
 export const fetchManyWalletTxHistoryPagesOnWorker = async (opts?: {
   wallet?: WorkletsTxHistoryWalletSnapshot;
+  boxedBwsSigner?: BoxedBwsSigner | null;
   initialSkip?: number;
   pageSize?: number;
   pageCount?: number;
@@ -736,6 +829,10 @@ export const fetchManyWalletTxHistoryPagesOnWorker = async (opts?: {
     opts?.pageCount,
     DEFAULT_TXHISTORY_PAGE_COUNT,
   );
+  const boxedBwsSigner = opts?.boxedBwsSigner ?? null;
+  const signingMode: WorkerTxHistorySigningMode = boxedBwsSigner
+    ? 'worker_nitro_bws_signer'
+    : 'rn_runtime';
   const activeSession = await getPrimedWalletTxHistoryWorkerSession();
 
   if (!activeSession) {
@@ -744,13 +841,16 @@ export const fetchManyWalletTxHistoryPagesOnWorker = async (opts?: {
     );
   }
 
-  const preparedRequests = buildPreparedTxHistoryRequestsForSession(
-    activeSession,
-    wallet.requestPrivKey,
-    initialSkip,
-    pageSize,
-    pageCount,
-  );
+  const preparedRequests =
+    signingMode === 'rn_runtime'
+      ? buildPreparedTxHistoryRequestsForSession(
+          activeSession,
+          wallet.requestPrivKey,
+          initialSkip,
+          pageSize,
+          pageCount,
+        )
+      : [];
 
   return new Promise((resolve, reject) => {
     const rejectOnRN = (message: string) => {
@@ -760,6 +860,8 @@ export const fetchManyWalletTxHistoryPagesOnWorker = async (opts?: {
     void runOnRuntimeAsync(
       getWorkletsBundleModeRuntime(),
       (
+        boxedBwsSignerArg: BoxedBwsSigner | null,
+        executionSigningMode: WorkerTxHistorySigningMode,
         signedRequests: WorkerTxHistoryPreparedRequest[],
         requestedPageCount: number,
         initialSkipArg: number,
@@ -774,6 +876,7 @@ export const fetchManyWalletTxHistoryPagesOnWorker = async (opts?: {
         void (async () => {
           try {
             const session = requireWorkerTxHistorySession();
+            const nitroBwsSigner = getWorkerBwsSigner(boxedBwsSignerArg);
             const startedAt = Date.now();
             const pages: WorkerTxHistoryPageResult[] = [];
 
@@ -782,22 +885,49 @@ export const fetchManyWalletTxHistoryPagesOnWorker = async (opts?: {
             let stoppedEarly = false;
             let totalTransactionsAcrossPages = 0;
 
-            for (const signedRequest of signedRequests) {
-              const expectedRequestPath = buildTxHistoryRequestPath(
-                session.wallet,
-                signedRequest.skip,
-                signedRequest.limit,
-                session.initializedAtMs + session.requestSequence + 1,
-              );
-              if (expectedRequestPath !== signedRequest.requestPath) {
+            for (let pageIndex = 0; pageIndex < requestedPageCount; pageIndex += 1) {
+              const signedRequest =
+                executionSigningMode === 'worker_nitro_bws_signer'
+                  ? (() => {
+                      if (!nitroBwsSigner) {
+                        throw new Error(
+                          'The boxed BwsSigner Hybrid Object was unavailable inside the worker runtime.',
+                        );
+                      }
+
+                      return createNitroSignedTxHistoryRequestForPrimedWallet(
+                        session,
+                        nitroBwsSigner,
+                        pageIndex,
+                        initialSkipArg + pageIndex * pageSizeArg,
+                        pageSizeArg,
+                      );
+                    })()
+                  : signedRequests[pageIndex];
+
+              if (!signedRequest) {
                 throw new Error(
-                  `Prepared txhistory request path for page ${
-                    signedRequest.pageIndex + 1
-                  } no longer matches the worker session. Prime the wallet again.`,
+                  `Prepared txhistory request ${pageIndex + 1} was unavailable on the RN runtime.`,
                 );
               }
 
-              session.requestSequence += 1;
+              if (executionSigningMode === 'rn_runtime') {
+                const expectedRequestPath = buildTxHistoryRequestPath(
+                  session.wallet,
+                  signedRequest.skip,
+                  signedRequest.limit,
+                  session.initializedAtMs + session.requestSequence + 1,
+                );
+                if (expectedRequestPath !== signedRequest.requestPath) {
+                  throw new Error(
+                    `Prepared txhistory request path for page ${
+                      signedRequest.pageIndex + 1
+                    } no longer matches the worker session. Prime the wallet again.`,
+                  );
+                }
+
+                session.requestSequence += 1;
+              }
 
               const page = await executePreparedTxHistoryRequestForPrimedWallet(
                 session,
@@ -824,6 +954,7 @@ export const fetchManyWalletTxHistoryPagesOnWorker = async (opts?: {
               runtimeKind: getRuntimeKind(),
               isWorkerRuntime: isWorkerRuntime(),
               workerRuntimeName: session.workerRuntimeName,
+              signingMode: executionSigningMode,
               fetchedAtIso: new Date().toISOString(),
               totalDurationMs: Date.now() - startedAt,
               requestedPageCount,
@@ -841,6 +972,8 @@ export const fetchManyWalletTxHistoryPagesOnWorker = async (opts?: {
           }
         })();
       },
+      boxedBwsSigner,
+      signingMode,
       preparedRequests,
       pageCount,
       initialSkip,

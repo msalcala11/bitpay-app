@@ -20,10 +20,12 @@ import {
   getRNRuntimeInfo,
   getWorkletsBundleModeRuntime,
   primeWalletTxHistoryWorkerSession,
+  type WorkerTxHistorySigningMode,
   type WorkerTxHistoryBatchResult,
   type WorkerTxHistorySessionSummary,
   type WorkletsTxHistoryWalletSnapshot,
 } from '../../../../../lib/workletsBundleModeDemo';
+import {getOptionalBoxedBwsSigner} from '../../../../../lib/nitro/bwsSigner';
 import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
 import {useAppSelector} from '../../../../../utils/hooks';
 import type {Key} from '../../../../../store/wallet/wallet.models';
@@ -43,6 +45,11 @@ const RUNTIME_KIND_LABELS: Record<number, string> = {
   1: 'RN Runtime',
   2: 'UI Runtime',
   3: 'Worker Runtime',
+};
+
+const SIGNING_MODE_LABELS: Record<WorkerTxHistorySigningMode, string> = {
+  rn_runtime: 'RN runtime signing fallback',
+  worker_nitro_bws_signer: 'Worker Nitro BwsSigner',
 };
 
 const Container = styled(ScreenContainer)`
@@ -285,6 +292,8 @@ const WorkletsBundleModeDemo = (_props: Props) => {
 
   const rnRuntimeInfo = useMemo(() => getRNRuntimeInfo(), []);
   const workerRuntime = useMemo(() => getWorkletsBundleModeRuntime(), []);
+  const boxedBwsSigner = useMemo(() => getOptionalBoxedBwsSigner(), []);
+  const hasWorkerNitroBwsSigner = !!boxedBwsSigner;
 
   const walletOptions = useMemo(() => {
     const options: DemoWalletOption[] = [];
@@ -384,6 +393,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
 
       const nextResult = await fetchManyWalletTxHistoryPagesOnWorker({
         wallet: selectedWallet,
+        boxedBwsSigner,
         initialSkip: 0,
         pageSize: 10,
         pageCount: 3,
@@ -406,20 +416,31 @@ const WorkletsBundleModeDemo = (_props: Props) => {
           <SectionBody>
             This iteration primes the selected wallet into a dedicated Worklets
             worker once, then that worker executes multiple paged
-            /v1/txhistory/ requests while the RN runtime signs each prepared
-            request path before dispatch. That split keeps fetch/parsing on the
-            worker without sending Nitro-backed crypto into the Worklet runtime.
+            /v1/txhistory/ requests. If a native `BwsSigner` Hybrid Object is
+            registered, the worker signs requests with Nitro directly;
+            otherwise the demo falls back to RN-side signing before dispatch.
           </SectionBody>
           <MetaText>RN runtime kind: {RUNTIME_KIND_LABELS[rnRuntimeInfo.runtimeKind]} ({rnRuntimeInfo.runtimeKind})</MetaText>
           <MetaText>
             Worker runtime: {workerRuntime.name} (id: {workerRuntime.runtimeId})
+          </MetaText>
+          <MetaText>
+            Worker Nitro BwsSigner registered:{' '}
+            {hasWorkerNitroBwsSigner ? 'yes' : 'no'}
+          </MetaText>
+          <MetaText>
+            Active signing path:{' '}
+            {hasWorkerNitroBwsSigner
+              ? SIGNING_MODE_LABELS.worker_nitro_bws_signer
+              : SIGNING_MODE_LABELS.rn_runtime}
           </MetaText>
           <MetaText>Eligible wallets found: {walletOptions.length}</MetaText>
           <Smallest>
             Expected result after a successful run: the worker session should be
             primed for the selected wallet and the page results should show 3
             Worker Runtime fetches using request paths derived from the worker
-            session sequence.
+            session sequence, with the result reporting which signing path was
+            actually used.
           </Smallest>
         </Card>
 
@@ -502,8 +523,9 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             <StatusRow>
               <ActivityIndicator />
               <LoadingText>
-                Running repeated worker-side txhistory fetches with RN-side
-                request signing…
+                {hasWorkerNitroBwsSigner
+                  ? 'Running repeated worker-side txhistory fetches with Nitro worker signing…'
+                  : 'Running repeated worker-side txhistory fetches with RN-side request signing…'}
               </LoadingText>
             </StatusRow>
           </Card>
@@ -605,6 +627,10 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             </MetaText>
             <MetaText>
               Confirmed worker runtime: {result.isWorkerRuntime ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              Signing mode:{' '}
+              {SIGNING_MODE_LABELS[result.signingMode] || result.signingMode}
             </MetaText>
             <MetaText>Total duration: {result.totalDurationMs} ms</MetaText>
             <MetaText>Fetched at: {result.fetchedAtIso}</MetaText>
