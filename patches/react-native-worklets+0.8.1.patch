@@ -17,15 +17,36 @@ index 0000000..0000000 100644
      hasError: false,
      importedAll: {},
      importedDefault: {},
-@@ -86,7 +87,8 @@ export function mockTurboModuleRegistry() {
+@@ -86,10 +87,22 @@ export function mockTurboModuleRegistry() {
   */
  export function mockTurboModuleRegistry() {
 -  const modules = require.getModules();
+-  
+-  const TurboModuleRegistryId = require.resolveWeak(
+-    'react-native/Libraries/TurboModule/TurboModuleRegistry'
+-  );
++  const TurboModules = new Map<string, unknown>();
++
++  TurboModules.set('Networking', {});
++
++  globalThis.TurboModules = TurboModules;
++  (
++    globalThis as typeof globalThis & {
++      __turboModuleProxy?: (name: string) => unknown | null;
++    }
++  ).__turboModuleProxy = (name: string) =>
++    globalThis.TurboModules.get(name) ?? null;
++
 +  const metroRequire = require.getModules ? require : globalThis.__r;
++
++  if (!metroRequire?.getModules) {
++    return;
++  }
++
 +  const modules = metroRequire.getModules();
- 
-   const TurboModuleRegistryId = require.resolveWeak(
-     'react-native/Libraries/TurboModule/TurboModuleRegistry'
++  const TurboModuleRegistryId = require.resolveWeak(
++    'react-native/Libraries/TurboModule/TurboModuleRegistry'
++  );
 diff --git a/node_modules/react-native-worklets/lib/module/bundleMode/metroOverrides.native.js b/node_modules/react-native-worklets/lib/module/bundleMode/metroOverrides.native.js
 index 0000000..0000000 100644
 --- a/node_modules/react-native-worklets/lib/module/bundleMode/metroOverrides.native.js
@@ -45,11 +66,174 @@ index 0000000..0000000 100644
      hasError: false,
      importedAll: {},
      importedDefault: {},
-@@ -70,7 +71,8 @@ export function disallowRNImports() {
+@@ -70,8 +71,15 @@ export function disallowRNImports() {
   * Native.
   */
  export function mockTurboModuleRegistry() {
 -  const modules = require.getModules();
+-  const TurboModuleRegistryId = require.resolveWeak('react-native/Libraries/TurboModule/TurboModuleRegistry');
+   const TurboModules = new Map();
+   TurboModules.set('Networking', {});
+   globalThis.TurboModules = TurboModules;
++  globalThis.__turboModuleProxy = name => globalThis.TurboModules.get(name) ?? null;
 +  const metroRequire = require.getModules ? require : globalThis.__r;
++  if (!(metroRequire !== null && metroRequire !== void 0 && metroRequire.getModules)) {
++    return;
++  }
 +  const modules = metroRequire.getModules();
-   const TurboModuleRegistryId = require.resolveWeak('react-native/Libraries/TurboModule/TurboModuleRegistry');
++  const TurboModuleRegistryId = require.resolveWeak('react-native/Libraries/TurboModule/TurboModuleRegistry');
+diff --git a/node_modules/react-native-worklets/src/initializers/initializers.native.ts b/node_modules/react-native-worklets/src/initializers/initializers.native.ts
+index 0000000..0000000 100644
+--- a/node_modules/react-native-worklets/src/initializers/initializers.native.ts
++++ b/node_modules/react-native-worklets/src/initializers/initializers.native.ts
+@@ -152,7 +152,10 @@ function initializeWorkletRuntime() {
+       disallowRNImports();
+     }
+ 
+-    if (getStaticFeatureFlag('FETCH_PREVIEW_ENABLED')) {
++    if (
++      getStaticFeatureFlag('FETCH_PREVIEW_ENABLED') &&
++      globalThis.__RUNTIME_KIND === RuntimeKind.Worker
++    ) {
+       mockTurboModuleRegistry();
+       initializeNetworking();
+     }
+diff --git a/node_modules/react-native-worklets/lib/module/initializers/initializers.native.js b/node_modules/react-native-worklets/lib/module/initializers/initializers.native.js
+index 0000000..0000000 100644
+--- a/node_modules/react-native-worklets/lib/module/initializers/initializers.native.js
++++ b/node_modules/react-native-worklets/lib/module/initializers/initializers.native.js
+@@ -131,7 +131,7 @@ function initializeWorkletRuntime() {
+       silenceHMRWarnings();
+       disallowRNImports();
+     }
+-    if (getStaticFeatureFlag('FETCH_PREVIEW_ENABLED')) {
++    if (getStaticFeatureFlag('FETCH_PREVIEW_ENABLED') && globalThis.__RUNTIME_KIND === RuntimeKind.Worker) {
+       mockTurboModuleRegistry();
+       initializeNetworking();
+     }
+diff --git a/node_modules/react-native-worklets/android/src/main/java/com/swmansion/worklets/ScriptBufferWrapper.java b/node_modules/react-native-worklets/android/src/main/java/com/swmansion/worklets/ScriptBufferWrapper.java
+index 0000000..0000000 100644
+--- a/node_modules/react-native-worklets/android/src/main/java/com/swmansion/worklets/ScriptBufferWrapper.java
++++ b/node_modules/react-native-worklets/android/src/main/java/com/swmansion/worklets/ScriptBufferWrapper.java
+@@ -1,15 +1,16 @@
+ package com.swmansion.worklets;
+ 
+ import android.annotation.SuppressLint;
++import android.content.Context;
+ import android.content.res.AssetManager;
+ import com.facebook.jni.HybridData;
+ import com.facebook.proguard.annotations.DoNotStrip;
+ import com.facebook.proguard.annotations.DoNotStripAny;
++import java.io.File;
++import java.io.FileOutputStream;
+ import java.io.IOException;
+ import java.io.InputStream;
+ import java.net.HttpURLConnection;
+ import java.net.URL;
+-import java.nio.charset.StandardCharsets;
+ 
+ /** A wrapper around a JavaScript bundle that is backed by a native C++ object. */
+ @SuppressWarnings("JavaJniMissingFunction")
+@@ -17,7 +18,8 @@ import java.nio.charset.StandardCharsets;
+ @DoNotStripAny
+ public class ScriptBufferWrapper {
+-  public ScriptBufferWrapper(String uri, AssetManager assetManager) {
++  public ScriptBufferWrapper(String uri, Context context) {
++    AssetManager assetManager = context.getAssets();
+     String filePrefix = "file://";
+     String assetsPrefix = "assets://";
+ 
+@@ -27,37 +29,35 @@ public class ScriptBufferWrapper {
+       String assetURL = uri.substring(assetsPrefix.length());
+       mHybridData = initHybridFromAssets(assetManager, assetURL);
+     } else {
+-      String scriptContent;
++      File scriptFile;
+       try {
+-        scriptContent = downloadScript(uri);
++        scriptFile = downloadScriptToFile(uri, context);
+       } catch (IOException e) {
+         throw new RuntimeException(e);
+       }
+-      mHybridData = initHybridFromString(scriptContent, uri);
++      mHybridData = initHybridFromFile(scriptFile.getAbsolutePath());
+     }
+   }
+ 
+-  private static String downloadScript(String url) throws IOException {
++  private static File downloadScriptToFile(String url, Context context) throws IOException {
+     var scriptUrl = new URL(url);
+     HttpURLConnection connection = (HttpURLConnection) scriptUrl.openConnection();
+     try {
+-      byte[] content;
+-
+-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+-        content = connection.getInputStream().readAllBytes();
+-      } else {
+-        content = readBytes(connection.getInputStream());
++      File directory = new File(context.getCacheDir(), "worklets-bundle");
++      if (!directory.exists() && !directory.mkdirs() && !directory.exists()) {
++        throw new IOException("Unable to create worklets bundle cache directory.");
+       }
+ 
+-      return new String(content, StandardCharsets.UTF_8);
++      File bundleFile =
++          new File(directory, "runtime-bundle-" + Integer.toHexString(url.hashCode()) + ".js");
++      writeStreamToFile(connection.getInputStream(), bundleFile);
++      return bundleFile;
+     } finally {
+       if (connection != null) {
+         connection.disconnect();
+       }
+     }
+   }
+ 
+-  /** Reads all bytes from an InputStream into a byte array for SDKs below 33. */
+-  private static byte[] readBytes(InputStream inputStream) throws IOException {
++  /** Streams the bundle directly to disk to avoid duplicating large debug bundles in memory. */
++  private static void writeStreamToFile(InputStream inputStream, File outputFile) throws IOException {
+     final int BUFFER_SIZE = 4096;
+-    try {
+-      java.io.ByteArrayOutputStream byteBuffer = new java.io.ByteArrayOutputStream();
++    try (InputStream stream = inputStream;
++        FileOutputStream outputStream = new FileOutputStream(outputFile, false)) {
+       byte[] buffer = new byte[BUFFER_SIZE];
+       int len;
+-      while ((len = inputStream.read(buffer)) != -1) {
+-        byteBuffer.write(buffer, 0, len);
++      while ((len = stream.read(buffer)) != -1) {
++        outputStream.write(buffer, 0, len);
+       }
+-      return byteBuffer.toByteArray();
+-    } finally {
+-      if (inputStream != null) {
+-        inputStream.close();
+-      }
+     }
+   }
+diff --git a/node_modules/react-native-worklets/android/src/no-networking/com/swmansion/worklets/WorkletsModule.java b/node_modules/react-native-worklets/android/src/no-networking/com/swmansion/worklets/WorkletsModule.java
+index 0000000..0000000 100644
+--- a/node_modules/react-native-worklets/android/src/no-networking/com/swmansion/worklets/WorkletsModule.java
++++ b/node_modules/react-native-worklets/android/src/no-networking/com/swmansion/worklets/WorkletsModule.java
+@@ -74,7 +74,7 @@ public class WorkletsModule extends NativeWorkletsModuleSpec implements Lifecyc
+ 
+     ScriptBufferWrapper scriptBufferWrapper = null;
+     if (bundleModeEnabled) {
+-      scriptBufferWrapper = new ScriptBufferWrapper(sourceURL, context.getAssets());
++      scriptBufferWrapper = new ScriptBufferWrapper(sourceURL, context);
+     }
+ 
+     mHybridData =
+diff --git a/node_modules/react-native-worklets/android/src/networking/com/swmansion/worklets/WorkletsModule.java b/node_modules/react-native-worklets/android/src/networking/com/swmansion/worklets/WorkletsModule.java
+index 0000000..0000000 100644
+--- a/node_modules/react-native-worklets/android/src/networking/com/swmansion/worklets/WorkletsModule.java
++++ b/node_modules/react-native-worklets/android/src/networking/com/swmansion/worklets/WorkletsModule.java
+@@ -79,7 +79,7 @@ public class WorkletsModule extends NativeWorkletsModuleSpec implements Lifecyc
+ 
+     ScriptBufferWrapper scriptBufferWrapper = null;
+     if (bundleModeEnabled) {
+-      scriptBufferWrapper = new ScriptBufferWrapper(sourceURL, context.getAssets());
++      scriptBufferWrapper = new ScriptBufferWrapper(sourceURL, context);
+     }
+ 
+     mHybridData =

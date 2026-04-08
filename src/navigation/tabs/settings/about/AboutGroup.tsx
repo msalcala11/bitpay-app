@@ -6,7 +6,6 @@ import {useTranslation} from 'react-i18next';
 import StorageUsage from './screens/StorageUsage';
 import PortfolioDebug from './screens/PortfolioDebug';
 import PortfolioWalletDebug from './screens/PortfolioWalletDebug';
-import WorkletsBundleModeDemo from './screens/WorkletsBundleModeDemo';
 import {Root} from '../../../../Root';
 import {useStackScreenOptions} from '../../../utils/headerHelpers';
 
@@ -79,7 +78,7 @@ const AboutGroup = ({About, theme}: AboutProps) => {
 
       <About.Screen
         name={AboutScreens.WORKLETS_BUNDLE_MODE_DEMO}
-        component={WorkletsBundleModeDemo}
+        getComponent={() => require('./screens/WorkletsBundleModeDemo').default}
         options={{
           headerTitle: 'Worklets TxHistory Demo',
         }}
