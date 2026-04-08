@@ -169,12 +169,17 @@ const truncateMiddle = (value: string | undefined, visible = 10) => {
   return `${value.slice(0, visible)}…${value.slice(-visible)}`;
 };
 
+const isMainnetNetwork = (network: string | undefined) => {
+  return network === 'livenet' || network === 'mainnet';
+};
+
 const buildWalletOption = (
   wallet: any,
   keyName?: string,
 ): DemoWalletOption | null => {
   const credentials = wallet?.credentials;
   const requestPrivKey = credentials?.requestPrivKey;
+  const requestPubKey = credentials?.requestPubKey;
   const copayerId = credentials?.copayerId;
   const walletId = credentials?.walletId || wallet?.id;
 
@@ -204,6 +209,11 @@ const buildWalletOption = (
   const chain = wallet?.chain || credentials?.chain;
   const network = wallet?.network || credentials?.network;
   const coin = credentials?.coin || wallet?.currencyAbbreviation;
+
+  if (!isMainnetNetwork(network)) {
+    return null;
+  }
+
   const selectionId = [
     walletId,
     copayerId,
@@ -238,6 +248,7 @@ const buildWalletOption = (
     network,
     copayerId,
     requestPrivKey,
+    requestPubKey,
     tokenAddress,
     multisigContractAddress,
   };
@@ -372,6 +383,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
       }
 
       const nextResult = await fetchManyWalletTxHistoryPagesOnWorker({
+        wallet: selectedWallet,
         initialSkip: 0,
         pageSize: 10,
         pageCount: 3,
@@ -393,9 +405,10 @@ const WorkletsBundleModeDemo = (_props: Props) => {
           <SectionTitle>Bundle Mode txhistory worker-session demo</SectionTitle>
           <SectionBody>
             This iteration primes the selected wallet into a dedicated Worklets
-            worker once, then that worker builds, signs, and executes multiple
-            paged /v1/txhistory/ requests without needing the RN runtime to
-            assemble each request.
+            worker once, then that worker executes multiple paged
+            /v1/txhistory/ requests while the RN runtime signs each prepared
+            request path before dispatch. That split keeps fetch/parsing on the
+            worker without sending Nitro-backed crypto into the Worklet runtime.
           </SectionBody>
           <MetaText>RN runtime kind: {RUNTIME_KIND_LABELS[rnRuntimeInfo.runtimeKind]} ({rnRuntimeInfo.runtimeKind})</MetaText>
           <MetaText>
@@ -405,7 +418,8 @@ const WorkletsBundleModeDemo = (_props: Props) => {
           <Smallest>
             Expected result after a successful run: the worker session should be
             primed for the selected wallet and the page results should show 3
-            Worker Runtime requests with worker-built request paths.
+            Worker Runtime fetches using request paths derived from the worker
+            session sequence.
           </Smallest>
         </Card>
 
@@ -466,8 +480,8 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             state={loading ? 'loading' : undefined}
             disabled={!selectedWallet || priming || loading}
             onPress={handleFetch}
-            accessibilityLabel="Fetch multiple txhistory pages entirely inside the worker runtime">
-            Fetch 3 txhistory pages inside worker
+            accessibilityLabel="Fetch multiple txhistory pages with worker runtime fetches">
+            Fetch 3 txhistory pages via worker
           </Button>
         </Card>
 
@@ -488,7 +502,8 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             <StatusRow>
               <ActivityIndicator />
               <LoadingText>
-                Running repeated worker-side txhistory requests and signatures…
+                Running repeated worker-side txhistory fetches with RN-side
+                request signing…
               </LoadingText>
             </StatusRow>
           </Card>
@@ -518,6 +533,22 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             </MetaText>
             <MetaText>Initialized at: {session.initializedAtIso}</MetaText>
             <MetaText>Worker request sequence: {session.requestSequence}</MetaText>
+            <MetaText>
+              Stored request pubkey:{' '}
+              {truncateMiddle(session.wallet.requestPubKey, 8)}
+            </MetaText>
+            <MetaText>
+              Derived request pubkey:{' '}
+              {truncateMiddle(session.wallet.derivedRequestPubKey, 8)}
+            </MetaText>
+            <MetaText>
+              Request pubkey matches derived:{' '}
+              {session.wallet.requestPubKeyMatchesDerived === undefined
+                ? 'not provided'
+                : session.wallet.requestPubKeyMatchesDerived
+                  ? 'yes'
+                  : 'no'}
+            </MetaText>
             <MetaText>
               Wallet: {session.wallet.walletName || session.wallet.walletId}
             </MetaText>

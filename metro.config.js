@@ -84,9 +84,9 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   }
 
   if (moduleName === '@@silence-original') moduleName = REAL_SILENCE_PATH;
-  if (moduleName === '@@silence-wasm')     moduleName = SILENCE_WASM_PATH;
+  if (moduleName === '@@silence-wasm') moduleName = SILENCE_WASM_PATH;
 
-  return context.resolveRequest(
+  return bundleModeMetroConfig.resolver.resolveRequest(
     context,
     ALIASES[moduleName] ?? moduleName,
     platform,

@@ -4,9 +4,9 @@ import {
   isRNRuntime,
   isWorkerRuntime,
   runOnRuntimeAsync,
+  scheduleOnRN,
   type WorkletRuntime,
 } from 'react-native-worklets';
-import * as CWC from '@bitpay-labs/crypto-wallet-core';
 import {Buffer as NodeBuffer} from 'buffer';
 import processPolyfill from 'process';
 import {BASE_BWS_URL} from '../constants/config';
@@ -25,6 +25,7 @@ export type WorkletsTxHistoryWalletSnapshot = {
   network?: string;
   copayerId: string;
   requestPrivKey: string;
+  requestPubKey?: string;
   tokenAddress?: string;
   multisigContractAddress?: string;
 };
@@ -36,6 +37,9 @@ export type WorkerTxHistoryWalletSummary = {
   chain?: string;
   coin?: string;
   network?: string;
+  requestPubKey?: string;
+  derivedRequestPubKey?: string;
+  requestPubKeyMatchesDerived?: boolean;
   tokenAddress?: string;
   multisigContractAddress?: string;
   isTokenWallet: boolean;
@@ -57,6 +61,7 @@ export type WorkerTxHistorySessionSummary = {
   isWorkerRuntime: boolean;
   workerRuntimeName: string;
   initializedAtIso: string;
+  initializedAtMs: number;
   requestSequence: number;
   requestContext: {
     basePath: string;
@@ -77,6 +82,9 @@ export type WorkerTxHistoryPageResult = {
   fetchedAtIso: string;
   durationMs: number;
   signaturePreview: string;
+  requestPubKeyPreview?: string;
+  derivedRequestPubKeyPreview?: string;
+  requestPubKeyMatchesDerived?: boolean;
   responseBodyPreview?: string;
   responseBodyType: 'array' | 'object' | 'string' | 'null';
   txCount: number;
@@ -100,8 +108,22 @@ export type WorkerTxHistoryBatchResult = {
   pages: WorkerTxHistoryPageResult[];
 };
 
+type TxHistoryRequestWalletContext = Pick<
+  WorkletsTxHistoryWalletSnapshot,
+  'tokenAddress' | 'multisigContractAddress'
+>;
+
+type WorkerTxHistoryPreparedRequest = {
+  pageIndex: number;
+  skip: number;
+  limit: number;
+  requestPath: string;
+  signature: string;
+};
+
 type WorkerTxHistorySession = {
   wallet: WorkletsTxHistoryWalletSnapshot;
+  requestKey: WorkerTxHistoryRequestKeyDetails;
   baseBwsUrl: string;
   clientVersionHeader: string;
   workerRuntimeName: string;
@@ -110,7 +132,12 @@ type WorkerTxHistorySession = {
   requestSequence: number;
 };
 
-const BitcoreLib = (CWC as any).BitcoreLib || (CWC as any).default?.BitcoreLib;
+type WorkerTxHistoryRequestKeyDetails = {
+  requestPubKey?: string;
+  derivedRequestPubKey: string;
+  requestPubKeyMatchesDerived?: boolean;
+};
+
 const WORKER_RUNTIME_NAME = 'bitpay-txhistory-worker';
 const BWC_CLIENT_VERSION_HEADER = 'bwc-11.7.0';
 const DEFAULT_TXHISTORY_LIMIT = 10;
@@ -127,6 +154,46 @@ const normalizePositiveInt = (value: number | undefined, fallback: number) => {
 
   const normalized = Math.max(0, Math.floor(value));
   return normalized > 0 ? normalized : fallback;
+};
+
+const toRuntimeError = (err: unknown) => {
+  if (err instanceof Error) {
+    return err;
+  }
+
+  try {
+    return new Error(JSON.stringify(err));
+  } catch {
+    return new Error(String(err));
+  }
+};
+
+const toWorkerErrorMessage = (err: unknown) => {
+  'worklet';
+
+  if (err instanceof Error) {
+    return err.message;
+  }
+
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+};
+
+const toHexPreview = (value: string | undefined, visible = 12) => {
+  'worklet';
+
+  if (!value) {
+    return undefined;
+  }
+
+  if (value.length <= visible * 2 + 1) {
+    return value;
+  }
+
+  return `${value.slice(0, visible)}...${value.slice(-visible)}`;
 };
 
 const ensureSigningGlobalsForWorker = () => {
@@ -156,8 +223,68 @@ const ensureSigningGlobalsForWorker = () => {
   }
 };
 
+const getBitcoreLibForWorker = () => {
+  'worklet';
+
+  const importedBitcoreLib = require('@bitpay-labs/bitcore-lib') as any;
+  return importedBitcoreLib?.default || importedBitcoreLib;
+};
+
+const getBitcoreLibForRN = () => {
+  const importedBitcoreLib = require('@bitpay-labs/bitcore-lib') as any;
+  return importedBitcoreLib?.default || importedBitcoreLib;
+};
+
+const getWorkerRequestKeyDetails = (
+  wallet: WorkletsTxHistoryWalletSnapshot,
+): WorkerTxHistoryRequestKeyDetails => {
+  'worklet';
+
+  ensureSigningGlobalsForWorker();
+  const bitcoreLib = getBitcoreLibForWorker();
+
+  if (!bitcoreLib?.PrivateKey) {
+    throw new Error(
+      '@bitpay-labs/bitcore-lib is unavailable inside the worker runtime.',
+    );
+  }
+
+  const privateKey = new bitcoreLib.PrivateKey(wallet.requestPrivKey);
+  const derivedRequestPubKey = privateKey.toPublicKey().toString();
+  const requestPubKey =
+    typeof wallet.requestPubKey === 'string' ? wallet.requestPubKey : undefined;
+
+  return {
+    requestPubKey,
+    derivedRequestPubKey,
+    requestPubKeyMatchesDerived: requestPubKey
+      ? requestPubKey === derivedRequestPubKey
+      : undefined,
+  };
+};
+
+const assertWorkerRequestKeyDetails = (
+  requestKey: WorkerTxHistoryRequestKeyDetails,
+) => {
+  'worklet';
+
+  if (
+    requestKey.requestPubKey &&
+    requestKey.requestPubKeyMatchesDerived === false
+  ) {
+    throw new Error(
+      `Stored requestPubKey ${toHexPreview(
+        requestKey.requestPubKey,
+      )} does not match the derived requestPubKey ${toHexPreview(
+        requestKey.derivedRequestPubKey,
+      )}.`,
+    );
+  }
+};
+
 const toWalletSummary = (
   wallet: WorkletsTxHistoryWalletSnapshot,
+  requestKey: WorkerTxHistoryRequestKeyDetails,
 ): WorkerTxHistoryWalletSummary => {
   'worklet';
 
@@ -168,6 +295,9 @@ const toWalletSummary = (
     chain: wallet.chain,
     coin: wallet.coin,
     network: wallet.network,
+    requestPubKey: requestKey.requestPubKey,
+    derivedRequestPubKey: requestKey.derivedRequestPubKey,
+    requestPubKeyMatchesDerived: requestKey.requestPubKeyMatchesDerived,
     tokenAddress: wallet.tokenAddress,
     multisigContractAddress: wallet.multisigContractAddress,
     isTokenWallet: !!wallet.tokenAddress,
@@ -213,13 +343,14 @@ const toWorkerTxHistorySessionSummary = (
     isWorkerRuntime: isWorkerRuntime(),
     workerRuntimeName: session.workerRuntimeName,
     initializedAtIso: session.initializedAtIso,
+    initializedAtMs: session.initializedAtMs,
     requestSequence: session.requestSequence,
     requestContext: {
       basePath: TXHISTORY_BASE_PATH,
       tokenAddress: session.wallet.tokenAddress,
       multisigContractAddress: session.wallet.multisigContractAddress,
     },
-    wallet: toWalletSummary(session.wallet),
+    wallet: toWalletSummary(session.wallet, session.requestKey),
   };
 };
 
@@ -232,9 +363,12 @@ const createWorkerTxHistorySession = (
   'worklet';
 
   ensureSigningGlobalsForWorker();
+  const requestKey = getWorkerRequestKeyDetails(wallet);
+  assertWorkerRequestKeyDetails(requestKey);
 
   return {
     wallet,
+    requestKey,
     baseBwsUrl,
     clientVersionHeader,
     workerRuntimeName,
@@ -244,15 +378,8 @@ const createWorkerTxHistorySession = (
   };
 };
 
-const nextSessionCacheBust = (session: WorkerTxHistorySession): number => {
-  'worklet';
-
-  session.requestSequence += 1;
-  return session.initializedAtMs + session.requestSequence;
-};
-
 const buildTxHistoryRequestPath = (
-  wallet: WorkletsTxHistoryWalletSnapshot,
+  wallet: TxHistoryRequestWalletContext,
   skip: number,
   limit: number,
   cacheBust: number,
@@ -288,26 +415,67 @@ const buildTxHistoryRequestPath = (
   return requestPath;
 };
 
-const signBwsGetRequest = (requestPath: string, requestPrivKey: string) => {
-  'worklet';
+const signBwsGetRequestOnRN = (requestPath: string, requestPrivKey: string) => {
+  const bitcoreLib = getBitcoreLibForRN();
 
-  ensureSigningGlobalsForWorker();
-
-  if (!BitcoreLib) {
+  if (!bitcoreLib?.PrivateKey) {
     throw new Error(
-      'crypto-wallet-core BitcoreLib is unavailable inside the worker runtime.',
+      '@bitpay-labs/bitcore-lib is unavailable on the RN runtime.',
     );
   }
 
   const message = `get|${requestPath}|{}`;
-  const privateKey = new BitcoreLib.PrivateKey(requestPrivKey);
+  const privateKey = new bitcoreLib.PrivateKey(requestPrivKey);
   const buffer = NodeBuffer.from(message);
-  let hash = BitcoreLib.crypto.Hash.sha256sha256(buffer);
-  hash = new BitcoreLib.encoding.BufferReader(hash).readReverse();
+  let hash = bitcoreLib.crypto.Hash.sha256sha256(buffer);
+  hash = new bitcoreLib.encoding.BufferReader(hash).readReverse();
 
-  return BitcoreLib.crypto.ECDSA.sign(hash, privateKey, {
+  return bitcoreLib.crypto.ECDSA.sign(hash, privateKey, {
     endian: 'little',
   }).toString();
+};
+
+const buildPreparedTxHistoryRequestsForSession = (
+  session: WorkerTxHistorySessionSummary,
+  requestPrivKey: string,
+  initialSkip: number,
+  pageSize: number,
+  pageCount: number,
+): WorkerTxHistoryPreparedRequest[] => {
+  const requests: WorkerTxHistoryPreparedRequest[] = [];
+  let nextSkip = initialSkip;
+
+  for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+    const requestPath = buildTxHistoryRequestPath(
+      session.wallet,
+      nextSkip,
+      pageSize,
+      session.initializedAtMs + session.requestSequence + pageIndex + 1,
+    );
+
+    let signature: string;
+    try {
+      signature = signBwsGetRequestOnRN(requestPath, requestPrivKey);
+    } catch (err: unknown) {
+      throw new Error(
+        `RN signing failed for txhistory page ${pageIndex + 1} (${requestPath}). ${
+          toRuntimeError(err).message
+        }`,
+      );
+    }
+
+    requests.push({
+      pageIndex,
+      skip: nextSkip,
+      limit: pageSize,
+      requestPath,
+      signature,
+    });
+
+    nextSkip += pageSize;
+  }
+
+  return requests;
 };
 
 const tryParseJson = (text: string) => {
@@ -384,35 +552,33 @@ const summarizeTx = (tx: any): WorkerTxHistoryPreviewItem => {
   };
 };
 
-const executeTxHistoryRequestForPrimedWallet = async (
+const executePreparedTxHistoryRequestForPrimedWallet = async (
   session: WorkerTxHistorySession,
-  pageIndex: number,
-  skip: number,
-  limit: number,
+  request: WorkerTxHistoryPreparedRequest,
 ): Promise<WorkerTxHistoryPageResult> => {
   'worklet';
 
   const startedAt = Date.now();
-  const requestPath = buildTxHistoryRequestPath(
-    session.wallet,
-    skip,
-    limit,
-    nextSessionCacheBust(session),
-  );
-  const signature = signBwsGetRequest(
-    requestPath,
-    session.wallet.requestPrivKey,
-  );
+  const {pageIndex, skip, limit, requestPath, signature} = request;
 
-  const response = await fetch(`${session.baseBwsUrl}${requestPath}`, {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      'x-client-version': session.clientVersionHeader,
-      'x-identity': session.wallet.copayerId,
-      'x-signature': signature,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${session.baseBwsUrl}${requestPath}`, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        'x-client-version': session.clientVersionHeader,
+        'x-identity': session.wallet.copayerId,
+        'x-signature': signature,
+      },
+    });
+  } catch (err: unknown) {
+    throw new Error(
+      `Worker fetch failed for txhistory page ${pageIndex + 1} (${requestPath}). ${toWorkerErrorMessage(
+        err,
+      )}`,
+    );
+  }
 
   const rawResponseText = await response.text();
   const parsedBody = tryParseJson(rawResponseText);
@@ -439,6 +605,12 @@ const executeTxHistoryRequestForPrimedWallet = async (
     fetchedAtIso: new Date().toISOString(),
     durationMs: Date.now() - startedAt,
     signaturePreview: `${signature.slice(0, 18)}…`,
+    requestPubKeyPreview: toHexPreview(session.requestKey.requestPubKey),
+    derivedRequestPubKeyPreview: toHexPreview(
+      session.requestKey.derivedRequestPubKey,
+    ),
+    requestPubKeyMatchesDerived:
+      session.requestKey.requestPubKeyMatchesDerived,
     responseBodyPreview,
     responseBodyType: getResponseBodyType(parsedBody),
     txCount: transactions.length,
@@ -515,112 +687,168 @@ export const getPrimedWalletTxHistoryWorkerSession = async (): Promise<
 export const fetchPrimedWalletTxHistoryPageOnWorker = async (opts?: {
   skip?: number;
   limit?: number;
+  wallet?: WorkletsTxHistoryWalletSnapshot;
 }): Promise<{
   session: WorkerTxHistorySessionSummary;
   page: WorkerTxHistoryPageResult;
 }> => {
-  return runOnRuntimeAsync(
-    getWorkletsBundleModeRuntime(),
-    async (
-      skip: number,
-      limit: number,
-    ): Promise<{
-      session: WorkerTxHistorySessionSummary;
-      page: WorkerTxHistoryPageResult;
-    }> => {
-      'worklet';
+  const wallet = opts?.wallet;
+  if (!wallet?.requestPrivKey) {
+    throw new Error(
+      'A selected wallet with a requestPrivKey is required for RN-side txhistory signing.',
+    );
+  }
 
-      ensureSigningGlobalsForWorker();
+  const batchResult = await fetchManyWalletTxHistoryPagesOnWorker({
+    wallet,
+    initialSkip: opts?.skip,
+    pageSize: opts?.limit,
+    pageCount: 1,
+  });
 
-      const session = requireWorkerTxHistorySession();
-      const page = await executeTxHistoryRequestForPrimedWallet(
-        session,
-        0,
-        skip,
-        limit,
-      );
+  const [page] = batchResult.pages;
+  if (!page) {
+    throw new Error('The worker did not return a txhistory page result.');
+  }
 
-      return {
-        session: toWorkerTxHistorySessionSummary(session),
-        page,
-      };
-    },
-    opts?.skip ?? 0,
-    normalizePositiveInt(opts?.limit, DEFAULT_TXHISTORY_LIMIT),
-  );
+  return {
+    session: batchResult.session,
+    page,
+  };
 };
 
 export const fetchManyWalletTxHistoryPagesOnWorker = async (opts?: {
+  wallet?: WorkletsTxHistoryWalletSnapshot;
   initialSkip?: number;
   pageSize?: number;
   pageCount?: number;
 }): Promise<WorkerTxHistoryBatchResult> => {
-  return runOnRuntimeAsync(
-    getWorkletsBundleModeRuntime(),
-    async (
-      initialSkip: number,
-      pageSize: number,
-      pageCount: number,
-    ): Promise<WorkerTxHistoryBatchResult> => {
-      'worklet';
+  const wallet = opts?.wallet;
+  if (!wallet?.requestPrivKey) {
+    throw new Error(
+      'A selected wallet with a requestPrivKey is required for RN-side txhistory signing.',
+    );
+  }
 
-      ensureSigningGlobalsForWorker();
-
-      const session = requireWorkerTxHistorySession();
-      const startedAt = Date.now();
-      const pages: WorkerTxHistoryPageResult[] = [];
-
-      let stopReason: 'empty_page' | 'short_page' | 'max_pages_reached' =
-        'max_pages_reached';
-      let stoppedEarly = false;
-      let totalTransactionsAcrossPages = 0;
-      let nextSkip = initialSkip;
-
-      for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
-        const page = await executeTxHistoryRequestForPrimedWallet(
-          session,
-          pageIndex,
-          nextSkip,
-          pageSize,
-        );
-
-        pages.push(page);
-        totalTransactionsAcrossPages += page.txCount;
-
-        if (page.txCount === 0) {
-          stoppedEarly = true;
-          stopReason = 'empty_page';
-          break;
-        }
-
-        if (page.txCount < pageSize) {
-          stoppedEarly = true;
-          stopReason = 'short_page';
-          break;
-        }
-
-        nextSkip += pageSize;
-      }
-
-      return {
-        runtimeKind: getRuntimeKind(),
-        isWorkerRuntime: isWorkerRuntime(),
-        workerRuntimeName: session.workerRuntimeName,
-        fetchedAtIso: new Date().toISOString(),
-        totalDurationMs: Date.now() - startedAt,
-        requestedPageCount: pageCount,
-        executedPageCount: pages.length,
-        pageSize,
-        initialSkip,
-        totalTransactionsAcrossPages,
-        stoppedEarly,
-        stopReason,
-        session: toWorkerTxHistorySessionSummary(session),
-        pages,
-      };
-    },
-    Math.max(0, Math.floor(opts?.initialSkip ?? 0)),
-    normalizePositiveInt(opts?.pageSize, DEFAULT_TXHISTORY_LIMIT),
-    normalizePositiveInt(opts?.pageCount, DEFAULT_TXHISTORY_PAGE_COUNT),
+  const initialSkip = Math.max(0, Math.floor(opts?.initialSkip ?? 0));
+  const pageSize = normalizePositiveInt(opts?.pageSize, DEFAULT_TXHISTORY_LIMIT);
+  const pageCount = normalizePositiveInt(
+    opts?.pageCount,
+    DEFAULT_TXHISTORY_PAGE_COUNT,
   );
+  const activeSession = await getPrimedWalletTxHistoryWorkerSession();
+
+  if (!activeSession) {
+    throw new Error(
+      'No wallet txhistory session is initialized on the worker runtime. Prime the worker with a wallet first.',
+    );
+  }
+
+  const preparedRequests = buildPreparedTxHistoryRequestsForSession(
+    activeSession,
+    wallet.requestPrivKey,
+    initialSkip,
+    pageSize,
+    pageCount,
+  );
+
+  return new Promise((resolve, reject) => {
+    const rejectOnRN = (message: string) => {
+      reject(new Error(message));
+    };
+
+    void runOnRuntimeAsync(
+      getWorkletsBundleModeRuntime(),
+      (
+        signedRequests: WorkerTxHistoryPreparedRequest[],
+        requestedPageCount: number,
+        initialSkipArg: number,
+        pageSizeArg: number,
+        resolveOnRN: (value: WorkerTxHistoryBatchResult) => void,
+        rejectOnRNWorklet: (message: string) => void,
+      ): void => {
+        'worklet';
+
+        ensureSigningGlobalsForWorker();
+
+        void (async () => {
+          try {
+            const session = requireWorkerTxHistorySession();
+            const startedAt = Date.now();
+            const pages: WorkerTxHistoryPageResult[] = [];
+
+            let stopReason: 'empty_page' | 'short_page' | 'max_pages_reached' =
+              'max_pages_reached';
+            let stoppedEarly = false;
+            let totalTransactionsAcrossPages = 0;
+
+            for (const signedRequest of signedRequests) {
+              const expectedRequestPath = buildTxHistoryRequestPath(
+                session.wallet,
+                signedRequest.skip,
+                signedRequest.limit,
+                session.initializedAtMs + session.requestSequence + 1,
+              );
+              if (expectedRequestPath !== signedRequest.requestPath) {
+                throw new Error(
+                  `Prepared txhistory request path for page ${
+                    signedRequest.pageIndex + 1
+                  } no longer matches the worker session. Prime the wallet again.`,
+                );
+              }
+
+              session.requestSequence += 1;
+
+              const page = await executePreparedTxHistoryRequestForPrimedWallet(
+                session,
+                signedRequest,
+              );
+
+              pages.push(page);
+              totalTransactionsAcrossPages += page.txCount;
+
+              if (page.txCount === 0) {
+                stoppedEarly = true;
+                stopReason = 'empty_page';
+                break;
+              }
+
+              if (page.txCount < signedRequest.limit) {
+                stoppedEarly = true;
+                stopReason = 'short_page';
+                break;
+              }
+            }
+
+            scheduleOnRN(resolveOnRN, {
+              runtimeKind: getRuntimeKind(),
+              isWorkerRuntime: isWorkerRuntime(),
+              workerRuntimeName: session.workerRuntimeName,
+              fetchedAtIso: new Date().toISOString(),
+              totalDurationMs: Date.now() - startedAt,
+              requestedPageCount,
+              executedPageCount: pages.length,
+              pageSize: pageSizeArg,
+              initialSkip: initialSkipArg,
+              totalTransactionsAcrossPages,
+              stoppedEarly,
+              stopReason,
+              session: toWorkerTxHistorySessionSummary(session),
+              pages,
+            });
+          } catch (err: unknown) {
+            scheduleOnRN(rejectOnRNWorklet, toWorkerErrorMessage(err));
+          }
+        })();
+      },
+      preparedRequests,
+      pageCount,
+      initialSkip,
+      pageSize,
+      resolve,
+      rejectOnRN,
+    ).catch(err => {
+      reject(toRuntimeError(err));
+    });
+  });
 };

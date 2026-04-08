@@ -40,6 +40,7 @@ const workletsPluginOptions = {
   bundleMode: true,
   strictGlobal: true,
   workletizableModules: [
+    '@bitpay-labs/bitcore-lib',
     '@bitpay-labs/crypto-wallet-core',
     'buffer',
     'process',
