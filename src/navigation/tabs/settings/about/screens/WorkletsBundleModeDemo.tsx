@@ -21,10 +21,12 @@ import {
   getWorkletsBundleModeRuntime,
   primeWalletTxHistoryWorkerSession,
   runBigIntSmokeTestOnWorker,
+  runRNNitroBwsSigningControlTest,
   runTransferredNitroBwsSigningSmokeTestOnWorker,
   runQuickCryptoHashSmokeTestOnWorker,
   runTransferredNitroHashSmokeTestOnWorker,
   type WorkerBigIntSmokeTestResult,
+  type RNNitroBwsSigningSmokeTestResult,
   type WorkerTransferredNitroBwsSigningSmokeTestResult,
   type WorkerQuickCryptoHashSmokeTestResult,
   type WorkerTransferredNitroHashSmokeTestResult,
@@ -290,6 +292,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
   const [bigIntLoading, setBigIntLoading] = useState(false);
   const [quickCryptoLoading, setQuickCryptoLoading] = useState(false);
   const [transferredHashLoading, setTransferredHashLoading] = useState(false);
+  const [rnNitroSigningLoading, setRNNitroSigningLoading] = useState(false);
   const [transferredSigningLoading, setTransferredSigningLoading] =
     useState(false);
   const [loading, setLoading] = useState(false);
@@ -304,6 +307,11 @@ const WorkletsBundleModeDemo = (_props: Props) => {
   >(null);
   const [transferredHashResult, setTransferredHashResult] =
     useState<WorkerTransferredNitroHashSmokeTestResult | null>(null);
+  const [rnNitroSigningError, setRNNitroSigningError] = useState<string | null>(
+    null,
+  );
+  const [rnNitroSigningResult, setRNNitroSigningResult] =
+    useState<RNNitroBwsSigningSmokeTestResult | null>(null);
   const [transferredSigningError, setTransferredSigningError] = useState<
     string | null
   >(null);
@@ -463,6 +471,25 @@ const WorkletsBundleModeDemo = (_props: Props) => {
     }
   };
 
+  const handleRNNitroSigningControlTest = async () => {
+    if (!selectedWallet) {
+      return;
+    }
+
+    setRNNitroSigningLoading(true);
+    setRNNitroSigningError(null);
+    setRNNitroSigningResult(null);
+
+    try {
+      const nextResult = await runRNNitroBwsSigningControlTest(selectedWallet);
+      setRNNitroSigningResult(nextResult);
+    } catch (err: unknown) {
+      setRNNitroSigningError(toErrorMessage(err));
+    } finally {
+      setRNNitroSigningLoading(false);
+    }
+  };
+
   const handleFetch = async () => {
     if (!selectedWallet) {
       return;
@@ -512,8 +539,9 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             `react-native-quick-crypto` directly inside the worker runtime,
             then by creating the underlying Nitro `Hash` Hybrid Object on RN
             and passing that object into the worker. It also includes a
-            transferred Nitro signing proof for a BWS-style `get|path|{}`
-            message using the selected wallet&apos;s request key.
+            transferred Nitro signing proof and an RN-only Nitro signing
+            control for a BWS-style `get|path|{}` message using the selected
+            wallet&apos;s request key.
           </SectionBody>
           <SectionBody>
             This iteration primes the selected wallet into a dedicated Worklets
@@ -574,6 +602,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               bigIntLoading ||
               quickCryptoLoading ||
               transferredHashLoading ||
+              rnNitroSigningLoading ||
               transferredSigningLoading
             }
             onPress={handleQuickCryptoSmokeTest}
@@ -597,11 +626,38 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               bigIntLoading ||
               quickCryptoLoading ||
               transferredHashLoading ||
+              rnNitroSigningLoading ||
               transferredSigningLoading
             }
             onPress={handleTransferredNitroHashSmokeTest}
             accessibilityLabel="Run the transferred Nitro Hash worker smoke test">
             Run transferred Nitro Hash smoke test
+          </Button>
+        </Card>
+
+        <Card>
+          <SectionTitle>RN Nitro BWS signing control</SectionTitle>
+          <SectionBody>
+            This runs the same Nitro `Hash`, `SignHandle`, and
+            `KeyObjectHandle` signing flow entirely on the RN runtime with no
+            worklet hop, so we can tell whether a signature mismatch is caused
+            by runtime transfer or by Nitro/OpenSSL signing semantics.
+          </SectionBody>
+          <Button
+            state={rnNitroSigningLoading ? 'loading' : undefined}
+            disabled={
+              !selectedWallet ||
+              priming ||
+              loading ||
+              bigIntLoading ||
+              quickCryptoLoading ||
+              transferredHashLoading ||
+              rnNitroSigningLoading ||
+              transferredSigningLoading
+            }
+            onPress={handleRNNitroSigningControlTest}
+            accessibilityLabel="Run the RN Nitro BWS signing control test">
+            Run RN Nitro BWS signing control
           </Button>
         </Card>
 
@@ -623,6 +679,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               bigIntLoading ||
               quickCryptoLoading ||
               transferredHashLoading ||
+              rnNitroSigningLoading ||
               transferredSigningLoading
             }
             onPress={handleTransferredNitroSigningSmokeTest}
@@ -684,6 +741,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               bigIntLoading ||
               quickCryptoLoading ||
               transferredHashLoading ||
+              rnNitroSigningLoading ||
               transferredSigningLoading
             }
             onPress={primeSelectedWalletOnWorker}
@@ -701,6 +759,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               bigIntLoading ||
               quickCryptoLoading ||
               transferredHashLoading ||
+              rnNitroSigningLoading ||
               transferredSigningLoading
             }
             onPress={handleFetch}
@@ -752,6 +811,17 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               <LoadingText>
                 Creating a Nitro `Hash` Hybrid Object on RN and exercising it
                 from inside the worker runtime…
+              </LoadingText>
+            </StatusRow>
+          </Card>
+        ) : null}
+
+        {rnNitroSigningLoading ? (
+          <Card>
+            <StatusRow>
+              <ActivityIndicator />
+              <LoadingText>
+                Running the Nitro BWS signing control fully on the RN runtime…
               </LoadingText>
             </StatusRow>
           </Card>
@@ -949,6 +1019,101 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             <SectionTitle>Transferred Hash JSON</SectionTitle>
             <RawOutput selectable>
               {JSON.stringify(transferredHashResult, null, 2)}
+            </RawOutput>
+          </Card>
+        ) : null}
+
+        {rnNitroSigningError ? (
+          <Card>
+            <SectionTitle>RN Nitro BWS signing control failed</SectionTitle>
+            <RawOutput selectable>{rnNitroSigningError}</RawOutput>
+          </Card>
+        ) : null}
+
+        {rnNitroSigningResult ? (
+          <Card>
+            <SectionTitle>RN Nitro BWS signing control</SectionTitle>
+            <MetaText>
+              RN runtime kind:{' '}
+              {RUNTIME_KIND_LABELS[rnNitroSigningResult.runtimeKind] ||
+                'Unknown'}{' '}
+              ({rnNitroSigningResult.runtimeKind})
+            </MetaText>
+            <MetaText>
+              Confirmed RN runtime:{' '}
+              {rnNitroSigningResult.isRNRuntime ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              Executed at: {rnNitroSigningResult.executedAtIso}
+            </MetaText>
+            <MetaText>
+              Request method/path:{' '}
+              {rnNitroSigningResult.requestMethod.toUpperCase()}{' '}
+              {rnNitroSigningResult.requestPath}
+            </MetaText>
+            <MetaText>
+              Stored request pubkey:{' '}
+              {truncateMiddle(rnNitroSigningResult.requestPubKey, 8)}
+            </MetaText>
+            <MetaText>
+              Derived request pubkey:{' '}
+              {truncateMiddle(rnNitroSigningResult.derivedRequestPubKey, 8)}
+            </MetaText>
+            <MetaText>
+              Request pubkey matches derived:{' '}
+              {rnNitroSigningResult.requestPubKeyMatchesDerived === undefined
+                ? 'not provided'
+                : rnNitroSigningResult.requestPubKeyMatchesDerived
+                  ? 'yes'
+                  : 'no'}
+            </MetaText>
+            <MetaText>
+              Nitro digests match bitcore:{' '}
+              {rnNitroSigningResult.nitroDigestsMatchBitcore ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              Bitcore verifies RN Nitro signature:{' '}
+              {rnNitroSigningResult.bitcoreVerifiedNitroSignature
+                ? 'yes'
+                : 'no'}
+            </MetaText>
+            <MetaText>
+              Bitcore verifies its own signature:{' '}
+              {rnNitroSigningResult.bitcoreVerifiedBitcoreSignature
+                ? 'yes'
+                : 'no'}
+            </MetaText>
+            <MetaText>
+              Exact DER match with bitcore:{' '}
+              {rnNitroSigningResult.exactSignatureMatch ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              OpenSSL version: {rnNitroSigningResult.opensslVersion || 'n/a'}
+            </MetaText>
+            <MetaText>
+              First SHA-256: {rnNitroSigningResult.sha256OnceHex}
+            </MetaText>
+            <MetaText>
+              Double SHA-256: {rnNitroSigningResult.sha256TwiceHex}
+            </MetaText>
+            <MetaText>
+              Reversed digest: {rnNitroSigningResult.reversedDigestHex}
+            </MetaText>
+            <MetaText>
+              RN Nitro signature: {rnNitroSigningResult.nitroSignatureHex}
+            </MetaText>
+            <MetaText>
+              RN bitcore signature: {rnNitroSigningResult.bitcoreSignatureHex}
+            </MetaText>
+            <Spacer />
+            <SectionTitle>Signing message</SectionTitle>
+            <RawOutput selectable>
+              {rnNitroSigningResult.signingMessage}
+            </RawOutput>
+            <Spacer />
+            <SectionTitle>RN Nitro signing JSON</SectionTitle>
+            <RawOutput selectable>
+              {JSON.stringify(rnNitroSigningResult, null, 2)}
             </RawOutput>
           </Card>
         ) : null}

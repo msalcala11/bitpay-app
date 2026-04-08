@@ -88,6 +88,28 @@ export type WorkerTransferredNitroBwsSigningSmokeTestResult = {
   opensslVersion?: string;
 };
 
+export type RNNitroBwsSigningSmokeTestResult = {
+  runtimeKind: number;
+  isRNRuntime: boolean;
+  executedAtIso: string;
+  requestPath: string;
+  requestMethod: 'get';
+  signingMessage: string;
+  sha256OnceHex: string;
+  sha256TwiceHex: string;
+  reversedDigestHex: string;
+  nitroSignatureHex: string;
+  bitcoreSignatureHex: string;
+  exactSignatureMatch: boolean;
+  bitcoreVerifiedNitroSignature: boolean;
+  bitcoreVerifiedBitcoreSignature: boolean;
+  derivedRequestPubKey: string;
+  requestPubKey?: string;
+  requestPubKeyMatchesDerived?: boolean;
+  opensslVersion?: string;
+  nitroDigestsMatchBitcore: boolean;
+};
+
 export type WorkletsTxHistoryWalletSnapshot = {
   walletId: string;
   walletName?: string;
@@ -1228,8 +1250,8 @@ export const runTransferredNitroBwsSigningSmokeTestOnWorker = async (
         const sha256Twice = NodeBuffer.from(secondHashHybrid.digest());
         const reversedDigest = reverseNodeBuffer(sha256Twice);
 
-        signHandleHybrid.init('');
-        signHandleHybrid.update(nodeBufferToArrayBuffer(sha256Twice));
+        signHandleHybrid.init('sha256');
+        signHandleHybrid.update(nodeBufferToArrayBuffer(sha256Once));
         const nitroSignatureHex = NodeBuffer.from(
           signHandleHybrid.sign(privateKeyHandle, undefined, undefined, 0),
         ).toString('hex');
@@ -1300,6 +1322,122 @@ export const runTransferredNitroBwsSigningSmokeTestOnWorker = async (
       workerPayload.nitroSignatureHex === bitcoreSignatureHex,
     bitcoreVerifiedNitroSignature,
     bitcoreVerifiedBitcoreSignature,
+  };
+};
+
+export const runRNNitroBwsSigningControlTest = async (
+  wallet: WorkletsTxHistoryWalletSnapshot,
+): Promise<RNNitroBwsSigningSmokeTestResult> => {
+  if (!wallet?.requestPrivKey) {
+    throw new Error(
+      'A selected wallet with a requestPrivKey is required for the RN Nitro signing control test.',
+    );
+  }
+
+  const requestPath = buildTxHistoryRequestPath(
+    wallet,
+    0,
+    DEFAULT_TXHISTORY_LIMIT,
+    BWS_SIGNING_SMOKE_TEST_CACHE_BUST,
+  );
+  const requestKey = getRequestPubKeyDetailsOnRN(wallet);
+  const bitcoreSignatureHex = signBwsGetRequestOnRN(
+    requestPath,
+    wallet.requestPrivKey,
+  );
+  const {
+    signingMessage,
+    sha256Once: bitcoreSha256Once,
+    sha256Twice: bitcoreSha256Twice,
+    reversedDigest: bitcoreReversedDigest,
+  } = getBwsSigningDigestDetailsOnRN(requestPath);
+
+  let hybrids: TransferredNitroBwsSigningHybrids;
+  try {
+    hybrids = createTransferredNitroBwsSigningHybridsOnRN(
+      wallet.requestPrivKey,
+    );
+  } catch (err: unknown) {
+    throw new Error(
+      `RN Nitro BWS signing control setup failed before signing. ${
+        toRuntimeError(err).message
+      }`,
+    );
+  }
+
+  let sha256Once: Buffer;
+  let sha256Twice: Buffer;
+  let reversedDigest: Buffer;
+  let nitroSignatureHex: string;
+
+  try {
+    hybrids.firstHash.createHash('sha256');
+    hybrids.firstHash.update(signingMessage);
+    sha256Once = NodeBuffer.from(hybrids.firstHash.digest());
+
+    hybrids.secondHash.createHash('sha256');
+    hybrids.secondHash.update(nodeBufferToArrayBuffer(sha256Once));
+    sha256Twice = NodeBuffer.from(hybrids.secondHash.digest());
+    reversedDigest = reverseNodeBuffer(sha256Twice);
+
+    hybrids.signHandle.init('sha256');
+    hybrids.signHandle.update(nodeBufferToArrayBuffer(sha256Once));
+    nitroSignatureHex = NodeBuffer.from(
+      hybrids.signHandle.sign(hybrids.privateKeyHandle, undefined, undefined, 0),
+    ).toString('hex');
+  } catch (err: unknown) {
+    throw new Error(
+      `RN Nitro BWS signing control test failed while signing. ${
+        toRuntimeError(err).message
+      }`,
+    );
+  }
+
+  const bitcoreLib = getBitcoreLibForRN();
+  const privateKey = new bitcoreLib.PrivateKey(wallet.requestPrivKey);
+  const publicKey = privateKey.toPublicKey();
+  const nitroSignature = bitcoreLib.crypto.Signature.fromString(
+    nitroSignatureHex,
+  );
+  const bitcoreSignature = bitcoreLib.crypto.Signature.fromString(
+    bitcoreSignatureHex,
+  );
+  const bitcoreVerifiedNitroSignature = bitcoreLib.crypto.ECDSA.verify(
+    NodeBuffer.from(bitcoreReversedDigest),
+    nitroSignature,
+    publicKey,
+    {endian: 'little'},
+  );
+  const bitcoreVerifiedBitcoreSignature = bitcoreLib.crypto.ECDSA.verify(
+    NodeBuffer.from(bitcoreReversedDigest),
+    bitcoreSignature,
+    publicKey,
+    {endian: 'little'},
+  );
+
+  return {
+    runtimeKind: getRuntimeKind(),
+    isRNRuntime: isRNRuntime(),
+    executedAtIso: new Date().toISOString(),
+    requestPath,
+    requestMethod: 'get',
+    signingMessage,
+    sha256OnceHex: sha256Once.toString('hex'),
+    sha256TwiceHex: sha256Twice.toString('hex'),
+    reversedDigestHex: reversedDigest.toString('hex'),
+    nitroSignatureHex,
+    bitcoreSignatureHex,
+    exactSignatureMatch: nitroSignatureHex === bitcoreSignatureHex,
+    bitcoreVerifiedNitroSignature,
+    bitcoreVerifiedBitcoreSignature,
+    derivedRequestPubKey: requestKey.derivedRequestPubKey,
+    requestPubKey: requestKey.requestPubKey,
+    requestPubKeyMatchesDerived: requestKey.requestPubKeyMatchesDerived,
+    opensslVersion: hybrids.opensslVersion,
+    nitroDigestsMatchBitcore:
+      sha256Once.equals(bitcoreSha256Once) &&
+      sha256Twice.equals(bitcoreSha256Twice) &&
+      reversedDigest.equals(bitcoreReversedDigest),
   };
 };
 
