@@ -35,7 +35,20 @@ if (prod) {
   plugins.push('transform-remove-console');
 }
 
-plugins.push('react-native-worklets/plugin');
+/** @type {import('react-native-worklets/plugin').PluginOptions} */
+const workletsPluginOptions = {
+  bundleMode: true,
+  strictGlobal: true,
+  workletizableModules: [
+    '@bitpay-labs/crypto-wallet-core',
+    'buffer',
+    'process',
+    'crypto',
+    'react-native-quick-crypto',
+  ],
+};
+
+plugins.push(['react-native-worklets/plugin', workletsPluginOptions]);
 
 module.exports = {
   presets: [

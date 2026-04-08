@@ -96,6 +96,13 @@ const About = () => {
 
       <Hr />
 
+      <Setting onPress={() => navigation.navigate('WorkletsBundleModeDemo')}>
+        <SettingTitle>Worklets TxHistory Demo</SettingTitle>
+        <AngleRight />
+      </Setting>
+
+      <Hr />
+
       <Setting onPress={() => dispatch(shareApp())}>
         <SettingTitle>{t('Share with Friends')}</SettingTitle>
       </Setting>

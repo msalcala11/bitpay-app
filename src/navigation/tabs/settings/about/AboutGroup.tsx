@@ -6,6 +6,7 @@ import {useTranslation} from 'react-i18next';
 import StorageUsage from './screens/StorageUsage';
 import PortfolioDebug from './screens/PortfolioDebug';
 import PortfolioWalletDebug from './screens/PortfolioWalletDebug';
+import WorkletsBundleModeDemo from './screens/WorkletsBundleModeDemo';
 import {Root} from '../../../../Root';
 import {useStackScreenOptions} from '../../../utils/headerHelpers';
 
@@ -20,6 +21,7 @@ export type AboutGroupParamList = {
   SendFeedback: SendFeedbackParamList | undefined;
   PortfolioDebug: undefined;
   PortfolioWalletDebug: {walletId: string};
+  WorkletsBundleModeDemo: undefined;
 };
 
 export enum AboutScreens {
@@ -28,6 +30,7 @@ export enum AboutScreens {
   SEND_FEEDBACK = 'SendFeedback',
   PORTFOLIO_DEBUG = 'PortfolioDebug',
   PORTFOLIO_WALLET_DEBUG = 'PortfolioWalletDebug',
+  WORKLETS_BUNDLE_MODE_DEMO = 'WorkletsBundleModeDemo',
 }
 
 const AboutGroup = ({About, theme}: AboutProps) => {
@@ -71,6 +74,14 @@ const AboutGroup = ({About, theme}: AboutProps) => {
         component={PortfolioWalletDebug}
         options={{
           headerTitle: t('Portfolio Wallet (Raw)'),
+        }}
+      />
+
+      <About.Screen
+        name={AboutScreens.WORKLETS_BUNDLE_MODE_DEMO}
+        component={WorkletsBundleModeDemo}
+        options={{
+          headerTitle: 'Worklets TxHistory Demo',
         }}
       />
     </About.Group>
