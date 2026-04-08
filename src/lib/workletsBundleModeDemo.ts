@@ -51,6 +51,28 @@ export type WorkerTransferredNitroHashSmokeTestResult = {
   hasGetOpenSSLVersion: boolean;
 };
 
+export type WorkerTransferredNitroBwsSigningSmokeTestResult = {
+  runtimeKind: number;
+  isWorkerRuntime: boolean;
+  workerRuntimeName: string;
+  executedAtIso: string;
+  requestPath: string;
+  requestMethod: 'get';
+  signingMessage: string;
+  sha256OnceHex: string;
+  sha256TwiceHex: string;
+  reversedDigestHex: string;
+  nitroSignatureHex: string;
+  bitcoreSignatureHex: string;
+  exactSignatureMatch: boolean;
+  bitcoreVerifiedNitroSignature: boolean;
+  bitcoreVerifiedBitcoreSignature: boolean;
+  derivedRequestPubKey: string;
+  requestPubKey?: string;
+  requestPubKeyMatchesDerived?: boolean;
+  opensslVersion?: string;
+};
+
 export type WorkletsTxHistoryWalletSnapshot = {
   walletId: string;
   walletName?: string;
@@ -185,6 +207,55 @@ type QuickCryptoHashHybrid = {
   getOpenSSLVersion(): string;
 };
 
+type QuickCryptoKeyObjectHybrid = {
+  init(
+    keyType: number,
+    key: string | ArrayBuffer,
+    format?: number,
+    type?: number,
+    passphrase?: ArrayBuffer,
+  ): boolean;
+};
+
+type QuickCryptoSignHybrid = {
+  init(algorithm: string): void;
+  update(data: ArrayBuffer): void;
+  sign(
+    keyHandle: QuickCryptoKeyObjectHybrid,
+    padding?: number,
+    saltLength?: number,
+    dsaEncoding?: number,
+  ): ArrayBuffer;
+};
+
+type QuickCryptoEnums = {
+  KeyType: {
+    PRIVATE: number;
+  };
+  KFormatType: {
+    DER: number;
+  };
+  KeyEncoding: {
+    SEC1: number;
+  };
+};
+
+type TransferredNitroBwsSigningHybrids = {
+  firstHash: QuickCryptoHashHybrid;
+  secondHash: QuickCryptoHashHybrid;
+  signHandle: QuickCryptoSignHybrid;
+  privateKeyHandle: QuickCryptoKeyObjectHybrid;
+  opensslVersion?: string;
+};
+
+type WorkerTransferredNitroBwsSigningPayload = Omit<
+  WorkerTransferredNitroBwsSigningSmokeTestResult,
+  | 'bitcoreSignatureHex'
+  | 'exactSignatureMatch'
+  | 'bitcoreVerifiedNitroSignature'
+  | 'bitcoreVerifiedBitcoreSignature'
+>;
+
 const WORKER_RUNTIME_NAME = 'bitpay-txhistory-worker';
 const BWC_CLIENT_VERSION_HEADER = 'bwc-11.7.0';
 const DEFAULT_TXHISTORY_LIMIT = 10;
@@ -194,6 +265,7 @@ const TXHISTORY_BASE_PATH = '/v1/txhistory/';
 const QUICK_CRYPTO_SMOKE_TEST_INPUT = 'bitpay-worklets-quickcrypto-smoke-test';
 const QUICK_CRYPTO_SMOKE_TEST_EXPECTED_SHA256 =
   '18291c43112406c1e201ab3306a9335ec47eff1bc34bab335757c045f937cddc';
+const BWS_SIGNING_SMOKE_TEST_CACHE_BUST = 1700000000000;
 
 let workletsBundleModeRuntime: WorkletRuntime | undefined;
 
@@ -311,6 +383,157 @@ const createQuickCryptoHashHybridOnRN = (): QuickCryptoHashHybrid => {
   return getNitroModulesForRN().createHybridObject<QuickCryptoHashHybrid>(
     'Hash',
   );
+};
+
+const createQuickCryptoKeyObjectHybridOnRN = (): QuickCryptoKeyObjectHybrid => {
+  return getNitroModulesForRN().createHybridObject<QuickCryptoKeyObjectHybrid>(
+    'KeyObjectHandle',
+  );
+};
+
+const createQuickCryptoSignHybridOnRN = (): QuickCryptoSignHybrid => {
+  return getNitroModulesForRN().createHybridObject<QuickCryptoSignHybrid>(
+    'SignHandle',
+  );
+};
+
+const getQuickCryptoEnumsForRN = (): QuickCryptoEnums => {
+  const quickCrypto = require('react-native-quick-crypto') as any;
+
+  if (
+    typeof quickCrypto?.KeyType?.PRIVATE !== 'number' ||
+    typeof quickCrypto?.KFormatType?.DER !== 'number' ||
+    typeof quickCrypto?.KeyEncoding?.SEC1 !== 'number'
+  ) {
+    throw new Error(
+      'react-native-quick-crypto key import enums are unavailable on the RN runtime.',
+    );
+  }
+
+  return quickCrypto as QuickCryptoEnums;
+};
+
+const nodeBufferToArrayBuffer = (buffer: Buffer): ArrayBuffer => {
+  'worklet';
+
+  const view = Uint8Array.from(buffer);
+  return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
+};
+
+const reverseNodeBuffer = (buffer: Buffer): Buffer => {
+  'worklet';
+
+  const clone = NodeBuffer.from(buffer);
+  clone.reverse();
+  return clone;
+};
+
+const buildSecp256k1Sec1PrivateKeyDer = (privateKeyBytes: Buffer): Buffer => {
+  if (privateKeyBytes.length !== 32) {
+    throw new Error(
+      `Expected a 32-byte secp256k1 private key, received ${privateKeyBytes.length} bytes.`,
+    );
+  }
+
+  return NodeBuffer.concat([
+    NodeBuffer.from([
+      0x30,
+      0x2e,
+      0x02,
+      0x01,
+      0x01,
+      0x04,
+      0x20,
+    ]),
+    privateKeyBytes,
+    NodeBuffer.from([0xa0, 0x07, 0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x0a]),
+  ]);
+};
+
+const getRequestPubKeyDetailsOnRN = (
+  wallet: WorkletsTxHistoryWalletSnapshot,
+): WorkerTxHistoryRequestKeyDetails => {
+  const bitcoreLib = getBitcoreLibForRN();
+
+  if (!bitcoreLib?.PrivateKey) {
+    throw new Error(
+      '@bitpay-labs/bitcore-lib is unavailable on the RN runtime.',
+    );
+  }
+
+  const privateKey = new bitcoreLib.PrivateKey(wallet.requestPrivKey);
+  const derivedRequestPubKey = privateKey.toPublicKey().toString();
+  const requestPubKey =
+    typeof wallet.requestPubKey === 'string' ? wallet.requestPubKey : undefined;
+
+  return {
+    requestPubKey,
+    derivedRequestPubKey,
+    requestPubKeyMatchesDerived: requestPubKey
+      ? requestPubKey === derivedRequestPubKey
+      : undefined,
+  };
+};
+
+const getBwsSigningMessage = (requestPath: string) => {
+  'worklet';
+
+  return `get|${requestPath}|{}`;
+};
+
+const getBwsSigningDigestDetailsOnRN = (requestPath: string) => {
+  const bitcoreLib = getBitcoreLibForRN();
+  const signingMessage = getBwsSigningMessage(requestPath);
+  const messageBuffer = NodeBuffer.from(signingMessage);
+  const sha256Once = NodeBuffer.from(bitcoreLib.crypto.Hash.sha256(messageBuffer));
+  const sha256Twice = NodeBuffer.from(bitcoreLib.crypto.Hash.sha256sha256(messageBuffer));
+  const reversedDigest = reverseNodeBuffer(sha256Twice);
+
+  return {
+    signingMessage,
+    sha256Once,
+    sha256Twice,
+    reversedDigest,
+  };
+};
+
+const createTransferredNitroBwsSigningHybridsOnRN = (
+  requestPrivKey: string,
+): TransferredNitroBwsSigningHybrids => {
+  const bitcoreLib = getBitcoreLibForRN();
+  const {KeyType, KFormatType, KeyEncoding} = getQuickCryptoEnumsForRN();
+  const privateKey = new bitcoreLib.PrivateKey(requestPrivKey);
+  const privateKeyBytes = NodeBuffer.from(privateKey.toBuffer());
+  const sec1Der = buildSecp256k1Sec1PrivateKeyDer(privateKeyBytes);
+
+  const firstHash = createQuickCryptoHashHybridOnRN();
+  const secondHash = createQuickCryptoHashHybridOnRN();
+  const signHandle = createQuickCryptoSignHybridOnRN();
+  const privateKeyHandle = createQuickCryptoKeyObjectHybridOnRN();
+
+  const initialized = privateKeyHandle.init(
+    KeyType.PRIVATE,
+    nodeBufferToArrayBuffer(sec1Der),
+    KFormatType.DER,
+    KeyEncoding.SEC1,
+  );
+
+  if (!initialized) {
+    throw new Error(
+      'QuickCrypto KeyObjectHandle.init() returned false for the secp256k1 request key.',
+    );
+  }
+
+  return {
+    firstHash,
+    secondHash,
+    signHandle,
+    privateKeyHandle,
+    opensslVersion:
+      typeof firstHash.getOpenSSLVersion === 'function'
+        ? firstHash.getOpenSSLVersion()
+        : undefined,
+  };
 };
 
 const getWorkerRequestKeyDetails = (
@@ -862,6 +1085,146 @@ export const runTransferredNitroHashSmokeTestOnWorker = async (): Promise<Worker
     WORKER_RUNTIME_NAME,
     hashHybrid,
   );
+};
+
+export const runTransferredNitroBwsSigningSmokeTestOnWorker = async (
+  wallet: WorkletsTxHistoryWalletSnapshot,
+): Promise<WorkerTransferredNitroBwsSigningSmokeTestResult> => {
+  if (!wallet?.requestPrivKey) {
+    throw new Error(
+      'A selected wallet with a requestPrivKey is required for the transferred Nitro signing smoke test.',
+    );
+  }
+
+  const requestPath = buildTxHistoryRequestPath(
+    wallet,
+    0,
+    DEFAULT_TXHISTORY_LIMIT,
+    BWS_SIGNING_SMOKE_TEST_CACHE_BUST,
+  );
+  const requestKey = getRequestPubKeyDetailsOnRN(wallet);
+  const bitcoreSignatureHex = signBwsGetRequestOnRN(
+    requestPath,
+    wallet.requestPrivKey,
+  );
+  const {sha256Twice} = getBwsSigningDigestDetailsOnRN(requestPath);
+
+  let hybrids: TransferredNitroBwsSigningHybrids;
+  try {
+    hybrids = createTransferredNitroBwsSigningHybridsOnRN(
+      wallet.requestPrivKey,
+    );
+  } catch (err: unknown) {
+    throw new Error(
+      `RN Nitro BWS signing setup failed before crossing runtimes. ${
+        toRuntimeError(err).message
+      }`,
+    );
+  }
+
+  const workerPayload = await runOnRuntimeAsync(
+    getWorkletsBundleModeRuntime(),
+    (
+      requestPathArg: string,
+      requestPubKey: string | undefined,
+      derivedRequestPubKey: string,
+      requestPubKeyMatchesDerived: boolean | undefined,
+      workerRuntimeName: string,
+      firstHashHybrid: QuickCryptoHashHybrid,
+      secondHashHybrid: QuickCryptoHashHybrid,
+      signHandleHybrid: QuickCryptoSignHybrid,
+      privateKeyHandle: QuickCryptoKeyObjectHybrid,
+      opensslVersion: string | undefined,
+    ): WorkerTransferredNitroBwsSigningPayload => {
+      'worklet';
+
+      ensureSigningGlobalsForWorker();
+
+      try {
+        const signingMessage = getBwsSigningMessage(requestPathArg);
+
+        firstHashHybrid.createHash('sha256');
+        firstHashHybrid.update(signingMessage);
+        const sha256Once = NodeBuffer.from(firstHashHybrid.digest());
+
+        secondHashHybrid.createHash('sha256');
+        secondHashHybrid.update(nodeBufferToArrayBuffer(sha256Once));
+        const sha256Twice = NodeBuffer.from(secondHashHybrid.digest());
+        const reversedDigest = reverseNodeBuffer(sha256Twice);
+
+        signHandleHybrid.init('');
+        signHandleHybrid.update(nodeBufferToArrayBuffer(reversedDigest));
+        const nitroSignatureHex = NodeBuffer.from(
+          signHandleHybrid.sign(privateKeyHandle, undefined, undefined, 0),
+        ).toString('hex');
+
+        return {
+          runtimeKind: getRuntimeKind(),
+          isWorkerRuntime: isWorkerRuntime(),
+          workerRuntimeName,
+          executedAtIso: new Date().toISOString(),
+          requestPath: requestPathArg,
+          requestMethod: 'get',
+          signingMessage,
+          sha256OnceHex: sha256Once.toString('hex'),
+          sha256TwiceHex: sha256Twice.toString('hex'),
+          reversedDigestHex: reversedDigest.toString('hex'),
+          nitroSignatureHex,
+          derivedRequestPubKey,
+          requestPubKey,
+          requestPubKeyMatchesDerived,
+          opensslVersion,
+        };
+      } catch (err: unknown) {
+        throw new Error(
+          `Transferred Nitro BWS signing worker smoke test failed. ${toWorkerErrorMessage(
+            err,
+          )}`,
+        );
+      }
+    },
+    requestPath,
+    requestKey.requestPubKey,
+    requestKey.derivedRequestPubKey,
+    requestKey.requestPubKeyMatchesDerived,
+    WORKER_RUNTIME_NAME,
+    hybrids.firstHash,
+    hybrids.secondHash,
+    hybrids.signHandle,
+    hybrids.privateKeyHandle,
+    hybrids.opensslVersion,
+  );
+
+  const bitcoreLib = getBitcoreLibForRN();
+  const privateKey = new bitcoreLib.PrivateKey(wallet.requestPrivKey);
+  const publicKey = privateKey.toPublicKey();
+  const nitroSignature = bitcoreLib.crypto.Signature.fromString(
+    workerPayload.nitroSignatureHex,
+  );
+  const bitcoreSignature = bitcoreLib.crypto.Signature.fromString(
+    bitcoreSignatureHex,
+  );
+  const bitcoreVerifiedNitroSignature = bitcoreLib.crypto.ECDSA.verify(
+    NodeBuffer.from(sha256Twice),
+    nitroSignature,
+    publicKey,
+    {endian: 'little'},
+  );
+  const bitcoreVerifiedBitcoreSignature = bitcoreLib.crypto.ECDSA.verify(
+    NodeBuffer.from(sha256Twice),
+    bitcoreSignature,
+    publicKey,
+    {endian: 'little'},
+  );
+
+  return {
+    ...workerPayload,
+    bitcoreSignatureHex,
+    exactSignatureMatch:
+      workerPayload.nitroSignatureHex === bitcoreSignatureHex,
+    bitcoreVerifiedNitroSignature,
+    bitcoreVerifiedBitcoreSignature,
+  };
 };
 
 export const primeWalletTxHistoryWorkerSession = async (

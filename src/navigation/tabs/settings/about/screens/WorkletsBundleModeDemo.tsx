@@ -20,8 +20,10 @@ import {
   getRNRuntimeInfo,
   getWorkletsBundleModeRuntime,
   primeWalletTxHistoryWorkerSession,
+  runTransferredNitroBwsSigningSmokeTestOnWorker,
   runQuickCryptoHashSmokeTestOnWorker,
   runTransferredNitroHashSmokeTestOnWorker,
+  type WorkerTransferredNitroBwsSigningSmokeTestResult,
   type WorkerQuickCryptoHashSmokeTestResult,
   type WorkerTransferredNitroHashSmokeTestResult,
   type WorkerTxHistoryBatchResult,
@@ -177,6 +179,13 @@ const isMainnetNetwork = (network: string | undefined) => {
   return network === 'livenet' || network === 'mainnet';
 };
 
+const isBtcWallet = (coin: string | undefined, chain: string | undefined) => {
+  const normalizedCoin = String(coin || '').toLowerCase();
+  const normalizedChain = String(chain || '').toLowerCase();
+
+  return normalizedCoin === 'btc' || normalizedChain === 'btc';
+};
+
 const buildWalletOption = (
   wallet: any,
   keyName?: string,
@@ -214,7 +223,7 @@ const buildWalletOption = (
   const network = wallet?.network || credentials?.network;
   const coin = credentials?.coin || wallet?.currencyAbbreviation;
 
-  if (!isMainnetNetwork(network)) {
+  if (!isMainnetNetwork(network) || !isBtcWallet(coin, chain)) {
     return null;
   }
 
@@ -278,6 +287,8 @@ const WorkletsBundleModeDemo = (_props: Props) => {
   const [priming, setPriming] = useState(false);
   const [quickCryptoLoading, setQuickCryptoLoading] = useState(false);
   const [transferredHashLoading, setTransferredHashLoading] = useState(false);
+  const [transferredSigningLoading, setTransferredSigningLoading] =
+    useState(false);
   const [loading, setLoading] = useState(false);
   const [quickCryptoError, setQuickCryptoError] = useState<string | null>(null);
   const [quickCryptoResult, setQuickCryptoResult] =
@@ -287,6 +298,11 @@ const WorkletsBundleModeDemo = (_props: Props) => {
   >(null);
   const [transferredHashResult, setTransferredHashResult] =
     useState<WorkerTransferredNitroHashSmokeTestResult | null>(null);
+  const [transferredSigningError, setTransferredSigningError] = useState<
+    string | null
+  >(null);
+  const [transferredSigningResult, setTransferredSigningResult] =
+    useState<WorkerTransferredNitroBwsSigningSmokeTestResult | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<WorkerTxHistorySessionSummary | null>(
@@ -405,6 +421,27 @@ const WorkletsBundleModeDemo = (_props: Props) => {
     }
   };
 
+  const handleTransferredNitroSigningSmokeTest = async () => {
+    if (!selectedWallet) {
+      return;
+    }
+
+    setTransferredSigningLoading(true);
+    setTransferredSigningError(null);
+    setTransferredSigningResult(null);
+
+    try {
+      const nextResult = await runTransferredNitroBwsSigningSmokeTestOnWorker(
+        selectedWallet,
+      );
+      setTransferredSigningResult(nextResult);
+    } catch (err: unknown) {
+      setTransferredSigningError(toErrorMessage(err));
+    } finally {
+      setTransferredSigningLoading(false);
+    }
+  };
+
   const handleFetch = async () => {
     if (!selectedWallet) {
       return;
@@ -452,7 +489,9 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             small QuickCrypto smoke test in two variants: first by importing
             `react-native-quick-crypto` directly inside the worker runtime,
             then by creating the underlying Nitro `Hash` Hybrid Object on RN
-            and passing that object into the worker.
+            and passing that object into the worker. It also includes a
+            transferred Nitro signing proof for a BWS-style `get|path|{}`
+            message using the selected wallet&apos;s request key.
           </SectionBody>
           <SectionBody>
             This iteration primes the selected wallet into a dedicated Worklets
@@ -488,7 +527,8 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               priming ||
               loading ||
               quickCryptoLoading ||
-              transferredHashLoading
+              transferredHashLoading ||
+              transferredSigningLoading
             }
             onPress={handleQuickCryptoSmokeTest}
             accessibilityLabel="Run the QuickCrypto worker smoke test">
@@ -509,11 +549,37 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               priming ||
               loading ||
               quickCryptoLoading ||
-              transferredHashLoading
+              transferredHashLoading ||
+              transferredSigningLoading
             }
             onPress={handleTransferredNitroHashSmokeTest}
             accessibilityLabel="Run the transferred Nitro Hash worker smoke test">
             Run transferred Nitro Hash smoke test
+          </Button>
+        </Card>
+
+        <Card>
+          <SectionTitle>Transferred Nitro BWS signing smoke test</SectionTitle>
+          <SectionBody>
+            This creates Nitro `Hash`, `SignHandle`, and `KeyObjectHandle`
+            objects on the RN runtime for the selected wallet&apos;s request
+            key, transfers those handles into the worker runtime, and signs a
+            fixed BWS-style request message there. The result then comes back
+            to RN for bitcore verification.
+          </SectionBody>
+          <Button
+            state={transferredSigningLoading ? 'loading' : undefined}
+            disabled={
+              !selectedWallet ||
+              priming ||
+              loading ||
+              quickCryptoLoading ||
+              transferredHashLoading ||
+              transferredSigningLoading
+            }
+            onPress={handleTransferredNitroSigningSmokeTest}
+            accessibilityLabel="Run the transferred Nitro BWS signing smoke test">
+            Run transferred Nitro BWS signing smoke test
           </Button>
         </Card>
 
@@ -568,7 +634,8 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               priming ||
               loading ||
               quickCryptoLoading ||
-              transferredHashLoading
+              transferredHashLoading ||
+              transferredSigningLoading
             }
             onPress={primeSelectedWalletOnWorker}
             accessibilityLabel="Prime worker session with the selected wallet">
@@ -583,7 +650,8 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               priming ||
               loading ||
               quickCryptoLoading ||
-              transferredHashLoading
+              transferredHashLoading ||
+              transferredSigningLoading
             }
             onPress={handleFetch}
             accessibilityLabel="Fetch multiple txhistory pages with worker runtime fetches">
@@ -622,6 +690,18 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               <LoadingText>
                 Creating a Nitro `Hash` Hybrid Object on RN and exercising it
                 from inside the worker runtime…
+              </LoadingText>
+            </StatusRow>
+          </Card>
+        ) : null}
+
+        {transferredSigningLoading ? (
+          <Card>
+            <StatusRow>
+              <ActivityIndicator />
+              <LoadingText>
+                Creating Nitro crypto handles on RN, transferring them into the
+                worker runtime, and signing a BWS-style request message there…
               </LoadingText>
             </StatusRow>
           </Card>
@@ -762,6 +842,102 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             <SectionTitle>Transferred Hash JSON</SectionTitle>
             <RawOutput selectable>
               {JSON.stringify(transferredHashResult, null, 2)}
+            </RawOutput>
+          </Card>
+        ) : null}
+
+        {transferredSigningError ? (
+          <Card>
+            <SectionTitle>
+              Transferred Nitro BWS signing smoke test failed
+            </SectionTitle>
+            <RawOutput selectable>{transferredSigningError}</RawOutput>
+          </Card>
+        ) : null}
+
+        {transferredSigningResult ? (
+          <Card>
+            <SectionTitle>Transferred Nitro BWS signing smoke test</SectionTitle>
+            <MetaText>
+              Worker runtime kind:{' '}
+              {RUNTIME_KIND_LABELS[transferredSigningResult.runtimeKind] ||
+                'Unknown'}{' '}
+              ({transferredSigningResult.runtimeKind})
+            </MetaText>
+            <MetaText>
+              Confirmed worker runtime:{' '}
+              {transferredSigningResult.isWorkerRuntime ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              Executed at: {transferredSigningResult.executedAtIso}
+            </MetaText>
+            <MetaText>
+              Request method/path: {transferredSigningResult.requestMethod.toUpperCase()}{' '}
+              {transferredSigningResult.requestPath}
+            </MetaText>
+            <MetaText>
+              Stored request pubkey:{' '}
+              {truncateMiddle(transferredSigningResult.requestPubKey, 8)}
+            </MetaText>
+            <MetaText>
+              Derived request pubkey:{' '}
+              {truncateMiddle(
+                transferredSigningResult.derivedRequestPubKey,
+                8,
+              )}
+            </MetaText>
+            <MetaText>
+              Request pubkey matches derived:{' '}
+              {transferredSigningResult.requestPubKeyMatchesDerived ===
+              undefined
+                ? 'not provided'
+                : transferredSigningResult.requestPubKeyMatchesDerived
+                  ? 'yes'
+                  : 'no'}
+            </MetaText>
+            <MetaText>
+              Bitcore verifies worker Nitro signature:{' '}
+              {transferredSigningResult.bitcoreVerifiedNitroSignature
+                ? 'yes'
+                : 'no'}
+            </MetaText>
+            <MetaText>
+              Bitcore verifies its own signature:{' '}
+              {transferredSigningResult.bitcoreVerifiedBitcoreSignature
+                ? 'yes'
+                : 'no'}
+            </MetaText>
+            <MetaText>
+              Exact DER match with bitcore:{' '}
+              {transferredSigningResult.exactSignatureMatch ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              OpenSSL version: {transferredSigningResult.opensslVersion || 'n/a'}
+            </MetaText>
+            <MetaText>
+              First SHA-256: {transferredSigningResult.sha256OnceHex}
+            </MetaText>
+            <MetaText>
+              Double SHA-256: {transferredSigningResult.sha256TwiceHex}
+            </MetaText>
+            <MetaText>
+              Reversed digest: {transferredSigningResult.reversedDigestHex}
+            </MetaText>
+            <MetaText>
+              Worker Nitro signature: {transferredSigningResult.nitroSignatureHex}
+            </MetaText>
+            <MetaText>
+              RN bitcore signature: {transferredSigningResult.bitcoreSignatureHex}
+            </MetaText>
+            <Spacer />
+            <SectionTitle>Signing message</SectionTitle>
+            <RawOutput selectable>
+              {transferredSigningResult.signingMessage}
+            </RawOutput>
+            <Spacer />
+            <SectionTitle>Transferred signing JSON</SectionTitle>
+            <RawOutput selectable>
+              {JSON.stringify(transferredSigningResult, null, 2)}
             </RawOutput>
           </Card>
         ) : null}
