@@ -1,11 +1,13 @@
-const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
+const {getDefaultConfig, mergeConfig} = require('@react-native/metro-config');
 const path = require('path');
 
 const {withSentryConfig} = require('@sentry/react-native/metro');
+const {bundleModeMetroConfig} = require('react-native-worklets/bundleMode');
 
+const defaultConfig = getDefaultConfig(__dirname);
 const {
   resolver: {sourceExts, assetExts},
-} = getDefaultConfig();
+} = defaultConfig;
 
 const SHIM_PATH = path.resolve(__dirname, 'shims/silence-dkls-web.js');
 const REAL_SILENCE_PATH = path.resolve(
@@ -92,5 +94,5 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
 };
 
 module.exports = withSentryConfig(
-  mergeConfig(getDefaultConfig(__dirname), config),
+  mergeConfig(defaultConfig, bundleModeMetroConfig, config),
 );
