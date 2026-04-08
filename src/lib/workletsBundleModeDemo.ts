@@ -207,12 +207,11 @@ type TxHistoryRequestWalletContext = Pick<
   'tokenAddress' | 'multisigContractAddress'
 >;
 
-type WorkerTxHistoryPreparedRequest = {
+type WorkerTxHistoryRequestPlan = {
   pageIndex: number;
   skip: number;
   limit: number;
   requestPath: string;
-  signature: string;
 };
 
 type WorkerTxHistorySession = {
@@ -283,6 +282,22 @@ type TransferredNitroBwsSigningHybrids = {
   signHandle: QuickCryptoSignHybrid;
   privateKeyHandle: QuickCryptoKeyObjectHybrid;
   opensslVersion?: string;
+};
+
+type TransferredNitroBwsSigningBatchHybrids = {
+  firstHash: QuickCryptoHashHybrid;
+  secondHash: QuickCryptoHashHybrid;
+  signHandles: QuickCryptoSignHybrid[];
+  privateKeyHandle: QuickCryptoKeyObjectHybrid;
+  opensslVersion?: string;
+};
+
+type NitroBwsSigningDetails = {
+  signingMessage: string;
+  sha256Once: Buffer;
+  sha256Twice: Buffer;
+  reversedDigest: Buffer;
+  nitroSignatureHex: string;
 };
 
 type WorkerTransferredNitroBwsSigningPayload = Omit<
@@ -577,6 +592,78 @@ const createTransferredNitroBwsSigningHybridsOnRN = (
   };
 };
 
+const createTransferredNitroBwsSigningBatchHybridsOnRN = (
+  requestPrivKey: string,
+  requestCount: number,
+): TransferredNitroBwsSigningBatchHybrids => {
+  const normalizedRequestCount = Math.max(1, Math.floor(requestCount));
+  const baseHybrids = createTransferredNitroBwsSigningHybridsOnRN(
+    requestPrivKey,
+  );
+  const signHandles: QuickCryptoSignHybrid[] = [baseHybrids.signHandle];
+
+  while (signHandles.length < normalizedRequestCount) {
+    signHandles.push(createQuickCryptoSignHybridOnRN());
+  }
+
+  return {
+    firstHash: baseHybrids.firstHash,
+    secondHash: baseHybrids.secondHash,
+    signHandles,
+    privateKeyHandle: baseHybrids.privateKeyHandle,
+    opensslVersion: baseHybrids.opensslVersion,
+  };
+};
+
+const signBwsGetRequestWithTransferredNitro = (
+  requestPath: string,
+  firstHashHybrid: QuickCryptoHashHybrid,
+  secondHashHybrid: QuickCryptoHashHybrid,
+  signHandleHybrid: QuickCryptoSignHybrid,
+  privateKeyHandle: QuickCryptoKeyObjectHybrid,
+): NitroBwsSigningDetails => {
+  'worklet';
+
+  const signingMessage = getBwsSigningMessage(requestPath);
+
+  firstHashHybrid.createHash('sha256');
+  firstHashHybrid.update(signingMessage);
+  const sha256Once = NodeBuffer.from(firstHashHybrid.digest());
+
+  secondHashHybrid.createHash('sha256');
+  secondHashHybrid.update(nodeBufferToArrayBuffer(sha256Once));
+  const sha256Twice = NodeBuffer.from(secondHashHybrid.digest());
+  const reversedDigest = reverseNodeBuffer(sha256Twice);
+
+  signHandleHybrid.init('sha256');
+  signHandleHybrid.update(nodeBufferToArrayBuffer(sha256Once));
+  const rawNitroSignatureHex = NodeBuffer.from(
+    signHandleHybrid.sign(privateKeyHandle, undefined, undefined, 0),
+  ).toString('hex');
+  const bitcoreLib = getBitcoreLibForWorker();
+  const nitroSignature = bitcoreLib.crypto.Signature.fromString(
+    rawNitroSignatureHex,
+  );
+  const nitroSignatureHex = nitroSignature.hasLowS()
+    ? rawNitroSignatureHex
+    : new bitcoreLib.crypto.Signature({
+        r: nitroSignature.r,
+        s: bitcoreLib.crypto.Point.getN().sub(nitroSignature.s),
+        compressed: nitroSignature.compressed,
+        isSchnorr: nitroSignature.isSchnorr,
+        nhashtype: nitroSignature.nhashtype,
+        i: nitroSignature.i,
+      }).toString();
+
+  return {
+    signingMessage,
+    sha256Once,
+    sha256Twice,
+    reversedDigest,
+    nitroSignatureHex,
+  };
+};
+
 const getWorkerRequestKeyDetails = (
   wallet: WorkletsTxHistoryWalletSnapshot,
 ): WorkerTxHistoryRequestKeyDetails => {
@@ -777,14 +864,13 @@ const signBwsGetRequestOnRN = (requestPath: string, requestPrivKey: string) => {
   }).toString();
 };
 
-const buildPreparedTxHistoryRequestsForSession = (
+const buildTxHistoryRequestPlansForSession = (
   session: WorkerTxHistorySessionSummary,
-  requestPrivKey: string,
   initialSkip: number,
   pageSize: number,
   pageCount: number,
-): WorkerTxHistoryPreparedRequest[] => {
-  const requests: WorkerTxHistoryPreparedRequest[] = [];
+): WorkerTxHistoryRequestPlan[] => {
+  const requests: WorkerTxHistoryRequestPlan[] = [];
   let nextSkip = initialSkip;
 
   for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
@@ -795,23 +881,11 @@ const buildPreparedTxHistoryRequestsForSession = (
       session.initializedAtMs + session.requestSequence + pageIndex + 1,
     );
 
-    let signature: string;
-    try {
-      signature = signBwsGetRequestOnRN(requestPath, requestPrivKey);
-    } catch (err: unknown) {
-      throw new Error(
-        `RN signing failed for txhistory page ${pageIndex + 1} (${requestPath}). ${
-          toRuntimeError(err).message
-        }`,
-      );
-    }
-
     requests.push({
       pageIndex,
       skip: nextSkip,
       limit: pageSize,
       requestPath,
-      signature,
     });
 
     nextSkip += pageSize;
@@ -896,12 +970,13 @@ const summarizeTx = (tx: any): WorkerTxHistoryPreviewItem => {
 
 const executePreparedTxHistoryRequestForPrimedWallet = async (
   session: WorkerTxHistorySession,
-  request: WorkerTxHistoryPreparedRequest,
+  requestPlan: WorkerTxHistoryRequestPlan,
+  signature: string,
 ): Promise<WorkerTxHistoryPageResult> => {
   'worklet';
 
   const startedAt = Date.now();
-  const {pageIndex, skip, limit, requestPath, signature} = request;
+  const {pageIndex, skip, limit, requestPath} = requestPlan;
 
   let response: Response;
   try {
@@ -1239,22 +1314,19 @@ export const runTransferredNitroBwsSigningSmokeTestOnWorker = async (
       ensureSigningGlobalsForWorker();
 
       try {
-        const signingMessage = getBwsSigningMessage(requestPathArg);
-
-        firstHashHybrid.createHash('sha256');
-        firstHashHybrid.update(signingMessage);
-        const sha256Once = NodeBuffer.from(firstHashHybrid.digest());
-
-        secondHashHybrid.createHash('sha256');
-        secondHashHybrid.update(nodeBufferToArrayBuffer(sha256Once));
-        const sha256Twice = NodeBuffer.from(secondHashHybrid.digest());
-        const reversedDigest = reverseNodeBuffer(sha256Twice);
-
-        signHandleHybrid.init('sha256');
-        signHandleHybrid.update(nodeBufferToArrayBuffer(sha256Once));
-        const nitroSignatureHex = NodeBuffer.from(
-          signHandleHybrid.sign(privateKeyHandle, undefined, undefined, 0),
-        ).toString('hex');
+        const {
+          signingMessage,
+          sha256Once,
+          sha256Twice,
+          reversedDigest,
+          nitroSignatureHex,
+        } = signBwsGetRequestWithTransferredNitro(
+          requestPathArg,
+          firstHashHybrid,
+          secondHashHybrid,
+          signHandleHybrid,
+          privateKeyHandle,
+        );
 
         return {
           runtimeKind: getRuntimeKind(),
@@ -1371,20 +1443,18 @@ export const runRNNitroBwsSigningControlTest = async (
   let nitroSignatureHex: string;
 
   try {
-    hybrids.firstHash.createHash('sha256');
-    hybrids.firstHash.update(signingMessage);
-    sha256Once = NodeBuffer.from(hybrids.firstHash.digest());
-
-    hybrids.secondHash.createHash('sha256');
-    hybrids.secondHash.update(nodeBufferToArrayBuffer(sha256Once));
-    sha256Twice = NodeBuffer.from(hybrids.secondHash.digest());
-    reversedDigest = reverseNodeBuffer(sha256Twice);
-
-    hybrids.signHandle.init('sha256');
-    hybrids.signHandle.update(nodeBufferToArrayBuffer(sha256Once));
-    nitroSignatureHex = NodeBuffer.from(
-      hybrids.signHandle.sign(hybrids.privateKeyHandle, undefined, undefined, 0),
-    ).toString('hex');
+    ({
+      sha256Once,
+      sha256Twice,
+      reversedDigest,
+      nitroSignatureHex,
+    } = signBwsGetRequestWithTransferredNitro(
+      requestPath,
+      hybrids.firstHash,
+      hybrids.secondHash,
+      hybrids.signHandle,
+      hybrids.privateKeyHandle,
+    ));
   } catch (err: unknown) {
     throw new Error(
       `RN Nitro BWS signing control test failed while signing. ${
@@ -1496,7 +1566,7 @@ export const fetchPrimedWalletTxHistoryPageOnWorker = async (opts?: {
   const wallet = opts?.wallet;
   if (!wallet?.requestPrivKey) {
     throw new Error(
-      'A selected wallet with a requestPrivKey is required for RN-side txhistory signing.',
+      'A selected wallet with a requestPrivKey is required for Nitro-backed txhistory signing.',
     );
   }
 
@@ -1527,7 +1597,7 @@ export const fetchManyWalletTxHistoryPagesOnWorker = async (opts?: {
   const wallet = opts?.wallet;
   if (!wallet?.requestPrivKey) {
     throw new Error(
-      'A selected wallet with a requestPrivKey is required for RN-side txhistory signing.',
+      'A selected wallet with a requestPrivKey is required for Nitro-backed txhistory signing.',
     );
   }
 
@@ -1545,13 +1615,26 @@ export const fetchManyWalletTxHistoryPagesOnWorker = async (opts?: {
     );
   }
 
-  const preparedRequests = buildPreparedTxHistoryRequestsForSession(
+  const requestPlans = buildTxHistoryRequestPlansForSession(
     activeSession,
-    wallet.requestPrivKey,
     initialSkip,
     pageSize,
     pageCount,
   );
+  let signingHybrids: TransferredNitroBwsSigningBatchHybrids;
+
+  try {
+    signingHybrids = createTransferredNitroBwsSigningBatchHybridsOnRN(
+      wallet.requestPrivKey,
+      pageCount,
+    );
+  } catch (err: unknown) {
+    throw new Error(
+      `RN Nitro txhistory signing setup failed before crossing runtimes. ${
+        toRuntimeError(err).message
+      }`,
+    );
+  }
 
   return new Promise((resolve, reject) => {
     const rejectOnRN = (message: string) => {
@@ -1561,10 +1644,14 @@ export const fetchManyWalletTxHistoryPagesOnWorker = async (opts?: {
     void runOnRuntimeAsync(
       getWorkletsBundleModeRuntime(),
       (
-        signedRequests: WorkerTxHistoryPreparedRequest[],
+        plannedRequests: WorkerTxHistoryRequestPlan[],
         requestedPageCount: number,
         initialSkipArg: number,
         pageSizeArg: number,
+        firstHashHybrid: QuickCryptoHashHybrid,
+        secondHashHybrid: QuickCryptoHashHybrid,
+        signHandleHybrids: QuickCryptoSignHybrid[],
+        privateKeyHandle: QuickCryptoKeyObjectHybrid,
         resolveOnRN: (value: WorkerTxHistoryBatchResult) => void,
         rejectOnRNWorklet: (message: string) => void,
       ): void => {
@@ -1583,18 +1670,45 @@ export const fetchManyWalletTxHistoryPagesOnWorker = async (opts?: {
             let stoppedEarly = false;
             let totalTransactionsAcrossPages = 0;
 
-            for (const signedRequest of signedRequests) {
+            for (const requestPlan of plannedRequests) {
               const expectedRequestPath = buildTxHistoryRequestPath(
                 session.wallet,
-                signedRequest.skip,
-                signedRequest.limit,
+                requestPlan.skip,
+                requestPlan.limit,
                 session.initializedAtMs + session.requestSequence + 1,
               );
-              if (expectedRequestPath !== signedRequest.requestPath) {
+              if (expectedRequestPath !== requestPlan.requestPath) {
                 throw new Error(
                   `Prepared txhistory request path for page ${
-                    signedRequest.pageIndex + 1
+                    requestPlan.pageIndex + 1
                   } no longer matches the worker session. Prime the wallet again.`,
+                );
+              }
+
+              const signHandleHybrid = signHandleHybrids[requestPlan.pageIndex];
+              if (!signHandleHybrid) {
+                throw new Error(
+                  `No transferred Nitro SignHandle is available for txhistory page ${
+                    requestPlan.pageIndex + 1
+                  }.`,
+                );
+              }
+
+              let signature: string;
+              try {
+                ({nitroSignatureHex: signature} =
+                  signBwsGetRequestWithTransferredNitro(
+                    requestPlan.requestPath,
+                    firstHashHybrid,
+                    secondHashHybrid,
+                    signHandleHybrid,
+                    privateKeyHandle,
+                  ));
+              } catch (err: unknown) {
+                throw new Error(
+                  `Worker Nitro signing failed for txhistory page ${
+                    requestPlan.pageIndex + 1
+                  } (${requestPlan.requestPath}). ${toWorkerErrorMessage(err)}`,
                 );
               }
 
@@ -1602,7 +1716,8 @@ export const fetchManyWalletTxHistoryPagesOnWorker = async (opts?: {
 
               const page = await executePreparedTxHistoryRequestForPrimedWallet(
                 session,
-                signedRequest,
+                requestPlan,
+                signature,
               );
 
               pages.push(page);
@@ -1614,7 +1729,7 @@ export const fetchManyWalletTxHistoryPagesOnWorker = async (opts?: {
                 break;
               }
 
-              if (page.txCount < signedRequest.limit) {
+              if (page.txCount < requestPlan.limit) {
                 stoppedEarly = true;
                 stopReason = 'short_page';
                 break;
@@ -1642,10 +1757,14 @@ export const fetchManyWalletTxHistoryPagesOnWorker = async (opts?: {
           }
         })();
       },
-      preparedRequests,
+      requestPlans,
       pageCount,
       initialSkip,
       pageSize,
+      signingHybrids.firstHash,
+      signingHybrids.secondHash,
+      signingHybrids.signHandles,
+      signingHybrids.privateKeyHandle,
       resolve,
       rejectOnRN,
     ).catch(err => {

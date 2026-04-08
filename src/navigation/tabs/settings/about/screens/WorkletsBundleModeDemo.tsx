@@ -546,9 +546,11 @@ const WorkletsBundleModeDemo = (_props: Props) => {
           <SectionBody>
             This iteration primes the selected wallet into a dedicated Worklets
             worker once, then that worker executes multiple paged
-            /v1/txhistory/ requests while the RN runtime signs each prepared
-            request path before dispatch. That split keeps fetch/parsing on the
-            worker without sending Nitro-backed crypto into the Worklet runtime.
+            /v1/txhistory/ requests while signing each request path inside the
+            worker via transferred Nitro crypto handles that were created on
+            RN. That keeps signing, fetch, and response parsing off the JS
+            thread while avoiding direct Nitro module imports inside the
+            Worklet runtime.
           </SectionBody>
           <MetaText>RN runtime kind: {RUNTIME_KIND_LABELS[rnRuntimeInfo.runtimeKind]} ({rnRuntimeInfo.runtimeKind})</MetaText>
           <MetaText>
@@ -844,8 +846,8 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             <StatusRow>
               <ActivityIndicator />
               <LoadingText>
-                Running repeated worker-side txhistory fetches with RN-side
-                request signing…
+                Running repeated worker-side txhistory fetches with transferred
+                Nitro request signing…
               </LoadingText>
             </StatusRow>
           </Card>
