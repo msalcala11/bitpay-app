@@ -20,9 +20,11 @@ import {
   getRNRuntimeInfo,
   getWorkletsBundleModeRuntime,
   primeWalletTxHistoryWorkerSession,
+  runBigIntSmokeTestOnWorker,
   runTransferredNitroBwsSigningSmokeTestOnWorker,
   runQuickCryptoHashSmokeTestOnWorker,
   runTransferredNitroHashSmokeTestOnWorker,
+  type WorkerBigIntSmokeTestResult,
   type WorkerTransferredNitroBwsSigningSmokeTestResult,
   type WorkerQuickCryptoHashSmokeTestResult,
   type WorkerTransferredNitroHashSmokeTestResult,
@@ -285,11 +287,15 @@ const doesSessionMatchWallet = (
 
 const WorkletsBundleModeDemo = (_props: Props) => {
   const [priming, setPriming] = useState(false);
+  const [bigIntLoading, setBigIntLoading] = useState(false);
   const [quickCryptoLoading, setQuickCryptoLoading] = useState(false);
   const [transferredHashLoading, setTransferredHashLoading] = useState(false);
   const [transferredSigningLoading, setTransferredSigningLoading] =
     useState(false);
   const [loading, setLoading] = useState(false);
+  const [bigIntError, setBigIntError] = useState<string | null>(null);
+  const [bigIntResult, setBigIntResult] =
+    useState<WorkerBigIntSmokeTestResult | null>(null);
   const [quickCryptoError, setQuickCryptoError] = useState<string | null>(null);
   const [quickCryptoResult, setQuickCryptoResult] =
     useState<WorkerQuickCryptoHashSmokeTestResult | null>(null);
@@ -406,6 +412,21 @@ const WorkletsBundleModeDemo = (_props: Props) => {
     }
   };
 
+  const handleBigIntSmokeTest = async () => {
+    setBigIntLoading(true);
+    setBigIntError(null);
+    setBigIntResult(null);
+
+    try {
+      const nextResult = await runBigIntSmokeTestOnWorker();
+      setBigIntResult(nextResult);
+    } catch (err: unknown) {
+      setBigIntError(toErrorMessage(err));
+    } finally {
+      setBigIntLoading(false);
+    }
+  };
+
   const handleTransferredNitroHashSmokeTest = async () => {
     setTransferredHashLoading(true);
     setTransferredHashError(null);
@@ -486,7 +507,8 @@ const WorkletsBundleModeDemo = (_props: Props) => {
           <SectionTitle>Bundle Mode txhistory worker-session demo</SectionTitle>
           <SectionBody>
             Before trying worklet-side signing, this screen can run a very
-            small QuickCrypto smoke test in two variants: first by importing
+            small runtime-capability probe for `BigInt`, then a QuickCrypto
+            smoke test in two variants: first by importing
             `react-native-quick-crypto` directly inside the worker runtime,
             then by creating the underlying Nitro `Hash` Hybrid Object on RN
             and passing that object into the worker. It also includes a
@@ -514,6 +536,29 @@ const WorkletsBundleModeDemo = (_props: Props) => {
         </Card>
 
         <Card>
+          <SectionTitle>Worker BigInt smoke test</SectionTitle>
+          <SectionBody>
+            This verifies that the worker runtime exposes the global `BigInt`
+            constructor and can perform integer math beyond
+            `Number.MAX_SAFE_INTEGER`.
+          </SectionBody>
+          <Button
+            state={bigIntLoading ? 'loading' : undefined}
+            disabled={
+              priming ||
+              loading ||
+              bigIntLoading ||
+              quickCryptoLoading ||
+              transferredHashLoading ||
+              transferredSigningLoading
+            }
+            onPress={handleBigIntSmokeTest}
+            accessibilityLabel="Run the worker BigInt smoke test">
+            Run worker BigInt smoke test
+          </Button>
+        </Card>
+
+        <Card>
           <SectionTitle>QuickCrypto worker smoke test</SectionTitle>
           <SectionBody>
             This uses the direct package-root import path inside the worker
@@ -526,6 +571,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             disabled={
               priming ||
               loading ||
+              bigIntLoading ||
               quickCryptoLoading ||
               transferredHashLoading ||
               transferredSigningLoading
@@ -548,6 +594,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             disabled={
               priming ||
               loading ||
+              bigIntLoading ||
               quickCryptoLoading ||
               transferredHashLoading ||
               transferredSigningLoading
@@ -573,6 +620,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               !selectedWallet ||
               priming ||
               loading ||
+              bigIntLoading ||
               quickCryptoLoading ||
               transferredHashLoading ||
               transferredSigningLoading
@@ -633,6 +681,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               !selectedWallet ||
               priming ||
               loading ||
+              bigIntLoading ||
               quickCryptoLoading ||
               transferredHashLoading ||
               transferredSigningLoading
@@ -649,6 +698,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               !selectedWallet ||
               priming ||
               loading ||
+              bigIntLoading ||
               quickCryptoLoading ||
               transferredHashLoading ||
               transferredSigningLoading
@@ -666,6 +716,18 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               <LoadingText>
                 Initializing the worker runtime with the selected wallet&apos;s
                 txhistory request context…
+              </LoadingText>
+            </StatusRow>
+          </Card>
+        ) : null}
+
+        {bigIntLoading ? (
+          <Card>
+            <StatusRow>
+              <ActivityIndicator />
+              <LoadingText>
+                Checking whether the worker runtime supports `BigInt`
+                arithmetic…
               </LoadingText>
             </StatusRow>
           </Card>
@@ -716,6 +778,51 @@ const WorkletsBundleModeDemo = (_props: Props) => {
                 request signing…
               </LoadingText>
             </StatusRow>
+          </Card>
+        ) : null}
+
+        {bigIntError ? (
+          <Card>
+            <SectionTitle>Worker BigInt smoke test failed</SectionTitle>
+            <RawOutput selectable>{bigIntError}</RawOutput>
+          </Card>
+        ) : null}
+
+        {bigIntResult ? (
+          <Card>
+            <SectionTitle>Worker BigInt smoke test</SectionTitle>
+            <MetaText>
+              Worker runtime kind:{' '}
+              {RUNTIME_KIND_LABELS[bigIntResult.runtimeKind] || 'Unknown'} (
+              {bigIntResult.runtimeKind})
+            </MetaText>
+            <MetaText>
+              Confirmed worker runtime:{' '}
+              {bigIntResult.isWorkerRuntime ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>Executed at: {bigIntResult.executedAtIso}</MetaText>
+            <MetaText>
+              Global `BigInt` available:{' '}
+              {bigIntResult.hasBigIntGlobal ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>Result type: {bigIntResult.bigintType}</MetaText>
+            <MetaText>Left operand: {bigIntResult.leftOperand}</MetaText>
+            <MetaText>Right operand: {bigIntResult.rightOperand}</MetaText>
+            <MetaText>Computed sum: {bigIntResult.sumDecimal}</MetaText>
+            <MetaText>
+              Sum matches expected:{' '}
+              {bigIntResult.sumMatchesExpected ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>Square in hex: {bigIntResult.productHex}</MetaText>
+            <MetaText>
+              Square matches expected:{' '}
+              {bigIntResult.productMatchesExpected ? 'yes' : 'no'}
+            </MetaText>
+            <Spacer />
+            <SectionTitle>BigInt JSON</SectionTitle>
+            <RawOutput selectable>
+              {JSON.stringify(bigIntResult, null, 2)}
+            </RawOutput>
           </Card>
         ) : null}
 

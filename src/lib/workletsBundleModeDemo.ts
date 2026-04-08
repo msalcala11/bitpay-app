@@ -33,6 +33,21 @@ export type WorkerQuickCryptoHashSmokeTestResult = {
   exportedKeysPreview: string[];
 };
 
+export type WorkerBigIntSmokeTestResult = {
+  runtimeKind: number;
+  isWorkerRuntime: boolean;
+  workerRuntimeName: string;
+  executedAtIso: string;
+  hasBigIntGlobal: boolean;
+  bigintType: string;
+  leftOperand: string;
+  rightOperand: string;
+  sumDecimal: string;
+  sumMatchesExpected: boolean;
+  productHex: string;
+  productMatchesExpected: boolean;
+};
+
 export type WorkerTransferredNitroHashSmokeTestResult = {
   runtimeKind: number;
   isWorkerRuntime: boolean;
@@ -258,6 +273,10 @@ type WorkerTransferredNitroBwsSigningPayload = Omit<
 
 const WORKER_RUNTIME_NAME = 'bitpay-txhistory-worker';
 const BWC_CLIENT_VERSION_HEADER = 'bwc-11.7.0';
+const BIGINT_SMOKE_TEST_LEFT = '9007199254740993';
+const BIGINT_SMOKE_TEST_RIGHT = '17';
+const BIGINT_SMOKE_TEST_EXPECTED_SUM = '9007199254741010';
+const BIGINT_SMOKE_TEST_EXPECTED_PRODUCT_HEX = '121';
 const DEFAULT_TXHISTORY_LIMIT = 10;
 const DEFAULT_TXHISTORY_PAGE_COUNT = 3;
 const WORKER_TXHISTORY_SESSION_KEY = '__bitpayTxHistoryWorkerSession';
@@ -941,6 +960,61 @@ export const getRNRuntimeInfo = (): RNRuntimeInfo => ({
   isRNRuntime: isRNRuntime(),
 });
 
+export const runBigIntSmokeTestOnWorker = async (): Promise<WorkerBigIntSmokeTestResult> => {
+  return runOnRuntimeAsync(
+    getWorkletsBundleModeRuntime(),
+    (
+      leftOperand: string,
+      rightOperand: string,
+      expectedSum: string,
+      expectedProductHex: string,
+      workerRuntimeName: string,
+    ): WorkerBigIntSmokeTestResult => {
+      'worklet';
+
+      const hasBigIntGlobal = typeof BigInt === 'function';
+      if (!hasBigIntGlobal) {
+        throw new Error(
+          'Worker runtime does not expose the global BigInt constructor.',
+        );
+      }
+
+      try {
+        const left = BigInt(leftOperand);
+        const right = BigInt(rightOperand);
+        const sum = left + right;
+        const productHex = (right * right).toString(16);
+
+        return {
+          runtimeKind: getRuntimeKind(),
+          isWorkerRuntime: isWorkerRuntime(),
+          workerRuntimeName,
+          executedAtIso: new Date().toISOString(),
+          hasBigIntGlobal,
+          bigintType: typeof sum,
+          leftOperand,
+          rightOperand,
+          sumDecimal: sum.toString(10),
+          sumMatchesExpected: sum.toString(10) === expectedSum,
+          productHex,
+          productMatchesExpected: productHex === expectedProductHex,
+        };
+      } catch (err: unknown) {
+        throw new Error(
+          `Worker BigInt smoke test failed. Expected sum=${expectedSum}, expected product hex=${expectedProductHex}. ${toWorkerErrorMessage(
+            err,
+          )}`,
+        );
+      }
+    },
+    BIGINT_SMOKE_TEST_LEFT,
+    BIGINT_SMOKE_TEST_RIGHT,
+    BIGINT_SMOKE_TEST_EXPECTED_SUM,
+    BIGINT_SMOKE_TEST_EXPECTED_PRODUCT_HEX,
+    WORKER_RUNTIME_NAME,
+  );
+};
+
 export const runQuickCryptoHashSmokeTestOnWorker = async (): Promise<WorkerQuickCryptoHashSmokeTestResult> => {
   return runOnRuntimeAsync(
     getWorkletsBundleModeRuntime(),
@@ -1107,7 +1181,9 @@ export const runTransferredNitroBwsSigningSmokeTestOnWorker = async (
     requestPath,
     wallet.requestPrivKey,
   );
-  const {sha256Twice} = getBwsSigningDigestDetailsOnRN(requestPath);
+  const {sha256Twice, reversedDigest} = getBwsSigningDigestDetailsOnRN(
+    requestPath,
+  );
 
   let hybrids: TransferredNitroBwsSigningHybrids;
   try {
@@ -1153,7 +1229,7 @@ export const runTransferredNitroBwsSigningSmokeTestOnWorker = async (
         const reversedDigest = reverseNodeBuffer(sha256Twice);
 
         signHandleHybrid.init('');
-        signHandleHybrid.update(nodeBufferToArrayBuffer(reversedDigest));
+        signHandleHybrid.update(nodeBufferToArrayBuffer(sha256Twice));
         const nitroSignatureHex = NodeBuffer.from(
           signHandleHybrid.sign(privateKeyHandle, undefined, undefined, 0),
         ).toString('hex');
@@ -1205,13 +1281,13 @@ export const runTransferredNitroBwsSigningSmokeTestOnWorker = async (
     bitcoreSignatureHex,
   );
   const bitcoreVerifiedNitroSignature = bitcoreLib.crypto.ECDSA.verify(
-    NodeBuffer.from(sha256Twice),
+    NodeBuffer.from(reversedDigest),
     nitroSignature,
     publicKey,
     {endian: 'little'},
   );
   const bitcoreVerifiedBitcoreSignature = bitcoreLib.crypto.ECDSA.verify(
-    NodeBuffer.from(sha256Twice),
+    NodeBuffer.from(reversedDigest),
     bitcoreSignature,
     publicKey,
     {endian: 'little'},
