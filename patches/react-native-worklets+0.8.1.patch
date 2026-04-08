@@ -2,7 +2,13 @@ diff --git a/node_modules/react-native-worklets/src/bundleMode/metroOverrides.na
 index 0000000..0000000 100644
 --- a/node_modules/react-native-worklets/src/bundleMode/metroOverrides.native.ts
 +++ b/node_modules/react-native-worklets/src/bundleMode/metroOverrides.native.ts
-@@ -64,7 +64,7 @@ export function disallowRNImports() {
+@@ -34,7 +34,8 @@ export function disallowRNImports() {
+ 
+-  const modules = require.getModules();
++  const metroRequire = require.getModules ? require : globalThis.__r;
++  const modules = metroRequire.getModules();
+   const ReactNativeModuleId = require.resolveWeak('react-native');
+@@ -64,7 +65,7 @@ export function disallowRNImports() {
  
    const mockModule = {
      dependencyMap: [],
@@ -11,11 +17,26 @@ index 0000000..0000000 100644
      hasError: false,
      importedAll: {},
      importedDefault: {},
+@@ -86,7 +87,8 @@ export function mockTurboModuleRegistry() {
+  */
+ export function mockTurboModuleRegistry() {
+-  const modules = require.getModules();
++  const metroRequire = require.getModules ? require : globalThis.__r;
++  const modules = metroRequire.getModules();
+ 
+   const TurboModuleRegistryId = require.resolveWeak(
+     'react-native/Libraries/TurboModule/TurboModuleRegistry'
 diff --git a/node_modules/react-native-worklets/lib/module/bundleMode/metroOverrides.native.js b/node_modules/react-native-worklets/lib/module/bundleMode/metroOverrides.native.js
 index 0000000..0000000 100644
 --- a/node_modules/react-native-worklets/lib/module/bundleMode/metroOverrides.native.js
 +++ b/node_modules/react-native-worklets/lib/module/bundleMode/metroOverrides.native.js
-@@ -49,7 +49,7 @@ export function disallowRNImports() {
+@@ -30,7 +30,8 @@ export function disallowRNImports() {
+   assertWorkletRuntime('disallowRNImports');
+-  const modules = require.getModules();
++  const metroRequire = require.getModules ? require : globalThis.__r;
++  const modules = metroRequire.getModules();
+   const ReactNativeModuleId = require.resolveWeak('react-native');
+@@ -49,7 +50,7 @@ export function disallowRNImports() {
    });
    const mockModule = {
      dependencyMap: [],
@@ -24,3 +45,11 @@ index 0000000..0000000 100644
      hasError: false,
      importedAll: {},
      importedDefault: {},
+@@ -70,7 +71,8 @@ export function disallowRNImports() {
+  * Native.
+  */
+ export function mockTurboModuleRegistry() {
+-  const modules = require.getModules();
++  const metroRequire = require.getModules ? require : globalThis.__r;
++  const modules = metroRequire.getModules();
+   const TurboModuleRegistryId = require.resolveWeak('react-native/Libraries/TurboModule/TurboModuleRegistry');
