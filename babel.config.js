@@ -43,11 +43,9 @@ const workletsPluginOptions = {
   strictGlobal: true,
   workletizableModules: [
     '@bitpay-labs/bitcore-lib',
-    '@bitpay-labs/crypto-wallet-core',
     'buffer',
     'process',
     'crypto',
-    'react-native-quick-crypto',
   ],
 };
 
