@@ -95,6 +95,8 @@ const syncSkiaGlobalsToUIRuntime = () => {
   }
 
   try {
+    // Bundle Mode gives Skia chart worklets a separate UI runtime. Skia installs
+    // its host objects on the RN runtime, so mirror them once for UI worklets.
     runOnUISync(
       (uiSkiaApi, uiSkiaViewApi) => {
         'worklet';

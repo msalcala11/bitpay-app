@@ -35,6 +35,8 @@ if (prod) {
   plugins.push('transform-remove-console');
 }
 
+// Bundle Mode is global for this build. Even though the new feature is a worker
+// demo, UI-runtime worklets like Skia/Reanimated charts are affected too.
 /** @type {import('react-native-worklets/plugin').PluginOptions} */
 const workletsPluginOptions = {
   bundleMode: true,
