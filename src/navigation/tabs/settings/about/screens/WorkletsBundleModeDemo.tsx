@@ -17,6 +17,8 @@ import {
 } from '../../../../../components/styled/Containers';
 import {
   fetchWalletTxHistoryPagesOnWorker,
+  probeMmkvRoundTripOnWorker,
+  type WorkerMmkvRoundTripResult,
   type WorkerTxHistoryBatchResult,
   type WorkletsTxHistoryWalletSnapshot,
 } from '../../../../../lib/workletsBundleModeDemo';
@@ -253,9 +255,15 @@ const buildWalletOption = (
 };
 
 const WorkletsBundleModeDemo = (_props: Props) => {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<WorkerTxHistoryBatchResult | null>(null);
+  const [mmkvLoading, setMmkvLoading] = useState(false);
+  const [mmkvError, setMmkvError] = useState<string | null>(null);
+  const [mmkvResult, setMmkvResult] = useState<WorkerMmkvRoundTripResult | null>(
+    null,
+  );
+  const [txHistoryLoading, setTxHistoryLoading] = useState(false);
+  const [txHistoryError, setTxHistoryError] = useState<string | null>(null);
+  const [txHistoryResult, setTxHistoryResult] =
+    useState<WorkerTxHistoryBatchResult | null>(null);
   const [selectedWalletId, setSelectedWalletId] = useState<string | null>(null);
 
   const walletKeys = useAppSelector(({WALLET}) => WALLET?.keys || {});
@@ -293,7 +301,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
   React.useEffect(() => {
     if (!walletOptions.length) {
       setSelectedWalletId(null);
-      setResult(null);
+      setTxHistoryResult(null);
       return;
     }
 
@@ -306,14 +314,29 @@ const WorkletsBundleModeDemo = (_props: Props) => {
     }
   }, [selectedWalletId, walletOptions]);
 
-  const handleRun = async () => {
+  const handleRunMmkvProbe = async () => {
+    setMmkvLoading(true);
+    setMmkvError(null);
+    setMmkvResult(null);
+
+    try {
+      const nextMmkvResult = await probeMmkvRoundTripOnWorker();
+      setMmkvResult(nextMmkvResult);
+    } catch (err: unknown) {
+      setMmkvError(toErrorMessage(err));
+    } finally {
+      setMmkvLoading(false);
+    }
+  };
+
+  const handleRunTxHistory = async () => {
     if (!selectedWallet) {
       return;
     }
 
-    setLoading(true);
-    setError(null);
-    setResult(null);
+    setTxHistoryLoading(true);
+    setTxHistoryError(null);
+    setTxHistoryResult(null);
 
     try {
       const nextResult = await fetchWalletTxHistoryPagesOnWorker({
@@ -322,11 +345,11 @@ const WorkletsBundleModeDemo = (_props: Props) => {
         pageSize: 10,
         pageCount: 3,
       });
-      setResult(nextResult);
+      setTxHistoryResult(nextResult);
     } catch (err: unknown) {
-      setError(toErrorMessage(err));
+      setTxHistoryError(toErrorMessage(err));
     } finally {
-      setLoading(false);
+      setTxHistoryLoading(false);
     }
   };
 
@@ -334,28 +357,45 @@ const WorkletsBundleModeDemo = (_props: Props) => {
     <Container>
       <Content contentContainerStyle={{paddingBottom: 32}}>
         <Card>
-          <SectionTitle>Reduced Bundle Mode txhistory proof</SectionTitle>
+          <SectionTitle>Reduced Bundle Mode worker proofs</SectionTitle>
           <SectionBody>
-            This screen keeps the POC to one end-to-end path: select an
-            eligible wallet, create or reuse a dedicated worker session, sign
-            BWS `/v1/txhistory/` requests on that worker with transferred Nitro
-            crypto handles, and fetch multiple pages without hopping back to
-            the JS thread between requests.
+            This screen keeps the bundle-mode POC focused on two concrete
+            worker-runtime checks: an MMKV write/read roundtrip on the
+            background JS runtime, and an end-to-end txhistory flow that signs
+            BWS `/v1/txhistory/` requests with transferred Nitro crypto handles.
           </SectionBody>
           <SectionBody>
-            The broader smoke tests were useful while proving viability, but
-            they are no longer needed to show the key result: signed worker
-            requests succeed against the real txhistory endpoint.
+            The MMKV probe is isolated to a demo-specific storage instance, so
+            it can verify worker access without touching the app's persisted
+            Redux keys.
           </SectionBody>
-          <MetaText>Eligible wallets found: {walletOptions.length}</MetaText>
           <Smallest>
-            Expected result: three worker-side txhistory requests complete for
-            the selected wallet and return page summaries below.
+            Expected result: the MMKV probe writes and reads the same value on
+            the worker runtime, and the txhistory proof fetches three worker-side
+            pages for the selected wallet.
           </Smallest>
         </Card>
 
         <Card>
+          <SectionTitle>Worker MMKV roundtrip</SectionTitle>
+          <SectionBody>
+            This probe passes an MMKV native host object into the worker
+            runtime, writes a demo key there, reads it back on the same worker,
+            and then verifies the value is visible on the RN runtime before
+            cleaning it up.
+          </SectionBody>
+          <Button
+            state={mmkvLoading ? 'loading' : undefined}
+            disabled={mmkvLoading}
+            onPress={handleRunMmkvProbe}
+            accessibilityLabel="Run an MMKV write and read roundtrip on the worker runtime">
+            Run worker MMKV roundtrip
+          </Button>
+        </Card>
+
+        <Card>
           <SectionTitle>Select a wallet</SectionTitle>
+          <MetaText>Eligible wallets found: {walletOptions.length}</MetaText>
           {walletOptions.length ? (
             walletOptions.map(wallet => {
               const isSelected =
@@ -367,8 +407,8 @@ const WorkletsBundleModeDemo = (_props: Props) => {
                   $selected={isSelected}
                   onPress={() => {
                     setSelectedWalletId(wallet.selectionId);
-                    setError(null);
-                    setResult(null);
+                    setTxHistoryError(null);
+                    setTxHistoryResult(null);
                   }}>
                   <WalletOptionTitle>{wallet.walletLabel}</WalletOptionTitle>
                   <WalletOptionSubTitle>
@@ -400,15 +440,66 @@ const WorkletsBundleModeDemo = (_props: Props) => {
 
           <Spacer />
           <Button
-            state={loading ? 'loading' : undefined}
-            disabled={!selectedWallet || loading}
-            onPress={handleRun}
+            state={txHistoryLoading ? 'loading' : undefined}
+            disabled={!selectedWallet || txHistoryLoading}
+            onPress={handleRunTxHistory}
             accessibilityLabel="Fetch multiple txhistory pages on the worker runtime">
             Fetch 3 txhistory pages via worker
           </Button>
         </Card>
 
-        {loading ? (
+        {mmkvLoading ? (
+          <Card>
+            <StatusRow>
+              <ActivityIndicator />
+              <LoadingText>Writing and reading MMKV on the worker runtime...</LoadingText>
+            </StatusRow>
+          </Card>
+        ) : null}
+
+        {mmkvError ? (
+          <Card>
+            <SectionTitle>Worker MMKV probe failed</SectionTitle>
+            <RawOutput selectable>{mmkvError}</RawOutput>
+          </Card>
+        ) : null}
+
+        {mmkvResult ? (
+          <Card>
+            <SectionTitle>Worker MMKV result</SectionTitle>
+            <MetaText>Worker runtime: {mmkvResult.workerRuntimeName}</MetaText>
+            <MetaText>Storage id: {mmkvResult.storageId}</MetaText>
+            <MetaText>Started at: {mmkvResult.startedAtIso}</MetaText>
+            <MetaText>Completed at: {mmkvResult.completedAtIso}</MetaText>
+            <MetaText>Duration: {mmkvResult.durationMs} ms</MetaText>
+            <MetaText>Key: {mmkvResult.key}</MetaText>
+            <MetaText>
+              Worker read matches write:{' '}
+              {mmkvResult.workerReadMatchesWrite ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              RN read matches write: {mmkvResult.rnReadMatchesWrite ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              Worker contains key after write:{' '}
+              {mmkvResult.workerContainsKeyAfterWrite ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              RN contains key after worker write:{' '}
+              {mmkvResult.rnContainsKeyAfterWorkerWrite ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              Cleanup removed key on RN:{' '}
+              {mmkvResult.cleanupRemovedKeyOnRN ? 'yes' : 'no'}
+            </MetaText>
+
+            <Spacer />
+            <SectionTitle>Raw JSON</SectionTitle>
+            <RawOutput selectable>{JSON.stringify(mmkvResult, null, 2)}</RawOutput>
+          </Card>
+        ) : null}
+
+        {txHistoryLoading ? (
           <Card>
             <StatusRow>
               <ActivityIndicator />
@@ -420,42 +511,48 @@ const WorkletsBundleModeDemo = (_props: Props) => {
           </Card>
         ) : null}
 
-        {error ? (
+        {txHistoryError ? (
           <Card>
-            <SectionTitle>Worker request failed</SectionTitle>
-            <RawOutput selectable>{error}</RawOutput>
+            <SectionTitle>Worker txhistory request failed</SectionTitle>
+            <RawOutput selectable>{txHistoryError}</RawOutput>
           </Card>
         ) : null}
 
-        {result ? (
+        {txHistoryResult ? (
           <Card>
             <SectionTitle>Worker batch result</SectionTitle>
-            <MetaText>Worker runtime: {result.workerRuntimeName}</MetaText>
-            <MetaText>Session initialized: {result.session.initializedAtIso}</MetaText>
-            <MetaText>Fetched at: {result.fetchedAtIso}</MetaText>
+            <MetaText>Worker runtime: {txHistoryResult.workerRuntimeName}</MetaText>
             <MetaText>
-              Wallet: {result.session.wallet.walletName || 'Wallet'} (
-              {result.session.wallet.walletId})
+              Session initialized: {txHistoryResult.session.initializedAtIso}
+            </MetaText>
+            <MetaText>Fetched at: {txHistoryResult.fetchedAtIso}</MetaText>
+            <MetaText>
+              Wallet: {txHistoryResult.session.wallet.walletName || 'Wallet'} (
+              {txHistoryResult.session.wallet.walletId})
             </MetaText>
             <MetaText>
-              Pages executed: {result.executedPageCount} /{' '}
-              {result.requestedPageCount}
+              Pages executed: {txHistoryResult.executedPageCount} /{' '}
+              {txHistoryResult.requestedPageCount}
             </MetaText>
             <MetaText>
               Total transactions previewed:{' '}
-              {result.totalTransactionsAcrossPages}
+              {txHistoryResult.totalTransactionsAcrossPages}
             </MetaText>
-            <MetaText>Request sequence: {result.session.requestSequence}</MetaText>
-            <MetaText>Total duration: {result.totalDurationMs} ms</MetaText>
+            <MetaText>
+              Request sequence: {txHistoryResult.session.requestSequence}
+            </MetaText>
+            <MetaText>Total duration: {txHistoryResult.totalDurationMs} ms</MetaText>
             <MetaText>
               Stop reason:{' '}
-              {result.stoppedEarly ? result.stopReason : 'max_pages_reached'}
+              {txHistoryResult.stoppedEarly
+                ? txHistoryResult.stopReason
+                : 'max_pages_reached'}
             </MetaText>
 
             <Spacer />
             <SectionTitle>Per-page worker requests</SectionTitle>
 
-            {result.pages.map((page, pageIndex) => {
+            {txHistoryResult.pages.map((page, pageIndex) => {
               return (
                 <React.Fragment key={page.requestPath}>
                   <TxPreviewRow>
@@ -501,14 +598,16 @@ const WorkletsBundleModeDemo = (_props: Props) => {
                     )}
                   </TxPreviewRow>
 
-                  {pageIndex < result.pages.length - 1 ? <Hr /> : null}
+                  {pageIndex < txHistoryResult.pages.length - 1 ? <Hr /> : null}
                 </React.Fragment>
               );
             })}
 
             <Spacer />
             <SectionTitle>Raw JSON</SectionTitle>
-            <RawOutput selectable>{JSON.stringify(result, null, 2)}</RawOutput>
+            <RawOutput selectable>
+              {JSON.stringify(txHistoryResult, null, 2)}
+            </RawOutput>
           </Card>
         ) : null}
       </Content>
