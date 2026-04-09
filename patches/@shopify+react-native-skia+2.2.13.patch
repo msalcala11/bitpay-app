@@ -1,63 +1,33 @@
-diff --git a/node_modules/@shopify/react-native-skia/src/views/api.ts b/node_modules/@shopify/react-native-skia/src/views/api.ts
-index 0000000..0000000 100644
---- a/node_modules/@shopify/react-native-skia/src/views/api.ts
-+++ b/node_modules/@shopify/react-native-skia/src/views/api.ts
-@@ -4,4 +4,4 @@ declare global {
-   var SkiaViewApi: ISkiaViewApi;
- }
- 
--export const { SkiaViewApi } = global;
-+export const getSkiaViewApi = (): ISkiaViewApi => globalThis.SkiaViewApi;
 diff --git a/node_modules/@shopify/react-native-skia/src/sksg/Container.native.ts b/node_modules/@shopify/react-native-skia/src/sksg/Container.native.ts
 index 0000000..0000000 100644
 --- a/node_modules/@shopify/react-native-skia/src/sksg/Container.native.ts
 +++ b/node_modules/@shopify/react-native-skia/src/sksg/Container.native.ts
-@@ -9,7 +9,7 @@ import { Container, StaticContainer } from "./StaticContainer";
- import { visit } from "./Recorder/Visitor";
- 
- import "../skia/NativeSetup";
--import "../views/api";
-+import { getSkiaViewApi } from "../views/api";
- 
- const nativeDrawOnscreen = (
-   nativeId: number,
-@@ -17,14 +17,15 @@ const nativeDrawOnscreen = (
+@@ -17,7 +17,7 @@ const nativeDrawOnscreen = (
    onSize?: SharedValue<SkSize>
  ) => {
    "worklet";
-+  const skiaViewApi = getSkiaViewApi();
-   if (onSize) {
+-  if (onSize) {
++  const skiaViewApi = globalThis.SkiaViewApi;
++  if (onSize) {
 -    SkiaViewApi.setJsiProperty(nativeId, "onSize", onSize);
 +    skiaViewApi.setJsiProperty(nativeId, "onSize", onSize);
    }
    //const start = performance.now();
    const picture = recorder.play();
-   //const end = performance.now();
+@@ -25,7 +25,7 @@ const nativeDrawOnscreen = (
    //console.log("Recording time: ", end - start);
 -  SkiaViewApi.setJsiProperty(nativeId, "picture", picture);
 +  skiaViewApi.setJsiProperty(nativeId, "picture", picture);
  };
- 
- class NativeReanimatedContainer extends Container {
 diff --git a/node_modules/@shopify/react-native-skia/src/sksg/StaticContainer.ts b/node_modules/@shopify/react-native-skia/src/sksg/StaticContainer.ts
 index 0000000..0000000 100644
 --- a/node_modules/@shopify/react-native-skia/src/sksg/StaticContainer.ts
 +++ b/node_modules/@shopify/react-native-skia/src/sksg/StaticContainer.ts
-@@ -6,7 +6,7 @@ import { visit } from "./Recorder/Visitor";
- import { replay } from "./Recorder/Player";
- import { createDrawingContext } from "./Recorder/DrawingContext";
- 
--import "../views/api";
-+import { getSkiaViewApi } from "../views/api";
- 
- export abstract class Container {
-   private _root: Node[] = [];
-@@ -52,11 +52,12 @@ export class StaticContainer extends Container {
-     visit(recorder, this.root);
+@@ -52,10 +52,11 @@ export class StaticContainer extends Container {
      this.recording = recorder.getRecording();
      const isOnScreen = this.nativeId !== -1;
      if (isOnScreen) {
-+      const skiaViewApi = getSkiaViewApi();
++      const skiaViewApi = globalThis.SkiaViewApi;
        const rec = this.Skia.PictureRecorder();
        const canvas = rec.beginRecording();
        this.drawOnCanvas(canvas);
@@ -71,28 +41,20 @@ diff --git a/node_modules/@shopify/react-native-skia/src/renderer/Canvas.tsx b/n
 index 0000000..0000000 100644
 --- a/node_modules/@shopify/react-native-skia/src/renderer/Canvas.tsx
 +++ b/node_modules/@shopify/react-native-skia/src/renderer/Canvas.tsx
-@@ -19,6 +19,7 @@ import type { SkImage, SkRect, SkSize } from "../skia/types";
- import { SkiaSGRoot } from "../sksg/Reconciler";
- import { Skia } from "../skia";
- import { Platform } from "../Platform";
-+import { getSkiaViewApi } from "../views/api";
- 
- export interface CanvasRef extends FC<CanvasProps> {
-   makeImageSnapshot(rect?: SkRect): SkImage;
-@@ -110,13 +111,13 @@ export const Canvas = ({
+@@ -110,13 +110,13 @@ export const Canvas = ({
      () =>
        ({
          makeImageSnapshot: (rect?: SkRect) => {
 -          return SkiaViewApi.makeImageSnapshot(nativeId, rect);
-+          return getSkiaViewApi().makeImageSnapshot(nativeId, rect);
++          return globalThis.SkiaViewApi.makeImageSnapshot(nativeId, rect);
          },
          makeImageSnapshotAsync: (rect?: SkRect) => {
 -          return SkiaViewApi.makeImageSnapshotAsync(nativeId, rect);
-+          return getSkiaViewApi().makeImageSnapshotAsync(nativeId, rect);
++          return globalThis.SkiaViewApi.makeImageSnapshotAsync(nativeId, rect);
          },
          redraw: () => {
 -          SkiaViewApi.requestRedraw(nativeId);
-+          getSkiaViewApi().requestRedraw(nativeId);
++          globalThis.SkiaViewApi.requestRedraw(nativeId);
          },
          getNativeId: () => {
            return nativeId;
@@ -100,66 +62,11 @@ diff --git a/node_modules/@shopify/react-native-skia/src/views/SkiaPictureView.t
 index 0000000..0000000 100644
 --- a/node_modules/@shopify/react-native-skia/src/views/SkiaPictureView.tsx
 +++ b/node_modules/@shopify/react-native-skia/src/views/SkiaPictureView.tsx
-@@ -3,7 +3,7 @@ import React from "react";
- import type { SkRect } from "../skia/types";
- import SkiaPictureViewNativeComponent from "../specs/SkiaPictureViewNativeComponent";
- 
--import { SkiaViewApi } from "./api";
-+import { getSkiaViewApi } from "./api";
- import type { SkiaPictureViewNativeProps } from "./types";
- import { SkiaViewNativeId } from "./SkiaViewNativeId";
-@@ -18,11 +18,9 @@ export class SkiaPictureView extends React.Component<SkiaPictureViewProps> {
-     this._nativeId = SkiaViewNativeId.current++;
-     const { picture, onSize } = props;
-     if (picture) {
--      assertSkiaViewApi();
--      SkiaViewApi.setJsiProperty(this._nativeId, "picture", picture);
-+      assertSkiaViewApi().setJsiProperty(this._nativeId, "picture", picture);
-     }
-     if (onSize) {
--      assertSkiaViewApi();
--      SkiaViewApi.setJsiProperty(this._nativeId, "onSize", onSize);
-+      assertSkiaViewApi().setJsiProperty(this._nativeId, "onSize", onSize);
-     }
-     this.tick();
-   }
-@@ -35,17 +33,15 @@ export class SkiaPictureView extends React.Component<SkiaPictureViewProps> {
-   componentDidUpdate(prevProps: SkiaPictureViewProps) {
-     const { picture, onSize } = this.props;
-     if (picture !== prevProps.picture) {
--      assertSkiaViewApi();
--      SkiaViewApi.setJsiProperty(this._nativeId, "picture", picture);
-+      assertSkiaViewApi().setJsiProperty(this._nativeId, "picture", picture);
-     }
-     if (onSize !== prevProps.onSize) {
--      assertSkiaViewApi();
--      SkiaViewApi.setJsiProperty(this._nativeId, "onSize", onSize);
-+      assertSkiaViewApi().setJsiProperty(this._nativeId, "onSize", onSize);
-     }
-     this.tick();
-   }
-@@ -69,14 +65,12 @@ export class SkiaPictureView extends React.Component<SkiaPictureViewProps> {
-    * @returns An Image object.
-    */
-   public makeImageSnapshot(rect?: SkRect) {
--    assertSkiaViewApi();
--    return SkiaViewApi.makeImageSnapshot(this._nativeId, rect);
-+    return assertSkiaViewApi().makeImageSnapshot(this._nativeId, rect);
-   }
- 
-   /**
-    * Sends a redraw request to the native SkiaView.
-    */
-   public redraw() {
--    assertSkiaViewApi();
--    SkiaViewApi.requestRedraw(this._nativeId);
-+    assertSkiaViewApi().requestRedraw(this._nativeId);
-   }
-@@ -95,13 +89,14 @@ export class SkiaPictureView extends React.Component<SkiaPictureViewProps> {
+@@ -95,8 +95,9 @@ export class SkiaPictureView extends React.Component<SkiaPictureViewProps> {
  }
  
  const assertSkiaViewApi = () => {
-+  const skiaViewApi = getSkiaViewApi();
++  const skiaViewApi = globalThis.SkiaViewApi;
    if (
 -    SkiaViewApi === null ||
 -    SkiaViewApi.setJsiProperty === null ||
