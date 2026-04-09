@@ -17,8 +17,11 @@ import {useAppSelector} from '../../../utils/hooks';
 import {BlurContainer} from '../../blur/Blur';
 import {BaseText} from '../../styled/Text';
 import BaseModal from '../base/BaseModal';
-import {HEIGHT, WIDTH} from '../../styled/Containers';
 import {useOngoingProcess} from '../../../contexts';
+
+// Get dimensions once on the RN runtime so the animated worklet can capture
+// plain numbers instead of requiring UI modules inside the worklet runtime.
+const {height: WINDOW_HEIGHT, width: WINDOW_WIDTH} = Dimensions.get('window');
 
 // Get full screen dimensions (includes navigation bar on Android)
 const {height: SCREEN_HEIGHT, width: SCREEN_WIDTH} = Dimensions.get(
@@ -92,8 +95,8 @@ const Message = styled(BaseText)`
 `;
 
 const ModalWrapper = styled.View`
-  height: ${HEIGHT}px;
-  width: ${WIDTH}px;
+  height: ${WINDOW_HEIGHT}px;
+  width: ${WINDOW_WIDTH}px;
   align-items: center;
   justify-content: center;
   margin-left: -20px;
@@ -111,8 +114,8 @@ const OnGoingProcessModal: React.FC = React.memo(() => {
   const animatedStyles = useAnimatedStyle(() => {
     return {
       opacity: opacity.value,
-      height: HEIGHT,
-      width: WIDTH,
+      height: WINDOW_HEIGHT,
+      width: WINDOW_WIDTH,
       alignItems: 'center',
       justifyContent: 'center',
     };
