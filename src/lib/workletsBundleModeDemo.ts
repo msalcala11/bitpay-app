@@ -98,6 +98,26 @@ export type WorkerMmkvRoundTripResult = {
   cleanupRemovedKeyOnRN: boolean;
 };
 
+export type WorkerMmkvStressTestResult = {
+  workerRuntimeName: string;
+  storageId: string;
+  iterationCount: number;
+  startedAtIso: string;
+  completedAtIso: string;
+  workerDurationMs: number;
+  totalDurationMs: number;
+  workerWriteReadMatches: number;
+  workerContainsChecksPassed: number;
+  rnReadMatches: number;
+  rnContainsChecksPassed: number;
+  cleanupRemovedKeyCount: number;
+  cleanupFullySucceeded: boolean;
+  firstKey: string;
+  lastKey: string;
+  firstValueWritten: string;
+  lastValueWritten: string;
+};
+
 type TxHistoryRequestWalletContext = Pick<
   WorkletsTxHistoryWalletSnapshot,
   'tokenAddress' | 'multisigContractAddress'
@@ -174,13 +194,21 @@ type WorkerMmkvStorageBridge = Pick<
   'contains' | 'delete' | 'getString' | 'set'
 >;
 
+type WorkerMmkvStressTestEntry = {
+  iteration: number;
+  key: string;
+  value: string;
+};
+
 const WORKER_RUNTIME_NAME = 'bitpay-txhistory-worker';
 const BWC_CLIENT_VERSION_HEADER = 'bwc-11.7.0';
 const DEFAULT_TXHISTORY_LIMIT = 10;
 const DEFAULT_TXHISTORY_PAGE_COUNT = 3;
+const DEFAULT_WORKER_MMKV_STRESS_TEST_ITERATION_COUNT = 250;
 const WORKER_TXHISTORY_SESSION_KEY = '__bitpayTxHistoryWorkerSession';
 const WORKER_MMKV_STORAGE_ID = 'bitpay.worklets.bundle.mode.demo';
 const WORKER_MMKV_KEY_PREFIX = 'worklets-mmkv-roundtrip';
+const WORKER_MMKV_STRESS_KEY_PREFIX = 'worklets-mmkv-stress';
 const TXHISTORY_BASE_PATH = '/v1/txhistory/';
 
 let workletsBundleModeRuntime: WorkletRuntime | undefined;
@@ -253,6 +281,36 @@ const getWorkletsBundleModeDemoNativeStorageOnRN =
 
     return nativeStorage;
   };
+
+const buildWorkerMmkvKey = (prefix: string, iteration?: number) => {
+  const parts = [prefix, String(Date.now()), Math.random().toString(36).slice(2, 10)];
+
+  if (typeof iteration === 'number') {
+    parts.push(String(iteration));
+  }
+
+  return parts.join(':');
+};
+
+const buildWorkerMmkvStressTestEntries = (
+  iterationCount: number,
+): WorkerMmkvStressTestEntry[] => {
+  return Array.from({length: iterationCount}, (_, iteration) => {
+    const key = buildWorkerMmkvKey(WORKER_MMKV_STRESS_KEY_PREFIX, iteration);
+    const value = JSON.stringify({
+      key,
+      probe: 'worker_mmkv_stress',
+      iteration,
+      createdAtIso: new Date().toISOString(),
+    });
+
+    return {
+      iteration,
+      key,
+      value,
+    };
+  });
+};
 
 const toHexPreview = (value: string | undefined, visible = 12) => {
   'worklet';
@@ -760,9 +818,7 @@ const getWorkletsBundleModeRuntime = (): WorkletRuntime => {
 export const probeMmkvRoundTripOnWorker =
   async (): Promise<WorkerMmkvRoundTripResult> => {
     const mmkvStorage = getWorkletsBundleModeDemoNativeStorageOnRN();
-    const probeKey = `${WORKER_MMKV_KEY_PREFIX}:${Date.now()}:${Math.random()
-      .toString(36)
-      .slice(2, 10)}`;
+    const probeKey = buildWorkerMmkvKey(WORKER_MMKV_KEY_PREFIX);
 
     const workerResult = await new Promise<
       Omit<
@@ -865,6 +921,167 @@ export const probeMmkvRoundTripOnWorker =
       cleanupRemovedKeyOnRN,
     };
   };
+
+export const stressTestMmkvOnWorker = async (opts?: {
+  iterationCount?: number;
+}): Promise<WorkerMmkvStressTestResult> => {
+  const mmkvStorage = getWorkletsBundleModeDemoNativeStorageOnRN();
+  const iterationCount = normalizePositiveInt(
+    opts?.iterationCount,
+    DEFAULT_WORKER_MMKV_STRESS_TEST_ITERATION_COUNT,
+  );
+  const entries = buildWorkerMmkvStressTestEntries(iterationCount);
+  const totalStartedAtMs = Date.now();
+
+  const workerResult = await new Promise<
+    Omit<
+      WorkerMmkvStressTestResult,
+      | 'cleanupFullySucceeded'
+      | 'cleanupRemovedKeyCount'
+      | 'rnContainsChecksPassed'
+      | 'rnReadMatches'
+      | 'totalDurationMs'
+    >
+  >((resolve, reject) => {
+    const rejectOnRN = (message: string) => {
+      reject(new Error(message));
+    };
+
+    runOnRuntimeAsync(
+      getWorkletsBundleModeRuntime(),
+      (
+        workerRuntimeName: string,
+        storageId: string,
+        storageBridge: WorkerMmkvStorageBridge,
+        workerEntries: WorkerMmkvStressTestEntry[],
+        resolveOnRN: (
+          value: Omit<
+            WorkerMmkvStressTestResult,
+            | 'cleanupFullySucceeded'
+            | 'cleanupRemovedKeyCount'
+            | 'rnContainsChecksPassed'
+            | 'rnReadMatches'
+            | 'totalDurationMs'
+          >,
+        ) => void,
+        rejectOnRNWorklet: (message: string) => void,
+      ): void => {
+        'worklet';
+
+        try {
+          const startedAtMs = Date.now();
+          const startedAtIso = new Date(startedAtMs).toISOString();
+          let workerWriteReadMatches = 0;
+          let workerContainsChecksPassed = 0;
+
+          for (const entry of workerEntries) {
+            storageBridge.set(entry.key, entry.value);
+
+            const valueReadOnWorker = storageBridge.getString(entry.key);
+            if (valueReadOnWorker !== entry.value) {
+              throw new Error(
+                `Worker read mismatch at iteration ${entry.iteration}. Expected ${entry.value.length} bytes, received ${
+                  valueReadOnWorker?.length ?? 0
+                }.`,
+              );
+            }
+            workerWriteReadMatches += 1;
+
+            const containsKey = storageBridge.contains(entry.key);
+            if (!containsKey) {
+              throw new Error(
+                `Worker contains() returned false at iteration ${entry.iteration} for key ${entry.key}.`,
+              );
+            }
+            workerContainsChecksPassed += 1;
+          }
+
+          const firstEntry = workerEntries[0];
+          const lastEntry = workerEntries[workerEntries.length - 1];
+
+          if (!firstEntry || !lastEntry) {
+            throw new Error('Worker MMKV stress test did not receive any entries.');
+          }
+
+          scheduleOnRN(resolveOnRN, {
+            workerRuntimeName,
+            storageId,
+            iterationCount: workerEntries.length,
+            startedAtIso,
+            completedAtIso: new Date().toISOString(),
+            workerDurationMs: Date.now() - startedAtMs,
+            workerWriteReadMatches,
+            workerContainsChecksPassed,
+            firstKey: firstEntry.key,
+            lastKey: lastEntry.key,
+            firstValueWritten: firstEntry.value,
+            lastValueWritten: lastEntry.value,
+          });
+        } catch (err: unknown) {
+          scheduleOnRN(
+            rejectOnRNWorklet,
+            `Worker MMKV stress test failed. ${toWorkerErrorMessage(err)}`,
+          );
+        }
+      },
+      WORKER_RUNTIME_NAME,
+      WORKER_MMKV_STORAGE_ID,
+      mmkvStorage,
+      entries,
+      resolve,
+      rejectOnRN,
+    ).catch(err => {
+      reject(toRuntimeError(err));
+    });
+  });
+
+  let rnReadMatches = 0;
+  let rnContainsChecksPassed = 0;
+  let cleanupRemovedKeyCount = 0;
+  let cleanupFullySucceeded = false;
+
+  try {
+    for (const entry of entries) {
+      const valueReadOnRN = mmkvStorage.getString(entry.key);
+      if (valueReadOnRN !== entry.value) {
+        throw new Error(
+          `RN read mismatch at iteration ${entry.iteration}. Expected ${entry.value.length} bytes, received ${
+            valueReadOnRN?.length ?? 0
+          }.`,
+        );
+      }
+      rnReadMatches += 1;
+
+      const containsKey = mmkvStorage.contains(entry.key);
+      if (!containsKey) {
+        throw new Error(
+          `RN contains() returned false at iteration ${entry.iteration} for key ${entry.key}.`,
+        );
+      }
+      rnContainsChecksPassed += 1;
+    }
+  } finally {
+    for (const entry of entries) {
+      try {
+        mmkvStorage.delete(entry.key);
+        if (!mmkvStorage.contains(entry.key)) {
+          cleanupRemovedKeyCount += 1;
+        }
+      } catch {}
+    }
+
+    cleanupFullySucceeded = cleanupRemovedKeyCount === entries.length;
+  }
+
+  return {
+    ...workerResult,
+    rnReadMatches,
+    rnContainsChecksPassed,
+    cleanupRemovedKeyCount,
+    cleanupFullySucceeded,
+    totalDurationMs: Date.now() - totalStartedAtMs,
+  };
+};
 
 export const fetchWalletTxHistoryPagesOnWorker = async (opts: {
   wallet: WorkletsTxHistoryWalletSnapshot;

@@ -18,7 +18,9 @@ import {
 import {
   fetchWalletTxHistoryPagesOnWorker,
   probeMmkvRoundTripOnWorker,
+  stressTestMmkvOnWorker,
   type WorkerMmkvRoundTripResult,
+  type WorkerMmkvStressTestResult,
   type WorkerTxHistoryBatchResult,
   type WorkletsTxHistoryWalletSnapshot,
 } from '../../../../../lib/workletsBundleModeDemo';
@@ -36,6 +38,8 @@ type DemoWalletOption = WorkletsTxHistoryWalletSnapshot & {
   walletLabel: string;
   walletSubLabel: string;
 };
+
+const MMKV_STRESS_TEST_ITERATIONS = 250;
 
 const Container = styled(ScreenContainer)`
   background-color: ${({theme}) => theme.colors.background};
@@ -260,6 +264,10 @@ const WorkletsBundleModeDemo = (_props: Props) => {
   const [mmkvResult, setMmkvResult] = useState<WorkerMmkvRoundTripResult | null>(
     null,
   );
+  const [mmkvStressLoading, setMmkvStressLoading] = useState(false);
+  const [mmkvStressError, setMmkvStressError] = useState<string | null>(null);
+  const [mmkvStressResult, setMmkvStressResult] =
+    useState<WorkerMmkvStressTestResult | null>(null);
   const [txHistoryLoading, setTxHistoryLoading] = useState(false);
   const [txHistoryError, setTxHistoryError] = useState<string | null>(null);
   const [txHistoryResult, setTxHistoryResult] =
@@ -298,6 +306,9 @@ const WorkletsBundleModeDemo = (_props: Props) => {
     );
   }, [selectedWalletId, walletOptions]);
 
+  const workerActionLoading =
+    mmkvLoading || mmkvStressLoading || txHistoryLoading;
+
   React.useEffect(() => {
     if (!walletOptions.length) {
       setSelectedWalletId(null);
@@ -326,6 +337,23 @@ const WorkletsBundleModeDemo = (_props: Props) => {
       setMmkvError(toErrorMessage(err));
     } finally {
       setMmkvLoading(false);
+    }
+  };
+
+  const handleRunMmkvStressTest = async () => {
+    setMmkvStressLoading(true);
+    setMmkvStressError(null);
+    setMmkvStressResult(null);
+
+    try {
+      const nextMmkvStressResult = await stressTestMmkvOnWorker({
+        iterationCount: MMKV_STRESS_TEST_ITERATIONS,
+      });
+      setMmkvStressResult(nextMmkvStressResult);
+    } catch (err: unknown) {
+      setMmkvStressError(toErrorMessage(err));
+    } finally {
+      setMmkvStressLoading(false);
     }
   };
 
@@ -386,10 +414,27 @@ const WorkletsBundleModeDemo = (_props: Props) => {
           </SectionBody>
           <Button
             state={mmkvLoading ? 'loading' : undefined}
-            disabled={mmkvLoading}
+            disabled={workerActionLoading}
             onPress={handleRunMmkvProbe}
             accessibilityLabel="Run an MMKV write and read roundtrip on the worker runtime">
             Run worker MMKV roundtrip
+          </Button>
+        </Card>
+
+        <Card>
+          <SectionTitle>Worker MMKV stress test</SectionTitle>
+          <SectionBody>
+            This test performs {MMKV_STRESS_TEST_ITERATIONS} sequential
+            worker-side MMKV writes and reads across unique keys, then confirms
+            those values are still readable on the RN runtime before deleting
+            them.
+          </SectionBody>
+          <Button
+            state={mmkvStressLoading ? 'loading' : undefined}
+            disabled={workerActionLoading}
+            onPress={handleRunMmkvStressTest}
+            accessibilityLabel="Run a worker MMKV stress test across many sequential writes and reads">
+            Run {MMKV_STRESS_TEST_ITERATIONS} worker MMKV writes
           </Button>
         </Card>
 
@@ -441,7 +486,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
           <Spacer />
           <Button
             state={txHistoryLoading ? 'loading' : undefined}
-            disabled={!selectedWallet || txHistoryLoading}
+            disabled={!selectedWallet || workerActionLoading}
             onPress={handleRunTxHistory}
             accessibilityLabel="Fetch multiple txhistory pages on the worker runtime">
             Fetch 3 txhistory pages via worker
@@ -496,6 +541,70 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             <Spacer />
             <SectionTitle>Raw JSON</SectionTitle>
             <RawOutput selectable>{JSON.stringify(mmkvResult, null, 2)}</RawOutput>
+          </Card>
+        ) : null}
+
+        {mmkvStressLoading ? (
+          <Card>
+            <StatusRow>
+              <ActivityIndicator />
+              <LoadingText>
+                Running {MMKV_STRESS_TEST_ITERATIONS} sequential MMKV
+                write/read checks on the worker runtime...
+              </LoadingText>
+            </StatusRow>
+          </Card>
+        ) : null}
+
+        {mmkvStressError ? (
+          <Card>
+            <SectionTitle>Worker MMKV stress test failed</SectionTitle>
+            <RawOutput selectable>{mmkvStressError}</RawOutput>
+          </Card>
+        ) : null}
+
+        {mmkvStressResult ? (
+          <Card>
+            <SectionTitle>Worker MMKV stress result</SectionTitle>
+            <MetaText>
+              Worker runtime: {mmkvStressResult.workerRuntimeName}
+            </MetaText>
+            <MetaText>Storage id: {mmkvStressResult.storageId}</MetaText>
+            <MetaText>Iterations: {mmkvStressResult.iterationCount}</MetaText>
+            <MetaText>Started at: {mmkvStressResult.startedAtIso}</MetaText>
+            <MetaText>Completed at: {mmkvStressResult.completedAtIso}</MetaText>
+            <MetaText>
+              Worker duration: {mmkvStressResult.workerDurationMs} ms
+            </MetaText>
+            <MetaText>Total duration: {mmkvStressResult.totalDurationMs} ms</MetaText>
+            <MetaText>
+              Worker write/read matches:{' '}
+              {mmkvStressResult.workerWriteReadMatches}
+            </MetaText>
+            <MetaText>
+              Worker contains checks passed:{' '}
+              {mmkvStressResult.workerContainsChecksPassed}
+            </MetaText>
+            <MetaText>RN read matches: {mmkvStressResult.rnReadMatches}</MetaText>
+            <MetaText>
+              RN contains checks passed: {mmkvStressResult.rnContainsChecksPassed}
+            </MetaText>
+            <MetaText>
+              Cleanup removed key count:{' '}
+              {mmkvStressResult.cleanupRemovedKeyCount}
+            </MetaText>
+            <MetaText>
+              Cleanup fully succeeded:{' '}
+              {mmkvStressResult.cleanupFullySucceeded ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>First key: {mmkvStressResult.firstKey}</MetaText>
+            <MetaText>Last key: {mmkvStressResult.lastKey}</MetaText>
+
+            <Spacer />
+            <SectionTitle>Raw JSON</SectionTitle>
+            <RawOutput selectable>
+              {JSON.stringify(mmkvStressResult, null, 2)}
+            </RawOutput>
           </Card>
         ) : null}
 
