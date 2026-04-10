@@ -10,6 +10,7 @@ import {MMKV, type NativeMMKV} from 'react-native-mmkv';
 import {Buffer as NodeBuffer} from 'buffer';
 import processPolyfill from 'process';
 import {BASE_BWS_URL} from '../constants/config';
+import {storage as appSharedMmkvStorage} from '../store';
 
 export type WorkletsTxHistoryWalletSnapshot = {
   walletId: string;
@@ -265,8 +266,10 @@ const DEFAULT_TXHISTORY_PAGE_COUNT = 3;
 const DEFAULT_WORKER_MMKV_CONTENTION_ITERATION_COUNT = 250;
 const DEFAULT_WORKER_MMKV_CONTENTION_WAIT_TIMEOUT_MS = 5000;
 const DEFAULT_WORKER_MMKV_STRESS_TEST_ITERATION_COUNT = 250;
+const APP_SHARED_MMKV_STORAGE_LABEL = 'app-shared-store-mmkv';
 const WORKER_TXHISTORY_SESSION_KEY = '__bitpayTxHistoryWorkerSession';
 const WORKER_MMKV_STORAGE_ID = 'bitpay.worklets.bundle.mode.demo';
+const WORKER_MMKV_SHARED_APP_KEY_PREFIX = 'worklets-mmkv-shared-app-roundtrip';
 const WORKER_MMKV_CONTENTION_KEY_PREFIX = 'worklets-mmkv-contention';
 const WORKER_MMKV_KEY_PREFIX = 'worklets-mmkv-roundtrip';
 const WORKER_MMKV_STRESS_KEY_PREFIX = 'worklets-mmkv-stress';
@@ -320,28 +323,45 @@ const getWorkletsBundleModeDemoStorageOnRN = () => {
   return workletsBundleModeDemoStorage;
 };
 
+const getNativeStorageBridgeOnRN = (
+  storageInstance: MMKV,
+  storageLabel: string,
+): WorkerMmkvStorageBridge => {
+  const nativeStorage = (
+    storageInstance as unknown as {
+      nativeInstance?: WorkerMmkvStorageBridge;
+    }
+  ).nativeInstance;
+
+  if (
+    !nativeStorage ||
+    typeof nativeStorage.set !== 'function' ||
+    typeof nativeStorage.getString !== 'function' ||
+    typeof nativeStorage.contains !== 'function' ||
+    typeof nativeStorage.delete !== 'function'
+  ) {
+    throw new Error(
+      `${storageLabel} react-native-mmkv nativeInstance is unavailable on the RN runtime.`,
+    );
+  }
+
+  return nativeStorage;
+};
+
 const getWorkletsBundleModeDemoNativeStorageOnRN =
   (): WorkerMmkvStorageBridge => {
-    const nativeStorage = (
-      getWorkletsBundleModeDemoStorageOnRN() as unknown as {
-        nativeInstance?: WorkerMmkvStorageBridge;
-      }
-    ).nativeInstance;
-
-    if (
-      !nativeStorage ||
-      typeof nativeStorage.set !== 'function' ||
-      typeof nativeStorage.getString !== 'function' ||
-      typeof nativeStorage.contains !== 'function' ||
-      typeof nativeStorage.delete !== 'function'
-    ) {
-      throw new Error(
-        'react-native-mmkv nativeInstance is unavailable on the RN runtime.',
-      );
-    }
-
-    return nativeStorage;
+    return getNativeStorageBridgeOnRN(
+      getWorkletsBundleModeDemoStorageOnRN(),
+      'Demo MMKV storage',
+    );
   };
+
+const getAppSharedNativeStorageOnRN = (): WorkerMmkvStorageBridge => {
+  return getNativeStorageBridgeOnRN(
+    appSharedMmkvStorage,
+    'App shared MMKV storage',
+  );
+};
 
 const buildWorkerMmkvKey = (prefix: string, iteration?: number) => {
   const parts = [prefix, String(Date.now()), Math.random().toString(36).slice(2, 10)];
@@ -1153,109 +1173,130 @@ const getWorkletsBundleModeRuntime = (): WorkletRuntime => {
 
 export const probeMmkvRoundTripOnWorker =
   async (): Promise<WorkerMmkvRoundTripResult> => {
-    const mmkvStorage = getWorkletsBundleModeDemoNativeStorageOnRN();
-    const probeKey = buildWorkerMmkvKey(WORKER_MMKV_KEY_PREFIX);
-
-    const workerResult = await new Promise<
-      Omit<
-        WorkerMmkvRoundTripResult,
-        | 'cleanupRemovedKeyOnRN'
-        | 'rnContainsKeyAfterWorkerWrite'
-        | 'rnReadMatchesWrite'
-        | 'valueReadOnRN'
-      >
-    >((resolve, reject) => {
-      const rejectOnRN = (message: string) => {
-        reject(new Error(message));
-      };
-
-      runOnRuntimeAsync(
-        getWorkletsBundleModeRuntime(),
-        (
-          workerRuntimeName: string,
-          storageId: string,
-          storageBridge: WorkerMmkvStorageBridge,
-          key: string,
-          resolveOnRN: (
-            value: Omit<
-              WorkerMmkvRoundTripResult,
-              | 'cleanupRemovedKeyOnRN'
-              | 'rnContainsKeyAfterWorkerWrite'
-              | 'rnReadMatchesWrite'
-              | 'valueReadOnRN'
-            >,
-          ) => void,
-          rejectOnRNWorklet: (message: string) => void,
-        ): void => {
-          'worklet';
-
-          try {
-            const startedAtMs = Date.now();
-            const startedAtIso = new Date(startedAtMs).toISOString();
-            const valueWritten = JSON.stringify({
-              key,
-              probe: 'worker_mmkv_roundtrip',
-              runtimeKind: globalThis.__RUNTIME_KIND,
-              runtimeName: workerRuntimeName,
-              writtenAtIso: startedAtIso,
-            });
-
-            storageBridge.set(key, valueWritten);
-
-            const valueReadOnWorker = storageBridge.getString(key);
-            const workerContainsKeyAfterWrite = storageBridge.contains(key);
-
-            scheduleOnRN(resolveOnRN, {
-              workerRuntimeName,
-              storageId,
-              key,
-              startedAtIso,
-              completedAtIso: new Date().toISOString(),
-              durationMs: Date.now() - startedAtMs,
-              valueWritten,
-              valueReadOnWorker,
-              workerReadMatchesWrite: valueReadOnWorker === valueWritten,
-              workerContainsKeyAfterWrite,
-            });
-          } catch (err: unknown) {
-            scheduleOnRN(
-              rejectOnRNWorklet,
-              `Worker MMKV roundtrip failed. ${toWorkerErrorMessage(err)}`,
-            );
-          }
-        },
-        WORKER_RUNTIME_NAME,
-        WORKER_MMKV_STORAGE_ID,
-        mmkvStorage,
-        probeKey,
-        resolve,
-        rejectOnRN,
-      ).catch(err => {
-        reject(toRuntimeError(err));
-      });
+    return probeMmkvRoundTripOnWorkerWithStorage({
+      keyPrefix: WORKER_MMKV_KEY_PREFIX,
+      storageBridge: getWorkletsBundleModeDemoNativeStorageOnRN(),
+      storageId: WORKER_MMKV_STORAGE_ID,
     });
+  };
 
-    let valueReadOnRN: string | undefined;
-    let rnContainsKeyAfterWorkerWrite = false;
-    let cleanupRemovedKeyOnRN = false;
+const probeMmkvRoundTripOnWorkerWithStorage = async (opts: {
+  keyPrefix: string;
+  storageBridge: WorkerMmkvStorageBridge;
+  storageId: string;
+}): Promise<WorkerMmkvRoundTripResult> => {
+  const {keyPrefix, storageBridge, storageId} = opts;
+  const probeKey = buildWorkerMmkvKey(keyPrefix);
 
-    try {
-      valueReadOnRN = mmkvStorage.getString(probeKey);
-      rnContainsKeyAfterWorkerWrite = mmkvStorage.contains(probeKey);
-    } finally {
-      try {
-        mmkvStorage.delete(probeKey);
-        cleanupRemovedKeyOnRN = !mmkvStorage.contains(probeKey);
-      } catch {}
-    }
-
-    return {
-      ...workerResult,
-      valueReadOnRN,
-      rnReadMatchesWrite: valueReadOnRN === workerResult.valueWritten,
-      rnContainsKeyAfterWorkerWrite,
-      cleanupRemovedKeyOnRN,
+  const workerResult = await new Promise<
+    Omit<
+      WorkerMmkvRoundTripResult,
+      | 'cleanupRemovedKeyOnRN'
+      | 'rnContainsKeyAfterWorkerWrite'
+      | 'rnReadMatchesWrite'
+      | 'valueReadOnRN'
+    >
+  >((resolve, reject) => {
+    const rejectOnRN = (message: string) => {
+      reject(new Error(message));
     };
+
+    runOnRuntimeAsync(
+      getWorkletsBundleModeRuntime(),
+      (
+        workerRuntimeName: string,
+        roundTripStorageId: string,
+        workerStorageBridge: WorkerMmkvStorageBridge,
+        key: string,
+        resolveOnRN: (
+          value: Omit<
+            WorkerMmkvRoundTripResult,
+            | 'cleanupRemovedKeyOnRN'
+            | 'rnContainsKeyAfterWorkerWrite'
+            | 'rnReadMatchesWrite'
+            | 'valueReadOnRN'
+          >,
+        ) => void,
+        rejectOnRNWorklet: (message: string) => void,
+      ): void => {
+        'worklet';
+
+        try {
+          const startedAtMs = Date.now();
+          const startedAtIso = new Date(startedAtMs).toISOString();
+          const valueWritten = JSON.stringify({
+            key,
+            probe: 'worker_mmkv_roundtrip',
+            runtimeKind: globalThis.__RUNTIME_KIND,
+            runtimeName: workerRuntimeName,
+            writtenAtIso: startedAtIso,
+          });
+
+          workerStorageBridge.set(key, valueWritten);
+
+          const valueReadOnWorker = workerStorageBridge.getString(key);
+          const workerContainsKeyAfterWrite = workerStorageBridge.contains(key);
+
+          scheduleOnRN(resolveOnRN, {
+            workerRuntimeName,
+            storageId: roundTripStorageId,
+            key,
+            startedAtIso,
+            completedAtIso: new Date().toISOString(),
+            durationMs: Date.now() - startedAtMs,
+            valueWritten,
+            valueReadOnWorker,
+            workerReadMatchesWrite: valueReadOnWorker === valueWritten,
+            workerContainsKeyAfterWrite,
+          });
+        } catch (err: unknown) {
+          scheduleOnRN(
+            rejectOnRNWorklet,
+            `Worker MMKV roundtrip failed. ${toWorkerErrorMessage(err)}`,
+          );
+        }
+      },
+      WORKER_RUNTIME_NAME,
+      storageId,
+      storageBridge,
+      probeKey,
+      resolve,
+      rejectOnRN,
+    ).catch(err => {
+      reject(toRuntimeError(err));
+    });
+  });
+
+  let valueReadOnRN: string | undefined;
+  let rnContainsKeyAfterWorkerWrite = false;
+  let cleanupRemovedKeyOnRN = false;
+
+  try {
+    valueReadOnRN = storageBridge.getString(probeKey);
+    rnContainsKeyAfterWorkerWrite = storageBridge.contains(probeKey);
+  } finally {
+    try {
+      storageBridge.delete(probeKey);
+      cleanupRemovedKeyOnRN = !storageBridge.contains(probeKey);
+    } catch {}
+  }
+
+  return {
+    ...workerResult,
+    valueReadOnRN,
+    rnReadMatchesWrite: valueReadOnRN === workerResult.valueWritten,
+    rnContainsKeyAfterWorkerWrite,
+    cleanupRemovedKeyOnRN,
+  };
+};
+
+export const probeSharedAppMmkvRoundTripOnWorker =
+  async (): Promise<WorkerMmkvRoundTripResult> => {
+    return probeMmkvRoundTripOnWorkerWithStorage({
+      keyPrefix: WORKER_MMKV_SHARED_APP_KEY_PREFIX,
+      storageBridge: getAppSharedNativeStorageOnRN(),
+      storageId: APP_SHARED_MMKV_STORAGE_LABEL,
+    });
   };
 
 export const stressTestMmkvOnWorker = async (opts?: {

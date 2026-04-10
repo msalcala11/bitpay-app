@@ -19,6 +19,7 @@ import {
   contentionTestMmkvOnWorker,
   fetchWalletTxHistoryPagesOnWorker,
   probeMmkvRoundTripOnWorker,
+  probeSharedAppMmkvRoundTripOnWorker,
   stressTestMmkvOnWorker,
   type WorkerMmkvContentionTestResult,
   type WorkerMmkvRoundTripResult,
@@ -267,6 +268,12 @@ const WorkletsBundleModeDemo = (_props: Props) => {
   const [mmkvResult, setMmkvResult] = useState<WorkerMmkvRoundTripResult | null>(
     null,
   );
+  const [sharedAppMmkvLoading, setSharedAppMmkvLoading] = useState(false);
+  const [sharedAppMmkvError, setSharedAppMmkvError] = useState<string | null>(
+    null,
+  );
+  const [sharedAppMmkvResult, setSharedAppMmkvResult] =
+    useState<WorkerMmkvRoundTripResult | null>(null);
   const [mmkvStressLoading, setMmkvStressLoading] = useState(false);
   const [mmkvStressError, setMmkvStressError] = useState<string | null>(null);
   const [mmkvStressResult, setMmkvStressResult] =
@@ -316,6 +323,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
 
   const workerActionLoading =
     mmkvLoading ||
+    sharedAppMmkvLoading ||
     mmkvStressLoading ||
     mmkvContentionLoading ||
     txHistoryLoading;
@@ -365,6 +373,22 @@ const WorkletsBundleModeDemo = (_props: Props) => {
       setMmkvStressError(toErrorMessage(err));
     } finally {
       setMmkvStressLoading(false);
+    }
+  };
+
+  const handleRunSharedAppMmkvProbe = async () => {
+    setSharedAppMmkvLoading(true);
+    setSharedAppMmkvError(null);
+    setSharedAppMmkvResult(null);
+
+    try {
+      const nextSharedAppMmkvResult =
+        await probeSharedAppMmkvRoundTripOnWorker();
+      setSharedAppMmkvResult(nextSharedAppMmkvResult);
+    } catch (err: unknown) {
+      setSharedAppMmkvError(toErrorMessage(err));
+    } finally {
+      setSharedAppMmkvLoading(false);
     }
   };
 
@@ -466,6 +490,23 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             onPress={handleRunMmkvStressTest}
             accessibilityLabel="Run a worker MMKV stress test across many sequential writes and reads">
             Run {MMKV_STRESS_TEST_ITERATIONS} worker MMKV writes
+          </Button>
+        </Card>
+
+        <Card>
+          <SectionTitle>Shared App MMKV roundtrip</SectionTitle>
+          <SectionBody>
+            This probe uses the app&apos;s exported MMKV singleton from
+            `src/store/index.ts`, writes a namespaced demo key from the worker
+            runtime, confirms RN can read it from the same shared store, and
+            then removes it.
+          </SectionBody>
+          <Button
+            state={sharedAppMmkvLoading ? 'loading' : undefined}
+            disabled={workerActionLoading}
+            onPress={handleRunSharedAppMmkvProbe}
+            accessibilityLabel="Run an MMKV write and read roundtrip on the app shared MMKV store from the worker runtime">
+            Run shared app MMKV roundtrip
           </Button>
         </Card>
 
@@ -588,6 +629,67 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             <Spacer />
             <SectionTitle>Raw JSON</SectionTitle>
             <RawOutput selectable>{JSON.stringify(mmkvResult, null, 2)}</RawOutput>
+          </Card>
+        ) : null}
+
+        {sharedAppMmkvLoading ? (
+          <Card>
+            <StatusRow>
+              <ActivityIndicator />
+              <LoadingText>
+                Writing and reading the app shared MMKV store on the worker
+                runtime...
+              </LoadingText>
+            </StatusRow>
+          </Card>
+        ) : null}
+
+        {sharedAppMmkvError ? (
+          <Card>
+            <SectionTitle>Shared app MMKV probe failed</SectionTitle>
+            <RawOutput selectable>{sharedAppMmkvError}</RawOutput>
+          </Card>
+        ) : null}
+
+        {sharedAppMmkvResult ? (
+          <Card>
+            <SectionTitle>Shared app MMKV result</SectionTitle>
+            <MetaText>
+              Worker runtime: {sharedAppMmkvResult.workerRuntimeName}
+            </MetaText>
+            <MetaText>Storage id: {sharedAppMmkvResult.storageId}</MetaText>
+            <MetaText>Started at: {sharedAppMmkvResult.startedAtIso}</MetaText>
+            <MetaText>
+              Completed at: {sharedAppMmkvResult.completedAtIso}
+            </MetaText>
+            <MetaText>Duration: {sharedAppMmkvResult.durationMs} ms</MetaText>
+            <MetaText>Key: {sharedAppMmkvResult.key}</MetaText>
+            <MetaText>
+              Worker read matches write:{' '}
+              {sharedAppMmkvResult.workerReadMatchesWrite ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              RN read matches write:{' '}
+              {sharedAppMmkvResult.rnReadMatchesWrite ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              Worker contains key after write:{' '}
+              {sharedAppMmkvResult.workerContainsKeyAfterWrite ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              RN contains key after worker write:{' '}
+              {sharedAppMmkvResult.rnContainsKeyAfterWorkerWrite ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              Cleanup removed key on RN:{' '}
+              {sharedAppMmkvResult.cleanupRemovedKeyOnRN ? 'yes' : 'no'}
+            </MetaText>
+
+            <Spacer />
+            <SectionTitle>Raw JSON</SectionTitle>
+            <RawOutput selectable>
+              {JSON.stringify(sharedAppMmkvResult, null, 2)}
+            </RawOutput>
           </Card>
         ) : null}
 
