@@ -16,9 +16,11 @@ import {
   ScreenContainer,
 } from '../../../../../components/styled/Containers';
 import {
+  contentionTestMmkvOnWorker,
   fetchWalletTxHistoryPagesOnWorker,
   probeMmkvRoundTripOnWorker,
   stressTestMmkvOnWorker,
+  type WorkerMmkvContentionTestResult,
   type WorkerMmkvRoundTripResult,
   type WorkerMmkvStressTestResult,
   type WorkerTxHistoryBatchResult,
@@ -39,6 +41,7 @@ type DemoWalletOption = WorkletsTxHistoryWalletSnapshot & {
   walletSubLabel: string;
 };
 
+const MMKV_CONTENTION_TEST_ITERATIONS = 250;
 const MMKV_STRESS_TEST_ITERATIONS = 250;
 
 const Container = styled(ScreenContainer)`
@@ -268,6 +271,11 @@ const WorkletsBundleModeDemo = (_props: Props) => {
   const [mmkvStressError, setMmkvStressError] = useState<string | null>(null);
   const [mmkvStressResult, setMmkvStressResult] =
     useState<WorkerMmkvStressTestResult | null>(null);
+  const [mmkvContentionLoading, setMmkvContentionLoading] = useState(false);
+  const [mmkvContentionError, setMmkvContentionError] =
+    useState<string | null>(null);
+  const [mmkvContentionResult, setMmkvContentionResult] =
+    useState<WorkerMmkvContentionTestResult | null>(null);
   const [txHistoryLoading, setTxHistoryLoading] = useState(false);
   const [txHistoryError, setTxHistoryError] = useState<string | null>(null);
   const [txHistoryResult, setTxHistoryResult] =
@@ -307,7 +315,10 @@ const WorkletsBundleModeDemo = (_props: Props) => {
   }, [selectedWalletId, walletOptions]);
 
   const workerActionLoading =
-    mmkvLoading || mmkvStressLoading || txHistoryLoading;
+    mmkvLoading ||
+    mmkvStressLoading ||
+    mmkvContentionLoading ||
+    txHistoryLoading;
 
   React.useEffect(() => {
     if (!walletOptions.length) {
@@ -357,6 +368,23 @@ const WorkletsBundleModeDemo = (_props: Props) => {
     }
   };
 
+  const handleRunMmkvContentionTest = async () => {
+    setMmkvContentionLoading(true);
+    setMmkvContentionError(null);
+    setMmkvContentionResult(null);
+
+    try {
+      const nextMmkvContentionResult = await contentionTestMmkvOnWorker({
+        iterationCount: MMKV_CONTENTION_TEST_ITERATIONS,
+      });
+      setMmkvContentionResult(nextMmkvContentionResult);
+    } catch (err: unknown) {
+      setMmkvContentionError(toErrorMessage(err));
+    } finally {
+      setMmkvContentionLoading(false);
+    }
+  };
+
   const handleRunTxHistory = async () => {
     if (!selectedWallet) {
       return;
@@ -387,10 +415,12 @@ const WorkletsBundleModeDemo = (_props: Props) => {
         <Card>
           <SectionTitle>Reduced Bundle Mode worker proofs</SectionTitle>
           <SectionBody>
-            This screen keeps the bundle-mode POC focused on two concrete
+            This screen keeps the bundle-mode POC focused on concrete
             worker-runtime checks: an MMKV write/read roundtrip on the
-            background JS runtime, and an end-to-end txhistory flow that signs
-            BWS `/v1/txhistory/` requests with transferred Nitro crypto handles.
+            background JS runtime, a sequential MMKV stress test, a same-key
+            MMKV contention race between RN and the worker runtime, and an
+            end-to-end txhistory flow that signs BWS `/v1/txhistory/` requests
+            with transferred Nitro crypto handles.
           </SectionBody>
           <SectionBody>
             The MMKV probe is isolated to a demo-specific storage instance, so
@@ -398,8 +428,9 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             Redux keys.
           </SectionBody>
           <Smallest>
-            Expected result: the MMKV probe writes and reads the same value on
-            the worker runtime, and the txhistory proof fetches three worker-side
+            Expected result: the MMKV probe and stress test succeed cleanly,
+            the contention race only observes recognized RN or worker writes on
+            the shared key, and the txhistory proof fetches three worker-side
             pages for the selected wallet.
           </Smallest>
         </Card>
@@ -435,6 +466,22 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             onPress={handleRunMmkvStressTest}
             accessibilityLabel="Run a worker MMKV stress test across many sequential writes and reads">
             Run {MMKV_STRESS_TEST_ITERATIONS} worker MMKV writes
+          </Button>
+        </Card>
+
+        <Card>
+          <SectionTitle>Worker MMKV contention test</SectionTitle>
+          <SectionBody>
+            This race test has RN and the worker runtime repeatedly write the
+            same MMKV key. Immediate self-read matches can drop if the other
+            runtime wins the race, but unexpected values should stay at zero.
+          </SectionBody>
+          <Button
+            state={mmkvContentionLoading ? 'loading' : undefined}
+            disabled={workerActionLoading}
+            onPress={handleRunMmkvContentionTest}
+            accessibilityLabel="Run a same-key MMKV contention test between RN and the worker runtime">
+            Run {MMKV_CONTENTION_TEST_ITERATIONS} same-key MMKV races
           </Button>
         </Card>
 
@@ -604,6 +651,115 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             <SectionTitle>Raw JSON</SectionTitle>
             <RawOutput selectable>
               {JSON.stringify(mmkvStressResult, null, 2)}
+            </RawOutput>
+          </Card>
+        ) : null}
+
+        {mmkvContentionLoading ? (
+          <Card>
+            <StatusRow>
+              <ActivityIndicator />
+              <LoadingText>
+                Racing RN and worker writes against the same MMKV key for{' '}
+                {MMKV_CONTENTION_TEST_ITERATIONS} iterations each...
+              </LoadingText>
+            </StatusRow>
+          </Card>
+        ) : null}
+
+        {mmkvContentionError ? (
+          <Card>
+            <SectionTitle>Worker MMKV contention test failed</SectionTitle>
+            <RawOutput selectable>{mmkvContentionError}</RawOutput>
+          </Card>
+        ) : null}
+
+        {mmkvContentionResult ? (
+          <Card>
+            <SectionTitle>Worker MMKV contention result</SectionTitle>
+            <MetaText>
+              Worker runtime: {mmkvContentionResult.workerRuntimeName}
+            </MetaText>
+            <MetaText>Storage id: {mmkvContentionResult.storageId}</MetaText>
+            <MetaText>Key: {mmkvContentionResult.key}</MetaText>
+            <MetaText>
+              Iterations per runtime:{' '}
+              {mmkvContentionResult.iterationCountPerRuntime}
+            </MetaText>
+            <MetaText>Started at: {mmkvContentionResult.startedAtIso}</MetaText>
+            <MetaText>
+              Completed at: {mmkvContentionResult.completedAtIso}
+            </MetaText>
+            <MetaText>RN duration: {mmkvContentionResult.rnDurationMs} ms</MetaText>
+            <MetaText>
+              Worker duration: {mmkvContentionResult.workerDurationMs} ms
+            </MetaText>
+            <MetaText>
+              Total duration: {mmkvContentionResult.totalDurationMs} ms
+            </MetaText>
+            <MetaText>
+              RN immediate self-read matches:{' '}
+              {mmkvContentionResult.rnImmediateSelfReadMatches}
+            </MetaText>
+            <MetaText>
+              Worker immediate self-read matches:{' '}
+              {mmkvContentionResult.workerImmediateSelfReadMatches}
+            </MetaText>
+            <MetaText>
+              RN observed worker writes:{' '}
+              {mmkvContentionResult.rnObservedWorkerWrites}
+            </MetaText>
+            <MetaText>
+              Worker observed RN writes:{' '}
+              {mmkvContentionResult.workerObservedRnWrites}
+            </MetaText>
+            <MetaText>
+              RN stale own reads: {mmkvContentionResult.rnStaleOwnReadCount}
+            </MetaText>
+            <MetaText>
+              Worker stale own reads:{' '}
+              {mmkvContentionResult.workerStaleOwnReadCount}
+            </MetaText>
+            <MetaText>
+              RN unexpected values: {mmkvContentionResult.rnUnexpectedValueCount}
+            </MetaText>
+            <MetaText>
+              Worker unexpected values:{' '}
+              {mmkvContentionResult.workerUnexpectedValueCount}
+            </MetaText>
+            <MetaText>
+              RN contains checks passed:{' '}
+              {mmkvContentionResult.rnContainsChecksPassed}
+            </MetaText>
+            <MetaText>
+              Worker contains checks passed:{' '}
+              {mmkvContentionResult.workerContainsChecksPassed}
+            </MetaText>
+            <MetaText>
+              Final value writer:{' '}
+              {mmkvContentionResult.finalValueWriter || 'unrecognized'}
+            </MetaText>
+            <MetaText>
+              Final value iteration:{' '}
+              {typeof mmkvContentionResult.finalValueIteration === 'number'
+                ? mmkvContentionResult.finalValueIteration
+                : 'n/a'}
+            </MetaText>
+            <MetaText>
+              Cleanup removed key on RN:{' '}
+              {mmkvContentionResult.cleanupRemovedKeyOnRN ? 'yes' : 'no'}
+            </MetaText>
+
+            {mmkvContentionResult.finalValuePreview ? (
+              <MetaText>
+                Final value preview: {mmkvContentionResult.finalValuePreview}
+              </MetaText>
+            ) : null}
+
+            <Spacer />
+            <SectionTitle>Raw JSON</SectionTitle>
+            <RawOutput selectable>
+              {JSON.stringify(mmkvContentionResult, null, 2)}
             </RawOutput>
           </Card>
         ) : null}

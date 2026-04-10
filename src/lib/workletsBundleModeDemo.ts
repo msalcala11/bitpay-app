@@ -1,7 +1,9 @@
 import {
+  createSynchronizable,
   createWorkletRuntime,
   runOnRuntimeAsync,
   scheduleOnRN,
+  type Synchronizable,
   type WorkletRuntime,
 } from 'react-native-worklets';
 import {MMKV, type NativeMMKV} from 'react-native-mmkv';
@@ -118,6 +120,32 @@ export type WorkerMmkvStressTestResult = {
   lastValueWritten: string;
 };
 
+export type WorkerMmkvContentionTestResult = {
+  workerRuntimeName: string;
+  storageId: string;
+  key: string;
+  iterationCountPerRuntime: number;
+  startedAtIso: string;
+  completedAtIso: string;
+  rnDurationMs: number;
+  workerDurationMs: number;
+  totalDurationMs: number;
+  rnImmediateSelfReadMatches: number;
+  workerImmediateSelfReadMatches: number;
+  rnStaleOwnReadCount: number;
+  workerStaleOwnReadCount: number;
+  rnObservedWorkerWrites: number;
+  workerObservedRnWrites: number;
+  rnUnexpectedValueCount: number;
+  workerUnexpectedValueCount: number;
+  rnContainsChecksPassed: number;
+  workerContainsChecksPassed: number;
+  finalValuePreview?: string;
+  finalValueWriter?: 'rn' | 'worker';
+  finalValueIteration?: number;
+  cleanupRemovedKeyOnRN: boolean;
+};
+
 type TxHistoryRequestWalletContext = Pick<
   WorkletsTxHistoryWalletSnapshot,
   'tokenAddress' | 'multisigContractAddress'
@@ -200,13 +228,46 @@ type WorkerMmkvStressTestEntry = {
   value: string;
 };
 
+type MmkvContentionActor = 'rn' | 'worker';
+
+type WorkerMmkvContentionReadSummary = {
+  writer: MmkvContentionActor;
+  iteration: number;
+};
+
+type WorkerMmkvContentionLoopResult = {
+  durationMs: number;
+  immediateSelfReadMatches: number;
+  staleOwnReadCount: number;
+  observedOtherWrites: number;
+  unexpectedValueCount: number;
+  containsChecksPassed: number;
+};
+
+type MmkvContentionBarrierPhase =
+  | 'ready_to_write'
+  | 'write_completed'
+  | 'read_completed';
+
+type WorkerMmkvContentionBarrierState = {
+  rnReadyToWriteIteration: number;
+  workerReadyToWriteIteration: number;
+  rnWriteCompletedIteration: number;
+  workerWriteCompletedIteration: number;
+  rnReadCompletedIteration: number;
+  workerReadCompletedIteration: number;
+};
+
 const WORKER_RUNTIME_NAME = 'bitpay-txhistory-worker';
 const BWC_CLIENT_VERSION_HEADER = 'bwc-11.7.0';
 const DEFAULT_TXHISTORY_LIMIT = 10;
 const DEFAULT_TXHISTORY_PAGE_COUNT = 3;
+const DEFAULT_WORKER_MMKV_CONTENTION_ITERATION_COUNT = 250;
+const DEFAULT_WORKER_MMKV_CONTENTION_WAIT_TIMEOUT_MS = 5000;
 const DEFAULT_WORKER_MMKV_STRESS_TEST_ITERATION_COUNT = 250;
 const WORKER_TXHISTORY_SESSION_KEY = '__bitpayTxHistoryWorkerSession';
 const WORKER_MMKV_STORAGE_ID = 'bitpay.worklets.bundle.mode.demo';
+const WORKER_MMKV_CONTENTION_KEY_PREFIX = 'worklets-mmkv-contention';
 const WORKER_MMKV_KEY_PREFIX = 'worklets-mmkv-roundtrip';
 const WORKER_MMKV_STRESS_KEY_PREFIX = 'worklets-mmkv-stress';
 const TXHISTORY_BASE_PATH = '/v1/txhistory/';
@@ -311,6 +372,281 @@ const buildWorkerMmkvStressTestEntries = (
     };
   });
 };
+
+function createWorkerMmkvContentionBarrierState(): WorkerMmkvContentionBarrierState {
+  return {
+    rnReadyToWriteIteration: -1,
+    workerReadyToWriteIteration: -1,
+    rnWriteCompletedIteration: -1,
+    workerWriteCompletedIteration: -1,
+    rnReadCompletedIteration: -1,
+    workerReadCompletedIteration: -1,
+  };
+}
+
+function buildWorkerMmkvContentionValue(
+  writer: MmkvContentionActor,
+  key: string,
+  iteration: number,
+) {
+  'worklet';
+
+  return JSON.stringify({
+    key,
+    probe: 'worker_mmkv_contention',
+    writer,
+    iteration,
+    writtenAtIso: new Date().toISOString(),
+  });
+}
+
+function summarizeWorkerMmkvContentionRead(
+  key: string,
+  rawValue: string | undefined,
+): WorkerMmkvContentionReadSummary | null {
+  'worklet';
+
+  let parsedValue: unknown;
+  try {
+    parsedValue = rawValue ? JSON.parse(rawValue) : null;
+  } catch {
+    parsedValue = rawValue;
+  }
+
+  if (!parsedValue || typeof parsedValue !== 'object') {
+    return null;
+  }
+
+  const probe = (parsedValue as any)?.probe;
+  const parsedKey = (parsedValue as any)?.key;
+  const writer = (parsedValue as any)?.writer;
+  const iteration = (parsedValue as any)?.iteration;
+
+  if (
+    probe !== 'worker_mmkv_contention' ||
+    parsedKey !== key ||
+    (writer !== 'rn' && writer !== 'worker') ||
+    typeof iteration !== 'number'
+  ) {
+    return null;
+  }
+
+  return {
+    writer,
+    iteration,
+  };
+}
+
+function summarizeWorkerMmkvContentionValuePreview(
+  value: string | undefined,
+  maxLength = 140,
+) {
+  if (!value) {
+    return undefined;
+  }
+
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength)}...`;
+}
+
+function getWorkerMmkvContentionBarrierIteration(
+  state: WorkerMmkvContentionBarrierState,
+  actor: MmkvContentionActor,
+  phase: MmkvContentionBarrierPhase,
+) {
+  'worklet';
+
+  if (actor === 'rn') {
+    switch (phase) {
+      case 'ready_to_write':
+        return state.rnReadyToWriteIteration;
+      case 'write_completed':
+        return state.rnWriteCompletedIteration;
+      case 'read_completed':
+        return state.rnReadCompletedIteration;
+    }
+  }
+
+  switch (phase) {
+    case 'ready_to_write':
+      return state.workerReadyToWriteIteration;
+    case 'write_completed':
+      return state.workerWriteCompletedIteration;
+    case 'read_completed':
+      return state.workerReadCompletedIteration;
+  }
+}
+
+function setWorkerMmkvContentionBarrierIteration(
+  barrier: Synchronizable<WorkerMmkvContentionBarrierState>,
+  actor: MmkvContentionActor,
+  phase: MmkvContentionBarrierPhase,
+  iteration: number,
+) {
+  'worklet';
+
+  barrier.setBlocking(prev => {
+    if (actor === 'rn') {
+      switch (phase) {
+        case 'ready_to_write':
+          return {
+            ...prev,
+            rnReadyToWriteIteration: iteration,
+          };
+        case 'write_completed':
+          return {
+            ...prev,
+            rnWriteCompletedIteration: iteration,
+          };
+        case 'read_completed':
+          return {
+            ...prev,
+            rnReadCompletedIteration: iteration,
+          };
+      }
+    }
+
+    switch (phase) {
+      case 'ready_to_write':
+        return {
+          ...prev,
+          workerReadyToWriteIteration: iteration,
+        };
+      case 'write_completed':
+        return {
+          ...prev,
+          workerWriteCompletedIteration: iteration,
+        };
+      case 'read_completed':
+        return {
+          ...prev,
+          workerReadCompletedIteration: iteration,
+        };
+    }
+  });
+}
+
+function waitForWorkerMmkvContentionBarrierIteration(
+  barrier: Synchronizable<WorkerMmkvContentionBarrierState>,
+  actor: MmkvContentionActor,
+  phase: MmkvContentionBarrierPhase,
+  iteration: number,
+) {
+  'worklet';
+
+  const startedAtMs = Date.now();
+
+  while (true) {
+    const state = barrier.getBlocking();
+    if (getWorkerMmkvContentionBarrierIteration(state, actor, phase) >= iteration) {
+      return;
+    }
+
+    if (
+      Date.now() - startedAtMs >=
+      DEFAULT_WORKER_MMKV_CONTENTION_WAIT_TIMEOUT_MS
+    ) {
+      throw new Error(
+        `Timed out waiting for ${actor} ${phase} iteration ${iteration}. Last barrier state: ${JSON.stringify(
+          state,
+        )}`,
+      );
+    }
+  }
+}
+
+function executeWorkerMmkvContentionLoop(
+  actor: MmkvContentionActor,
+  key: string,
+  iterationCount: number,
+  storageBridge: WorkerMmkvStorageBridge,
+  barrier: Synchronizable<WorkerMmkvContentionBarrierState>,
+): WorkerMmkvContentionLoopResult {
+  'worklet';
+
+  const startedAtMs = Date.now();
+  const otherActor: MmkvContentionActor = actor === 'rn' ? 'worker' : 'rn';
+  let immediateSelfReadMatches = 0;
+  let staleOwnReadCount = 0;
+  let observedOtherWrites = 0;
+  let unexpectedValueCount = 0;
+  let containsChecksPassed = 0;
+
+  for (let iteration = 0; iteration < iterationCount; iteration += 1) {
+    setWorkerMmkvContentionBarrierIteration(
+      barrier,
+      actor,
+      'ready_to_write',
+      iteration,
+    );
+    waitForWorkerMmkvContentionBarrierIteration(
+      barrier,
+      otherActor,
+      'ready_to_write',
+      iteration,
+    );
+
+    const nextValue = buildWorkerMmkvContentionValue(actor, key, iteration);
+    storageBridge.set(key, nextValue);
+
+    setWorkerMmkvContentionBarrierIteration(
+      barrier,
+      actor,
+      'write_completed',
+      iteration,
+    );
+    waitForWorkerMmkvContentionBarrierIteration(
+      barrier,
+      otherActor,
+      'write_completed',
+      iteration,
+    );
+
+    const immediateRead = storageBridge.getString(key);
+    if (immediateRead === nextValue) {
+      immediateSelfReadMatches += 1;
+    } else {
+      const summarizedRead = summarizeWorkerMmkvContentionRead(key, immediateRead);
+
+      if (!summarizedRead) {
+        unexpectedValueCount += 1;
+      } else if (summarizedRead.writer === actor) {
+        staleOwnReadCount += 1;
+      } else {
+        observedOtherWrites += 1;
+      }
+    }
+
+    if (storageBridge.contains(key)) {
+      containsChecksPassed += 1;
+    }
+
+    setWorkerMmkvContentionBarrierIteration(
+      barrier,
+      actor,
+      'read_completed',
+      iteration,
+    );
+    waitForWorkerMmkvContentionBarrierIteration(
+      barrier,
+      otherActor,
+      'read_completed',
+      iteration,
+    );
+  }
+
+  return {
+    durationMs: Date.now() - startedAtMs,
+    immediateSelfReadMatches,
+    staleOwnReadCount,
+    observedOtherWrites,
+    unexpectedValueCount,
+    containsChecksPassed,
+  };
+}
 
 const toHexPreview = (value: string | undefined, visible = 12) => {
   'worklet';
@@ -699,7 +1035,7 @@ const signBwsGetRequestWithTransferredNitro = (
       }).toString();
 };
 
-const tryParseJson = (text: string) => {
+function tryParseJson(text: string) {
   'worklet';
 
   if (!text) {
@@ -711,7 +1047,7 @@ const tryParseJson = (text: string) => {
   } catch {
     return text;
   }
-};
+}
 
 const summarizeTx = (tx: any): WorkerTxHistoryPreviewItem => {
   'worklet';
@@ -1080,6 +1416,164 @@ export const stressTestMmkvOnWorker = async (opts?: {
     cleanupRemovedKeyCount,
     cleanupFullySucceeded,
     totalDurationMs: Date.now() - totalStartedAtMs,
+  };
+};
+
+export const contentionTestMmkvOnWorker = async (opts?: {
+  iterationCount?: number;
+}): Promise<WorkerMmkvContentionTestResult> => {
+  const mmkvStorage = getWorkletsBundleModeDemoNativeStorageOnRN();
+  const contentionBarrier = createSynchronizable(
+    createWorkerMmkvContentionBarrierState(),
+  );
+  const iterationCount = normalizePositiveInt(
+    opts?.iterationCount,
+    DEFAULT_WORKER_MMKV_CONTENTION_ITERATION_COUNT,
+  );
+  const key = buildWorkerMmkvKey(WORKER_MMKV_CONTENTION_KEY_PREFIX);
+  const totalStartedAtMs = Date.now();
+  const startedAtIso = new Date(totalStartedAtMs).toISOString();
+
+  try {
+    mmkvStorage.delete(key);
+  } catch {}
+
+  let notifyWorkerStartedOnRN:
+    | (() => void)
+    | undefined;
+  const workerStartedPromise = new Promise<void>(resolve => {
+    notifyWorkerStartedOnRN = resolve;
+  });
+
+  const workerPromise = new Promise<{
+    workerRuntimeName: string;
+    storageId: string;
+    workerDurationMs: number;
+    workerImmediateSelfReadMatches: number;
+    workerStaleOwnReadCount: number;
+    workerObservedRnWrites: number;
+    workerUnexpectedValueCount: number;
+    workerContainsChecksPassed: number;
+  }>((resolve, reject) => {
+    const rejectOnRN = (message: string) => {
+      reject(new Error(message));
+    };
+
+    runOnRuntimeAsync(
+      getWorkletsBundleModeRuntime(),
+      (
+        workerRuntimeName: string,
+        storageId: string,
+        storageBridge: WorkerMmkvStorageBridge,
+        barrier: Synchronizable<WorkerMmkvContentionBarrierState>,
+        contentionKey: string,
+        requestedIterationCount: number,
+        markWorkerStartedOnRN: () => void,
+        resolveOnRN: (value: {
+          workerRuntimeName: string;
+          storageId: string;
+          workerDurationMs: number;
+          workerImmediateSelfReadMatches: number;
+          workerStaleOwnReadCount: number;
+          workerObservedRnWrites: number;
+          workerUnexpectedValueCount: number;
+          workerContainsChecksPassed: number;
+        }) => void,
+        rejectOnRNWorklet: (message: string) => void,
+      ): void => {
+        'worklet';
+
+        try {
+          scheduleOnRN(markWorkerStartedOnRN);
+
+          const loopResult = executeWorkerMmkvContentionLoop(
+            'worker',
+            contentionKey,
+            requestedIterationCount,
+            storageBridge,
+            barrier,
+          );
+
+          scheduleOnRN(resolveOnRN, {
+            workerRuntimeName,
+            storageId,
+            workerDurationMs: loopResult.durationMs,
+            workerImmediateSelfReadMatches:
+              loopResult.immediateSelfReadMatches,
+            workerStaleOwnReadCount: loopResult.staleOwnReadCount,
+            workerObservedRnWrites: loopResult.observedOtherWrites,
+            workerUnexpectedValueCount: loopResult.unexpectedValueCount,
+            workerContainsChecksPassed: loopResult.containsChecksPassed,
+          });
+        } catch (err: unknown) {
+          scheduleOnRN(
+            rejectOnRNWorklet,
+            `Worker MMKV contention test failed. ${toWorkerErrorMessage(err)}`,
+          );
+        }
+      },
+      WORKER_RUNTIME_NAME,
+      WORKER_MMKV_STORAGE_ID,
+      mmkvStorage,
+      contentionBarrier,
+      key,
+      iterationCount,
+      () => notifyWorkerStartedOnRN?.(),
+      resolve,
+      rejectOnRN,
+    ).catch(err => {
+      reject(toRuntimeError(err));
+    });
+  });
+
+  await Promise.race([
+    workerStartedPromise,
+    workerPromise.then(() => undefined),
+  ]);
+
+  const rnLoopResult = executeWorkerMmkvContentionLoop(
+    'rn',
+    key,
+    iterationCount,
+    mmkvStorage,
+    contentionBarrier,
+  );
+
+  const workerResult = await workerPromise;
+  const finalValue = mmkvStorage.getString(key);
+  const finalValueSummary = summarizeWorkerMmkvContentionRead(key, finalValue);
+
+  let cleanupRemovedKeyOnRN = false;
+  try {
+    mmkvStorage.delete(key);
+    cleanupRemovedKeyOnRN = !mmkvStorage.contains(key);
+  } catch {}
+
+  return {
+    workerRuntimeName: workerResult.workerRuntimeName,
+    storageId: workerResult.storageId,
+    key,
+    iterationCountPerRuntime: iterationCount,
+    startedAtIso,
+    completedAtIso: new Date().toISOString(),
+    rnDurationMs: rnLoopResult.durationMs,
+    workerDurationMs: workerResult.workerDurationMs,
+    totalDurationMs: Date.now() - totalStartedAtMs,
+    rnImmediateSelfReadMatches: rnLoopResult.immediateSelfReadMatches,
+    workerImmediateSelfReadMatches:
+      workerResult.workerImmediateSelfReadMatches,
+    rnStaleOwnReadCount: rnLoopResult.staleOwnReadCount,
+    workerStaleOwnReadCount: workerResult.workerStaleOwnReadCount,
+    rnObservedWorkerWrites: rnLoopResult.observedOtherWrites,
+    workerObservedRnWrites: workerResult.workerObservedRnWrites,
+    rnUnexpectedValueCount: rnLoopResult.unexpectedValueCount,
+    workerUnexpectedValueCount: workerResult.workerUnexpectedValueCount,
+    rnContainsChecksPassed: rnLoopResult.containsChecksPassed,
+    workerContainsChecksPassed: workerResult.workerContainsChecksPassed,
+    finalValuePreview: summarizeWorkerMmkvContentionValuePreview(finalValue),
+    finalValueWriter: finalValueSummary?.writer,
+    finalValueIteration: finalValueSummary?.iteration,
+    cleanupRemovedKeyOnRN,
   };
 };
 
