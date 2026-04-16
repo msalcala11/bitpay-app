@@ -357,4 +357,114 @@ describe('portfolio.runtime.effects', () => {
       },
     });
   });
+
+  it('clears stored mismatch flags for wallets that finished populating successfully', async () => {
+    const client = {} as any;
+    const precisionRequest = {type: 'TEST_PRECISION'};
+    const wallet = {
+      id: 'w1',
+      network: 'livenet',
+      chain: 'btc',
+      currencyAbbreviation: 'btc',
+      tokenAddress: undefined,
+    } as any;
+    const storedWallet = {
+      walletId: 'w1',
+      credentials: {walletId: 'w1'},
+      summary: {walletId: 'w1'},
+      addedAt: 1,
+    } as any;
+    const populateWallets = jest.fn(async () => {
+      return {
+        startedAt: 1,
+        finishedAt: 10,
+        cancelled: false,
+        disabledForLargeHistory: false,
+        status: {
+          jobId: 'job-1',
+          state: 'completed',
+          inProgress: false,
+          startedAt: 1,
+          finishedAt: 10,
+          currentWalletId: undefined,
+          walletsTotal: 1,
+          walletsCompleted: 1,
+          txRequestsMade: 1,
+          txsProcessed: 1,
+          walletStatusById: {w1: 'done'},
+          errors: [],
+          disabledForLargeHistory: false,
+          lastUpdatedAt: 10,
+        },
+        results: [
+          {
+            walletId: 'w1',
+            prepared: {checkpoint: {nextSkip: 0}},
+            processResults: [],
+            finished: {checkpoint: {nextSkip: 1}, appendedSnapshots: 1},
+            appendedSnapshots: 1,
+            txRequestsMade: 1,
+            txsProcessed: 1,
+            cancelled: false,
+            disabledForLargeHistory: false,
+          },
+        ],
+      };
+    });
+
+    (getPortfolioRuntimeClient as jest.Mock).mockReturnValue(client);
+    (GetPrecision as jest.Mock).mockReturnValue(precisionRequest);
+    (walletHasNonZeroLiveBalance as jest.Mock).mockReturnValue(true);
+    (isPortfolioRuntimeEligibleWallet as jest.Mock).mockReturnValue(true);
+    (toPortfolioStoredWallet as jest.Mock).mockReturnValue(storedWallet);
+    (PortfolioPopulateService as unknown as jest.Mock).mockImplementation(
+      () => ({
+        populateWallets,
+        cancel: jest.fn(),
+      }),
+    );
+
+    const dispatched: any[] = [];
+    const dispatch = (action: any) => {
+      if (action === precisionRequest) {
+        return {unitDecimals: 8};
+      }
+      dispatched.push(action);
+      return action;
+    };
+    const getState = () => ({
+      APP: {
+        showPortfolioValue: true,
+        defaultAltCurrency: {isoCode: 'USD'},
+      },
+      PORTFOLIO: {
+        populateDisabled: false,
+        populateStatus: {
+          inProgress: false,
+        },
+        snapshotBalanceMismatchesByWalletId: {
+          w1: {
+            walletId: 'w1',
+            computedUnitsHeld: '0',
+            currentWalletBalance: '1',
+            delta: '-1',
+          },
+        },
+      },
+    });
+
+    await populatePortfolioWithRuntime({wallets: [wallet]})(
+      dispatch as any,
+      getState as any,
+    );
+
+    expect(dispatched).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: PortfolioActionTypes.SET_SNAPSHOT_BALANCE_MISMATCHES_BY_WALLET_ID_UPDATES,
+          payload: {w1: undefined},
+        }),
+      ]),
+    );
+  });
 });

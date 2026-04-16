@@ -266,6 +266,37 @@ const toUnitDecimals = (dispatch: any, wallet: Wallet): number => {
   return precision?.unitDecimals || 0;
 };
 
+const buildSnapshotMismatchClearUpdatesFromPopulateResult = (args: {
+  status?: {
+    walletStatusById?: {[walletId: string]: 'in_progress' | 'done' | 'error' | undefined};
+  };
+  runResults?: Array<{
+    walletId: string;
+    cancelled?: boolean;
+  }>;
+}): {[walletId: string]: undefined} => {
+  const out: {[walletId: string]: undefined} = {};
+
+  Object.entries(args.status?.walletStatusById || {}).forEach(
+    ([walletId, walletStatus]) => {
+      if (walletStatus !== 'done' || !walletId) {
+        return;
+      }
+      out[walletId] = undefined;
+    },
+  );
+
+  (args.runResults || []).forEach(runResult => {
+    const walletId = String(runResult?.walletId || '').trim();
+    if (!walletId || runResult?.cancelled) {
+      return;
+    }
+    out[walletId] = undefined;
+  });
+
+  return out;
+};
+
 const isRuntimeStorageFullyCleared = async (args: {
   client: ReturnType<typeof getPortfolioRuntimeClient>;
   walletIds: string[];
@@ -509,6 +540,11 @@ export const populatePortfolioWithRuntime = (args?: {
       wallets: storedWallets,
     });
     const finalStatus = result.status;
+    const mismatchClearUpdates =
+      buildSnapshotMismatchClearUpdatesFromPopulateResult({
+        status: finalStatus,
+        runResults: result.results,
+      });
 
     dispatch(
       updatePopulateProgress({
@@ -521,6 +557,12 @@ export const populatePortfolioWithRuntime = (args?: {
         errorsToAdd: finalStatus.errors.length ? finalStatus.errors : undefined,
       }),
     );
+
+    if (Object.keys(mismatchClearUpdates).length) {
+      dispatch(
+        setSnapshotBalanceMismatchesByWalletIdUpdates(mismatchClearUpdates),
+      );
+    }
 
     if (result.cancelled) {
       dispatch(cancelPopulatePortfolio());
