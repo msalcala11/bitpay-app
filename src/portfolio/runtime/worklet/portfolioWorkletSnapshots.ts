@@ -149,6 +149,50 @@ function encodeDebug(
   } as SnapshotChunkDebugV2;
 }
 
+type OrderedSnapshotInput = {
+  snapshot: SnapshotPersistInputV2;
+  timestamp: number;
+  originalIndex: number;
+};
+
+function orderSnapshotsForAppend(
+  snapshots: SnapshotPersistInputV2[],
+): OrderedSnapshotInput[] {
+  'worklet';
+
+  const ordered = snapshots.map((snapshot, originalIndex) => {
+    const timestamp = Math.trunc(Number(snapshot.timestamp));
+    if (!Number.isFinite(timestamp)) {
+      throw new Error(`Invalid snapshot timestamp at row ${originalIndex}`);
+    }
+
+    return {
+      snapshot,
+      timestamp,
+      originalIndex,
+    };
+  });
+
+  let alreadyAscending = true;
+  for (let i = 1; i < ordered.length; i += 1) {
+    if (ordered[i].timestamp < ordered[i - 1].timestamp) {
+      alreadyAscending = false;
+      break;
+    }
+  }
+
+  if (alreadyAscending) {
+    return ordered;
+  }
+
+  return ordered.slice().sort((left, right) => {
+    if (left.timestamp !== right.timestamp) {
+      return left.timestamp - right.timestamp;
+    }
+    return left.originalIndex - right.originalIndex;
+  });
+}
+
 function fallbackHydratedSnapshotId(
   walletId: string,
   timestamp: number,
@@ -441,25 +485,19 @@ export async function appendWorkletSnapshotChunk(args: PortfolioWorkletKvConfig 
   const nextId = index.chunks.length
     ? index.chunks[index.chunks.length - 1].id + 1
     : 1;
-
-  const rows: Array<[number, string]> = [];
-  for (let i = 0; i < snapshots.length; i += 1) {
-    const snapshot = snapshots[i];
-    const timestamp = Math.trunc(Number(snapshot.timestamp));
-    if (!Number.isFinite(timestamp)) {
-      throw new Error(`Invalid snapshot timestamp at row ${i}`);
-    }
-    if (i > 0 && timestamp < rows[i - 1][0]) {
-      throw new Error('Snapshots must be appended in ascending timestamp order.');
-    }
-    rows.push([timestamp, String(snapshot.cryptoBalance)]);
-  }
+  const orderedSnapshots = orderSnapshotsForAppend(snapshots);
+  const rows: Array<[number, string]> = orderedSnapshots.map(
+    ({snapshot, timestamp}) => [timestamp, String(snapshot.cryptoBalance)],
+  );
 
   const chunk: SnapshotChunkV2 = {
     v: 2,
     rows,
   };
-  const debug = encodeDebug(snapshots, debugMode);
+  const debug = encodeDebug(
+    orderedSnapshots.map(({snapshot}) => snapshot),
+    debugMode,
+  );
   if (debug) {
     (chunk as SnapshotChunkV2).debug = debug;
   }

@@ -257,6 +257,103 @@ describe('SnapshotStore v2', () => {
     });
   });
 
+  it('sorts out-of-order snapshots while keeping debug rows aligned', async () => {
+    const kv = new MemoryKv();
+    const store = new SnapshotStore(kv);
+    const meta = buildWalletMetaForStore({
+      wallet: {
+        walletId: 'w2-ordered',
+        walletName: 'Wallet 2 Ordered',
+        chain: 'btc',
+        network: 'livenet',
+        currencyAbbreviation: 'btc',
+        balanceAtomic: '0',
+        balanceFormatted: '0',
+      },
+      credentials: {
+        walletId: 'w2-ordered',
+        chain: 'btc',
+        network: 'livenet',
+        coin: 'btc',
+      } as any,
+      quoteCurrency: 'usd',
+      compressionEnabled: true,
+      chunkRows: 500,
+      snapshotDebugMode: 'full',
+    });
+
+    await store.appendChunk({
+      meta,
+      snapshots: [
+        {
+          id: 'daily:w2-ordered:2024-01-02',
+          timestamp: 2000,
+          eventType: 'daily',
+          cryptoBalance: '2',
+          txIds: ['b'],
+          remainingCostBasisFiat: 2000,
+          markRate: 2000,
+          createdAt: 2,
+        },
+        {
+          id: 'tx:w2-ordered:a',
+          timestamp: 1000,
+          eventType: 'tx',
+          cryptoBalance: '1',
+          txIds: ['a'],
+          remainingCostBasisFiat: 1000,
+          markRate: 1000,
+          createdAt: 1,
+        },
+      ],
+      checkpoint: {
+        nextSkip: 2,
+        balanceAtomic: '2',
+        remainingCostBasisFiat: 2000,
+        lastMarkRate: 2000,
+        lastTimestamp: 2000,
+      },
+    });
+
+    expect(JSON.parse((await kv.getString('snap:chunk:v2:w2-ordered:1')) as string)).toEqual({
+      v: 2,
+      rows: [
+        [1000, '1'],
+        [2000, '2'],
+      ],
+      debug: {
+        mode: 'full',
+        idByRow: ['tx:w2-ordered:a', 'daily:w2-ordered:2024-01-02'],
+        eventTypeByRow: [0, 1],
+        txIdsByRow: [['a'], ['b']],
+        markRateByRow: [1000, 2000],
+        remainingCostBasisFiatByRow: [1000, 2000],
+        createdAtByRow: [1, 2],
+      },
+    });
+
+    await expect(store.listSnapshots('w2-ordered')).resolves.toMatchObject([
+      {
+        id: 'tx:w2-ordered:a',
+        timestamp: 1000,
+        eventType: 'tx',
+        txIds: ['a'],
+        markRate: 1000,
+        remainingCostBasisFiat: 1000,
+        createdAt: 1,
+      },
+      {
+        id: 'daily:w2-ordered:2024-01-02',
+        timestamp: 2000,
+        eventType: 'daily',
+        txIds: ['b'],
+        markRate: 2000,
+        remainingCostBasisFiat: 2000,
+        createdAt: 2,
+      },
+    ]);
+  });
+
   it('backfills missing v2 meta without resetting stored chunks', async () => {
     const kv = new MemoryKv();
     const store = new SnapshotStore(kv);
