@@ -66,10 +66,13 @@ const FIAT_RATE_SERIES_INTERVAL_DAYS: Record<FiatRateInterval, number | undefine
 function normalizeAssetRef(asset: FiatRateAssetRef): FiatRateAssetRef {
   'worklet';
 
+  const tokenAddress = asset.tokenAddress ? String(asset.tokenAddress).toLowerCase() : undefined;
+
   return {
     coin: String(asset.coin || '').toLowerCase(),
-    chain: asset.chain ? String(asset.chain).toLowerCase() : undefined,
-    tokenAddress: asset.tokenAddress ? String(asset.tokenAddress).toLowerCase() : undefined,
+    // Native-coin rate requests use the default exchange-rates payload.
+    chain: tokenAddress && asset.chain ? String(asset.chain).toLowerCase() : undefined,
+    tokenAddress,
   };
 }
 

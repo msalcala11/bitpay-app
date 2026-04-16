@@ -42,4 +42,19 @@ describe('fiatRatesShared interval storage policy', () => {
       }),
     ).toBe('USD:usdt:1D:arb:0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9');
   });
+
+  it('omits chain params for native-coin rate URLs even when a wallet chain is present', () => {
+    expect(
+      getFiatRateSeriesUrl(
+        {baseUrl: 'https://bws.bitpay.com/bws/api'},
+        'USD',
+        '1W',
+        {
+          chain: 'bch',
+        },
+      ),
+    ).toBe('https://bws.bitpay.com/bws/api/v4/fiatrates/USD?days=7');
+
+    expect(getFiatRateSeriesCacheKey('USD', 'bch', '1W', {chain: 'bch'})).toBe('USD:bch:1W');
+  });
 });

@@ -546,16 +546,12 @@ export async function ensureWorkletSnapshotRateSeriesCache(args: PortfolioWorkle
   'worklet';
 
   const quoteCurrency = String(args.quoteCurrency || CANONICAL_FIAT_QUOTE).toUpperCase();
-  const coin = normalizeFiatRateSeriesCoin(args.wallet.currencyAbbreviation);
-  const chain = args.wallet.chain ? String(args.wallet.chain).toLowerCase() : undefined;
-  const tokenAddress = args.wallet.tokenAddress
-    ? String(args.wallet.tokenAddress).toLowerCase()
-    : undefined;
-  const asset: FiatRateAssetRef = {
-    coin,
-    chain,
-    tokenAddress,
-  };
+  const asset = getFiatRateAssetRef({
+    currencyAbbreviation: args.wallet.currencyAbbreviation,
+    chain: args.wallet.chain,
+    tokenAddress: args.wallet.tokenAddress,
+  });
+  const {coin, chain, tokenAddress} = asset;
 
   const intervals = Array.from(
     new Set(

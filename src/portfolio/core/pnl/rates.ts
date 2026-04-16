@@ -26,8 +26,10 @@ export const getFiatRateAssetRef = (args: {
 }): FiatRateAssetRef => {
   'worklet';
 
-  const chain = String(args.chain || args.credentials?.chain || args.credentials?.coin || '').toLowerCase();
   const tokenAddress = String(args.tokenAddress || args.credentials?.token?.address || '').toLowerCase();
+  const chain = tokenAddress
+    ? String(args.chain || args.credentials?.chain || args.credentials?.coin || '').toLowerCase()
+    : '';
   return {
     coin: normalizeFiatRateSeriesCoin(args.currencyAbbreviation || args.credentials?.token?.symbol || args.credentials?.coin),
     chain: chain || undefined,
