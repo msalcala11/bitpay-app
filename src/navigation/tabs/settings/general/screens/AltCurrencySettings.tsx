@@ -16,7 +16,6 @@ import {
 } from '../../../../../components/styled/Containers';
 import {
   FlatList,
-  InteractionManager,
   Keyboard,
   SectionList,
   View,
@@ -31,10 +30,6 @@ import GhostSvg from '../../../../../../assets/img/ghost-cheeky.svg';
 import SearchSvg from '../../../../../../assets/img/search.svg';
 import {FormatKeyBalances} from '../../../../../store/wallet/effects/status/status';
 import {updatePortfolioBalance} from '../../../../../store/wallet/wallet.actions';
-import {
-  cancelPopulatePortfolio,
-  preparePortfolioFiatRateCachesForQuoteCurrencySwitch,
-} from '../../../../../store/portfolio';
 import {useTranslation} from 'react-i18next';
 import {coinbaseInitialize} from '../../../../../store/coinbase';
 import {Analytics} from '../../../../../store/analytics/analytics.effects';
@@ -102,7 +97,6 @@ const AltCurrencySettings = () => {
   const selectedAltCurrency = useAppSelector(
     ({APP}: RootState) => APP.defaultAltCurrency,
   );
-  const portfolio = useAppSelector(({PORTFOLIO}: RootState) => PORTFOLIO);
   const recentDefaultAltCurrency = useAppSelector(
     ({APP}) => APP.recentDefaultAltCurrency,
   );
@@ -188,31 +182,6 @@ const AltCurrencySettings = () => {
               showOngoingProcess('LOADING');
               await sleep(500);
 
-              const nextQuoteCurrency = (item.isoCode || '').toUpperCase();
-              const currentDisplayQuoteCurrency = (
-                selectedAltCurrency?.isoCode || ''
-              ).toUpperCase();
-              const hasExistingSnapshots = Object.values(
-                portfolio.snapshotsByWalletId || {},
-              ).some(v => Array.isArray(v) && v.length);
-              const isDisplayCurrencyChange =
-                !!nextQuoteCurrency &&
-                currentDisplayQuoteCurrency !== nextQuoteCurrency;
-              const isPopulateInProgress =
-                !!portfolio.populateStatus?.inProgress;
-              const shouldRestartPopulate =
-                hasExistingSnapshots &&
-                isDisplayCurrencyChange &&
-                isPopulateInProgress;
-              const shouldRecalculatePortfolio =
-                hasExistingSnapshots &&
-                isDisplayCurrencyChange &&
-                !isPopulateInProgress;
-
-              if (shouldRestartPopulate) {
-                dispatch(cancelPopulatePortfolio());
-              }
-
               dispatch(
                 Analytics.track('Saved Display Currency', {
                   currency: item.isoCode,
@@ -226,27 +195,6 @@ const AltCurrencySettings = () => {
               hideOngoingProcess();
               await sleep(500);
               navigation.goBack();
-
-              if (shouldRestartPopulate) {
-                InteractionManager.runAfterInteractions(() => {
-                  dispatch(
-                    preparePortfolioFiatRateCachesForQuoteCurrencySwitch({
-                      quoteCurrency: item.isoCode,
-                    }),
-                  );
-                });
-                return;
-              }
-
-              if (shouldRecalculatePortfolio) {
-                InteractionManager.runAfterInteractions(() => {
-                  dispatch(
-                    preparePortfolioFiatRateCachesForQuoteCurrencySwitch({
-                      quoteCurrency: item.isoCode,
-                    }),
-                  );
-                });
-              }
             }}
           />
           {!selected ? <Hr /> : null}
@@ -257,7 +205,6 @@ const AltCurrencySettings = () => {
       dispatch,
       hideOngoingProcess,
       navigation,
-      portfolio,
       selectedAltCurrency,
       showOngoingProcess,
     ],

@@ -64,7 +64,7 @@ const AboutGroup = ({About, theme}: AboutProps) => {
         name={AboutScreens.PORTFOLIO_DEBUG}
         component={PortfolioDebug}
         options={{
-          headerTitle: t('Portfolio (Raw)'),
+          headerTitle: t('Portfolio (Runtime)'),
         }}
       />
 
@@ -72,7 +72,7 @@ const AboutGroup = ({About, theme}: AboutProps) => {
         name={AboutScreens.PORTFOLIO_WALLET_DEBUG}
         component={PortfolioWalletDebug}
         options={{
-          headerTitle: t('Portfolio Wallet (Raw)'),
+          headerTitle: t('Portfolio Wallet (Runtime)'),
         }}
       />
 

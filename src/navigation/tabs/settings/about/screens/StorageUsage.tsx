@@ -26,6 +26,7 @@ import {
 import {useAppSelector} from '../../../../../utils/hooks';
 import {storage} from '../../../../../store';
 import {logManager} from '../../../../../managers/LogManager';
+import {getPortfolioRuntimeClient} from '../../../../../portfolio/runtime/portfolioRuntime';
 import {AboutScreens} from '../AboutGroup';
 
 const ScrollContainer = styled.ScrollView``;
@@ -116,6 +117,8 @@ const StorageUsage: React.FC = () => {
   const [ratesStorage, setRatesStorage] = useState<string>('');
   const [portfolioPersistedStorage, setPortfolioPersistedStorage] =
     useState<string>('');
+  const [portfolioSnapshotsCount, setPortfolioSnapshotsCount] =
+    useState<number>(0);
   const [backupStorage, setBackupStorage] = useState<string>('');
   const [shopCatalogStorage, setShopCatalogStorage] = useState<string>('');
 
@@ -130,16 +133,12 @@ const StorageUsage: React.FC = () => {
     ({RATE}) => RATE.fiatRateSeriesCache,
   );
 
-  const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
-
-  const portfolioSnapshotsCount = useAppSelector(({PORTFOLIO}) => {
-    let total = 0;
-    const byWalletId = PORTFOLIO.snapshotsByWalletId || {};
-    Object.values(byWalletId).forEach(v => {
-      total += Array.isArray(v) ? v.length : 0;
-    });
-    return total;
-  });
+  const portfolioRefreshToken = useAppSelector(
+    ({PORTFOLIO}) =>
+      `${PORTFOLIO.lastPopulatedAt || 0}:${
+        PORTFOLIO.populateStatus?.inProgress ? 1 : 0
+      }:${PORTFOLIO.populateStatus?.errors?.length || 0}`,
+  );
 
   const formatBytes = (bytes: number, decimals = 2): string => {
     if (!+bytes) {
@@ -329,29 +328,48 @@ const StorageUsage: React.FC = () => {
 
       const _setPortfolioStorage = async () => {
         try {
-          // Persisted size (redux-persist) is stored as the PORTFOLIO string within persist:root.
-          // This reflects the *on-disk* representation (including any transform/encryption output).
-          const root = storage.getString('persist:root');
-          if (root) {
-            try {
-              const parsed = JSON.parse(root);
-              const portfolioPersisted = parsed?.PORTFOLIO;
-              if (typeof portfolioPersisted === 'string') {
-                const persistedBytes = await getSize(
-                  RNFS.TemporaryDirectoryPath + '/portfolio-persisted.txt',
-                  portfolioPersisted,
-                );
-                setPortfolioPersistedStorage(formatBytes(persistedBytes));
-              } else {
-                setPortfolioPersistedStorage('0 Bytes');
-              }
-            } catch (_) {
-              setPortfolioPersistedStorage('0 Bytes');
+          const client = getPortfolioRuntimeClient();
+          const walletIds = Object.values(keys || {}).flatMap((key: any) => {
+            const wallets = Array.isArray(key?.wallets) ? key.wallets : [];
+            return wallets
+              .map((wallet: any) => wallet?.id)
+              .filter((walletId: any): walletId is string =>
+                typeof walletId === 'string' && !!walletId,
+              );
+          });
+
+          const uniqueWalletIds = Array.from(new Set(walletIds));
+          const [stats, indexes] = await Promise.all([
+            client.kvStats(),
+            Promise.all(
+              uniqueWalletIds.map(async walletId => {
+                try {
+                  return await client.getSnapshotIndex({walletId});
+                } catch {
+                  return null;
+                }
+              }),
+            ),
+          ]);
+
+          const rows = indexes.reduce((total, index) => {
+            if (!index?.chunks?.length) {
+              return total;
             }
-          } else {
-            setPortfolioPersistedStorage('0 Bytes');
-          }
+            return (
+              total +
+              index.chunks.reduce((chunkTotal, chunk) => {
+                const rowsInChunk = Number(chunk?.rows);
+                return chunkTotal + (Number.isFinite(rowsInChunk) ? rowsInChunk : 0);
+              }, 0)
+            );
+          }, 0);
+
+          setPortfolioSnapshotsCount(rows);
+          setPortfolioPersistedStorage(formatBytes(stats.totalBytes || 0));
         } catch (err) {
+          setPortfolioSnapshotsCount(0);
+          setPortfolioPersistedStorage('0 Bytes');
           const errStr =
             err instanceof Error ? err.message : JSON.stringify(err);
           logManager.error('[setPortfolioStorage] Error ', errStr);
@@ -387,7 +405,7 @@ const StorageUsage: React.FC = () => {
     fiatRateSeriesCache,
     giftCards,
     keys,
-    portfolio,
+    portfolioRefreshToken,
     rates,
   ]);
 

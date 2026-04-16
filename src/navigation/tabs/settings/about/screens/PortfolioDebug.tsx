@@ -1,10 +1,16 @@
-import React, {useCallback, useMemo, useState} from 'react';
-import {InteractionManager, Pressable, ScrollView} from 'react-native';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import {Pressable, ScrollView} from 'react-native';
 import styled from 'styled-components/native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import {useTranslation} from 'react-i18next';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
-import Clipboard from '@react-native-clipboard/clipboard';
+import {Network} from '../../../../../constants';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
+import {getPortfolioRuntimeClient} from '../../../../../portfolio/runtime/portfolioRuntime';
+import type {SnapshotIndexV2} from '../../../../../portfolio/core/pnl/snapshotStore';
+import type {Wallet} from '../../../../../store/wallet/wallet.models';
+import type {SnapshotBalanceMismatch} from '../../../../../store/portfolio/portfolio.models';
+import {clearPortfolioWithRuntime, populatePortfolio} from '../../../../../store/portfolio';
 import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
 import {
   DebugButtonRow,
@@ -15,20 +21,20 @@ import {
   DebugPillButtonText,
   DebugScreenContainer,
 } from '../components/DebugUI';
-import {
-  clearPortfolio,
-  populatePortfolio,
-} from '../../../../../store/portfolio';
-import {clearRateState} from '../../../../../store/rate/rate.actions';
-import type {BalanceSnapshot} from '../../../../../store/portfolio/portfolio.models';
-import type {Wallet} from '../../../../../store/wallet/wallet.models';
-import {Network} from '../../../../../constants';
-import type {FiatRatePoint} from '../../../../../store/rate/rate.models';
+import {logManager} from '../../../../../managers/LogManager';
 
 type PortfolioDebugScreenProps = NativeStackScreenProps<
   AboutGroupParamList,
   AboutScreens.PORTFOLIO_DEBUG
 >;
+
+type RuntimeWalletRow = {
+  wallet: Wallet;
+  index: SnapshotIndexV2 | null;
+  rowCount: number;
+  chunkCount: number;
+  mismatch?: SnapshotBalanceMismatch;
+};
 
 const WalletRow = styled(Pressable)`
   padding: 14px 12px;
@@ -54,79 +60,91 @@ const WalletRowMismatchText = styled(WalletRowSubTitle)`
   opacity: 1;
 `;
 
-const csvEscape = (v: unknown): string => {
-  const s = v == null ? '' : String(v);
-  if (/[^\x20-\x7E]|[\n\r,\"]/g.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
+const SectionText = styled.Text`
+  padding: 0 12px 12px;
+  color: ${({theme}) => theme.colors.text};
+  font-size: 12px;
+  line-height: 18px;
+`;
+
+const ErrorText = styled(SectionText)`
+  color: ${({theme}) => theme.colors.notification};
+`;
+
+const EmptyStateText = styled(SectionText)`
+  opacity: 0.7;
+`;
+
+const formatBytes = (bytes?: number): string => {
+  const safeBytes = Number(bytes);
+  if (!Number.isFinite(safeBytes) || safeBytes <= 0) {
+    return '0 Bytes';
   }
-  return s;
+
+  const units = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const index = Math.min(
+    Math.floor(Math.log(safeBytes) / Math.log(1024)),
+    units.length - 1,
+  );
+  const value = safeBytes / Math.pow(1024, index);
+  const fixed = value >= 100 ? value.toFixed(0) : value.toFixed(2);
+  return `${Number(fixed)} ${units[index]}`;
 };
 
-type DerivedMismatch = {
-  deltaUnits: string;
-  liveUnits: string;
-  snapshotUnits: string;
-};
-
-const parseFiatRateSeriesCacheKey = (
-  cacheKey: string,
-): {fiatCode: string; coin: string; interval: string} | undefined => {
-  if (!cacheKey || typeof cacheKey !== 'string') {
-    return undefined;
-  }
-  const first = cacheKey.indexOf(':');
-  if (first <= 0) {
-    return undefined;
-  }
-  const second = cacheKey.indexOf(':', first + 1);
-  if (second <= first + 1) {
-    return undefined;
-  }
-  return {
-    fiatCode: cacheKey.slice(0, first).toUpperCase(),
-    coin: cacheKey.slice(first + 1, second).toLowerCase(),
-    interval: cacheKey.slice(second + 1),
-  };
-};
-
-const getFiniteTsBounds = (
-  points: FiatRatePoint[] | undefined,
-): {startTsMs?: number; endTsMs?: number} => {
-  if (!Array.isArray(points) || !points.length) {
-    return {};
+const toIso = (value?: number): string => {
+  if (!Number.isFinite(value)) {
+    return '—';
   }
 
-  let startTsMs = Number.POSITIVE_INFINITY;
-  let endTsMs = Number.NEGATIVE_INFINITY;
-  for (const p of points) {
-    const ts = Number((p as any)?.ts);
-    if (!Number.isFinite(ts)) {
-      continue;
-    }
-    if (ts < startTsMs) {
-      startTsMs = ts;
-    }
-    if (ts > endTsMs) {
-      endTsMs = ts;
-    }
-  }
-
-  if (!Number.isFinite(startTsMs) || !Number.isFinite(endTsMs)) {
-    return {};
-  }
-
-  return {startTsMs, endTsMs};
-};
-
-const toIso = (tsMs: number | undefined): string => {
-  if (!Number.isFinite(tsMs)) {
-    return '';
-  }
   try {
-    return new Date(tsMs as number).toISOString();
+    return new Date(value as number).toISOString();
   } catch {
-    return '';
+    return '—';
   }
+};
+
+const getWalletBalanceLabel = (wallet?: Wallet): string => {
+  const crypto = (wallet as any)?.balance?.crypto;
+  if (typeof crypto === 'string' && crypto.length) {
+    return crypto;
+  }
+
+  const sat = (wallet as any)?.balance?.sat;
+  if (typeof sat === 'number' && Number.isFinite(sat)) {
+    return String(sat);
+  }
+
+  return '0';
+};
+
+const getRowCount = (index: SnapshotIndexV2 | null | undefined): number => {
+  if (!index?.chunks?.length) {
+    return 0;
+  }
+
+  return index.chunks.reduce((total, chunk) => {
+    const rows = Number(chunk?.rows);
+    return total + (Number.isFinite(rows) ? rows : 0);
+  }, 0);
+};
+
+const getAllMainnetWallets = (walletKeys: Record<string, any>): Wallet[] => {
+  const rows: Wallet[] = [];
+
+  Object.values(walletKeys || {}).forEach((key: any) => {
+    const wallets = Array.isArray(key?.wallets) ? key.wallets : [];
+    wallets.forEach((wallet: Wallet) => {
+      if ((wallet as any)?.network === Network.mainnet) {
+        rows.push(wallet);
+      }
+    });
+  });
+
+  return rows.sort((a, b) => {
+    const aName = String((a as any)?.walletName || (a as any)?.id || '');
+    const bName = String((b as any)?.walletName || (b as any)?.id || '');
+    return aName.localeCompare(bName);
+  });
 };
 
 const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
@@ -135,452 +153,254 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
 
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
   const walletKeys = useAppSelector(({WALLET}) => WALLET?.keys || {});
-  const fiatRateSeriesCache = useAppSelector(
-    ({RATE}) => RATE?.fiatRateSeriesCache || {},
-  );
 
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [isCopyingAudit, setIsCopyingAudit] = useState<boolean>(false);
-  const [copyAuditState, setCopyAuditState] = useState<'idle' | 'copied'>(
-    'idle',
-  );
-  const [isCopyingRateDiagnostics, setIsCopyingRateDiagnostics] =
-    useState<boolean>(false);
-  const [copyRateDiagnosticsState, setCopyRateDiagnosticsState] = useState<
-    'idle' | 'copied'
-  >('idle');
+  const [walletRows, setWalletRows] = useState<RuntimeWalletRow[]>([]);
+  const [rateEntries, setRateEntries] = useState<any[]>([]);
+  const [kvStats, setKvStats] = useState<any | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
+  const [runtimeError, setRuntimeError] = useState<string>('');
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<number | undefined>();
 
-  const walletIds = useMemo(() => {
-    const ids = Object.keys(portfolio.snapshotsByWalletId || {});
-    ids.sort();
-    return ids;
-  }, [portfolio.snapshotsByWalletId]);
+  const wallets = useMemo(() => getAllMainnetWallets(walletKeys), [walletKeys]);
 
-  const {walletNameById, allWallets} = useMemo(() => {
-    const nameMap: {[walletId: string]: string | undefined} = {};
-    const walletMap: {[walletId: string]: Wallet | undefined} = {};
-    const all: Wallet[] = [];
-    for (const key of Object.values(walletKeys || {}) as any[]) {
-      const wallets: Wallet[] = Array.isArray(key?.wallets) ? key.wallets : [];
-      for (const w of wallets) {
-        all.push(w);
-        if (w?.id) {
-          nameMap[w.id] = w.walletName;
-          walletMap[w.id] = w;
-        }
-      }
-    }
-    return {walletNameById: nameMap, walletById: walletMap, allWallets: all};
-  }, [walletKeys]);
+  const refreshToken = useMemo(() => {
+    return [
+      portfolio.lastPopulatedAt || 0,
+      portfolio.populateStatus?.inProgress ? 1 : 0,
+      portfolio.populateStatus?.errors?.length || 0,
+      wallets.length,
+    ].join(':');
+  }, [portfolio.lastPopulatedAt, portfolio.populateStatus, wallets.length]);
 
-  const {mainnetWallets, testnetWallets, mainnetWalletsWithZeroBalance} =
-    useMemo(() => {
-      const mainnet = allWallets.filter(w => w?.network === Network.mainnet);
-      const testnet = allWallets.filter(w => w?.network !== Network.mainnet);
-      const zero = mainnet.filter(w => {
-        const sat = (w as any)?.balance?.sat;
-        const crypto = (w as any)?.balance?.crypto;
-        if (typeof sat === 'number') {
-          return sat === 0;
-        }
-        if (typeof crypto === 'string') {
-          const n = Number(crypto);
-          return Number.isFinite(n) ? n === 0 : false;
-        }
-        return false;
-      });
-      return {
-        mainnetWallets: mainnet,
-        testnetWallets: testnet,
-        mainnetWalletsWithZeroBalance: zero,
-      };
-    }, [allWallets]);
+  const load = useCallback(async () => {
+    setIsLoading(true);
+    setRuntimeError('');
 
-  const totalSnapshots = useMemo(() => {
-    let count = 0;
-    for (const v of Object.values(portfolio.snapshotsByWalletId || {})) {
-      count += Array.isArray(v) ? v.length : 0;
-    }
-    return count;
-  }, [portfolio.snapshotsByWalletId]);
+    try {
+      const client = getPortfolioRuntimeClient();
+      const [nextKvStats, nextRateEntries, indexes] = await Promise.all([
+        client.kvStats(),
+        client.listRates({}),
+        Promise.all(
+          wallets.map(async wallet => {
+            try {
+              return await client.getSnapshotIndex({walletId: wallet.id});
+            } catch {
+              return null;
+            }
+          }),
+        ),
+      ]);
 
-  const walletMismatchById = useMemo(() => {
-    const map: Record<string, DerivedMismatch> = {};
-    for (const walletId of walletIds) {
-      const mismatch =
-        portfolio.snapshotBalanceMismatchesByWalletId?.[walletId];
-      if (mismatch) {
-        map[walletId] = {
-          deltaUnits: mismatch.delta,
-          liveUnits: mismatch.currentWalletBalance,
-          snapshotUnits: mismatch.computedUnitsHeld,
-        };
-      }
-    }
-    return map;
-  }, [portfolio.snapshotBalanceMismatchesByWalletId, walletIds]);
-
-  const totalWalletMismatches = useMemo(
-    () => Object.keys(walletMismatchById).length,
-    [walletMismatchById],
-  );
-
-  const clear = useCallback(() => {
-    if (isGenerating) {
-      return;
-    }
-    setIsGenerating(true);
-
-    const task = InteractionManager.runAfterInteractions(() => {
-      try {
-        dispatch(clearPortfolio());
-      } catch (e) {
-      } finally {
-        setIsGenerating(false);
-      }
-    });
-
-    return () => task.cancel();
-  }, [dispatch, isGenerating]);
-
-  const populate = useCallback(() => {
-    if (isGenerating || portfolio.populateStatus?.inProgress) {
-      return;
-    }
-
-    setIsGenerating(true);
-
-    const task = InteractionManager.runAfterInteractions(async () => {
-      try {
-        await dispatch(populatePortfolio());
-      } catch (e) {
-      } finally {
-        setIsGenerating(false);
-      }
-    });
-
-    return () => task.cancel();
-  }, [dispatch, isGenerating, portfolio.populateStatus?.inProgress]);
-
-  const clearRatesCache = useCallback(() => {
-    if (isGenerating || portfolio.populateStatus?.inProgress) {
-      return;
-    }
-
-    const task = InteractionManager.runAfterInteractions(() => {
-      try {
-        dispatch(clearRateState());
-      } catch {}
-    });
-
-    return () => task.cancel();
-  }, [dispatch, isGenerating, portfolio.populateStatus?.inProgress]);
-
-  const copySnapshotAuditCsv = useCallback(() => {
-    if (isCopyingAudit) {
-      return;
-    }
-
-    setIsCopyingAudit(true);
-
-    const task = InteractionManager.runAfterInteractions(() => {
-      try {
-        const wallets = [...(allWallets || [])].filter((w: any) => !!w?.id);
-        wallets.sort((a: any, b: any) =>
-          String(a.id).localeCompare(String(b.id)),
-        );
-
-        const headers = [
-          'walletId',
-          'walletName',
-          'keyId',
-          'chain',
-          'coin',
-          'tokenAddress',
-          'network',
-          'hidden',
-          'balance.crypto',
-          'balance.sat',
-          'snapshots',
-          'txSnapshots',
-          'dailySnapshots',
-          'dailyTxIdsTotal',
-          'duplicateSnapshotIds',
-          'firstSnapshotTs',
-          'lastSnapshotTs',
-        ];
-
-        const rows = wallets.map((w: any) => {
-          const walletId = String(w.id);
-          const name = walletNameById[walletId] || w.walletName || '';
-          const snapsRaw = (portfolio.snapshotsByWalletId || {})[walletId];
-          const snaps: BalanceSnapshot[] = Array.isArray(snapsRaw)
-            ? (snapsRaw as BalanceSnapshot[])
-            : [];
-          const total = snaps.length;
-          const txCount = snaps.filter(
-            s => (s as any)?.eventType === 'tx',
-          ).length;
-          const dailyCount = total - txCount;
-          const dailyTxIdsTotal = snaps.reduce((sum, s: any) => {
-            const txIds = s?.txIds;
-            return sum + (Array.isArray(txIds) ? txIds.length : 0);
-          }, 0);
-          const uniqueIds = new Set(
-            snaps.map(s => String((s as any)?.id || '')),
-          ).size;
-          const dupIds = total - uniqueIds;
-          const firstTs = total ? (snaps[0] as any)?.timestamp ?? '' : '';
-          const lastTs = total
-            ? (snaps[total - 1] as any)?.timestamp ?? ''
-            : '';
-
-          return [
-            walletId,
-            name,
-            w.keyId || '',
-            w.chain || '',
-            w.currencyAbbreviation || '',
-            w.tokenAddress || '',
-            w.network || '',
-            w.hideWallet ? 'yes' : '',
-            w.balance?.crypto ?? '',
-            typeof w.balance?.sat === 'number' ? w.balance.sat : '',
-            total,
-            txCount,
-            dailyCount,
-            dailyTxIdsTotal,
-            dupIds,
-            firstTs,
-            lastTs,
-          ]
-            .map(csvEscape)
-            .join(',');
+      const nextRows = wallets
+        .map((wallet, index): RuntimeWalletRow => {
+          const snapshotIndex = indexes[index] || null;
+          return {
+            wallet,
+            index: snapshotIndex,
+            rowCount: getRowCount(snapshotIndex),
+            chunkCount: snapshotIndex?.chunks?.length || 0,
+            mismatch: portfolio.snapshotBalanceMismatchesByWalletId?.[wallet.id],
+          };
+        })
+        .sort((a, b) => {
+          const scoreA = (a.index ? 1 : 0) + (a.mismatch ? 1 : 0);
+          const scoreB = (b.index ? 1 : 0) + (b.mismatch ? 1 : 0);
+          if (scoreA !== scoreB) {
+            return scoreB - scoreA;
+          }
+          const aName = String((a.wallet as any)?.walletName || a.wallet.id || '');
+          const bName = String((b.wallet as any)?.walletName || b.wallet.id || '');
+          return aName.localeCompare(bName);
         });
 
-        const csv = [headers.join(','), ...rows].join('\n');
-        Clipboard.setString(csv);
-        setCopyAuditState('copied');
-        setTimeout(() => setCopyAuditState('idle'), 1500);
-      } finally {
-        setIsCopyingAudit(false);
-      }
-    });
-
-    return () => task.cancel();
-  }, [
-    allWallets,
-    isCopyingAudit,
-    portfolio.snapshotsByWalletId,
-    walletNameById,
-  ]);
-
-  const copyRateDiagnosticsCsv = useCallback(() => {
-    if (isCopyingRateDiagnostics) {
-      return;
+      setWalletRows(nextRows);
+      setRateEntries(nextRateEntries || []);
+      setKvStats(nextKvStats || null);
+      setLastRefreshedAt(Date.now());
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      logManager.error('[PortfolioDebug] refresh failed', message);
+      setRuntimeError(message);
+      setWalletRows([]);
+      setRateEntries([]);
+      setKvStats(null);
+    } finally {
+      setIsLoading(false);
     }
+  }, [portfolio.snapshotBalanceMismatchesByWalletId, wallets]);
 
-    setIsCopyingRateDiagnostics(true);
+  useEffect(() => {
+    void load();
+  }, [load, refreshToken]);
 
-    const task = InteractionManager.runAfterInteractions(() => {
-      try {
-        const intervalOrder: Record<string, number> = {
-          '1D': 1,
-          '1W': 2,
-          '1M': 3,
-          '3M': 4,
-          '1Y': 5,
-          '5Y': 6,
-          ALL: 7,
-        };
+  const summary = useMemo(() => {
+    const walletsWithSnapshots = walletRows.filter(row => !!row.index).length;
+    const totalRows = walletRows.reduce((total, row) => total + row.rowCount, 0);
+    const totalChunks = walletRows.reduce(
+      (total, row) => total + row.chunkCount,
+      0,
+    );
+    const mismatchCount = walletRows.filter(row => !!row.mismatch).length;
 
-        const defaultIntervals = ['1D', '1W', '1M', '3M', '1Y', '5Y', 'ALL'];
-        const discoveredIntervals = new Set<string>();
-        const byPair = new Map<
-          string,
-          {
-            fiatCode: string;
-            coin: string;
-            byInterval: Map<string, any>;
-          }
-        >();
+    return {
+      walletsTotal: wallets.length,
+      walletsWithSnapshots,
+      totalRows,
+      totalChunks,
+      mismatchCount,
+      rateEntries: rateEntries.length,
+      kvStats,
+      populateStatus: portfolio.populateStatus,
+      lastPopulatedAt: portfolio.lastPopulatedAt,
+      lastRefreshedAt,
+    };
+  }, [kvStats, lastRefreshedAt, portfolio.lastPopulatedAt, portfolio.populateStatus, rateEntries.length, walletRows, wallets.length]);
 
-        for (const [cacheKey, series] of Object.entries(
-          fiatRateSeriesCache || {},
-        )) {
-          const parsed = parseFiatRateSeriesCacheKey(cacheKey);
-          if (!parsed) {
-            continue;
-          }
-          discoveredIntervals.add(parsed.interval);
-          const pairKey = `${parsed.fiatCode}:${parsed.coin}`;
-          let pair = byPair.get(pairKey);
-          if (!pair) {
-            pair = {
-              fiatCode: parsed.fiatCode,
-              coin: parsed.coin,
-              byInterval: new Map<string, any>(),
-            };
-            byPair.set(pairKey, pair);
-          }
-          pair.byInterval.set(parsed.interval, series);
-        }
+  const copySummary = useCallback(() => {
+    const payload = {
+      summary,
+      wallets: walletRows.map(row => ({
+        walletId: row.wallet.id,
+        walletName: (row.wallet as any)?.walletName,
+        chain: (row.wallet as any)?.chain,
+        currencyAbbreviation: (row.wallet as any)?.currencyAbbreviation,
+        network: (row.wallet as any)?.network,
+        rowCount: row.rowCount,
+        chunkCount: row.chunkCount,
+        updatedAt: row.index?.updatedAt,
+        mismatch: row.mismatch || null,
+      })),
+      rates: rateEntries,
+    };
 
-        const intervals = Array.from(
-          new Set([...defaultIntervals, ...Array.from(discoveredIntervals)]),
-        ).sort((a, b) => {
-          const ia = intervalOrder[a] ?? Number.MAX_SAFE_INTEGER;
-          const ib = intervalOrder[b] ?? Number.MAX_SAFE_INTEGER;
-          if (ia !== ib) {
-            return ia - ib;
-          }
-          return a.localeCompare(b);
-        });
+    Clipboard.setString(JSON.stringify(payload, null, 2));
+    setCopyState('copied');
+    setTimeout(() => setCopyState('idle'), 1200);
+  }, [rateEntries, summary, walletRows]);
 
-        const headers = ['fiatCode', 'coin'];
-        for (const interval of intervals) {
-          headers.push(`${interval}_ratesStored`);
-          headers.push(`${interval}_startTsMs`);
-          headers.push(`${interval}_endTsMs`);
-          headers.push(`${interval}_startIso`);
-          headers.push(`${interval}_endIso`);
-        }
+  const repopulate = useCallback(async () => {
+    try {
+      await dispatch(populatePortfolio() as any);
+      void load();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRuntimeError(message);
+    }
+  }, [dispatch, load]);
 
-        const sortedPairs = Array.from(byPair.values()).sort((a, b) => {
-          const fiatCmp = a.fiatCode.localeCompare(b.fiatCode);
-          if (fiatCmp !== 0) {
-            return fiatCmp;
-          }
-          return a.coin.localeCompare(b.coin);
-        });
+  const clearAll = useCallback(async () => {
+    try {
+      await dispatch(clearPortfolioWithRuntime({populateDisabled: false}) as any);
+      void load();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRuntimeError(message);
+    }
+  }, [dispatch, load]);
 
-        const csvRows = sortedPairs.map(pair => {
-          const row: Array<string | number> = [pair.fiatCode, pair.coin];
-          for (const interval of intervals) {
-            const series = pair.byInterval.get(interval);
-            const points = Array.isArray(series?.points)
-              ? (series.points as FiatRatePoint[])
-              : [];
-            const {startTsMs, endTsMs} = getFiniteTsBounds(points);
-            row.push(points.length);
-            row.push(startTsMs ?? '');
-            row.push(endTsMs ?? '');
-            row.push(toIso(startTsMs));
-            row.push(toIso(endTsMs));
-          }
-          return row.map(csvEscape).join(',');
-        });
-
-        const csv = [headers.join(','), ...csvRows].join('\n');
-        Clipboard.setString(csv);
-        setCopyRateDiagnosticsState('copied');
-        setTimeout(() => setCopyRateDiagnosticsState('idle'), 1500);
-      } finally {
-        setIsCopyingRateDiagnostics(false);
-      }
-    });
-
-    return () => task.cancel();
-  }, [fiatRateSeriesCache, isCopyingRateDiagnostics]);
+  const clearRates = useCallback(async () => {
+    try {
+      await getPortfolioRuntimeClient().clearRateStorage();
+      await load();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRuntimeError(message);
+    }
+  }, [load]);
 
   return (
     <DebugScreenContainer>
-      <DebugHeaderContainer>
-        <DebugHeaderText>
-          {t('Wallets')} (with snapshots): {walletIds.length} | {t('Snapshots')}
-          : {totalSnapshots}
-        </DebugHeaderText>
-        <DebugHeaderText>
-          {t('Mainnet Wallets')}: {mainnetWallets.length} |{' '}
-          {t('Testnet Wallets')}: {testnetWallets.length} |{' '}
-          {t('Mainnet Zero-Balance Wallets')}:{' '}
-          {mainnetWalletsWithZeroBalance.length}
-        </DebugHeaderText>
-        <DebugHeaderText>
-          inProgress: {portfolio.populateStatus?.inProgress ? 'yes' : 'no'} |{' '}
-          walletsCompleted: {portfolio.populateStatus?.walletsCompleted ?? 0}/
-          {portfolio.populateStatus?.walletsTotal ?? 0} | txsProcessed:{' '}
-          {portfolio.populateStatus?.txsProcessed ?? 0} | errors:{' '}
-          {portfolio.populateStatus?.errors?.length ?? 0} | mismatches:{' '}
-          {totalWalletMismatches}
-        </DebugHeaderText>
+      <ScrollView>
+        <DebugHeaderContainer>
+          <DebugHeaderText>
+            {t('Runtime-backed portfolio debug info. Redux snapshot arrays are no longer used in production.')}
+          </DebugHeaderText>
 
-        <DebugButtonRow>
-          <DebugPillButton onPress={() => (isGenerating ? null : clear())}>
-            <DebugPillButtonText>
-              {t('Clear Portfolio Store')}
-            </DebugPillButtonText>
-          </DebugPillButton>
-          <DebugButtonSpacer />
-          <DebugPillButton
-            onPress={() => (isGenerating ? null : populate())}
-            selected={portfolio.populateStatus?.inProgress}>
-            <DebugPillButtonText
-              selected={portfolio.populateStatus?.inProgress}>
-              {t('Populate Portfolio Store')}
-            </DebugPillButtonText>
-          </DebugPillButton>
-          <DebugButtonSpacer />
-          <DebugPillButton
-            onPress={() => (isGenerating ? null : clearRatesCache())}>
-            <DebugPillButtonText>{t('Clear Rates Cache')}</DebugPillButtonText>
-          </DebugPillButton>
-        </DebugButtonRow>
+          <DebugButtonRow>
+            <DebugPillButton onPress={() => void load()}>
+              <DebugPillButtonText>{isLoading ? t('Loading...') : t('Refresh')}</DebugPillButtonText>
+            </DebugPillButton>
+            <DebugPillButton onPress={() => void repopulate()}>
+              <DebugPillButtonText>{t('Populate')}</DebugPillButtonText>
+            </DebugPillButton>
+            <DebugPillButton onPress={() => void clearRates()}>
+              <DebugPillButtonText>{t('Clear Rates')}</DebugPillButtonText>
+            </DebugPillButton>
+            <DebugPillButton onPress={() => void clearAll()}>
+              <DebugPillButtonText>{t('Clear All')}</DebugPillButtonText>
+            </DebugPillButton>
+            <DebugPillButton onPress={copySummary}>
+              <DebugPillButtonText>{copyState === 'copied' ? t('Copied') : t('Copy JSON')}</DebugPillButtonText>
+            </DebugPillButton>
+          </DebugButtonRow>
+        </DebugHeaderContainer>
 
-        <DebugButtonRow>
-          <DebugPillButton
-            onPress={() => (isCopyingAudit ? null : copySnapshotAuditCsv())}
-            selected={copyAuditState === 'copied'}>
-            <DebugPillButtonText selected={copyAuditState === 'copied'}>
-              {copyAuditState === 'copied'
-                ? 'Copied Snapshot Audit CSV'
-                : 'Copy Snapshot Audit CSV'}
-            </DebugPillButtonText>
-          </DebugPillButton>
-          <DebugButtonSpacer />
-          <DebugPillButton
-            onPress={() =>
-              isCopyingRateDiagnostics ? null : copyRateDiagnosticsCsv()
-            }
-            selected={copyRateDiagnosticsState === 'copied'}>
-            <DebugPillButtonText
-              selected={copyRateDiagnosticsState === 'copied'}>
-              {copyRateDiagnosticsState === 'copied'
-                ? 'Copied Rate Diagnostics CSV'
-                : 'Copy Rate Diagnostics'}
-            </DebugPillButtonText>
-          </DebugPillButton>
-        </DebugButtonRow>
-      </DebugHeaderContainer>
+        {runtimeError ? <ErrorText>{runtimeError}</ErrorText> : null}
 
-      <ScrollView style={{flex: 1}} contentContainerStyle={{paddingBottom: 40}}>
-        {walletIds.map(walletId => {
-          const snapshots = portfolio.snapshotsByWalletId?.[walletId];
-          const count = snapshots?.length ?? 0;
-          const walletName = walletNameById[walletId];
-          const mismatch = walletMismatchById[walletId];
+        <SectionText>
+          {`Wallets: ${summary.walletsWithSnapshots}/${summary.walletsTotal} with runtime data\n`}
+          {`Snapshot rows: ${summary.totalRows}\n`}
+          {`Snapshot chunks: ${summary.totalChunks}\n`}
+          {`Runtime keys: ${summary.kvStats?.totalKeys || 0}\n`}
+          {`Runtime bytes: ${formatBytes(summary.kvStats?.totalBytes)}\n`}
+          {`Snapshot bytes: ${formatBytes(summary.kvStats?.snapBytes)}\n`}
+          {`Rate bytes: ${formatBytes(summary.kvStats?.rateBytes)}\n`}
+          {`Rate entries: ${summary.rateEntries}\n`}
+          {`Populate in progress: ${summary.populateStatus?.inProgress ? 'yes' : 'no'}\n`}
+          {`Wallets completed: ${summary.populateStatus?.walletsCompleted || 0}/${summary.populateStatus?.walletsTotal || 0}\n`}
+          {`Errors: ${summary.populateStatus?.errors?.length || 0}\n`}
+          {`Stop reason: ${summary.populateStatus?.stopReason || '—'}\n`}
+          {`Mismatches: ${summary.mismatchCount}\n`}
+          {`Last populated: ${toIso(summary.lastPopulatedAt)}\n`}
+          {`Last refreshed: ${toIso(summary.lastRefreshedAt)}`}
+        </SectionText>
+
+        {!walletRows.length ? (
+          <EmptyStateText>{t('No mainnet wallets found.')}</EmptyStateText>
+        ) : null}
+
+        {walletRows.map(row => {
+          const walletName = String(
+            (row.wallet as any)?.walletName || (row.wallet as any)?.name || row.wallet.id,
+          );
+          const subtitle = [
+            String((row.wallet as any)?.chain || '').toUpperCase(),
+            String((row.wallet as any)?.currencyAbbreviation || '').toUpperCase(),
+            String((row.wallet as any)?.network || '').toLowerCase(),
+            getWalletBalanceLabel(row.wallet),
+          ]
+            .filter(Boolean)
+            .join(' • ');
+
           return (
             <WalletRow
-              key={walletId}
+              key={row.wallet.id}
               onPress={() =>
                 navigation.navigate(AboutScreens.PORTFOLIO_WALLET_DEBUG, {
-                  walletId,
+                  walletId: row.wallet.id,
                 })
               }>
-              <WalletRowTitle>
-                {(walletName || walletId).trim()} ({count})
-              </WalletRowTitle>
-              {walletName ? (
-                <WalletRowSubTitle>{walletId}</WalletRowSubTitle>
-              ) : null}
-              {mismatch ? (
+              <WalletRowTitle>{walletName}</WalletRowTitle>
+              <WalletRowSubTitle>{subtitle}</WalletRowSubTitle>
+              <WalletRowSubTitle>
+                {row.index
+                  ? `rows ${row.rowCount} • chunks ${row.chunkCount} • updated ${toIso(
+                      row.index.updatedAt,
+                    )}`
+                  : 'no runtime snapshot index'}
+              </WalletRowSubTitle>
+              {row.mismatch ? (
                 <WalletRowMismatchText>
-                  mismatch delta: {mismatch.deltaUnits}
+                  {`mismatch Δ ${row.mismatch.delta} • live ${row.mismatch.currentWalletBalance} • stored ${row.mismatch.computedUnitsHeld}`}
                 </WalletRowMismatchText>
               ) : null}
             </WalletRow>
           );
         })}
+
+        <DebugButtonSpacer />
       </ScrollView>
     </DebugScreenContainer>
   );

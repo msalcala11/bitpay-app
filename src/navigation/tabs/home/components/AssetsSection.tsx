@@ -33,25 +33,21 @@ const AssetsSection: React.FC = () => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
-  const {visibleItems, isFiatLoading, isPopulateLoadingByKey} =
+  const {
+    visibleItems,
+    isFiatLoading,
+    isPopulateLoadingByKey,
+    hasAnyPortfolioData,
+  } =
     usePortfolioAssetRows({
       gainLossMode,
     });
-
-  const hasAnySnapshots = useMemo(() => {
-    for (const v of Object.values(portfolio.snapshotsByWalletId || {})) {
-      if (Array.isArray(v) && v.length > 0) {
-        return true;
-      }
-    }
-    return false;
-  }, [portfolio.snapshotsByWalletId]);
 
   const items = useMemo(() => {
     return visibleItems.slice(0, 4);
   }, [visibleItems]);
 
-  if (!portfolio.populateStatus?.inProgress && !hasAnySnapshots) {
+  if (!portfolio.populateStatus?.inProgress && !hasAnyPortfolioData) {
     return null;
   }
 

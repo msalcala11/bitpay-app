@@ -137,16 +137,13 @@ import {
 } from '../../../utils/portfolio/allocation';
 import {isTSSKey} from '../../../store/wallet/effects/tss-send/tss-send';
 import {
-  buildPortfolioGainLossSummaryFromPortfolioSnapshots,
-  getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots,
   getQuoteCurrency,
-  hasSnapshotsBeforeMsForWallets,
-  hasSnapshotsForWallets,
   isPopulateLoadingForWallets,
   getLegacyPercentageDifferenceFromTotals,
   getKeyLastDayPercentageDifference,
   getPercentageDifferenceFromPercentRatio,
 } from '../../../utils/portfolio/assets';
+import {usePortfolioGainLossSummary} from '../../../portfolio/ui/hooks/usePortfolioGainLossSummary';
 import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
 
 LogBox.ignoreLogs([
@@ -365,8 +362,7 @@ const KeyOverview = () => {
   const {keys}: {keys: {[key: string]: Key}} = useAppSelector(
     ({WALLET}) => WALLET,
   );
-  const {rates, fiatRateSeriesCache} = useAppSelector(({RATE}) => RATE);
-  const lastDayRates = useAppSelector(({RATE}) => RATE.lastDayRates);
+  const {rates} = useAppSelector(({RATE}) => RATE);
   const {defaultAltCurrency, hideAllBalances, showPortfolioValue} =
     useAppSelector(({APP}) => APP);
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
@@ -572,18 +568,14 @@ const KeyOverview = () => {
 
   const showAllocationGainLossFooter = !portfolio.populateDisabled;
 
-  const gainLossSummary = useMemo(() => {
-    const summary = buildPortfolioGainLossSummaryFromPortfolioSnapshots({
-      snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
-      wallets: visibleKeyWallets,
-      quoteCurrency,
-      rates,
-      lastDayRates,
-      fiatRateSeriesCache,
-    });
+  const {summary: runtimeGainLossSummary} = usePortfolioGainLossSummary({
+    wallets: visibleKeyWallets,
+    liveFiatTotal: totalBalance,
+  });
 
-    if (summary.today.available) {
-      return summary;
+  const gainLossSummary = useMemo(() => {
+    if (runtimeGainLossSummary.today.available) {
+      return runtimeGainLossSummary;
     }
 
     const baseline =
@@ -592,46 +584,27 @@ const KeyOverview = () => {
     const percentRatio = baseline > 0 ? deltaFiat / baseline : 0;
 
     return {
-      ...summary,
+      ...runtimeGainLossSummary,
       today: {
-        ...summary.today,
+        ...runtimeGainLossSummary.today,
         deltaFiat,
         percentRatio,
         available: true,
       },
     };
-  }, [
-    fiatRateSeriesCache,
-    lastDayRates,
-    portfolio.snapshotsByWalletId,
-    quoteCurrency,
-    rates,
-    totalBalance,
-    totalBalanceLastDay,
-    visibleKeyWallets,
-  ]);
+  }, [runtimeGainLossSummary, totalBalance, totalBalanceLastDay]);
 
   const portfolioPercentageDifference = useMemo(() => {
-    const pnl = getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots({
-      snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
-      wallets: visibleKeyWallets,
-      quoteCurrency,
-      timeframe: '1D',
-      rates,
-      lastDayRates,
-      fiatRateSeriesCache,
-    });
-    if (!pnl.available) {
+    if (!runtimeGainLossSummary.today.available) {
       return null;
     }
-    return getPercentageDifferenceFromPercentRatio(pnl.percentRatio);
+
+    return getPercentageDifferenceFromPercentRatio(
+      runtimeGainLossSummary.today.percentRatio,
+    );
   }, [
-    fiatRateSeriesCache,
-    lastDayRates,
-    portfolio.snapshotsByWalletId,
-    quoteCurrency,
-    rates,
-    visibleKeyWallets,
+    runtimeGainLossSummary.today.available,
+    runtimeGainLossSummary.today.percentRatio,
   ]);
 
   const legacyPercentageDifference = useMemo(() => {
@@ -641,46 +614,19 @@ const KeyOverview = () => {
     });
   }, [totalBalance, totalBalanceLastDay]);
 
-  const hasKeySnapshots = useMemo(() => {
-    return hasSnapshotsForWallets({
-      snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
-      wallets: visibleKeyWallets,
-    });
-  }, [portfolio.snapshotsByWalletId, visibleKeyWallets]);
-
-  const hasKeySnapshotsBeforePopulateStarted = useMemo(() => {
-    const startedAt = portfolio.populateStatus?.startedAt;
-    if (
-      !portfolio.populateStatus?.inProgress ||
-      typeof startedAt !== 'number'
-    ) {
-      return true;
-    }
-    return hasSnapshotsBeforeMsForWallets({
-      snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
-      wallets: visibleKeyWallets,
-      cutoffMs: startedAt,
-    });
-  }, [
-    portfolio.populateStatus?.inProgress,
-    portfolio.populateStatus?.startedAt,
-    portfolio.snapshotsByWalletId,
-    visibleKeyWallets,
-  ]);
-
   const percentageDifference = useMemo(() => {
     return getKeyLastDayPercentageDifference({
       totalBalance,
-      hasSnapshots: hasKeySnapshots,
-      hasSnapshotsBeforePopulateStarted: hasKeySnapshotsBeforePopulateStarted,
+      hasSnapshots: runtimeGainLossSummary.today.available,
+      hasSnapshotsBeforePopulateStarted:
+        runtimeGainLossSummary.today.available,
       isPopulateLoading: isKeyPopulateLoading,
       legacyPercentageDifference,
       portfolioPercentageDifference,
     });
   }, [
     totalBalance,
-    hasKeySnapshots,
-    hasKeySnapshotsBeforePopulateStarted,
+    runtimeGainLossSummary.today.available,
     isKeyPopulateLoading,
     legacyPercentageDifference,
     portfolioPercentageDifference,

@@ -8,16 +8,13 @@ import React, {
 import Button from '../../../../components/button/Button';
 import AngleRight from '../../../../../assets/img/angle-right.svg';
 import ToggleSwitch from '../../../../components/toggle-switch/ToggleSwitch';
-import {EXCHANGE_RATES_CURRENCIES} from '../../../../constants/config';
 import {AppActions} from '../../../../store/app';
 import {showBottomNotificationModal} from '../../../../store/app/app.actions';
 import {resetAllSettings} from '../../../../store/app/app.effects';
 import {
-  cancelPopulatePortfolio,
-  clearPortfolio,
+  clearPortfolioWithRuntime,
   populatePortfolio,
 } from '../../../../store/portfolio';
-import {pruneFiatRateSeriesCache} from '../../../../store/rate/rate.actions';
 import {useTheme} from '@react-navigation/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useAppSelector} from '../../../../utils/hooks/useAppSelector';
@@ -93,9 +90,6 @@ const General: React.FC<Props> = ({navigation}) => {
   const selectedAltCurrency = useAppSelector(
     ({APP}: RootState) => APP.defaultAltCurrency,
   );
-  const fiatRateSeriesCache = useAppSelector(
-    ({RATE}: RootState) => RATE.fiatRateSeriesCache,
-  );
   const appLanguage = useAppSelector(({APP}) => APP.defaultLanguage);
   const [appLanguageName, setAppLanguageName] = useState('');
 
@@ -103,37 +97,18 @@ const General: React.FC<Props> = ({navigation}) => {
   const {t} = useTranslation();
 
   const handleToggleShowPortfolio = useCallback(
-    (value: boolean) => {
+    async (value: boolean) => {
       dispatch(AppActions.showPortfolioValue(value));
       if (!value) {
-        dispatch(cancelPopulatePortfolio());
-        const selectedFiatCode = (
-          selectedAltCurrency?.isoCode || 'USD'
-        ).toUpperCase();
-        const fiatsInCache = new Set<string>();
-        for (const cacheKey of Object.keys(fiatRateSeriesCache || {})) {
-          const separatorIdx = cacheKey.indexOf(':');
-          if (separatorIdx > 0) {
-            fiatsInCache.add(cacheKey.slice(0, separatorIdx).toUpperCase());
-          }
-        }
-        for (const fiatCode of fiatsInCache) {
-          dispatch(
-            pruneFiatRateSeriesCache({
-              fiatCode,
-              keepCoins:
-                fiatCode === selectedFiatCode ? EXCHANGE_RATES_CURRENCIES : [],
-            }),
-          );
-        }
-        dispatch(clearPortfolio({populateDisabled: false}));
+        await dispatch(clearPortfolioWithRuntime({populateDisabled: false}) as any);
         return;
       }
-      dispatch(
+
+      await dispatch(
         populatePortfolio({quoteCurrency: selectedAltCurrency?.isoCode}) as any,
       );
     },
-    [dispatch, fiatRateSeriesCache, selectedAltCurrency?.isoCode],
+    [dispatch, selectedAltCurrency?.isoCode],
   );
 
   useEffect(() => {

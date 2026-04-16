@@ -1,6 +1,9 @@
 export type BalanceSnapshotEventType = 'tx' | 'daily';
 export type BalanceSnapshotDirection = 'incoming' | 'outgoing';
 
+// Legacy snapshot type kept only for compatibility with older utility code and
+// debug-only helpers that still refer to the historical shape. Runtime-backed
+// portfolio rendering no longer persists or reads snapshot arrays from Redux.
 export interface BalanceSnapshot {
   id: string;
   chain: string;
@@ -42,6 +45,7 @@ export interface PortfolioPopulateStatus {
   startedAt?: number;
   finishedAt?: number;
   elapsedMs?: number;
+  stopReason?: string;
   currentWalletId?: string;
   walletsTotal: number;
   walletsCompleted: number;
@@ -52,7 +56,6 @@ export interface PortfolioPopulateStatus {
 }
 
 export interface PortfolioState {
-  snapshotsByWalletId: {[walletId: string]: BalanceSnapshot[] | undefined};
   lastPopulatedAt?: number;
   quoteCurrency?: string;
   populateDisabled: boolean;

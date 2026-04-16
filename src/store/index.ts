@@ -26,7 +26,6 @@ import {
   bindWalletKeys,
   transformContacts,
   transformPortfolioPopulateStatus,
-  transformPortfolioSnapshotSeries,
   encryptSpecificFields,
 } from './transforms/transforms';
 import {appReducer, appReduxPersistBlackList} from './app/app.reducer';
@@ -87,7 +86,7 @@ import {
   portfolioReducer,
   portfolioReduxPersistBlackList,
 } from './portfolio/portfolio.reducer';
-import {removeWalletSnapshots} from './portfolio/portfolio.actions';
+import {clearWalletPortfolioDataWithRuntime} from './portfolio';
 import {WalletActionTypes} from './wallet/wallet.types';
 import {BitPayIdActionTypes} from './bitpay-id/bitpay-id.types';
 import {AppActionTypes} from './app/app.types';
@@ -392,7 +391,7 @@ const getStore = async () => {
       const result = next(action);
 
       if (walletIds.length) {
-        store.dispatch(removeWalletSnapshots({walletIds}));
+        store.dispatch(clearWalletPortfolioDataWithRuntime({walletIds}) as any);
       }
 
       return result;
@@ -434,7 +433,6 @@ const getStore = async () => {
       bindWalletKeys,
       transformContacts,
       transformPortfolioPopulateStatus,
-      transformPortfolioSnapshotSeries,
       createTransform<RootState, RootState, RootState>((inboundState, key) => {
         // Clear out nested blacklisted fields before encrypting and persisting
         if (typeof key === 'string') {
