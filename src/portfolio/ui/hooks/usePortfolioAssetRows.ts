@@ -51,6 +51,7 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
     wallets,
     timeframe: gainLossMode,
     maxPoints: 2,
+    enabled: isFocused,
     freezeWhilePopulate: true,
     allowCurrentWhilePopulate: true,
   });

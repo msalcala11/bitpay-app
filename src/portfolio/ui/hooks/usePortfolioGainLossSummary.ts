@@ -1,4 +1,5 @@
 import {useMemo} from 'react';
+import {useIsFocused} from '@react-navigation/native';
 import type {Wallet} from '../../../store/wallet/wallet.models';
 import type {PortfolioGainLossSummary} from '../../../utils/portfolio/assets';
 import {getLastFiniteNumber} from '../common';
@@ -39,10 +40,12 @@ export function usePortfolioGainLossSummary(args: {
   wallets: Wallet[];
   liveFiatTotal: number;
 }) {
+  const isFocused = useIsFocused();
   const todayChart = usePortfolioChart({
     wallets: args.wallets,
     timeframe: '1D',
     maxPoints: 2,
+    enabled: isFocused,
     freezeWhilePopulate: true,
     allowCurrentWhilePopulate: false,
   });
@@ -50,6 +53,7 @@ export function usePortfolioGainLossSummary(args: {
     wallets: args.wallets,
     timeframe: 'ALL',
     maxPoints: 2,
+    enabled: isFocused,
     freezeWhilePopulate: true,
     allowCurrentWhilePopulate: false,
   });
