@@ -17,6 +17,7 @@ import type {PortfolioClientTransport} from './portfolioClient';
 import type {PortfolioRuntimeHostBootstrapConfig} from './portfolioHost';
 import {shouldDispatchPortfolioRequestOnRuntimeWorklet} from './portfolioRequestRouting';
 import {
+  dispatchPortfolioPopulateStartAndWaitOnRuntime,
   dispatchPortfolioRequestOnRuntime,
   type PortfolioRuntimeDispatchContext,
 } from './portfolioWorkletDispatch';
@@ -177,6 +178,16 @@ function reconcileSessionCredentialsAfterFatalError(args: {
   }
 }
 
+function shouldAwaitPopulateTerminalResponse(
+  request: WorkerRequest,
+): request is WorkerRequest<'populate.startJob'> {
+  if (request.method !== 'populate.startJob') {
+    return false;
+  }
+
+  return (request.params as {awaitTerminal?: boolean})?.awaitTerminal === true;
+}
+
 export function createWorkletPortfolioTransport(
   config: WorkletPortfolioTransportConfig,
 ): PortfolioClientTransport {
@@ -219,9 +230,13 @@ export function createWorkletPortfolioTransport(
           buildPopulateJobSigningContextsForRequest(request),
       };
 
+      const dispatchOnRuntime = shouldAwaitPopulateTerminalResponse(request)
+        ? dispatchPortfolioPopulateStartAndWaitOnRuntime
+        : dispatchPortfolioRequestOnRuntime;
+
       await runOnRuntimeAsync(
         config.runtime,
-        dispatchPortfolioRequestOnRuntime,
+        dispatchOnRuntime,
         config.host,
         request,
         dispatchContext,

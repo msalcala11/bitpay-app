@@ -206,9 +206,12 @@ function createJob(args: {
   const ordinal = Math.max(1, Math.floor(args.state.nextJobOrdinal || 1));
   args.state.nextJobOrdinal = ordinal + 1;
   const startedAt = nowMs();
+  const requestedJobId = String(args.params.jobId || '').trim();
+  const jobId =
+    requestedJobId || `portfolio-populate-${startedAt}-${ordinal}`;
 
   return {
-    jobId: `portfolio-populate-${startedAt}-${ordinal}`,
+    jobId,
     state: 'queued',
     inProgress: true,
     startedAt,

@@ -4,8 +4,7 @@ import type {BwsConfig} from '../core/shared/bws';
 import type {StoredWallet} from '../core/types';
 import type {SnapshotIngestConfig} from '../core/engine/portfolioEngine';
 import {
-  isTerminalPortfolioPopulateJobStatus,
-  type PortfolioPopulateProgress,
+  type PortfolioPopulateJobStatus,
   type PortfolioPopulateRunResult,
   type PortfolioPopulateWalletRunResult,
 } from '../core/engine/populateJob';
@@ -23,11 +22,9 @@ export type PortfolioPopulateServiceOptions = {
   ingestConfig?: Partial<SnapshotIngestConfig>;
   pageSize?: number;
   emitRows?: number;
-  pollIntervalMs?: number;
 };
 
 const PORTFOLIO_POPULATE_ABORTED_ERROR_MESSAGE = 'PORTFOLIO_POPULATE_ABORTED';
-const DEFAULT_POLL_INTERVAL_MS = 500;
 
 function createDefaultBwsConfig(): BwsConfig {
   return {
@@ -42,38 +39,6 @@ function createDefaultIngestConfig(): SnapshotIngestConfig {
     compressionEnabled: true,
     chunkRows: 128,
     snapshotDebugMode: 'none',
-  };
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => {
-    setTimeout(resolve, Math.max(0, Math.floor(ms)), undefined);
-  });
-}
-
-function toProgress(status: {
-  inProgress: boolean;
-  startedAt: number;
-  currentWalletId?: string;
-  walletsTotal: number;
-  walletsCompleted: number;
-  txRequestsMade: number;
-  txsProcessed: number;
-  walletStatusById: {[walletId: string]: any};
-  errors: Array<{walletId: string; message: string}>;
-}): PortfolioPopulateProgress {
-  return {
-    inProgress: status.inProgress,
-    startedAt: status.startedAt,
-    currentWalletId: status.currentWalletId,
-    walletsTotal: status.walletsTotal,
-    walletsCompleted: status.walletsCompleted,
-    txRequestsMade: status.txRequestsMade,
-    txsProcessed: status.txsProcessed,
-    walletStatusById: {...(status.walletStatusById || {})},
-    errors: Array.isArray(status.errors)
-      ? status.errors.map(error => ({...error}))
-      : [],
   };
 }
 
@@ -104,13 +69,22 @@ function toJobFailureMessage(status: {
   );
 }
 
+function createRequestedPopulateJobId(): string {
+  return `portfolio-populate-js-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+}
+
+export type PortfolioPopulateRunOutcome = PortfolioPopulateRunResult & {
+  status: PortfolioPopulateJobStatus;
+};
+
 export class PortfolioPopulateService {
   private client: PortfolioRuntimeClient;
   private bwsConfig: BwsConfig;
   private ingestConfig: SnapshotIngestConfig;
   private pageSize: number;
   private emitRows?: number;
-  private pollIntervalMs: number;
   private cancelRequested = false;
   private activeJobId: string | undefined;
   private cancelSent = false;
@@ -132,11 +106,6 @@ export class PortfolioPopulateService {
       typeof options.emitRows === 'number' && Number.isFinite(options.emitRows)
         ? Math.max(1, Math.floor(options.emitRows))
         : undefined;
-    this.pollIntervalMs =
-      typeof options.pollIntervalMs === 'number' &&
-      Number.isFinite(options.pollIntervalMs)
-        ? Math.max(100, Math.floor(options.pollIntervalMs))
-        : DEFAULT_POLL_INTERVAL_MS;
   }
 
   cancel(): void {
@@ -160,60 +129,39 @@ export class PortfolioPopulateService {
 
   async populateWallets(args: {
     wallets: StoredWallet[];
-    onProgress?: (progress: PortfolioPopulateProgress) => void;
-  }): Promise<PortfolioPopulateRunResult> {
+  }): Promise<PortfolioPopulateRunOutcome> {
     this.resetCancel();
-    this.activeJobId = undefined;
+    const requestedJobId = createRequestedPopulateJobId();
+    this.activeJobId = requestedJobId;
 
-    const start = await this.client.startPopulateJob({
-      cfg: this.bwsConfig,
-      wallets: args.wallets || [],
-      ingest: this.ingestConfig,
-      pageSize: this.pageSize,
-      emitRows: this.emitRows,
-    });
-
-    this.activeJobId = start.jobId;
-    let lastUpdatedAt = -1;
-    let lastState = '';
-
-    while (true) {
-      if (this.cancelRequested && this.activeJobId && !this.cancelSent) {
-        this.cancelSent = true;
-        await this.client
-          .cancelPopulateJob({jobId: this.activeJobId})
-          .catch(() => undefined);
-      }
-
-      const status = await this.client.getPopulateJobStatus({
-        jobId: this.activeJobId,
+    try {
+      const start = await this.client.startPopulateJob({
+        jobId: requestedJobId,
+        awaitTerminal: true,
+        cfg: this.bwsConfig,
+        wallets: args.wallets || [],
+        ingest: this.ingestConfig,
+        pageSize: this.pageSize,
+        emitRows: this.emitRows,
       });
-
+      const status = start?.status;
       if (!status) {
-        throw new Error('Portfolio populate job status is unavailable on the runtime.');
+        throw new Error(
+          'Portfolio populate job status is unavailable on the runtime.',
+        );
       }
 
-      if (
-        status.lastUpdatedAt !== lastUpdatedAt ||
-        status.state !== lastState ||
-        status.inProgress === false
-      ) {
-        args.onProgress?.(toProgress(status));
-        lastUpdatedAt = status.lastUpdatedAt;
-        lastState = status.state;
+      if (status.state === 'failed') {
+        throw new Error(toJobFailureMessage(status));
       }
 
-      if (isTerminalPortfolioPopulateJobStatus(status)) {
-        this.activeJobId = undefined;
-
-        if (status.state === 'failed') {
-          throw new Error(toJobFailureMessage(status));
-        }
-
-        return status.result || buildFallbackRunResult(status);
-      }
-
-      await delay(this.pollIntervalMs);
+      const runResult = status.result || buildFallbackRunResult(status);
+      return {
+        ...runResult,
+        status,
+      };
+    } finally {
+      this.activeJobId = undefined;
     }
   }
 }

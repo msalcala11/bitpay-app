@@ -49,6 +49,8 @@ export type PortfolioPopulateRunResult = {
 };
 
 export type PortfolioPopulateJobStartParams = {
+  jobId?: string;
+  awaitTerminal?: boolean;
   cfg: BwsConfig;
   wallets: StoredWallet[];
   ingest: SnapshotIngestConfig;

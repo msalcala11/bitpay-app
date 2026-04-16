@@ -392,28 +392,22 @@ export const populatePortfolioWithRuntime = (args?: {
   activeRuntimePopulateService = service;
 
   try {
-    let lastErrorCount = 0;
-    let latestErrors: Array<{walletId: string; message: string}> = [];
     const result = await service.populateWallets({
       wallets: storedWallets,
-      onProgress: progress => {
-        latestErrors = Array.isArray(progress.errors) ? progress.errors : [];
-        const nextErrors = progress.errors.slice(lastErrorCount);
-        lastErrorCount = progress.errors.length;
-
-        dispatch(
-          updatePopulateProgress({
-            currentWalletId: progress.currentWalletId,
-            walletsTotal: progress.walletsTotal,
-            walletsCompleted: progress.walletsCompleted,
-            txRequestsMade: progress.txRequestsMade,
-            txsProcessed: progress.txsProcessed,
-            walletStatusByIdUpdates: progress.walletStatusById,
-            errorsToAdd: nextErrors.length ? nextErrors : undefined,
-          }),
-        );
-      },
     });
+    const finalStatus = result.status;
+
+    dispatch(
+      updatePopulateProgress({
+        currentWalletId: finalStatus.currentWalletId,
+        walletsTotal: finalStatus.walletsTotal,
+        walletsCompleted: finalStatus.walletsCompleted,
+        txRequestsMade: finalStatus.txRequestsMade,
+        txsProcessed: finalStatus.txsProcessed,
+        walletStatusByIdUpdates: finalStatus.walletStatusById,
+        errorsToAdd: finalStatus.errors.length ? finalStatus.errors : undefined,
+      }),
+    );
 
     if (result.cancelled) {
       dispatch(cancelPopulatePortfolio());
@@ -424,11 +418,9 @@ export const populatePortfolioWithRuntime = (args?: {
       finishPopulatePortfolio({
         finishedAt: result.finishedAt,
         reason: buildPopulateStopReason({
-          errors: latestErrors,
+          errors: finalStatus.errors,
           requestedWalletCount: storedWallets.length,
-          completedWalletCount: Array.isArray(result.results)
-            ? result.results.length
-            : 0,
+          completedWalletCount: finalStatus.walletsCompleted,
         }),
       }),
     );

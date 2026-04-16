@@ -172,29 +172,33 @@ describe('portfolio.runtime.effects', () => {
       summary: {walletId: 'w1'},
       addedAt: 1,
     } as any;
-    const populateWallets = jest.fn(async ({onProgress}: any) => {
-      onProgress?.({
-        inProgress: true,
-        startedAt: 1,
-        currentWalletId: 'w1',
-        walletsTotal: 1,
-        walletsCompleted: 0,
-        txRequestsMade: 1,
-        txsProcessed: 0,
-        walletStatusById: {w1: 'error'},
-        errors: [
-          {
-            walletId: 'w1',
-            message: 'BWS txhistory request failed with status 401.',
-          },
-        ],
-      });
-
+    const populateWallets = jest.fn(async () => {
       return {
         startedAt: 1,
         finishedAt: 10,
         cancelled: false,
         disabledForLargeHistory: false,
+        status: {
+          jobId: 'job-1',
+          state: 'completed',
+          inProgress: false,
+          startedAt: 1,
+          finishedAt: 10,
+          currentWalletId: 'w1',
+          walletsTotal: 1,
+          walletsCompleted: 1,
+          txRequestsMade: 1,
+          txsProcessed: 0,
+          walletStatusById: {w1: 'error'},
+          errors: [
+            {
+              walletId: 'w1',
+              message: 'BWS txhistory request failed with status 401.',
+            },
+          ],
+          disabledForLargeHistory: false,
+          lastUpdatedAt: 10,
+        },
         results: [
           {
             walletId: 'w1',
