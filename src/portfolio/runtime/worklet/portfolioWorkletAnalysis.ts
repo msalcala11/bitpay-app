@@ -36,25 +36,23 @@ function sanitizeRatePoints(pointsRaw: FiatRatePoint[] | undefined): FiatRatePoi
     .sort((a, b) => a.ts - b.ts);
 }
 
-async function findFirstNonZeroBalanceTs(
-  config: PortfolioWorkletKvConfig,
-  walletIds: string[],
-): Promise<number | null> {
+function snapshotIndexHasRows(
+  index:
+    | {
+        chunks?: Array<{
+          rows?: number;
+        }>;
+      }
+    | null
+    | undefined,
+): boolean {
   'worklet';
 
-  let best: number | null = null;
-  for (const walletId of walletIds) {
-    const idx = await loadWorkletSnapshotIndex(config, walletId);
-    const ts = idx?.checkpoint?.firstNonZeroTs;
-    if (typeof ts !== 'number' || !Number.isFinite(ts) || ts <= 0) {
-      continue;
-    }
-    if (best === null || ts < best) {
-      best = ts;
-    }
+  if (!Array.isArray(index?.chunks) || !index?.chunks.length) {
+    return false;
   }
 
-  return best;
+  return index.chunks.some(chunk => Number(chunk?.rows) > 0);
 }
 
 type PreparedWorkletAnalysisInputs = {
@@ -89,9 +87,52 @@ async function prepareWorkletStreamedAnalysisInputs(
     walletMetas.map(meta => [meta.walletId, meta] as const),
   );
 
+  const snapshotIndexesByWalletId = new Map(
+    await Promise.all(
+      args.wallets.map(async wallet => {
+        return [
+          wallet.summary.walletId,
+          await loadWorkletSnapshotIndex(config, wallet.summary.walletId),
+        ] as const;
+      }),
+    ),
+  );
+
+  const walletIdsWithSnapshots = new Set(
+    args.wallets
+      .filter(wallet =>
+        snapshotIndexHasRows(
+          snapshotIndexesByWalletId.get(wallet.summary.walletId),
+        ),
+      )
+      .map(wallet => wallet.summary.walletId),
+  );
+  const walletsWithSnapshots = args.wallets.filter(wallet =>
+    walletIdsWithSnapshots.has(wallet.summary.walletId),
+  );
+  const walletMetasWithSnapshots = walletMetas.filter(meta =>
+    walletIdsWithSnapshots.has(meta.walletId),
+  );
+
+  if (!walletsWithSnapshots.length) {
+    return {
+      quoteCurrency: targetQuoteCurrency,
+      firstNonZeroTs: null,
+      resolved: resolvePnlAnalysisPreloadWindow({
+        cfg: {quoteCurrency: targetQuoteCurrency},
+        wallets: [],
+        timeframe: args.timeframe,
+        ratePointsByAssetId: {},
+        nowMs: args.nowMs,
+        maxPoints: args.maxPoints,
+      }),
+      wallets: [],
+    };
+  }
+
   const baseAssets = Array.from(
     new Map(
-      args.wallets.map(wallet => {
+      walletsWithSnapshots.map(wallet => {
         const coin = normalizeFiatRateSeriesCoin(
           wallet.summary.currencyAbbreviation,
         );
@@ -143,15 +184,22 @@ async function prepareWorkletStreamedAnalysisInputs(
 
   const firstNonZeroTs =
     args.timeframe === 'ALL'
-      ? await findFirstNonZeroBalanceTs(
-          config,
-          args.wallets.map(wallet => wallet.summary.walletId),
-        )
+      ? walletMetasWithSnapshots.reduce<number | null>((best, walletMeta) => {
+          const index = snapshotIndexesByWalletId.get(walletMeta.walletId);
+          const ts = index?.checkpoint?.firstNonZeroTs;
+          if (typeof ts !== 'number' || !Number.isFinite(ts) || ts <= 0) {
+            return best;
+          }
+          if (best === null || ts < best) {
+            return ts;
+          }
+          return best;
+        }, null)
       : null;
 
   const resolved = resolvePnlAnalysisPreloadWindow({
     cfg: {quoteCurrency: targetQuoteCurrency},
-    wallets: walletMetas,
+    wallets: walletMetasWithSnapshots,
     timeframe: args.timeframe,
     ratePointsByAssetId,
     firstNonZeroTs,
@@ -160,7 +208,7 @@ async function prepareWorkletStreamedAnalysisInputs(
   });
 
   const wallets: WalletForStreamedAnalysis[] = [];
-  for (const wallet of args.wallets) {
+  for (const wallet of walletsWithSnapshots) {
     const walletId = wallet.summary.walletId;
     const basePoint = await findWorkletLastPointAtOrBefore({
       storage: config.storage,
