@@ -80,6 +80,47 @@ describe('portfolio.runtime.effects', () => {
     ]);
   });
 
+  it('retries clearing runtime storage if the populate job is still stopping', async () => {
+    const client = {
+      clearAllStorage: jest
+        .fn()
+        .mockRejectedValueOnce(
+          new Error(
+            'Cannot clear portfolio storage while a background populate job is running.',
+          ),
+        )
+        .mockResolvedValue(undefined),
+      cancelPopulateJob: jest.fn().mockResolvedValue({inProgress: false}),
+      getPopulateJobStatus: jest.fn().mockResolvedValue({inProgress: false}),
+    } as any;
+    (getPortfolioRuntimeClient as jest.Mock).mockReturnValue(client);
+
+    const dispatched: any[] = [];
+    const dispatch = (action: any) => {
+      dispatched.push(action);
+      return action;
+    };
+    const getState = () => ({
+      PORTFOLIO: {
+        populateStatus: {
+          inProgress: true,
+        },
+      },
+    });
+
+    await clearPortfolioWithRuntime({populateDisabled: false})(
+      dispatch as any,
+      getState as any,
+    );
+
+    expect(client.clearAllStorage).toHaveBeenCalledTimes(2);
+    expect(client.cancelPopulateJob).toHaveBeenCalledTimes(2);
+    expect(dispatched.map(action => action.type)).toEqual([
+      PortfolioActionTypes.CANCEL_POPULATE_PORTFOLIO,
+      PortfolioActionTypes.CLEAR_PORTFOLIO,
+    ]);
+  });
+
   it('clears wallet-scoped runtime storage and removes wallet state entries', async () => {
     const client = {
       clearWallet: jest.fn().mockResolvedValue(undefined),

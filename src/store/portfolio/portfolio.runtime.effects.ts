@@ -93,6 +93,11 @@ const delay = (ms: number): Promise<void> =>
     setTimeout(resolve, Math.max(0, Math.floor(ms)), undefined);
   });
 
+const RUNTIME_MUTATION_WAIT_TIMEOUT_MS = 15000;
+const RUNTIME_MUTATION_POLL_MS = 100;
+const ACTIVE_RUNTIME_POPULATE_MUTATION_ERROR_PATTERN =
+  /background populate job is running/i;
+
 const requestRuntimePopulateCancel = (): void => {
   void getPortfolioRuntimeClient().cancelPopulateJob({}).catch(() => undefined);
 };
@@ -100,29 +105,76 @@ const requestRuntimePopulateCancel = (): void => {
 const waitForRuntimePopulateToStop = async (args?: {
   timeoutMs?: number;
   pollMs?: number;
-}): Promise<void> => {
+}): Promise<boolean> => {
   const timeoutMs =
     typeof args?.timeoutMs === 'number' && Number.isFinite(args.timeoutMs)
       ? Math.max(0, Math.floor(args.timeoutMs))
-      : 5000;
+      : RUNTIME_MUTATION_WAIT_TIMEOUT_MS;
   const pollMs =
     typeof args?.pollMs === 'number' && Number.isFinite(args.pollMs)
       ? Math.max(50, Math.floor(args.pollMs))
-      : 100;
+      : RUNTIME_MUTATION_POLL_MS;
   const deadline = Date.now() + timeoutMs;
+  const client = getPortfolioRuntimeClient();
 
   while (Date.now() <= deadline) {
     try {
-      const status = await getPortfolioRuntimeClient().getPopulateJobStatus({});
+      const status = await client.getPopulateJobStatus({});
       if (!status?.inProgress) {
-        return;
+        return true;
       }
     } catch {
-      return;
+      // Keep polling until timeout; transient runtime errors during shutdown
+      // should not make us assume the populate job has fully stopped.
     }
 
     await delay(pollMs);
   }
+
+  return false;
+};
+
+const isActiveRuntimePopulateMutationError = (error: unknown): boolean =>
+  ACTIVE_RUNTIME_POPULATE_MUTATION_ERROR_PATTERN.test(toErrorMessage(error));
+
+const clearRuntimeStorageAfterPopulateStops = async (
+  clear: () => Promise<void>,
+): Promise<void> => {
+  const deadline = Date.now() + RUNTIME_MUTATION_WAIT_TIMEOUT_MS;
+
+  await waitForRuntimePopulateToStop({
+    timeoutMs: RUNTIME_MUTATION_WAIT_TIMEOUT_MS,
+    pollMs: RUNTIME_MUTATION_POLL_MS,
+  });
+
+  let lastError: unknown;
+  while (Date.now() <= deadline) {
+    try {
+      await clear();
+      return;
+    } catch (error: unknown) {
+      lastError = error;
+      if (!isActiveRuntimePopulateMutationError(error)) {
+        throw error;
+      }
+    }
+
+    requestRuntimePopulateCancel();
+
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      break;
+    }
+
+    await delay(Math.min(RUNTIME_MUTATION_POLL_MS, remainingMs));
+  }
+
+  throw (
+    lastError ??
+    new Error(
+      'Timed out clearing runtime portfolio storage while a background populate job was stopping.',
+    )
+  );
 };
 
 const cancelActiveRuntimePopulateIfNeeded = (
@@ -201,10 +253,10 @@ export const clearPortfolioWithRuntime = (payload?: {
   populateDisabled?: boolean;
 }): Effect<Promise<void>> => async (dispatch, getState) => {
   cancelActiveRuntimePopulateIfNeeded(dispatch, getState());
-  await waitForRuntimePopulateToStop();
+  const client = getPortfolioRuntimeClient();
 
   try {
-    await getPortfolioRuntimeClient().clearAllStorage();
+    await clearRuntimeStorageAfterPopulateStops(() => client.clearAllStorage());
   } catch (error: unknown) {
     logManager.warn(
       '[portfolio] Failed clearing runtime portfolio storage: ' +
