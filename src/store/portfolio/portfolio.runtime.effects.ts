@@ -211,6 +211,30 @@ const getVisibleMainnetWalletsFromState = (state: RootState): Wallet[] => {
   );
 };
 
+const getAllMainnetWalletIdsFromState = (state: RootState): string[] => {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  Object.values(state.WALLET?.keys || {}).forEach((key: any) => {
+    const wallets = Array.isArray(key?.wallets) ? key.wallets : [];
+    wallets.forEach((wallet: Wallet) => {
+      if (!isMainnetLikeWallet(wallet)) {
+        return;
+      }
+
+      const walletId = String(wallet?.id || '').trim();
+      if (!walletId || seen.has(walletId)) {
+        return;
+      }
+
+      seen.add(walletId);
+      out.push(walletId);
+    });
+  });
+
+  return out;
+};
+
 const resolvePopulateWallets = (args: {
   state: RootState;
   wallets?: Wallet[];
@@ -242,6 +266,88 @@ const toUnitDecimals = (dispatch: any, wallet: Wallet): number => {
   return precision?.unitDecimals || 0;
 };
 
+const isRuntimeStorageFullyCleared = async (args: {
+  client: ReturnType<typeof getPortfolioRuntimeClient>;
+  walletIds: string[];
+}): Promise<boolean> => {
+  const {client, walletIds} = args;
+  const stats = await client.kvStats();
+  const totalKeys = Number(stats?.totalKeys ?? 0);
+  if (Number.isFinite(totalKeys) && totalKeys > 0) {
+    return false;
+  }
+
+  const rateEntries = await client.listRates({});
+  if (Array.isArray(rateEntries) && rateEntries.length) {
+    return false;
+  }
+
+  if (walletIds.length) {
+    const indexes = await Promise.all(
+      walletIds.map(async walletId => {
+        try {
+          return await client.getSnapshotIndex({walletId});
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    if (indexes.some(index => !!index)) {
+      return false;
+    }
+  }
+
+  return !Number.isFinite(totalKeys) || totalKeys <= 0;
+};
+
+const waitForRuntimeStorageToClear = async (args: {
+  client: ReturnType<typeof getPortfolioRuntimeClient>;
+  walletIds: string[];
+  timeoutMs?: number;
+  pollMs?: number;
+}): Promise<void> => {
+  const timeoutMs =
+    typeof args.timeoutMs === 'number' && Number.isFinite(args.timeoutMs)
+      ? Math.max(0, Math.floor(args.timeoutMs))
+      : RUNTIME_MUTATION_WAIT_TIMEOUT_MS;
+  const pollMs =
+    typeof args.pollMs === 'number' && Number.isFinite(args.pollMs)
+      ? Math.max(50, Math.floor(args.pollMs))
+      : RUNTIME_MUTATION_POLL_MS;
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+
+  while (Date.now() <= deadline) {
+    try {
+      if (
+        await isRuntimeStorageFullyCleared({
+          client: args.client,
+          walletIds: args.walletIds,
+        })
+      ) {
+        return;
+      }
+    } catch (error: unknown) {
+      lastError = error;
+    }
+
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      break;
+    }
+
+    await delay(Math.min(pollMs, remainingMs));
+  }
+
+  throw (
+    lastError ??
+    new Error(
+      'Timed out waiting for runtime portfolio storage to fully clear.',
+    )
+  );
+};
+
 export const cancelPopulatePortfolioWithRuntime = (): Effect<void> => (
   dispatch,
   getState,
@@ -252,16 +358,23 @@ export const cancelPopulatePortfolioWithRuntime = (): Effect<void> => (
 export const clearPortfolioWithRuntime = (payload?: {
   populateDisabled?: boolean;
 }): Effect<Promise<void>> => async (dispatch, getState) => {
-  cancelActiveRuntimePopulateIfNeeded(dispatch, getState());
+  const state = getState();
+  cancelActiveRuntimePopulateIfNeeded(dispatch, state);
   const client = getPortfolioRuntimeClient();
+  const walletIds = getAllMainnetWalletIdsFromState(state);
 
   try {
     await clearRuntimeStorageAfterPopulateStops(() => client.clearAllStorage());
+    await waitForRuntimeStorageToClear({
+      client,
+      walletIds,
+    });
   } catch (error: unknown) {
     logManager.warn(
       '[portfolio] Failed clearing runtime portfolio storage: ' +
         toErrorMessage(error),
     );
+    throw error;
   }
 
   dispatch(clearPortfolio(payload));

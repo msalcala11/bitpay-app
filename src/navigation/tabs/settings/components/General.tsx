@@ -99,14 +99,23 @@ const General: React.FC<Props> = ({navigation}) => {
   const handleToggleShowPortfolio = useCallback(
     async (value: boolean) => {
       dispatch(AppActions.showPortfolioValue(value));
-      if (!value) {
-        await dispatch(clearPortfolioWithRuntime({populateDisabled: false}) as any);
-        return;
-      }
+      try {
+        if (!value) {
+          await dispatch(
+            clearPortfolioWithRuntime({populateDisabled: false}) as any,
+          );
+          return;
+        }
 
-      await dispatch(
-        populatePortfolio({quoteCurrency: selectedAltCurrency?.isoCode}) as any,
-      );
+        await dispatch(
+          populatePortfolio({quoteCurrency: selectedAltCurrency?.isoCode}) as any,
+        );
+      } catch (error: unknown) {
+        logManager.warn(
+          '[General] Failed updating portfolio runtime state: ' +
+            (error instanceof Error ? error.message : String(error)),
+        );
+      }
     },
     [dispatch, selectedAltCurrency?.isoCode],
   );

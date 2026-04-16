@@ -28,7 +28,10 @@ export const DebugButtonSpacer = styled.View`
   height: 10px;
 `;
 
-export const DebugPillButton = styled(Pressable)<{selected?: boolean}>`
+export const DebugPillButton = styled(Pressable)<{
+  selected?: boolean;
+  disabled?: boolean;
+}>`
   padding: 10px 12px;
   border-radius: 999px;
   border-width: 1px;
@@ -36,6 +39,7 @@ export const DebugPillButton = styled(Pressable)<{selected?: boolean}>`
     selected ? theme.colors.primary : theme.colors.border};
   margin-right: 8px;
   margin-bottom: 8px;
+  opacity: ${({disabled}) => (disabled ? 0.5 : 1)};
 `;
 
 export const DebugPillButtonText = styled.Text<{selected?: boolean}>`

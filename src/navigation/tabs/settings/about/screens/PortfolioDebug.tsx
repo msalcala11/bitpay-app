@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Pressable, ScrollView} from 'react-native';
 import styled from 'styled-components/native';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -158,11 +158,25 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
   const [rateEntries, setRateEntries] = useState<any[]>([]);
   const [kvStats, setKvStats] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isClearing, setIsClearing] = useState<boolean>(false);
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
   const [runtimeError, setRuntimeError] = useState<string>('');
   const [lastRefreshedAt, setLastRefreshedAt] = useState<number | undefined>();
-
   const wallets = useMemo(() => getAllMainnetWallets(walletKeys), [walletKeys]);
+  const loadRequestIdRef = useRef(0);
+  const walletsRef = useRef<Wallet[]>(wallets);
+  const mismatchByWalletIdRef = useRef(
+    portfolio.snapshotBalanceMismatchesByWalletId,
+  );
+
+  useEffect(() => {
+    walletsRef.current = wallets;
+  }, [wallets]);
+
+  useEffect(() => {
+    mismatchByWalletIdRef.current =
+      portfolio.snapshotBalanceMismatchesByWalletId;
+  }, [portfolio.snapshotBalanceMismatchesByWalletId]);
 
   const refreshToken = useMemo(() => {
     return [
@@ -174,16 +188,19 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
   }, [portfolio.lastPopulatedAt, portfolio.populateStatus, wallets.length]);
 
   const load = useCallback(async () => {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
     setIsLoading(true);
     setRuntimeError('');
 
     try {
       const client = getPortfolioRuntimeClient();
+      const activeWallets = walletsRef.current;
       const [nextKvStats, nextRateEntries, indexes] = await Promise.all([
         client.kvStats(),
         client.listRates({}),
         Promise.all(
-          wallets.map(async wallet => {
+          activeWallets.map(async wallet => {
             try {
               return await client.getSnapshotIndex({walletId: wallet.id});
             } catch {
@@ -193,7 +210,11 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
         ),
       ]);
 
-      const nextRows = wallets
+      if (loadRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      const nextRows = activeWallets
         .map((wallet, index): RuntimeWalletRow => {
           const snapshotIndex = indexes[index] || null;
           return {
@@ -201,7 +222,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
             index: snapshotIndex,
             rowCount: getRowCount(snapshotIndex),
             chunkCount: snapshotIndex?.chunks?.length || 0,
-            mismatch: portfolio.snapshotBalanceMismatchesByWalletId?.[wallet.id],
+            mismatch: mismatchByWalletIdRef.current?.[wallet.id],
           };
         })
         .sort((a, b) => {
@@ -220,6 +241,9 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
       setKvStats(nextKvStats || null);
       setLastRefreshedAt(Date.now());
     } catch (error: unknown) {
+      if (loadRequestIdRef.current !== requestId) {
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       logManager.error('[PortfolioDebug] refresh failed', message);
       setRuntimeError(message);
@@ -227,9 +251,11 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
       setRateEntries([]);
       setKvStats(null);
     } finally {
-      setIsLoading(false);
+      if (loadRequestIdRef.current === requestId) {
+        setIsLoading(false);
+      }
     }
-  }, [portfolio.snapshotBalanceMismatchesByWalletId, wallets]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -291,14 +317,22 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
   }, [dispatch, load]);
 
   const clearAll = useCallback(async () => {
+    if (isClearing) {
+      return;
+    }
+
+    setRuntimeError('');
+    setIsClearing(true);
     try {
       await dispatch(clearPortfolioWithRuntime({populateDisabled: false}) as any);
-      void load();
+      await load();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setRuntimeError(message);
+    } finally {
+      setIsClearing(false);
     }
-  }, [dispatch, load]);
+  }, [dispatch, isClearing, load]);
 
   const clearRates = useCallback(async () => {
     try {
@@ -328,8 +362,10 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
             <DebugPillButton onPress={() => void clearRates()}>
               <DebugPillButtonText>{t('Clear Rates')}</DebugPillButtonText>
             </DebugPillButton>
-            <DebugPillButton onPress={() => void clearAll()}>
-              <DebugPillButtonText>{t('Clear All')}</DebugPillButtonText>
+            <DebugPillButton disabled={isClearing} onPress={() => void clearAll()}>
+              <DebugPillButtonText>
+                {isClearing ? t('Clearing...') : t('Clear All')}
+              </DebugPillButtonText>
             </DebugPillButton>
             <DebugPillButton onPress={copySummary}>
               <DebugPillButtonText>{copyState === 'copied' ? t('Copied') : t('Copy JSON')}</DebugPillButtonText>

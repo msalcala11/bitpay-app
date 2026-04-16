@@ -52,6 +52,8 @@ describe('portfolio.runtime.effects', () => {
       clearAllStorage: jest.fn().mockResolvedValue(undefined),
       cancelPopulateJob: jest.fn().mockResolvedValue({inProgress: false}),
       getPopulateJobStatus: jest.fn().mockResolvedValue({inProgress: false}),
+      kvStats: jest.fn().mockResolvedValue({totalKeys: 0}),
+      listRates: jest.fn().mockResolvedValue([]),
     } as any;
     (getPortfolioRuntimeClient as jest.Mock).mockReturnValue(client);
 
@@ -74,6 +76,8 @@ describe('portfolio.runtime.effects', () => {
     );
 
     expect(client.clearAllStorage).toHaveBeenCalledTimes(1);
+    expect(client.kvStats).toHaveBeenCalledTimes(1);
+    expect(client.listRates).toHaveBeenCalledTimes(1);
     expect(dispatched.map(action => action.type)).toEqual([
       PortfolioActionTypes.CANCEL_POPULATE_PORTFOLIO,
       PortfolioActionTypes.CLEAR_PORTFOLIO,
@@ -92,6 +96,8 @@ describe('portfolio.runtime.effects', () => {
         .mockResolvedValue(undefined),
       cancelPopulateJob: jest.fn().mockResolvedValue({inProgress: false}),
       getPopulateJobStatus: jest.fn().mockResolvedValue({inProgress: false}),
+      kvStats: jest.fn().mockResolvedValue({totalKeys: 0}),
+      listRates: jest.fn().mockResolvedValue([]),
     } as any;
     (getPortfolioRuntimeClient as jest.Mock).mockReturnValue(client);
 
@@ -115,10 +121,94 @@ describe('portfolio.runtime.effects', () => {
 
     expect(client.clearAllStorage).toHaveBeenCalledTimes(2);
     expect(client.cancelPopulateJob).toHaveBeenCalledTimes(2);
+    expect(client.kvStats).toHaveBeenCalledTimes(1);
+    expect(client.listRates).toHaveBeenCalledTimes(1);
     expect(dispatched.map(action => action.type)).toEqual([
       PortfolioActionTypes.CANCEL_POPULATE_PORTFOLIO,
       PortfolioActionTypes.CLEAR_PORTFOLIO,
     ]);
+  });
+
+  it('waits for runtime storage verification to finish before clearing redux state', async () => {
+    const client = {
+      clearAllStorage: jest.fn().mockResolvedValue(undefined),
+      cancelPopulateJob: jest.fn().mockResolvedValue({inProgress: false}),
+      getPopulateJobStatus: jest.fn().mockResolvedValue({inProgress: false}),
+      kvStats: jest
+        .fn()
+        .mockResolvedValueOnce({totalKeys: 2})
+        .mockResolvedValueOnce({totalKeys: 0}),
+      listRates: jest.fn().mockResolvedValue([]),
+    } as any;
+    (getPortfolioRuntimeClient as jest.Mock).mockReturnValue(client);
+
+    const dispatched: any[] = [];
+    const dispatch = (action: any) => {
+      dispatched.push(action);
+      return action;
+    };
+    const getState = () => ({
+      WALLET: {
+        keys: {},
+      },
+      PORTFOLIO: {
+        populateStatus: {
+          inProgress: false,
+        },
+      },
+    });
+
+    await clearPortfolioWithRuntime({populateDisabled: false})(
+      dispatch as any,
+      getState as any,
+    );
+
+    expect(client.clearAllStorage).toHaveBeenCalledTimes(1);
+    expect(client.kvStats).toHaveBeenCalledTimes(2);
+    expect(client.listRates).toHaveBeenCalledTimes(1);
+    expect(dispatched.map(action => action.type)).toEqual([
+      PortfolioActionTypes.CLEAR_PORTFOLIO,
+    ]);
+  });
+
+  it('throws when runtime clear fails and preserves redux portfolio state', async () => {
+    const client = {
+      clearAllStorage: jest
+        .fn()
+        .mockRejectedValue(new Error('MMKV clear failed hard.')),
+      cancelPopulateJob: jest.fn().mockResolvedValue({inProgress: false}),
+      getPopulateJobStatus: jest.fn().mockResolvedValue({inProgress: false}),
+      kvStats: jest.fn(),
+      listRates: jest.fn(),
+    } as any;
+    (getPortfolioRuntimeClient as jest.Mock).mockReturnValue(client);
+
+    const dispatched: any[] = [];
+    const dispatch = (action: any) => {
+      dispatched.push(action);
+      return action;
+    };
+    const getState = () => ({
+      WALLET: {
+        keys: {},
+      },
+      PORTFOLIO: {
+        populateStatus: {
+          inProgress: false,
+        },
+      },
+    });
+
+    await expect(
+      clearPortfolioWithRuntime({populateDisabled: false})(
+        dispatch as any,
+        getState as any,
+      ),
+    ).rejects.toThrow('MMKV clear failed hard.');
+
+    expect(dispatched).toEqual([]);
+    expect(client.kvStats).not.toHaveBeenCalled();
+    expect(client.listRates).not.toHaveBeenCalled();
   });
 
   it('clears wallet-scoped runtime storage and removes wallet state entries', async () => {
