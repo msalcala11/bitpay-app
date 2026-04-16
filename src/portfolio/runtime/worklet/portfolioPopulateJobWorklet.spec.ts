@@ -154,4 +154,98 @@ describe('portfolioPopulateJobWorklet', () => {
     expect(mockHandleFinishWalletOnPopulateWorklet).toHaveBeenCalledTimes(1);
     expect(mockClearWorkletWalletSnapshots).not.toHaveBeenCalled();
   });
+
+  it('skips a wallet prepare failure and continues populating the remaining wallets', async () => {
+    const paramsWithTwoWallets = {
+      ...params,
+      wallets: [
+        params.wallets[0],
+        {
+          walletId: 'w2',
+          credentials: {
+            walletId: 'w2',
+            requestPrivKey: 'priv-key-2',
+          },
+          summary: {
+            walletId: 'w2',
+            walletName: 'Wallet 2',
+            chain: 'btc',
+            network: 'livenet',
+            currencyAbbreviation: 'btc',
+            balanceAtomic: '200000000',
+            balanceFormatted: '2',
+          },
+        },
+      ],
+    } as any;
+
+    mockHandlePrepareWalletOnPopulateWorklet
+      .mockRejectedValueOnce(
+        new Error(
+          'Failed to fetch fiat rates (400) for https://bws.bitpay.com/bws/api/v4/fiatrates/USD?days=1',
+        ),
+      )
+      .mockResolvedValueOnce({
+        checkpoint: {nextSkip: 0},
+      });
+    mockHandleProcessNextPageOnPopulateWorklet.mockResolvedValueOnce({
+      checkpoint: {nextSkip: 0},
+      appendedSnapshots: 0,
+      fetchedTxs: 0,
+      logicalPageSize: 0,
+      done: true,
+      fetchMs: 1,
+      computeMs: 0,
+    });
+    mockHandleFinishWalletOnPopulateWorklet.mockResolvedValueOnce({
+      checkpoint: {nextSkip: 0},
+      appendedSnapshots: 1,
+    });
+
+    const started = await handleStartPopulateJobOnWorklet(
+      config,
+      paramsWithTwoWallets,
+      {
+        w1: {
+          requestPrivKey: 'priv-key',
+          nextSignHandleIndex: 0,
+        },
+        w2: {
+          requestPrivKey: 'priv-key-2',
+          nextSignHandleIndex: 0,
+        },
+      },
+    );
+    const status = await waitForTerminalStatus(started.jobId);
+
+    expect(status?.state).toBe('completed');
+    expect(status?.failureMessage).toBeUndefined();
+    expect(status?.walletsCompleted).toBe(1);
+    expect(status?.walletStatusById).toMatchObject({
+      w1: 'error',
+      w2: 'done',
+    });
+    expect(status?.errors).toEqual([
+      {
+        walletId: 'w1',
+        message:
+          'Failed to fetch fiat rates (400) for https://bws.bitpay.com/bws/api/v4/fiatrates/USD?days=1',
+      },
+    ]);
+    expect(status?.result?.results).toHaveLength(1);
+    expect(status?.result?.results[0]).toMatchObject({
+      walletId: 'w2',
+      cancelled: false,
+    });
+    expect(mockHandlePrepareWalletOnPopulateWorklet).toHaveBeenCalledTimes(2);
+    expect(mockHandleFinishWalletOnPopulateWorklet).toHaveBeenCalledTimes(1);
+    expect(mockClearWorkletWalletSnapshots).toHaveBeenCalledTimes(1);
+    expect(mockClearWorkletWalletSnapshots).toHaveBeenCalledWith(
+      {
+        storage: config.storage,
+        registryKey: config.registryKey,
+      },
+      'w1',
+    );
+  });
 });

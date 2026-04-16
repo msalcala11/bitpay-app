@@ -2,6 +2,9 @@ import type {FiatRateAssetRef, FiatRatePoint, FiatRateSeriesCache, FiatRateInter
 import {getFiatRateSeriesCacheKey} from '../fiatRatesShared';
 import type {WalletCredentials} from '../types';
 
+const LEGACY_ETH_MATIC_TOKEN_ADDRESS =
+  '0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0';
+
 export const normalizeFiatRateSeriesCoin = (currencyAbbreviation?: string): string => {
   'worklet';
 
@@ -26,12 +29,32 @@ export const getFiatRateAssetRef = (args: {
 }): FiatRateAssetRef => {
   'worklet';
 
-  const tokenAddress = String(args.tokenAddress || args.credentials?.token?.address || '').toLowerCase();
+  const tokenAddress = String(
+    args.tokenAddress || args.credentials?.token?.address || '',
+  ).toLowerCase();
   const chain = tokenAddress
     ? String(args.chain || args.credentials?.chain || args.credentials?.coin || '').toLowerCase()
     : '';
+  const coin = normalizeFiatRateSeriesCoin(
+    args.currencyAbbreviation ||
+      args.credentials?.token?.symbol ||
+      args.credentials?.coin,
+  );
+
+  // Legacy Ethereum-side MATIC should reuse native Polygon/POL rates instead
+  // of going through the generic token-address endpoint.
+  if (
+    tokenAddress === LEGACY_ETH_MATIC_TOKEN_ADDRESS &&
+    chain === 'eth' &&
+    coin === 'pol'
+  ) {
+    return {
+      coin: 'pol',
+    };
+  }
+
   return {
-    coin: normalizeFiatRateSeriesCoin(args.currencyAbbreviation || args.credentials?.token?.symbol || args.credentials?.coin),
+    coin,
     chain: chain || undefined,
     tokenAddress: tokenAddress || undefined,
   };

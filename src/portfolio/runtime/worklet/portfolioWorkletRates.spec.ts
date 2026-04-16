@@ -101,4 +101,47 @@ describe('portfolioWorkletRates', () => {
       }),
     );
   });
+
+  it('aliases the legacy ethereum matic token to native POL rates', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          pol: [
+            {ts: 1, rate: 0.9},
+            {ts: 2, rate: 1.1},
+          ],
+        }),
+    });
+    global.fetch = fetchMock as typeof global.fetch;
+
+    await ensureWorkletSnapshotRateSeriesCache({
+      storage: createStorage(),
+      registryKey: '__registry__',
+      cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
+      quoteCurrency: 'USD',
+      wallet: {
+        walletId: 'w3',
+        walletName: 'Legacy Matic Token',
+        chain: 'eth',
+        network: 'livenet',
+        currencyAbbreviation: 'matic',
+        tokenAddress: '0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0',
+        balanceAtomic: '0',
+        balanceFormatted: '0',
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://bws.bitpay.com/bws/api/v4/fiatrates/USD?days=1',
+      expect.objectContaining({
+        method: 'GET',
+      }),
+    );
+    expect(
+      fetchMock.mock.calls.some(call =>
+        String(call[0]).includes('tokenAddress=0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0'),
+      ),
+    ).toBe(false);
+  });
 });

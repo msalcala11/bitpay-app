@@ -26,6 +26,7 @@ import {
   getOrCreatePortfolioPopulateWorkletState,
   type PortfolioPopulateWorkletConfig,
 } from './portfolioPopulateWorklet';
+import {clearWorkletWalletSnapshots} from './portfolioWorkletSnapshots';
 
 const PORTFOLIO_POPULATE_JOB_GLOBAL_KEY =
   '__bitpayPortfolioPopulateJobWorkletStateV1__';
@@ -355,18 +356,27 @@ async function runSingleWalletPopulateOnWorklet(args: {
     return walletRun;
   }
 
-  walletRun.prepared = await handlePrepareWalletOnPopulateWorklet(
-    config,
-    populateState,
-    {
-      cfg: params.cfg,
-      wallet: wallet.summary,
-      credentials: wallet.credentials,
-      ingest: params.ingest,
-      pageSize: params.pageSize,
-      emitRows: params.emitRows,
-    },
-  );
+  try {
+    walletRun.prepared = await handlePrepareWalletOnPopulateWorklet(
+      config,
+      populateState,
+      {
+        cfg: params.cfg,
+        wallet: wallet.summary,
+        credentials: wallet.credentials,
+        ingest: params.ingest,
+        pageSize: params.pageSize,
+        emitRows: params.emitRows,
+      },
+    );
+  } catch (error: unknown) {
+    try {
+      await handleCloseWalletSessionOnPopulateWorklet(populateState, walletId);
+    } catch {
+      // Ignore cleanup failures while propagating the original error.
+    }
+    throw error;
+  }
 
   try {
     while (!job.cancelRequested) {
@@ -470,6 +480,17 @@ async function runPortfolioPopulateJobLoop(args: {
       } catch (error: unknown) {
         const message =
           error instanceof Error ? error.message : String(error || 'Unknown error');
+        try {
+          await clearWorkletWalletSnapshots(
+            {
+              storage: config.storage,
+              registryKey: config.registryKey,
+            },
+            walletId,
+          );
+        } catch {
+          // Ignore cleanup failures so the job can continue with the next wallet.
+        }
         markWalletStatus(job, walletId, 'error');
         appendJobError(job, walletId, message);
       }

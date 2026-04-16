@@ -56,6 +56,8 @@ const FIATRATES_MARKETSTATS_BASE_URL =
     : BASE_BWS_URL;
 
 const FIAT_RATE_SERIES_BASE_URL = `${FIATRATES_MARKETSTATS_BASE_URL}/v4/fiatrates`;
+const LEGACY_ETH_MATIC_TOKEN_ADDRESS =
+  '0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0';
 
 const FIAT_RATE_SERIES_INTERVAL_DAYS: Record<
   FiatRateInterval,
@@ -80,8 +82,18 @@ const getFiatRateSeriesUrl = (
   const days = FIAT_RATE_SERIES_INTERVAL_DAYS[interval];
   const codeUpper = (fiatCode || 'USD').toUpperCase();
   const normalizedCoin = normalizeFiatRateSeriesCoin(coin).trim();
-  const normalizedChain = (chain || '').trim();
-  const normalizedTokenAddress = (tokenAddress || '').trim();
+  let normalizedChain = (chain || '').trim().toLowerCase();
+  let normalizedTokenAddress = (tokenAddress || '').trim().toLowerCase();
+
+  if (
+    normalizedCoin === 'pol' &&
+    normalizedChain === 'eth' &&
+    normalizedTokenAddress === LEGACY_ETH_MATIC_TOKEN_ADDRESS
+  ) {
+    normalizedChain = '';
+    normalizedTokenAddress = '';
+  }
+
   const coinQuery = normalizedCoin
     ? `coin=${encodeURIComponent(normalizedCoin)}`
     : '';
