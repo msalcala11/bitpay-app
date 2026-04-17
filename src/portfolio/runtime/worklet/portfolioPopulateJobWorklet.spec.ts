@@ -248,4 +248,103 @@ describe('portfolioPopulateJobWorklet', () => {
       'w1',
     );
   });
+
+  it('skips a wallet txhistory page failure and continues populating the remaining wallets', async () => {
+    const paramsWithTwoWallets = {
+      ...params,
+      wallets: [
+        params.wallets[0],
+        {
+          walletId: 'w2',
+          credentials: {
+            walletId: 'w2',
+            requestPrivKey: 'priv-key-2',
+          },
+          summary: {
+            walletId: 'w2',
+            walletName: 'Wallet 2',
+            chain: 'btc',
+            network: 'livenet',
+            currencyAbbreviation: 'btc',
+            balanceAtomic: '200000000',
+            balanceFormatted: '2',
+          },
+        },
+      ],
+    } as any;
+
+    mockHandlePrepareWalletOnPopulateWorklet
+      .mockResolvedValueOnce({
+        checkpoint: {nextSkip: 0},
+      })
+      .mockResolvedValueOnce({
+        checkpoint: {nextSkip: 0},
+      });
+    mockHandleProcessNextPageOnPopulateWorklet
+      .mockRejectedValueOnce(
+        new Error(
+          'BWS txhistory request failed with status 404 for /v1/txhistory/?limit=1000&reverse=1. Not found.',
+        ),
+      )
+      .mockResolvedValueOnce({
+        checkpoint: {nextSkip: 0},
+        appendedSnapshots: 0,
+        fetchedTxs: 0,
+        logicalPageSize: 0,
+        done: true,
+        fetchMs: 1,
+        computeMs: 0,
+      });
+    mockHandleFinishWalletOnPopulateWorklet.mockResolvedValueOnce({
+      checkpoint: {nextSkip: 0},
+      appendedSnapshots: 1,
+    });
+
+    const started = await handleStartPopulateJobOnWorklet(
+      config,
+      paramsWithTwoWallets,
+      {
+        w1: {
+          requestPrivKey: 'priv-key',
+          nextSignHandleIndex: 0,
+        },
+        w2: {
+          requestPrivKey: 'priv-key-2',
+          nextSignHandleIndex: 0,
+        },
+      },
+    );
+    const status = await waitForTerminalStatus(started.jobId);
+
+    expect(status?.state).toBe('completed');
+    expect(status?.failureMessage).toBeUndefined();
+    expect(status?.walletsCompleted).toBe(1);
+    expect(status?.walletStatusById).toMatchObject({
+      w1: 'error',
+      w2: 'done',
+    });
+    expect(status?.errors).toEqual([
+      {
+        walletId: 'w1',
+        message:
+          'BWS txhistory request failed with status 404 for /v1/txhistory/?limit=1000&reverse=1. Not found.',
+      },
+    ]);
+    expect(status?.result?.results).toHaveLength(1);
+    expect(status?.result?.results[0]).toMatchObject({
+      walletId: 'w2',
+      cancelled: false,
+    });
+    expect(mockHandlePrepareWalletOnPopulateWorklet).toHaveBeenCalledTimes(2);
+    expect(mockHandleProcessNextPageOnPopulateWorklet).toHaveBeenCalledTimes(2);
+    expect(mockHandleFinishWalletOnPopulateWorklet).toHaveBeenCalledTimes(1);
+    expect(mockClearWorkletWalletSnapshots).toHaveBeenCalledTimes(1);
+    expect(mockClearWorkletWalletSnapshots).toHaveBeenCalledWith(
+      {
+        storage: config.storage,
+        registryKey: config.registryKey,
+      },
+      'w1',
+    );
+  });
 });
