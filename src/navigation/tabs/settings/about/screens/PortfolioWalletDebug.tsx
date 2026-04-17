@@ -7,6 +7,7 @@ import {useTranslation} from 'react-i18next';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import type {RootStackParamList} from '../../../../../Root';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
+import {formatCurrencyAbbreviation} from '../../../../../utils/helper-methods';
 import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
 import {
   DebugButtonRow,
@@ -166,6 +167,18 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
     () => findWalletById(walletKeys, walletId),
     [walletId, walletKeys],
   );
+  const walletDetailsBalance = useMemo(() => {
+    if (!wallet) {
+      return undefined;
+    }
+
+    const cryptoBalance = String((wallet as any)?.balance?.crypto || '0');
+    const currencyAbbreviation = formatCurrencyAbbreviation(
+      String((wallet as any)?.currencyAbbreviation || ''),
+    );
+
+    return [cryptoBalance, currencyAbbreviation].filter(Boolean).join(' ');
+  }, [wallet]);
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
@@ -327,6 +340,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
                 `chain: ${String((wallet as any)?.chain || '')}`,
                 `coin: ${String((wallet as any)?.currencyAbbreviation || '')}`,
                 `network: ${String((wallet as any)?.network || '')}`,
+                `walletDetailsBalance: ${walletDetailsBalance || '—'}`,
               ].join('\n')
             : `walletId: ${walletId}\nwallet not found in current Redux wallet state`}
         </SectionText>
