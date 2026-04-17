@@ -133,11 +133,11 @@ import {
 } from '../../../utils/portfolio/allocation';
 import {isTSSKey} from '../../../store/wallet/effects/tss-send/tss-send';
 import {
-  buildPortfolioGainLossSummaryFromPortfolioSnapshots,
   getVisibleWalletsForKey,
   getQuoteCurrency,
   isPopulateLoadingForWallets,
 } from '../../../utils/portfolio/assets';
+import usePortfolioGainLossSummary from '../../../portfolio/ui/hooks/usePortfolioGainLossSummary';
 import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
 
 LogBox.ignoreLogs([
@@ -638,18 +638,14 @@ const KeyOverview = () => {
 
   const showAllocationGainLossFooter = !portfolio.populateDisabled;
 
-  const gainLossSummary = useMemo(() => {
-    const summary = buildPortfolioGainLossSummaryFromPortfolioSnapshots({
-      snapshotsByWalletId: portfolio.snapshotsByWalletId || {},
-      wallets: visibleKeyWallets,
-      quoteCurrency,
-      rates,
-      lastDayRates,
-      fiatRateSeriesCache,
-    });
+  const {summary: runtimeGainLossSummary} = usePortfolioGainLossSummary({
+    wallets: visibleKeyWallets,
+    liveFiatTotal: totalBalance,
+  });
 
-    if (summary.today.available) {
-      return summary;
+  const gainLossSummary = useMemo(() => {
+    if (runtimeGainLossSummary.today.available) {
+      return runtimeGainLossSummary;
     }
 
     const baseline =
@@ -658,24 +654,15 @@ const KeyOverview = () => {
     const percentRatio = baseline > 0 ? deltaFiat / baseline : 0;
 
     return {
-      ...summary,
+      ...runtimeGainLossSummary,
       today: {
-        ...summary.today,
+        ...runtimeGainLossSummary.today,
         deltaFiat,
         percentRatio,
         available: true,
       },
     };
-  }, [
-    fiatRateSeriesCache,
-    lastDayRates,
-    portfolio.snapshotsByWalletId,
-    quoteCurrency,
-    rates,
-    totalBalance,
-    totalBalanceLastDay,
-    visibleKeyWallets,
-  ]);
+  }, [runtimeGainLossSummary, totalBalance, totalBalanceLastDay]);
 
   const allTimeGainLossText = useMemo(() => {
     if (!gainLossSummary.total.available) {
@@ -1100,7 +1087,9 @@ const KeyOverview = () => {
               <Balance scale={shouldScale(totalBalance)}>
                 {formatFiatAmount(
                   selectedBalance ?? totalBalance,
-                  defaultAltCurrency.isoCode,
+                  typeof selectedBalance === 'number'
+                    ? quoteCurrency
+                    : defaultAltCurrency.isoCode,
                   {
                     currencyDisplay: 'symbol',
                   },
@@ -1114,7 +1103,6 @@ const KeyOverview = () => {
           {!hideAllBalances ? (
             <BalanceHistoryChart
               wallets={visibleKeyWallets}
-              snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
               quoteCurrency={quoteCurrency}
               rates={rates}
               fiatRateSeriesCache={fiatRateSeriesCache}
@@ -1153,7 +1141,6 @@ const KeyOverview = () => {
     fiatRateSeriesCache,
     hideAllBalances,
     memoizedAccountList,
-    portfolio?.snapshotsByWalletId,
     quoteCurrency,
     rates,
     searchResults,

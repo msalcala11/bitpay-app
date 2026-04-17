@@ -1,0 +1,141 @@
+import type {BwsConfig} from '../shared/bws';
+import type {FiatRateAssetRef, FiatRateInterval} from '../fiatRatesShared';
+import type {WalletCredentials, WalletSummary} from '../types';
+import type {
+  ComputeAnalysisArgs,
+  FinishWalletSessionResult,
+  KvStats,
+  PrepareWalletSessionResult,
+  ProcessNextPageSessionResult,
+  SnapshotIngestConfig,
+} from './portfolioEngine';
+import type {PnlAnalysisChartResult, PnlAnalysisResult} from '../pnl/analysisStreaming';
+import type {SnapshotIndexV2} from '../pnl/snapshotStore';
+import type {BalanceSnapshotStored} from '../pnl/types';
+import type {
+  PortfolioPopulateJobStartParams,
+  PortfolioPopulateJobStartResult,
+  PortfolioPopulateJobStatus,
+} from './populateJob';
+
+export type WorkerMethodMap = {
+  'rates.ensure': {
+    params: {cfg: BwsConfig; quoteCurrency: string; interval: FiatRateInterval; coins: string[]; assets?: FiatRateAssetRef[]};
+    result: void;
+  };
+
+  'snapshots.getIndex': {
+    params: {walletId: string};
+    result: SnapshotIndexV2 | null;
+  };
+
+  'snapshots.clearWallet': {
+    params: {walletId: string};
+    result: void;
+  };
+
+  'snapshots.prepareWallet': {
+    params: {
+      cfg: BwsConfig;
+      wallet: WalletSummary;
+      credentials: WalletCredentials;
+      ingest: SnapshotIngestConfig;
+      pageSize: number;
+      emitRows?: number;
+    };
+    result: PrepareWalletSessionResult;
+  };
+
+  'snapshots.closeWalletSession': {
+    params: {walletId: string};
+    result: void;
+  };
+
+  'snapshots.processNextPage': {
+    params: {walletId: string};
+    result: ProcessNextPageSessionResult;
+  };
+
+  'snapshots.finishWallet': {
+    params: {walletId: string};
+    result: FinishWalletSessionResult;
+  };
+
+  'snapshots.getLatestSnapshot': {
+    params: {walletId: string};
+    result: BalanceSnapshotStored | null;
+  };
+
+  'snapshots.listSnapshots': {
+    params: {walletId: string};
+    result: BalanceSnapshotStored[];
+  };
+
+  'analysis.compute': {
+    params: ComputeAnalysisArgs;
+    result: PnlAnalysisResult;
+  };
+
+  'analysis.computeChart': {
+    params: ComputeAnalysisArgs;
+    result: PnlAnalysisChartResult;
+  };
+
+  'populate.startJob': {
+    params: PortfolioPopulateJobStartParams;
+    result: PortfolioPopulateJobStartResult;
+  };
+
+  'populate.getJobStatus': {
+    params: {jobId?: string};
+    result: PortfolioPopulateJobStatus | null;
+  };
+
+  'populate.cancelJob': {
+    params: {jobId?: string};
+    result: PortfolioPopulateJobStatus | null;
+  };
+
+  // ---- Harness/debug helpers ----
+  'debug.listRates': {
+    params: {quoteCurrency?: string};
+    result: Array<{
+      key: string;
+      quoteCurrency: string;
+      coin: string;
+      interval: FiatRateInterval;
+      fetchedOn: number;
+      points: number;
+      firstTs: number | null;
+      lastTs: number | null;
+      bytes: number;
+    }>;
+  };
+
+  'debug.clearRates': {
+    params: {quoteCurrency?: string};
+    result: void;
+  };
+
+  'debug.clearAll': {
+    params: {};
+    result: void;
+  };
+
+  'debug.kvStats': {
+    params: {};
+    result: KvStats;
+  };
+};
+
+export type WorkerMethod = keyof WorkerMethodMap;
+
+export type WorkerRequest<M extends WorkerMethod = WorkerMethod> = {
+  id: number;
+  method: M;
+  params: WorkerMethodMap[M]['params'];
+};
+
+export type WorkerResponse<M extends WorkerMethod = WorkerMethod> =
+  | {id: number; ok: true; result: WorkerMethodMap[M]['result']}
+  | {id: number; ok: false; error: string; stack?: string};

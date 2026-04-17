@@ -35,11 +35,11 @@ import Animated, {
 } from 'react-native-reanimated';
 import {maskIfHidden} from '../../../../utils/hideBalances';
 import {
-  getQuoteCurrency,
   getVisibleKeysFromKeys,
   getVisibleWalletsFromKeys,
   walletHasNonZeroLiveBalance,
 } from '../../../../utils/portfolio/assets';
+import {resolveCommittedPortfolioQuoteCurrency} from '../../../../portfolio/ui/common';
 import {setHomeChartCollapsed} from '../../../../store/portfolio-charts';
 import type {FiatRateInterval} from '../../../../store/rate/rate.models';
 import type {Wallet} from '../../../../store/wallet/wallet.models';
@@ -102,9 +102,17 @@ const PortfolioBalance = () => {
     useAppSelector(({COINBASE}) => COINBASE.balance[COINBASE_ENV]) || 0.0;
 
   const keys = useSelector(({WALLET}: RootState) => WALLET.keys);
-  const portfolio = useSelector(({PORTFOLIO}: RootState) => PORTFOLIO);
   const {rates, fiatRateSeriesCache} = useSelector(({RATE}: RootState) => RATE);
 
+  const committedPortfolioQuoteCurrency = useAppSelector(
+    ({PORTFOLIO}) => PORTFOLIO.quoteCurrency,
+  );
+  const committedPortfolioLastPopulatedAt = useAppSelector(
+    ({PORTFOLIO}) => PORTFOLIO.lastPopulatedAt,
+  );
+  const populateInProgress = useAppSelector(
+    ({PORTFOLIO}) => !!PORTFOLIO.populateStatus?.inProgress,
+  );
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
   const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
@@ -161,15 +169,13 @@ const PortfolioBalance = () => {
 
   const walletsAcrossKeys: Wallet[] = useMemo(() => {
     const allWallets = getVisibleWalletsFromKeys(keys, homeCarouselConfig);
-    const snapshotsMap = portfolio?.snapshotsByWalletId || {};
 
     const byId = new Map<string, Wallet>();
     for (const w of allWallets) {
       if (!w?.id) {
         continue;
       }
-      const hasSnaps = !!snapshotsMap[w.id]?.length;
-      if (!walletHasNonZeroLiveBalance(w) && !hasSnaps) {
+      if (!walletHasNonZeroLiveBalance(w)) {
         continue;
       }
       if (!byId.has(w.id)) {
@@ -177,12 +183,11 @@ const PortfolioBalance = () => {
       }
     }
     return Array.from(byId.values());
-  }, [homeCarouselConfig, keys, portfolio?.snapshotsByWalletId]);
+  }, [homeCarouselConfig, keys]);
 
   const hasChartData = useMemo(() => {
-    const snapshotsMap = portfolio?.snapshotsByWalletId || {};
-    return walletsAcrossKeys.some(w => (snapshotsMap[w.id] || []).length > 0);
-  }, [portfolio?.snapshotsByWalletId, walletsAcrossKeys]);
+    return walletsAcrossKeys.length > 0 && !!committedPortfolioLastPopulatedAt;
+  }, [committedPortfolioLastPopulatedAt, walletsAcrossKeys.length]);
   const shouldLeftAlignTopSection = hasChartData && !hideAllBalances;
   const collapsedScale = 0.26;
   const fullChartHeight = chartBlockHeight || 330;
@@ -345,16 +350,15 @@ const PortfolioBalance = () => {
     [],
   );
 
-  const quoteCurrency = getQuoteCurrency({
-    portfolioQuoteCurrency: portfolio?.quoteCurrency,
+  const quoteCurrency = resolveCommittedPortfolioQuoteCurrency({
+    portfolioQuoteCurrency: committedPortfolioQuoteCurrency,
     defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
   });
   const collapseChartAccessibilityLabel = t('Collapse portfolio chart');
   const expandChartAccessibilityLabel = t('Expand portfolio chart');
   const chartLifecycleKey = useMemo(
-    () =>
-      `home-portfolio-charts:${quoteCurrency}:${homeChartRemountNonce}:${visibleKeyIdsSig}`,
-    [homeChartRemountNonce, quoteCurrency, visibleKeyIdsSig],
+    () => `home-portfolio-charts:${homeChartRemountNonce}:${visibleKeyIdsSig}`,
+    [homeChartRemountNonce, visibleKeyIdsSig],
   );
   const hasInitializedChartLifecycleRef = React.useRef(false);
 
@@ -372,15 +376,19 @@ const PortfolioBalance = () => {
     typeof selectedChartBalance === 'number'
       ? selectedChartBalance
       : totalBalanceIncludingCoinbase;
+  const displayedPortfolioBalanceCurrency =
+    typeof selectedChartBalance === 'number'
+      ? quoteCurrency
+      : defaultAltCurrency.isoCode;
   const formattedPortfolioBalance = useMemo(() => {
     return formatFiatAmount(
       displayedPortfolioBalance,
-      defaultAltCurrency.isoCode,
+      displayedPortfolioBalanceCurrency,
       {
         currencyDisplay: 'symbol',
       },
     );
-  }, [defaultAltCurrency.isoCode, displayedPortfolioBalance]);
+  }, [displayedPortfolioBalance, displayedPortfolioBalanceCurrency]);
   const shouldUseCompactPortfolioBalanceText = useMemo(() => {
     return shouldUseCompactFiatAmountText(formattedPortfolioBalance);
   }, [formattedPortfolioBalance]);
@@ -522,7 +530,6 @@ const PortfolioBalance = () => {
                 <BalanceHistoryChart
                   key={chartLifecycleKey}
                   wallets={walletsAcrossKeys}
-                  snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
                   quoteCurrency={quoteCurrency}
                   initialSelectedTimeframe={selectedChartTimeframeRef.current}
                   rates={rates}
@@ -537,6 +544,9 @@ const PortfolioBalance = () => {
                   timeframeSelectorOpacity={timeframeSelectorOpacity}
                   timeframeSelectorHorizontalInset={ScreenGutter}
                   disablePanGesture={isChartCollapsed}
+                  showLoaderWhenNoSnapshots={
+                    populateInProgress || !committedPortfolioLastPopulatedAt
+                  }
                   // NOTE: Coinbase balance is intentionally excluded from the balance chart
                   // (Option B per product requirements) because we do not have historized
                   // Coinbase balance snapshots.
@@ -568,13 +578,15 @@ const PortfolioBalance = () => {
           <BalanceHistoryChart
             key={chartLifecycleKey}
             wallets={walletsAcrossKeys}
-            snapshotsByWalletId={portfolio?.snapshotsByWalletId || {}}
             quoteCurrency={quoteCurrency}
             initialSelectedTimeframe={selectedChartTimeframeRef.current}
             rates={rates}
             fiatRateSeriesCache={fiatRateSeriesCache}
             onSelectedTimeframeChange={onSelectedChartTimeframeChange}
             timeframeSelectorHorizontalInset={ScreenGutter}
+            showLoaderWhenNoSnapshots={
+              populateInProgress || !committedPortfolioLastPopulatedAt
+            }
             // NOTE: Coinbase balance is intentionally excluded from the balance chart
             // (Option B per product requirements) because we do not have historized
             // Coinbase balance snapshots.

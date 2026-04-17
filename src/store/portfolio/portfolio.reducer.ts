@@ -6,7 +6,6 @@ export const portfolioReduxPersistBlackList: PortfolioReduxPersistBlackList =
   [];
 
 const initialState: PortfolioState = {
-  snapshotsByWalletId: {},
   lastPopulatedAt: undefined,
   quoteCurrency: undefined,
   populateDisabled: false,
@@ -15,6 +14,7 @@ const initialState: PortfolioState = {
     startedAt: undefined,
     finishedAt: undefined,
     elapsedMs: undefined,
+    stopReason: undefined,
     currentWalletId: undefined,
     walletsTotal: 0,
     walletsCompleted: 0,
@@ -37,6 +37,7 @@ export const portfolioReducer = (
         populateStatus: {
           ...state.populateStatus,
           inProgress: false,
+          stopReason: state.populateStatus.stopReason,
           currentWalletId: undefined,
           walletStatusById: {},
         },
@@ -49,8 +50,6 @@ export const portfolioReducer = (
       case PortfolioActionTypes.CANCEL_POPULATE_PORTFOLIO:
       case PortfolioActionTypes.START_POPULATE_PORTFOLIO:
       case PortfolioActionTypes.UPDATE_POPULATE_PROGRESS:
-      case PortfolioActionTypes.SET_WALLET_SNAPSHOTS:
-      case PortfolioActionTypes.REMOVE_WALLET_SNAPSHOTS:
       case PortfolioActionTypes.SET_SNAPSHOT_BALANCE_MISMATCHES_BY_WALLET_ID_UPDATES:
       case PortfolioActionTypes.FINISH_POPULATE_PORTFOLIO:
       case PortfolioActionTypes.FAIL_POPULATE_PORTFOLIO:
@@ -76,6 +75,7 @@ export const portfolioReducer = (
         ...state,
         populateStatus: {
           ...initialState.populateStatus,
+          stopReason: 'cancelled',
         },
       };
     }
@@ -84,13 +84,13 @@ export const portfolioReducer = (
       const startedAt = Date.now();
       return {
         ...state,
-        quoteCurrency: action.payload.quoteCurrency,
         populateStatus: {
           ...state.populateStatus,
           inProgress: true,
           startedAt,
           finishedAt: undefined,
           elapsedMs: undefined,
+          stopReason: undefined,
           currentWalletId: undefined,
           walletsTotal: 0,
           walletsCompleted: 0,
@@ -143,29 +143,12 @@ export const portfolioReducer = (
       };
     }
 
-    case PortfolioActionTypes.SET_WALLET_SNAPSHOTS: {
-      return {
-        ...state,
-        snapshotsByWalletId: {
-          ...state.snapshotsByWalletId,
-          [action.payload.walletId]: action.payload.snapshots,
-        },
-      };
-    }
-
-    case PortfolioActionTypes.REMOVE_WALLET_SNAPSHOTS: {
+    case PortfolioActionTypes.CLEAR_WALLET_PORTFOLIO_STATE: {
       const walletIds = Array.isArray(action.payload.walletIds)
         ? action.payload.walletIds
         : [];
       if (!walletIds.length) {
         return state;
-      }
-
-      const nextSnapshotsByWalletId = {...state.snapshotsByWalletId};
-      for (const id of walletIds) {
-        if (typeof id === 'string' && id) {
-          delete nextSnapshotsByWalletId[id];
-        }
       }
 
       const nextSnapshotBalanceMismatchesByWalletId = {
@@ -188,11 +171,17 @@ export const portfolioReducer = (
         }
       }
 
+      const currentWalletId =
+        state.populateStatus.currentWalletId &&
+        walletIds.includes(state.populateStatus.currentWalletId)
+          ? undefined
+          : state.populateStatus.currentWalletId;
+
       return {
         ...state,
-        snapshotsByWalletId: nextSnapshotsByWalletId,
         populateStatus: {
           ...state.populateStatus,
+          currentWalletId,
           walletStatusById: nextWalletStatusById,
         },
         snapshotBalanceMismatchesByWalletId:
@@ -230,12 +219,16 @@ export const portfolioReducer = (
       return {
         ...state,
         lastPopulatedAt: finishedAt,
+        quoteCurrency:
+          String(action.payload.quoteCurrency || state.quoteCurrency || 'USD') ||
+          'USD',
         populateStatus: {
           ...state.populateStatus,
           inProgress: false,
           finishedAt,
           elapsedMs:
             typeof startedAt === 'number' ? finishedAt - startedAt : undefined,
+          stopReason: action.payload.reason,
           currentWalletId: undefined,
           walletStatusById: {},
         },
@@ -253,6 +246,7 @@ export const portfolioReducer = (
           finishedAt,
           elapsedMs:
             typeof startedAt === 'number' ? finishedAt - startedAt : undefined,
+          stopReason: action.payload.error,
           currentWalletId: undefined,
           errors: state.populateStatus.errors.concat({
             walletId: state.populateStatus.currentWalletId || 'unknown',

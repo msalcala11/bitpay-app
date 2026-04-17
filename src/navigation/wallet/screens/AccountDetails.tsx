@@ -425,8 +425,8 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   const [showReceiveAddressBottomModal, setShowReceiveAddressBottomModal] =
     useState(false);
   const {rates, fiatRateSeriesCache} = useAppSelector(({RATE}) => RATE);
-  const snapshotsByWalletId = useAppSelector(
-    ({PORTFOLIO}) => PORTFOLIO.snapshotsByWalletId,
+  const committedPortfolioQuoteCurrency = useAppSelector(
+    ({PORTFOLIO}) => PORTFOLIO.quoteCurrency,
   );
   const [selectedBalance, setSelectedBalance] = useState<number | undefined>();
   const [showKeyOptions, setShowKeyOptions] = useState(false);
@@ -484,10 +484,14 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   )!;
   const totalBalance =
     typeof selectedBalance === 'number'
-      ? formatFiatAmount(selectedBalance, defaultAltCurrency.isoCode, {
-          currencyDisplay: 'symbol',
-          customPrecision: 'minimal',
-        })
+      ? formatFiatAmount(
+          selectedBalance,
+          committedPortfolioQuoteCurrency || defaultAltCurrency.isoCode,
+          {
+            currencyDisplay: 'symbol',
+            customPrecision: 'minimal',
+          },
+        )
       : accountItem?.fiatBalanceFormat;
   const hasMultipleAccounts = memorizedAccountList.length > 1;
 
@@ -1433,8 +1437,9 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
             {!hideAllBalances ? (
               <BalanceHistoryChart
                 wallets={keyFullWalletObjs}
-                snapshotsByWalletId={snapshotsByWalletId || {}}
-                quoteCurrency={defaultAltCurrency.isoCode}
+                quoteCurrency={
+                  committedPortfolioQuoteCurrency || defaultAltCurrency.isoCode
+                }
                 rates={rates}
                 fiatRateSeriesCache={fiatRateSeriesCache}
                 timeframeSelectorWidth={timeframeSelectorWidth}
@@ -1615,7 +1620,6 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     searchVal,
     selectedChainFilterOption,
     showPortfolioValue,
-    snapshotsByWalletId,
     t,
     totalBalance,
   ]);

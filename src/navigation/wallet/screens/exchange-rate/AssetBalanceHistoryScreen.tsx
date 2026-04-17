@@ -1,14 +1,8 @@
 import {useIsFocused} from '@react-navigation/native';
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
-import {shallowEqual} from 'react-redux';
 import BalanceHistoryChart from '../../../../components/charts/BalanceHistoryChart';
 import {ScreenGutter} from '../../../../components/styled/Containers';
-import type {RootState} from '../../../../store';
 import {maybePopulatePortfolioForWallets} from '../../../../store/portfolio';
-import type {
-  BalanceSnapshotsByWalletId,
-  PortfolioState,
-} from '../../../../store/portfolio/portfolio.models';
 import {formatFiatAmount} from '../../../../utils/helper-methods';
 import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
 import {isPopulateLoadingForWallets} from '../../../../utils/portfolio/assets';
@@ -16,13 +10,6 @@ import {shouldUseCompactFiatAmountText} from '../../../../utils/fiatAmountText';
 import ExchangeRateScreenLayout from './ExchangeRateScreenLayout';
 import useAssetScreenRefresh from './useAssetScreenRefresh';
 import type {ExchangeRateSharedModel} from './useExchangeRateSharedModel';
-
-type AssetHistoryPortfolioSelection = {
-  snapshotsByWalletId: BalanceSnapshotsByWalletId;
-  populateStatus?: PortfolioState['populateStatus'];
-};
-
-const EMPTY_SNAPSHOTS_BY_WALLET_ID: BalanceSnapshotsByWalletId = {};
 
 type AssetBalanceHistoryScreenProps = {
   shared: ExchangeRateSharedModel;
@@ -33,14 +20,7 @@ const AssetBalanceHistoryScreen = ({
 }: AssetBalanceHistoryScreenProps) => {
   const dispatch = useAppDispatch();
   const isFocused = useIsFocused();
-  const {snapshotsByWalletId, populateStatus} = useAppSelector(
-    ({PORTFOLIO}: RootState): AssetHistoryPortfolioSelection => ({
-      snapshotsByWalletId:
-        PORTFOLIO.snapshotsByWalletId || EMPTY_SNAPSHOTS_BY_WALLET_ID,
-      populateStatus: PORTFOLIO.populateStatus,
-    }),
-    shallowEqual,
-  );
+  const populateStatus = useAppSelector(({PORTFOLIO}) => PORTFOLIO.populateStatus);
   const [selectedAssetBalance, setSelectedAssetBalance] = useState<
     number | undefined
   >(undefined);
@@ -137,7 +117,6 @@ const AssetBalanceHistoryScreen = ({
         shared.hideAllBalances ? null : (
           <BalanceHistoryChart
             wallets={shared.assetWallets}
-            snapshotsByWalletId={snapshotsByWalletId}
             quoteCurrency={shared.resolvedQuoteCurrency}
             rates={shared.rates}
             fiatRateSeriesCache={shared.fiatRateSeriesCache}

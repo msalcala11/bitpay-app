@@ -266,20 +266,34 @@ export const buildBalanceChartScopeId = (args: {
   ].join('|');
 };
 
-export const buildSnapshotVersionSig = (args: {
-  walletIds: string[];
-  walletSnapshotVersionById: Record<string, number | undefined>;
+export const buildPortfolioDataRevisionSig = (args: {
+  walletIds?: string[];
+  dataRevisionSig?: string;
+  portfolioRevision?: string;
 }): string => {
-  return getSortedUniqueWalletIds(args.walletIds || [])
-    .map(
-      walletId =>
-        `${walletId}:${Math.max(
-          0,
-          Math.floor(args.walletSnapshotVersionById?.[walletId] || 0),
-        )}`,
-    )
-    .join('|');
+  const revision = String(
+    args.dataRevisionSig || args.portfolioRevision || '',
+  ).trim();
+  if (revision) {
+    return revision;
+  }
+
+  return getSortedUniqueWalletIds(args.walletIds || []).join('|');
 };
+
+// Legacy alias retained during the migration away from snapshot-version keyed
+// chart caches. New code should use buildPortfolioDataRevisionSig instead.
+export const buildSnapshotVersionSig = (args: {
+  walletIds?: string[];
+  dataRevisionSig?: string;
+  portfolioRevision?: string;
+  walletSnapshotVersionById?: Record<string, number | undefined>;
+}): string =>
+  buildPortfolioDataRevisionSig({
+    walletIds: args.walletIds,
+    dataRevisionSig: args.dataRevisionSig,
+    portfolioRevision: args.portfolioRevision,
+  });
 
 const getLatestSeriesPointTs = (
   cache: FiatRateSeriesCache | undefined,
@@ -395,7 +409,7 @@ const getPatchableSpotRateChange = (args: {
 
 export const getCachedTimeframeStatus = (args: {
   cachedTimeframe?: CachedBalanceChartTimeframe;
-  snapshotVersionSig: string;
+  dataRevisionSig: string;
   currentSpotRatesByRateKey: Record<string, number>;
   fiatRateSeriesCache: FiatRateSeriesCache | undefined;
 }): CachedTimeframeStatus => {
@@ -408,7 +422,7 @@ export const getCachedTimeframeStatus = (args: {
     return 'stale_historical';
   }
 
-  if (cachedTimeframe.snapshotVersionSig !== args.snapshotVersionSig) {
+  if (cachedTimeframe.dataRevisionSig !== args.dataRevisionSig) {
     return 'stale_historical';
   }
 
@@ -435,7 +449,7 @@ export const getCachedTimeframeStatus = (args: {
 export const buildBalanceChartTimeframeRevision = (args: {
   scopeId: string;
   timeframe: FiatRateInterval;
-  snapshotVersionSig: string;
+  dataRevisionSig: string;
   historicalRateDeps: HistoricalRateDependencyMeta[];
   currentSpotRatesByRateKey: Record<string, number>;
 }): string => {
@@ -443,7 +457,7 @@ export const buildBalanceChartTimeframeRevision = (args: {
     `v${BALANCE_CHART_CACHE_SCHEMA_VERSION}`,
     args.scopeId,
     args.timeframe,
-    args.snapshotVersionSig,
+    args.dataRevisionSig,
     toHistoricalDepSignature(args.historicalRateDeps || []),
     stableRateMapRevision(args.currentSpotRatesByRateKey),
   ].join('|');
@@ -455,6 +469,7 @@ export const deserializeCachedTimeframeToComputedSeries = (
   const length = Math.min(
     cachedTimeframe.ts.length,
     cachedTimeframe.totalFiatBalance.length,
+    cachedTimeframe.totalPnlChange.length,
     cachedTimeframe.totalUnrealizedPnlFiat.length,
     cachedTimeframe.totalPnlPercent.length,
   );
@@ -468,6 +483,7 @@ export const deserializeCachedTimeframeToComputedSeries = (
       cachedTimeframe.totalFiatBalance[i],
       0,
     );
+    const totalPnlChange = toFiniteNumber(cachedTimeframe.totalPnlChange[i], 0);
     const totalUnrealizedPnlFiat = toFiniteNumber(
       cachedTimeframe.totalUnrealizedPnlFiat[i],
       0,
@@ -484,6 +500,7 @@ export const deserializeCachedTimeframeToComputedSeries = (
       totalFiatBalance,
       totalRemainingCostBasisFiat,
       totalUnrealizedPnlFiat,
+      totalPnlChange,
       totalPnlPercent,
       byWalletId: {},
     });
@@ -578,7 +595,7 @@ export const serializeComputedSeriesToCachedTimeframe = (args: {
   walletIds: string[];
   quoteCurrency: string;
   balanceOffset: number;
-  snapshotVersionSig: string;
+  dataRevisionSig: string;
   historicalRateDeps: HistoricalRateDependencyMeta[];
   analysisPoints: PnlAnalysisPoint[];
   exactExtrema?: PnlAnalysisExactExtrema;
@@ -591,12 +608,14 @@ export const serializeComputedSeriesToCachedTimeframe = (args: {
 }): CachedBalanceChartTimeframe => {
   const ts: number[] = [];
   const totalFiatBalance: number[] = [];
+  const totalPnlChange: number[] = [];
   const totalUnrealizedPnlFiat: number[] = [];
   const totalPnlPercent: number[] = [];
 
   for (const point of args.analysisPoints || []) {
     ts.push(toFiniteNumber(point?.timestamp, Date.now()));
     totalFiatBalance.push(toFiniteNumber(point?.totalFiatBalance, 0));
+    totalPnlChange.push(toFiniteNumber((point as any)?.totalPnlChange, 0));
     totalUnrealizedPnlFiat.push(
       toFiniteNumber(point?.totalUnrealizedPnlFiat, 0),
     );
@@ -613,7 +632,7 @@ export const serializeComputedSeriesToCachedTimeframe = (args: {
     quoteCurrency: String(args.quoteCurrency || '').toUpperCase(),
     balanceOffset: normalizeBalanceChartOffset(args.balanceOffset),
     walletIds: getSortedUniqueWalletIds(args.walletIds || []),
-    snapshotVersionSig: args.snapshotVersionSig,
+    dataRevisionSig: args.dataRevisionSig,
     historicalRateDeps: (args.historicalRateDeps || [])
       .filter(dep => !!dep?.cacheKey)
       .slice()
@@ -635,6 +654,7 @@ export const serializeComputedSeriesToCachedTimeframe = (args: {
     ),
     ts,
     totalFiatBalance,
+    totalPnlChange,
     totalUnrealizedPnlFiat,
     totalPnlPercent,
     minTotalFiatBalance: toOptionalFiniteNumber(

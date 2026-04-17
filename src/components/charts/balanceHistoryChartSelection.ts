@@ -61,7 +61,9 @@ export const buildBalanceHistoryChartChangeRowData = (args: {
   return {
     percent: args.displayedAnalysisPoint.totalPnlPercent ?? 0,
     deltaFiatFormatted: formatFiatAmount(
-      args.displayedAnalysisPoint.totalUnrealizedPnlFiat ?? 0,
+      (args.displayedAnalysisPoint as any).totalPnlChange ??
+        args.displayedAnalysisPoint.totalUnrealizedPnlFiat ??
+        0,
       args.quoteCurrency,
       {
         customPrecision: 'minimal',

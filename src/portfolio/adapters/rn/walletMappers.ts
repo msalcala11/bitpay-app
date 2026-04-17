@@ -1,0 +1,188 @@
+import type {StoredWallet, WalletCredentials, WalletSummary} from '../../core/types';
+import type {Wallet} from '../../../store/wallet/wallet.models';
+import {getWalletLiveAtomicBalance} from '../../../utils/portfolio/assets';
+
+export type PortfolioWalletCredentialsSnapshot = WalletCredentials & {
+  walletId: string;
+  walletName?: string;
+  chain?: string;
+  coin?: string;
+  network?: string;
+  copayerId?: string;
+  requestPrivKey?: string;
+  requestPubKey?: string;
+  token?: {
+    address?: string;
+    symbol?: string;
+  };
+  multisigEthInfo?: {
+    multisigContractAddress?: string;
+  };
+};
+
+const isMainnetLikeNetwork = (network: string | undefined): boolean => {
+  const normalized = String(network || '').trim().toLowerCase();
+  return normalized === 'livenet' || normalized === 'mainnet';
+};
+
+const sanitizeString = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const normalized = value.trim();
+  return normalized ? normalized : undefined;
+};
+
+export const isPortfolioRuntimeEligibleWallet = (wallet: Wallet): boolean => {
+  const credentials = (wallet as any)?.credentials;
+  const walletId = sanitizeString(wallet?.id || credentials?.walletId);
+  const copayerId = sanitizeString(credentials?.copayerId);
+  const requestPrivKey = sanitizeString(credentials?.requestPrivKey);
+  const network = sanitizeString(wallet?.network || credentials?.network);
+
+  if (!walletId || !copayerId || !requestPrivKey || !isMainnetLikeNetwork(network)) {
+    return false;
+  }
+
+  if ((wallet as any)?.pendingTssSession) {
+    return false;
+  }
+
+  try {
+    if (
+      typeof credentials?.isComplete === 'function' &&
+      !credentials.isComplete()
+    ) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  return true;
+};
+
+export const extractPortfolioWalletCredentialsSnapshot = (
+  wallet: Wallet,
+): PortfolioWalletCredentialsSnapshot => {
+  const credentials = (wallet as any)?.credentials;
+  const serialized = (() => {
+    try {
+      if (typeof credentials?.toObj === 'function') {
+        return credentials.toObj();
+      }
+      return JSON.parse(JSON.stringify(credentials || {}));
+    } catch {
+      return {};
+    }
+  })() as Record<string, any>;
+
+  const walletId = String(
+    serialized?.walletId || wallet?.id || credentials?.walletId || '',
+  ).trim();
+  const walletName =
+    sanitizeString(wallet?.walletName) || sanitizeString(serialized?.walletName);
+  const chain =
+    sanitizeString(wallet?.chain) || sanitizeString(serialized?.chain);
+  const network =
+    sanitizeString(wallet?.network) || sanitizeString(serialized?.network);
+  const tokenAddress =
+    sanitizeString(wallet?.tokenAddress) ||
+    sanitizeString(serialized?.token?.address) ||
+    sanitizeString(serialized?.tokenAddress);
+  const currencyAbbreviation =
+    sanitizeString(wallet?.currencyAbbreviation) ||
+    sanitizeString(serialized?.token?.symbol) ||
+    sanitizeString(serialized?.coin) ||
+    chain;
+
+  return {
+    ...serialized,
+    walletId,
+    walletName,
+    chain,
+    coin: currencyAbbreviation,
+    network,
+    copayerId: sanitizeString(serialized?.copayerId),
+    requestPrivKey: sanitizeString(serialized?.requestPrivKey),
+    requestPubKey: sanitizeString(serialized?.requestPubKey),
+    token: tokenAddress
+      ? {
+          ...(serialized?.token || {}),
+          address: tokenAddress,
+          symbol: currencyAbbreviation,
+        }
+      : serialized?.token,
+    multisigEthInfo: serialized?.multisigEthInfo
+      ? {
+          ...serialized.multisigEthInfo,
+          multisigContractAddress: sanitizeString(
+            serialized?.multisigEthInfo?.multisigContractAddress,
+          ),
+        }
+      : undefined,
+  };
+};
+
+export const toPortfolioWalletSummary = (args: {
+  wallet: Wallet;
+  unitDecimals: number;
+}): WalletSummary => {
+  const {wallet, unitDecimals} = args;
+  const credentials = extractPortfolioWalletCredentialsSnapshot(wallet);
+  const walletId = String(wallet?.id || credentials?.walletId || '').trim();
+  const walletName =
+    sanitizeString(wallet?.walletName) ||
+    sanitizeString(credentials?.walletName) ||
+    walletId ||
+    'Wallet';
+  const chain = String(wallet?.chain || credentials?.chain || '').trim().toLowerCase();
+  const network = String(wallet?.network || credentials?.network || '').trim().toLowerCase();
+  const tokenAddress =
+    sanitizeString(wallet?.tokenAddress) ||
+    sanitizeString(credentials?.token?.address) ||
+    undefined;
+  const currencyAbbreviation = String(
+    wallet?.currencyAbbreviation || credentials?.token?.symbol || credentials?.coin || chain,
+  )
+    .trim()
+    .toLowerCase();
+  const balanceAtomic = getWalletLiveAtomicBalance({
+    wallet,
+    unitDecimals,
+  }).toString();
+  const balanceFormatted = String((wallet as any)?.balance?.crypto || '0').replace(
+    /,/g,
+    '',
+  );
+
+  return {
+    walletId,
+    walletName,
+    chain,
+    network,
+    currencyAbbreviation,
+    tokenAddress,
+    balanceAtomic,
+    balanceFormatted,
+  };
+};
+
+export const toPortfolioStoredWallet = (args: {
+  wallet: Wallet;
+  unitDecimals: number;
+  addedAt?: number;
+}): StoredWallet => {
+  return {
+    walletId: String(args.wallet?.id || '').trim(),
+    credentials: extractPortfolioWalletCredentialsSnapshot(args.wallet),
+    summary: toPortfolioWalletSummary({
+      wallet: args.wallet,
+      unitDecimals: args.unitDecimals,
+    }),
+    addedAt:
+      typeof args.addedAt === 'number' && Number.isFinite(args.addedAt)
+        ? args.addedAt
+        : Date.now(),
+  };
+};

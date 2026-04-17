@@ -1,6 +1,6 @@
 import type {FiatRateInterval} from '../rate/rate.models';
 
-export const BALANCE_CHART_CACHE_SCHEMA_VERSION = 4;
+export const BALANCE_CHART_CACHE_SCHEMA_VERSION = 5;
 export const BALANCE_CHART_CACHE_MAX_SCOPES = 40;
 
 export type HistoricalRateDependencyMeta = {
@@ -25,7 +25,7 @@ export type CachedBalanceChartTimeframe = {
   balanceOffset: number;
   walletIds: string[];
 
-  snapshotVersionSig: string;
+  dataRevisionSig: string;
   historicalRateDeps: HistoricalRateDependencyMeta[];
 
   lastSpotRatesByRateKey: Record<string, number>;
@@ -34,6 +34,7 @@ export type CachedBalanceChartTimeframe = {
 
   ts: number[];
   totalFiatBalance: number[];
+  totalPnlChange: number[];
   totalUnrealizedPnlFiat: number[];
   totalPnlPercent: number[];
   minTotalFiatBalance?: number;
@@ -62,7 +63,6 @@ export type CachedBalanceChartScope = {
 export interface PortfolioChartsState {
   homeChartCollapsed: boolean;
   homeChartRemountNonce: number;
-  walletSnapshotVersionById: Record<string, number | undefined>;
   cacheByScopeId: Record<string, CachedBalanceChartScope | undefined>;
   lruScopeIds: string[];
 }

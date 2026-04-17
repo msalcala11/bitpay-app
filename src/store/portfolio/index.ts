@@ -1,20 +1,24 @@
 export {
-  cancelPopulatePortfolio,
+  cancelPopulatePortfolio as cancelPopulatePortfolioAction,
   clearPortfolio,
+  clearWalletPortfolioState,
   failPopulatePortfolio,
   finishPopulatePortfolio,
-  removeWalletSnapshots,
   setSnapshotBalanceMismatchesByWalletIdUpdates,
-  setWalletSnapshots,
   startPopulatePortfolio,
   updatePopulateProgress,
 } from './portfolio.actions';
 
 export {
-  maybePopulatePortfolioForWallets,
-  populatePortfolio,
-  preparePortfolioFiatRateCachesForQuoteCurrencySwitch,
-} from './portfolio.effects';
+  cancelPopulatePortfolioWithRuntime as cancelPopulatePortfolio,
+  maybePopulatePortfolioForWalletsWithRuntime as maybePopulatePortfolioForWallets,
+  populatePortfolioWithRuntime as populatePortfolio,
+  cancelPopulatePortfolioWithRuntime,
+  clearPortfolioWithRuntime,
+  clearWalletPortfolioDataWithRuntime,
+  maybePopulatePortfolioForWalletsWithRuntime,
+  populatePortfolioWithRuntime,
+} from './portfolio.runtime.effects';
 
 export {
   portfolioReducer,
