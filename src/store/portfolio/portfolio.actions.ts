@@ -1,7 +1,4 @@
-import type {
-  BalanceSnapshot,
-  SnapshotBalanceMismatch,
-} from './portfolio.models';
+import type {SnapshotBalanceMismatch} from './portfolio.models';
 import {PortfolioActionType, PortfolioActionTypes} from './portfolio.types';
 
 export const clearPortfolio = (payload?: {
@@ -37,23 +34,17 @@ export const updatePopulateProgress = (payload: {
   payload,
 });
 
-export const setWalletSnapshots = (payload: {
-  walletId: string;
-  snapshots: BalanceSnapshot[];
-}): PortfolioActionType => ({
-  type: PortfolioActionTypes.SET_WALLET_SNAPSHOTS,
-  payload,
-});
-
-export const removeWalletSnapshots = (payload: {
+export const clearWalletPortfolioState = (payload: {
   walletIds: string[];
 }): PortfolioActionType => ({
-  type: PortfolioActionTypes.REMOVE_WALLET_SNAPSHOTS,
+  type: PortfolioActionTypes.CLEAR_WALLET_PORTFOLIO_STATE,
   payload,
 });
 
 export const finishPopulatePortfolio = (payload: {
   finishedAt: number;
+  reason: string;
+  quoteCurrency: string;
 }): PortfolioActionType => ({
   type: PortfolioActionTypes.FINISH_POPULATE_PORTFOLIO,
   payload,

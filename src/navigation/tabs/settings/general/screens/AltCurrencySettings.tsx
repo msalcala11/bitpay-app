@@ -33,7 +33,7 @@ import {FormatKeyBalances} from '../../../../../store/wallet/effects/status/stat
 import {updatePortfolioBalance} from '../../../../../store/wallet/wallet.actions';
 import {
   cancelPopulatePortfolio,
-  preparePortfolioFiatRateCachesForQuoteCurrencySwitch,
+  populatePortfolio,
 } from '../../../../../store/portfolio';
 import {useTranslation} from 'react-i18next';
 import {coinbaseInitialize} from '../../../../../store/coinbase';
@@ -192,24 +192,13 @@ const AltCurrencySettings = () => {
               const currentDisplayQuoteCurrency = (
                 selectedAltCurrency?.isoCode || ''
               ).toUpperCase();
-              const hasExistingSnapshots = Object.values(
-                portfolio.snapshotsByWalletId || {},
-              ).some(v => Array.isArray(v) && v.length);
               const isDisplayCurrencyChange =
                 !!nextQuoteCurrency &&
                 currentDisplayQuoteCurrency !== nextQuoteCurrency;
               const isPopulateInProgress =
                 !!portfolio.populateStatus?.inProgress;
-              const shouldRestartPopulate =
-                hasExistingSnapshots &&
-                isDisplayCurrencyChange &&
-                isPopulateInProgress;
-              const shouldRecalculatePortfolio =
-                hasExistingSnapshots &&
-                isDisplayCurrencyChange &&
-                !isPopulateInProgress;
 
-              if (shouldRestartPopulate) {
+              if (isDisplayCurrencyChange && isPopulateInProgress) {
                 dispatch(cancelPopulatePortfolio());
               }
 
@@ -227,22 +216,11 @@ const AltCurrencySettings = () => {
               await sleep(500);
               navigation.goBack();
 
-              if (shouldRestartPopulate) {
+              if (isDisplayCurrencyChange) {
                 InteractionManager.runAfterInteractions(() => {
                   dispatch(
-                    preparePortfolioFiatRateCachesForQuoteCurrencySwitch({
-                      quoteCurrency: item.isoCode,
-                    }),
-                  );
-                });
-                return;
-              }
-
-              if (shouldRecalculatePortfolio) {
-                InteractionManager.runAfterInteractions(() => {
-                  dispatch(
-                    preparePortfolioFiatRateCachesForQuoteCurrencySwitch({
-                      quoteCurrency: item.isoCode,
+                    populatePortfolio({
+                      quoteCurrency: nextQuoteCurrency,
                     }),
                   );
                 });

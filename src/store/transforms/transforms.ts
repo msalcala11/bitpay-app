@@ -268,19 +268,30 @@ export const transformPortfolioPopulateStatus = createTransform<
   PortfolioState,
   PortfolioState
 >(
-  inboundState => inboundState,
+  inboundState => {
+    const nextState = {...inboundState} as PortfolioState & {
+      snapshotsByWalletId?: unknown;
+    };
+    delete nextState.snapshotsByWalletId;
+    return nextState;
+  },
   outboundState => {
-    if (outboundState?.populateStatus?.inProgress) {
+    const nextState = {...outboundState} as PortfolioState & {
+      snapshotsByWalletId?: unknown;
+    };
+    delete nextState.snapshotsByWalletId;
+
+    if (nextState?.populateStatus?.inProgress) {
       return {
-        ...outboundState,
+        ...nextState,
         populateStatus: {
-          ...outboundState.populateStatus,
+          ...nextState.populateStatus,
           inProgress: false,
           currentWalletId: undefined,
         },
       };
     }
-    return outboundState;
+    return nextState;
   },
   {whitelist: ['PORTFOLIO']},
 );

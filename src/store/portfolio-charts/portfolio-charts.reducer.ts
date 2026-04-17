@@ -22,7 +22,6 @@ export const portfolioChartsReduxPersistBlackList: PortfolioChartsReduxPersistBl
 const initialState: PortfolioChartsState = {
   homeChartCollapsed: false,
   homeChartRemountNonce: 0,
-  walletSnapshotVersionById: {},
   cacheByScopeId: {},
   lruScopeIds: [],
 };
@@ -154,6 +153,9 @@ const sanitizeTimeframe = (
   ts: Array.isArray(timeframe?.ts) ? timeframe.ts.slice() : [],
   totalFiatBalance: Array.isArray(timeframe?.totalFiatBalance)
     ? timeframe.totalFiatBalance.slice()
+    : [],
+  totalPnlChange: Array.isArray(timeframe?.totalPnlChange)
+    ? timeframe.totalPnlChange.slice()
     : [],
   totalUnrealizedPnlFiat: Array.isArray(timeframe?.totalUnrealizedPnlFiat)
     ? timeframe.totalUnrealizedPnlFiat.slice()
@@ -288,39 +290,8 @@ export const portfolioChartsReducer = (
     case PortfolioChartsActionTypes.REMOVE_BALANCE_CHART_SCOPES_BY_WALLET_IDS:
       return removeScopesForWalletIds(state, action.payload?.walletIds || []);
 
-    case PortfolioActionTypes.SET_WALLET_SNAPSHOTS: {
-      const walletId = String(action.payload?.walletId || '');
-      if (!walletId) {
-        return state;
-      }
-      const prevVersion = state.walletSnapshotVersionById[walletId] || 0;
-      return {
-        ...state,
-        walletSnapshotVersionById: {
-          ...state.walletSnapshotVersionById,
-          [walletId]: prevVersion + 1,
-        },
-      };
-    }
-
-    case PortfolioActionTypes.REMOVE_WALLET_SNAPSHOTS: {
-      const walletIds = normalizeWalletIds(action.payload?.walletIds || []);
-      if (!walletIds.length) {
-        return state;
-      }
-
-      const nextState = removeScopesForWalletIds(state, walletIds);
-      const nextWalletSnapshotVersionById = {
-        ...nextState.walletSnapshotVersionById,
-      };
-      for (const walletId of walletIds) {
-        delete nextWalletSnapshotVersionById[walletId];
-      }
-      return {
-        ...nextState,
-        walletSnapshotVersionById: nextWalletSnapshotVersionById,
-      };
-    }
+    case PortfolioActionTypes.CLEAR_WALLET_PORTFOLIO_STATE:
+      return removeScopesForWalletIds(state, action.payload?.walletIds || []);
 
     case RateActionTypes.CLEAR_RATE_STATE:
       return {

@@ -50,9 +50,8 @@ import {
   startGetRates,
 } from '../wallet/effects';
 import {
-  populatePortfolio,
-  preparePortfolioFiatRateCachesForQuoteCurrencySwitch,
-  setSnapshotBalanceMismatchesByWalletIdUpdates,
+  clearPortfolioWithRuntime,
+  maybePopulatePortfolioForWallets,
 } from '../portfolio';
 import {
   setAnnouncementsAccepted,
@@ -74,11 +73,7 @@ import {
   findWalletByIdHashed,
   getAllWalletClients,
 } from '../wallet/utils/wallet';
-import {
-  getWalletIdsToPopulateFromSnapshots,
-  getVisibleWalletsFromKeys,
-  isFiatLoadingForWallets,
-} from '../../utils/portfolio/assets';
+import {getVisibleWalletsFromKeys} from '../../utils/portfolio/assets';
 import {navigationRef, RootStacks, SilentPushEventObj} from '../../Root';
 import {
   startUpdateAllKeyAndWalletStatus,
@@ -303,14 +298,7 @@ export const startAppInit = (): Effect => async (dispatch, getState) => {
         }
 
         const quoteCurrency =
-          stateAfterWalletInit.APP?.defaultAltCurrency?.isoCode ||
-          stateAfterWalletInit.PORTFOLIO?.quoteCurrency ||
-          'USD';
-
-        const snapshotsByWalletId =
-          stateAfterWalletInit.PORTFOLIO?.snapshotsByWalletId || {};
-        const portfolioIsEmpty =
-          !snapshotsByWalletId || Object.keys(snapshotsByWalletId).length === 0;
+          stateAfterWalletInit.APP?.defaultAltCurrency?.isoCode || 'USD';
 
         const keys = stateAfterWalletInit.WALLET?.keys || {};
         const homeCarouselConfig = stateAfterWalletInit.APP?.homeCarouselConfig;
@@ -323,53 +311,12 @@ export const startAppInit = (): Effect => async (dispatch, getState) => {
           return;
         }
 
-        if (portfolioIsEmpty) {
-          dispatch(populatePortfolio({quoteCurrency}));
-          return;
-        }
-
-        const {walletIdsToPopulate, snapshotBalanceMismatchUpdates} =
-          getWalletIdsToPopulateFromSnapshots({
+        dispatch(
+          maybePopulatePortfolioForWallets({
             wallets,
-            snapshotsByWalletId,
-            previousSnapshotBalanceMismatchesByWalletId:
-              stateAfterWalletInit.PORTFOLIO
-                ?.snapshotBalanceMismatchesByWalletId || {},
-          });
-
-        if (Object.keys(snapshotBalanceMismatchUpdates).length) {
-          dispatch(
-            setSnapshotBalanceMismatchesByWalletIdUpdates(
-              snapshotBalanceMismatchUpdates,
-            ),
-          );
-        }
-
-        const hasFiatLoading = isFiatLoadingForWallets({
-          quoteCurrency,
-          wallets,
-          snapshotsByWalletId,
-          fiatRateSeriesCache:
-            stateAfterWalletInit.RATE?.fiatRateSeriesCache || {},
-        });
-
-        if (hasFiatLoading) {
-          dispatch(
-            preparePortfolioFiatRateCachesForQuoteCurrencySwitch({
-              quoteCurrency,
-            }),
-          );
-          return;
-        }
-
-        if (walletIdsToPopulate.length) {
-          dispatch(
-            populatePortfolio({
-              quoteCurrency,
-              walletIds: walletIdsToPopulate,
-            }),
-          );
-        }
+            quoteCurrency,
+          }),
+        );
       })
       .catch(() => {});
 
@@ -1124,6 +1071,7 @@ export const handleBwsEvent =
 
 export const resetAllSettings = (): Effect<Promise<void>> => async dispatch => {
   try {
+    await dispatch(clearPortfolioWithRuntime({populateDisabled: false}));
     await dispatch(AppActions.setColorScheme('unspecified'));
     await dispatch(AppActions.showPortfolioValue(true));
     await dispatch(AppActions.toggleHideAllBalances(false));

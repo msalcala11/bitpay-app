@@ -1,0 +1,80 @@
+diff --git a/node_modules/@shopify/react-native-skia/src/sksg/Container.native.ts b/node_modules/@shopify/react-native-skia/src/sksg/Container.native.ts
+--- a/node_modules/@shopify/react-native-skia/src/sksg/Container.native.ts
++++ b/node_modules/@shopify/react-native-skia/src/sksg/Container.native.ts
+@@ -18,14 +18,15 @@
+   onSize?: SharedValue<SkSize>
+ ) => {
+   "worklet";
++  const skiaViewApi = globalThis.SkiaViewApi;
+   if (onSize) {
+-    SkiaViewApi.setJsiProperty(nativeId, "onSize", onSize);
++    skiaViewApi.setJsiProperty(nativeId, "onSize", onSize);
+   }
+   //const start = performance.now();
+   const picture = recorder.play();
+   //const end = performance.now();
+   //console.log("Recording time: ", end - start);
+-  SkiaViewApi.setJsiProperty(nativeId, "picture", picture);
++  skiaViewApi.setJsiProperty(nativeId, "picture", picture);
+ };
+ 
+ class NativeReanimatedContainer extends Container {
+diff --git a/node_modules/@shopify/react-native-skia/src/sksg/StaticContainer.ts b/node_modules/@shopify/react-native-skia/src/sksg/StaticContainer.ts
+--- a/node_modules/@shopify/react-native-skia/src/sksg/StaticContainer.ts
++++ b/node_modules/@shopify/react-native-skia/src/sksg/StaticContainer.ts
+@@ -58,11 +58,12 @@
+     this.recording = recorder.getRecording();
+     const isOnScreen = this.nativeId !== -1;
+     if (isOnScreen) {
++      const skiaViewApi = globalThis.SkiaViewApi;
+       const rec = this.Skia.PictureRecorder();
+       const canvas = rec.beginRecording();
+       this.drawOnCanvas(canvas);
+       const picture = rec.finishRecordingAsPicture();
+-      SkiaViewApi.setJsiProperty(this.nativeId, "picture", picture);
++      skiaViewApi.setJsiProperty(this.nativeId, "picture", picture);
+     }
+   }
+ }
+diff --git a/node_modules/@shopify/react-native-skia/src/renderer/Canvas.tsx b/node_modules/@shopify/react-native-skia/src/renderer/Canvas.tsx
+--- a/node_modules/@shopify/react-native-skia/src/renderer/Canvas.tsx
++++ b/node_modules/@shopify/react-native-skia/src/renderer/Canvas.tsx
+@@ -110,13 +110,13 @@
+     () =>
+       ({
+         makeImageSnapshot: (rect?: SkRect) => {
+-          return SkiaViewApi.makeImageSnapshot(nativeId, rect);
++          return globalThis.SkiaViewApi.makeImageSnapshot(nativeId, rect);
+         },
+         makeImageSnapshotAsync: (rect?: SkRect) => {
+-          return SkiaViewApi.makeImageSnapshotAsync(nativeId, rect);
++          return globalThis.SkiaViewApi.makeImageSnapshotAsync(nativeId, rect);
+         },
+         redraw: () => {
+-          SkiaViewApi.requestRedraw(nativeId);
++          globalThis.SkiaViewApi.requestRedraw(nativeId);
+         },
+         getNativeId: () => {
+           return nativeId;
+diff --git a/node_modules/@shopify/react-native-skia/src/views/SkiaPictureView.tsx b/node_modules/@shopify/react-native-skia/src/views/SkiaPictureView.tsx
+--- a/node_modules/@shopify/react-native-skia/src/views/SkiaPictureView.tsx
++++ b/node_modules/@shopify/react-native-skia/src/views/SkiaPictureView.tsx
+@@ -96,12 +96,14 @@
+ }
+ 
+ const assertSkiaViewApi = () => {
++  const skiaViewApi = globalThis.SkiaViewApi;
+   if (
+-    SkiaViewApi === null ||
+-    SkiaViewApi.setJsiProperty === null ||
+-    SkiaViewApi.requestRedraw === null ||
+-    SkiaViewApi.makeImageSnapshot === null
++    skiaViewApi === null ||
++    skiaViewApi.setJsiProperty === null ||
++    skiaViewApi.requestRedraw === null ||
++    skiaViewApi.makeImageSnapshot === null
+   ) {
+     throw Error("Skia View Api was not found.");
+   }
++  return skiaViewApi;
+ };
