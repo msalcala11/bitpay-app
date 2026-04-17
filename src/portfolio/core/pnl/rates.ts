@@ -1,5 +1,9 @@
 import type {FiatRateAssetRef, FiatRatePoint, FiatRateSeriesCache, FiatRateInterval} from '../fiatRatesShared';
-import {getFiatRateSeriesCacheKey} from '../fiatRatesShared';
+import {
+  getFiatRateSeriesCacheKey,
+  normalizeFiatRateSeriesChain,
+  normalizeFiatRateSeriesTokenAddress,
+} from '../fiatRatesShared';
 import type {WalletCredentials} from '../types';
 
 const LEGACY_ETH_MATIC_TOKEN_ADDRESS =
@@ -29,12 +33,16 @@ export const getFiatRateAssetRef = (args: {
 }): FiatRateAssetRef => {
   'worklet';
 
-  const tokenAddress = String(
+  const rawTokenAddress = String(
     args.tokenAddress || args.credentials?.token?.address || '',
-  ).toLowerCase();
-  const chain = tokenAddress
-    ? String(args.chain || args.credentials?.chain || args.credentials?.coin || '').toLowerCase()
+  ).trim();
+  const chain = rawTokenAddress
+    ? normalizeFiatRateSeriesChain(
+        args.chain || args.credentials?.chain || args.credentials?.coin,
+      ) || ''
     : '';
+  const tokenAddress =
+    normalizeFiatRateSeriesTokenAddress(chain, rawTokenAddress) || '';
   const coin = normalizeFiatRateSeriesCoin(
     args.currencyAbbreviation ||
       args.credentials?.token?.symbol ||
@@ -81,7 +89,7 @@ const makeNearestFinder = (points: FiatRatePoint[]): Finder => {
     let lo = 0;
     let hi = points.length;
     while (lo < hi) {
-      const mid = (lo + hi) >> 1;
+      const mid = Math.floor((lo + hi) / 2);
       if (points[mid].ts < ts) lo = mid + 1;
       else hi = mid;
     }

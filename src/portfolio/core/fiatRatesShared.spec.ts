@@ -2,6 +2,7 @@ import {
   DEFAULT_STORED_FIAT_RATE_INTERVALS,
   getFiatRateSeriesCacheKey,
   getFiatRateSeriesUrl,
+  normalizeFiatRateSeriesTokenAddress,
   resolveStoredFiatRateInterval,
 } from './fiatRatesShared';
 
@@ -56,5 +57,34 @@ describe('fiatRatesShared interval storage policy', () => {
     ).toBe('https://bws.bitpay.com/bws/api/v4/fiatrates/USD?days=7');
 
     expect(getFiatRateSeriesCacheKey('USD', 'bch', '1W', {chain: 'bch'})).toBe('USD:bch:1W');
+  });
+
+  it('preserves Solana token address case for URLs and cache keys', () => {
+    const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+    expect(
+      getFiatRateSeriesUrl(
+        {baseUrl: 'https://bws.bitpay.com/bws/api'},
+        'USD',
+        '1D',
+        {
+          chain: 'sol',
+          tokenAddress,
+        },
+      ),
+    ).toBe(
+      `https://bws.bitpay.com/bws/api/v4/fiatrates/USD?days=1&chain=sol&tokenAddress=${tokenAddress}`,
+    );
+
+    expect(
+      getFiatRateSeriesCacheKey('USD', 'usdc', '1D', {
+        chain: 'sol',
+        tokenAddress,
+      }),
+    ).toBe(`USD:usdc:1D:sol:${tokenAddress}`);
+
+    expect(
+      normalizeFiatRateSeriesTokenAddress('sol', tokenAddress),
+    ).toBe(tokenAddress);
   });
 });

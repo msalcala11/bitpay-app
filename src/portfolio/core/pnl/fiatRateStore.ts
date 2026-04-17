@@ -7,7 +7,11 @@ import type {
   FiatRateSeries,
   FiatRateSeriesResponse,
 } from '../fiatRatesShared';
-import {resolveStoredFiatRateInterval} from '../fiatRatesShared';
+import {
+  normalizeFiatRateSeriesChain,
+  normalizeFiatRateSeriesTokenAddress,
+  resolveStoredFiatRateInterval,
+} from '../fiatRatesShared';
 import type {BwsConfig} from '../shared/bws';
 import {getFiatRateSeriesWithFx} from './fxRates';
 import {getFiatRateAssetRef} from './rates';
@@ -25,8 +29,13 @@ function rateKey(args: {
   tokenAddress?: string;
 }): string {
   const base = `rate:v1:${args.quoteCurrency.toUpperCase()}:${args.coin.toLowerCase()}:${resolveStoredFiatRateInterval(args.interval)}`;
-  if (!args.tokenAddress) return base;
-  return `${base}:${String(args.chain || '').toLowerCase()}:${String(args.tokenAddress).toLowerCase()}`;
+  const chain = normalizeFiatRateSeriesChain(args.chain);
+  const tokenAddress = normalizeFiatRateSeriesTokenAddress(
+    chain,
+    args.tokenAddress,
+  );
+  if (!tokenAddress) return base;
+  return `${base}:${chain || ''}:${tokenAddress}`;
 }
 
 function normalizeSeriesPoints(raw: unknown): FiatRatePoint[] {
@@ -290,24 +299,28 @@ export class FiatRateStore {
     }
 
     for (const asset of missingExplicit) {
-      const json = await this.provider.loadSeries({
-        cfg: args.cfg,
-        quoteCurrency,
-        interval,
-        coins: [asset.coin],
-        asset,
-      });
-
-      const series = extractSeries(json, asset.coin);
-      if (series?.points?.length) {
-        await this.setSeries({
+      try {
+        const json = await this.provider.loadSeries({
+          cfg: args.cfg,
           quoteCurrency,
-          coin: asset.coin,
           interval,
-          series,
-          chain: asset.chain,
-          tokenAddress: asset.tokenAddress,
+          coins: [asset.coin],
+          asset,
         });
+
+        const series = extractSeries(json, asset.coin);
+        if (series?.points?.length) {
+          await this.setSeries({
+            quoteCurrency,
+            coin: asset.coin,
+            interval,
+            series,
+            chain: asset.chain,
+            tokenAddress: asset.tokenAddress,
+          });
+        }
+      } catch {
+        continue;
       }
     }
   }

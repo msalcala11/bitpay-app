@@ -411,24 +411,28 @@ export async function ensureWorkletRates(args: PortfolioWorkletKvConfig & {
   }
 
   for (const asset of missingExplicit) {
-    const series = await fetchFiatRateSeries({
-      cfg: args.cfg,
-      quoteCurrency,
-      interval,
-      asset,
-    });
-    if (series?.points?.length) {
-      workletKvSetString(
-        args,
-        getWorkletRateStorageKey({
-          quoteCurrency,
-          coin: asset.coin,
-          interval,
-          chain: asset.chain,
-          tokenAddress: asset.tokenAddress,
-        }),
-        encodeStoredSeries(series),
-      );
+    try {
+      const series = await fetchFiatRateSeries({
+        cfg: args.cfg,
+        quoteCurrency,
+        interval,
+        asset,
+      });
+      if (series?.points?.length) {
+        workletKvSetString(
+          args,
+          getWorkletRateStorageKey({
+            quoteCurrency,
+            coin: asset.coin,
+            interval,
+            chain: asset.chain,
+            tokenAddress: asset.tokenAddress,
+          }),
+          encodeStoredSeries(series),
+        );
+      }
+    } catch {
+      continue;
     }
   }
 }
@@ -559,26 +563,35 @@ export async function ensureWorkletSnapshotRateSeriesCache(args: PortfolioWorkle
     ),
   );
   const cache: FiatRateSeriesCache = {};
+  let lastError: Error | undefined;
 
   for (const interval of intervals) {
-    const series = await loadOrFetchRateSeries({
-      storage: args.storage,
-      registryKey: args.registryKey,
-      cfg: args.cfg,
-      quoteCurrency,
-      interval,
-      asset,
-    });
-    if (!series?.points?.length) {
-      continue;
-    }
+    try {
+      const series = await loadOrFetchRateSeries({
+        storage: args.storage,
+        registryKey: args.registryKey,
+        cfg: args.cfg,
+        quoteCurrency,
+        interval,
+        asset,
+      });
+      if (!series?.points?.length) {
+        continue;
+      }
 
-    cache[
-      getFiatRateSeriesCacheKey(quoteCurrency, coin, interval, {
-        chain,
-        tokenAddress,
-      })
-    ] = series;
+      cache[
+        getFiatRateSeriesCacheKey(quoteCurrency, coin, interval, {
+          chain,
+          tokenAddress,
+        })
+      ] = series;
+    } catch (error: unknown) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  if (!Object.keys(cache).length && lastError) {
+    throw lastError;
   }
 
   return cache;

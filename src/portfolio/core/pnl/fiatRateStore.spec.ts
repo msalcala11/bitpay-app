@@ -340,4 +340,104 @@ describe('FiatRateStore.ensureRates', () => {
       {ts: 2, rate: 1.01},
     ]);
   });
+
+  it('preserves Solana token address case for explicit asset fetches and storage keys', async () => {
+    const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+    const provider: FiatRateProvider = {
+      loadSeries: jest.fn().mockResolvedValue({
+        usdc: [
+          {ts: 1, rate: 1},
+          {ts: 2, rate: 1.01},
+        ],
+      }),
+    };
+    const kv = new MemoryKvStore();
+    const store = new FiatRateStore(kv, {provider});
+
+    await store.ensureRates({
+      cfg: {baseUrl: '/bws/api'},
+      quoteCurrency: 'USD',
+      interval: '1D',
+      coins: [],
+      assets: [
+        {
+          coin: 'usdc',
+          chain: 'sol',
+          tokenAddress,
+        },
+      ],
+    });
+
+    expect(provider.loadSeries).toHaveBeenCalledWith({
+      cfg: {baseUrl: '/bws/api'},
+      quoteCurrency: 'USD',
+      interval: '1D',
+      coins: ['usdc'],
+      asset: {
+        coin: 'usdc',
+        chain: 'sol',
+        tokenAddress,
+      },
+    });
+    await expect(
+      kv.getString(`rate:v1:USD:usdc:1D:sol:${tokenAddress}`),
+    ).resolves.toBeTruthy();
+  });
+
+  it('continues fetching remaining explicit assets when one token-specific rate request fails', async () => {
+    const failingToken = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+    const succeedingToken = 'Es9vMFrzaCERmJfrF4H2FYDutVqMNoL8n3kM6RZkN3xk';
+    const provider: FiatRateProvider = {
+      loadSeries: jest.fn().mockImplementation(async args => {
+        if (args.asset?.tokenAddress === failingToken) {
+          throw new Error('rate unavailable');
+        }
+
+        return {
+          usdt: [
+            {ts: 1, rate: 1},
+            {ts: 2, rate: 1.01},
+          ],
+        };
+      }),
+    };
+    const store = new FiatRateStore(new MemoryKvStore(), {provider});
+
+    await expect(
+      store.ensureRates({
+        cfg: {baseUrl: '/bws/api'},
+        quoteCurrency: 'USD',
+        interval: '1D',
+        coins: [],
+        assets: [
+          {
+            coin: 'usdc',
+            chain: 'sol',
+            tokenAddress: failingToken,
+          },
+          {
+            coin: 'usdt',
+            chain: 'sol',
+            tokenAddress: succeedingToken,
+          },
+        ],
+      }),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      store.getSeries({
+        quoteCurrency: 'USD',
+        coin: 'usdt',
+        interval: '1D',
+        chain: 'sol',
+        tokenAddress: succeedingToken,
+      }),
+    ).resolves.toEqual({
+      fetchedOn: expect.any(Number),
+      points: [
+        {ts: 1, rate: 1},
+        {ts: 2, rate: 1.01},
+      ],
+    });
+  });
 });
