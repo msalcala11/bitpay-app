@@ -18,18 +18,6 @@ type TxHistoryRequestArgs = {
   reverse?: boolean;
 };
 
-function getTokenAddressFromCredentials(
-  credentials: WalletCredentials,
-): string | undefined {
-  'worklet';
-  const raw =
-    credentials?.token?.address ??
-    credentials?.tokenAddress ??
-    credentials?.summary?.tokenAddress;
-  const tokenAddress = String(raw || '').trim();
-  return tokenAddress || undefined;
-}
-
 function getMultisigContractAddressFromCredentials(
   credentials: WalletCredentials,
 ): string | undefined {
@@ -55,11 +43,6 @@ export function buildPortfolioTxHistoryRequestPath(
   }
   if (args.reverse) {
     params.push('reverse=1');
-  }
-
-  const tokenAddress = getTokenAddressFromCredentials(args.credentials);
-  if (tokenAddress) {
-    params.push(`tokenAddress=${encodeURIComponent(tokenAddress)}`);
   }
 
   const multisigContractAddress =
