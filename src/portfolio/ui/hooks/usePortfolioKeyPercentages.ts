@@ -11,6 +11,19 @@ import {
 } from '../common';
 import {buildKeyPercentageDifferenceMap} from '../selectors/buildKeySummariesFromAnalysis';
 
+function arePercentageMapsEqual(
+  left: Record<string, number | null>,
+  right: Record<string, number | null>,
+): boolean {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+
+  return leftKeys.every(key => left[key] === right[key]);
+}
+
 export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
   const dispatch = useAppDispatch();
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
@@ -101,8 +114,12 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
         }
 
         const nextMap = buildKeyPercentageDifferenceMap({results});
-        setCurrentMap(nextMap);
-        setCommittedMap(nextMap);
+        setCurrentMap(prev =>
+          arePercentageMapsEqual(prev, nextMap) ? prev : nextMap,
+        );
+        setCommittedMap(prev =>
+          arePercentageMapsEqual(prev, nextMap) ? prev : nextMap,
+        );
       })
       .catch(() => {
         if (cancelled) {

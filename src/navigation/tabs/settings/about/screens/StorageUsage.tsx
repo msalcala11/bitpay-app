@@ -54,6 +54,7 @@ const HeaderTitle = styled(Setting)`
 
 const storagePath =
   Platform.OS === 'ios' ? RNFS.MainBundlePath : RNFS.DocumentDirectoryPath;
+const EMPTY_LIST: Array<unknown> = [];
 
 type StorageUsageMetrics = {
   walletsCount: number;
@@ -126,12 +127,18 @@ const StorageUsage: React.FC = () => {
       clearTimeout(state.timer);
     }
 
-    state.timer = setTimeout(() => {
-      if (state.count >= 3) {
-        action();
-      }
+    if (state.count >= 3) {
       state.count = 0;
       state.lastTapMs = 0;
+      state.timer = undefined;
+      action();
+      return;
+    }
+
+    state.timer = setTimeout(() => {
+      state.count = 0;
+      state.lastTapMs = 0;
+      state.timer = undefined;
     }, windowMs);
   }, []);
 
@@ -145,16 +152,18 @@ const StorageUsage: React.FC = () => {
   );
   const loadRequestIdRef = useRef(0);
 
-  const giftCards = useAppSelector(
+  const giftCardsRaw = useAppSelector(
     ({APP, SHOP}) => SHOP.giftCards[APP.network],
-  ) || [];
+  );
   const keys = useAppSelector(({WALLET}) => WALLET.keys);
   const customTokens = useAppSelector(({WALLET}) => WALLET.customTokenData);
-  const contacts = useAppSelector(({CONTACT}) => CONTACT.list) || [];
+  const contactsRaw = useAppSelector(({CONTACT}) => CONTACT.list);
   const rates = useAppSelector(({RATE}) => RATE.rates);
   const fiatRateSeriesCache = useAppSelector(
     ({RATE}) => RATE.fiatRateSeriesCache,
   );
+  const giftCards = giftCardsRaw ?? EMPTY_LIST;
+  const contacts = contactsRaw ?? EMPTY_LIST;
 
   const portfolioRefreshToken = useAppSelector(
     ({PORTFOLIO}) =>
@@ -405,7 +414,7 @@ const StorageUsage: React.FC = () => {
             const data = parsed?.SHOP_CATALOG;
             const bytes = data ? JSON.stringify(data).length : 0;
             nextMetrics.shopCatalogStorage = formatBytes(bytes);
-          } catch (_) {
+          } catch {
             nextMetrics.shopCatalogStorage = '0 Bytes';
           }
         } else {
@@ -426,7 +435,7 @@ const StorageUsage: React.FC = () => {
       setMetrics(nextMetrics);
     };
 
-    void load();
+    load();
 
     return () => {
       cancelled = true;
@@ -443,8 +452,9 @@ const StorageUsage: React.FC = () => {
   ]);
 
   useEffect(() => {
+    const tapState = tripleTapRef.current;
     return () => {
-      const timer = tripleTapRef.current.timer;
+      const timer = tapState.timer;
       if (timer) {
         clearTimeout(timer);
       }

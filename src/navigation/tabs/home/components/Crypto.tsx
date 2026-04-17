@@ -1,5 +1,5 @@
 import {NavigationProp, useNavigation} from '@react-navigation/native';
-import React, {ReactElement, useEffect, useState} from 'react';
+import React, {ReactElement, useEffect, useMemo, useState} from 'react';
 import Carousel from 'react-native-reanimated-carousel';
 import styled from 'styled-components/native';
 import {
@@ -384,14 +384,15 @@ const Crypto = () => {
     ({APP}) => APP.homeCarouselLayoutType,
   );
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
-  const hasKeys = Object.values(keys).length;
+  const keyList = useMemo(() => Object.values(keys), [keys]);
+  const hasKeys = keyList.length;
   const portfolioPercentageDifferenceByKey = usePortfolioKeyPercentages({
-    keys: Object.values(keys),
+    keys: keyList,
   });
   const [cardsList, setCardsList] = useState(
     createHomeCardList({
       navigation,
-      keys: Object.values(keys),
+      keys: keyList,
       dispatch,
       linkedCoinbase: false,
       homeCarouselConfig: homeCarouselConfig || [],
@@ -406,7 +407,7 @@ const Crypto = () => {
     setCardsList(
       createHomeCardList({
         navigation,
-        keys: Object.values(keys),
+        keys: keyList,
         dispatch,
         linkedCoinbase,
         homeCarouselConfig: homeCarouselConfig || [],
@@ -418,7 +419,7 @@ const Crypto = () => {
     );
   }, [
     navigation,
-    keys,
+    keyList,
     dispatch,
     linkedCoinbase,
     homeCarouselConfig,
