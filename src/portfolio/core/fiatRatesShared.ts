@@ -63,15 +63,48 @@ const FIAT_RATE_SERIES_INTERVAL_DAYS: Record<FiatRateInterval, number | undefine
   ALL: undefined,
 };
 
+const CASE_SENSITIVE_TOKEN_ADDRESS_CHAINS = new Set(['sol', 'solana']);
+
+export function normalizeFiatRateSeriesChain(
+  chain?: string,
+): string | undefined {
+  'worklet';
+
+  const normalized = String(chain || '').trim().toLowerCase();
+  return normalized || undefined;
+}
+
+export function normalizeFiatRateSeriesTokenAddress(
+  chain?: string,
+  tokenAddress?: string,
+): string | undefined {
+  'worklet';
+
+  const normalized = String(tokenAddress || '').trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  const normalizedChain = normalizeFiatRateSeriesChain(chain);
+  return normalizedChain &&
+    CASE_SENSITIVE_TOKEN_ADDRESS_CHAINS.has(normalizedChain)
+    ? normalized
+    : normalized.toLowerCase();
+}
+
 function normalizeAssetRef(asset: FiatRateAssetRef): FiatRateAssetRef {
   'worklet';
 
-  const tokenAddress = asset.tokenAddress ? String(asset.tokenAddress).toLowerCase() : undefined;
+  const chain = normalizeFiatRateSeriesChain(asset.chain);
+  const tokenAddress = normalizeFiatRateSeriesTokenAddress(
+    chain,
+    asset.tokenAddress,
+  );
 
   return {
     coin: String(asset.coin || '').toLowerCase(),
     // Native-coin rate requests use the default exchange-rates payload.
-    chain: tokenAddress && asset.chain ? String(asset.chain).toLowerCase() : undefined,
+    chain: tokenAddress ? chain : undefined,
     tokenAddress,
   };
 }

@@ -9,7 +9,11 @@ import {
   type WalletForStreamedAnalysis,
 } from '../../core/pnl/analysisStreaming';
 import {getAssetIdFromWallet} from '../../core/pnl/assetId';
-import {type FiatRatePoint} from '../../core/fiatRatesShared';
+import {
+  normalizeFiatRateSeriesChain,
+  normalizeFiatRateSeriesTokenAddress,
+  type FiatRatePoint,
+} from '../../core/fiatRatesShared';
 import {normalizeFiatRateSeriesCoin} from '../../core/pnl/rates';
 import type {ComputeAnalysisArgs} from '../../core/engine/portfolioEngine';
 import type {PortfolioWorkletKvConfig} from './portfolioWorkletKv';
@@ -75,12 +79,11 @@ async function prepareWorkletStreamedAnalysisInputs(
     assetId: getAssetIdFromWallet(wallet.summary),
     rateCoin: normalizeFiatRateSeriesCoin(wallet.summary.currencyAbbreviation),
     currencyAbbreviation: wallet.summary.currencyAbbreviation,
-    chain: wallet.summary.chain
-      ? String(wallet.summary.chain).toLowerCase()
-      : undefined,
-    tokenAddress: wallet.summary.tokenAddress
-      ? String(wallet.summary.tokenAddress).toLowerCase()
-      : undefined,
+    chain: normalizeFiatRateSeriesChain(wallet.summary.chain),
+    tokenAddress: normalizeFiatRateSeriesTokenAddress(
+      wallet.summary.chain,
+      wallet.summary.tokenAddress,
+    ),
     credentials: wallet.credentials,
   }));
   const walletMetaByWalletId = new Map(
@@ -136,12 +139,11 @@ async function prepareWorkletStreamedAnalysisInputs(
         const coin = normalizeFiatRateSeriesCoin(
           wallet.summary.currencyAbbreviation,
         );
-        const chain = wallet.summary.chain
-          ? String(wallet.summary.chain).toLowerCase()
-          : undefined;
-        const tokenAddress = wallet.summary.tokenAddress
-          ? String(wallet.summary.tokenAddress).toLowerCase()
-          : undefined;
+        const chain = normalizeFiatRateSeriesChain(wallet.summary.chain);
+        const tokenAddress = normalizeFiatRateSeriesTokenAddress(
+          wallet.summary.chain,
+          wallet.summary.tokenAddress,
+        );
         const assetId = getAssetIdFromWallet(wallet.summary);
         return [
           assetId,

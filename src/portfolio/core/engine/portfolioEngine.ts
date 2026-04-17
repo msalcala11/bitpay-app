@@ -11,6 +11,8 @@ import {
   DEFAULT_STORED_FIAT_RATE_INTERVALS,
   FX_BRIDGE_COIN,
   getFiatRateSeriesCacheKey,
+  normalizeFiatRateSeriesChain,
+  normalizeFiatRateSeriesTokenAddress,
   resolveStoredFiatRateInterval,
 } from '../fiatRatesShared';
 import type {StoredWallet, Tx, WalletCredentials, WalletSummary} from '../types';
@@ -314,8 +316,11 @@ export class PortfolioEngine {
   }): Promise<FiatRateSeriesCache> {
     const quoteCurrency = String(args.quoteCurrency || 'USD').toUpperCase();
     const coin = normalizeFiatRateSeriesCoin(args.wallet.currencyAbbreviation);
-    const chain = args.wallet.chain ? String(args.wallet.chain).toLowerCase() : undefined;
-    const tokenAddress = args.wallet.tokenAddress ? String(args.wallet.tokenAddress).toLowerCase() : undefined;
+    const chain = normalizeFiatRateSeriesChain(args.wallet.chain);
+    const tokenAddress = normalizeFiatRateSeriesTokenAddress(
+      chain,
+      args.wallet.tokenAddress,
+    );
     const storedIntervals = Array.from(new Set(DEFAULT_STORED_FIAT_RATE_INTERVALS.map(resolveStoredFiatRateInterval)));
 
     for (const interval of storedIntervals) {
@@ -620,8 +625,11 @@ export class PortfolioEngine {
       assetId: getAssetIdFromWallet(w.summary),
       rateCoin: normalizeFiatRateSeriesCoin(w.summary.currencyAbbreviation),
       currencyAbbreviation: w.summary.currencyAbbreviation,
-      chain: w.summary.chain ? String(w.summary.chain).toLowerCase() : undefined,
-      tokenAddress: w.summary.tokenAddress ? String(w.summary.tokenAddress).toLowerCase() : undefined,
+      chain: normalizeFiatRateSeriesChain(w.summary.chain),
+      tokenAddress: normalizeFiatRateSeriesTokenAddress(
+        w.summary.chain,
+        w.summary.tokenAddress,
+      ),
       credentials: w.credentials,
     }));
     const walletMetaByWalletId = new Map(walletMetas.map(meta => [meta.walletId, meta]));
@@ -630,8 +638,11 @@ export class PortfolioEngine {
       new Map(
         args.wallets.map(w => {
           const coin = normalizeFiatRateSeriesCoin(w.summary.currencyAbbreviation);
-          const chain = w.summary.chain ? String(w.summary.chain).toLowerCase() : undefined;
-          const tokenAddress = w.summary.tokenAddress ? String(w.summary.tokenAddress).toLowerCase() : undefined;
+          const chain = normalizeFiatRateSeriesChain(w.summary.chain);
+          const tokenAddress = normalizeFiatRateSeriesTokenAddress(
+            w.summary.chain,
+            w.summary.tokenAddress,
+          );
           const assetId = getAssetIdFromWallet(w.summary);
           return [assetId, {assetId, coin, chain, tokenAddress}];
         }),
