@@ -1,4 +1,7 @@
-import {buildPortfolioTxHistoryRequestPath} from './txHistoryRequest';
+import {
+  appendPortfolioTxHistoryCacheBustParam,
+  buildPortfolioTxHistoryRequestPath,
+} from './txHistoryRequest';
 
 describe('buildPortfolioTxHistoryRequestPath', () => {
   it('adds reverse=1 and multisig params for oldest-first paging', () => {
@@ -41,5 +44,22 @@ describe('buildPortfolioTxHistoryRequestPath', () => {
     });
 
     expect(requestPath).toBe('/v1/txhistory/?skip=25&limit=200');
+  });
+});
+
+describe('appendPortfolioTxHistoryCacheBustParam', () => {
+  it('appends r to a txhistory path with existing query params', () => {
+    expect(
+      appendPortfolioTxHistoryCacheBustParam(
+        '/v1/txhistory/?limit=1000&reverse=1',
+        37786,
+      ),
+    ).toBe('/v1/txhistory/?limit=1000&reverse=1&r=37786');
+  });
+
+  it('appends r to a txhistory path without existing query params', () => {
+    expect(
+      appendPortfolioTxHistoryCacheBustParam('/v1/txhistory/', 75511),
+    ).toBe('/v1/txhistory/?r=75511');
   });
 });
