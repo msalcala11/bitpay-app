@@ -1,9 +1,11 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {Platform, ScrollView} from 'react-native';
+import {NavigationProp, useNavigation} from '@react-navigation/native';
 import styled from 'styled-components/native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import {useTranslation} from 'react-i18next';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import type {RootStackParamList} from '../../../../../Root';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
 import {
@@ -19,6 +21,7 @@ import {getPortfolioRuntimeClient} from '../../../../../portfolio/runtime/portfo
 import type {SnapshotIndexV2} from '../../../../../portfolio/core/pnl/snapshotStore';
 import type {BalanceSnapshotStored} from '../../../../../portfolio/core/pnl/types';
 import type {Wallet} from '../../../../../store/wallet/wallet.models';
+import {WalletScreens} from '../../../../wallet/WalletGroup';
 import {clearWalletPortfolioDataWithRuntime, populatePortfolio} from '../../../../../store/portfolio';
 import {logManager} from '../../../../../managers/LogManager';
 
@@ -142,6 +145,7 @@ const toCsv = (snapshots: BalanceSnapshotStored[]): string => {
 
 const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
   const {t} = useTranslation();
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const dispatch = useAppDispatch();
   const {walletId} = route.params;
 
@@ -191,7 +195,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
   }, [walletId]);
 
   useEffect(() => {
-    void refresh();
+    refresh();
   }, [refresh]);
 
   const previewJson = useMemo(() => {
@@ -269,6 +273,16 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
     }
   }, [dispatch, refresh, wallet, walletId]);
 
+  const viewWallet = useCallback(() => {
+    if (!wallet) {
+      return;
+    }
+
+    navigation.navigate(WalletScreens.WALLET_DETAILS, {
+      walletId: wallet.id,
+    });
+  }, [navigation, wallet]);
+
   const rowsCount = getRowCount(index);
   const latestTimestamp = latestSnapshot?.timestamp;
   const latestBalance = latestSnapshot?.cryptoBalance;
@@ -281,13 +295,16 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
             {t('Runtime wallet debug view for a single portfolio wallet.')}
           </DebugHeaderText>
           <DebugButtonRow>
-            <DebugPillButton onPress={() => void refresh()}>
+            <DebugPillButton onPress={refresh}>
               <DebugPillButtonText>{isLoading ? t('Loading...') : t('Refresh')}</DebugPillButtonText>
             </DebugPillButton>
-            <DebugPillButton onPress={() => void repopulateWallet()}>
+            <DebugPillButton disabled={!wallet} onPress={viewWallet}>
+              <DebugPillButtonText>{t('View Wallet')}</DebugPillButtonText>
+            </DebugPillButton>
+            <DebugPillButton onPress={repopulateWallet}>
               <DebugPillButtonText>{t('Populate Wallet')}</DebugPillButtonText>
             </DebugPillButton>
-            <DebugPillButton onPress={() => void clearWallet()}>
+            <DebugPillButton onPress={clearWallet}>
               <DebugPillButtonText>{t('Clear Wallet')}</DebugPillButtonText>
             </DebugPillButton>
             <DebugPillButton onPress={copyJson}>
