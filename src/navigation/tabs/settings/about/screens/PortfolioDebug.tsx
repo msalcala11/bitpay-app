@@ -1,9 +1,17 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Pressable, ScrollView} from 'react-native';
-import styled from 'styled-components/native';
+import React, {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {Pressable, ScrollView, TextInput} from 'react-native';
+import styled, {useTheme} from 'styled-components/native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import {useTranslation} from 'react-i18next';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import SearchSvg from '../../../../../../assets/img/search.svg';
 import {Network} from '../../../../../constants';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {getPortfolioRuntimeClient} from '../../../../../portfolio/runtime/portfolioRuntime';
@@ -73,6 +81,28 @@ const ErrorText = styled(SectionText)`
 
 const EmptyStateText = styled(SectionText)`
   opacity: 0.7;
+`;
+
+const SearchInputContainer = styled.View`
+  margin: 0 12px 12px;
+  border-radius: 999px;
+  flex-direction: row;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid ${({theme: {dark}}) => (dark ? '#2C2F34' : '#E4E9EF')};
+  background-color: ${({theme: {dark}}) => (dark ? 'transparent' : '#FFFFFF')};
+`;
+
+const SearchIconContainer = styled.View`
+  margin-right: 8px;
+`;
+
+const SearchField = styled(TextInput)`
+  flex: 1;
+  font-size: 13px;
+  color: ${({theme}) => theme.colors.text};
+  padding: 0;
+  margin: 0;
 `;
 
 const formatBytes = (bytes?: number): string => {
@@ -149,6 +179,7 @@ const getAllMainnetWallets = (walletKeys: Record<string, any>): Wallet[] => {
 
 const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
   const {t} = useTranslation();
+  const theme = useTheme();
   const dispatch = useAppDispatch();
 
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
@@ -162,7 +193,9 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
   const [runtimeError, setRuntimeError] = useState<string>('');
   const [lastRefreshedAt, setLastRefreshedAt] = useState<number | undefined>();
+  const [query, setQuery] = useState('');
   const wallets = useMemo(() => getAllMainnetWallets(walletKeys), [walletKeys]);
+  const deferredQuery = useDeferredValue(query);
   const loadRequestIdRef = useRef(0);
   const walletsRef = useRef<Wallet[]>(wallets);
   const mismatchByWalletIdRef = useRef(
@@ -186,6 +219,9 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
       wallets.length,
     ].join(':');
   }, [portfolio.lastPopulatedAt, portfolio.populateStatus, wallets.length]);
+
+  const normalizedQuery = deferredQuery.trim().toLowerCase();
+  const hasActiveQuery = normalizedQuery.length > 0;
 
   const load = useCallback(async () => {
     const requestId = loadRequestIdRef.current + 1;
@@ -258,7 +294,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
   }, []);
 
   useEffect(() => {
-    void load();
+    load();
   }, [load, refreshToken]);
 
   const summary = useMemo(() => {
@@ -283,6 +319,22 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
       lastRefreshedAt,
     };
   }, [kvStats, lastRefreshedAt, portfolio.lastPopulatedAt, portfolio.populateStatus, rateEntries.length, walletRows, wallets.length]);
+
+  const filteredWalletRows = useMemo(() => {
+    if (!hasActiveQuery) {
+      return walletRows;
+    }
+
+    return walletRows.filter(row => {
+      const walletName = String(
+        (row.wallet as any)?.walletName || (row.wallet as any)?.name || row.wallet.id,
+      );
+      const chain = String((row.wallet as any)?.chain || '');
+      const coin = String((row.wallet as any)?.currencyAbbreviation || '');
+      const searchText = [walletName, chain, coin].join('\u0000').toLowerCase();
+      return searchText.includes(normalizedQuery);
+    });
+  }, [hasActiveQuery, normalizedQuery, walletRows]);
 
   const copySummary = useCallback(() => {
     const payload = {
@@ -309,7 +361,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
   const repopulate = useCallback(async () => {
     try {
       await dispatch(populatePortfolio() as any);
-      void load();
+      load();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setRuntimeError(message);
@@ -346,23 +398,23 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
 
   return (
     <DebugScreenContainer>
-      <ScrollView>
+      <ScrollView keyboardShouldPersistTaps="handled">
         <DebugHeaderContainer>
           <DebugHeaderText>
             {t('Runtime-backed portfolio debug info. Redux snapshot arrays are no longer used in production.')}
           </DebugHeaderText>
 
           <DebugButtonRow>
-            <DebugPillButton onPress={() => void load()}>
+            <DebugPillButton onPress={load}>
               <DebugPillButtonText>{isLoading ? t('Loading...') : t('Refresh')}</DebugPillButtonText>
             </DebugPillButton>
-            <DebugPillButton onPress={() => void repopulate()}>
+            <DebugPillButton onPress={repopulate}>
               <DebugPillButtonText>{t('Populate')}</DebugPillButtonText>
             </DebugPillButton>
-            <DebugPillButton onPress={() => void clearRates()}>
+            <DebugPillButton onPress={clearRates}>
               <DebugPillButtonText>{t('Clear Rates')}</DebugPillButtonText>
             </DebugPillButton>
-            <DebugPillButton disabled={isClearing} onPress={() => void clearAll()}>
+            <DebugPillButton disabled={isClearing} onPress={clearAll}>
               <DebugPillButtonText>
                 {isClearing ? t('Clearing...') : t('Clear All')}
               </DebugPillButtonText>
@@ -393,11 +445,31 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
           {`Last refreshed: ${toIso(summary.lastRefreshedAt)}`}
         </SectionText>
 
+        <SearchInputContainer>
+          <SearchIconContainer>
+            <SearchSvg height={16} width={16} />
+          </SearchIconContainer>
+          <SearchField
+            value={query}
+            placeholder={t('Search wallets')}
+            placeholderTextColor={theme.dark ? '#9BA3AE' : '#6B7280'}
+            autoCapitalize="none"
+            autoCorrect={false}
+            onChangeText={setQuery}
+            accessibilityLabel="Search portfolio raw wallets"
+            testID="portfolio-debug-search-input"
+          />
+        </SearchInputContainer>
+
         {!walletRows.length ? (
           <EmptyStateText>{t('No mainnet wallets found.')}</EmptyStateText>
+        ) : !filteredWalletRows.length ? (
+          <EmptyStateText>
+            {t('No wallets match your search.')}
+          </EmptyStateText>
         ) : null}
 
-        {walletRows.map(row => {
+        {filteredWalletRows.map(row => {
           const walletName = String(
             (row.wallet as any)?.walletName || (row.wallet as any)?.name || row.wallet.id,
           );
