@@ -10,6 +10,7 @@ import {
 
 export const PORTFOLIO_BWS_CLIENT_VERSION_HEADER = 'bwc-11.7.0';
 const TXHISTORY_BASE_PATH = '/v1/txhistory/';
+const TXHISTORY_CACHE_BUST_PARAM = 'r';
 
 type TxHistoryRequestArgs = {
   credentials: WalletCredentials;
@@ -56,6 +57,25 @@ export function buildPortfolioTxHistoryRequestPath(
   return params.length > 0
     ? `${TXHISTORY_BASE_PATH}?${params.join('&')}`
     : TXHISTORY_BASE_PATH;
+}
+
+export function appendPortfolioTxHistoryCacheBustParam(
+  requestPath: string,
+  cacheBustValue?: number,
+): string {
+  'worklet';
+
+  const normalizedRequestPath = String(requestPath || '').trim();
+  if (!normalizedRequestPath) {
+    throw new Error('A txhistory request path is required before appending the cache-bust param.');
+  }
+
+  const separator = normalizedRequestPath.includes('?') ? '&' : '?';
+  const normalizedCacheBustValue = Number.isFinite(cacheBustValue)
+    ? Math.round(Number(cacheBustValue))
+    : Math.round(Math.random() * 100000);
+
+  return `${normalizedRequestPath}${separator}${TXHISTORY_CACHE_BUST_PARAM}=${normalizedCacheBustValue}`;
 }
 
 function getWalletCopayerId(credentials: WalletCredentials): string {
@@ -141,6 +161,7 @@ export async function fetchPortfolioTxHistoryPageByRequest(args: {
     limit: args.limit,
     reverse: args.reverse,
   });
+  const signedRequestPath = appendPortfolioTxHistoryCacheBustParam(requestPath);
 
   const baseUrl = String(args.cfg?.baseUrl || '').trim();
   if (!baseUrl) {
@@ -149,19 +170,19 @@ export async function fetchPortfolioTxHistoryPageByRequest(args: {
 
   const headers = buildSignedHeaders({
     credentials: args.credentials,
-    requestPath,
+    requestPath: signedRequestPath,
   });
 
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}${requestPath}`, {
+    response = await fetch(`${baseUrl}${signedRequestPath}`, {
       method: 'GET',
       headers,
     });
   } catch (error: unknown) {
     const runtimeError = error instanceof Error ? error : new Error(String(error));
     throw new Error(
-      `Portfolio txhistory request failed for ${requestPath}: ${runtimeError.message}`,
+      `Portfolio txhistory request failed for ${signedRequestPath}: ${runtimeError.message}`,
     );
   }
 
@@ -171,7 +192,7 @@ export async function fetchPortfolioTxHistoryPageByRequest(args: {
       ? rawResponseText.slice(0, 400)
       : 'Empty response body.';
     throw new Error(
-      `BWS txhistory request failed with status ${response.status} for ${requestPath}. ${responsePreview}`,
+      `BWS txhistory request failed with status ${response.status} for ${signedRequestPath}. ${responsePreview}`,
     );
   }
 
