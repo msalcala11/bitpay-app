@@ -3,9 +3,40 @@ import type {Tx} from './types';
 export const getTxHistoryEntryId = (tx: Tx): string => {
   'worklet';
 
-  const id = String((tx as any)?.txid || (tx as any)?.id || '').trim();
-  if (id) return id;
-  return `${String((tx as any)?.time ?? '')}:${String((tx as any)?.action ?? '')}:${String((tx as any)?.amount ?? '')}:${String((tx as any)?.fees ?? '')}`;
+  const txid = String(
+    (tx as any)?.txid ??
+      (tx as any)?.txHash ??
+      (tx as any)?.txhash ??
+      (tx as any)?.hash ??
+      '',
+  ).trim();
+  if (txid) return txid;
+
+  // Do not fall back to BWS's internal `id`. For some wallet histories,
+  // duplicate economic rows can share the same on-chain transaction while
+  // carrying different internal ids, which breaks dedupe and paging.
+  const parts = [
+    String((tx as any)?.time ?? ''),
+    String((tx as any)?.action ?? ''),
+    String((tx as any)?.amount ?? ''),
+    String((tx as any)?.fees ?? ''),
+  ];
+  const optionalParts = [
+    String(
+      (tx as any)?.blockheight ??
+        (tx as any)?.blockHeight ??
+        (tx as any)?.block_height ??
+        '',
+    ).trim(),
+    String((tx as any)?.nonce ?? '').trim(),
+    String((tx as any)?.addressTo ?? (tx as any)?.toAddress ?? '').trim(),
+  ];
+
+  while (optionalParts.length && !optionalParts[optionalParts.length - 1]) {
+    optionalParts.pop();
+  }
+
+  return [...parts, ...optionalParts].join(':');
 };
 
 export const getTxHistoryLogicalPageSize = (txs: Tx[]): number => {
