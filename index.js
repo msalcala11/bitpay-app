@@ -1,5 +1,6 @@
 import 'react-native-get-random-values'; // must import before @ethersproject/shims
 import { install as installQuickCrypto } from 'react-native-quick-crypto';
+import '@shopify/react-native-skia';
 import '@ethersproject/shims';
 // import 'fast-text-encoding';
 import './shim';
@@ -26,6 +27,7 @@ import {
   configureReanimatedLogger,
   ReanimatedLogLevel,
 } from 'react-native-reanimated';
+import {runOnUISync} from 'react-native-worklets';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {BottomSheetModalProvider} from '@gorhom/bottom-sheet';
@@ -46,6 +48,8 @@ Sentry.init({
   dsn: SENTRY_DSN,
   enabled: !__DEV__,
   environment: __DEV__ ? 'development' : 'production',
+  release: APP_VERSION,
+  dist: GIT_COMMIT_HASH,
   sendDefaultPii: false,
   enableLogs: false,
   enableAutoNativeBreadcrumbs: false,
@@ -79,6 +83,38 @@ Sentry.init({
 
 
 installQuickCrypto();
+
+const syncSkiaGlobalsToUIRuntime = () => {
+  if (globalThis.__BITPAY_SKIA_UI_RUNTIME_SYNCED) {
+    return;
+  }
+
+  const {SkiaApi, SkiaViewApi} = globalThis;
+  if (!SkiaApi || !SkiaViewApi) {
+    return;
+  }
+
+  try {
+    // Bundle Mode gives Skia chart worklets a separate UI runtime. Skia installs
+    // its host objects on the RN runtime, so mirror them once for UI worklets.
+    runOnUISync(
+      (uiSkiaApi, uiSkiaViewApi) => {
+        'worklet';
+        globalThis.SkiaApi = uiSkiaApi;
+        globalThis.SkiaViewApi = uiSkiaViewApi;
+      },
+      SkiaApi,
+      SkiaViewApi,
+    );
+    globalThis.__BITPAY_SKIA_UI_RUNTIME_SYNCED = true;
+  } catch (err) {
+    if (__DEV__) {
+      console.warn('Failed to sync Skia globals to UI runtime', err);
+    }
+  }
+};
+
+syncSkiaGlobalsToUIRuntime();
 
 const makeErrorHandler = store => (e, isFatal) => {
   if (isFatal) {
@@ -153,6 +189,10 @@ const ReduxProvider = () => {
 const AppWrapper = () => {
   const colorScheme = useAppSelector(({APP}) => APP.colorScheme);
   const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    syncSkiaGlobalsToUIRuntime();
+  }, []);
 
   useEffect(() => {
     const updateTheme = () => {
