@@ -403,6 +403,78 @@ describe('BalanceSnapshotStreamBuilder', () => {
     ]);
   });
 
+  it('captures the prior daily balance before a newer compressed-day tx mutates builder state', () => {
+    const wallet = mkWallet();
+    const credentials: Pick<
+      WalletCredentials,
+      'walletId' | 'chain' | 'network' | 'coin' | 'token'
+    > = {
+      walletId: 'w1',
+      chain: 'btc',
+      network: 'livenet',
+      coin: 'btc',
+      token: undefined,
+    };
+
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-02T00:00:00Z');
+    const nowMs = Date.parse('2024-05-01T00:00:00Z');
+    const cache = mkCache([
+      {
+        key: 'USD:btc:ALL',
+        points: [
+          {ts: t0, rate: 1},
+          {ts: t1, rate: 1},
+        ],
+      },
+    ]);
+
+    const builder = new BalanceSnapshotStreamBuilder({
+      wallet,
+      credentials,
+      quoteCurrency: 'USD',
+      fiatRateSeriesCache: cache,
+      snapshotDebugMode: 'full',
+      compressionEnabled: true,
+      nowMs,
+    });
+
+    const snapshots = builder.ingestPage([
+      {
+        txid: 'fund',
+        time: Math.floor(t0 / 1000),
+        action: 'received',
+        amount: '1000',
+        fees: '0',
+      },
+      {
+        txid: 'spend',
+        time: Math.floor(t1 / 1000),
+        action: 'sent',
+        amount: '400',
+        fees: '0',
+      },
+    ]);
+
+    expect(snapshots).toMatchObject([
+      {
+        eventType: 'daily',
+        cryptoBalance: '1000',
+        remainingCostBasisFiat: 0.00001,
+        txIds: ['fund'],
+      },
+    ]);
+
+    expect(builder.finish()).toMatchObject([
+      {
+        eventType: 'daily',
+        cryptoBalance: '600',
+        remainingCostBasisFiat: 0.000006,
+        txIds: ['spend'],
+      },
+    ]);
+  });
+
   it('persists daily tx ids across checkpoint resume for compressed history', () => {
     const wallet = mkWallet();
     const credentials: Pick<
@@ -450,6 +522,8 @@ describe('BalanceSnapshotStreamBuilder', () => {
     ]);
     expect(firstSnapshots).toEqual([]);
     expect(first.getCheckpoint().daily?.txIds).toEqual(['fund']);
+    expect(first.getCheckpoint().daily?.balanceAtomic).toBe('1000');
+    expect(first.getCheckpoint().daily?.remainingCostBasisFiat).toBe(0.00001);
 
     const resumed = new BalanceSnapshotStreamBuilder({
       wallet,
@@ -473,6 +547,10 @@ describe('BalanceSnapshotStreamBuilder', () => {
     ]);
     expect(secondSnapshots).toEqual([]);
     expect(resumed.getCheckpoint().daily?.txIds).toEqual(['fund', 'spend']);
+    expect(resumed.getCheckpoint().daily?.balanceAtomic).toBe('600');
+    expect(resumed.getCheckpoint().daily?.remainingCostBasisFiat).toBe(
+      0.000006,
+    );
 
     const finished = resumed.finish();
     expect(finished).toMatchObject([
