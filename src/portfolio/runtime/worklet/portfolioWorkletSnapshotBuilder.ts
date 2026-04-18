@@ -1302,7 +1302,7 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
     ? getNormalizedTxGroupKey(group[0])
     : null;
   let groupIndex = 0;
-  let carryoverSeedTxIds = toDebugTxIds(group);
+  let carryoverSeedTxIds = debugRequestId ? toDebugTxIds(group) : [];
   let pageTxIdsAdded: string[] = [];
   let groupMaxOriginalIndex = -1;
   let consumedRawCount = 0;
@@ -2125,8 +2125,6 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
           before: beforePageTxIdAdd,
           after: afterPageTxIdAdd,
         });
-      } else {
-        pageTxIdsAdded.push(tx.id);
       }
     }
     if (tx.originalIndex > groupMaxOriginalIndex) {
@@ -2188,7 +2186,9 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
       }
       const logicalPageSize = getTxHistoryLogicalPageSize(txs);
       const nextSkipBeforeAssign = state.nextSkip;
-      const stateCarryoverTxIdsBeforeAssign = toDebugTxIds(state.carryoverGroup);
+      const stateCarryoverTxIdsBeforeAssign = debugRequestId
+        ? toDebugTxIds(state.carryoverGroup)
+        : [];
       state.carryoverGroup = group;
       state.nextSkip += logicalPageSize;
       state.recentTxIds = normalizedPage.map(tx => tx.id).filter(Boolean);
