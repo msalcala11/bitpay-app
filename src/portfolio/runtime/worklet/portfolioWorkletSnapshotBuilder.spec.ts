@@ -1,6 +1,7 @@
 import type {PortfolioPopulateWalletDebugTrace} from '../../core/engine/populateDebug';
 import {
   createPortfolioSnapshotBuilderState,
+  getPortfolioSnapshotBuilderCheckpoint,
   portfolioSnapshotBuilderFinish,
   portfolioSnapshotBuilderIngestPageWithSnapshotLimit,
 } from './portfolioWorkletSnapshotBuilder';
@@ -289,6 +290,116 @@ describe('portfolioWorkletSnapshotBuilder return-struct flush state', () => {
     ]);
 
     expect(ingestResult.snapshots).toEqual([]);
+  });
+
+  it('preserves compressed daily state across a checkpoint resume', () => {
+    const walletId = 'wallet-2b';
+    const cache = {
+      'USD:btc:ALL': {
+        fetchedOn: Date.now(),
+        points: [
+          {ts: Date.parse('2024-01-01T00:00:00Z'), rate: 1},
+          {ts: Date.parse('2024-01-01T01:00:00Z'), rate: 1},
+        ],
+      },
+    } as any;
+
+    const firstState = createPortfolioSnapshotBuilderState({
+      wallet: {
+        walletId,
+        walletName: 'Wallet 2b',
+        chain: 'btc',
+        network: 'livenet',
+        currencyAbbreviation: 'btc',
+        balanceAtomic: '0',
+        balanceFormatted: '0',
+      } as any,
+      credentials: {
+        walletId,
+        chain: 'btc',
+        network: 'livenet',
+        coin: 'btc',
+      } as any,
+      quoteCurrency: 'USD',
+      fiatRateSeriesCache: cache,
+      nowMs: Date.parse('2024-05-01T00:00:00Z'),
+      compressionEnabled: true,
+      snapshotDebugMode: 'full',
+    });
+
+    const firstSnapshots = portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
+      firstState,
+      [
+        makeReceivedTx({
+          txid: 'fund',
+          timeSeconds: Math.floor(
+            Date.parse('2024-01-01T00:00:00Z') / 1000,
+          ),
+          blockheight: 900001,
+          amountAtomic: '1000',
+        }),
+      ],
+    );
+
+    expect(firstSnapshots.snapshots).toEqual([]);
+    const checkpoint = getPortfolioSnapshotBuilderCheckpoint(firstState);
+    expect(checkpoint.daily?.txIds).toEqual(['fund']);
+    expect(checkpoint.daily?.balanceAtomic).toBe('1000');
+    expect(checkpoint.daily?.remainingCostBasisFiat).toBe(0.00001);
+
+    const resumedState = createPortfolioSnapshotBuilderState({
+      wallet: {
+        walletId,
+        walletName: 'Wallet 2b',
+        chain: 'btc',
+        network: 'livenet',
+        currencyAbbreviation: 'btc',
+        balanceAtomic: '0',
+        balanceFormatted: '0',
+      } as any,
+      credentials: {
+        walletId,
+        chain: 'btc',
+        network: 'livenet',
+        coin: 'btc',
+      } as any,
+      quoteCurrency: 'USD',
+      fiatRateSeriesCache: cache,
+      nowMs: Date.parse('2024-05-01T00:00:00Z'),
+      compressionEnabled: true,
+      snapshotDebugMode: 'full',
+      checkpoint,
+    });
+
+    const resumedSnapshots = portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
+      resumedState,
+      [
+        makeSentTx({
+          txid: 'spend',
+          timeSeconds: Math.floor(
+            Date.parse('2024-01-01T01:00:00Z') / 1000,
+          ),
+          blockheight: 900002,
+          amountAtomic: '400',
+        }),
+      ],
+    );
+
+    expect(resumedSnapshots.snapshots).toEqual([]);
+    const resumedCheckpoint =
+      getPortfolioSnapshotBuilderCheckpoint(resumedState);
+    expect(resumedCheckpoint.daily?.txIds).toEqual(['fund', 'spend']);
+    expect(resumedCheckpoint.daily?.balanceAtomic).toBe('600');
+    expect(resumedCheckpoint.daily?.remainingCostBasisFiat).toBe(0.000006);
+
+    expect(portfolioSnapshotBuilderFinish(resumedState)).toMatchObject([
+      {
+        eventType: 'daily',
+        cryptoBalance: '600',
+        remainingCostBasisFiat: 0.000006,
+        txIds: ['fund', 'spend'],
+      },
+    ]);
   });
 
   it('ignores debug request ids when no debug trace is attached', () => {

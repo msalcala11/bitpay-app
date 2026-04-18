@@ -1085,7 +1085,9 @@ export async function handleProcessNextPageOnPopulateWorklet(
       });
       fetchMs = Math.max(0, Date.now() - fetchStartedAt);
       fetchedTxs = txs.length;
-      fetchedTxHead = extractTxIdsHead(extractTxIdsFromRawTxs(txs));
+      if (debugRequestId) {
+        fetchedTxHead = extractTxIdsHead(extractTxIdsFromRawTxs(txs));
+      }
       captureFetchedTxRows(session, txs, skip);
       session.fetch.pendingTxs = dedupeTxHistoryPage(txs);
 

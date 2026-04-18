@@ -1429,17 +1429,18 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
     }
     flushInvocationSeq += 1;
     const activeFlushInvocationSeq = flushInvocationSeq;
-    const beforeReset = snapshotIngestLoopState({
-      group,
-      groupKey,
-      pageTxIdsAdded,
-      carryoverSeedTxIds,
-      groupMaxOriginalIndex,
-      consumedRawCount,
-      endedAtInputBoundary,
-    });
+    let beforeReset: ReturnType<typeof snapshotIngestLoopState> | undefined;
     const groupInstanceSeqBeforeReset = groupInstanceSeq;
     if (debugRequestId) {
+      beforeReset = snapshotIngestLoopState({
+        group,
+        groupKey,
+        pageTxIdsAdded,
+        carryoverSeedTxIds,
+        groupMaxOriginalIndex,
+        consumedRawCount,
+        endedAtInputBoundary,
+      });
       captureFlushDirectResetWitnessRow(state, {
         requestId: debugRequestId,
         flushInvocationSeq: activeFlushInvocationSeq,
@@ -1780,12 +1781,13 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
         flushReason,
         groupInstanceSeqBeforeReset,
         groupInstanceSeqAfterReset: groupInstanceSeq,
-        groupKeyBeforeReset: beforeReset.groupKey,
-        groupTxIdsBeforeReset: beforeReset.groupTxIds,
-        pageTxIdsAddedBeforeReset: beforeReset.pageTxIdsAdded,
-        carryoverSeedTxIdsBeforeReset: beforeReset.carryoverSeedTxIds,
-        groupMaxOriginalIndexBeforeReset: beforeReset.groupMaxOriginalIndex,
-        consumedRawCountBeforeReset: beforeReset.consumedRawCount,
+        groupKeyBeforeReset: beforeReset?.groupKey ?? '',
+        groupTxIdsBeforeReset: beforeReset?.groupTxIds ?? [],
+        pageTxIdsAddedBeforeReset: beforeReset?.pageTxIdsAdded ?? [],
+        carryoverSeedTxIdsBeforeReset: beforeReset?.carryoverSeedTxIds ?? [],
+        groupMaxOriginalIndexBeforeReset:
+          beforeReset?.groupMaxOriginalIndex ?? null,
+        consumedRawCountBeforeReset: beforeReset?.consumedRawCount ?? 0,
         groupKeyAfterReset: afterReset.groupKey,
         groupTxIdsAfterReset: afterReset.groupTxIds,
         pageTxIdsAddedAfterReset: afterReset.pageTxIdsAdded,
@@ -1835,52 +1837,58 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
       });
     }
     if (groupKey === null) {
-      const beforeGroupKeySeed = snapshotIngestLoopState({
-        group,
-        groupKey,
-        pageTxIdsAdded,
-        carryoverSeedTxIds,
-        groupMaxOriginalIndex,
-        consumedRawCount,
-        endedAtInputBoundary,
-      });
-      groupKey = key;
-      const afterGroupKeySeed = snapshotIngestLoopState({
-        group,
-        groupKey,
-        pageTxIdsAdded,
-        carryoverSeedTxIds,
-        groupMaxOriginalIndex,
-        consumedRawCount,
-        endedAtInputBoundary,
-      });
-      captureLoopMutation({
-        loopIndex,
-        mutation: 'seed_group_key',
-        tx,
-        txGroupKey: key,
-        before: beforeGroupKeySeed,
-        after: afterGroupKeySeed,
-      });
+      if (debugRequestId) {
+        const beforeGroupKeySeed = snapshotIngestLoopState({
+          group,
+          groupKey,
+          pageTxIdsAdded,
+          carryoverSeedTxIds,
+          groupMaxOriginalIndex,
+          consumedRawCount,
+          endedAtInputBoundary,
+        });
+        groupKey = key;
+        const afterGroupKeySeed = snapshotIngestLoopState({
+          group,
+          groupKey,
+          pageTxIdsAdded,
+          carryoverSeedTxIds,
+          groupMaxOriginalIndex,
+          consumedRawCount,
+          endedAtInputBoundary,
+        });
+        captureLoopMutation({
+          loopIndex,
+          mutation: 'seed_group_key',
+          tx,
+          txGroupKey: key,
+          before: beforeGroupKeySeed,
+          after: afterGroupKeySeed,
+        });
+      } else {
+        groupKey = key;
+      }
     }
     if (key !== groupKey) {
-      const beforeKeyChange = snapshotIngestLoopState({
-        group,
-        groupKey,
-        pageTxIdsAdded,
-        carryoverSeedTxIds,
-        groupMaxOriginalIndex,
-        consumedRawCount,
-        endedAtInputBoundary,
-      });
-      captureLoopMutation({
-        loopIndex,
-        mutation: 'key_change_detected',
-        tx,
-        txGroupKey: key,
-        before: beforeKeyChange,
-        after: beforeKeyChange,
-      });
+      if (debugRequestId) {
+        const beforeKeyChange = snapshotIngestLoopState({
+          group,
+          groupKey,
+          pageTxIdsAdded,
+          carryoverSeedTxIds,
+          groupMaxOriginalIndex,
+          consumedRawCount,
+          endedAtInputBoundary,
+        });
+        captureLoopMutation({
+          loopIndex,
+          mutation: 'key_change_detected',
+          tx,
+          txGroupKey: key,
+          before: beforeKeyChange,
+          after: beforeKeyChange,
+        });
+      }
       const flushedState = flushCurrentGroup(
         {
           group,
@@ -1992,7 +2000,41 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
         });
       }
       if (limit !== null && out.length >= limit) {
-        const beforeLimitBreak = snapshotIngestLoopState({
+        if (debugRequestId) {
+          const beforeLimitBreak = snapshotIngestLoopState({
+            group,
+            groupKey,
+            pageTxIdsAdded,
+            carryoverSeedTxIds,
+            groupMaxOriginalIndex,
+            consumedRawCount,
+            endedAtInputBoundary,
+          });
+          endedAtInputBoundary = false;
+          const afterLimitBreak = snapshotIngestLoopState({
+            group,
+            groupKey,
+            pageTxIdsAdded,
+            carryoverSeedTxIds,
+            groupMaxOriginalIndex,
+            consumedRawCount,
+            endedAtInputBoundary,
+          });
+          captureLoopMutation({
+            loopIndex,
+            mutation: 'limit_break_after_flush',
+            tx,
+            txGroupKey: key,
+            before: beforeLimitBreak,
+            after: afterLimitBreak,
+          });
+        } else {
+          endedAtInputBoundary = false;
+        }
+        break;
+      }
+      if (debugRequestId) {
+        const beforeGroupKeyReseed = snapshotIngestLoopState({
           group,
           groupKey,
           pageTxIdsAdded,
@@ -2001,8 +2043,8 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
           consumedRawCount,
           endedAtInputBoundary,
         });
-        endedAtInputBoundary = false;
-        const afterLimitBreak = snapshotIngestLoopState({
+        groupKey = key;
+        const afterGroupKeyReseed = snapshotIngestLoopState({
           group,
           groupKey,
           pageTxIdsAdded,
@@ -2013,71 +2055,18 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
         });
         captureLoopMutation({
           loopIndex,
-          mutation: 'limit_break_after_flush',
+          mutation: 'reseed_group_key_after_flush',
           tx,
           txGroupKey: key,
-          before: beforeLimitBreak,
-          after: afterLimitBreak,
+          before: beforeGroupKeyReseed,
+          after: afterGroupKeyReseed,
         });
-        break;
+      } else {
+        groupKey = key;
       }
-      const beforeGroupKeyReseed = snapshotIngestLoopState({
-        group,
-        groupKey,
-        pageTxIdsAdded,
-        carryoverSeedTxIds,
-        groupMaxOriginalIndex,
-        consumedRawCount,
-        endedAtInputBoundary,
-      });
-      groupKey = key;
-      const afterGroupKeyReseed = snapshotIngestLoopState({
-        group,
-        groupKey,
-        pageTxIdsAdded,
-        carryoverSeedTxIds,
-        groupMaxOriginalIndex,
-        consumedRawCount,
-        endedAtInputBoundary,
-      });
-      captureLoopMutation({
-        loopIndex,
-        mutation: 'reseed_group_key_after_flush',
-        tx,
-        txGroupKey: key,
-        before: beforeGroupKeyReseed,
-        after: afterGroupKeyReseed,
-      });
     }
-    const beforeGroupPush = snapshotIngestLoopState({
-      group,
-      groupKey,
-      pageTxIdsAdded,
-      carryoverSeedTxIds,
-      groupMaxOriginalIndex,
-      consumedRawCount,
-      endedAtInputBoundary,
-    });
-    group.push(tx);
-    const afterGroupPush = snapshotIngestLoopState({
-      group,
-      groupKey,
-      pageTxIdsAdded,
-      carryoverSeedTxIds,
-      groupMaxOriginalIndex,
-      consumedRawCount,
-      endedAtInputBoundary,
-    });
-    captureLoopMutation({
-      loopIndex,
-      mutation: 'append_tx_to_group',
-      tx,
-      txGroupKey: key,
-      before: beforeGroupPush,
-      after: afterGroupPush,
-    });
-    if (tx.id) {
-      const beforePageTxIdAdd = snapshotIngestLoopState({
+    if (debugRequestId) {
+      const beforeGroupPush = snapshotIngestLoopState({
         group,
         groupKey,
         pageTxIdsAdded,
@@ -2086,8 +2075,8 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
         consumedRawCount,
         endedAtInputBoundary,
       });
-      pageTxIdsAdded.push(tx.id);
-      const afterPageTxIdAdd = snapshotIngestLoopState({
+      group.push(tx);
+      const afterGroupPush = snapshotIngestLoopState({
         group,
         groupKey,
         pageTxIdsAdded,
@@ -2098,41 +2087,80 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
       });
       captureLoopMutation({
         loopIndex,
-        mutation: 'append_txid_to_page_group',
+        mutation: 'append_tx_to_group',
         tx,
         txGroupKey: key,
-        before: beforePageTxIdAdd,
-        after: afterPageTxIdAdd,
+        before: beforeGroupPush,
+        after: afterGroupPush,
       });
+    } else {
+      group.push(tx);
+    }
+    if (tx.id) {
+      if (debugRequestId) {
+        const beforePageTxIdAdd = snapshotIngestLoopState({
+          group,
+          groupKey,
+          pageTxIdsAdded,
+          carryoverSeedTxIds,
+          groupMaxOriginalIndex,
+          consumedRawCount,
+          endedAtInputBoundary,
+        });
+        pageTxIdsAdded.push(tx.id);
+        const afterPageTxIdAdd = snapshotIngestLoopState({
+          group,
+          groupKey,
+          pageTxIdsAdded,
+          carryoverSeedTxIds,
+          groupMaxOriginalIndex,
+          consumedRawCount,
+          endedAtInputBoundary,
+        });
+        captureLoopMutation({
+          loopIndex,
+          mutation: 'append_txid_to_page_group',
+          tx,
+          txGroupKey: key,
+          before: beforePageTxIdAdd,
+          after: afterPageTxIdAdd,
+        });
+      } else {
+        pageTxIdsAdded.push(tx.id);
+      }
     }
     if (tx.originalIndex > groupMaxOriginalIndex) {
-      const beforeGroupMaxAdvance = snapshotIngestLoopState({
-        group,
-        groupKey,
-        pageTxIdsAdded,
-        carryoverSeedTxIds,
-        groupMaxOriginalIndex,
-        consumedRawCount,
-        endedAtInputBoundary,
-      });
-      groupMaxOriginalIndex = tx.originalIndex;
-      const afterGroupMaxAdvance = snapshotIngestLoopState({
-        group,
-        groupKey,
-        pageTxIdsAdded,
-        carryoverSeedTxIds,
-        groupMaxOriginalIndex,
-        consumedRawCount,
-        endedAtInputBoundary,
-      });
-      captureLoopMutation({
-        loopIndex,
-        mutation: 'advance_group_max_original_index',
-        tx,
-        txGroupKey: key,
-        before: beforeGroupMaxAdvance,
-        after: afterGroupMaxAdvance,
-      });
+      if (debugRequestId) {
+        const beforeGroupMaxAdvance = snapshotIngestLoopState({
+          group,
+          groupKey,
+          pageTxIdsAdded,
+          carryoverSeedTxIds,
+          groupMaxOriginalIndex,
+          consumedRawCount,
+          endedAtInputBoundary,
+        });
+        groupMaxOriginalIndex = tx.originalIndex;
+        const afterGroupMaxAdvance = snapshotIngestLoopState({
+          group,
+          groupKey,
+          pageTxIdsAdded,
+          carryoverSeedTxIds,
+          groupMaxOriginalIndex,
+          consumedRawCount,
+          endedAtInputBoundary,
+        });
+        captureLoopMutation({
+          loopIndex,
+          mutation: 'advance_group_max_original_index',
+          tx,
+          txGroupKey: key,
+          before: beforeGroupMaxAdvance,
+          after: afterGroupMaxAdvance,
+        });
+      } else {
+        groupMaxOriginalIndex = tx.originalIndex;
+      }
     }
   }
 
