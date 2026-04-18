@@ -95,6 +95,8 @@ export type SnapshotPopulateCheckpointV1 = {
     dayIdx: number;
     lastTimestamp: number;
     lastMarkRate: number;
+    balanceAtomic: string;
+    remainingCostBasisFiat: number;
     txIds?: string[];
   };
 

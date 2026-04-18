@@ -45,6 +45,22 @@ const makeReceivedTx = (args: {
     fees: '0',
   }) as any;
 
+const makeSentTx = (args: {
+  txid: string;
+  timeSeconds: number;
+  blockheight: number;
+  amountAtomic: string;
+  feeAtomic?: string;
+}) =>
+  ({
+    txid: args.txid,
+    time: args.timeSeconds,
+    blockheight: args.blockheight,
+    action: 'sent',
+    amount: args.amountAtomic,
+    fees: args.feeAtomic ?? '0',
+  }) as any;
+
 describe('portfolioWorkletSnapshotBuilder return-struct flush state', () => {
   it('preserves the helper reset in the caller after the first group flush', () => {
     const walletId = 'wallet-1';
@@ -200,5 +216,127 @@ describe('portfolioWorkletSnapshotBuilder return-struct flush state', () => {
       'tx_2',
       'tx_3',
     ]);
+  });
+
+  it('captures the prior compressed day balance before a newer day mutates builder state', () => {
+    const walletId = 'wallet-2';
+    const state = createPortfolioSnapshotBuilderState({
+      wallet: {
+        walletId,
+        walletName: 'Wallet 2',
+        chain: 'btc',
+        network: 'livenet',
+        currencyAbbreviation: 'btc',
+        balanceAtomic: '0',
+        balanceFormatted: '0',
+      } as any,
+      credentials: {
+        walletId,
+        chain: 'btc',
+        network: 'livenet',
+        coin: 'btc',
+      } as any,
+      quoteCurrency: 'USD',
+      fiatRateSeriesCache: {
+        'USD:btc:ALL': {
+          fetchedOn: Date.now(),
+          points: [
+            {ts: Date.parse('2024-01-01T00:00:00Z'), rate: 1},
+            {ts: Date.parse('2024-01-02T00:00:00Z'), rate: 1},
+          ],
+        },
+      } as any,
+      nowMs: Date.parse('2024-05-01T00:00:00Z'),
+      compressionEnabled: true,
+      snapshotDebugMode: 'full',
+    });
+
+    const ingestResult = portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
+      state,
+      [
+        makeReceivedTx({
+          txid: 'fund',
+          timeSeconds: Math.floor(
+            Date.parse('2024-01-01T00:00:00Z') / 1000,
+          ),
+          blockheight: 900001,
+          amountAtomic: '1000',
+        }),
+        makeSentTx({
+          txid: 'spend',
+          timeSeconds: Math.floor(
+            Date.parse('2024-01-02T00:00:00Z') / 1000,
+          ),
+          blockheight: 900002,
+          amountAtomic: '400',
+        }),
+      ],
+    );
+
+    expect(portfolioSnapshotBuilderFinish(state)).toMatchObject([
+      {
+        eventType: 'daily',
+        cryptoBalance: '1000',
+        remainingCostBasisFiat: 0.00001,
+        txIds: ['fund'],
+      },
+      {
+        eventType: 'daily',
+        cryptoBalance: '600',
+        remainingCostBasisFiat: 0.000006,
+        txIds: ['spend'],
+      },
+    ]);
+
+    expect(ingestResult.snapshots).toEqual([]);
+  });
+
+  it('ignores debug request ids when no debug trace is attached', () => {
+    const walletId = 'wallet-3';
+    const state = createPortfolioSnapshotBuilderState({
+      wallet: {
+        walletId,
+        walletName: 'Wallet 3',
+        chain: 'btc',
+        network: 'livenet',
+        currencyAbbreviation: 'btc',
+        balanceAtomic: '0',
+        balanceFormatted: '0',
+      } as any,
+      credentials: {
+        walletId,
+        chain: 'btc',
+        network: 'livenet',
+        coin: 'btc',
+      } as any,
+      quoteCurrency: 'USD',
+      fiatRateSeriesCache: {} as any,
+      nowMs: Date.UTC(2026, 0, 1),
+      compressionEnabled: false,
+      snapshotDebugMode: 'link',
+    });
+
+    portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
+      state,
+      [
+        makeReceivedTx({
+          txid: 'tx_1',
+          timeSeconds: 1752782847,
+          blockheight: 905990,
+          amountAtomic: '1000',
+        }),
+        makeReceivedTx({
+          txid: 'tx_2',
+          timeSeconds: 1752788462,
+          blockheight: 905993,
+          amountAtomic: '1200',
+        }),
+      ],
+      undefined,
+      'snapshots.processNextPage:test',
+    );
+
+    expect(state.debugStateMutationControlCounter).toBe(0);
+    expect(state.debugStateMutationControlLastStage).toBe('');
   });
 });

@@ -363,6 +363,8 @@ export type SnapshotStreamCheckpoint = {
     dayIdx: number;
     lastTimestamp: number;
     lastMarkRate: number;
+    balanceAtomic: string;
+    remainingCostBasisFiat: number;
     txIds?: string[];
   };
   firstNonZeroTs?: number;
@@ -428,6 +430,11 @@ export class BalanceSnapshotStreamBuilder {
     this.dailyState = cp?.daily
       ? {
           ...cp.daily,
+          balanceAtomic: String(cp.daily.balanceAtomic ?? cp.balanceAtomic ?? '0'),
+          remainingCostBasisFiat:
+            Number(
+              cp.daily.remainingCostBasisFiat ?? cp.remainingCostBasisFiat ?? 0,
+            ) || 0,
           txIds: Array.isArray(cp.daily.txIds)
             ? cp.daily.txIds.slice()
             : undefined,
@@ -568,14 +575,7 @@ export class BalanceSnapshotStreamBuilder {
     out.push(...this.flushPendingCarryoverGroup());
     if (this.dailyState) {
       const d = this.dailyState;
-      out.push(
-        this.makeDailySnapshot(
-          d.dayIdx,
-          d.lastTimestamp,
-          d.lastMarkRate,
-          d.txIds ?? [],
-        ),
-      );
+      out.push(this.makeDailySnapshot(d));
       this.dailyState = undefined;
     }
     return out;
@@ -678,27 +678,26 @@ export class BalanceSnapshotStreamBuilder {
           dayIdx,
           lastTimestamp: tx.tsMs,
           lastMarkRate: markRate,
+          balanceAtomic: this.balanceAtomic.toString(),
+          remainingCostBasisFiat: this.remainingCostBasisFiat,
           txIds: [tx.id],
         };
       } else if (this.dailyState.dayIdx !== dayIdx) {
         const prev = this.dailyState;
-        out.push(
-          this.makeDailySnapshot(
-            prev.dayIdx,
-            prev.lastTimestamp,
-            prev.lastMarkRate,
-            prev.txIds ?? [],
-          ),
-        );
+        out.push(this.makeDailySnapshot(prev));
         this.dailyState = {
           dayIdx,
           lastTimestamp: tx.tsMs,
           lastMarkRate: markRate,
+          balanceAtomic: this.balanceAtomic.toString(),
+          remainingCostBasisFiat: this.remainingCostBasisFiat,
           txIds: [tx.id],
         };
       } else {
         this.dailyState.lastTimestamp = tx.tsMs;
         this.dailyState.lastMarkRate = markRate;
+        this.dailyState.balanceAtomic = this.balanceAtomic.toString();
+        this.dailyState.remainingCostBasisFiat = this.remainingCostBasisFiat;
         if (!Array.isArray(this.dailyState.txIds)) {
           this.dailyState.txIds = [];
         }
@@ -709,14 +708,7 @@ export class BalanceSnapshotStreamBuilder {
 
     if (this.dailyState) {
       const d = this.dailyState;
-      out.push(
-        this.makeDailySnapshot(
-          d.dayIdx,
-          d.lastTimestamp,
-          d.lastMarkRate,
-          d.txIds ?? [],
-        ),
-      );
+      out.push(this.makeDailySnapshot(d));
       this.dailyState = undefined;
     }
 
@@ -734,17 +726,16 @@ export class BalanceSnapshotStreamBuilder {
   }
 
   private makeDailySnapshot(
-    dayIdx: number,
-    timestamp: number,
-    markRate: number,
-    txIds: string[],
+    dailyState: NonNullable<SnapshotStreamCheckpoint['daily']>,
   ): SnapshotPersistInputV2 {
     return this.makePersistSnapshot({
-      id: `daily:${this.wallet.walletId}:${utcDayKeyFromIndex(dayIdx)}`,
+      id: `daily:${this.wallet.walletId}:${utcDayKeyFromIndex(dailyState.dayIdx)}`,
       eventType: 'daily',
-      timestamp,
-      markRate,
-    }, txIds);
+      timestamp: dailyState.lastTimestamp,
+      markRate: dailyState.lastMarkRate,
+      balanceAtomic: dailyState.balanceAtomic,
+      remainingCostBasisFiat: dailyState.remainingCostBasisFiat,
+    }, dailyState.txIds);
   }
 
   private makePersistSnapshot(args: {
@@ -752,10 +743,12 @@ export class BalanceSnapshotStreamBuilder {
     eventType: BalanceSnapshotEventType;
     timestamp: number;
     markRate: number;
+    balanceAtomic?: string;
+    remainingCostBasisFiat?: number;
   }, txIds?: string[]): SnapshotPersistInputV2 {
     const snapshot: SnapshotPersistInputV2 = {
       timestamp: args.timestamp,
-      cryptoBalance: this.balanceAtomic.toString(),
+      cryptoBalance: args.balanceAtomic ?? this.balanceAtomic.toString(),
     };
 
     if (this.snapshotDebugMode !== 'none') {
@@ -764,7 +757,8 @@ export class BalanceSnapshotStreamBuilder {
     }
 
     if (this.snapshotDebugMode === 'full') {
-      snapshot.remainingCostBasisFiat = this.remainingCostBasisFiat;
+      snapshot.remainingCostBasisFiat =
+        args.remainingCostBasisFiat ?? this.remainingCostBasisFiat;
       snapshot.markRate = args.markRate;
       snapshot.createdAt = Date.now();
     }

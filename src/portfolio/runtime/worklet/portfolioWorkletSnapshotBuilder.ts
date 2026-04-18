@@ -457,6 +457,8 @@ export type SnapshotStreamCheckpoint = {
     dayIdx: number;
     lastTimestamp: number;
     lastMarkRate: number;
+    balanceAtomic: string;
+    remainingCostBasisFiat: number;
     txIds?: string[];
   };
   firstNonZeroTs?: number;
@@ -533,6 +535,15 @@ export function createPortfolioSnapshotBuilderState(args: {
     dailyState: checkpoint?.daily
       ? {
           ...checkpoint.daily,
+          balanceAtomic: String(
+            checkpoint.daily.balanceAtomic ?? checkpoint.balanceAtomic ?? '0',
+          ),
+          remainingCostBasisFiat:
+            Number(
+              checkpoint.daily.remainingCostBasisFiat ??
+                checkpoint.remainingCostBasisFiat ??
+                0,
+            ) || 0,
           txIds: Array.isArray(checkpoint.daily.txIds)
             ? checkpoint.daily.txIds.slice()
             : undefined,
@@ -590,6 +601,8 @@ function makePersistSnapshot(
     eventType: BalanceSnapshotEventType;
     timestamp: number;
     markRate: number;
+    balanceAtomic?: string;
+    remainingCostBasisFiat?: number;
   },
   txIds?: string[],
 ): SnapshotPersistInputV2 {
@@ -597,7 +610,7 @@ function makePersistSnapshot(
 
   const snapshot: SnapshotPersistInputV2 = {
     timestamp: args.timestamp,
-    cryptoBalance: state.balanceAtomic.toString(),
+    cryptoBalance: args.balanceAtomic ?? state.balanceAtomic.toString(),
   };
 
   if (state.snapshotDebugMode !== 'none') {
@@ -606,7 +619,8 @@ function makePersistSnapshot(
   }
 
   if (state.snapshotDebugMode === 'full') {
-    snapshot.remainingCostBasisFiat = state.remainingCostBasisFiat;
+    snapshot.remainingCostBasisFiat =
+      args.remainingCostBasisFiat ?? state.remainingCostBasisFiat;
     snapshot.markRate = args.markRate;
     snapshot.createdAt = Date.now();
   }
@@ -636,19 +650,18 @@ function makeTxSnapshot(
 
 function makeDailySnapshot(
   state: PortfolioSnapshotBuilderState,
-  dayIdx: number,
-  timestamp: number,
-  markRate: number,
-  txIds: string[],
+  dailyState: NonNullable<SnapshotStreamCheckpoint['daily']>,
 ): SnapshotPersistInputV2 {
   'worklet';
 
   return makePersistSnapshot(state, {
-    id: `daily:${state.wallet.walletId}:${utcDayKeyFromIndex(dayIdx)}`,
+    id: `daily:${state.wallet.walletId}:${utcDayKeyFromIndex(dailyState.dayIdx)}`,
     eventType: 'daily',
-    timestamp,
-    markRate,
-  }, txIds);
+    timestamp: dailyState.lastTimestamp,
+    markRate: dailyState.lastMarkRate,
+    balanceAtomic: dailyState.balanceAtomic,
+    remainingCostBasisFiat: dailyState.remainingCostBasisFiat,
+  }, dailyState.txIds);
 }
 
 function getMarkRate(
@@ -1073,28 +1086,26 @@ function processTx(
         dayIdx,
         lastTimestamp: tx.tsMs,
         lastMarkRate: markRate,
+        balanceAtomic: state.balanceAtomic.toString(),
+        remainingCostBasisFiat: state.remainingCostBasisFiat,
         txIds: [tx.id],
       };
     } else if (state.dailyState.dayIdx !== dayIdx) {
       const dailyState = state.dailyState;
-      out.push(
-        makeDailySnapshot(
-          state,
-          dailyState.dayIdx,
-          dailyState.lastTimestamp,
-          dailyState.lastMarkRate,
-          dailyState.txIds ?? [],
-        ),
-      );
+      out.push(makeDailySnapshot(state, dailyState));
       state.dailyState = {
         dayIdx,
         lastTimestamp: tx.tsMs,
         lastMarkRate: markRate,
+        balanceAtomic: state.balanceAtomic.toString(),
+        remainingCostBasisFiat: state.remainingCostBasisFiat,
         txIds: [tx.id],
       };
     } else {
       state.dailyState.lastTimestamp = tx.tsMs;
       state.dailyState.lastMarkRate = markRate;
+      state.dailyState.balanceAtomic = state.balanceAtomic.toString();
+      state.dailyState.remainingCostBasisFiat = state.remainingCostBasisFiat;
       if (!Array.isArray(state.dailyState.txIds)) {
         state.dailyState.txIds = [];
       }
@@ -1106,15 +1117,7 @@ function processTx(
 
   if (state.dailyState) {
     const dailyState = state.dailyState;
-    out.push(
-      makeDailySnapshot(
-        state,
-        dailyState.dayIdx,
-        dailyState.lastTimestamp,
-        dailyState.lastMarkRate,
-        dailyState.txIds ?? [],
-      ),
-    );
+    out.push(makeDailySnapshot(state, dailyState));
     state.dailyState = undefined;
   }
 
@@ -1186,6 +1189,8 @@ export function portfolioSnapshotBuilderFlushPendingCarryoverGroup(
 ): SnapshotPersistInputV2[] {
   'worklet';
 
+  debugRequestId = debugRequestId && state.debugTrace ? debugRequestId : undefined;
+
   if (!state.carryoverGroup.length) return [];
   const group = state.carryoverGroup;
   state.carryoverGroup = [];
@@ -1211,21 +1216,15 @@ export function portfolioSnapshotBuilderFinish(
 ): SnapshotPersistInputV2[] {
   'worklet';
 
+  debugRequestId = debugRequestId && state.debugTrace ? debugRequestId : undefined;
+
   const out: SnapshotPersistInputV2[] = [];
   out.push(
     ...portfolioSnapshotBuilderFlushPendingCarryoverGroup(state, debugRequestId),
   );
   if (state.dailyState) {
     const dailyState = state.dailyState;
-    out.push(
-      makeDailySnapshot(
-        state,
-        dailyState.dayIdx,
-        dailyState.lastTimestamp,
-        dailyState.lastMarkRate,
-        dailyState.txIds ?? [],
-      ),
-    );
+    out.push(makeDailySnapshot(state, dailyState));
     state.dailyState = undefined;
   }
   return out;
@@ -1242,6 +1241,8 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
   consumedRawCount: number;
 } {
   'worklet';
+
+  debugRequestId = debugRequestId && state.debugTrace ? debugRequestId : undefined;
 
   const out: SnapshotPersistInputV2[] = [];
   const normalizedPage = dedupeNormalizedTxPage(
@@ -1548,16 +1549,16 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
         consumedRawCountDirect: consumedRawCount,
       });
     }
-    localScalarCanary += 1;
-    localArrayCanary = [
-      `flush_${activeFlushInvocationSeq}`,
-      flushReason,
-      'helper_after_mutation',
-    ];
-    localStringCanary =
-      `helper:${activeFlushInvocationSeq}:${flushReason}:after_mutation`;
-    bumpStateMutationControl('helper_after_mutation');
     if (debugRequestId) {
+      localScalarCanary += 1;
+      localArrayCanary = [
+        `flush_${activeFlushInvocationSeq}`,
+        flushReason,
+        'helper_after_mutation',
+      ];
+      localStringCanary =
+        `helper:${activeFlushInvocationSeq}:${flushReason}:after_mutation`;
+      bumpStateMutationControl('helper_after_mutation');
       captureLocalMutationCanaryRow(state, {
         requestId: debugRequestId,
         flushInvocationSeq: activeFlushInvocationSeq,

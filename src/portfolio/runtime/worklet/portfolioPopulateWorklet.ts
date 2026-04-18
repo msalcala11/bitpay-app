@@ -1059,7 +1059,10 @@ export async function handleProcessNextPageOnPopulateWorklet(
   const session = requireSession(state, walletId);
   session.debugProcessSeq += 1;
   const processSeq = session.debugProcessSeq;
-  const requestId = `snapshots.processNextPage:${processSeq}`;
+  const debugRequestId = session.debugTrace
+    ? `snapshots.processNextPage:${processSeq}`
+    : undefined;
+  const requestId = debugRequestId ?? `snapshots.processNextPage:${processSeq}`;
   const requestStartedAtMs = Date.now();
   const checkpoint = getPortfolioSnapshotBuilderCheckpoint(session.builder);
   const skip = checkpoint.nextSkip;
@@ -1093,7 +1096,7 @@ export async function handleProcessNextPageOnPopulateWorklet(
           const computeStartedAt = Date.now();
           const snapshots = portfolioSnapshotBuilderFlushPendingCarryoverGroup(
             session.builder,
-            requestId,
+            debugRequestId,
           );
           const nextCheckpoint = getPortfolioSnapshotBuilderCheckpoint(
             session.builder,
@@ -1162,26 +1165,30 @@ export async function handleProcessNextPageOnPopulateWorklet(
       }
     }
 
-    captureIngestSeed(session.debugTrace, {
-      requestId,
-      processSeq,
-      skip,
-      builderCarryoverTxIdsBeforeIngest: extractBuilderCarryoverTxIds(
-        session.builder,
-      ),
-      builderRecentTxIdsBeforeIngest: session.builder.recentTxIds.slice(),
-      pendingTxIdsBeforeIngest: extractTxIdsFromRawTxs(session.fetch.pendingTxs),
-      fetchedTxHead,
-      dedupedPendingTxHead: extractTxIdsHead(
-        extractTxIdsFromRawTxs(session.fetch.pendingTxs),
-      ),
-    });
+    if (debugRequestId) {
+      captureIngestSeed(session.debugTrace, {
+        requestId: debugRequestId,
+        processSeq,
+        skip,
+        builderCarryoverTxIdsBeforeIngest: extractBuilderCarryoverTxIds(
+          session.builder,
+        ),
+        builderRecentTxIdsBeforeIngest: session.builder.recentTxIds.slice(),
+        pendingTxIdsBeforeIngest: extractTxIdsFromRawTxs(
+          session.fetch.pendingTxs,
+        ),
+        fetchedTxHead,
+        dedupedPendingTxHead: extractTxIdsHead(
+          extractTxIdsFromRawTxs(session.fetch.pendingTxs),
+        ),
+      });
+    }
     const computeStartedAt = Date.now();
     const consumed = portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
       session.builder,
       session.fetch.pendingTxs,
       session.fetch.emitRows ?? undefined,
-      requestId,
+      debugRequestId,
     );
     const nextCheckpoint = getPortfolioSnapshotBuilderCheckpoint(session.builder);
 
@@ -1253,8 +1260,14 @@ export async function handleFinishWalletOnPopulateWorklet(
 
   const session = requireSession(state, walletId);
   const requestStartedAtMs = Date.now();
-  const requestId = 'snapshots.finishWallet:1';
-  const snapshots = portfolioSnapshotBuilderFinish(session.builder, requestId);
+  const debugRequestId = session.debugTrace
+    ? 'snapshots.finishWallet:1'
+    : undefined;
+  const requestId = debugRequestId ?? 'snapshots.finishWallet:1';
+  const snapshots = portfolioSnapshotBuilderFinish(
+    session.builder,
+    debugRequestId,
+  );
   const checkpoint = getPortfolioSnapshotBuilderCheckpoint(session.builder);
   const kvConfig = getKvConfig(config);
 
