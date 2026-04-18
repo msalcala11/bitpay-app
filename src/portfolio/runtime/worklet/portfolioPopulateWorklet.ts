@@ -4,14 +4,35 @@ import type {
   WorkerResponse,
 } from '../../core/engine/workerProtocol';
 import type {WalletCredentials, WalletSummary, Tx} from '../../core/types';
+import {parseAtomicToBigint} from '../../core/format';
 import type {
   PrepareWalletSessionResult,
   ProcessNextPageSessionResult,
   FinishWalletSessionResult,
   SnapshotIngestConfig,
 } from '../../core/engine/portfolioEngine';
+import type {
+  PortfolioPopulateFetchedTxDebugRow,
+  PortfolioPopulateBuilderSeedDebugRow,
+  PortfolioPopulateCarryoverDecisionDebugRow,
+  PortfolioPopulateDirectVsHelperParityDebugRow,
+  PortfolioPopulateFlushDirectResetWitnessDebugRow,
+  PortfolioPopulateFlushCurrentGroupDebugRow,
+  PortfolioPopulateFlushReturnWitnessDebugRow,
+  PortfolioPopulateGroupAssemblyDebugRow,
+  PortfolioPopulateIngestSeedDebugRow,
+  PortfolioPopulateIngestLoopMutationDebugRow,
+  PortfolioPopulateLocalMutationCanaryDebugRow,
+  PortfolioPopulateNormalizedFilteredPageKeyDebugRow,
+  PortfolioPopulateRequestLifecycleDebugRow,
+  PortfolioPopulateSessionStateBeforePrepareDebugRow,
+  PortfolioPopulateStateMutationControlDebugRow,
+  PortfolioPopulateWalletDebugTrace,
+} from '../../core/engine/populateDebug';
+import type {SnapshotPersistInputV2} from '../../core/pnl/snapshotStore';
 import {
   dedupeTxHistoryPage,
+  getTxHistoryEntryId,
   getTxHistoryLogicalPageSize,
 } from '../../core/txHistoryPaging';
 import type {BwsConfig} from '../../core/shared/bws';
@@ -20,6 +41,7 @@ import type {WorkletMmkvStorageBridge} from '../../adapters/rn/mmkvKvStore';
 import {fetchPortfolioTxHistoryPageByRequest} from '../../adapters/rn/txHistoryRequest';
 import {
   appendWorkletSnapshotChunk,
+  buildOrderedWorkletSnapshotDebugRows,
   buildWorkletWalletMetaForStore,
   ensureWorkletWalletIndex,
   updateWorkletSnapshotCheckpoint,
@@ -31,6 +53,7 @@ import {
   portfolioSnapshotBuilderFlushPendingCarryoverGroup,
   portfolioSnapshotBuilderHasPendingCarryoverGroup,
   portfolioSnapshotBuilderIngestPageWithSnapshotLimit,
+  type SnapshotStreamCheckpoint,
   type PortfolioSnapshotBuilderState,
 } from './portfolioWorkletSnapshotBuilder';
 import {ensureWorkletSnapshotRateSeriesCache} from './portfolioWorkletRates';
@@ -43,10 +66,14 @@ export type PortfolioPopulateWorkletConfig = {
 };
 
 export type PortfolioPopulateWorkletSession = {
+  createdAtMs: number;
   wallet: WalletSummary;
   credentials: WalletCredentials;
   builder: PortfolioSnapshotBuilderState;
   meta: ReturnType<typeof buildWorkletWalletMetaForStore>;
+  debugTrace?: PortfolioPopulateWalletDebugTrace;
+  debugFetchedPageCount: number;
+  debugProcessSeq: number;
   fetch: {
     cfg: BwsConfig;
     pageSize: number;
@@ -57,6 +84,7 @@ export type PortfolioPopulateWorkletSession = {
 
 export type PortfolioPopulateWorkletState = {
   sessionsByWalletId: Record<string, PortfolioPopulateWorkletSession | undefined>;
+  debugByWalletId: Record<string, PortfolioPopulateWalletDebugTrace | undefined>;
   serialTail?: Promise<void>;
   storageId?: string;
   registryKey?: string;
@@ -68,6 +96,7 @@ type GlobalWithPortfolioPopulateState = typeof globalThis & {
 
 const PORTFOLIO_POPULATE_STATE_GLOBAL_KEY =
   '__bitpayPortfolioPopulateWorkletStateV1__';
+const POPULATE_DEBUG_TXID_HEAD_LIMIT = 10;
 
 export function getOrCreatePortfolioPopulateWorkletState(
   config: PortfolioPopulateWorkletConfig,
@@ -92,6 +121,7 @@ export function getOrCreatePortfolioPopulateWorkletState(
 
   const created: PortfolioPopulateWorkletState = {
     sessionsByWalletId: {},
+    debugByWalletId: {},
     storageId: config.storageId,
     registryKey: normalizedRegistryKey,
   };
@@ -140,6 +170,758 @@ function normalizeEmitRows(value: unknown): number | null {
   return Math.trunc(Number(value));
 }
 
+const bigIntAbs = (value: bigint): bigint => {
+  'worklet';
+  return value < 0n ? -value : value;
+};
+
+const parseNumberishToBigint = (value: unknown): bigint => {
+  'worklet';
+
+  if (value === null || value === undefined) return 0n;
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number') {
+    try {
+      return parseAtomicToBigint(value);
+    } catch {
+      return 0n;
+    }
+  }
+
+  const text = String(value).trim();
+  if (!text) return 0n;
+  if (/^0x[0-9a-f]+$/i.test(text)) {
+    try {
+      return BigInt(text);
+    } catch {
+      return 0n;
+    }
+  }
+
+  try {
+    return parseAtomicToBigint(text);
+  } catch {
+    const match = text.match(/^-?\d+/);
+    if (!match) return 0n;
+    try {
+      return BigInt(match[0]);
+    } catch {
+      return 0n;
+    }
+  }
+};
+
+const toTxTimestampMs = (tx: Tx): number => {
+  'worklet';
+
+  const raw = Number((tx as any)?.time);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return raw < 1e12 ? raw * 1000 : raw;
+};
+
+const getTxAction = (tx: Tx): 'received' | 'sent' | 'moved' | 'unknown' => {
+  'worklet';
+
+  const actionRaw = String((tx as any)?.action || (tx as any)?.type || '')
+    .toLowerCase();
+  if (actionRaw === 'received' || actionRaw === 'receive') return 'received';
+  if (actionRaw === 'sent' || actionRaw === 'send') return 'sent';
+  if (actionRaw === 'moved' || actionRaw === 'move') return 'moved';
+  return 'unknown';
+};
+
+const getTxBlockHeight = (tx: Tx): number | null => {
+  'worklet';
+
+  const raw = Number(
+    (tx as any)?.blockheight ??
+      (tx as any)?.blockHeight ??
+      (tx as any)?.block_height,
+  );
+  return Number.isFinite(raw) && raw > 0 ? raw : null;
+};
+
+const isTxFailed = (tx: Tx): boolean => {
+  'worklet';
+
+  const status = (tx as any)?.receipt?.status;
+  if (status === null || status === undefined) return false;
+  if (typeof status === 'boolean') return status === false;
+  if (typeof status === 'number') return status === 0;
+  if (typeof status === 'bigint') return status === 0n;
+
+  const text = String(status).trim().toLowerCase();
+  if (!text) return false;
+  if (text === 'false' || text === '0' || text === '0x0') return true;
+  if (text === 'true' || text === '1' || text === '0x1') return false;
+  try {
+    if (/^0x[0-9a-f]+$/i.test(text)) return BigInt(text) === 0n;
+    return BigInt(text) === 0n;
+  } catch {
+    return false;
+  }
+};
+
+const getTxL1DataFeeAtomic = (tx: Tx): bigint => {
+  'worklet';
+
+  const receipt = (tx as any)?.receipt;
+  const l1Fee = parseNumberishToBigint(
+    receipt?.l1Fee ??
+      receipt?.l1DataFee ??
+      receipt?.l1_data_fee ??
+      (tx as any)?.l1Fee ??
+      (tx as any)?.l1FeePaid,
+  );
+  return bigIntAbs(l1Fee);
+};
+
+const getTxOperatorFeeAtomic = (tx: Tx): bigint => {
+  'worklet';
+
+  const receipt = (tx as any)?.receipt;
+  const operatorFee = parseNumberishToBigint(
+    receipt?.operatorFee ?? receipt?.opFee ?? (tx as any)?.operatorFee,
+  );
+  return bigIntAbs(operatorFee);
+};
+
+const computeTxNetworkFeeAtomic = (tx: Tx): bigint => {
+  'worklet';
+
+  const receipt = (tx as any)?.receipt;
+  const gasUsed = parseNumberishToBigint(receipt?.gasUsed);
+  if (gasUsed > 0n) {
+    const price = parseNumberishToBigint(
+      receipt?.effectiveGasPrice ??
+        receipt?.gasPrice ??
+        (tx as any)?.gasPrice,
+    );
+    if (price > 0n) {
+      return (
+        gasUsed * price +
+        getTxL1DataFeeAtomic(tx) +
+        getTxOperatorFeeAtomic(tx)
+      );
+    }
+  }
+  return bigIntAbs(parseNumberishToBigint((tx as any)?.fees ?? 0));
+};
+
+const computeTxBalanceDeltaAtomic = (
+  tx: Tx,
+  wallet: Pick<WalletSummary, 'tokenAddress'>,
+): {
+  action: 'received' | 'sent' | 'moved' | 'unknown';
+  amountAtomic: bigint;
+  feeAtomic: bigint;
+  deltaAtomic: bigint;
+} => {
+  'worklet';
+
+  const action = getTxAction(tx);
+  const rawAmountAtomic = parseAtomicToBigint((tx as any)?.amount ?? 0);
+  const amountAtomic = bigIntAbs(rawAmountAtomic);
+  const feeAtomic = !wallet.tokenAddress ? computeTxNetworkFeeAtomic(tx) : 0n;
+
+  if (isTxFailed(tx) && action === 'sent') {
+    return {action, amountAtomic, feeAtomic, deltaAtomic: -feeAtomic};
+  }
+
+  if (action === 'received') {
+    return {action, amountAtomic, feeAtomic, deltaAtomic: amountAtomic};
+  }
+
+  if (action === 'sent') {
+    return {
+      action,
+      amountAtomic,
+      feeAtomic,
+      deltaAtomic: -(amountAtomic + feeAtomic),
+    };
+  }
+
+  if (action === 'moved') {
+    return {action, amountAtomic, feeAtomic, deltaAtomic: -feeAtomic};
+  }
+
+  if (rawAmountAtomic > 0n) {
+    return {action, amountAtomic, feeAtomic, deltaAtomic: amountAtomic};
+  }
+
+  if (rawAmountAtomic < 0n) {
+    return {
+      action,
+      amountAtomic,
+      feeAtomic,
+      deltaAtomic: -(amountAtomic + feeAtomic),
+    };
+  }
+
+  if (feeAtomic > 0n) {
+    return {action, amountAtomic, feeAtomic, deltaAtomic: -feeAtomic};
+  }
+
+  return {action, amountAtomic, feeAtomic, deltaAtomic: 0n};
+};
+
+const shouldCapturePopulateWalletDebugTrace = (
+  snapshotDebugMode?: string,
+): boolean => {
+  'worklet';
+  return snapshotDebugMode === 'link' || snapshotDebugMode === 'full';
+};
+
+function cloneFetchedTxDebugRow(
+  row: PortfolioPopulateFetchedTxDebugRow,
+): PortfolioPopulateFetchedTxDebugRow {
+  'worklet';
+
+  return {...row};
+}
+
+function cloneStringArray(values?: string[]): string[] | undefined {
+  'worklet';
+
+  return Array.isArray(values) ? values.slice() : undefined;
+}
+
+function cloneSessionStateBeforePrepareDebugRow(
+  row: PortfolioPopulateSessionStateBeforePrepareDebugRow,
+): PortfolioPopulateSessionStateBeforePrepareDebugRow {
+  'worklet';
+
+  return {
+    ...row,
+    existingSessionCarryoverTxIds: cloneStringArray(
+      row.existingSessionCarryoverTxIds,
+    ),
+    existingSessionRecentTxIds: cloneStringArray(
+      row.existingSessionRecentTxIds,
+    ),
+    existingSessionPendingTxIds: cloneStringArray(
+      row.existingSessionPendingTxIds,
+    ),
+  };
+}
+
+function cloneBuilderSeedDebugRow(
+  row: PortfolioPopulateBuilderSeedDebugRow,
+): PortfolioPopulateBuilderSeedDebugRow {
+  'worklet';
+
+  return {
+    ...row,
+    persistedCheckpointCarryoverTxIds: cloneStringArray(
+      row.persistedCheckpointCarryoverTxIds,
+    ),
+    persistedCheckpointRecentTxIds: cloneStringArray(
+      row.persistedCheckpointRecentTxIds,
+    ),
+    builderCarryoverTxIdsAfterCreate: cloneStringArray(
+      row.builderCarryoverTxIdsAfterCreate,
+    ),
+    builderRecentTxIdsAfterCreate: cloneStringArray(
+      row.builderRecentTxIdsAfterCreate,
+    ),
+  };
+}
+
+function cloneIngestSeedDebugRow(
+  row: PortfolioPopulateIngestSeedDebugRow,
+): PortfolioPopulateIngestSeedDebugRow {
+  'worklet';
+
+  return {
+    ...row,
+    builderCarryoverTxIdsBeforeIngest: cloneStringArray(
+      row.builderCarryoverTxIdsBeforeIngest,
+    ),
+    builderRecentTxIdsBeforeIngest: cloneStringArray(
+      row.builderRecentTxIdsBeforeIngest,
+    ),
+    pendingTxIdsBeforeIngest: cloneStringArray(row.pendingTxIdsBeforeIngest),
+    fetchedTxHead: cloneStringArray(row.fetchedTxHead),
+    dedupedPendingTxHead: cloneStringArray(row.dedupedPendingTxHead),
+  };
+}
+
+function cloneGroupAssemblyDebugRow(
+  row: PortfolioPopulateGroupAssemblyDebugRow,
+): PortfolioPopulateGroupAssemblyDebugRow {
+  'worklet';
+
+  return {
+    ...row,
+    carryoverSeedTxIds: cloneStringArray(row.carryoverSeedTxIds),
+    pageTxIdsAdded: cloneStringArray(row.pageTxIdsAdded),
+    inputTxIdsBeforeReorder: cloneStringArray(row.inputTxIdsBeforeReorder),
+    reorderedTxIds: cloneStringArray(row.reorderedTxIds),
+  };
+}
+
+function cloneNormalizedFilteredPageKeyDebugRow(
+  row: PortfolioPopulateNormalizedFilteredPageKeyDebugRow,
+): PortfolioPopulateNormalizedFilteredPageKeyDebugRow {
+  'worklet';
+
+  return {...row};
+}
+
+function cloneIngestLoopMutationDebugRow(
+  row: PortfolioPopulateIngestLoopMutationDebugRow,
+): PortfolioPopulateIngestLoopMutationDebugRow {
+  'worklet';
+
+  return {
+    ...row,
+    groupTxIdsBefore: cloneStringArray(row.groupTxIdsBefore),
+    groupTxIdsAfter: cloneStringArray(row.groupTxIdsAfter),
+    pageTxIdsAddedBefore: cloneStringArray(row.pageTxIdsAddedBefore),
+    pageTxIdsAddedAfter: cloneStringArray(row.pageTxIdsAddedAfter),
+    carryoverSeedTxIdsBefore: cloneStringArray(row.carryoverSeedTxIdsBefore),
+    carryoverSeedTxIdsAfter: cloneStringArray(row.carryoverSeedTxIdsAfter),
+  };
+}
+
+function cloneFlushCurrentGroupDebugRow(
+  row: PortfolioPopulateFlushCurrentGroupDebugRow,
+): PortfolioPopulateFlushCurrentGroupDebugRow {
+  'worklet';
+
+  return {
+    ...row,
+    groupTxIdsBeforeReset: cloneStringArray(row.groupTxIdsBeforeReset),
+    pageTxIdsAddedBeforeReset: cloneStringArray(
+      row.pageTxIdsAddedBeforeReset,
+    ),
+    carryoverSeedTxIdsBeforeReset: cloneStringArray(
+      row.carryoverSeedTxIdsBeforeReset,
+    ),
+    groupTxIdsAfterReset: cloneStringArray(row.groupTxIdsAfterReset),
+    pageTxIdsAddedAfterReset: cloneStringArray(row.pageTxIdsAddedAfterReset),
+    carryoverSeedTxIdsAfterReset: cloneStringArray(
+      row.carryoverSeedTxIdsAfterReset,
+    ),
+  };
+}
+
+function cloneFlushDirectResetWitnessDebugRow(
+  row: PortfolioPopulateFlushDirectResetWitnessDebugRow,
+): PortfolioPopulateFlushDirectResetWitnessDebugRow {
+  'worklet';
+
+  return {
+    ...row,
+    pageTxIdsAddedHeadDirect: cloneStringArray(row.pageTxIdsAddedHeadDirect),
+    carryoverSeedHeadDirect: cloneStringArray(row.carryoverSeedHeadDirect),
+  };
+}
+
+function cloneFlushReturnWitnessDebugRow(
+  row: PortfolioPopulateFlushReturnWitnessDebugRow,
+): PortfolioPopulateFlushReturnWitnessDebugRow {
+  'worklet';
+
+  return {
+    ...row,
+    pageTxIdsAddedHeadDirect: cloneStringArray(row.pageTxIdsAddedHeadDirect),
+    carryoverSeedHeadDirect: cloneStringArray(row.carryoverSeedHeadDirect),
+  };
+}
+
+function cloneLocalMutationCanaryDebugRow(
+  row: PortfolioPopulateLocalMutationCanaryDebugRow,
+): PortfolioPopulateLocalMutationCanaryDebugRow {
+  'worklet';
+
+  return {
+    ...row,
+    localArrayCanaryHead: cloneStringArray(row.localArrayCanaryHead),
+  };
+}
+
+function cloneStateMutationControlDebugRow(
+  row: PortfolioPopulateStateMutationControlDebugRow,
+): PortfolioPopulateStateMutationControlDebugRow {
+  'worklet';
+
+  return {...row};
+}
+
+function cloneDirectVsHelperParityDebugRow(
+  row: PortfolioPopulateDirectVsHelperParityDebugRow,
+): PortfolioPopulateDirectVsHelperParityDebugRow {
+  'worklet';
+
+  return {
+    ...row,
+    pageHeadDirect: cloneStringArray(row.pageHeadDirect),
+    pageHeadViaSnapshot: cloneStringArray(row.pageHeadViaSnapshot),
+    carryoverSeedHeadDirect: cloneStringArray(row.carryoverSeedHeadDirect),
+    carryoverSeedHeadViaSnapshot: cloneStringArray(
+      row.carryoverSeedHeadViaSnapshot,
+    ),
+  };
+}
+
+function cloneCarryoverDecisionDebugRow(
+  row: PortfolioPopulateCarryoverDecisionDebugRow,
+): PortfolioPopulateCarryoverDecisionDebugRow {
+  'worklet';
+
+  return {
+    ...row,
+    groupTxIdsBeforeAssign: cloneStringArray(row.groupTxIdsBeforeAssign),
+    pageTxIdsAdded: cloneStringArray(row.pageTxIdsAdded),
+    carryoverSeedTxIds: cloneStringArray(row.carryoverSeedTxIds),
+    stateCarryoverTxIdsBeforeAssign: cloneStringArray(
+      row.stateCarryoverTxIdsBeforeAssign,
+    ),
+    stateCarryoverTxIdsAfterAssign: cloneStringArray(
+      row.stateCarryoverTxIdsAfterAssign,
+    ),
+    recentTxIdsAfterAssign: cloneStringArray(row.recentTxIdsAfterAssign),
+  };
+}
+
+function cloneRequestLifecycleDebugRow(
+  row: PortfolioPopulateRequestLifecycleDebugRow,
+): PortfolioPopulateRequestLifecycleDebugRow {
+  'worklet';
+
+  return {...row};
+}
+
+function clonePopulateWalletDebugTrace(
+  trace: PortfolioPopulateWalletDebugTrace,
+): PortfolioPopulateWalletDebugTrace {
+  'worklet';
+
+  return {
+    walletId: String(trace.walletId || ''),
+    snapshotDebugMode: trace.snapshotDebugMode,
+    capturedAtMs: Number(trace.capturedAtMs || 0),
+    sessionStateBeforePrepareRows: (
+      trace.sessionStateBeforePrepareRows || []
+    ).map(cloneSessionStateBeforePrepareDebugRow),
+    builderSeedRows: (trace.builderSeedRows || []).map(cloneBuilderSeedDebugRow),
+    ingestSeedRows: (trace.ingestSeedRows || []).map(cloneIngestSeedDebugRow),
+    normalizedFilteredPageKeyRows: (
+      trace.normalizedFilteredPageKeyRows || []
+    ).map(cloneNormalizedFilteredPageKeyDebugRow),
+    ingestLoopMutationRows: (trace.ingestLoopMutationRows || []).map(
+      cloneIngestLoopMutationDebugRow,
+    ),
+    flushCurrentGroupRows: (trace.flushCurrentGroupRows || []).map(
+      cloneFlushCurrentGroupDebugRow,
+    ),
+    flushDirectResetWitnessRows: (
+      trace.flushDirectResetWitnessRows || []
+    ).map(cloneFlushDirectResetWitnessDebugRow),
+    flushReturnWitnessRows: (trace.flushReturnWitnessRows || []).map(
+      cloneFlushReturnWitnessDebugRow,
+    ),
+    localMutationCanaryRows: (trace.localMutationCanaryRows || []).map(
+      cloneLocalMutationCanaryDebugRow,
+    ),
+    stateMutationControlRows: (trace.stateMutationControlRows || []).map(
+      cloneStateMutationControlDebugRow,
+    ),
+    directVsHelperParityRows: (trace.directVsHelperParityRows || []).map(
+      cloneDirectVsHelperParityDebugRow,
+    ),
+    carryoverDecisionRows: (trace.carryoverDecisionRows || []).map(
+      cloneCarryoverDecisionDebugRow,
+    ),
+    groupAssemblyRows: (trace.groupAssemblyRows || []).map(
+      cloneGroupAssemblyDebugRow,
+    ),
+    requestLifecycleRows: (trace.requestLifecycleRows || []).map(
+      cloneRequestLifecycleDebugRow,
+    ),
+    fetchedTxRows: trace.fetchedTxRows.map(cloneFetchedTxDebugRow),
+    processedTxRows: trace.processedTxRows.map(row => ({...row})),
+    emittedSnapshotRows: trace.emittedSnapshotRows.map(row => ({
+      ...row,
+      txIds: Array.isArray(row.txIds) ? row.txIds.slice() : undefined,
+    })),
+  };
+}
+
+function createPopulateWalletDebugTrace(args: {
+  walletId: string;
+  snapshotDebugMode: 'none' | 'link' | 'full';
+}): PortfolioPopulateWalletDebugTrace {
+  'worklet';
+
+  return {
+    walletId: args.walletId,
+    snapshotDebugMode: args.snapshotDebugMode,
+    capturedAtMs: Date.now(),
+    sessionStateBeforePrepareRows: [],
+    builderSeedRows: [],
+    ingestSeedRows: [],
+    normalizedFilteredPageKeyRows: [],
+    ingestLoopMutationRows: [],
+    flushCurrentGroupRows: [],
+    flushDirectResetWitnessRows: [],
+    flushReturnWitnessRows: [],
+    localMutationCanaryRows: [],
+    stateMutationControlRows: [],
+    directVsHelperParityRows: [],
+    carryoverDecisionRows: [],
+    groupAssemblyRows: [],
+    requestLifecycleRows: [],
+    fetchedTxRows: [],
+    processedTxRows: [],
+    emittedSnapshotRows: [],
+  };
+}
+
+function extractTxIdsFromRawTxs(txs: Tx[]): string[] {
+  'worklet';
+
+  const out: string[] = [];
+  for (const tx of txs) {
+    const txid = getTxHistoryEntryId(tx);
+    if (txid) {
+      out.push(txid);
+    }
+  }
+  return out;
+}
+
+function extractTxIdsHead(txIds: string[], limit = POPULATE_DEBUG_TXID_HEAD_LIMIT): string[] {
+  'worklet';
+
+  if (!txIds.length) {
+    return [];
+  }
+  return txIds.slice(0, Math.max(1, Math.trunc(Number(limit) || 1)));
+}
+
+function extractBuilderCarryoverTxIds(
+  builder: PortfolioSnapshotBuilderState,
+): string[] {
+  'worklet';
+
+  return builder.carryoverGroup.map(tx => tx.id).filter(Boolean);
+}
+
+function captureRequestLifecycleRow(
+  trace: PortfolioPopulateWalletDebugTrace | undefined,
+  row: PortfolioPopulateRequestLifecycleDebugRow,
+): void {
+  'worklet';
+
+  if (!trace) {
+    return;
+  }
+
+  trace.requestLifecycleRows.push({...row});
+  trace.capturedAtMs = Date.now();
+}
+
+export function clearPopulateWalletDebugTraceOnWorklet(
+  state: PortfolioPopulateWorkletState,
+  walletId: string,
+): void {
+  'worklet';
+
+  delete state.debugByWalletId[walletId];
+}
+
+export function clearAllPopulateWalletDebugTracesOnWorklet(
+  state: PortfolioPopulateWorkletState,
+): void {
+  'worklet';
+
+  state.debugByWalletId = {};
+}
+
+export function getPopulateWalletDebugTraceOnWorklet(
+  state: PortfolioPopulateWorkletState,
+  walletId: string,
+): PortfolioPopulateWalletDebugTrace | null {
+  'worklet';
+
+  const trace = state.debugByWalletId[walletId];
+  return trace ? clonePopulateWalletDebugTrace(trace) : null;
+}
+
+function captureFetchedTxRows(
+  session: PortfolioPopulateWorkletSession,
+  txs: Tx[],
+  skip: number,
+): void {
+  'worklet';
+
+  if (!session.debugTrace || !txs.length) {
+    return;
+  }
+
+  session.debugFetchedPageCount += 1;
+  const pageNumber = session.debugFetchedPageCount;
+  const seqBase = session.debugTrace.fetchedTxRows.length;
+
+  for (let index = 0; index < txs.length; index += 1) {
+    const tx = txs[index];
+    const {action, amountAtomic, feeAtomic, deltaAtomic} =
+      computeTxBalanceDeltaAtomic(tx, session.wallet);
+    session.debugTrace.fetchedTxRows.push({
+      seq: seqBase + index + 1,
+      pageNumber,
+      skip,
+      rawIndex: index,
+      txid: getTxHistoryEntryId(tx),
+      timestamp: toTxTimestampMs(tx),
+      action,
+      amountAtomic: amountAtomic.toString(),
+      feeAtomic: feeAtomic.toString(),
+      deltaAtomic: deltaAtomic.toString(),
+      blockHeight: getTxBlockHeight(tx),
+    });
+  }
+
+  session.debugTrace.capturedAtMs = Date.now();
+}
+
+function captureEmittedSnapshotRows(
+  session: PortfolioPopulateWorkletSession,
+  snapshots: SnapshotPersistInputV2[],
+): void {
+  'worklet';
+
+  if (!session.debugTrace || !snapshots.length) {
+    return;
+  }
+
+  const rows = buildOrderedWorkletSnapshotDebugRows({
+    snapshots,
+    startingRowIndex: session.debugTrace.emittedSnapshotRows.length + 1,
+  });
+  session.debugTrace.emittedSnapshotRows.push(...rows);
+  session.debugTrace.capturedAtMs = Date.now();
+}
+
+function captureSessionStateBeforePrepare(
+  trace: PortfolioPopulateWalletDebugTrace | undefined,
+  args: {
+    walletId: string;
+    existingSession?: PortfolioPopulateWorkletSession;
+  },
+): void {
+  'worklet';
+
+  if (!trace) {
+    return;
+  }
+
+  const existingSession = args.existingSession;
+  trace.sessionStateBeforePrepareRows.push({
+    walletId: args.walletId,
+    existingSessionBefore: !!existingSession,
+    existingSessionCreatedAtMs: existingSession?.createdAtMs ?? null,
+    existingSessionCarryoverTxIds: existingSession
+      ? extractBuilderCarryoverTxIds(existingSession.builder)
+      : undefined,
+    existingSessionRecentTxIds: existingSession?.builder.recentTxIds.slice(),
+    existingSessionPendingTxIds: existingSession
+      ? extractTxIdsFromRawTxs(existingSession.fetch.pendingTxs)
+      : undefined,
+  });
+  trace.capturedAtMs = Date.now();
+}
+
+function captureBuilderSeed(
+  trace: PortfolioPopulateWalletDebugTrace | undefined,
+  args: {
+    walletId: string;
+    persistedCheckpoint: SnapshotStreamCheckpoint | null | undefined;
+    builder: PortfolioSnapshotBuilderState;
+  },
+): void {
+  'worklet';
+
+  if (!trace) {
+    return;
+  }
+
+  const builderCheckpoint = getPortfolioSnapshotBuilderCheckpoint(args.builder);
+  const persistedCarryoverGroup = Array.isArray(
+    args.persistedCheckpoint?.carryoverGroup,
+  )
+    ? args.persistedCheckpoint?.carryoverGroup
+    : undefined;
+  const persistedRecentTxIds = Array.isArray(args.persistedCheckpoint?.recentTxIds)
+    ? args.persistedCheckpoint?.recentTxIds
+    : undefined;
+  const builderCarryoverGroup = Array.isArray(builderCheckpoint.carryoverGroup)
+    ? builderCheckpoint.carryoverGroup
+    : undefined;
+  const builderRecentTxIds = Array.isArray(builderCheckpoint.recentTxIds)
+    ? builderCheckpoint.recentTxIds
+    : undefined;
+  const persistedCheckpointCarryoverTxIds = Array.isArray(
+    args.persistedCheckpoint?.carryoverGroup,
+  )
+    ? persistedCarryoverGroup?.map(entry => String(entry?.id || '')).filter(Boolean)
+    : undefined;
+  const persistedCheckpointRecentTxIds = Array.isArray(
+    args.persistedCheckpoint?.recentTxIds,
+  )
+    ? persistedRecentTxIds?.map(id => String(id || '')).filter(Boolean)
+    : undefined;
+  const builderCarryoverTxIdsAfterCreate = Array.isArray(
+    builderCheckpoint.carryoverGroup,
+  )
+    ? builderCarryoverGroup?.map(entry => String(entry?.id || '')).filter(Boolean)
+    : undefined;
+  const builderRecentTxIdsAfterCreate = Array.isArray(
+    builderCheckpoint.recentTxIds,
+  )
+    ? builderRecentTxIds?.map(id => String(id || '')).filter(Boolean)
+    : undefined;
+  trace.builderSeedRows.push({
+    walletId: args.walletId,
+    persistedCheckpointNextSkip: Number(
+      args.persistedCheckpoint?.nextSkip ?? 0,
+    ),
+    persistedCheckpointCarryoverTxIds,
+    persistedCheckpointRecentTxIds,
+    builderNextSkipAfterCreate: Number(builderCheckpoint.nextSkip ?? 0),
+    builderCarryoverTxIdsAfterCreate,
+    builderRecentTxIdsAfterCreate,
+  });
+  trace.capturedAtMs = Date.now();
+}
+
+function captureIngestSeed(
+  trace: PortfolioPopulateWalletDebugTrace | undefined,
+  row: PortfolioPopulateIngestSeedDebugRow,
+): void {
+  'worklet';
+
+  if (!trace) {
+    return;
+  }
+
+  trace.ingestSeedRows.push({
+    ...row,
+    builderCarryoverTxIdsBeforeIngest: cloneStringArray(
+      row.builderCarryoverTxIdsBeforeIngest,
+    ),
+    builderRecentTxIdsBeforeIngest: cloneStringArray(
+      row.builderRecentTxIdsBeforeIngest,
+    ),
+    pendingTxIdsBeforeIngest: cloneStringArray(row.pendingTxIdsBeforeIngest),
+    fetchedTxHead: cloneStringArray(row.fetchedTxHead),
+    dedupedPendingTxHead: cloneStringArray(row.dedupedPendingTxHead),
+  });
+  trace.capturedAtMs = Date.now();
+}
+
 function requireSession(
   state: PortfolioPopulateWorkletState,
   walletId: string,
@@ -185,6 +967,28 @@ export async function handlePrepareWalletOnPopulateWorklet(
     wallet: params.wallet,
   });
 
+  const shouldCaptureDebug = shouldCapturePopulateWalletDebugTrace(
+    meta.snapshotDebugMode,
+  );
+  const existingSession = state.sessionsByWalletId[params.wallet.walletId];
+  const debugTrace = shouldCaptureDebug
+    ? createPopulateWalletDebugTrace({
+        walletId: params.wallet.walletId,
+        snapshotDebugMode: meta.snapshotDebugMode ?? 'none',
+      })
+    : undefined;
+  if (debugTrace) {
+    state.debugByWalletId[params.wallet.walletId] = debugTrace;
+  } else {
+    clearPopulateWalletDebugTraceOnWorklet(state, params.wallet.walletId);
+  }
+
+  const prepareStartedAtMs = Date.now();
+  captureSessionStateBeforePrepare(debugTrace, {
+    walletId: params.wallet.walletId,
+    existingSession,
+  });
+
   const builder = createPortfolioSnapshotBuilderState({
     wallet: params.wallet,
     credentials: params.credentials as any,
@@ -192,14 +996,24 @@ export async function handlePrepareWalletOnPopulateWorklet(
     fiatRateSeriesCache,
     compressionEnabled: params.ingest.compressionEnabled,
     snapshotDebugMode: meta.snapshotDebugMode ?? 'none',
+    debugTrace,
     checkpoint: index.checkpoint,
+  });
+  captureBuilderSeed(debugTrace, {
+    walletId: params.wallet.walletId,
+    persistedCheckpoint: index.checkpoint,
+    builder,
   });
 
   state.sessionsByWalletId[params.wallet.walletId] = {
+    createdAtMs: Date.now(),
     wallet: params.wallet,
     credentials: params.credentials,
     builder,
     meta,
+    debugTrace,
+    debugFetchedPageCount: 0,
+    debugProcessSeq: 0,
     fetch: {
       cfg: params.cfg,
       pageSize: Math.max(1, Math.trunc(Number(params.pageSize || 1))),
@@ -207,6 +1021,19 @@ export async function handlePrepareWalletOnPopulateWorklet(
       pendingTxs: [],
     },
   };
+  captureRequestLifecycleRow(debugTrace, {
+    requestId: 'snapshots.prepareWallet:1',
+    method: 'snapshots.prepareWallet',
+    walletId: params.wallet.walletId,
+    startedAtMs: prepareStartedAtMs,
+    finishedAtMs: Date.now(),
+    skipUsed: Number(index.checkpoint?.nextSkip ?? 0),
+    fetchedTxs: null,
+    consumedRawCount: null,
+    logicalPageSize: null,
+    appendedSnapshots: null,
+    done: null,
+  });
 
   return {
     checkpoint: getPortfolioSnapshotBuilderCheckpoint(builder),
@@ -230,6 +1057,10 @@ export async function handleProcessNextPageOnPopulateWorklet(
   'worklet';
 
   const session = requireSession(state, walletId);
+  session.debugProcessSeq += 1;
+  const processSeq = session.debugProcessSeq;
+  const requestId = `snapshots.processNextPage:${processSeq}`;
+  const requestStartedAtMs = Date.now();
   const checkpoint = getPortfolioSnapshotBuilderCheckpoint(session.builder);
   const skip = checkpoint.nextSkip;
   const kvConfig = getKvConfig(config);
@@ -238,6 +1069,7 @@ export async function handleProcessNextPageOnPopulateWorklet(
     let txs = session.fetch.pendingTxs;
     let fetchedTxs = 0;
     let fetchMs = 0;
+    let fetchedTxHead: string[] | undefined;
 
     if (!txs.length) {
       const fetchStartedAt = Date.now();
@@ -250,6 +1082,8 @@ export async function handleProcessNextPageOnPopulateWorklet(
       });
       fetchMs = Math.max(0, Date.now() - fetchStartedAt);
       fetchedTxs = txs.length;
+      fetchedTxHead = extractTxIdsHead(extractTxIdsFromRawTxs(txs));
+      captureFetchedTxRows(session, txs, skip);
       session.fetch.pendingTxs = dedupeTxHistoryPage(txs);
 
       const logicalPageSize = txs.length ? getTxHistoryLogicalPageSize(txs) : 0;
@@ -259,6 +1093,7 @@ export async function handleProcessNextPageOnPopulateWorklet(
           const computeStartedAt = Date.now();
           const snapshots = portfolioSnapshotBuilderFlushPendingCarryoverGroup(
             session.builder,
+            requestId,
           );
           const nextCheckpoint = getPortfolioSnapshotBuilderCheckpoint(
             session.builder,
@@ -270,6 +1105,7 @@ export async function handleProcessNextPageOnPopulateWorklet(
               snapshots,
               checkpoint: nextCheckpoint,
             });
+            captureEmittedSnapshotRows(session, snapshots);
           } else {
             await updateWorkletSnapshotCheckpoint({
               ...kvConfig,
@@ -277,6 +1113,19 @@ export async function handleProcessNextPageOnPopulateWorklet(
               checkpoint: nextCheckpoint,
             });
           }
+          captureRequestLifecycleRow(session.debugTrace, {
+            requestId,
+            method: 'snapshots.processNextPage',
+            walletId,
+            startedAtMs: requestStartedAtMs,
+            finishedAtMs: Date.now(),
+            skipUsed: skip,
+            fetchedTxs,
+            consumedRawCount: 0,
+            logicalPageSize,
+            appendedSnapshots: snapshots.length,
+            done: true,
+          });
           return {
             checkpoint: nextCheckpoint,
             appendedSnapshots: snapshots.length,
@@ -288,6 +1137,19 @@ export async function handleProcessNextPageOnPopulateWorklet(
           };
         }
 
+        captureRequestLifecycleRow(session.debugTrace, {
+          requestId,
+          method: 'snapshots.processNextPage',
+          walletId,
+          startedAtMs: requestStartedAtMs,
+          finishedAtMs: Date.now(),
+          skipUsed: skip,
+          fetchedTxs,
+          consumedRawCount: 0,
+          logicalPageSize,
+          appendedSnapshots: 0,
+          done: true,
+        });
         return {
           checkpoint: getPortfolioSnapshotBuilderCheckpoint(session.builder),
           appendedSnapshots: 0,
@@ -300,11 +1162,26 @@ export async function handleProcessNextPageOnPopulateWorklet(
       }
     }
 
+    captureIngestSeed(session.debugTrace, {
+      requestId,
+      processSeq,
+      skip,
+      builderCarryoverTxIdsBeforeIngest: extractBuilderCarryoverTxIds(
+        session.builder,
+      ),
+      builderRecentTxIdsBeforeIngest: session.builder.recentTxIds.slice(),
+      pendingTxIdsBeforeIngest: extractTxIdsFromRawTxs(session.fetch.pendingTxs),
+      fetchedTxHead,
+      dedupedPendingTxHead: extractTxIdsHead(
+        extractTxIdsFromRawTxs(session.fetch.pendingTxs),
+      ),
+    });
     const computeStartedAt = Date.now();
     const consumed = portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
       session.builder,
       session.fetch.pendingTxs,
       session.fetch.emitRows ?? undefined,
+      requestId,
     );
     const nextCheckpoint = getPortfolioSnapshotBuilderCheckpoint(session.builder);
 
@@ -315,6 +1192,7 @@ export async function handleProcessNextPageOnPopulateWorklet(
         snapshots: consumed.snapshots,
         checkpoint: nextCheckpoint,
       });
+      captureEmittedSnapshotRows(session, consumed.snapshots);
     } else if (consumed.logicalPageSize > 0) {
       await updateWorkletSnapshotCheckpoint({
         ...kvConfig,
@@ -341,6 +1219,19 @@ export async function handleProcessNextPageOnPopulateWorklet(
       }
     }
 
+    captureRequestLifecycleRow(session.debugTrace, {
+      requestId,
+      method: 'snapshots.processNextPage',
+      walletId,
+      startedAtMs: requestStartedAtMs,
+      finishedAtMs: Date.now(),
+      skipUsed: skip,
+      fetchedTxs,
+      consumedRawCount,
+      logicalPageSize: consumed.logicalPageSize,
+      appendedSnapshots: consumed.snapshots.length,
+      done: false,
+    });
     return {
       checkpoint: nextCheckpoint,
       appendedSnapshots: consumed.snapshots.length,
@@ -361,7 +1252,9 @@ export async function handleFinishWalletOnPopulateWorklet(
   'worklet';
 
   const session = requireSession(state, walletId);
-  const snapshots = portfolioSnapshotBuilderFinish(session.builder);
+  const requestStartedAtMs = Date.now();
+  const requestId = 'snapshots.finishWallet:1';
+  const snapshots = portfolioSnapshotBuilderFinish(session.builder, requestId);
   const checkpoint = getPortfolioSnapshotBuilderCheckpoint(session.builder);
   const kvConfig = getKvConfig(config);
 
@@ -372,6 +1265,7 @@ export async function handleFinishWalletOnPopulateWorklet(
       snapshots,
       checkpoint,
     });
+    captureEmittedSnapshotRows(session, snapshots);
   } else {
     await updateWorkletSnapshotCheckpoint({
       ...kvConfig,
@@ -381,6 +1275,19 @@ export async function handleFinishWalletOnPopulateWorklet(
   }
 
   delete state.sessionsByWalletId[walletId];
+  captureRequestLifecycleRow(session.debugTrace, {
+    requestId,
+    method: 'snapshots.finishWallet',
+    walletId,
+    startedAtMs: requestStartedAtMs,
+    finishedAtMs: Date.now(),
+    skipUsed: Number(checkpoint.nextSkip ?? 0),
+    fetchedTxs: null,
+    consumedRawCount: null,
+    logicalPageSize: null,
+    appendedSnapshots: snapshots.length,
+    done: true,
+  });
 
   return {
     checkpoint,

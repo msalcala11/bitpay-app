@@ -72,6 +72,17 @@ export type SnapshotChunkMetaV2 = {
 export type SnapshotPopulateCheckpointV1 = {
   nextSkip: number;
   recentTxIds?: string[];
+  carryoverGroup?: Array<{
+    id: string;
+    tsMs: number;
+    blockHeight: number | null;
+    txIndex: number | null;
+    nonce: number | null;
+    action: 'received' | 'sent' | 'moved' | 'unknown';
+    absAmountAtomic: string;
+    failed: boolean;
+    baseFeeAtomic: string;
+  }>;
 
   // Simulator state at the end of the last processed tx.
   balanceAtomic: string;
@@ -84,6 +95,7 @@ export type SnapshotPopulateCheckpointV1 = {
     dayIdx: number;
     lastTimestamp: number;
     lastMarkRate: number;
+    txIds?: string[];
   };
 
   firstNonZeroTs?: number;
@@ -109,6 +121,7 @@ export type SnapshotWalletMetaV2 = {
   coin: string;
   assetId: string;
   quoteCurrency: string;
+  snapshotDebugMode: SnapshotPersistDebugMode;
 };
 
 export type SnapshotStoreWalletMeta = {
@@ -153,6 +166,7 @@ function normalizeStoredMeta(meta: SnapshotStoreWalletMeta): SnapshotWalletMetaV
       tokenAddress: meta.tokenAddress,
     } as WalletSummary),
     quoteCurrency: String(meta.quoteCurrency || '').toUpperCase(),
+    snapshotDebugMode: meta.snapshotDebugMode ?? 'none',
   };
 }
 
@@ -164,7 +178,8 @@ function sameStoredMeta(a: SnapshotWalletMetaV2 | null, b: SnapshotWalletMetaV2)
     a.network === b.network &&
     a.coin === b.coin &&
     a.assetId === b.assetId &&
-    a.quoteCurrency === b.quoteCurrency
+    a.quoteCurrency === b.quoteCurrency &&
+    a.snapshotDebugMode === b.snapshotDebugMode
   );
 }
 
@@ -435,6 +450,7 @@ export class SnapshotStore {
       coin: '',
       assetId: '',
       quoteCurrency: '',
+      snapshotDebugMode: 'none',
     };
   }
 

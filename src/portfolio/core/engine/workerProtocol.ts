@@ -17,6 +17,7 @@ import type {
   PortfolioPopulateJobStartResult,
   PortfolioPopulateJobStatus,
 } from './populateJob';
+import type {PortfolioPopulateWalletDebugTrace} from './populateDebug';
 
 export type WorkerMethodMap = {
   'rates.ensure': {
@@ -125,6 +126,11 @@ export type WorkerMethodMap = {
   'debug.kvStats': {
     params: {};
     result: KvStats;
+  };
+
+  'debug.getPopulateWalletTrace': {
+    params: {walletId: string};
+    result: PortfolioPopulateWalletDebugTrace | null;
   };
 };
 

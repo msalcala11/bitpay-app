@@ -170,6 +170,12 @@ export class PortfolioRuntimeClient {
     return this.request('debug.kvStats', params);
   }
 
+  getPopulateWalletTrace(
+    params: WorkerMethodMap['debug.getPopulateWalletTrace']['params'],
+  ) {
+    return this.request('debug.getPopulateWalletTrace', params);
+  }
+
   private handleResponse(response: WorkerResponse): void {
     const pending = this.pending.get(response.id);
     if (!pending) {

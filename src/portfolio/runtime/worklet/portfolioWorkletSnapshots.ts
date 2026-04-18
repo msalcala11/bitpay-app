@@ -1,6 +1,7 @@
 import {getAssetIdFromWallet} from '../../core/pnl/assetId';
 import type {WalletCredentials, WalletSummary} from '../../core/types';
 import type {BalanceSnapshotEventType, BalanceSnapshotStored} from '../../core/pnl/types';
+import type {PortfolioPopulateEmittedSnapshotDebugRow} from '../../core/engine/populateDebug';
 import type {
   SnapshotChunkDebugV2,
   SnapshotChunkV2,
@@ -70,6 +71,7 @@ function normalizeStoredMeta(meta: SnapshotStoreWalletMeta): SnapshotWalletMetaV
       tokenAddress: meta.tokenAddress,
     } as WalletSummary),
     quoteCurrency: String(meta.quoteCurrency || '').toUpperCase(),
+    snapshotDebugMode: meta.snapshotDebugMode ?? 'none',
   };
 }
 
@@ -86,7 +88,8 @@ function sameStoredMeta(
     left.network === right.network &&
     left.coin === right.coin &&
     left.assetId === right.assetId &&
-    left.quoteCurrency === right.quoteCurrency
+    left.quoteCurrency === right.quoteCurrency &&
+    left.snapshotDebugMode === right.snapshotDebugMode
   );
 }
 
@@ -193,6 +196,27 @@ function orderSnapshotsForAppend(
   });
 }
 
+export function buildOrderedWorkletSnapshotDebugRows(args: {
+  snapshots: SnapshotPersistInputV2[];
+  startingRowIndex?: number;
+}): PortfolioPopulateEmittedSnapshotDebugRow[] {
+  'worklet';
+
+  const start = Math.max(1, Math.trunc(Number(args.startingRowIndex || 1)));
+  return orderSnapshotsForAppend(args.snapshots).map(
+    ({snapshot, timestamp}, index) => ({
+      rowIndex: start + index,
+      eventType: snapshot.eventType === 'daily' ? 'daily' : 'tx',
+      id: String(snapshot.id || ''),
+      txIds: Array.isArray(snapshot.txIds)
+        ? snapshot.txIds.map(String)
+        : undefined,
+      timestamp,
+      cryptoBalance: String(snapshot.cryptoBalance || '0'),
+    }),
+  );
+}
+
 function fallbackHydratedSnapshotId(
   walletId: string,
   timestamp: number,
@@ -277,6 +301,7 @@ function fallbackMeta(walletId: string): SnapshotWalletMetaV2 {
     coin: '',
     assetId: '',
     quoteCurrency: '',
+    snapshotDebugMode: 'none',
   };
 }
 

@@ -407,6 +407,61 @@ describe('SnapshotStore v2', () => {
     expect(storedMeta?.quoteCurrency).toBe('USD');
   });
 
+  it('rebuilds wallet storage when snapshot debug mode changes', async () => {
+    const kv = new MemoryKv();
+    const store = new SnapshotStore(kv);
+    const baseArgs = {
+      wallet: {
+        walletId: 'w-debug-mode',
+        walletName: 'Wallet Debug Mode',
+        chain: 'eth',
+        network: 'livenet',
+        currencyAbbreviation: 'eth',
+        balanceAtomic: '0',
+        balanceFormatted: '0',
+      },
+      credentials: {
+        walletId: 'w-debug-mode',
+        chain: 'eth',
+        network: 'livenet',
+        coin: 'eth',
+      } as any,
+      quoteCurrency: 'usd',
+      compressionEnabled: true,
+      chunkRows: 500,
+    };
+
+    const metaNone = buildWalletMetaForStore({
+      ...baseArgs,
+      snapshotDebugMode: 'none',
+    });
+
+    await store.appendChunk({
+      meta: metaNone,
+      snapshots: [{timestamp: 1000, cryptoBalance: '1'}],
+      checkpoint: {
+        nextSkip: 1,
+        balanceAtomic: '1',
+        remainingCostBasisFiat: 0,
+        lastMarkRate: 0,
+        lastTimestamp: 1000,
+      },
+    });
+
+    const metaLink = buildWalletMetaForStore({
+      ...baseArgs,
+      snapshotDebugMode: 'link',
+    });
+    const rebuiltIndex = await store.ensureWalletIndex(metaLink);
+
+    expect(rebuiltIndex.chunks).toEqual([]);
+    expect(rebuiltIndex.checkpoint.nextSkip).toBe(0);
+    await expect(store.listPoints('w-debug-mode')).resolves.toEqual([]);
+    await expect(store.loadMeta('w-debug-mode')).resolves.toMatchObject({
+      snapshotDebugMode: 'link',
+    });
+  });
+
   it('clears indexed wallet chunks without scanning storage keys', async () => {
     const kv = new NoListKeysKv();
     const store = new SnapshotStore(kv);

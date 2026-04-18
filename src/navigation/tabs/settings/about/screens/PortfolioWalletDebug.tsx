@@ -47,6 +47,7 @@ import {
   buildWalletBalanceDiagnostic,
   type BalanceDiagnosticTxPage,
 } from '../../../../../portfolio/debug/balanceDiagnostic';
+import type {PortfolioPopulateWalletDebugTrace} from '../../../../../portfolio/core/engine/populateDebug';
 
 type PortfolioWalletDebugScreenProps = NativeStackScreenProps<
   AboutGroupParamList,
@@ -109,6 +110,24 @@ const getRowCount = (index: SnapshotIndexV2 | null | undefined): number => {
     const rows = Number(chunk?.rows);
     return total + (Number.isFinite(rows) ? rows : 0);
   }, 0);
+};
+
+const formatChunkDebugModes = (
+  index: SnapshotIndexV2 | null | undefined,
+): string => {
+  if (!index?.chunks?.length) {
+    return '—';
+  }
+
+  const counts = index.chunks.reduce<Record<string, number>>((acc, chunk) => {
+    const mode = String(chunk?.debugMode || 'none');
+    acc[mode] = (acc[mode] || 0) + 1;
+    return acc;
+  }, {});
+
+  return Object.entries(counts)
+    .map(([mode, count]) => `${mode}:${count}`)
+    .join(', ');
 };
 
 const findWalletById = (walletKeys: Record<string, any>, walletId: string): Wallet | undefined => {
@@ -181,6 +200,14 @@ type WalletBalanceDiagnosticState = {
   reportText: string;
   pageCount: number;
   txCount: number;
+};
+
+type WalletPopulateCheckpointCaptureState = {
+  capturedAtMs: number;
+  snapshotDebugMode: 'link' | 'full' | 'none';
+  beforeIndex: SnapshotIndexV2 | null;
+  afterIndex: SnapshotIndexV2 | null;
+  debugTrace?: PortfolioPopulateWalletDebugTrace | null;
 };
 
 const createPortfolioDebugBwcClient = (credentials: WalletCredentials): any => {
@@ -348,6 +375,8 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
   );
   const [balanceDiagnostic, setBalanceDiagnostic] =
     useState<WalletBalanceDiagnosticState | null>(null);
+  const [lastDebugPopulate, setLastDebugPopulate] =
+    useState<WalletPopulateCheckpointCaptureState | null>(null);
   const [isRefreshingBwsSummary, setIsRefreshingBwsSummary] =
     useState<boolean>(false);
   const [isRunningBalanceDiagnostic, setIsRunningBalanceDiagnostic] =
@@ -537,12 +566,14 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
         nextIndex,
         nextLatestSnapshot,
         nextSnapshots,
+        nextPopulateTrace,
         summary,
         txPages,
       ] = await Promise.all([
         runtimeClient.getSnapshotIndex({walletId}),
         runtimeClient.getLatestSnapshot({walletId}),
         runtimeClient.listSnapshots({walletId}),
+        runtimeClient.getPopulateWalletTrace({walletId}),
         fetchPortfolioDebugBwsWalletSummary(client, credentials),
         collectPortfolioDebugTxHistoryPages({
           client,
@@ -558,11 +589,39 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
         fetchedAtMs: Date.now(),
         summary,
       });
+      if (nextPopulateTrace) {
+        setLastDebugPopulate(current =>
+          current
+            ? {...current, debugTrace: nextPopulateTrace}
+            : {
+                capturedAtMs: Date.now(),
+                snapshotDebugMode: nextPopulateTrace.snapshotDebugMode,
+                beforeIndex: null,
+                afterIndex: nextIndex || null,
+                debugTrace: nextPopulateTrace,
+              },
+        );
+      }
 
       const diagnostic = buildWalletBalanceDiagnostic({
         wallet: summary,
         credentials,
         txPages,
+        index: nextIndex || null,
+        populateCapture: lastDebugPopulate
+          ? {
+              ...lastDebugPopulate,
+              debugTrace: nextPopulateTrace || lastDebugPopulate.debugTrace,
+            }
+          : nextPopulateTrace
+            ? {
+                capturedAtMs: Date.now(),
+                snapshotDebugMode: nextPopulateTrace.snapshotDebugMode,
+                beforeIndex: null,
+                afterIndex: nextIndex || null,
+                debugTrace: nextPopulateTrace,
+              }
+            : undefined,
         snapshots: Array.isArray(nextSnapshots) ? nextSnapshots : [],
       });
       const txCount = txPages.reduce(
@@ -587,7 +646,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
     } finally {
       setIsRunningBalanceDiagnostic(false);
     }
-  }, [wallet, walletId]);
+  }, [lastDebugPopulate, wallet, walletId]);
 
   useEffect(() => {
     refresh();
@@ -596,6 +655,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
   useEffect(() => {
     setBwsSummary(null);
     setBalanceDiagnostic(null);
+    setLastDebugPopulate(null);
     setCopyBalanceDiagnosticState('idle');
   }, [walletId]);
 
@@ -616,6 +676,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
       latestSnapshot,
       bwsSummary,
       balanceDiagnostic,
+      lastDebugPopulate,
       snapshotsPreview: {
         total: snapshots.length,
         first: snapshots.slice(0, 10),
@@ -624,7 +685,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
     };
 
     return JSON.stringify(payload, null, 2);
-  }, [balanceDiagnostic, bwsSummary, index, latestSnapshot, mismatch, snapshots, wallet]);
+  }, [balanceDiagnostic, bwsSummary, index, lastDebugPopulate, latestSnapshot, mismatch, snapshots, wallet]);
 
   const copyJson = useCallback(() => {
     Clipboard.setString(
@@ -636,6 +697,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
           latestSnapshot,
           bwsSummary,
           balanceDiagnostic,
+          lastDebugPopulate,
           snapshots,
         },
         null,
@@ -644,7 +706,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
     );
     setCopyJsonState('copied');
     setTimeout(() => setCopyJsonState('idle'), 1200);
-  }, [balanceDiagnostic, bwsSummary, index, latestSnapshot, mismatch, snapshots, wallet]);
+  }, [balanceDiagnostic, bwsSummary, index, lastDebugPopulate, latestSnapshot, mismatch, snapshots, wallet]);
 
   const copyCsv = useCallback(() => {
     Clipboard.setString(toCsv(snapshots));
@@ -665,6 +727,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
   const clearWallet = useCallback(async () => {
     try {
       setBalanceDiagnostic(null);
+      setLastDebugPopulate(null);
       setCopyBalanceDiagnosticState('idle');
       await dispatch(clearWalletPortfolioDataWithRuntime({walletIds: [walletId]}) as any);
       await refresh();
@@ -678,13 +741,31 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
     try {
       setBalanceDiagnostic(null);
       setCopyBalanceDiagnosticState('idle');
+      const runtimeClient = getPortfolioRuntimeClient();
+      const beforeIndex =
+        (await runtimeClient.getSnapshotIndex({walletId})) || null;
       await dispatch(
         populatePortfolio(
           wallet
-            ? {wallets: [wallet], walletIds: [walletId]}
-            : {walletIds: [walletId]},
+            ? {
+                wallets: [wallet],
+                walletIds: [walletId],
+                snapshotDebugMode: 'link',
+              }
+            : {walletIds: [walletId], snapshotDebugMode: 'link'},
         ) as any,
       );
+      const afterIndex =
+        (await runtimeClient.getSnapshotIndex({walletId})) || null;
+      const debugTrace =
+        (await runtimeClient.getPopulateWalletTrace({walletId})) || null;
+      setLastDebugPopulate({
+        capturedAtMs: Date.now(),
+        snapshotDebugMode: 'link',
+        beforeIndex,
+        afterIndex,
+        debugTrace,
+      });
       await refresh();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -785,11 +866,67 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
                 `rows: ${rowsCount}`,
                 `chunks: ${index.chunks?.length || 0}`,
                 `chunkRows: ${index.chunkRows}`,
+                `chunkDebugModes: ${formatChunkDebugModes(index)}`,
                 `compressionEnabled: ${index.compressionEnabled ? 'yes' : 'no'}`,
                 `checkpoint.nextSkip: ${index.checkpoint?.nextSkip ?? 0}`,
+                `checkpoint.balanceAtomic: ${
+                  index.checkpoint?.balanceAtomic ?? '—'
+                }`,
+                `checkpoint.lastTimestamp: ${
+                  index.checkpoint?.lastTimestamp ?? '—'
+                }`,
+                `checkpoint.lastTimestampIso: ${toIso(
+                  index.checkpoint?.lastTimestamp,
+                )}`,
+                `checkpoint.recentTxIds: ${
+                  Array.isArray(index.checkpoint?.recentTxIds) &&
+                  index.checkpoint.recentTxIds.length
+                    ? index.checkpoint.recentTxIds.join('|')
+                    : '—'
+                }`,
+                `checkpoint.carryoverGroup: ${
+                  Array.isArray(index.checkpoint?.carryoverGroup) &&
+                  index.checkpoint.carryoverGroup.length
+                    ? JSON.stringify(index.checkpoint.carryoverGroup)
+                    : '—'
+                }`,
                 `updatedAt: ${toIso(index.updatedAt)}`,
               ].join('\n')
             : 'No runtime snapshot index'}
+        </SectionText>
+
+        <SectionTitle>{t('Last debug populate')}</SectionTitle>
+        <SectionText>
+          {lastDebugPopulate
+            ? [
+                `capturedAt: ${toIso(lastDebugPopulate.capturedAtMs)}`,
+                `snapshotDebugMode: ${lastDebugPopulate.snapshotDebugMode}`,
+                `before.nextSkip: ${
+                  lastDebugPopulate.beforeIndex?.checkpoint?.nextSkip ?? '—'
+                }`,
+                `before.balanceAtomic: ${
+                  lastDebugPopulate.beforeIndex?.checkpoint?.balanceAtomic ?? '—'
+                }`,
+                `after.nextSkip: ${
+                  lastDebugPopulate.afterIndex?.checkpoint?.nextSkip ?? '—'
+                }`,
+                `after.balanceAtomic: ${
+                  lastDebugPopulate.afterIndex?.checkpoint?.balanceAtomic ?? '—'
+                }`,
+                `after.chunkDebugModes: ${formatChunkDebugModes(
+                  lastDebugPopulate.afterIndex,
+                )}`,
+                `populateDebug.fetchedTxRows: ${
+                  lastDebugPopulate.debugTrace?.fetchedTxRows.length ?? 0
+                }`,
+                `populateDebug.processedTxRows: ${
+                  lastDebugPopulate.debugTrace?.processedTxRows.length ?? 0
+                }`,
+                `populateDebug.emittedSnapshotRows: ${
+                  lastDebugPopulate.debugTrace?.emittedSnapshotRows.length ?? 0
+                }`,
+              ].join('\n')
+            : 'No debug populate capture yet. Populate Wallet in this screen to store before/after checkpoint data.'}
         </SectionText>
 
         <SectionTitle>{t('Live BWS status')}</SectionTitle>

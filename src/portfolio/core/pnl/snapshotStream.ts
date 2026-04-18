@@ -363,6 +363,7 @@ export type SnapshotStreamCheckpoint = {
     dayIdx: number;
     lastTimestamp: number;
     lastMarkRate: number;
+    txIds?: string[];
   };
   firstNonZeroTs?: number;
 };
@@ -424,7 +425,14 @@ export class BalanceSnapshotStreamBuilder {
     this.remainingCostBasisFiat = Number(cp?.remainingCostBasisFiat ?? 0) || 0;
     this.lastMarkRate = Number(cp?.lastMarkRate ?? 0) || 0;
     this.lastTimestamp = Number(cp?.lastTimestamp ?? 0) || 0;
-    this.dailyState = cp?.daily;
+    this.dailyState = cp?.daily
+      ? {
+          ...cp.daily,
+          txIds: Array.isArray(cp.daily.txIds)
+            ? cp.daily.txIds.slice()
+            : undefined,
+        }
+      : undefined;
     this.firstNonZeroTs = cp?.firstNonZeroTs;
   }
 
@@ -437,7 +445,14 @@ export class BalanceSnapshotStreamBuilder {
       remainingCostBasisFiat: this.remainingCostBasisFiat,
       lastMarkRate: this.lastMarkRate,
       lastTimestamp: this.lastTimestamp,
-      daily: this.dailyState,
+      daily: this.dailyState
+        ? {
+            ...this.dailyState,
+            txIds: Array.isArray(this.dailyState.txIds)
+              ? this.dailyState.txIds.slice()
+              : undefined,
+          }
+        : undefined,
       firstNonZeroTs: this.firstNonZeroTs,
     };
   }
@@ -553,7 +568,14 @@ export class BalanceSnapshotStreamBuilder {
     out.push(...this.flushPendingCarryoverGroup());
     if (this.dailyState) {
       const d = this.dailyState;
-      out.push(this.makeDailySnapshot(d.dayIdx, d.lastTimestamp, d.lastMarkRate));
+      out.push(
+        this.makeDailySnapshot(
+          d.dayIdx,
+          d.lastTimestamp,
+          d.lastMarkRate,
+          d.txIds ?? [],
+        ),
+      );
       this.dailyState = undefined;
     }
     return out;
@@ -652,21 +674,49 @@ export class BalanceSnapshotStreamBuilder {
     if (shouldCompress) {
       const dayIdx = utcDayIndex(tx.tsMs);
       if (!this.dailyState) {
-        this.dailyState = {dayIdx, lastTimestamp: tx.tsMs, lastMarkRate: markRate};
+        this.dailyState = {
+          dayIdx,
+          lastTimestamp: tx.tsMs,
+          lastMarkRate: markRate,
+          txIds: [tx.id],
+        };
       } else if (this.dailyState.dayIdx !== dayIdx) {
         const prev = this.dailyState;
-        out.push(this.makeDailySnapshot(prev.dayIdx, prev.lastTimestamp, prev.lastMarkRate));
-        this.dailyState = {dayIdx, lastTimestamp: tx.tsMs, lastMarkRate: markRate};
+        out.push(
+          this.makeDailySnapshot(
+            prev.dayIdx,
+            prev.lastTimestamp,
+            prev.lastMarkRate,
+            prev.txIds ?? [],
+          ),
+        );
+        this.dailyState = {
+          dayIdx,
+          lastTimestamp: tx.tsMs,
+          lastMarkRate: markRate,
+          txIds: [tx.id],
+        };
       } else {
         this.dailyState.lastTimestamp = tx.tsMs;
         this.dailyState.lastMarkRate = markRate;
+        if (!Array.isArray(this.dailyState.txIds)) {
+          this.dailyState.txIds = [];
+        }
+        this.dailyState.txIds.push(tx.id);
       }
       return out;
     }
 
     if (this.dailyState) {
       const d = this.dailyState;
-      out.push(this.makeDailySnapshot(d.dayIdx, d.lastTimestamp, d.lastMarkRate));
+      out.push(
+        this.makeDailySnapshot(
+          d.dayIdx,
+          d.lastTimestamp,
+          d.lastMarkRate,
+          d.txIds ?? [],
+        ),
+      );
       this.dailyState = undefined;
     }
 
@@ -683,13 +733,18 @@ export class BalanceSnapshotStreamBuilder {
     });
   }
 
-  private makeDailySnapshot(dayIdx: number, timestamp: number, markRate: number): SnapshotPersistInputV2 {
+  private makeDailySnapshot(
+    dayIdx: number,
+    timestamp: number,
+    markRate: number,
+    txIds: string[],
+  ): SnapshotPersistInputV2 {
     return this.makePersistSnapshot({
       id: `daily:${this.wallet.walletId}:${utcDayKeyFromIndex(dayIdx)}`,
       eventType: 'daily',
       timestamp,
       markRate,
-    });
+    }, txIds);
   }
 
   private makePersistSnapshot(args: {
@@ -697,7 +752,7 @@ export class BalanceSnapshotStreamBuilder {
     eventType: BalanceSnapshotEventType;
     timestamp: number;
     markRate: number;
-  }): SnapshotPersistInputV2 {
+  }, txIds?: string[]): SnapshotPersistInputV2 {
     const snapshot: SnapshotPersistInputV2 = {
       timestamp: args.timestamp,
       cryptoBalance: this.balanceAtomic.toString(),
@@ -712,6 +767,10 @@ export class BalanceSnapshotStreamBuilder {
       snapshot.remainingCostBasisFiat = this.remainingCostBasisFiat;
       snapshot.markRate = args.markRate;
       snapshot.createdAt = Date.now();
+    }
+
+    if (args.eventType === 'daily' && Array.isArray(txIds) && txIds.length) {
+      snapshot.txIds = txIds.slice();
     }
 
     return snapshot;

@@ -403,6 +403,87 @@ describe('BalanceSnapshotStreamBuilder', () => {
     ]);
   });
 
+  it('persists daily tx ids across checkpoint resume for compressed history', () => {
+    const wallet = mkWallet();
+    const credentials: Pick<
+      WalletCredentials,
+      'walletId' | 'chain' | 'network' | 'coin' | 'token'
+    > = {
+      walletId: 'w1',
+      chain: 'btc',
+      network: 'livenet',
+      coin: 'btc',
+      token: undefined,
+    };
+
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-01T12:00:00Z');
+    const nowMs = Date.parse('2024-05-01T00:00:00Z');
+    const cache = mkCache([
+      {
+        key: 'USD:btc:ALL',
+        points: [
+          {ts: t0, rate: 1},
+          {ts: t1, rate: 1},
+        ],
+      },
+    ]);
+
+    const first = new BalanceSnapshotStreamBuilder({
+      wallet,
+      credentials,
+      quoteCurrency: 'USD',
+      fiatRateSeriesCache: cache,
+      snapshotDebugMode: 'link',
+      compressionEnabled: true,
+      nowMs,
+    });
+
+    const firstSnapshots = first.ingestPage([
+      {
+        txid: 'fund',
+        time: Math.floor(t0 / 1000),
+        action: 'received',
+        amount: '1000',
+        fees: '0',
+      },
+    ]);
+    expect(firstSnapshots).toEqual([]);
+    expect(first.getCheckpoint().daily?.txIds).toEqual(['fund']);
+
+    const resumed = new BalanceSnapshotStreamBuilder({
+      wallet,
+      credentials,
+      quoteCurrency: 'USD',
+      fiatRateSeriesCache: cache,
+      snapshotDebugMode: 'link',
+      compressionEnabled: true,
+      nowMs,
+      checkpoint: first.getCheckpoint(),
+    });
+
+    const secondSnapshots = resumed.ingestPage([
+      {
+        txid: 'spend',
+        time: Math.floor(t1 / 1000),
+        action: 'sent',
+        amount: '400',
+        fees: '0',
+      },
+    ]);
+    expect(secondSnapshots).toEqual([]);
+    expect(resumed.getCheckpoint().daily?.txIds).toEqual(['fund', 'spend']);
+
+    const finished = resumed.finish();
+    expect(finished).toMatchObject([
+      {
+        eventType: 'daily',
+        cryptoBalance: '600',
+        txIds: ['fund', 'spend'],
+      },
+    ]);
+  });
+
   it('skips fee parsing for token wallets while preserving token balance snapshots', () => {
     const wallet = mkWallet({
       chain: 'eth',

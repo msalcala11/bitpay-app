@@ -157,6 +157,9 @@ export class PortfolioRuntimeHost {
           return {id: req.id, ok: true, result: res} as any;
         }
 
+        case 'debug.getPopulateWalletTrace':
+          return {id: req.id, ok: true, result: null} as any;
+
         default:
           throw new Error(`Unknown method: ${String((req as any).method)}`);
       }

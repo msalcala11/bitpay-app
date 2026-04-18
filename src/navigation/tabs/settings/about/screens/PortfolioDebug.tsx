@@ -360,7 +360,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
 
   const repopulate = useCallback(async () => {
     try {
-      await dispatch(populatePortfolio() as any);
+      await dispatch(populatePortfolio({snapshotDebugMode: 'link'}) as any);
       load();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);

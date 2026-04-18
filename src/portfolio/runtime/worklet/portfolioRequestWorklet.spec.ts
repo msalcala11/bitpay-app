@@ -51,6 +51,7 @@ describe('portfolioRequestWorklet', () => {
         chain: 'btc',
         network: 'livenet',
         coin: 'btc',
+        token: undefined,
       },
       quoteCurrency: 'USD',
       compressionEnabled: true,
@@ -86,7 +87,7 @@ describe('portfolioRequestWorklet', () => {
     if (!indexResponse.ok) {
       return;
     }
-    expect(indexResponse.result?.walletId).toBe('w1');
+    expect((indexResponse.result as any)?.walletId).toBe('w1');
 
     const clearResponse = await handlePortfolioRequestOnRuntime(config, {
       id: 2,
@@ -104,7 +105,28 @@ describe('portfolioRequestWorklet', () => {
     if (!statsResponse.ok) {
       return;
     }
-    expect(statsResponse.result.totalKeys).toBe(0);
+    expect((statsResponse.result as any)?.totalKeys).toBe(0);
+  });
+
+  it('returns null when no populate wallet trace has been captured yet', async () => {
+    const storage = createStorage();
+    const config = {
+      storage,
+      storageId: 'test',
+      registryKey: '__registry__',
+    };
+
+    const response = await handlePortfolioRequestOnRuntime(config, {
+      id: 4,
+      method: 'debug.getPopulateWalletTrace',
+      params: {walletId: 'missing-wallet'},
+    });
+
+    expect(response).toEqual({
+      id: 4,
+      ok: true,
+      result: null,
+    });
   });
 
   it('sorts out-of-order worklet snapshots before persisting debug rows', async () => {
@@ -130,6 +152,7 @@ describe('portfolioRequestWorklet', () => {
         chain: 'btc',
         network: 'livenet',
         coin: 'btc',
+        token: undefined,
       },
       quoteCurrency: 'USD',
       compressionEnabled: true,

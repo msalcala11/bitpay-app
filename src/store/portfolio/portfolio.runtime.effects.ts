@@ -8,6 +8,7 @@ import {
   PortfolioPopulateService,
   getPortfolioPopulateDecisionsForWallets,
 } from '../../portfolio/service';
+import type {SnapshotPersistDebugMode} from '../../portfolio/core/pnl/snapshotStore';
 import {getPortfolioRuntimeClient} from '../../portfolio/runtime/portfolioRuntime';
 import {
   isPortfolioRuntimeEligibleWallet,
@@ -493,6 +494,7 @@ export const populatePortfolioWithRuntime = (args?: {
   wallets?: Wallet[];
   walletIds?: string[];
   quoteCurrency?: string;
+  snapshotDebugMode?: SnapshotPersistDebugMode;
 }): Effect<Promise<void>> => async (dispatch, getState) => {
   const state = getState();
   if (!isPortfolioEnabled(state) || isPortfolioPopulateDisabled(state)) {
@@ -530,6 +532,9 @@ export const populatePortfolioWithRuntime = (args?: {
 
   const service = new PortfolioPopulateService({
     client: getPortfolioRuntimeClient(),
+    ingestConfig: args?.snapshotDebugMode
+      ? {snapshotDebugMode: args.snapshotDebugMode}
+      : undefined,
   });
   activeRuntimePopulateService = service;
 
