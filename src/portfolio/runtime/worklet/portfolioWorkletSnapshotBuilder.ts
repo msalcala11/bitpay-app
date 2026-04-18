@@ -946,6 +946,44 @@ type IngestLoopStateSnapshot = {
   endedAtInputBoundary: boolean;
 };
 
+type IngestLoopLocalState = {
+  group: NormalizedTx[];
+  groupKey: string | null;
+  groupIndex: number;
+  carryoverSeedTxIds: string[];
+  pageTxIdsAdded: string[];
+  groupMaxOriginalIndex: number;
+  consumedRawCount: number;
+  groupInstanceSeq: number;
+  flushInvocationSeq: number;
+  localScalarCanary: number;
+  localArrayCanary: string[];
+  localStringCanary: string;
+};
+
+function snapshotIngestLoopState(args: {
+  group: NormalizedTx[];
+  groupKey: string | null;
+  pageTxIdsAdded: string[];
+  carryoverSeedTxIds: string[];
+  groupMaxOriginalIndex: number;
+  consumedRawCount: number;
+  endedAtInputBoundary: boolean;
+}): IngestLoopStateSnapshot {
+  'worklet';
+
+  return {
+    groupKey: args.groupKey ?? '',
+    groupTxIds: toDebugTxIds(args.group),
+    pageTxIdsAdded: args.pageTxIdsAdded.slice(),
+    carryoverSeedTxIds: args.carryoverSeedTxIds.slice(),
+    groupMaxOriginalIndex:
+      args.groupMaxOriginalIndex >= 0 ? args.groupMaxOriginalIndex : null,
+    consumedRawCount: args.consumedRawCount,
+    endedAtInputBoundary: args.endedAtInputBoundary,
+  };
+}
+
 function processTx(
   state: PortfolioSnapshotBuilderState,
   tx: NormalizedTx,
@@ -1356,13 +1394,63 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
     });
   }
 
-  const flushCurrentGroup = (flushReason: string): void => {
+  const flushCurrentGroup = (
+    current: IngestLoopLocalState,
+    flushReason: string,
+  ): IngestLoopLocalState => {
     'worklet';
 
-    if (!group.length) return;
+    /* eslint-disable @typescript-eslint/no-shadow */
+    let {
+      group,
+      groupKey,
+      groupIndex,
+      carryoverSeedTxIds,
+      pageTxIdsAdded,
+      groupMaxOriginalIndex,
+      consumedRawCount,
+      groupInstanceSeq,
+      flushInvocationSeq,
+      localScalarCanary,
+      localArrayCanary,
+      localStringCanary,
+    } = current;
+    /* eslint-enable @typescript-eslint/no-shadow */
+
+    const snapshotCurrentLoopState = (): IngestLoopStateSnapshot => {
+      'worklet';
+
+      return {
+        groupKey: groupKey ?? '',
+        groupTxIds: toDebugTxIds(group),
+        pageTxIdsAdded: pageTxIdsAdded.slice(),
+        carryoverSeedTxIds: carryoverSeedTxIds.slice(),
+        groupMaxOriginalIndex:
+          groupMaxOriginalIndex >= 0 ? groupMaxOriginalIndex : null,
+        consumedRawCount,
+        endedAtInputBoundary,
+      };
+    };
+
+    if (!group.length) {
+      return {
+        group,
+        groupKey,
+        groupIndex,
+        carryoverSeedTxIds,
+        pageTxIdsAdded,
+        groupMaxOriginalIndex,
+        consumedRawCount,
+        groupInstanceSeq,
+        flushInvocationSeq,
+        localScalarCanary,
+        localArrayCanary,
+        localStringCanary,
+      };
+    }
     flushInvocationSeq += 1;
     const activeFlushInvocationSeq = flushInvocationSeq;
-    const beforeReset = snapshotLoopState();
+    const beforeReset = snapshotCurrentLoopState();
     const groupInstanceSeqBeforeReset = groupInstanceSeq;
     if (debugRequestId) {
       captureFlushDirectResetWitnessRow(state, {
@@ -1666,7 +1754,7 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
         groupLenDirect: group.length,
         groupFirstTxidDirect: group.length ? group[0].id : '',
       });
-      const afterReset = snapshotLoopState();
+      const afterReset = snapshotCurrentLoopState();
       captureDirectVsHelperParityRow(state, {
         requestId: debugRequestId,
         flushInvocationSeq: activeFlushInvocationSeq,
@@ -1711,6 +1799,21 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
         consumedRawCountAfterReset: afterReset.consumedRawCount,
       });
     }
+
+    return {
+      group,
+      groupKey,
+      groupIndex,
+      carryoverSeedTxIds,
+      pageTxIdsAdded,
+      groupMaxOriginalIndex,
+      consumedRawCount,
+      groupInstanceSeq,
+      flushInvocationSeq,
+      localScalarCanary,
+      localArrayCanary,
+      localStringCanary,
+    };
   };
 
   for (let index = 0; index < filteredPage.length; index += 1) {
@@ -1750,9 +1853,45 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
         before: beforeKeyChange,
         after: beforeKeyChange,
       });
-      flushCurrentGroup('group_key_change');
+      const flushedState = flushCurrentGroup(
+        {
+          group,
+          groupKey,
+          groupIndex,
+          carryoverSeedTxIds,
+          pageTxIdsAdded,
+          groupMaxOriginalIndex,
+          consumedRawCount,
+          groupInstanceSeq,
+          flushInvocationSeq,
+          localScalarCanary,
+          localArrayCanary,
+          localStringCanary,
+        },
+        'group_key_change',
+      );
+      group = flushedState.group;
+      groupKey = flushedState.groupKey;
+      groupIndex = flushedState.groupIndex;
+      carryoverSeedTxIds = flushedState.carryoverSeedTxIds;
+      pageTxIdsAdded = flushedState.pageTxIdsAdded;
+      groupMaxOriginalIndex = flushedState.groupMaxOriginalIndex;
+      consumedRawCount = flushedState.consumedRawCount;
+      groupInstanceSeq = flushedState.groupInstanceSeq;
+      flushInvocationSeq = flushedState.flushInvocationSeq;
+      localScalarCanary = flushedState.localScalarCanary;
+      localArrayCanary = flushedState.localArrayCanary;
+      localStringCanary = flushedState.localStringCanary;
       if (debugRequestId) {
-        const afterFlushReturn = snapshotLoopState();
+        const afterFlushReturn = snapshotIngestLoopState({
+          group,
+          groupKey,
+          pageTxIdsAdded,
+          carryoverSeedTxIds,
+          groupMaxOriginalIndex,
+          consumedRawCount,
+          endedAtInputBoundary,
+        });
         bumpStateMutationControl('caller_after_flush_return_before_reseed');
         captureFlushReturnWitnessRow(state, {
           requestId: debugRequestId,
@@ -1937,7 +2076,35 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
         consumedRawCount: txs.length,
       };
     }
-    flushCurrentGroup('end_of_page_flush');
+    const flushedState = flushCurrentGroup(
+      {
+        group,
+        groupKey,
+        groupIndex,
+        carryoverSeedTxIds,
+        pageTxIdsAdded,
+        groupMaxOriginalIndex,
+        consumedRawCount,
+        groupInstanceSeq,
+        flushInvocationSeq,
+        localScalarCanary,
+        localArrayCanary,
+        localStringCanary,
+      },
+      'end_of_page_flush',
+    );
+    group = flushedState.group;
+    groupKey = flushedState.groupKey;
+    groupIndex = flushedState.groupIndex;
+    carryoverSeedTxIds = flushedState.carryoverSeedTxIds;
+    pageTxIdsAdded = flushedState.pageTxIdsAdded;
+    groupMaxOriginalIndex = flushedState.groupMaxOriginalIndex;
+    consumedRawCount = flushedState.consumedRawCount;
+    groupInstanceSeq = flushedState.groupInstanceSeq;
+    flushInvocationSeq = flushedState.flushInvocationSeq;
+    localScalarCanary = flushedState.localScalarCanary;
+    localArrayCanary = flushedState.localArrayCanary;
+    localStringCanary = flushedState.localStringCanary;
   }
 
   const consumedRaw = txs.slice(0, consumedRawCount);
