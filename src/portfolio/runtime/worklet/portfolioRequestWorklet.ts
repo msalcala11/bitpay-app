@@ -6,6 +6,9 @@ import type {
 import {DEFAULT_PORTFOLIO_MMKV_REGISTRY_KEY} from '../../adapters/rn/mmkvKvStore';
 import type {WorkletMmkvStorageBridge} from '../../adapters/rn/mmkvKvStore';
 import {
+  clearAllPopulateWalletDebugTracesOnWorklet,
+  clearPopulateWalletDebugTraceOnWorklet,
+  getPopulateWalletDebugTraceOnWorklet,
   handleCloseWalletSessionOnPopulateWorklet,
   handleFinishWalletOnPopulateWorklet,
   handlePrepareWalletOnPopulateWorklet,
@@ -68,6 +71,7 @@ const WORKLET_METHODS: Record<WorkerMethod, true> = {
   'debug.clearRates': true,
   'debug.clearAll': true,
   'debug.kvStats': true,
+  'debug.getPopulateWalletTrace': true,
 };
 
 function getKvConfig(
@@ -88,6 +92,7 @@ function clearInMemoryPopulateSessions(config: PortfolioWorkletRequestConfig): v
   for (const walletId of Object.keys(state.sessionsByWalletId)) {
     delete state.sessionsByWalletId[walletId];
   }
+  clearAllPopulateWalletDebugTracesOnWorklet(state);
 }
 
 function getRegistryKey(config: PortfolioWorkletRequestConfig): string {
@@ -233,6 +238,7 @@ export async function handlePortfolioRequestOnRuntime(
         case 'snapshots.clearWallet': {
           const walletId = String((request.params as any)?.walletId || '');
           delete state.sessionsByWalletId[walletId];
+          clearPopulateWalletDebugTraceOnWorklet(state, walletId);
           await clearWorkletWalletSnapshots(kvConfig, walletId);
           return {
             id: request.id,
@@ -383,6 +389,18 @@ export async function handlePortfolioRequestOnRuntime(
 
         case 'debug.kvStats': {
           const result = getWorkletKvStats(config);
+          return {
+            id: request.id,
+            ok: true,
+            result,
+          } as WorkerResponse;
+        }
+
+        case 'debug.getPopulateWalletTrace': {
+          const result = getPopulateWalletDebugTraceOnWorklet(
+            state,
+            String((request.params as any)?.walletId || ''),
+          );
           return {
             id: request.id,
             ok: true,

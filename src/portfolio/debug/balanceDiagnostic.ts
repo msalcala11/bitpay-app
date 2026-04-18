@@ -1,9 +1,12 @@
 import {formatAtomicAmount, parseAtomicToBigint} from '../core/format';
+import {BalanceSnapshotStreamBuilder} from '../core/pnl/snapshotStream';
 import {
   extractTxIdFromSnapshotId,
   makeBalanceSnapshotComputer,
 } from '../core/pnl/snapshotHelpers';
+import type {SnapshotIndexV2, SnapshotPersistInputV2} from '../core/pnl/snapshotStore';
 import type {BalanceSnapshotStored} from '../core/pnl/types';
+import type {PortfolioPopulateWalletDebugTrace} from '../core/engine/populateDebug';
 import {getTxHistoryEntryId} from '../core/txHistoryPaging';
 import type {Tx, WalletCredentials, WalletSummary} from '../core/types';
 
@@ -16,6 +19,14 @@ export type BalanceDiagnosticTxPage = {
 export type BalanceDiagnosticResult = {
   summaryLine: string;
   reportText: string;
+};
+
+export type BalanceDiagnosticPopulateCapture = {
+  capturedAtMs: number;
+  snapshotDebugMode: 'none' | 'link' | 'full';
+  beforeIndex: SnapshotIndexV2 | null;
+  afterIndex: SnapshotIndexV2 | null;
+  debugTrace?: PortfolioPopulateWalletDebugTrace | null;
 };
 
 type HistoryRow = {
@@ -71,6 +82,37 @@ type FeeAuditRow = {
   operatorFeeAtomic: string;
   receiptStatus: string;
   feeSource: 'receipt' | 'tx.fees' | 'none';
+};
+
+type RecomputedTraceRow = {
+  seq: number;
+  eventType: string;
+  eventRef: string;
+  timestampUtc: string;
+  preBalanceAtomic: string;
+  deltaAtomic: string;
+  postBalanceAtomic: string;
+  txIds: string[];
+  flushTriggeredBy: string;
+};
+
+type PopulateFetchedHistoryCompareRow = {
+  seq: number;
+  diagnosticTxid: string;
+  populateTxid: string;
+  diagnosticTimestampUtc: string;
+  populateTimestampUtc: string;
+  diagnosticAction: string;
+  populateAction: string;
+  diagnosticAmountAtomic: string;
+  populateAmountAtomic: string;
+  diagnosticFeeAtomic: string;
+  populateFeeAtomic: string;
+  diagnosticDeltaAtomic: string;
+  populateDeltaAtomic: string;
+  diagnosticBlockHeight: string;
+  populateBlockHeight: string;
+  flags: string[];
 };
 
 const bigIntAbs = (value: bigint): bigint => (value < 0n ? -value : value);
@@ -388,6 +430,257 @@ const addSection = (lines: string[], title: string, body: string) => {
   lines.push(body);
 };
 
+const extractDayKeyFromSnapshotId = (snapshotId: string): string | null => {
+  const parts = String(snapshotId || '').split(':');
+  if (parts.length < 3) return null;
+  if (parts[0] !== 'daily') return null;
+  const dayKey = parts.slice(2).join(':');
+  return dayKey ? dayKey : null;
+};
+
+const isLinkedSnapshotId = (snapshotId: string): boolean =>
+  /^(tx|daily):/.test(String(snapshotId || '').trim());
+
+const formatCheckpointRecentTxIds = (
+  txIds?: string[],
+  redactTxid?: (txid: string) => string,
+): string =>
+  Array.isArray(txIds) && txIds.length
+    ? txIds.map(txid => (redactTxid ? redactTxid(txid) : txid)).join('|')
+    : '';
+
+const formatTxidList = (
+  txIds?: string[],
+  redactTxid?: (txid: string) => string,
+): string =>
+  Array.isArray(txIds) && txIds.length
+    ? txIds.map(txid => (redactTxid ? redactTxid(txid) : txid)).join('|')
+    : '';
+
+const formatCheckpointCarryoverGroup = (
+  carryoverGroup?: Array<{
+    id: string;
+    tsMs: number;
+    blockHeight: number | null;
+    txIndex: number | null;
+    nonce: number | null;
+    action: string;
+    absAmountAtomic: string;
+    failed: boolean;
+    baseFeeAtomic: string;
+  }>,
+  redactTxid?: (txid: string) => string,
+): string => {
+  if (!Array.isArray(carryoverGroup) || !carryoverGroup.length) {
+    return '';
+  }
+
+  return carryoverGroup
+    .map(tx =>
+      [
+        redactTxid ? redactTxid(tx.id) : tx.id,
+        tx.action,
+        tx.absAmountAtomic,
+        tx.baseFeeAtomic,
+        tx.tsMs,
+        tx.blockHeight ?? '',
+        tx.txIndex ?? '',
+        tx.nonce ?? '',
+        tx.failed ? 'failed' : 'ok',
+      ].join('@'),
+    )
+    .join('|');
+};
+
+const buildCheckpointRows = (
+  label: string,
+  index: SnapshotIndexV2 | null | undefined,
+  redactTxid?: (txid: string) => string,
+): Array<Array<unknown>> => [
+  [
+    label,
+    index?.checkpoint?.nextSkip ?? '',
+    index?.checkpoint?.balanceAtomic ?? '',
+    index?.checkpoint?.lastTimestamp ?? '',
+    formatTimestampUtc(index?.checkpoint?.lastTimestamp),
+    formatCheckpointRecentTxIds(index?.checkpoint?.recentTxIds, redactTxid),
+    formatCheckpointCarryoverGroup(
+      index?.checkpoint?.carryoverGroup,
+      redactTxid,
+    ),
+    index?.updatedAt ?? '',
+    formatTimestampUtc(index?.updatedAt),
+    index?.compressionEnabled === undefined
+      ? ''
+      : index.compressionEnabled
+        ? 'yes'
+        : 'no',
+    index?.chunkRows ?? '',
+  ],
+];
+
+const buildRecomputedTraceRows = (
+  snapshots: SnapshotPersistInputV2[],
+): RecomputedTraceRow[] => {
+  const out: RecomputedTraceRow[] = [];
+  let previousBalanceAtomic = 0n;
+
+  for (let i = 0; i < snapshots.length; i++) {
+    const snapshot = snapshots[i];
+    const nextSnapshot = i + 1 < snapshots.length ? snapshots[i + 1] : null;
+    const eventType = snapshot.eventType === 'daily' ? 'daily' : 'tx';
+    const postBalanceAtomic = parseAtomicToBigint(snapshot.cryptoBalance ?? '0');
+    const deltaAtomic = postBalanceAtomic - previousBalanceAtomic;
+    const txid = extractTxIdFromSnapshotId(snapshot.id ?? '');
+    const dayKey = extractDayKeyFromSnapshotId(snapshot.id ?? '');
+    let flushTriggeredBy = 'tx';
+
+    if (eventType === 'daily') {
+      if (!nextSnapshot) {
+        flushTriggeredBy = 'finish';
+      } else if (nextSnapshot.eventType === 'daily') {
+        flushTriggeredBy = 'day_boundary';
+      } else {
+        flushTriggeredBy = 'compression_exit';
+      }
+    }
+
+    out.push({
+      seq: i + 1,
+      eventType,
+      eventRef: eventType === 'daily' ? dayKey || String(snapshot.id || '') : txid || String(snapshot.id || ''),
+      timestampUtc: formatTimestampUtc(snapshot.timestamp),
+      preBalanceAtomic: previousBalanceAtomic.toString(),
+      deltaAtomic: deltaAtomic.toString(),
+      postBalanceAtomic: postBalanceAtomic.toString(),
+      txIds: Array.isArray(snapshot.txIds) ? snapshot.txIds.slice() : [],
+      flushTriggeredBy,
+    });
+
+    previousBalanceAtomic = postBalanceAtomic;
+  }
+
+  return out;
+};
+
+const buildPopulateFetchedHistoryCompareRows = (args: {
+  historyRows: HistoryRow[];
+  populateDebugTrace?: PortfolioPopulateWalletDebugTrace | null;
+  limit: number;
+}): PopulateFetchedHistoryCompareRow[] => {
+  const out: PopulateFetchedHistoryCompareRow[] = [];
+  const populateRows = args.populateDebugTrace?.fetchedTxRows ?? [];
+  const maxRows = Math.max(
+    0,
+    Math.min(
+      Number.isFinite(args.limit) ? Math.trunc(args.limit) : 0,
+      Math.max(args.historyRows.length, populateRows.length),
+    ),
+  );
+
+  for (let index = 0; index < maxRows; index += 1) {
+    const history = args.historyRows[index];
+    const populate = populateRows[index];
+    const flags: string[] = [];
+
+    if (!history) {
+      flags.push('DIAG_MISSING');
+    }
+    if (!populate) {
+      flags.push('POPULATE_MISSING');
+    }
+    if (history && populate) {
+      if (history.txid !== populate.txid) flags.push('TXID_DIFF');
+      if (history.timestampMs !== populate.timestamp) flags.push('TIMESTAMP_DIFF');
+      if (history.action !== populate.action) flags.push('ACTION_DIFF');
+      if (history.amountAtomic !== populate.amountAtomic) flags.push('AMOUNT_DIFF');
+      if (history.feeAtomic !== populate.feeAtomic) flags.push('FEE_DIFF');
+      if (history.deltaAtomic !== populate.deltaAtomic) flags.push('DELTA_DIFF');
+      if (String(history.blockHeight ?? '') !== String(populate.blockHeight ?? '')) {
+        flags.push('BLOCKHEIGHT_DIFF');
+      }
+    }
+
+    out.push({
+      seq: index + 1,
+      diagnosticTxid: history?.txid || '',
+      populateTxid: populate?.txid || '',
+      diagnosticTimestampUtc: history?.timestampUtc || '',
+      populateTimestampUtc: formatTimestampUtc(populate?.timestamp),
+      diagnosticAction: history?.action || '',
+      populateAction: populate?.action || '',
+      diagnosticAmountAtomic: history?.amountAtomic || '',
+      populateAmountAtomic: populate?.amountAtomic || '',
+      diagnosticFeeAtomic: history?.feeAtomic || '',
+      populateFeeAtomic: populate?.feeAtomic || '',
+      diagnosticDeltaAtomic: history?.deltaAtomic || '',
+      populateDeltaAtomic: populate?.deltaAtomic || '',
+      diagnosticBlockHeight:
+        history?.blockHeight === null || history?.blockHeight === undefined
+          ? ''
+          : String(history.blockHeight),
+      populateBlockHeight:
+        populate?.blockHeight === null || populate?.blockHeight === undefined
+          ? ''
+          : String(populate.blockHeight),
+      flags,
+    });
+  }
+
+  return out;
+};
+
+const recomputeSnapshotsFromHistory = (args: {
+  wallet: WalletSummary;
+  credentials: WalletCredentials;
+  txPages: BalanceDiagnosticTxPage[];
+  quoteCurrency?: string;
+  compressionEnabled: boolean;
+  nowMs: number;
+}): {
+  finalAtomic: string;
+  snapshots: SnapshotPersistInputV2[];
+  traceRows: RecomputedTraceRow[];
+} => {
+  const builderCredentials = {
+    walletId: String(args.credentials?.walletId || args.wallet.walletId || ''),
+    chain: String(args.credentials?.chain || args.wallet.chain || ''),
+    network: String(args.credentials?.network || args.wallet.network || ''),
+    coin: String(
+      args.credentials?.coin ||
+        args.credentials?.currencyAbbreviation ||
+        args.wallet.currencyAbbreviation ||
+        '',
+    ),
+    token: args.credentials?.token,
+  };
+
+  const builder = new BalanceSnapshotStreamBuilder({
+    wallet: args.wallet,
+    credentials: builderCredentials,
+    quoteCurrency: args.quoteCurrency || 'USD',
+    fiatRateSeriesCache: {},
+    nowMs: args.nowMs,
+    compressionEnabled: args.compressionEnabled,
+    snapshotDebugMode: 'link',
+  });
+
+  const snapshots: SnapshotPersistInputV2[] = [];
+  for (const page of args.txPages) {
+    const result = builder.ingestPageWithSnapshotLimit(page.txs, undefined);
+    snapshots.push(...result.snapshots);
+  }
+  snapshots.push(...builder.finish());
+
+  return {
+    finalAtomic: snapshots.length
+      ? String(snapshots[snapshots.length - 1].cryptoBalance || '0')
+      : '0',
+    snapshots,
+    traceRows: buildRecomputedTraceRows(snapshots),
+  };
+};
+
 const createTxidRedactor = () => {
   const aliases = new Map<string, string>();
   let nextId = 1;
@@ -406,6 +699,8 @@ export function buildWalletBalanceDiagnostic(args: {
   wallet: WalletSummary;
   credentials: WalletCredentials;
   txPages: BalanceDiagnosticTxPage[];
+  index?: SnapshotIndexV2 | null;
+  populateCapture?: BalanceDiagnosticPopulateCapture;
   snapshots: BalanceSnapshotStored[];
 }): BalanceDiagnosticResult {
   const historyRows: HistoryRow[] = [];
@@ -593,6 +888,8 @@ export function buildWalletBalanceDiagnostic(args: {
     ? args.snapshots[args.snapshots.length - 1]
     : null;
   const snapshotFinalAtomic = latestSnapshot ? latestSnapshot.cryptoBalance : '0';
+  const snapshotIdsLinked =
+    !!args.snapshots.length && args.snapshots.every(snapshot => isLinkedSnapshotId(snapshot.id));
   const summaryBalanceAtomic = String(args.wallet.balanceAtomic ?? '0');
   const summaryMinusSnapshotAtomicBig =
     parseAtomicToBigint(summaryBalanceAtomic) -
@@ -600,6 +897,39 @@ export function buildWalletBalanceDiagnostic(args: {
   const historyMinusSnapshotAtomicBig =
     parseAtomicToBigint(historyFinalAtomic) -
     parseAtomicToBigint(snapshotFinalAtomic);
+  const recomputeQuoteCurrency =
+    args.snapshots.find(snapshot => typeof snapshot.quoteCurrency === 'string')
+      ?.quoteCurrency || 'USD';
+  const recomputeNowMs = Date.now();
+  const recomputedNoCompression = recomputeSnapshotsFromHistory({
+    wallet: args.wallet,
+    credentials: args.credentials,
+    txPages: args.txPages,
+    quoteCurrency: recomputeQuoteCurrency,
+    compressionEnabled: false,
+    nowMs: recomputeNowMs,
+  });
+  const recomputedCompression = recomputeSnapshotsFromHistory({
+    wallet: args.wallet,
+    credentials: args.credentials,
+    txPages: args.txPages,
+    quoteCurrency: recomputeQuoteCurrency,
+    compressionEnabled: args.index?.compressionEnabled !== false,
+    nowMs: recomputeNowMs,
+  });
+  const populateDebugTrace = args.populateCapture?.debugTrace || null;
+  const populateProcessedFinalAtomic =
+    populateDebugTrace?.processedTxRows.length
+      ? populateDebugTrace.processedTxRows[
+          populateDebugTrace.processedTxRows.length - 1
+        ].postBalanceAtomic
+      : '';
+  const populateEmittedFinalAtomic =
+    populateDebugTrace?.emittedSnapshotRows.length
+      ? populateDebugTrace.emittedSnapshotRows[
+          populateDebugTrace.emittedSnapshotRows.length - 1
+        ].cryptoBalance
+      : '';
 
   const seenForDedup = new Set<string>();
   let dedupedHistoryFinal = 0n;
@@ -797,6 +1127,11 @@ export function buildWalletBalanceDiagnostic(args: {
   }
 
   const clues: string[] = [];
+  if (!snapshotIdsLinked) {
+    clues.push(
+      'Stored snapshot ids are not linked to tx/daily rows. Snapshot tx matching and daily-row counts may be misleading until the wallet is repopulated with snapshotDebugMode=link or full.',
+    );
+  }
   if (historyFinalAtomic === snapshotFinalAtomic) {
     clues.push(
       'Snapshot final balance matches fetched tx history. Any mismatch is likely ordering or display, not missing arithmetic.',
@@ -828,6 +1163,33 @@ export function buildWalletBalanceDiagnostic(args: {
   if (summaryMinusSnapshotAtomicBig !== 0n && feeAuditRows.length) {
     clues.push(
       'Outgoing fee audit is included below for native-asset sent/moved transactions.',
+    );
+  }
+  if (recomputedNoCompression.finalAtomic === summaryBalanceAtomic) {
+    clues.push(
+      'Fresh in-memory recompute without compression matches the live BWS summary.',
+    );
+  }
+  if (recomputedCompression.finalAtomic === snapshotFinalAtomic) {
+    clues.push(
+      'Fresh in-memory recompute with compression matches the stored snapshot final balance.',
+    );
+  }
+  if (
+    populateProcessedFinalAtomic &&
+    populateProcessedFinalAtomic === summaryBalanceAtomic
+  ) {
+    clues.push(
+      'Populate worklet processed-tx trace final balance matches the live BWS summary.',
+    );
+  }
+  if (
+    populateProcessedFinalAtomic &&
+    populateEmittedFinalAtomic &&
+    populateProcessedFinalAtomic !== populateEmittedFinalAtomic
+  ) {
+    clues.push(
+      'Populate worklet processed-tx trace final balance differs from the emitted snapshot trace final balance.',
     );
   }
   if (!clues.length) {
@@ -888,6 +1250,21 @@ export function buildWalletBalanceDiagnostic(args: {
   lines.push(
     `summaryMinusSnapshotAtomic=${summaryMinusSnapshotAtomicBig.toString()}`,
   );
+  lines.push(
+    `recomputedNoCompressionFinalAtomic=${recomputedNoCompression.finalAtomic}`,
+  );
+  lines.push(
+    `recomputedCompressionFinalAtomic=${recomputedCompression.finalAtomic}`,
+  );
+  lines.push(`storedSnapshotFinalAtomic=${snapshotFinalAtomic}`);
+  if (populateProcessedFinalAtomic) {
+    lines.push(
+      `populateWorkletProcessedFinalAtomic=${populateProcessedFinalAtomic}`,
+    );
+  }
+  if (populateEmittedFinalAtomic) {
+    lines.push(`populateWorkletEmittedFinalAtomic=${populateEmittedFinalAtomic}`);
+  }
   lines.push('');
   lines.push('Counts');
   lines.push(`pages=${args.txPages.length}`);
@@ -896,6 +1273,7 @@ export function buildWalletBalanceDiagnostic(args: {
   lines.push(`duplicateHistoryTxids=${duplicateHistoryRows.length}`);
   lines.push(`snapshotTxs=${snapshotTxRows.length}`);
   lines.push(`snapshotDailyRows=${dailySnapshotCount}`);
+  lines.push(`snapshotIdsLinked=${snapshotIdsLinked ? 'yes' : 'no'}`);
   lines.push(`duplicateSnapshotTxids=${duplicateSnapshotRows.length}`);
   lines.push(`historyWithoutSnapshot=${historyOnlyRows.length}`);
   lines.push(`snapshotWithoutHistory=${snapshotOnlyRows.length}`);
@@ -910,6 +1288,753 @@ export function buildWalletBalanceDiagnostic(args: {
   for (const clue of clues) {
     lines.push(`- ${clue}`);
   }
+
+  if (args.index) {
+    addSection(
+      lines,
+      'Current snapshot index checkpoint (csv)',
+      toCsv([
+        [
+          'phase',
+          'nextSkip',
+          'balanceAtomic',
+          'lastTimestamp',
+          'lastTimestampUtc',
+          'recentTxIds',
+          'carryoverGroup',
+          'updatedAt',
+          'updatedAtUtc',
+          'compressionEnabled',
+          'chunkRows',
+        ],
+        ...buildCheckpointRows('current', args.index, redactTxid),
+      ]),
+    );
+  }
+
+  if (args.populateCapture) {
+    addSection(
+      lines,
+      'Last debug populate checkpoint capture (csv)',
+      [
+        `capturedAtUtc=${formatTimestampUtc(args.populateCapture.capturedAtMs)}`,
+        `snapshotDebugMode=${args.populateCapture.snapshotDebugMode}`,
+        `debugFetchedTxRows=${
+          args.populateCapture.debugTrace?.fetchedTxRows.length ?? 0
+        }`,
+        `debugProcessedTxRows=${
+          args.populateCapture.debugTrace?.processedTxRows.length ?? 0
+        }`,
+        `debugEmittedSnapshotRows=${
+          args.populateCapture.debugTrace?.emittedSnapshotRows.length ?? 0
+        }`,
+        `debugSessionStateBeforePrepareRows=${
+          args.populateCapture.debugTrace?.sessionStateBeforePrepareRows.length ??
+          0
+        }`,
+        `debugBuilderSeedRows=${
+          args.populateCapture.debugTrace?.builderSeedRows.length ?? 0
+        }`,
+        `debugIngestSeedRows=${
+          args.populateCapture.debugTrace?.ingestSeedRows.length ?? 0
+        }`,
+        `debugNormalizedFilteredPageKeyRows=${
+          args.populateCapture.debugTrace?.normalizedFilteredPageKeyRows.length ??
+          0
+        }`,
+        `debugIngestLoopMutationRows=${
+          args.populateCapture.debugTrace?.ingestLoopMutationRows.length ?? 0
+        }`,
+        `debugFlushCurrentGroupRows=${
+          args.populateCapture.debugTrace?.flushCurrentGroupRows.length ?? 0
+        }`,
+        `debugFlushDirectResetWitnessRows=${
+          args.populateCapture.debugTrace?.flushDirectResetWitnessRows.length ??
+          0
+        }`,
+        `debugFlushReturnWitnessRows=${
+          args.populateCapture.debugTrace?.flushReturnWitnessRows.length ?? 0
+        }`,
+        `debugLocalMutationCanaryRows=${
+          args.populateCapture.debugTrace?.localMutationCanaryRows.length ?? 0
+        }`,
+        `debugStateMutationControlRows=${
+          args.populateCapture.debugTrace?.stateMutationControlRows.length ?? 0
+        }`,
+        `debugDirectVsHelperParityRows=${
+          args.populateCapture.debugTrace?.directVsHelperParityRows.length ?? 0
+        }`,
+        `debugCarryoverDecisionRows=${
+          args.populateCapture.debugTrace?.carryoverDecisionRows.length ?? 0
+        }`,
+        `debugGroupAssemblyRows=${
+          args.populateCapture.debugTrace?.groupAssemblyRows.length ?? 0
+        }`,
+        `debugRequestLifecycleRows=${
+          args.populateCapture.debugTrace?.requestLifecycleRows.length ?? 0
+        }`,
+        toCsv([
+          [
+            'phase',
+            'nextSkip',
+            'balanceAtomic',
+            'lastTimestamp',
+            'lastTimestampUtc',
+            'recentTxIds',
+            'carryoverGroup',
+            'updatedAt',
+            'updatedAtUtc',
+            'compressionEnabled',
+            'chunkRows',
+          ],
+          ...buildCheckpointRows(
+            'beforePopulate',
+            args.populateCapture.beforeIndex,
+            redactTxid,
+          ),
+          ...buildCheckpointRows(
+            'afterPopulate',
+            args.populateCapture.afterIndex,
+            redactTxid,
+          ),
+        ]),
+      ].join('\n'),
+    );
+  }
+
+  if (populateDebugTrace?.sessionStateBeforePrepareRows.length) {
+    addSection(
+      lines,
+      'Worklet Session State Before Prepare (csv)',
+      toCsv([
+        [
+          'walletId',
+          'existingSessionBefore',
+          'existingSessionCreatedAtUtc',
+          'existingSessionCarryoverTxIds',
+          'existingSessionRecentTxIds',
+          'existingSessionPendingTxIds',
+        ],
+        ...populateDebugTrace.sessionStateBeforePrepareRows.map(row => [
+          redactTxid(row.walletId),
+          row.existingSessionBefore ? 'yes' : 'no',
+          formatTimestampUtc(row.existingSessionCreatedAtMs),
+          formatTxidList(row.existingSessionCarryoverTxIds, redactTxid),
+          formatTxidList(row.existingSessionRecentTxIds, redactTxid),
+          formatTxidList(row.existingSessionPendingTxIds, redactTxid),
+        ]),
+      ]),
+    );
+  }
+
+  if (populateDebugTrace?.builderSeedRows.length) {
+    addSection(
+      lines,
+      'Builder Seed At Prepare (csv)',
+      toCsv([
+        [
+          'walletId',
+          'persistedCheckpointNextSkip',
+          'persistedCheckpointCarryoverTxIds',
+          'persistedCheckpointRecentTxIds',
+          'builderNextSkipAfterCreate',
+          'builderCarryoverTxIdsAfterCreate',
+          'builderRecentTxIdsAfterCreate',
+        ],
+        ...populateDebugTrace.builderSeedRows.map(row => [
+          redactTxid(row.walletId),
+          row.persistedCheckpointNextSkip,
+          formatTxidList(row.persistedCheckpointCarryoverTxIds, redactTxid),
+          formatTxidList(row.persistedCheckpointRecentTxIds, redactTxid),
+          row.builderNextSkipAfterCreate,
+          formatTxidList(row.builderCarryoverTxIdsAfterCreate, redactTxid),
+          formatTxidList(row.builderRecentTxIdsAfterCreate, redactTxid),
+        ]),
+      ]),
+    );
+  }
+
+  if (populateDebugTrace?.ingestSeedRows.length) {
+    const limitedIngestSeedRows = limitRows(populateDebugTrace.ingestSeedRows, 50);
+    addSection(
+      lines,
+      'processNextPage Ingest Seeds (csv)',
+      toCsv([
+        [
+          'requestId',
+          'processSeq',
+          'skip',
+          'builderCarryoverTxIdsBeforeIngest',
+          'builderRecentTxIdsBeforeIngest',
+          'pendingTxIdsBeforeIngest',
+          'fetchedTxHead',
+          'dedupedPendingTxHead',
+        ],
+        ...limitedIngestSeedRows.rows.map(row => [
+          row.requestId,
+          row.processSeq,
+          row.skip,
+          formatTxidList(row.builderCarryoverTxIdsBeforeIngest, redactTxid),
+          formatTxidList(row.builderRecentTxIdsBeforeIngest, redactTxid),
+          formatTxidList(row.pendingTxIdsBeforeIngest, redactTxid),
+          formatTxidList(row.fetchedTxHead, redactTxid),
+          formatTxidList(row.dedupedPendingTxHead, redactTxid),
+        ]),
+      ]) +
+        (limitedIngestSeedRows.truncated
+          ? `\n# truncated=${limitedIngestSeedRows.truncated}`
+          : ''),
+    );
+  }
+
+  if (populateDebugTrace?.normalizedFilteredPageKeyRows.length) {
+    const limitedPageKeyRows = limitRows(
+      populateDebugTrace.normalizedFilteredPageKeyRows,
+      100,
+    );
+    addSection(
+      lines,
+      'Normalized Filtered Page Keys (csv)',
+      toCsv([
+        [
+          'requestId',
+          'filteredIndex',
+          'originalIndex',
+          'txid',
+          'timestampUtc',
+          'blockHeight',
+          'groupKey',
+          'startsNewGroup',
+        ],
+        ...limitedPageKeyRows.rows.map(row => [
+          row.requestId,
+          row.filteredIndex,
+          row.originalIndex,
+          redactTxid(row.txid),
+          formatTimestampUtc(row.timestamp),
+          row.blockHeight ?? '',
+          row.groupKey,
+          row.startsNewGroup ? 'yes' : 'no',
+        ]),
+      ]) +
+        (limitedPageKeyRows.truncated
+          ? `\n# truncated=${limitedPageKeyRows.truncated}`
+          : ''),
+    );
+  }
+
+  if (populateDebugTrace?.ingestLoopMutationRows.length) {
+    const limitedMutationRows = limitRows(
+      populateDebugTrace.ingestLoopMutationRows,
+      250,
+    );
+    addSection(
+      lines,
+      'Ingest Loop Mutation Trace (csv)',
+      toCsv([
+        [
+          'requestId',
+          'stepSeq',
+          'loopIndex',
+          'mutation',
+          'txid',
+          'txGroupKey',
+          'groupInstanceSeq',
+          'groupKeyBefore',
+          'groupKeyAfter',
+          'groupTxIdsBefore',
+          'groupTxIdsAfter',
+          'pageTxIdsAddedBefore',
+          'pageTxIdsAddedAfter',
+          'carryoverSeedTxIdsBefore',
+          'carryoverSeedTxIdsAfter',
+          'groupMaxOriginalIndexBefore',
+          'groupMaxOriginalIndexAfter',
+          'consumedRawCountBefore',
+          'consumedRawCountAfter',
+          'endedAtInputBoundary',
+          'note',
+        ],
+        ...limitedMutationRows.rows.map(row => [
+          row.requestId,
+          row.stepSeq,
+          row.loopIndex ?? '',
+          row.mutation,
+          row.txid ? redactTxid(row.txid) : '',
+          row.txGroupKey,
+          row.groupInstanceSeq,
+          row.groupKeyBefore,
+          row.groupKeyAfter,
+          formatTxidList(row.groupTxIdsBefore, redactTxid),
+          formatTxidList(row.groupTxIdsAfter, redactTxid),
+          formatTxidList(row.pageTxIdsAddedBefore, redactTxid),
+          formatTxidList(row.pageTxIdsAddedAfter, redactTxid),
+          formatTxidList(row.carryoverSeedTxIdsBefore, redactTxid),
+          formatTxidList(row.carryoverSeedTxIdsAfter, redactTxid),
+          row.groupMaxOriginalIndexBefore ?? '',
+          row.groupMaxOriginalIndexAfter ?? '',
+          row.consumedRawCountBefore,
+          row.consumedRawCountAfter,
+          row.endedAtInputBoundary ? 'yes' : 'no',
+          row.note ?? '',
+        ]),
+      ]) +
+        (limitedMutationRows.truncated
+          ? `\n# truncated=${limitedMutationRows.truncated}`
+          : ''),
+    );
+  }
+
+  if (populateDebugTrace?.flushCurrentGroupRows.length) {
+    const limitedFlushRows = limitRows(
+      populateDebugTrace.flushCurrentGroupRows,
+      100,
+    );
+    addSection(
+      lines,
+      'flushCurrentGroup Before/After (csv)',
+      toCsv([
+        [
+          'requestId',
+          'stepSeq',
+          'flushReason',
+          'groupInstanceSeqBeforeReset',
+          'groupInstanceSeqAfterReset',
+          'groupKeyBeforeReset',
+          'groupTxIdsBeforeReset',
+          'pageTxIdsAddedBeforeReset',
+          'carryoverSeedTxIdsBeforeReset',
+          'groupMaxOriginalIndexBeforeReset',
+          'consumedRawCountBeforeReset',
+          'groupKeyAfterReset',
+          'groupTxIdsAfterReset',
+          'pageTxIdsAddedAfterReset',
+          'carryoverSeedTxIdsAfterReset',
+          'groupMaxOriginalIndexAfterReset',
+          'consumedRawCountAfterReset',
+        ],
+        ...limitedFlushRows.rows.map(row => [
+          row.requestId,
+          row.stepSeq,
+          row.flushReason,
+          row.groupInstanceSeqBeforeReset,
+          row.groupInstanceSeqAfterReset,
+          row.groupKeyBeforeReset,
+          formatTxidList(row.groupTxIdsBeforeReset, redactTxid),
+          formatTxidList(row.pageTxIdsAddedBeforeReset, redactTxid),
+          formatTxidList(row.carryoverSeedTxIdsBeforeReset, redactTxid),
+          row.groupMaxOriginalIndexBeforeReset ?? '',
+          row.consumedRawCountBeforeReset,
+          row.groupKeyAfterReset,
+          formatTxidList(row.groupTxIdsAfterReset, redactTxid),
+          formatTxidList(row.pageTxIdsAddedAfterReset, redactTxid),
+          formatTxidList(row.carryoverSeedTxIdsAfterReset, redactTxid),
+          row.groupMaxOriginalIndexAfterReset ?? '',
+          row.consumedRawCountAfterReset,
+        ]),
+      ]) +
+        (limitedFlushRows.truncated
+          ? `\n# truncated=${limitedFlushRows.truncated}`
+          : ''),
+    );
+  }
+
+  if (populateDebugTrace?.flushDirectResetWitnessRows.length) {
+    const limitedDirectResetRows = limitRows(
+      populateDebugTrace.flushDirectResetWitnessRows,
+      200,
+    );
+    addSection(
+      lines,
+      'flushCurrentGroup Direct Reset Witness (csv)',
+      toCsv([
+        [
+          'requestId',
+          'flushInvocationSeq',
+          'stepSeq',
+          'flushReason',
+          'stage',
+          'groupInstanceSeqDirect',
+          'groupLenDirect',
+          'groupFirstTxidDirect',
+          'pageTxIdsAddedLenDirect',
+          'pageTxIdsAddedHeadDirect',
+          'carryoverSeedLenDirect',
+          'carryoverSeedHeadDirect',
+          'groupKeyDirect',
+          'groupKeyIsNullDirect',
+          'groupMaxOriginalIndexDirect',
+          'consumedRawCountDirect',
+        ],
+        ...limitedDirectResetRows.rows.map(row => [
+          row.requestId,
+          row.flushInvocationSeq,
+          row.stepSeq,
+          row.flushReason,
+          row.stage,
+          row.groupInstanceSeqDirect,
+          row.groupLenDirect,
+          row.groupFirstTxidDirect
+            ? redactTxid(row.groupFirstTxidDirect)
+            : '',
+          row.pageTxIdsAddedLenDirect,
+          formatTxidList(row.pageTxIdsAddedHeadDirect, redactTxid),
+          row.carryoverSeedLenDirect,
+          formatTxidList(row.carryoverSeedHeadDirect, redactTxid),
+          row.groupKeyDirect,
+          row.groupKeyIsNullDirect ? 'yes' : 'no',
+          row.groupMaxOriginalIndexDirect ?? '',
+          row.consumedRawCountDirect,
+        ]),
+      ]) +
+        (limitedDirectResetRows.truncated
+          ? `\n# truncated=${limitedDirectResetRows.truncated}`
+          : ''),
+    );
+  }
+
+  if (populateDebugTrace?.flushReturnWitnessRows.length) {
+    const limitedFlushReturnRows = limitRows(
+      populateDebugTrace.flushReturnWitnessRows,
+      100,
+    );
+    addSection(
+      lines,
+      'Caller After flushCurrentGroup Return (csv)',
+      toCsv([
+        [
+          'requestId',
+          'flushInvocationSeq',
+          'stepSeq',
+          'flushReason',
+          'stage',
+          'loopIndex',
+          'nextIncomingTxid',
+          'nextIncomingGroupKey',
+          'groupInstanceSeqDirect',
+          'groupLenDirect',
+          'groupFirstTxidDirect',
+          'pageTxIdsAddedLenDirect',
+          'pageTxIdsAddedHeadDirect',
+          'carryoverSeedLenDirect',
+          'carryoverSeedHeadDirect',
+          'groupKeyDirect',
+          'groupKeyIsNullDirect',
+          'groupMaxOriginalIndexDirect',
+          'consumedRawCountDirect',
+        ],
+        ...limitedFlushReturnRows.rows.map(row => [
+          row.requestId,
+          row.flushInvocationSeq,
+          row.stepSeq,
+          row.flushReason,
+          row.stage,
+          row.loopIndex,
+          row.nextIncomingTxid ? redactTxid(row.nextIncomingTxid) : '',
+          row.nextIncomingGroupKey,
+          row.groupInstanceSeqDirect,
+          row.groupLenDirect,
+          row.groupFirstTxidDirect
+            ? redactTxid(row.groupFirstTxidDirect)
+            : '',
+          row.pageTxIdsAddedLenDirect,
+          formatTxidList(row.pageTxIdsAddedHeadDirect, redactTxid),
+          row.carryoverSeedLenDirect,
+          formatTxidList(row.carryoverSeedHeadDirect, redactTxid),
+          row.groupKeyDirect,
+          row.groupKeyIsNullDirect ? 'yes' : 'no',
+          row.groupMaxOriginalIndexDirect ?? '',
+          row.consumedRawCountDirect,
+        ]),
+      ]) +
+        (limitedFlushReturnRows.truncated
+          ? `\n# truncated=${limitedFlushReturnRows.truncated}`
+          : ''),
+    );
+  }
+
+  if (populateDebugTrace?.localMutationCanaryRows.length) {
+    const limitedCanaryRows = limitRows(
+      populateDebugTrace.localMutationCanaryRows,
+      100,
+    );
+    addSection(
+      lines,
+      'Worklet Local Mutation Canary (csv)',
+      toCsv([
+        [
+          'requestId',
+          'flushInvocationSeq',
+          'stepSeq',
+          'flushReason',
+          'stage',
+          'localScalarCanary',
+          'localArrayCanaryLen',
+          'localArrayCanaryHead',
+          'localStringCanary',
+        ],
+        ...limitedCanaryRows.rows.map(row => [
+          row.requestId,
+          row.flushInvocationSeq,
+          row.stepSeq,
+          row.flushReason,
+          row.stage,
+          row.localScalarCanary,
+          row.localArrayCanaryLen,
+          (row.localArrayCanaryHead || []).join('|'),
+          row.localStringCanary,
+        ]),
+      ]) +
+        (limitedCanaryRows.truncated
+          ? `\n# truncated=${limitedCanaryRows.truncated}`
+          : ''),
+    );
+  }
+
+  if (populateDebugTrace?.stateMutationControlRows.length) {
+    const limitedStateControlRows = limitRows(
+      populateDebugTrace.stateMutationControlRows,
+      100,
+    );
+    addSection(
+      lines,
+      'State Object Mutation Control (csv)',
+      toCsv([
+        [
+          'requestId',
+          'flushInvocationSeq',
+          'stepSeq',
+          'flushReason',
+          'stage',
+          'stateControlCounter',
+          'stateControlLastStage',
+          'localScalarCanary',
+          'groupLenDirect',
+          'groupFirstTxidDirect',
+        ],
+        ...limitedStateControlRows.rows.map(row => [
+          row.requestId,
+          row.flushInvocationSeq,
+          row.stepSeq,
+          row.flushReason,
+          row.stage,
+          row.stateControlCounter,
+          row.stateControlLastStage,
+          row.localScalarCanary,
+          row.groupLenDirect,
+          row.groupFirstTxidDirect
+            ? redactTxid(row.groupFirstTxidDirect)
+            : '',
+        ]),
+      ]) +
+        (limitedStateControlRows.truncated
+          ? `\n# truncated=${limitedStateControlRows.truncated}`
+          : ''),
+    );
+  }
+
+  if (populateDebugTrace?.directVsHelperParityRows.length) {
+    const limitedParityRows = limitRows(
+      populateDebugTrace.directVsHelperParityRows,
+      100,
+    );
+    addSection(
+      lines,
+      'Direct vs Helper Snapshot Parity (csv)',
+      toCsv([
+        [
+          'requestId',
+          'flushInvocationSeq',
+          'stepSeq',
+          'flushReason',
+          'stage',
+          'groupLenDirect',
+          'groupLenViaSnapshot',
+          'groupFirstTxidDirect',
+          'groupFirstTxidViaSnapshot',
+          'pageLenDirect',
+          'pageLenViaSnapshot',
+          'pageHeadDirect',
+          'pageHeadViaSnapshot',
+          'carryoverSeedLenDirect',
+          'carryoverSeedLenViaSnapshot',
+          'carryoverSeedHeadDirect',
+          'carryoverSeedHeadViaSnapshot',
+          'groupKeyDirect',
+          'groupKeyViaSnapshot',
+          'groupKeyIsNullDirect',
+        ],
+        ...limitedParityRows.rows.map(row => [
+          row.requestId,
+          row.flushInvocationSeq,
+          row.stepSeq,
+          row.flushReason,
+          row.stage,
+          row.groupLenDirect,
+          row.groupLenViaSnapshot,
+          row.groupFirstTxidDirect ? redactTxid(row.groupFirstTxidDirect) : '',
+          row.groupFirstTxidViaSnapshot
+            ? redactTxid(row.groupFirstTxidViaSnapshot)
+            : '',
+          row.pageLenDirect,
+          row.pageLenViaSnapshot,
+          formatTxidList(row.pageHeadDirect, redactTxid),
+          formatTxidList(row.pageHeadViaSnapshot, redactTxid),
+          row.carryoverSeedLenDirect,
+          row.carryoverSeedLenViaSnapshot,
+          formatTxidList(row.carryoverSeedHeadDirect, redactTxid),
+          formatTxidList(row.carryoverSeedHeadViaSnapshot, redactTxid),
+          row.groupKeyDirect,
+          row.groupKeyViaSnapshot,
+          row.groupKeyIsNullDirect ? 'yes' : 'no',
+        ]),
+      ]) +
+        (limitedParityRows.truncated
+          ? `\n# truncated=${limitedParityRows.truncated}`
+          : ''),
+    );
+  }
+
+  if (populateDebugTrace?.carryoverDecisionRows.length) {
+    const limitedCarryoverRows = limitRows(
+      populateDebugTrace.carryoverDecisionRows,
+      50,
+    );
+    addSection(
+      lines,
+      'Carryover Decision Snapshot (csv)',
+      toCsv([
+        [
+          'requestId',
+          'stepSeq',
+          'groupInstanceSeq',
+          'endedAtInputBoundary',
+          'shouldCarryAcrossPageBoundary',
+          'groupKey',
+          'groupTxIdsBeforeAssign',
+          'pageTxIdsAdded',
+          'carryoverSeedTxIds',
+          'stateCarryoverTxIdsBeforeAssign',
+          'stateCarryoverTxIdsAfterAssign',
+          'logicalPageSize',
+          'nextSkipBeforeAssign',
+          'nextSkipAfterAssign',
+          'recentTxIdsAfterAssign',
+        ],
+        ...limitedCarryoverRows.rows.map(row => [
+          row.requestId,
+          row.stepSeq,
+          row.groupInstanceSeq,
+          row.endedAtInputBoundary ? 'yes' : 'no',
+          row.shouldCarryAcrossPageBoundary ? 'yes' : 'no',
+          row.groupKey,
+          formatTxidList(row.groupTxIdsBeforeAssign, redactTxid),
+          formatTxidList(row.pageTxIdsAdded, redactTxid),
+          formatTxidList(row.carryoverSeedTxIds, redactTxid),
+          formatTxidList(row.stateCarryoverTxIdsBeforeAssign, redactTxid),
+          formatTxidList(row.stateCarryoverTxIdsAfterAssign, redactTxid),
+          row.logicalPageSize,
+          row.nextSkipBeforeAssign,
+          row.nextSkipAfterAssign,
+          formatTxidList(row.recentTxIdsAfterAssign, redactTxid),
+        ]),
+      ]) +
+        (limitedCarryoverRows.truncated
+          ? `\n# truncated=${limitedCarryoverRows.truncated}`
+          : ''),
+    );
+  }
+
+  if (populateDebugTrace?.groupAssemblyRows.length) {
+    const limitedGroupAssemblyRows = limitRows(
+      populateDebugTrace.groupAssemblyRows,
+      100,
+    );
+    addSection(
+      lines,
+      'Group Assembly Trace (first few groups) (csv)',
+      toCsv([
+        [
+          'requestId',
+          'stepSeq',
+          'groupIndex',
+          'groupInstanceSeq',
+          'groupKey',
+          'carryoverSeedTxIds',
+          'pageTxIdsAdded',
+          'inputTxIdsBeforeReorder',
+          'reorderedTxIds',
+          'flushReason',
+        ],
+        ...limitedGroupAssemblyRows.rows.map(row => [
+          row.requestId,
+          row.stepSeq ?? '',
+          row.groupIndex,
+          row.groupInstanceSeq ?? '',
+          row.groupKey,
+          formatTxidList(row.carryoverSeedTxIds, redactTxid),
+          formatTxidList(row.pageTxIdsAdded, redactTxid),
+          formatTxidList(row.inputTxIdsBeforeReorder, redactTxid),
+          formatTxidList(row.reorderedTxIds, redactTxid),
+          row.flushReason,
+        ]),
+      ]) +
+        (limitedGroupAssemblyRows.truncated
+          ? `\n# truncated=${limitedGroupAssemblyRows.truncated}`
+          : ''),
+    );
+  }
+
+  if (populateDebugTrace?.requestLifecycleRows.length) {
+    addSection(
+      lines,
+      'Populate Request Lifecycle (csv)',
+      toCsv([
+        [
+          'requestId',
+          'method',
+          'walletId',
+          'startedAtUtc',
+          'finishedAtUtc',
+          'skipUsed',
+          'fetchedTxs',
+          'consumedRawCount',
+          'logicalPageSize',
+          'appendedSnapshots',
+          'done',
+        ],
+        ...populateDebugTrace.requestLifecycleRows.map(row => [
+          row.requestId,
+          row.method,
+          redactTxid(row.walletId),
+          formatTimestampUtc(row.startedAtMs),
+          formatTimestampUtc(row.finishedAtMs),
+          row.skipUsed ?? '',
+          row.fetchedTxs ?? '',
+          row.consumedRawCount ?? '',
+          row.logicalPageSize ?? '',
+          row.appendedSnapshots ?? '',
+          row.done === null ? '' : row.done ? 'yes' : 'no',
+        ]),
+      ]),
+    );
+  }
+
+  addSection(
+    lines,
+    'Fresh in-memory recompute',
+    [
+      `recomputedAtUtc=${formatTimestampUtc(recomputeNowMs)}`,
+      `recomputedCompressionEnabled=${
+        args.index?.compressionEnabled !== false ? 'yes' : 'no'
+      }`,
+      `recomputedNoCompressionFinalAtomic=${recomputedNoCompression.finalAtomic}`,
+      `recomputedCompressionFinalAtomic=${recomputedCompression.finalAtomic}`,
+      `storedSnapshotFinalAtomic=${snapshotFinalAtomic}`,
+      `recomputedCompressionRows=${recomputedCompression.traceRows.length}`,
+      `recomputedNoCompressionRows=${recomputedNoCompression.traceRows.length}`,
+    ].join('\n'),
+  );
 
   addSection(
     lines,
@@ -980,6 +2105,204 @@ export function buildWalletBalanceDiagnostic(args: {
       ]),
     ]),
   );
+
+  const limitedRecomputedCompressionRows = limitRows(
+    recomputedCompression.traceRows,
+    500,
+  );
+  addSection(
+    lines,
+    'Recomputed compression trace (csv)',
+    toCsv([
+      [
+        'seq',
+        'eventType',
+        'eventRef',
+        'timestampUtc',
+        'preBalanceAtomic',
+        'deltaAtomic',
+        'postBalanceAtomic',
+        'txIds',
+        'flushTriggeredBy',
+      ],
+      ...limitedRecomputedCompressionRows.rows.map(row => [
+        row.seq,
+        row.eventType,
+        row.eventType === 'tx' ? redactTxid(row.eventRef) : row.eventRef,
+        row.timestampUtc,
+        row.preBalanceAtomic,
+        row.deltaAtomic,
+        row.postBalanceAtomic,
+        row.txIds.length
+          ? row.txIds.map(txid => redactTxid(txid)).join('|')
+          : '',
+        row.flushTriggeredBy,
+      ]),
+    ]) +
+      (limitedRecomputedCompressionRows.truncated
+        ? `\n# truncated=${limitedRecomputedCompressionRows.truncated}`
+        : ''),
+  );
+
+  const limitedRecomputedNoCompressionRows = limitRows(
+    recomputedNoCompression.traceRows,
+    500,
+  );
+  addSection(
+    lines,
+    'Recomputed no-compression trace (csv)',
+    toCsv([
+      [
+        'seq',
+        'eventType',
+        'eventRef',
+        'timestampUtc',
+        'preBalanceAtomic',
+        'deltaAtomic',
+        'postBalanceAtomic',
+        'txIds',
+        'flushTriggeredBy',
+      ],
+      ...limitedRecomputedNoCompressionRows.rows.map(row => [
+        row.seq,
+        row.eventType,
+        row.eventType === 'tx' ? redactTxid(row.eventRef) : row.eventRef,
+        row.timestampUtc,
+        row.preBalanceAtomic,
+        row.deltaAtomic,
+        row.postBalanceAtomic,
+        row.txIds.length
+          ? row.txIds.map(txid => redactTxid(txid)).join('|')
+          : '',
+        row.flushTriggeredBy,
+      ]),
+    ]) +
+      (limitedRecomputedNoCompressionRows.truncated
+        ? `\n# truncated=${limitedRecomputedNoCompressionRows.truncated}`
+        : ''),
+  );
+
+  if (populateDebugTrace) {
+    const populateFetchedCompareRows = buildPopulateFetchedHistoryCompareRows({
+      historyRows,
+      populateDebugTrace,
+      limit: 23,
+    });
+    addSection(
+      lines,
+      'Diagnostic vs populate worklet fetched history (first 23 rows) (csv)',
+      toCsv([
+        [
+          'seq',
+          'diagnosticTxid',
+          'populateTxid',
+          'diagnosticTimestampUtc',
+          'populateTimestampUtc',
+          'diagnosticAction',
+          'populateAction',
+          'diagnosticAmountAtomic',
+          'populateAmountAtomic',
+          'diagnosticFeeAtomic',
+          'populateFeeAtomic',
+          'diagnosticDeltaAtomic',
+          'populateDeltaAtomic',
+          'diagnosticBlockHeight',
+          'populateBlockHeight',
+          'flags',
+        ],
+        ...populateFetchedCompareRows.map(row => [
+          row.seq,
+          row.diagnosticTxid ? redactTxid(row.diagnosticTxid) : '',
+          row.populateTxid ? redactTxid(row.populateTxid) : '',
+          row.diagnosticTimestampUtc,
+          row.populateTimestampUtc,
+          row.diagnosticAction,
+          row.populateAction,
+          row.diagnosticAmountAtomic,
+          row.populateAmountAtomic,
+          row.diagnosticFeeAtomic,
+          row.populateFeeAtomic,
+          row.diagnosticDeltaAtomic,
+          row.populateDeltaAtomic,
+          row.diagnosticBlockHeight,
+          row.populateBlockHeight,
+          row.flags.join('|'),
+        ]),
+      ]),
+    );
+
+    const limitedPopulateProcessedRows = limitRows(
+      populateDebugTrace.processedTxRows,
+      1000,
+    );
+    addSection(
+      lines,
+      'Populate worklet processed tx trace (csv)',
+      toCsv([
+        [
+          'seq',
+          'txid',
+          'timestampUtc',
+          'action',
+          'amountAtomic',
+          'feeAtomic',
+          'normalizedDeltaAtomic',
+          'preBalanceAtomic',
+          'postBalanceAtomic',
+          'blockHeight',
+        ],
+        ...limitedPopulateProcessedRows.rows.map(row => [
+          row.seq,
+          redactTxid(row.txid),
+          formatTimestampUtc(row.timestamp),
+          row.action,
+          row.amountAtomic,
+          row.feeAtomic,
+          row.normalizedDeltaAtomic,
+          row.preBalanceAtomic,
+          row.postBalanceAtomic,
+          row.blockHeight ?? '',
+        ]),
+      ]) +
+        (limitedPopulateProcessedRows.truncated
+          ? `\n# truncated=${limitedPopulateProcessedRows.truncated}`
+          : ''),
+    );
+
+    const limitedPopulateSnapshotRows = limitRows(
+      populateDebugTrace.emittedSnapshotRows,
+      1000,
+    );
+    addSection(
+      lines,
+      'Populate worklet emitted snapshot rows (csv)',
+      toCsv([
+        [
+          'rowIndex',
+          'eventType',
+          'id',
+          'txIds',
+          'timestampUtc',
+          'cryptoBalanceAtomic',
+        ],
+        ...limitedPopulateSnapshotRows.rows.map(row => [
+          row.rowIndex,
+          row.eventType,
+          row.eventType === 'tx'
+            ? redactTxid(extractTxIdFromSnapshotId(row.id) || row.id)
+            : extractDayKeyFromSnapshotId(row.id) || row.id,
+          Array.isArray(row.txIds) && row.txIds.length
+            ? row.txIds.map(txid => redactTxid(txid)).join('|')
+            : '',
+          formatTimestampUtc(row.timestamp),
+          row.cryptoBalance,
+        ]),
+      ]) +
+        (limitedPopulateSnapshotRows.truncated
+          ? `\n# truncated=${limitedPopulateSnapshotRows.truncated}`
+          : ''),
+    );
+  }
 
   if (feeAuditRows.length) {
     const feeAuditTotals = feeAuditRows.reduce(

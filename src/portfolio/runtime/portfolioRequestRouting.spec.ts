@@ -16,6 +16,11 @@ describe('portfolioRequestRouting', () => {
     expect(shouldDispatchPortfolioRequestOnRuntimeWorklet('analysis.compute')).toBe(true);
     expect(shouldDispatchPortfolioRequestOnRuntimeWorklet('analysis.computeChart')).toBe(true);
     expect(shouldDispatchPortfolioRequestOnRuntimeWorklet('debug.clearAll')).toBe(true);
+    expect(
+      shouldDispatchPortfolioRequestOnRuntimeWorklet(
+        'debug.getPopulateWalletTrace',
+      ),
+    ).toBe(true);
 
     expect(
       shouldDispatchPortfolioRequestOnRuntimeWorklet({
