@@ -1320,21 +1320,6 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
     return stepSeq;
   };
 
-  const snapshotLoopState = (): IngestLoopStateSnapshot => {
-    'worklet';
-
-    return {
-      groupKey: groupKey ?? '',
-      groupTxIds: toDebugTxIds(group),
-      pageTxIdsAdded: pageTxIdsAdded.slice(),
-      carryoverSeedTxIds: carryoverSeedTxIds.slice(),
-      groupMaxOriginalIndex:
-        groupMaxOriginalIndex >= 0 ? groupMaxOriginalIndex : null,
-      consumedRawCount,
-      endedAtInputBoundary,
-    };
-  };
-
   const bumpStateMutationControl = (stage: string): void => {
     'worklet';
 
@@ -1385,7 +1370,15 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
   };
 
   if (debugRequestId) {
-    const initialState = snapshotLoopState();
+    const initialState = snapshotIngestLoopState({
+      group,
+      groupKey,
+      pageTxIdsAdded,
+      carryoverSeedTxIds,
+      groupMaxOriginalIndex,
+      consumedRawCount,
+      endedAtInputBoundary,
+    });
     captureLoopMutation({
       mutation: 'ingest_init',
       before: initialState,
@@ -1417,21 +1410,6 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
     } = current;
     /* eslint-enable @typescript-eslint/no-shadow */
 
-    const snapshotCurrentLoopState = (): IngestLoopStateSnapshot => {
-      'worklet';
-
-      return {
-        groupKey: groupKey ?? '',
-        groupTxIds: toDebugTxIds(group),
-        pageTxIdsAdded: pageTxIdsAdded.slice(),
-        carryoverSeedTxIds: carryoverSeedTxIds.slice(),
-        groupMaxOriginalIndex:
-          groupMaxOriginalIndex >= 0 ? groupMaxOriginalIndex : null,
-        consumedRawCount,
-        endedAtInputBoundary,
-      };
-    };
-
     if (!group.length) {
       return {
         group,
@@ -1450,7 +1428,15 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
     }
     flushInvocationSeq += 1;
     const activeFlushInvocationSeq = flushInvocationSeq;
-    const beforeReset = snapshotCurrentLoopState();
+    const beforeReset = snapshotIngestLoopState({
+      group,
+      groupKey,
+      pageTxIdsAdded,
+      carryoverSeedTxIds,
+      groupMaxOriginalIndex,
+      consumedRawCount,
+      endedAtInputBoundary,
+    });
     const groupInstanceSeqBeforeReset = groupInstanceSeq;
     if (debugRequestId) {
       captureFlushDirectResetWitnessRow(state, {
@@ -1754,7 +1740,15 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
         groupLenDirect: group.length,
         groupFirstTxidDirect: group.length ? group[0].id : '',
       });
-      const afterReset = snapshotCurrentLoopState();
+      const afterReset = snapshotIngestLoopState({
+        group,
+        groupKey,
+        pageTxIdsAdded,
+        carryoverSeedTxIds,
+        groupMaxOriginalIndex,
+        consumedRawCount,
+        endedAtInputBoundary,
+      });
       captureDirectVsHelperParityRow(state, {
         requestId: debugRequestId,
         flushInvocationSeq: activeFlushInvocationSeq,
@@ -1821,7 +1815,15 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
     const loopIndex = index + 1;
     const key = getNormalizedTxGroupKey(tx);
     if (debugRequestId) {
-      const beforeLoop = snapshotLoopState();
+      const beforeLoop = snapshotIngestLoopState({
+        group,
+        groupKey,
+        pageTxIdsAdded,
+        carryoverSeedTxIds,
+        groupMaxOriginalIndex,
+        consumedRawCount,
+        endedAtInputBoundary,
+      });
       captureLoopMutation({
         loopIndex,
         mutation: 'loop_enter',
@@ -1832,19 +1834,44 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
       });
     }
     if (groupKey === null) {
-      const beforeGroupKeySeed = snapshotLoopState();
+      const beforeGroupKeySeed = snapshotIngestLoopState({
+        group,
+        groupKey,
+        pageTxIdsAdded,
+        carryoverSeedTxIds,
+        groupMaxOriginalIndex,
+        consumedRawCount,
+        endedAtInputBoundary,
+      });
       groupKey = key;
+      const afterGroupKeySeed = snapshotIngestLoopState({
+        group,
+        groupKey,
+        pageTxIdsAdded,
+        carryoverSeedTxIds,
+        groupMaxOriginalIndex,
+        consumedRawCount,
+        endedAtInputBoundary,
+      });
       captureLoopMutation({
         loopIndex,
         mutation: 'seed_group_key',
         tx,
         txGroupKey: key,
         before: beforeGroupKeySeed,
-        after: snapshotLoopState(),
+        after: afterGroupKeySeed,
       });
     }
     if (key !== groupKey) {
-      const beforeKeyChange = snapshotLoopState();
+      const beforeKeyChange = snapshotIngestLoopState({
+        group,
+        groupKey,
+        pageTxIdsAdded,
+        carryoverSeedTxIds,
+        groupMaxOriginalIndex,
+        consumedRawCount,
+        endedAtInputBoundary,
+      });
       captureLoopMutation({
         loopIndex,
         mutation: 'key_change_detected',
@@ -1964,61 +1991,146 @@ export function portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
         });
       }
       if (limit !== null && out.length >= limit) {
-        const beforeLimitBreak = snapshotLoopState();
+        const beforeLimitBreak = snapshotIngestLoopState({
+          group,
+          groupKey,
+          pageTxIdsAdded,
+          carryoverSeedTxIds,
+          groupMaxOriginalIndex,
+          consumedRawCount,
+          endedAtInputBoundary,
+        });
         endedAtInputBoundary = false;
+        const afterLimitBreak = snapshotIngestLoopState({
+          group,
+          groupKey,
+          pageTxIdsAdded,
+          carryoverSeedTxIds,
+          groupMaxOriginalIndex,
+          consumedRawCount,
+          endedAtInputBoundary,
+        });
         captureLoopMutation({
           loopIndex,
           mutation: 'limit_break_after_flush',
           tx,
           txGroupKey: key,
           before: beforeLimitBreak,
-          after: snapshotLoopState(),
+          after: afterLimitBreak,
         });
         break;
       }
-      const beforeGroupKeyReseed = snapshotLoopState();
+      const beforeGroupKeyReseed = snapshotIngestLoopState({
+        group,
+        groupKey,
+        pageTxIdsAdded,
+        carryoverSeedTxIds,
+        groupMaxOriginalIndex,
+        consumedRawCount,
+        endedAtInputBoundary,
+      });
       groupKey = key;
+      const afterGroupKeyReseed = snapshotIngestLoopState({
+        group,
+        groupKey,
+        pageTxIdsAdded,
+        carryoverSeedTxIds,
+        groupMaxOriginalIndex,
+        consumedRawCount,
+        endedAtInputBoundary,
+      });
       captureLoopMutation({
         loopIndex,
         mutation: 'reseed_group_key_after_flush',
         tx,
         txGroupKey: key,
         before: beforeGroupKeyReseed,
-        after: snapshotLoopState(),
+        after: afterGroupKeyReseed,
       });
     }
-    const beforeGroupPush = snapshotLoopState();
+    const beforeGroupPush = snapshotIngestLoopState({
+      group,
+      groupKey,
+      pageTxIdsAdded,
+      carryoverSeedTxIds,
+      groupMaxOriginalIndex,
+      consumedRawCount,
+      endedAtInputBoundary,
+    });
     group.push(tx);
+    const afterGroupPush = snapshotIngestLoopState({
+      group,
+      groupKey,
+      pageTxIdsAdded,
+      carryoverSeedTxIds,
+      groupMaxOriginalIndex,
+      consumedRawCount,
+      endedAtInputBoundary,
+    });
     captureLoopMutation({
       loopIndex,
       mutation: 'append_tx_to_group',
       tx,
       txGroupKey: key,
       before: beforeGroupPush,
-      after: snapshotLoopState(),
+      after: afterGroupPush,
     });
     if (tx.id) {
-      const beforePageTxIdAdd = snapshotLoopState();
+      const beforePageTxIdAdd = snapshotIngestLoopState({
+        group,
+        groupKey,
+        pageTxIdsAdded,
+        carryoverSeedTxIds,
+        groupMaxOriginalIndex,
+        consumedRawCount,
+        endedAtInputBoundary,
+      });
       pageTxIdsAdded.push(tx.id);
+      const afterPageTxIdAdd = snapshotIngestLoopState({
+        group,
+        groupKey,
+        pageTxIdsAdded,
+        carryoverSeedTxIds,
+        groupMaxOriginalIndex,
+        consumedRawCount,
+        endedAtInputBoundary,
+      });
       captureLoopMutation({
         loopIndex,
         mutation: 'append_txid_to_page_group',
         tx,
         txGroupKey: key,
         before: beforePageTxIdAdd,
-        after: snapshotLoopState(),
+        after: afterPageTxIdAdd,
       });
     }
     if (tx.originalIndex > groupMaxOriginalIndex) {
-      const beforeGroupMaxAdvance = snapshotLoopState();
+      const beforeGroupMaxAdvance = snapshotIngestLoopState({
+        group,
+        groupKey,
+        pageTxIdsAdded,
+        carryoverSeedTxIds,
+        groupMaxOriginalIndex,
+        consumedRawCount,
+        endedAtInputBoundary,
+      });
       groupMaxOriginalIndex = tx.originalIndex;
+      const afterGroupMaxAdvance = snapshotIngestLoopState({
+        group,
+        groupKey,
+        pageTxIdsAdded,
+        carryoverSeedTxIds,
+        groupMaxOriginalIndex,
+        consumedRawCount,
+        endedAtInputBoundary,
+      });
       captureLoopMutation({
         loopIndex,
         mutation: 'advance_group_max_original_index',
         tx,
         txGroupKey: key,
         before: beforeGroupMaxAdvance,
-        after: snapshotLoopState(),
+        after: afterGroupMaxAdvance,
       });
     }
   }

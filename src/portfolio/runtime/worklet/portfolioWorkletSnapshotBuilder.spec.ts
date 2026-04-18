@@ -146,6 +146,54 @@ describe('portfolioWorkletSnapshotBuilder return-struct flush state', () => {
       groupKeyIsNullDirect: true,
     });
 
+    const helperAfterResetParity = debugTrace.directVsHelperParityRows.find(
+      row => row.stage === 'helper_after_reset_complete',
+    );
+    expect(helperAfterResetParity).toMatchObject({
+      flushInvocationSeq: 1,
+      groupLenDirect: 0,
+      groupLenViaSnapshot: 0,
+      pageLenDirect: 0,
+      pageLenViaSnapshot: 0,
+      carryoverSeedLenDirect: 0,
+      carryoverSeedLenViaSnapshot: 0,
+      groupKeyDirect: '',
+      groupKeyViaSnapshot: '',
+      groupKeyIsNullDirect: true,
+    });
+
+    expect(debugTrace.flushCurrentGroupRows[0]).toMatchObject({
+      groupKeyAfterReset: '',
+      groupTxIdsAfterReset: [],
+      pageTxIdsAddedAfterReset: [],
+      carryoverSeedTxIdsAfterReset: [],
+      groupMaxOriginalIndexAfterReset: null,
+      consumedRawCountAfterReset: 1,
+    });
+
+    const reseedAfterFlush = debugTrace.ingestLoopMutationRows.find(
+      row => row.mutation === 'reseed_group_key_after_flush',
+    );
+    expect(reseedAfterFlush).toMatchObject({
+      txid: 'tx_2',
+      groupKeyBefore: '',
+      groupKeyAfter: '1752788462000:905993',
+      groupTxIdsBefore: [],
+      groupTxIdsAfter: [],
+      pageTxIdsAddedBefore: [],
+      pageTxIdsAddedAfter: [],
+    });
+
+    const appendAfterFlush = debugTrace.ingestLoopMutationRows.find(
+      row => row.mutation === 'append_tx_to_group' && row.txid === 'tx_2',
+    );
+    expect(appendAfterFlush).toMatchObject({
+      groupTxIdsBefore: [],
+      groupTxIdsAfter: ['tx_2'],
+      pageTxIdsAddedBefore: [],
+      pageTxIdsAddedAfter: [],
+    });
+
     portfolioSnapshotBuilderFinish(state, 'snapshots.finishWallet:test');
     expect(debugTrace.processedTxRows.map(row => row.txid)).toEqual([
       'tx_1',
