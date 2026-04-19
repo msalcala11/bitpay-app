@@ -353,7 +353,7 @@ const AssetRow: React.FC<Props> = ({
                   </DeltaFiat>
                 ) : null}
               </>
-            ) : (isFiatLoading || isPopulateLoading) && !showPnlPlaceholder ? (
+            ) : isFiatLoading || isPopulateLoading ? (
               <SkeletonPlaceholder
                 backgroundColor={theme.dark ? CharcoalBlack : NeutralSlate}
                 highlightColor={theme.dark ? LightBlack : GhostWhite}>
@@ -385,7 +385,7 @@ const AssetRow: React.FC<Props> = ({
           </Values>
 
           <PercentPill>
-            {(isFiatLoading || isPopulateLoading) && !showPnlPlaceholder ? (
+            {isFiatLoading || isPopulateLoading ? (
               <SkeletonPlaceholder
                 backgroundColor={theme.dark ? CharcoalBlack : NeutralSlate}
                 highlightColor={theme.dark ? LightBlack : GhostWhite}>

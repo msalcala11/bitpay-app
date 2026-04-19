@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import type {Wallet} from '../../../store/wallet/wallet.models';
 import type {StoredWallet} from '../../core/types';
 import type {PnlTimeframe} from '../../core/pnl/analysisStreaming';
@@ -72,6 +72,22 @@ export function usePortfolioRuntimeQuery<T>(args: {
   const [data, setData] = useState<T | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | undefined>(undefined);
+  const lastRefreshTokenRef = useRef(refreshToken);
+
+  useEffect(() => {
+    if (!args.clearDataOnRefreshToken) {
+      lastRefreshTokenRef.current = refreshToken;
+      return;
+    }
+
+    if (lastRefreshTokenRef.current !== refreshToken) {
+      setData(undefined);
+      lastRefreshTokenRef.current = refreshToken;
+      return;
+    }
+
+    lastRefreshTokenRef.current = refreshToken;
+  }, [args.clearDataOnRefreshToken, refreshToken]);
 
   useEffect(() => {
     if (args.enabled === false) {
