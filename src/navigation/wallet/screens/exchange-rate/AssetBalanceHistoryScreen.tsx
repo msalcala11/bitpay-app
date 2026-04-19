@@ -2,11 +2,18 @@ import {useIsFocused} from '@react-navigation/native';
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import BalanceHistoryChart from '../../../../components/charts/BalanceHistoryChart';
 import {ScreenGutter} from '../../../../components/styled/Containers';
+import {HISTORIC_RATES_CACHE_DURATION} from '../../../../constants/wallet';
 import {maybePopulatePortfolioForWallets} from '../../../../store/portfolio';
+import {FIAT_RATE_SERIES_CACHED_INTERVALS} from '../../../../store/rate/rate.models';
 import {formatFiatAmount} from '../../../../utils/helper-methods';
 import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
 import {isPopulateLoadingForWallets} from '../../../../utils/portfolio/assets';
 import {shouldUseCompactFiatAmountText} from '../../../../utils/fiatAmountText';
+import useRuntimeFiatRateSeriesCache from '../../../../portfolio/ui/hooks/useRuntimeFiatRateSeriesCache';
+import {
+  getHistoricalRateAssetRequestFromItem,
+  hasHistoricalRateSeriesForAsset,
+} from '../../../tabs/home/hooks/portfolioAssetHistoryRequests';
 import ExchangeRateScreenLayout from './ExchangeRateScreenLayout';
 import useAssetScreenRefresh from './useAssetScreenRefresh';
 import type {ExchangeRateSharedModel} from './useExchangeRateSharedModel';
@@ -26,6 +33,64 @@ const AssetBalanceHistoryScreen = ({
   const [selectedAssetBalance, setSelectedAssetBalance] = useState<
     number | undefined
   >(undefined);
+
+  const historicalRateRequest = useMemo(() => {
+    return getHistoricalRateAssetRequestFromItem(
+      {
+        currencyAbbreviation: shared.assetContext.currencyAbbreviation,
+        chain: shared.assetContext.chain,
+        tokenAddress: shared.assetContext.tokenAddress,
+      },
+      shared.resolvedQuoteCurrency,
+    );
+  }, [
+    shared.assetContext.chain,
+    shared.assetContext.currencyAbbreviation,
+    shared.assetContext.tokenAddress,
+    shared.resolvedQuoteCurrency,
+  ]);
+
+  const historicalRateRequests = useMemo(() => {
+    if (!historicalRateRequest) {
+      return [];
+    }
+
+    return [
+      {
+        coin: historicalRateRequest.coin,
+        chain: historicalRateRequest.chain,
+        tokenAddress: historicalRateRequest.tokenAddress,
+        intervals: [...FIAT_RATE_SERIES_CACHED_INTERVALS],
+      },
+    ];
+  }, [historicalRateRequest]);
+
+  const {cache: fiatRateSeriesCache} = useRuntimeFiatRateSeriesCache({
+    quoteCurrency: shared.resolvedQuoteCurrency,
+    requests: historicalRateRequests,
+    maxAgeMs: HISTORIC_RATES_CACHE_DURATION * 1000,
+    enabled:
+      !!shared.resolvedQuoteCurrency && historicalRateRequests.length > 0,
+  });
+
+  const hasHistoricalV4Rates = useMemo(() => {
+    if (!historicalRateRequest) {
+      return false;
+    }
+
+    return hasHistoricalRateSeriesForAsset({
+      cache: fiatRateSeriesCache,
+      fiatCode: shared.resolvedQuoteCurrency,
+      intervals: FIAT_RATE_SERIES_CACHED_INTERVALS,
+      coin: historicalRateRequest.coin,
+      chain: historicalRateRequest.chain,
+      tokenAddress: historicalRateRequest.tokenAddress,
+    });
+  }, [
+    fiatRateSeriesCache,
+    historicalRateRequest,
+    shared.resolvedQuoteCurrency,
+  ]);
 
   const isAssetBalanceChartLoading = useMemo(() => {
     return isPopulateLoadingForWallets({
@@ -109,6 +174,12 @@ const AssetBalanceHistoryScreen = ({
   }, [selectedAssetBalanceToDisplay, shared.resolvedQuoteCurrency]);
 
   const marketPriceDisplay = shared.formatDisplayPrice(shared.currentFiatRate);
+  const shouldRenderBalanceChart = useMemo(() => {
+    return (
+      !shared.hideAllBalances &&
+      (Number.isFinite(shared.currentFiatRate) || hasHistoricalV4Rates)
+    );
+  }, [hasHistoricalV4Rates, shared.currentFiatRate, shared.hideAllBalances]);
 
   const topValue = shared.hideAllBalances ? '****' : formattedAssetBalance;
   const topValueIsLarge = shouldUseCompactFiatAmountText(formattedAssetBalance);
@@ -116,7 +187,7 @@ const AssetBalanceHistoryScreen = ({
   return (
     <ExchangeRateScreenLayout
       chartSection={
-        shared.hideAllBalances ? null : (
+        shouldRenderBalanceChart ? (
           <BalanceHistoryChart
             wallets={shared.assetWallets}
             quoteCurrency={shared.resolvedQuoteCurrency}
@@ -129,7 +200,7 @@ const AssetBalanceHistoryScreen = ({
             onSelectedBalanceChange={setSelectedAssetBalance}
             timeframeSelectorHorizontalInset={ScreenGutter}
           />
-        )
+        ) : null
       }
       isRefreshing={isRefreshing}
       marketPriceDisplay={marketPriceDisplay}
