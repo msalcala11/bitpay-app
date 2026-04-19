@@ -27,10 +27,12 @@ const AssetBalanceHistoryScreen = ({
   const [selectedAssetBalance, setSelectedAssetBalance] = useState<
     number | undefined
   >(undefined);
-  const {hasAnySnapshots: hasAssetSnapshots, checked: assetSnapshotsChecked} =
-    usePortfolioWalletSnapshotPresence({
-      wallets: shared.assetWallets,
-    });
+  const {
+    hasAllSnapshots: allAssetWalletsHaveSnapshots,
+    checked: assetSnapshotsChecked,
+  } = usePortfolioWalletSnapshotPresence({
+    wallets: shared.assetWallets,
+  });
 
   const isAssetBalanceChartLoading = useMemo(() => {
     return isPopulateLoadingForWallets({
@@ -117,9 +119,13 @@ const AssetBalanceHistoryScreen = ({
   const shouldRenderBalanceChart = useMemo(() => {
     return (
       !shared.hideAllBalances &&
-      (!assetSnapshotsChecked || hasAssetSnapshots)
+      (!assetSnapshotsChecked || allAssetWalletsHaveSnapshots)
     );
-  }, [assetSnapshotsChecked, hasAssetSnapshots, shared.hideAllBalances]);
+  }, [
+    allAssetWalletsHaveSnapshots,
+    assetSnapshotsChecked,
+    shared.hideAllBalances,
+  ]);
 
   const topValue = shared.hideAllBalances ? '****' : formattedAssetBalance;
   const topValueIsLarge = shouldUseCompactFiatAmountText(formattedAssetBalance);

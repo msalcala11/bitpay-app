@@ -7,11 +7,20 @@ import {useAppSelector} from '../../../utils/hooks';
 
 type PortfolioWalletSnapshotPresenceState = {
   hasAnySnapshots: boolean;
+  hasAllSnapshots: boolean;
   loading: boolean;
   checked: boolean;
 };
 
-const snapshotPresenceByWalletIdsKey = new Map<string, boolean>();
+type CachedSnapshotPresence = {
+  hasAnySnapshots: boolean;
+  hasAllSnapshots: boolean;
+};
+
+const snapshotPresenceByWalletIdsKey = new Map<
+  string,
+  CachedSnapshotPresence
+>();
 
 function snapshotIndexHasRows(index: SnapshotIndexV2 | null | undefined): boolean {
   if (!Array.isArray(index?.chunks) || !index.chunks.length) {
@@ -53,15 +62,17 @@ export default function usePortfolioWalletSnapshotPresence(args: {
   }, [walletIdsKey]);
 
   const [state, setState] = useState<PortfolioWalletSnapshotPresenceState>({
-    hasAnySnapshots: cachedSnapshotPresence ?? true,
+    hasAnySnapshots: cachedSnapshotPresence?.hasAnySnapshots ?? true,
+    hasAllSnapshots: cachedSnapshotPresence?.hasAllSnapshots ?? true,
     loading: false,
-    checked: typeof cachedSnapshotPresence === 'boolean',
+    checked: !!cachedSnapshotPresence,
   });
 
   useEffect(() => {
     if (args.enabled === false) {
       setState({
         hasAnySnapshots: false,
+        hasAllSnapshots: false,
         loading: false,
         checked: true,
       });
@@ -73,6 +84,7 @@ export default function usePortfolioWalletSnapshotPresence(args: {
     if (!requestedWalletIds.length) {
       setState({
         hasAnySnapshots: false,
+        hasAllSnapshots: false,
         loading: false,
         checked: true,
       });
@@ -84,9 +96,10 @@ export default function usePortfolioWalletSnapshotPresence(args: {
       walletIdsKey,
     );
     setState({
-      hasAnySnapshots: cachedPresenceForRequest ?? true,
+      hasAnySnapshots: cachedPresenceForRequest?.hasAnySnapshots ?? true,
+      hasAllSnapshots: cachedPresenceForRequest?.hasAllSnapshots ?? true,
       loading: true,
-      checked: typeof cachedPresenceForRequest === 'boolean',
+      checked: !!cachedPresenceForRequest,
     });
 
     Promise.all(
@@ -103,9 +116,14 @@ export default function usePortfolioWalletSnapshotPresence(args: {
         }
 
         const hasAnySnapshots = results.some(Boolean);
-        snapshotPresenceByWalletIdsKey.set(walletIdsKey, hasAnySnapshots);
+        const hasAllSnapshots = results.every(Boolean);
+        snapshotPresenceByWalletIdsKey.set(walletIdsKey, {
+          hasAnySnapshots,
+          hasAllSnapshots,
+        });
         setState({
           hasAnySnapshots,
+          hasAllSnapshots,
           loading: false,
           checked: true,
         });
@@ -116,9 +134,10 @@ export default function usePortfolioWalletSnapshotPresence(args: {
         }
 
         setState({
-          hasAnySnapshots: cachedPresenceForRequest ?? true,
+          hasAnySnapshots: cachedPresenceForRequest?.hasAnySnapshots ?? true,
+          hasAllSnapshots: cachedPresenceForRequest?.hasAllSnapshots ?? true,
           loading: false,
-          checked: typeof cachedPresenceForRequest === 'boolean',
+          checked: !!cachedPresenceForRequest,
         });
       });
 
