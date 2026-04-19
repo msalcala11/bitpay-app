@@ -50,6 +50,7 @@ function getWalletIdFromRequest(request: WorkerRequest): string | undefined {
     case 'snapshots.clearWallet':
     case 'snapshots.getIndex':
     case 'snapshots.getLatestSnapshot':
+    case 'snapshots.getInvalidHistory':
     case 'snapshots.listSnapshots':
     case 'snapshots.finishWallet':
       return typeof params?.walletId === 'string' ? params.walletId : undefined;

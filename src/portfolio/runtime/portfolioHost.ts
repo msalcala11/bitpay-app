@@ -125,6 +125,13 @@ export class PortfolioRuntimeHost {
           return {id: req.id, ok: true, result: res} as any;
         }
 
+        case 'snapshots.getInvalidHistory': {
+          const res = await this.engine.getInvalidHistoryMarker(
+            (req.params as any).walletId,
+          );
+          return {id: req.id, ok: true, result: res} as any;
+        }
+
         case 'snapshots.listSnapshots': {
           const res = await this.engine.listSnapshots(
             (req.params as any).walletId,

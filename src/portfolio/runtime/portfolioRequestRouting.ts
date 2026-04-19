@@ -10,6 +10,7 @@ const WORKLET_METHODS: Record<WorkerMethod, true> = {
   'snapshots.processNextPage': true,
   'snapshots.finishWallet': true,
   'snapshots.getLatestSnapshot': true,
+  'snapshots.getInvalidHistory': true,
   'snapshots.listSnapshots': true,
   'analysis.compute': true,
   'analysis.computeChart': true,

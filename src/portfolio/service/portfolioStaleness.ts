@@ -1,5 +1,6 @@
 import type {BalanceSnapshotStored} from '../core/pnl/types';
 import type {SnapshotIndexV2} from '../core/pnl/snapshotStore';
+import {isSnapshotInvalidHistoryMarkerActive} from '../core/pnl/invalidHistory';
 import type {PortfolioRuntimeClient} from '../runtime/portfolioClient';
 import type {Wallet} from '../../store/wallet/wallet.models';
 import {atomicToUnitString} from '../../utils/helper-methods';
@@ -16,6 +17,7 @@ export type PortfolioPopulateDecisionReason =
   | 'missing_index'
   | 'missing_snapshot'
   | 'balance_mismatch'
+  | 'invalid_history'
   | 'up_to_date';
 
 export type PortfolioPopulateDecision = {
@@ -54,6 +56,17 @@ export async function getPortfolioPopulateDecisionForWallet(args: {
   unitDecimals: number;
 }): Promise<PortfolioPopulateDecision> {
   const walletId = String(args.wallet?.id || '').trim();
+  const invalidHistory = await args.client.getInvalidHistory({walletId});
+  if (isSnapshotInvalidHistoryMarkerActive(invalidHistory)) {
+    return {
+      walletId,
+      shouldPopulate: false,
+      reason: 'invalid_history',
+      index: null,
+      latestSnapshot: null,
+    };
+  }
+
   const index = await args.client.getSnapshotIndex({walletId});
   if (!index) {
     return {

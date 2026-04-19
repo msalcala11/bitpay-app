@@ -20,6 +20,7 @@ import type {
 } from '../pnl/analysisStreaming';
 import type {SnapshotIndexV2} from '../pnl/snapshotStore';
 import type {BalanceSnapshotStored} from '../pnl/types';
+import type {SnapshotInvalidHistoryMarkerV1} from '../pnl/invalidHistory';
 import type {
   PortfolioPopulateJobStartParams,
   PortfolioPopulateJobStartResult,
@@ -92,6 +93,11 @@ export type WorkerMethodMap = {
   'snapshots.getLatestSnapshot': {
     params: {walletId: string};
     result: BalanceSnapshotStored | null;
+  };
+
+  'snapshots.getInvalidHistory': {
+    params: {walletId: string};
+    result: SnapshotInvalidHistoryMarkerV1 | null;
   };
 
   'snapshots.listSnapshots': {

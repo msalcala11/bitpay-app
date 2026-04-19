@@ -14,6 +14,7 @@ import {
   createFiatRateLookup,
   normalizeFiatRateSeriesCoin,
 } from '../../core/pnl/rates';
+import {createNegativeBalanceInvalidHistoryError} from '../../core/pnl/invalidHistory';
 import type {
   SnapshotPersistDebugMode,
   SnapshotPersistInputV2,
@@ -1074,6 +1075,14 @@ function processTx(
       blockHeight: tx.blockHeight,
     });
     state.debugTrace.capturedAtMs = Date.now();
+  }
+
+  if (state.balanceAtomic < 0n) {
+    throw createNegativeBalanceInvalidHistoryError({
+      txId: tx.id,
+      balanceAtomic: state.balanceAtomic,
+      source: 'portfolio_worklet_snapshot_builder',
+    });
   }
 
   const compressBefore = state.nowMs - COMPRESSION_AGE_MS;

@@ -1,6 +1,8 @@
 import {getAssetIdFromWallet} from '../../core/pnl/assetId';
 import type {WalletCredentials, WalletSummary} from '../../core/types';
 import type {BalanceSnapshotEventType, BalanceSnapshotStored} from '../../core/pnl/types';
+import type {SnapshotInvalidHistoryMarkerV1} from '../../core/pnl/invalidHistory';
+import {SNAPSHOT_INVALID_HISTORY_VERSION} from '../../core/pnl/invalidHistory';
 import type {PortfolioPopulateEmittedSnapshotDebugRow} from '../../core/engine/populateDebug';
 import type {
   SnapshotChunkDebugV2,
@@ -36,6 +38,11 @@ export function getWorkletSnapshotChunkStorageKey(
 ): string {
   'worklet';
   return `snap:chunk:v2:${walletId}:${chunkId}`;
+}
+
+export function getWorkletInvalidHistoryStorageKey(walletId: string): string {
+  'worklet';
+  return `snap:invalid-history:v1:${walletId}`;
 }
 
 function parseJson<T>(raw: string | null, fallback: T): T {
@@ -412,6 +419,7 @@ async function saveWorkletSnapshotIndex(
 export async function clearWorkletWalletSnapshots(
   config: PortfolioWorkletKvConfig,
   walletId: string,
+  opts?: {preserveInvalidHistoryMarker?: boolean},
 ): Promise<void> {
   'worklet';
 
@@ -423,6 +431,9 @@ export async function clearWorkletWalletSnapshots(
   workletKvDelete(config, `snap:index:v1:${walletId}`);
   workletKvDelete(config, getWorkletSnapshotIndexStorageKey(walletId));
   workletKvDelete(config, getWorkletSnapshotMetaStorageKey(walletId));
+  if (opts?.preserveInvalidHistoryMarker !== true) {
+    workletKvDelete(config, getWorkletInvalidHistoryStorageKey(walletId));
+  }
 }
 
 export async function ensureWorkletWalletIndex(
@@ -448,7 +459,9 @@ export async function ensureWorkletWalletIndex(
   }
 
   if (existingIndex || existingMeta) {
-    await clearWorkletWalletSnapshots(config, meta.walletId);
+    await clearWorkletWalletSnapshots(config, meta.walletId, {
+      preserveInvalidHistoryMarker: true,
+    });
   }
 
   const index: SnapshotIndexV2 = {
@@ -470,6 +483,83 @@ export async function ensureWorkletWalletIndex(
   await saveWorkletSnapshotMeta(config, storedMeta);
   await saveWorkletSnapshotIndex(config, index);
   return index;
+}
+
+export async function loadWorkletInvalidHistoryMarker(
+  config: PortfolioWorkletKvConfig,
+  walletId: string,
+): Promise<SnapshotInvalidHistoryMarkerV1 | null> {
+  'worklet';
+
+  const raw = workletKvGetString(
+    config,
+    getWorkletInvalidHistoryStorageKey(walletId),
+  );
+  const parsed = parseJson<SnapshotInvalidHistoryMarkerV1 | null>(raw, null);
+  if (!parsed || parsed.v !== SNAPSHOT_INVALID_HISTORY_VERSION) {
+    return null;
+  }
+  if (String(parsed.walletId || '') !== String(walletId || '')) {
+    return null;
+  }
+  if (parsed.reason !== 'negative_balance') {
+    return null;
+  }
+  if (
+    !Number.isFinite(Number(parsed.detectedAt)) ||
+    !Number.isFinite(Number(parsed.retryAfter))
+  ) {
+    return null;
+  }
+
+  return {
+    ...parsed,
+    walletId: String(parsed.walletId || ''),
+    reason: 'negative_balance',
+    detectedAt: Number(parsed.detectedAt),
+    retryAfter: Number(parsed.retryAfter),
+    message: String(parsed.message || ''),
+    source: parsed.source ? String(parsed.source) : undefined,
+    txId: parsed.txId ? String(parsed.txId) : undefined,
+    balanceAtomic: parsed.balanceAtomic
+      ? String(parsed.balanceAtomic)
+      : undefined,
+  };
+}
+
+export async function saveWorkletInvalidHistoryMarker(
+  config: PortfolioWorkletKvConfig,
+  marker: SnapshotInvalidHistoryMarkerV1,
+): Promise<void> {
+  'worklet';
+
+  workletKvSetString(
+    config,
+    getWorkletInvalidHistoryStorageKey(marker.walletId),
+    stringifyJson({
+      ...marker,
+      v: SNAPSHOT_INVALID_HISTORY_VERSION,
+      walletId: String(marker.walletId || ''),
+      reason: 'negative_balance',
+      detectedAt: Number(marker.detectedAt || Date.now()),
+      retryAfter: Number(marker.retryAfter || Date.now()),
+      message: String(marker.message || ''),
+      source: marker.source ? String(marker.source) : undefined,
+      txId: marker.txId ? String(marker.txId) : undefined,
+      balanceAtomic: marker.balanceAtomic
+        ? String(marker.balanceAtomic)
+        : undefined,
+    }),
+  );
+}
+
+export async function clearWorkletInvalidHistoryMarker(
+  config: PortfolioWorkletKvConfig,
+  walletId: string,
+): Promise<void> {
+  'worklet';
+
+  workletKvDelete(config, getWorkletInvalidHistoryStorageKey(walletId));
 }
 
 export async function updateWorkletSnapshotCheckpoint(args: PortfolioWorkletKvConfig & {

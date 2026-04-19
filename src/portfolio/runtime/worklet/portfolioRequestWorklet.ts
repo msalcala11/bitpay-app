@@ -32,6 +32,7 @@ import {
 } from './portfolioWorkletRates';
 import {
   clearWorkletWalletSnapshots,
+  loadWorkletInvalidHistoryMarker,
   getWorkletLatestSnapshot,
   listWorkletSnapshots,
   loadWorkletSnapshotIndex,
@@ -63,6 +64,7 @@ const WORKLET_METHODS: Record<WorkerMethod, true> = {
   'snapshots.processNextPage': true,
   'snapshots.finishWallet': true,
   'snapshots.getLatestSnapshot': true,
+  'snapshots.getInvalidHistory': true,
   'snapshots.listSnapshots': true,
   'analysis.compute': true,
   'analysis.computeChart': true,
@@ -316,6 +318,18 @@ export async function handlePortfolioRequestOnRuntime(
 
         case 'snapshots.getLatestSnapshot': {
           const result = await getWorkletLatestSnapshot(
+            kvConfig,
+            String((request.params as any)?.walletId || ''),
+          );
+          return {
+            id: request.id,
+            ok: true,
+            result,
+          } as WorkerResponse;
+        }
+
+        case 'snapshots.getInvalidHistory': {
+          const result = await loadWorkletInvalidHistoryMarker(
             kvConfig,
             String((request.params as any)?.walletId || ''),
           );

@@ -68,7 +68,7 @@ export class PortfolioRuntimeClient {
         reject: error => reject(error),
       });
 
-      void this.transport
+      this.transport
         .dispatch(
           request,
           response => this.handleResponse(response),
@@ -126,6 +126,12 @@ export class PortfolioRuntimeClient {
     params: WorkerMethodMap['snapshots.getLatestSnapshot']['params'],
   ) {
     return this.request('snapshots.getLatestSnapshot', params);
+  }
+
+  getInvalidHistory(
+    params: WorkerMethodMap['snapshots.getInvalidHistory']['params'],
+  ) {
+    return this.request('snapshots.getInvalidHistory', params);
   }
 
   listSnapshots(params: WorkerMethodMap['snapshots.listSnapshots']['params']) {
@@ -188,7 +194,7 @@ export class PortfolioRuntimeClient {
 
     this.pending.delete(response.id);
 
-    if (response.ok) {
+    if ('result' in response) {
       pending.resolve(response.result);
       return;
     }

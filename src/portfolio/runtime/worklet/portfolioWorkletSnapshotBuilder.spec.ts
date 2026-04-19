@@ -63,6 +63,43 @@ const makeSentTx = (args: {
   }) as any;
 
 describe('portfolioWorkletSnapshotBuilder return-struct flush state', () => {
+  it('throws an invalid-history error when a tx drives the running balance negative', () => {
+    const walletId = 'wallet-negative';
+    const state = createPortfolioSnapshotBuilderState({
+      wallet: {
+        walletId,
+        walletName: 'Wallet Negative',
+        chain: 'btc',
+        network: 'livenet',
+        currencyAbbreviation: 'btc',
+        balanceAtomic: '0',
+        balanceFormatted: '0',
+      } as any,
+      credentials: {
+        walletId,
+        chain: 'btc',
+        network: 'livenet',
+        coin: 'btc',
+      } as any,
+      quoteCurrency: 'USD',
+      fiatRateSeriesCache: {} as any,
+      nowMs: Date.UTC(2026, 0, 1),
+      compressionEnabled: false,
+      snapshotDebugMode: 'link',
+    });
+
+    expect(() =>
+      portfolioSnapshotBuilderIngestPageWithSnapshotLimit(state, [
+        makeSentTx({
+          txid: 'spend',
+          timeSeconds: Math.floor(Date.parse('2024-01-01T00:00:00Z') / 1000),
+          blockheight: 900001,
+          amountAtomic: '400',
+        }),
+      ]),
+    ).toThrow('Invalid tx history: negative balance after tx spend (-400).');
+  });
+
   it('preserves the helper reset in the caller after the first group flush', () => {
     const walletId = 'wallet-1';
     const debugTrace = createDebugTrace(walletId);

@@ -19,6 +19,7 @@ describe('portfolioStaleness', () => {
 
   it('marks wallets with no snapshot index for populate', async () => {
     const client = {
+      getInvalidHistory: jest.fn().mockResolvedValue(null),
       getSnapshotIndex: jest.fn().mockResolvedValue(null),
       getLatestSnapshot: jest.fn(),
     } as any;
@@ -31,11 +32,13 @@ describe('portfolioStaleness', () => {
 
     expect(decision.shouldPopulate).toBe(true);
     expect(decision.reason).toBe('missing_index');
+    expect(client.getInvalidHistory).toHaveBeenCalledWith({walletId: 'wallet-1'});
     expect(client.getLatestSnapshot).not.toHaveBeenCalled();
   });
 
   it('flags balance mismatches against the latest stored snapshot', async () => {
     const client = {
+      getInvalidHistory: jest.fn().mockResolvedValue(null),
       getSnapshotIndex: jest.fn().mockResolvedValue({walletId: 'wallet-1'}),
       getLatestSnapshot: jest.fn().mockResolvedValue({
         walletId: 'wallet-1',
@@ -59,8 +62,35 @@ describe('portfolioStaleness', () => {
     });
   });
 
+  it('suppresses auto-populate when invalid history is still under cooldown', async () => {
+    const client = {
+      getInvalidHistory: jest.fn().mockResolvedValue({
+        v: 1,
+        walletId: 'wallet-1',
+        reason: 'negative_balance',
+        detectedAt: Date.now() - 1000,
+        retryAfter: Date.now() + 60_000,
+        message: 'Invalid tx history',
+      }),
+      getSnapshotIndex: jest.fn(),
+      getLatestSnapshot: jest.fn(),
+    } as any;
+
+    const decision = await getPortfolioPopulateDecisionForWallet({
+      client,
+      wallet,
+      unitDecimals: 8,
+    });
+
+    expect(decision.shouldPopulate).toBe(false);
+    expect(decision.reason).toBe('invalid_history');
+    expect(client.getSnapshotIndex).not.toHaveBeenCalled();
+    expect(client.getLatestSnapshot).not.toHaveBeenCalled();
+  });
+
   it('aggregates wallet ids that still need populate', async () => {
     const client = {
+      getInvalidHistory: jest.fn().mockResolvedValue(null),
       getSnapshotIndex: jest
         .fn()
         .mockResolvedValueOnce(null)

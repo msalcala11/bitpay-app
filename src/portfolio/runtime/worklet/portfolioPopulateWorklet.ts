@@ -31,6 +31,10 @@ import type {
 } from '../../core/engine/populateDebug';
 import type {SnapshotPersistInputV2} from '../../core/pnl/snapshotStore';
 import {
+  isSnapshotInvalidHistoryError,
+  toSnapshotInvalidHistoryMarker,
+} from '../../core/pnl/invalidHistory';
+import {
   dedupeTxHistoryPage,
   getTxHistoryEntryId,
   getTxHistoryLogicalPageSize,
@@ -42,8 +46,11 @@ import {fetchPortfolioTxHistoryPageByRequest} from '../../adapters/rn/txHistoryR
 import {
   appendWorkletSnapshotChunk,
   buildOrderedWorkletSnapshotDebugRows,
+  clearWorkletInvalidHistoryMarker,
+  clearWorkletWalletSnapshots,
   buildWorkletWalletMetaForStore,
   ensureWorkletWalletIndex,
+  saveWorkletInvalidHistoryMarker,
   updateWorkletSnapshotCheckpoint,
 } from './portfolioWorkletSnapshots';
 import {
@@ -1049,6 +1056,32 @@ export async function handleCloseWalletSessionOnPopulateWorklet(
   delete state.sessionsByWalletId[walletId];
 }
 
+async function handleInvalidHistoryOnPopulateWorklet(args: {
+  config: PortfolioPopulateWorkletConfig;
+  state: PortfolioPopulateWorkletState;
+  walletId: string;
+  error: unknown;
+}): Promise<void> {
+  'worklet';
+
+  if (!isSnapshotInvalidHistoryError(args.error)) {
+    return;
+  }
+
+  const marker = toSnapshotInvalidHistoryMarker({
+    walletId: args.walletId,
+    error: args.error,
+  });
+  const kvConfig = getKvConfig(args.config);
+  if (marker) {
+    await saveWorkletInvalidHistoryMarker(kvConfig, marker);
+  }
+  await clearWorkletWalletSnapshots(kvConfig, args.walletId, {
+    preserveInvalidHistoryMarker: true,
+  });
+  delete args.state.sessionsByWalletId[args.walletId];
+}
+
 export async function handleProcessNextPageOnPopulateWorklet(
   config: PortfolioPopulateWorkletConfig,
   state: PortfolioPopulateWorkletState,
@@ -1056,68 +1089,96 @@ export async function handleProcessNextPageOnPopulateWorklet(
 ): Promise<ProcessNextPageSessionResult> {
   'worklet';
 
-  const session = requireSession(state, walletId);
-  session.debugProcessSeq += 1;
-  const processSeq = session.debugProcessSeq;
-  const debugRequestId = session.debugTrace
-    ? `snapshots.processNextPage:${processSeq}`
-    : undefined;
-  const requestId = debugRequestId ?? `snapshots.processNextPage:${processSeq}`;
-  const requestStartedAtMs = Date.now();
-  const checkpoint = getPortfolioSnapshotBuilderCheckpoint(session.builder);
-  const skip = checkpoint.nextSkip;
-  const kvConfig = getKvConfig(config);
+  try {
+    const session = requireSession(state, walletId);
+    session.debugProcessSeq += 1;
+    const processSeq = session.debugProcessSeq;
+    const debugRequestId = session.debugTrace
+      ? `snapshots.processNextPage:${processSeq}`
+      : undefined;
+    const requestId =
+      debugRequestId ?? `snapshots.processNextPage:${processSeq}`;
+    const requestStartedAtMs = Date.now();
+    const checkpoint = getPortfolioSnapshotBuilderCheckpoint(session.builder);
+    const skip = checkpoint.nextSkip;
+    const kvConfig = getKvConfig(config);
 
-  while (true) {
-    let txs = session.fetch.pendingTxs;
-    let fetchedTxs = 0;
-    let fetchMs = 0;
-    let fetchedTxHead: string[] | undefined;
+    while (true) {
+      let txs = session.fetch.pendingTxs;
+      let fetchedTxs = 0;
+      let fetchMs = 0;
+      let fetchedTxHead: string[] | undefined;
 
-    if (!txs.length) {
-      const fetchStartedAt = Date.now();
-      txs = await fetchPortfolioTxHistoryPageByRequest({
-        credentials: session.credentials,
-        cfg: session.fetch.cfg,
-        skip,
-        limit: session.fetch.pageSize,
-        reverse: true,
-      });
-      fetchMs = Math.max(0, Date.now() - fetchStartedAt);
-      fetchedTxs = txs.length;
-      if (debugRequestId) {
-        fetchedTxHead = extractTxIdsHead(extractTxIdsFromRawTxs(txs));
-      }
-      captureFetchedTxRows(session, txs, skip);
-      session.fetch.pendingTxs = dedupeTxHistoryPage(txs);
+      if (!txs.length) {
+        const fetchStartedAt = Date.now();
+        txs = await fetchPortfolioTxHistoryPageByRequest({
+          credentials: session.credentials,
+          cfg: session.fetch.cfg,
+          skip,
+          limit: session.fetch.pageSize,
+          reverse: true,
+        });
+        fetchMs = Math.max(0, Date.now() - fetchStartedAt);
+        fetchedTxs = txs.length;
+        if (debugRequestId) {
+          fetchedTxHead = extractTxIdsHead(extractTxIdsFromRawTxs(txs));
+        }
+        captureFetchedTxRows(session, txs, skip);
+        session.fetch.pendingTxs = dedupeTxHistoryPage(txs);
 
-      const logicalPageSize = txs.length ? getTxHistoryLogicalPageSize(txs) : 0;
-      if (!txs.length || logicalPageSize <= 0) {
-        session.fetch.pendingTxs = [];
-        if (portfolioSnapshotBuilderHasPendingCarryoverGroup(session.builder)) {
-          const computeStartedAt = Date.now();
-          const snapshots = portfolioSnapshotBuilderFlushPendingCarryoverGroup(
-            session.builder,
-            debugRequestId,
-          );
-          const nextCheckpoint = getPortfolioSnapshotBuilderCheckpoint(
-            session.builder,
-          );
-          if (snapshots.length) {
-            await appendWorkletSnapshotChunk({
-              ...kvConfig,
-              meta: session.meta,
-              snapshots,
-              checkpoint: nextCheckpoint,
-            });
-            captureEmittedSnapshotRows(session, snapshots);
-          } else {
-            await updateWorkletSnapshotCheckpoint({
-              ...kvConfig,
+        const logicalPageSize = txs.length
+          ? getTxHistoryLogicalPageSize(txs)
+          : 0;
+        if (!txs.length || logicalPageSize <= 0) {
+          session.fetch.pendingTxs = [];
+          if (portfolioSnapshotBuilderHasPendingCarryoverGroup(session.builder)) {
+            const computeStartedAt = Date.now();
+            const snapshots = portfolioSnapshotBuilderFlushPendingCarryoverGroup(
+              session.builder,
+              debugRequestId,
+            );
+            const nextCheckpoint = getPortfolioSnapshotBuilderCheckpoint(
+              session.builder,
+            );
+            if (snapshots.length) {
+              await appendWorkletSnapshotChunk({
+                ...kvConfig,
+                meta: session.meta,
+                snapshots,
+                checkpoint: nextCheckpoint,
+              });
+              captureEmittedSnapshotRows(session, snapshots);
+            } else {
+              await updateWorkletSnapshotCheckpoint({
+                ...kvConfig,
+                walletId,
+                checkpoint: nextCheckpoint,
+              });
+            }
+            captureRequestLifecycleRow(session.debugTrace, {
+              requestId,
+              method: 'snapshots.processNextPage',
               walletId,
-              checkpoint: nextCheckpoint,
+              startedAtMs: requestStartedAtMs,
+              finishedAtMs: Date.now(),
+              skipUsed: skip,
+              fetchedTxs,
+              consumedRawCount: 0,
+              logicalPageSize,
+              appendedSnapshots: snapshots.length,
+              done: true,
             });
+            return {
+              checkpoint: nextCheckpoint,
+              appendedSnapshots: snapshots.length,
+              fetchedTxs,
+              logicalPageSize,
+              done: true,
+              fetchMs,
+              computeMs: Math.max(0, Date.now() - computeStartedAt),
+            };
           }
+
           captureRequestLifecycleRow(session.debugTrace, {
             requestId,
             method: 'snapshots.processNextPage',
@@ -1128,128 +1189,115 @@ export async function handleProcessNextPageOnPopulateWorklet(
             fetchedTxs,
             consumedRawCount: 0,
             logicalPageSize,
-            appendedSnapshots: snapshots.length,
+            appendedSnapshots: 0,
             done: true,
           });
           return {
-            checkpoint: nextCheckpoint,
-            appendedSnapshots: snapshots.length,
+            checkpoint: getPortfolioSnapshotBuilderCheckpoint(session.builder),
+            appendedSnapshots: 0,
             fetchedTxs,
             logicalPageSize,
             done: true,
             fetchMs,
-            computeMs: Math.max(0, Date.now() - computeStartedAt),
+            computeMs: 0,
           };
         }
+      }
 
-        captureRequestLifecycleRow(session.debugTrace, {
-          requestId,
-          method: 'snapshots.processNextPage',
-          walletId,
-          startedAtMs: requestStartedAtMs,
-          finishedAtMs: Date.now(),
-          skipUsed: skip,
-          fetchedTxs,
-          consumedRawCount: 0,
-          logicalPageSize,
-          appendedSnapshots: 0,
-          done: true,
+      if (debugRequestId) {
+        captureIngestSeed(session.debugTrace, {
+          requestId: debugRequestId,
+          processSeq,
+          skip,
+          builderCarryoverTxIdsBeforeIngest: extractBuilderCarryoverTxIds(
+            session.builder,
+          ),
+          builderRecentTxIdsBeforeIngest: session.builder.recentTxIds.slice(),
+          pendingTxIdsBeforeIngest: extractTxIdsFromRawTxs(
+            session.fetch.pendingTxs,
+          ),
+          fetchedTxHead,
+          dedupedPendingTxHead: extractTxIdsHead(
+            extractTxIdsFromRawTxs(session.fetch.pendingTxs),
+          ),
         });
-        return {
-          checkpoint: getPortfolioSnapshotBuilderCheckpoint(session.builder),
-          appendedSnapshots: 0,
-          fetchedTxs,
-          logicalPageSize,
-          done: true,
-          fetchMs,
-          computeMs: 0,
-        };
       }
-    }
+      const computeStartedAt = Date.now();
+      const consumed = portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
+        session.builder,
+        session.fetch.pendingTxs,
+        session.fetch.emitRows ?? undefined,
+        debugRequestId,
+      );
+      const nextCheckpoint = getPortfolioSnapshotBuilderCheckpoint(
+        session.builder,
+      );
 
-    if (debugRequestId) {
-      captureIngestSeed(session.debugTrace, {
-        requestId: debugRequestId,
-        processSeq,
-        skip,
-        builderCarryoverTxIdsBeforeIngest: extractBuilderCarryoverTxIds(
-          session.builder,
-        ),
-        builderRecentTxIdsBeforeIngest: session.builder.recentTxIds.slice(),
-        pendingTxIdsBeforeIngest: extractTxIdsFromRawTxs(
-          session.fetch.pendingTxs,
-        ),
-        fetchedTxHead,
-        dedupedPendingTxHead: extractTxIdsHead(
-          extractTxIdsFromRawTxs(session.fetch.pendingTxs),
-        ),
-      });
-    }
-    const computeStartedAt = Date.now();
-    const consumed = portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
-      session.builder,
-      session.fetch.pendingTxs,
-      session.fetch.emitRows ?? undefined,
-      debugRequestId,
-    );
-    const nextCheckpoint = getPortfolioSnapshotBuilderCheckpoint(session.builder);
+      if (consumed.snapshots.length) {
+        await appendWorkletSnapshotChunk({
+          ...kvConfig,
+          meta: session.meta,
+          snapshots: consumed.snapshots,
+          checkpoint: nextCheckpoint,
+        });
+        captureEmittedSnapshotRows(session, consumed.snapshots);
+      } else if (consumed.logicalPageSize > 0) {
+        await updateWorkletSnapshotCheckpoint({
+          ...kvConfig,
+          walletId,
+          checkpoint: nextCheckpoint,
+        });
+      }
 
-    if (consumed.snapshots.length) {
-      await appendWorkletSnapshotChunk({
-        ...kvConfig,
-        meta: session.meta,
-        snapshots: consumed.snapshots,
-        checkpoint: nextCheckpoint,
-      });
-      captureEmittedSnapshotRows(session, consumed.snapshots);
-    } else if (consumed.logicalPageSize > 0) {
-      await updateWorkletSnapshotCheckpoint({
-        ...kvConfig,
+      const consumedRawCount = Math.max(
+        0,
+        Math.min(
+          session.fetch.pendingTxs.length,
+          Number(consumed.consumedRawCount ?? 0),
+        ),
+      );
+      session.fetch.pendingTxs =
+        consumedRawCount > 0
+          ? session.fetch.pendingTxs.slice(consumedRawCount)
+          : [];
+
+      if (!consumed.logicalPageSize && !consumed.snapshots.length) {
+        if (!session.fetch.pendingTxs.length) {
+          continue;
+        }
+      }
+
+      captureRequestLifecycleRow(session.debugTrace, {
+        requestId,
+        method: 'snapshots.processNextPage',
         walletId,
-        checkpoint: nextCheckpoint,
+        startedAtMs: requestStartedAtMs,
+        finishedAtMs: Date.now(),
+        skipUsed: skip,
+        fetchedTxs,
+        consumedRawCount,
+        logicalPageSize: consumed.logicalPageSize,
+        appendedSnapshots: consumed.snapshots.length,
+        done: false,
       });
+      return {
+        checkpoint: nextCheckpoint,
+        appendedSnapshots: consumed.snapshots.length,
+        fetchedTxs,
+        logicalPageSize: consumed.logicalPageSize,
+        done: false,
+        fetchMs,
+        computeMs: Math.max(0, Date.now() - computeStartedAt),
+      };
     }
-
-    const consumedRawCount = Math.max(
-      0,
-      Math.min(
-        session.fetch.pendingTxs.length,
-        Number(consumed.consumedRawCount ?? 0),
-      ),
-    );
-    session.fetch.pendingTxs =
-      consumedRawCount > 0
-        ? session.fetch.pendingTxs.slice(consumedRawCount)
-        : [];
-
-    if (!consumed.logicalPageSize && !consumed.snapshots.length) {
-      if (!session.fetch.pendingTxs.length) {
-        continue;
-      }
-    }
-
-    captureRequestLifecycleRow(session.debugTrace, {
-      requestId,
-      method: 'snapshots.processNextPage',
+  } catch (error: unknown) {
+    await handleInvalidHistoryOnPopulateWorklet({
+      config,
+      state,
       walletId,
-      startedAtMs: requestStartedAtMs,
-      finishedAtMs: Date.now(),
-      skipUsed: skip,
-      fetchedTxs,
-      consumedRawCount,
-      logicalPageSize: consumed.logicalPageSize,
-      appendedSnapshots: consumed.snapshots.length,
-      done: false,
+      error,
     });
-    return {
-      checkpoint: nextCheckpoint,
-      appendedSnapshots: consumed.snapshots.length,
-      fetchedTxs,
-      logicalPageSize: consumed.logicalPageSize,
-      done: false,
-      fetchMs,
-      computeMs: Math.max(0, Date.now() - computeStartedAt),
-    };
+    throw error;
   }
 }
 
@@ -1260,54 +1308,65 @@ export async function handleFinishWalletOnPopulateWorklet(
 ): Promise<FinishWalletSessionResult> {
   'worklet';
 
-  const session = requireSession(state, walletId);
-  const requestStartedAtMs = Date.now();
-  const debugRequestId = session.debugTrace
-    ? 'snapshots.finishWallet:1'
-    : undefined;
-  const requestId = debugRequestId ?? 'snapshots.finishWallet:1';
-  const snapshots = portfolioSnapshotBuilderFinish(
-    session.builder,
-    debugRequestId,
-  );
-  const checkpoint = getPortfolioSnapshotBuilderCheckpoint(session.builder);
-  const kvConfig = getKvConfig(config);
+  try {
+    const session = requireSession(state, walletId);
+    const requestStartedAtMs = Date.now();
+    const debugRequestId = session.debugTrace
+      ? 'snapshots.finishWallet:1'
+      : undefined;
+    const requestId = debugRequestId ?? 'snapshots.finishWallet:1';
+    const snapshots = portfolioSnapshotBuilderFinish(
+      session.builder,
+      debugRequestId,
+    );
+    const checkpoint = getPortfolioSnapshotBuilderCheckpoint(session.builder);
+    const kvConfig = getKvConfig(config);
 
-  if (snapshots.length) {
-    await appendWorkletSnapshotChunk({
-      ...kvConfig,
-      meta: session.meta,
-      snapshots,
-      checkpoint,
-    });
-    captureEmittedSnapshotRows(session, snapshots);
-  } else {
-    await updateWorkletSnapshotCheckpoint({
-      ...kvConfig,
+    if (snapshots.length) {
+      await appendWorkletSnapshotChunk({
+        ...kvConfig,
+        meta: session.meta,
+        snapshots,
+        checkpoint,
+      });
+      captureEmittedSnapshotRows(session, snapshots);
+    } else {
+      await updateWorkletSnapshotCheckpoint({
+        ...kvConfig,
+        walletId,
+        checkpoint,
+      });
+    }
+
+    await clearWorkletInvalidHistoryMarker(kvConfig, walletId);
+    delete state.sessionsByWalletId[walletId];
+    captureRequestLifecycleRow(session.debugTrace, {
+      requestId,
+      method: 'snapshots.finishWallet',
       walletId,
-      checkpoint,
+      startedAtMs: requestStartedAtMs,
+      finishedAtMs: Date.now(),
+      skipUsed: Number(checkpoint.nextSkip ?? 0),
+      fetchedTxs: null,
+      consumedRawCount: null,
+      logicalPageSize: null,
+      appendedSnapshots: snapshots.length,
+      done: true,
     });
+
+    return {
+      checkpoint,
+      appendedSnapshots: snapshots.length,
+    };
+  } catch (error: unknown) {
+    await handleInvalidHistoryOnPopulateWorklet({
+      config,
+      state,
+      walletId,
+      error,
+    });
+    throw error;
   }
-
-  delete state.sessionsByWalletId[walletId];
-  captureRequestLifecycleRow(session.debugTrace, {
-    requestId,
-    method: 'snapshots.finishWallet',
-    walletId,
-    startedAtMs: requestStartedAtMs,
-    finishedAtMs: Date.now(),
-    skipUsed: Number(checkpoint.nextSkip ?? 0),
-    fetchedTxs: null,
-    consumedRawCount: null,
-    logicalPageSize: null,
-    appendedSnapshots: snapshots.length,
-    done: true,
-  });
-
-  return {
-    checkpoint,
-    appendedSnapshots: snapshots.length,
-  };
 }
 
 export function canHandlePortfolioPopulateRequestOnRuntime(
