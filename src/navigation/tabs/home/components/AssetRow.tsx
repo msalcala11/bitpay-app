@@ -128,7 +128,6 @@ interface Props {
   isLast: boolean;
   isFiatLoading?: boolean;
   isPopulateLoading?: boolean;
-  isPnlLoading?: boolean;
   img?: SupportedCurrencyOption['img'];
   imgSrc?: ImageRequireSource;
 }
@@ -138,7 +137,6 @@ const AssetRow: React.FC<Props> = ({
   isLast,
   isFiatLoading,
   isPopulateLoading,
-  isPnlLoading,
   img,
   imgSrc,
 }) => {
@@ -174,10 +172,7 @@ const AssetRow: React.FC<Props> = ({
   const hasRate = !!item.hasRate;
   const hasPnl = !!item.hasPnl;
   const showPnlPlaceholder = !!item.showPnlPlaceholder;
-  const isLoadingValues =
-    !hideAllBalances &&
-    (!!isFiatLoading || !!isPopulateLoading || !!isPnlLoading);
-  const shouldShowRightSide = hasRate || showPnlPlaceholder || isLoadingValues;
+  const shouldShowRightSide = hasRate || showPnlPlaceholder;
   const hasHistoricalV4Rates = useMemo(() => {
     if (!historicalRateRequest) {
       return false;
@@ -201,7 +196,7 @@ const AssetRow: React.FC<Props> = ({
       })
     );
   }, [hasHistoricalV4Rates, item, option]);
-  const shouldShowDeltaFiat = hasPnl || isLoadingValues;
+  const shouldShowDeltaFiat = hasPnl;
   const isCryptoAmountLoading = !!isPopulateLoading && !isFiatLoading;
 
   const fiatAmountDisplay = hasRate ? item.fiatAmount : '— ';
@@ -277,7 +272,7 @@ const AssetRow: React.FC<Props> = ({
                   </DeltaFiat>
                 ) : null}
               </>
-            ) : isLoadingValues ? (
+            ) : (isFiatLoading || isPopulateLoading) && !showPnlPlaceholder ? (
               <SkeletonPlaceholder
                 backgroundColor={theme.dark ? CharcoalBlack : NeutralSlate}
                 highlightColor={theme.dark ? LightBlack : GhostWhite}>
@@ -309,7 +304,7 @@ const AssetRow: React.FC<Props> = ({
           </Values>
 
           <PercentPill>
-            {isLoadingValues ? (
+            {(isFiatLoading || isPopulateLoading) && !showPnlPlaceholder ? (
               <SkeletonPlaceholder
                 backgroundColor={theme.dark ? CharcoalBlack : NeutralSlate}
                 highlightColor={theme.dark ? LightBlack : GhostWhite}>

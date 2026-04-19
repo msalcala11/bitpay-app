@@ -1,13 +1,11 @@
 import type {
+  FiatRateChangeForTimeframe,
   FiatRateInterval,
   FiatRateSeriesCache,
   FiatRateSeriesReaderIdentity,
 } from '../../../store/rate/rate.models';
 import {formatFiatAmount} from '../../../utils/helper-methods';
-import {
-  getFiatRateChangeForTimeframe,
-  type FiatRateChangeForTimeframe,
-} from '../../../utils/portfolio/rate';
+import {getFiatRateChangeForTimeframe} from '../../../utils/portfolio/rate';
 
 const MIN_TINY_VALUE = 0.01;
 const MIN_TINY_FRACTION_DIGITS = 4;

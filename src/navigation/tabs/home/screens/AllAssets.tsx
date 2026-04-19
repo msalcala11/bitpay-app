@@ -26,9 +26,12 @@ import type {
 } from '../../../../utils/portfolio/assets';
 import AssetRow from '../components/AssetRow';
 import AssetsGainLossDropdown from '../components/AssetsGainLossDropdown';
-import {AssetsListSkeletonRows} from '../components/AssetsList';
+import {
+  BitpaySupportedCoins,
+  BitpaySupportedTokens,
+} from '../../../../constants/currencies';
+import {getCurrencyAbbreviation} from '../../../../utils/helper-methods';
 import {useAssetIconResolver} from '../hooks/useAssetIconResolver';
-import {getAssetRowSearchText} from '../../../../portfolio/ui/selectors/assetRowSearchText';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AllAssets'>;
 const LIST_HORIZONTAL_GUTTER = Number.parseInt(ScreenGutter, 10);
@@ -86,21 +89,17 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
   const commonOptions = useStackScreenOptions(theme);
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
   const populateInProgress = !!portfolio.populateStatus?.inProgress;
-  const {getAssetIconData} = useAssetIconResolver();
+  const {getAssetIconData, getSupportedOption} = useAssetIconResolver();
 
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
   const [query, setQuery] = useState('');
   const deferredQuery = useDeferredValue(query);
 
-  const {
-    visibleItems,
-    isFiatLoading,
-    isPnlLoading,
-    isPopulateLoadingByKey,
-  } = usePortfolioAssetRows({
-    gainLossMode,
-    keyId: route.params?.keyId,
-  });
+  const {visibleItems, isFiatLoading, isPopulateLoadingByKey} =
+    usePortfolioAssetRows({
+      gainLossMode,
+      keyId: route.params?.keyId,
+    });
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -113,18 +112,53 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
   const hasActiveQuery = query.trim().length > 0;
   const hasDeferredQuery = normalizedDeferredQuery.length > 0;
 
+  const searchableVisibleItems = useMemo(() => {
+    if (!hasActiveQuery || !hasDeferredQuery) {
+      return [];
+    }
+
+    return visibleItems.map(item => {
+      const option = getSupportedOption(item);
+
+      const optionCurrencyName = option?.currencyName;
+      const chainKey = (option?.chain || item.chain || '').toLowerCase();
+      const chainDisplayName = BitpaySupportedCoins[chainKey]?.name;
+
+      const tokenDisplayName = option?.tokenAddress
+        ? BitpaySupportedTokens[
+            getCurrencyAbbreviation(option.tokenAddress, option.chain)
+          ]?.name
+        : undefined;
+
+      const searchText = [
+        optionCurrencyName,
+        item.name,
+        item.currencyAbbreviation,
+        item.chain,
+        chainDisplayName,
+        tokenDisplayName,
+      ]
+        .filter(Boolean)
+        .join('\u0000')
+        .toLowerCase();
+
+      return {item, searchText};
+    });
+  }, [getSupportedOption, hasActiveQuery, hasDeferredQuery, visibleItems]);
+
   const filteredItems: AssetRowItem[] = useMemo(() => {
     if (!hasActiveQuery || !hasDeferredQuery) {
       return visibleItems;
     }
 
-    return visibleItems.filter(item => {
-      return getAssetRowSearchText(item).includes(normalizedDeferredQuery);
-    });
+    return searchableVisibleItems
+      .filter(({searchText}) => searchText.includes(normalizedDeferredQuery))
+      .map(({item}) => item);
   }, [
     hasActiveQuery,
     hasDeferredQuery,
     normalizedDeferredQuery,
+    searchableVisibleItems,
     visibleItems,
   ]);
 
@@ -168,7 +202,6 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
           isLast={index === filteredItems.length - 1}
           isFiatLoading={isFiatLoading}
           isPopulateLoading={isRowPopulateLoading}
-          isPnlLoading={isPnlLoading}
           img={img}
           imgSrc={imgSrc}
         />
@@ -178,7 +211,6 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
       filteredItems.length,
       getAssetIconData,
       isFiatLoading,
-      isPnlLoading,
       isPopulateLoadingByKey,
       populateInProgress,
     ],
@@ -186,15 +218,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
 
   const keyExtractor = useCallback((item: AssetRowItem) => item.key, []);
 
-  const showLoadingEmptyState =
-    !visibleItems.length &&
-    (populateInProgress || isFiatLoading || isPnlLoading);
-
   const renderEmpty = useCallback(() => {
-    if (showLoadingEmptyState) {
-      return <AssetsListSkeletonRows count={8} />;
-    }
-
     if (!visibleItems.length) {
       return (
         <EmptyListContainer>
@@ -217,7 +241,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
     }
 
     return null;
-  }, [query, showLoadingEmptyState, t, visibleItems.length]);
+  }, [query, t, visibleItems.length]);
 
   return (
     <ScreenContainer>

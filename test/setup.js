@@ -10,24 +10,16 @@ jest.mock('react-native-haptic-feedback', () => {
   };
 });
 
-jest.mock('react-native/Libraries/Utilities/Platform', () => {
-  const platform = {
-    OS: 'android', // or 'ios'
-    select: () => null,
-  };
-
-  return {
-    __esModule: true,
-    ...platform,
-    default: platform,
-  };
-});
+jest.mock('react-native/Libraries/Utilities/Platform', () => ({
+  OS: 'android', // or 'ios'
+  select: () => null,
+}));
 
 jest.mock('react-native-reanimated', () =>
   require('react-native-reanimated/mock'),
 );
 global.__reanimatedWorkletInit = jest.fn();
-jest.mock('react-native/src/private/animated/NativeAnimatedHelper');
+jest.mock('react-native/Libraries/Animated/NativeAnimatedHelper');
 
 jest.mock('react-native-permissions', () =>
   require('react-native-permissions/mock'),
@@ -123,7 +115,7 @@ jest.mock('@walletconnect/web3wallet', () => ({
   Web3Wallet: jest.fn(() => ({
     init: jest.fn(),
   })),
-}), {virtual: true});
+}));
 
 jest.mock('react-native-share', () => ({
   default: jest.fn(),

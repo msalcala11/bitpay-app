@@ -76,7 +76,6 @@ export type AssetRowItem = {
   hasRate: boolean;
   hasPnl: boolean;
   showPnlPlaceholder?: boolean;
-  searchText?: string;
 };
 
 export const sortAssetRowItemsByHasRate = (
