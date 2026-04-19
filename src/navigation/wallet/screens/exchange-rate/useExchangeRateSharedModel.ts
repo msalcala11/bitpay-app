@@ -62,7 +62,6 @@ export type ExchangeRateSharedModel = {
   currencyImageSource: any;
   currencyName: string;
   currentFiatRate: number | undefined;
-  fiatRateSeriesCache: RootState['RATE']['fiatRateSeriesCache'];
   formatDisplayPrice: (value?: number) => string;
   gradientBackgroundColor: string;
   hasValidNormalizedCoin: boolean;
@@ -99,9 +98,6 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
     ({APP}: RootState) => APP.homeCarouselConfig,
   );
   const rates = useAppSelector(({RATE}: RootState) => RATE.rates);
-  const fiatRateSeriesCache = useAppSelector(
-    ({RATE}: RootState) => RATE.fiatRateSeriesCache,
-  );
   const defaultAltCurrency = useAppSelector(
     ({APP}: RootState) => APP.defaultAltCurrency,
   );
@@ -376,7 +372,6 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
     currencyImageSource: assetCurrencyOption?.img || coin.img,
     currencyName,
     currentFiatRate,
-    fiatRateSeriesCache,
     formatDisplayPrice,
     gradientBackgroundColor,
     hasValidNormalizedCoin,

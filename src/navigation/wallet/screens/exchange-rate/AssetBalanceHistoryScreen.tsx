@@ -20,7 +20,9 @@ const AssetBalanceHistoryScreen = ({
 }: AssetBalanceHistoryScreenProps) => {
   const dispatch = useAppDispatch();
   const isFocused = useIsFocused();
-  const populateStatus = useAppSelector(({PORTFOLIO}) => PORTFOLIO.populateStatus);
+  const populateStatus = useAppSelector(
+    ({PORTFOLIO}) => PORTFOLIO.populateStatus,
+  );
   const [selectedAssetBalance, setSelectedAssetBalance] = useState<
     number | undefined
   >(undefined);
@@ -119,7 +121,6 @@ const AssetBalanceHistoryScreen = ({
             wallets={shared.assetWallets}
             quoteCurrency={shared.resolvedQuoteCurrency}
             rates={shared.rates}
-            fiatRateSeriesCache={shared.fiatRateSeriesCache}
             lineColor={shared.chartLineColor}
             gradientStartColor={shared.gradientBackgroundColor}
             showLoaderWhenNoSnapshots={

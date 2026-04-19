@@ -671,6 +671,46 @@ describe('PortfolioEngine compute sessions', () => {
     expect(chart.driverMarkRate?.[chart.driverMarkRate.length - 1]).toBe(11000);
   });
 
+  it('builds a batched runtime rate cache and refreshes stale series', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(10_000);
+
+    const kv = new MemoryKv();
+    await kv.setString('rate:v1:USD:btc:1D', '{"v":3,"f":1,"p":[[1,100]]}');
+
+    const loadSeries = jest.fn().mockResolvedValue({
+      btc: [{ts: 1, rate: 101}],
+      eth: [{ts: 1, rate: 202}],
+    });
+    const engine = new PortfolioEngine(kv, {
+      rateProvider: {
+        loadSeries,
+      },
+    });
+
+    await expect(
+      engine.getRateSeriesCache({
+        cfg: {baseUrl: 'https://bws.invalid'},
+        quoteCurrency: 'USD',
+        requests: [
+          {coin: 'btc', intervals: ['1D']},
+          {coin: 'eth', intervals: ['1D']},
+        ],
+        maxAgeMs: 1_000,
+      }),
+    ).resolves.toEqual({
+      'USD:btc:1D': {
+        fetchedOn: 10_000,
+        points: [{ts: 1, rate: 101}],
+      },
+      'USD:eth:1D': {
+        fetchedOn: 10_000,
+        points: [{ts: 1, rate: 202}],
+      },
+    });
+
+    expect(loadSeries).toHaveBeenCalledTimes(1);
+  });
+
   it('clears cached rates without touching snapshot keys', async () => {
     const kv = new MemoryKv();
     const engine = new PortfolioEngine(kv);

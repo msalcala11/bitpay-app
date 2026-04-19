@@ -2,6 +2,7 @@ import type {WorkerMethod, WorkerRequest} from '../core/engine/workerProtocol';
 
 const WORKLET_METHODS: Record<WorkerMethod, true> = {
   'rates.ensure': true,
+  'rates.getCache': true,
   'snapshots.getIndex': true,
   'snapshots.clearWallet': true,
   'snapshots.prepareWallet': true,

@@ -18,7 +18,6 @@ import {
   populatePortfolio,
 } from '../../../../store/portfolio';
 import {clearPortfolioCharts} from '../../../../store/portfolio-charts';
-import {pruneFiatRateSeriesCache} from '../../../../store/rate/rate.actions';
 import {useTheme} from '@react-navigation/native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useAppSelector} from '../../../../utils/hooks/useAppSelector';
@@ -39,6 +38,8 @@ import {FlashList} from '@shopify/flash-list';
 import {View} from 'react-native';
 import {useOngoingProcess} from '../../../../contexts';
 import {logManager} from '../../../../managers/LogManager';
+import {FIAT_RATE_SERIES_CACHED_INTERVALS} from '../../../../store/rate/rate.models';
+import {replaceRuntimeFiatRateSeriesCache} from '../../../../portfolio/ui/fiatRateSeries';
 
 const SettingsComponent = styled.View`
   flex: 1;
@@ -94,9 +95,6 @@ const General: React.FC<Props> = ({navigation}) => {
   const selectedAltCurrency = useAppSelector(
     ({APP}: RootState) => APP.defaultAltCurrency,
   );
-  const fiatRateSeriesCache = useAppSelector(
-    ({RATE}: RootState) => RATE.fiatRateSeriesCache,
-  );
   const appLanguage = useAppSelector(({APP}) => APP.defaultLanguage);
   const [appLanguageName, setAppLanguageName] = useState('');
 
@@ -111,22 +109,18 @@ const General: React.FC<Props> = ({navigation}) => {
         const selectedFiatCode = (
           selectedAltCurrency?.isoCode || 'USD'
         ).toUpperCase();
-        const fiatsInCache = new Set<string>();
-        for (const cacheKey of Object.keys(fiatRateSeriesCache || {})) {
-          const separatorIdx = cacheKey.indexOf(':');
-          if (separatorIdx > 0) {
-            fiatsInCache.add(cacheKey.slice(0, separatorIdx).toUpperCase());
-          }
-        }
-        for (const fiatCode of fiatsInCache) {
-          dispatch(
-            pruneFiatRateSeriesCache({
-              fiatCode,
-              keepCoins:
-                fiatCode === selectedFiatCode ? EXCHANGE_RATES_CURRENCIES : [],
-            }),
+        void replaceRuntimeFiatRateSeriesCache({
+          quoteCurrency: selectedFiatCode,
+          requests: EXCHANGE_RATES_CURRENCIES.map(coin => ({
+            coin,
+            intervals: [...FIAT_RATE_SERIES_CACHED_INTERVALS],
+          })),
+        }).catch(error => {
+          logManager.error(
+            '[General] Could not rebuild runtime fiat-rate cache',
+            error instanceof Error ? error.message : String(error),
           );
-        }
+        });
         dispatch(clearPortfolio({populateDisabled: false}));
         dispatch(clearPortfolioCharts());
         return;
@@ -135,7 +129,7 @@ const General: React.FC<Props> = ({navigation}) => {
         populatePortfolio({quoteCurrency: selectedAltCurrency?.isoCode}) as any,
       );
     },
-    [dispatch, fiatRateSeriesCache, selectedAltCurrency?.isoCode],
+    [dispatch, selectedAltCurrency?.isoCode],
   );
 
   useEffect(() => {

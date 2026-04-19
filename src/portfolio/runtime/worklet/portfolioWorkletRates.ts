@@ -3,6 +3,7 @@ import {
   CANONICAL_FIAT_QUOTE,
   DEFAULT_STORED_FIAT_RATE_INTERVALS,
   FX_BRIDGE_COIN,
+  type FiatRateCacheRequest,
   getFiatRateSeriesCacheKey,
   getFiatRateSeriesUrl,
   resolveStoredFiatRateInterval,
@@ -283,6 +284,8 @@ export async function ensureWorkletRates(
     interval: FiatRateInterval;
     coins: string[];
     assets?: FiatRateAssetRef[];
+    maxAgeMs?: number;
+    force?: boolean;
   },
 ): Promise<void> {
   'worklet';
@@ -313,6 +316,10 @@ export async function ensureWorkletRates(
   const missingDefaults: string[] = [];
   const missingExplicit: FiatRateAssetRef[] = [];
   const fallbackDefaultCoins = new Set<string>();
+  const maxAgeMs =
+    typeof args.maxAgeMs === 'number' && Number.isFinite(args.maxAgeMs)
+      ? Math.max(0, args.maxAgeMs)
+      : undefined;
 
   for (const asset of uniqueAssets) {
     const existing = loadWorkletStoredRateSeries({
@@ -325,7 +332,14 @@ export async function ensureWorkletRates(
       tokenAddress: asset.tokenAddress,
     });
     if (existing?.points?.length) {
-      if (hasStoredFiatRateSeriesPersistedFetchedOn(existing)) {
+      const hasPersistedFetchedOn =
+        hasStoredFiatRateSeriesPersistedFetchedOn(existing);
+      const isFresh =
+        hasPersistedFetchedOn &&
+        !args.force &&
+        (typeof maxAgeMs !== 'number' ||
+          Date.now() - Number(existing.fetchedOn) <= maxAgeMs);
+      if (isFresh) {
         continue;
       }
       if (!asset.tokenAddress) {
@@ -405,6 +419,145 @@ export async function ensureWorkletRates(
       continue;
     }
   }
+}
+
+export async function getWorkletRateSeriesCache(
+  args: PortfolioWorkletKvConfig & {
+    cfg: BwsConfig;
+    quoteCurrency: string;
+    requests: FiatRateCacheRequest[];
+    maxAgeMs?: number;
+    force?: boolean;
+  },
+): Promise<FiatRateSeriesCache> {
+  'worklet';
+
+  const quoteCurrency = String(
+    args.quoteCurrency || CANONICAL_FIAT_QUOTE,
+  ).toUpperCase();
+  const requests = Array.isArray(args.requests) ? args.requests : [];
+  const assetsByInterval = new Map<
+    FiatRateInterval,
+    {coins: Record<string, true>; assets: Record<string, FiatRateAssetRef>}
+  >();
+  const cacheReads: Array<{
+    coin: string;
+    interval: FiatRateInterval;
+    chain?: string;
+    tokenAddress?: string;
+  }> = [];
+  const seenReads: Record<string, true> = {};
+
+  for (const request of requests) {
+    const asset = getFiatRateAssetRef({
+      currencyAbbreviation: request?.coin,
+      chain: request?.chain,
+      tokenAddress: request?.tokenAddress,
+    });
+    const rawIntervals = Array.isArray(request?.intervals)
+      ? request.intervals
+      : [];
+    const intervals = Array.from(
+      new Set(rawIntervals.map(resolveStoredFiatRateInterval)),
+    );
+
+    if (!asset.coin || !intervals.length) {
+      continue;
+    }
+
+    for (const interval of intervals) {
+      const bucket = assetsByInterval.get(interval) ?? {
+        coins: {},
+        assets: {},
+      };
+      assetsByInterval.set(interval, bucket);
+
+      if (asset.tokenAddress) {
+        const assetKey = `${asset.coin}|${asset.chain || ''}|${
+          asset.tokenAddress
+        }`;
+        bucket.assets[assetKey] = asset;
+      } else {
+        bucket.coins[asset.coin] = true;
+      }
+
+      const readKey = getFiatRateSeriesCacheKey(
+        quoteCurrency,
+        asset.coin,
+        interval,
+        {
+          chain: asset.chain,
+          tokenAddress: asset.tokenAddress,
+        },
+      );
+      if (seenReads[readKey]) {
+        continue;
+      }
+      seenReads[readKey] = true;
+      cacheReads.push({
+        coin: asset.coin,
+        interval,
+        chain: asset.chain,
+        tokenAddress: asset.tokenAddress,
+      });
+    }
+  }
+
+  for (const [interval, bucket] of assetsByInterval.entries()) {
+    await ensureWorkletRates({
+      storage: args.storage,
+      registryKey: args.registryKey,
+      cfg: args.cfg,
+      quoteCurrency,
+      interval,
+      coins: Object.keys(bucket.coins).sort((a, b) => a.localeCompare(b)),
+      assets: Object.values(bucket.assets).sort((a, b) =>
+        `${a.coin}|${a.chain || ''}|${a.tokenAddress || ''}`.localeCompare(
+          `${b.coin}|${b.chain || ''}|${b.tokenAddress || ''}`,
+        ),
+      ),
+      maxAgeMs: args.maxAgeMs,
+      force: args.force,
+    });
+  }
+
+  const cache: FiatRateSeriesCache = {};
+  for (const read of cacheReads) {
+    const series = await getFiatRateSeriesWithFx({
+      getSeries: query => {
+        'worklet';
+
+        return Promise.resolve(
+          loadWorkletStoredRateSeries({
+            storage: args.storage,
+            registryKey: args.registryKey,
+            quoteCurrency: query.quoteCurrency,
+            coin: query.coin,
+            interval: query.interval,
+            chain: query.chain,
+            tokenAddress: query.tokenAddress,
+          }),
+        );
+      },
+      quoteCurrency,
+      coin: read.coin,
+      interval: read.interval,
+      chain: read.chain,
+      tokenAddress: read.tokenAddress,
+    });
+    if (!series?.points?.length) {
+      continue;
+    }
+
+    cache[
+      getFiatRateSeriesCacheKey(quoteCurrency, read.coin, read.interval, {
+        chain: read.chain,
+        tokenAddress: read.tokenAddress,
+      })
+    ] = series;
+  }
+
+  return cache;
 }
 
 export async function getWorkletRateSeriesWithFx(

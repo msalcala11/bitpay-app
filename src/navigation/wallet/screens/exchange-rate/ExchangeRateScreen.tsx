@@ -24,19 +24,13 @@ import {
   getFiatRateSeriesCacheKey,
 } from '../../../../store/rate/rate.models';
 import {
-  fetchFiatRateSeriesAllIntervals,
-  fetchFiatRateSeriesInterval,
-  refreshFiatRateSeries,
-} from '../../../../store/wallet/effects';
-import {isCacheKeyStale} from '../../../../store/wallet/utils/wallet';
-import {
   calculatePercentageDifference,
   formatFiatAmount,
 } from '../../../../utils/helper-methods';
-import {useAppDispatch} from '../../../../utils/hooks';
 import {shouldUseCompactFiatAmountText} from '../../../../utils/fiatAmountText';
 import {getFiatRateSeriesIntervalForTimeframe} from '../../../../utils/portfolio/rate';
 import {White} from '../../../../styles/colors';
+import useRuntimeFiatRateSeriesCache from '../../../../portfolio/ui/hooks/useRuntimeFiatRateSeriesCache';
 import useExchangeRateChartData, {
   type ChartDataType,
   defaultDisplayData,
@@ -53,8 +47,6 @@ type ExchangeRateScreenProps = {
 const ExchangeRateScreen = ({shared}: ExchangeRateScreenProps) => {
   const {t} = useTranslation();
   const theme = useTheme();
-  const dispatch = useAppDispatch();
-  const fiatRateSeriesCacheRef = useRef(shared.fiatRateSeriesCache);
   const [selectedTimeframe, setSelectedTimeframe] = useState<FiatRateInterval>(
     DEFAULT_BALANCE_CHART_TIMEFRAME,
   );
@@ -75,9 +67,6 @@ const ExchangeRateScreen = ({shared}: ExchangeRateScreenProps) => {
   >(undefined);
   const isMountedRef = useRef(false);
   const gestureEndRafRef = useRef<number | null>(null);
-  const allIntervalsFetchRequestIdRef = useRef(0);
-  const allIntervalsFetchInFlightRef = useRef(false);
-  const [allIntervalsFetchCycle, setAllIntervalsFetchCycle] = useState(0);
 
   const fiatChartTimeframeOptions = useMemo(
     () => getFiatChartTimeframeOptions(t),
@@ -85,14 +74,9 @@ const ExchangeRateScreen = ({shared}: ExchangeRateScreenProps) => {
   );
 
   useEffect(() => {
-    fiatRateSeriesCacheRef.current = shared.fiatRateSeriesCache;
-  }, [shared.fiatRateSeriesCache]);
-
-  useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
-      allIntervalsFetchInFlightRef.current = false;
       if (gestureEndRafRef.current != null) {
         cancelAnimationFrame(gestureEndRafRef.current);
         gestureEndRafRef.current = null;
@@ -104,6 +88,38 @@ const ExchangeRateScreen = ({shared}: ExchangeRateScreenProps) => {
     () => getFiatRateSeriesIntervalForTimeframe(selectedTimeframe),
     [selectedTimeframe],
   );
+
+  const historicalRateRequests = useMemo(
+    () =>
+      shared.hasValidNormalizedCoin
+        ? [
+            {
+              coin: shared.normalizedCoin,
+              chain: shared.historicalRateIdentity.chain,
+              tokenAddress: shared.historicalRateIdentity.tokenAddress,
+              intervals: [...FIAT_RATE_SERIES_CACHED_INTERVALS],
+            },
+          ]
+        : [],
+    [
+      shared.hasValidNormalizedCoin,
+      shared.historicalRateIdentity.chain,
+      shared.historicalRateIdentity.tokenAddress,
+      shared.normalizedCoin,
+    ],
+  );
+
+  const {
+    cache: fiatRateSeriesCache,
+    loading: isFiatRateSeriesCacheLoading,
+    reload: reloadFiatRateSeriesCache,
+  } = useRuntimeFiatRateSeriesCache({
+    quoteCurrency: shared.resolvedQuoteCurrency,
+    requests: historicalRateRequests,
+    maxAgeMs: HISTORIC_RATES_CACHE_DURATION * 1000,
+    enabled: !!shared.resolvedQuoteCurrency && shared.hasValidNormalizedCoin,
+    clearOnRequestChange: true,
+  });
 
   const selectedSeriesKey = useMemo(() => {
     return getFiatRateSeriesCacheKey(
@@ -119,107 +135,7 @@ const ExchangeRateScreen = ({shared}: ExchangeRateScreenProps) => {
     shared.resolvedQuoteCurrency,
   ]);
 
-  const selectedSeries = shared.fiatRateSeriesCache[selectedSeriesKey];
-
-  useEffect(() => {
-    const requestId = allIntervalsFetchRequestIdRef.current + 1;
-    allIntervalsFetchRequestIdRef.current = requestId;
-
-    if (!shared.resolvedQuoteCurrency || !shared.hasValidNormalizedCoin) {
-      allIntervalsFetchInFlightRef.current = false;
-      return;
-    }
-
-    const hasFreshAllIntervals = FIAT_RATE_SERIES_CACHED_INTERVALS.every(
-      interval => {
-        const cacheKey = getFiatRateSeriesCacheKey(
-          shared.resolvedQuoteCurrency,
-          shared.normalizedCoin,
-          interval,
-          shared.historicalRateIdentity,
-        );
-        const cachedSeries = fiatRateSeriesCacheRef.current[cacheKey];
-        if (!cachedSeries?.fetchedOn) {
-          return false;
-        }
-
-        return !isCacheKeyStale(
-          cachedSeries.fetchedOn,
-          HISTORIC_RATES_CACHE_DURATION,
-        );
-      },
-    );
-    if (hasFreshAllIntervals) {
-      allIntervalsFetchInFlightRef.current = false;
-      return;
-    }
-
-    allIntervalsFetchInFlightRef.current = true;
-
-    dispatch(
-      fetchFiatRateSeriesAllIntervals({
-        fiatCode: shared.resolvedQuoteCurrency,
-        currencyAbbreviation: shared.assetContext.currencyAbbreviation,
-        ...shared.historicalRateIdentity,
-      }),
-    ).finally(() => {
-      if (allIntervalsFetchRequestIdRef.current !== requestId) {
-        return;
-      }
-      allIntervalsFetchInFlightRef.current = false;
-      if (!isMountedRef.current) {
-        return;
-      }
-      setAllIntervalsFetchCycle(current => current + 1);
-    });
-  }, [
-    dispatch,
-    shared.assetContext.currencyAbbreviation,
-    shared.hasValidNormalizedCoin,
-    shared.historicalRateIdentity,
-    shared.normalizedCoin,
-    shared.resolvedQuoteCurrency,
-  ]);
-
-  useEffect(() => {
-    if (!shared.resolvedQuoteCurrency || !shared.hasValidNormalizedCoin) {
-      return;
-    }
-
-    if (allIntervalsFetchInFlightRef.current) {
-      return;
-    }
-
-    const hasFreshPoints = Boolean(
-      selectedSeries?.points?.length &&
-        selectedSeries?.fetchedOn &&
-        !isCacheKeyStale(
-          selectedSeries.fetchedOn,
-          HISTORIC_RATES_CACHE_DURATION,
-        ),
-    );
-    if (hasFreshPoints) {
-      return;
-    }
-
-    dispatch(
-      fetchFiatRateSeriesInterval({
-        fiatCode: shared.resolvedQuoteCurrency,
-        interval: seriesDataInterval,
-        coinForCacheCheck: shared.normalizedCoin,
-        ...shared.historicalRateIdentity,
-      }),
-    );
-  }, [
-    allIntervalsFetchCycle,
-    dispatch,
-    selectedSeries,
-    seriesDataInterval,
-    shared.hasValidNormalizedCoin,
-    shared.historicalRateIdentity,
-    shared.normalizedCoin,
-    shared.resolvedQuoteCurrency,
-  ]);
+  const selectedSeries = fiatRateSeriesCache[selectedSeriesKey];
 
   const {pointsForChartRaw, displayData: derivedDisplayData} =
     useExchangeRateChartData({
@@ -240,8 +156,8 @@ const ExchangeRateScreen = ({shared}: ExchangeRateScreenProps) => {
     }
 
     const hasUsableData = !!displayDataRef.current.data.length;
-    setIsChartLoading(!hasUsableData);
-  }, [derivedDisplayData, pointsForChartRaw]);
+    setIsChartLoading(isFiatRateSeriesCacheLoading && !hasUsableData);
+  }, [derivedDisplayData, isFiatRateSeriesCacheLoading, pointsForChartRaw]);
 
   const rangeLabel = useMemo(() => {
     return getRangeLabelForFiatTimeframe(t, selectedTimeframe);
@@ -295,7 +211,7 @@ const ExchangeRateScreen = ({shared}: ExchangeRateScreenProps) => {
 
   const timeframeChange = useMemo(() => {
     return getExchangeRateTimeframeChange({
-      fiatRateSeriesCache: shared.fiatRateSeriesCache,
+      fiatRateSeriesCache,
       fiatCode: shared.resolvedQuoteCurrency,
       normalizedCoin: shared.normalizedCoin,
       timeframe: selectedTimeframe,
@@ -303,9 +219,9 @@ const ExchangeRateScreen = ({shared}: ExchangeRateScreenProps) => {
       historicalRateIdentity: shared.historicalRateIdentity,
     });
   }, [
+    fiatRateSeriesCache,
     selectedTimeframe,
     shared.currentFiatRate,
-    shared.fiatRateSeriesCache,
     shared.historicalRateIdentity,
     shared.normalizedCoin,
     shared.resolvedQuoteCurrency,
@@ -484,61 +400,8 @@ const ExchangeRateScreen = ({shared}: ExchangeRateScreenProps) => {
       return;
     }
 
-    const cacheKey = getFiatRateSeriesCacheKey(
-      shared.resolvedQuoteCurrency,
-      shared.normalizedCoin,
-      seriesDataInterval,
-      shared.historicalRateIdentity,
-    );
-    const cached = shared.fiatRateSeriesCache[cacheKey];
-    const isStale = cached
-      ? isCacheKeyStale(cached.fetchedOn, HISTORIC_RATES_CACHE_DURATION)
-      : true;
-
-    if (!cached?.points?.length || isStale) {
-      await dispatch(
-        fetchFiatRateSeriesInterval({
-          fiatCode: shared.resolvedQuoteCurrency,
-          interval: seriesDataInterval,
-          coinForCacheCheck: shared.normalizedCoin,
-          force: true,
-          ...shared.historicalRateIdentity,
-        }),
-      );
-      return;
-    }
-
-    const didAppend = await dispatch(
-      refreshFiatRateSeries({
-        fiatCode: shared.resolvedQuoteCurrency,
-        currencyAbbreviation: shared.assetContext.currencyAbbreviation,
-        interval: seriesDataInterval,
-        spotRate: shared.currentFiatRate,
-        ...shared.historicalRateIdentity,
-      }),
-    );
-    if (!didAppend) {
-      await dispatch(
-        fetchFiatRateSeriesInterval({
-          fiatCode: shared.resolvedQuoteCurrency,
-          interval: seriesDataInterval,
-          coinForCacheCheck: shared.normalizedCoin,
-          force: true,
-          ...shared.historicalRateIdentity,
-        }),
-      );
-    }
-  }, [
-    dispatch,
-    seriesDataInterval,
-    shared.assetContext.currencyAbbreviation,
-    shared.currentFiatRate,
-    shared.fiatRateSeriesCache,
-    shared.hasValidNormalizedCoin,
-    shared.historicalRateIdentity,
-    shared.normalizedCoin,
-    shared.resolvedQuoteCurrency,
-  ]);
+    await reloadFiatRateSeriesCache({force: true}).catch(() => ({}));
+  }, [reloadFiatRateSeriesCache, shared.hasValidNormalizedCoin]);
 
   const {isRefreshing, onRefresh} = useAssetScreenRefresh(shared, {
     afterBaseRefresh: refreshChartSeries,

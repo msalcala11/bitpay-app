@@ -4,7 +4,10 @@ import {NavigationProp, useNavigation} from '@react-navigation/native';
 import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 import styled, {useTheme} from 'styled-components/native';
 import type {RootStackParamList} from '../../../../Root';
-import {FIAT_RATE_SERIES_CACHED_INTERVALS} from '../../../../store/rate/rate.models';
+import {
+  FIAT_RATE_SERIES_CACHED_INTERVALS,
+  type FiatRateSeriesCache,
+} from '../../../../store/rate/rate.models';
 import {TouchableOpacity} from '../../../../components/base/TouchableOpacity';
 import {CurrencyImage} from '../../../../components/currency-image/CurrencyImage';
 import {ActiveOpacity} from '../../../../components/styled/Containers';
@@ -130,6 +133,7 @@ interface Props {
   isPopulateLoading?: boolean;
   img?: SupportedCurrencyOption['img'];
   imgSrc?: ImageRequireSource;
+  fiatRateSeriesCache?: FiatRateSeriesCache;
 }
 
 const AssetRow: React.FC<Props> = ({
@@ -139,14 +143,12 @@ const AssetRow: React.FC<Props> = ({
   isPopulateLoading,
   img,
   imgSrc,
+  fiatRateSeriesCache,
 }) => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const theme = useTheme();
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
-  const fiatRateSeriesCache = useAppSelector(
-    ({RATE}) => RATE.fiatRateSeriesCache,
-  );
   const option = useMemo(() => {
     return supportedCurrencyOptionLookup.getOption({
       currencyAbbreviation: item.currencyAbbreviation,

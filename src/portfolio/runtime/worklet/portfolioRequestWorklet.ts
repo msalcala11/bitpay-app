@@ -27,6 +27,7 @@ import {
 import {
   clearWorkletRates,
   ensureWorkletRates,
+  getWorkletRateSeriesCache,
   listWorkletRates,
 } from './portfolioWorkletRates';
 import {
@@ -54,6 +55,7 @@ export type PortfolioWorkletRequestConfig = {
 
 const WORKLET_METHODS: Record<WorkerMethod, true> = {
   'rates.ensure': true,
+  'rates.getCache': true,
   'snapshots.getIndex': true,
   'snapshots.clearWallet': true,
   'snapshots.prepareWallet': true,
@@ -85,7 +87,9 @@ function getKvConfig(
   };
 }
 
-function clearInMemoryPopulateSessions(config: PortfolioWorkletRequestConfig): void {
+function clearInMemoryPopulateSessions(
+  config: PortfolioWorkletRequestConfig,
+): void {
   'worklet';
 
   const state = getOrCreatePortfolioPopulateWorkletState(config);
@@ -220,6 +224,18 @@ export async function handlePortfolioRequestOnRuntime(
             id: request.id,
             ok: true,
             result: undefined,
+          } as WorkerResponse;
+        }
+
+        case 'rates.getCache': {
+          const result = await getWorkletRateSeriesCache({
+            ...kvConfig,
+            ...(request.params as any),
+          });
+          return {
+            id: request.id,
+            ok: true,
+            result,
           } as WorkerResponse;
         }
 
@@ -371,7 +387,8 @@ export async function handlePortfolioRequestOnRuntime(
         }
 
         case 'debug.clearAll': {
-          const activePopulateJob = getActivePortfolioPopulateJobStatusOnWorklet(config);
+          const activePopulateJob =
+            getActivePortfolioPopulateJobStatusOnWorklet(config);
           if (activePopulateJob?.inProgress) {
             throw new Error(
               'Cannot clear portfolio storage while a background populate job is running.',

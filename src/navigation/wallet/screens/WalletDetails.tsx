@@ -343,7 +343,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   >();
   const {walletId, skipInitializeHistory, copayerId} = route.params;
   const {keys} = useAppSelector(({WALLET}) => WALLET);
-  const {rates, fiatRateSeriesCache} = useAppSelector(({RATE}) => RATE);
+  const {rates} = useAppSelector(({RATE}) => RATE);
   const supportedCardMap = useAppSelector(
     ({SHOP_CATALOG}) => SHOP_CATALOG.supportedCardMap,
   );
@@ -1324,7 +1324,6 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
                         defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
                       })}
                       rates={rates}
-                      fiatRateSeriesCache={fiatRateSeriesCache}
                       lineColor={chartLineColor}
                       gradientStartColor={chartGradientBackgroundColor}
                       showLoaderWhenNoSnapshots={

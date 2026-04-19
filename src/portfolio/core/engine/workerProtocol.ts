@@ -1,5 +1,10 @@
 import type {BwsConfig} from '../shared/bws';
-import type {FiatRateAssetRef, FiatRateInterval} from '../fiatRatesShared';
+import type {
+  FiatRateAssetRef,
+  FiatRateCacheRequest,
+  FiatRateInterval,
+  FiatRateSeriesCache,
+} from '../fiatRatesShared';
 import type {WalletCredentials, WalletSummary} from '../types';
 import type {
   ComputeAnalysisArgs,
@@ -9,7 +14,10 @@ import type {
   ProcessNextPageSessionResult,
   SnapshotIngestConfig,
 } from './portfolioEngine';
-import type {PnlAnalysisChartResult, PnlAnalysisResult} from '../pnl/analysisStreaming';
+import type {
+  PnlAnalysisChartResult,
+  PnlAnalysisResult,
+} from '../pnl/analysisStreaming';
 import type {SnapshotIndexV2} from '../pnl/snapshotStore';
 import type {BalanceSnapshotStored} from '../pnl/types';
 import type {
@@ -21,8 +29,27 @@ import type {PortfolioPopulateWalletDebugTrace} from './populateDebug';
 
 export type WorkerMethodMap = {
   'rates.ensure': {
-    params: {cfg: BwsConfig; quoteCurrency: string; interval: FiatRateInterval; coins: string[]; assets?: FiatRateAssetRef[]};
+    params: {
+      cfg: BwsConfig;
+      quoteCurrency: string;
+      interval: FiatRateInterval;
+      coins: string[];
+      assets?: FiatRateAssetRef[];
+      maxAgeMs?: number;
+      force?: boolean;
+    };
     result: void;
+  };
+
+  'rates.getCache': {
+    params: {
+      cfg: BwsConfig;
+      quoteCurrency: string;
+      requests: FiatRateCacheRequest[];
+      maxAgeMs?: number;
+      force?: boolean;
+    };
+    result: FiatRateSeriesCache;
   };
 
   'snapshots.getIndex': {

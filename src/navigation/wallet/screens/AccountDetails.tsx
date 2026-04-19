@@ -424,7 +424,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   );
   const [showReceiveAddressBottomModal, setShowReceiveAddressBottomModal] =
     useState(false);
-  const {rates, fiatRateSeriesCache} = useAppSelector(({RATE}) => RATE);
+  const {rates} = useAppSelector(({RATE}) => RATE);
   const committedPortfolioQuoteCurrency = useAppSelector(
     ({PORTFOLIO}) => PORTFOLIO.quoteCurrency,
   );
@@ -1441,7 +1441,6 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
                   committedPortfolioQuoteCurrency || defaultAltCurrency.isoCode
                 }
                 rates={rates}
-                fiatRateSeriesCache={fiatRateSeriesCache}
                 timeframeSelectorWidth={timeframeSelectorWidth}
                 onSelectedBalanceChange={setSelectedBalance}
                 preChartContent={
@@ -1607,7 +1606,6 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     debouncedLoadHistory,
     defaultAltCurrency.isoCode,
     dispatch,
-    fiatRateSeriesCache,
     groupedHistory,
     hideAllBalances,
     isSmallScreen,

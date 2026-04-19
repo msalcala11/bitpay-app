@@ -1,4 +1,5 @@
 import {
+  getWorkletRateSeriesCache,
   ensureWorkletRates,
   ensureWorkletSnapshotRateSeriesCache,
   parseWorkletStoredFiatRateSeries,
@@ -111,6 +112,45 @@ describe('portfolioWorkletRates', () => {
     expect(storage.getString('rate:v1:USD:btc:1D')).toBe(
       '{"v":3,"f":654,"p":[[1,100],[2,200]]}',
     );
+  });
+
+  it('builds a batched runtime cache and refreshes stale default-coin series once per interval', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(10_000);
+    const storage = createStorage();
+    storage.set('rate:v1:USD:btc:1D', '{"v":3,"f":1,"p":[[1,100]]}');
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          btc: [{ts: 1, rate: 101}],
+          eth: [{ts: 1, rate: 202}],
+        }),
+    });
+    global.fetch = fetchMock as typeof global.fetch;
+
+    const cache = await getWorkletRateSeriesCache({
+      storage,
+      registryKey: '__registry__',
+      cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
+      quoteCurrency: 'USD',
+      requests: [
+        {coin: 'btc', intervals: ['1D']},
+        {coin: 'eth', intervals: ['1D']},
+      ],
+      maxAgeMs: 1_000,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(cache).toEqual({
+      'USD:btc:1D': {
+        fetchedOn: 10_000,
+        points: [{ts: 1, rate: 101}],
+      },
+      'USD:eth:1D': {
+        fetchedOn: 10_000,
+        points: [{ts: 1, rate: 202}],
+      },
+    });
   });
 
   it('uses the default fiat-rate endpoint for native-coin wallet snapshots', async () => {

@@ -159,9 +159,6 @@ const StorageUsage: React.FC = () => {
   const customTokens = useAppSelector(({WALLET}) => WALLET.customTokenData);
   const contactsRaw = useAppSelector(({CONTACT}) => CONTACT.list);
   const rates = useAppSelector(({RATE}) => RATE.rates);
-  const fiatRateSeriesCache = useAppSelector(
-    ({RATE}) => RATE.fiatRateSeriesCache,
-  );
   const giftCards = giftCardsRaw ?? EMPTY_LIST;
   const contacts = contactsRaw ?? EMPTY_LIST;
 
@@ -321,20 +318,6 @@ const StorageUsage: React.FC = () => {
       }
 
       try {
-        const size = await getSize(
-          RNFS.TemporaryDirectoryPath + '/rates.txt',
-          JSON.stringify({rates, fiatRateSeriesCache}),
-        );
-        nextMetrics.ratesStorage = formatBytes(size);
-      } catch (err) {
-        nextMetrics.ratesStorage = '0 Bytes';
-        logManager.error(
-          '[setRatesStorage] Error ',
-          err instanceof Error ? err.message : JSON.stringify(err),
-        );
-      }
-
-      try {
         const client = getPortfolioRuntimeClient();
         const walletIds = Object.values(keys || {}).flatMap((key: any) => {
           const wallets = Array.isArray(key?.wallets) ? key.wallets : [];
@@ -358,6 +341,7 @@ const StorageUsage: React.FC = () => {
             }),
           ),
         ]);
+        const spotRatesBytes = JSON.stringify(rates || {}).length;
 
         nextMetrics.portfolioSnapshotsCount = indexes.reduce((total, index) => {
           if (!index?.chunks?.length) {
@@ -367,12 +351,20 @@ const StorageUsage: React.FC = () => {
             total +
             index.chunks.reduce((chunkTotal, chunk) => {
               const rowsInChunk = Number(chunk?.rows);
-              return chunkTotal + (Number.isFinite(rowsInChunk) ? rowsInChunk : 0);
+              return (
+                chunkTotal + (Number.isFinite(rowsInChunk) ? rowsInChunk : 0)
+              );
             }, 0)
           );
         }, 0);
-        nextMetrics.portfolioPersistedStorage = formatBytes(stats.totalBytes || 0);
+        nextMetrics.ratesStorage = formatBytes(
+          spotRatesBytes + (stats.rateBytes || 0),
+        );
+        nextMetrics.portfolioPersistedStorage = formatBytes(
+          stats.totalBytes || 0,
+        );
       } catch (err) {
+        nextMetrics.ratesStorage = '0 Bytes';
         nextMetrics.portfolioSnapshotsCount = 0;
         nextMetrics.portfolioPersistedStorage = '0 Bytes';
         logManager.error(
@@ -444,7 +436,6 @@ const StorageUsage: React.FC = () => {
     isFocused,
     contacts,
     customTokens,
-    fiatRateSeriesCache,
     giftCards,
     keys,
     portfolioRefreshToken,

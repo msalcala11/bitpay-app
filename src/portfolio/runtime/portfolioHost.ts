@@ -69,6 +69,11 @@ export class PortfolioRuntimeHost {
           await this.engine.ensureRates(req.params as any);
           return {id: req.id, ok: true, result: undefined} as any;
 
+        case 'rates.getCache': {
+          const res = await this.engine.getRateSeriesCache(req.params as any);
+          return {id: req.id, ok: true, result: res} as any;
+        }
+
         case 'snapshots.getIndex': {
           const idx = await this.engine.getSnapshotIndex(
             (req.params as any).walletId,
