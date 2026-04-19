@@ -11,7 +11,6 @@ const WORKLET_METHODS: Record<WorkerMethod, true> = {
   'snapshots.getLatestSnapshot': true,
   'snapshots.listSnapshots': true,
   'analysis.compute': true,
-  'analysis.computeAssetRows': true,
   'analysis.computeChart': true,
   'populate.startJob': true,
   'populate.getJobStatus': true,

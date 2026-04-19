@@ -10,10 +10,6 @@ import type {
   SnapshotIngestConfig,
 } from './portfolioEngine';
 import type {PnlAnalysisChartResult, PnlAnalysisResult} from '../pnl/analysisStreaming';
-import type {
-  ComputeAssetRowsArgs,
-  PortfolioAssetRowsResult,
-} from '../pnl/assetRows';
 import type {SnapshotIndexV2} from '../pnl/snapshotStore';
 import type {BalanceSnapshotStored} from '../pnl/types';
 import type {
@@ -79,11 +75,6 @@ export type WorkerMethodMap = {
   'analysis.compute': {
     params: ComputeAnalysisArgs;
     result: PnlAnalysisResult;
-  };
-
-  'analysis.computeAssetRows': {
-    params: ComputeAssetRowsArgs;
-    result: PortfolioAssetRowsResult;
   };
 
   'analysis.computeChart': {

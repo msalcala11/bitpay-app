@@ -1,7 +1,6 @@
 import {
   computeWorkletAnalysis,
   computeWorkletAnalysisChart,
-  computeWorkletAssetRows,
 } from './portfolioWorkletAnalysis';
 import {workletKvListKeys} from './portfolioWorkletKv';
 
@@ -75,53 +74,6 @@ describe('portfolioWorkletAnalysis', () => {
       coins: [],
       points: [],
       assetSummaries: [],
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(workletKvListKeys(config)).toEqual([]);
-  });
-
-
-  it('returns compact placeholder asset rows without warming rates when snapshots are unavailable', async () => {
-    const storage = createStorage();
-    const config = {storage, registryKey: '__registry__'};
-    const fetchMock = jest.fn();
-    global.fetch = fetchMock as typeof global.fetch;
-    const wallet = createStoredWallet();
-    wallet.summary.balanceAtomic = '100000000';
-    wallet.summary.balanceFormatted = '1';
-
-    const result = await computeWorkletAssetRows(config, {
-      cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
-      wallets: [wallet],
-      quoteCurrency: 'USD',
-      timeframe: '1D',
-      maxPoints: 91,
-      collapseAcrossChains: true,
-    });
-
-    expect(result).toMatchObject({
-      quoteCurrency: 'USD',
-      timeframe: '1D',
-      rows: [
-        {
-          key: 'btc',
-          assetId: 'btc:btc',
-          currencyAbbreviation: 'btc',
-          balanceAtomic: '100000000',
-          cryptoAmount: '1',
-          fiatValue: 0,
-          deltaFiatValue: 0,
-          displayPercentRatio: null,
-          pnlPercentRatio: null,
-          pricePercentRatio: null,
-          hasRate: false,
-          hasPnl: false,
-          hasActivityInWindow: false,
-          showPnlPlaceholder: true,
-          isPositive: true,
-          sortValueFiat: 0,
-        },
-      ],
     });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(workletKvListKeys(config)).toEqual([]);

@@ -7,7 +7,6 @@ import {
   toPortfolioStoredWallet,
 } from '../adapters/rn/walletMappers';
 import type {PnlAnalysisChartResult, PnlAnalysisResult, PnlTimeframe} from '../core/pnl/analysisStreaming';
-import type {PortfolioAssetRowsResult} from '../core/pnl/assetRows';
 import type {BwsConfig} from '../core/shared/bws';
 import type {StoredWallet} from '../core/types';
 import {getPortfolioRuntimeClient} from '../runtime/portfolioRuntime';
@@ -121,25 +120,6 @@ export async function runPortfolioAnalysisQuery(args: {
     quoteCurrency: args.quoteCurrency,
     timeframe: args.timeframe,
     maxPoints: args.maxPoints,
-  });
-}
-
-
-export async function runPortfolioAssetRowsQuery(args: {
-  wallets: StoredWallet[];
-  quoteCurrency: string;
-  timeframe: PnlTimeframe;
-  maxPoints?: number;
-  currentRatesByAssetId?: Record<string, number>;
-}): Promise<PortfolioAssetRowsResult> {
-  return getPortfolioRuntimeClient().computeAssetRows({
-    cfg: createPortfolioQueryBwsConfig(),
-    wallets: args.wallets,
-    quoteCurrency: args.quoteCurrency,
-    timeframe: args.timeframe,
-    maxPoints: args.maxPoints ?? 2,
-    collapseAcrossChains: true,
-    currentRatesByAssetId: args.currentRatesByAssetId,
   });
 }
 

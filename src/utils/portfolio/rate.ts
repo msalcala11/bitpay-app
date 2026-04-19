@@ -1,19 +1,17 @@
 import type {
   CachedFiatRateInterval,
   FiatRateInterval,
+  FiatRatePoint,
   FiatRateSeriesCache,
   FiatRateSeriesReaderIdentity,
 } from '../../store/rate/rate.models';
+import {getFiatRateSeriesCacheKey} from '../../store/rate/rate.models';
+import {normalizeFiatRateSeriesCoin} from './core/pnl/rates';
+import {getLastDayTimestampStartOfHourMs} from '../helper-methods';
 import {
-  getFiatRateBaselineTsForTimeframe as getCoreFiatRateBaselineTsForTimeframe,
-  getFiatRateChangeForTimeframe as getCoreFiatRateChangeForTimeframe,
-  getFiatRateFromSeriesCacheAtTimestamp as getCoreFiatRateFromSeriesCacheAtTimestamp,
-  getFiatRateSeriesIntervalForTimeframe as getCoreFiatRateSeriesIntervalForTimeframe,
-  getFiatRateTimeframeConfig as getCoreFiatRateTimeframeConfig,
-  getWindowMsForFiatRateTimeframe as getCoreWindowMsForFiatRateTimeframe,
-  type FiatRateChangeForTimeframe,
-  type FiatRateLookupMethod,
-} from '../../portfolio/core/fiatRateTimeframeChange';
+  getFiatTimeframeSeriesInterval,
+  getFiatTimeframeWindowMs,
+} from '../fiatTimeframes';
 
 export type RatePoint = {
   ts: number;
@@ -34,7 +32,103 @@ export type DownsampleOptions = {
   driverCoin?: string;
 };
 
-export type {FiatRateChangeForTimeframe};
+const getFiatRateSeriesPoints = (args: {
+  fiatRateSeriesCache: FiatRateSeriesCache | undefined;
+  fiatCode: string;
+  currencyAbbreviation: string;
+  interval: FiatRateInterval;
+  identity?: FiatRateSeriesReaderIdentity;
+}): FiatRatePoint[] | undefined => {
+  const cache = args.fiatRateSeriesCache;
+  if (!cache) {
+    return undefined;
+  }
+
+  const coin = normalizeFiatRateSeriesCoin(args.currencyAbbreviation);
+  const cacheKey = getFiatRateSeriesCacheKey(
+    args.fiatCode,
+    coin,
+    args.interval,
+    args.identity,
+  );
+  const series = cache[cacheKey];
+  const points = Array.isArray(series?.points) ? series.points : [];
+  return points.length ? points : undefined;
+};
+
+type BoundingRatePoints = {
+  left?: FiatRatePoint;
+  right?: FiatRatePoint;
+};
+
+const findBoundingRatePoints = (
+  points: FiatRatePoint[],
+  tsMs: number,
+): BoundingRatePoints => {
+  if (!points.length) {
+    return {left: undefined, right: undefined};
+  }
+
+  let lo = 0;
+  let hi = points.length - 1;
+
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (points[mid].ts < tsMs) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+
+  const right = points[lo];
+  const left = lo > 0 ? points[lo - 1] : undefined;
+  return {left, right};
+};
+
+const getNearestFiatRatePoint = (
+  points: FiatRatePoint[],
+  tsMs: number,
+): FiatRatePoint | undefined => {
+  const {left, right} = findBoundingRatePoints(points, tsMs);
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+  return Math.abs(right.ts - tsMs) < Math.abs(tsMs - left.ts) ? right : left;
+};
+
+const getInterpolatedFiatRateAtTs = (
+  points: FiatRatePoint[],
+  tsMs: number,
+): number | undefined => {
+  const {left, right} = findBoundingRatePoints(points, tsMs);
+
+  if (!left && right) {
+    return right.rate;
+  }
+  if (!right && left) {
+    return left.rate;
+  }
+  if (!left || !right) {
+    return undefined;
+  }
+  if (right.ts === left.ts) {
+    return right.rate;
+  }
+  if (tsMs <= left.ts) {
+    return left.rate;
+  }
+  if (tsMs >= right.ts) {
+    return right.rate;
+  }
+
+  const ratio = (tsMs - left.ts) / (right.ts - left.ts);
+  const rate = left.rate + (right.rate - left.rate) * ratio;
+  return Number.isFinite(rate) ? rate : undefined;
+};
 
 export const getFiatRateFromSeriesCacheAtTimestamp = (args: {
   fiatRateSeriesCache: FiatRateSeriesCache | undefined;
@@ -42,31 +136,66 @@ export const getFiatRateFromSeriesCacheAtTimestamp = (args: {
   currencyAbbreviation: string;
   interval: FiatRateInterval;
   timestampMs: number;
-  method?: FiatRateLookupMethod;
+  method?: 'nearest' | 'linear';
   identity?: FiatRateSeriesReaderIdentity;
 }): number | undefined => {
-  return getCoreFiatRateFromSeriesCacheAtTimestamp(args as any);
+  const points = getFiatRateSeriesPoints({
+    fiatRateSeriesCache: args.fiatRateSeriesCache,
+    fiatCode: args.fiatCode,
+    currencyAbbreviation: args.currencyAbbreviation,
+    interval: args.interval,
+    identity: args.identity,
+  });
+  if (!points) {
+    return undefined;
+  }
+
+  if (args.method === 'linear') {
+    return getInterpolatedFiatRateAtTs(points, args.timestampMs);
+  }
+
+  const nearest = getNearestFiatRatePoint(points, args.timestampMs);
+  return nearest?.rate;
 };
+
+const MS_PER_HOUR = 60 * 60 * 1000;
 
 export const getWindowMsForFiatRateTimeframe = (
   timeframe: FiatRateInterval,
 ): number | undefined => {
-  return getCoreWindowMsForFiatRateTimeframe(timeframe as any);
+  return getFiatTimeframeWindowMs(timeframe);
+};
+
+const roundDownToHourMs = (tsMs: number): number => {
+  return Math.floor(tsMs / MS_PER_HOUR) * MS_PER_HOUR;
 };
 
 export const getFiatRateBaselineTsForTimeframe = (args: {
   timeframe: FiatRateInterval;
   nowMs?: number;
 }): number | undefined => {
-  return getCoreFiatRateBaselineTsForTimeframe(args as any);
+  const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
+
+  if (args.timeframe === 'ALL') {
+    return undefined;
+  }
+
+  if (args.timeframe === '1D') {
+    return getLastDayTimestampStartOfHourMs(nowMs);
+  }
+
+  const windowMs = getWindowMsForFiatRateTimeframe(args.timeframe);
+  if (typeof windowMs !== 'number') {
+    return undefined;
+  }
+
+  return roundDownToHourMs(nowMs - windowMs);
 };
 
 export const getFiatRateSeriesIntervalForTimeframe = (
   timeframe: FiatRateInterval,
 ): CachedFiatRateInterval => {
-  return getCoreFiatRateSeriesIntervalForTimeframe(
-    timeframe as any,
-  ) as CachedFiatRateInterval;
+  return getFiatTimeframeSeriesInterval(timeframe);
 };
 
 export type FiatRateTimeframeConfig = {
@@ -79,12 +208,25 @@ export const getFiatRateTimeframeConfig = (args: {
   timeframe: FiatRateInterval;
   nowMs?: number;
 }): FiatRateTimeframeConfig => {
-  const config = getCoreFiatRateTimeframeConfig(args as any);
-  return {
-    windowMs: config.windowMs,
-    baselineTimestampMs: config.baselineTimestampMs,
-    seriesInterval: config.seriesInterval as CachedFiatRateInterval,
-  };
+  const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
+  const windowMs = getWindowMsForFiatRateTimeframe(args.timeframe);
+  const baselineTimestampMs = getFiatRateBaselineTsForTimeframe({
+    timeframe: args.timeframe,
+    nowMs,
+  });
+  const seriesInterval = getFiatRateSeriesIntervalForTimeframe(args.timeframe);
+
+  return {windowMs, baselineTimestampMs, seriesInterval};
+};
+
+export type FiatRateChangeForTimeframe = {
+  timeframe: FiatRateInterval;
+  baselineTimestampMs: number;
+  baselineRate: number;
+  currentRate: number;
+  priceChange: number;
+  percentChange: number;
+  percentRatio: number;
 };
 
 export const getFiatRateChangeForTimeframe = (args: {
@@ -93,13 +235,101 @@ export const getFiatRateChangeForTimeframe = (args: {
   currencyAbbreviation: string;
   timeframe: FiatRateInterval;
   nowMs?: number;
-  assetId?: string;
-  currentRatesByAssetId?: Record<string, number | undefined>;
   currentRate?: number;
-  method?: FiatRateLookupMethod;
+  method?: 'nearest' | 'linear';
   identity?: FiatRateSeriesReaderIdentity;
 }): FiatRateChangeForTimeframe | undefined => {
-  return getCoreFiatRateChangeForTimeframe(args as any);
+  const cache = args.fiatRateSeriesCache;
+  if (!cache) {
+    return undefined;
+  }
+
+  const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
+  const {seriesInterval, baselineTimestampMs} = getFiatRateTimeframeConfig({
+    timeframe: args.timeframe,
+    nowMs,
+  });
+  const method = args.method ?? 'linear';
+
+  const points = getFiatRateSeriesPoints({
+    fiatRateSeriesCache: cache,
+    fiatCode: args.fiatCode,
+    currencyAbbreviation: args.currencyAbbreviation,
+    interval: seriesInterval,
+    identity: args.identity,
+  });
+  if (!points) {
+    return undefined;
+  }
+
+  const currentRate =
+    typeof args.currentRate === 'number' && Number.isFinite(args.currentRate)
+      ? args.currentRate
+      : getFiatRateFromSeriesCacheAtTimestamp({
+          fiatRateSeriesCache: cache,
+          fiatCode: args.fiatCode,
+          currencyAbbreviation: args.currencyAbbreviation,
+          interval: seriesInterval,
+          timestampMs: nowMs,
+          method: 'nearest',
+          identity: args.identity,
+        });
+  if (!(typeof currentRate === 'number' && Number.isFinite(currentRate))) {
+    return undefined;
+  }
+
+  const baseline = (() => {
+    if (args.timeframe === 'ALL') {
+      const first = points[0];
+      if (!first || !(first.rate > 0)) {
+        return undefined;
+      }
+      return {tsMs: first.ts, rate: first.rate};
+    }
+
+    if (typeof baselineTimestampMs !== 'number') {
+      return undefined;
+    }
+
+    const baselineRate = getFiatRateFromSeriesCacheAtTimestamp({
+      fiatRateSeriesCache: cache,
+      fiatCode: args.fiatCode,
+      currencyAbbreviation: args.currencyAbbreviation,
+      interval: seriesInterval,
+      timestampMs: baselineTimestampMs,
+      method,
+      identity: args.identity,
+    });
+    if (!(typeof baselineRate === 'number' && Number.isFinite(baselineRate))) {
+      return undefined;
+    }
+    return {tsMs: baselineTimestampMs, rate: baselineRate};
+  })();
+
+  if (!baseline || !(baseline.rate > 0)) {
+    return undefined;
+  }
+
+  const priceChange = currentRate - baseline.rate;
+  const percentRatio = priceChange / baseline.rate;
+  if (!Number.isFinite(priceChange) || !Number.isFinite(percentRatio)) {
+    return undefined;
+  }
+
+  const percentChange = Number((percentRatio * 100).toFixed(2));
+  if (!Number.isFinite(percentChange)) {
+    return undefined;
+  }
+
+  return {
+    timeframe: args.timeframe,
+    baselineTimestampMs: baseline.tsMs,
+    baselineRate: baseline.rate,
+    currentRate,
+    priceChange,
+    percentChange,
+    percentRatio,
+  };
 };
 
 function medianLow(values: number[]): number {

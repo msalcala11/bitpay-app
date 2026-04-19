@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useMemo, useState} from 'react';
 import styled from 'styled-components/native';
 import {NavigationProp, useNavigation} from '@react-navigation/native';
 import {useTranslation} from 'react-i18next';
@@ -33,28 +33,24 @@ const AssetsSection: React.FC = () => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
-  const populateInProgress = !!portfolio.populateStatus?.inProgress;
   const {
     visibleItems,
     isFiatLoading,
-    isPnlLoading,
     isPopulateLoadingByKey,
     hasAnyPortfolioData,
   } = usePortfolioAssetRows({
     gainLossMode,
-    maxVisibleItems: 4,
   });
 
-  const items = visibleItems;
+  const items = useMemo(() => {
+    return visibleItems.slice(0, 4);
+  }, [visibleItems]);
 
-  const showSkeletonRows =
-    !items.length && (populateInProgress || isFiatLoading || isPnlLoading);
-
-  if (!populateInProgress && !hasAnyPortfolioData && !showSkeletonRows) {
+  if (!portfolio.populateStatus?.inProgress && !hasAnyPortfolioData) {
     return null;
   }
 
-  if (!items.length && !showSkeletonRows) {
+  if (!items.length) {
     return null;
   }
 
@@ -71,10 +67,8 @@ const AssetsSection: React.FC = () => {
       <AssetsList
         items={items}
         isFiatLoading={isFiatLoading}
-        isPnlLoading={isPnlLoading}
-        populateInProgress={populateInProgress}
+        populateInProgress={!!portfolio.populateStatus?.inProgress}
         isPopulateLoadingByKey={isPopulateLoadingByKey}
-        showSkeletonRows={showSkeletonRows}
       />
 
       <ButtonContainer>

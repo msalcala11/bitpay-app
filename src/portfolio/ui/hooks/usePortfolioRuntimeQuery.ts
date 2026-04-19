@@ -20,49 +20,6 @@ export type PortfolioRuntimeQueryState<T> = {
   requestKey: string;
 };
 
-type RuntimeQueryInternalState<T> = {
-  requestKey: string;
-  refreshToken: string;
-  data?: T;
-  dataRequestKey?: string;
-  dataRefreshToken?: string;
-  loading: boolean;
-  error?: Error;
-};
-
-function getInitialRuntimeQueryState<T>(args: {
-  requestKey: string;
-  refreshToken: string;
-  enabled: boolean;
-  storedWallets: StoredWallet[];
-}): RuntimeQueryInternalState<T> {
-  return {
-    requestKey: args.requestKey,
-    refreshToken: args.refreshToken,
-    data: undefined,
-    dataRequestKey: undefined,
-    dataRefreshToken: undefined,
-    loading: args.enabled && args.storedWallets.length > 0,
-    error: undefined,
-  };
-}
-
-function canExposeRuntimeQueryData<T>(args: {
-  state: Pick<
-    RuntimeQueryInternalState<T>,
-    'dataRequestKey' | 'dataRefreshToken'
-  >;
-  requestKey: string;
-  refreshToken: string;
-  clearDataOnRefreshToken?: boolean;
-}): boolean {
-  return (
-    args.state.dataRequestKey === args.requestKey &&
-    (args.state.dataRefreshToken === args.refreshToken ||
-      args.clearDataOnRefreshToken === false)
-  );
-}
-
 export function usePortfolioRuntimeQuery<T>(args: {
   wallets: Wallet[];
   timeframe: PnlTimeframe;
@@ -89,7 +46,6 @@ export function usePortfolioRuntimeQuery<T>(args: {
     });
   });
   const refreshToken = args.refreshToken ?? committedPortfolioRevisionToken;
-  const enabled = args.enabled !== false;
 
   const quoteCurrency = useMemo(() => {
     return resolveCommittedPortfolioQuoteCurrency({
@@ -113,101 +69,25 @@ export function usePortfolioRuntimeQuery<T>(args: {
       getStoredWalletRequestSignature(storedWallets),
     ].join('|');
   }, [args.maxPoints, args.timeframe, quoteCurrency, storedWallets]);
-
-  const [queryState, setQueryState] = useState<RuntimeQueryInternalState<T>>(
-    () =>
-      getInitialRuntimeQueryState<T>({
-        requestKey,
-        refreshToken,
-        enabled,
-        storedWallets,
-      }),
-  );
+  const [data, setData] = useState<T | undefined>(undefined);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | undefined>(undefined);
 
   useEffect(() => {
-    if (!enabled) {
-      setQueryState(prev => {
-        if (
-          prev.requestKey === requestKey &&
-          prev.refreshToken === refreshToken &&
-          prev.loading === false &&
-          prev.error === undefined
-        ) {
-          return prev;
-        }
-
-        return {
-          ...prev,
-          requestKey,
-          refreshToken,
-          loading: false,
-          error: undefined,
-        };
-      });
+    if (args.enabled === false) {
+      setLoading(false);
       return;
     }
 
     if (!storedWallets.length) {
-      setQueryState(prev => {
-        if (
-          prev.requestKey === requestKey &&
-          prev.refreshToken === refreshToken &&
-          prev.loading === false &&
-          prev.error === undefined &&
-          prev.data === undefined &&
-          prev.dataRequestKey === undefined &&
-          prev.dataRefreshToken === undefined
-        ) {
-          return prev;
-        }
-
-        return {
-          requestKey,
-          refreshToken,
-          data: undefined,
-          dataRequestKey: undefined,
-          dataRefreshToken: undefined,
-          loading: false,
-          error: undefined,
-        };
-      });
+      setData(undefined);
+      setLoading(false);
       return;
     }
 
     let cancelled = false;
-
-    setQueryState(prev => {
-      const isSameRequestIdentity =
-        prev.requestKey === requestKey && prev.refreshToken === refreshToken;
-      const shouldKeepVisibleData = canExposeRuntimeQueryData({
-        state: prev,
-        requestKey,
-        refreshToken,
-        clearDataOnRefreshToken: args.clearDataOnRefreshToken,
-      });
-
-      if (
-        isSameRequestIdentity &&
-        prev.loading &&
-        prev.error === undefined &&
-        (shouldKeepVisibleData || prev.data === undefined)
-      ) {
-        return prev;
-      }
-
-      return {
-        ...prev,
-        requestKey,
-        refreshToken,
-        loading: true,
-        error: undefined,
-        data: shouldKeepVisibleData ? prev.data : undefined,
-        dataRequestKey: shouldKeepVisibleData ? prev.dataRequestKey : undefined,
-        dataRefreshToken: shouldKeepVisibleData
-          ? prev.dataRefreshToken
-          : undefined,
-      };
-    });
+    setLoading(true);
+    setError(undefined);
 
     args
       .execute({
@@ -220,81 +100,30 @@ export function usePortfolioRuntimeQuery<T>(args: {
         if (cancelled) {
           return;
         }
-
-        setQueryState({
-          requestKey,
-          refreshToken,
-          data: result,
-          dataRequestKey: requestKey,
-          dataRefreshToken: refreshToken,
-          loading: false,
-          error: undefined,
-        });
+        setData(result);
+        setLoading(false);
       })
       .catch(err => {
         if (cancelled) {
           return;
         }
-
-        setQueryState(prev => {
-          const shouldKeepVisibleData = canExposeRuntimeQueryData({
-            state: prev,
-            requestKey,
-            refreshToken,
-            clearDataOnRefreshToken: args.clearDataOnRefreshToken,
-          });
-
-          return {
-            ...prev,
-            requestKey,
-            refreshToken,
-            loading: false,
-            error: err instanceof Error ? err : new Error(String(err)),
-            data: shouldKeepVisibleData ? prev.data : undefined,
-            dataRequestKey: shouldKeepVisibleData
-              ? prev.dataRequestKey
-              : undefined,
-            dataRefreshToken: shouldKeepVisibleData
-              ? prev.dataRefreshToken
-              : undefined,
-          };
-        });
+        setLoading(false);
+        setError(err instanceof Error ? err : new Error(String(err)));
       });
 
     return () => {
       cancelled = true;
     };
   }, [
-    args.clearDataOnRefreshToken,
+    args.enabled,
     args.execute,
     args.maxPoints,
     args.timeframe,
-    enabled,
     quoteCurrency,
-    refreshToken,
     requestKey,
+    refreshToken,
     storedWallets,
   ]);
-
-  const data = canExposeRuntimeQueryData({
-    state: queryState,
-    requestKey,
-    refreshToken,
-    clearDataOnRefreshToken: args.clearDataOnRefreshToken,
-  })
-    ? queryState.data
-    : undefined;
-  const error =
-    queryState.requestKey === requestKey &&
-    queryState.refreshToken === refreshToken
-      ? queryState.error
-      : undefined;
-  const loading =
-    enabled &&
-    storedWallets.length > 0 &&
-    (queryState.requestKey !== requestKey ||
-      queryState.refreshToken !== refreshToken ||
-      queryState.loading);
 
   return {
     data,
