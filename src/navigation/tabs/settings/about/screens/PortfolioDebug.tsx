@@ -15,7 +15,10 @@ import SearchSvg from '../../../../../../assets/img/search.svg';
 import {Network} from '../../../../../constants';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {getPortfolioRuntimeClient} from '../../../../../portfolio/runtime/portfolioRuntime';
-import type {SnapshotIndexV2} from '../../../../../portfolio/core/pnl/snapshotStore';
+import type {
+  SnapshotIndexV2,
+  SnapshotPersistDebugMode,
+} from '../../../../../portfolio/core/pnl/snapshotStore';
 import type {Wallet} from '../../../../../store/wallet/wallet.models';
 import type {SnapshotBalanceMismatch} from '../../../../../store/portfolio/portfolio.models';
 import {clearPortfolioWithRuntime, populatePortfolio} from '../../../../../store/portfolio';
@@ -80,6 +83,14 @@ const ErrorText = styled(SectionText)`
 `;
 
 const EmptyStateText = styled(SectionText)`
+  opacity: 0.7;
+`;
+
+const ControlLabel = styled.Text`
+  padding: 0 12px;
+  color: ${({theme}) => theme.colors.text};
+  font-size: 12px;
+  line-height: 16px;
   opacity: 0.7;
 `;
 
@@ -177,6 +188,25 @@ const getAllMainnetWallets = (walletKeys: Record<string, any>): Wallet[] => {
   });
 };
 
+const SNAPSHOT_DEBUG_MODE_OPTIONS: SnapshotPersistDebugMode[] = [
+  'none',
+  'link',
+  'full',
+];
+
+const formatSnapshotDebugModeLabel = (
+  mode: SnapshotPersistDebugMode,
+): string => {
+  switch (mode) {
+    case 'none':
+      return 'None';
+    case 'link':
+      return 'Link';
+    case 'full':
+      return 'Full';
+  }
+};
+
 const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
   const {t} = useTranslation();
   const theme = useTheme();
@@ -194,6 +224,8 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
   const [runtimeError, setRuntimeError] = useState<string>('');
   const [lastRefreshedAt, setLastRefreshedAt] = useState<number | undefined>();
   const [query, setQuery] = useState('');
+  const [populateDebugMode, setPopulateDebugMode] =
+    useState<SnapshotPersistDebugMode>('link');
   const wallets = useMemo(() => getAllMainnetWallets(walletKeys), [walletKeys]);
   const deferredQuery = useDeferredValue(query);
   const loadRequestIdRef = useRef(0);
@@ -360,13 +392,15 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
 
   const repopulate = useCallback(async () => {
     try {
-      await dispatch(populatePortfolio({snapshotDebugMode: 'link'}) as any);
+      await dispatch(
+        populatePortfolio({snapshotDebugMode: populateDebugMode}) as any,
+      );
       load();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setRuntimeError(message);
     }
-  }, [dispatch, load]);
+  }, [dispatch, load, populateDebugMode]);
 
   const clearAll = useCallback(async () => {
     if (isClearing) {
@@ -403,13 +437,37 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
           <DebugHeaderText>
             {t('Runtime-backed portfolio debug info. Redux snapshot arrays are no longer used in production.')}
           </DebugHeaderText>
+          <ControlLabel>
+            {`Populate debug mode: ${formatSnapshotDebugModeLabel(
+              populateDebugMode,
+            )}`}
+          </ControlLabel>
+          <DebugButtonRow>
+            {SNAPSHOT_DEBUG_MODE_OPTIONS.map(mode => {
+              const selected = populateDebugMode === mode;
+              return (
+                <DebugPillButton
+                  key={mode}
+                  onPress={() => setPopulateDebugMode(mode)}
+                  selected={selected}>
+                  <DebugPillButtonText selected={selected}>
+                    {formatSnapshotDebugModeLabel(mode)}
+                  </DebugPillButtonText>
+                </DebugPillButton>
+              );
+            })}
+          </DebugButtonRow>
 
           <DebugButtonRow>
             <DebugPillButton onPress={load}>
               <DebugPillButtonText>{isLoading ? t('Loading...') : t('Refresh')}</DebugPillButtonText>
             </DebugPillButton>
             <DebugPillButton onPress={repopulate}>
-              <DebugPillButtonText>{t('Populate')}</DebugPillButtonText>
+              <DebugPillButtonText>
+                {`${t('Populate')} (${formatSnapshotDebugModeLabel(
+                  populateDebugMode,
+                )})`}
+              </DebugPillButtonText>
             </DebugPillButton>
             <DebugPillButton onPress={clearRates}>
               <DebugPillButtonText>{t('Clear Rates')}</DebugPillButtonText>

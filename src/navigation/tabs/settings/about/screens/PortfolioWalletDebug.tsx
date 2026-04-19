@@ -23,7 +23,10 @@ import {
   DebugScreenContainer,
 } from '../components/DebugUI';
 import {getPortfolioRuntimeClient} from '../../../../../portfolio/runtime/portfolioRuntime';
-import type {SnapshotIndexV2} from '../../../../../portfolio/core/pnl/snapshotStore';
+import type {
+  SnapshotIndexV2,
+  SnapshotPersistDebugMode,
+} from '../../../../../portfolio/core/pnl/snapshotStore';
 import type {BalanceSnapshotStored} from '../../../../../portfolio/core/pnl/types';
 import type {
   Tx,
@@ -80,6 +83,34 @@ const SectionText = styled.Text`
 const ErrorText = styled(SectionText)`
   color: ${({theme}) => theme.colors.notification};
 `;
+
+const ControlLabel = styled.Text`
+  color: ${({theme}) => theme.colors.text};
+  font-size: 12px;
+  line-height: 16px;
+  margin-top: 2px;
+  margin-bottom: 8px;
+  opacity: 0.7;
+`;
+
+const SNAPSHOT_DEBUG_MODE_OPTIONS: SnapshotPersistDebugMode[] = [
+  'none',
+  'link',
+  'full',
+];
+
+const formatSnapshotDebugModeLabel = (
+  mode: SnapshotPersistDebugMode,
+): string => {
+  switch (mode) {
+    case 'none':
+      return 'None';
+    case 'link':
+      return 'Link';
+    case 'full':
+      return 'Full';
+  }
+};
 
 const csvEscape = (value: unknown): string => {
   const nextValue = value == null ? '' : String(value);
@@ -381,6 +412,8 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
     useState<boolean>(false);
   const [isRunningBalanceDiagnostic, setIsRunningBalanceDiagnostic] =
     useState<boolean>(false);
+  const [populateDebugMode, setPopulateDebugMode] =
+    useState<SnapshotPersistDebugMode>('link');
 
   const wallet = useMemo(
     () => findWalletById(walletKeys, walletId),
@@ -750,9 +783,9 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
             ? {
                 wallets: [wallet],
                 walletIds: [walletId],
-                snapshotDebugMode: 'link',
+                snapshotDebugMode: populateDebugMode,
               }
-            : {walletIds: [walletId], snapshotDebugMode: 'link'},
+            : {walletIds: [walletId], snapshotDebugMode: populateDebugMode},
         ) as any,
       );
       const afterIndex =
@@ -761,7 +794,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
         (await runtimeClient.getPopulateWalletTrace({walletId})) || null;
       setLastDebugPopulate({
         capturedAtMs: Date.now(),
-        snapshotDebugMode: 'link',
+        snapshotDebugMode: populateDebugMode,
         beforeIndex,
         afterIndex,
         debugTrace,
@@ -771,7 +804,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
       const message = error instanceof Error ? error.message : String(error);
       setRuntimeError(message);
     }
-  }, [dispatch, refresh, wallet, walletId]);
+  }, [dispatch, populateDebugMode, refresh, wallet, walletId]);
 
   const viewWallet = useCallback(() => {
     if (!wallet) {
@@ -794,6 +827,26 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
           <DebugHeaderText>
             {t('Runtime wallet debug view for a single portfolio wallet.')}
           </DebugHeaderText>
+          <ControlLabel>
+            {`Populate debug mode: ${formatSnapshotDebugModeLabel(
+              populateDebugMode,
+            )}`}
+          </ControlLabel>
+          <DebugButtonRow>
+            {SNAPSHOT_DEBUG_MODE_OPTIONS.map(mode => {
+              const selected = populateDebugMode === mode;
+              return (
+                <DebugPillButton
+                  key={mode}
+                  onPress={() => setPopulateDebugMode(mode)}
+                  selected={selected}>
+                  <DebugPillButtonText selected={selected}>
+                    {formatSnapshotDebugModeLabel(mode)}
+                  </DebugPillButtonText>
+                </DebugPillButton>
+              );
+            })}
+          </DebugButtonRow>
           <DebugButtonRow>
             <DebugPillButton onPress={refresh}>
               <DebugPillButtonText>{isLoading ? t('Loading...') : t('Refresh')}</DebugPillButtonText>
@@ -807,7 +860,11 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
               <DebugPillButtonText>{t('View Wallet')}</DebugPillButtonText>
             </DebugPillButton>
             <DebugPillButton onPress={repopulateWallet}>
-              <DebugPillButtonText>{t('Populate Wallet')}</DebugPillButtonText>
+              <DebugPillButtonText>
+                {`${t('Populate Wallet')} (${formatSnapshotDebugModeLabel(
+                  populateDebugMode,
+                )})`}
+              </DebugPillButtonText>
             </DebugPillButton>
             <DebugPillButton onPress={clearWallet}>
               <DebugPillButtonText>{t('Clear Wallet')}</DebugPillButtonText>
