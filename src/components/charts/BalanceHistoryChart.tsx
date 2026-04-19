@@ -659,6 +659,7 @@ const BalanceHistoryChart = ({
           gradientBackgroundColor,
           theme.dark ? 'transparent' : White,
         ]}
+        showFirstPointGuideLine={hasRenderableSeries}
         isLoading={shouldShowLoader}
         hideLineWhileLoading={!hasRenderableSeries}
         enablePanGesture={!loading && !disablePanGesture && hasRenderableSeries}
