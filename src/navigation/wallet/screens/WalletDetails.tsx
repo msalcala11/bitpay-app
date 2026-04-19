@@ -95,6 +95,7 @@ import {WalletScreens, WalletGroupParamList} from '../WalletGroup';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {startGetRates} from '../../../store/wallet/effects';
 import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
+import usePortfolioWalletSnapshotPresence from '../../../portfolio/ui/hooks/usePortfolioWalletSnapshotPresence';
 import {createWalletAddress} from '../../../store/wallet/effects/address/address';
 import {
   BuildUiFriendlyList,
@@ -652,7 +653,11 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const [needActionUnsentTxps, setNeedActionUnsentTxps] = useState<any[]>([]);
   const [isScrolling, setIsScrolling] = useState<boolean>(false);
   const walletBalanceSat = Number(fullWalletObj.balance?.sat || 0);
-  const showWalletBalanceChart = walletBalanceSat > 0;
+  const {hasAnySnapshots: walletHasSnapshots} =
+    usePortfolioWalletSnapshotPresence({
+      wallets: [fullWalletObj],
+    });
+  const showWalletBalanceChart = walletBalanceSat > 0 && walletHasSnapshots;
 
   const setNeedActionTxps = (pendingTxps: TransactionProposal[]) => {
     const txpsPending: TransactionProposal[] = [];
