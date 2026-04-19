@@ -1,9 +1,7 @@
 import type {KvStore} from '../kv/types';
-import {jsonParseSafe, jsonStringifySafe} from '../kv/types';
 import type {
   FiatRateAssetRef,
   FiatRateInterval,
-  FiatRatePoint,
   FiatRateSeries,
   FiatRateSeriesResponse,
 } from '../fiatRatesShared';
@@ -15,11 +13,12 @@ import {
 import type {BwsConfig} from '../shared/bws';
 import {getFiatRateSeriesWithFx} from './fxRates';
 import {getFiatRateAssetRef} from './rates';
-
-type StoredFiatRateSeriesV2 = {
-  v: 2;
-  p: Array<[number, number]>;
-};
+import {
+  hasStoredFiatRateSeriesPersistedFetchedOn,
+  normalizeStoredFiatRateSeriesPoints,
+  parseStoredFiatRateSeriesRaw,
+  stringifyStoredFiatRateSeries,
+} from './storedFiatRateSeries';
 
 function rateKey(args: {
   quoteCurrency: string;
@@ -28,7 +27,9 @@ function rateKey(args: {
   chain?: string;
   tokenAddress?: string;
 }): string {
-  const base = `rate:v1:${args.quoteCurrency.toUpperCase()}:${args.coin.toLowerCase()}:${resolveStoredFiatRateInterval(args.interval)}`;
+  const base = `rate:v1:${args.quoteCurrency.toUpperCase()}:${args.coin.toLowerCase()}:${resolveStoredFiatRateInterval(
+    args.interval,
+  )}`;
   const chain = normalizeFiatRateSeriesChain(args.chain);
   const tokenAddress = normalizeFiatRateSeriesTokenAddress(
     chain,
@@ -38,21 +39,10 @@ function rateKey(args: {
   return `${base}:${chain || ''}:${tokenAddress}`;
 }
 
-function normalizeSeriesPoints(raw: unknown): FiatRatePoint[] {
-  if (!Array.isArray(raw)) return [];
-
-  return raw
-    .map(p =>
-      Array.isArray(p)
-        ? {ts: Number(p[0]), rate: Number(p[1])}
-        : {ts: Number((p as any)?.ts), rate: Number((p as any)?.rate)},
-    )
-    .filter(p => Number.isFinite(p.ts) && Number.isFinite(p.rate))
-    .sort((a, b) => a.ts - b.ts);
-}
-
-function toSeriesFromProviderCandidate(candidate: unknown): FiatRateSeries | null {
-  const directPoints = normalizeSeriesPoints(candidate);
+function toSeriesFromProviderCandidate(
+  candidate: unknown,
+): FiatRateSeries | null {
+  const directPoints = normalizeStoredFiatRateSeriesPoints(candidate);
   if (directPoints.length) {
     return {
       fetchedOn: Date.now(),
@@ -62,7 +52,9 @@ function toSeriesFromProviderCandidate(candidate: unknown): FiatRateSeries | nul
 
   if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
     const fetchedOnRaw = Number((candidate as any).fetchedOn);
-    const points = normalizeSeriesPoints((candidate as any).points);
+    const points = normalizeStoredFiatRateSeriesPoints(
+      (candidate as any).points,
+    );
     if (points.length) {
       return {
         fetchedOn: Number.isFinite(fetchedOnRaw) ? fetchedOnRaw : Date.now(),
@@ -74,46 +66,7 @@ function toSeriesFromProviderCandidate(candidate: unknown): FiatRateSeries | nul
   return null;
 }
 
-function decodeStoredFiatRateSeriesValue(candidate: unknown): FiatRateSeries | null {
-  if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
-    if (Number((candidate as any).v) === 2) {
-      const points = normalizeSeriesPoints((candidate as StoredFiatRateSeriesV2).p);
-      if (!points.length) return null;
-      return {
-        fetchedOn: 0,
-        points,
-      };
-    }
-
-    const fetchedOnRaw = Number((candidate as any).fetchedOn);
-    const points = normalizeSeriesPoints((candidate as any).points);
-    if (points.length) {
-      return {
-        fetchedOn: Number.isFinite(fetchedOnRaw) ? fetchedOnRaw : 0,
-        points,
-      };
-    }
-  }
-
-  const directPoints = normalizeSeriesPoints(candidate);
-  if (!directPoints.length) return null;
-
-  return {
-    fetchedOn: 0,
-    points: directPoints,
-  };
-}
-
-function encodeStoredFiatRateSeriesValue(series: FiatRateSeries): StoredFiatRateSeriesV2 {
-  return {
-    v: 2,
-    p: normalizeSeriesPoints(series.points).map(point => [point.ts, point.rate]),
-  };
-}
-
-export function parseStoredFiatRateSeries(raw: string | null): FiatRateSeries | null {
-  return decodeStoredFiatRateSeriesValue(jsonParseSafe<unknown>(raw, null));
-}
+export const parseStoredFiatRateSeries = parseStoredFiatRateSeriesRaw;
 
 function extractSeries(raw: unknown, coin: string): FiatRateSeries | null {
   const direct = toSeriesFromProviderCandidate(raw);
@@ -122,15 +75,14 @@ function extractSeries(raw: unknown, coin: string): FiatRateSeries | null {
 
   const record = raw as Record<string, unknown>;
   const candidate =
-    record[coin] ??
-    record[coin.toLowerCase()] ??
-    record[coin.toUpperCase()];
+    record[coin] ?? record[coin.toLowerCase()] ?? record[coin.toUpperCase()];
 
   const matched = toSeriesFromProviderCandidate(candidate);
   if (matched) return matched;
 
   // Token-specific endpoints may return a single keyed entry that does not match the requested symbol exactly.
-  const singleValue = Object.values(record).length === 1 ? Object.values(record)[0] : undefined;
+  const singleValue =
+    Object.values(record).length === 1 ? Object.values(record)[0] : undefined;
   const fallback = toSeriesFromProviderCandidate(singleValue);
   if (fallback) return fallback;
 
@@ -227,7 +179,7 @@ export class FiatRateStore {
   }): Promise<void> {
     const key = rateKey(args);
     this.mem.set(key, args.series);
-    await this.kv.setString(key, jsonStringifySafe(encodeStoredFiatRateSeriesValue(args.series)));
+    await this.kv.setString(key, stringifyStoredFiatRateSeries(args.series));
   }
 
   /**
@@ -255,7 +207,9 @@ export class FiatRateStore {
             chain: asset.chain,
             tokenAddress: asset.tokenAddress,
           });
-          const id = `${normalized.coin}|${normalized.chain || ''}|${normalized.tokenAddress || ''}`;
+          const id = `${normalized.coin}|${normalized.chain || ''}|${
+            normalized.tokenAddress || ''
+          }`;
           return [id, normalized];
         }),
       ).values(),
@@ -264,6 +218,7 @@ export class FiatRateStore {
 
     const missingDefaults: string[] = [];
     const missingExplicit: FiatRateAssetRef[] = [];
+    const fallbackDefaultCoins = new Set<string>();
     for (const asset of assets) {
       const existing = await this.getStoredSeries({
         quoteCurrency,
@@ -272,28 +227,50 @@ export class FiatRateStore {
         chain: asset.chain,
         tokenAddress: asset.tokenAddress,
       });
-      if (existing?.points?.length) continue;
+      if (existing?.points?.length) {
+        if (hasStoredFiatRateSeriesPersistedFetchedOn(existing)) {
+          continue;
+        }
+        if (!asset.tokenAddress) {
+          fallbackDefaultCoins.add(asset.coin);
+        }
+      }
       if (asset.tokenAddress) missingExplicit.push(asset);
       else missingDefaults.push(asset.coin);
     }
     if (!missingDefaults.length && !missingExplicit.length) return;
 
     if (!this.provider) {
-      throw new Error('FiatRateStore cannot fetch rates without an injected rate provider.');
+      throw new Error(
+        'FiatRateStore cannot fetch rates without an injected rate provider.',
+      );
     }
 
     if (missingDefaults.length) {
-      const json = await this.provider.loadSeries({
-        cfg: args.cfg,
-        quoteCurrency,
-        interval,
-        coins: missingDefaults,
-      });
+      let json: FiatRateSeriesResponse | unknown;
+      try {
+        json = await this.provider.loadSeries({
+          cfg: args.cfg,
+          quoteCurrency,
+          interval,
+          coins: missingDefaults,
+        });
+      } catch (error: unknown) {
+        const missingWithoutFallback = missingDefaults.filter(
+          coin => !fallbackDefaultCoins.has(coin),
+        );
+        if (missingWithoutFallback.length) {
+          throw error;
+        }
+        json = null;
+      }
 
-      for (const coin of missingDefaults) {
-        const series = extractSeries(json, coin);
-        if (series?.points?.length) {
-          await this.setSeries({quoteCurrency, coin, interval, series});
+      if (json != null) {
+        for (const coin of missingDefaults) {
+          const series = extractSeries(json, coin);
+          if (series?.points?.length) {
+            await this.setSeries({quoteCurrency, coin, interval, series});
+          }
         }
       }
     }
