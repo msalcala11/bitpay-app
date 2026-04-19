@@ -102,7 +102,7 @@ const PortfolioBalance = () => {
     useAppSelector(({COINBASE}) => COINBASE.balance[COINBASE_ENV]) || 0.0;
 
   const keys = useSelector(({WALLET}: RootState) => WALLET.keys);
-  const {rates, fiatRateSeriesCache} = useSelector(({RATE}: RootState) => RATE);
+  const {rates} = useSelector(({RATE}: RootState) => RATE);
 
   const committedPortfolioQuoteCurrency = useAppSelector(
     ({PORTFOLIO}) => PORTFOLIO.quoteCurrency,
@@ -527,14 +527,13 @@ const PortfolioBalance = () => {
                     setChartBlockHeight(h);
                   }
                 }}>
-                <BalanceHistoryChart
-                  key={chartLifecycleKey}
-                  wallets={walletsAcrossKeys}
-                  quoteCurrency={quoteCurrency}
-                  initialSelectedTimeframe={selectedChartTimeframeRef.current}
-                  rates={rates}
-                  fiatRateSeriesCache={fiatRateSeriesCache}
-                  strokeScale={chartScale}
+                  <BalanceHistoryChart
+                    key={chartLifecycleKey}
+                    wallets={walletsAcrossKeys}
+                    quoteCurrency={quoteCurrency}
+                    initialSelectedTimeframe={selectedChartTimeframeRef.current}
+                    rates={rates}
+                    strokeScale={chartScale}
                   minStrokeScale={collapsedScale}
                   onChangeRowData={setChartChangeRowData}
                   onSelectedTimeframeChange={onSelectedChartTimeframeChange}
@@ -581,7 +580,6 @@ const PortfolioBalance = () => {
             quoteCurrency={quoteCurrency}
             initialSelectedTimeframe={selectedChartTimeframeRef.current}
             rates={rates}
-            fiatRateSeriesCache={fiatRateSeriesCache}
             onSelectedTimeframeChange={onSelectedChartTimeframeChange}
             timeframeSelectorHorizontalInset={ScreenGutter}
             showLoaderWhenNoSnapshots={

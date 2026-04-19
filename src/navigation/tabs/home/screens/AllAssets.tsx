@@ -32,6 +32,14 @@ import {
 } from '../../../../constants/currencies';
 import {getCurrencyAbbreviation} from '../../../../utils/helper-methods';
 import {useAssetIconResolver} from '../hooks/useAssetIconResolver';
+import {FIAT_RATE_SERIES_CACHED_INTERVALS} from '../../../../store/rate/rate.models';
+import {HISTORIC_RATES_CACHE_DURATION} from '../../../../constants/wallet';
+import {getQuoteCurrency} from '../../../../utils/portfolio/assets';
+import {
+  getHistoricalRateAssetRequestFromItem,
+  type HistoricalRateAssetRequest,
+} from '../hooks/portfolioAssetHistoryRequests';
+import useRuntimeFiatRateSeriesCache from '../../../../portfolio/ui/hooks/useRuntimeFiatRateSeriesCache';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AllAssets'>;
 const LIST_HORIZONTAL_GUTTER = Number.parseInt(ScreenGutter, 10);
@@ -88,6 +96,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
   const theme = useTheme();
   const commonOptions = useStackScreenOptions(theme);
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
+  const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const populateInProgress = !!portfolio.populateStatus?.inProgress;
   const {getAssetIconData, getSupportedOption} = useAssetIconResolver();
 
@@ -100,6 +109,10 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
       gainLossMode,
       keyId: route.params?.keyId,
     });
+  const quoteCurrency = getQuoteCurrency({
+    portfolioQuoteCurrency: portfolio.quoteCurrency,
+    defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
+  }).toUpperCase();
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -162,6 +175,32 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
     visibleItems,
   ]);
 
+  const historicalRateRequests = useMemo(() => {
+    return filteredItems
+      .map(item =>
+        getHistoricalRateAssetRequestFromItem(
+          item,
+          defaultAltCurrency?.isoCode || 'USD',
+        ),
+      )
+      .filter(
+        (request): request is HistoricalRateAssetRequest => request != null,
+      )
+      .map(request => ({
+        coin: request.coin,
+        chain: request.chain,
+        tokenAddress: request.tokenAddress,
+        intervals: [...FIAT_RATE_SERIES_CACHED_INTERVALS],
+      }));
+  }, [defaultAltCurrency?.isoCode, filteredItems]);
+
+  const {cache: fiatRateSeriesCache} = useRuntimeFiatRateSeriesCache({
+    quoteCurrency,
+    requests: historicalRateRequests,
+    maxAgeMs: HISTORIC_RATES_CACHE_DURATION * 1000,
+    enabled: filteredItems.length > 0,
+  });
+
   const renderListHeader = useMemo(() => {
     return (
       <FiltersRow>
@@ -204,10 +243,12 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
           isPopulateLoading={isRowPopulateLoading}
           img={img}
           imgSrc={imgSrc}
+          fiatRateSeriesCache={fiatRateSeriesCache}
         />
       );
     },
     [
+      fiatRateSeriesCache,
       filteredItems.length,
       getAssetIconData,
       isFiatLoading,

@@ -339,7 +339,7 @@ const KeyOverview = () => {
   const {keys}: {keys: {[key: string]: Key}} = useAppSelector(
     ({WALLET}) => WALLET,
   );
-  const {rates, fiatRateSeriesCache} = useAppSelector(({RATE}) => RATE);
+  const {rates} = useAppSelector(({RATE}) => RATE);
   const lastDayRates = useAppSelector(({RATE}) => RATE.lastDayRates);
   const {defaultAltCurrency, hideAllBalances, showPortfolioValue} =
     useAppSelector(({APP}) => APP);
@@ -1105,7 +1105,6 @@ const KeyOverview = () => {
               wallets={visibleKeyWallets}
               quoteCurrency={quoteCurrency}
               rates={rates}
-              fiatRateSeriesCache={fiatRateSeriesCache}
               timeframeSelectorWidth={timeframeSelectorWidth}
               onSelectedBalanceChange={setSelectedBalance}
             />
@@ -1138,7 +1137,6 @@ const KeyOverview = () => {
   }, [
     defaultAltCurrency.isoCode,
     dispatch,
-    fiatRateSeriesCache,
     hideAllBalances,
     memoizedAccountList,
     quoteCurrency,

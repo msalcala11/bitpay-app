@@ -12,10 +12,21 @@ describe('portfolioRequestRouting', () => {
   });
 
   it('routes read and debug methods to the worklet runtime too', () => {
-    expect(shouldDispatchPortfolioRequestOnRuntimeWorklet('snapshots.getIndex')).toBe(true);
-    expect(shouldDispatchPortfolioRequestOnRuntimeWorklet('analysis.compute')).toBe(true);
-    expect(shouldDispatchPortfolioRequestOnRuntimeWorklet('analysis.computeChart')).toBe(true);
-    expect(shouldDispatchPortfolioRequestOnRuntimeWorklet('debug.clearAll')).toBe(true);
+    expect(
+      shouldDispatchPortfolioRequestOnRuntimeWorklet('snapshots.getIndex'),
+    ).toBe(true);
+    expect(
+      shouldDispatchPortfolioRequestOnRuntimeWorklet('rates.getCache'),
+    ).toBe(true);
+    expect(
+      shouldDispatchPortfolioRequestOnRuntimeWorklet('analysis.compute'),
+    ).toBe(true);
+    expect(
+      shouldDispatchPortfolioRequestOnRuntimeWorklet('analysis.computeChart'),
+    ).toBe(true);
+    expect(
+      shouldDispatchPortfolioRequestOnRuntimeWorklet('debug.clearAll'),
+    ).toBe(true);
     expect(
       shouldDispatchPortfolioRequestOnRuntimeWorklet(
         'debug.getPopulateWalletTrace',

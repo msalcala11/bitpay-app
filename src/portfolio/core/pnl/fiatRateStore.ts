@@ -193,6 +193,8 @@ export class FiatRateStore {
     interval: FiatRateInterval;
     coins: string[];
     assets?: FiatRateAssetRef[];
+    maxAgeMs?: number;
+    force?: boolean;
   }): Promise<void> {
     const quoteCurrency = args.quoteCurrency.toUpperCase();
     const assetsRaw: FiatRateAssetRef[] = [
@@ -219,6 +221,10 @@ export class FiatRateStore {
     const missingDefaults: string[] = [];
     const missingExplicit: FiatRateAssetRef[] = [];
     const fallbackDefaultCoins = new Set<string>();
+    const maxAgeMs =
+      typeof args.maxAgeMs === 'number' && Number.isFinite(args.maxAgeMs)
+        ? Math.max(0, args.maxAgeMs)
+        : undefined;
     for (const asset of assets) {
       const existing = await this.getStoredSeries({
         quoteCurrency,
@@ -228,7 +234,14 @@ export class FiatRateStore {
         tokenAddress: asset.tokenAddress,
       });
       if (existing?.points?.length) {
-        if (hasStoredFiatRateSeriesPersistedFetchedOn(existing)) {
+        const hasPersistedFetchedOn =
+          hasStoredFiatRateSeriesPersistedFetchedOn(existing);
+        const isFresh =
+          hasPersistedFetchedOn &&
+          !args.force &&
+          (typeof maxAgeMs !== 'number' ||
+            Date.now() - Number(existing.fetchedOn) <= maxAgeMs);
+        if (isFresh) {
           continue;
         }
         if (!asset.tokenAddress) {

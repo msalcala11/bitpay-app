@@ -4,11 +4,7 @@ import {useTranslation} from 'react-i18next';
 import {useTheme} from 'styled-components/native';
 import type {GraphPoint} from 'react-native-graph';
 import Animated, {useAnimatedStyle} from 'react-native-reanimated';
-import type {
-  FiatRateSeriesCache,
-  FiatRateInterval,
-  Rates,
-} from '../../store/rate/rate.models';
+import type {FiatRateInterval, Rates} from '../../store/rate/rate.models';
 import {FIAT_RATE_SERIES_TARGET_POINTS} from '../../store/rate/rate.models';
 import type {Wallet} from '../../store/wallet/wallet.models';
 import {
@@ -66,7 +62,6 @@ export type BalanceHistoryChartProps = {
   quoteCurrency: string;
   initialSelectedTimeframe?: FiatRateInterval;
   rates?: Rates;
-  fiatRateSeriesCache?: FiatRateSeriesCache;
   lineColor?: string;
   lineThickness?: number;
   strokeScale?: number | NumberSharedValue;
@@ -221,7 +216,6 @@ const BalanceHistoryChart = ({
   quoteCurrency,
   initialSelectedTimeframe = DEFAULT_BALANCE_CHART_TIMEFRAME,
   rates: _rates,
-  fiatRateSeriesCache,
   lineColor,
   lineThickness,
   strokeScale,
@@ -342,9 +336,9 @@ const BalanceHistoryChart = ({
       cachedTimeframe: cachedSelectedTimeframe,
       dataRevisionSig: committedDataRevisionSig,
       currentSpotRatesByRateKey: {},
-      fiatRateSeriesCache,
+      fiatRateSeriesCache: undefined,
     });
-  }, [cachedSelectedTimeframe, committedDataRevisionSig, fiatRateSeriesCache]);
+  }, [cachedSelectedTimeframe, committedDataRevisionSig]);
 
   const cachedSelectedSeries = useMemo(() => {
     if (!cachedSelectedTimeframe) {

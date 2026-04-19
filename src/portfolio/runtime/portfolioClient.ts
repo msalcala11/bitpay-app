@@ -82,8 +82,16 @@ export class PortfolioRuntimeClient {
     });
   }
 
-  ensureRates(params: WorkerMethodMap['rates.ensure']['params']): Promise<void> {
+  ensureRates(
+    params: WorkerMethodMap['rates.ensure']['params'],
+  ): Promise<void> {
     return this.request('rates.ensure', params);
+  }
+
+  getRateSeriesCache(
+    params: WorkerMethodMap['rates.getCache']['params'],
+  ): Promise<WorkerMethodMap['rates.getCache']['result']> {
+    return this.request('rates.getCache', params);
   }
 
   getSnapshotIndex(params: WorkerMethodMap['snapshots.getIndex']['params']) {
@@ -134,9 +142,7 @@ export class PortfolioRuntimeClient {
     return this.request('analysis.computeChart', params);
   }
 
-  startPopulateJob(
-    params: WorkerMethodMap['populate.startJob']['params'],
-  ) {
+  startPopulateJob(params: WorkerMethodMap['populate.startJob']['params']) {
     return this.request('populate.startJob', params);
   }
 
@@ -156,9 +162,7 @@ export class PortfolioRuntimeClient {
     return this.request('debug.listRates', params);
   }
 
-  clearRateStorage(
-    params: WorkerMethodMap['debug.clearRates']['params'] = {},
-  ) {
+  clearRateStorage(params: WorkerMethodMap['debug.clearRates']['params'] = {}) {
     return this.request('debug.clearRates', params);
   }
 

@@ -2,6 +2,7 @@ import type {KvStore} from '../kv/types';
 import type {BwsConfig} from '../shared/bws';
 import type {
   FiatRateAssetRef,
+  FiatRateCacheRequest,
   FiatRateInterval,
   FiatRatePoint,
   FiatRateSeriesCache,
@@ -15,12 +16,28 @@ import {
   normalizeFiatRateSeriesTokenAddress,
   resolveStoredFiatRateInterval,
 } from '../fiatRatesShared';
-import type {StoredWallet, Tx, WalletCredentials, WalletSummary} from '../types';
-import {BalanceSnapshotStreamBuilder, type SnapshotStreamCheckpoint} from '../pnl/snapshotStream';
+import type {
+  StoredWallet,
+  Tx,
+  WalletCredentials,
+  WalletSummary,
+} from '../types';
+import {
+  BalanceSnapshotStreamBuilder,
+  type SnapshotStreamCheckpoint,
+} from '../pnl/snapshotStream';
 import {SnapshotStore} from '../pnl/snapshotStore';
-import type {SnapshotIndexV2, SnapshotPersistDebugMode, SnapshotStoreWalletMeta} from '../pnl/snapshotStore';
+import type {
+  SnapshotIndexV2,
+  SnapshotPersistDebugMode,
+  SnapshotStoreWalletMeta,
+} from '../pnl/snapshotStore';
 import {buildWalletMetaForStore} from '../pnl/snapshotStore';
-import {FiatRateStore, parseStoredFiatRateSeries, type FiatRateProvider} from '../pnl/fiatRateStore';
+import {
+  FiatRateStore,
+  parseStoredFiatRateSeries,
+  type FiatRateProvider,
+} from '../pnl/fiatRateStore';
 import {
   buildPnlAnalysisChartSeriesFromStreamed,
   buildPnlAnalysisSeriesFromStreamed,
@@ -35,8 +52,11 @@ import {
 } from '../pnl/analysisStreaming';
 import {getAssetIdFromWallet} from '../pnl/assetId';
 import type {BalanceSnapshotStored} from '../pnl/types';
-import {normalizeFiatRateSeriesCoin} from '../pnl/rates';
-import {dedupeTxHistoryPage, getTxHistoryLogicalPageSize} from '../txHistoryPaging';
+import {getFiatRateAssetRef, normalizeFiatRateSeriesCoin} from '../pnl/rates';
+import {
+  dedupeTxHistoryPage,
+  getTxHistoryLogicalPageSize,
+} from '../txHistoryPaging';
 
 export type SnapshotIngestConfig = {
   quoteCurrency: string;
@@ -153,6 +173,8 @@ export class PortfolioEngine {
     interval: FiatRateInterval;
     coins: string[];
     assets?: FiatRateAssetRef[];
+    maxAgeMs?: number;
+    force?: boolean;
   }): Promise<void> {
     await this.rateStore.ensureRates({
       cfg: args.cfg,
@@ -160,7 +182,125 @@ export class PortfolioEngine {
       interval: args.interval,
       coins: args.coins,
       assets: args.assets,
+      maxAgeMs: args.maxAgeMs,
+      force: args.force,
     });
+  }
+
+  async getRateSeriesCache(args: {
+    cfg: BwsConfig;
+    quoteCurrency: string;
+    requests: FiatRateCacheRequest[];
+    maxAgeMs?: number;
+    force?: boolean;
+  }): Promise<FiatRateSeriesCache> {
+    const quoteCurrency = String(args.quoteCurrency || 'USD').toUpperCase();
+    const requests = Array.isArray(args.requests) ? args.requests : [];
+    const assetsByInterval = new Map<
+      FiatRateInterval,
+      {coins: Set<string>; assets: Map<string, FiatRateAssetRef>}
+    >();
+    const cacheReads: Array<{
+      coin: string;
+      interval: FiatRateInterval;
+      chain?: string;
+      tokenAddress?: string;
+    }> = [];
+    const seenReads = new Set<string>();
+
+    for (const request of requests) {
+      const asset = getFiatRateAssetRef({
+        currencyAbbreviation: request?.coin,
+        chain: request?.chain,
+        tokenAddress: request?.tokenAddress,
+      });
+      const intervals = Array.from(
+        new Set(
+          (Array.isArray(request?.intervals) ? request.intervals : []).map(
+            resolveStoredFiatRateInterval,
+          ),
+        ),
+      );
+
+      if (!asset.coin || !intervals.length) {
+        continue;
+      }
+
+      for (const interval of intervals) {
+        const bucket = assetsByInterval.get(interval) ?? {
+          coins: new Set<string>(),
+          assets: new Map<string, FiatRateAssetRef>(),
+        };
+        assetsByInterval.set(interval, bucket);
+
+        if (asset.tokenAddress) {
+          const assetKey = `${asset.coin}|${asset.chain || ''}|${
+            asset.tokenAddress
+          }`;
+          bucket.assets.set(assetKey, asset);
+        } else {
+          bucket.coins.add(asset.coin);
+        }
+
+        const readKey = getFiatRateSeriesCacheKey(
+          quoteCurrency,
+          asset.coin,
+          interval,
+          {
+            chain: asset.chain,
+            tokenAddress: asset.tokenAddress,
+          },
+        );
+        if (seenReads.has(readKey)) {
+          continue;
+        }
+        seenReads.add(readKey);
+        cacheReads.push({
+          coin: asset.coin,
+          interval,
+          chain: asset.chain,
+          tokenAddress: asset.tokenAddress,
+        });
+      }
+    }
+
+    for (const [interval, bucket] of assetsByInterval.entries()) {
+      await this.rateStore.ensureRates({
+        cfg: args.cfg,
+        quoteCurrency,
+        interval,
+        coins: Array.from(bucket.coins).sort((a, b) => a.localeCompare(b)),
+        assets: Array.from(bucket.assets.values()).sort((a, b) =>
+          `${a.coin}|${a.chain || ''}|${a.tokenAddress || ''}`.localeCompare(
+            `${b.coin}|${b.chain || ''}|${b.tokenAddress || ''}`,
+          ),
+        ),
+        maxAgeMs: args.maxAgeMs,
+        force: args.force,
+      });
+    }
+
+    const cache: FiatRateSeriesCache = {};
+    for (const read of cacheReads) {
+      const series = await this.rateStore.getSeriesWithFx({
+        quoteCurrency,
+        coin: read.coin,
+        interval: read.interval,
+        chain: read.chain,
+        tokenAddress: read.tokenAddress,
+      });
+      if (!series?.points?.length) {
+        continue;
+      }
+      cache[
+        getFiatRateSeriesCacheKey(quoteCurrency, read.coin, read.interval, {
+          chain: read.chain,
+          tokenAddress: read.tokenAddress,
+        })
+      ] = series;
+    }
+
+    return cache;
   }
 
   async getSnapshotIndex(walletId: string): Promise<SnapshotIndexV2 | null> {
@@ -321,7 +461,11 @@ export class PortfolioEngine {
       chain,
       args.wallet.tokenAddress,
     );
-    const storedIntervals = Array.from(new Set(DEFAULT_STORED_FIAT_RATE_INTERVALS.map(resolveStoredFiatRateInterval)));
+    const storedIntervals = Array.from(
+      new Set(
+        DEFAULT_STORED_FIAT_RATE_INTERVALS.map(resolveStoredFiatRateInterval),
+      ),
+    );
 
     for (const interval of storedIntervals) {
       await this.rateStore.ensureRates({
@@ -335,14 +479,27 @@ export class PortfolioEngine {
 
     const cache: FiatRateSeriesCache = {};
     for (const interval of storedIntervals) {
-      const series = await this.rateStore.getSeries({quoteCurrency, coin, interval, chain, tokenAddress});
+      const series = await this.rateStore.getSeries({
+        quoteCurrency,
+        coin,
+        interval,
+        chain,
+        tokenAddress,
+      });
       if (!series) continue;
-      cache[getFiatRateSeriesCacheKey(quoteCurrency, coin, interval, {chain, tokenAddress})] = series;
+      cache[
+        getFiatRateSeriesCacheKey(quoteCurrency, coin, interval, {
+          chain,
+          tokenAddress,
+        })
+      ] = series;
     }
     return cache;
   }
 
-  private async findFirstNonZeroBalanceTs(walletIds: string[]): Promise<number | null> {
+  private async findFirstNonZeroBalanceTs(
+    walletIds: string[],
+  ): Promise<number | null> {
     let best: number | null = null;
     for (const walletId of walletIds) {
       const idx = await this.snapshotStore.loadIndex(walletId);
@@ -384,7 +541,9 @@ export class PortfolioEngine {
           })
         : null);
     if (!fiatRateSeriesCache) {
-      throw new Error('prepareWalletSession requires either a fiatRateSeriesCache or fetch config.');
+      throw new Error(
+        'prepareWalletSession requires either a fiatRateSeriesCache or fetch config.',
+      );
     }
 
     const builder = new BalanceSnapshotStreamBuilder({
@@ -394,7 +553,8 @@ export class PortfolioEngine {
       fiatRateSeriesCache,
       compressionEnabled: args.ingest.compressionEnabled,
       snapshotDebugMode: meta.snapshotDebugMode ?? 'none',
-      checkpoint: args.checkpoint === undefined ? index.checkpoint : args.checkpoint,
+      checkpoint:
+        args.checkpoint === undefined ? index.checkpoint : args.checkpoint,
     });
 
     this.builders.set(args.wallet.walletId, builder);
@@ -405,7 +565,8 @@ export class PortfolioEngine {
         cfg: args.fetch.cfg,
         pageSize: args.fetch.pageSize,
         emitRows:
-          Number.isFinite(Number(args.fetch.emitRows)) && Number(args.fetch.emitRows) > 0
+          Number.isFinite(Number(args.fetch.emitRows)) &&
+          Number(args.fetch.emitRows) > 0
             ? Math.trunc(Number(args.fetch.emitRows))
             : null,
         pendingTxs: [],
@@ -422,15 +583,21 @@ export class PortfolioEngine {
     this.sessionFetchByWalletId.delete(walletId);
   }
 
-  async processNextPageSession(walletId: string): Promise<ProcessNextPageSessionResult> {
+  async processNextPageSession(
+    walletId: string,
+  ): Promise<ProcessNextPageSessionResult> {
     const builder = this.builders.get(walletId);
     const meta = this.sessionMetaByWalletId.get(walletId);
     const fetchCfg = this.sessionFetchByWalletId.get(walletId);
     if (!builder || !meta || !fetchCfg) {
-      throw new Error(`Wallet session not prepared for background fetch: ${walletId}`);
+      throw new Error(
+        `Wallet session not prepared for background fetch: ${walletId}`,
+      );
     }
     if (!this.txHistoryPageFetcher) {
-      throw new Error('PortfolioEngine cannot fetch tx history pages without an injected txHistoryPageFetcher.');
+      throw new Error(
+        'PortfolioEngine cannot fetch tx history pages without an injected txHistoryPageFetcher.',
+      );
     }
 
     const skip = builder.getCheckpoint().nextSkip;
@@ -453,7 +620,9 @@ export class PortfolioEngine {
         fetchedTxs = txs.length;
         fetchCfg.pendingTxs = dedupeTxHistoryPage(txs);
 
-        const logicalPageSize = txs.length ? getTxHistoryLogicalPageSize(txs) : 0;
+        const logicalPageSize = txs.length
+          ? getTxHistoryLogicalPageSize(txs)
+          : 0;
         if (!txs.length || logicalPageSize <= 0) {
           fetchCfg.pendingTxs = [];
           if (builder.hasPendingCarryoverGroup()) {
@@ -493,7 +662,10 @@ export class PortfolioEngine {
       }
 
       const tCompute0 = this.measureNow();
-      const consumed = builder.ingestPageWithSnapshotLimit(fetchCfg.pendingTxs, fetchCfg.emitRows ?? undefined);
+      const consumed = builder.ingestPageWithSnapshotLimit(
+        fetchCfg.pendingTxs,
+        fetchCfg.emitRows ?? undefined,
+      );
       const checkpoint = builder.getCheckpoint();
       if (consumed.snapshots.length) {
         await this.snapshotStore.appendChunk({
@@ -506,8 +678,15 @@ export class PortfolioEngine {
       }
       const tCompute1 = this.measureNow();
 
-      const consumedRawCount = Math.max(0, Math.min(fetchCfg.pendingTxs.length, Number(consumed.consumedRawCount ?? 0)));
-      fetchCfg.pendingTxs = consumedRawCount > 0 ? fetchCfg.pendingTxs.slice(consumedRawCount) : [];
+      const consumedRawCount = Math.max(
+        0,
+        Math.min(
+          fetchCfg.pendingTxs.length,
+          Number(consumed.consumedRawCount ?? 0),
+        ),
+      );
+      fetchCfg.pendingTxs =
+        consumedRawCount > 0 ? fetchCfg.pendingTxs.slice(consumedRawCount) : [];
 
       if (!consumed.logicalPageSize && !consumed.snapshots.length) {
         if (!fetchCfg.pendingTxs.length) {
@@ -527,7 +706,9 @@ export class PortfolioEngine {
     }
   }
 
-  async finishWalletSession(walletId: string): Promise<FinishWalletSessionResult> {
+  async finishWalletSession(
+    walletId: string,
+  ): Promise<FinishWalletSessionResult> {
     const builder = this.builders.get(walletId);
     const meta = this.sessionMetaByWalletId.get(walletId);
     if (!builder || !meta) {
@@ -555,7 +736,9 @@ export class PortfolioEngine {
     };
   }
 
-  async getLatestSnapshot(walletId: string): Promise<BalanceSnapshotStored | null> {
+  async getLatestSnapshot(
+    walletId: string,
+  ): Promise<BalanceSnapshotStored | null> {
     return this.snapshotStore.getLatestSnapshot(walletId);
   }
 
@@ -563,7 +746,9 @@ export class PortfolioEngine {
     return this.snapshotStore.listSnapshots(walletId);
   }
 
-  async computeAnalysisChart(args: ComputeAnalysisArgs): Promise<PnlAnalysisChartResult> {
+  async computeAnalysisChart(
+    args: ComputeAnalysisArgs,
+  ): Promise<PnlAnalysisChartResult> {
     if (!args.wallets.length) {
       return buildPnlAnalysisChartSeriesFromStreamed({
         cfg: {quoteCurrency: String(args.quoteCurrency || 'USD').toUpperCase()},
@@ -617,8 +802,12 @@ export class PortfolioEngine {
     });
   }
 
-  private async prepareStreamedAnalysisInputs(args: ComputeAnalysisArgs): Promise<PreparedStreamedAnalysisInputs> {
-    const targetQuoteCurrency = String(args.quoteCurrency || 'USD').toUpperCase();
+  private async prepareStreamedAnalysisInputs(
+    args: ComputeAnalysisArgs,
+  ): Promise<PreparedStreamedAnalysisInputs> {
+    const targetQuoteCurrency = String(
+      args.quoteCurrency || 'USD',
+    ).toUpperCase();
     const walletMetas: WalletForAnalysisMeta[] = args.wallets.map(w => ({
       walletId: w.summary.walletId,
       walletName: w.summary.walletName,
@@ -632,12 +821,16 @@ export class PortfolioEngine {
       ),
       credentials: w.credentials,
     }));
-    const walletMetaByWalletId = new Map(walletMetas.map(meta => [meta.walletId, meta]));
+    const walletMetaByWalletId = new Map(
+      walletMetas.map(meta => [meta.walletId, meta]),
+    );
 
     const baseAssets = Array.from(
       new Map(
         args.wallets.map(w => {
-          const coin = normalizeFiatRateSeriesCoin(w.summary.currencyAbbreviation);
+          const coin = normalizeFiatRateSeriesCoin(
+            w.summary.currencyAbbreviation,
+          );
           const chain = normalizeFiatRateSeriesChain(w.summary.chain);
           const tokenAddress = normalizeFiatRateSeriesTokenAddress(
             w.summary.chain,
@@ -651,7 +844,9 @@ export class PortfolioEngine {
 
     const defaultCoins = Array.from(
       new Set([
-        ...baseAssets.filter(asset => !asset.tokenAddress).map(asset => normalizeFiatRateSeriesCoin(asset.coin)),
+        ...baseAssets
+          .filter(asset => !asset.tokenAddress)
+          .map(asset => normalizeFiatRateSeriesCoin(asset.coin)),
         FX_BRIDGE_COIN,
       ]),
     );
@@ -693,7 +888,9 @@ export class PortfolioEngine {
 
     const firstNonZeroTs =
       args.timeframe === 'ALL'
-        ? await this.findFirstNonZeroBalanceTs(args.wallets.map(w => w.summary.walletId))
+        ? await this.findFirstNonZeroBalanceTs(
+            args.wallets.map(w => w.summary.walletId),
+          )
         : null;
 
     const resolved = resolvePnlAnalysisPreloadWindow({
@@ -709,7 +906,10 @@ export class PortfolioEngine {
     const wallets: WalletForStreamedAnalysis[] = [];
     for (const wallet of args.wallets) {
       const walletId = wallet.summary.walletId;
-      const basePoint = await this.snapshotStore.findLastPointAtOrBefore(walletId, resolved.startTs);
+      const basePoint = await this.snapshotStore.findLastPointAtOrBefore(
+        walletId,
+        resolved.startTs,
+      );
       const walletMeta = walletMetaByWalletId.get(walletId);
       if (!walletMeta) {
         throw new Error(`Missing analysis wallet metadata for ${walletId}.`);

@@ -22,10 +22,7 @@ import {
   selectBrazeShopWithCrypto,
 } from '../../../store/app/app.selectors';
 import {getAndDispatchUpdatedWalletBalances} from '../../../store/wallet/effects/status/statusv2';
-import {
-  fetchFiatRateSeriesInterval,
-  refreshRatesForPortfolioPnl,
-} from '../../../store/wallet/effects';
+import {refreshRatesForPortfolioPnl} from '../../../store/wallet/effects';
 import {updatePortfolioBalance} from '../../../store/wallet/wallet.actions';
 import {SlateDark, White} from '../../../styles/colors';
 import {
@@ -35,6 +32,7 @@ import {
 } from '../../../utils/helper-methods';
 import {getFiatRateFromSeriesCacheAtTimestamp} from '../../../utils/portfolio/rate';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
+import useRuntimeFiatRateSeriesCache from '../../../portfolio/ui/hooks/useRuntimeFiatRateSeriesCache';
 import {BalanceUpdateError} from '../../wallet/components/ErrorMessages';
 import Crypto from './components/Crypto';
 import ExchangeRatesList, {
@@ -71,6 +69,7 @@ import {
   BitpaySupportedCoins,
   BitpaySupportedTokens,
 } from '../../../constants/currencies';
+import {HISTORIC_RATES_CACHE_DURATION} from '../../../constants/wallet';
 import {Network} from '../../../constants';
 import SecurePasskeyBanner from './components/SecurePasskeyBanner';
 import DefaultMarketingCards from './components/DefaultMarketingCards';
@@ -110,9 +109,6 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
   const rates = useAppSelector(({RATE}) => RATE.rates) as Rates;
-  const fiatRateSeriesCache = useAppSelector(
-    ({RATE}) => RATE.fiatRateSeriesCache,
-  );
   const keyMigrationFailure = useAppSelector(
     ({APP}) => APP.keyMigrationFailure,
   );
@@ -192,6 +188,21 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
     portfolioQuoteCurrency: portfolio.quoteCurrency,
     defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
   }).toUpperCase();
+  const exchangeRateHistoricalRequests = useMemo(
+    () =>
+      EXCHANGE_RATES_CURRENCIES.map(coin => ({
+        coin,
+        intervals: ['1D'],
+      })),
+    [],
+  );
+  const {cache: fiatRateSeriesCache, reload: reloadFiatRateSeriesCache} =
+    useRuntimeFiatRateSeriesCache({
+      quoteCurrency,
+      requests: exchangeRateHistoricalRequests,
+      maxAgeMs: HISTORIC_RATES_CACHE_DURATION * 1000,
+      enabled: true,
+    });
   const memoizedExchangeRates: Array<ExchangeRateItemProps> = useMemo(() => {
     const baselineTimestampMs = getLastDayTimestampStartOfHourMs();
     const result = (
@@ -309,14 +320,7 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
         dispatch(
           refreshRatesForPortfolioPnl({context: 'homeRootOnRefresh'}) as any,
         ),
-        dispatch(
-          fetchFiatRateSeriesInterval({
-            fiatCode: quoteCurrency,
-            interval: '1D',
-            coinForCacheCheck: 'btc',
-            force: true,
-          }) as any,
-        ),
+        reloadFiatRateSeriesCache({force: true}).catch(() => ({})),
         dispatch(
           getAndDispatchUpdatedWalletBalances({
             context: 'homeRootOnRefresh',

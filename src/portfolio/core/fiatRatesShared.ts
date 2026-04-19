@@ -11,14 +11,25 @@ export type FiatRateAssetRef = {
   tokenAddress?: string;
 };
 
+export type FiatRateCacheRequest = FiatRateAssetRef & {
+  intervals: FiatRateInterval[];
+};
+
 export const CANONICAL_FIAT_QUOTE = 'USD';
 export const FX_BRIDGE_COIN = 'btc';
 
 // Persist only the intervals that add unique rate granularity.
 // Longer fixed windows read from ALL instead of storing duplicate daily histories.
-export const DEFAULT_STORED_FIAT_RATE_INTERVALS: readonly FiatRateInterval[] = ['1D', '1W', '1M', 'ALL'];
+export const DEFAULT_STORED_FIAT_RATE_INTERVALS: readonly FiatRateInterval[] = [
+  '1D',
+  '1W',
+  '1M',
+  'ALL',
+];
 
-export const resolveStoredFiatRateInterval = (interval: FiatRateInterval): FiatRateInterval => {
+export const resolveStoredFiatRateInterval = (
+  interval: FiatRateInterval,
+): FiatRateInterval => {
   'worklet';
 
   switch (interval) {
@@ -53,7 +64,10 @@ export type FiatRateSeriesResponse = {
   [coin: string]: FiatRateSeries | FiatRatePoint[] | undefined;
 };
 
-const FIAT_RATE_SERIES_INTERVAL_DAYS: Record<FiatRateInterval, number | undefined> = {
+const FIAT_RATE_SERIES_INTERVAL_DAYS: Record<
+  FiatRateInterval,
+  number | undefined
+> = {
   '1D': 1,
   '1W': 7,
   '1M': 30,
@@ -70,7 +84,9 @@ export function normalizeFiatRateSeriesChain(
 ): string | undefined {
   'worklet';
 
-  const normalized = String(chain || '').trim().toLowerCase();
+  const normalized = String(chain || '')
+    .trim()
+    .toLowerCase();
   return normalized || undefined;
 }
 
@@ -117,7 +133,9 @@ export const getFiatRateSeriesCacheKey = (
 ): string => {
   'worklet';
 
-  const base = `${(fiatCode || '').toUpperCase()}:${(coin || '').toLowerCase()}:${interval}`;
+  const base = `${(fiatCode || '').toUpperCase()}:${(
+    coin || ''
+  ).toLowerCase()}:${interval}`;
   const normalized = normalizeAssetRef({
     coin,
     chain: asset?.chain,
@@ -145,9 +163,13 @@ export const getFiatRateSeriesUrl = (
     chain: asset?.chain,
     tokenAddress: asset?.tokenAddress,
   });
-  if (normalized.chain) params.push(`chain=${encodeURIComponent(normalized.chain)}`);
-  if (normalized.tokenAddress) params.push(`tokenAddress=${encodeURIComponent(normalized.tokenAddress)}`);
+  if (normalized.chain)
+    params.push(`chain=${encodeURIComponent(normalized.chain)}`);
+  if (normalized.tokenAddress)
+    params.push(`tokenAddress=${encodeURIComponent(normalized.tokenAddress)}`);
 
   const qs = params.join('&');
-  return qs ? `${cfg.baseUrl}/v4/fiatrates/${codeUpper}?${qs}` : `${cfg.baseUrl}/v4/fiatrates/${codeUpper}`;
+  return qs
+    ? `${cfg.baseUrl}/v4/fiatrates/${codeUpper}?${qs}`
+    : `${cfg.baseUrl}/v4/fiatrates/${codeUpper}`;
 };
