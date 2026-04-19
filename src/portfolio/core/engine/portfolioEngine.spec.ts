@@ -41,8 +41,13 @@ const mkWallet = (overrides?: Partial<WalletSummary>): WalletSummary => ({
 });
 
 const mkCreds = (
-  overrides?: Partial<Pick<WalletCredentials, 'walletId' | 'chain' | 'network' | 'coin' | 'token'>>,
-): Pick<WalletCredentials, 'walletId' | 'chain' | 'network' | 'coin' | 'token'> => ({
+  overrides?: Partial<
+    Pick<WalletCredentials, 'walletId' | 'chain' | 'network' | 'coin' | 'token'>
+  >,
+): Pick<
+  WalletCredentials,
+  'walletId' | 'chain' | 'network' | 'coin' | 'token'
+> => ({
   walletId: 'w1',
   chain: 'btc',
   network: 'livenet',
@@ -51,7 +56,9 @@ const mkCreds = (
   ...overrides,
 });
 
-const mkCache = (entries: Array<{key: string; points: Array<{ts: number; rate: number}>}>): FiatRateSeriesCache => {
+const mkCache = (
+  entries: Array<{key: string; points: Array<{ts: number; rate: number}>}>,
+): FiatRateSeriesCache => {
   const out: FiatRateSeriesCache = {};
   for (const entry of entries) {
     out[entry.key] = {fetchedOn: Date.now(), points: entry.points};
@@ -67,8 +74,20 @@ describe('PortfolioEngine compute sessions', () => {
 
     const pages: Tx[][] = [
       [
-        {txid: 'fund', time: Math.floor(t0 / 1000), action: 'received', amount: '1000', fees: '0'},
-        {txid: 'spend', time: Math.floor(t1 / 1000), action: 'sent', amount: '400', fees: '0'},
+        {
+          txid: 'fund',
+          time: Math.floor(t0 / 1000),
+          action: 'received',
+          amount: '1000',
+          fees: '0',
+        },
+        {
+          txid: 'spend',
+          time: Math.floor(t1 / 1000),
+          action: 'sent',
+          amount: '400',
+          fees: '0',
+        },
       ],
       [],
     ];
@@ -128,7 +147,9 @@ describe('PortfolioEngine compute sessions', () => {
     expect(second.fetchedTxs).toBe(0);
     expect(second.appendedSnapshots).toBe(0);
 
-    await expect(engine.getSnapshotIndex(wallet.walletId)).resolves.toMatchObject({
+    await expect(
+      engine.getSnapshotIndex(wallet.walletId),
+    ).resolves.toMatchObject({
       checkpoint: {nextSkip: 2},
     });
   });
@@ -140,7 +161,13 @@ describe('PortfolioEngine compute sessions', () => {
 
     const engine = new PortfolioEngine(kv, {
       txHistoryPageFetcher: async () => [
-        {txid: 'fund', time: Math.floor(t0 / 1000), action: 'received', amount: '1000', fees: '0'},
+        {
+          txid: 'fund',
+          time: Math.floor(t0 / 1000),
+          action: 'received',
+          amount: '1000',
+          fees: '0',
+        },
       ],
       measureNow: () => marks.shift() ?? 0,
     });
@@ -177,10 +204,34 @@ describe('PortfolioEngine compute sessions', () => {
 
     const pages: Tx[][] = [
       [
-        {txid: 'a', time: Math.floor((t0 + 0 * 60_000) / 1000), action: 'received', amount: '1000', fees: '0'},
-        {txid: 'b', time: Math.floor((t0 + 1 * 60_000) / 1000), action: 'received', amount: '1000', fees: '0'},
-        {txid: 'c', time: Math.floor((t0 + 2 * 60_000) / 1000), action: 'received', amount: '1000', fees: '0'},
-        {txid: 'd', time: Math.floor((t0 + 3 * 60_000) / 1000), action: 'received', amount: '1000', fees: '0'},
+        {
+          txid: 'a',
+          time: Math.floor((t0 + 0 * 60_000) / 1000),
+          action: 'received',
+          amount: '1000',
+          fees: '0',
+        },
+        {
+          txid: 'b',
+          time: Math.floor((t0 + 1 * 60_000) / 1000),
+          action: 'received',
+          amount: '1000',
+          fees: '0',
+        },
+        {
+          txid: 'c',
+          time: Math.floor((t0 + 2 * 60_000) / 1000),
+          action: 'received',
+          amount: '1000',
+          fees: '0',
+        },
+        {
+          txid: 'd',
+          time: Math.floor((t0 + 3 * 60_000) / 1000),
+          action: 'received',
+          amount: '1000',
+          fees: '0',
+        },
       ],
       [],
     ];
@@ -259,13 +310,43 @@ describe('PortfolioEngine compute sessions', () => {
 
     const pages: Tx[][] = [
       [
-        {txid: 'fund', time: Math.floor(t0 / 1000), action: 'received', amount: '1000', fees: '0'},
-        {txid: 'fund', time: Math.floor(t0 / 1000), action: 'received', amount: '1000', fees: '0'},
-        {txid: 'spend', time: Math.floor(t1 / 1000), action: 'sent', amount: '400', fees: '0'},
-        {txid: 'spend', time: Math.floor(t1 / 1000), action: 'sent', amount: '400', fees: '0'},
+        {
+          txid: 'fund',
+          time: Math.floor(t0 / 1000),
+          action: 'received',
+          amount: '1000',
+          fees: '0',
+        },
+        {
+          txid: 'fund',
+          time: Math.floor(t0 / 1000),
+          action: 'received',
+          amount: '1000',
+          fees: '0',
+        },
+        {
+          txid: 'spend',
+          time: Math.floor(t1 / 1000),
+          action: 'sent',
+          amount: '400',
+          fees: '0',
+        },
+        {
+          txid: 'spend',
+          time: Math.floor(t1 / 1000),
+          action: 'sent',
+          amount: '400',
+          fees: '0',
+        },
       ],
       [
-        {txid: 'refill', time: Math.floor(t2 / 1000), action: 'received', amount: '250', fees: '0'},
+        {
+          txid: 'refill',
+          time: Math.floor(t2 / 1000),
+          action: 'received',
+          amount: '250',
+          fees: '0',
+        },
       ],
       [],
     ];
@@ -422,7 +503,10 @@ describe('PortfolioEngine compute sessions', () => {
   it('computes analysis directly from worker-owned storage', async () => {
     const kv = new MemoryKv();
     const engine = new PortfolioEngine(kv);
-    const wallet = mkWallet({balanceAtomic: '200000000', balanceFormatted: '2'});
+    const wallet = mkWallet({
+      balanceAtomic: '200000000',
+      balanceFormatted: '2',
+    });
     const credentials = mkCreds();
     const t0 = Date.parse('2024-01-01T00:00:00Z');
     const t1 = Date.parse('2024-01-02T00:00:00Z');
@@ -502,7 +586,10 @@ describe('PortfolioEngine compute sessions', () => {
   it('returns a compact chart-oriented analysis payload for worker clients', async () => {
     const kv = new MemoryKv();
     const engine = new PortfolioEngine(kv);
-    const wallet = mkWallet({balanceAtomic: '200000000', balanceFormatted: '2'});
+    const wallet = mkWallet({
+      balanceAtomic: '200000000',
+      balanceFormatted: '2',
+    });
     const credentials = mkCreds();
     const t0 = Date.parse('2024-01-01T00:00:00Z');
     const t1 = Date.parse('2024-01-02T00:00:00Z');
@@ -577,7 +664,9 @@ describe('PortfolioEngine compute sessions', () => {
     expect(chart).toEqual(compactPnlAnalysisResultForChart(full));
     expect(chart.timestamps).toHaveLength(5);
     expect(chart.totalFiatBalance[0]).toBe(10000);
-    expect(chart.totalFiatBalance[chart.totalFiatBalance.length - 1]).toBe(22000);
+    expect(chart.totalFiatBalance[chart.totalFiatBalance.length - 1]).toBe(
+      22000,
+    );
     expect(chart.driverMarkRate?.[0]).toBe(10000);
     expect(chart.driverMarkRate?.[chart.driverMarkRate.length - 1]).toBe(11000);
   });
@@ -586,8 +675,14 @@ describe('PortfolioEngine compute sessions', () => {
     const kv = new MemoryKv();
     const engine = new PortfolioEngine(kv);
 
-    await kv.setString('rate:v1:USD:btc:ALL', JSON.stringify({fetchedOn: 1, points: [{ts: 1, rate: 1}]}));
-    await kv.setString('rate:v1:EUR:btc:ALL', JSON.stringify({fetchedOn: 1, points: [{ts: 1, rate: 1}]}));
+    await kv.setString(
+      'rate:v1:USD:btc:ALL',
+      JSON.stringify({fetchedOn: 1, points: [{ts: 1, rate: 1}]}),
+    );
+    await kv.setString(
+      'rate:v1:EUR:btc:ALL',
+      JSON.stringify({fetchedOn: 1, points: [{ts: 1, rate: 1}]}),
+    );
     await kv.setString('snap:index:v2:w1', JSON.stringify({v: 2}));
 
     await engine.clearRates({quoteCurrency: 'USD'});
@@ -597,23 +692,42 @@ describe('PortfolioEngine compute sessions', () => {
     await expect(kv.getString('snap:index:v2:w1')).resolves.not.toBeNull();
   });
 
-  it('lists compact persisted rates in debug output', async () => {
+  it('lists compact persisted rates with fetchedOn metadata in debug output', async () => {
     const kv = new MemoryKv();
     const engine = new PortfolioEngine(kv);
 
-    await kv.setString('rate:v1:USD:btc:ALL', JSON.stringify({v: 2, p: [[1, 10], [2, 20]]}));
+    await kv.setString(
+      'rate:v1:USD:btc:ALL',
+      JSON.stringify({
+        v: 3,
+        f: 42,
+        p: [
+          [1, 10],
+          [2, 20],
+        ],
+      }),
+    );
 
-    await expect(engine.listCachedRates({quoteCurrency: 'USD'})).resolves.toEqual([
+    await expect(
+      engine.listCachedRates({quoteCurrency: 'USD'}),
+    ).resolves.toEqual([
       {
         key: 'rate:v1:USD:btc:ALL',
         quoteCurrency: 'USD',
         coin: 'btc',
         interval: 'ALL',
-        fetchedOn: 0,
+        fetchedOn: 42,
         points: 2,
         firstTs: 1,
         lastTs: 2,
-        bytes: JSON.stringify({v: 2, p: [[1, 10], [2, 20]]}).length,
+        bytes: JSON.stringify({
+          v: 3,
+          f: 42,
+          p: [
+            [1, 10],
+            [2, 20],
+          ],
+        }).length,
       },
     ]);
   });

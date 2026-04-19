@@ -150,7 +150,7 @@ describe('FiatRateStore.ensureRates', () => {
     ]);
   });
 
-  it('stores compact persisted series and reloads them without fetchedOn metadata', async () => {
+  it('stores compact persisted series with fetchedOn metadata and reloads them', async () => {
     const kv = new MemoryKvStore();
     const store = new FiatRateStore(kv);
 
@@ -167,9 +167,31 @@ describe('FiatRateStore.ensureRates', () => {
       },
     });
 
-    await expect(kv.getString('rate:v1:USD:btc:1D')).resolves.toBe('{"v":2,"p":[[1,100],[2,200]]}');
+    await expect(kv.getString('rate:v1:USD:btc:1D')).resolves.toBe(
+      '{"v":3,"f":123,"p":[[1,100],[2,200]]}',
+    );
 
     store.clearMemoryCache();
+
+    await expect(
+      store.getSeries({
+        quoteCurrency: 'USD',
+        coin: 'btc',
+        interval: '1D',
+      }),
+    ).resolves.toEqual({
+      fetchedOn: 123,
+      points: [
+        {ts: 1, rate: 100},
+        {ts: 2, rate: 200},
+      ],
+    });
+  });
+
+  it('reads older compact v2 persisted series for backward compatibility', async () => {
+    const kv = new MemoryKvStore();
+    await kv.setString('rate:v1:USD:btc:1D', '{"v":2,"p":[[2,200],[1,100]]}');
+    const store = new FiatRateStore(kv);
 
     await expect(
       store.getSeries({
@@ -208,6 +230,49 @@ describe('FiatRateStore.ensureRates', () => {
       }),
     ).resolves.toEqual({
       fetchedOn: 456,
+      points: [
+        {ts: 1, rate: 100},
+        {ts: 2, rate: 200},
+      ],
+    });
+  });
+
+  it('refreshes legacy compact series without fetchedOn metadata on ensureRates', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(789);
+    const kv = new MemoryKvStore();
+    await kv.setString('rate:v1:USD:btc:1D', '{"v":2,"p":[[2,200],[1,100]]}');
+    const provider: FiatRateProvider = {
+      loadSeries: jest.fn().mockResolvedValue({
+        btc: [
+          {ts: 2, rate: 200},
+          {ts: 1, rate: 100},
+        ],
+      }),
+    };
+    const store = new FiatRateStore(kv, {provider});
+
+    await store.ensureRates({
+      cfg: {baseUrl: '/bws/api'},
+      quoteCurrency: 'USD',
+      interval: '1D',
+      coins: ['btc'],
+    });
+
+    expect(provider.loadSeries).toHaveBeenCalledTimes(1);
+    await expect(kv.getString('rate:v1:USD:btc:1D')).resolves.toBe(
+      '{"v":3,"f":789,"p":[[1,100],[2,200]]}',
+    );
+
+    store.clearMemoryCache();
+
+    await expect(
+      store.getSeries({
+        quoteCurrency: 'USD',
+        coin: 'btc',
+        interval: '1D',
+      }),
+    ).resolves.toEqual({
+      fetchedOn: 789,
       points: [
         {ts: 1, rate: 100},
         {ts: 2, rate: 200},

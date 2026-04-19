@@ -8,7 +8,6 @@ import {
   resolveStoredFiatRateInterval,
   type FiatRateAssetRef,
   type FiatRateInterval,
-  type FiatRatePoint,
   type FiatRateSeries,
   type FiatRateSeriesCache,
   type FiatRateSeriesResponse,
@@ -19,6 +18,12 @@ import {
   getFiatRateAssetRef,
   normalizeFiatRateSeriesCoin,
 } from '../../core/pnl/rates';
+import {
+  hasStoredFiatRateSeriesPersistedFetchedOn,
+  normalizeStoredFiatRateSeriesPoints,
+  parseStoredFiatRateSeriesRaw,
+  stringifyStoredFiatRateSeries,
+} from '../../core/pnl/storedFiatRateSeries';
 import {
   workletKvDelete,
   workletKvGetString,
@@ -47,109 +52,25 @@ export const getWorkletRateStorageKey = (args: {
   )}`;
 };
 
-type StoredFiatRateSeriesV2 = {
-  v: 2;
-  p: Array<[ts: number, rate: number]>;
-};
-
-function normalizeSeriesPoints(candidate: unknown): FiatRatePoint[] {
+export function parseWorkletStoredFiatRateSeries(
+  raw: string | null,
+): FiatRateSeries | null {
   'worklet';
-
-  if (!Array.isArray(candidate)) {
-    return [];
-  }
-
-  const points: FiatRatePoint[] = [];
-  for (const entry of candidate) {
-    if (Array.isArray(entry)) {
-      const ts = Number(entry[0]);
-      const rate = Number(entry[1]);
-      if (Number.isFinite(ts) && Number.isFinite(rate)) {
-        points.push({ts, rate});
-      }
-      continue;
-    }
-
-    if (entry && typeof entry === 'object') {
-      const ts = Number((entry as any).ts);
-      const rate = Number((entry as any).rate);
-      if (Number.isFinite(ts) && Number.isFinite(rate)) {
-        points.push({ts, rate});
-      }
-    }
-  }
-
-  points.sort((a, b) => a.ts - b.ts);
-  return points;
-}
-
-export function parseWorkletStoredFiatRateSeries(raw: string | null): FiatRateSeries | null {
-  'worklet';
-
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as
-      | StoredFiatRateSeriesV2
-      | {fetchedOn?: number; points?: unknown}
-      | unknown;
-
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      !Array.isArray(parsed) &&
-      Number((parsed as any).v) === 2
-    ) {
-      const points = normalizeSeriesPoints((parsed as StoredFiatRateSeriesV2).p);
-      return points.length
-        ? {
-            fetchedOn: 0,
-            points,
-          }
-        : null;
-    }
-
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      const points = normalizeSeriesPoints((parsed as any).points);
-      if (points.length) {
-        const fetchedOn = Number((parsed as any).fetchedOn);
-        return {
-          fetchedOn: Number.isFinite(fetchedOn) ? fetchedOn : 0,
-          points,
-        };
-      }
-    }
-
-    const directPoints = normalizeSeriesPoints(parsed);
-    return directPoints.length
-      ? {
-          fetchedOn: 0,
-          points: directPoints,
-        }
-      : null;
-  } catch {
-    return null;
-  }
+  return parseStoredFiatRateSeriesRaw(raw);
 }
 
 function encodeStoredSeries(series: FiatRateSeries): string {
   'worklet';
-
-  const payload: StoredFiatRateSeriesV2 = {
-    v: 2,
-    p: normalizeSeriesPoints(series.points).map(point => [point.ts, point.rate]),
-  };
-
-  return JSON.stringify(payload);
+  return stringifyStoredFiatRateSeries(series);
 }
 
-function toSeriesFromProviderCandidate(candidate: unknown): FiatRateSeries | null {
+function toSeriesFromProviderCandidate(
+  candidate: unknown,
+): FiatRateSeries | null {
   'worklet';
 
   if (Array.isArray(candidate)) {
-    const points = normalizeSeriesPoints(candidate);
+    const points = normalizeStoredFiatRateSeriesPoints(candidate);
     return points.length
       ? {
           fetchedOn: Date.now(),
@@ -160,7 +81,9 @@ function toSeriesFromProviderCandidate(candidate: unknown): FiatRateSeries | nul
 
   if (candidate && typeof candidate === 'object') {
     const fetchedOn = Number((candidate as any).fetchedOn);
-    const points = normalizeSeriesPoints((candidate as any).points);
+    const points = normalizeStoredFiatRateSeriesPoints(
+      (candidate as any).points,
+    );
     if (points.length) {
       return {
         fetchedOn: Number.isFinite(fetchedOn) ? fetchedOn : Date.now(),
@@ -187,7 +110,8 @@ function extractSeries(
   }
 
   const record = raw as Record<string, unknown>;
-  const candidate = record[coin] ?? record[coin.toLowerCase()] ?? record[coin.toUpperCase()];
+  const candidate =
+    record[coin] ?? record[coin.toLowerCase()] ?? record[coin.toUpperCase()];
   const matched = toSeriesFromProviderCandidate(candidate);
   if (matched) {
     return matched;
@@ -209,10 +133,15 @@ async function fetchFiatRatePayload(args: {
 }): Promise<unknown> {
   'worklet';
 
-  const url = getFiatRateSeriesUrl(args.cfg, args.quoteCurrency, args.interval, {
-    chain: args.asset?.chain,
-    tokenAddress: args.asset?.tokenAddress,
-  });
+  const url = getFiatRateSeriesUrl(
+    args.cfg,
+    args.quoteCurrency,
+    args.interval,
+    {
+      chain: args.asset?.chain,
+      tokenAddress: args.asset?.tokenAddress,
+    },
+  );
 
   let response: Response;
   try {
@@ -223,7 +152,8 @@ async function fetchFiatRatePayload(args: {
       },
     });
   } catch (error: unknown) {
-    const runtimeError = error instanceof Error ? error : new Error(String(error));
+    const runtimeError =
+      error instanceof Error ? error : new Error(String(error));
     throw new Error(
       `Portfolio fiat-rate request failed for ${url}: ${runtimeError.message}`,
     );
@@ -232,7 +162,9 @@ async function fetchFiatRatePayload(args: {
   const rawText = await response.text();
   if (!response.ok) {
     throw new Error(
-      `Failed to fetch fiat rates (${response.status}) for ${url}. ${rawText.slice(0, 400)}`,
+      `Failed to fetch fiat rates (${
+        response.status
+      }) for ${url}. ${rawText.slice(0, 400)}`,
     );
   }
 
@@ -264,13 +196,15 @@ async function fetchFiatRateSeries(args: {
   return extractSeries(payload, args.asset.coin);
 }
 
-export function loadWorkletStoredRateSeries(args: PortfolioWorkletKvConfig & {
-  quoteCurrency: string;
-  coin: string;
-  interval: FiatRateInterval;
-  chain?: string;
-  tokenAddress?: string;
-}): FiatRateSeries | null {
+export function loadWorkletStoredRateSeries(
+  args: PortfolioWorkletKvConfig & {
+    quoteCurrency: string;
+    coin: string;
+    interval: FiatRateInterval;
+    chain?: string;
+    tokenAddress?: string;
+  },
+): FiatRateSeries | null {
   'worklet';
 
   const key = getWorkletRateStorageKey({
@@ -284,12 +218,14 @@ export function loadWorkletStoredRateSeries(args: PortfolioWorkletKvConfig & {
   return parseWorkletStoredFiatRateSeries(workletKvGetString(args, key));
 }
 
-async function loadOrFetchRateSeries(args: PortfolioWorkletKvConfig & {
-  cfg: BwsConfig;
-  quoteCurrency: string;
-  interval: FiatRateInterval;
-  asset: FiatRateAssetRef;
-}): Promise<FiatRateSeries | null> {
+async function loadOrFetchRateSeries(
+  args: PortfolioWorkletKvConfig & {
+    cfg: BwsConfig;
+    quoteCurrency: string;
+    interval: FiatRateInterval;
+    asset: FiatRateAssetRef;
+  },
+): Promise<FiatRateSeries | null> {
   'worklet';
 
   const stored = loadWorkletStoredRateSeries({
@@ -301,18 +237,29 @@ async function loadOrFetchRateSeries(args: PortfolioWorkletKvConfig & {
     chain: args.asset.chain,
     tokenAddress: args.asset.tokenAddress,
   });
-  if (stored?.points?.length) {
+  if (
+    stored?.points?.length &&
+    hasStoredFiatRateSeriesPersistedFetchedOn(stored)
+  ) {
     return stored;
   }
 
-  const fetched = await fetchFiatRateSeries({
-    cfg: args.cfg,
-    quoteCurrency: args.quoteCurrency,
-    interval: args.interval,
-    asset: args.asset,
-  });
+  let fetched: FiatRateSeries | null;
+  try {
+    fetched = await fetchFiatRateSeries({
+      cfg: args.cfg,
+      quoteCurrency: args.quoteCurrency,
+      interval: args.interval,
+      asset: args.asset,
+    });
+  } catch (error: unknown) {
+    if (stored?.points?.length) {
+      return stored;
+    }
+    throw error;
+  }
   if (!fetched?.points?.length) {
-    return null;
+    return stored?.points?.length ? stored : null;
   }
 
   workletKvSetString(
@@ -329,13 +276,15 @@ async function loadOrFetchRateSeries(args: PortfolioWorkletKvConfig & {
   return fetched;
 }
 
-export async function ensureWorkletRates(args: PortfolioWorkletKvConfig & {
-  cfg: BwsConfig;
-  quoteCurrency: string;
-  interval: FiatRateInterval;
-  coins: string[];
-  assets?: FiatRateAssetRef[];
-}): Promise<void> {
+export async function ensureWorkletRates(
+  args: PortfolioWorkletKvConfig & {
+    cfg: BwsConfig;
+    quoteCurrency: string;
+    interval: FiatRateInterval;
+    coins: string[];
+    assets?: FiatRateAssetRef[];
+  },
+): Promise<void> {
   'worklet';
 
   const quoteCurrency = String(args.quoteCurrency || '').toUpperCase() || 'USD';
@@ -353,7 +302,9 @@ export async function ensureWorkletRates(args: PortfolioWorkletKvConfig & {
           chain: asset.chain,
           tokenAddress: asset.tokenAddress,
         });
-        const key = `${normalized.coin}|${normalized.chain || ''}|${normalized.tokenAddress || ''}`;
+        const key = `${normalized.coin}|${normalized.chain || ''}|${
+          normalized.tokenAddress || ''
+        }`;
         return [key, normalized] as const;
       }),
     ).values(),
@@ -361,6 +312,7 @@ export async function ensureWorkletRates(args: PortfolioWorkletKvConfig & {
 
   const missingDefaults: string[] = [];
   const missingExplicit: FiatRateAssetRef[] = [];
+  const fallbackDefaultCoins = new Set<string>();
 
   for (const asset of uniqueAssets) {
     const existing = loadWorkletStoredRateSeries({
@@ -373,7 +325,12 @@ export async function ensureWorkletRates(args: PortfolioWorkletKvConfig & {
       tokenAddress: asset.tokenAddress,
     });
     if (existing?.points?.length) {
-      continue;
+      if (hasStoredFiatRateSeriesPersistedFetchedOn(existing)) {
+        continue;
+      }
+      if (!asset.tokenAddress) {
+        fallbackDefaultCoins.add(asset.coin);
+      }
     }
 
     if (asset.tokenAddress) {
@@ -388,24 +345,37 @@ export async function ensureWorkletRates(args: PortfolioWorkletKvConfig & {
   }
 
   if (missingDefaults.length) {
-    const payload = await fetchFiatRatePayload({
-      cfg: args.cfg,
-      quoteCurrency,
-      interval,
-    });
+    let payload: unknown;
+    try {
+      payload = await fetchFiatRatePayload({
+        cfg: args.cfg,
+        quoteCurrency,
+        interval,
+      });
+    } catch (error: unknown) {
+      const missingWithoutFallback = missingDefaults.filter(
+        coin => !fallbackDefaultCoins.has(coin),
+      );
+      if (missingWithoutFallback.length) {
+        throw error;
+      }
+      payload = null;
+    }
 
-    for (const coin of missingDefaults) {
-      const series = extractSeries(payload, coin);
-      if (series?.points?.length) {
-        workletKvSetString(
-          args,
-          getWorkletRateStorageKey({
-            quoteCurrency,
-            coin,
-            interval,
-          }),
-          encodeStoredSeries(series),
-        );
+    if (payload != null) {
+      for (const coin of missingDefaults) {
+        const series = extractSeries(payload, coin);
+        if (series?.points?.length) {
+          workletKvSetString(
+            args,
+            getWorkletRateStorageKey({
+              quoteCurrency,
+              coin,
+              interval,
+            }),
+            encodeStoredSeries(series),
+          );
+        }
       }
     }
   }
@@ -437,13 +407,15 @@ export async function ensureWorkletRates(args: PortfolioWorkletKvConfig & {
   }
 }
 
-export async function getWorkletRateSeriesWithFx(args: PortfolioWorkletKvConfig & {
-  quoteCurrency: string;
-  coin: string;
-  interval: FiatRateInterval;
-  chain?: string;
-  tokenAddress?: string;
-}): Promise<FiatRateSeries | null> {
+export async function getWorkletRateSeriesWithFx(
+  args: PortfolioWorkletKvConfig & {
+    quoteCurrency: string;
+    coin: string;
+    interval: FiatRateInterval;
+    chain?: string;
+    tokenAddress?: string;
+  },
+): Promise<FiatRateSeries | null> {
   'worklet';
 
   return getFiatRateSeriesWithFx({
@@ -470,9 +442,11 @@ export async function getWorkletRateSeriesWithFx(args: PortfolioWorkletKvConfig 
   });
 }
 
-export function listWorkletRates(args: PortfolioWorkletKvConfig & {
-  quoteCurrency?: string;
-}): Array<{
+export function listWorkletRates(
+  args: PortfolioWorkletKvConfig & {
+    quoteCurrency?: string;
+  },
+): Array<{
   key: string;
   quoteCurrency: string;
   coin: string;
@@ -485,7 +459,9 @@ export function listWorkletRates(args: PortfolioWorkletKvConfig & {
 }> {
   'worklet';
 
-  const quote = args.quoteCurrency ? String(args.quoteCurrency).toUpperCase() : null;
+  const quote = args.quoteCurrency
+    ? String(args.quoteCurrency).toUpperCase()
+    : null;
   const prefix = quote ? `rate:v1:${quote}:` : 'rate:v1:';
   const keys = workletKvListKeys(args, prefix).sort();
 
@@ -530,26 +506,34 @@ export function listWorkletRates(args: PortfolioWorkletKvConfig & {
   return out;
 }
 
-export function clearWorkletRates(args: PortfolioWorkletKvConfig & {
-  quoteCurrency?: string;
-}): void {
+export function clearWorkletRates(
+  args: PortfolioWorkletKvConfig & {
+    quoteCurrency?: string;
+  },
+): void {
   'worklet';
 
-  const quote = args.quoteCurrency ? String(args.quoteCurrency).toUpperCase() : null;
+  const quote = args.quoteCurrency
+    ? String(args.quoteCurrency).toUpperCase()
+    : null;
   const prefix = quote ? `rate:v1:${quote}:` : 'rate:v1:';
   for (const key of workletKvListKeys(args, prefix)) {
     workletKvDelete(args, key);
   }
 }
 
-export async function ensureWorkletSnapshotRateSeriesCache(args: PortfolioWorkletKvConfig & {
-  cfg: BwsConfig;
-  quoteCurrency: string;
-  wallet: WalletSummary;
-}): Promise<FiatRateSeriesCache> {
+export async function ensureWorkletSnapshotRateSeriesCache(
+  args: PortfolioWorkletKvConfig & {
+    cfg: BwsConfig;
+    quoteCurrency: string;
+    wallet: WalletSummary;
+  },
+): Promise<FiatRateSeriesCache> {
   'worklet';
 
-  const quoteCurrency = String(args.quoteCurrency || CANONICAL_FIAT_QUOTE).toUpperCase();
+  const quoteCurrency = String(
+    args.quoteCurrency || CANONICAL_FIAT_QUOTE,
+  ).toUpperCase();
   const asset = getFiatRateAssetRef({
     currencyAbbreviation: args.wallet.currencyAbbreviation,
     chain: args.wallet.chain,
@@ -597,22 +581,28 @@ export async function ensureWorkletSnapshotRateSeriesCache(args: PortfolioWorkle
   return cache;
 }
 
-export async function ensureWorkletCanonicalAndFxRates(args: PortfolioWorkletKvConfig & {
-  cfg: BwsConfig;
-  quoteCurrency: string;
-  timeframe: FiatRateInterval;
-  assets: Array<{
-    coin: string;
-    chain?: string;
-    tokenAddress?: string;
-  }>;
-}): Promise<void> {
+export async function ensureWorkletCanonicalAndFxRates(
+  args: PortfolioWorkletKvConfig & {
+    cfg: BwsConfig;
+    quoteCurrency: string;
+    timeframe: FiatRateInterval;
+    assets: Array<{
+      coin: string;
+      chain?: string;
+      tokenAddress?: string;
+    }>;
+  },
+): Promise<void> {
   'worklet';
 
-  const targetQuoteCurrency = String(args.quoteCurrency || CANONICAL_FIAT_QUOTE).toUpperCase();
+  const targetQuoteCurrency = String(
+    args.quoteCurrency || CANONICAL_FIAT_QUOTE,
+  ).toUpperCase();
   const defaultCoins = Array.from(
     new Set([
-      ...args.assets.filter(asset => !asset.tokenAddress).map(asset => normalizeFiatRateSeriesCoin(asset.coin)),
+      ...args.assets
+        .filter(asset => !asset.tokenAddress)
+        .map(asset => normalizeFiatRateSeriesCoin(asset.coin)),
       FX_BRIDGE_COIN,
     ]),
   );
