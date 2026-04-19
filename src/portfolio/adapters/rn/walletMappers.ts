@@ -8,6 +8,7 @@ export type PortfolioWalletCredentialsSnapshot = WalletCredentials & {
   chain?: string;
   coin?: string;
   network?: string;
+  receiveAddress?: string;
   copayerId?: string;
   requestPrivKey?: string;
   requestPubKey?: string;
@@ -86,6 +87,9 @@ export const extractPortfolioWalletCredentialsSnapshot = (
     sanitizeString(wallet?.chain) || sanitizeString(serialized?.chain);
   const network =
     sanitizeString(wallet?.network) || sanitizeString(serialized?.network);
+  const receiveAddress =
+    sanitizeString((wallet as any)?.receiveAddress) ||
+    sanitizeString(serialized?.receiveAddress);
   const tokenAddress =
     sanitizeString(wallet?.tokenAddress) ||
     sanitizeString(serialized?.token?.address) ||
@@ -103,6 +107,7 @@ export const extractPortfolioWalletCredentialsSnapshot = (
     chain,
     coin: currencyAbbreviation,
     network,
+    receiveAddress,
     copayerId: sanitizeString(serialized?.copayerId),
     requestPrivKey: sanitizeString(serialized?.requestPrivKey),
     requestPubKey: sanitizeString(serialized?.requestPubKey),
