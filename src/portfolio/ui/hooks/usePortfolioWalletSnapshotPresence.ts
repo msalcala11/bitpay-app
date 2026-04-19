@@ -11,6 +11,8 @@ type PortfolioWalletSnapshotPresenceState = {
   checked: boolean;
 };
 
+const snapshotPresenceByWalletIdsKey = new Map<string, boolean>();
+
 function snapshotIndexHasRows(index: SnapshotIndexV2 | null | undefined): boolean {
   if (!Array.isArray(index?.chunks) || !index.chunks.length) {
     return false;
@@ -44,11 +46,16 @@ export default function usePortfolioWalletSnapshotPresence(args: {
     return getSortedUniqueWalletIds(args.wallets);
   }, [args.wallets]);
   const walletIdsKey = useMemo(() => walletIds.join('|'), [walletIds]);
+  const cachedSnapshotPresence = useMemo(() => {
+    return walletIdsKey
+      ? snapshotPresenceByWalletIdsKey.get(walletIdsKey)
+      : undefined;
+  }, [walletIdsKey]);
 
   const [state, setState] = useState<PortfolioWalletSnapshotPresenceState>({
-    hasAnySnapshots: true,
+    hasAnySnapshots: cachedSnapshotPresence ?? true,
     loading: false,
-    checked: false,
+    checked: typeof cachedSnapshotPresence === 'boolean',
   });
 
   useEffect(() => {
@@ -73,10 +80,13 @@ export default function usePortfolioWalletSnapshotPresence(args: {
     }
 
     let cancelled = false;
+    const cachedPresenceForRequest = snapshotPresenceByWalletIdsKey.get(
+      walletIdsKey,
+    );
     setState({
-      hasAnySnapshots: true,
+      hasAnySnapshots: cachedPresenceForRequest ?? true,
       loading: true,
-      checked: false,
+      checked: typeof cachedPresenceForRequest === 'boolean',
     });
 
     Promise.all(
@@ -92,8 +102,10 @@ export default function usePortfolioWalletSnapshotPresence(args: {
           return;
         }
 
+        const hasAnySnapshots = results.some(Boolean);
+        snapshotPresenceByWalletIdsKey.set(walletIdsKey, hasAnySnapshots);
         setState({
-          hasAnySnapshots: results.some(Boolean),
+          hasAnySnapshots,
           loading: false,
           checked: true,
         });
@@ -104,9 +116,9 @@ export default function usePortfolioWalletSnapshotPresence(args: {
         }
 
         setState({
-          hasAnySnapshots: true,
+          hasAnySnapshots: cachedPresenceForRequest ?? true,
           loading: false,
-          checked: false,
+          checked: typeof cachedPresenceForRequest === 'boolean',
         });
       });
 
