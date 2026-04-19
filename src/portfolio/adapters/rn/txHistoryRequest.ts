@@ -1,6 +1,10 @@
 import type {BwsConfig} from '../../core/shared/bws';
 import type {Tx, WalletCredentials} from '../../core/types';
 import {
+  buildTokenWalletTxHistoryContextFromCredentials,
+  normalizeTokenWalletTxHistoryPage,
+} from '../../core/tokenTxHistory';
+import {
   ensurePortfolioRuntimeSigningGlobals,
   getPortfolioTxHistorySigningDispatchContextOnRuntime,
   signBwsGetRequestWithBitcore,
@@ -30,6 +34,18 @@ function getMultisigContractAddressFromCredentials(
   return multisigContractAddress || undefined;
 }
 
+function getTokenAddressFromCredentials(
+  credentials: WalletCredentials,
+): string | undefined {
+  'worklet';
+
+  const raw =
+    credentials?.token?.address ??
+    credentials?.tokenAddress;
+  const tokenAddress = String(raw || '').trim();
+  return tokenAddress || undefined;
+}
+
 export function buildPortfolioTxHistoryRequestPath(
   args: TxHistoryRequestArgs,
 ): string {
@@ -44,6 +60,11 @@ export function buildPortfolioTxHistoryRequestPath(
   }
   if (args.reverse) {
     params.push('reverse=1');
+  }
+
+  const tokenAddress = getTokenAddressFromCredentials(args.credentials);
+  if (tokenAddress) {
+    params.push(`tokenAddress=${encodeURIComponent(tokenAddress)}`);
   }
 
   const multisigContractAddress =
@@ -197,5 +218,9 @@ export async function fetchPortfolioTxHistoryPageByRequest(args: {
   }
 
   const parsed = tryParseJson(rawResponseText);
-  return Array.isArray(parsed) ? (parsed as Tx[]) : [];
+  const txs = Array.isArray(parsed) ? (parsed as Tx[]) : [];
+  return normalizeTokenWalletTxHistoryPage({
+    txs,
+    context: buildTokenWalletTxHistoryContextFromCredentials(args.credentials),
+  });
 }

@@ -16,6 +16,7 @@ describe('walletMappers', () => {
       balance: {
         crypto: '12.5',
       },
+      receiveAddress: '0xAbC123',
       credentials: {
         walletId: 'wallet-1',
         copayerId: 'copayer-1',
@@ -39,6 +40,7 @@ describe('walletMappers', () => {
     expect(credentials.walletId).toBe('wallet-1');
     expect(credentials.requestPrivKey).toBe('priv-key');
     expect(credentials.token?.address).toBe('0xToken');
+    expect(credentials.receiveAddress).toBe('0xAbC123');
 
     const stored = toPortfolioStoredWallet({
       wallet,

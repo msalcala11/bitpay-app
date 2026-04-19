@@ -4,7 +4,7 @@ import {
 } from './txHistoryRequest';
 
 describe('buildPortfolioTxHistoryRequestPath', () => {
-  it('adds reverse=1 and multisig params for oldest-first paging', () => {
+  it('adds tokenAddress, reverse=1, and multisig params for oldest-first paging', () => {
     const requestPath = buildPortfolioTxHistoryRequestPath({
       credentials: {
         token: {address: '0xToken'},
@@ -16,11 +16,11 @@ describe('buildPortfolioTxHistoryRequestPath', () => {
     });
 
     expect(requestPath).toBe(
-      '/v1/txhistory/?limit=1000&reverse=1&multisigContractAddress=0xSafe',
+      '/v1/txhistory/?limit=1000&reverse=1&tokenAddress=0xToken&multisigContractAddress=0xSafe',
     );
   });
 
-  it('does not append tokenAddress for token wallets', () => {
+  it('appends tokenAddress for token wallets', () => {
     const requestPath = buildPortfolioTxHistoryRequestPath({
       credentials: {
         token: {
@@ -32,7 +32,9 @@ describe('buildPortfolioTxHistoryRequestPath', () => {
       reverse: true,
     });
 
-    expect(requestPath).toBe('/v1/txhistory/?limit=1000&reverse=1');
+    expect(requestPath).toBe(
+      '/v1/txhistory/?limit=1000&reverse=1&tokenAddress=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+    );
   });
 
   it('omits reverse when newest-first paging is requested', () => {

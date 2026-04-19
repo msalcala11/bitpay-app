@@ -47,6 +47,10 @@ import {
 import {buildPortfolioTxHistoryRequestPath} from '../../../../../portfolio/adapters/rn/txHistoryRequest';
 import {BwcProvider} from '../../../../../lib/bwc';
 import {
+  buildTokenWalletTxHistoryContextFromCredentials,
+  normalizeTokenWalletTxHistoryPage,
+} from '../../../../../portfolio/core/tokenTxHistory';
+import {
   buildWalletBalanceDiagnostic,
   type BalanceDiagnosticTxPage,
 } from '../../../../../portfolio/debug/balanceDiagnostic';
@@ -331,7 +335,14 @@ const fetchPortfolioDebugTxHistoryPageByRequest = async (args: {
       if (typeof args.client?._processTxps === 'function') {
         args.client._processTxps(out);
       }
-      resolve(out);
+      resolve(
+        normalizeTokenWalletTxHistoryPage({
+          txs: out,
+          context: buildTokenWalletTxHistoryContextFromCredentials(
+            args.credentials,
+          ),
+        }),
+      );
     });
   });
 };
