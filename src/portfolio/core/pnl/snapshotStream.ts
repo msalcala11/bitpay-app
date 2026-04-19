@@ -2,6 +2,7 @@ import type {Tx, WalletCredentials, WalletSummary} from '../types';
 import {getAtomicDecimals, makeAtomicToUnitNumberConverter, parseAtomicToBigint, ratioBigIntToNumber} from '../format';
 import type {FiatRateSeriesCache} from '../fiatRatesShared';
 import {getTxHistoryEntryId, getTxHistoryLogicalPageSize} from '../txHistoryPaging';
+import {createNegativeBalanceInvalidHistoryError} from './invalidHistory';
 import {createFiatRateLookup, normalizeFiatRateSeriesCoin} from './rates';
 import type {SnapshotPersistDebugMode, SnapshotPersistInputV2} from './snapshotStore';
 import type {BalanceSnapshotEventType} from './types';
@@ -666,6 +667,14 @@ export class BalanceSnapshotStreamBuilder {
     this.lastTimestamp = tx.tsMs;
     if (this.firstNonZeroTs === undefined && this.balanceAtomic > 0n) {
       this.firstNonZeroTs = tx.tsMs;
+    }
+
+    if (this.balanceAtomic < 0n) {
+      throw createNegativeBalanceInvalidHistoryError({
+        txId: tx.id,
+        balanceAtomic: this.balanceAtomic,
+        source: 'snapshot_stream',
+      });
     }
 
     const compressBefore = this.nowMs - COMPRESSION_AGE_MS;

@@ -26,6 +26,7 @@ import {
   getOrCreatePortfolioPopulateWorkletState,
   type PortfolioPopulateWorkletConfig,
 } from './portfolioPopulateWorklet';
+import {isSnapshotInvalidHistoryError} from '../../core/pnl/invalidHistory';
 import {clearWorkletWalletSnapshots} from './portfolioWorkletSnapshots';
 
 const PORTFOLIO_POPULATE_JOB_GLOBAL_KEY =
@@ -487,6 +488,11 @@ async function runPortfolioPopulateJobLoop(args: {
               registryKey: config.registryKey,
             },
             walletId,
+            {
+              preserveInvalidHistoryMarker: isSnapshotInvalidHistoryError(
+                error,
+              ),
+            },
           );
         } catch {
           // Ignore cleanup failures so the job can continue with the next wallet.
@@ -553,7 +559,7 @@ export async function handleStartPopulateJobOnWorklet(
   });
   state.activeJob = job;
 
-  void runPortfolioPopulateJobLoop({
+  runPortfolioPopulateJobLoop({
     config,
     state,
     job,

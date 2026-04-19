@@ -260,6 +260,38 @@ describe('BalanceSnapshotStreamBuilder', () => {
     expect(builder.getCheckpoint().recentTxIds).toEqual(['fund', 'spend']);
   });
 
+  it('throws an invalid-history error when a tx drives the running balance negative', () => {
+    const wallet = mkWallet();
+    const credentials: Pick<WalletCredentials, 'walletId' | 'chain' | 'network' | 'coin' | 'token'> = {
+      walletId: 'w1',
+      chain: 'btc',
+      network: 'livenet',
+      coin: 'btc',
+      token: undefined,
+    };
+
+    const builder = new BalanceSnapshotStreamBuilder({
+      wallet,
+      credentials,
+      quoteCurrency: 'USD',
+      fiatRateSeriesCache: {},
+      nowMs: Date.parse('2024-01-02T00:00:00Z'),
+      snapshotDebugMode: 'link',
+    });
+
+    expect(() =>
+      builder.ingestPage([
+        {
+          txid: 'spend',
+          time: Math.floor(Date.parse('2024-01-01T00:00:00Z') / 1000),
+          action: 'sent',
+          amount: '400',
+          fees: '0',
+        } as any,
+      ]),
+    ).toThrow('Invalid tx history: negative balance after tx spend (-400).');
+  });
+
   it('keeps deterministic tie-group order when the sorted batch already avoids underflow', () => {
     const wallet = mkWallet();
     const credentials: Pick<WalletCredentials, 'walletId' | 'chain' | 'network' | 'coin' | 'token'> = {

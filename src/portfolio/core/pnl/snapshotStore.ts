@@ -3,6 +3,8 @@ import {jsonParseSafe, jsonStringifySafe} from '../kv/types';
 import type {WalletSummary, WalletCredentials} from '../types';
 import type {BalanceSnapshotEventType, BalanceSnapshotStored} from './types';
 import {getAssetIdFromWallet} from './assetId';
+import type {SnapshotInvalidHistoryMarkerV1} from './invalidHistory';
+import {SNAPSHOT_INVALID_HISTORY_VERSION} from './invalidHistory';
 
 /**
  * Storage layout (v2)
@@ -150,6 +152,10 @@ function indexKey(walletId: string): string {
 
 function chunkKey(walletId: string, chunkId: number): string {
   return `snap:chunk:v2:${walletId}:${chunkId}`;
+}
+
+function invalidHistoryKey(walletId: string): string {
+  return `snap:invalid-history:v1:${walletId}`;
 }
 
 function fallbackHydratedSnapshotId(walletId: string, timestamp: number, rowIndex: number): string {
@@ -474,7 +480,9 @@ export class SnapshotStore {
     }
 
     if (existing || existingMeta) {
-      await this.clearWallet(meta.walletId);
+      await this.clearWallet(meta.walletId, {
+        preserveInvalidHistoryMarker: true,
+      });
     }
 
     const idx: SnapshotIndexV2 = {
@@ -498,7 +506,10 @@ export class SnapshotStore {
     return cloneCachedValue(idx);
   }
 
-  async clearWallet(walletId: string): Promise<void> {
+  async clearWallet(
+    walletId: string,
+    opts?: {preserveInvalidHistoryMarker?: boolean},
+  ): Promise<void> {
     const idx = await this.readIndexCached(walletId);
     for (const chunk of idx?.chunks ?? []) {
       await this.kv.delete(chunkKey(walletId, chunk.id));
@@ -507,7 +518,75 @@ export class SnapshotStore {
     await this.kv.delete(`snap:index:v1:${walletId}`);
     await this.kv.delete(indexKey(walletId));
     await this.kv.delete(metaKey(walletId));
+    if (opts?.preserveInvalidHistoryMarker !== true) {
+      await this.kv.delete(invalidHistoryKey(walletId));
+    }
     this.invalidateWalletCache(walletId);
+  }
+
+  async loadInvalidHistoryMarker(
+    walletId: string,
+  ): Promise<SnapshotInvalidHistoryMarkerV1 | null> {
+    const raw = await this.kv.getString(invalidHistoryKey(walletId));
+    const parsed = jsonParseSafe<SnapshotInvalidHistoryMarkerV1 | null>(
+      raw,
+      null,
+    );
+    if (!parsed || parsed.v !== SNAPSHOT_INVALID_HISTORY_VERSION) {
+      return null;
+    }
+    if (String(parsed.walletId || '') !== String(walletId || '')) {
+      return null;
+    }
+    if (parsed.reason !== 'negative_balance') {
+      return null;
+    }
+    if (
+      !Number.isFinite(Number(parsed.detectedAt)) ||
+      !Number.isFinite(Number(parsed.retryAfter))
+    ) {
+      return null;
+    }
+
+    return {
+      ...parsed,
+      walletId: String(parsed.walletId || ''),
+      reason: 'negative_balance',
+      detectedAt: Number(parsed.detectedAt),
+      retryAfter: Number(parsed.retryAfter),
+      message: String(parsed.message || ''),
+      source: parsed.source ? String(parsed.source) : undefined,
+      txId: parsed.txId ? String(parsed.txId) : undefined,
+      balanceAtomic: parsed.balanceAtomic
+        ? String(parsed.balanceAtomic)
+        : undefined,
+    };
+  }
+
+  async saveInvalidHistoryMarker(
+    marker: SnapshotInvalidHistoryMarkerV1,
+  ): Promise<void> {
+    await this.kv.setString(
+      invalidHistoryKey(marker.walletId),
+      jsonStringifySafe({
+        ...marker,
+        v: SNAPSHOT_INVALID_HISTORY_VERSION,
+        walletId: String(marker.walletId || ''),
+        reason: 'negative_balance',
+        detectedAt: Number(marker.detectedAt || Date.now()),
+        retryAfter: Number(marker.retryAfter || Date.now()),
+        message: String(marker.message || ''),
+        source: marker.source ? String(marker.source) : undefined,
+        txId: marker.txId ? String(marker.txId) : undefined,
+        balanceAtomic: marker.balanceAtomic
+          ? String(marker.balanceAtomic)
+          : undefined,
+      }),
+    );
+  }
+
+  async clearInvalidHistoryMarker(walletId: string): Promise<void> {
+    await this.kv.delete(invalidHistoryKey(walletId));
   }
 
   async appendChunk(args: {

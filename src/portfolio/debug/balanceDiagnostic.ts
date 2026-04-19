@@ -1,4 +1,5 @@
 import {formatAtomicAmount, parseAtomicToBigint} from '../core/format';
+import {isSnapshotInvalidHistoryError} from '../core/pnl/invalidHistory';
 import {BalanceSnapshotStreamBuilder} from '../core/pnl/snapshotStream';
 import {
   extractTxIdFromSnapshotId,
@@ -655,44 +656,58 @@ const recomputeSnapshotsFromHistory = (args: {
   finalAtomic: string;
   snapshots: SnapshotPersistInputV2[];
   traceRows: RecomputedTraceRow[];
+  error?: string;
 } => {
-  const builderCredentials = {
-    walletId: String(args.credentials?.walletId || args.wallet.walletId || ''),
-    chain: String(args.credentials?.chain || args.wallet.chain || ''),
-    network: String(args.credentials?.network || args.wallet.network || ''),
-    coin: String(
-      args.credentials?.coin ||
-        args.credentials?.currencyAbbreviation ||
-        args.wallet.currencyAbbreviation ||
-        '',
-    ),
-    token: args.credentials?.token,
-  };
+  try {
+    const builderCredentials = {
+      walletId: String(args.credentials?.walletId || args.wallet.walletId || ''),
+      chain: String(args.credentials?.chain || args.wallet.chain || ''),
+      network: String(args.credentials?.network || args.wallet.network || ''),
+      coin: String(
+        args.credentials?.coin ||
+          args.credentials?.currencyAbbreviation ||
+          args.wallet.currencyAbbreviation ||
+          '',
+      ),
+      token: args.credentials?.token,
+    };
 
-  const builder = new BalanceSnapshotStreamBuilder({
-    wallet: args.wallet,
-    credentials: builderCredentials,
-    quoteCurrency: args.quoteCurrency || 'USD',
-    fiatRateSeriesCache: {},
-    nowMs: args.nowMs,
-    compressionEnabled: args.compressionEnabled,
-    snapshotDebugMode: 'link',
-  });
+    const builder = new BalanceSnapshotStreamBuilder({
+      wallet: args.wallet,
+      credentials: builderCredentials,
+      quoteCurrency: args.quoteCurrency || 'USD',
+      fiatRateSeriesCache: {},
+      nowMs: args.nowMs,
+      compressionEnabled: args.compressionEnabled,
+      snapshotDebugMode: 'link',
+    });
 
-  const snapshots: SnapshotPersistInputV2[] = [];
-  for (const page of args.txPages) {
-    const result = builder.ingestPageWithSnapshotLimit(page.txs, undefined);
-    snapshots.push(...result.snapshots);
+    const snapshots: SnapshotPersistInputV2[] = [];
+    for (const page of args.txPages) {
+      const result = builder.ingestPageWithSnapshotLimit(page.txs, undefined);
+      snapshots.push(...result.snapshots);
+    }
+    snapshots.push(...builder.finish());
+
+    return {
+      finalAtomic: snapshots.length
+        ? String(snapshots[snapshots.length - 1].cryptoBalance || '0')
+        : '0',
+      snapshots,
+      traceRows: buildRecomputedTraceRows(snapshots),
+    };
+  } catch (error: unknown) {
+    if (!isSnapshotInvalidHistoryError(error)) {
+      throw error;
+    }
+
+    return {
+      finalAtomic: '',
+      snapshots: [],
+      traceRows: [],
+      error: error.message,
+    };
   }
-  snapshots.push(...builder.finish());
-
-  return {
-    finalAtomic: snapshots.length
-      ? String(snapshots[snapshots.length - 1].cryptoBalance || '0')
-      : '0',
-    snapshots,
-    traceRows: buildRecomputedTraceRows(snapshots),
-  };
 };
 
 const createTxidRedactor = () => {
@@ -1252,12 +1267,20 @@ export function buildWalletBalanceDiagnostic(args: {
       'Outgoing fee audit is included below for native-asset sent/moved transactions.',
     );
   }
-  if (recomputedNoCompression.finalAtomic === summaryBalanceAtomic) {
+  if (recomputedNoCompression.error) {
+    clues.push(
+      `Fresh in-memory recompute without compression failed: ${recomputedNoCompression.error}`,
+    );
+  } else if (recomputedNoCompression.finalAtomic === summaryBalanceAtomic) {
     clues.push(
       'Fresh in-memory recompute without compression matches the live BWS summary.',
     );
   }
-  if (recomputedCompression.finalAtomic === snapshotFinalAtomic) {
+  if (recomputedCompression.error) {
+    clues.push(
+      `Fresh in-memory recompute with compression failed: ${recomputedCompression.error}`,
+    );
+  } else if (recomputedCompression.finalAtomic === snapshotFinalAtomic) {
     clues.push(
       'Fresh in-memory recompute with compression matches the stored snapshot final balance.',
     );
@@ -1340,9 +1363,17 @@ export function buildWalletBalanceDiagnostic(args: {
   lines.push(
     `recomputedNoCompressionFinalAtomic=${recomputedNoCompression.finalAtomic}`,
   );
+  if (recomputedNoCompression.error) {
+    lines.push(
+      `recomputedNoCompressionError=${recomputedNoCompression.error}`,
+    );
+  }
   lines.push(
     `recomputedCompressionFinalAtomic=${recomputedCompression.finalAtomic}`,
   );
+  if (recomputedCompression.error) {
+    lines.push(`recomputedCompressionError=${recomputedCompression.error}`);
+  }
   lines.push(`storedSnapshotFinalAtomic=${snapshotFinalAtomic}`);
   if (populateProcessedFinalAtomic) {
     lines.push(
@@ -2116,11 +2147,19 @@ export function buildWalletBalanceDiagnostic(args: {
         args.index?.compressionEnabled !== false ? 'yes' : 'no'
       }`,
       `recomputedNoCompressionFinalAtomic=${recomputedNoCompression.finalAtomic}`,
+      recomputedNoCompression.error
+        ? `recomputedNoCompressionError=${recomputedNoCompression.error}`
+        : null,
       `recomputedCompressionFinalAtomic=${recomputedCompression.finalAtomic}`,
+      recomputedCompression.error
+        ? `recomputedCompressionError=${recomputedCompression.error}`
+        : null,
       `storedSnapshotFinalAtomic=${snapshotFinalAtomic}`,
       `recomputedCompressionRows=${recomputedCompression.traceRows.length}`,
       `recomputedNoCompressionRows=${recomputedNoCompression.traceRows.length}`,
-    ].join('\n'),
+    ]
+      .filter((line): line is string => !!line)
+      .join('\n'),
   );
 
   addSection(

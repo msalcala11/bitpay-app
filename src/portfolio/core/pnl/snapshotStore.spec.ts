@@ -588,6 +588,33 @@ describe('SnapshotStore v2', () => {
     expect(kv.getCounts.get('snap:chunk:v2:w-cache:1')).toBe(1);
   });
 
+  it('preserves the invalid-history marker when requested during wallet cleanup', async () => {
+    const kv = new CountingKv();
+    const store = new SnapshotStore(kv);
+
+    await store.saveInvalidHistoryMarker({
+      v: 1,
+      walletId: 'w-clear',
+      reason: 'negative_balance',
+      detectedAt: 1000,
+      retryAfter: 2000,
+      message: 'Invalid tx history',
+      source: 'test',
+      txId: 'tx-1',
+      balanceAtomic: '-1',
+    });
+
+    await store.clearWallet('w-clear', {preserveInvalidHistoryMarker: true});
+    await expect(store.loadInvalidHistoryMarker('w-clear')).resolves.toMatchObject({
+      walletId: 'w-clear',
+      reason: 'negative_balance',
+      message: 'Invalid tx history',
+    });
+
+    await store.clearWallet('w-clear');
+    await expect(store.loadInvalidHistoryMarker('w-clear')).resolves.toBeNull();
+  });
+
   it('returns cloned meta and index values so callers cannot mutate cached state', async () => {
     const kv = new MemoryKv();
     const store = new SnapshotStore(kv);

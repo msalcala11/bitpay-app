@@ -33,6 +33,11 @@ import type {
   SnapshotStoreWalletMeta,
 } from '../pnl/snapshotStore';
 import {buildWalletMetaForStore} from '../pnl/snapshotStore';
+import type {SnapshotInvalidHistoryMarkerV1} from '../pnl/invalidHistory';
+import {
+  isSnapshotInvalidHistoryError,
+  toSnapshotInvalidHistoryMarker,
+} from '../pnl/invalidHistory';
 import {
   FiatRateStore,
   parseStoredFiatRateSeries,
@@ -328,6 +333,12 @@ export class PortfolioEngine {
     return this.snapshotStore.loadIndex(walletId);
   }
 
+  async getInvalidHistoryMarker(
+    walletId: string,
+  ): Promise<SnapshotInvalidHistoryMarkerV1 | null> {
+    return this.snapshotStore.loadInvalidHistoryMarker(walletId);
+  }
+
   async clearWallet(walletId: string): Promise<void> {
     this.builders.delete(walletId);
     this.sessionMetaByWalletId.delete(walletId);
@@ -604,157 +615,194 @@ export class PortfolioEngine {
     this.sessionFetchByWalletId.delete(walletId);
   }
 
+  private async handleInvalidHistoryError(
+    walletId: string,
+    error: unknown,
+  ): Promise<void> {
+    if (!isSnapshotInvalidHistoryError(error)) {
+      return;
+    }
+
+    const marker = toSnapshotInvalidHistoryMarker({
+      walletId,
+      error,
+    });
+    if (marker) {
+      await this.snapshotStore.saveInvalidHistoryMarker(marker);
+    }
+    await this.snapshotStore.clearWallet(walletId, {
+      preserveInvalidHistoryMarker: true,
+    });
+    await this.closeWalletSession(walletId);
+  }
+
   async processNextPageSession(
     walletId: string,
   ): Promise<ProcessNextPageSessionResult> {
-    const builder = this.builders.get(walletId);
-    const meta = this.sessionMetaByWalletId.get(walletId);
-    const fetchCfg = this.sessionFetchByWalletId.get(walletId);
-    if (!builder || !meta || !fetchCfg) {
-      throw new Error(
-        `Wallet session not prepared for background fetch: ${walletId}`,
-      );
-    }
-    if (!this.txHistoryPageFetcher) {
-      throw new Error(
-        'PortfolioEngine cannot fetch tx history pages without an injected txHistoryPageFetcher.',
-      );
-    }
+    try {
+      const builder = this.builders.get(walletId);
+      const meta = this.sessionMetaByWalletId.get(walletId);
+      const fetchCfg = this.sessionFetchByWalletId.get(walletId);
+      if (!builder || !meta || !fetchCfg) {
+        throw new Error(
+          `Wallet session not prepared for background fetch: ${walletId}`,
+        );
+      }
+      if (!this.txHistoryPageFetcher) {
+        throw new Error(
+          'PortfolioEngine cannot fetch tx history pages without an injected txHistoryPageFetcher.',
+        );
+      }
 
-    const skip = builder.getCheckpoint().nextSkip;
-    while (true) {
-      let txs = fetchCfg.pendingTxs;
-      let fetchedTxs = 0;
-      let fetchMs = 0;
+      const skip = builder.getCheckpoint().nextSkip;
+      while (true) {
+        let txs = fetchCfg.pendingTxs;
+        let fetchedTxs = 0;
+        let fetchMs = 0;
 
-      if (!txs.length) {
-        const tFetch0 = this.measureNow();
-        txs = await this.txHistoryPageFetcher({
-          credentials: fetchCfg.credentials,
-          cfg: fetchCfg.cfg,
-          skip,
-          limit: fetchCfg.pageSize,
-          reverse: true,
-        });
-        const tFetch1 = this.measureNow();
-        fetchMs = Math.max(0, tFetch1 - tFetch0);
-        fetchedTxs = txs.length;
-        fetchCfg.pendingTxs = dedupeTxHistoryPage(txs);
+        if (!txs.length) {
+          const tFetch0 = this.measureNow();
+          txs = await this.txHistoryPageFetcher({
+            credentials: fetchCfg.credentials,
+            cfg: fetchCfg.cfg,
+            skip,
+            limit: fetchCfg.pageSize,
+            reverse: true,
+          });
+          const tFetch1 = this.measureNow();
+          fetchMs = Math.max(0, tFetch1 - tFetch0);
+          fetchedTxs = txs.length;
+          fetchCfg.pendingTxs = dedupeTxHistoryPage(txs);
 
-        const logicalPageSize = txs.length
-          ? getTxHistoryLogicalPageSize(txs)
-          : 0;
-        if (!txs.length || logicalPageSize <= 0) {
-          fetchCfg.pendingTxs = [];
-          if (builder.hasPendingCarryoverGroup()) {
-            const tCompute0 = this.measureNow();
-            const snapshots = builder.flushPendingCarryoverGroup();
-            const checkpoint = builder.getCheckpoint();
-            if (snapshots.length) {
-              await this.snapshotStore.appendChunk({
-                meta,
-                snapshots,
+          const logicalPageSize = txs.length
+            ? getTxHistoryLogicalPageSize(txs)
+            : 0;
+          if (!txs.length || logicalPageSize <= 0) {
+            fetchCfg.pendingTxs = [];
+            if (builder.hasPendingCarryoverGroup()) {
+              const tCompute0 = this.measureNow();
+              const snapshots = builder.flushPendingCarryoverGroup();
+              const checkpoint = builder.getCheckpoint();
+              if (snapshots.length) {
+                await this.snapshotStore.appendChunk({
+                  meta,
+                  snapshots,
+                  checkpoint,
+                });
+              } else {
+                await this.snapshotStore.updateCheckpoint({
+                  walletId,
+                  checkpoint,
+                });
+              }
+              const tCompute1 = this.measureNow();
+              return {
                 checkpoint,
-              });
-            } else {
-              await this.snapshotStore.updateCheckpoint({walletId, checkpoint});
+                appendedSnapshots: snapshots.length,
+                fetchedTxs,
+                logicalPageSize,
+                done: true,
+                fetchMs,
+                computeMs: Math.max(0, tCompute1 - tCompute0),
+              };
             }
-            const tCompute1 = this.measureNow();
             return {
-              checkpoint,
-              appendedSnapshots: snapshots.length,
+              checkpoint: builder.getCheckpoint(),
+              appendedSnapshots: 0,
               fetchedTxs,
               logicalPageSize,
               done: true,
               fetchMs,
-              computeMs: Math.max(0, tCompute1 - tCompute0),
+              computeMs: 0,
             };
           }
-          return {
-            checkpoint: builder.getCheckpoint(),
-            appendedSnapshots: 0,
-            fetchedTxs,
-            logicalPageSize,
-            done: true,
-            fetchMs,
-            computeMs: 0,
-          };
         }
-      }
 
-      const tCompute0 = this.measureNow();
-      const consumed = builder.ingestPageWithSnapshotLimit(
-        fetchCfg.pendingTxs,
-        fetchCfg.emitRows ?? undefined,
-      );
-      const checkpoint = builder.getCheckpoint();
-      if (consumed.snapshots.length) {
-        await this.snapshotStore.appendChunk({
-          meta,
-          snapshots: consumed.snapshots,
+        const tCompute0 = this.measureNow();
+        const consumed = builder.ingestPageWithSnapshotLimit(
+          fetchCfg.pendingTxs,
+          fetchCfg.emitRows ?? undefined,
+        );
+        const checkpoint = builder.getCheckpoint();
+        if (consumed.snapshots.length) {
+          await this.snapshotStore.appendChunk({
+            meta,
+            snapshots: consumed.snapshots,
+            checkpoint,
+          });
+        } else if (consumed.logicalPageSize > 0) {
+          await this.snapshotStore.updateCheckpoint({walletId, checkpoint});
+        }
+        const tCompute1 = this.measureNow();
+
+        const consumedRawCount = Math.max(
+          0,
+          Math.min(
+            fetchCfg.pendingTxs.length,
+            Number(consumed.consumedRawCount ?? 0),
+          ),
+        );
+        fetchCfg.pendingTxs =
+          consumedRawCount > 0
+            ? fetchCfg.pendingTxs.slice(consumedRawCount)
+            : [];
+
+        if (!consumed.logicalPageSize && !consumed.snapshots.length) {
+          if (!fetchCfg.pendingTxs.length) {
+            continue;
+          }
+        }
+
+        return {
           checkpoint,
-        });
-      } else if (consumed.logicalPageSize > 0) {
-        await this.snapshotStore.updateCheckpoint({walletId, checkpoint});
+          appendedSnapshots: consumed.snapshots.length,
+          fetchedTxs,
+          logicalPageSize: consumed.logicalPageSize,
+          done: false,
+          fetchMs,
+          computeMs: Math.max(0, tCompute1 - tCompute0),
+        };
       }
-      const tCompute1 = this.measureNow();
-
-      const consumedRawCount = Math.max(
-        0,
-        Math.min(
-          fetchCfg.pendingTxs.length,
-          Number(consumed.consumedRawCount ?? 0),
-        ),
-      );
-      fetchCfg.pendingTxs =
-        consumedRawCount > 0 ? fetchCfg.pendingTxs.slice(consumedRawCount) : [];
-
-      if (!consumed.logicalPageSize && !consumed.snapshots.length) {
-        if (!fetchCfg.pendingTxs.length) {
-          continue;
-        }
-      }
-
-      return {
-        checkpoint,
-        appendedSnapshots: consumed.snapshots.length,
-        fetchedTxs,
-        logicalPageSize: consumed.logicalPageSize,
-        done: false,
-        fetchMs,
-        computeMs: Math.max(0, tCompute1 - tCompute0),
-      };
+    } catch (error: unknown) {
+      await this.handleInvalidHistoryError(walletId, error);
+      throw error;
     }
   }
 
   async finishWalletSession(
     walletId: string,
   ): Promise<FinishWalletSessionResult> {
-    const builder = this.builders.get(walletId);
-    const meta = this.sessionMetaByWalletId.get(walletId);
-    if (!builder || !meta) {
-      throw new Error(`Wallet session not prepared: ${walletId}`);
-    }
+    try {
+      const builder = this.builders.get(walletId);
+      const meta = this.sessionMetaByWalletId.get(walletId);
+      if (!builder || !meta) {
+        throw new Error(`Wallet session not prepared: ${walletId}`);
+      }
 
-    const snapshots = builder.finish();
-    const checkpoint = builder.getCheckpoint();
-    if (snapshots.length) {
-      await this.snapshotStore.appendChunk({
-        meta,
-        snapshots,
+      const snapshots = builder.finish();
+      const checkpoint = builder.getCheckpoint();
+      if (snapshots.length) {
+        await this.snapshotStore.appendChunk({
+          meta,
+          snapshots,
+          checkpoint,
+        });
+      } else {
+        await this.snapshotStore.updateCheckpoint({walletId, checkpoint});
+      }
+      await this.snapshotStore.clearInvalidHistoryMarker(walletId);
+      this.builders.delete(walletId);
+      this.sessionMetaByWalletId.delete(walletId);
+      this.sessionFetchByWalletId.delete(walletId);
+
+      return {
         checkpoint,
-      });
-    } else {
-      await this.snapshotStore.updateCheckpoint({walletId, checkpoint});
+        appendedSnapshots: snapshots.length,
+      };
+    } catch (error: unknown) {
+      await this.handleInvalidHistoryError(walletId, error);
+      throw error;
     }
-    this.builders.delete(walletId);
-    this.sessionMetaByWalletId.delete(walletId);
-    this.sessionFetchByWalletId.delete(walletId);
-
-    return {
-      checkpoint,
-      appendedSnapshots: snapshots.length,
-    };
   }
 
   async getLatestSnapshot(
