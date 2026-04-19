@@ -26,7 +26,6 @@ export {
 } from './portfolio.reducer';
 
 export type {
-  BalanceSnapshot,
   PortfolioState,
   PortfolioPopulateStatus,
   SnapshotBalanceMismatch,
