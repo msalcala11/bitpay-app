@@ -34,6 +34,11 @@ import {
   type WalletForStreamedAnalysis,
 } from '../pnl/analysisStreaming';
 import {getAssetIdFromWallet} from '../pnl/assetId';
+import {buildPortfolioAssetRowsResult} from '../pnl/assetRows';
+import type {
+  ComputeAssetRowsArgs,
+  PortfolioAssetRowsResult,
+} from '../pnl/assetRows';
 import type {BalanceSnapshotStored} from '../pnl/types';
 import {normalizeFiatRateSeriesCoin} from '../pnl/rates';
 import {dedupeTxHistoryPage, getTxHistoryLogicalPageSize} from '../txHistoryPaging';
@@ -80,6 +85,16 @@ type PreparedStreamedAnalysisInputs = {
   wallets: WalletForStreamedAnalysis[];
 };
 
+type PrepareStreamedAnalysisOptions = {
+  /**
+   * Asset-row fallback mode should mirror the worklet path: avoid warming
+   * rates when no snapshots are present and exclude assets that still have no
+   * usable rate series so compact rows can return placeholders instead of
+   * failing the whole request.
+   */
+  allowMissingRates?: boolean;
+};
+
 export type TxHistoryPageFetcher = (args: {
   credentials: WalletCredentials;
   cfg: BwsConfig;
@@ -110,6 +125,15 @@ function defaultMeasureNow(): MeasureNow {
   const perf = (globalThis as GlobalRuntimePrimitives).performance;
   const perfNow = typeof perf?.now === 'function' ? perf.now.bind(perf) : null;
   return typeof perfNow === 'function' ? perfNow : () => Date.now();
+}
+
+function snapshotIndexHasRows(index: SnapshotIndexV2 | null | undefined): boolean {
+  const chunks = index?.chunks;
+  if (!Array.isArray(chunks) || !chunks.length) {
+    return false;
+  }
+
+  return chunks.some(chunk => Number(chunk?.rows) > 0);
 }
 
 export type PortfolioEngineOptions = {
@@ -617,7 +641,68 @@ export class PortfolioEngine {
     });
   }
 
-  private async prepareStreamedAnalysisInputs(args: ComputeAnalysisArgs): Promise<PreparedStreamedAnalysisInputs> {
+  async computeAssetRows(
+    args: ComputeAssetRowsArgs,
+  ): Promise<PortfolioAssetRowsResult> {
+    const quoteCurrency = String(args.quoteCurrency || 'USD').toUpperCase();
+    const generatedAt =
+      typeof args.nowMs === 'number' && Number.isFinite(args.nowMs)
+        ? args.nowMs
+        : Date.now();
+    const rowArgs: ComputeAssetRowsArgs = {
+      ...args,
+      quoteCurrency,
+      nowMs: generatedAt,
+      maxPoints: 2,
+    };
+
+    if (!rowArgs.wallets.length) {
+      return buildPortfolioAssetRowsResult({
+        storedWallets: [],
+        analysis: undefined,
+        ratePointsByAssetId: {},
+        quoteCurrency,
+        timeframe: rowArgs.timeframe,
+        nowMs: rowArgs.nowMs,
+        generatedAt,
+        collapseAcrossChains: rowArgs.collapseAcrossChains,
+        currentRatesByAssetId: rowArgs.currentRatesByAssetId,
+      });
+    }
+
+    const prepared = await this.prepareStreamedAnalysisInputs(rowArgs, {
+      allowMissingRates: true,
+    });
+    const analysis = await buildPnlAnalysisSeriesFromStreamed({
+      cfg: {quoteCurrency: prepared.quoteCurrency},
+      wallets: prepared.wallets,
+      timeframe: rowArgs.timeframe,
+      ratePointsByAssetId: prepared.resolved.rawPointsByAssetId,
+      firstNonZeroTs: prepared.firstNonZeroTs,
+      startTs: prepared.resolved.startTs,
+      endTs: prepared.resolved.endTs,
+      nowMs: prepared.resolved.nowMs,
+      maxPoints: 2,
+      resolvedWindow: prepared.resolved,
+    });
+
+    return buildPortfolioAssetRowsResult({
+      storedWallets: rowArgs.wallets,
+      analysis,
+      ratePointsByAssetId: prepared.resolved.rawPointsByAssetId,
+      quoteCurrency: prepared.quoteCurrency,
+      timeframe: rowArgs.timeframe,
+      nowMs: rowArgs.nowMs,
+      generatedAt,
+      collapseAcrossChains: rowArgs.collapseAcrossChains,
+      currentRatesByAssetId: rowArgs.currentRatesByAssetId,
+    });
+  }
+
+  private async prepareStreamedAnalysisInputs(
+    args: ComputeAnalysisArgs,
+    options?: PrepareStreamedAnalysisOptions,
+  ): Promise<PreparedStreamedAnalysisInputs> {
     const targetQuoteCurrency = String(args.quoteCurrency || 'USD').toUpperCase();
     const walletMetas: WalletForAnalysisMeta[] = args.wallets.map(w => ({
       walletId: w.summary.walletId,
@@ -632,11 +717,61 @@ export class PortfolioEngine {
       ),
       credentials: w.credentials,
     }));
-    const walletMetaByWalletId = new Map(walletMetas.map(meta => [meta.walletId, meta]));
+    const walletMetaByWalletId = new Map(
+      walletMetas.map(meta => [meta.walletId, meta] as const),
+    );
+
+    let analysisWallets = args.wallets.slice();
+    let analysisWalletMetas = walletMetas.slice();
+    let snapshotIndexesByWalletId: Map<string, SnapshotIndexV2 | null> | null = null;
+
+    if (options?.allowMissingRates) {
+      const loadedIndexes = new Map(
+        await Promise.all(
+          args.wallets.map(async wallet => {
+            return [
+              wallet.summary.walletId,
+              await this.snapshotStore.loadIndex(wallet.summary.walletId),
+            ] as const;
+          }),
+        ),
+      );
+      snapshotIndexesByWalletId = loadedIndexes;
+
+      const walletIdsWithSnapshots = new Set(
+        args.wallets
+          .filter(wallet =>
+            snapshotIndexHasRows(loadedIndexes.get(wallet.summary.walletId)),
+          )
+          .map(wallet => wallet.summary.walletId),
+      );
+      analysisWallets = args.wallets.filter(wallet =>
+        walletIdsWithSnapshots.has(wallet.summary.walletId),
+      );
+      analysisWalletMetas = walletMetas.filter(meta =>
+        walletIdsWithSnapshots.has(meta.walletId),
+      );
+
+      if (!analysisWallets.length) {
+        return {
+          quoteCurrency: targetQuoteCurrency,
+          firstNonZeroTs: null,
+          resolved: resolvePnlAnalysisPreloadWindow({
+            cfg: {quoteCurrency: targetQuoteCurrency},
+            wallets: [],
+            timeframe: args.timeframe,
+            ratePointsByAssetId: {},
+            nowMs: args.nowMs,
+            maxPoints: args.maxPoints,
+          }),
+          wallets: [],
+        };
+      }
+    }
 
     const baseAssets = Array.from(
       new Map(
-        args.wallets.map(w => {
+        analysisWallets.map(w => {
           const coin = normalizeFiatRateSeriesCoin(w.summary.currencyAbbreviation);
           const chain = normalizeFiatRateSeriesChain(w.summary.chain);
           const tokenAddress = normalizeFiatRateSeriesTokenAddress(
@@ -644,33 +779,48 @@ export class PortfolioEngine {
             w.summary.tokenAddress,
           );
           const assetId = getAssetIdFromWallet(w.summary);
-          return [assetId, {assetId, coin, chain, tokenAddress}];
+          return [assetId, {assetId, coin, chain, tokenAddress}] as const;
         }),
       ).values(),
     );
 
     const defaultCoins = Array.from(
       new Set([
-        ...baseAssets.filter(asset => !asset.tokenAddress).map(asset => normalizeFiatRateSeriesCoin(asset.coin)),
+        ...baseAssets
+          .filter(asset => !asset.tokenAddress)
+          .map(asset => normalizeFiatRateSeriesCoin(asset.coin)),
         FX_BRIDGE_COIN,
       ]),
     );
     const explicitAssets = baseAssets.filter(asset => !!asset.tokenAddress);
 
-    await this.rateStore.ensureRates({
-      cfg: args.cfg,
-      quoteCurrency: CANONICAL_FIAT_QUOTE,
-      interval: args.timeframe,
-      coins: defaultCoins,
-      assets: explicitAssets,
-    });
-    if (targetQuoteCurrency !== CANONICAL_FIAT_QUOTE) {
+    const ensureRates = async (): Promise<void> => {
       await this.rateStore.ensureRates({
         cfg: args.cfg,
-        quoteCurrency: targetQuoteCurrency,
+        quoteCurrency: CANONICAL_FIAT_QUOTE,
         interval: args.timeframe,
-        coins: [FX_BRIDGE_COIN],
+        coins: defaultCoins,
+        assets: explicitAssets,
       });
+      if (targetQuoteCurrency !== CANONICAL_FIAT_QUOTE) {
+        await this.rateStore.ensureRates({
+          cfg: args.cfg,
+          quoteCurrency: targetQuoteCurrency,
+          interval: args.timeframe,
+          coins: [FX_BRIDGE_COIN],
+        });
+      }
+    };
+
+    if (options?.allowMissingRates) {
+      try {
+        await ensureRates();
+      } catch {
+        // Asset-row fallback can still return compact placeholder rows for
+        // assets with no available rates. Full analysis paths keep throwing.
+      }
+    } else {
+      await ensureRates();
     }
 
     const ratePointsByAssetId: Record<string, FiatRatePoint[]> = {};
@@ -691,14 +841,62 @@ export class PortfolioEngine {
       }
     }
 
-    const firstNonZeroTs =
-      args.timeframe === 'ALL'
-        ? await this.findFirstNonZeroBalanceTs(args.wallets.map(w => w.summary.walletId))
-        : null;
+    if (options?.allowMissingRates) {
+      const walletIdsWithUsableRates = new Set(
+        analysisWallets
+          .filter(wallet => {
+            const assetId = getAssetIdFromWallet(wallet.summary);
+            return !!ratePointsByAssetId[assetId]?.length;
+          })
+          .map(wallet => wallet.summary.walletId),
+      );
+      analysisWallets = analysisWallets.filter(wallet =>
+        walletIdsWithUsableRates.has(wallet.summary.walletId),
+      );
+      analysisWalletMetas = analysisWalletMetas.filter(meta =>
+        walletIdsWithUsableRates.has(meta.walletId),
+      );
+
+      if (!analysisWallets.length) {
+        return {
+          quoteCurrency: targetQuoteCurrency,
+          firstNonZeroTs: null,
+          resolved: resolvePnlAnalysisPreloadWindow({
+            cfg: {quoteCurrency: targetQuoteCurrency},
+            wallets: [],
+            timeframe: args.timeframe,
+            ratePointsByAssetId: {},
+            nowMs: args.nowMs,
+            maxPoints: args.maxPoints,
+          }),
+          wallets: [],
+        };
+      }
+    }
+
+    let firstNonZeroTs: number | null = null;
+    if (args.timeframe === 'ALL') {
+      if (snapshotIndexesByWalletId) {
+        firstNonZeroTs = analysisWalletMetas.reduce<number | null>((best, walletMeta) => {
+          const ts = snapshotIndexesByWalletId?.get(walletMeta.walletId)?.checkpoint?.firstNonZeroTs;
+          if (typeof ts !== 'number' || !Number.isFinite(ts) || ts <= 0) {
+            return best;
+          }
+          if (best === null || ts < best) {
+            return ts;
+          }
+          return best;
+        }, null);
+      } else {
+        firstNonZeroTs = await this.findFirstNonZeroBalanceTs(
+          analysisWallets.map(w => w.summary.walletId),
+        );
+      }
+    }
 
     const resolved = resolvePnlAnalysisPreloadWindow({
       cfg: {quoteCurrency: targetQuoteCurrency},
-      wallets: walletMetas,
+      wallets: analysisWalletMetas,
       timeframe: args.timeframe,
       ratePointsByAssetId,
       firstNonZeroTs,
@@ -707,7 +905,7 @@ export class PortfolioEngine {
     });
 
     const wallets: WalletForStreamedAnalysis[] = [];
-    for (const wallet of args.wallets) {
+    for (const wallet of analysisWallets) {
       const walletId = wallet.summary.walletId;
       const basePoint = await this.snapshotStore.findLastPointAtOrBefore(walletId, resolved.startTs);
       const walletMeta = walletMetaByWalletId.get(walletId);

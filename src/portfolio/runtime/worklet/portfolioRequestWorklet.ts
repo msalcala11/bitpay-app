@@ -44,6 +44,7 @@ import {
 import {
   computeWorkletAnalysis,
   computeWorkletAnalysisChart,
+  computeWorkletAssetRows,
 } from './portfolioWorkletAnalysis';
 
 export type PortfolioWorkletRequestConfig = {
@@ -63,6 +64,7 @@ const WORKLET_METHODS: Record<WorkerMethod, true> = {
   'snapshots.getLatestSnapshot': true,
   'snapshots.listSnapshots': true,
   'analysis.compute': true,
+  'analysis.computeAssetRows': true,
   'analysis.computeChart': true,
   'populate.startJob': true,
   'populate.getJobStatus': true,
@@ -324,6 +326,18 @@ export async function handlePortfolioRequestOnRuntime(
 
         case 'analysis.compute': {
           const result = await computeWorkletAnalysis(
+            kvConfig,
+            request.params as any,
+          );
+          return {
+            id: request.id,
+            ok: true,
+            result,
+          } as WorkerResponse;
+        }
+
+        case 'analysis.computeAssetRows': {
+          const result = await computeWorkletAssetRows(
             kvConfig,
             request.params as any,
           );

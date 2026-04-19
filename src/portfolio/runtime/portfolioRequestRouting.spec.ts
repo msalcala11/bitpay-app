@@ -14,6 +14,7 @@ describe('portfolioRequestRouting', () => {
   it('routes read and debug methods to the worklet runtime too', () => {
     expect(shouldDispatchPortfolioRequestOnRuntimeWorklet('snapshots.getIndex')).toBe(true);
     expect(shouldDispatchPortfolioRequestOnRuntimeWorklet('analysis.compute')).toBe(true);
+    expect(shouldDispatchPortfolioRequestOnRuntimeWorklet('analysis.computeAssetRows')).toBe(true);
     expect(shouldDispatchPortfolioRequestOnRuntimeWorklet('analysis.computeChart')).toBe(true);
     expect(shouldDispatchPortfolioRequestOnRuntimeWorklet('debug.clearAll')).toBe(true);
     expect(
@@ -26,6 +27,19 @@ describe('portfolioRequestRouting', () => {
       shouldDispatchPortfolioRequestOnRuntimeWorklet({
         id: 1,
         method: 'analysis.compute',
+        params: {
+          cfg: {baseUrl: 'https://example.com'},
+          wallets: [],
+          quoteCurrency: 'USD',
+          timeframe: '1D',
+        },
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldDispatchPortfolioRequestOnRuntimeWorklet({
+        id: 2,
+        method: 'analysis.computeAssetRows',
         params: {
           cfg: {baseUrl: 'https://example.com'},
           wallets: [],

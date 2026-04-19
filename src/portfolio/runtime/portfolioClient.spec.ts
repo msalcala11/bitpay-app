@@ -61,6 +61,45 @@ describe('PortfolioRuntimeClient', () => {
     await expect(client.clearAllStorage()).resolves.toBeUndefined();
   });
 
+  it('dispatches computeAssetRows through the analysis.computeAssetRows RPC method', async () => {
+    let dispatchedRequest: WorkerRequest | null = null;
+    const client = new PortfolioRuntimeClient(
+      createImmediateTransport(request => {
+        dispatchedRequest = request;
+        return {
+          id: request.id,
+          ok: true,
+          result: {
+            timeframe: '1D',
+            quoteCurrency: 'USD',
+            startTs: 0,
+            endTs: 0,
+            generatedAt: 0,
+            rows: [],
+          },
+        } as WorkerResponse;
+      }),
+    );
+
+    await expect(
+      client.computeAssetRows({
+        cfg: {baseUrl: 'https://example.com'},
+        wallets: [],
+        quoteCurrency: 'USD',
+        timeframe: '1D',
+      }),
+    ).resolves.toEqual({
+      timeframe: '1D',
+      quoteCurrency: 'USD',
+      startTs: 0,
+      endTs: 0,
+      generatedAt: 0,
+      rows: [],
+    });
+
+    expect(dispatchedRequest?.method).toBe('analysis.computeAssetRows');
+  });
+
   it('marks transport failures as fatal for all future requests', async () => {
     const client = new PortfolioRuntimeClient(
       createImmediateTransport(() => new Error('transport failed')),

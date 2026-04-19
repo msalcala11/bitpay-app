@@ -132,6 +132,11 @@ export class PortfolioRuntimeHost {
           return {id: req.id, ok: true, result: res} as any;
         }
 
+        case 'analysis.computeAssetRows': {
+          const res = await this.engine.computeAssetRows(req.params as any);
+          return {id: req.id, ok: true, result: res} as any;
+        }
+
         case 'analysis.computeChart': {
           const res = await this.engine.computeAnalysisChart(req.params as any);
           return {id: req.id, ok: true, result: res} as any;
