@@ -42,9 +42,17 @@ const mockUsePortfolioAnalysis = usePortfolioAnalysis as jest.Mock;
 const mockUseIsFocused = useIsFocused as jest.Mock;
 const mockUseAppDispatch = useAppDispatch as jest.Mock;
 const mockUseAppSelector = useAppSelector as jest.Mock;
+const mockBuildAssetRowsFromAnalysis = jest.requireMock(
+  '../selectors/buildAssetRowsFromAnalysis',
+).default as jest.Mock;
+const mockGetPopulateLoadingByAssetKey = jest.requireMock(
+  '../../../utils/portfolio/assets',
+).getPopulateLoadingByAssetKey as jest.Mock;
+
+let latestResult: ReturnType<typeof usePortfolioAssetRows> | undefined;
 
 const HookHarness = () => {
-  usePortfolioAssetRows({
+  latestResult = usePortfolioAssetRows({
     gainLossMode: '1D',
   });
   return null;
@@ -55,6 +63,7 @@ describe('usePortfolioAssetRows', () => {
   let dispatchSpy: jest.Mock;
 
   beforeEach(() => {
+    latestResult = undefined;
     mockUseIsFocused.mockReset();
     mockUseIsFocused.mockReturnValue(false);
     mockUseAppDispatch.mockReset();
@@ -83,10 +92,16 @@ describe('usePortfolioAssetRows', () => {
     mockUsePortfolioAnalysis.mockReturnValue({
       data: undefined,
       committedData: undefined,
+      currentData: undefined,
+      error: undefined,
       loading: false,
       quoteCurrency: 'USD',
       storedWallets: [],
     });
+    mockBuildAssetRowsFromAnalysis.mockReset();
+    mockBuildAssetRowsFromAnalysis.mockReturnValue([]);
+    mockGetPopulateLoadingByAssetKey.mockReset();
+    mockGetPopulateLoadingByAssetKey.mockReturnValue(undefined);
   });
 
   it('disables runtime analysis queries while the screen is unfocused', () => {
@@ -179,5 +194,31 @@ describe('usePortfolioAssetRows', () => {
     render(<HookHarness />);
 
     expect(dispatchSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps all asset rows in loading state while a fresh populate has no committed analysis yet', () => {
+    mockState.PORTFOLIO.populateStatus.inProgress = true;
+    mockBuildAssetRowsFromAnalysis.mockReturnValue([
+      {
+        key: 'doge',
+        currencyAbbreviation: 'doge',
+        chain: 'doge',
+        tokenAddress: undefined,
+        name: 'DOGE',
+        cryptoAmount: '22.6',
+        fiatAmount: '$0',
+        deltaFiat: '—',
+        deltaPercent: '—',
+        isPositive: true,
+        hasRate: false,
+        hasPnl: false,
+        showPnlPlaceholder: true,
+      },
+    ]);
+
+    render(<HookHarness />);
+
+    expect(latestResult?.isPopulateLoadingByKey).toEqual({doge: true});
+    expect(mockGetPopulateLoadingByAssetKey).not.toHaveBeenCalled();
   });
 });

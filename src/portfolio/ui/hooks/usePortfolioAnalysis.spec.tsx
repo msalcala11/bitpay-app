@@ -40,6 +40,7 @@ describe('usePortfolioAnalysis', () => {
     latestResult = undefined;
     mockState = {
       PORTFOLIO: {
+        lastPopulatedAt: undefined,
         populateStatus: {
           inProgress: false,
         },
@@ -60,6 +61,15 @@ describe('usePortfolioAnalysis', () => {
       assetSummaries: [{assetId: 'btc'}],
     } as any;
 
+    mockState = {
+      PORTFOLIO: {
+        lastPopulatedAt: 1,
+        populateStatus: {
+          inProgress: false,
+        },
+      },
+    };
+    mockUseAppSelector.mockImplementation(selector => selector(mockState));
     mockUsePortfolioRuntimeQuery.mockReturnValue({
       data: completedAnalysis,
       loading: false,
@@ -87,6 +97,7 @@ describe('usePortfolioAnalysis', () => {
 
     mockState = {
       PORTFOLIO: {
+        lastPopulatedAt: 1,
         populateStatus: {
           inProgress: true,
         },
@@ -108,5 +119,70 @@ describe('usePortfolioAnalysis', () => {
     expect(latestResult?.currentData).toBe(inProgressAnalysis);
     expect(latestResult?.committedData).toBe(completedAnalysis);
     expect(latestResult?.data).toBe(completedAnalysis);
+  });
+
+  it('drops committed analysis after portfolio data has been cleared', async () => {
+    const completedAnalysis = {
+      points: [],
+      assetSummaries: [],
+    } as any;
+    const inProgressAnalysis = {
+      points: [{ts: 1}],
+      assetSummaries: [{assetId: 'btc'}],
+    } as any;
+
+    mockState = {
+      PORTFOLIO: {
+        lastPopulatedAt: 1,
+        populateStatus: {
+          inProgress: false,
+        },
+      },
+    };
+    mockUseAppSelector.mockImplementation(selector => selector(mockState));
+    mockUsePortfolioRuntimeQuery.mockReturnValue({
+      data: completedAnalysis,
+      loading: false,
+      error: undefined,
+      quoteCurrency: 'USD',
+      storedWallets: [],
+      eligibleWallets: [],
+      requestKey: 'req-1',
+    });
+
+    const first = render(<HookHarness />);
+
+    await waitFor(() => {
+      expect(latestResult?.committedData).toBe(completedAnalysis);
+    });
+
+    first.unmount();
+
+    mockState = {
+      PORTFOLIO: {
+        lastPopulatedAt: undefined,
+        populateStatus: {
+          inProgress: true,
+        },
+      },
+    };
+    mockUseAppSelector.mockImplementation(selector => selector(mockState));
+    mockUsePortfolioRuntimeQuery.mockReturnValue({
+      data: inProgressAnalysis,
+      loading: false,
+      error: undefined,
+      quoteCurrency: 'USD',
+      storedWallets: [],
+      eligibleWallets: [],
+      requestKey: 'req-1',
+    });
+
+    render(<HookHarness />);
+
+    await waitFor(() => {
+      expect(latestResult?.committedData).toBeUndefined();
+      expect(latestResult?.data).toBeUndefined();
+    });
+    expect(latestResult?.currentData).toBe(inProgressAnalysis);
   });
 });

@@ -40,6 +40,9 @@ export function usePortfolioAnalysis(args: {
   const populateInProgress = useAppSelector(
     ({PORTFOLIO}) => !!PORTFOLIO.populateStatus?.inProgress,
   );
+  const lastPopulatedAt = useAppSelector(({PORTFOLIO}) => PORTFOLIO.lastPopulatedAt);
+  const hasCommittedPortfolioBaseline =
+    typeof lastPopulatedAt === 'number' && Number.isFinite(lastPopulatedAt);
   const query = usePortfolioRuntimeQuery<PnlAnalysisResult>({
     wallets: args.wallets,
     timeframe: args.timeframe,
@@ -58,11 +61,20 @@ export function usePortfolioAnalysis(args: {
 
   const [committedData, setCommittedData] = useState<
     PnlAnalysisResult | undefined
-  >(() => getCommittedAnalysisCacheValue(committedDataCacheKey));
+  >(() =>
+    hasCommittedPortfolioBaseline
+      ? getCommittedAnalysisCacheValue(committedDataCacheKey)
+      : undefined,
+  );
 
   useEffect(() => {
+    if (!hasCommittedPortfolioBaseline) {
+      setCommittedData(undefined);
+      return;
+    }
+
     setCommittedData(getCommittedAnalysisCacheValue(committedDataCacheKey));
-  }, [committedDataCacheKey]);
+  }, [committedDataCacheKey, hasCommittedPortfolioBaseline]);
 
   useEffect(() => {
     if (!query.data) {
@@ -78,16 +90,17 @@ export function usePortfolioAnalysis(args: {
   }, [
     args.freezeWhilePopulate,
     committedDataCacheKey,
+    hasCommittedPortfolioBaseline,
     populateInProgress,
     query.data,
   ]);
 
   const data = useMemo(() => {
     if (!(args.freezeWhilePopulate && populateInProgress)) {
-      return query.data ?? committedData;
+      return query.data ?? (hasCommittedPortfolioBaseline ? committedData : undefined);
     }
 
-    if (committedData) {
+    if (hasCommittedPortfolioBaseline && committedData) {
       return committedData;
     }
 
@@ -96,6 +109,7 @@ export function usePortfolioAnalysis(args: {
     args.allowCurrentWhilePopulate,
     args.freezeWhilePopulate,
     committedData,
+    hasCommittedPortfolioBaseline,
     populateInProgress,
     query.data,
   ]);
@@ -104,7 +118,7 @@ export function usePortfolioAnalysis(args: {
     ...query,
     data,
     currentData: query.data,
-    committedData,
+    committedData: hasCommittedPortfolioBaseline ? committedData : undefined,
   };
 }
 

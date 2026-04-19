@@ -93,6 +93,8 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
     freezeWhilePopulate: true,
     allowCurrentWhilePopulate: false,
   });
+  const shouldForcePopulateLoading =
+    !!portfolio.populateStatus?.inProgress && !analysis.committedData;
 
   const items = useMemo(() => {
     const builtItems = buildAssetRowsFromAnalysis({
@@ -206,12 +208,12 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
       return visibleItemsRaw;
     }
 
-    if (portfolio.populateStatus?.inProgress) {
+    if (portfolio.populateStatus?.inProgress && analysis.committedData) {
       return lastNonEmptyVisibleItemsRef.current;
     }
 
     return visibleItemsRaw;
-  }, [portfolio.populateStatus?.inProgress, visibleItemsRaw]);
+  }, [analysis.committedData, portfolio.populateStatus?.inProgress, visibleItemsRaw]);
 
   const walletIdsByAssetKey = useMemo(() => {
     if (!portfolio.populateStatus?.inProgress) {
@@ -225,7 +227,23 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
     Record<string, boolean> | undefined
   >(undefined);
   const isPopulateLoadingByKey = useMemo(() => {
-    if (!portfolio.populateStatus?.inProgress || !walletIdsByAssetKey) {
+    if (!portfolio.populateStatus?.inProgress) {
+      return undefined;
+    }
+
+    if (shouldForcePopulateLoading) {
+      if (!visibleItems.length) {
+        return undefined;
+      }
+
+      const next: Record<string, boolean> = {};
+      for (const item of visibleItems) {
+        next[item.key] = true;
+      }
+      return next;
+    }
+
+    if (!walletIdsByAssetKey) {
       return undefined;
     }
 
@@ -235,7 +253,12 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
       populateStatus: portfolio.populateStatus,
       prev: populateLoadingByKeyPrevRef.current,
     });
-  }, [portfolio.populateStatus, visibleItems, walletIdsByAssetKey]);
+  }, [
+    portfolio.populateStatus,
+    shouldForcePopulateLoading,
+    visibleItems,
+    walletIdsByAssetKey,
+  ]);
 
   useEffect(() => {
     populateLoadingByKeyPrevRef.current = isPopulateLoadingByKey;
