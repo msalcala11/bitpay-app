@@ -55,9 +55,23 @@ type SnapshotTxRow = {
   balanceAtomic: string;
 };
 
+type SnapshotCoverageRow = {
+  seq: number;
+  snapshotIndex: number;
+  txid: string;
+  timestampMs: number;
+  timestampUtc: string;
+  deltaAtomic: string | null;
+  balanceAtomic: string | null;
+  eventType: 'tx' | 'daily';
+  coverageKey: string;
+  coverageTxCount: number;
+  balanceComparable: boolean;
+};
+
 type MatchedRow = {
   history: HistoryRow;
-  matchedSnapshot: SnapshotTxRow | null;
+  matchedSnapshot: SnapshotCoverageRow | null;
   matchedDiffAtomic: string | null;
   flags: string[];
 };
@@ -807,36 +821,85 @@ export function buildWalletBalanceDiagnostic(args: {
   }
 
   const snapshotTxRows: SnapshotTxRow[] = [];
+  const snapshotCoverageRows: SnapshotCoverageRow[] = [];
   const snapshotCounts = new Map<string, number>();
+  const snapshotCoverageCounts = new Map<string, number>();
   const computeSnapshot = makeBalanceSnapshotComputer(args.credentials);
   for (let i = 0; i < args.snapshots.length; i++) {
     const snapshot = args.snapshots[i];
-    if (snapshot.eventType !== 'tx') continue;
-    const txid = extractTxIdFromSnapshotId(snapshot.id) || snapshot.id;
     const prevSnapshot = i > 0 ? args.snapshots[i - 1] : null;
     const computed = computeSnapshot(snapshot, prevSnapshot);
-    snapshotCounts.set(txid, (snapshotCounts.get(txid) ?? 0) + 1);
-    snapshotTxRows.push({
-      seq: snapshotTxRows.length + 1,
-      snapshotIndex: i,
-      txid,
-      timestampMs: snapshot.timestamp,
-      timestampUtc: formatTimestampUtc(snapshot.timestamp),
-      deltaAtomic: computed.balanceDeltaAtomic,
-      balanceAtomic: snapshot.cryptoBalance,
-    });
+    if (snapshot.eventType === 'tx') {
+      const txid = extractTxIdFromSnapshotId(snapshot.id) || snapshot.id;
+      snapshotCounts.set(txid, (snapshotCounts.get(txid) ?? 0) + 1);
+      snapshotCoverageCounts.set(
+        txid,
+        (snapshotCoverageCounts.get(txid) ?? 0) + 1,
+      );
+      snapshotTxRows.push({
+        seq: snapshotTxRows.length + 1,
+        snapshotIndex: i,
+        txid,
+        timestampMs: snapshot.timestamp,
+        timestampUtc: formatTimestampUtc(snapshot.timestamp),
+        deltaAtomic: computed.balanceDeltaAtomic,
+        balanceAtomic: snapshot.cryptoBalance,
+      });
+      snapshotCoverageRows.push({
+        seq: snapshotCoverageRows.length + 1,
+        snapshotIndex: i,
+        txid,
+        timestampMs: snapshot.timestamp,
+        timestampUtc: formatTimestampUtc(snapshot.timestamp),
+        deltaAtomic: computed.balanceDeltaAtomic,
+        balanceAtomic: snapshot.cryptoBalance,
+        eventType: 'tx',
+        coverageKey: `${i}:0:${txid}`,
+        coverageTxCount: 1,
+        balanceComparable: true,
+      });
+      continue;
+    }
+
+    const txIds =
+      Array.isArray(snapshot.txIds) && snapshot.txIds.length
+        ? snapshot.txIds.map(String).filter(Boolean)
+        : [];
+    for (let coverageIndex = 0; coverageIndex < txIds.length; coverageIndex++) {
+      const txid = txIds[coverageIndex];
+      const isSingleTxDaily = txIds.length === 1;
+      const isLastTxInDaily = coverageIndex === txIds.length - 1;
+      const balanceComparable = isSingleTxDaily || isLastTxInDaily;
+      snapshotCoverageCounts.set(
+        txid,
+        (snapshotCoverageCounts.get(txid) ?? 0) + 1,
+      );
+      snapshotCoverageRows.push({
+        seq: snapshotCoverageRows.length + 1,
+        snapshotIndex: i,
+        txid,
+        timestampMs: snapshot.timestamp,
+        timestampUtc: formatTimestampUtc(snapshot.timestamp),
+        deltaAtomic: isSingleTxDaily ? computed.balanceDeltaAtomic : null,
+        balanceAtomic: balanceComparable ? snapshot.cryptoBalance : null,
+        eventType: 'daily',
+        coverageKey: `${i}:${coverageIndex}:${txid}`,
+        coverageTxCount: txIds.length,
+        balanceComparable,
+      });
+    }
   }
 
   const dailySnapshotCount = args.snapshots.length - snapshotTxRows.length;
 
-  const snapshotQueues = new Map<string, SnapshotTxRow[]>();
-  for (const row of snapshotTxRows) {
+  const snapshotQueues = new Map<string, SnapshotCoverageRow[]>();
+  for (const row of snapshotCoverageRows) {
     const queue = snapshotQueues.get(row.txid) ?? [];
     queue.push(row);
     snapshotQueues.set(row.txid, queue);
   }
 
-  const matchedSnapshotIndexes = new Set<number>();
+  const matchedSnapshotCoverageKeys = new Set<string>();
   const matchedRows: MatchedRow[] = historyRows.map(history => {
     const queue = snapshotQueues.get(history.txid);
     const matchedSnapshot = queue && queue.length ? queue.shift() || null : null;
@@ -845,7 +908,7 @@ export function buildWalletBalanceDiagnostic(args: {
     if ((historyCounts.get(history.txid) ?? 0) > 1) {
       flags.push('HISTORY_DUP_TXID');
     }
-    if ((snapshotCounts.get(history.txid) ?? 0) > 1) {
+    if ((snapshotCoverageCounts.get(history.txid) ?? 0) > 1) {
       flags.push('SNAP_DUP_TXID');
     }
 
@@ -859,18 +922,28 @@ export function buildWalletBalanceDiagnostic(args: {
       };
     }
 
-    matchedSnapshotIndexes.add(matchedSnapshot.snapshotIndex);
+    matchedSnapshotCoverageKeys.add(matchedSnapshot.coverageKey);
+
+    if (matchedSnapshot.eventType === 'daily') {
+      flags.push('SNAP_DAILY_COVERAGE');
+      if (matchedSnapshot.coverageTxCount > 1) {
+        flags.push('SNAP_DAILY_COMPRESSED');
+      }
+    }
 
     if (matchedSnapshot.seq !== history.seq) {
       flags.push('ORDER_DIFF');
     }
 
-    const diffAtomic = (
-      parseAtomicToBigint(history.runningBalanceAtomic) -
-      parseAtomicToBigint(matchedSnapshot.balanceAtomic)
-    ).toString();
-    if (diffAtomic !== '0') {
-      flags.push('BALANCE_MISMATCH');
+    let diffAtomic: string | null = null;
+    if (matchedSnapshot.balanceComparable && matchedSnapshot.balanceAtomic) {
+      diffAtomic = (
+        parseAtomicToBigint(history.runningBalanceAtomic) -
+        parseAtomicToBigint(matchedSnapshot.balanceAtomic)
+      ).toString();
+      if (diffAtomic !== '0') {
+        flags.push('BALANCE_MISMATCH');
+      }
     }
 
     return {
@@ -948,24 +1021,25 @@ export function buildWalletBalanceDiagnostic(args: {
   }
 
   let firstSnapshotNegativeSeq: number | null = null;
-  for (const row of snapshotTxRows) {
+  for (const row of snapshotCoverageRows) {
+    if (!row.balanceAtomic) continue;
     if (parseAtomicToBigint(row.balanceAtomic) < 0n) {
       firstSnapshotNegativeSeq = row.seq;
       break;
     }
   }
 
-  const commonSeqLength = Math.min(historyRows.length, snapshotTxRows.length);
+  const commonSeqLength = Math.min(historyRows.length, snapshotCoverageRows.length);
   let firstSequenceMismatchSeq: number | null = null;
   for (let i = 0; i < commonSeqLength; i++) {
-    if (historyRows[i].txid !== snapshotTxRows[i].txid) {
+    if (historyRows[i].txid !== snapshotCoverageRows[i].txid) {
       firstSequenceMismatchSeq = i + 1;
       break;
     }
   }
   if (
     firstSequenceMismatchSeq === null &&
-    historyRows.length !== snapshotTxRows.length
+    historyRows.length !== snapshotCoverageRows.length
   ) {
     firstSequenceMismatchSeq = commonSeqLength + 1;
   }
@@ -1017,14 +1091,14 @@ export function buildWalletBalanceDiagnostic(args: {
       row.history.runningBalanceAtomic,
     ]);
 
-  const snapshotOnlyRows = snapshotTxRows
-    .filter(row => !matchedSnapshotIndexes.has(row.snapshotIndex))
+  const snapshotOnlyRows = snapshotCoverageRows
+    .filter(row => !matchedSnapshotCoverageKeys.has(row.coverageKey))
     .map(row => [
       row.snapshotIndex,
       row.seq,
       row.txid,
       row.timestampUtc,
-      row.balanceAtomic,
+      row.balanceAtomic ?? '',
     ]);
 
   const focusSeq =
@@ -1035,7 +1109,7 @@ export function buildWalletBalanceDiagnostic(args: {
     1;
   const focusStart = Math.max(1, focusSeq - 5);
   const focusEnd = Math.min(
-    Math.max(historyRows.length, snapshotTxRows.length),
+    Math.max(historyRows.length, snapshotCoverageRows.length),
     focusSeq + 5,
   );
 
@@ -1060,9 +1134,11 @@ export function buildWalletBalanceDiagnostic(args: {
   for (let seqNum = focusStart; seqNum <= focusEnd; seqNum++) {
     const history = seqNum <= historyRows.length ? historyRows[seqNum - 1] : null;
     const snapshot =
-      seqNum <= snapshotTxRows.length ? snapshotTxRows[seqNum - 1] : null;
+      seqNum <= snapshotCoverageRows.length
+        ? snapshotCoverageRows[seqNum - 1]
+        : null;
     let sameSeqDiffAtomic = '';
-    if (history && snapshot) {
+    if (history && snapshot && snapshot.balanceAtomic) {
       sameSeqDiffAtomic = (
         parseAtomicToBigint(history.runningBalanceAtomic) -
         parseAtomicToBigint(snapshot.balanceAtomic)
@@ -1138,6 +1214,17 @@ export function buildWalletBalanceDiagnostic(args: {
     );
   }
   if (
+    dailySnapshotCount > 0 &&
+    historyRows.length > 0 &&
+    historyOnlyRows.length === 0 &&
+    snapshotOnlyRows.length === 0 &&
+    snapshotCoverageRows.length === historyRows.length
+  ) {
+    clues.push(
+      'Linked daily snapshot rows cover the fetched history txids. Tx-row counts can still differ because compression is enabled.',
+    );
+  }
+  if (
     dedupedHistoryFinal.toString() === snapshotFinalAtomic &&
     historyFinalAtomic !== snapshotFinalAtomic
   ) {
@@ -1152,7 +1239,7 @@ export function buildWalletBalanceDiagnostic(args: {
   }
   if (firstSequenceMismatchSeq !== null) {
     clues.push(
-      `Snapshot tx order diverges from fetched history at seq ${firstSequenceMismatchSeq}.`,
+      `Snapshot-linked tx order diverges from fetched history at seq ${firstSequenceMismatchSeq}.`,
     );
   }
   if (firstBalanceMismatchSeq !== null) {
