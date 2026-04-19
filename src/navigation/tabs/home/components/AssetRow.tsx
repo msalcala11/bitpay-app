@@ -1,4 +1,5 @@
-import React, {useMemo} from 'react';
+import React, {useCallback, useMemo} from 'react';
+import Clipboard from '@react-native-clipboard/clipboard';
 import {ImageRequireSource} from 'react-native';
 import {NavigationProp, useNavigation} from '@react-navigation/native';
 import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
@@ -190,18 +191,80 @@ const AssetRow: React.FC<Props> = ({
     });
   }, [defaultAltCurrency?.isoCode, fiatRateSeriesCache, historicalRateRequest]);
   const canNavigate = useMemo(() => {
-    return (
-      hasHistoricalV4Rates &&
-      canNavigateToExchangeRateForAssetRowItem({
-        item,
-        options: option ? [option] : [],
-      })
-    );
-  }, [hasHistoricalV4Rates, item, option]);
+    return canNavigateToExchangeRateForAssetRowItem({
+      item,
+      options: option ? [option] : [],
+    });
+  }, [item, option]);
   const shouldShowDeltaFiat = hasPnl;
   const isCryptoAmountLoading = !!isPopulateLoading && !isFiatLoading;
 
   const fiatAmountDisplay = hasRate ? item.fiatAmount : '— ';
+  const debugCopyPayload = useMemo(() => {
+    if (!item.debugCopyPayload) {
+      return undefined;
+    }
+
+    return {
+      ...item.debugCopyPayload,
+      rowItem: {
+        key: item.key,
+        currencyAbbreviation: item.currencyAbbreviation,
+        chain: item.chain,
+        tokenAddress: item.tokenAddress || null,
+        name: item.name,
+        cryptoAmount: item.cryptoAmount,
+        fiatAmount: item.fiatAmount,
+        deltaFiat: item.deltaFiat,
+        deltaPercent: item.deltaPercent,
+        isPositive: item.isPositive,
+      },
+      render: {
+        hasRate,
+        hasPnl,
+        showPnlPlaceholder,
+        shouldShowRightSide,
+        shouldShowDeltaFiat,
+        fiatAmountDisplay,
+        hasHistoricalV4Rates,
+        canNavigate,
+        isFiatLoading: !!isFiatLoading,
+        isPopulateLoading: !!isPopulateLoading,
+      },
+      historicalRateRequest: historicalRateRequest
+        ? {
+            coin: historicalRateRequest.coin,
+            chain: historicalRateRequest.chain,
+            tokenAddress: historicalRateRequest.tokenAddress || null,
+          }
+        : null,
+      copiedFrom: 'home.assetRow.longPress',
+      copiedAtUtc: new Date().toISOString(),
+    };
+  }, [
+    canNavigate,
+    fiatAmountDisplay,
+    hasHistoricalV4Rates,
+    hasPnl,
+    hasRate,
+    historicalRateRequest,
+    isFiatLoading,
+    isPopulateLoading,
+    item.chain,
+    item.cryptoAmount,
+    item.currencyAbbreviation,
+    item.debugCopyPayload,
+    item.deltaFiat,
+    item.deltaPercent,
+    item.fiatAmount,
+    item.isPositive,
+    item.key,
+    item.name,
+    item.tokenAddress,
+    shouldShowDeltaFiat,
+    shouldShowRightSide,
+    showPnlPlaceholder,
+  ]);
 
   const handlePress = () => {
     if (!canNavigate || !option) {
@@ -218,13 +281,29 @@ const AssetRow: React.FC<Props> = ({
     });
   };
 
+  const handleLongPress = useCallback(() => {
+    if (!debugCopyPayload) {
+      return;
+    }
+
+    const debugCopyText = JSON.stringify(debugCopyPayload, null, 2);
+    console.log('[AssetRow][debugCopy]', debugCopyText);
+    Clipboard.setString(debugCopyText);
+  }, [debugCopyPayload]);
+
   return (
     <Row
       activeOpacity={canNavigate ? ActiveOpacity : 1}
       isLast={isLast}
       testID={`home-asset-row-item-${item.currencyAbbreviation}-${item.chain}`}
       accessibilityLabel={`${item.name} asset`}
-      onPress={canNavigate ? handlePress : undefined}>
+      accessibilityHint={
+        debugCopyPayload
+          ? 'Long press to copy asset debug diagnostics'
+          : undefined
+      }
+      onPress={canNavigate ? handlePress : undefined}
+      onLongPress={debugCopyPayload ? handleLongPress : undefined}>
       <IconContainer>
         <CurrencyImage
           img={img ?? option?.img}

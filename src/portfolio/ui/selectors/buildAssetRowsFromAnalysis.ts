@@ -71,6 +71,7 @@ export function buildAssetRowsFromAnalysis(args: {
     pnlRatio: number;
     hasRate: boolean;
     hasPnl: boolean;
+    debugCopyPayload?: Record<string, unknown>;
   }> = [];
 
   for (const [key, groupWallets] of walletsByGroupKey.entries()) {
@@ -95,6 +96,7 @@ export function buildAssetRowsFromAnalysis(args: {
     let remainingBasisFiat = 0;
     let hasRate = false;
     let hasPnl = false;
+    const walletDebugRows: Array<Record<string, unknown>> = [];
 
     for (const wallet of groupWallets) {
       const assetId = getAssetIdFromWallet(wallet.summary);
@@ -116,6 +118,30 @@ export function buildAssetRowsFromAnalysis(args: {
         remainingBasisFiat += Number(walletPoint.remainingCostBasisFiat || 0);
         hasPnl = true;
       }
+
+      walletDebugRows.push({
+        walletId: wallet.summary.walletId,
+        walletName: wallet.summary.walletName,
+        assetId,
+        chain: wallet.summary.chain,
+        tokenAddress: wallet.summary.tokenAddress || null,
+        balanceAtomic: wallet.summary.balanceAtomic || '0',
+        decimals,
+        formattedBalance: formatBigIntDecimal(
+          atomic,
+          decimals,
+          Math.min(decimals, 8),
+        ),
+        hasAssetSummary: !!assetSummary,
+        assetSummaryRateEnd: assetSummary?.rateEnd ?? null,
+        assetSummaryPnlEnd: assetSummary?.pnlEnd ?? null,
+        hasWalletPoint: !!walletPoint,
+        walletPointUnrealizedPnlFiat: walletPoint?.unrealizedPnlFiat ?? null,
+        walletPointRemainingCostBasisFiat:
+          walletPoint?.remainingCostBasisFiat ?? null,
+        walletPointFiatBalance: walletPoint?.fiatBalance ?? null,
+        walletPointBalanceAtomic: walletPoint?.balanceAtomic ?? null,
+      });
     }
 
     if (totalAtomic <= 0n) {
@@ -130,6 +156,37 @@ export function buildAssetRowsFromAnalysis(args: {
       Math.min(repDecimals, 8),
     );
     const showPnlPlaceholder = !hasPnl && (!isTodayGainLoss || !hasRate);
+    const debugCopyPayload = {
+      version: 1,
+      source: 'buildAssetRowsFromAnalysis',
+      generatedAtUtc: new Date().toISOString(),
+      quoteCurrency,
+      gainLossMode: args.gainLossMode,
+      collapseAcrossChains,
+      groupKey: key,
+      rowCoin: coin,
+      rowChain: repWallet.summary.chain,
+      rowTokenAddress: repWallet.summary.tokenAddress || null,
+      rowAssetIds: Array.from(
+        new Set(walletDebugRows.map(walletRow => String(walletRow.assetId || ''))),
+      ).filter(Boolean),
+      rowWalletIds: walletDebugRows
+        .map(walletRow => String(walletRow.walletId || ''))
+        .filter(Boolean),
+      totalAtomic: totalAtomic.toString(),
+      cryptoAmount,
+      fiatValue,
+      pnlFiat,
+      remainingBasisFiat,
+      pnlRatio: Number.isFinite(pnlRatio) ? pnlRatio : 0,
+      hasRate,
+      hasPnl,
+      showPnlPlaceholder,
+      analysisPointCount: analysis?.points?.length ?? 0,
+      hasLastPoint: !!lastPoint,
+      lastPointWalletCount: Object.keys(lastPoint?.byWalletId || {}).length,
+      wallets: walletDebugRows,
+    };
 
     rows.push({
       key,
@@ -142,6 +199,7 @@ export function buildAssetRowsFromAnalysis(args: {
       pnlRatio: Number.isFinite(pnlRatio) ? pnlRatio : 0,
       hasRate,
       hasPnl,
+      debugCopyPayload,
     });
   }
 
@@ -170,6 +228,7 @@ export function buildAssetRowsFromAnalysis(args: {
       hasRate: row.hasRate,
       hasPnl: row.hasPnl,
       showPnlPlaceholder,
+      debugCopyPayload: row.debugCopyPayload,
     } as AssetRowItem;
   });
 }

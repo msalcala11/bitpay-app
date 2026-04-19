@@ -19,7 +19,6 @@ import {
 } from '../../constants/currencies';
 import {tokenManager} from '../../managers/TokenManager';
 import {
-  atomicToUnitString,
   getCurrencyAbbreviation,
   calculatePercentageDifference,
   unitStringToAtomicBigInt,
@@ -46,6 +45,7 @@ export type AssetRowItem = {
   hasRate: boolean;
   hasPnl: boolean;
   showPnlPlaceholder?: boolean;
+  debugCopyPayload?: Record<string, unknown>;
 };
 
 export type PortfolioGainLossSummary = {
@@ -109,7 +109,6 @@ const canNavigateToExchangeRateForAssetRowItemWithSupportInfo = (args: {
 }): boolean => {
   return (
     !!args.supportInfo.option &&
-    !!args.item.hasRate &&
     args.supportInfo.isExactMatch // &&
     // !args.supportInfo.isStable
   );
@@ -176,10 +175,6 @@ const toOptionalString = (value: unknown): string | undefined => {
   return normalized === '' ? undefined : normalized;
 };
 
-type WalletWithRuntimeName = Wallet & {
-  name?: unknown;
-};
-
 type WalletWithTokenCredentials = Wallet & {
   credentials?: {
     token?: {
@@ -241,17 +236,6 @@ export const isPortfolioWalletOnMainnet = (
   wallet: Wallet | undefined,
 ): boolean => {
   return wallet?.network === Network.mainnet;
-};
-
-const getPortfolioWalletDisplayName = (
-  wallet: Wallet | undefined,
-  fallback = '',
-): string => {
-  const walletName = toOptionalString(wallet?.walletName);
-  const runtimeName = toOptionalString(
-    (wallet as WalletWithRuntimeName | undefined)?.name,
-  );
-  return walletName || runtimeName || fallback;
 };
 
 const getPortfolioWalletTokenDecimals = (

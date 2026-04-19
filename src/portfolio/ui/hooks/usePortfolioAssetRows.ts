@@ -54,16 +54,16 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
   }, [portfolio.snapshotBalanceMismatchesByWalletId, wallets]);
 
   const populateCompletionStateToken = useMemo(() => {
-    const status = portfolio.populateStatus;
-
     return [
       typeof portfolio.lastPopulatedAt === 'number'
         ? String(portfolio.lastPopulatedAt)
         : '',
-      typeof status?.finishedAt === 'number' ? String(status.finishedAt) : '',
-      status?.stopReason || '',
-      typeof status?.errors?.length === 'number'
-        ? String(status.errors.length)
+      typeof portfolio.populateStatus?.finishedAt === 'number'
+        ? String(portfolio.populateStatus.finishedAt)
+        : '',
+      portfolio.populateStatus?.stopReason || '',
+      typeof portfolio.populateStatus?.errors?.length === 'number'
+        ? String(portfolio.populateStatus.errors.length)
         : '0',
     ].join('|');
   }, [
@@ -95,15 +95,98 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
   });
 
   const items = useMemo(() => {
-    return buildAssetRowsFromAnalysis({
+    const builtItems = buildAssetRowsFromAnalysis({
       storedWallets: analysis.storedWallets,
       analysis: analysis.data,
       quoteCurrency: analysis.quoteCurrency,
       gainLossMode,
       collapseAcrossChains: true,
     });
+
+    const currentWalletIds = new Set(
+      (analysis.currentData?.wallets || []).map(wallet => wallet.walletId),
+    );
+    const committedWalletIds = new Set(
+      (analysis.committedData?.wallets || []).map(wallet => wallet.walletId),
+    );
+    const dataWalletIds = new Set(
+      (analysis.data?.wallets || []).map(wallet => wallet.walletId),
+    );
+    const currentAssetIds = new Set(analysis.currentData?.assetIds || []);
+    const committedAssetIds = new Set(analysis.committedData?.assetIds || []);
+    const dataAssetIds = new Set(analysis.data?.assetIds || []);
+    const analysisError = analysis.error
+      ? {
+          name: analysis.error.name,
+          message: analysis.error.message,
+        }
+      : null;
+
+    return builtItems.map(item => {
+      const baseDebugPayload = item.debugCopyPayload || {};
+      const rowWalletIds = Array.isArray(baseDebugPayload.rowWalletIds)
+        ? baseDebugPayload.rowWalletIds
+            .map(walletId => String(walletId || ''))
+            .filter(Boolean)
+        : [];
+      const rowAssetIds = Array.isArray(baseDebugPayload.rowAssetIds)
+        ? baseDebugPayload.rowAssetIds
+            .map(assetId => String(assetId || ''))
+            .filter(Boolean)
+        : [];
+
+      return {
+        ...item,
+        debugCopyPayload: {
+          ...baseDebugPayload,
+          homeAnalysisHook: {
+            error: analysisError,
+            dataIsCommittedData: analysis.data === analysis.committedData,
+            hasData: !!analysis.data,
+            hasCurrentData: !!analysis.currentData,
+            hasCommittedData: !!analysis.committedData,
+            dataWalletCount: analysis.data?.wallets?.length ?? 0,
+            currentDataWalletCount: analysis.currentData?.wallets?.length ?? 0,
+            committedDataWalletCount:
+              analysis.committedData?.wallets?.length ?? 0,
+            rowWalletIds,
+            rowAssetIds,
+            dataContainsRowWalletIds: rowWalletIds.filter(walletId =>
+              dataWalletIds.has(walletId),
+            ),
+            dataMissingRowWalletIds: rowWalletIds.filter(
+              walletId => !dataWalletIds.has(walletId),
+            ),
+            currentContainsRowWalletIds: rowWalletIds.filter(
+              walletId => currentWalletIds.has(walletId),
+            ),
+            currentMissingRowWalletIds: rowWalletIds.filter(
+              walletId => !currentWalletIds.has(walletId),
+            ),
+            committedContainsRowWalletIds: rowWalletIds.filter(
+              walletId => committedWalletIds.has(walletId),
+            ),
+            committedMissingRowWalletIds: rowWalletIds.filter(
+              walletId => !committedWalletIds.has(walletId),
+            ),
+            dataContainsRowAssetIds: rowAssetIds.filter(assetId =>
+              dataAssetIds.has(assetId),
+            ),
+            currentContainsRowAssetIds: rowAssetIds.filter(assetId =>
+              currentAssetIds.has(assetId),
+            ),
+            committedContainsRowAssetIds: rowAssetIds.filter(assetId =>
+              committedAssetIds.has(assetId),
+            ),
+          },
+        },
+      };
+    });
   }, [
+    analysis.committedData,
+    analysis.currentData,
     analysis.data,
+    analysis.error,
     analysis.quoteCurrency,
     analysis.storedWallets,
     gainLossMode,
