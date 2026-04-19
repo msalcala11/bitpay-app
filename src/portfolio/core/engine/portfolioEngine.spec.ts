@@ -671,6 +671,169 @@ describe('PortfolioEngine compute sessions', () => {
     expect(chart.driverMarkRate?.[chart.driverMarkRate.length - 1]).toBe(11000);
   });
 
+  it('filters out only assets whose requested rate series are missing', async () => {
+    const kv = new MemoryKv();
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-02T00:00:00Z');
+
+    const loadSeries = jest.fn(async ({coins, asset}: any) => {
+      if (asset?.tokenAddress === '0xmissing') {
+        return {};
+      }
+      if (Array.isArray(coins) && coins.includes('btc')) {
+        return {
+          btc: [
+            {ts: t0, rate: 10000},
+            {ts: t1, rate: 11000},
+          ],
+        };
+      }
+      return {};
+    });
+
+    const engine = new PortfolioEngine(kv, {
+      rateProvider: {
+        loadSeries,
+      },
+    });
+
+    const btcWallet = mkWallet({
+      walletId: 'w1',
+      walletName: 'BTC Wallet',
+      chain: 'btc',
+      network: 'livenet',
+      currencyAbbreviation: 'btc',
+      balanceAtomic: '200000000',
+      balanceFormatted: '2',
+    });
+    const btcCreds = mkCreds({
+      walletId: 'w1',
+      chain: 'btc',
+      network: 'livenet',
+      coin: 'btc',
+    });
+    const tokenWallet = mkWallet({
+      walletId: 'w2',
+      walletName: 'Token Wallet',
+      chain: 'eth',
+      network: 'livenet',
+      currencyAbbreviation: 'usdc',
+      tokenAddress: '0xmissing',
+      balanceAtomic: '2000000',
+      balanceFormatted: '2',
+    });
+    const tokenCreds = mkCreds({
+      walletId: 'w2',
+      chain: 'eth',
+      network: 'livenet',
+      coin: 'usdc',
+      token: {
+        address: '0xmissing',
+        symbol: 'usdc',
+      } as any,
+    });
+
+    await engine.snapshotStore.ensureWalletIndex({
+      walletId: btcWallet.walletId,
+      chain: btcWallet.chain,
+      network: btcWallet.network,
+      currencyAbbreviation: btcWallet.currencyAbbreviation,
+      quoteCurrency: 'USD',
+      compressionEnabled: false,
+      chunkRows: 128,
+      snapshotDebugMode: 'none',
+    });
+    await engine.snapshotStore.appendChunk({
+      meta: {
+        walletId: btcWallet.walletId,
+        chain: btcWallet.chain,
+        network: btcWallet.network,
+        currencyAbbreviation: btcWallet.currencyAbbreviation,
+        quoteCurrency: 'USD',
+        compressionEnabled: false,
+        chunkRows: 128,
+        snapshotDebugMode: 'none',
+      },
+      snapshots: [
+        {timestamp: t0, cryptoBalance: '100000000'},
+        {timestamp: t1, cryptoBalance: '200000000'},
+      ],
+      checkpoint: {
+        nextSkip: 2,
+        balanceAtomic: '200000000',
+        remainingCostBasisFiat: 0,
+        lastMarkRate: 0,
+        lastTimestamp: t1,
+        firstNonZeroTs: t0,
+      },
+    });
+
+    await engine.snapshotStore.ensureWalletIndex({
+      walletId: tokenWallet.walletId,
+      chain: tokenWallet.chain,
+      network: tokenWallet.network,
+      currencyAbbreviation: tokenWallet.currencyAbbreviation,
+      tokenAddress: tokenWallet.tokenAddress,
+      quoteCurrency: 'USD',
+      compressionEnabled: false,
+      chunkRows: 128,
+      snapshotDebugMode: 'none',
+    });
+    await engine.snapshotStore.appendChunk({
+      meta: {
+        walletId: tokenWallet.walletId,
+        chain: tokenWallet.chain,
+        network: tokenWallet.network,
+        currencyAbbreviation: tokenWallet.currencyAbbreviation,
+        tokenAddress: tokenWallet.tokenAddress,
+        quoteCurrency: 'USD',
+        compressionEnabled: false,
+        chunkRows: 128,
+        snapshotDebugMode: 'none',
+      },
+      snapshots: [
+        {timestamp: t0, cryptoBalance: '1000000'},
+        {timestamp: t1, cryptoBalance: '2000000'},
+      ],
+      checkpoint: {
+        nextSkip: 2,
+        balanceAtomic: '2000000',
+        remainingCostBasisFiat: 0,
+        lastMarkRate: 0,
+        lastTimestamp: t1,
+        firstNonZeroTs: t0,
+      },
+    });
+
+    const result = await engine.computeAnalysis({
+      cfg: {baseUrl: 'https://bws.invalid'},
+      wallets: [
+        {
+          walletId: btcWallet.walletId,
+          summary: btcWallet,
+          credentials: btcCreds as WalletCredentials,
+          addedAt: Date.now(),
+        },
+        {
+          walletId: tokenWallet.walletId,
+          summary: tokenWallet,
+          credentials: tokenCreds as WalletCredentials,
+          addedAt: Date.now(),
+        },
+      ],
+      quoteCurrency: 'USD',
+      timeframe: '1D',
+      nowMs: t1,
+      maxPoints: 5,
+    });
+
+    expect(result.wallets.map(wallet => wallet.walletId)).toEqual(['w1']);
+    expect(result.assetIds).toEqual(['btc:btc']);
+    expect(result.assetSummaries).toHaveLength(1);
+    expect(result.assetSummaries[0]?.coin).toBe('btc');
+    expect(result.points).not.toHaveLength(0);
+  });
+
   it('builds a batched runtime rate cache and refreshes stale series', async () => {
     jest.spyOn(Date, 'now').mockReturnValue(10_000);
 
