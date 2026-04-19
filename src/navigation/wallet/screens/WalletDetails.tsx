@@ -653,11 +653,12 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const [needActionUnsentTxps, setNeedActionUnsentTxps] = useState<any[]>([]);
   const [isScrolling, setIsScrolling] = useState<boolean>(false);
   const walletBalanceSat = Number(fullWalletObj.balance?.sat || 0);
-  const {hasAnySnapshots: walletHasSnapshots} =
+  const {hasAnySnapshots: walletHasSnapshots, checked: walletSnapshotsChecked} =
     usePortfolioWalletSnapshotPresence({
       wallets: [fullWalletObj],
     });
-  const showWalletBalanceChart = walletBalanceSat > 0 && walletHasSnapshots;
+  const showWalletBalanceChart =
+    walletBalanceSat > 0 && (!walletSnapshotsChecked || walletHasSnapshots);
 
   const setNeedActionTxps = (pendingTxps: TransactionProposal[]) => {
     const txpsPending: TransactionProposal[] = [];

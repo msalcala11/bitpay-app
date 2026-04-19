@@ -46,7 +46,7 @@ export default function usePortfolioWalletSnapshotPresence(args: {
   const walletIdsKey = useMemo(() => walletIds.join('|'), [walletIds]);
 
   const [state, setState] = useState<PortfolioWalletSnapshotPresenceState>({
-    hasAnySnapshots: false,
+    hasAnySnapshots: true,
     loading: false,
     checked: false,
   });
@@ -73,11 +73,11 @@ export default function usePortfolioWalletSnapshotPresence(args: {
     }
 
     let cancelled = false;
-    setState(prev => ({
-      hasAnySnapshots: prev.hasAnySnapshots,
+    setState({
+      hasAnySnapshots: true,
       loading: true,
-      checked: prev.checked,
-    }));
+      checked: false,
+    });
 
     Promise.all(
       requestedWalletIds.map(async walletId => {
@@ -104,9 +104,9 @@ export default function usePortfolioWalletSnapshotPresence(args: {
         }
 
         setState({
-          hasAnySnapshots: false,
+          hasAnySnapshots: true,
           loading: false,
-          checked: true,
+          checked: false,
         });
       });
 

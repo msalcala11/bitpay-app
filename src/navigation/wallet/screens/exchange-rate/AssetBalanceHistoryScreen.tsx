@@ -27,7 +27,7 @@ const AssetBalanceHistoryScreen = ({
   const [selectedAssetBalance, setSelectedAssetBalance] = useState<
     number | undefined
   >(undefined);
-  const {hasAnySnapshots: hasAssetSnapshots} =
+  const {hasAnySnapshots: hasAssetSnapshots, checked: assetSnapshotsChecked} =
     usePortfolioWalletSnapshotPresence({
       wallets: shared.assetWallets,
     });
@@ -115,8 +115,11 @@ const AssetBalanceHistoryScreen = ({
 
   const marketPriceDisplay = shared.formatDisplayPrice(shared.currentFiatRate);
   const shouldRenderBalanceChart = useMemo(() => {
-    return !shared.hideAllBalances && hasAssetSnapshots;
-  }, [hasAssetSnapshots, shared.hideAllBalances]);
+    return (
+      !shared.hideAllBalances &&
+      (!assetSnapshotsChecked || hasAssetSnapshots)
+    );
+  }, [assetSnapshotsChecked, hasAssetSnapshots, shared.hideAllBalances]);
 
   const topValue = shared.hideAllBalances ? '****' : formattedAssetBalance;
   const topValueIsLarge = shouldUseCompactFiatAmountText(formattedAssetBalance);
