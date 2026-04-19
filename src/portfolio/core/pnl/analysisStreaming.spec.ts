@@ -103,6 +103,101 @@ describe('analysisStreaming preload helpers', () => {
     expect(last.totalPnlPercent).toBeCloseTo((500 / 3400) * 100, 8);
   });
 
+  it('tracks preloaded wallet activity inside the analysis window', () => {
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-01T01:00:00Z');
+    const t2 = Date.parse('2024-01-01T02:00:00Z');
+
+    const activeWallet = mkWallet({walletId: 'active'});
+    const passiveWallet = mkWallet({walletId: 'passive', walletName: 'Passive Wallet'});
+
+    const res = buildPnlAnalysisSeriesFromPreloaded({
+      cfg: {quoteCurrency: 'USD'},
+      timeframe: '1D',
+      nowMs: t2,
+      maxPoints: 3,
+      startTs: t0,
+      endTs: t2,
+      ratePointsByAssetId: {
+        'eth:eth': [
+          {ts: t0, rate: 1000},
+          {ts: t1, rate: 1100},
+          {ts: t2, rate: 1200},
+        ],
+      },
+      wallets: [
+        {
+          wallet: activeWallet,
+          basePoint: mkPoint(t0, '1000000000000000000'),
+          // A prepared point represents in-window wallet activity even when the
+          // balance nets to the same value.
+          points: [mkPoint(t1, '1000000000000000000')],
+        },
+        {
+          wallet: passiveWallet,
+          basePoint: mkPoint(t0, '1000000000000000000'),
+          points: [],
+        },
+      ],
+    });
+
+    expect(res.points.map(point => point.byWalletId.active?.hasActivityInWindow)).toEqual([
+      false,
+      true,
+      true,
+    ]);
+    expect(res.points.map(point => point.byWalletId.passive?.hasActivityInWindow)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  it('tracks streamed wallet activity once an in-window snapshot point is consumed', async () => {
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-01T01:00:00Z');
+    const t2 = Date.parse('2024-01-01T02:00:00Z');
+
+    const res = await buildPnlAnalysisSeriesFromStreamed({
+      cfg: {quoteCurrency: 'USD'},
+      timeframe: '1D',
+      nowMs: t2,
+      maxPoints: 3,
+      startTs: t0,
+      endTs: t2,
+      ratePointsByAssetId: {
+        'eth:eth': [
+          {ts: t0, rate: 1000},
+          {ts: t1, rate: 1100},
+          {ts: t2, rate: 1200},
+        ],
+      },
+      wallets: [
+        {
+          wallet: mkWallet({walletId: 'active'}),
+          basePoint: mkPoint(t0, '1000000000000000000'),
+          points: emitPoints([mkPoint(t1, '1000000000000000000')]),
+        },
+        {
+          wallet: mkWallet({walletId: 'passive', walletName: 'Passive Wallet'}),
+          basePoint: mkPoint(t0, '1000000000000000000'),
+          points: emitPoints([]),
+        },
+      ],
+    });
+
+    expect(res.points.map(point => point.byWalletId.active?.hasActivityInWindow)).toEqual([
+      false,
+      true,
+      true,
+    ]);
+    expect(res.points.map(point => point.byWalletId.passive?.hasActivityInWindow)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+  });
+
   it('resolves ALL-timeframe preload windows from the first non-zero timestamp', () => {
     const t0 = Date.parse('2024-01-01T00:00:00Z');
     const t1 = Date.parse('2024-01-02T00:00:00Z');

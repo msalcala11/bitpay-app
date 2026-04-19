@@ -128,6 +128,12 @@ export class PortfolioRuntimeClient {
     return this.request('analysis.compute', params);
   }
 
+  computeAssetRows(
+    params: WorkerMethodMap['analysis.computeAssetRows']['params'],
+  ) {
+    return this.request('analysis.computeAssetRows', params);
+  }
+
   computeAnalysisChart(
     params: WorkerMethodMap['analysis.computeChart']['params'],
   ) {

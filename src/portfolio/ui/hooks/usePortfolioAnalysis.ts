@@ -24,6 +24,11 @@ function getCommittedAnalysisCacheValue(
   return committedAnalysisCache.get(cacheKey);
 }
 
+type CommittedAnalysisState = {
+  cacheKey: string;
+  data?: PnlAnalysisResult;
+};
+
 export function clearPortfolioAnalysisCommittedCacheForTests(): void {
   committedAnalysisCache.clear();
 }
@@ -56,12 +61,23 @@ export function usePortfolioAnalysis(args: {
     });
   }, [args.refreshToken, query.requestKey]);
 
-  const [committedData, setCommittedData] = useState<
-    PnlAnalysisResult | undefined
-  >(() => getCommittedAnalysisCacheValue(committedDataCacheKey));
+  const [committedState, setCommittedState] = useState<CommittedAnalysisState>(
+    () => ({
+      cacheKey: committedDataCacheKey,
+      data: getCommittedAnalysisCacheValue(committedDataCacheKey),
+    }),
+  );
+
+  const committedData =
+    committedState.cacheKey === committedDataCacheKey
+      ? committedState.data
+      : getCommittedAnalysisCacheValue(committedDataCacheKey);
 
   useEffect(() => {
-    setCommittedData(getCommittedAnalysisCacheValue(committedDataCacheKey));
+    setCommittedState({
+      cacheKey: committedDataCacheKey,
+      data: getCommittedAnalysisCacheValue(committedDataCacheKey),
+    });
   }, [committedDataCacheKey]);
 
   useEffect(() => {
@@ -74,7 +90,10 @@ export function usePortfolioAnalysis(args: {
     }
 
     committedAnalysisCache.set(committedDataCacheKey, query.data);
-    setCommittedData(query.data);
+    setCommittedState({
+      cacheKey: committedDataCacheKey,
+      data: query.data,
+    });
   }, [
     args.freezeWhilePopulate,
     committedDataCacheKey,

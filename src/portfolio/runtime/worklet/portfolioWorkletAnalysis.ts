@@ -16,6 +16,11 @@ import {
 } from '../../core/fiatRatesShared';
 import {normalizeFiatRateSeriesCoin} from '../../core/pnl/rates';
 import type {ComputeAnalysisArgs} from '../../core/engine/portfolioEngine';
+import {
+  buildPortfolioAssetRowsResult,
+  type ComputeAssetRowsArgs,
+  type PortfolioAssetRowsResult,
+} from '../../core/pnl/assetRows';
 import type {PortfolioWorkletKvConfig} from './portfolioWorkletKv';
 import {
   ensureWorkletCanonicalAndFxRates,
@@ -69,6 +74,7 @@ type PreparedWorkletAnalysisInputs = {
 async function prepareWorkletStreamedAnalysisInputs(
   config: PortfolioWorkletKvConfig,
   args: ComputeAnalysisArgs,
+  options?: {allowMissingRates?: boolean},
 ): Promise<PreparedWorkletAnalysisInputs> {
   'worklet';
 
@@ -184,9 +190,38 @@ async function prepareWorkletStreamedAnalysisInputs(
     }
   }
 
+  const analysisWalletsWithSnapshots = options?.allowMissingRates
+    ? walletsWithSnapshots.filter(wallet => {
+        const assetId = getAssetIdFromWallet(wallet.summary);
+        return !!ratePointsByAssetId[assetId]?.length;
+      })
+    : walletsWithSnapshots;
+  const analysisWalletIdsWithSnapshots = new Set(
+    analysisWalletsWithSnapshots.map(wallet => wallet.summary.walletId),
+  );
+  const analysisWalletMetasWithSnapshots = walletMetasWithSnapshots.filter(meta =>
+    analysisWalletIdsWithSnapshots.has(meta.walletId),
+  );
+
+  if (options?.allowMissingRates && !analysisWalletsWithSnapshots.length) {
+    return {
+      quoteCurrency: targetQuoteCurrency,
+      firstNonZeroTs: null,
+      resolved: resolvePnlAnalysisPreloadWindow({
+        cfg: {quoteCurrency: targetQuoteCurrency},
+        wallets: [],
+        timeframe: args.timeframe,
+        ratePointsByAssetId: {},
+        nowMs: args.nowMs,
+        maxPoints: args.maxPoints,
+      }),
+      wallets: [],
+    };
+  }
+
   const firstNonZeroTs =
     args.timeframe === 'ALL'
-      ? walletMetasWithSnapshots.reduce<number | null>((best, walletMeta) => {
+      ? analysisWalletMetasWithSnapshots.reduce<number | null>((best, walletMeta) => {
           const index = snapshotIndexesByWalletId.get(walletMeta.walletId);
           const ts = index?.checkpoint?.firstNonZeroTs;
           if (typeof ts !== 'number' || !Number.isFinite(ts) || ts <= 0) {
@@ -201,7 +236,7 @@ async function prepareWorkletStreamedAnalysisInputs(
 
   const resolved = resolvePnlAnalysisPreloadWindow({
     cfg: {quoteCurrency: targetQuoteCurrency},
-    wallets: walletMetasWithSnapshots,
+    wallets: analysisWalletMetasWithSnapshots,
     timeframe: args.timeframe,
     ratePointsByAssetId,
     firstNonZeroTs,
@@ -210,7 +245,7 @@ async function prepareWorkletStreamedAnalysisInputs(
   });
 
   const wallets: WalletForStreamedAnalysis[] = [];
-  for (const wallet of walletsWithSnapshots) {
+  for (const wallet of analysisWalletsWithSnapshots) {
     const walletId = wallet.summary.walletId;
     const basePoint = await findWorkletLastPointAtOrBefore({
       storage: config.storage,
@@ -272,6 +307,69 @@ export async function computeWorkletAnalysis(
     nowMs: prepared.resolved.nowMs,
     maxPoints: args.maxPoints,
     resolvedWindow: prepared.resolved,
+  });
+}
+
+export async function computeWorkletAssetRows(
+  config: PortfolioWorkletKvConfig,
+  args: ComputeAssetRowsArgs,
+): Promise<PortfolioAssetRowsResult> {
+  'worklet';
+
+  const quoteCurrency = String(args.quoteCurrency || 'USD').toUpperCase();
+  const generatedAt =
+    typeof args.nowMs === 'number' && Number.isFinite(args.nowMs)
+      ? args.nowMs
+      : Date.now();
+  const rowArgs: ComputeAssetRowsArgs = {
+    ...args,
+    quoteCurrency,
+    nowMs: generatedAt,
+    maxPoints: 2,
+  };
+
+  if (!rowArgs.wallets.length) {
+    return buildPortfolioAssetRowsResult({
+      storedWallets: [],
+      analysis: undefined,
+      ratePointsByAssetId: {},
+      quoteCurrency,
+      timeframe: rowArgs.timeframe,
+      nowMs: rowArgs.nowMs,
+      generatedAt,
+      collapseAcrossChains: rowArgs.collapseAcrossChains,
+      currentRatesByAssetId: rowArgs.currentRatesByAssetId,
+    });
+  }
+
+  const prepared = await prepareWorkletStreamedAnalysisInputs(
+    config,
+    rowArgs,
+    {allowMissingRates: true},
+  );
+  const analysis = await buildPnlAnalysisSeriesFromStreamed({
+    cfg: {quoteCurrency: prepared.quoteCurrency},
+    wallets: prepared.wallets,
+    timeframe: rowArgs.timeframe,
+    ratePointsByAssetId: prepared.resolved.rawPointsByAssetId,
+    firstNonZeroTs: prepared.firstNonZeroTs,
+    startTs: prepared.resolved.startTs,
+    endTs: prepared.resolved.endTs,
+    nowMs: prepared.resolved.nowMs,
+    maxPoints: 2,
+    resolvedWindow: prepared.resolved,
+  });
+
+  return buildPortfolioAssetRowsResult({
+    storedWallets: rowArgs.wallets,
+    analysis,
+    ratePointsByAssetId: prepared.resolved.rawPointsByAssetId,
+    quoteCurrency: prepared.quoteCurrency,
+    timeframe: rowArgs.timeframe,
+    nowMs: rowArgs.nowMs,
+    generatedAt,
+    collapseAcrossChains: rowArgs.collapseAcrossChains,
+    currentRatesByAssetId: rowArgs.currentRatesByAssetId,
   });
 }
 

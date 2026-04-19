@@ -7,6 +7,11 @@ import {usePortfolioRuntimeQuery} from './usePortfolioRuntimeQuery';
 
 export type UsePortfolioChartResult = ReturnType<typeof usePortfolioChart>;
 
+type CommittedChartState = {
+  requestKey: string;
+  data?: PnlAnalysisChartResult;
+};
+
 export function usePortfolioChart(args: {
   wallets: Wallet[];
   timeframe: PnlTimeframe;
@@ -26,12 +31,21 @@ export function usePortfolioChart(args: {
     execute: runPortfolioChartQuery,
   });
 
-  const [committedData, setCommittedData] = useState<
-    PnlAnalysisChartResult | undefined
-  >(undefined);
+  const [committedState, setCommittedState] = useState<CommittedChartState>({
+    requestKey: query.requestKey,
+    data: undefined,
+  });
+
+  const committedData =
+    committedState.requestKey === query.requestKey
+      ? committedState.data
+      : undefined;
 
   useEffect(() => {
-    setCommittedData(undefined);
+    setCommittedState({
+      requestKey: query.requestKey,
+      data: undefined,
+    });
   }, [query.requestKey]);
 
   useEffect(() => {
@@ -43,8 +57,16 @@ export function usePortfolioChart(args: {
       return;
     }
 
-    setCommittedData(query.data);
-  }, [args.freezeWhilePopulate, populateInProgress, query.data]);
+    setCommittedState({
+      requestKey: query.requestKey,
+      data: query.data,
+    });
+  }, [
+    args.freezeWhilePopulate,
+    populateInProgress,
+    query.data,
+    query.requestKey,
+  ]);
 
   const data = useMemo(() => {
     if (!(args.freezeWhilePopulate && populateInProgress)) {

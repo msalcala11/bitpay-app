@@ -48,6 +48,14 @@ export type WalletPoint = {
   remainingCostBasisFiat: number;
   unrealizedPnlFiat: number;
 
+  /**
+   * True once at least one prepared snapshot point has been consumed after the
+   * analysis baseline/start timestamp and at or before this point's timestamp.
+   * This lets asset-row aggregation distinguish no-transaction price-only rows
+   * from rows whose interval PnL should include in-window activity.
+   */
+  hasActivityInWindow?: boolean;
+
   markRate: number;
   ratePercentChange: number;
   pnlPercent: number;
@@ -189,6 +197,7 @@ type WalletAnalysisState = {
   atomicToUnitNumber: (atomic: bigint) => number;
   unitsAtomic: bigint;
   basisFiat: number;
+  hasActivityInWindow: boolean;
 };
 
 type StreamedWalletState = WalletAnalysisState & {
@@ -701,6 +710,7 @@ function createWalletAnalysisState(
     atomicToUnitNumber,
     unitsAtomic,
     basisFiat: Number.isFinite(basisFiat) ? basisFiat : 0,
+    hasActivityInWindow: false,
   };
 }
 
@@ -739,6 +749,8 @@ function applyAnalysisPointToWalletState(args: {
   'worklet';
 
   const {state, point, rateCursorByAssetId, baselineRateByAssetId} = args;
+  state.hasActivityInWindow = true;
+
   const afterAtomic = parseAtomicToBigint(point.cryptoBalance);
   const beforeAtomic = state.unitsAtomic;
   const delta = afterAtomic - beforeAtomic;
@@ -1007,6 +1019,7 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
         fiatBalance,
         remainingCostBasisFiat: st.basisFiat,
         unrealizedPnlFiat: unrealized,
+        hasActivityInWindow: st.hasActivityInWindow,
         markRate: rate,
         ratePercentChange: ratePct,
         pnlPercent: pnlPct,
@@ -1127,6 +1140,7 @@ export async function buildPnlAnalysisSeriesFromStreamed(args: PnlAnalysisStream
         fiatBalance,
         remainingCostBasisFiat: st.basisFiat,
         unrealizedPnlFiat: unrealized,
+        hasActivityInWindow: st.hasActivityInWindow,
         markRate: rate,
         ratePercentChange: ratePct,
         pnlPercent: pnlPct,

@@ -75,6 +75,65 @@ describe('PortfolioRuntimeHost', () => {
     expect(storage.contains(registryKey)).toBe(false);
   });
 
+  it('routes compact asset-row analysis through the host engine fallback', async () => {
+    const host = new PortfolioRuntimeHost({
+      storage: new FakeMmkvStorageBridge(),
+      storageId: 'test-host-storage',
+      registryKey: '__portfolio_runtime_registry__',
+    });
+
+    const response = await host.handle({
+      id: 10,
+      method: 'analysis.computeAssetRows',
+      params: {
+        cfg: {baseUrl: 'https://bws.invalid'},
+        wallets: [
+          {
+            walletId: 'w1',
+            addedAt: 1,
+            summary: {
+              walletId: 'w1',
+              walletName: 'BTC Wallet',
+              chain: 'btc',
+              network: 'livenet',
+              currencyAbbreviation: 'btc',
+              balanceAtomic: '100000000',
+              balanceFormatted: '1',
+            },
+            credentials: {
+              walletId: 'w1',
+              chain: 'btc',
+              network: 'livenet',
+              coin: 'btc',
+            },
+          },
+        ],
+        quoteCurrency: 'USD',
+        timeframe: '1D',
+        nowMs: Date.parse('2024-01-02T00:00:00Z'),
+        maxPoints: 91,
+        collapseAcrossChains: true,
+      },
+    } as any);
+
+    expect(response).toMatchObject({
+      id: 10,
+      ok: true,
+      result: {
+        quoteCurrency: 'USD',
+        timeframe: '1D',
+        rows: [
+          {
+            key: 'btc',
+            assetId: 'btc:btc',
+            balanceAtomic: '100000000',
+            showPnlPlaceholder: true,
+          },
+        ],
+      },
+    });
+  });
+
   it('returns structured worker errors instead of throwing for unknown methods', async () => {
     const host = new PortfolioRuntimeHost({
       storage: new FakeMmkvStorageBridge(),
