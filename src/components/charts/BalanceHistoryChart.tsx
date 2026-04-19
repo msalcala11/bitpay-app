@@ -10,10 +10,6 @@ import type {
   Rates,
 } from '../../store/rate/rate.models';
 import {FIAT_RATE_SERIES_TARGET_POINTS} from '../../store/rate/rate.models';
-import type {
-  BalanceSnapshotsByWalletId,
-  BalanceSnapshot,
-} from '../../store/portfolio/portfolio.models';
 import type {Wallet} from '../../store/wallet/wallet.models';
 import {
   DEFAULT_BALANCE_CHART_TIMEFRAME,
@@ -67,7 +63,6 @@ import {formatUnknownError} from '../../utils/errors/formatUnknownError';
 
 export type BalanceHistoryChartProps = {
   wallets: Wallet[];
-  snapshotsByWalletId?: BalanceSnapshotsByWalletId;
   quoteCurrency: string;
   initialSelectedTimeframe?: FiatRateInterval;
   rates?: Rates;
@@ -97,8 +92,6 @@ export type BalanceHistoryChartProps = {
   axisLabelOpacity?: number | NumberSharedValue;
   onSelectedTimeframeChange?: (timeframe: FiatRateInterval) => void;
 };
-
-const EMPTY_BALANCE_SNAPSHOTS: BalanceSnapshot[] = [];
 
 type DisplayState = {
   series: HydratedBalanceChartSeries;
@@ -159,7 +152,7 @@ const buildHydratedSeriesFromRuntimeChart = (args: {
       byWalletId: {},
       // Runtime charts expose explicit interval change; keep it on the point so
       // the existing change-row formatter can use it when present.
-      ...( {totalPnlChange} as any ),
+      ...({totalPnlChange} as any),
     } as PnlAnalysisPoint);
 
     rawGraphPoints.push({
@@ -174,8 +167,15 @@ const buildHydratedSeriesFromRuntimeChart = (args: {
 
   const graphPoints = normalizeGraphPointsForChart(rawGraphPoints);
   const pointByTimestamp = new Map<number, PnlAnalysisPoint>();
-  for (let index = 0; index < Math.min(graphPoints.length, analysisPoints.length); index++) {
-    pointByTimestamp.set(graphPoints[index].date.getTime(), analysisPoints[index]);
+  for (
+    let index = 0;
+    index < Math.min(graphPoints.length, analysisPoints.length);
+    index++
+  ) {
+    pointByTimestamp.set(
+      graphPoints[index].date.getTime(),
+      analysisPoints[index],
+    );
   }
 
   const extrema = recomputeMinMaxFromGraphPoints(graphPoints);
@@ -218,7 +218,6 @@ const buildCachedTimeframeFromSeries = (args: {
 
 const BalanceHistoryChart = ({
   wallets,
-  snapshotsByWalletId,
   quoteCurrency,
   initialSelectedTimeframe = DEFAULT_BALANCE_CHART_TIMEFRAME,
   rates: _rates,
@@ -292,7 +291,8 @@ const BalanceHistoryChart = ({
   }, [dispatch, wallets]);
 
   const sortedWalletIds = useMemo(
-    () => getSortedUniqueWalletIds(eligibleWallets.map(wallet => wallet?.id || '')),
+    () =>
+      getSortedUniqueWalletIds(eligibleWallets.map(wallet => wallet?.id || '')),
     [eligibleWallets],
   );
   const storedWalletRequestSig = useMemo(
@@ -331,7 +331,10 @@ const BalanceHistoryChart = ({
   }, [initialSelectedTimeframe]);
 
   const cachedSelectedTimeframe = useMemo(() => {
-    return getCachedBalanceChartTimeframe(cachedScope?.timeframes, selectedTimeframe);
+    return getCachedBalanceChartTimeframe(
+      cachedScope?.timeframes,
+      selectedTimeframe,
+    );
   }, [cachedScope?.timeframes, selectedTimeframe]);
 
   const cachedSelectedTimeframeStatus = useMemo(() => {
@@ -341,11 +344,7 @@ const BalanceHistoryChart = ({
       currentSpotRatesByRateKey: {},
       fiatRateSeriesCache,
     });
-  }, [
-    cachedSelectedTimeframe,
-    committedDataRevisionSig,
-    fiatRateSeriesCache,
-  ]);
+  }, [cachedSelectedTimeframe, committedDataRevisionSig, fiatRateSeriesCache]);
 
   const cachedSelectedSeries = useMemo(() => {
     if (!cachedSelectedTimeframe) {
@@ -509,7 +508,8 @@ const BalanceHistoryChart = ({
       series?.analysisPoints?.[(series.analysisPoints?.length || 1) - 1]
         ?.timestamp;
 
-    return typeof firstTimestamp === 'number' && typeof lastTimestamp === 'number'
+    return typeof firstTimestamp === 'number' &&
+      typeof lastTimestamp === 'number'
       ? Math.max(0, lastTimestamp - firstTimestamp)
       : undefined;
   }, [activeSeries, cachedSelectedSeries]);
@@ -591,14 +591,9 @@ const BalanceHistoryChart = ({
     const walletId = String(wallet?.id || '');
     return !!walletId && !!wallet;
   });
-  const hasAnyLegacySnapshots = wallets.some(wallet => {
-    const walletId = String(wallet?.id || '');
-    return (snapshotsByWalletId?.[walletId] || EMPTY_BALANCE_SNAPSHOTS).length > 0;
-  });
   const shouldShowLoader =
     !hasRenderableSeries &&
-    (loading ||
-      (showLoaderWhenNoSnapshots && (hasAnyWallets || hasAnyLegacySnapshots)));
+    (loading || (showLoaderWhenNoSnapshots && hasAnyWallets));
 
   const onGestureStarted = useCallback(() => {
     // No-op; we keep the current series visible and update the selected point as
@@ -647,12 +642,17 @@ const BalanceHistoryChart = ({
           percent={displayedChangeRowData?.percent ?? 0}
           deltaFiatFormatted={displayedChangeRowData?.deltaFiatFormatted}
           rangeLabel={displayedChangeRowData?.rangeLabel}
-          style={[changeRowStyle, !displayedChangeRowData ? {opacity: 0} : null]}
+          style={[
+            changeRowStyle,
+            !displayedChangeRowData ? {opacity: 0} : null,
+          ]}
         />
       ) : null}
 
       {preChartContent ? (
-        <View style={{marginTop: preChartContentTopMargin}}>{preChartContent}</View>
+        <View style={{marginTop: preChartContentTopMargin}}>
+          {preChartContent}
+        </View>
       ) : null}
 
       <InteractiveLineChart
