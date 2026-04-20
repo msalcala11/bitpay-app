@@ -19,7 +19,11 @@ jest.mock('react-native-reanimated', () =>
   require('react-native-reanimated/mock'),
 );
 global.__reanimatedWorkletInit = jest.fn();
-jest.mock('react-native/Libraries/Animated/NativeAnimatedHelper');
+jest.mock(
+  'react-native/Libraries/Animated/NativeAnimatedHelper',
+  () => ({}),
+  {virtual: true},
+);
 
 jest.mock('react-native-permissions', () =>
   require('react-native-permissions/mock'),
@@ -107,7 +111,7 @@ jest.mock('@walletconnect/core', () => ({
   __esModule: true,
   default: () => jest.fn(),
   Core: jest.fn(),
-}));
+}), {virtual: true});
 
 jest.mock('@walletconnect/web3wallet', () => ({
   __esModule: true,
@@ -115,7 +119,7 @@ jest.mock('@walletconnect/web3wallet', () => ({
   Web3Wallet: jest.fn(() => ({
     init: jest.fn(),
   })),
-}));
+}), {virtual: true});
 
 jest.mock('react-native-share', () => ({
   default: jest.fn(),
