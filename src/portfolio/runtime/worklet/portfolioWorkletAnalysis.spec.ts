@@ -213,4 +213,65 @@ describe('portfolioWorkletAnalysis', () => {
     expect(result.assetSummaries[0]?.coin).toBe('btc');
     expect(result.points).not.toHaveLength(0);
   });
+
+  it('applies current rate overrides to the final streamed worklet analysis point', async () => {
+    const storage = createStorage();
+    const config = {storage, registryKey: '__registry__'};
+    const wallet = createStoredWallet();
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-02T00:00:00Z');
+
+    const meta = buildWorkletWalletMetaForStore({
+      wallet: wallet.summary,
+      credentials: wallet.credentials,
+      quoteCurrency: 'USD',
+      compressionEnabled: false,
+      chunkRows: 128,
+    });
+    await appendWorkletSnapshotChunk({
+      ...config,
+      meta,
+      snapshots: [
+        {timestamp: t0, cryptoBalance: '100000000'},
+        {timestamp: t1, cryptoBalance: '100000000'},
+      ],
+      checkpoint: {
+        nextSkip: 2,
+        balanceAtomic: '100000000',
+        remainingCostBasisFiat: 0,
+        lastMarkRate: 0,
+        lastTimestamp: t1,
+        firstNonZeroTs: t0,
+      },
+    });
+
+    const fetchMock = jest.fn(async () =>
+      makeJsonResponse({
+        btc: [
+          {ts: t0, rate: 10000},
+          {ts: t1, rate: 11000},
+        ],
+      }),
+    );
+    global.fetch = fetchMock as typeof global.fetch;
+
+    const result = await computeWorkletAnalysis(config, {
+      cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
+      wallets: [wallet],
+      quoteCurrency: 'USD',
+      timeframe: '1D',
+      nowMs: t1,
+      maxPoints: 2,
+      currentRatesByAssetId: {
+        'btc:btc': 15000,
+      },
+    });
+
+    const last = result.points[result.points.length - 1];
+
+    expect(last?.totalFiatBalance).toBe(15000);
+    expect(last?.totalUnrealizedPnlFiat).toBe(5000);
+    expect(result.assetSummaries[0]?.rateEnd).toBe(15000);
+    expect(result.assetSummaries[0]?.pnlEnd).toBe(5000);
+  });
 });

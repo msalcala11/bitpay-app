@@ -1,8 +1,10 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import type {Key} from '../../../store/wallet/wallet.models';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {
+  buildCurrentRatesByAssetId,
   buildCommittedPortfolioRevisionToken,
+  getCurrentRatesByAssetIdSignature,
   getLastFiniteNumber,
   getStoredWalletRequestSignature,
   mapWalletsToStoredWallets,
@@ -30,6 +32,7 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
   const portfolioQuoteCurrency = useAppSelector(
     ({PORTFOLIO}) => PORTFOLIO.quoteCurrency,
   );
+  const rates = useAppSelector(({RATE}) => RATE.rates);
   const committedRevisionToken = useAppSelector(({PORTFOLIO}) =>
     buildCommittedPortfolioRevisionToken({
       quoteCurrency: PORTFOLIO.quoteCurrency,
@@ -50,25 +53,39 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
         wallet => !wallet.hideWallet && !wallet.hideWalletByAccount,
       );
       const mapped = mapWalletsToStoredWallets({dispatch, wallets});
+      const currentRatesByAssetId = buildCurrentRatesByAssetId({
+        storedWallets: mapped.storedWallets,
+        quoteCurrency,
+        rates,
+      });
       return {
         keyId: key.id,
         liveFiatTotal: key.totalBalance || 0,
         storedWallets: mapped.storedWallets,
+        currentRatesByAssetId,
+        currentRatesSignature: getCurrentRatesByAssetIdSignature(
+          currentRatesByAssetId,
+        ),
       };
     });
-  }, [args.keys, dispatch]);
+  }, [args.keys, dispatch, quoteCurrency, rates]);
 
   const requestKey = useMemo(() => {
     return [
       quoteCurrency,
       ...keyInputs.map(
         input =>
-          `${input.keyId}:${input.liveFiatTotal}:${getStoredWalletRequestSignature(
-            input.storedWallets,
-          )}`,
+          [
+            input.keyId,
+            input.liveFiatTotal,
+            getStoredWalletRequestSignature(input.storedWallets),
+            input.currentRatesSignature,
+          ].join(':'),
       ),
     ].join('|');
   }, [keyInputs, quoteCurrency]);
+  const stableKeyInputsRef = useRef(keyInputs);
+  stableKeyInputsRef.current = keyInputs;
 
   const [currentMap, setCurrentMap] = useState<Record<string, number | null>>(
     {},
@@ -78,14 +95,16 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
   >({});
 
   useEffect(() => {
-    if (!keyInputs.length) {
+    const stableKeyInputs = stableKeyInputsRef.current;
+
+    if (!stableKeyInputs.length) {
       return;
     }
 
     let cancelled = false;
 
     Promise.all(
-      keyInputs.map(async input => {
+      stableKeyInputs.map(async input => {
         if (!input.storedWallets.length) {
           return {
             keyId: input.keyId,
@@ -98,6 +117,7 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
           quoteCurrency,
           timeframe: '1D',
           maxPoints: 2,
+          currentRatesByAssetId: input.currentRatesByAssetId,
         });
 
         return {
@@ -130,7 +150,7 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
     return () => {
       cancelled = true;
     };
-  }, [committedRevisionToken, keyInputs, quoteCurrency, requestKey]);
+  }, [committedRevisionToken, quoteCurrency, requestKey]);
 
   return Object.keys(currentMap).length ? currentMap : committedMap;
 }

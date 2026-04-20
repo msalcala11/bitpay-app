@@ -96,6 +96,7 @@ export type ComputeAnalysisArgs = {
   timeframe: PnlTimeframe;
   nowMs?: number;
   maxPoints?: number;
+  currentRatesByAssetId?: Record<string, number>;
 };
 
 type PreparedStreamedAnalysisInputs = {
@@ -835,6 +836,7 @@ export class PortfolioEngine {
       wallets: prepared.wallets,
       timeframe: args.timeframe,
       ratePointsByAssetId: prepared.resolved.rawPointsByAssetId,
+      currentRatesByAssetId: args.currentRatesByAssetId,
       firstNonZeroTs: prepared.firstNonZeroTs,
       startTs: prepared.resolved.startTs,
       endTs: prepared.resolved.endTs,
@@ -862,6 +864,7 @@ export class PortfolioEngine {
       wallets: prepared.wallets,
       timeframe: args.timeframe,
       ratePointsByAssetId: prepared.resolved.rawPointsByAssetId,
+      currentRatesByAssetId: args.currentRatesByAssetId,
       firstNonZeroTs: prepared.firstNonZeroTs,
       startTs: prepared.resolved.startTs,
       endTs: prepared.resolved.endTs,

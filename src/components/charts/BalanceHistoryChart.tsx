@@ -45,7 +45,9 @@ import {
 } from './balanceHistoryChartSelection';
 import {useStableBalanceHistoryChartAxisLabels} from './useStableBalanceHistoryChartAxisLabels';
 import {
+  buildCurrentRatesByAssetId,
   buildCommittedPortfolioRevisionToken,
+  getCurrentRatesByAssetIdSignature,
   getStoredWalletRequestSignature,
   mapWalletsToStoredWallets,
   resolveCommittedPortfolioQuoteCurrency,
@@ -293,6 +295,19 @@ const BalanceHistoryChart = ({
     () => getStoredWalletRequestSignature(storedWallets),
     [storedWallets],
   );
+  const currentRatesByAssetId = useMemo(() => {
+    return buildCurrentRatesByAssetId({
+      storedWallets,
+      quoteCurrency: committedQueryQuoteCurrency,
+      rates: _rates,
+    });
+  }, [_rates, committedQueryQuoteCurrency, storedWallets]);
+  const currentRatesSignature = useMemo(() => {
+    return getCurrentRatesByAssetIdSignature(currentRatesByAssetId);
+  }, [currentRatesByAssetId]);
+  const chartDataRevisionSig = useMemo(() => {
+    return [committedDataRevisionSig, currentRatesSignature].join('|');
+  }, [committedDataRevisionSig, currentRatesSignature]);
 
   const scopeId = useMemo(() => {
     return buildBalanceChartScopeId({
@@ -334,11 +349,11 @@ const BalanceHistoryChart = ({
   const cachedSelectedTimeframeStatus = useMemo(() => {
     return getCachedTimeframeStatus({
       cachedTimeframe: cachedSelectedTimeframe,
-      dataRevisionSig: committedDataRevisionSig,
+      dataRevisionSig: chartDataRevisionSig,
       currentSpotRatesByRateKey: {},
       fiatRateSeriesCache: undefined,
     });
-  }, [cachedSelectedTimeframe, committedDataRevisionSig]);
+  }, [cachedSelectedTimeframe, chartDataRevisionSig]);
 
   const cachedSelectedSeries = useMemo(() => {
     if (!cachedSelectedTimeframe) {
@@ -384,22 +399,42 @@ const BalanceHistoryChart = ({
     return [
       scopeId,
       selectedTimeframe,
-      committedDataRevisionSig,
+      chartDataRevisionSig,
       storedWalletRequestSig,
     ].join('|');
   }, [
-    committedDataRevisionSig,
+    chartDataRevisionSig,
     scopeId,
     selectedTimeframe,
     storedWalletRequestSig,
   ]);
+  const chartQueryArgsRef = useRef({
+    wallets: storedWallets,
+    quoteCurrency: committedQueryQuoteCurrency,
+    timeframe: selectedTimeframe,
+    maxPoints: FIAT_RATE_SERIES_TARGET_POINTS,
+    currentRatesByAssetId,
+    dataRevisionSig: chartDataRevisionSig,
+    walletIds: sortedWalletIds,
+  });
+  chartQueryArgsRef.current = {
+    wallets: storedWallets,
+    quoteCurrency: committedQueryQuoteCurrency,
+    timeframe: selectedTimeframe,
+    maxPoints: FIAT_RATE_SERIES_TARGET_POINTS,
+    currentRatesByAssetId,
+    dataRevisionSig: chartDataRevisionSig,
+    walletIds: sortedWalletIds,
+  };
 
   useEffect(() => {
     if (cachedSelectedSeries) {
       return;
     }
 
-    if (!storedWallets.length) {
+    const chartQueryArgs = chartQueryArgsRef.current;
+
+    if (!chartQueryArgs.wallets.length) {
       setLoading(false);
       setError(undefined);
       setDisplayState(undefined);
@@ -412,12 +447,7 @@ const BalanceHistoryChart = ({
     setLoading(true);
     setError(undefined);
 
-    runPortfolioChartQuery({
-      wallets: storedWallets,
-      quoteCurrency: committedQueryQuoteCurrency,
-      timeframe: selectedTimeframe,
-      maxPoints: FIAT_RATE_SERIES_TARGET_POINTS,
-    })
+    runPortfolioChartQuery(chartQueryArgs)
       .then(chart => {
         if (cancelled || activeRequestIdRef.current !== requestId) {
           return;
@@ -435,23 +465,23 @@ const BalanceHistoryChart = ({
 
         setDisplayState({
           series,
-          timeframe: selectedTimeframe,
+          timeframe: chartQueryArgs.timeframe,
         });
         setLoading(false);
 
         dispatch(
           upsertBalanceChartScopeTimeframes({
             scopeId,
-            walletIds: sortedWalletIds,
-            quoteCurrency: committedQueryQuoteCurrency,
+            walletIds: chartQueryArgs.walletIds,
+            quoteCurrency: chartQueryArgs.quoteCurrency,
             balanceOffset,
             timeframes: [
               buildCachedTimeframeFromSeries({
-                timeframe: selectedTimeframe,
-                walletIds: sortedWalletIds,
-                quoteCurrency: committedQueryQuoteCurrency,
+                timeframe: chartQueryArgs.timeframe,
+                walletIds: chartQueryArgs.walletIds,
+                quoteCurrency: chartQueryArgs.quoteCurrency,
                 balanceOffset,
-                dataRevisionSig: committedDataRevisionSig,
+                dataRevisionSig: chartQueryArgs.dataRevisionSig,
                 series,
               }),
             ],
@@ -473,14 +503,11 @@ const BalanceHistoryChart = ({
   }, [
     balanceOffset,
     cachedSelectedSeries,
-    committedDataRevisionSig,
-    committedQueryQuoteCurrency,
+    chartDataRevisionSig,
     dispatch,
     queryRevisionKey,
     scopeId,
-    selectedTimeframe,
     sortedWalletIds,
-    storedWallets,
   ]);
 
   useEffect(() => {

@@ -4,7 +4,9 @@ import type {StoredWallet} from '../../core/types';
 import type {PnlTimeframe} from '../../core/pnl/analysisStreaming';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {
+  buildCurrentRatesByAssetId,
   buildCommittedPortfolioRevisionToken,
+  getCurrentRatesByAssetIdSignature,
   getStoredWalletRequestSignature,
   mapWalletsToStoredWallets,
   resolveCommittedPortfolioQuoteCurrency,
@@ -33,21 +35,33 @@ export function usePortfolioRuntimeQuery<T>(args: {
     quoteCurrency: string;
     timeframe: PnlTimeframe;
     maxPoints?: number;
+    currentRatesByAssetId?: Record<string, number>;
   }) => Promise<T>;
 }): PortfolioRuntimeQueryState<T> {
+  const {
+    wallets,
+    timeframe,
+    maxPoints,
+    enabled,
+    refreshToken: refreshTokenOverride,
+    clearDataToken: clearDataTokenOverride,
+    clearDataOnRefreshToken,
+    execute,
+  } = args;
   const dispatch = useAppDispatch();
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const portfolioQuoteCurrency = useAppSelector(
     ({PORTFOLIO}) => PORTFOLIO.quoteCurrency,
   );
+  const rates = useAppSelector(({RATE}) => RATE.rates);
   const committedPortfolioRevisionToken = useAppSelector(({PORTFOLIO}) => {
     return buildCommittedPortfolioRevisionToken({
       quoteCurrency: PORTFOLIO.quoteCurrency,
       lastPopulatedAt: PORTFOLIO.lastPopulatedAt,
     });
   });
-  const refreshToken = args.refreshToken ?? committedPortfolioRevisionToken;
-  const clearDataToken = args.clearDataToken ?? refreshToken;
+  const refreshToken = refreshTokenOverride ?? committedPortfolioRevisionToken;
+  const clearDataToken = clearDataTokenOverride ?? refreshToken;
 
   const quoteCurrency = useMemo(() => {
     return resolveCommittedPortfolioQuoteCurrency({
@@ -59,25 +73,50 @@ export function usePortfolioRuntimeQuery<T>(args: {
   const {eligibleWallets, storedWallets} = useMemo(() => {
     return mapWalletsToStoredWallets({
       dispatch,
-      wallets: args.wallets,
+      wallets,
     });
-  }, [args.wallets, dispatch]);
+  }, [dispatch, wallets]);
+  const currentRatesByAssetId = useMemo(() => {
+    return buildCurrentRatesByAssetId({
+      storedWallets,
+      quoteCurrency,
+      rates,
+    });
+  }, [quoteCurrency, rates, storedWallets]);
+  const currentRatesSignature = useMemo(() => {
+    return getCurrentRatesByAssetIdSignature(currentRatesByAssetId);
+  }, [currentRatesByAssetId]);
 
   const requestKey = useMemo(() => {
     return [
       quoteCurrency,
-      args.timeframe,
-      typeof args.maxPoints === 'number' ? String(args.maxPoints) : '',
+      timeframe,
+      typeof maxPoints === 'number' ? String(maxPoints) : '',
       getStoredWalletRequestSignature(storedWallets),
+      currentRatesSignature,
     ].join('|');
-  }, [args.maxPoints, args.timeframe, quoteCurrency, storedWallets]);
+  }, [currentRatesSignature, maxPoints, quoteCurrency, storedWallets, timeframe]);
+  const executeParamsRef = useRef({
+    wallets: storedWallets,
+    quoteCurrency,
+    timeframe,
+    maxPoints,
+    currentRatesByAssetId,
+  });
+  executeParamsRef.current = {
+    wallets: storedWallets,
+    quoteCurrency,
+    timeframe,
+    maxPoints,
+    currentRatesByAssetId,
+  };
   const [data, setData] = useState<T | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | undefined>(undefined);
   const lastClearDataTokenRef = useRef(clearDataToken);
 
   useEffect(() => {
-    if (!args.clearDataOnRefreshToken) {
+    if (!clearDataOnRefreshToken) {
       lastClearDataTokenRef.current = clearDataToken;
       return;
     }
@@ -89,15 +128,16 @@ export function usePortfolioRuntimeQuery<T>(args: {
     }
 
     lastClearDataTokenRef.current = clearDataToken;
-  }, [args.clearDataOnRefreshToken, clearDataToken]);
-
+  }, [clearDataOnRefreshToken, clearDataToken]);
   useEffect(() => {
-    if (args.enabled === false) {
+    if (enabled === false) {
       setLoading(false);
       return;
     }
 
-    if (!storedWallets.length) {
+    const executeParams = executeParamsRef.current;
+
+    if (!executeParams.wallets.length) {
       setData(undefined);
       setLoading(false);
       return;
@@ -107,13 +147,7 @@ export function usePortfolioRuntimeQuery<T>(args: {
     setLoading(true);
     setError(undefined);
 
-    args
-      .execute({
-        wallets: storedWallets,
-        quoteCurrency,
-        timeframe: args.timeframe,
-        maxPoints: args.maxPoints,
-      })
+    execute(executeParams)
       .then(result => {
         if (cancelled) {
           return;
@@ -133,14 +167,10 @@ export function usePortfolioRuntimeQuery<T>(args: {
       cancelled = true;
     };
   }, [
-    args.enabled,
-    args.execute,
-    args.maxPoints,
-    args.timeframe,
-    quoteCurrency,
+    enabled,
+    execute,
     requestKey,
     refreshToken,
-    storedWallets,
   ]);
 
   return {
