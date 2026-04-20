@@ -20,7 +20,7 @@ describe('PortfolioPopulateService', () => {
     },
   } as any;
 
-  it('starts a runtime populate job and waits for its terminal status without polling', async () => {
+  it('starts a runtime populate job and returns terminal status without polling when start is already terminal', async () => {
     const client = {
       startPopulateJob: jest.fn().mockResolvedValue({
         jobId: 'job-1',
@@ -81,6 +81,7 @@ describe('PortfolioPopulateService', () => {
           },
         },
       }),
+      getPopulateJobStatus: jest.fn(),
       cancelPopulateJob: jest.fn().mockResolvedValue(null),
     } as any;
 
@@ -91,10 +92,11 @@ describe('PortfolioPopulateService', () => {
     expect(client.startPopulateJob).toHaveBeenCalledWith(
       expect.objectContaining({
         jobId: expect.any(String),
-        awaitTerminal: true,
+        awaitTerminal: false,
         wallets: [storedWallet],
       }),
     );
+    expect(client.getPopulateJobStatus).not.toHaveBeenCalled();
     expect(client.cancelPopulateJob).not.toHaveBeenCalled();
     expect(result.cancelled).toBe(false);
     expect(result.status).toMatchObject({
@@ -113,63 +115,127 @@ describe('PortfolioPopulateService', () => {
     });
   });
 
+  it('polls runtime populate status and emits progress updates until terminal', async () => {
+    const onProgress = jest.fn();
+    const client = {
+      startPopulateJob: jest.fn().mockResolvedValue({
+        jobId: 'job-1',
+        status: {
+          jobId: 'job-1',
+          state: 'running',
+          inProgress: true,
+          startedAt: 1,
+          walletsTotal: 2,
+          walletsCompleted: 0,
+          txRequestsMade: 1,
+          txsProcessed: 10,
+          currentWalletId: 'wallet-1',
+          walletStatusById: {
+            ['wallet-1']: 'in_progress',
+          },
+          errors: [],
+          disabledForLargeHistory: false,
+          lastUpdatedAt: 2,
+        },
+      }),
+      getPopulateJobStatus: jest
+        .fn()
+        .mockResolvedValueOnce({
+          jobId: 'job-1',
+          state: 'running',
+          inProgress: true,
+          startedAt: 1,
+          walletsTotal: 2,
+          walletsCompleted: 1,
+          txRequestsMade: 2,
+          txsProcessed: 100,
+          currentWalletId: 'wallet-2',
+          walletStatusById: {
+            ['wallet-1']: 'done',
+            ['wallet-2']: 'in_progress',
+          },
+          errors: [],
+          disabledForLargeHistory: false,
+          lastUpdatedAt: 3,
+        })
+        .mockResolvedValueOnce({
+          jobId: 'job-1',
+          state: 'completed',
+          inProgress: false,
+          startedAt: 1,
+          finishedAt: 10,
+          walletsTotal: 2,
+          walletsCompleted: 2,
+          txRequestsMade: 3,
+          txsProcessed: 150,
+          currentWalletId: 'wallet-2',
+          walletStatusById: {
+            ['wallet-1']: 'done',
+            ['wallet-2']: 'done',
+          },
+          errors: [],
+          disabledForLargeHistory: false,
+          lastUpdatedAt: 4,
+          result: {
+            startedAt: 1,
+            finishedAt: 10,
+            cancelled: false,
+            disabledForLargeHistory: false,
+            results: [],
+          },
+        }),
+      cancelPopulateJob: jest.fn().mockResolvedValue(null),
+    } as any;
+
+    const service = new PortfolioPopulateService({client, statusPollMs: 0});
+    const result = await service.populateWallets({
+      wallets: [storedWallet],
+      onProgress,
+    });
+
+    expect(client.startPopulateJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        awaitTerminal: false,
+      }),
+    );
+    expect(client.getPopulateJobStatus).toHaveBeenCalledTimes(2);
+    expect(onProgress).toHaveBeenCalledTimes(3);
+    expect(onProgress).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        currentWalletId: 'wallet-1',
+        walletsCompleted: 0,
+      }),
+    );
+    expect(onProgress).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        currentWalletId: 'wallet-2',
+        walletsCompleted: 1,
+      }),
+    );
+    expect(onProgress).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        inProgress: false,
+        walletsCompleted: 2,
+      }),
+    );
+    expect(result.status).toMatchObject({
+      inProgress: false,
+      walletsCompleted: 2,
+    });
+  });
+
   it('cancels the active runtime populate job when requested', async () => {
     let service: PortfolioPopulateService;
-    let resolveStart:
-      | ((value: {
-          jobId: string;
-          status: any;
-        }) => void)
-      | undefined;
+    let resolveStart: ((value: any) => void) | undefined;
     const client = {
       startPopulateJob: jest.fn().mockImplementation(
-        async (params: {jobId: string}) =>
-          new Promise(resolve => {
-            resolveStart = resolve;
-          }),
-      ),
-      cancelPopulateJob: jest.fn().mockImplementation(
-        async ({jobId}: {jobId: string}) => {
-          resolveStart?.({
-            jobId,
-            status: {
-              jobId,
-              state: 'cancelled',
-              inProgress: false,
-              startedAt: 1,
-              finishedAt: 5,
-              walletsTotal: 1,
-              walletsCompleted: 1,
-              txRequestsMade: 1,
-              txsProcessed: 250,
-              walletStatusById: {},
-              errors: [],
-              disabledForLargeHistory: false,
-              lastUpdatedAt: 3,
-              result: {
-                startedAt: 1,
-                finishedAt: 5,
-                cancelled: true,
-                disabledForLargeHistory: false,
-                results: [
-                  {
-                    walletId: 'wallet-1',
-                    prepared: {checkpoint: {nextSkip: 0}},
-                    processResults: [],
-                    finished: null,
-                    appendedSnapshots: 0,
-                    txRequestsMade: 1,
-                    txsProcessed: 250,
-                    cancelled: true,
-                    disabledForLargeHistory: false,
-                  },
-                ],
-              },
-            },
-          });
-
-          return {
-            jobId,
+        async (params: {jobId: string}) => ({
+          jobId: params.jobId,
+          status: {
+            jobId: params.jobId,
             state: 'running',
             inProgress: true,
             startedAt: 1,
@@ -181,14 +247,59 @@ describe('PortfolioPopulateService', () => {
             errors: [],
             disabledForLargeHistory: false,
             lastUpdatedAt: 2,
-          };
+          },
+        }),
+      ),
+      getPopulateJobStatus: jest.fn().mockImplementation(async ({jobId}: {jobId: string}) =>
+        new Promise(resolve => {
+          resolveStart = resolve;
+        }),
+      ),
+      cancelPopulateJob: jest.fn().mockImplementation(
+        async ({jobId}: {jobId: string}) => {
+          resolveStart?.({
+            jobId,
+            state: 'cancelled',
+            inProgress: false,
+            startedAt: 1,
+            finishedAt: 5,
+            walletsTotal: 1,
+            walletsCompleted: 1,
+            txRequestsMade: 1,
+            txsProcessed: 250,
+            walletStatusById: {},
+            errors: [],
+            disabledForLargeHistory: false,
+            lastUpdatedAt: 3,
+            result: {
+              startedAt: 1,
+              finishedAt: 5,
+              cancelled: true,
+              disabledForLargeHistory: false,
+              results: [
+                {
+                  walletId: 'wallet-1',
+                  prepared: {checkpoint: {nextSkip: 0}},
+                  processResults: [],
+                  finished: null,
+                  appendedSnapshots: 0,
+                  txRequestsMade: 1,
+                  txsProcessed: 250,
+                  cancelled: true,
+                  disabledForLargeHistory: false,
+                },
+              ],
+            },
+          });
+
+          return null;
         },
       ),
     } as any;
 
-    service = new PortfolioPopulateService({client});
+    service = new PortfolioPopulateService({client, statusPollMs: 0});
     const resultPromise = service.populateWallets({wallets: [storedWallet]});
-    await Promise.resolve();
+    await new Promise(resolve => setTimeout(resolve, 0));
     service.cancel();
     const result = await resultPromise;
     const requestedJobId =

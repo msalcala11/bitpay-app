@@ -3,11 +3,13 @@ import type {Wallet} from '../wallet/wallet.models';
 import {GetPrecision} from '../wallet/utils/currency';
 import {
   getVisibleWalletsFromKeys,
+  sortWalletsByAssetFiatPriority,
 } from '../../utils/portfolio/assets';
 import {
   PortfolioPopulateService,
   getPortfolioPopulateDecisionsForWallets,
 } from '../../portfolio/service';
+import type {PortfolioPopulateJobStatus} from '../../portfolio/core/engine/populateJob';
 import type {SnapshotPersistDebugMode} from '../../portfolio/core/pnl/snapshotStore';
 import {getPortfolioRuntimeClient} from '../../portfolio/runtime/portfolioRuntime';
 import {
@@ -71,6 +73,33 @@ const buildPopulateStopReason = (args: {
   }
 
   return 'completed';
+};
+
+const dispatchPopulateProgressStatus = (args: {
+  dispatch: any;
+  status: PortfolioPopulateJobStatus;
+  reportedErrorKeys: Set<string>;
+}): void => {
+  const nextErrors = (args.status.errors || []).filter(error => {
+    const key = `${String(error.walletId || '')}::${String(error.message || '')}`;
+    if (args.reportedErrorKeys.has(key)) {
+      return false;
+    }
+    args.reportedErrorKeys.add(key);
+    return true;
+  });
+
+  args.dispatch(
+    updatePopulateProgress({
+      currentWalletId: args.status.currentWalletId,
+      walletsTotal: args.status.walletsTotal,
+      walletsCompleted: args.status.walletsCompleted,
+      txRequestsMade: args.status.txRequestsMade,
+      txsProcessed: args.status.txsProcessed,
+      walletStatusByIdUpdates: args.status.walletStatusById,
+      errorsToAdd: nextErrors.length ? nextErrors : undefined,
+    }),
+  );
 };
 
 const normalizeWalletIds = (walletIds?: string[]): string[] => {
@@ -514,8 +543,10 @@ export const populatePortfolioWithRuntime = (args?: {
     wallets: args?.wallets,
     walletIds: args?.walletIds,
   });
+  const prioritizedWalletsToPopulate =
+    sortWalletsByAssetFiatPriority(walletsToPopulate);
 
-  const storedWallets = walletsToPopulate
+  const storedWallets = prioritizedWalletsToPopulate
     .filter(isPortfolioRuntimeEligibleWallet)
     .map(wallet =>
       toPortfolioStoredWallet({
@@ -529,6 +560,7 @@ export const populatePortfolioWithRuntime = (args?: {
   }
 
   dispatch(startPopulatePortfolio({quoteCurrency}));
+  const reportedErrorKeys = new Set<string>();
 
   const service = new PortfolioPopulateService({
     client: getPortfolioRuntimeClient(),
@@ -541,6 +573,13 @@ export const populatePortfolioWithRuntime = (args?: {
   try {
     const result = await service.populateWallets({
       wallets: storedWallets,
+      onProgress: status => {
+        dispatchPopulateProgressStatus({
+          dispatch,
+          status,
+          reportedErrorKeys,
+        });
+      },
     });
     const finalStatus = result.status;
     const mismatchClearUpdates =
@@ -549,17 +588,11 @@ export const populatePortfolioWithRuntime = (args?: {
         runResults: result.results,
       });
 
-    dispatch(
-      updatePopulateProgress({
-        currentWalletId: finalStatus.currentWalletId,
-        walletsTotal: finalStatus.walletsTotal,
-        walletsCompleted: finalStatus.walletsCompleted,
-        txRequestsMade: finalStatus.txRequestsMade,
-        txsProcessed: finalStatus.txsProcessed,
-        walletStatusByIdUpdates: finalStatus.walletStatusById,
-        errorsToAdd: finalStatus.errors.length ? finalStatus.errors : undefined,
-      }),
-    );
+    dispatchPopulateProgressStatus({
+      dispatch,
+      status: finalStatus,
+      reportedErrorKeys,
+    });
 
     if (Object.keys(mismatchClearUpdates).length) {
       dispatch(

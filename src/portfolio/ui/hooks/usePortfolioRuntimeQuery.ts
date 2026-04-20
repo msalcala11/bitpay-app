@@ -26,6 +26,7 @@ export function usePortfolioRuntimeQuery<T>(args: {
   maxPoints?: number;
   enabled?: boolean;
   refreshToken?: string;
+  clearDataToken?: string;
   clearDataOnRefreshToken?: boolean;
   execute: (params: {
     wallets: StoredWallet[];
@@ -46,6 +47,7 @@ export function usePortfolioRuntimeQuery<T>(args: {
     });
   });
   const refreshToken = args.refreshToken ?? committedPortfolioRevisionToken;
+  const clearDataToken = args.clearDataToken ?? refreshToken;
 
   const quoteCurrency = useMemo(() => {
     return resolveCommittedPortfolioQuoteCurrency({
@@ -72,22 +74,22 @@ export function usePortfolioRuntimeQuery<T>(args: {
   const [data, setData] = useState<T | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | undefined>(undefined);
-  const lastRefreshTokenRef = useRef(refreshToken);
+  const lastClearDataTokenRef = useRef(clearDataToken);
 
   useEffect(() => {
     if (!args.clearDataOnRefreshToken) {
-      lastRefreshTokenRef.current = refreshToken;
+      lastClearDataTokenRef.current = clearDataToken;
       return;
     }
 
-    if (lastRefreshTokenRef.current !== refreshToken) {
+    if (lastClearDataTokenRef.current !== clearDataToken) {
       setData(undefined);
-      lastRefreshTokenRef.current = refreshToken;
+      lastClearDataTokenRef.current = clearDataToken;
       return;
     }
 
-    lastRefreshTokenRef.current = refreshToken;
-  }, [args.clearDataOnRefreshToken, refreshToken]);
+    lastClearDataTokenRef.current = clearDataToken;
+  }, [args.clearDataOnRefreshToken, clearDataToken]);
 
   useEffect(() => {
     if (args.enabled === false) {

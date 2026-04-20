@@ -34,6 +34,7 @@ export function usePortfolioAnalysis(args: {
   maxPoints?: number;
   enabled?: boolean;
   refreshToken?: string;
+  clearDataToken?: string;
   freezeWhilePopulate?: boolean;
   allowCurrentWhilePopulate?: boolean;
 }) {
@@ -49,15 +50,16 @@ export function usePortfolioAnalysis(args: {
     maxPoints: args.maxPoints,
     enabled: args.enabled,
     refreshToken: args.refreshToken,
+    clearDataToken: args.clearDataToken,
     clearDataOnRefreshToken: !!args.refreshToken,
     execute: runPortfolioAnalysisQuery,
   });
   const committedDataCacheKey = useMemo(() => {
     return getCommittedAnalysisCacheKey({
       requestKey: query.requestKey,
-      refreshToken: args.refreshToken,
+      refreshToken: args.clearDataToken ?? args.refreshToken,
     });
-  }, [args.refreshToken, query.requestKey]);
+  }, [args.clearDataToken, args.refreshToken, query.requestKey]);
 
   const [committedData, setCommittedData] = useState<
     PnlAnalysisResult | undefined
@@ -98,6 +100,10 @@ export function usePortfolioAnalysis(args: {
   const data = useMemo(() => {
     if (!(args.freezeWhilePopulate && populateInProgress)) {
       return query.data ?? (hasCommittedPortfolioBaseline ? committedData : undefined);
+    }
+
+    if (args.allowCurrentWhilePopulate && query.data) {
+      return query.data;
     }
 
     if (hasCommittedPortfolioBaseline && committedData) {
