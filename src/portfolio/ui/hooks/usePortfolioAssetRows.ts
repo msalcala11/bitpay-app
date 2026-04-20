@@ -277,13 +277,6 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
   const populateLoadingByKeyPrevRef = useRef<
     Record<string, boolean> | undefined
   >(undefined);
-  const revealedPopulateAssetKeysRef = useRef<{
-    sessionToken: string;
-    keys: Set<string>;
-  }>({
-    sessionToken: '',
-    keys: new Set<string>(),
-  });
   const resolvedPopulateItemsRef = useRef<{
     sessionToken: string;
     itemsByKey: Record<string, AssetRowItem>;
@@ -293,10 +286,6 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
   });
   useEffect(() => {
     if (!portfolio.populateStatus?.inProgress) {
-      revealedPopulateAssetKeysRef.current = {
-        sessionToken: '',
-        keys: new Set<string>(),
-      };
       resolvedPopulateItemsRef.current = {
         sessionToken: '',
         itemsByKey: {},
@@ -304,15 +293,6 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
       return;
     }
 
-    if (
-      revealedPopulateAssetKeysRef.current.sessionToken !==
-      populateSessionStateToken
-    ) {
-      revealedPopulateAssetKeysRef.current = {
-        sessionToken: populateSessionStateToken,
-        keys: new Set<string>(),
-      };
-    }
     if (
       resolvedPopulateItemsRef.current.sessionToken !==
       resolvedPopulateItemsSessionToken
@@ -323,7 +303,6 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
       };
     }
   }, [
-    populateSessionStateToken,
     portfolio.populateStatus?.inProgress,
     resolvedPopulateItemsSessionToken,
   ]);
@@ -360,44 +339,12 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
     visibleItems,
     walletIdsByAssetKey,
   ]);
-  const isPopulateLoadingByKey = useMemo(() => {
+  const stablePopulatePresentation = useMemo(() => {
     if (!portfolio.populateStatus?.inProgress || !isPopulateLoadingByKeyRaw) {
-      return isPopulateLoadingByKeyRaw;
-    }
-
-    const revealedState = revealedPopulateAssetKeysRef.current;
-    if (revealedState.sessionToken !== populateSessionStateToken) {
-      revealedPopulateAssetKeysRef.current = {
-        sessionToken: populateSessionStateToken,
-        keys: new Set<string>(),
+      return {
+        visibleItems,
+        isPopulateLoadingByKey: isPopulateLoadingByKeyRaw,
       };
-    }
-
-    const revealedKeys = revealedPopulateAssetKeysRef.current.keys;
-    let changed = false;
-    const next: Record<string, boolean> = {...isPopulateLoadingByKeyRaw};
-
-    for (const [assetKey, loading] of Object.entries(isPopulateLoadingByKeyRaw)) {
-      if (loading === false) {
-        revealedKeys.add(assetKey);
-        continue;
-      }
-
-      if (revealedKeys.has(assetKey)) {
-        next[assetKey] = false;
-        changed = true;
-      }
-    }
-
-    return changed ? next : isPopulateLoadingByKeyRaw;
-  }, [
-    isPopulateLoadingByKeyRaw,
-    populateSessionStateToken,
-    portfolio.populateStatus?.inProgress,
-  ]);
-  const visibleItemsResolvedDuringPopulate = useMemo(() => {
-    if (!portfolio.populateStatus?.inProgress || !isPopulateLoadingByKey) {
-      return visibleItems;
     }
 
     if (
@@ -411,41 +358,53 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
     }
 
     const resolvedItemsByKey = resolvedPopulateItemsRef.current.itemsByKey;
-    let changed = false;
+    let itemsChanged = false;
+    let loadingChanged = false;
+    const nextLoadingByKey: Record<string, boolean> = {
+      ...isPopulateLoadingByKeyRaw,
+    };
     const nextItems = visibleItems.map(item => {
-      if (isPopulateLoadingByKey[item.key] === false) {
-        const cachedItem = resolvedItemsByKey[item.key];
-        if (cachedItem) {
-          if (cachedItem !== item) {
-            changed = true;
-          }
-          return cachedItem;
+      const cachedItem = resolvedItemsByKey[item.key];
+      if (isPopulateLoadingByKeyRaw[item.key] === false) {
+        nextLoadingByKey[item.key] = false;
+        if (!cachedItem) {
+          resolvedItemsByKey[item.key] = item;
+          return item;
         }
 
-        resolvedItemsByKey[item.key] = item;
-        return item;
+        if (cachedItem !== item) {
+          itemsChanged = true;
+        }
+        return cachedItem;
       }
 
-      const cachedItem = resolvedItemsByKey[item.key];
       if (cachedItem) {
-        changed = true;
+        nextLoadingByKey[item.key] = false;
+        itemsChanged = true;
+        loadingChanged = true;
         return cachedItem;
       }
 
       return item;
     });
 
-    return changed ? nextItems : visibleItems;
+    return {
+      visibleItems: itemsChanged ? nextItems : visibleItems,
+      isPopulateLoadingByKey: loadingChanged
+        ? nextLoadingByKey
+        : isPopulateLoadingByKeyRaw,
+    };
   }, [
-    isPopulateLoadingByKey,
+    isPopulateLoadingByKeyRaw,
     portfolio.populateStatus?.inProgress,
     resolvedPopulateItemsSessionToken,
     visibleItems,
   ]);
 
   useEffect(() => {
-    populateLoadingByKeyPrevRef.current = isPopulateLoadingByKey;
-  }, [isPopulateLoadingByKey]);
+    populateLoadingByKeyPrevRef.current =
+      stablePopulatePresentation.isPopulateLoadingByKey;
+  }, [stablePopulatePresentation.isPopulateLoadingByKey]);
 
   useEffect(() => {
     if (!isFocused || !walletIdsSig || portfolio.populateStatus?.inProgress) {
@@ -478,9 +437,9 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
   ]);
 
   return {
-    visibleItems: visibleItemsResolvedDuringPopulate,
+    visibleItems: stablePopulatePresentation.visibleItems,
     isFiatLoading: analysis.loading && !analysis.data && !analysis.committedData,
-    isPopulateLoadingByKey,
+    isPopulateLoadingByKey: stablePopulatePresentation.isPopulateLoadingByKey,
     hasAnyPortfolioData:
       !!analysis.data ||
       !!analysis.committedData ||
