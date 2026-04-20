@@ -748,9 +748,11 @@ export function usePortfolioAssetRows({
 
     for (const spec of assetGroupAnalysisSpecs) {
       const state = assetGroupAnalysisStateByKey[spec.key];
+      const matchingState =
+        state?.requestKey === spec.requestKey ? state : undefined;
       next[spec.key] =
-        state?.currentData ??
-        (hasCommittedPortfolioBaseline ? state?.committedData : undefined);
+        matchingState?.currentData ??
+        (hasCommittedPortfolioBaseline ? matchingState?.committedData : undefined);
     }
 
     return next;
@@ -811,15 +813,21 @@ export function usePortfolioAssetRows({
       const item = groupItemsByKey.get(baseItem.key) || baseItem;
       const groupState = assetGroupAnalysisStateByKey[item.key];
       const groupSpec = assetGroupAnalysisSpecByKey.get(item.key);
+      const matchingGroupState =
+        groupSpec && groupState?.requestKey === groupSpec.requestKey
+          ? groupState
+          : undefined;
       const groupAnalysisForDisplay = assetGroupAnalysisForDisplayByKey[item.key];
       const hasScopedGroupItem = groupItemsByKey.has(item.key);
       const effectiveAnalysis =
         groupAnalysisForDisplay ?? analysis.data;
-      const effectiveCurrentData = groupState?.currentData ?? analysis.currentData;
+      const effectiveCurrentData =
+        matchingGroupState?.currentData ?? analysis.currentData;
       const effectiveCommittedData =
-        groupState?.committedData ?? analysis.committedData;
-      const effectiveError = groupState?.error ?? analysis.error;
-      const effectiveRequestKey = groupState?.requestKey ?? analysis.requestKey;
+        matchingGroupState?.committedData ?? analysis.committedData;
+      const effectiveError = matchingGroupState?.error ?? analysis.error;
+      const effectiveRequestKey =
+        matchingGroupState?.requestKey ?? analysis.requestKey;
       const effectiveCurrentRatesByAssetId =
         groupSpec?.currentRatesByAssetId ?? analysis.currentRatesByAssetId;
       const effectiveCurrentRatesSignature =
@@ -854,18 +862,24 @@ export function usePortfolioAssetRows({
             message: groupState.error.message,
           }
         : null;
+      const hasStaleScopedGroupState =
+        !!groupSpec &&
+        !!groupState &&
+        groupState.requestKey !== groupSpec.requestKey;
       const groupAnalysisDisplaySource = groupAnalysisForDisplay
-        ? groupState?.currentData === groupAnalysisForDisplay
+        ? matchingGroupState?.currentData === groupAnalysisForDisplay
           ? 'asset_group_current'
-          : groupState?.committedData === groupAnalysisForDisplay
+          : matchingGroupState?.committedData === groupAnalysisForDisplay
             ? 'asset_group_committed'
             : 'asset_group_unknown'
         : 'portfolio_fallback';
       const showScopedPnlLoading =
-        gainLossMode === 'ALL' &&
+        (gainLossMode === 'ALL' ||
+          hasStaleScopedGroupState ||
+          !!matchingGroupState?.loading) &&
         !!groupSpec &&
         !groupAnalysisForDisplay &&
-        !groupState?.error;
+        !matchingGroupState?.error;
       const baseDebugPayload = item.debugCopyPayload || {};
       const rowWalletIds = Array.isArray(baseDebugPayload.rowWalletIds)
         ? baseDebugPayload.rowWalletIds
@@ -938,18 +952,18 @@ export function usePortfolioAssetRows({
                 : 'portfolio_fallback',
               groupAnalysisDisplaySource,
               hasScopedGroupSpec: !!groupSpec,
-              hasScopedGroupState: !!groupState,
-              groupAnalysisLoading: groupState?.loading ?? false,
-              groupAnalysisHasCurrentData: !!groupState?.currentData,
-              groupAnalysisHasCommittedData: !!groupState?.committedData,
+              hasScopedGroupState: !!matchingGroupState,
+              groupAnalysisLoading: matchingGroupState?.loading ?? false,
+              groupAnalysisHasCurrentData: !!matchingGroupState?.currentData,
+              groupAnalysisHasCommittedData: !!matchingGroupState?.committedData,
               groupAnalysisCurrentWalletCount:
-                groupState?.currentData?.wallets?.length ?? 0,
+                matchingGroupState?.currentData?.wallets?.length ?? 0,
               groupAnalysisCommittedWalletCount:
-                groupState?.committedData?.wallets?.length ?? 0,
+                matchingGroupState?.committedData?.wallets?.length ?? 0,
               groupAnalysisDisplayWalletCount:
                 groupAnalysisForDisplay?.wallets?.length ?? 0,
               groupAnalysisError,
-              groupAnalysisRequestKey: groupState?.requestKey ?? null,
+              groupAnalysisRequestKey: matchingGroupState?.requestKey ?? null,
               groupSpecStoredWalletCount: groupSpec?.storedWalletIds?.length ?? 0,
               groupSpecStoredWalletIds: groupSpec?.storedWalletIds ?? [],
               dataWalletCount: effectiveAnalysis?.wallets?.length ?? 0,
