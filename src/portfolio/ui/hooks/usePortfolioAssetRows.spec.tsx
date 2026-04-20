@@ -533,6 +533,162 @@ describe('usePortfolioAssetRows', () => {
     ]);
   });
 
+  it('reveals a completed asset with portfolio-wide values, then upgrades it when scoped analysis arrives during populate', async () => {
+    const globalAnalysis = {
+      driverCoin: 'eth',
+      assetIds: ['btc-asset', 'eth-asset'],
+      wallets: [{walletId: 'btc-wallet'}],
+    };
+    const scopedAnalysis = {
+      driverCoin: 'btc',
+      assetIds: ['btc-asset'],
+      wallets: [{walletId: 'btc-wallet'}],
+    };
+    let resolveScopedAnalysis:
+      | ((value: typeof scopedAnalysis) => void)
+      | undefined;
+
+    mockState.PORTFOLIO.populateStatus.inProgress = true;
+    mockState.PORTFOLIO.populateStatus.startedAt = 11;
+    mockState.PORTFOLIO.lastPopulatedAt = 10;
+    mockUsePortfolioAnalysis.mockReturnValue({
+      data: globalAnalysis,
+      committedData: globalAnalysis,
+      currentData: globalAnalysis,
+      error: undefined,
+      loading: false,
+      quoteCurrency: 'USD',
+      requestKey: 'portfolio-request',
+      currentRatesByAssetId: {['btc-asset']: 74333.76},
+      currentRatesSignature: 'btc-rate',
+      asOfMs: 123456789,
+      eligibleWallets: [
+        {
+          id: 'btc-wallet',
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+        },
+      ],
+      storedWallets: [
+        {
+          walletId: 'btc-wallet',
+          addedAt: 0,
+          summary: {
+            walletId: 'btc-wallet',
+            walletName: 'Bitcoin',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+            tokenAddress: undefined,
+            network: 'livenet',
+            balanceAtomic: '422258',
+            balanceFormatted: '0.00422258',
+          },
+          credentials: {
+            keyId: 'key-id',
+          },
+        },
+      ],
+    });
+    mockGetVisibleWalletsFromKeys.mockReturnValue([
+      {
+        id: 'btc-wallet',
+        currencyAbbreviation: 'btc',
+        chain: 'btc',
+        network: 'livenet',
+      },
+    ]);
+    mockGetPopulateLoadingByAssetKey.mockReturnValue({btc: false});
+    mockPreparePortfolioAnalysisSessionQuery.mockResolvedValue({
+      sessionId: 'session-btc',
+    });
+    mockRunPortfolioAnalysisSessionScopeQuery.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveScopedAnalysis = resolve as (value: typeof scopedAnalysis) => void;
+        }),
+    );
+    mockBuildAssetRowsFromAnalysis.mockImplementation(({analysis}: any) => {
+      if (analysis !== globalAnalysis) {
+        return [
+          {
+            key: 'btc',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+            name: 'BTC',
+            cryptoAmount: '0.00422258',
+            fiatAmount: '$313.88',
+            deltaFiat: '-$5.22',
+            deltaPercent: '-1.64%',
+            isPositive: false,
+            hasRate: true,
+            hasPnl: true,
+            showPnlPlaceholder: false,
+            debugCopyPayload: {
+              aggregatedSummary: {
+                fiatValue: 313.88024830079996,
+                pnlChange: -5.217464442377093,
+                pnlPercent: -1.6350679538014496,
+              },
+            },
+          },
+        ];
+      }
+
+      return [
+        {
+          key: 'btc',
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+          name: 'BTC',
+          cryptoAmount: '0.00422258',
+          fiatAmount: '$313.88',
+          deltaFiat: '-$9.21',
+          deltaPercent: '-1.80%',
+          isPositive: false,
+          hasRate: true,
+          hasPnl: true,
+          showPnlPlaceholder: false,
+          debugCopyPayload: {
+            aggregatedSummary: {
+              fiatValue: 313.88024830079996,
+              pnlChange: -9.208673313419354,
+              pnlPercent: -1.8038049153872324,
+            },
+          },
+        },
+      ];
+    });
+
+    render(<HookHarness gainLossMode="ALL" />);
+
+    await waitFor(() => {
+      expect(latestResult?.visibleItems).toEqual([
+        expect.objectContaining({
+          key: 'btc',
+          deltaFiat: '-$9.21',
+          deltaPercent: '-1.80%',
+          showScopedPnlLoading: true,
+        }),
+      ]);
+      expect(latestResult?.isPopulateLoadingByKey).toEqual({btc: false});
+    });
+
+    await act(async () => {
+      resolveScopedAnalysis?.(scopedAnalysis);
+    });
+
+    await waitFor(() => {
+      expect(latestResult?.visibleItems).toEqual([
+        expect.objectContaining({
+          key: 'btc',
+          deltaFiat: '-$5.22',
+          deltaPercent: '-1.64%',
+          showScopedPnlLoading: false,
+        }),
+      ]);
+    });
+  });
+
   it('replaces portfolio-wide row pnl with asset-group scoped analysis when available', async () => {
     const globalAnalysis = {
       driverCoin: 'eth',
