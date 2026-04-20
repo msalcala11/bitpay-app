@@ -246,6 +246,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
       });
       const isRowScopedPnlLoading = !!item.showScopedPnlLoading;
       const isRowFiatLoading = getAssetRowFiatLoading({
+        populateInProgress,
         isFiatLoading,
         isRowPopulateLoading,
         showScopedPnlLoading: isRowScopedPnlLoading,

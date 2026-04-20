@@ -81,6 +81,7 @@ const AssetsList: React.FC<Props> = ({
         });
         const isRowScopedPnlLoading = !!item.showScopedPnlLoading;
         const isRowFiatLoading = getAssetRowFiatLoading({
+          populateInProgress,
           isFiatLoading,
           isRowPopulateLoading,
           showScopedPnlLoading: isRowScopedPnlLoading,

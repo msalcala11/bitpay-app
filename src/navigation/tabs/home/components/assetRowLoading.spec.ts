@@ -41,6 +41,7 @@ describe('getAssetRowFiatLoading', () => {
   it('shows fiat loading when fiat loading and populate loading are both active', () => {
     expect(
       getAssetRowFiatLoading({
+        populateInProgress: true,
         isFiatLoading: true,
         isRowPopulateLoading: true,
         showScopedPnlLoading: false,
@@ -48,9 +49,10 @@ describe('getAssetRowFiatLoading', () => {
     ).toBe(true);
   });
 
-  it('does not keep fiat loading active when only scoped pnl loading is pending', () => {
+  it('does not keep fiat loading active during populate when only scoped pnl loading is pending', () => {
     expect(
       getAssetRowFiatLoading({
+        populateInProgress: true,
         isFiatLoading: false,
         isRowPopulateLoading: false,
         showScopedPnlLoading: true,
@@ -58,9 +60,21 @@ describe('getAssetRowFiatLoading', () => {
     ).toBe(false);
   });
 
+  it('shows fiat loading after populate completes when scoped pnl loading is pending', () => {
+    expect(
+      getAssetRowFiatLoading({
+        populateInProgress: false,
+        isFiatLoading: false,
+        isRowPopulateLoading: false,
+        showScopedPnlLoading: true,
+      }),
+    ).toBe(true);
+  });
+
   it('does not show fiat loading when neither populate nor scoped loading is active', () => {
     expect(
       getAssetRowFiatLoading({
+        populateInProgress: false,
         isFiatLoading: true,
         isRowPopulateLoading: false,
         showScopedPnlLoading: false,
