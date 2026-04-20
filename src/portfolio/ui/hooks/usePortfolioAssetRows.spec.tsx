@@ -27,6 +27,7 @@ jest.mock('../../../utils/portfolio/assets', () => ({
   getDisplayAssetRowItems: jest.fn(items => items),
   getPopulateLoadingByAssetKey: jest.fn(() => undefined),
   getVisibleWalletsFromKeys: jest.fn(() => []),
+  sortAssetRowItemsByAssetFiatPriority: jest.fn(args => args.items),
 }));
 
 jest.mock('../selectors/buildAssetRowsFromAnalysis', () => ({
@@ -48,6 +49,12 @@ const mockBuildAssetRowsFromAnalysis = jest.requireMock(
 const mockGetPopulateLoadingByAssetKey = jest.requireMock(
   '../../../utils/portfolio/assets',
 ).getPopulateLoadingByAssetKey as jest.Mock;
+const mockGetVisibleWalletsFromKeys = jest.requireMock(
+  '../../../utils/portfolio/assets',
+).getVisibleWalletsFromKeys as jest.Mock;
+const mockSortAssetRowItemsByAssetFiatPriority = jest.requireMock(
+  '../../../utils/portfolio/assets',
+).sortAssetRowItemsByAssetFiatPriority as jest.Mock;
 
 let latestResult: ReturnType<typeof usePortfolioAssetRows> | undefined;
 
@@ -102,6 +109,10 @@ describe('usePortfolioAssetRows', () => {
     mockBuildAssetRowsFromAnalysis.mockReturnValue([]);
     mockGetPopulateLoadingByAssetKey.mockReset();
     mockGetPopulateLoadingByAssetKey.mockReturnValue(undefined);
+    mockGetVisibleWalletsFromKeys.mockReset();
+    mockGetVisibleWalletsFromKeys.mockReturnValue([]);
+    mockSortAssetRowItemsByAssetFiatPriority.mockReset();
+    mockSortAssetRowItemsByAssetFiatPriority.mockImplementation(args => args.items);
   });
 
   it('disables runtime analysis queries while the screen is unfocused', () => {
@@ -244,5 +255,92 @@ describe('usePortfolioAssetRows', () => {
 
     expect(latestResult?.isPopulateLoadingByKey).toEqual({doge: true});
     expect(mockGetPopulateLoadingByAssetKey).not.toHaveBeenCalled();
+  });
+
+  it('keeps asset ordering stable by wallet fiat priority during populate', () => {
+    mockState.PORTFOLIO.populateStatus.inProgress = true;
+    mockGetVisibleWalletsFromKeys.mockReturnValue([
+      {
+        id: 'doge-wallet',
+        currencyAbbreviation: 'doge',
+        chain: 'doge',
+        network: 'livenet',
+        balance: {fiat: 500},
+      },
+      {
+        id: 'btc-wallet',
+        currencyAbbreviation: 'btc',
+        chain: 'btc',
+        network: 'livenet',
+        balance: {fiat: 100},
+      },
+    ]);
+    mockBuildAssetRowsFromAnalysis.mockReturnValue([
+      {
+        key: 'btc',
+        currencyAbbreviation: 'btc',
+        chain: 'btc',
+        name: 'BTC',
+        cryptoAmount: '1',
+        fiatAmount: '$100',
+        deltaFiat: '+$1',
+        deltaPercent: '+1%',
+        isPositive: true,
+        hasRate: true,
+        hasPnl: true,
+      },
+      {
+        key: 'doge',
+        currencyAbbreviation: 'doge',
+        chain: 'doge',
+        name: 'DOGE',
+        cryptoAmount: '2',
+        fiatAmount: '$500',
+        deltaFiat: '+$5',
+        deltaPercent: '+2%',
+        isPositive: true,
+        hasRate: true,
+        hasPnl: true,
+      },
+    ]);
+    mockSortAssetRowItemsByAssetFiatPriority.mockReturnValue([
+      {
+        key: 'doge',
+        currencyAbbreviation: 'doge',
+        chain: 'doge',
+        name: 'DOGE',
+        cryptoAmount: '2',
+        fiatAmount: '$500',
+        deltaFiat: '+$5',
+        deltaPercent: '+2%',
+        isPositive: true,
+        hasRate: true,
+        hasPnl: true,
+      },
+      {
+        key: 'btc',
+        currencyAbbreviation: 'btc',
+        chain: 'btc',
+        name: 'BTC',
+        cryptoAmount: '1',
+        fiatAmount: '$100',
+        deltaFiat: '+$1',
+        deltaPercent: '+1%',
+        isPositive: true,
+        hasRate: true,
+        hasPnl: true,
+      },
+    ]);
+
+    render(<HookHarness />);
+
+    expect(mockSortAssetRowItemsByAssetFiatPriority).toHaveBeenCalledWith({
+      items: expect.any(Array),
+      wallets: expect.any(Array),
+    });
+    expect(latestResult?.visibleItems.map(item => item.key)).toEqual([
+      'doge',
+      'btc',
+    ]);
   });
 });

@@ -83,6 +83,80 @@ export const sortAssetRowItemsByHasRate = (
   return withRate.concat(withoutRate);
 };
 
+const buildAssetFiatPriorityEntries = (
+  wallets: Wallet[] | undefined,
+): Array<{
+  wallet: Wallet;
+  index: number;
+  groupKey: string;
+  fiatBalance: number;
+}> => {
+  return (wallets || []).map((wallet, index) => ({
+    wallet,
+    index,
+    groupKey: getPortfolioWalletCurrencyAbbreviationLower(wallet),
+    fiatBalance: Math.max(0, toNumber(wallet.balance?.fiat)),
+  }));
+};
+
+export const buildAssetFiatPriorityByKey = (
+  wallets: Wallet[] | undefined,
+): Record<string, {fiatBalance: number; firstIndex: number}> => {
+  const out: Record<string, {fiatBalance: number; firstIndex: number}> = {};
+
+  for (const item of buildAssetFiatPriorityEntries(wallets)) {
+    if (!item.groupKey) {
+      continue;
+    }
+
+    const existing = out[item.groupKey];
+    if (!existing) {
+      out[item.groupKey] = {
+        fiatBalance: item.fiatBalance,
+        firstIndex: item.index,
+      };
+      continue;
+    }
+
+    existing.fiatBalance += item.fiatBalance;
+    existing.firstIndex = Math.min(existing.firstIndex, item.index);
+  }
+
+  return out;
+};
+
+export const sortAssetRowItemsByAssetFiatPriority = (args: {
+  items: AssetRowItem[];
+  wallets: Wallet[] | undefined;
+}): AssetRowItem[] => {
+  const priorityByKey = buildAssetFiatPriorityByKey(args.wallets);
+  const indexedItems = (args.items || []).map((item, index) => ({
+    item,
+    index,
+    priority: priorityByKey[item.key],
+  }));
+
+  return indexedItems
+    .slice()
+    .sort((a, b) => {
+      const fiatDiff =
+        (b.priority?.fiatBalance || 0) - (a.priority?.fiatBalance || 0);
+      if (fiatDiff !== 0) {
+        return fiatDiff;
+      }
+
+      const priorityIndexDiff =
+        (a.priority?.firstIndex ?? Number.MAX_SAFE_INTEGER) -
+        (b.priority?.firstIndex ?? Number.MAX_SAFE_INTEGER);
+      if (priorityIndexDiff !== 0) {
+        return priorityIndexDiff;
+      }
+
+      return a.index - b.index;
+    })
+    .map(entry => entry.item);
+};
+
 type AssetRowItemSupportInfo = {
   option: SupportedCurrencyOption | undefined;
   isExactMatch: boolean;
@@ -428,30 +502,15 @@ export const buildWalletIdsByAssetGroupKey = (
 export const sortWalletsByAssetFiatPriority = (
   wallets: Wallet[] | undefined,
 ): Wallet[] => {
-  const indexedWallets = (wallets || []).map((wallet, index) => ({
-    wallet,
-    index,
-    groupKey: getPortfolioWalletCurrencyAbbreviationLower(wallet),
-    fiatBalance: Math.max(0, toNumber(wallet.balance?.fiat)),
-  }));
-
-  const fiatByGroupKey = new Map<string, number>();
-  for (const item of indexedWallets) {
-    if (!item.groupKey) {
-      continue;
-    }
-    fiatByGroupKey.set(
-      item.groupKey,
-      (fiatByGroupKey.get(item.groupKey) || 0) + item.fiatBalance,
-    );
-  }
+  const indexedWallets = buildAssetFiatPriorityEntries(wallets);
+  const priorityByKey = buildAssetFiatPriorityByKey(wallets);
 
   return indexedWallets
     .slice()
     .sort((a, b) => {
       const groupFiatDiff =
-        (fiatByGroupKey.get(b.groupKey) || 0) -
-        (fiatByGroupKey.get(a.groupKey) || 0);
+        (priorityByKey[b.groupKey]?.fiatBalance || 0) -
+        (priorityByKey[a.groupKey]?.fiatBalance || 0);
       if (groupFiatDiff !== 0) {
         return groupFiatDiff;
       }

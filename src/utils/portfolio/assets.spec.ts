@@ -1,5 +1,8 @@
 import type {Wallet} from '../../store/wallet/wallet.models';
-import {sortWalletsByAssetFiatPriority} from './assets';
+import {
+  sortAssetRowItemsByAssetFiatPriority,
+  sortWalletsByAssetFiatPriority,
+} from './assets';
 
 describe('sortWalletsByAssetFiatPriority', () => {
   const makeWallet = (args: {
@@ -41,5 +44,60 @@ describe('sortWalletsByAssetFiatPriority', () => {
     expect(sortWalletsByAssetFiatPriority(wallets).map(wallet => wallet.id)).toEqual(
       ['doge-1', 'doge-2', 'btc-1', 'btc-2'],
     );
+  });
+});
+
+describe('sortAssetRowItemsByAssetFiatPriority', () => {
+  const wallets = [
+    {
+      id: 'doge-wallet',
+      currencyAbbreviation: 'doge',
+      chain: 'doge',
+      network: 'livenet',
+      balance: {fiat: 500},
+    } as Wallet,
+    {
+      id: 'btc-wallet',
+      currencyAbbreviation: 'btc',
+      chain: 'btc',
+      network: 'livenet',
+      balance: {fiat: 100},
+    } as Wallet,
+  ];
+
+  it('sorts asset rows by aggregated wallet fiat priority', () => {
+    expect(
+      sortAssetRowItemsByAssetFiatPriority({
+        wallets,
+        items: [
+          {
+            key: 'btc',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+            name: 'BTC',
+            cryptoAmount: '1',
+            fiatAmount: '$100',
+            deltaFiat: '+$1',
+            deltaPercent: '+1%',
+            isPositive: true,
+            hasRate: true,
+            hasPnl: true,
+          },
+          {
+            key: 'doge',
+            currencyAbbreviation: 'doge',
+            chain: 'doge',
+            name: 'DOGE',
+            cryptoAmount: '2',
+            fiatAmount: '$500',
+            deltaFiat: '+$5',
+            deltaPercent: '+2%',
+            isPositive: true,
+            hasRate: true,
+            hasPnl: true,
+          },
+        ],
+      }).map(item => item.key),
+    ).toEqual(['doge', 'btc']);
   });
 });

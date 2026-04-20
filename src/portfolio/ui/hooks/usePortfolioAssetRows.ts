@@ -7,6 +7,7 @@ import {
   getDisplayAssetRowItems,
   getPopulateLoadingByAssetKey,
   getVisibleWalletsFromKeys,
+  sortAssetRowItemsByAssetFiatPriority,
 } from '../../../utils/portfolio/assets';
 import type {Key} from '../../../store/wallet/wallet.models';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
@@ -223,26 +224,40 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
     gainLossMode,
   ]);
   const visibleItemsRaw = useMemo(() => getDisplayAssetRowItems(items), [items]);
+  const visibleItemsStableDuringPopulate = useMemo(() => {
+    if (!portfolio.populateStatus?.inProgress || visibleItemsRaw.length < 2) {
+      return visibleItemsRaw;
+    }
+
+    return sortAssetRowItemsByAssetFiatPriority({
+      items: visibleItemsRaw,
+      wallets,
+    });
+  }, [portfolio.populateStatus?.inProgress, visibleItemsRaw, wallets]);
   const lastNonEmptyVisibleItemsRef = useRef<AssetRowItem[]>([]);
   useEffect(() => {
-    if (!visibleItemsRaw.length) {
+    if (!visibleItemsStableDuringPopulate.length) {
       return;
     }
 
-    lastNonEmptyVisibleItemsRef.current = visibleItemsRaw;
-  }, [visibleItemsRaw]);
+    lastNonEmptyVisibleItemsRef.current = visibleItemsStableDuringPopulate;
+  }, [visibleItemsStableDuringPopulate]);
 
   const visibleItems = useMemo(() => {
-    if (visibleItemsRaw.length) {
-      return visibleItemsRaw;
+    if (visibleItemsStableDuringPopulate.length) {
+      return visibleItemsStableDuringPopulate;
     }
 
     if (portfolio.populateStatus?.inProgress && analysis.committedData) {
       return lastNonEmptyVisibleItemsRef.current;
     }
 
-    return visibleItemsRaw;
-  }, [analysis.committedData, portfolio.populateStatus?.inProgress, visibleItemsRaw]);
+    return visibleItemsStableDuringPopulate;
+  }, [
+    analysis.committedData,
+    portfolio.populateStatus?.inProgress,
+    visibleItemsStableDuringPopulate,
+  ]);
 
   const walletIdsByAssetKey = useMemo(() => {
     if (!portfolio.populateStatus?.inProgress) {
