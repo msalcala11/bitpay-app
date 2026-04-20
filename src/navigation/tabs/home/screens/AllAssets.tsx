@@ -40,6 +40,7 @@ import {
   type HistoricalRateAssetRequest,
 } from '../hooks/portfolioAssetHistoryRequests';
 import useRuntimeFiatRateSeriesCache from '../../../../portfolio/ui/hooks/useRuntimeFiatRateSeriesCache';
+import {getAssetRowPopulateLoading} from '../components/assetRowLoading';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AllAssets'>;
 const LIST_HORIZONTAL_GUTTER = Number.parseInt(ScreenGutter, 10);
@@ -231,9 +232,12 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
   const renderItem = useCallback(
     ({item, index}: ListRenderItemInfo<AssetRowItem>) => {
       const {img, imgSrc} = getAssetIconData(item);
-
-      const isRowPopulateLoading =
-        isPopulateLoadingByKey?.[item.key] ?? populateInProgress;
+      const isRowPopulateLoading = getAssetRowPopulateLoading({
+        populateInProgress,
+        showPnlPlaceholder: item.showPnlPlaceholder,
+        rowLoadingByKey: isPopulateLoadingByKey,
+        rowKey: item.key,
+      });
       const isRowFiatLoading = !!isFiatLoading && isRowPopulateLoading;
 
       return (

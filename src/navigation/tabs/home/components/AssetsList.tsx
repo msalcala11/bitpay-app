@@ -13,6 +13,7 @@ import {
   getHistoricalRateAssetRequestFromItem,
   type HistoricalRateAssetRequest,
 } from '../hooks/portfolioAssetHistoryRequests';
+import {getAssetRowPopulateLoading} from './assetRowLoading';
 
 const List = styled.View`
   margin: 10px ${ScreenGutter} 10px;
@@ -69,9 +70,12 @@ const AssetsList: React.FC<Props> = ({
     <List>
       {items.map((item, index) => {
         const {img, imgSrc} = getAssetIconData(item);
-
-        const isRowPopulateLoading =
-          isPopulateLoadingByKey?.[item.key] ?? !!populateInProgress;
+        const isRowPopulateLoading = getAssetRowPopulateLoading({
+          populateInProgress,
+          showPnlPlaceholder: item.showPnlPlaceholder,
+          rowLoadingByKey: isPopulateLoadingByKey,
+          rowKey: item.key,
+        });
         const isRowFiatLoading = !!isFiatLoading && isRowPopulateLoading;
 
         return (
