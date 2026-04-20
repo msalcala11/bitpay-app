@@ -302,6 +302,7 @@ const AssetBalanceHistoryScreen = ({
       isRefreshing={isRefreshing}
       marketPriceDisplay={marketPriceDisplay}
       onRefresh={onRefresh}
+      reserveChangeRowSpace={shouldRenderBalanceChart}
       shared={shared}
       topValue={topValue}
       topValueIsLarge={topValueIsLarge}
