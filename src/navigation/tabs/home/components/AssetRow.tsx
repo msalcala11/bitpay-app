@@ -200,6 +200,8 @@ const AssetRow: React.FC<Props> = ({
     });
   }, [item, option]);
   const shouldShowDeltaFiat = hasPnl;
+  const shouldShowDeltaFiatSkeleton =
+    shouldShowDeltaFiat || showPnlPlaceholder || showScopedPnlLoading;
   const isCryptoAmountLoading =
     !!isPopulateLoading &&
     !isFiatLoading &&
@@ -233,6 +235,7 @@ const AssetRow: React.FC<Props> = ({
         showScopedPnlLoading,
         shouldShowRightSide,
         shouldShowDeltaFiat,
+        shouldShowDeltaFiatSkeleton,
         fiatAmountDisplay,
         hasHistoricalV4Rates,
         canNavigate,
@@ -270,6 +273,7 @@ const AssetRow: React.FC<Props> = ({
     item.name,
     item.tokenAddress,
     shouldShowDeltaFiat,
+    shouldShowDeltaFiatSkeleton,
     shouldShowRightSide,
     showScopedPnlLoading,
     showPnlPlaceholder,
@@ -370,10 +374,10 @@ const AssetRow: React.FC<Props> = ({
                   width={72}
                   height={12}
                   borderRadius={2}
-                  marginBottom={shouldShowDeltaFiat ? 6 : 0}
+                  marginBottom={shouldShowDeltaFiatSkeleton ? 6 : 0}
                   marginTop={3}
                 />
-                {shouldShowDeltaFiat ? (
+                {shouldShowDeltaFiatSkeleton ? (
                   <SkeletonPlaceholder.Item
                     width={54}
                     height={12}
