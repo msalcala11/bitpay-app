@@ -14,7 +14,10 @@ import {useAppSelector} from '../../../../utils/hooks';
 import {isPopulateLoadingForWallets} from '../../../../utils/portfolio/assets';
 import {shouldUseCompactFiatAmountText} from '../../../../utils/fiatAmountText';
 import ExchangeRateScreenLayout from './ExchangeRateScreenLayout';
-import {buildAssetBalanceHistoryIdleSummary} from './assetBalanceHistorySummary';
+import {
+  buildAssetBalanceHistoryDisplayedSummary,
+  buildAssetBalanceHistoryIdleSummary,
+} from './assetBalanceHistorySummary';
 import useAssetScreenRefresh from './useAssetScreenRefresh';
 import type {ExchangeRateSharedModel} from './useExchangeRateSharedModel';
 
@@ -32,10 +35,7 @@ const AssetBalanceHistoryScreen = ({
   const [selectedTimeframe, setSelectedTimeframe] = useState<FiatRateInterval>(
     DEFAULT_BALANCE_CHART_TIMEFRAME,
   );
-  const [selectedAssetBalance, setSelectedAssetBalance] = useState<
-    number | undefined
-  >(undefined);
-  const [selectedChangeRow, setSelectedChangeRow] = useState<
+  const [chartChangeRow, setChartChangeRow] = useState<
     | {
         percent: number;
         deltaFiatFormatted?: string;
@@ -79,8 +79,7 @@ const AssetBalanceHistoryScreen = ({
   }, [populateStatus, shared.assetWallets]);
 
   useEffect(() => {
-    setSelectedAssetBalance(undefined);
-    setSelectedChangeRow(undefined);
+    setChartChangeRow(undefined);
     setSelectionActive(false);
     setChartDisplayedPoint(undefined);
     setChartDiagnostics(undefined);
@@ -116,31 +115,29 @@ const AssetBalanceHistoryScreen = ({
 
   const {isRefreshing, onRefresh} = useAssetScreenRefresh(shared);
 
+  const displayedSummary = useMemo(() => {
+    return buildAssetBalanceHistoryDisplayedSummary({
+      idleSummary,
+      chartDisplayedPoint,
+      chartChangeRow,
+    });
+  }, [chartChangeRow, chartDisplayedPoint, idleSummary]);
+
   const selectedAssetBalanceToDisplay = useMemo(() => {
     if (!shared.hasWalletsForAsset) {
       return undefined;
     }
 
-    return (
-      (selectionActive ? selectedAssetBalance : undefined) ??
-      idleSummary.assetBalance ??
-      shared.assetTotalFiatBalance
-    );
+    return displayedSummary.assetBalance ?? shared.assetTotalFiatBalance;
   }, [
-    idleSummary.assetBalance,
-    selectionActive,
-    selectedAssetBalance,
+    displayedSummary.assetBalance,
     shared.assetTotalFiatBalance,
     shared.hasWalletsForAsset,
   ]);
 
   const changeRow = useMemo(() => {
-    if (!selectionActive) {
-      return idleSummary.changeRow;
-    }
-
-    return selectedChangeRow ?? idleSummary.changeRow;
-  }, [idleSummary.changeRow, selectedChangeRow, selectionActive]);
+    return displayedSummary.changeRow;
+  }, [displayedSummary.changeRow]);
 
   const formattedAssetBalance = useMemo(() => {
     if (selectedAssetBalanceToDisplay == null) {
@@ -172,13 +169,14 @@ const AssetBalanceHistoryScreen = ({
   const topValueIsLarge = shouldUseCompactFiatAmountText(formattedAssetBalance);
   const topSectionDebugCopyPayload = useMemo(() => {
     const assetMetrics = idleSummary.assetMetrics;
-    const renderedMetrics = selectionActive
+    const renderedMetrics =
+      displayedSummary.source === 'chart' && chartDisplayedPoint
       ? {
           fiatBalance:
-            chartDisplayedPoint?.totalFiatBalance ?? selectedAssetBalanceToDisplay,
+            chartDisplayedPoint.totalFiatBalance ?? selectedAssetBalanceToDisplay,
           pnlChange: chartDisplayedPoint?.totalPnlChange,
           pnlPercent:
-            chartDisplayedPoint?.totalPnlPercent ?? selectedChangeRow?.percent,
+            chartDisplayedPoint?.totalPnlPercent ?? chartChangeRow?.percent,
           hasRate: assetMetrics?.hasRate ?? false,
           hasPnl:
             typeof chartDisplayedPoint?.totalPnlChange === 'number'
@@ -234,11 +232,11 @@ const AssetBalanceHistoryScreen = ({
           currentFiatRate: shared.currentFiatRate ?? null,
         },
         detailState: {
+          displaySource: displayedSummary.source,
           selectedTimeframe,
           idleRangeLabel,
-          selectedAssetBalance: selectedAssetBalance ?? null,
           selectedAssetBalanceToDisplay: selectedAssetBalanceToDisplay ?? null,
-          selectedChangeRow: selectedChangeRow || null,
+          chartChangeRow: chartChangeRow || null,
           idleChangeRow: idleSummary.changeRow || null,
         },
         balanceChart: chartDiagnostics || null,
@@ -256,15 +254,15 @@ const AssetBalanceHistoryScreen = ({
     analysis.requestKey,
     analysis.storedWallets,
     changeRow,
+    chartChangeRow,
     chartDiagnostics,
     chartDisplayedPoint,
+    displayedSummary.source,
     formattedAssetBalance,
     idleRangeLabel,
     idleSummary.assetMetrics,
     idleSummary.changeRow,
-    selectedAssetBalance,
     selectedAssetBalanceToDisplay,
-    selectedChangeRow,
     selectedTimeframe,
     selectionActive,
     shared.assetContext,
@@ -291,8 +289,7 @@ const AssetBalanceHistoryScreen = ({
             showLoaderWhenNoSnapshots={
               isAssetBalanceChartLoading || isRefreshing
             }
-            onSelectedBalanceChange={setSelectedAssetBalance}
-            onChangeRowData={setSelectedChangeRow}
+            onChangeRowData={setChartChangeRow}
             onDisplayedAnalysisPointChange={setChartDisplayedPoint}
             onDiagnosticsChange={setChartDiagnostics}
             onSelectionActiveChange={setSelectionActive}
