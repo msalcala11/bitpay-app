@@ -1,5 +1,6 @@
 import {type NavigationProp, useNavigation} from '@react-navigation/native';
-import React, {useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useState} from 'react';
+import Clipboard from '@react-native-clipboard/clipboard';
 import {RefreshControl, ScrollView, View} from 'react-native';
 import {Path, Svg} from 'react-native-svg';
 import styled, {useTheme} from 'styled-components/native';
@@ -12,6 +13,7 @@ import {
 } from '../../../../components/styled/Containers';
 import {BaseText, H2, H5, Link} from '../../../../components/styled/Text';
 import ChartChangeRow from '../../../../components/charts/ChartChangeRow';
+import {redactDebugIdentifiers} from '../../../../portfolio/ui/debug/buildAssetPnlDebugPayload';
 import LinkingButtons from '../../../tabs/home/components/LinkingButtons';
 import {
   CharcoalBlack,
@@ -37,7 +39,7 @@ const ScreenContainer = styled.SafeAreaView`
   flex: 1;
 `;
 
-const TopSection = styled.View`
+const TopSection = styled(TouchableOpacity)`
   margin-top: 10px;
   align-items: center;
   padding: 0 16px;
@@ -221,6 +223,7 @@ type ExchangeRateScreenLayoutProps = {
   shared: ExchangeRateSharedModel;
   topValue: string;
   topValueIsLarge: boolean;
+  topSectionDebugCopyPayload?: Record<string, unknown>;
 };
 
 const ExchangeRateScreenLayout = ({
@@ -232,6 +235,7 @@ const ExchangeRateScreenLayout = ({
   shared,
   topValue,
   topValueIsLarge,
+  topSectionDebugCopyPayload,
 }: ExchangeRateScreenLayoutProps) => {
   const theme = useTheme();
   const dispatch = useAppDispatch();
@@ -246,6 +250,24 @@ const ExchangeRateScreenLayout = ({
     shared.assetContext.tokenAddress,
   ]);
 
+  const handleTopSectionLongPress = useCallback(() => {
+    if (!topSectionDebugCopyPayload) {
+      return;
+    }
+
+    const debugCopyText = JSON.stringify(
+      redactDebugIdentifiers({
+        ...topSectionDebugCopyPayload,
+        copiedFrom: 'exchangeRate.assetDetails.topSection.longPress',
+        copiedAtUtc: new Date().toISOString(),
+      }),
+      null,
+      2,
+    );
+    console.log('[ExchangeRateScreenLayout][debugCopy]', debugCopyText);
+    Clipboard.setString(debugCopyText);
+  }, [topSectionDebugCopyPayload]);
+
   return (
     <ScreenContainer>
       <ScrollView
@@ -258,7 +280,16 @@ const ExchangeRateScreenLayout = ({
             onRefresh={onRefresh}
           />
         }>
-        <TopSection>
+        <TopSection
+          activeOpacity={1}
+          accessibilityHint={
+            topSectionDebugCopyPayload
+              ? 'Long press to copy asset detail debug diagnostics'
+              : undefined
+          }
+          onLongPress={
+            topSectionDebugCopyPayload ? handleTopSectionLongPress : undefined
+          }>
           <AbbreviationLabel>{shared.currencyAbbreviation}</AbbreviationLabel>
           <PriceText isLargeNumber={topValueIsLarge}>{topValue}</PriceText>
           {changeRow ? (

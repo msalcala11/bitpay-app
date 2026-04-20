@@ -209,6 +209,16 @@ describe('analysisStreaming preload helpers', () => {
     const last = res.points[res.points.length - 1];
     const chart = compactPnlAnalysisResultForChart(res);
 
+    expect(res.analysisWindow).toEqual({
+      startTs: t0,
+      endTs: t1,
+      nowMs: t1,
+    });
+    expect(chart.analysisWindow).toEqual({
+      startTs: t0,
+      endTs: t1,
+      nowMs: t1,
+    });
     expect(last.totalFiatBalance).toBe(150);
     expect(last.totalUnrealizedPnlFiat).toBe(50);
     expect(last.totalPnlChange).toBe(50);

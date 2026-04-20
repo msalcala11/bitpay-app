@@ -40,6 +40,7 @@ import {
   getHistoricalRateAssetRequestFromItem,
   hasHistoricalRateSeriesForAsset,
 } from '../hooks/portfolioAssetHistoryRequests';
+import {redactDebugIdentifiers} from '../../../../portfolio/ui/debug/buildAssetPnlDebugPayload';
 
 const supportedCurrencyOptionLookup = createSupportedCurrencyOptionLookup(
   SupportedCurrencyOptions,
@@ -208,7 +209,7 @@ const AssetRow: React.FC<Props> = ({
       return undefined;
     }
 
-    return {
+    return redactDebugIdentifiers({
       ...item.debugCopyPayload,
       rowItem: {
         key: item.key,
@@ -243,7 +244,7 @@ const AssetRow: React.FC<Props> = ({
         : null,
       copiedFrom: 'home.assetRow.longPress',
       copiedAtUtc: new Date().toISOString(),
-    };
+    });
   }, [
     canNavigate,
     fiatAmountDisplay,

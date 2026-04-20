@@ -1,5 +1,5 @@
 import React from 'react';
-import {render, waitFor} from '@testing-library/react-native';
+import {act, render, waitFor} from '@testing-library/react-native';
 import {usePortfolioAssetRows} from './usePortfolioAssetRows';
 import {usePortfolioAnalysis} from './usePortfolioAnalysis';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
@@ -12,6 +12,9 @@ jest.mock('../../../utils/hooks', () => ({
 jest.mock('../../../utils/portfolio/assets', () => ({
   buildWalletIdsByAssetGroupKey: jest.fn(() => ({})),
   getDisplayAssetRowItems: jest.fn(items => items),
+  getPortfolioWalletCurrencyAbbreviationLower: jest.fn(wallet =>
+    String(wallet?.currencyAbbreviation || '').toLowerCase(),
+  ),
   getPopulateLoadingByAssetKey: jest.fn(() => undefined),
   getVisibleWalletsFromKeys: jest.fn(() => []),
   sortAssetRowItemsByAssetFiatPriority: jest.fn(args => args.items),
@@ -20,6 +23,12 @@ jest.mock('../../../utils/portfolio/assets', () => ({
 jest.mock('../selectors/buildAssetRowsFromAnalysis', () => ({
   __esModule: true,
   default: jest.fn(() => []),
+}));
+
+jest.mock('../common', () => ({
+  getCurrentRatesByAssetIdSignature: jest.fn(() => ''),
+  getStoredWalletRequestSignature: jest.fn(() => ''),
+  runPortfolioAnalysisQuery: jest.fn(),
 }));
 
 jest.mock('./usePortfolioAnalysis', () => ({
@@ -41,6 +50,9 @@ const mockGetVisibleWalletsFromKeys = jest.requireMock(
 const mockSortAssetRowItemsByAssetFiatPriority = jest.requireMock(
   '../../../utils/portfolio/assets',
 ).sortAssetRowItemsByAssetFiatPriority as jest.Mock;
+const mockRunPortfolioAnalysisQuery = jest.requireMock(
+  '../common',
+).runPortfolioAnalysisQuery as jest.Mock;
 
 let latestResult: ReturnType<typeof usePortfolioAssetRows> | undefined;
 
@@ -95,6 +107,8 @@ describe('usePortfolioAssetRows', () => {
     mockGetVisibleWalletsFromKeys.mockReturnValue([]);
     mockSortAssetRowItemsByAssetFiatPriority.mockReset();
     mockSortAssetRowItemsByAssetFiatPriority.mockImplementation(args => args.items);
+    mockRunPortfolioAnalysisQuery.mockReset();
+    mockRunPortfolioAnalysisQuery.mockResolvedValue(undefined);
   });
 
   it('keeps runtime analysis queries enabled even when the screen is unfocused', () => {
@@ -464,5 +478,146 @@ describe('usePortfolioAssetRows', () => {
         showPnlPlaceholder: false,
       }),
     ]);
+  });
+
+  it('replaces portfolio-wide row pnl with asset-group scoped analysis when available', async () => {
+    const globalAnalysis = {
+      driverCoin: 'eth',
+      assetIds: ['btc-asset', 'eth-asset'],
+      wallets: [{walletId: 'btc-wallet'}],
+    };
+    const scopedAnalysis = {
+      driverCoin: 'btc',
+      assetIds: ['btc-asset'],
+      wallets: [{walletId: 'btc-wallet'}],
+    };
+    let resolveScopedAnalysis:
+      | ((value: typeof scopedAnalysis) => void)
+      | undefined;
+
+    mockUsePortfolioAnalysis.mockReturnValue({
+      data: globalAnalysis,
+      committedData: globalAnalysis,
+      currentData: globalAnalysis,
+      error: undefined,
+      loading: false,
+      quoteCurrency: 'USD',
+      requestKey: 'portfolio-request',
+      currentRatesByAssetId: {['btc-asset']: 74333.76},
+      currentRatesSignature: 'btc-rate',
+      eligibleWallets: [
+        {
+          id: 'btc-wallet',
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+        },
+      ],
+      storedWallets: [
+        {
+          walletId: 'btc-wallet',
+          addedAt: 0,
+          summary: {
+            walletId: 'btc-wallet',
+            walletName: 'Bitcoin',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+            tokenAddress: undefined,
+            network: 'livenet',
+            balanceAtomic: '422258',
+            balanceFormatted: '0.00422258',
+          },
+          credentials: {
+            keyId: 'key-id',
+          },
+        },
+      ],
+    });
+    mockRunPortfolioAnalysisQuery.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveScopedAnalysis = resolve as (value: typeof scopedAnalysis) => void;
+        }),
+    );
+    mockBuildAssetRowsFromAnalysis.mockImplementation(({analysis}: any) => {
+      if (analysis !== globalAnalysis) {
+        return [
+          {
+            key: 'btc',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+            name: 'BTC',
+            cryptoAmount: '0.00422258',
+            fiatAmount: '$313.88',
+            deltaFiat: '-$5.22',
+            deltaPercent: '-1.64%',
+            isPositive: false,
+            hasRate: true,
+            hasPnl: true,
+            debugCopyPayload: {
+              aggregatedSummary: {
+                fiatValue: 313.88024830079996,
+                pnlChange: -5.217464442377093,
+                pnlPercent: -1.6350679538014496,
+              },
+            },
+          },
+        ];
+      }
+
+      return [
+        {
+          key: 'btc',
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+          name: 'BTC',
+          cryptoAmount: '0.00422258',
+          fiatAmount: '$313.88',
+          deltaFiat: '-$9.21',
+          deltaPercent: '-1.80%',
+          isPositive: false,
+          hasRate: true,
+          hasPnl: true,
+          debugCopyPayload: {
+            aggregatedSummary: {
+              fiatValue: 313.88024830079996,
+              pnlChange: -9.208673313419354,
+              pnlPercent: -1.8038049153872324,
+            },
+          },
+        },
+      ];
+    });
+
+    render(<HookHarness />);
+
+    await waitFor(() => {
+      expect(mockRunPortfolioAnalysisQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          timeframe: '1D',
+          quoteCurrency: 'USD',
+          wallets: expect.arrayContaining([
+            expect.objectContaining({
+              summary: expect.objectContaining({
+                currencyAbbreviation: 'btc',
+              }),
+            }),
+          ]),
+        }),
+      );
+    });
+
+    await act(async () => {
+      resolveScopedAnalysis?.(scopedAnalysis);
+    });
+
+    await waitFor(() => {
+      expect(latestResult?.visibleItems).toEqual([
+        expect.objectContaining({
+          key: 'btc',
+          deltaFiat: '-$5.22',
+          deltaPercent: '-1.64%',
+        }),
+      ]);
+    });
   });
 });
