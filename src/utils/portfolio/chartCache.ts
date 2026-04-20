@@ -383,7 +383,7 @@ const getPatchableSpotRateChange = (args: {
         currentRate > 0
       )
     ) {
-      return {patchable: false, changed};
+      return {patchable: false, changed: true};
     }
     const cachedRate = args.cachedTimeframe.lastSpotRatesByRateKey?.[rateKey];
     if (
@@ -439,8 +439,8 @@ export const getCachedTimeframeStatus = (args: {
     cachedTimeframe,
     currentSpotRatesByRateKey: args.currentSpotRatesByRateKey,
   });
-  if (spotRateChange.patchable && spotRateChange.changed) {
-    return 'patchable';
+  if (spotRateChange.changed) {
+    return spotRateChange.patchable ? 'patchable' : 'stale_historical';
   }
 
   return 'fresh';
