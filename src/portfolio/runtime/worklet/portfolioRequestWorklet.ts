@@ -44,8 +44,12 @@ import {
   type PortfolioWorkletKvConfig,
 } from './portfolioWorkletKv';
 import {
+  clearWorkletAnalysisSessions,
   computeWorkletAnalysis,
   computeWorkletAnalysisChart,
+  computeWorkletAnalysisSessionScope,
+  disposeWorkletAnalysisSession,
+  prepareWorkletAnalysisSession,
 } from './portfolioWorkletAnalysis';
 
 export type PortfolioWorkletRequestConfig = {
@@ -67,6 +71,9 @@ const WORKLET_METHODS: Record<WorkerMethod, true> = {
   'snapshots.getInvalidHistory': true,
   'snapshots.listSnapshots': true,
   'analysis.compute': true,
+  'analysis.prepareSession': true,
+  'analysis.computeSessionScope': true,
+  'analysis.disposeSession': true,
   'analysis.computeChart': true,
   'populate.startJob': true,
   'populate.getJobStatus': true,
@@ -364,6 +371,39 @@ export async function handlePortfolioRequestOnRuntime(
           } as WorkerResponse;
         }
 
+        case 'analysis.prepareSession': {
+          const result = await prepareWorkletAnalysisSession(
+            kvConfig,
+            request.params as any,
+          );
+          return {
+            id: request.id,
+            ok: true,
+            result,
+          } as WorkerResponse;
+        }
+
+        case 'analysis.computeSessionScope': {
+          const result = await computeWorkletAnalysisSessionScope(
+            kvConfig,
+            request.params as any,
+          );
+          return {
+            id: request.id,
+            ok: true,
+            result,
+          } as WorkerResponse;
+        }
+
+        case 'analysis.disposeSession': {
+          disposeWorkletAnalysisSession(request.params as any);
+          return {
+            id: request.id,
+            ok: true,
+            result: undefined,
+          } as WorkerResponse;
+        }
+
         case 'analysis.computeChart': {
           const result = await computeWorkletAnalysisChart(
             kvConfig,
@@ -408,6 +448,7 @@ export async function handlePortfolioRequestOnRuntime(
               'Cannot clear portfolio storage while a background populate job is running.',
             );
           }
+          clearWorkletAnalysisSessions();
           clearInMemoryPopulateSessions(config);
           resetPortfolioPopulateJobWorkletState(config);
           workletKvClearAll(kvConfig);

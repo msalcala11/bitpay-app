@@ -7,9 +7,12 @@ import type {
 } from '../fiatRatesShared';
 import type {WalletCredentials, WalletSummary} from '../types';
 import type {
+  ComputeAnalysisSessionScopeArgs,
   ComputeAnalysisArgs,
+  DisposeAnalysisSessionArgs,
   FinishWalletSessionResult,
   KvStats,
+  PrepareAnalysisSessionResult,
   PrepareWalletSessionResult,
   ProcessNextPageSessionResult,
   SnapshotIngestConfig,
@@ -108,6 +111,21 @@ export type WorkerMethodMap = {
   'analysis.compute': {
     params: ComputeAnalysisArgs;
     result: PnlAnalysisResult;
+  };
+
+  'analysis.prepareSession': {
+    params: ComputeAnalysisArgs;
+    result: PrepareAnalysisSessionResult;
+  };
+
+  'analysis.computeSessionScope': {
+    params: ComputeAnalysisSessionScopeArgs;
+    result: PnlAnalysisResult;
+  };
+
+  'analysis.disposeSession': {
+    params: DisposeAnalysisSessionArgs;
+    result: void;
   };
 
   'analysis.computeChart': {

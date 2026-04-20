@@ -144,6 +144,22 @@ export class PortfolioRuntimeHost {
           return {id: req.id, ok: true, result: res} as any;
         }
 
+        case 'analysis.prepareSession': {
+          const res = await this.engine.prepareAnalysisSession(req.params as any);
+          return {id: req.id, ok: true, result: res} as any;
+        }
+
+        case 'analysis.computeSessionScope': {
+          const res = await this.engine.computeAnalysisSessionScope(
+            req.params as any,
+          );
+          return {id: req.id, ok: true, result: res} as any;
+        }
+
+        case 'analysis.disposeSession':
+          await this.engine.disposeAnalysisSession(req.params as any);
+          return {id: req.id, ok: true, result: undefined} as any;
+
         case 'analysis.computeChart': {
           const res = await this.engine.computeAnalysisChart(req.params as any);
           return {id: req.id, ok: true, result: res} as any;

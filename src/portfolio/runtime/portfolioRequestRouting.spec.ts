@@ -22,6 +22,17 @@ describe('portfolioRequestRouting', () => {
       shouldDispatchPortfolioRequestOnRuntimeWorklet('analysis.compute'),
     ).toBe(true);
     expect(
+      shouldDispatchPortfolioRequestOnRuntimeWorklet('analysis.prepareSession'),
+    ).toBe(true);
+    expect(
+      shouldDispatchPortfolioRequestOnRuntimeWorklet(
+        'analysis.computeSessionScope',
+      ),
+    ).toBe(true);
+    expect(
+      shouldDispatchPortfolioRequestOnRuntimeWorklet('analysis.disposeSession'),
+    ).toBe(true);
+    expect(
       shouldDispatchPortfolioRequestOnRuntimeWorklet('analysis.computeChart'),
     ).toBe(true);
     expect(

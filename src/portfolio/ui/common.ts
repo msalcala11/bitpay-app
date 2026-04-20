@@ -221,6 +221,43 @@ export async function runPortfolioAnalysisQuery(args: {
   });
 }
 
+export async function preparePortfolioAnalysisSessionQuery(args: {
+  wallets: StoredWallet[];
+  quoteCurrency: string;
+  timeframe: PnlTimeframe;
+  maxPoints?: number;
+  currentRatesByAssetId?: Record<string, number>;
+  asOfMs?: number;
+}): Promise<{sessionId: string}> {
+  return getPortfolioRuntimeClient().prepareAnalysisSession({
+    cfg: createPortfolioQueryBwsConfig(),
+    wallets: args.wallets,
+    quoteCurrency: args.quoteCurrency,
+    timeframe: args.timeframe,
+    maxPoints: args.maxPoints,
+    currentRatesByAssetId: args.currentRatesByAssetId,
+    nowMs: args.asOfMs,
+  });
+}
+
+export async function runPortfolioAnalysisSessionScopeQuery(args: {
+  sessionId: string;
+  walletIds?: string[];
+}): Promise<PnlAnalysisResult> {
+  return getPortfolioRuntimeClient().computeAnalysisSessionScope({
+    sessionId: args.sessionId,
+    walletIds: args.walletIds,
+  });
+}
+
+export async function disposePortfolioAnalysisSessionQuery(args: {
+  sessionId: string;
+}): Promise<void> {
+  return getPortfolioRuntimeClient().disposeAnalysisSession({
+    sessionId: args.sessionId,
+  });
+}
+
 export async function runPortfolioChartQuery(args: {
   wallets: StoredWallet[];
   quoteCurrency: string;
