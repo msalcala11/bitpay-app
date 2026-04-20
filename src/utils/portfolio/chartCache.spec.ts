@@ -8,7 +8,7 @@ const makeCachedTimeframe = () =>
   ({
     timeframe: '1D',
     builtAt: 1,
-    schemaVersion: 6,
+    schemaVersion: 7,
     quoteCurrency: 'USD',
     balanceOffset: 0,
     walletIds: ['w1'],
@@ -49,6 +49,33 @@ describe('chartCache', () => {
         dataRevisionSig: 'rev-1',
         currentSpotRatesByRateKey: {},
         fiatRateSeriesCache: undefined,
+      }),
+    ).toBe('stale_historical');
+  });
+
+  it('marks cached charts stale when historical rate dependencies changed', () => {
+    const cachedTimeframe = makeCachedTimeframe();
+    cachedTimeframe.historicalRateDeps = [
+      {
+        cacheKey: 'USD:btc:ALL',
+        fetchedOn: 10,
+        lastTs: 20,
+      },
+    ];
+
+    expect(
+      getCachedTimeframeStatus({
+        cachedTimeframe,
+        dataRevisionSig: 'rev-1',
+        currentSpotRatesByRateKey: {
+          eth: 100,
+        },
+        fiatRateSeriesCache: {
+          'USD:btc:ALL': {
+            fetchedOn: 11,
+            points: [{ts: 20, rate: 1}],
+          },
+        },
       }),
     ).toBe('stale_historical');
   });

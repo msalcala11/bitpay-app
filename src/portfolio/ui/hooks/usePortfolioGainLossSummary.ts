@@ -2,6 +2,7 @@ import {useEffect, useMemo, useRef, useState} from 'react';
 import {useIsFocused} from '@react-navigation/native';
 import type {FiatRateInterval} from '../../../store/rate/rate.models';
 import type {Wallet} from '../../../store/wallet/wallet.models';
+import {HISTORIC_RATES_CACHE_DURATION} from '../../../constants/wallet';
 import {useAppDispatch} from '../../../utils/hooks';
 import type {PortfolioGainLossSummary} from '../../../utils/portfolio/assets';
 import {
@@ -9,11 +10,17 @@ import {
 } from '../../../utils/portfolio/chartCache';
 import {upsertBalanceChartScopeTimeframes} from '../../../store/portfolio-charts';
 import {
+  areBalanceChartHistoricalRatesReady,
+  buildBalanceChartHistoricalRateDeps,
+  buildBalanceChartHistoricalRateRequests,
   buildCachedTimeframeFromRuntimeChart,
+  getBalanceChartHistoricalRateCacheKeys,
+  getBalanceChartHistoricalRateCacheRevision,
   resolveCachedBalanceChartSeries,
 } from '../../../utils/portfolio/balanceChartData';
 import {runPortfolioChartQuery} from '../common';
 import {usePortfolioBalanceChartScope} from './usePortfolioBalanceChartScope';
+import useRuntimeFiatRateSeriesCache from './useRuntimeFiatRateSeriesCache';
 
 const SUMMARY_TIMEFRAMES: FiatRateInterval[] = ['1D', 'ALL'];
 
@@ -75,6 +82,49 @@ export function usePortfolioGainLossSummary(args: {
     balanceOffset: 0,
   });
 
+  const historicalRateRequests = useMemo(() => {
+    return buildBalanceChartHistoricalRateRequests({
+      wallets: storedWallets,
+      timeframes: SUMMARY_TIMEFRAMES,
+    });
+  }, [storedWallets]);
+
+  const {
+    cache: fiatRateSeriesCache,
+    error: fiatRateSeriesCacheError,
+    loading: fiatRateSeriesCacheLoading,
+  } = useRuntimeFiatRateSeriesCache({
+    quoteCurrency,
+    requests: historicalRateRequests,
+    maxAgeMs: HISTORIC_RATES_CACHE_DURATION * 1000,
+    enabled: !!quoteCurrency && historicalRateRequests.length > 0,
+  });
+
+  const historicalRateDepKeys = useMemo(() => {
+    return getBalanceChartHistoricalRateCacheKeys({
+      wallets: storedWallets,
+      quoteCurrency,
+      timeframes: SUMMARY_TIMEFRAMES,
+    });
+  }, [quoteCurrency, storedWallets]);
+
+  const historicalRateCacheReady = useMemo(() => {
+    return (
+      !historicalRateDepKeys.length ||
+      areBalanceChartHistoricalRatesReady({
+        depKeys: historicalRateDepKeys,
+        fiatRateSeriesCache,
+      })
+    );
+  }, [fiatRateSeriesCache, historicalRateDepKeys]);
+
+  const historicalRateCacheRevision = useMemo(() => {
+    return getBalanceChartHistoricalRateCacheRevision({
+      depKeys: historicalRateDepKeys,
+      fiatRateSeriesCache,
+    });
+  }, [fiatRateSeriesCache, historicalRateDepKeys]);
+
   const summaryByTimeframe = useMemo(() => {
     const next = new Map<FiatRateInterval, PortfolioGainLossSummary['today']>();
 
@@ -93,6 +143,9 @@ export function usePortfolioGainLossSummary(args: {
         currentSpotRatesByRateKey,
         dataRevisionSig: chartDataRevisionSig,
         asOfMs,
+        fiatRateSeriesCache: historicalRateCacheReady
+          ? fiatRateSeriesCache
+          : undefined,
       });
       const lastPoint = series?.analysisPoints?.[
         (series.analysisPoints?.length || 1) - 1
@@ -121,6 +174,8 @@ export function usePortfolioGainLossSummary(args: {
     cachedScope?.timeframes,
     chartDataRevisionSig,
     currentSpotRatesByRateKey,
+    fiatRateSeriesCache,
+    historicalRateCacheReady,
   ]);
 
   const inFlightRequestKeyByTimeframeRef = useRef<
@@ -149,8 +204,20 @@ export function usePortfolioGainLossSummary(args: {
         currentSpotRatesByRateKey,
         dataRevisionSig: chartDataRevisionSig,
         asOfMs,
+        fiatRateSeriesCache: historicalRateCacheReady
+          ? fiatRateSeriesCache
+          : undefined,
       });
       if (status === 'fresh' || status === 'patchable') {
+        continue;
+      }
+
+      if (
+        historicalRateDepKeys.length &&
+        !historicalRateCacheReady &&
+        !fiatRateSeriesCacheError &&
+        fiatRateSeriesCacheLoading
+      ) {
         continue;
       }
 
@@ -160,6 +227,7 @@ export function usePortfolioGainLossSummary(args: {
         chartDataRevisionSig,
         storedWalletRequestSig,
         currentRatesSignature,
+        historicalRateCacheRevision,
       ].join('|');
       if (inFlightRequestKeyByTimeframeRef.current[timeframe] === requestKey) {
         continue;
@@ -194,6 +262,12 @@ export function usePortfolioGainLossSummary(args: {
             quoteCurrency,
             balanceOffset: 0,
             dataRevisionSig: chartDataRevisionSig,
+            historicalRateDeps: buildBalanceChartHistoricalRateDeps({
+              wallets: storedWallets,
+              quoteCurrency,
+              timeframes: [timeframe],
+              fiatRateSeriesCache,
+            }),
           });
           if (!cacheEntry) {
             return;
@@ -247,6 +321,12 @@ export function usePortfolioGainLossSummary(args: {
     currentRatesSignature,
     currentSpotRatesByRateKey,
     dispatch,
+    fiatRateSeriesCache,
+    fiatRateSeriesCacheError,
+    fiatRateSeriesCacheLoading,
+    historicalRateCacheReady,
+    historicalRateCacheRevision,
+    historicalRateDepKeys.length,
     isFocused,
     quoteCurrency,
     scopeId,
