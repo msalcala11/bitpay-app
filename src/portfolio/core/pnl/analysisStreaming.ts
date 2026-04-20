@@ -100,11 +100,18 @@ export type TotalPnlSummary = {
   pnlPercent: number;
 };
 
+export type PnlAnalysisWindow = {
+  startTs: number;
+  endTs: number;
+  nowMs: number;
+};
+
 export type PnlAnalysisResult = {
   timeframe: PnlTimeframe;
   quoteCurrency: string;
   driverAssetId: string;
   driverCoin: string;
+  analysisWindow?: PnlAnalysisWindow;
   assetIds: string[];
   coins: string[];
   wallets: WalletForAnalysisMeta[];
@@ -118,6 +125,7 @@ export type PnlAnalysisChartResult = {
   quoteCurrency: string;
   driverAssetId: string;
   driverCoin: string;
+  analysisWindow?: PnlAnalysisWindow;
   assetIds: string[];
   coins: string[];
   singleAsset: boolean;
@@ -186,6 +194,7 @@ type AnalysisContext = {
   coins: string[];
   driverAssetId: string;
   driverCoin: string;
+  nowMs: number;
   currentRatesByAssetId: Record<string, number>;
   rawPointsByAssetId: Record<string, FiatRatePoint[]>;
   timeline: number[];
@@ -346,6 +355,7 @@ export function compactPnlAnalysisResultForChart(result: PnlAnalysisResult): Pnl
     quoteCurrency: result.quoteCurrency,
     driverAssetId: result.driverAssetId,
     driverCoin: result.driverCoin,
+    analysisWindow: result.analysisWindow,
     assetIds: result.assetIds.slice(),
     coins: result.coins.slice(),
     singleAsset,
@@ -763,6 +773,7 @@ function buildEmptyAnalysisResult(timeframe: PnlTimeframe, quoteCurrency: string
     quoteCurrency: quoteCurrency.toUpperCase(),
     driverAssetId: '',
     driverCoin: '',
+    analysisWindow: undefined,
     assetIds: [],
     coins: [],
     wallets: [],
@@ -841,6 +852,7 @@ function buildAnalysisContext(args: {
     coins,
     driverAssetId,
     driverCoin,
+    nowMs: resolved.nowMs,
     currentRatesByAssetId: args.currentRatesByAssetId || {},
     rawPointsByAssetId,
     timeline,
@@ -986,6 +998,7 @@ function finalizeAnalysisResult(args: {
   quoteCurrency: string;
   driverAssetId: string;
   driverCoin: string;
+  analysisWindow: PnlAnalysisWindow;
   assetIds: string[];
   coins: string[];
   points: PnlAnalysisPoint[];
@@ -1002,6 +1015,7 @@ function finalizeAnalysisResult(args: {
       quoteCurrency: args.quoteCurrency,
       driverAssetId: args.driverAssetId,
       driverCoin: args.driverCoin,
+      analysisWindow: args.analysisWindow,
       assetIds: args.assetIds,
       coins: args.coins,
       wallets: args.walletMetas,
@@ -1107,6 +1121,7 @@ function finalizeAnalysisResult(args: {
     quoteCurrency: args.quoteCurrency,
     driverAssetId: args.driverAssetId,
     driverCoin: args.driverCoin,
+    analysisWindow: args.analysisWindow,
     assetIds: args.assetIds,
     coins: args.coins,
     wallets: args.walletMetas,
@@ -1266,6 +1281,11 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
     quoteCurrency: context.quoteCurrency,
     driverAssetId: context.driverAssetId,
     driverCoin: context.driverCoin,
+    analysisWindow: {
+      startTs: context.startTs,
+      endTs: context.endTs,
+      nowMs: context.nowMs,
+    },
     assetIds: context.assetIds,
     coins: context.coins,
     points,
@@ -1403,6 +1423,11 @@ export async function buildPnlAnalysisSeriesFromStreamed(args: PnlAnalysisStream
     quoteCurrency: context.quoteCurrency,
     driverAssetId: context.driverAssetId,
     driverCoin: context.driverCoin,
+    analysisWindow: {
+      startTs: context.startTs,
+      endTs: context.endTs,
+      nowMs: context.nowMs,
+    },
     assetIds: context.assetIds,
     coins: context.coins,
     points,

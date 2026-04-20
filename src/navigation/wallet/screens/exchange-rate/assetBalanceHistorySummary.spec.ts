@@ -47,14 +47,22 @@ describe('buildAssetBalanceHistoryIdleSummary', () => {
         gainLossMode: '1D',
         assetKey: 'btc',
       }),
-    ).toEqual({
-      assetBalance: 125,
-      changeRow: {
-        percent: 12.5,
-        deltaFiatFormatted: 'USD:25',
-        rangeLabel: '1D',
-      },
-    });
+    ).toEqual(
+      expect.objectContaining({
+        assetBalance: 125,
+        changeRow: {
+          percent: 12.5,
+          deltaFiatFormatted: 'USD:25',
+          rangeLabel: '1D',
+        },
+        assetMetrics: expect.objectContaining({
+          key: 'btc',
+          fiatValue: 125,
+          pnlFiat: 25,
+          pnlPercent: 12.5,
+        }),
+      }),
+    );
   });
 
   it('returns no balance or change row when the asset row cannot be resolved', () => {
@@ -70,6 +78,7 @@ describe('buildAssetBalanceHistoryIdleSummary', () => {
     ).toEqual({
       assetBalance: undefined,
       changeRow: undefined,
+      assetMetrics: undefined,
     });
   });
 });

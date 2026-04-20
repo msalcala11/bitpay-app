@@ -1,11 +1,14 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {useTranslation} from 'react-i18next';
-import BalanceHistoryChart from '../../../../components/charts/BalanceHistoryChart';
+import BalanceHistoryChart, {
+  type BalanceHistoryChartDiagnostics,
+} from '../../../../components/charts/BalanceHistoryChart';
 import {DEFAULT_BALANCE_CHART_TIMEFRAME, getRangeLabelForFiatTimeframe} from '../../../../components/charts/fiatTimeframes';
 import {ScreenGutter} from '../../../../components/styled/Containers';
 import type {FiatRateInterval} from '../../../../store/rate/rate.models';
 import usePortfolioWalletSnapshotPresence from '../../../../portfolio/ui/hooks/usePortfolioWalletSnapshotPresence';
 import {usePortfolioAnalysis} from '../../../../portfolio/ui/hooks/usePortfolioAnalysis';
+import buildAssetPnlDebugPayload from '../../../../portfolio/ui/debug/buildAssetPnlDebugPayload';
 import {formatFiatAmount} from '../../../../utils/helper-methods';
 import {useAppSelector} from '../../../../utils/hooks';
 import {isPopulateLoadingForWallets} from '../../../../utils/portfolio/assets';
@@ -41,6 +44,18 @@ const AssetBalanceHistoryScreen = ({
     | undefined
   >(undefined);
   const [selectionActive, setSelectionActive] = useState(false);
+  const [chartDisplayedPoint, setChartDisplayedPoint] = useState<
+    | {
+        timestamp?: number;
+        totalFiatBalance?: number;
+        totalPnlChange?: number;
+        totalPnlPercent?: number;
+      }
+    | undefined
+  >(undefined);
+  const [chartDiagnostics, setChartDiagnostics] = useState<
+    BalanceHistoryChartDiagnostics | undefined
+  >(undefined);
   const {
     hasAllSnapshots: allAssetWalletsHaveSnapshots,
     checked: assetSnapshotsChecked,
@@ -67,6 +82,8 @@ const AssetBalanceHistoryScreen = ({
     setSelectedAssetBalance(undefined);
     setSelectedChangeRow(undefined);
     setSelectionActive(false);
+    setChartDisplayedPoint(undefined);
+    setChartDiagnostics(undefined);
     setSelectedTimeframe(DEFAULT_BALANCE_CHART_TIMEFRAME);
   }, [
     shared.assetContext.chain,
@@ -153,6 +170,111 @@ const AssetBalanceHistoryScreen = ({
 
   const topValue = shared.hideAllBalances ? '****' : formattedAssetBalance;
   const topValueIsLarge = shouldUseCompactFiatAmountText(formattedAssetBalance);
+  const topSectionDebugCopyPayload = useMemo(() => {
+    const assetMetrics = idleSummary.assetMetrics;
+    const renderedMetrics = selectionActive
+      ? {
+          fiatBalance:
+            chartDisplayedPoint?.totalFiatBalance ?? selectedAssetBalanceToDisplay,
+          pnlChange: chartDisplayedPoint?.totalPnlChange,
+          pnlPercent:
+            chartDisplayedPoint?.totalPnlPercent ?? selectedChangeRow?.percent,
+          hasRate: assetMetrics?.hasRate ?? false,
+          hasPnl:
+            typeof chartDisplayedPoint?.totalPnlChange === 'number'
+              ? true
+              : assetMetrics?.hasPnl ?? false,
+          showPnlPlaceholder: false,
+        }
+      : {
+          fiatBalance: assetMetrics?.fiatValue ?? selectedAssetBalanceToDisplay,
+          pnlChange: assetMetrics?.pnlFiat,
+          pnlPercent: assetMetrics?.pnlPercent,
+          hasRate: assetMetrics?.hasRate ?? false,
+          hasPnl: assetMetrics?.hasPnl ?? false,
+          showPnlPlaceholder: assetMetrics?.showPnlPlaceholder ?? false,
+        };
+
+    return buildAssetPnlDebugPayload({
+      surface: selectionActive ? 'asset_details_selected' : 'asset_details_idle',
+      assetKey: shared.assetContext.currencyAbbreviation.toLowerCase(),
+      gainLossMode: selectedTimeframe,
+      quoteCurrency: analysis.quoteCurrency || shared.resolvedQuoteCurrency,
+      storedWallets: analysis.storedWallets,
+      eligibleWallets: analysis.eligibleWallets,
+      analysis: analysis.data,
+      currentData: analysis.currentData,
+      committedData: analysis.committedData,
+      error: analysis.error,
+      requestKey: analysis.requestKey,
+      currentRatesByAssetId: analysis.currentRatesByAssetId,
+      currentRatesSignature: analysis.currentRatesSignature,
+      baseDebugPayload: assetMetrics?.debugCopyPayload,
+      displayedMetrics: renderedMetrics,
+      formattedDisplay: {
+        topValue,
+        formattedAssetBalance,
+      },
+      changeRow: changeRow
+        ? {
+            percent: changeRow.percent,
+            deltaFiatFormatted: changeRow.deltaFiatFormatted,
+            rangeLabel: changeRow.rangeLabel,
+          }
+        : undefined,
+      selectionActive,
+      selectedPoint: chartDisplayedPoint,
+      extraDebugData: {
+        shared: {
+          assetContext: shared.assetContext,
+          resolvedQuoteCurrency: shared.resolvedQuoteCurrency,
+          hasWalletsForAsset: shared.hasWalletsForAsset,
+          assetWalletIds: shared.assetWallets.map(wallet => String(wallet.id || '')),
+          assetTotalFiatBalance: shared.assetTotalFiatBalance,
+          currentFiatRate: shared.currentFiatRate ?? null,
+        },
+        detailState: {
+          selectedTimeframe,
+          idleRangeLabel,
+          selectedAssetBalance: selectedAssetBalance ?? null,
+          selectedAssetBalanceToDisplay: selectedAssetBalanceToDisplay ?? null,
+          selectedChangeRow: selectedChangeRow || null,
+          idleChangeRow: idleSummary.changeRow || null,
+        },
+        balanceChart: chartDiagnostics || null,
+      },
+    });
+  }, [
+    analysis.committedData,
+    analysis.currentData,
+    analysis.currentRatesByAssetId,
+    analysis.currentRatesSignature,
+    analysis.data,
+    analysis.eligibleWallets,
+    analysis.error,
+    analysis.quoteCurrency,
+    analysis.requestKey,
+    analysis.storedWallets,
+    changeRow,
+    chartDiagnostics,
+    chartDisplayedPoint,
+    formattedAssetBalance,
+    idleRangeLabel,
+    idleSummary.assetMetrics,
+    idleSummary.changeRow,
+    selectedAssetBalance,
+    selectedAssetBalanceToDisplay,
+    selectedChangeRow,
+    selectedTimeframe,
+    selectionActive,
+    shared.assetContext,
+    shared.assetTotalFiatBalance,
+    shared.assetWallets,
+    shared.currentFiatRate,
+    shared.hasWalletsForAsset,
+    shared.resolvedQuoteCurrency,
+    topValue,
+  ]);
 
   return (
     <ExchangeRateScreenLayout
@@ -171,6 +293,8 @@ const AssetBalanceHistoryScreen = ({
             }
             onSelectedBalanceChange={setSelectedAssetBalance}
             onChangeRowData={setSelectedChangeRow}
+            onDisplayedAnalysisPointChange={setChartDisplayedPoint}
+            onDiagnosticsChange={setChartDiagnostics}
             onSelectionActiveChange={setSelectionActive}
             onSelectedTimeframeChange={setSelectedTimeframe}
             showChangeRow={false}
@@ -184,6 +308,7 @@ const AssetBalanceHistoryScreen = ({
       shared={shared}
       topValue={topValue}
       topValueIsLarge={topValueIsLarge}
+      topSectionDebugCopyPayload={topSectionDebugCopyPayload}
     />
   );
 };

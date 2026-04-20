@@ -4,12 +4,16 @@ import {
 } from '../../../../components/charts/balanceHistoryChartSelection';
 import type {PnlAnalysisResult} from '../../../../portfolio/core/pnl/analysisStreaming';
 import type {StoredWallet} from '../../../../portfolio/core/types';
-import {buildAssetRowMetricsFromAnalysis} from '../../../../portfolio/ui/selectors/buildAssetRowsFromAnalysis';
+import {
+  buildAssetRowMetricsFromAnalysis,
+  type AssetRowMetrics,
+} from '../../../../portfolio/ui/selectors/buildAssetRowsFromAnalysis';
 import type {GainLossMode} from '../../../../utils/portfolio/assets';
 
 export type AssetBalanceHistoryIdleSummary = {
   assetBalance?: number;
   changeRow?: ChangeRowData;
+  assetMetrics?: AssetRowMetrics;
 };
 
 export const buildAssetBalanceHistoryIdleSummary = (args: {
@@ -35,6 +39,7 @@ export const buildAssetBalanceHistoryIdleSummary = (args: {
     return {
       assetBalance: undefined,
       changeRow: undefined,
+      assetMetrics: undefined,
     };
   }
 
@@ -45,6 +50,7 @@ export const buildAssetBalanceHistoryIdleSummary = (args: {
       Number.isFinite(row.fiatValue)
         ? row.fiatValue
         : undefined,
+    assetMetrics: row,
     changeRow: row.showPnlPlaceholder
       ? undefined
       : buildBalanceHistoryChartChangeRowData({

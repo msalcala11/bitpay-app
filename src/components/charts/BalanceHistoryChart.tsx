@@ -93,9 +93,49 @@ export type BalanceHistoryChartProps = {
     deltaFiatFormatted?: string;
     rangeLabel?: string;
   }) => void;
+  onDisplayedAnalysisPointChange?: (point?: {
+    timestamp?: number;
+    totalFiatBalance?: number;
+    totalPnlChange?: number;
+    totalPnlPercent?: number;
+  }) => void;
+  onDiagnosticsChange?: (diagnostics: BalanceHistoryChartDiagnostics) => void;
   axisLabelOpacity?: number | NumberSharedValue;
   onSelectedTimeframeChange?: (timeframe: FiatRateInterval) => void;
   onSelectionActiveChange?: (active: boolean) => void;
+};
+
+export type BalanceHistoryChartDiagnostics = {
+  timeframe: FiatRateInterval;
+  displayedTimeframe: FiatRateInterval;
+  queryRevisionKey: string;
+  quoteCurrency: string;
+  storedWalletRequestSig: string;
+  currentRatesSignature: string;
+  currentSpotRatesSignature: string;
+  cachedSelectedTimeframeStatus?: string;
+  loading: boolean;
+  hasRenderableSeries: boolean;
+  selectionActive: boolean;
+  renderedSeriesPointsCount: number;
+  renderedSeriesFirstPoint?: {
+    timestamp?: number;
+    totalFiatBalance?: number;
+    totalPnlChange?: number;
+    totalPnlPercent?: number;
+  };
+  renderedSeriesLastPoint?: {
+    timestamp?: number;
+    totalFiatBalance?: number;
+    totalPnlChange?: number;
+    totalPnlPercent?: number;
+  };
+  displayedAnalysisPoint?: {
+    timestamp?: number;
+    totalFiatBalance?: number;
+    totalPnlChange?: number;
+    totalPnlPercent?: number;
+  };
 };
 
 type DisplayState = {
@@ -285,6 +325,8 @@ const BalanceHistoryChart = ({
   timeframeSelectorWidth,
   disablePanGesture = false,
   onChangeRowData,
+  onDisplayedAnalysisPointChange,
+  onDiagnosticsChange,
   axisLabelOpacity = 1,
   onSelectedTimeframeChange,
   onSelectionActiveChange,
@@ -678,6 +720,19 @@ const BalanceHistoryChart = ({
     });
   }, [displayedChangeRowData, onChangeRowData]);
 
+  useEffect(() => {
+    onDisplayedAnalysisPointChange?.(
+      displayedAnalysisPoint
+        ? {
+            timestamp: displayedAnalysisPoint.timestamp,
+            totalFiatBalance: displayedAnalysisPoint.totalFiatBalance,
+            totalPnlChange: displayedAnalysisPoint.totalPnlChange,
+            totalPnlPercent: displayedAnalysisPoint.totalPnlPercent,
+          }
+        : undefined,
+    );
+  }, [displayedAnalysisPoint, onDisplayedAnalysisPointChange]);
+
   const {MaxAxisLabel, MinAxisLabel} = useStableBalanceHistoryChartAxisLabels({
     activeSeries: renderedSeries,
     axisLabelOpacity,
@@ -718,6 +773,68 @@ const BalanceHistoryChart = ({
   const shouldShowLoader =
     !hasRenderableSeries &&
     (loading || (showLoaderWhenNoSnapshots && hasAnyWallets));
+
+  useEffect(() => {
+    const firstAnalysisPoint = renderedSeries?.analysisPoints?.[0];
+    const lastAnalysisPoint =
+      renderedSeries?.analysisPoints?.[
+        (renderedSeries.analysisPoints?.length || 1) - 1
+      ];
+
+    onDiagnosticsChange?.({
+      timeframe: selectedTimeframe,
+      displayedTimeframe,
+      queryRevisionKey,
+      quoteCurrency: committedQueryQuoteCurrency,
+      storedWalletRequestSig,
+      currentRatesSignature,
+      currentSpotRatesSignature,
+      cachedSelectedTimeframeStatus,
+      loading,
+      hasRenderableSeries,
+      selectionActive: !!selectedPoint,
+      renderedSeriesPointsCount: renderedSeries?.analysisPoints?.length || 0,
+      renderedSeriesFirstPoint: firstAnalysisPoint
+        ? {
+            timestamp: firstAnalysisPoint.timestamp,
+            totalFiatBalance: firstAnalysisPoint.totalFiatBalance,
+            totalPnlChange: firstAnalysisPoint.totalPnlChange,
+            totalPnlPercent: firstAnalysisPoint.totalPnlPercent,
+          }
+        : undefined,
+      renderedSeriesLastPoint: lastAnalysisPoint
+        ? {
+            timestamp: lastAnalysisPoint.timestamp,
+            totalFiatBalance: lastAnalysisPoint.totalFiatBalance,
+            totalPnlChange: lastAnalysisPoint.totalPnlChange,
+            totalPnlPercent: lastAnalysisPoint.totalPnlPercent,
+          }
+        : undefined,
+      displayedAnalysisPoint: displayedAnalysisPoint
+        ? {
+            timestamp: displayedAnalysisPoint.timestamp,
+            totalFiatBalance: displayedAnalysisPoint.totalFiatBalance,
+            totalPnlChange: displayedAnalysisPoint.totalPnlChange,
+            totalPnlPercent: displayedAnalysisPoint.totalPnlPercent,
+          }
+        : undefined,
+    });
+  }, [
+    cachedSelectedTimeframeStatus,
+    committedQueryQuoteCurrency,
+    currentRatesSignature,
+    currentSpotRatesSignature,
+    displayedAnalysisPoint,
+    displayedTimeframe,
+    hasRenderableSeries,
+    loading,
+    onDiagnosticsChange,
+    queryRevisionKey,
+    renderedSeries,
+    selectedPoint,
+    selectedTimeframe,
+    storedWalletRequestSig,
+  ]);
 
   const onGestureStarted = useCallback(() => {
     // No-op; selection-active state is driven by the presence of an actual

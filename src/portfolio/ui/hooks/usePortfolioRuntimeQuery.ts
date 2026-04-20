@@ -20,6 +20,8 @@ export type PortfolioRuntimeQueryState<T> = {
   storedWallets: StoredWallet[];
   eligibleWallets: Wallet[];
   requestKey: string;
+  currentRatesByAssetId: Record<string, number>;
+  currentRatesSignature: string;
 };
 
 export function usePortfolioRuntimeQuery<T>(args: {
@@ -181,6 +183,8 @@ export function usePortfolioRuntimeQuery<T>(args: {
     storedWallets,
     eligibleWallets,
     requestKey,
+    currentRatesByAssetId,
+    currentRatesSignature,
   };
 }
 
