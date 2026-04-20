@@ -34,6 +34,17 @@ type PnlAnalysisExactExtrema = {
   maxExcludingEnd?: PnlAnalysisExtremaPoint;
 };
 
+type LiveTailOverlay = {
+  builtAt: number;
+  timestamp: number;
+  totalFiatBalance: number;
+  totalPnlChange: number;
+  totalUnrealizedPnlFiat: number;
+  totalPnlPercent: number;
+  lastSpotRatesByRateKey: Record<string, number>;
+  exactExtrema?: PnlAnalysisExactExtrema;
+};
+
 export type CachedTimeframeStatus =
   | 'fresh'
   | 'patchable'
@@ -186,6 +197,121 @@ const getExactExtremaFromCachedTimeframe = (
     },
     minExcludingEnd,
     maxExcludingEnd,
+  };
+};
+
+const buildLiveTailOverlayFromSpotRates = (args: {
+  cachedTimeframe: CachedBalanceChartTimeframe;
+  currentSpotRatesByRateKey: Record<string, number>;
+  patchedAt?: number;
+}): LiveTailOverlay | undefined => {
+  const spotRateChange = getPatchableSpotRateChange({
+    cachedTimeframe: args.cachedTimeframe,
+    currentSpotRatesByRateKey: args.currentSpotRatesByRateKey,
+  });
+
+  if (!spotRateChange.patchable || !spotRateChange.changed) {
+    return undefined;
+  }
+
+  const lastIndex = args.cachedTimeframe.totalFiatBalance.length - 1;
+  if (lastIndex < 0) {
+    return undefined;
+  }
+
+  let latestTotalFiatBalance = 0;
+  for (const [rateKey, entry] of Object.entries(
+    args.cachedTimeframe.latestHoldingsByRateKey || {},
+  )) {
+    const units = toFiniteNumber(entry?.units, 0);
+    const currentRate = args.currentSpotRatesByRateKey?.[rateKey];
+    if (!(Number.isFinite(currentRate) && currentRate > 0)) {
+      return undefined;
+    }
+    latestTotalFiatBalance += units * currentRate;
+  }
+
+  const latestRemainingCostBasisFiatTotal = toFiniteNumber(
+    args.cachedTimeframe.latestRemainingCostBasisFiatTotal,
+    0,
+  );
+  const latestTotalUnrealizedPnlFiat =
+    latestTotalFiatBalance - latestRemainingCostBasisFiatTotal;
+  const latestTotalPnlPercent =
+    latestRemainingCostBasisFiatTotal > 0
+      ? (latestTotalUnrealizedPnlFiat / latestRemainingCostBasisFiatTotal) * 100
+      : 0;
+  const builtAt =
+    typeof args.patchedAt === 'number' && Number.isFinite(args.patchedAt)
+      ? args.patchedAt
+      : Date.now();
+  const originalLastTimestamp = toOptionalFiniteNumber(
+    args.cachedTimeframe.ts[lastIndex],
+  );
+  const latestTimestamp = builtAt;
+  const latestPoint = {
+    timestamp: latestTimestamp,
+    totalFiatBalance: latestTotalFiatBalance,
+  };
+
+  const baseExactExtrema = getExactExtremaFromCachedTimeframe(args.cachedTimeframe);
+  const exactExtrema = (() => {
+    if (!baseExactExtrema) {
+      return undefined;
+    }
+
+    const historicalMin =
+      originalLastTimestamp !== undefined &&
+      baseExactExtrema.min.timestamp === originalLastTimestamp
+        ? baseExactExtrema.minExcludingEnd
+        : baseExactExtrema.min;
+    const historicalMax =
+      originalLastTimestamp !== undefined &&
+      baseExactExtrema.max.timestamp === originalLastTimestamp
+        ? baseExactExtrema.maxExcludingEnd
+        : baseExactExtrema.max;
+    const min =
+      !historicalMin ||
+      latestPoint.totalFiatBalance < historicalMin.totalFiatBalance
+        ? latestPoint
+        : historicalMin;
+    const max =
+      !historicalMax ||
+      latestPoint.totalFiatBalance > historicalMax.totalFiatBalance
+        ? latestPoint
+        : historicalMax;
+
+    return {
+      min,
+      max,
+      minExcludingEnd: baseExactExtrema.minExcludingEnd,
+      maxExcludingEnd: baseExactExtrema.maxExcludingEnd,
+    };
+  })();
+
+  const nextLastSpotRatesByRateKey = {
+    ...args.cachedTimeframe.lastSpotRatesByRateKey,
+  };
+  for (const rateKey of Object.keys(
+    args.cachedTimeframe.latestHoldingsByRateKey || {},
+  )) {
+    const currentRate = args.currentSpotRatesByRateKey[rateKey];
+    if (Number.isFinite(currentRate) && currentRate > 0) {
+      nextLastSpotRatesByRateKey[rateKey] = currentRate;
+    }
+  }
+
+  return {
+    builtAt,
+    timestamp: latestTimestamp,
+    totalFiatBalance: latestTotalFiatBalance,
+    totalPnlChange:
+      latestTotalUnrealizedPnlFiat -
+      toFiniteNumber(args.cachedTimeframe.totalUnrealizedPnlFiat[0], 0),
+    totalUnrealizedPnlFiat: latestTotalUnrealizedPnlFiat,
+    totalPnlPercent: latestTotalPnlPercent,
+    lastSpotRatesByRateKey: nextLastSpotRatesByRateKey,
+    exactExtrema,
   };
 };
 
@@ -476,6 +602,10 @@ export const buildBalanceChartTimeframeRevision = (args: {
 
 export const deserializeCachedTimeframeToComputedSeries = (
   cachedTimeframe: CachedBalanceChartTimeframe,
+  options?: {
+    currentSpotRatesByRateKey?: Record<string, number>;
+    patchedAt?: number;
+  },
 ): HydratedBalanceChartSeries => {
   const length = Math.min(
     cachedTimeframe.ts.length,
@@ -484,27 +614,38 @@ export const deserializeCachedTimeframeToComputedSeries = (
     cachedTimeframe.totalUnrealizedPnlFiat.length,
     cachedTimeframe.totalPnlPercent.length,
   );
+  const liveTailOverlay =
+    options?.currentSpotRatesByRateKey &&
+    Object.keys(options.currentSpotRatesByRateKey).length
+      ? buildLiveTailOverlayFromSpotRates({
+          cachedTimeframe,
+          currentSpotRatesByRateKey: options.currentSpotRatesByRateKey,
+          patchedAt: options.patchedAt,
+        })
+      : undefined;
 
   const analysisPoints: PnlAnalysisPoint[] = [];
   const rawGraphPoints: GraphPoint[] = [];
 
   for (let i = 0; i < length; i++) {
-    const timestamp = toFiniteNumber(cachedTimeframe.ts[i], Date.now() + i);
-    const totalFiatBalance = toFiniteNumber(
-      cachedTimeframe.totalFiatBalance[i],
-      0,
-    );
-    const totalPnlChange = toFiniteNumber(cachedTimeframe.totalPnlChange[i], 0);
-    const totalUnrealizedPnlFiat = toFiniteNumber(
-      cachedTimeframe.totalUnrealizedPnlFiat[i],
-      0,
-    );
+    const isPatchedLatestPoint = !!liveTailOverlay && i === length - 1;
+    const timestamp = isPatchedLatestPoint
+      ? liveTailOverlay.timestamp
+      : toFiniteNumber(cachedTimeframe.ts[i], Date.now() + i);
+    const totalFiatBalance = isPatchedLatestPoint
+      ? liveTailOverlay.totalFiatBalance
+      : toFiniteNumber(cachedTimeframe.totalFiatBalance[i], 0);
+    const totalPnlChange = isPatchedLatestPoint
+      ? liveTailOverlay.totalPnlChange
+      : toFiniteNumber(cachedTimeframe.totalPnlChange[i], 0);
+    const totalUnrealizedPnlFiat = isPatchedLatestPoint
+      ? liveTailOverlay.totalUnrealizedPnlFiat
+      : toFiniteNumber(cachedTimeframe.totalUnrealizedPnlFiat[i], 0);
     const totalRemainingCostBasisFiat =
       totalFiatBalance - totalUnrealizedPnlFiat;
-    const totalPnlPercent = toFiniteNumber(
-      cachedTimeframe.totalPnlPercent[i],
-      0,
-    );
+    const totalPnlPercent = isPatchedLatestPoint
+      ? liveTailOverlay.totalPnlPercent
+      : toFiniteNumber(cachedTimeframe.totalPnlPercent[i], 0);
 
     analysisPoints.push({
       timestamp,
@@ -533,7 +674,9 @@ export const deserializeCachedTimeframeToComputedSeries = (
     resolveBalanceChartSeriesExtrema({
       graphPoints,
       balanceOffset: cachedTimeframe.balanceOffset,
-      exactExtrema: getExactExtremaFromCachedTimeframe(cachedTimeframe),
+      exactExtrema:
+        liveTailOverlay?.exactExtrema ??
+        getExactExtremaFromCachedTimeframe(cachedTimeframe),
     });
 
   return {
@@ -700,12 +843,8 @@ export const patchCachedLatestPointWithSpotRates = (args: {
   currentSpotRatesByRateKey: Record<string, number>;
   patchedAt?: number;
 }): CachedBalanceChartTimeframe => {
-  const spotRateChange = getPatchableSpotRateChange({
-    cachedTimeframe: args.cachedTimeframe,
-    currentSpotRatesByRateKey: args.currentSpotRatesByRateKey,
-  });
-
-  if (!spotRateChange.patchable || !spotRateChange.changed) {
+  const liveTailOverlay = buildLiveTailOverlayFromSpotRates(args);
+  if (!liveTailOverlay) {
     return args.cachedTimeframe;
   }
 
@@ -714,120 +853,44 @@ export const patchCachedLatestPointWithSpotRates = (args: {
     return args.cachedTimeframe;
   }
 
-  let latestTotalFiatBalance = 0;
-  for (const [rateKey, entry] of Object.entries(
-    args.cachedTimeframe.latestHoldingsByRateKey || {},
-  )) {
-    const units = toFiniteNumber(entry?.units, 0);
-    const currentRate = args.currentSpotRatesByRateKey?.[rateKey];
-    if (!(Number.isFinite(currentRate) && currentRate > 0)) {
-      return args.cachedTimeframe;
-    }
-    latestTotalFiatBalance += units * currentRate;
-  }
-
-  const latestRemainingCostBasisFiatTotal = toFiniteNumber(
-    args.cachedTimeframe.latestRemainingCostBasisFiatTotal,
-    0,
-  );
-  const latestTotalUnrealizedPnlFiat =
-    latestTotalFiatBalance - latestRemainingCostBasisFiatTotal;
-  const latestTotalPnlPercent =
-    latestRemainingCostBasisFiatTotal > 0
-      ? (latestTotalUnrealizedPnlFiat / latestRemainingCostBasisFiatTotal) * 100
-      : 0;
-
+  const nextTs = args.cachedTimeframe.ts.slice();
   const nextTotalFiatBalance = args.cachedTimeframe.totalFiatBalance.slice();
   const nextTotalPnlChange = args.cachedTimeframe.totalPnlChange.slice();
   const nextTotalUnrealizedPnlFiat =
     args.cachedTimeframe.totalUnrealizedPnlFiat.slice();
   const nextTotalPnlPercent = args.cachedTimeframe.totalPnlPercent.slice();
 
-  nextTotalFiatBalance[lastIndex] = latestTotalFiatBalance;
-  nextTotalUnrealizedPnlFiat[lastIndex] = latestTotalUnrealizedPnlFiat;
-  nextTotalPnlChange[lastIndex] =
-    latestTotalUnrealizedPnlFiat -
-    toFiniteNumber(nextTotalUnrealizedPnlFiat[0], 0);
-  nextTotalPnlPercent[lastIndex] = latestTotalPnlPercent;
-
-  const exactExtrema = getExactExtremaFromCachedTimeframe(args.cachedTimeframe);
-  const latestTimestamp = toOptionalFiniteNumber(
-    args.cachedTimeframe.ts[lastIndex],
-  );
-  const latestPoint =
-    latestTimestamp === undefined
-      ? undefined
-      : {
-          timestamp: latestTimestamp,
-          totalFiatBalance: latestTotalFiatBalance,
-        };
-
-  const historicalMin =
-    exactExtrema && latestTimestamp !== undefined
-      ? exactExtrema.min.timestamp === latestTimestamp
-        ? exactExtrema.minExcludingEnd
-        : exactExtrema.min
-      : undefined;
-  const historicalMax =
-    exactExtrema && latestTimestamp !== undefined
-      ? exactExtrema.max.timestamp === latestTimestamp
-        ? exactExtrema.maxExcludingEnd
-        : exactExtrema.max
-      : undefined;
-
-  const nextMinPoint = exactExtrema
-    ? latestPoint &&
-      (!historicalMin ||
-        latestPoint.totalFiatBalance < historicalMin.totalFiatBalance)
-      ? latestPoint
-      : historicalMin
-    : undefined;
-  const nextMaxPoint = exactExtrema
-    ? latestPoint &&
-      (!historicalMax ||
-        latestPoint.totalFiatBalance > historicalMax.totalFiatBalance)
-      ? latestPoint
-      : historicalMax
-    : undefined;
-
-  const nextLastSpotRatesByRateKey = {
-    ...args.cachedTimeframe.lastSpotRatesByRateKey,
-  };
-  for (const rateKey of Object.keys(
-    args.cachedTimeframe.latestHoldingsByRateKey || {},
-  )) {
-    const currentRate = args.currentSpotRatesByRateKey[rateKey];
-    if (Number.isFinite(currentRate) && currentRate > 0) {
-      nextLastSpotRatesByRateKey[rateKey] = currentRate;
-    }
-  }
+  nextTs[lastIndex] = liveTailOverlay.timestamp;
+  nextTotalFiatBalance[lastIndex] = liveTailOverlay.totalFiatBalance;
+  nextTotalUnrealizedPnlFiat[lastIndex] =
+    liveTailOverlay.totalUnrealizedPnlFiat;
+  nextTotalPnlChange[lastIndex] = liveTailOverlay.totalPnlChange;
+  nextTotalPnlPercent[lastIndex] = liveTailOverlay.totalPnlPercent;
 
   return {
     ...args.cachedTimeframe,
-    builtAt:
-      typeof args.patchedAt === 'number' && Number.isFinite(args.patchedAt)
-        ? args.patchedAt
-        : Date.now(),
-    lastSpotRatesByRateKey: nextLastSpotRatesByRateKey,
+    builtAt: liveTailOverlay.builtAt,
+    lastSpotRatesByRateKey: liveTailOverlay.lastSpotRatesByRateKey,
+    ts: nextTs,
     totalFiatBalance: nextTotalFiatBalance,
     totalPnlChange: nextTotalPnlChange,
     totalUnrealizedPnlFiat: nextTotalUnrealizedPnlFiat,
     totalPnlPercent: nextTotalPnlPercent,
     minTotalFiatBalance:
-      nextMinPoint === undefined
+      liveTailOverlay.exactExtrema?.min === undefined
         ? args.cachedTimeframe.minTotalFiatBalance
-        : toOptionalFiniteNumber(nextMinPoint.totalFiatBalance),
+        : toOptionalFiniteNumber(liveTailOverlay.exactExtrema.min.totalFiatBalance),
     minTotalFiatBalanceTs:
-      nextMinPoint === undefined
+      liveTailOverlay.exactExtrema?.min === undefined
         ? args.cachedTimeframe.minTotalFiatBalanceTs
-        : toOptionalFiniteNumber(nextMinPoint.timestamp),
+        : toOptionalFiniteNumber(liveTailOverlay.exactExtrema.min.timestamp),
     maxTotalFiatBalance:
-      nextMaxPoint === undefined
+      liveTailOverlay.exactExtrema?.max === undefined
         ? args.cachedTimeframe.maxTotalFiatBalance
-        : toOptionalFiniteNumber(nextMaxPoint.totalFiatBalance),
+        : toOptionalFiniteNumber(liveTailOverlay.exactExtrema.max.totalFiatBalance),
     maxTotalFiatBalanceTs:
-      nextMaxPoint === undefined
+      liveTailOverlay.exactExtrema?.max === undefined
         ? args.cachedTimeframe.maxTotalFiatBalanceTs
-        : toOptionalFiniteNumber(nextMaxPoint.timestamp),
+        : toOptionalFiniteNumber(liveTailOverlay.exactExtrema.max.timestamp),
   };
 };

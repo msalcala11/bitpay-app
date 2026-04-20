@@ -29,7 +29,6 @@ import {
   deserializeCachedTimeframeToComputedSeries,
   getCachedBalanceChartTimeframe,
   getCachedTimeframeStatus,
-  patchCachedLatestPointWithSpotRates,
   getSortedUniqueWalletIds,
   serializeComputedSeriesToCachedTimeframe,
   type HydratedBalanceChartSeries,
@@ -479,27 +478,9 @@ const BalanceHistoryChart = ({
     chartDataRevisionSig,
     currentSpotRatesByRateKey,
   ]);
-  const effectiveCachedSelectedTimeframe = useMemo(() => {
-    if (!cachedSelectedTimeframe) {
-      return undefined;
-    }
-
-    return cachedSelectedTimeframeStatus === 'patchable'
-      ? patchCachedLatestPointWithSpotRates({
-          cachedTimeframe: cachedSelectedTimeframe,
-          currentSpotRatesByRateKey,
-          patchedAt: asOfMs,
-        })
-      : cachedSelectedTimeframe;
-  }, [
-    asOfMs,
-    cachedSelectedTimeframe,
-    cachedSelectedTimeframeStatus,
-    currentSpotRatesByRateKey,
-  ]);
 
   const cachedSelectedSeries = useMemo(() => {
-    if (!effectiveCachedSelectedTimeframe) {
+    if (!cachedSelectedTimeframe) {
       return undefined;
     }
     if (
@@ -509,9 +490,20 @@ const BalanceHistoryChart = ({
       return undefined;
     }
     return deserializeCachedTimeframeToComputedSeries(
-      effectiveCachedSelectedTimeframe,
+      cachedSelectedTimeframe,
+      cachedSelectedTimeframeStatus === 'patchable'
+        ? {
+            currentSpotRatesByRateKey,
+            patchedAt: asOfMs,
+          }
+        : undefined,
     );
-  }, [cachedSelectedTimeframeStatus, effectiveCachedSelectedTimeframe]);
+  }, [
+    asOfMs,
+    cachedSelectedTimeframe,
+    cachedSelectedTimeframeStatus,
+    currentSpotRatesByRateKey,
+  ]);
 
   useEffect(() => {
     if (!cachedSelectedSeries) {
