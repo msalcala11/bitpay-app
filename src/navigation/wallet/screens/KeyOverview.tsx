@@ -517,8 +517,7 @@ const KeyOverview = () => {
     });
   }, [context, firstWallet, logger, navigation]);
 
-  const {totalBalance = 0, totalBalanceLastDay} =
-    useAppSelector(({WALLET}) => WALLET.keys[id]) || {};
+  const {totalBalance = 0} = useAppSelector(({WALLET}) => WALLET.keys[id]) || {};
 
   const visibleKeyWallets = useMemo(() => {
     return getVisibleWalletsForKey(key);
@@ -552,31 +551,13 @@ const KeyOverview = () => {
 
   const showAllocationGainLossFooter = !portfolio.populateDisabled;
 
-  const {summary: runtimeGainLossSummary} = usePortfolioGainLossSummary({
+  const {
+    summary: gainLossSummary,
+    loading: isGainLossSummaryLoading,
+  } = usePortfolioGainLossSummary({
     wallets: visibleKeyWallets,
     liveFiatTotal: totalBalance,
   });
-
-  const gainLossSummary = useMemo(() => {
-    if (runtimeGainLossSummary.today.available) {
-      return runtimeGainLossSummary;
-    }
-
-    const baseline =
-      typeof totalBalanceLastDay === 'number' ? totalBalanceLastDay : 0;
-    const deltaFiat = totalBalance - baseline;
-    const percentRatio = baseline > 0 ? deltaFiat / baseline : 0;
-
-    return {
-      ...runtimeGainLossSummary,
-      today: {
-        ...runtimeGainLossSummary.today,
-        deltaFiat,
-        percentRatio,
-        available: true,
-      },
-    };
-  }, [runtimeGainLossSummary, totalBalance, totalBalanceLastDay]);
 
   const allTimeGainLossText = useMemo(() => {
     if (!gainLossSummary.total.available) {
@@ -616,6 +597,10 @@ const KeyOverview = () => {
   }, [gainLossSummary.total.available, gainLossSummary.total.deltaFiat]);
 
   const todayGainLossText = useMemo(() => {
+    if (!gainLossSummary.today.available) {
+      return null;
+    }
+
     if (hideAllBalances) {
       const pctSign = gainLossSummary.today.percentRatio >= 0 ? '+' : '-';
       const pct = Math.abs(gainLossSummary.today.percentRatio * 100).toFixed(2);
@@ -636,14 +621,32 @@ const KeyOverview = () => {
     return `${sign}${amt}  (${pctSign}${pct}%)`;
   }, [
     gainLossSummary.quoteCurrency,
+    gainLossSummary.today.available,
     gainLossSummary.today.deltaFiat,
     gainLossSummary.today.percentRatio,
     hideAllBalances,
   ]);
 
   const todayIsPositive = useMemo(() => {
-    return gainLossSummary.today.deltaFiat >= 0;
-  }, [gainLossSummary.today.deltaFiat]);
+    return gainLossSummary.today.available
+      ? gainLossSummary.today.deltaFiat >= 0
+      : true;
+  }, [gainLossSummary.today.available, gainLossSummary.today.deltaFiat]);
+  const showAllTimeGainLossSkeleton = useMemo(() => {
+    return (
+      isKeyPopulateLoading ||
+      (isGainLossSummaryLoading && allTimeGainLossText === null)
+    );
+  }, [allTimeGainLossText, isGainLossSummaryLoading, isKeyPopulateLoading]);
+  const showTodayGainLossSkeleton = useMemo(() => {
+    return (
+      isKeyPopulateLoading ||
+      (isGainLossSummaryLoading && todayGainLossText === null)
+    );
+  }, [isGainLossSummaryLoading, isKeyPopulateLoading, todayGainLossText]);
+  const showAllTimeGainLossColumn = useMemo(() => {
+    return allTimeGainLossText !== null || showAllTimeGainLossSkeleton;
+  }, [allTimeGainLossText, showAllTimeGainLossSkeleton]);
 
   const _tokenOptionsByAddress = useAppSelector(({WALLET}: RootState) => {
     return {
@@ -1137,39 +1140,39 @@ const KeyOverview = () => {
                       <AllocationDivider />
 
                       <AllocationRow>
-                        {allTimeGainLossText !== null ? (
+                        {showAllTimeGainLossColumn ? (
                           <AllocationColumn style={{paddingRight: 12}}>
                             <AllocationLabel>
                               All-Time Gain / Loss ($)
                             </AllocationLabel>
-                            {isKeyPopulateLoading ? (
+                            {showAllTimeGainLossSkeleton ? (
                               <AllocationMetricSkeleton />
-                            ) : (
+                            ) : allTimeGainLossText !== null ? (
                               <AllocationMetricValue
                                 positive={allTimeIsPositive}>
                                 {allTimeGainLossText}
                               </AllocationMetricValue>
-                            )}
+                            ) : null}
                           </AllocationColumn>
                         ) : null}
                         <AllocationColumn
                           style={
-                            allTimeGainLossText !== null
+                            showAllTimeGainLossColumn
                               ? {paddingLeft: 12}
                               : undefined
                           }>
                           <AllocationLabel style={{textAlign: 'right'}}>
                             Today's Gain / Loss ($)
                           </AllocationLabel>
-                          {isKeyPopulateLoading ? (
+                          {showTodayGainLossSkeleton ? (
                             <AllocationMetricSkeleton align="right" />
-                          ) : (
+                          ) : todayGainLossText !== null ? (
                             <AllocationMetricValue
                               positive={todayIsPositive}
                               style={{textAlign: 'right'}}>
                               {todayGainLossText}
                             </AllocationMetricValue>
-                          )}
+                          ) : null}
                         </AllocationColumn>
                       </AllocationRow>
                     </>
@@ -1192,12 +1195,14 @@ const KeyOverview = () => {
     defaultAltCurrency.isoCode,
     hideAllBalances,
     id,
-    isKeyPopulateLoading,
     key,
     navigation,
+    showAllTimeGainLossColumn,
+    showAllTimeGainLossSkeleton,
     showPortfolioValue,
     showArchaxBanner,
     showAllocationGainLossFooter,
+    showTodayGainLossSkeleton,
     todayGainLossText,
     todayIsPositive,
     totalBalance,
