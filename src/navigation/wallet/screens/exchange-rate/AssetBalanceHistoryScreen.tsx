@@ -1,11 +1,9 @@
-import {useIsFocused} from '@react-navigation/native';
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import BalanceHistoryChart from '../../../../components/charts/BalanceHistoryChart';
 import {ScreenGutter} from '../../../../components/styled/Containers';
 import usePortfolioWalletSnapshotPresence from '../../../../portfolio/ui/hooks/usePortfolioWalletSnapshotPresence';
-import {maybePopulatePortfolioForWallets} from '../../../../store/portfolio';
 import {formatFiatAmount} from '../../../../utils/helper-methods';
-import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
+import {useAppSelector} from '../../../../utils/hooks';
 import {isPopulateLoadingForWallets} from '../../../../utils/portfolio/assets';
 import {shouldUseCompactFiatAmountText} from '../../../../utils/fiatAmountText';
 import ExchangeRateScreenLayout from './ExchangeRateScreenLayout';
@@ -19,8 +17,6 @@ type AssetBalanceHistoryScreenProps = {
 const AssetBalanceHistoryScreen = ({
   shared,
 }: AssetBalanceHistoryScreenProps) => {
-  const dispatch = useAppDispatch();
-  const isFocused = useIsFocused();
   const populateStatus = useAppSelector(
     ({PORTFOLIO}) => PORTFOLIO.populateStatus,
   );
@@ -49,45 +45,7 @@ const AssetBalanceHistoryScreen = ({
     shared.assetContext.tokenAddress,
   ]);
 
-  useEffect(() => {
-    if (
-      !isFocused ||
-      !shared.assetWallets.length ||
-      populateStatus?.inProgress
-    ) {
-      return;
-    }
-
-    dispatch(
-      maybePopulatePortfolioForWallets({
-        wallets: shared.assetWallets,
-        quoteCurrency: shared.resolvedQuoteCurrency,
-      }),
-    );
-  }, [
-    dispatch,
-    isFocused,
-    populateStatus?.inProgress,
-    shared.assetWallets,
-    shared.resolvedQuoteCurrency,
-  ]);
-
-  const refreshPortfolioSnapshots = useCallback(async () => {
-    if (!shared.assetWallets.length) {
-      return;
-    }
-
-    await dispatch(
-      maybePopulatePortfolioForWallets({
-        wallets: shared.assetWallets,
-        quoteCurrency: shared.resolvedQuoteCurrency,
-      }),
-    );
-  }, [dispatch, shared.assetWallets, shared.resolvedQuoteCurrency]);
-
-  const {isRefreshing, onRefresh} = useAssetScreenRefresh(shared, {
-    afterBaseRefresh: refreshPortfolioSnapshots,
-  });
+  const {isRefreshing, onRefresh} = useAssetScreenRefresh(shared);
 
   const selectedAssetBalanceToDisplay = useMemo(() => {
     if (!shared.hasWalletsForAsset) {

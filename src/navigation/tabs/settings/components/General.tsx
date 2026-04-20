@@ -15,7 +15,6 @@ import {resetAllSettings} from '../../../../store/app/app.effects';
 import {
   cancelPopulatePortfolio,
   clearPortfolio,
-  populatePortfolio,
 } from '../../../../store/portfolio';
 import {clearPortfolioCharts} from '../../../../store/portfolio-charts';
 import {useTheme} from '@react-navigation/native';
@@ -125,9 +124,6 @@ const General: React.FC<Props> = ({navigation}) => {
         dispatch(clearPortfolioCharts());
         return;
       }
-      dispatch(
-        populatePortfolio({quoteCurrency: selectedAltCurrency?.isoCode}) as any,
-      );
     },
     [dispatch, selectedAltCurrency?.isoCode],
   );

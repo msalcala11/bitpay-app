@@ -18,10 +18,6 @@ jest.mock('../../../utils/hooks', () => ({
   useAppSelector: jest.fn(),
 }));
 
-jest.mock('../../../store/portfolio', () => ({
-  maybePopulatePortfolioForWallets: jest.fn(() => ({type: 'TEST_MAYBE_POPULATE'})),
-}));
-
 jest.mock('../../../utils/portfolio/assets', () => ({
   buildWalletIdsByAssetGroupKey: jest.fn(() => ({})),
   getDisplayAssetRowItems: jest.fn(items => items),
@@ -67,15 +63,13 @@ const HookHarness = () => {
 
 describe('usePortfolioAssetRows', () => {
   let mockState: any;
-  let dispatchSpy: jest.Mock;
 
   beforeEach(() => {
     latestResult = undefined;
     mockUseIsFocused.mockReset();
     mockUseIsFocused.mockReturnValue(false);
     mockUseAppDispatch.mockReset();
-    dispatchSpy = jest.fn();
-    mockUseAppDispatch.mockReturnValue(dispatchSpy);
+    mockUseAppDispatch.mockReturnValue(jest.fn());
     mockUseAppSelector.mockReset();
     mockState = {
       PORTFOLIO: {
@@ -212,15 +206,11 @@ describe('usePortfolioAssetRows', () => {
     });
   });
 
-  it('does not auto-populate on refocus when committed portfolio data already exists', () => {
+  it('does not auto-populate on refocus even when committed portfolio data is missing', () => {
     mockUseIsFocused.mockReturnValue(true);
-    mockState.PORTFOLIO.lastPopulatedAt = 10;
     mockUsePortfolioAnalysis.mockReturnValue({
       data: undefined,
-      committedData: {
-        points: [],
-        assetSummaries: [],
-      },
+      committedData: undefined,
       loading: false,
       quoteCurrency: 'USD',
       storedWallets: [],
@@ -228,7 +218,9 @@ describe('usePortfolioAssetRows', () => {
 
     render(<HookHarness />);
 
-    expect(dispatchSpy).not.toHaveBeenCalled();
+    expect(mockUseAppDispatch).toHaveBeenCalled();
+    expect((mockUseAppDispatch.mock.results[0]?.value as jest.Mock).mock.calls)
+      .toHaveLength(0);
   });
 
   it('keeps all asset rows in loading state while a fresh populate has no committed analysis yet', () => {

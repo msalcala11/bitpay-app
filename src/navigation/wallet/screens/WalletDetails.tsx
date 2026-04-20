@@ -22,7 +22,6 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import {useStore} from 'react-redux';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import styled from 'styled-components/native';
 import BalanceHistoryChart from '../../../components/charts/BalanceHistoryChart';
@@ -94,7 +93,6 @@ import Icons from '../components/WalletIcons';
 import {WalletScreens, WalletGroupParamList} from '../WalletGroup';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {startGetRates} from '../../../store/wallet/effects';
-import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
 import usePortfolioWalletSnapshotPresence from '../../../portfolio/ui/hooks/usePortfolioWalletSnapshotPresence';
 import {createWalletAddress} from '../../../store/wallet/effects/address/address';
 import {
@@ -150,7 +148,6 @@ import ArchaxFooter from '../../../components/archax/archax-footer';
 import {ExternalServicesScreens} from '../../services/ExternalServicesGroup';
 import {isTSSKey} from '../../../store/wallet/effects/tss-send/tss-send';
 import {logManager} from '../../../managers/LogManager';
-import type {RootState} from '../../../store';
 import {getQuoteCurrency} from '../../../utils/portfolio/assets';
 
 export type WalletDetailsScreenParamList = {
@@ -333,7 +330,6 @@ const getWalletType = (
 const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const navigation = useNavigation();
   const dispatch = useAppDispatch();
-  const reduxStore = useStore();
   const theme = useTheme();
   const {width: windowWidth} = useWindowDimensions();
   const {t} = useTranslation();
@@ -379,41 +375,6 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const [showBalanceDetailsModal, setShowBalanceDetailsModal] = useState(false);
   const walletType = getWalletType(key, fullWalletObj);
   const showArchaxBanner = useAppSelector(({APP}) => APP.showArchaxBanner);
-
-  const getLatestWalletFromReduxState = useCallback(() => {
-    const state = reduxStore.getState() as RootState;
-    const latestKeys = state.WALLET.keys as Record<string, Key>;
-    const latestWallets = (Object.values(latestKeys) as Key[]).flatMap(
-      (walletKey: Key) => walletKey.wallets || [],
-    );
-    const latestWallet = findWalletById(latestWallets, walletId, copayerId) as
-      | Wallet
-      | undefined;
-
-    return {
-      state,
-      wallet: latestWallet,
-    };
-  }, [copayerId, reduxStore, walletId]);
-
-  const maybeRefreshWalletBalanceChart = useCallback(async () => {
-    const {state, wallet} = getLatestWalletFromReduxState();
-    if (!wallet) {
-      return;
-    }
-
-    const quoteCurrency = getQuoteCurrency({
-      portfolioQuoteCurrency: state.PORTFOLIO?.quoteCurrency,
-      defaultAltCurrencyIsoCode: state.APP?.defaultAltCurrency?.isoCode,
-    }).toUpperCase();
-
-    await dispatch(
-      maybePopulatePortfolioForWallets({
-        wallets: [wallet],
-        quoteCurrency,
-      }) as any,
-    );
-  }, [dispatch, getLatestWalletFromReduxState]);
 
   useLayoutEffect(() => {
     navigation.setOptions({

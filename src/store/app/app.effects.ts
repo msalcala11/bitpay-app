@@ -51,7 +51,6 @@ import {
 } from '../wallet/effects';
 import {
   clearPortfolioWithRuntime,
-  maybePopulatePortfolioForWallets,
 } from '../portfolio';
 import {
   setAnnouncementsAccepted,
@@ -73,7 +72,6 @@ import {
   findWalletByIdHashed,
   getAllWalletClients,
 } from '../wallet/utils/wallet';
-import {getVisibleWalletsFromKeys} from '../../utils/portfolio/assets';
 import {navigationRef, RootStacks, SilentPushEventObj} from '../../Root';
 import {
   startUpdateAllKeyAndWalletStatus,
@@ -208,7 +206,7 @@ export const startAppInit = (): Effect => async (dispatch, getState) => {
     // init analytics -> post onboarding or migration
     dispatch(initAnalytics());
 
-    const walletInitPromise = dispatch(startWalletStoreInit());
+    dispatch(startWalletStoreInit());
 
     const {
       contactMigrationComplete,
@@ -286,39 +284,6 @@ export const startAppInit = (): Effect => async (dispatch, getState) => {
     dispatch(AppActions.successAppInit());
     DeviceEventEmitter.emit(DeviceEmitterEvents.APP_DATA_INITIALIZED);
     logManager.info('Initialized app successfully.');
-
-    walletInitPromise
-      .then(() => {
-        const stateAfterWalletInit = getState();
-        if (stateAfterWalletInit.APP?.showPortfolioValue === false) {
-          return;
-        }
-        if (stateAfterWalletInit.PORTFOLIO?.populateStatus?.inProgress) {
-          return;
-        }
-
-        const quoteCurrency =
-          stateAfterWalletInit.APP?.defaultAltCurrency?.isoCode || 'USD';
-
-        const keys = stateAfterWalletInit.WALLET?.keys || {};
-        const homeCarouselConfig = stateAfterWalletInit.APP?.homeCarouselConfig;
-        const wallets = getVisibleWalletsFromKeys(
-          keys,
-          homeCarouselConfig,
-        ).filter((w: any) => w?.network === Network.mainnet);
-
-        if (!wallets.length) {
-          return;
-        }
-
-        dispatch(
-          maybePopulatePortfolioForWallets({
-            wallets,
-            quoteCurrency,
-          }),
-        );
-      })
-      .catch(() => {});
 
     dispatch(AppActions.appInitCompleted());
     DeviceEventEmitter.emit(DeviceEmitterEvents.APP_INIT_COMPLETED);
