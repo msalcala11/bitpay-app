@@ -22,6 +22,7 @@ import {buildUIFormattedWallet} from '../../../../store/wallet/utils/wallet';
 import type {Wallet} from '../../../../store/wallet/wallet.models';
 import {
   formatCurrencyAbbreviation,
+  formatFiat,
   formatFiatAmount,
   getRateByCurrencyName,
 } from '../../../../utils/helper-methods';
@@ -29,6 +30,7 @@ import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
 import {getAssetTheme} from '../../../../utils/portfolio/assetTheme';
 import {
   findSupportedCurrencyOptionForAsset,
+  getWalletLiveFiatBalance,
   getQuoteCurrency,
   getWalletsMatchingExchangeRateAsset,
   getVisibleWalletsFromKeys,
@@ -246,13 +248,28 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
   const walletsForAsset = useMemo<ExchangeRateWalletWithUi[]>(() => {
     return assetWallets
       .map(wallet => {
-        const ui = buildUIFormattedWallet(
+        const baseUi = buildUIFormattedWallet(
           wallet,
           resolvedQuoteCurrency,
           rates,
           dispatch,
           'symbol',
         );
+        const liveFiatBalance = getWalletLiveFiatBalance({
+          wallet,
+          rates,
+          quoteCurrency: resolvedQuoteCurrency,
+        });
+        const ui = {
+          ...baseUi,
+          fiatBalance: liveFiatBalance,
+          fiatBalanceFormat: formatFiat({
+            fiatAmount: liveFiatBalance,
+            defaultAltCurrencyIsoCode: resolvedQuoteCurrency,
+            currencyDisplay: 'symbol',
+          }),
+        };
+
         return {wallet, ui};
       })
       .sort((a, b) => (b.ui.fiatBalance || 0) - (a.ui.fiatBalance || 0));

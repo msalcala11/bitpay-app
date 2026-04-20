@@ -1,5 +1,16 @@
+jest.mock('react-native', () => ({
+  Platform: {
+    OS: 'ios',
+  },
+}));
+
+jest.mock('react-native-device-info', () => ({
+  getDeviceType: jest.fn(() => 'Handset'),
+}));
+
 import type {Wallet} from '../../store/wallet/wallet.models';
 import {
+  getWalletLiveFiatBalance,
   sortAssetRowItemsByAssetFiatPriority,
   sortWalletsByAssetFiatPriority,
 } from './assets';
@@ -99,5 +110,32 @@ describe('sortAssetRowItemsByAssetFiatPriority', () => {
         ],
       }).map(item => item.key),
     ).toEqual(['doge', 'btc']);
+  });
+});
+
+describe('getWalletLiveFiatBalance', () => {
+  it('uses the portfolio live balance basis instead of raw balance.sat', () => {
+    const wallet = {
+      id: 'btc-wallet',
+      currencyAbbreviation: 'btc',
+      chain: 'btc',
+      network: 'livenet',
+      balance: {
+        sat: 100000000,
+        satConfirmed: 100000000,
+        satPending: 50000000,
+        crypto: '1.5',
+      },
+    } as Wallet;
+
+    const fiatBalance = getWalletLiveFiatBalance({
+      wallet,
+      quoteCurrency: 'USD',
+      rates: {
+        btc: [{code: 'USD', rate: 100}],
+      } as any,
+    });
+
+    expect(fiatBalance).toBe(150);
   });
 });
