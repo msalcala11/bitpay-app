@@ -34,6 +34,10 @@ import {ExternalServicesScreens} from '../../../services/ExternalServicesGroup';
 import {Analytics} from '../../../../store/analytics/analytics.effects';
 import {useAppDispatch} from '../../../../utils/hooks';
 import type {ExchangeRateSharedModel} from './useExchangeRateSharedModel';
+import {
+  resolveExchangeRateTopChangeRow,
+  type ExchangeRateChangeRow,
+} from './exchangeRateTopChangeRow';
 
 const ScreenContainer = styled.SafeAreaView`
   flex: 1;
@@ -208,18 +212,13 @@ const AboutText = styled(BaseText)`
   color: ${({theme: {dark}}) => (dark ? Slate30 : SlateDark)};
 `;
 
-type ExchangeRateChangeRowProps = {
-  percent: number;
-  deltaFiatFormatted?: string;
-  rangeLabel?: string;
-};
-
 type ExchangeRateScreenLayoutProps = {
   chartSection: React.ReactNode;
-  changeRow?: ExchangeRateChangeRowProps;
+  changeRow?: ExchangeRateChangeRow;
   isRefreshing: boolean;
   marketPriceDisplay: string;
   onRefresh: () => void;
+  reserveChangeRowSpace?: boolean;
   shared: ExchangeRateSharedModel;
   topValue: string;
   topValueIsLarge: boolean;
@@ -232,6 +231,7 @@ const ExchangeRateScreenLayout = ({
   isRefreshing,
   marketPriceDisplay,
   onRefresh,
+  reserveChangeRowSpace = false,
   shared,
   topValue,
   topValueIsLarge,
@@ -268,6 +268,11 @@ const ExchangeRateScreenLayout = ({
     Clipboard.setString(debugCopyText);
   }, [topSectionDebugCopyPayload]);
 
+  const resolvedTopChangeRow = resolveExchangeRateTopChangeRow({
+    changeRow,
+    reserveSpace: reserveChangeRowSpace,
+  });
+
   return (
     <ScreenContainer>
       <ScrollView
@@ -292,11 +297,12 @@ const ExchangeRateScreenLayout = ({
           }>
           <AbbreviationLabel>{shared.currencyAbbreviation}</AbbreviationLabel>
           <PriceText isLargeNumber={topValueIsLarge}>{topValue}</PriceText>
-          {changeRow ? (
+          {resolvedTopChangeRow ? (
             <ChartChangeRow
-              percent={changeRow.percent}
-              deltaFiatFormatted={changeRow.deltaFiatFormatted}
-              rangeLabel={changeRow.rangeLabel}
+              percent={resolvedTopChangeRow.percent}
+              deltaFiatFormatted={resolvedTopChangeRow.deltaFiatFormatted}
+              rangeLabel={resolvedTopChangeRow.rangeLabel}
+              style={resolvedTopChangeRow.hidden ? {opacity: 0} : undefined}
             />
           ) : null}
         </TopSection>
