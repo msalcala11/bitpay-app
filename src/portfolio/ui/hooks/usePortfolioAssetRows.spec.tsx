@@ -651,4 +651,239 @@ describe('usePortfolioAssetRows', () => {
       ]);
     });
   });
+
+  it('reveals resolved asset-group rows before slower asset-group queries finish', async () => {
+    const globalAnalysis = {
+      driverCoin: 'eth',
+      assetIds: ['btc-asset', 'doge-asset'],
+      wallets: [{walletId: 'btc-wallet'}, {walletId: 'doge-wallet'}],
+    };
+    const btcScopedAnalysis = {
+      driverCoin: 'btc',
+      assetIds: ['btc-asset'],
+      wallets: [{walletId: 'btc-wallet'}],
+    };
+    const dogeScopedAnalysis = {
+      driverCoin: 'doge',
+      assetIds: ['doge-asset'],
+      wallets: [{walletId: 'doge-wallet'}],
+    };
+    let resolveBtcScopedAnalysis:
+      | ((value: typeof btcScopedAnalysis) => void)
+      | undefined;
+    let resolveDogeScopedAnalysis:
+      | ((value: typeof dogeScopedAnalysis) => void)
+      | undefined;
+
+    mockState.PORTFOLIO.lastPopulatedAt = 10;
+    mockState.PORTFOLIO.populateStatus.inProgress = true;
+    mockState.PORTFOLIO.populateStatus.startedAt = 11;
+
+    mockUsePortfolioAnalysis.mockReturnValue({
+      data: globalAnalysis,
+      committedData: globalAnalysis,
+      currentData: globalAnalysis,
+      error: undefined,
+      loading: false,
+      quoteCurrency: 'USD',
+      requestKey: 'portfolio-request',
+      currentRatesByAssetId: {
+        ['btc-asset']: 75000,
+        ['doge-asset']: 0.12,
+      },
+      currentRatesSignature: 'btc-doge-rates',
+      eligibleWallets: [
+        {
+          id: 'btc-wallet',
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+        },
+        {
+          id: 'doge-wallet',
+          currencyAbbreviation: 'doge',
+          chain: 'doge',
+        },
+      ],
+      storedWallets: [
+        {
+          walletId: 'btc-wallet',
+          addedAt: 0,
+          summary: {
+            walletId: 'btc-wallet',
+            walletName: 'Bitcoin',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+            tokenAddress: undefined,
+            network: 'livenet',
+            balanceAtomic: '422258',
+            balanceFormatted: '0.00422258',
+          },
+          credentials: {
+            keyId: 'key-id',
+          },
+        },
+        {
+          walletId: 'doge-wallet',
+          addedAt: 0,
+          summary: {
+            walletId: 'doge-wallet',
+            walletName: 'Dogecoin',
+            currencyAbbreviation: 'doge',
+            chain: 'doge',
+            tokenAddress: undefined,
+            network: 'livenet',
+            balanceAtomic: '100000000',
+            balanceFormatted: '1',
+          },
+          credentials: {
+            keyId: 'key-id',
+          },
+        },
+      ],
+    });
+
+    mockRunPortfolioAnalysisQuery.mockImplementation(({wallets}: any) => {
+      const coin = wallets?.[0]?.summary?.currencyAbbreviation;
+
+      return new Promise(resolve => {
+        if (coin === 'btc') {
+          resolveBtcScopedAnalysis =
+            resolve as (value: typeof btcScopedAnalysis) => void;
+          return;
+        }
+
+        resolveDogeScopedAnalysis =
+          resolve as (value: typeof dogeScopedAnalysis) => void;
+      });
+    });
+
+    mockBuildAssetRowsFromAnalysis.mockImplementation(({analysis}: any) => {
+      if (analysis === btcScopedAnalysis) {
+        return [
+          {
+            key: 'btc',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+            name: 'BTC',
+            cryptoAmount: '0.00422258',
+            fiatAmount: '$316.86',
+            deltaFiat: '-$3.84',
+            deltaPercent: '-1.20%',
+            isPositive: false,
+            hasRate: true,
+            hasPnl: true,
+            showPnlPlaceholder: false,
+          },
+        ];
+      }
+
+      if (analysis === dogeScopedAnalysis) {
+        return [
+          {
+            key: 'doge',
+            currencyAbbreviation: 'doge',
+            chain: 'doge',
+            name: 'DOGE',
+            cryptoAmount: '1',
+            fiatAmount: '$0.12',
+            deltaFiat: '+$0.01',
+            deltaPercent: '+9.09%',
+            isPositive: true,
+            hasRate: true,
+            hasPnl: true,
+            showPnlPlaceholder: false,
+          },
+        ];
+      }
+
+      return [
+        {
+          key: 'btc',
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+          name: 'BTC',
+          cryptoAmount: '0.00422258',
+          fiatAmount: '$316.86',
+          deltaFiat: '—',
+          deltaPercent: '—',
+          isPositive: false,
+          hasRate: true,
+          hasPnl: false,
+          showPnlPlaceholder: true,
+        },
+        {
+          key: 'doge',
+          currencyAbbreviation: 'doge',
+          chain: 'doge',
+          name: 'DOGE',
+          cryptoAmount: '1',
+          fiatAmount: '$0.12',
+          deltaFiat: '—',
+          deltaPercent: '—',
+          isPositive: true,
+          hasRate: true,
+          hasPnl: false,
+          showPnlPlaceholder: true,
+        },
+      ];
+    });
+
+    mockGetPopulateLoadingByAssetKey.mockReturnValue({
+      btc: false,
+      doge: true,
+    });
+
+    render(<HookHarness />);
+
+    await waitFor(() => {
+      expect(mockRunPortfolioAnalysisQuery).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      resolveBtcScopedAnalysis?.(btcScopedAnalysis);
+    });
+
+    await waitFor(() => {
+      expect(latestResult?.visibleItems).toEqual([
+        expect.objectContaining({
+          key: 'btc',
+          deltaFiat: '-$3.84',
+          deltaPercent: '-1.20%',
+          showPnlPlaceholder: false,
+        }),
+        expect.objectContaining({
+          key: 'doge',
+          deltaFiat: '—',
+          deltaPercent: '—',
+          showPnlPlaceholder: true,
+        }),
+      ]);
+    });
+
+    expect(latestResult?.isPopulateLoadingByKey).toEqual({
+      btc: false,
+      doge: true,
+    });
+
+    await act(async () => {
+      resolveDogeScopedAnalysis?.(dogeScopedAnalysis);
+    });
+
+    await waitFor(() => {
+      expect(latestResult?.visibleItems).toEqual([
+        expect.objectContaining({
+          key: 'btc',
+          deltaFiat: '-$3.84',
+          deltaPercent: '-1.20%',
+          showPnlPlaceholder: false,
+        }),
+        expect.objectContaining({
+          key: 'doge',
+          deltaFiat: '+$0.01',
+          deltaPercent: '+9.09%',
+          showPnlPlaceholder: false,
+        }),
+      ]);
+    });
+  });
 });

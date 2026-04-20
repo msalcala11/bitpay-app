@@ -348,111 +348,108 @@ export function usePortfolioAssetRows({
       return changed ? next : prev;
     });
 
-    Promise.allSettled(
-      assetGroupAnalysisSpecs.map(async spec => {
-        const result = await runPortfolioAnalysisQuery({
-          wallets: spec.storedWallets,
-          quoteCurrency: analysis.quoteCurrency,
-          timeframe: gainLossMode,
-          maxPoints: 2,
-          currentRatesByAssetId: spec.currentRatesByAssetId,
-        });
+    for (const spec of assetGroupAnalysisSpecs) {
+      runPortfolioAnalysisQuery({
+        wallets: spec.storedWallets,
+        quoteCurrency: analysis.quoteCurrency,
+        timeframe: gainLossMode,
+        maxPoints: 2,
+        currentRatesByAssetId: spec.currentRatesByAssetId,
+      })
+        .then(result => {
+          if (cancelled) {
+            return;
+          }
 
-        return {
-          key: spec.key,
-          requestKey: spec.requestKey,
-          committedCacheKey: spec.committedCacheKey,
-          result,
-        };
-      }),
-    ).then(results => {
-      if (cancelled) {
-        return;
-      }
-
-      setAssetGroupAnalysisStateByKey(prev => {
-        const next = {...prev};
-        let changed = false;
-
-        results.forEach((settled, index) => {
-          if (settled.status === 'fulfilled') {
-            const {key, requestKey, committedCacheKey, result} = settled.value;
-            const spec = assetGroupAnalysisSpecs.find(
-              candidate =>
-                candidate.key === key && candidate.requestKey === requestKey,
-            );
-            if (!spec) {
-              return;
+          setAssetGroupAnalysisStateByKey(prev => {
+            const prevState = prev[spec.key];
+            if (prevState && prevState.requestKey !== spec.requestKey) {
+              return prev;
             }
 
-            const prevState = next[key];
-            const baseState: AssetGroupAnalysisState =
-              prevState?.requestKey === requestKey
-                ? prevState
-                : {
-                    requestKey,
-                    committedCacheKey,
-                    currentData: undefined,
-                    committedData: hasCommittedPortfolioBaseline
-                      ? committedAssetGroupAnalysisCache.get(committedCacheKey)
-                      : undefined,
-                    loading: true,
-                    error: undefined,
-                  };
+            const baseState: AssetGroupAnalysisState = prevState || {
+              requestKey: spec.requestKey,
+              committedCacheKey: spec.committedCacheKey,
+              currentData: undefined,
+              committedData: hasCommittedPortfolioBaseline
+                ? committedAssetGroupAnalysisCache.get(spec.committedCacheKey)
+                : undefined,
+              loading: true,
+              error: undefined,
+            };
 
             let committedData = baseState.committedData;
             if (!portfolio.populateStatus?.inProgress) {
-              committedAssetGroupAnalysisCache.set(committedCacheKey, result);
+              committedAssetGroupAnalysisCache.set(spec.committedCacheKey, result);
               committedData = result;
             }
 
-            next[key] = {
+            const nextState: AssetGroupAnalysisState = {
               ...baseState,
               currentData: result,
               committedData,
               loading: false,
               error: undefined,
             };
-            changed = true;
+
+            if (
+              baseState.currentData === nextState.currentData &&
+              baseState.committedData === nextState.committedData &&
+              baseState.loading === nextState.loading &&
+              baseState.error === nextState.error
+            ) {
+              return prev;
+            }
+
+            return {
+              ...prev,
+              [spec.key]: nextState,
+            };
+          });
+        })
+        .catch(reason => {
+          if (cancelled) {
             return;
           }
 
-          const failedSpec = assetGroupAnalysisSpecs[index];
-          if (!failedSpec) {
-            return;
-          }
+          setAssetGroupAnalysisStateByKey(prev => {
+            const prevState = prev[spec.key];
+            if (prevState && prevState.requestKey !== spec.requestKey) {
+              return prev;
+            }
 
-          const prevState = next[failedSpec.key];
-          const baseState: AssetGroupAnalysisState =
-            prevState?.requestKey === failedSpec.requestKey
-              ? prevState
-              : {
-                  requestKey: failedSpec.requestKey,
-                  committedCacheKey: failedSpec.committedCacheKey,
-                  currentData: undefined,
-                  committedData: hasCommittedPortfolioBaseline
-                    ? committedAssetGroupAnalysisCache.get(
-                        failedSpec.committedCacheKey,
-                      )
-                    : undefined,
-                  loading: true,
-                  error: undefined,
-                };
+            const baseState: AssetGroupAnalysisState = prevState || {
+              requestKey: spec.requestKey,
+              committedCacheKey: spec.committedCacheKey,
+              currentData: undefined,
+              committedData: hasCommittedPortfolioBaseline
+                ? committedAssetGroupAnalysisCache.get(spec.committedCacheKey)
+                : undefined,
+              loading: true,
+              error: undefined,
+            };
 
-          next[failedSpec.key] = {
-            ...baseState,
-            loading: false,
-            error:
-              settled.reason instanceof Error
-                ? settled.reason
-                : new Error(String(settled.reason)),
-          };
-          changed = true;
+            const nextState: AssetGroupAnalysisState = {
+              ...baseState,
+              loading: false,
+              error:
+                reason instanceof Error ? reason : new Error(String(reason)),
+            };
+
+            if (
+              baseState.loading === nextState.loading &&
+              baseState.error === nextState.error
+            ) {
+              return prev;
+            }
+
+            return {
+              ...prev,
+              [spec.key]: nextState,
+            };
+          });
         });
-
-        return changed ? next : prev;
-      });
-    });
+    }
 
     return () => {
       cancelled = true;
@@ -830,7 +827,12 @@ export function usePortfolioAssetRows({
     };
     const nextItems = visibleItems.map(item => {
       const cachedItem = resolvedItemsByKey[item.key];
+      const canFreezeResolvedItem = !item.showPnlPlaceholder;
       if (isPopulateLoadingByKeyRaw[item.key] === false) {
+        if (!canFreezeResolvedItem) {
+          return item;
+        }
+
         nextLoadingByKey[item.key] = false;
         if (!cachedItem) {
           resolvedItemsByKey[item.key] = item;
