@@ -72,13 +72,14 @@ const AssetsList: React.FC<Props> = ({
 
         const isRowPopulateLoading =
           isPopulateLoadingByKey?.[item.key] ?? !!populateInProgress;
+        const isRowFiatLoading = !!isFiatLoading && isRowPopulateLoading;
 
         return (
           <AssetRow
             key={item.key}
             item={item}
             isLast={index === items.length - 1}
-            isFiatLoading={isFiatLoading}
+            isFiatLoading={isRowFiatLoading}
             isPopulateLoading={isRowPopulateLoading}
             img={img}
             imgSrc={imgSrc}

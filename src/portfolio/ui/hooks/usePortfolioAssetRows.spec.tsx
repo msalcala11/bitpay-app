@@ -343,4 +343,142 @@ describe('usePortfolioAssetRows', () => {
       'btc',
     ]);
   });
+
+  it('keeps an asset revealed after it resolves once during the active populate session', () => {
+    mockState.PORTFOLIO.populateStatus.inProgress = true;
+    mockState.PORTFOLIO.populateStatus.startedAt = 11;
+    mockGetVisibleWalletsFromKeys.mockReturnValue([
+      {
+        id: 'doge-wallet',
+        currencyAbbreviation: 'doge',
+        chain: 'doge',
+        network: 'livenet',
+        balance: {fiat: 500},
+      },
+    ]);
+    mockBuildAssetRowsFromAnalysis.mockReturnValue([
+      {
+        key: 'doge',
+        currencyAbbreviation: 'doge',
+        chain: 'doge',
+        name: 'DOGE',
+        cryptoAmount: '2',
+        fiatAmount: '$500',
+        deltaFiat: '+$5',
+        deltaPercent: '+2%',
+        isPositive: true,
+        hasRate: true,
+        hasPnl: true,
+      },
+    ]);
+    mockGetPopulateLoadingByAssetKey
+      .mockReturnValueOnce({doge: false})
+      .mockReturnValueOnce({doge: true});
+
+    const view = render(<HookHarness />);
+
+    expect(latestResult?.isPopulateLoadingByKey).toEqual({doge: false});
+
+    mockState = {
+      ...mockState,
+      PORTFOLIO: {
+        ...mockState.PORTFOLIO,
+        populateStatus: {
+          ...mockState.PORTFOLIO.populateStatus,
+          txRequestsMade: 1,
+        },
+      },
+    };
+    view.rerender(<HookHarness />);
+
+    expect(latestResult?.isPopulateLoadingByKey).toEqual({doge: false});
+  });
+
+  it('keeps a resolved asset row stable after later populate refreshes transiently degrade it', () => {
+    mockState.PORTFOLIO.populateStatus.inProgress = true;
+    mockState.PORTFOLIO.populateStatus.startedAt = 11;
+    mockGetVisibleWalletsFromKeys.mockReturnValue([
+      {
+        id: 'doge-wallet',
+        currencyAbbreviation: 'doge',
+        chain: 'doge',
+        network: 'livenet',
+        balance: {fiat: 500},
+      },
+    ]);
+    mockBuildAssetRowsFromAnalysis
+      .mockReturnValueOnce([
+        {
+          key: 'doge',
+          currencyAbbreviation: 'doge',
+          chain: 'doge',
+          name: 'DOGE',
+          cryptoAmount: '2',
+          fiatAmount: '$500',
+          deltaFiat: '+$5',
+          deltaPercent: '+2%',
+          isPositive: true,
+          hasRate: true,
+          hasPnl: true,
+          showPnlPlaceholder: false,
+        },
+      ])
+      .mockReturnValueOnce([
+        {
+          key: 'doge',
+          currencyAbbreviation: 'doge',
+          chain: 'doge',
+          name: 'DOGE',
+          cryptoAmount: '2',
+          fiatAmount: '$0',
+          deltaFiat: '—',
+          deltaPercent: '—',
+          isPositive: true,
+          hasRate: false,
+          hasPnl: false,
+          showPnlPlaceholder: true,
+        },
+      ]);
+    mockGetPopulateLoadingByAssetKey
+      .mockReturnValueOnce({doge: false})
+      .mockReturnValueOnce({doge: true});
+
+    const view = render(<HookHarness />);
+
+    expect(latestResult?.visibleItems).toEqual([
+      expect.objectContaining({
+        key: 'doge',
+        fiatAmount: '$500',
+        deltaFiat: '+$5',
+        deltaPercent: '+2%',
+        hasRate: true,
+        hasPnl: true,
+        showPnlPlaceholder: false,
+      }),
+    ]);
+
+    mockState = {
+      ...mockState,
+      PORTFOLIO: {
+        ...mockState.PORTFOLIO,
+        populateStatus: {
+          ...mockState.PORTFOLIO.populateStatus,
+          txRequestsMade: 1,
+        },
+      },
+    };
+    view.rerender(<HookHarness />);
+
+    expect(latestResult?.visibleItems).toEqual([
+      expect.objectContaining({
+        key: 'doge',
+        fiatAmount: '$500',
+        deltaFiat: '+$5',
+        deltaPercent: '+2%',
+        hasRate: true,
+        hasPnl: true,
+        showPnlPlaceholder: false,
+      }),
+    ]);
+  });
 });
