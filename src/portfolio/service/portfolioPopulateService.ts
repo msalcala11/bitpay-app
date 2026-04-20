@@ -22,9 +22,11 @@ export type PortfolioPopulateServiceOptions = {
   ingestConfig?: Partial<SnapshotIngestConfig>;
   pageSize?: number;
   emitRows?: number;
+  statusPollMs?: number;
 };
 
 const PORTFOLIO_POPULATE_ABORTED_ERROR_MESSAGE = 'PORTFOLIO_POPULATE_ABORTED';
+const DEFAULT_POPULATE_STATUS_POLL_MS = 200;
 
 function createDefaultBwsConfig(): BwsConfig {
   return {
@@ -85,6 +87,7 @@ export class PortfolioPopulateService {
   private ingestConfig: SnapshotIngestConfig;
   private pageSize: number;
   private emitRows?: number;
+  private statusPollMs: number;
   private cancelRequested = false;
   private activeJobId: string | undefined;
   private cancelSent = false;
@@ -106,6 +109,11 @@ export class PortfolioPopulateService {
       typeof options.emitRows === 'number' && Number.isFinite(options.emitRows)
         ? Math.max(1, Math.floor(options.emitRows))
         : undefined;
+    this.statusPollMs =
+      typeof options.statusPollMs === 'number' &&
+      Number.isFinite(options.statusPollMs)
+        ? Math.max(0, Math.floor(options.statusPollMs))
+        : DEFAULT_POPULATE_STATUS_POLL_MS;
   }
 
   cancel(): void {
@@ -129,6 +137,7 @@ export class PortfolioPopulateService {
 
   async populateWallets(args: {
     wallets: StoredWallet[];
+    onProgress?: (status: PortfolioPopulateJobStatus) => void | Promise<void>;
   }): Promise<PortfolioPopulateRunOutcome> {
     this.resetCancel();
     const requestedJobId = createRequestedPopulateJobId();
@@ -137,7 +146,7 @@ export class PortfolioPopulateService {
     try {
       const start = await this.client.startPopulateJob({
         jobId: requestedJobId,
-        awaitTerminal: true,
+        awaitTerminal: false,
         cfg: this.bwsConfig,
         wallets: args.wallets || [],
         ingest: this.ingestConfig,
@@ -151,14 +160,43 @@ export class PortfolioPopulateService {
         );
       }
 
+      if (args.onProgress) {
+        await args.onProgress(status);
+      }
+
       if (status.state === 'failed') {
         throw new Error(toJobFailureMessage(status));
       }
 
-      const runResult = status.result || buildFallbackRunResult(status);
+      let terminalStatus = status;
+      while (terminalStatus.inProgress) {
+        await new Promise(resolve => {
+          setTimeout(resolve, this.statusPollMs);
+        });
+        const nextStatus = await this.client.getPopulateJobStatus({
+          jobId: requestedJobId,
+        });
+        if (!nextStatus) {
+          throw new Error(
+            'Portfolio populate job status became unavailable on the runtime.',
+          );
+        }
+
+        terminalStatus = nextStatus;
+        if (args.onProgress) {
+          await args.onProgress(terminalStatus);
+        }
+
+        if (terminalStatus.state === 'failed') {
+          throw new Error(toJobFailureMessage(terminalStatus));
+        }
+      }
+
+      const runResult =
+        terminalStatus.result || buildFallbackRunResult(terminalStatus);
       return {
         ...runResult,
-        status,
+        status: terminalStatus,
       };
     } finally {
       this.activeJobId = undefined;

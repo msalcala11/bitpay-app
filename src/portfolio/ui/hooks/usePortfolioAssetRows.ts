@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {useEffect, useMemo, useRef} from 'react';
 import {useIsFocused} from '@react-navigation/native';
 import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
 import type {AssetRowItem, GainLossMode} from '../../../utils/portfolio/assets';
@@ -72,17 +72,43 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
     portfolio.populateStatus?.finishedAt,
     portfolio.populateStatus?.stopReason,
   ]);
-  const [analysisRefreshToken, setAnalysisRefreshToken] = useState(
+  const populateSessionStateToken = useMemo(() => {
+    return [
+      populateCompletionStateToken,
+      portfolio.populateStatus?.inProgress ? '1' : '0',
+      typeof portfolio.populateStatus?.startedAt === 'number'
+        ? String(portfolio.populateStatus.startedAt)
+        : '',
+    ].join('|');
+  }, [
     populateCompletionStateToken,
-  );
-
-  useEffect(() => {
-    if (portfolio.populateStatus?.inProgress) {
-      return;
+    portfolio.populateStatus?.inProgress,
+    portfolio.populateStatus?.startedAt,
+  ]);
+  const analysisRefreshToken = useMemo(() => {
+    if (!portfolio.populateStatus?.inProgress) {
+      return populateCompletionStateToken;
     }
 
-    setAnalysisRefreshToken(populateCompletionStateToken);
-  }, [populateCompletionStateToken, portfolio.populateStatus?.inProgress]);
+    return [
+      populateSessionStateToken,
+      typeof portfolio.populateStatus?.walletsCompleted === 'number'
+        ? String(portfolio.populateStatus.walletsCompleted)
+        : '0',
+      typeof portfolio.populateStatus?.errors?.length === 'number'
+        ? String(portfolio.populateStatus.errors.length)
+        : '0',
+    ].join('|');
+  }, [
+    populateCompletionStateToken,
+    populateSessionStateToken,
+    portfolio.populateStatus?.errors?.length,
+    portfolio.populateStatus?.inProgress,
+    portfolio.populateStatus?.walletsCompleted,
+  ]);
+  const analysisClearDataToken = portfolio.populateStatus?.inProgress
+    ? populateSessionStateToken
+    : populateCompletionStateToken;
 
   const analysis = usePortfolioAnalysis({
     wallets,
@@ -90,11 +116,14 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
     maxPoints: 2,
     enabled: isFocused,
     refreshToken: analysisRefreshToken,
+    clearDataToken: analysisClearDataToken,
     freezeWhilePopulate: true,
-    allowCurrentWhilePopulate: false,
+    allowCurrentWhilePopulate: true,
   });
   const shouldForcePopulateLoading =
-    !!portfolio.populateStatus?.inProgress && !analysis.committedData;
+    !!portfolio.populateStatus?.inProgress &&
+    !analysis.committedData &&
+    !analysis.currentData;
 
   const items = useMemo(() => {
     const builtItems = buildAssetRowsFromAnalysis({

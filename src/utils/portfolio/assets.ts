@@ -425,6 +425,47 @@ export const buildWalletIdsByAssetGroupKey = (
   return map;
 };
 
+export const sortWalletsByAssetFiatPriority = (
+  wallets: Wallet[] | undefined,
+): Wallet[] => {
+  const indexedWallets = (wallets || []).map((wallet, index) => ({
+    wallet,
+    index,
+    groupKey: getPortfolioWalletCurrencyAbbreviationLower(wallet),
+    fiatBalance: Math.max(0, toNumber(wallet.balance?.fiat)),
+  }));
+
+  const fiatByGroupKey = new Map<string, number>();
+  for (const item of indexedWallets) {
+    if (!item.groupKey) {
+      continue;
+    }
+    fiatByGroupKey.set(
+      item.groupKey,
+      (fiatByGroupKey.get(item.groupKey) || 0) + item.fiatBalance,
+    );
+  }
+
+  return indexedWallets
+    .slice()
+    .sort((a, b) => {
+      const groupFiatDiff =
+        (fiatByGroupKey.get(b.groupKey) || 0) -
+        (fiatByGroupKey.get(a.groupKey) || 0);
+      if (groupFiatDiff !== 0) {
+        return groupFiatDiff;
+      }
+
+      const walletFiatDiff = b.fiatBalance - a.fiatBalance;
+      if (walletFiatDiff !== 0) {
+        return walletFiatDiff;
+      }
+
+      return a.index - b.index;
+    })
+    .map(item => item.wallet);
+};
+
 const EMPTY_SUPPORTED_CURRENCY_OPTIONS: SupportedCurrencyOption[] = [];
 const supportedCurrencyOptionLookupCache = new WeakMap<
   SupportedCurrencyOption[],

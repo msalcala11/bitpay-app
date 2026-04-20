@@ -197,7 +197,10 @@ const AssetRow: React.FC<Props> = ({
     });
   }, [item, option]);
   const shouldShowDeltaFiat = hasPnl;
-  const isCryptoAmountLoading = !!isPopulateLoading && !isFiatLoading;
+  const isCryptoAmountLoading =
+    !!isPopulateLoading &&
+    !isFiatLoading &&
+    !String(item.cryptoAmount || '').trim();
 
   const fiatAmountDisplay = hasRate ? item.fiatAmount : '— ';
   const debugCopyPayload = useMemo(() => {

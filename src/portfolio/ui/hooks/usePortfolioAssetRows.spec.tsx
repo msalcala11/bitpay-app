@@ -111,12 +111,12 @@ describe('usePortfolioAssetRows', () => {
       expect.objectContaining({
         timeframe: '1D',
         enabled: false,
-        allowCurrentWhilePopulate: false,
+        allowCurrentWhilePopulate: true,
       }),
     );
   });
 
-  it('refreshes asset analysis only after populate completes', async () => {
+  it('refreshes asset analysis as populate progress changes and after completion', async () => {
     mockUseIsFocused.mockReturnValue(true);
     mockState.PORTFOLIO.lastPopulatedAt = 10;
     mockState.PORTFOLIO.populateStatus.finishedAt = 10;
@@ -127,7 +127,8 @@ describe('usePortfolioAssetRows', () => {
     expect(mockUsePortfolioAnalysis).toHaveBeenLastCalledWith(
       expect.objectContaining({
         refreshToken: '10|10|completed|0',
-        allowCurrentWhilePopulate: false,
+        clearDataToken: '10|10|completed|0',
+        allowCurrentWhilePopulate: true,
       }),
     );
 
@@ -138,6 +139,7 @@ describe('usePortfolioAssetRows', () => {
         populateStatus: {
           ...mockState.PORTFOLIO.populateStatus,
           inProgress: true,
+          startedAt: 11,
           finishedAt: undefined,
           stopReason: undefined,
         },
@@ -147,8 +149,29 @@ describe('usePortfolioAssetRows', () => {
 
     expect(mockUsePortfolioAnalysis).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        refreshToken: '10|10|completed|0',
-        allowCurrentWhilePopulate: false,
+        refreshToken: '10|||0|1|11|0|0',
+        clearDataToken: '10|||0|1|11',
+        allowCurrentWhilePopulate: true,
+      }),
+    );
+
+    mockState = {
+      ...mockState,
+      PORTFOLIO: {
+        ...mockState.PORTFOLIO,
+        populateStatus: {
+          ...mockState.PORTFOLIO.populateStatus,
+          walletsCompleted: 1,
+        },
+      },
+    };
+    view.rerender(<HookHarness />);
+
+    expect(mockUsePortfolioAnalysis).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        refreshToken: '10|||0|1|11|1|0',
+        clearDataToken: '10|||0|1|11',
+        allowCurrentWhilePopulate: true,
       }),
     );
 
@@ -171,7 +194,8 @@ describe('usePortfolioAssetRows', () => {
       expect(mockUsePortfolioAnalysis).toHaveBeenLastCalledWith(
         expect.objectContaining({
           refreshToken: '20|20|completed|0',
-          allowCurrentWhilePopulate: false,
+          clearDataToken: '20|20|completed|0',
+          allowCurrentWhilePopulate: true,
         }),
       );
     });
