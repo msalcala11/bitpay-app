@@ -1,4 +1,5 @@
 import {
+  deserializeCachedTimeframeToComputedSeries,
   getCachedTimeframeStatus,
   patchCachedLatestPointWithSpotRates,
 } from './chartCache';
@@ -59,7 +60,43 @@ describe('chartCache', () => {
         currentSpotRatesByRateKey: {
           eth: 120,
         },
+        patchedAt: 10,
       }).totalPnlChange,
     ).toEqual([0, 20]);
+  });
+
+  it('patches the effective final timestamp when spot rates are overlaid', () => {
+    expect(
+      patchCachedLatestPointWithSpotRates({
+        cachedTimeframe: makeCachedTimeframe(),
+        currentSpotRatesByRateKey: {
+          eth: 120,
+        },
+        patchedAt: 10,
+      }).ts,
+    ).toEqual([1, 10]);
+  });
+
+  it('hydrates a live tail overlay without mutating the raw cached timeframe', () => {
+    const cachedTimeframe = makeCachedTimeframe();
+
+    const hydrated = deserializeCachedTimeframeToComputedSeries(cachedTimeframe, {
+      currentSpotRatesByRateKey: {
+        eth: 120,
+      },
+      patchedAt: 10,
+    });
+
+    expect(cachedTimeframe.ts).toEqual([1, 2]);
+    expect(cachedTimeframe.totalFiatBalance).toEqual([100, 100]);
+    expect(hydrated.analysisPoints[1]).toEqual(
+      expect.objectContaining({
+        timestamp: 10,
+        totalFiatBalance: 120,
+        totalPnlChange: 20,
+        totalUnrealizedPnlFiat: 20,
+        totalPnlPercent: 20,
+      }),
+    );
   });
 });
