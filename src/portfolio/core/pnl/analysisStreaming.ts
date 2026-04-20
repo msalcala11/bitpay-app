@@ -131,6 +131,7 @@ export type PnlAnalysisPreloadedArgs = {
   wallets: WalletForPreloadedAnalysis[];
   timeframe: PnlTimeframe;
   ratePointsByAssetId: Record<string, FiatRatePoint[]>;
+  currentRatesByAssetId?: Record<string, number>;
   firstNonZeroTs?: number | null;
   startTs?: number;
   endTs?: number;
@@ -145,6 +146,7 @@ export type PnlAnalysisStreamedArgs = {
   wallets: WalletForStreamedAnalysis[];
   timeframe: PnlTimeframe;
   ratePointsByAssetId: Record<string, FiatRatePoint[]>;
+  currentRatesByAssetId?: Record<string, number>;
   firstNonZeroTs?: number | null;
   startTs?: number;
   endTs?: number;
@@ -176,6 +178,7 @@ type AnalysisContext = {
   coins: string[];
   driverAssetId: string;
   driverCoin: string;
+  currentRatesByAssetId: Record<string, number>;
   rawPointsByAssetId: Record<string, FiatRatePoint[]>;
   timeline: number[];
   startTs: number;
@@ -336,7 +339,7 @@ function makeNearestRateCursor(pointsRaw: FiatRatePoint[]): RateCursor {
     let lo = 0;
     let hi = points.length;
     while (lo < hi) {
-      const mid = (lo + hi) >> 1;
+      const mid = Math.floor((lo + hi) / 2);
       if (points[mid].ts < ts) lo = mid + 1;
       else hi = mid;
     }
@@ -366,6 +369,60 @@ function makeNearestRateCursor(pointsRaw: FiatRatePoint[]): RateCursor {
       return dr < dl ? right.rate : left.rate;
     },
   };
+}
+
+function getCurrentRateOverride(
+  currentRatesByAssetId: Record<string, number>,
+  assetId: string,
+): number | undefined {
+  'worklet';
+
+  const rate = currentRatesByAssetId[assetId];
+  return typeof rate === 'number' && Number.isFinite(rate) && rate > 0
+    ? rate
+    : undefined;
+}
+
+function getAnalysisRateAtTimestamp(args: {
+  assetId: string;
+  ts: number;
+  endTs: number;
+  rateCursorByAssetId: Record<string, RateCursor>;
+  currentRatesByAssetId: Record<string, number>;
+}): number {
+  'worklet';
+
+  const overrideRate =
+    args.ts === args.endTs
+      ? getCurrentRateOverride(args.currentRatesByAssetId, args.assetId)
+      : undefined;
+
+  return (
+    overrideRate ?? args.rateCursorByAssetId[args.assetId].getNearest(args.ts) ?? 0
+  );
+}
+
+function getAnalysisBasisRateAtTimestamp(args: {
+  assetId: string;
+  ts: number;
+  endTs: number;
+  rateCursorByAssetId: Record<string, RateCursor>;
+  baselineRateByAssetId: Record<string, number>;
+  currentRatesByAssetId: Record<string, number>;
+}): number {
+  'worklet';
+
+  const overrideRate =
+    args.ts === args.endTs
+      ? getCurrentRateOverride(args.currentRatesByAssetId, args.assetId)
+      : undefined;
+
+  return (
+    overrideRate ??
+    args.rateCursorByAssetId[args.assetId].getNearest(args.ts) ??
+    args.baselineRateByAssetId[args.assetId] ??
+    0
+  );
 }
 
 function isSingleAsset(wallets: WalletForAnalysisMeta[]): boolean {
@@ -614,6 +671,7 @@ function buildAnalysisContext(args: {
   wallets: WalletForAnalysisMeta[];
   timeframe: PnlTimeframe;
   ratePointsByAssetId: Record<string, FiatRatePoint[]>;
+  currentRatesByAssetId?: Record<string, number>;
   firstNonZeroTs?: number | null;
   startTs?: number;
   endTs?: number;
@@ -675,6 +733,7 @@ function buildAnalysisContext(args: {
     coins,
     driverAssetId,
     driverCoin,
+    currentRatesByAssetId: args.currentRatesByAssetId || {},
     rawPointsByAssetId,
     timeline,
     startTs,
@@ -735,20 +794,33 @@ function applyAnalysisPointToWalletState(args: {
   point: PreparedWalletPoint;
   rateCursorByAssetId: Record<string, RateCursor>;
   baselineRateByAssetId: Record<string, number>;
+  currentRatesByAssetId: Record<string, number>;
+  endTs: number;
 }): void {
   'worklet';
 
-  const {state, point, rateCursorByAssetId, baselineRateByAssetId} = args;
+  const {
+    state,
+    point,
+    rateCursorByAssetId,
+    baselineRateByAssetId,
+    currentRatesByAssetId,
+    endTs,
+  } = args;
   const afterAtomic = parseAtomicToBigint(point.cryptoBalance);
   const beforeAtomic = state.unitsAtomic;
   const delta = afterAtomic - beforeAtomic;
 
   if (delta !== 0n) {
     if (delta > 0n) {
-      const rateForBasis =
-        rateCursorByAssetId[state.wallet.assetId].getNearest(point.timestamp) ??
-        baselineRateByAssetId[state.wallet.assetId] ??
-        0;
+      const rateForBasis = getAnalysisBasisRateAtTimestamp({
+        assetId: state.wallet.assetId,
+        ts: point.timestamp,
+        endTs,
+        rateCursorByAssetId,
+        baselineRateByAssetId,
+        currentRatesByAssetId,
+      });
       state.basisFiat += state.atomicToUnitNumber(delta) * rateForBasis;
     } else if (beforeAtomic > 0n) {
       state.basisFiat *= ratioBigIntToNumber(afterAtomic, beforeAtomic);
@@ -781,6 +853,8 @@ async function advanceStreamedWalletStateToTimestamp(args: {
       point: currentPoint,
       rateCursorByAssetId: context.rateCursorByAssetId,
       baselineRateByAssetId: context.baselineRateByAssetId,
+      currentRatesByAssetId: context.currentRatesByAssetId,
+      endTs: context.endTs,
     });
     state.nextPoint = await readNextPreparedWalletPointFromStream({
       iterator: state.iterator,
@@ -809,6 +883,7 @@ function finalizeAnalysisResult(args: {
   points: PnlAnalysisPoint[];
   baselineRateByAssetId: Record<string, number>;
   rateCursorByAssetId: Record<string, RateCursor>;
+  currentRatesByAssetId: Record<string, number>;
   endTs: number;
 }): PnlAnalysisResult {
   'worklet';
@@ -875,7 +950,10 @@ function finalizeAnalysisResult(args: {
     }
 
     const rateStart = args.baselineRateByAssetId[assetId] ?? 0;
-    const rateEnd = args.rateCursorByAssetId[assetId].getNearest(args.endTs) ?? 0;
+    const rateEnd =
+      getCurrentRateOverride(args.currentRatesByAssetId, assetId) ??
+      args.rateCursorByAssetId[assetId].getNearest(args.endTs) ??
+      0;
     const rateChange = rateEnd - rateStart;
     const ratePct = rateStart > 0 ? (rateChange / rateStart) * 100 : 0;
     const pnlPercent = endBasis > 0 ? (endPnl / endBasis) * 100 : 0;
@@ -938,6 +1016,7 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
     wallets: walletMetas,
     timeframe: args.timeframe,
     ratePointsByAssetId: args.ratePointsByAssetId,
+    currentRatesByAssetId: args.currentRatesByAssetId,
     firstNonZeroTs,
     startTs: args.startTs,
     endTs: args.endTs,
@@ -975,7 +1054,13 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
     let totalCryptoAtomic = 0n;
     let totalCryptoCreds: WalletCredentials | null = null;
 
-    const driverRate = context.rateCursorByAssetId[context.driverAssetId].getNearest(ts) ?? 0;
+    const driverRate = getAnalysisRateAtTimestamp({
+      assetId: context.driverAssetId,
+      ts,
+      endTs: context.endTs,
+      rateCursorByAssetId: context.rateCursorByAssetId,
+      currentRatesByAssetId: context.currentRatesByAssetId,
+    });
 
     for (const wallet of walletMetas) {
       const st = stateByWalletId[wallet.walletId];
@@ -986,13 +1071,21 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
           point: st.points[st.nextIndex],
           rateCursorByAssetId: context.rateCursorByAssetId,
           baselineRateByAssetId: context.baselineRateByAssetId,
+          currentRatesByAssetId: context.currentRatesByAssetId,
+          endTs: context.endTs,
         });
         st.nextIndex += 1;
       }
 
       clampWalletAnalysisState(st);
 
-      const rate = context.rateCursorByAssetId[st.wallet.assetId].getNearest(ts) ?? 0;
+      const rate = getAnalysisRateAtTimestamp({
+        assetId: st.wallet.assetId,
+        ts,
+        endTs: context.endTs,
+        rateCursorByAssetId: context.rateCursorByAssetId,
+        currentRatesByAssetId: context.currentRatesByAssetId,
+      });
       const units = st.atomicToUnitNumber(st.unitsAtomic);
       const fiatBalance = units * rate;
       const unrealized = fiatBalance - st.basisFiat;
@@ -1056,6 +1149,7 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
     points,
     baselineRateByAssetId: context.baselineRateByAssetId,
     rateCursorByAssetId: context.rateCursorByAssetId,
+    currentRatesByAssetId: context.currentRatesByAssetId,
     endTs: context.endTs,
   });
 }
@@ -1077,6 +1171,7 @@ export async function buildPnlAnalysisSeriesFromStreamed(args: PnlAnalysisStream
     wallets: walletMetas,
     timeframe: args.timeframe,
     ratePointsByAssetId: args.ratePointsByAssetId,
+    currentRatesByAssetId: args.currentRatesByAssetId,
     firstNonZeroTs,
     startTs: args.startTs,
     endTs: args.endTs,
@@ -1098,7 +1193,13 @@ export async function buildPnlAnalysisSeriesFromStreamed(args: PnlAnalysisStream
     let totalCryptoAtomic = 0n;
     let totalCryptoCreds: WalletCredentials | null = null;
 
-    const driverRate = context.rateCursorByAssetId[context.driverAssetId].getNearest(ts) ?? 0;
+    const driverRate = getAnalysisRateAtTimestamp({
+      assetId: context.driverAssetId,
+      ts,
+      endTs: context.endTs,
+      rateCursorByAssetId: context.rateCursorByAssetId,
+      currentRatesByAssetId: context.currentRatesByAssetId,
+    });
 
     for (const wallet of walletMetas) {
       const st = stateByWalletId[wallet.walletId];
@@ -1112,7 +1213,13 @@ export async function buildPnlAnalysisSeriesFromStreamed(args: PnlAnalysisStream
 
       clampWalletAnalysisState(st);
 
-      const rate = context.rateCursorByAssetId[st.wallet.assetId].getNearest(ts) ?? 0;
+      const rate = getAnalysisRateAtTimestamp({
+        assetId: st.wallet.assetId,
+        ts,
+        endTs: context.endTs,
+        rateCursorByAssetId: context.rateCursorByAssetId,
+        currentRatesByAssetId: context.currentRatesByAssetId,
+      });
       const units = st.atomicToUnitNumber(st.unitsAtomic);
       const fiatBalance = units * rate;
       const unrealized = fiatBalance - st.basisFiat;
@@ -1176,6 +1283,7 @@ export async function buildPnlAnalysisSeriesFromStreamed(args: PnlAnalysisStream
     points,
     baselineRateByAssetId: context.baselineRateByAssetId,
     rateCursorByAssetId: context.rateCursorByAssetId,
+    currentRatesByAssetId: context.currentRatesByAssetId,
     endTs: context.endTs,
   });
 }
@@ -1199,6 +1307,7 @@ export async function buildPnlAnalysisChartSeriesFromStreamed(
     wallets: walletMetas,
     timeframe: args.timeframe,
     ratePointsByAssetId: args.ratePointsByAssetId,
+    currentRatesByAssetId: args.currentRatesByAssetId,
     firstNonZeroTs,
     startTs: args.startTs,
     endTs: args.endTs,
@@ -1228,7 +1337,13 @@ export async function buildPnlAnalysisChartSeriesFromStreamed(
     let totalFiat = 0;
     let totalBasis = 0;
 
-    const driverRate = context.rateCursorByAssetId[context.driverAssetId].getNearest(ts) ?? 0;
+    const driverRate = getAnalysisRateAtTimestamp({
+      assetId: context.driverAssetId,
+      ts,
+      endTs: context.endTs,
+      rateCursorByAssetId: context.rateCursorByAssetId,
+      currentRatesByAssetId: context.currentRatesByAssetId,
+    });
     const driverBase = context.baselineRateByAssetId[context.driverAssetId] || driverRate;
 
     for (const wallet of walletMetas) {
@@ -1243,7 +1358,13 @@ export async function buildPnlAnalysisChartSeriesFromStreamed(
 
       clampWalletAnalysisState(st);
 
-      const rate = context.rateCursorByAssetId[st.wallet.assetId].getNearest(ts) ?? 0;
+      const rate = getAnalysisRateAtTimestamp({
+        assetId: st.wallet.assetId,
+        ts,
+        endTs: context.endTs,
+        rateCursorByAssetId: context.rateCursorByAssetId,
+        currentRatesByAssetId: context.currentRatesByAssetId,
+      });
       const units = st.atomicToUnitNumber(st.unitsAtomic);
       totalFiat += units * rate;
       totalBasis += st.basisFiat;

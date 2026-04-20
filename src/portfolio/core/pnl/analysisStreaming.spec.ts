@@ -177,6 +177,88 @@ describe('analysisStreaming preload helpers', () => {
     expect(res.points[res.points.length - 1]?.totalFiatBalance).toBe(2600);
   });
 
+  it('applies current rate overrides to the final point and asset summary', () => {
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-01T01:00:00Z');
+
+    const res = buildPnlAnalysisSeriesFromPreloaded({
+      cfg: {quoteCurrency: 'USD'},
+      timeframe: '1D',
+      nowMs: t1,
+      maxPoints: 2,
+      startTs: t0,
+      endTs: t1,
+      ratePointsByAssetId: {
+        'eth:eth': [
+          {ts: t0, rate: 100},
+          {ts: t1, rate: 110},
+        ],
+      },
+      currentRatesByAssetId: {
+        'eth:eth': 150,
+      },
+      wallets: [
+        {
+          wallet: mkWallet({walletId: 'w1'}),
+          basePoint: mkPoint(t0, '1000000000000000000'),
+          points: [],
+        },
+      ],
+    });
+
+    const last = res.points[res.points.length - 1];
+    const chart = compactPnlAnalysisResultForChart(res);
+
+    expect(last.totalFiatBalance).toBe(150);
+    expect(last.totalUnrealizedPnlFiat).toBe(50);
+    expect(last.totalPnlPercent).toBe(50);
+    expect(last.byWalletId.w1?.markRate).toBe(150);
+    expect(res.assetSummaries[0]?.rateEnd).toBe(150);
+    expect(res.assetSummaries[0]?.pnlEnd).toBe(50);
+    expect(chart.totalFiatBalance[chart.totalFiatBalance.length - 1]).toBe(150);
+    expect(
+      chart.totalUnrealizedPnlFiat[chart.totalUnrealizedPnlFiat.length - 1],
+    ).toBe(50);
+  });
+
+  it('uses the overridden current rate for basis updates on end-timestamp balance changes', () => {
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-01T01:00:00Z');
+
+    const res = buildPnlAnalysisSeriesFromPreloaded({
+      cfg: {quoteCurrency: 'USD'},
+      timeframe: '1D',
+      nowMs: t1,
+      maxPoints: 2,
+      startTs: t0,
+      endTs: t1,
+      ratePointsByAssetId: {
+        'eth:eth': [
+          {ts: t0, rate: 100},
+          {ts: t1, rate: 110},
+        ],
+      },
+      currentRatesByAssetId: {
+        'eth:eth': 150,
+      },
+      wallets: [
+        {
+          wallet: mkWallet({walletId: 'w1'}),
+          basePoint: null,
+          points: [mkPoint(t1, '1000000000000000000')],
+        },
+      ],
+    });
+
+    const last = res.points[res.points.length - 1];
+
+    expect(last.totalFiatBalance).toBe(150);
+    expect(last.totalRemainingCostBasisFiat).toBe(150);
+    expect(last.totalUnrealizedPnlFiat).toBe(0);
+    expect(last.byWalletId.w1?.remainingCostBasisFiat).toBe(150);
+    expect(last.byWalletId.w1?.unrealizedPnlFiat).toBe(0);
+  });
+
   it('matches preloaded analysis when the engine streams prepared wallet points', async () => {
     const t0 = Date.parse('2024-01-01T00:00:00Z');
     const t1 = Date.parse('2024-01-01T01:00:00Z');

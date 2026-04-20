@@ -2,10 +2,13 @@ import {BASE_BWS_URL, BWC_TIMEOUT} from '../../constants/config';
 import {GetPrecision} from '../../store/wallet/utils/currency';
 import type {Wallet} from '../../store/wallet/wallet.models';
 import type {AppDispatch} from '../../utils/hooks';
+import type {Rates} from '../../store/rate/rate.models';
+import {getRateByCurrencyName} from '../../utils/helper-methods';
 import {
   isPortfolioRuntimeEligibleWallet,
   toPortfolioStoredWallet,
 } from '../adapters/rn/walletMappers';
+import {getAssetIdFromWallet} from '../core/pnl/assetId';
 import type {PnlAnalysisChartResult, PnlAnalysisResult, PnlTimeframe} from '../core/pnl/analysisStreaming';
 import type {BwsConfig} from '../core/shared/bws';
 import type {StoredWallet} from '../core/types';
@@ -108,11 +111,62 @@ export function getStoredWalletRequestSignature(
     .join('|');
 }
 
+export function buildCurrentRatesByAssetId(args: {
+  storedWallets: StoredWallet[];
+  quoteCurrency: string;
+  rates?: Rates;
+}): Record<string, number> {
+  const quoteCurrency = String(args.quoteCurrency || 'USD').toUpperCase();
+  const rates = args.rates || {};
+  const currentRatesByAssetId: Record<string, number> = {};
+
+  for (const wallet of args.storedWallets || []) {
+    const assetId = getAssetIdFromWallet(wallet.summary);
+    if (assetId in currentRatesByAssetId) {
+      continue;
+    }
+
+    const walletRates = getRateByCurrencyName(
+      rates,
+      wallet.summary.currencyAbbreviation,
+      wallet.summary.chain,
+      wallet.summary.tokenAddress,
+    );
+    const currentRate = walletRates?.find(
+      rate => String(rate.code || '').toUpperCase() === quoteCurrency,
+    )?.rate;
+
+    if (
+      typeof currentRate === 'number' &&
+      Number.isFinite(currentRate) &&
+      currentRate > 0
+    ) {
+      currentRatesByAssetId[assetId] = currentRate;
+    }
+  }
+
+  return currentRatesByAssetId;
+}
+
+export function getCurrentRatesByAssetIdSignature(
+  currentRatesByAssetId: Record<string, number> | undefined,
+): string {
+  if (!currentRatesByAssetId) {
+    return '';
+  }
+
+  return Object.keys(currentRatesByAssetId)
+    .sort()
+    .map(assetId => `${assetId}:${String(currentRatesByAssetId[assetId])}`)
+    .join('|');
+}
+
 export async function runPortfolioAnalysisQuery(args: {
   wallets: StoredWallet[];
   quoteCurrency: string;
   timeframe: PnlTimeframe;
   maxPoints?: number;
+  currentRatesByAssetId?: Record<string, number>;
 }): Promise<PnlAnalysisResult> {
   return getPortfolioRuntimeClient().computeAnalysis({
     cfg: createPortfolioQueryBwsConfig(),
@@ -120,6 +174,7 @@ export async function runPortfolioAnalysisQuery(args: {
     quoteCurrency: args.quoteCurrency,
     timeframe: args.timeframe,
     maxPoints: args.maxPoints,
+    currentRatesByAssetId: args.currentRatesByAssetId,
   });
 }
 
@@ -128,6 +183,7 @@ export async function runPortfolioChartQuery(args: {
   quoteCurrency: string;
   timeframe: PnlTimeframe;
   maxPoints?: number;
+  currentRatesByAssetId?: Record<string, number>;
 }): Promise<PnlAnalysisChartResult> {
   return getPortfolioRuntimeClient().computeAnalysisChart({
     cfg: createPortfolioQueryBwsConfig(),
@@ -135,6 +191,7 @@ export async function runPortfolioChartQuery(args: {
     quoteCurrency: args.quoteCurrency,
     timeframe: args.timeframe,
     maxPoints: args.maxPoints,
+    currentRatesByAssetId: args.currentRatesByAssetId,
   });
 }
 
