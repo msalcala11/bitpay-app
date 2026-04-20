@@ -60,10 +60,11 @@ export const buildBalanceHistoryChartChangeRowData = (args: {
 
   return {
     percent: args.displayedAnalysisPoint.totalPnlPercent ?? 0,
+    // Keep the asset detail balance-history row aligned with the asset list:
+    // both should show the current unrealized P/L for the selected point, not
+    // the interval change from the first point in the window.
     deltaFiatFormatted: formatFiatAmount(
-      (args.displayedAnalysisPoint as any).totalPnlChange ??
-        args.displayedAnalysisPoint.totalUnrealizedPnlFiat ??
-        0,
+      args.displayedAnalysisPoint.totalUnrealizedPnlFiat ?? 0,
       args.quoteCurrency,
       {
         customPrecision: 'minimal',
