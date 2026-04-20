@@ -1,4 +1,7 @@
-import {buildAssetBalanceHistoryIdleSummary} from './assetBalanceHistorySummary';
+import {
+  buildAssetBalanceHistoryDisplayedSummary,
+  buildAssetBalanceHistoryIdleSummary,
+} from './assetBalanceHistorySummary';
 
 jest.mock('../../../../utils/helper-methods', () => ({
   formatFiatAmount: jest.fn((amount: number, quoteCurrency: string) => {
@@ -79,6 +82,63 @@ describe('buildAssetBalanceHistoryIdleSummary', () => {
       assetBalance: undefined,
       changeRow: undefined,
       assetMetrics: undefined,
+    });
+  });
+
+  it('prefers the chart displayed point and change row when both are available', () => {
+    expect(
+      buildAssetBalanceHistoryDisplayedSummary({
+        idleSummary: {
+          assetBalance: 125,
+          changeRow: {
+            percent: 12.5,
+            deltaFiatFormatted: 'USD:25',
+            rangeLabel: '1D',
+          },
+        },
+        chartDisplayedPoint: {
+          totalFiatBalance: 150,
+        },
+        chartChangeRow: {
+          percent: 20,
+          deltaFiatFormatted: 'USD:30',
+          rangeLabel: 'Last Day',
+        },
+      }),
+    ).toEqual({
+      assetBalance: 150,
+      changeRow: {
+        percent: 20,
+        deltaFiatFormatted: 'USD:30',
+        rangeLabel: 'Last Day',
+      },
+      source: 'chart',
+    });
+  });
+
+  it('falls back to the idle summary until the chart has a complete displayed payload', () => {
+    expect(
+      buildAssetBalanceHistoryDisplayedSummary({
+        idleSummary: {
+          assetBalance: 125,
+          changeRow: {
+            percent: 12.5,
+            deltaFiatFormatted: 'USD:25',
+            rangeLabel: '1D',
+          },
+        },
+        chartDisplayedPoint: {
+          totalFiatBalance: 150,
+        },
+      }),
+    ).toEqual({
+      assetBalance: 125,
+      changeRow: {
+        percent: 12.5,
+        deltaFiatFormatted: 'USD:25',
+        rangeLabel: '1D',
+      },
+      source: 'idle',
     });
   });
 });

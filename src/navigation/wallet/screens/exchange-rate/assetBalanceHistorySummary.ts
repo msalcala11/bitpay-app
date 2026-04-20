@@ -16,6 +16,12 @@ export type AssetBalanceHistoryIdleSummary = {
   assetMetrics?: AssetRowMetrics;
 };
 
+export type AssetBalanceHistoryDisplayedSummary = {
+  assetBalance?: number;
+  changeRow?: ChangeRowData;
+  source: 'chart' | 'idle';
+};
+
 export const buildAssetBalanceHistoryIdleSummary = (args: {
   storedWallets: StoredWallet[];
   analysis?: PnlAnalysisResult;
@@ -61,5 +67,31 @@ export const buildAssetBalanceHistoryIdleSummary = (args: {
           quoteCurrency: args.quoteCurrency,
           label: args.rangeLabel,
         }),
+  };
+};
+
+export const buildAssetBalanceHistoryDisplayedSummary = (args: {
+  idleSummary: AssetBalanceHistoryIdleSummary;
+  chartDisplayedPoint?: {
+    totalFiatBalance?: number;
+  };
+  chartChangeRow?: ChangeRowData;
+}): AssetBalanceHistoryDisplayedSummary => {
+  const chartAssetBalance = args.chartDisplayedPoint?.totalFiatBalance;
+  const hasChartAssetBalance =
+    typeof chartAssetBalance === 'number' && Number.isFinite(chartAssetBalance);
+
+  if (hasChartAssetBalance && args.chartChangeRow) {
+    return {
+      assetBalance: chartAssetBalance,
+      changeRow: args.chartChangeRow,
+      source: 'chart',
+    };
+  }
+
+  return {
+    assetBalance: args.idleSummary.assetBalance,
+    changeRow: args.idleSummary.changeRow,
+    source: 'idle',
   };
 };
