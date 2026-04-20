@@ -31,4 +31,71 @@ describe('prepareExchangeRateChartPoints', () => {
       dateNowSpy.mockRestore();
     }
   });
+
+  it('appends a live terminal point at nowMs when the live point is newer than history', () => {
+    const startMs = Date.UTC(2026, 3, 19, 15, 0, 0);
+    const historicalEndMs = Date.UTC(2026, 3, 20, 14, 0, 0);
+    const asOfMs = Date.UTC(2026, 3, 20, 15, 0, 0);
+
+    const result = prepareExchangeRateChartPoints({
+      selectedSeriesPoints: [
+        {ts: startMs, rate: 100},
+        {ts: historicalEndMs, rate: 101},
+      ],
+      selectedTimeframe: '1D',
+      seriesDataInterval: '1D',
+      currentFiatRate: 102,
+      nowMs: asOfMs,
+    });
+
+    expect(result).toEqual([
+      {ts: startMs, rate: 100},
+      {ts: historicalEndMs, rate: 101},
+      {ts: asOfMs, rate: 102},
+    ]);
+  });
+
+  it('appends a live terminal point even when the live rate matches the last historical rate', () => {
+    const startMs = Date.UTC(2026, 3, 19, 15, 0, 0);
+    const historicalEndMs = Date.UTC(2026, 3, 20, 14, 0, 0);
+    const asOfMs = Date.UTC(2026, 3, 20, 15, 0, 0);
+
+    const result = prepareExchangeRateChartPoints({
+      selectedSeriesPoints: [
+        {ts: startMs, rate: 100},
+        {ts: historicalEndMs, rate: 101},
+      ],
+      selectedTimeframe: '1D',
+      seriesDataInterval: '1D',
+      currentFiatRate: 101,
+      nowMs: asOfMs,
+    });
+
+    expect(result).toEqual([
+      {ts: startMs, rate: 100},
+      {ts: historicalEndMs, rate: 101},
+      {ts: asOfMs, rate: 101},
+    ]);
+  });
+
+  it('replaces the last point rate when the live terminal timestamp matches the historical terminal timestamp', () => {
+    const startMs = Date.UTC(2026, 3, 19, 15, 0, 0);
+    const asOfMs = Date.UTC(2026, 3, 20, 15, 0, 0);
+
+    const result = prepareExchangeRateChartPoints({
+      selectedSeriesPoints: [
+        {ts: startMs, rate: 100},
+        {ts: asOfMs, rate: 101},
+      ],
+      selectedTimeframe: '1D',
+      seriesDataInterval: '1D',
+      currentFiatRate: 102,
+      nowMs: asOfMs,
+    });
+
+    expect(result).toEqual([
+      {ts: startMs, rate: 100},
+      {ts: asOfMs, rate: 102},
+    ]);
+  });
 });

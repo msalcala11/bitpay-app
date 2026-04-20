@@ -274,6 +274,26 @@ type PrepareExchangeRateChartPointsArgs = Args & {
   nowMs?: number;
 };
 
+const resolveLiveTerminalTimestamp = (args: {
+  lastHistoricalTs: number;
+  nowMs?: number;
+}): number | undefined => {
+  const effectiveNowMs =
+    typeof args.nowMs === 'number' && Number.isFinite(args.nowMs)
+      ? args.nowMs
+      : Date.now();
+
+  if (!(Number.isFinite(effectiveNowMs) && effectiveNowMs > 0)) {
+    return undefined;
+  }
+
+  if (effectiveNowMs < args.lastHistoricalTs) {
+    return undefined;
+  }
+
+  return effectiveNowMs;
+};
+
 export const prepareExchangeRateChartPoints = ({
   selectedSeriesPoints,
   selectedTimeframe,
@@ -310,17 +330,40 @@ export const prepareExchangeRateChartPoints = ({
 
   const lastIdx = pointsToDisplay.length - 1;
   const last = pointsToDisplay[lastIdx];
-  if (
-    !last ||
-    Math.abs(last.rate - currentSpotRate) <= SPOT_RATE_MATCH_EPSILON
-  ) {
+  if (!last) {
     return pointsToDisplay;
   }
 
-  // Never mutate cached series points in Redux; only override in-memory for rendering.
-  const copy = [...pointsToDisplay];
-  copy[lastIdx] = {...last, rate: currentSpotRate};
-  return copy;
+  const liveTerminalTs = resolveLiveTerminalTimestamp({
+    lastHistoricalTs: last.ts,
+    nowMs,
+  });
+
+  if (typeof liveTerminalTs !== 'number') {
+    return pointsToDisplay;
+  }
+
+  if (liveTerminalTs === last.ts) {
+    if (Math.abs(last.rate - currentSpotRate) <= SPOT_RATE_MATCH_EPSILON) {
+      return pointsToDisplay;
+    }
+
+    // Never mutate cached series points in Redux; only override in-memory
+    // for rendering when the live terminal point resolves to the same ts.
+    const copy = [...pointsToDisplay];
+    copy[lastIdx] = {...last, rate: currentSpotRate};
+    return copy;
+  }
+
+  // Append an explicit live terminal point so the rendered chart tail is both
+  // rate-correct and timestamp-correct.
+  return [
+    ...pointsToDisplay,
+    {
+      ts: liveTerminalTs,
+      rate: currentSpotRate,
+    },
+  ];
 };
 
 const useExchangeRateChartData = ({
