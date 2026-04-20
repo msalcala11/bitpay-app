@@ -6,13 +6,15 @@ import {
   FiatRatePoint,
   FIAT_RATE_SERIES_TARGET_POINTS,
 } from '../../../store/rate/rate.models';
-import {calculatePercentageDifference} from '../../../utils/helper-methods';
 import {getFiatTimeframeMetadata} from '../../../utils/fiatTimeframes';
 import {
   normalizeGraphPointsForChart,
   recomputeMinMaxFromGraphPoints,
 } from '../../../utils/portfolio/chartGraph';
-import {downsampleSeries} from '../../../utils/portfolio/rate';
+import {
+  calculatePercentageDifferenceRaw,
+  downsampleSeries,
+} from '../../../utils/portfolio/rate';
 import {
   ensureSortedByTsAsc,
   lowerBoundByTs,
@@ -243,7 +245,7 @@ export const formatExchangeRateChartData = (
       renderedMinPoint,
     };
   }
-  const percentChange = calculatePercentageDifference(
+  const percentChange = calculatePercentageDifferenceRaw(
     rates[rates.length - 1].rate,
     rates[0].rate,
   );

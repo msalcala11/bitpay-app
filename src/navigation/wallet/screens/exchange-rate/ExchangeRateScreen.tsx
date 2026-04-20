@@ -24,11 +24,13 @@ import {
   getFiatRateSeriesCacheKey,
 } from '../../../../store/rate/rate.models';
 import {
-  calculatePercentageDifference,
   formatFiatAmount,
 } from '../../../../utils/helper-methods';
 import {shouldUseCompactFiatAmountText} from '../../../../utils/fiatAmountText';
-import {getFiatRateSeriesIntervalForTimeframe} from '../../../../utils/portfolio/rate';
+import {
+  calculatePercentageDifferenceRaw,
+  getFiatRateSeriesIntervalForTimeframe,
+} from '../../../../utils/portfolio/rate';
 import {White} from '../../../../styles/colors';
 import useRuntimeFiatRateSeriesCache from '../../../../portfolio/ui/hooks/useRuntimeFiatRateSeriesCache';
 import useExchangeRateChartData, {
@@ -357,7 +359,7 @@ const ExchangeRateScreen = ({shared}: ExchangeRateScreenProps) => {
       }
       const baselineValue =
         timeframeChange?.baselineRate ?? chartPoints[0]?.value ?? point.value;
-      const percentChangeAtPoint = calculatePercentageDifference(
+      const percentChangeAtPoint = calculatePercentageDifferenceRaw(
         point.value,
         baselineValue,
       );
