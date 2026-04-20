@@ -234,12 +234,13 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
 
       const isRowPopulateLoading =
         isPopulateLoadingByKey?.[item.key] ?? populateInProgress;
+      const isRowFiatLoading = !!isFiatLoading && isRowPopulateLoading;
 
       return (
         <AssetRow
           item={item}
           isLast={index === filteredItems.length - 1}
-          isFiatLoading={isFiatLoading}
+          isFiatLoading={isRowFiatLoading}
           isPopulateLoading={isRowPopulateLoading}
           img={img}
           imgSrc={imgSrc}

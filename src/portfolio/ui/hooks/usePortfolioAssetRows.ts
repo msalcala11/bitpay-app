@@ -121,6 +121,13 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
     freezeWhilePopulate: true,
     allowCurrentWhilePopulate: true,
   });
+  const resolvedPopulateItemsSessionToken = useMemo(() => {
+    return [
+      populateSessionStateToken,
+      gainLossMode,
+      analysis.quoteCurrency,
+    ].join('|');
+  }, [analysis.quoteCurrency, gainLossMode, populateSessionStateToken]);
   const shouldForcePopulateLoading =
     !!portfolio.populateStatus?.inProgress &&
     !analysis.committedData &&
@@ -270,7 +277,57 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
   const populateLoadingByKeyPrevRef = useRef<
     Record<string, boolean> | undefined
   >(undefined);
-  const isPopulateLoadingByKey = useMemo(() => {
+  const revealedPopulateAssetKeysRef = useRef<{
+    sessionToken: string;
+    keys: Set<string>;
+  }>({
+    sessionToken: '',
+    keys: new Set<string>(),
+  });
+  const resolvedPopulateItemsRef = useRef<{
+    sessionToken: string;
+    itemsByKey: Record<string, AssetRowItem>;
+  }>({
+    sessionToken: '',
+    itemsByKey: {},
+  });
+  useEffect(() => {
+    if (!portfolio.populateStatus?.inProgress) {
+      revealedPopulateAssetKeysRef.current = {
+        sessionToken: '',
+        keys: new Set<string>(),
+      };
+      resolvedPopulateItemsRef.current = {
+        sessionToken: '',
+        itemsByKey: {},
+      };
+      return;
+    }
+
+    if (
+      revealedPopulateAssetKeysRef.current.sessionToken !==
+      populateSessionStateToken
+    ) {
+      revealedPopulateAssetKeysRef.current = {
+        sessionToken: populateSessionStateToken,
+        keys: new Set<string>(),
+      };
+    }
+    if (
+      resolvedPopulateItemsRef.current.sessionToken !==
+      resolvedPopulateItemsSessionToken
+    ) {
+      resolvedPopulateItemsRef.current = {
+        sessionToken: resolvedPopulateItemsSessionToken,
+        itemsByKey: {},
+      };
+    }
+  }, [
+    populateSessionStateToken,
+    portfolio.populateStatus?.inProgress,
+    resolvedPopulateItemsSessionToken,
+  ]);
+  const isPopulateLoadingByKeyRaw = useMemo(() => {
     if (!portfolio.populateStatus?.inProgress) {
       return undefined;
     }
@@ -302,6 +359,88 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
     shouldForcePopulateLoading,
     visibleItems,
     walletIdsByAssetKey,
+  ]);
+  const isPopulateLoadingByKey = useMemo(() => {
+    if (!portfolio.populateStatus?.inProgress || !isPopulateLoadingByKeyRaw) {
+      return isPopulateLoadingByKeyRaw;
+    }
+
+    const revealedState = revealedPopulateAssetKeysRef.current;
+    if (revealedState.sessionToken !== populateSessionStateToken) {
+      revealedPopulateAssetKeysRef.current = {
+        sessionToken: populateSessionStateToken,
+        keys: new Set<string>(),
+      };
+    }
+
+    const revealedKeys = revealedPopulateAssetKeysRef.current.keys;
+    let changed = false;
+    const next: Record<string, boolean> = {...isPopulateLoadingByKeyRaw};
+
+    for (const [assetKey, loading] of Object.entries(isPopulateLoadingByKeyRaw)) {
+      if (loading === false) {
+        revealedKeys.add(assetKey);
+        continue;
+      }
+
+      if (revealedKeys.has(assetKey)) {
+        next[assetKey] = false;
+        changed = true;
+      }
+    }
+
+    return changed ? next : isPopulateLoadingByKeyRaw;
+  }, [
+    isPopulateLoadingByKeyRaw,
+    populateSessionStateToken,
+    portfolio.populateStatus?.inProgress,
+  ]);
+  const visibleItemsResolvedDuringPopulate = useMemo(() => {
+    if (!portfolio.populateStatus?.inProgress || !isPopulateLoadingByKey) {
+      return visibleItems;
+    }
+
+    if (
+      resolvedPopulateItemsRef.current.sessionToken !==
+      resolvedPopulateItemsSessionToken
+    ) {
+      resolvedPopulateItemsRef.current = {
+        sessionToken: resolvedPopulateItemsSessionToken,
+        itemsByKey: {},
+      };
+    }
+
+    const resolvedItemsByKey = resolvedPopulateItemsRef.current.itemsByKey;
+    let changed = false;
+    const nextItems = visibleItems.map(item => {
+      if (isPopulateLoadingByKey[item.key] === false) {
+        const cachedItem = resolvedItemsByKey[item.key];
+        if (cachedItem) {
+          if (cachedItem !== item) {
+            changed = true;
+          }
+          return cachedItem;
+        }
+
+        resolvedItemsByKey[item.key] = item;
+        return item;
+      }
+
+      const cachedItem = resolvedItemsByKey[item.key];
+      if (cachedItem) {
+        changed = true;
+        return cachedItem;
+      }
+
+      return item;
+    });
+
+    return changed ? nextItems : visibleItems;
+  }, [
+    isPopulateLoadingByKey,
+    portfolio.populateStatus?.inProgress,
+    resolvedPopulateItemsSessionToken,
+    visibleItems,
   ]);
 
   useEffect(() => {
@@ -339,7 +478,7 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
   ]);
 
   return {
-    visibleItems,
+    visibleItems: visibleItemsResolvedDuringPopulate,
     isFiatLoading: analysis.loading && !analysis.data && !analysis.committedData,
     isPopulateLoadingByKey,
     hasAnyPortfolioData:
