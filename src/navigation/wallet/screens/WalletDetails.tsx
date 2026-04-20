@@ -22,6 +22,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import {useStore} from 'react-redux';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import styled from 'styled-components/native';
 import BalanceHistoryChart from '../../../components/charts/BalanceHistoryChart';
@@ -148,6 +149,7 @@ import ArchaxFooter from '../../../components/archax/archax-footer';
 import {ExternalServicesScreens} from '../../services/ExternalServicesGroup';
 import {isTSSKey} from '../../../store/wallet/effects/tss-send/tss-send';
 import {logManager} from '../../../managers/LogManager';
+import type {RootState} from '../../../store';
 import {getQuoteCurrency} from '../../../utils/portfolio/assets';
 
 export type WalletDetailsScreenParamList = {
@@ -330,6 +332,7 @@ const getWalletType = (
 const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const navigation = useNavigation();
   const dispatch = useAppDispatch();
+  const reduxStore = useStore();
   const theme = useTheme();
   const {width: windowWidth} = useWindowDimensions();
   const {t} = useTranslation();
@@ -375,6 +378,22 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const [showBalanceDetailsModal, setShowBalanceDetailsModal] = useState(false);
   const walletType = getWalletType(key, fullWalletObj);
   const showArchaxBanner = useAppSelector(({APP}) => APP.showArchaxBanner);
+
+  const getLatestWalletFromReduxState = useCallback(() => {
+    const state = reduxStore.getState() as RootState;
+    const latestKeys = state.WALLET.keys as Record<string, Key>;
+    const latestWallets = (Object.values(latestKeys) as Key[]).flatMap(
+      (walletKey: Key) => walletKey.wallets || [],
+    );
+    const latestWallet = findWalletById(latestWallets, walletId, copayerId) as
+      | Wallet
+      | undefined;
+
+    return {
+      state,
+      wallet: latestWallet,
+    };
+  }, [copayerId, reduxStore, walletId]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -527,7 +546,6 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
         sleep(1000),
       ]);
       dispatch(updatePortfolioBalance());
-      await maybeRefreshWalletBalanceChart();
 
       const {wallet: latestWallet} = getLatestWalletFromReduxState();
       setNeedActionTxps(latestWallet?.pendingTxps || []);
@@ -724,7 +742,6 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const updateWalletStatusAndProfileBalance = async () => {
     await dispatch(startUpdateWalletStatus({key, wallet: fullWalletObj}));
     dispatch(updatePortfolioBalance());
-    await maybeRefreshWalletBalanceChart();
   };
 
   useEffect(() => {
