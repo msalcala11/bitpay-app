@@ -142,6 +142,24 @@ export class PortfolioRuntimeClient {
     return this.request('analysis.compute', params);
   }
 
+  prepareAnalysisSession(
+    params: WorkerMethodMap['analysis.prepareSession']['params'],
+  ) {
+    return this.request('analysis.prepareSession', params);
+  }
+
+  computeAnalysisSessionScope(
+    params: WorkerMethodMap['analysis.computeSessionScope']['params'],
+  ) {
+    return this.request('analysis.computeSessionScope', params);
+  }
+
+  disposeAnalysisSession(
+    params: WorkerMethodMap['analysis.disposeSession']['params'],
+  ) {
+    return this.request('analysis.disposeSession', params);
+  }
+
   computeAnalysisChart(
     params: WorkerMethodMap['analysis.computeChart']['params'],
   ) {

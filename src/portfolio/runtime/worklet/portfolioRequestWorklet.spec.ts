@@ -28,6 +28,13 @@ const createStorage = (): FakeStorage => {
 };
 
 describe('portfolioRequestWorklet', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
+
   it('handles snapshot reads and storage clearing without the class host', async () => {
     const storage = createStorage();
     const config = {
@@ -238,5 +245,140 @@ describe('portfolioRequestWorklet', () => {
         createdAt: 2,
       },
     ]);
+  });
+
+  it('handles prepared analysis session requests on the worklet runtime', async () => {
+    const storage = createStorage();
+    const config = {
+      storage,
+      storageId: 'test',
+      registryKey: '__registry__',
+    };
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-02T00:00:00Z');
+
+    const meta = buildWorkletWalletMetaForStore({
+      wallet: {
+        walletId: 'w3',
+        walletName: 'Wallet 3',
+        chain: 'btc',
+        network: 'livenet',
+        currencyAbbreviation: 'btc',
+        balanceAtomic: '0',
+        balanceFormatted: '0',
+      },
+      credentials: {
+        walletId: 'w3',
+        chain: 'btc',
+        network: 'livenet',
+        coin: 'btc',
+        token: undefined,
+      },
+      quoteCurrency: 'USD',
+      compressionEnabled: false,
+      chunkRows: 100,
+      snapshotDebugMode: 'none',
+    });
+
+    await ensureWorkletWalletIndex(
+      {storage, registryKey: '__registry__'},
+      meta,
+    );
+    await appendWorkletSnapshotChunk({
+      storage,
+      registryKey: '__registry__',
+      meta,
+      snapshots: [
+        {timestamp: t0, cryptoBalance: '100000000'},
+        {timestamp: t1, cryptoBalance: '200000000'},
+      ],
+      checkpoint: {
+        nextSkip: 2,
+        balanceAtomic: '200000000',
+        remainingCostBasisFiat: 21000,
+        lastMarkRate: 11000,
+        lastTimestamp: t1,
+        firstNonZeroTs: t0,
+      },
+    });
+
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          btc: [
+            {ts: t0, rate: 10000},
+            {ts: t1, rate: 11000},
+          ],
+        }),
+    })) as typeof global.fetch;
+
+    const wallet = {
+      walletId: 'w3',
+      addedAt: 1,
+      summary: {
+        walletId: 'w3',
+        walletName: 'Wallet 3',
+        chain: 'btc',
+        network: 'livenet',
+        currencyAbbreviation: 'btc',
+        balanceAtomic: '0',
+        balanceFormatted: '0',
+      },
+      credentials: {
+        walletId: 'w3',
+        chain: 'btc',
+        network: 'livenet',
+        coin: 'btc',
+      },
+    };
+
+    const prepareResponse = await handlePortfolioRequestOnRuntime(config, {
+      id: 10,
+      method: 'analysis.prepareSession',
+      params: {
+        cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
+        wallets: [wallet],
+        quoteCurrency: 'USD',
+        timeframe: '1D',
+        nowMs: t1,
+        maxPoints: 5,
+      },
+    });
+
+    expect(prepareResponse.ok).toBe(true);
+    if (!prepareResponse.ok) {
+      return;
+    }
+
+    const computeResponse = await handlePortfolioRequestOnRuntime(config, {
+      id: 11,
+      method: 'analysis.computeSessionScope',
+      params: {
+        sessionId: (prepareResponse.result as any).sessionId,
+        walletIds: ['w3'],
+      },
+    });
+
+    expect(computeResponse.ok).toBe(true);
+    if (!computeResponse.ok) {
+      return;
+    }
+    expect((computeResponse.result as any)?.assetIds).toEqual(['btc:btc']);
+
+    const disposeResponse = await handlePortfolioRequestOnRuntime(config, {
+      id: 12,
+      method: 'analysis.disposeSession',
+      params: {
+        sessionId: (prepareResponse.result as any).sessionId,
+      },
+    });
+
+    expect(disposeResponse).toEqual({
+      id: 12,
+      ok: true,
+      result: undefined,
+    });
   });
 });

@@ -1,6 +1,9 @@
 import {
   computeWorkletAnalysis,
   computeWorkletAnalysisChart,
+  computeWorkletAnalysisSessionScope,
+  disposeWorkletAnalysisSession,
+  prepareWorkletAnalysisSession,
 } from './portfolioWorkletAnalysis';
 import {
   appendWorkletSnapshotChunk,
@@ -273,5 +276,73 @@ describe('portfolioWorkletAnalysis', () => {
     expect(last?.totalUnrealizedPnlFiat).toBe(5000);
     expect(result.assetSummaries[0]?.rateEnd).toBe(15000);
     expect(result.assetSummaries[0]?.pnlEnd).toBe(5000);
+  });
+
+  it('reuses a prepared worklet analysis session for scoped computations', async () => {
+    const storage = createStorage();
+    const config = {storage, registryKey: '__registry__'};
+    const wallet = createStoredWallet();
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-02T00:00:00Z');
+
+    const meta = buildWorkletWalletMetaForStore({
+      wallet: wallet.summary,
+      credentials: wallet.credentials,
+      quoteCurrency: 'USD',
+      compressionEnabled: false,
+      chunkRows: 128,
+    });
+    await appendWorkletSnapshotChunk({
+      ...config,
+      meta,
+      snapshots: [
+        {timestamp: t0, cryptoBalance: '100000000'},
+        {timestamp: t1, cryptoBalance: '200000000'},
+      ],
+      checkpoint: {
+        nextSkip: 2,
+        balanceAtomic: '200000000',
+        remainingCostBasisFiat: 21000,
+        lastMarkRate: 11000,
+        lastTimestamp: t1,
+        firstNonZeroTs: t0,
+      },
+    });
+
+    const fetchMock = jest.fn(async () =>
+      makeJsonResponse({
+        btc: [
+          {ts: t0, rate: 10000},
+          {ts: t1, rate: 11000},
+        ],
+      }),
+    );
+    global.fetch = fetchMock as typeof global.fetch;
+
+    const args = {
+      cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
+      wallets: [wallet],
+      quoteCurrency: 'USD',
+      timeframe: '1D' as const,
+      nowMs: t1,
+      maxPoints: 5,
+    };
+
+    const direct = await computeWorkletAnalysis(config, args);
+    const prepared = await prepareWorkletAnalysisSession(config, args);
+    const scoped = await computeWorkletAnalysisSessionScope(config, {
+      sessionId: prepared.sessionId,
+      walletIds: ['w1'],
+    });
+
+    expect(scoped).toEqual(direct);
+
+    disposeWorkletAnalysisSession({sessionId: prepared.sessionId});
+    await expect(
+      computeWorkletAnalysisSessionScope(config, {
+        sessionId: prepared.sessionId,
+        walletIds: ['w1'],
+      }),
+    ).rejects.toThrow('Prepared portfolio analysis session not found');
   });
 });

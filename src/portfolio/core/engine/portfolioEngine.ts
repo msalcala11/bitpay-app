@@ -51,7 +51,6 @@ import {
   type PnlTimeframe,
   type PnlAnalysisChartResult,
   type PnlAnalysisResult,
-  type ResolvedPnlAnalysisPreloadWindow,
   type WalletForAnalysisMeta,
   type WalletForStreamedAnalysis,
 } from '../pnl/analysisStreaming';
@@ -99,31 +98,48 @@ export type ComputeAnalysisArgs = {
   currentRatesByAssetId?: Record<string, number>;
 };
 
-type PreparedStreamedAnalysisInputs = {
-  quoteCurrency: string;
-  firstNonZeroTs: number | null;
-  resolved: ResolvedPnlAnalysisPreloadWindow;
-  wallets: WalletForStreamedAnalysis[];
+export type PrepareAnalysisSessionResult = {
+  sessionId: string;
 };
 
-function buildEmptyPreparedStreamedAnalysisInputs(args: {
+export type ComputeAnalysisSessionScopeArgs = {
+  sessionId: string;
+  walletIds?: string[];
+};
+
+export type DisposeAnalysisSessionArgs = {
+  sessionId: string;
+};
+
+type PreparedAnalysisSessionData = {
+  quoteCurrency: string;
+  timeframe: PnlTimeframe;
+  nowMs?: number;
+  maxPoints?: number;
+  currentRatesByAssetId?: Record<string, number>;
+  ratePointsByAssetId: Record<string, FiatRatePoint[]>;
+  walletMetasById: Map<string, WalletForAnalysisMeta>;
+  walletIds: string[];
+  firstNonZeroTsByWalletId: Record<string, number | null>;
+};
+
+function buildEmptyPreparedAnalysisSessionData(args: {
   quoteCurrency: string;
   timeframe: ComputeAnalysisArgs['timeframe'];
   nowMs: ComputeAnalysisArgs['nowMs'];
   maxPoints: ComputeAnalysisArgs['maxPoints'];
-}): PreparedStreamedAnalysisInputs {
+  currentRatesByAssetId?: Record<string, number>;
+}): PreparedAnalysisSessionData {
   return {
     quoteCurrency: args.quoteCurrency,
-    firstNonZeroTs: null,
-    resolved: resolvePnlAnalysisPreloadWindow({
-      cfg: {quoteCurrency: args.quoteCurrency},
-      wallets: [],
-      timeframe: args.timeframe,
-      ratePointsByAssetId: {},
-      nowMs: args.nowMs,
-      maxPoints: args.maxPoints,
-    }),
-    wallets: [],
+    timeframe: args.timeframe,
+    nowMs: args.nowMs,
+    maxPoints: args.maxPoints,
+    currentRatesByAssetId: args.currentRatesByAssetId,
+    ratePointsByAssetId: {},
+    walletMetasById: new Map(),
+    walletIds: [],
+    firstNonZeroTsByWalletId: {},
   };
 }
 
@@ -185,6 +201,8 @@ export class PortfolioEngine {
       pendingTxs: Tx[];
     }
   >();
+  private preparedAnalysisSessions = new Map<string, PreparedAnalysisSessionData>();
+  private nextPreparedAnalysisSessionId = 1;
 
   constructor(kv: KvStore, opts?: PortfolioEngineOptions) {
     this.kv = kv;
@@ -344,6 +362,7 @@ export class PortfolioEngine {
     this.builders.delete(walletId);
     this.sessionMetaByWalletId.delete(walletId);
     this.sessionFetchByWalletId.delete(walletId);
+    this.preparedAnalysisSessions.clear();
     await this.snapshotStore.clearWallet(walletId);
   }
 
@@ -352,6 +371,7 @@ export class PortfolioEngine {
     this.builders.clear();
     this.sessionMetaByWalletId.clear();
     this.sessionFetchByWalletId.clear();
+    this.preparedAnalysisSessions.clear();
     this.snapshotStore.clearMemoryCache();
     this.rateStore.clearMemoryCache();
     await this.kv.clearAll();
@@ -363,6 +383,7 @@ export class PortfolioEngine {
     const prefix = quote ? `rate:v1:${quote}:` : 'rate:v1:';
     const keys = await this.kv.listKeys(prefix);
 
+    this.preparedAnalysisSessions.clear();
     this.rateStore.clearMemoryCache();
     for (const key of keys) {
       await this.kv.delete(key);
@@ -528,19 +549,6 @@ export class PortfolioEngine {
       ] = series;
     }
     return cache;
-  }
-
-  private async findFirstNonZeroBalanceTs(
-    walletIds: string[],
-  ): Promise<number | null> {
-    let best: number | null = null;
-    for (const walletId of walletIds) {
-      const idx = await this.snapshotStore.loadIndex(walletId);
-      const ts = idx?.checkpoint?.firstNonZeroTs;
-      if (typeof ts !== 'number' || !Number.isFinite(ts) || ts <= 0) continue;
-      if (best === null || ts < best) best = ts;
-    }
-    return best;
   }
 
   async prepareWalletSession(args: {
@@ -822,37 +830,50 @@ export class PortfolioEngine {
     return compactPnlAnalysisResultForChart(await this.computeAnalysis(args));
   }
 
+  async prepareAnalysisSession(
+    args: ComputeAnalysisArgs,
+  ): Promise<PrepareAnalysisSessionResult> {
+    const prepared = await this.prepareAnalysisSessionData(args);
+    const sessionId = `analysis-session:${this.nextPreparedAnalysisSessionId++}`;
+    this.preparedAnalysisSessions.set(sessionId, prepared);
+    return {sessionId};
+  }
+
+  async computeAnalysisSessionScope(
+    args: ComputeAnalysisSessionScopeArgs,
+  ): Promise<PnlAnalysisResult> {
+    const prepared = this.preparedAnalysisSessions.get(args.sessionId);
+    if (!prepared) {
+      throw new Error(
+        `Prepared portfolio analysis session not found: ${args.sessionId}`,
+      );
+    }
+
+    return this.computeAnalysisFromPreparedSession(prepared, args.walletIds);
+  }
+
+  async disposeAnalysisSession(args: DisposeAnalysisSessionArgs): Promise<void> {
+    this.preparedAnalysisSessions.delete(args.sessionId);
+  }
+
   async computeAnalysis(args: ComputeAnalysisArgs): Promise<PnlAnalysisResult> {
+    const prepared = await this.prepareAnalysisSessionData(args);
+    return this.computeAnalysisFromPreparedSession(prepared);
+  }
+
+  private async prepareAnalysisSessionData(
+    args: ComputeAnalysisArgs,
+  ): Promise<PreparedAnalysisSessionData> {
     if (!args.wallets.length) {
-      return buildPnlAnalysisSeriesFromPreloaded({
-        cfg: {quoteCurrency: String(args.quoteCurrency || 'USD').toUpperCase()},
-        wallets: [],
+      return buildEmptyPreparedAnalysisSessionData({
+        quoteCurrency: String(args.quoteCurrency || 'USD').toUpperCase(),
         timeframe: args.timeframe,
-        ratePointsByAssetId: {},
         nowMs: args.nowMs,
         maxPoints: args.maxPoints,
+        currentRatesByAssetId: args.currentRatesByAssetId,
       });
     }
 
-    const prepared = await this.prepareStreamedAnalysisInputs(args);
-    return buildPnlAnalysisSeriesFromStreamed({
-      cfg: {quoteCurrency: prepared.quoteCurrency},
-      wallets: prepared.wallets,
-      timeframe: args.timeframe,
-      ratePointsByAssetId: prepared.resolved.rawPointsByAssetId,
-      currentRatesByAssetId: args.currentRatesByAssetId,
-      firstNonZeroTs: prepared.firstNonZeroTs,
-      startTs: prepared.resolved.startTs,
-      endTs: prepared.resolved.endTs,
-      nowMs: prepared.resolved.nowMs,
-      maxPoints: args.maxPoints,
-      resolvedWindow: prepared.resolved,
-    });
-  }
-
-  private async prepareStreamedAnalysisInputs(
-    args: ComputeAnalysisArgs,
-  ): Promise<PreparedStreamedAnalysisInputs> {
     const targetQuoteCurrency = String(
       args.quoteCurrency || 'USD',
     ).toUpperCase();
@@ -872,10 +893,32 @@ export class PortfolioEngine {
     const walletMetaByWalletId = new Map(
       walletMetas.map(meta => [meta.walletId, meta]),
     );
+    const snapshotIndexesByWalletId = new Map(
+      await Promise.all(
+        args.wallets.map(async wallet => {
+          return [
+            wallet.summary.walletId,
+            await this.snapshotStore.loadIndex(wallet.summary.walletId),
+          ] as const;
+        }),
+      ),
+    );
+    const walletIdsWithSnapshots = new Set(
+      args.wallets
+        .filter(wallet =>
+          snapshotIndexesByWalletId
+            .get(wallet.summary.walletId)
+            ?.chunks?.some(chunk => Number(chunk?.rows) > 0),
+        )
+        .map(wallet => wallet.summary.walletId),
+    );
+    const walletsWithSnapshots = args.wallets.filter(w =>
+      walletIdsWithSnapshots.has(w.summary.walletId),
+    );
 
     const baseAssets = Array.from(
       new Map(
-        args.wallets.map(w => {
+        walletsWithSnapshots.map(w => {
           const assetRef = getFiatRateAssetRef({
             currencyAbbreviation: w.summary.currencyAbbreviation,
             chain: w.summary.chain,
@@ -904,6 +947,16 @@ export class PortfolioEngine {
       ]),
     );
     const explicitAssets = baseAssets.filter(asset => !!asset.tokenAddress);
+
+    if (!walletsWithSnapshots.length) {
+      return buildEmptyPreparedAnalysisSessionData({
+        quoteCurrency: targetQuoteCurrency,
+        timeframe: args.timeframe,
+        nowMs: args.nowMs,
+        maxPoints: args.maxPoints,
+        currentRatesByAssetId: args.currentRatesByAssetId,
+      });
+    }
 
     await this.rateStore.ensureRates({
       cfg: args.cfg,
@@ -945,47 +998,122 @@ export class PortfolioEngine {
     const walletIdsWithRates = new Set(
       walletMetasWithRates.map(meta => meta.walletId),
     );
-    const walletsWithRates = args.wallets.filter(w =>
+    const walletsWithRates = walletsWithSnapshots.filter(w =>
       walletIdsWithRates.has(w.summary.walletId),
     );
 
     if (!walletsWithRates.length) {
-      return buildEmptyPreparedStreamedAnalysisInputs({
+      return buildEmptyPreparedAnalysisSessionData({
         quoteCurrency: targetQuoteCurrency,
         timeframe: args.timeframe,
         nowMs: args.nowMs,
         maxPoints: args.maxPoints,
+        currentRatesByAssetId: args.currentRatesByAssetId,
+      });
+    }
+    const firstNonZeroTsByWalletId: Record<string, number | null> = {};
+    for (const wallet of walletsWithRates) {
+      const walletId = wallet.summary.walletId;
+      const firstNonZeroTs =
+        snapshotIndexesByWalletId.get(walletId)?.checkpoint?.firstNonZeroTs;
+      firstNonZeroTsByWalletId[walletId] =
+        typeof firstNonZeroTs === 'number' &&
+        Number.isFinite(firstNonZeroTs) &&
+        firstNonZeroTs > 0
+          ? firstNonZeroTs
+          : null;
+    }
+
+    return {
+      quoteCurrency: targetQuoteCurrency,
+      timeframe: args.timeframe,
+      nowMs: args.nowMs,
+      maxPoints: args.maxPoints,
+      currentRatesByAssetId: args.currentRatesByAssetId,
+      ratePointsByAssetId,
+      walletMetasById: new Map(
+        walletsWithRates.map(wallet => {
+          const walletMeta = walletMetaByWalletId.get(wallet.summary.walletId);
+          if (!walletMeta) {
+            throw new Error(
+              `Missing analysis wallet metadata for ${wallet.summary.walletId}.`,
+            );
+          }
+          return [wallet.summary.walletId, walletMeta] as const;
+        }),
+      ),
+      walletIds: walletsWithRates.map(wallet => wallet.summary.walletId),
+      firstNonZeroTsByWalletId,
+    };
+  }
+
+  private async computeAnalysisFromPreparedSession(
+    prepared: PreparedAnalysisSessionData,
+    walletIds?: string[],
+  ): Promise<PnlAnalysisResult> {
+    const selectedWalletIds = Array.from(
+      new Set(
+        (Array.isArray(walletIds) && walletIds.length
+          ? walletIds
+          : prepared.walletIds
+        )
+          .map(walletId => String(walletId || ''))
+          .filter(walletId => prepared.walletMetasById.has(walletId)),
+      ),
+    );
+
+    if (!selectedWalletIds.length) {
+      return buildPnlAnalysisSeriesFromPreloaded({
+        cfg: {quoteCurrency: prepared.quoteCurrency},
+        wallets: [],
+        timeframe: prepared.timeframe,
+        ratePointsByAssetId: {},
+        currentRatesByAssetId: prepared.currentRatesByAssetId,
+        nowMs: prepared.nowMs,
+        maxPoints: prepared.maxPoints,
       });
     }
 
+    const selectedWalletMetas = selectedWalletIds
+      .map(walletId => prepared.walletMetasById.get(walletId))
+      .filter((wallet): wallet is WalletForAnalysisMeta => !!wallet);
     const firstNonZeroTs =
-      args.timeframe === 'ALL'
-        ? await this.findFirstNonZeroBalanceTs(
-            walletsWithRates.map(w => w.summary.walletId),
-          )
+      prepared.timeframe === 'ALL'
+        ? selectedWalletIds.reduce<number | null>((best, walletId) => {
+            const candidate = prepared.firstNonZeroTsByWalletId[walletId];
+            if (
+              typeof candidate !== 'number' ||
+              !Number.isFinite(candidate) ||
+              candidate <= 0
+            ) {
+              return best;
+            }
+            if (best === null || candidate < best) {
+              return candidate;
+            }
+            return best;
+          }, null)
         : null;
-
     const resolved = resolvePnlAnalysisPreloadWindow({
-      cfg: {quoteCurrency: targetQuoteCurrency},
-      wallets: walletMetasWithRates,
-      timeframe: args.timeframe,
-      ratePointsByAssetId,
+      cfg: {quoteCurrency: prepared.quoteCurrency},
+      wallets: selectedWalletMetas,
+      timeframe: prepared.timeframe,
+      ratePointsByAssetId: prepared.ratePointsByAssetId,
       firstNonZeroTs,
-      nowMs: args.nowMs,
-      maxPoints: args.maxPoints,
+      nowMs: prepared.nowMs,
+      maxPoints: prepared.maxPoints,
     });
 
     const wallets: WalletForStreamedAnalysis[] = [];
-    for (const wallet of walletsWithRates) {
-      const walletId = wallet.summary.walletId;
+    for (const walletId of selectedWalletIds) {
+      const walletMeta = prepared.walletMetasById.get(walletId);
+      if (!walletMeta) {
+        continue;
+      }
       const basePoint = await this.snapshotStore.findLastPointAtOrBefore(
         walletId,
         resolved.startTs,
       );
-      const walletMeta = walletMetaByWalletId.get(walletId);
-      if (!walletMeta) {
-        throw new Error(`Missing analysis wallet metadata for ${walletId}.`);
-      }
       wallets.push({
         wallet: walletMeta,
         basePoint,
@@ -997,11 +1125,18 @@ export class PortfolioEngine {
       });
     }
 
-    return {
-      quoteCurrency: targetQuoteCurrency,
-      firstNonZeroTs,
-      resolved,
+    return buildPnlAnalysisSeriesFromStreamed({
+      cfg: {quoteCurrency: prepared.quoteCurrency},
       wallets,
-    };
+      timeframe: prepared.timeframe,
+      ratePointsByAssetId: prepared.ratePointsByAssetId,
+      currentRatesByAssetId: prepared.currentRatesByAssetId,
+      firstNonZeroTs,
+      startTs: resolved.startTs,
+      endTs: resolved.endTs,
+      nowMs: resolved.nowMs,
+      maxPoints: prepared.maxPoints,
+      resolvedWindow: resolved,
+    });
   }
 }

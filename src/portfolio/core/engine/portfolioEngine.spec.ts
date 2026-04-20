@@ -671,6 +671,108 @@ describe('PortfolioEngine compute sessions', () => {
     expect(chart.driverMarkRate?.[chart.driverMarkRate.length - 1]).toBe(11000);
   });
 
+  it('reuses a prepared analysis session for scoped computations', async () => {
+    const kv = new MemoryKv();
+    const engine = new PortfolioEngine(kv);
+    const wallet = mkWallet({
+      walletId: 'w-btc',
+      walletName: 'BTC Wallet',
+      balanceAtomic: '200000000',
+      balanceFormatted: '2',
+    });
+    const credentials = mkCreds({
+      walletId: 'w-btc',
+      chain: 'btc',
+      network: 'livenet',
+      coin: 'btc',
+    });
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-02T00:00:00Z');
+
+    await engine.rateStore.setSeries({
+      quoteCurrency: 'USD',
+      coin: 'btc',
+      interval: '1D',
+      series: {
+        fetchedOn: Date.now(),
+        points: [
+          {ts: t0, rate: 10000},
+          {ts: t1, rate: 11000},
+        ],
+      },
+    });
+
+    await engine.snapshotStore.ensureWalletIndex({
+      walletId: wallet.walletId,
+      chain: wallet.chain,
+      network: wallet.network,
+      currencyAbbreviation: wallet.currencyAbbreviation,
+      quoteCurrency: 'USD',
+      compressionEnabled: false,
+      chunkRows: 2000,
+      snapshotDebugMode: 'none',
+    });
+    await engine.snapshotStore.appendChunk({
+      meta: {
+        walletId: wallet.walletId,
+        chain: wallet.chain,
+        network: wallet.network,
+        currencyAbbreviation: wallet.currencyAbbreviation,
+        quoteCurrency: 'USD',
+        compressionEnabled: false,
+        chunkRows: 2000,
+        snapshotDebugMode: 'none',
+      },
+      snapshots: [
+        {timestamp: t0, cryptoBalance: '100000000'},
+        {timestamp: t1, cryptoBalance: '200000000'},
+      ],
+      checkpoint: {
+        nextSkip: 2,
+        balanceAtomic: '200000000',
+        remainingCostBasisFiat: 21000,
+        lastMarkRate: 11000,
+        lastTimestamp: t1,
+        firstNonZeroTs: t0,
+      },
+    });
+
+    const args = {
+      cfg: {baseUrl: 'https://bws.invalid'},
+      wallets: [
+        {
+          walletId: wallet.walletId,
+          summary: wallet,
+          credentials,
+          addedAt: Date.now(),
+        },
+      ],
+      quoteCurrency: 'USD',
+      timeframe: '1D' as const,
+      nowMs: t1,
+      maxPoints: 5,
+    };
+
+    const direct = await engine.computeAnalysis(args);
+    const prepared = await engine.prepareAnalysisSession(args);
+    const scoped = await engine.computeAnalysisSessionScope({
+      sessionId: prepared.sessionId,
+      walletIds: [wallet.walletId],
+    });
+
+    expect(scoped).toEqual(direct);
+
+    await expect(
+      engine.disposeAnalysisSession({sessionId: prepared.sessionId}),
+    ).resolves.toBeUndefined();
+    await expect(
+      engine.computeAnalysisSessionScope({
+        sessionId: prepared.sessionId,
+        walletIds: [wallet.walletId],
+      }),
+    ).rejects.toThrow('Prepared portfolio analysis session not found');
+  });
+
   it('filters out only assets whose requested rate series are missing', async () => {
     const kv = new MemoryKv();
     const t0 = Date.parse('2024-01-01T00:00:00Z');
