@@ -18,25 +18,16 @@ import InteractiveLineChart from './InteractiveLineChart';
 import ChartSelectionDot from './ChartSelectionDot';
 import ChartChangeRow from './ChartChangeRow';
 import {Action, LinkBlue, White} from '../../styles/colors';
-import {useAppDispatch, useAppSelector} from '../../utils/hooks';
+import {useAppDispatch} from '../../utils/hooks';
 import {isNumberSharedValue, type NumberSharedValue} from './sharedValueGuards';
 import {
   touchBalanceChartScope,
   upsertBalanceChartScopeTimeframes,
 } from '../../store/portfolio-charts';
 import {
-  buildBalanceChartScopeId,
-  deserializeCachedTimeframeToComputedSeries,
   getCachedBalanceChartTimeframe,
-  getCachedTimeframeStatus,
-  getSortedUniqueWalletIds,
-  serializeComputedSeriesToCachedTimeframe,
   type HydratedBalanceChartSeries,
 } from '../../utils/portfolio/chartCache';
-import {
-  normalizeGraphPointsForChart,
-  recomputeMinMaxFromGraphPoints,
-} from '../../utils/portfolio/chartGraph';
 import {
   buildBalanceHistoryChartChangeRowData,
   getDisplayedBalanceHistoryAnalysisPoint,
@@ -44,27 +35,14 @@ import {
   type ChangeRowData,
 } from './balanceHistoryChartSelection';
 import {useStableBalanceHistoryChartAxisLabels} from './useStableBalanceHistoryChartAxisLabels';
-import {
-  buildCurrentRatesByAssetId,
-  buildCommittedPortfolioRevisionToken,
-  getCurrentRatesByAssetIdSignature,
-  getStoredWalletRequestSignature,
-  mapWalletsToStoredWallets,
-  resolveCurrentRatesAsOfMs,
-  resolveCommittedPortfolioQuoteCurrency,
-  runPortfolioChartQuery,
-} from '../../portfolio/ui/common';
-import type {
-  PnlAnalysisChartResult,
-  PnlAnalysisPoint,
-} from '../../portfolio/core/pnl/analysisStreaming';
+import {runPortfolioChartQuery} from '../../portfolio/ui/common';
+import {usePortfolioBalanceChartScope} from '../../portfolio/ui/hooks/usePortfolioBalanceChartScope';
 import {formatUnknownError} from '../../utils/errors/formatUnknownError';
-import {getFiatRateSeriesAssetKey} from '../../utils/portfolio/core/fiatRateSeries';
-import {getRateByCurrencyName} from '../../utils/helper-methods';
 import {
-  getPortfolioWalletChainLower,
-  getPortfolioWalletTokenAddress,
-} from '../../utils/portfolio/assets';
+  buildCachedTimeframeFromRuntimeChart,
+  buildHydratedSeriesFromRuntimeChart,
+  resolveCachedBalanceChartSeries,
+} from '../../utils/portfolio/balanceChartData';
 
 export type BalanceHistoryChartProps = {
   wallets: Wallet[];
@@ -143,165 +121,6 @@ type DisplayState = {
   timeframe: FiatRateInterval;
 };
 
-const buildHydratedSeriesFromRuntimeChart = (args: {
-  chart: PnlAnalysisChartResult;
-  balanceOffset: number;
-}): HydratedBalanceChartSeries | undefined => {
-  const length = Math.min(
-    args.chart.timestamps.length,
-    args.chart.totalFiatBalance.length,
-    args.chart.totalRemainingCostBasisFiat.length,
-    args.chart.totalUnrealizedPnlFiat.length,
-    args.chart.totalPnlChange.length,
-    args.chart.totalPnlPercent.length,
-  );
-
-  if (!length) {
-    return undefined;
-  }
-
-  const analysisPoints: PnlAnalysisPoint[] = [];
-  const rawGraphPoints: GraphPoint[] = [];
-
-  for (let index = 0; index < length; index++) {
-    const timestamp = Number(args.chart.timestamps[index]);
-    const totalFiatBalance = Number(args.chart.totalFiatBalance[index]);
-    const totalRemainingCostBasisFiat = Number(
-      args.chart.totalRemainingCostBasisFiat[index],
-    );
-    const totalUnrealizedPnlFiat = Number(
-      args.chart.totalUnrealizedPnlFiat[index],
-    );
-    const totalPnlChange = Number(args.chart.totalPnlChange[index]);
-    const totalPnlPercent = Number(args.chart.totalPnlPercent[index]);
-
-    if (
-      ![
-        timestamp,
-        totalFiatBalance,
-        totalRemainingCostBasisFiat,
-        totalUnrealizedPnlFiat,
-        totalPnlChange,
-        totalPnlPercent,
-      ].every(Number.isFinite)
-    ) {
-      continue;
-    }
-
-    analysisPoints.push({
-      timestamp,
-      totalFiatBalance,
-      totalRemainingCostBasisFiat,
-      totalUnrealizedPnlFiat,
-      totalPnlChange,
-      totalPnlPercent,
-      byWalletId: {},
-    });
-
-    rawGraphPoints.push({
-      date: new Date(timestamp),
-      value: totalFiatBalance + args.balanceOffset,
-    });
-  }
-
-  if (!analysisPoints.length || !rawGraphPoints.length) {
-    return undefined;
-  }
-
-  const graphPoints = normalizeGraphPointsForChart(rawGraphPoints);
-  const pointByTimestamp = new Map<number, PnlAnalysisPoint>();
-  for (
-    let index = 0;
-    index < Math.min(graphPoints.length, analysisPoints.length);
-    index++
-  ) {
-    pointByTimestamp.set(
-      graphPoints[index].date.getTime(),
-      analysisPoints[index],
-    );
-  }
-
-  const extrema = recomputeMinMaxFromGraphPoints(graphPoints);
-  return {
-    graphPoints,
-    analysisPoints,
-    pointByTimestamp,
-    ...extrema,
-  };
-};
-
-const buildCachedTimeframeFromSeries = (args: {
-  timeframe: FiatRateInterval;
-  walletIds: string[];
-  quoteCurrency: string;
-  balanceOffset: number;
-  dataRevisionSig: string;
-  series: HydratedBalanceChartSeries;
-  patchMetadata: Pick<
-    PnlAnalysisChartResult,
-    | 'lastSpotRatesByRateKey'
-    | 'latestHoldingsByRateKey'
-    | 'latestRemainingCostBasisFiatTotal'
-  >;
-}): ReturnType<typeof serializeComputedSeriesToCachedTimeframe> => {
-  return serializeComputedSeriesToCachedTimeframe({
-    timeframe: args.timeframe,
-    walletIds: args.walletIds,
-    quoteCurrency: args.quoteCurrency,
-    balanceOffset: args.balanceOffset,
-    dataRevisionSig: args.dataRevisionSig,
-    historicalRateDeps: [],
-    analysisPoints: args.series.analysisPoints,
-    patchMetadata: {
-      lastSpotRatesByRateKey: args.patchMetadata.lastSpotRatesByRateKey,
-      latestHoldingsByRateKey: args.patchMetadata.latestHoldingsByRateKey,
-      latestRemainingCostBasisFiatTotal:
-        args.patchMetadata.latestRemainingCostBasisFiatTotal,
-    },
-  });
-};
-
-const buildCurrentSpotRatesByRateKey = (args: {
-  wallets: Wallet[];
-  rates?: Rates;
-  quoteCurrency: string;
-}): Record<string, number> => {
-  const quoteCurrency = String(args.quoteCurrency || 'USD').toUpperCase();
-  const out: Record<string, number> = {};
-
-  for (const wallet of args.wallets || []) {
-    const tokenAddress = getPortfolioWalletTokenAddress(wallet);
-    const rateKey = getFiatRateSeriesAssetKey(wallet.currencyAbbreviation, {
-      chain: tokenAddress ? getPortfolioWalletChainLower(wallet) : undefined,
-      tokenAddress,
-    });
-
-    if (!rateKey || rateKey in out) {
-      continue;
-    }
-
-    const walletRates = getRateByCurrencyName(
-      args.rates || {},
-      wallet.currencyAbbreviation,
-      wallet.chain,
-      wallet.tokenAddress,
-    );
-    const currentRate = walletRates?.find(
-      rate => String(rate.code || '').toUpperCase() === quoteCurrency,
-    )?.rate;
-
-    if (
-      typeof currentRate === 'number' &&
-      Number.isFinite(currentRate) &&
-      currentRate > 0
-    ) {
-      out[rateKey] = currentRate;
-    }
-  }
-
-  return out;
-};
-
 const BalanceHistoryChart = ({
   wallets,
   quoteCurrency,
@@ -334,107 +153,25 @@ const BalanceHistoryChart = ({
   const {t} = useTranslation();
   const theme = useTheme();
   const dispatch = useAppDispatch();
-
-  const defaultAltCurrencyIsoCode = useAppSelector(
-    ({APP}) => APP.defaultAltCurrency?.isoCode,
-  );
-  const committedPortfolioQuoteCurrency = useAppSelector(
-    ({PORTFOLIO}) => PORTFOLIO.quoteCurrency,
-  );
-  const committedPortfolioLastPopulatedAt = useAppSelector(
-    ({PORTFOLIO}) => PORTFOLIO.lastPopulatedAt,
-  );
-  const ratesUpdatedAt = useAppSelector(({RATE}) => RATE.ratesUpdatedAt);
-
-  const committedQueryQuoteCurrency = useMemo(() => {
-    return resolveCommittedPortfolioQuoteCurrency({
-      portfolioQuoteCurrency: committedPortfolioQuoteCurrency || quoteCurrency,
-      defaultAltCurrencyIsoCode: defaultAltCurrencyIsoCode,
-    });
-  }, [
-    committedPortfolioQuoteCurrency,
-    defaultAltCurrencyIsoCode,
+  const {
+    asOfMs,
+    cachedScope,
+    chartDataRevisionSig,
+    currentRatesByAssetId,
+    currentRatesSignature,
+    currentSpotRatesByRateKey,
+    currentSpotRatesSignature,
+    quoteCurrency: committedQueryQuoteCurrency,
+    scopeId,
+    sortedWalletIds,
+    storedWalletRequestSig,
+    storedWallets,
+  } = usePortfolioBalanceChartScope({
+    wallets,
+    balanceOffset,
     quoteCurrency,
-  ]);
-
-  const committedDataRevisionSig = useMemo(() => {
-    return buildCommittedPortfolioRevisionToken({
-      quoteCurrency:
-        committedPortfolioQuoteCurrency ||
-        quoteCurrency ||
-        defaultAltCurrencyIsoCode,
-      lastPopulatedAt: committedPortfolioLastPopulatedAt,
-    });
-  }, [
-    committedPortfolioLastPopulatedAt,
-    committedPortfolioQuoteCurrency,
-    defaultAltCurrencyIsoCode,
-    quoteCurrency,
-  ]);
-
-  const {storedWallets, eligibleWallets} = useMemo(() => {
-    return mapWalletsToStoredWallets({
-      dispatch,
-      wallets,
-    });
-  }, [dispatch, wallets]);
-
-  const sortedWalletIds = useMemo(
-    () =>
-      getSortedUniqueWalletIds(eligibleWallets.map(wallet => wallet?.id || '')),
-    [eligibleWallets],
-  );
-  const storedWalletRequestSig = useMemo(
-    () => getStoredWalletRequestSignature(storedWallets),
-    [storedWallets],
-  );
-  const currentRatesByAssetId = useMemo(() => {
-    return buildCurrentRatesByAssetId({
-      storedWallets,
-      quoteCurrency: committedQueryQuoteCurrency,
-      rates: _rates,
-    });
-  }, [_rates, committedQueryQuoteCurrency, storedWallets]);
-  const currentSpotRatesByRateKey = useMemo(() => {
-    return buildCurrentSpotRatesByRateKey({
-      wallets: eligibleWallets,
-      rates: _rates,
-      quoteCurrency: committedQueryQuoteCurrency,
-    });
-  }, [_rates, committedQueryQuoteCurrency, eligibleWallets]);
-  const currentRatesSignature = useMemo(() => {
-    return getCurrentRatesByAssetIdSignature(currentRatesByAssetId);
-  }, [currentRatesByAssetId]);
-  const currentSpotRatesSignature = useMemo(() => {
-    return Object.keys(currentSpotRatesByRateKey)
-      .sort()
-      .map(rateKey => `${rateKey}:${String(currentSpotRatesByRateKey[rateKey])}`)
-      .join('|');
-  }, [currentSpotRatesByRateKey]);
-  const fallbackAsOfMsRef = useRef<number>(Date.now());
-  const asOfMs = useMemo(() => {
-    return (
-      resolveCurrentRatesAsOfMs({
-        ratesUpdatedAt,
-        rates: _rates,
-      }) ?? fallbackAsOfMsRef.current
-    );
-  }, [_rates, ratesUpdatedAt]);
-  const chartDataRevisionSig = useMemo(() => {
-    return [committedDataRevisionSig, String(asOfMs)].join('|');
-  }, [asOfMs, committedDataRevisionSig]);
-
-  const scopeId = useMemo(() => {
-    return buildBalanceChartScopeId({
-      walletIds: sortedWalletIds,
-      quoteCurrency: committedQueryQuoteCurrency,
-      balanceOffset,
-    });
-  }, [balanceOffset, committedQueryQuoteCurrency, sortedWalletIds]);
-
-  const cachedScope = useAppSelector(
-    ({PORTFOLIO_CHARTS}) => PORTFOLIO_CHARTS.cacheByScopeId?.[scopeId],
-  );
+    rates: _rates,
+  });
 
   const [selectedTimeframe, setSelectedTimeframe] = useState<FiatRateInterval>(
     initialSelectedTimeframe,
@@ -466,44 +203,21 @@ const BalanceHistoryChart = ({
     );
   }, [cachedScope?.timeframes, selectedTimeframe]);
 
-  const cachedSelectedTimeframeStatus = useMemo(() => {
-    return getCachedTimeframeStatus({
+  const cachedSelectedSeriesResult = useMemo(() => {
+    return resolveCachedBalanceChartSeries({
       cachedTimeframe: cachedSelectedTimeframe,
-      dataRevisionSig: chartDataRevisionSig,
       currentSpotRatesByRateKey,
-      fiatRateSeriesCache: undefined,
+      dataRevisionSig: chartDataRevisionSig,
+      asOfMs,
     });
   }, [
+    asOfMs,
     cachedSelectedTimeframe,
     chartDataRevisionSig,
     currentSpotRatesByRateKey,
   ]);
-
-  const cachedSelectedSeries = useMemo(() => {
-    if (!cachedSelectedTimeframe) {
-      return undefined;
-    }
-    if (
-      cachedSelectedTimeframeStatus === 'missing' ||
-      cachedSelectedTimeframeStatus === 'stale_historical'
-    ) {
-      return undefined;
-    }
-    return deserializeCachedTimeframeToComputedSeries(
-      cachedSelectedTimeframe,
-      cachedSelectedTimeframeStatus === 'patchable'
-        ? {
-            currentSpotRatesByRateKey,
-            patchedAt: asOfMs,
-          }
-        : undefined,
-    );
-  }, [
-    asOfMs,
-    cachedSelectedTimeframe,
-    cachedSelectedTimeframeStatus,
-    currentSpotRatesByRateKey,
-  ]);
+  const cachedSelectedTimeframeStatus = cachedSelectedSeriesResult.status;
+  const cachedSelectedSeries = cachedSelectedSeriesResult.series;
 
   useEffect(() => {
     if (!cachedSelectedSeries) {
@@ -612,28 +326,25 @@ const BalanceHistoryChart = ({
         });
         setLoading(false);
 
+        const cacheEntry = buildCachedTimeframeFromRuntimeChart({
+          chart,
+          timeframe: chartQueryArgs.timeframe,
+          walletIds: chartQueryArgs.walletIds,
+          quoteCurrency: chartQueryArgs.quoteCurrency,
+          balanceOffset,
+          dataRevisionSig: chartQueryArgs.dataRevisionSig,
+        });
+        if (!cacheEntry) {
+          return;
+        }
+
         dispatch(
           upsertBalanceChartScopeTimeframes({
             scopeId,
             walletIds: chartQueryArgs.walletIds,
             quoteCurrency: chartQueryArgs.quoteCurrency,
             balanceOffset,
-            timeframes: [
-              buildCachedTimeframeFromSeries({
-                timeframe: chartQueryArgs.timeframe,
-                walletIds: chartQueryArgs.walletIds,
-                quoteCurrency: chartQueryArgs.quoteCurrency,
-                balanceOffset,
-                dataRevisionSig: chartQueryArgs.dataRevisionSig,
-                series,
-                patchMetadata: {
-                  lastSpotRatesByRateKey: chart.lastSpotRatesByRateKey,
-                  latestHoldingsByRateKey: chart.latestHoldingsByRateKey,
-                  latestRemainingCostBasisFiatTotal:
-                    chart.latestRemainingCostBasisFiatTotal,
-                },
-              }),
-            ],
+            timeframes: [cacheEntry],
           }),
         );
       })

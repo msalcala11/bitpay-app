@@ -2,13 +2,14 @@ import React from 'react';
 import {render} from '@testing-library/react-native';
 import {usePortfolioGainLossSummary} from './usePortfolioGainLossSummary';
 import {useIsFocused} from '@react-navigation/native';
-import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
-import {runPortfolioChartQuery, mapWalletsToStoredWallets} from '../common';
+import {useAppDispatch} from '../../../utils/hooks';
+import {runPortfolioChartQuery} from '../common';
 import {
   getCachedBalanceChartTimeframe,
   getCachedTimeframeStatus,
   deserializeCachedTimeframeToComputedSeries,
 } from '../../../utils/portfolio/chartCache';
+import {usePortfolioBalanceChartScope} from './usePortfolioBalanceChartScope';
 
 jest.mock('@react-navigation/native', () => {
   return {
@@ -18,7 +19,6 @@ jest.mock('@react-navigation/native', () => {
 
 jest.mock('../../../utils/hooks', () => ({
   useAppDispatch: jest.fn(),
-  useAppSelector: jest.fn(),
 }));
 
 jest.mock('../../../utils/portfolio/assets', () => ({
@@ -32,23 +32,18 @@ jest.mock('../../../utils/helper-methods', () => ({
 
 jest.mock('../common', () => {
   return {
-    mapWalletsToStoredWallets: jest.fn(),
-    buildCurrentRatesByAssetId: jest.fn(() => ({'btc-asset': 74333.76})),
-    buildCommittedPortfolioRevisionToken: jest.fn(() => 'USD|1'),
-    getCurrentRatesByAssetIdSignature: jest.fn(() => 'rates-sig'),
-    getStoredWalletRequestSignature: jest.fn(() => 'wallet-sig'),
-    resolveCurrentRatesAsOfMs: jest.fn(() => 1234),
-    resolveCommittedPortfolioQuoteCurrency: jest.fn(() => 'USD'),
     runPortfolioChartQuery: jest.fn(),
   };
 });
+
+jest.mock('./usePortfolioBalanceChartScope', () => ({
+  usePortfolioBalanceChartScope: jest.fn(),
+}));
 
 jest.mock('../../../utils/portfolio/chartCache', () => {
   const actual = jest.requireActual('../../../utils/portfolio/chartCache');
   return {
     ...actual,
-    buildBalanceChartScopeId: jest.fn(() => 'scope-1'),
-    getSortedUniqueWalletIds: jest.fn(walletIds => walletIds),
     getCachedBalanceChartTimeframe: jest.fn(),
     getCachedTimeframeStatus: jest.fn(),
     deserializeCachedTimeframeToComputedSeries: jest.fn(),
@@ -56,15 +51,15 @@ jest.mock('../../../utils/portfolio/chartCache', () => {
 });
 
 const mockUseAppDispatch = useAppDispatch as jest.Mock;
-const mockUseAppSelector = useAppSelector as jest.Mock;
 const mockUseIsFocused = useIsFocused as jest.Mock;
 const mockRunPortfolioChartQuery = runPortfolioChartQuery as jest.Mock;
-const mockMapWalletsToStoredWallets = mapWalletsToStoredWallets as jest.Mock;
 const mockGetCachedBalanceChartTimeframe =
   getCachedBalanceChartTimeframe as jest.Mock;
 const mockGetCachedTimeframeStatus = getCachedTimeframeStatus as jest.Mock;
 const mockDeserializeCachedTimeframeToComputedSeries =
   deserializeCachedTimeframeToComputedSeries as jest.Mock;
+const mockUsePortfolioBalanceChartScope =
+  usePortfolioBalanceChartScope as jest.Mock;
 
 let latestResult: ReturnType<typeof usePortfolioGainLossSummary> | undefined;
 
@@ -90,43 +85,35 @@ const HookHarness = ({
 };
 
 describe('usePortfolioGainLossSummary', () => {
-  let mockState: any;
-
   beforeEach(() => {
     latestResult = undefined;
-    mockState = {
-      APP: {
-        defaultAltCurrency: {
-          isoCode: 'USD',
-        },
-      },
-      PORTFOLIO: {
-        quoteCurrency: 'USD',
-        lastPopulatedAt: 1,
-      },
-      RATE: {
-        rates: {},
-        ratesUpdatedAt: 1234,
-      },
-      PORTFOLIO_CHARTS: {
-        cacheByScopeId: {
-          'scope-1': {
-            timeframes: {},
-          },
-        },
-      },
-    };
 
     mockUseAppDispatch.mockReset();
     mockUseAppDispatch.mockReturnValue(jest.fn());
-    mockUseAppSelector.mockReset();
-    mockUseAppSelector.mockImplementation(selector => selector(mockState));
     mockUseIsFocused.mockReset();
     mockUseIsFocused.mockReturnValue(true);
     mockRunPortfolioChartQuery.mockReset();
-    mockMapWalletsToStoredWallets.mockReset();
-    mockMapWalletsToStoredWallets.mockReturnValue({
+    mockUsePortfolioBalanceChartScope.mockReset();
+    mockUsePortfolioBalanceChartScope.mockReturnValue({
+      asOfMs: 1234,
+      cachedScope: {
+        scopeId: 'scope-1',
+        walletIds: ['wallet-1'],
+        quoteCurrency: 'USD',
+        balanceOffset: 0,
+        lastAccessedAt: 1234,
+        timeframes: {},
+      },
+      chartDataRevisionSig: 'USD|1|1234',
+      currentRatesByAssetId: {'btc-asset': 74333.76},
+      currentRatesSignature: 'rates-sig',
+      currentSpotRatesByRateKey: {'btc:btc': 74333.76},
+      currentSpotRatesSignature: 'spot-sig',
       eligibleWallets: [sampleWallet],
+      quoteCurrency: 'USD',
+      scopeId: 'scope-1',
+      sortedWalletIds: ['wallet-1'],
+      storedWalletRequestSig: 'wallet-sig',
       storedWallets: [
         {
           summary: {
