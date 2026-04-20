@@ -25,6 +25,7 @@ import {usePortfolioAnalysis} from './usePortfolioAnalysis';
 type Args = {
   gainLossMode: GainLossMode;
   keyId?: string;
+  externalRefreshToken?: string | number;
 };
 
 type Result = {
@@ -64,7 +65,11 @@ function getCommittedAssetGroupAnalysisCacheKey(args: {
     : args.requestKey;
 }
 
-export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
+export function usePortfolioAssetRows({
+  gainLossMode,
+  keyId,
+  externalRefreshToken,
+}: Args): Result {
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
   const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
@@ -110,20 +115,32 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
     portfolio.populateStatus?.startedAt,
   ]);
   const analysisRefreshToken = useMemo(() => {
-    if (!portfolio.populateStatus?.inProgress) {
-      return populateCompletionStateToken;
+    const baseToken = (() => {
+      if (!portfolio.populateStatus?.inProgress) {
+        return populateCompletionStateToken;
+      }
+
+      return [
+        populateSessionStateToken,
+        typeof portfolio.populateStatus?.walletsCompleted === 'number'
+          ? String(portfolio.populateStatus.walletsCompleted)
+          : '0',
+        typeof portfolio.populateStatus?.errors?.length === 'number'
+          ? String(portfolio.populateStatus.errors.length)
+          : '0',
+      ].join('|');
+    })();
+
+    if (
+      externalRefreshToken == null ||
+      externalRefreshToken === ''
+    ) {
+      return baseToken;
     }
 
-    return [
-      populateSessionStateToken,
-      typeof portfolio.populateStatus?.walletsCompleted === 'number'
-        ? String(portfolio.populateStatus.walletsCompleted)
-        : '0',
-      typeof portfolio.populateStatus?.errors?.length === 'number'
-        ? String(portfolio.populateStatus.errors.length)
-        : '0',
-    ].join('|');
+    return [baseToken, String(externalRefreshToken)].join('|');
   }, [
+    externalRefreshToken,
     populateCompletionStateToken,
     populateSessionStateToken,
     portfolio.populateStatus?.errors?.length,

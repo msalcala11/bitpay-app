@@ -56,9 +56,14 @@ const mockRunPortfolioAnalysisQuery = jest.requireMock(
 
 let latestResult: ReturnType<typeof usePortfolioAssetRows> | undefined;
 
-const HookHarness = () => {
+const HookHarness = ({
+  externalRefreshToken,
+}: {
+  externalRefreshToken?: string | number;
+}) => {
   latestResult = usePortfolioAssetRows({
     gainLossMode: '1D',
+    externalRefreshToken,
   });
   return null;
 };
@@ -117,6 +122,32 @@ describe('usePortfolioAssetRows', () => {
     expect(mockUsePortfolioAnalysis).toHaveBeenCalledWith(
       expect.objectContaining({
         timeframe: '1D',
+        allowCurrentWhilePopulate: true,
+      }),
+    );
+  });
+
+  it('uses an external refresh token to rerun rolling asset analysis without clearing committed data', () => {
+    mockState.PORTFOLIO.lastPopulatedAt = 10;
+    mockState.PORTFOLIO.populateStatus.finishedAt = 10;
+    mockState.PORTFOLIO.populateStatus.stopReason = 'completed';
+
+    const view = render(<HookHarness externalRefreshToken={0} />);
+
+    expect(mockUsePortfolioAnalysis).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        refreshToken: '10|10|completed|0|0',
+        clearDataToken: '10|10|completed|0',
+        allowCurrentWhilePopulate: true,
+      }),
+    );
+
+    view.rerender(<HookHarness externalRefreshToken={1} />);
+
+    expect(mockUsePortfolioAnalysis).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        refreshToken: '10|10|completed|0|1',
+        clearDataToken: '10|10|completed|0',
         allowCurrentWhilePopulate: true,
       }),
     );

@@ -41,6 +41,7 @@ import {
 } from '../hooks/portfolioAssetHistoryRequests';
 import useRuntimeFiatRateSeriesCache from '../../../../portfolio/ui/hooks/useRuntimeFiatRateSeriesCache';
 import {getAssetRowPopulateLoading} from '../components/assetRowLoading';
+import useScreenFocusRefreshToken from '../hooks/useScreenFocusRefreshToken';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AllAssets'>;
 const LIST_HORIZONTAL_GUTTER = Number.parseInt(ScreenGutter, 10);
@@ -100,6 +101,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const populateInProgress = !!portfolio.populateStatus?.inProgress;
   const {getAssetIconData, getSupportedOption} = useAssetIconResolver();
+  const focusRefreshToken = useScreenFocusRefreshToken();
 
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
   const [query, setQuery] = useState('');
@@ -109,6 +111,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
     usePortfolioAssetRows({
       gainLossMode,
       keyId: route.params?.keyId,
+      externalRefreshToken: focusRefreshToken,
     });
   const quoteCurrency = getQuoteCurrency({
     portfolioQuoteCurrency: portfolio.quoteCurrency,

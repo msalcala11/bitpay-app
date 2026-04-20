@@ -11,6 +11,7 @@ import {GainLossMode} from '../../../../utils/portfolio/assets';
 import AssetsGainLossDropdown from './AssetsGainLossDropdown';
 import {useAppSelector} from '../../../../utils/hooks';
 import usePortfolioAssetRows from '../hooks/usePortfolioAssetRows';
+import useScreenFocusRefreshToken from '../hooks/useScreenFocusRefreshToken';
 
 const Container = styled.View`
   margin-top: 5px;
@@ -33,6 +34,7 @@ const AssetsSection: React.FC = () => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
+  const focusRefreshToken = useScreenFocusRefreshToken();
   const {
     visibleItems,
     isFiatLoading,
@@ -40,6 +42,7 @@ const AssetsSection: React.FC = () => {
     hasAnyPortfolioData,
   } = usePortfolioAssetRows({
     gainLossMode,
+    externalRefreshToken: focusRefreshToken,
   });
 
   const items = useMemo(() => {
