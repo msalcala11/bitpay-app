@@ -76,7 +76,9 @@ const AssetsList: React.FC<Props> = ({
           rowLoadingByKey: isPopulateLoadingByKey,
           rowKey: item.key,
         });
-        const isRowFiatLoading = !!isFiatLoading && isRowPopulateLoading;
+        const isRowScopedPnlLoading = !!item.showScopedPnlLoading;
+        const isRowFiatLoading =
+          (!!isFiatLoading && isRowPopulateLoading) || isRowScopedPnlLoading;
 
         return (
           <AssetRow

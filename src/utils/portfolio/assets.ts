@@ -47,6 +47,7 @@ export type AssetRowItem = {
   hasRate: boolean;
   hasPnl: boolean;
   showPnlPlaceholder?: boolean;
+  showScopedPnlLoading?: boolean;
   debugCopyPayload?: Record<string, unknown>;
 };
 
@@ -778,6 +779,7 @@ export const getWalletsMatchingExchangeRateAsset = (args: {
   wallets: Wallet[] | undefined;
   currencyAbbreviation?: string;
   tokenAddress?: string;
+  includeZeroBalance?: boolean;
 }): Wallet[] => {
   const targetCurrencyAbbreviation = (
     args.currencyAbbreviation || ''
@@ -790,7 +792,9 @@ export const getWalletsMatchingExchangeRateAsset = (args: {
 
   return (args.wallets || [])
     .filter(w => w.network !== Network.testnet)
-    .filter(walletHasNonZeroLiveBalance)
+    .filter(wallet =>
+      args.includeZeroBalance ? true : walletHasNonZeroLiveBalance(wallet),
+    )
     .filter(wallet => {
       const matchesCurrency =
         getPortfolioWalletCurrencyAbbreviationLower(wallet) ===

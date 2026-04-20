@@ -70,11 +70,13 @@ let latestResult: ReturnType<typeof usePortfolioAssetRows> | undefined;
 
 const HookHarness = ({
   externalRefreshToken,
+  gainLossMode = '1D',
 }: {
   externalRefreshToken?: string | number;
+  gainLossMode?: '1D' | 'ALL';
 }) => {
   latestResult = usePortfolioAssetRows({
-    gainLossMode: '1D',
+    gainLossMode,
     externalRefreshToken,
   });
   return null;
@@ -674,6 +676,108 @@ describe('usePortfolioAssetRows', () => {
           key: 'btc',
           deltaFiat: '-$5.22',
           deltaPercent: '-1.64%',
+        }),
+      ]);
+    });
+  });
+
+  it('shows a row-level loading state during ALL scoped-analysis transitions', async () => {
+    const globalAnalysis = {
+      driverCoin: 'eth',
+      assetIds: ['btc-asset', 'eth-asset'],
+      wallets: [{walletId: 'btc-wallet'}],
+    };
+    let resolveScopedAnalysis: ((value: typeof globalAnalysis) => void) | undefined;
+
+    mockUsePortfolioAnalysis.mockReturnValue({
+      data: globalAnalysis,
+      committedData: globalAnalysis,
+      currentData: globalAnalysis,
+      error: undefined,
+      loading: false,
+      quoteCurrency: 'USD',
+      requestKey: 'portfolio-request',
+      currentRatesByAssetId: {['btc-asset']: 74333.76},
+      currentRatesSignature: 'btc-rate',
+      eligibleWallets: [
+        {
+          id: 'btc-wallet',
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+        },
+      ],
+      storedWallets: [
+        {
+          walletId: 'btc-wallet',
+          addedAt: 0,
+          summary: {
+            walletId: 'btc-wallet',
+            walletName: 'Bitcoin',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+            tokenAddress: undefined,
+            network: 'livenet',
+            balanceAtomic: '422258',
+            balanceFormatted: '0.00422258',
+          },
+          credentials: {
+            keyId: 'key-id',
+          },
+        },
+      ],
+    });
+    mockPreparePortfolioAnalysisSessionQuery.mockResolvedValue({
+      sessionId: 'session-btc',
+    });
+    mockRunPortfolioAnalysisSessionScopeQuery.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveScopedAnalysis = resolve as (value: typeof globalAnalysis) => void;
+        }),
+    );
+    mockBuildAssetRowsFromAnalysis.mockReturnValue([
+      {
+        key: 'btc',
+        currencyAbbreviation: 'btc',
+        chain: 'btc',
+        name: 'BTC',
+        cryptoAmount: '0.00422258',
+        fiatAmount: '$313.88',
+        deltaFiat: '-$9.21',
+        deltaPercent: '-1.80%',
+        isPositive: false,
+        hasRate: true,
+        hasPnl: true,
+        debugCopyPayload: {
+          aggregatedSummary: {
+            fiatValue: 313.88024830079996,
+            pnlChange: -9.208673313419354,
+            pnlPercent: -1.8038049153872324,
+          },
+        },
+      },
+    ]);
+
+    render(<HookHarness gainLossMode="ALL" />);
+
+    await waitFor(() => {
+      expect(latestResult?.visibleItems).toEqual([
+        expect.objectContaining({
+          key: 'btc',
+          showScopedPnlLoading: true,
+        }),
+      ]);
+    });
+
+    await act(async () => {
+      resolveScopedAnalysis?.(globalAnalysis);
+    });
+
+    await waitFor(() => {
+      expect(latestResult?.visibleItems).toEqual([
+        expect.objectContaining({
+          key: 'btc',
+          showScopedPnlLoading: false,
         }),
       ]);
     });

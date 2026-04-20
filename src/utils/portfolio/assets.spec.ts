@@ -1,6 +1,7 @@
 jest.mock('react-native', () => ({
   Platform: {
     OS: 'ios',
+    select: jest.fn((options: Record<string, unknown>) => options.ios),
   },
 }));
 
@@ -10,6 +11,7 @@ jest.mock('react-native-device-info', () => ({
 
 import type {Wallet} from '../../store/wallet/wallet.models';
 import {
+  getWalletsMatchingExchangeRateAsset,
   getWalletLiveFiatBalance,
   sortAssetRowItemsByAssetFiatPriority,
   sortWalletsByAssetFiatPriority,
@@ -137,5 +139,59 @@ describe('getWalletLiveFiatBalance', () => {
     });
 
     expect(fiatBalance).toBe(150);
+  });
+});
+
+describe('getWalletsMatchingExchangeRateAsset', () => {
+  const makeWallet = (args: {
+    id: string;
+    coin: string;
+    chain?: string;
+    tokenAddress?: string;
+    sat?: number;
+    network?: string;
+  }): Wallet =>
+    ({
+      id: args.id,
+      currencyAbbreviation: args.coin,
+      chain: args.chain || args.coin,
+      tokenAddress: args.tokenAddress,
+      network: args.network || 'livenet',
+      balance: {
+        sat: args.sat ?? 0,
+        satConfirmed: args.sat ?? 0,
+        satPending: 0,
+        crypto: String((args.sat ?? 0) / 100000000),
+      },
+    } as Wallet);
+
+  it('excludes zero-balance wallets by default', () => {
+    const wallets = [
+      makeWallet({id: 'btc-funded', coin: 'btc', sat: 1000}),
+      makeWallet({id: 'btc-empty', coin: 'btc', sat: 0}),
+    ];
+
+    expect(
+      getWalletsMatchingExchangeRateAsset({
+        wallets,
+        currencyAbbreviation: 'btc',
+      }).map(wallet => wallet.id),
+    ).toEqual(['btc-funded']);
+  });
+
+  it('can include zero-balance wallets for historical asset scope', () => {
+    const wallets = [
+      makeWallet({id: 'btc-funded', coin: 'btc', sat: 1000}),
+      makeWallet({id: 'btc-empty', coin: 'btc', sat: 0}),
+      makeWallet({id: 'eth-funded', coin: 'eth', sat: 2000}),
+    ];
+
+    expect(
+      getWalletsMatchingExchangeRateAsset({
+        wallets,
+        currencyAbbreviation: 'btc',
+        includeZeroBalance: true,
+      }).map(wallet => wallet.id),
+    ).toEqual(['btc-funded', 'btc-empty']);
   });
 });

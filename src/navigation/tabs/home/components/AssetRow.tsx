@@ -176,7 +176,9 @@ const AssetRow: React.FC<Props> = ({
   const hasRate = !!item.hasRate;
   const hasPnl = !!item.hasPnl;
   const showPnlPlaceholder = !!item.showPnlPlaceholder;
-  const shouldShowRightSide = hasRate || showPnlPlaceholder;
+  const showScopedPnlLoading = !!item.showScopedPnlLoading;
+  const shouldShowRightSide =
+    hasRate || showPnlPlaceholder || showScopedPnlLoading;
   const hasHistoricalV4Rates = useMemo(() => {
     if (!historicalRateRequest) {
       return false;
@@ -221,12 +223,14 @@ const AssetRow: React.FC<Props> = ({
         fiatAmount: item.fiatAmount,
         deltaFiat: item.deltaFiat,
         deltaPercent: item.deltaPercent,
+        showScopedPnlLoading,
         isPositive: item.isPositive,
       },
       render: {
         hasRate,
         hasPnl,
         showPnlPlaceholder,
+        showScopedPnlLoading,
         shouldShowRightSide,
         shouldShowDeltaFiat,
         fiatAmountDisplay,
@@ -267,6 +271,7 @@ const AssetRow: React.FC<Props> = ({
     item.tokenAddress,
     shouldShowDeltaFiat,
     shouldShowRightSide,
+    showScopedPnlLoading,
     showPnlPlaceholder,
   ]);
 
