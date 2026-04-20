@@ -37,7 +37,6 @@ import {maskIfHidden} from '../../../../utils/hideBalances';
 import {
   getVisibleKeysFromKeys,
   getVisibleWalletsFromKeys,
-  walletHasNonZeroLiveBalance,
 } from '../../../../utils/portfolio/assets';
 import {resolveCommittedPortfolioQuoteCurrency} from '../../../../portfolio/ui/common';
 import {setHomeChartCollapsed} from '../../../../store/portfolio-charts';
@@ -173,9 +172,6 @@ const PortfolioBalance = () => {
     const byId = new Map<string, Wallet>();
     for (const w of allWallets) {
       if (!w?.id) {
-        continue;
-      }
-      if (!walletHasNonZeroLiveBalance(w)) {
         continue;
       }
       if (!byId.has(w.id)) {
