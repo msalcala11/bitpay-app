@@ -26,9 +26,11 @@ jest.mock('../selectors/buildAssetRowsFromAnalysis', () => ({
 }));
 
 jest.mock('../common', () => ({
+  disposePortfolioAnalysisSessionQuery: jest.fn(),
   getCurrentRatesByAssetIdSignature: jest.fn(() => ''),
   getStoredWalletRequestSignature: jest.fn(() => ''),
-  runPortfolioAnalysisQuery: jest.fn(),
+  preparePortfolioAnalysisSessionQuery: jest.fn(),
+  runPortfolioAnalysisSessionScopeQuery: jest.fn(),
 }));
 
 jest.mock('./usePortfolioAnalysis', () => ({
@@ -50,9 +52,15 @@ const mockGetVisibleWalletsFromKeys = jest.requireMock(
 const mockSortAssetRowItemsByAssetFiatPriority = jest.requireMock(
   '../../../utils/portfolio/assets',
 ).sortAssetRowItemsByAssetFiatPriority as jest.Mock;
-const mockRunPortfolioAnalysisQuery = jest.requireMock(
+const mockPreparePortfolioAnalysisSessionQuery = jest.requireMock(
   '../common',
-).runPortfolioAnalysisQuery as jest.Mock;
+).preparePortfolioAnalysisSessionQuery as jest.Mock;
+const mockRunPortfolioAnalysisSessionScopeQuery = jest.requireMock(
+  '../common',
+).runPortfolioAnalysisSessionScopeQuery as jest.Mock;
+const mockDisposePortfolioAnalysisSessionQuery = jest.requireMock(
+  '../common',
+).disposePortfolioAnalysisSessionQuery as jest.Mock;
 
 let latestResult: ReturnType<typeof usePortfolioAssetRows> | undefined;
 
@@ -112,8 +120,14 @@ describe('usePortfolioAssetRows', () => {
     mockGetVisibleWalletsFromKeys.mockReturnValue([]);
     mockSortAssetRowItemsByAssetFiatPriority.mockReset();
     mockSortAssetRowItemsByAssetFiatPriority.mockImplementation(args => args.items);
-    mockRunPortfolioAnalysisQuery.mockReset();
-    mockRunPortfolioAnalysisQuery.mockResolvedValue(undefined);
+    mockPreparePortfolioAnalysisSessionQuery.mockReset();
+    mockPreparePortfolioAnalysisSessionQuery.mockResolvedValue({
+      sessionId: 'session-1',
+    });
+    mockRunPortfolioAnalysisSessionScopeQuery.mockReset();
+    mockRunPortfolioAnalysisSessionScopeQuery.mockResolvedValue(undefined);
+    mockDisposePortfolioAnalysisSessionQuery.mockReset();
+    mockDisposePortfolioAnalysisSessionQuery.mockResolvedValue(undefined);
   });
 
   it('keeps runtime analysis queries enabled even when the screen is unfocused', () => {
@@ -563,7 +577,10 @@ describe('usePortfolioAssetRows', () => {
         },
       ],
     });
-    mockRunPortfolioAnalysisQuery.mockImplementation(
+    mockPreparePortfolioAnalysisSessionQuery.mockResolvedValue({
+      sessionId: 'session-btc',
+    });
+    mockRunPortfolioAnalysisSessionScopeQuery.mockImplementation(
       () =>
         new Promise(resolve => {
           resolveScopedAnalysis = resolve as (value: typeof scopedAnalysis) => void;
@@ -622,7 +639,7 @@ describe('usePortfolioAssetRows', () => {
     render(<HookHarness />);
 
     await waitFor(() => {
-      expect(mockRunPortfolioAnalysisQuery).toHaveBeenCalledWith(
+      expect(mockPreparePortfolioAnalysisSessionQuery).toHaveBeenCalledWith(
         expect.objectContaining({
           timeframe: '1D',
           quoteCurrency: 'USD',
@@ -635,6 +652,10 @@ describe('usePortfolioAssetRows', () => {
           ]),
         }),
       );
+      expect(mockRunPortfolioAnalysisSessionScopeQuery).toHaveBeenCalledWith({
+        sessionId: 'session-btc',
+        walletIds: ['btc-wallet'],
+      });
     });
 
     await act(async () => {
@@ -742,20 +763,25 @@ describe('usePortfolioAssetRows', () => {
       ],
     });
 
-    mockRunPortfolioAnalysisQuery.mockImplementation(({wallets}: any) => {
-      const coin = wallets?.[0]?.summary?.currencyAbbreviation;
-
-      return new Promise(resolve => {
-        if (coin === 'btc') {
-          resolveBtcScopedAnalysis =
-            resolve as (value: typeof btcScopedAnalysis) => void;
-          return;
-        }
-
-        resolveDogeScopedAnalysis =
-          resolve as (value: typeof dogeScopedAnalysis) => void;
-      });
+    mockPreparePortfolioAnalysisSessionQuery.mockResolvedValue({
+      sessionId: 'session-multi',
     });
+    mockRunPortfolioAnalysisSessionScopeQuery.mockImplementation(
+      ({walletIds}: any) => {
+        const walletId = walletIds?.[0];
+
+        return new Promise(resolve => {
+          if (walletId === 'btc-wallet') {
+            resolveBtcScopedAnalysis =
+              resolve as (value: typeof btcScopedAnalysis) => void;
+            return;
+          }
+
+          resolveDogeScopedAnalysis =
+            resolve as (value: typeof dogeScopedAnalysis) => void;
+        });
+      },
+    );
 
     mockBuildAssetRowsFromAnalysis.mockImplementation(({analysis}: any) => {
       if (analysis === btcScopedAnalysis) {
@@ -836,7 +862,8 @@ describe('usePortfolioAssetRows', () => {
     render(<HookHarness />);
 
     await waitFor(() => {
-      expect(mockRunPortfolioAnalysisQuery).toHaveBeenCalledTimes(2);
+      expect(mockPreparePortfolioAnalysisSessionQuery).toHaveBeenCalledTimes(1);
+      expect(mockRunPortfolioAnalysisSessionScopeQuery).toHaveBeenCalledTimes(2);
     });
 
     await act(async () => {

@@ -15,9 +15,11 @@ import {getAssetIdFromWallet} from '../../core/pnl/assetId';
 import type {PnlAnalysisResult} from '../../core/pnl/analysisStreaming';
 import type {StoredWallet} from '../../core/types';
 import {
+  disposePortfolioAnalysisSessionQuery,
   getCurrentRatesByAssetIdSignature,
   getStoredWalletRequestSignature,
-  runPortfolioAnalysisQuery,
+  preparePortfolioAnalysisSessionQuery,
+  runPortfolioAnalysisSessionScopeQuery,
 } from '../common';
 import buildAssetRowsFromAnalysis from '../selectors/buildAssetRowsFromAnalysis';
 import {usePortfolioAnalysis} from './usePortfolioAnalysis';
@@ -38,6 +40,7 @@ type Result = {
 type AssetGroupAnalysisSpec = {
   key: string;
   storedWallets: StoredWallet[];
+  storedWalletIds: string[];
   eligibleWalletIds: string[];
   requestKey: string;
   committedCacheKey: string;
@@ -54,8 +57,6 @@ type AssetGroupAnalysisState = {
   loading: boolean;
   error?: Error;
 };
-
-const committedAssetGroupAnalysisCache = new Map<string, PnlAnalysisResult>();
 
 function getCommittedAssetGroupAnalysisCacheKey(args: {
   requestKey: string;
@@ -228,6 +229,7 @@ export function usePortfolioAssetRows({
       nextSpecs.push({
         key: groupKey,
         storedWallets: groupStoredWallets,
+        storedWalletIds: groupStoredWallets.map(wallet => wallet.summary.walletId),
         eligibleWalletIds: eligibleWalletIdsByKey.get(groupKey) || [],
         requestKey,
         committedCacheKey: getCommittedAssetGroupAnalysisCacheKey({
@@ -259,8 +261,74 @@ export function usePortfolioAssetRows({
       )
       .join('|');
   }, [assetGroupAnalysisSpecs]);
+  const assetGroupSessionStoredWallets = useMemo(() => {
+    const seenWalletIds = new Set<string>();
+    const next: StoredWallet[] = [];
+
+    for (const spec of assetGroupAnalysisSpecs) {
+      for (const wallet of spec.storedWallets) {
+        const walletId = String(wallet.summary.walletId || '');
+        if (!walletId || seenWalletIds.has(walletId)) {
+          continue;
+        }
+        seenWalletIds.add(walletId);
+        next.push(wallet);
+      }
+    }
+
+    return next;
+  }, [assetGroupAnalysisSpecs]);
+  const assetGroupSessionCurrentRatesByAssetId = useMemo(() => {
+    const next: Record<string, number> = {};
+
+    for (const spec of assetGroupAnalysisSpecs) {
+      for (const [assetId, rate] of Object.entries(spec.currentRatesByAssetId)) {
+        if (typeof rate === 'number' && Number.isFinite(rate)) {
+          next[assetId] = rate;
+        }
+      }
+    }
+
+    return next;
+  }, [assetGroupAnalysisSpecs]);
+  const assetGroupCommittedAnalysisCacheRef = useRef(
+    new Map<string, PnlAnalysisResult>(),
+  );
+  const assetGroupSessionRequestKey = useMemo(() => {
+    if (!assetGroupSessionStoredWallets.length) {
+      return '';
+    }
+
+    return [
+      analysis.quoteCurrency,
+      gainLossMode,
+      '2',
+      getStoredWalletRequestSignature(assetGroupSessionStoredWallets),
+      getCurrentRatesByAssetIdSignature(assetGroupSessionCurrentRatesByAssetId),
+      typeof analysis.asOfMs === 'number' ? String(analysis.asOfMs) : '',
+    ].join('|');
+  }, [
+    analysis.asOfMs,
+    analysis.quoteCurrency,
+    assetGroupSessionCurrentRatesByAssetId,
+    assetGroupSessionStoredWallets,
+    gainLossMode,
+  ]);
   const [assetGroupAnalysisStateByKey, setAssetGroupAnalysisStateByKey] =
     useState<Record<string, AssetGroupAnalysisState>>({});
+  useEffect(() => {
+    const allowedCacheKeys = new Set(
+      assetGroupAnalysisSpecs.map(spec => spec.committedCacheKey),
+    );
+
+    for (const cacheKey of Array.from(
+      assetGroupCommittedAnalysisCacheRef.current.keys(),
+    )) {
+      if (!allowedCacheKeys.has(cacheKey)) {
+        assetGroupCommittedAnalysisCacheRef.current.delete(cacheKey);
+      }
+    }
+  }, [assetGroupAnalysisSpecs]);
   useEffect(() => {
     setAssetGroupAnalysisStateByKey(prev => {
       const next: Record<string, AssetGroupAnalysisState> = {};
@@ -270,7 +338,9 @@ export function usePortfolioAssetRows({
       for (const spec of assetGroupAnalysisSpecs) {
         const prevState = prev[spec.key];
         const cachedCommittedData = hasCommittedPortfolioBaseline
-          ? committedAssetGroupAnalysisCache.get(spec.committedCacheKey)
+          ? assetGroupCommittedAnalysisCacheRef.current.get(
+              spec.committedCacheKey,
+            )
           : undefined;
         const nextState: AssetGroupAnalysisState = {
           requestKey: spec.requestKey,
@@ -309,6 +379,7 @@ export function usePortfolioAssetRows({
     }
 
     let cancelled = false;
+    let activeSessionId: string | undefined;
     setAssetGroupAnalysisStateByKey(prev => {
       const next = {...prev};
       let changed = false;
@@ -316,7 +387,9 @@ export function usePortfolioAssetRows({
       for (const spec of assetGroupAnalysisSpecs) {
         const prevState = next[spec.key];
         const cachedCommittedData = hasCommittedPortfolioBaseline
-          ? committedAssetGroupAnalysisCache.get(spec.committedCacheKey)
+          ? assetGroupCommittedAnalysisCacheRef.current.get(
+              spec.committedCacheKey,
+            )
           : undefined;
         const nextState: AssetGroupAnalysisState = {
           requestKey: spec.requestKey,
@@ -352,116 +425,191 @@ export function usePortfolioAssetRows({
       return changed ? next : prev;
     });
 
-    for (const spec of assetGroupAnalysisSpecs) {
-      runPortfolioAnalysisQuery({
-        wallets: spec.storedWallets,
-        quoteCurrency: analysis.quoteCurrency,
-        timeframe: gainLossMode,
-        maxPoints: 2,
-        currentRatesByAssetId: spec.currentRatesByAssetId,
-        asOfMs: spec.asOfMs,
-      })
-        .then(result => {
-          if (cancelled) {
-            return;
-          }
-
-          setAssetGroupAnalysisStateByKey(prev => {
-            const prevState = prev[spec.key];
-            if (prevState && prevState.requestKey !== spec.requestKey) {
-              return prev;
-            }
-
-            const baseState: AssetGroupAnalysisState = prevState || {
-              requestKey: spec.requestKey,
-              committedCacheKey: spec.committedCacheKey,
-              currentData: undefined,
-              committedData: hasCommittedPortfolioBaseline
-                ? committedAssetGroupAnalysisCache.get(spec.committedCacheKey)
-                : undefined,
-              loading: true,
-              error: undefined,
-            };
-
-            let committedData = baseState.committedData;
-            if (!portfolio.populateStatus?.inProgress) {
-              committedAssetGroupAnalysisCache.set(spec.committedCacheKey, result);
-              committedData = result;
-            }
-
-            const nextState: AssetGroupAnalysisState = {
-              ...baseState,
-              currentData: result,
-              committedData,
-              loading: false,
-              error: undefined,
-            };
-
-            if (
-              baseState.currentData === nextState.currentData &&
-              baseState.committedData === nextState.committedData &&
-              baseState.loading === nextState.loading &&
-              baseState.error === nextState.error
-            ) {
-              return prev;
-            }
-
-            return {
-              ...prev,
-              [spec.key]: nextState,
-            };
-          });
-        })
-        .catch(reason => {
-          if (cancelled) {
-            return;
-          }
-
-          setAssetGroupAnalysisStateByKey(prev => {
-            const prevState = prev[spec.key];
-            if (prevState && prevState.requestKey !== spec.requestKey) {
-              return prev;
-            }
-
-            const baseState: AssetGroupAnalysisState = prevState || {
-              requestKey: spec.requestKey,
-              committedCacheKey: spec.committedCacheKey,
-              currentData: undefined,
-              committedData: hasCommittedPortfolioBaseline
-                ? committedAssetGroupAnalysisCache.get(spec.committedCacheKey)
-                : undefined,
-              loading: true,
-              error: undefined,
-            };
-
-            const nextState: AssetGroupAnalysisState = {
-              ...baseState,
-              loading: false,
-              error:
-                reason instanceof Error ? reason : new Error(String(reason)),
-            };
-
-            if (
-              baseState.loading === nextState.loading &&
-              baseState.error === nextState.error
-            ) {
-              return prev;
-            }
-
-            return {
-              ...prev,
-              [spec.key]: nextState,
-            };
-          });
+    (async () => {
+      try {
+        const session = await preparePortfolioAnalysisSessionQuery({
+          wallets: assetGroupSessionStoredWallets,
+          quoteCurrency: analysis.quoteCurrency,
+          timeframe: gainLossMode,
+          maxPoints: 2,
+          currentRatesByAssetId: assetGroupSessionCurrentRatesByAssetId,
+          asOfMs: analysis.asOfMs,
         });
-    }
+
+        activeSessionId = session.sessionId;
+        if (cancelled) {
+          await disposePortfolioAnalysisSessionQuery({
+            sessionId: session.sessionId,
+          }).catch(() => {});
+          return;
+        }
+
+        for (const spec of assetGroupAnalysisSpecs) {
+          runPortfolioAnalysisSessionScopeQuery({
+            sessionId: session.sessionId,
+            walletIds: spec.storedWalletIds,
+          })
+            .then(result => {
+              if (cancelled) {
+                return;
+              }
+
+              setAssetGroupAnalysisStateByKey(prev => {
+                const prevState = prev[spec.key];
+                if (prevState && prevState.requestKey !== spec.requestKey) {
+                  return prev;
+                }
+
+                const baseState: AssetGroupAnalysisState = prevState || {
+                  requestKey: spec.requestKey,
+                  committedCacheKey: spec.committedCacheKey,
+                  currentData: undefined,
+                  committedData: hasCommittedPortfolioBaseline
+                    ? assetGroupCommittedAnalysisCacheRef.current.get(
+                        spec.committedCacheKey,
+                      )
+                    : undefined,
+                  loading: true,
+                  error: undefined,
+                };
+
+                let committedData = baseState.committedData;
+                if (!portfolio.populateStatus?.inProgress) {
+                  assetGroupCommittedAnalysisCacheRef.current.set(
+                    spec.committedCacheKey,
+                    result,
+                  );
+                  committedData = result;
+                }
+
+                const nextState: AssetGroupAnalysisState = {
+                  ...baseState,
+                  currentData: result,
+                  committedData,
+                  loading: false,
+                  error: undefined,
+                };
+
+                if (
+                  baseState.currentData === nextState.currentData &&
+                  baseState.committedData === nextState.committedData &&
+                  baseState.loading === nextState.loading &&
+                  baseState.error === nextState.error
+                ) {
+                  return prev;
+                }
+
+                return {
+                  ...prev,
+                  [spec.key]: nextState,
+                };
+              });
+            })
+            .catch(reason => {
+              if (cancelled) {
+                return;
+              }
+
+              setAssetGroupAnalysisStateByKey(prev => {
+                const prevState = prev[spec.key];
+                if (prevState && prevState.requestKey !== spec.requestKey) {
+                  return prev;
+                }
+
+                const baseState: AssetGroupAnalysisState = prevState || {
+                  requestKey: spec.requestKey,
+                  committedCacheKey: spec.committedCacheKey,
+                  currentData: undefined,
+                  committedData: hasCommittedPortfolioBaseline
+                    ? assetGroupCommittedAnalysisCacheRef.current.get(
+                        spec.committedCacheKey,
+                      )
+                    : undefined,
+                  loading: true,
+                  error: undefined,
+                };
+
+                const nextState: AssetGroupAnalysisState = {
+                  ...baseState,
+                  loading: false,
+                  error:
+                    reason instanceof Error ? reason : new Error(String(reason)),
+                };
+
+                if (
+                  baseState.loading === nextState.loading &&
+                  baseState.error === nextState.error
+                ) {
+                  return prev;
+                }
+
+                return {
+                  ...prev,
+                  [spec.key]: nextState,
+                };
+              });
+            });
+        }
+      } catch (reason) {
+        if (cancelled) {
+          return;
+        }
+
+        const error =
+          reason instanceof Error ? reason : new Error(String(reason));
+        setAssetGroupAnalysisStateByKey(prev => {
+          const next = {...prev};
+          let changed = false;
+
+          for (const spec of assetGroupAnalysisSpecs) {
+            const prevState = next[spec.key];
+            const baseState: AssetGroupAnalysisState = prevState || {
+              requestKey: spec.requestKey,
+              committedCacheKey: spec.committedCacheKey,
+              currentData: undefined,
+              committedData: hasCommittedPortfolioBaseline
+                ? assetGroupCommittedAnalysisCacheRef.current.get(
+                    spec.committedCacheKey,
+                  )
+                : undefined,
+              loading: true,
+              error: undefined,
+            };
+            const nextState: AssetGroupAnalysisState = {
+              ...baseState,
+              loading: false,
+              error,
+            };
+
+            if (
+              !prevState ||
+              prevState.loading !== nextState.loading ||
+              prevState.error !== nextState.error
+            ) {
+              next[spec.key] = nextState;
+              changed = true;
+            }
+          }
+
+          return changed ? next : prev;
+        });
+      }
+    })();
 
     return () => {
       cancelled = true;
+      if (activeSessionId) {
+        disposePortfolioAnalysisSessionQuery({
+          sessionId: activeSessionId,
+        }).catch(() => {});
+      }
     };
   }, [
-    analysisRefreshToken,
+    analysis.asOfMs,
     analysis.quoteCurrency,
+    assetGroupSessionRequestKey,
+    assetGroupSessionCurrentRatesByAssetId,
+    assetGroupSessionStoredWallets,
     assetGroupAnalysisSpecs,
     assetGroupAnalysisSpecsRevision,
     gainLossMode,
