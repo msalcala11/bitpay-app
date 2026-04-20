@@ -11,10 +11,9 @@ import type {
 } from '../../store/portfolio-charts/portfolio-charts.models';
 import {BALANCE_CHART_CACHE_SCHEMA_VERSION} from '../../store/portfolio-charts/portfolio-charts.models';
 import type {
-  PnlAnalysisExactExtrema,
   PnlAnalysisPoint,
-  WalletForAnalysis,
-} from './core/pnl/analysis';
+  WalletForAnalysisMeta,
+} from '../../portfolio/core/pnl/analysisStreaming';
 import {getFiatRateSeriesAssetKey} from './core/fiatRateSeries';
 import {getAtomicDecimals, parseAtomicToBigint} from './core/format';
 import {atomicToUnitNumber} from './core/pnl/atomic';
@@ -22,6 +21,18 @@ import {
   normalizeGraphPointsForChart,
   recomputeMinMaxFromGraphPoints,
 } from './chartGraph';
+
+type PnlAnalysisExtremaPoint = {
+  timestamp: number;
+  totalFiatBalance: number;
+};
+
+type PnlAnalysisExactExtrema = {
+  min: PnlAnalysisExtremaPoint;
+  max: PnlAnalysisExtremaPoint;
+  minExcludingEnd?: PnlAnalysisExtremaPoint;
+  maxExcludingEnd?: PnlAnalysisExtremaPoint;
+};
 
 export type CachedTimeframeStatus =
   | 'fresh'
@@ -210,7 +221,7 @@ export const getSortedUniqueWalletIds = (walletIds: string[]): string[] => {
   return out.sort((a, b) => a.localeCompare(b));
 };
 
-const getWalletHistoricalRateKey = (wallet: WalletForAnalysis): string => {
+const getWalletHistoricalRateKey = (wallet: WalletForAnalysisMeta): string => {
   const rawTokenAddress = wallet?.credentials?.token?.address;
   const tokenAddress =
     typeof rawTokenAddress === 'string' && rawTokenAddress.trim()
@@ -538,7 +549,7 @@ export const deserializeCachedTimeframeToComputedSeries = (
 
 export const buildLatestPointPatchMetadataFromAnalysis = (args: {
   analysisPoints: PnlAnalysisPoint[];
-  wallets: WalletForAnalysis[];
+  wallets: WalletForAnalysisMeta[];
 }): {
   lastSpotRatesByRateKey: Record<string, number>;
   latestHoldingsByRateKey: Record<string, {units: number}>;
@@ -615,7 +626,7 @@ export const serializeComputedSeriesToCachedTimeframe = (args: {
   for (const point of args.analysisPoints || []) {
     ts.push(toFiniteNumber(point?.timestamp, Date.now()));
     totalFiatBalance.push(toFiniteNumber(point?.totalFiatBalance, 0));
-    totalPnlChange.push(toFiniteNumber((point as any)?.totalPnlChange, 0));
+    totalPnlChange.push(toFiniteNumber(point?.totalPnlChange, 0));
     totalUnrealizedPnlFiat.push(
       toFiniteNumber(point?.totalUnrealizedPnlFiat, 0),
     );
@@ -727,12 +738,16 @@ export const patchCachedLatestPointWithSpotRates = (args: {
       : 0;
 
   const nextTotalFiatBalance = args.cachedTimeframe.totalFiatBalance.slice();
+  const nextTotalPnlChange = args.cachedTimeframe.totalPnlChange.slice();
   const nextTotalUnrealizedPnlFiat =
     args.cachedTimeframe.totalUnrealizedPnlFiat.slice();
   const nextTotalPnlPercent = args.cachedTimeframe.totalPnlPercent.slice();
 
   nextTotalFiatBalance[lastIndex] = latestTotalFiatBalance;
   nextTotalUnrealizedPnlFiat[lastIndex] = latestTotalUnrealizedPnlFiat;
+  nextTotalPnlChange[lastIndex] =
+    latestTotalUnrealizedPnlFiat -
+    toFiniteNumber(nextTotalUnrealizedPnlFiat[0], 0);
   nextTotalPnlPercent[lastIndex] = latestTotalPnlPercent;
 
   const exactExtrema = getExactExtremaFromCachedTimeframe(args.cachedTimeframe);
@@ -795,6 +810,7 @@ export const patchCachedLatestPointWithSpotRates = (args: {
         : Date.now(),
     lastSpotRatesByRateKey: nextLastSpotRatesByRateKey,
     totalFiatBalance: nextTotalFiatBalance,
+    totalPnlChange: nextTotalPnlChange,
     totalUnrealizedPnlFiat: nextTotalUnrealizedPnlFiat,
     totalPnlPercent: nextTotalPnlPercent,
     minTotalFiatBalance:

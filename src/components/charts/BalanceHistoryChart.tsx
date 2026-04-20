@@ -48,6 +48,7 @@ import {useStableBalanceHistoryChartAxisLabels} from './useStableBalanceHistoryC
 import {
   buildCurrentRatesByAssetId,
   buildCommittedPortfolioRevisionToken,
+  getCurrentRatesByAssetIdSignature,
   getStoredWalletRequestSignature,
   mapWalletsToStoredWallets,
   resolveCommittedPortfolioQuoteCurrency,
@@ -152,12 +153,10 @@ const buildHydratedSeriesFromRuntimeChart = (args: {
       totalFiatBalance,
       totalRemainingCostBasisFiat,
       totalUnrealizedPnlFiat,
+      totalPnlChange,
       totalPnlPercent,
       byWalletId: {},
-      // Runtime charts expose explicit interval change; keep it on the point so
-      // the existing change-row formatter can use it when present.
-      ...({totalPnlChange} as any),
-    } as PnlAnalysisPoint);
+    });
 
     rawGraphPoints.push({
       date: new Date(timestamp),
@@ -360,6 +359,15 @@ const BalanceHistoryChart = ({
       quoteCurrency: committedQueryQuoteCurrency,
     });
   }, [_rates, committedQueryQuoteCurrency, eligibleWallets]);
+  const currentRatesSignature = useMemo(() => {
+    return getCurrentRatesByAssetIdSignature(currentRatesByAssetId);
+  }, [currentRatesByAssetId]);
+  const currentSpotRatesSignature = useMemo(() => {
+    return Object.keys(currentSpotRatesByRateKey)
+      .sort()
+      .map(rateKey => `${rateKey}:${String(currentSpotRatesByRateKey[rateKey])}`)
+      .join('|');
+  }, [currentSpotRatesByRateKey]);
   const chartDataRevisionSig = committedDataRevisionSig;
 
   const scopeId = useMemo(() => {
@@ -481,9 +489,13 @@ const BalanceHistoryChart = ({
       selectedTimeframe,
       chartDataRevisionSig,
       storedWalletRequestSig,
+      currentRatesSignature,
+      currentSpotRatesSignature,
     ].join('|');
   }, [
     chartDataRevisionSig,
+    currentRatesSignature,
+    currentSpotRatesSignature,
     scopeId,
     selectedTimeframe,
     storedWalletRequestSig,
@@ -599,8 +611,11 @@ const BalanceHistoryChart = ({
   useEffect(() => {
     setSelectedPoint(undefined);
     onSelectedBalanceChangeRef.current?.(undefined);
-    onSelectionActiveChangeRef.current?.(false);
   }, [queryRevisionKey, selectedTimeframe]);
+
+  useEffect(() => {
+    onSelectionActiveChangeRef.current?.(!!selectedPoint);
+  }, [selectedPoint]);
 
   const displayedTimeframe = displayState?.timeframe ?? selectedTimeframe;
   const activeSeries = displayState?.series;
@@ -705,16 +720,13 @@ const BalanceHistoryChart = ({
     (loading || (showLoaderWhenNoSnapshots && hasAnyWallets));
 
   const onGestureStarted = useCallback(() => {
-    // No-op; we keep the current series visible and update the selected point as
-    // the user scrubs. The previous snapshot engine emitted more events here, but
-    // the committed-only runtime bridge intentionally stays quiet.
-    onSelectionActiveChangeRef.current?.(true);
+    // No-op; selection-active state is driven by the presence of an actual
+    // selected point so parent screens do not retain stale overrides.
   }, []);
 
   const onGestureEnded = useCallback(() => {
     setSelectedPoint(undefined);
     onSelectedBalanceChangeRef.current?.(undefined);
-    onSelectionActiveChangeRef.current?.(false);
   }, []);
 
   const onPointSelected = useCallback(

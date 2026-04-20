@@ -31,14 +31,14 @@ describe('buildAssetRowsFromAnalysis', () => {
         } as any,
       ],
       analysis: {
-        points: [
+        assetSummaries: [
           {
-            byWalletId: {
-              'wallet-1': {
-                unrealizedPnlFiat: 12.3456,
-                remainingCostBasisFiat: 100,
-              },
-            },
+            assetId: 'btc:btc',
+            rateEnd: 125,
+            fiatBalanceEnd: 125,
+            pnlEnd: 12.3456,
+            pnlChange: 12.3456,
+            remainingCostBasisFiatEnd: 100,
           },
         ],
       } as any,

@@ -66,6 +66,7 @@ export type PnlAnalysisPoint = {
   totalFiatBalance: number;
   totalRemainingCostBasisFiat: number;
   totalUnrealizedPnlFiat: number;
+  totalPnlChange: number;
   totalPnlPercent: number;
 
   byWalletId: Record<string, WalletPoint>;
@@ -82,6 +83,10 @@ export type AssetPnlSummary = {
   rateEnd: number;
   rateChange: number;
   ratePercentChange: number;
+  fiatBalanceStart: number;
+  fiatBalanceEnd: number;
+  remainingCostBasisFiatStart: number;
+  remainingCostBasisFiatEnd: number;
   pnlStart: number;
   pnlEnd: number;
   pnlChange: number;
@@ -313,7 +318,6 @@ export function compactPnlAnalysisResultForChart(result: PnlAnalysisResult): Pnl
   const totalPnlPercent = new Array<number>(pointCount);
   const driverMarkRate = singleAsset ? new Array<number | null>(pointCount) : undefined;
   const driverRatePercentChange = singleAsset ? new Array<number | null>(pointCount) : undefined;
-  const pnlStart = pointCount > 0 ? result.points[0].totalUnrealizedPnlFiat : 0;
   const patchMetadata = buildChartPatchMetadataFromAnalysisResult(result);
 
   for (let i = 0; i < pointCount; i++) {
@@ -322,7 +326,7 @@ export function compactPnlAnalysisResultForChart(result: PnlAnalysisResult): Pnl
     totalFiatBalance[i] = point.totalFiatBalance;
     totalRemainingCostBasisFiat[i] = point.totalRemainingCostBasisFiat;
     totalUnrealizedPnlFiat[i] = point.totalUnrealizedPnlFiat;
-    totalPnlChange[i] = point.totalUnrealizedPnlFiat - pnlStart;
+    totalPnlChange[i] = point.totalPnlChange;
     totalPnlPercent[i] = point.totalPnlPercent;
 
     if (driverMarkRate) {
@@ -403,17 +407,23 @@ function getWindowMs(timeframe: PnlTimeframe): number {
   }
 }
 
+function roundDownToHourMs(tsMs: number): number {
+  'worklet';
+
+  return Math.floor(tsMs / MS_PER_HOUR) * MS_PER_HOUR;
+}
+
 function getBaselineMs(timeframe: PnlTimeframe, nowMs: number): number | null {
   'worklet';
 
   if (timeframe === 'ALL') return null;
   const w = getWindowMs(timeframe);
   if (!w) return null;
-  return nowMs - w;
+  return roundDownToHourMs(nowMs - w);
 }
 
 type RateCursor = {
-  getNearest: (targetTs: number) => number | undefined;
+  getRateAt: (targetTs: number) => number | undefined;
 };
 
 function isSortedByTsAsc(points: FiatRatePoint[]): boolean {
@@ -425,7 +435,7 @@ function isSortedByTsAsc(points: FiatRatePoint[]): boolean {
   return true;
 }
 
-function makeNearestRateCursor(pointsRaw: FiatRatePoint[]): RateCursor {
+function makeLinearRateCursor(pointsRaw: FiatRatePoint[]): RateCursor {
   'worklet';
 
   const points = isSortedByTsAsc(pointsRaw) ? pointsRaw : pointsRaw.slice().sort((a, b) => a.ts - b.ts);
@@ -452,7 +462,7 @@ function makeNearestRateCursor(pointsRaw: FiatRatePoint[]): RateCursor {
   };
 
   return {
-    getNearest: (targetTs: number) => {
+    getRateAt: (targetTs: number) => {
       'worklet';
 
       if (!Number.isFinite(targetTs) || points.length === 0) return undefined;
@@ -468,10 +478,21 @@ function makeNearestRateCursor(pointsRaw: FiatRatePoint[]): RateCursor {
       const left = points[idx];
       const right = idx + 1 < points.length ? points[idx + 1] : null;
       if (!right) return left.rate;
+      if (targetTs <= left.ts) {
+        return left.rate;
+      }
+      if (targetTs >= right.ts) {
+        return right.rate;
+      }
 
-      const dl = Math.abs(targetTs - left.ts);
-      const dr = Math.abs(right.ts - targetTs);
-      return dr < dl ? right.rate : left.rate;
+      const span = right.ts - left.ts;
+      if (!Number.isFinite(span) || span <= 0) {
+        return left.rate;
+      }
+
+      const ratio = (targetTs - left.ts) / span;
+      const rate = left.rate + (right.rate - left.rate) * ratio;
+      return Number.isFinite(rate) ? rate : left.rate;
     },
   };
 }
@@ -503,7 +524,7 @@ function getAnalysisRateAtTimestamp(args: {
       : undefined;
 
   return (
-    overrideRate ?? args.rateCursorByAssetId[args.assetId].getNearest(args.ts) ?? 0
+    overrideRate ?? args.rateCursorByAssetId[args.assetId].getRateAt(args.ts) ?? 0
   );
 }
 
@@ -524,7 +545,7 @@ function getAnalysisBasisRateAtTimestamp(args: {
 
   return (
     overrideRate ??
-    args.rateCursorByAssetId[args.assetId].getNearest(args.ts) ??
+    args.rateCursorByAssetId[args.assetId].getRateAt(args.ts) ??
     args.baselineRateByAssetId[args.assetId] ??
     0
   );
@@ -706,7 +727,7 @@ export function resolvePnlAnalysisPreloadWindow(args: {
     throw new Error('No overlapping rate window across selected assets.');
   }
 
-  const nowMs = Math.min(nowMsRequested, overlapEnd);
+  const nowMs = nowMsRequested;
   const baselineMs = getBaselineMs(args.timeframe, nowMs);
   const desiredStart =
     args.timeframe === 'ALL'
@@ -715,7 +736,7 @@ export function resolvePnlAnalysisPreloadWindow(args: {
       : baselineMs ?? overlapStart;
 
   const startTs = Math.max(overlapStart, desiredStart);
-  const endTs = overlapEnd;
+  const endTs = Math.max(startTs, nowMs);
   const timeline = buildEvenTimeline(startTs, endTs, maxPoints);
   if (!timeline.length) {
     throw new Error('Failed to build analysis timeline.');
@@ -748,29 +769,6 @@ function buildEmptyAnalysisResult(timeframe: PnlTimeframe, quoteCurrency: string
     points: [],
     assetSummaries: [],
     totalSummary: {pnlStart: 0, pnlEnd: 0, pnlChange: 0, pnlPercent: 0},
-  };
-}
-
-function buildEmptyAnalysisChartResult(timeframe: PnlTimeframe, quoteCurrency: string): PnlAnalysisChartResult {
-  'worklet';
-
-  return {
-    timeframe,
-    quoteCurrency: quoteCurrency.toUpperCase(),
-    driverAssetId: '',
-    driverCoin: '',
-    assetIds: [],
-    coins: [],
-    singleAsset: false,
-    timestamps: [],
-    totalFiatBalance: [],
-    totalRemainingCostBasisFiat: [],
-    totalUnrealizedPnlFiat: [],
-    totalPnlChange: [],
-    totalPnlPercent: [],
-    lastSpotRatesByRateKey: {},
-    latestHoldingsByRateKey: {},
-    latestRemainingCostBasisFiatTotal: 0,
   };
 }
 
@@ -822,12 +820,14 @@ function buildAnalysisContext(args: {
   const endTs = timeline[timeline.length - 1];
   const rateCursorByAssetId: Record<string, RateCursor> = {};
   for (const assetId of assetIds) {
-    rateCursorByAssetId[assetId] = makeNearestRateCursor(rawPointsByAssetId[assetId]);
+    rateCursorByAssetId[assetId] = makeLinearRateCursor(
+      rawPointsByAssetId[assetId],
+    );
   }
 
   const baselineRateByAssetId: Record<string, number> = {};
   for (const assetId of assetIds) {
-    const r0 = rateCursorByAssetId[assetId].getNearest(timeline[0]);
+    const r0 = rateCursorByAssetId[assetId].getRateAt(timeline[0]);
     if (r0 === undefined) throw new Error(`Missing ${quoteCurrency}:${assetId} rate at ts=${timeline[0]}.`);
     baselineRateByAssetId[assetId] = r0;
   }
@@ -1046,12 +1046,19 @@ function finalizeAnalysisResult(args: {
     const meta = assetMetaById.get(assetId);
     const ids = walletIdsByAssetId.get(assetId) ?? new Set<string>();
 
+    let startFiatBalance = 0;
+    let endFiatBalance = 0;
+    let startBasis = 0;
     let startPnl = 0;
     let endPnl = 0;
     let endBasis = 0;
 
     for (const wallet of args.walletMetas) {
       if (!ids.has(wallet.walletId)) continue;
+      startFiatBalance += first.byWalletId[wallet.walletId]?.fiatBalance ?? 0;
+      endFiatBalance += last.byWalletId[wallet.walletId]?.fiatBalance ?? 0;
+      startBasis +=
+        first.byWalletId[wallet.walletId]?.remainingCostBasisFiat ?? 0;
       startPnl += first.byWalletId[wallet.walletId]?.unrealizedPnlFiat ?? 0;
       endPnl += last.byWalletId[wallet.walletId]?.unrealizedPnlFiat ?? 0;
       endBasis += last.byWalletId[wallet.walletId]?.remainingCostBasisFiat ?? 0;
@@ -1060,7 +1067,7 @@ function finalizeAnalysisResult(args: {
     const rateStart = args.baselineRateByAssetId[assetId] ?? 0;
     const rateEnd =
       getCurrentRateOverride(args.currentRatesByAssetId, assetId) ??
-      args.rateCursorByAssetId[assetId].getNearest(args.endTs) ??
+      args.rateCursorByAssetId[assetId].getRateAt(args.endTs) ??
       0;
     const rateChange = rateEnd - rateStart;
     const ratePct = rateStart > 0 ? (rateChange / rateStart) * 100 : 0;
@@ -1077,6 +1084,10 @@ function finalizeAnalysisResult(args: {
       rateEnd,
       rateChange,
       ratePercentChange: ratePct,
+      fiatBalanceStart: startFiatBalance,
+      fiatBalanceEnd: endFiatBalance,
+      remainingCostBasisFiatStart: startBasis,
+      remainingCostBasisFiatEnd: endBasis,
       pnlStart: startPnl,
       pnlEnd: endPnl,
       pnlChange: endPnl - startPnl,
@@ -1223,6 +1234,8 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
     }
 
     const totalUnrealized = totalFiatBalance - totalBasis;
+    const pnlStart =
+      points.length > 0 ? points[0].totalUnrealizedPnlFiat : totalUnrealized;
     const totalPnlPercent = totalBasis > 0 ? (totalUnrealized / totalBasis) * 100 : 0;
 
     const driverBase = context.baselineRateByAssetId[context.driverAssetId] || driverRate;
@@ -1241,6 +1254,7 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
       totalFiatBalance,
       totalRemainingCostBasisFiat: totalBasis,
       totalUnrealizedPnlFiat: totalUnrealized,
+      totalPnlChange: totalUnrealized - pnlStart,
       totalPnlPercent,
       byWalletId,
     });
@@ -1357,6 +1371,8 @@ export async function buildPnlAnalysisSeriesFromStreamed(args: PnlAnalysisStream
     }
 
     const totalUnrealized = totalFiatBalance - totalBasis;
+    const pnlStart =
+      points.length > 0 ? points[0].totalUnrealizedPnlFiat : totalUnrealized;
     const totalPnlPercent = totalBasis > 0 ? (totalUnrealized / totalBasis) * 100 : 0;
 
     const driverBase = context.baselineRateByAssetId[context.driverAssetId] || driverRate;
@@ -1375,6 +1391,7 @@ export async function buildPnlAnalysisSeriesFromStreamed(args: PnlAnalysisStream
       totalFiatBalance,
       totalRemainingCostBasisFiat: totalBasis,
       totalUnrealizedPnlFiat: totalUnrealized,
+      totalPnlChange: totalUnrealized - pnlStart,
       totalPnlPercent,
       byWalletId,
     });
@@ -1400,138 +1417,6 @@ export async function buildPnlAnalysisChartSeriesFromStreamed(
   args: PnlAnalysisStreamedArgs,
 ): Promise<PnlAnalysisChartResult> {
   'worklet';
-
-  const wallets = args.wallets.slice();
-  const walletMetas = wallets.map(w => w.wallet);
-  const firstNonZeroTs =
-    typeof args.firstNonZeroTs === 'number' && Number.isFinite(args.firstNonZeroTs) ? args.firstNonZeroTs : null;
-
-  if (!walletMetas.length) {
-    return buildEmptyAnalysisChartResult(args.timeframe, args.cfg.quoteCurrency);
-  }
-
-  const context = buildAnalysisContext({
-    cfg: args.cfg,
-    wallets: walletMetas,
-    timeframe: args.timeframe,
-    ratePointsByAssetId: args.ratePointsByAssetId,
-    currentRatesByAssetId: args.currentRatesByAssetId,
-    firstNonZeroTs,
-    startTs: args.startTs,
-    endTs: args.endTs,
-    nowMs: args.nowMs,
-    maxPoints: args.maxPoints,
-    resolvedWindow: args.resolvedWindow,
-  });
-
-  const stateByWalletId = await createStreamedWalletStateById(wallets, context);
-  const singleAsset = isSingleAsset(walletMetas);
-  const pointCount = context.timeline.length;
-
-  const timestamps = new Array<number>(pointCount);
-  const totalFiatBalance = new Array<number>(pointCount);
-  const totalRemainingCostBasisFiat = new Array<number>(pointCount);
-  const totalUnrealizedPnlFiat = new Array<number>(pointCount);
-  const totalPnlChange = new Array<number>(pointCount);
-  const totalPnlPercent = new Array<number>(pointCount);
-  const driverMarkRate = singleAsset ? new Array<number | null>(pointCount) : undefined;
-  const driverRatePercentChange = singleAsset ? new Array<number | null>(pointCount) : undefined;
-  const latestHoldingsByRateKey: Record<string, {units: number}> = {};
-  const lastSpotRatesByRateKey: Record<string, number> = {};
-  let pnlStart: number | null = null;
-
-  for (let i = 0; i < pointCount; i++) {
-    const ts = context.timeline[i];
-    timestamps[i] = ts;
-
-    let totalFiat = 0;
-    let totalBasis = 0;
-
-    const driverRate = getAnalysisRateAtTimestamp({
-      assetId: context.driverAssetId,
-      ts,
-      endTs: context.endTs,
-      rateCursorByAssetId: context.rateCursorByAssetId,
-      currentRatesByAssetId: context.currentRatesByAssetId,
-    });
-    const driverBase = context.baselineRateByAssetId[context.driverAssetId] || driverRate;
-
-    for (const wallet of walletMetas) {
-      const st = stateByWalletId[wallet.walletId];
-
-      await advanceStreamedWalletStateToTimestamp({
-        state: st,
-        walletId: wallet.walletId,
-        ts,
-        context,
-      });
-
-      clampWalletAnalysisState(st);
-
-      const rate = getAnalysisRateAtTimestamp({
-        assetId: st.wallet.assetId,
-        ts,
-        endTs: context.endTs,
-        rateCursorByAssetId: context.rateCursorByAssetId,
-        currentRatesByAssetId: context.currentRatesByAssetId,
-      });
-      const units = st.atomicToUnitNumber(st.unitsAtomic);
-      totalFiat += units * rate;
-      totalBasis += st.basisFiat;
-
-      if (i === pointCount - 1) {
-        const rateKey = getWalletChartRateKey(wallet);
-        if (!latestHoldingsByRateKey[rateKey]) {
-          latestHoldingsByRateKey[rateKey] = {units: 0};
-        }
-        latestHoldingsByRateKey[rateKey].units += units;
-
-        if (
-          !(rateKey in lastSpotRatesByRateKey) &&
-          Number.isFinite(rate) &&
-          rate > 0
-        ) {
-          lastSpotRatesByRateKey[rateKey] = rate;
-        }
-      }
-    }
-
-    const totalUnrealized = totalFiat - totalBasis;
-
-    totalFiatBalance[i] = totalFiat;
-    totalRemainingCostBasisFiat[i] = totalBasis;
-    totalUnrealizedPnlFiat[i] = totalUnrealized;
-    if (pnlStart === null) pnlStart = totalUnrealized;
-    totalPnlChange[i] = totalUnrealized - pnlStart;
-    totalPnlPercent[i] = totalBasis > 0 ? (totalUnrealized / totalBasis) * 100 : 0;
-
-    if (driverMarkRate) {
-      driverMarkRate[i] = Number.isFinite(driverRate) ? driverRate : null;
-    }
-    if (driverRatePercentChange) {
-      driverRatePercentChange[i] = driverBase > 0 ? ((driverRate - driverBase) / driverBase) * 100 : null;
-    }
-  }
-
-  return {
-    timeframe: args.timeframe,
-    quoteCurrency: context.quoteCurrency,
-    driverAssetId: context.driverAssetId,
-    driverCoin: context.driverCoin,
-    assetIds: context.assetIds,
-    coins: context.coins,
-    singleAsset,
-    timestamps,
-    totalFiatBalance,
-    totalRemainingCostBasisFiat,
-    totalUnrealizedPnlFiat,
-    totalPnlChange,
-    totalPnlPercent,
-    driverMarkRate,
-    driverRatePercentChange,
-    lastSpotRatesByRateKey,
-    latestHoldingsByRateKey,
-    latestRemainingCostBasisFiatTotal:
-      pointCount > 0 ? totalRemainingCostBasisFiat[pointCount - 1] || 0 : 0,
-  };
+  const analysis = await buildPnlAnalysisSeriesFromStreamed(args);
+  return compactPnlAnalysisResultForChart(analysis);
 }

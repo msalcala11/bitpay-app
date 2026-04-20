@@ -1,17 +1,8 @@
 import React from 'react';
-import {render, waitFor} from '../../../../test/render';
+import {render, waitFor} from '@testing-library/react-native';
 import {usePortfolioAssetRows} from './usePortfolioAssetRows';
 import {usePortfolioAnalysis} from './usePortfolioAnalysis';
-import {useIsFocused} from '@react-navigation/native';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
-
-jest.mock('@react-navigation/native', () => {
-  const actualNav = jest.requireActual('@react-navigation/native');
-  return {
-    ...actualNav,
-    useIsFocused: jest.fn(),
-  };
-});
 
 jest.mock('../../../utils/hooks', () => ({
   useAppDispatch: jest.fn(),
@@ -36,7 +27,6 @@ jest.mock('./usePortfolioAnalysis', () => ({
 }));
 
 const mockUsePortfolioAnalysis = usePortfolioAnalysis as jest.Mock;
-const mockUseIsFocused = useIsFocused as jest.Mock;
 const mockUseAppDispatch = useAppDispatch as jest.Mock;
 const mockUseAppSelector = useAppSelector as jest.Mock;
 const mockBuildAssetRowsFromAnalysis = jest.requireMock(
@@ -66,8 +56,6 @@ describe('usePortfolioAssetRows', () => {
 
   beforeEach(() => {
     latestResult = undefined;
-    mockUseIsFocused.mockReset();
-    mockUseIsFocused.mockReturnValue(false);
     mockUseAppDispatch.mockReset();
     mockUseAppDispatch.mockReturnValue(jest.fn());
     mockUseAppSelector.mockReset();
@@ -109,20 +97,18 @@ describe('usePortfolioAssetRows', () => {
     mockSortAssetRowItemsByAssetFiatPriority.mockImplementation(args => args.items);
   });
 
-  it('disables runtime analysis queries while the screen is unfocused', () => {
+  it('keeps runtime analysis queries enabled even when the screen is unfocused', () => {
     render(<HookHarness />);
 
     expect(mockUsePortfolioAnalysis).toHaveBeenCalledWith(
       expect.objectContaining({
         timeframe: '1D',
-        enabled: false,
         allowCurrentWhilePopulate: true,
       }),
     );
   });
 
   it('refreshes asset analysis as populate progress changes and after completion', async () => {
-    mockUseIsFocused.mockReturnValue(true);
     mockState.PORTFOLIO.lastPopulatedAt = 10;
     mockState.PORTFOLIO.populateStatus.finishedAt = 10;
     mockState.PORTFOLIO.populateStatus.stopReason = 'completed';
@@ -207,10 +193,10 @@ describe('usePortfolioAssetRows', () => {
   });
 
   it('does not auto-populate on refocus even when committed portfolio data is missing', () => {
-    mockUseIsFocused.mockReturnValue(true);
     mockUsePortfolioAnalysis.mockReturnValue({
       data: undefined,
       committedData: undefined,
+      currentData: undefined,
       loading: false,
       quoteCurrency: 'USD',
       storedWallets: [],
@@ -218,9 +204,7 @@ describe('usePortfolioAssetRows', () => {
 
     render(<HookHarness />);
 
-    expect(mockUseAppDispatch).toHaveBeenCalled();
-    expect((mockUseAppDispatch.mock.results[0]?.value as jest.Mock).mock.calls)
-      .toHaveLength(0);
+    expect(mockUseAppDispatch).not.toHaveBeenCalled();
   });
 
   it('keeps all asset rows in loading state while a fresh populate has no committed analysis yet', () => {
@@ -339,6 +323,14 @@ describe('usePortfolioAssetRows', () => {
   it('keeps an asset revealed after it resolves once during the active populate session', () => {
     mockState.PORTFOLIO.populateStatus.inProgress = true;
     mockState.PORTFOLIO.populateStatus.startedAt = 11;
+    mockUsePortfolioAnalysis.mockReturnValue({
+      data: {wallets: [{}]},
+      committedData: undefined,
+      currentData: {wallets: [{}]},
+      loading: false,
+      quoteCurrency: 'USD',
+      storedWallets: [],
+    });
     mockGetVisibleWalletsFromKeys.mockReturnValue([
       {
         id: 'doge-wallet',

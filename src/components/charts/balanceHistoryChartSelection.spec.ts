@@ -12,7 +12,7 @@ jest.mock('../../utils/helper-methods', () => ({
 import {formatFiatAmount} from '../../utils/helper-methods';
 
 describe('balanceHistoryChartSelection', () => {
-  it('uses unrealized pnl fiat for the detail change row to stay aligned with the asset list', () => {
+  it('uses interval pnl change for the detail change row', () => {
     const changeRow = buildBalanceHistoryChartChangeRowData({
       displayedAnalysisPoint: {
         totalPnlPercent: 12.34,
@@ -25,18 +25,12 @@ describe('balanceHistoryChartSelection', () => {
 
     expect(changeRow).toEqual({
       percent: 12.34,
-      deltaFiatFormatted: formatFiatAmount(150, 'USD', {
+      deltaFiatFormatted: formatFiatAmount(40, 'USD', {
         customPrecision: 'minimal',
         currencyDisplay: 'symbol',
       }),
       rangeLabel: '1D',
     });
-    expect(changeRow?.deltaFiatFormatted).not.toBe(
-      formatFiatAmount(40, 'USD', {
-        customPrecision: 'minimal',
-        currencyDisplay: 'symbol',
-      }),
-    );
   });
 
   it('prefers the selected point over the last point when resolving chart data', () => {

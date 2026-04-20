@@ -1,4 +1,7 @@
-import {getCachedTimeframeStatus} from './chartCache';
+import {
+  getCachedTimeframeStatus,
+  patchCachedLatestPointWithSpotRates,
+} from './chartCache';
 
 const makeCachedTimeframe = () =>
   ({
@@ -47,5 +50,16 @@ describe('chartCache', () => {
         fiatRateSeriesCache: undefined,
       }),
     ).toBe('stale_historical');
+  });
+
+  it('patches final total pnl change when live spot rates change', () => {
+    expect(
+      patchCachedLatestPointWithSpotRates({
+        cachedTimeframe: makeCachedTimeframe(),
+        currentSpotRatesByRateKey: {
+          eth: 120,
+        },
+      }).totalPnlChange,
+    ).toEqual([0, 20]);
   });
 });
