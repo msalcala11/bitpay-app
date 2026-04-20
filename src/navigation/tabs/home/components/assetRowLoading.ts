@@ -16,8 +16,5 @@ export function getAssetRowFiatLoading(args: {
   isRowPopulateLoading?: boolean;
   showScopedPnlLoading?: boolean;
 }): boolean {
-  return (
-    (!!args.isFiatLoading && !!args.isRowPopulateLoading) ||
-    !!args.showScopedPnlLoading
-  );
+  return !!args.isFiatLoading && !!args.isRowPopulateLoading;
 }

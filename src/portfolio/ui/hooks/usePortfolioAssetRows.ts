@@ -1160,20 +1160,12 @@ export function usePortfolioAssetRows({
       const cachedItem = resolvedItemsByKey[item.key];
       const canFreezeResolvedItem = !item.showPnlPlaceholder;
       if (isPopulateLoadingByKeyRaw[item.key] === false) {
-        if (!canFreezeResolvedItem) {
-          return item;
+        if (canFreezeResolvedItem && cachedItem !== item) {
+          resolvedItemsByKey[item.key] = item;
         }
 
         nextLoadingByKey[item.key] = false;
-        if (!cachedItem) {
-          resolvedItemsByKey[item.key] = item;
-          return item;
-        }
-
-        if (cachedItem !== item) {
-          itemsChanged = true;
-        }
-        return cachedItem;
+        return item;
       }
 
       if (cachedItem) {
