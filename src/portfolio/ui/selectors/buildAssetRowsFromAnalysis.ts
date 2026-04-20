@@ -20,7 +20,7 @@ function formatDeltaPercent(ratio: number): string {
   const pct = ratio * 100;
   const abs = Math.abs(pct);
   const prefix = pct >= 0 ? '+' : '-';
-  return `${prefix}${abs.toFixed(1)}%`;
+  return `${prefix}${abs.toFixed(2)}%`;
 }
 
 export function buildAssetRowsFromAnalysis(args: {

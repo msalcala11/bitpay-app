@@ -94,6 +94,7 @@ export type BalanceHistoryChartProps = {
   }) => void;
   axisLabelOpacity?: number | NumberSharedValue;
   onSelectedTimeframeChange?: (timeframe: FiatRateInterval) => void;
+  onSelectionActiveChange?: (active: boolean) => void;
 };
 
 type DisplayState = {
@@ -287,6 +288,7 @@ const BalanceHistoryChart = ({
   onChangeRowData,
   axisLabelOpacity = 1,
   onSelectedTimeframeChange,
+  onSelectionActiveChange,
 }: BalanceHistoryChartProps): React.ReactElement | null => {
   const {t} = useTranslation();
   const theme = useTheme();
@@ -381,10 +383,15 @@ const BalanceHistoryChart = ({
   const [error, setError] = useState<Error | undefined>();
   const activeRequestIdRef = useRef(0);
   const onSelectedBalanceChangeRef = useRef(onSelectedBalanceChange);
+  const onSelectionActiveChangeRef = useRef(onSelectionActiveChange);
 
   useEffect(() => {
     onSelectedBalanceChangeRef.current = onSelectedBalanceChange;
   }, [onSelectedBalanceChange]);
+
+  useEffect(() => {
+    onSelectionActiveChangeRef.current = onSelectionActiveChange;
+  }, [onSelectionActiveChange]);
 
   useEffect(() => {
     setSelectedTimeframe(initialSelectedTimeframe);
@@ -592,6 +599,7 @@ const BalanceHistoryChart = ({
   useEffect(() => {
     setSelectedPoint(undefined);
     onSelectedBalanceChangeRef.current?.(undefined);
+    onSelectionActiveChangeRef.current?.(false);
   }, [queryRevisionKey, selectedTimeframe]);
 
   const displayedTimeframe = displayState?.timeframe ?? selectedTimeframe;
@@ -700,11 +708,13 @@ const BalanceHistoryChart = ({
     // No-op; we keep the current series visible and update the selected point as
     // the user scrubs. The previous snapshot engine emitted more events here, but
     // the committed-only runtime bridge intentionally stays quiet.
+    onSelectionActiveChangeRef.current?.(true);
   }, []);
 
   const onGestureEnded = useCallback(() => {
     setSelectedPoint(undefined);
     onSelectedBalanceChangeRef.current?.(undefined);
+    onSelectionActiveChangeRef.current?.(false);
   }, []);
 
   const onPointSelected = useCallback(
@@ -791,6 +801,7 @@ const BalanceHistoryChart = ({
               }
               setSelectedPoint(undefined);
               onSelectedBalanceChangeRef.current?.(undefined);
+              onSelectionActiveChangeRef.current?.(false);
               onSelectedTimeframeChange?.(timeframe);
               setSelectedTimeframe(timeframe);
             }}
