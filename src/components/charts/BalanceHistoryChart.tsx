@@ -38,6 +38,7 @@ import {useStableBalanceHistoryChartAxisLabels} from './useStableBalanceHistoryC
 import {runPortfolioChartQuery} from '../../portfolio/ui/common';
 import {usePortfolioBalanceChartScope} from '../../portfolio/ui/hooks/usePortfolioBalanceChartScope';
 import {formatUnknownError} from '../../utils/errors/formatUnknownError';
+import haptic from '../haptic-feedback/haptic';
 import {
   buildCachedTimeframeFromRuntimeChart,
   buildHydratedSeriesFromRuntimeChart,
@@ -181,6 +182,8 @@ const BalanceHistoryChart = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | undefined>();
   const activeRequestIdRef = useRef(0);
+  const gestureStartedRef = useRef(false);
+  const lastHapticPointTsRef = useRef<number | undefined>(undefined);
   const onSelectedBalanceChangeRef = useRef(onSelectedBalanceChange);
   const onSelectionActiveChangeRef = useRef(onSelectionActiveChange);
 
@@ -371,6 +374,8 @@ const BalanceHistoryChart = ({
   ]);
 
   useEffect(() => {
+    gestureStartedRef.current = false;
+    lastHapticPointTsRef.current = undefined;
     setSelectedPoint(undefined);
     onSelectedBalanceChangeRef.current?.(undefined);
   }, [queryRevisionKey, selectedTimeframe]);
@@ -557,17 +562,35 @@ const BalanceHistoryChart = ({
   ]);
 
   const onGestureStarted = useCallback(() => {
-    // No-op; selection-active state is driven by the presence of an actual
-    // selected point so parent screens do not retain stale overrides.
-  }, []);
+    if (!hasRenderableSeries) {
+      return;
+    }
+
+    gestureStartedRef.current = true;
+    lastHapticPointTsRef.current = undefined;
+    haptic('impactLight');
+  }, [hasRenderableSeries]);
 
   const onGestureEnded = useCallback(() => {
+    if (!gestureStartedRef.current && !selectedPoint) {
+      return;
+    }
+
+    gestureStartedRef.current = false;
+    lastHapticPointTsRef.current = undefined;
     setSelectedPoint(undefined);
     onSelectedBalanceChangeRef.current?.(undefined);
-  }, []);
+    haptic('impactLight');
+  }, [selectedPoint]);
 
   const onPointSelected = useCallback(
     (point: GraphPoint) => {
+      if (!gestureStartedRef.current) {
+        return;
+      }
+
+      const pointTs = point.date.getTime();
+
       setSelectedPoint(point);
       onSelectedBalanceChangeRef.current?.(
         getSelectedBalanceHistoryValue({
@@ -576,6 +599,11 @@ const BalanceHistoryChart = ({
           balanceOffset,
         }),
       );
+
+      if (lastHapticPointTsRef.current !== pointTs) {
+        haptic('impactLight');
+        lastHapticPointTsRef.current = pointTs;
+      }
     },
     [balanceOffset, renderedSeries],
   );
