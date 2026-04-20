@@ -28,6 +28,7 @@ import {
 } from '../../../../utils/helper-methods';
 import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
 import {getAssetTheme} from '../../../../utils/portfolio/assetTheme';
+import {resolveCurrentRatesAsOfMs} from '../../../../portfolio/ui/common';
 import {
   findSupportedCurrencyOptionForAsset,
   getWalletLiveFiatBalance,
@@ -64,6 +65,7 @@ export type ExchangeRateSharedModel = {
   currencyImageSource: any;
   currencyName: string;
   currentFiatRate: number | undefined;
+  asOfMs: number;
   formatDisplayPrice: (value?: number) => string;
   gradientBackgroundColor: string;
   hasValidNormalizedCoin: boolean;
@@ -100,6 +102,9 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
     ({APP}: RootState) => APP.homeCarouselConfig,
   );
   const rates = useAppSelector(({RATE}: RootState) => RATE.rates);
+  const ratesUpdatedAt = useAppSelector(
+    ({RATE}: RootState) => RATE.ratesUpdatedAt,
+  );
   const defaultAltCurrency = useAppSelector(
     ({APP}: RootState) => APP.defaultAltCurrency,
   );
@@ -217,6 +222,15 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
     resolvedQuoteCurrency,
     rates,
   ]);
+  const fallbackAsOfMsRef = React.useRef<number>(Date.now());
+  const asOfMs = useMemo(() => {
+    return (
+      resolveCurrentRatesAsOfMs({
+        ratesUpdatedAt,
+        rates,
+      }) ?? fallbackAsOfMsRef.current
+    );
+  }, [rates, ratesUpdatedAt]);
 
   const formatDisplayPrice = useCallback(
     (value?: number) => {
@@ -383,6 +397,7 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
     assetContext,
     assetTotalFiatBalance,
     assetWallets,
+    asOfMs,
     chartLineColor,
     circulatingSupplyToDisplay,
     currencyAbbreviation,

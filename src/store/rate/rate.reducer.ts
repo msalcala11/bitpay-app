@@ -9,12 +9,14 @@ export interface RateState {
   lastDayRates: Rates;
   rates: Rates;
   ratesCacheKey: RatesCacheKey;
+  ratesUpdatedAt?: number;
 }
 
 const initialState: RateState = {
   rates: {},
   lastDayRates: {},
   ratesCacheKey: {},
+  ratesUpdatedAt: undefined,
 };
 
 export const rateReducer = (
@@ -28,6 +30,7 @@ export const rateReducer = (
 
     case RateActionTypes.SUCCESS_GET_RATES: {
       const {rates, lastDayRates} = action.payload;
+      const ratesUpdatedAt = Date.now();
       return {
         ...state,
         rates: {...initialState.rates, ...rates},
@@ -36,6 +39,7 @@ export const rateReducer = (
           [DEFAULT_DATE_RANGE]: Date.now(),
         },
         lastDayRates: {...initialState.lastDayRates, ...lastDayRates},
+        ratesUpdatedAt,
       };
     }
 

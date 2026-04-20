@@ -9,6 +9,7 @@ import {
   getCurrentRatesByAssetIdSignature,
   getStoredWalletRequestSignature,
   mapWalletsToStoredWallets,
+  resolveCurrentRatesAsOfMs,
   resolveCommittedPortfolioQuoteCurrency,
 } from '../common';
 
@@ -22,6 +23,7 @@ export type PortfolioRuntimeQueryState<T> = {
   requestKey: string;
   currentRatesByAssetId: Record<string, number>;
   currentRatesSignature: string;
+  asOfMs: number;
 };
 
 export function usePortfolioRuntimeQuery<T>(args: {
@@ -38,6 +40,7 @@ export function usePortfolioRuntimeQuery<T>(args: {
     timeframe: PnlTimeframe;
     maxPoints?: number;
     currentRatesByAssetId?: Record<string, number>;
+    asOfMs: number;
   }) => Promise<T>;
 }): PortfolioRuntimeQueryState<T> {
   const {
@@ -56,6 +59,7 @@ export function usePortfolioRuntimeQuery<T>(args: {
     ({PORTFOLIO}) => PORTFOLIO.quoteCurrency,
   );
   const rates = useAppSelector(({RATE}) => RATE.rates);
+  const ratesUpdatedAt = useAppSelector(({RATE}) => RATE.ratesUpdatedAt);
   const committedPortfolioRevisionToken = useAppSelector(({PORTFOLIO}) => {
     return buildCommittedPortfolioRevisionToken({
       quoteCurrency: PORTFOLIO.quoteCurrency,
@@ -88,6 +92,15 @@ export function usePortfolioRuntimeQuery<T>(args: {
   const currentRatesSignature = useMemo(() => {
     return getCurrentRatesByAssetIdSignature(currentRatesByAssetId);
   }, [currentRatesByAssetId]);
+  const fallbackAsOfMsRef = useRef<number>(Date.now());
+  const asOfMs = useMemo(() => {
+    return (
+      resolveCurrentRatesAsOfMs({
+        ratesUpdatedAt,
+        rates,
+      }) ?? fallbackAsOfMsRef.current
+    );
+  }, [rates, ratesUpdatedAt]);
 
   const requestKey = useMemo(() => {
     return [
@@ -96,14 +109,23 @@ export function usePortfolioRuntimeQuery<T>(args: {
       typeof maxPoints === 'number' ? String(maxPoints) : '',
       getStoredWalletRequestSignature(storedWallets),
       currentRatesSignature,
+      String(asOfMs),
     ].join('|');
-  }, [currentRatesSignature, maxPoints, quoteCurrency, storedWallets, timeframe]);
+  }, [
+    asOfMs,
+    currentRatesSignature,
+    maxPoints,
+    quoteCurrency,
+    storedWallets,
+    timeframe,
+  ]);
   const executeParamsRef = useRef({
     wallets: storedWallets,
     quoteCurrency,
     timeframe,
     maxPoints,
     currentRatesByAssetId,
+    asOfMs,
   });
   executeParamsRef.current = {
     wallets: storedWallets,
@@ -111,6 +133,7 @@ export function usePortfolioRuntimeQuery<T>(args: {
     timeframe,
     maxPoints,
     currentRatesByAssetId,
+    asOfMs,
   };
   const [data, setData] = useState<T | undefined>(undefined);
   const [loading, setLoading] = useState(false);
@@ -185,6 +208,7 @@ export function usePortfolioRuntimeQuery<T>(args: {
     requestKey,
     currentRatesByAssetId,
     currentRatesSignature,
+    asOfMs,
   };
 }
 

@@ -51,6 +51,7 @@ import {
   getCurrentRatesByAssetIdSignature,
   getStoredWalletRequestSignature,
   mapWalletsToStoredWallets,
+  resolveCurrentRatesAsOfMs,
   resolveCommittedPortfolioQuoteCurrency,
   runPortfolioChartQuery,
 } from '../../portfolio/ui/common';
@@ -344,6 +345,7 @@ const BalanceHistoryChart = ({
   const committedPortfolioLastPopulatedAt = useAppSelector(
     ({PORTFOLIO}) => PORTFOLIO.lastPopulatedAt,
   );
+  const ratesUpdatedAt = useAppSelector(({RATE}) => RATE.ratesUpdatedAt);
 
   const committedQueryQuoteCurrency = useMemo(() => {
     return resolveCommittedPortfolioQuoteCurrency({
@@ -410,7 +412,18 @@ const BalanceHistoryChart = ({
       .map(rateKey => `${rateKey}:${String(currentSpotRatesByRateKey[rateKey])}`)
       .join('|');
   }, [currentSpotRatesByRateKey]);
-  const chartDataRevisionSig = committedDataRevisionSig;
+  const fallbackAsOfMsRef = useRef<number>(Date.now());
+  const asOfMs = useMemo(() => {
+    return (
+      resolveCurrentRatesAsOfMs({
+        ratesUpdatedAt,
+        rates: _rates,
+      }) ?? fallbackAsOfMsRef.current
+    );
+  }, [_rates, ratesUpdatedAt]);
+  const chartDataRevisionSig = useMemo(() => {
+    return [committedDataRevisionSig, String(asOfMs)].join('|');
+  }, [asOfMs, committedDataRevisionSig]);
 
   const scopeId = useMemo(() => {
     return buildBalanceChartScopeId({
@@ -475,9 +488,11 @@ const BalanceHistoryChart = ({
       ? patchCachedLatestPointWithSpotRates({
           cachedTimeframe: cachedSelectedTimeframe,
           currentSpotRatesByRateKey,
+          patchedAt: asOfMs,
         })
       : cachedSelectedTimeframe;
   }, [
+    asOfMs,
     cachedSelectedTimeframe,
     cachedSelectedTimeframeStatus,
     currentSpotRatesByRateKey,
@@ -550,6 +565,7 @@ const BalanceHistoryChart = ({
     currentRatesByAssetId,
     dataRevisionSig: chartDataRevisionSig,
     walletIds: sortedWalletIds,
+    asOfMs,
   });
   chartQueryArgsRef.current = {
     wallets: storedWallets,
@@ -559,6 +575,7 @@ const BalanceHistoryChart = ({
     currentRatesByAssetId,
     dataRevisionSig: chartDataRevisionSig,
     walletIds: sortedWalletIds,
+    asOfMs,
   };
 
   useEffect(() => {

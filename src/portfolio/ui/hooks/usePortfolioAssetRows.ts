@@ -43,6 +43,7 @@ type AssetGroupAnalysisSpec = {
   committedCacheKey: string;
   currentRatesByAssetId: Record<string, number>;
   currentRatesSignature: string;
+  asOfMs?: number;
 };
 
 type AssetGroupAnalysisState = {
@@ -221,6 +222,7 @@ export function usePortfolioAssetRows({
         '2',
         getStoredWalletRequestSignature(groupStoredWallets),
         currentRatesSignature,
+        typeof analysis.asOfMs === 'number' ? String(analysis.asOfMs) : '',
       ].join('|');
 
       nextSpecs.push({
@@ -234,12 +236,14 @@ export function usePortfolioAssetRows({
         }),
         currentRatesByAssetId,
         currentRatesSignature,
+        asOfMs: analysis.asOfMs,
       });
     }
 
     return nextSpecs.sort((left, right) => left.key.localeCompare(right.key));
   }, [
     analysis.currentRatesByAssetId,
+    analysis.asOfMs,
     analysis.eligibleWallets,
     analysis.quoteCurrency,
     analysis.storedWallets,
@@ -355,6 +359,7 @@ export function usePortfolioAssetRows({
         timeframe: gainLossMode,
         maxPoints: 2,
         currentRatesByAssetId: spec.currentRatesByAssetId,
+        asOfMs: spec.asOfMs,
       })
         .then(result => {
           if (cancelled) {
