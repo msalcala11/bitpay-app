@@ -29,6 +29,7 @@ import {
   deserializeCachedTimeframeToComputedSeries,
   getCachedBalanceChartTimeframe,
   getCachedTimeframeStatus,
+  patchCachedLatestPointWithSpotRates,
   getSortedUniqueWalletIds,
   serializeComputedSeriesToCachedTimeframe,
   type HydratedBalanceChartSeries,
@@ -47,7 +48,6 @@ import {useStableBalanceHistoryChartAxisLabels} from './useStableBalanceHistoryC
 import {
   buildCurrentRatesByAssetId,
   buildCommittedPortfolioRevisionToken,
-  getCurrentRatesByAssetIdSignature,
   getStoredWalletRequestSignature,
   mapWalletsToStoredWallets,
   resolveCommittedPortfolioQuoteCurrency,
@@ -58,6 +58,12 @@ import type {
   PnlAnalysisPoint,
 } from '../../portfolio/core/pnl/analysisStreaming';
 import {formatUnknownError} from '../../utils/errors/formatUnknownError';
+import {getFiatRateSeriesAssetKey} from '../../utils/portfolio/core/fiatRateSeries';
+import {getRateByCurrencyName} from '../../utils/helper-methods';
+import {
+  getPortfolioWalletChainLower,
+  getPortfolioWalletTokenAddress,
+} from '../../utils/portfolio/assets';
 
 export type BalanceHistoryChartProps = {
   wallets: Wallet[];
@@ -191,11 +197,13 @@ const buildCachedTimeframeFromSeries = (args: {
   balanceOffset: number;
   dataRevisionSig: string;
   series: HydratedBalanceChartSeries;
+  patchMetadata: Pick<
+    PnlAnalysisChartResult,
+    | 'lastSpotRatesByRateKey'
+    | 'latestHoldingsByRateKey'
+    | 'latestRemainingCostBasisFiatTotal'
+  >;
 }): ReturnType<typeof serializeComputedSeriesToCachedTimeframe> => {
-  const lastAnalysisPoint = args.series.analysisPoints.length
-    ? args.series.analysisPoints[args.series.analysisPoints.length - 1]
-    : undefined;
-
   return serializeComputedSeriesToCachedTimeframe({
     timeframe: args.timeframe,
     walletIds: args.walletIds,
@@ -205,12 +213,53 @@ const buildCachedTimeframeFromSeries = (args: {
     historicalRateDeps: [],
     analysisPoints: args.series.analysisPoints,
     patchMetadata: {
-      lastSpotRatesByRateKey: {},
-      latestHoldingsByRateKey: {},
+      lastSpotRatesByRateKey: args.patchMetadata.lastSpotRatesByRateKey,
+      latestHoldingsByRateKey: args.patchMetadata.latestHoldingsByRateKey,
       latestRemainingCostBasisFiatTotal:
-        lastAnalysisPoint?.totalRemainingCostBasisFiat || 0,
+        args.patchMetadata.latestRemainingCostBasisFiatTotal,
     },
   });
+};
+
+const buildCurrentSpotRatesByRateKey = (args: {
+  wallets: Wallet[];
+  rates?: Rates;
+  quoteCurrency: string;
+}): Record<string, number> => {
+  const quoteCurrency = String(args.quoteCurrency || 'USD').toUpperCase();
+  const out: Record<string, number> = {};
+
+  for (const wallet of args.wallets || []) {
+    const tokenAddress = getPortfolioWalletTokenAddress(wallet);
+    const rateKey = getFiatRateSeriesAssetKey(wallet.currencyAbbreviation, {
+      chain: tokenAddress ? getPortfolioWalletChainLower(wallet) : undefined,
+      tokenAddress,
+    });
+
+    if (!rateKey || rateKey in out) {
+      continue;
+    }
+
+    const walletRates = getRateByCurrencyName(
+      args.rates || {},
+      wallet.currencyAbbreviation,
+      wallet.chain,
+      wallet.tokenAddress,
+    );
+    const currentRate = walletRates?.find(
+      rate => String(rate.code || '').toUpperCase() === quoteCurrency,
+    )?.rate;
+
+    if (
+      typeof currentRate === 'number' &&
+      Number.isFinite(currentRate) &&
+      currentRate > 0
+    ) {
+      out[rateKey] = currentRate;
+    }
+  }
+
+  return out;
 };
 
 const BalanceHistoryChart = ({
@@ -302,12 +351,14 @@ const BalanceHistoryChart = ({
       rates: _rates,
     });
   }, [_rates, committedQueryQuoteCurrency, storedWallets]);
-  const currentRatesSignature = useMemo(() => {
-    return getCurrentRatesByAssetIdSignature(currentRatesByAssetId);
-  }, [currentRatesByAssetId]);
-  const chartDataRevisionSig = useMemo(() => {
-    return [committedDataRevisionSig, currentRatesSignature].join('|');
-  }, [committedDataRevisionSig, currentRatesSignature]);
+  const currentSpotRatesByRateKey = useMemo(() => {
+    return buildCurrentSpotRatesByRateKey({
+      wallets: eligibleWallets,
+      rates: _rates,
+      quoteCurrency: committedQueryQuoteCurrency,
+    });
+  }, [_rates, committedQueryQuoteCurrency, eligibleWallets]);
+  const chartDataRevisionSig = committedDataRevisionSig;
 
   const scopeId = useMemo(() => {
     return buildBalanceChartScopeId({
@@ -350,13 +401,33 @@ const BalanceHistoryChart = ({
     return getCachedTimeframeStatus({
       cachedTimeframe: cachedSelectedTimeframe,
       dataRevisionSig: chartDataRevisionSig,
-      currentSpotRatesByRateKey: {},
+      currentSpotRatesByRateKey,
       fiatRateSeriesCache: undefined,
     });
-  }, [cachedSelectedTimeframe, chartDataRevisionSig]);
+  }, [
+    cachedSelectedTimeframe,
+    chartDataRevisionSig,
+    currentSpotRatesByRateKey,
+  ]);
+  const effectiveCachedSelectedTimeframe = useMemo(() => {
+    if (!cachedSelectedTimeframe) {
+      return undefined;
+    }
+
+    return cachedSelectedTimeframeStatus === 'patchable'
+      ? patchCachedLatestPointWithSpotRates({
+          cachedTimeframe: cachedSelectedTimeframe,
+          currentSpotRatesByRateKey,
+        })
+      : cachedSelectedTimeframe;
+  }, [
+    cachedSelectedTimeframe,
+    cachedSelectedTimeframeStatus,
+    currentSpotRatesByRateKey,
+  ]);
 
   const cachedSelectedSeries = useMemo(() => {
-    if (!cachedSelectedTimeframe) {
+    if (!effectiveCachedSelectedTimeframe) {
       return undefined;
     }
     if (
@@ -365,8 +436,10 @@ const BalanceHistoryChart = ({
     ) {
       return undefined;
     }
-    return deserializeCachedTimeframeToComputedSeries(cachedSelectedTimeframe);
-  }, [cachedSelectedTimeframe, cachedSelectedTimeframeStatus]);
+    return deserializeCachedTimeframeToComputedSeries(
+      effectiveCachedSelectedTimeframe,
+    );
+  }, [cachedSelectedTimeframeStatus, effectiveCachedSelectedTimeframe]);
 
   useEffect(() => {
     if (!cachedSelectedSeries) {
@@ -483,6 +556,12 @@ const BalanceHistoryChart = ({
                 balanceOffset,
                 dataRevisionSig: chartQueryArgs.dataRevisionSig,
                 series,
+                patchMetadata: {
+                  lastSpotRatesByRateKey: chart.lastSpotRatesByRateKey,
+                  latestHoldingsByRateKey: chart.latestHoldingsByRateKey,
+                  latestRemainingCostBasisFiatTotal:
+                    chart.latestRemainingCostBasisFiatTotal,
+                },
               }),
             ],
           }),
@@ -517,13 +596,14 @@ const BalanceHistoryChart = ({
 
   const displayedTimeframe = displayState?.timeframe ?? selectedTimeframe;
   const activeSeries = displayState?.series;
+  const renderedSeries = activeSeries || cachedSelectedSeries;
   const rangeLabel = useMemo(
     () => getRangeLabelForFiatTimeframe(t, displayedTimeframe),
     [displayedTimeframe, t],
   );
 
   const displayedRangeMs = useMemo(() => {
-    const series = activeSeries || cachedSelectedSeries;
+    const series = renderedSeries;
     const firstTimestamp = series?.analysisPoints?.[0]?.timestamp;
     const lastTimestamp =
       series?.analysisPoints?.[(series.analysisPoints?.length || 1) - 1]
@@ -533,15 +613,15 @@ const BalanceHistoryChart = ({
       typeof lastTimestamp === 'number'
       ? Math.max(0, lastTimestamp - firstTimestamp)
       : undefined;
-  }, [activeSeries, cachedSelectedSeries]);
+  }, [renderedSeries]);
 
   const displayedAnalysisPoint = useMemo(() => {
     return getDisplayedBalanceHistoryAnalysisPoint({
       selectedPoint,
-      activeSeries,
-      cachedSelectedSeries,
+      activeSeries: renderedSeries,
+      cachedSelectedSeries: renderedSeries,
     });
-  }, [activeSeries, cachedSelectedSeries, selectedPoint]);
+  }, [renderedSeries, selectedPoint]);
 
   const displayedChangeRowData = useMemo<ChangeRowData | undefined>(() => {
     return buildBalanceHistoryChartChangeRowData({
@@ -576,7 +656,7 @@ const BalanceHistoryChart = ({
   }, [displayedChangeRowData, onChangeRowData]);
 
   const {MaxAxisLabel, MinAxisLabel} = useStableBalanceHistoryChartAxisLabels({
-    activeSeries,
+    activeSeries: renderedSeries,
     axisLabelOpacity,
     quoteCurrency: committedQueryQuoteCurrency,
   });
@@ -607,7 +687,7 @@ const BalanceHistoryChart = ({
     };
   }, [sharedTimeframeSelectorOpacity, timeframeSelectorOpacityNumber]);
 
-  const hasRenderableSeries = !!activeSeries?.graphPoints?.length;
+  const hasRenderableSeries = !!renderedSeries?.graphPoints?.length;
   const hasAnyWallets = wallets.some(wallet => {
     const walletId = String(wallet?.id || '');
     return !!walletId && !!wallet;
@@ -633,12 +713,12 @@ const BalanceHistoryChart = ({
       onSelectedBalanceChangeRef.current?.(
         getSelectedBalanceHistoryValue({
           point,
-          activeSeries,
+          activeSeries: renderedSeries,
           balanceOffset,
         }),
       );
     },
-    [activeSeries, balanceOffset],
+    [balanceOffset, renderedSeries],
   );
 
   if (!hasAnyWallets && !preChartContent) {
@@ -677,7 +757,7 @@ const BalanceHistoryChart = ({
       ) : null}
 
       <InteractiveLineChart
-        points={activeSeries?.graphPoints || []}
+        points={renderedSeries?.graphPoints || []}
         color={chartColor}
         lineThickness={lineThickness}
         strokeScale={strokeScale}

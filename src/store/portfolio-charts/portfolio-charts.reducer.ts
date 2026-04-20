@@ -150,6 +150,10 @@ const sanitizeTimeframe = (
     : [],
   lastSpotRatesByRateKey: {...(timeframe?.lastSpotRatesByRateKey || {})},
   latestHoldingsByRateKey: {...(timeframe?.latestHoldingsByRateKey || {})},
+  latestRemainingCostBasisFiatTotal:
+    typeof timeframe?.latestRemainingCostBasisFiatTotal === 'number'
+      ? timeframe.latestRemainingCostBasisFiatTotal
+      : 0,
   ts: Array.isArray(timeframe?.ts) ? timeframe.ts.slice() : [],
   totalFiatBalance: Array.isArray(timeframe?.totalFiatBalance)
     ? timeframe.totalFiatBalance.slice()
