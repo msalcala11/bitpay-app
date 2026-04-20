@@ -783,6 +783,192 @@ describe('usePortfolioAssetRows', () => {
     });
   });
 
+  it('shows a row-level loading state when switching from ALL back to 1D until the new scoped analysis arrives', async () => {
+    let resolveAllScopedAnalysis:
+      | ((value: {
+          driverCoin: string;
+          assetIds: string[];
+          wallets: {walletId: string}[];
+        }) => void)
+      | undefined;
+    let resolveDayScopedAnalysis:
+      | ((value: {
+          driverCoin: string;
+          assetIds: string[];
+          wallets: {walletId: string}[];
+        }) => void)
+      | undefined;
+    const allScopedAnalysis = {
+      driverCoin: 'btc',
+      assetIds: ['btc-asset'],
+      wallets: [{walletId: 'btc-wallet'}],
+    };
+    const dayScopedAnalysis = {
+      driverCoin: 'btc',
+      assetIds: ['btc-asset'],
+      wallets: [{walletId: 'btc-wallet'}],
+    };
+    const analysisByTimeframe = {
+      ALL: {
+        data: allScopedAnalysis,
+        committedData: allScopedAnalysis,
+        currentData: allScopedAnalysis,
+        error: undefined,
+        loading: false,
+        quoteCurrency: 'USD',
+        requestKey: 'portfolio-all',
+        currentRatesByAssetId: {['btc-asset']: 74333.76},
+        currentRatesSignature: 'btc-rate',
+        asOfMs: 123456789,
+        eligibleWallets: [
+          {
+            id: 'btc-wallet',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+          },
+        ],
+        storedWallets: [
+          {
+            summary: {
+              walletId: 'btc-wallet',
+              currencyAbbreviation: 'btc',
+              chain: 'btc',
+              network: 'livenet',
+            },
+            credentials: {
+              keyId: 'key-id',
+            },
+          },
+        ],
+      },
+      '1D': {
+        data: dayScopedAnalysis,
+        committedData: dayScopedAnalysis,
+        currentData: dayScopedAnalysis,
+        error: undefined,
+        loading: false,
+        quoteCurrency: 'USD',
+        requestKey: 'portfolio-1d',
+        currentRatesByAssetId: {['btc-asset']: 74333.76},
+        currentRatesSignature: 'btc-rate',
+        asOfMs: 123456789,
+        eligibleWallets: [
+          {
+            id: 'btc-wallet',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+          },
+        ],
+        storedWallets: [
+          {
+            summary: {
+              walletId: 'btc-wallet',
+              currencyAbbreviation: 'btc',
+              chain: 'btc',
+              network: 'livenet',
+            },
+            credentials: {
+              keyId: 'key-id',
+            },
+          },
+        ],
+      },
+    } as const;
+
+    mockState.PORTFOLIO.lastPopulatedAt = 5;
+    mockUsePortfolioAnalysis.mockImplementation(({timeframe}) => {
+      return analysisByTimeframe[timeframe as 'ALL' | '1D'];
+    });
+    mockPreparePortfolioAnalysisSessionQuery.mockResolvedValue({
+      sessionId: 'session-btc',
+    });
+    let scopeRequestCount = 0;
+    mockRunPortfolioAnalysisSessionScopeQuery.mockImplementation(() => {
+      scopeRequestCount += 1;
+      return new Promise(resolve => {
+        if (scopeRequestCount === 1) {
+          resolveAllScopedAnalysis = resolve as typeof resolveAllScopedAnalysis;
+          return;
+        }
+
+        resolveDayScopedAnalysis = resolve as typeof resolveDayScopedAnalysis;
+      });
+    });
+    mockBuildAssetRowsFromAnalysis.mockReturnValue([
+      {
+        key: 'btc',
+        currencyAbbreviation: 'btc',
+        chain: 'btc',
+        name: 'BTC',
+        cryptoAmount: '0.00422258',
+        fiatAmount: '$313.88',
+        deltaFiat: '-$9.21',
+        deltaPercent: '-1.80%',
+        isPositive: false,
+        hasRate: true,
+        hasPnl: true,
+        debugCopyPayload: {
+          aggregatedSummary: {
+            fiatValue: 313.88024830079996,
+            pnlChange: -9.208673313419354,
+            pnlPercent: -1.8038049153872324,
+          },
+        },
+      },
+    ]);
+
+    const view = render(<HookHarness gainLossMode="ALL" />);
+
+    await waitFor(() => {
+      expect(latestResult?.visibleItems).toEqual([
+        expect.objectContaining({
+          key: 'btc',
+          showScopedPnlLoading: true,
+        }),
+      ]);
+    });
+
+    await act(async () => {
+      resolveAllScopedAnalysis?.(allScopedAnalysis);
+    });
+
+    await waitFor(() => {
+      expect(latestResult?.visibleItems).toEqual([
+        expect.objectContaining({
+          key: 'btc',
+          showScopedPnlLoading: false,
+        }),
+      ]);
+    });
+
+    view.rerender(<HookHarness gainLossMode="1D" />);
+
+    await waitFor(() => {
+      expect(latestResult?.visibleItems).toEqual([
+        expect.objectContaining({
+          key: 'btc',
+          showScopedPnlLoading: true,
+        }),
+      ]);
+    });
+    await waitFor(() => {
+      expect(scopeRequestCount).toBe(2);
+    });
+
+    await act(async () => {
+      resolveDayScopedAnalysis?.(dayScopedAnalysis);
+    });
+
+    await waitFor(() => {
+      expect(latestResult?.visibleItems).toEqual([
+        expect.objectContaining({
+          key: 'btc',
+          showScopedPnlLoading: false,
+        }),
+      ]);
+    });
+  });
+
   it('falls back to a direct scoped query when a prepared session goes missing', async () => {
     const globalAnalysis = {
       driverCoin: 'eth',
