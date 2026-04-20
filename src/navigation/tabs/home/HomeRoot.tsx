@@ -306,8 +306,14 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
       if (!appIsLoading) {
         dispatch(updatePortfolioBalance());
       } // portfolio balance is updated in app init
+
+      // Detail screens can refresh the shared runtime fiat-series storage while
+      // Home stays mounted in the background. Reload on focus so the exchange
+      // rate list picks up the latest shared series without requiring a manual
+      // pull-to-refresh on Home.
+      reloadFiatRateSeriesCache().catch(() => undefined);
     });
-  }, [dispatch, navigation, appIsLoading]);
+  }, [appIsLoading, dispatch, navigation, reloadFiatRateSeriesCache]);
 
   const onRefresh = async () => {
     setRefreshing(true);
