@@ -9,7 +9,12 @@ import {
   toPortfolioStoredWallet,
 } from '../adapters/rn/walletMappers';
 import {getAssetIdFromWallet} from '../core/pnl/assetId';
-import type {PnlAnalysisChartResult, PnlAnalysisResult, PnlTimeframe} from '../core/pnl/analysisStreaming';
+import {
+  compactPnlAnalysisResultForChart,
+  type PnlAnalysisChartResult,
+  type PnlAnalysisResult,
+  type PnlTimeframe,
+} from '../core/pnl/analysisStreaming';
 import type {BwsConfig} from '../core/shared/bws';
 import type {StoredWallet} from '../core/types';
 import {getPortfolioRuntimeClient} from '../runtime/portfolioRuntime';
@@ -185,7 +190,7 @@ export async function runPortfolioChartQuery(args: {
   maxPoints?: number;
   currentRatesByAssetId?: Record<string, number>;
 }): Promise<PnlAnalysisChartResult> {
-  return getPortfolioRuntimeClient().computeAnalysisChart({
+  const analysis = await getPortfolioRuntimeClient().computeAnalysis({
     cfg: createPortfolioQueryBwsConfig(),
     wallets: args.wallets,
     quoteCurrency: args.quoteCurrency,
@@ -193,6 +198,8 @@ export async function runPortfolioChartQuery(args: {
     maxPoints: args.maxPoints,
     currentRatesByAssetId: args.currentRatesByAssetId,
   });
+
+  return compactPnlAnalysisResultForChart(analysis);
 }
 
 export function getLastFiniteNumber(values: Array<number | null | undefined> | undefined): number | undefined {

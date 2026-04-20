@@ -80,14 +80,20 @@ const AssetBalanceHistoryScreen = ({
 
   const idleSummary = useMemo(() => {
     return buildAssetBalanceHistoryIdleSummary({
+      storedWallets: analysis.storedWallets,
       analysis: analysis.data,
       quoteCurrency: analysis.quoteCurrency || shared.resolvedQuoteCurrency,
       rangeLabel: idleRangeLabel,
+      gainLossMode: selectedTimeframe,
+      assetKey: shared.assetContext.currencyAbbreviation.toLowerCase(),
     });
   }, [
     analysis.data,
     analysis.quoteCurrency,
+    analysis.storedWallets,
     idleRangeLabel,
+    selectedTimeframe,
+    shared.assetContext.currencyAbbreviation,
     shared.resolvedQuoteCurrency,
   ]);
 

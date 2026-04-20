@@ -1,5 +1,4 @@
 import {useEffect, useMemo, useRef} from 'react';
-import {useIsFocused} from '@react-navigation/native';
 import type {AssetRowItem, GainLossMode} from '../../../utils/portfolio/assets';
 import {
   buildWalletIdsByAssetGroupKey,
@@ -26,7 +25,6 @@ type Result = {
 };
 
 export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
-  const isFocused = useIsFocused();
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
   const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
@@ -100,7 +98,6 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
     wallets,
     timeframe: gainLossMode,
     maxPoints: 2,
-    enabled: isFocused,
     refreshToken: analysisRefreshToken,
     clearDataToken: analysisClearDataToken,
     freezeWhilePopulate: true,

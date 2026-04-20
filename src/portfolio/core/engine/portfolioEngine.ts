@@ -44,9 +44,9 @@ import {
   type FiatRateProvider,
 } from '../pnl/fiatRateStore';
 import {
-  buildPnlAnalysisChartSeriesFromStreamed,
-  buildPnlAnalysisSeriesFromStreamed,
   buildPnlAnalysisSeriesFromPreloaded,
+  buildPnlAnalysisSeriesFromStreamed,
+  compactPnlAnalysisResultForChart,
   resolvePnlAnalysisPreloadWindow,
   type PnlTimeframe,
   type PnlAnalysisChartResult,
@@ -819,31 +819,7 @@ export class PortfolioEngine {
   async computeAnalysisChart(
     args: ComputeAnalysisArgs,
   ): Promise<PnlAnalysisChartResult> {
-    if (!args.wallets.length) {
-      return buildPnlAnalysisChartSeriesFromStreamed({
-        cfg: {quoteCurrency: String(args.quoteCurrency || 'USD').toUpperCase()},
-        wallets: [],
-        timeframe: args.timeframe,
-        ratePointsByAssetId: {},
-        nowMs: args.nowMs,
-        maxPoints: args.maxPoints,
-      });
-    }
-
-    const prepared = await this.prepareStreamedAnalysisInputs(args);
-    return buildPnlAnalysisChartSeriesFromStreamed({
-      cfg: {quoteCurrency: prepared.quoteCurrency},
-      wallets: prepared.wallets,
-      timeframe: args.timeframe,
-      ratePointsByAssetId: prepared.resolved.rawPointsByAssetId,
-      currentRatesByAssetId: args.currentRatesByAssetId,
-      firstNonZeroTs: prepared.firstNonZeroTs,
-      startTs: prepared.resolved.startTs,
-      endTs: prepared.resolved.endTs,
-      nowMs: prepared.resolved.nowMs,
-      maxPoints: args.maxPoints,
-      resolvedWindow: prepared.resolved,
-    });
+    return compactPnlAnalysisResultForChart(await this.computeAnalysis(args));
   }
 
   async computeAnalysis(args: ComputeAnalysisArgs): Promise<PnlAnalysisResult> {

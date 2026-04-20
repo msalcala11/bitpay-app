@@ -1,12 +1,47 @@
-import {formatCurrencyAbbreviation, formatFiatAmount} from '../../../utils/helper-methods';
+import {
+  formatCurrencyAbbreviation,
+  formatFiatAmount,
+} from '../../../utils/helper-methods';
 import type {AssetRowItem, GainLossMode} from '../../../utils/portfolio/assets';
-import {formatBigIntDecimal, getAtomicDecimals, makeAtomicToUnitNumberConverter, parseAtomicToBigint} from '../../core/format';
+import {
+  formatBigIntDecimal,
+  getAtomicDecimals,
+  parseAtomicToBigint,
+} from '../../core/format';
 import {getAssetIdFromWallet} from '../../core/pnl/assetId';
-import type {PnlAnalysisResult} from '../../core/pnl/analysisStreaming';
+import type {
+  AssetPnlSummary,
+  PnlAnalysisResult,
+} from '../../core/pnl/analysisStreaming';
 import type {StoredWallet} from '../../core/types';
 
 const UNAVAILABLE_DELTA_FIAT = '—     ';
 const UNAVAILABLE_DELTA_PERCENT = '  —  %';
+
+type AggregatedAssetSummary = {
+  fiatValue: number;
+  pnlChange: number;
+  pnlEnd: number;
+  remainingCostBasisFiatEnd: number;
+  hasRate: boolean;
+  hasPnl: boolean;
+  pnlPercent: number;
+};
+
+export type AssetRowMetrics = {
+  key: string;
+  currencyAbbreviation: string;
+  chain: string;
+  tokenAddress?: string;
+  cryptoAmount: string;
+  fiatValue: number;
+  pnlFiat: number;
+  pnlPercent: number;
+  hasRate: boolean;
+  hasPnl: boolean;
+  showPnlPlaceholder: boolean;
+  debugCopyPayload?: Record<string, unknown>;
+};
 
 function formatDeltaFiat(delta: number, quoteCurrency: string): string {
   const abs = Math.abs(delta);
@@ -16,30 +51,66 @@ function formatDeltaFiat(delta: number, quoteCurrency: string): string {
   })}`;
 }
 
-function formatDeltaPercent(ratio: number): string {
-  const pct = ratio * 100;
-  const abs = Math.abs(pct);
-  const prefix = pct >= 0 ? '+' : '-';
+function formatDeltaPercent(percent: number): string {
+  const normalized = Number.isFinite(percent) ? percent : 0;
+  const abs = Math.abs(normalized);
+  const prefix = normalized >= 0 ? '+' : '-';
   return `${prefix}${abs.toFixed(2)}%`;
 }
 
-export function buildAssetRowsFromAnalysis(args: {
+function aggregateAssetSummaries(
+  summaries: AssetPnlSummary[],
+): AggregatedAssetSummary {
+  const fiatValue = summaries.reduce(
+    (total, summary) => total + (summary.fiatBalanceEnd || 0),
+    0,
+  );
+  const pnlChange = summaries.reduce(
+    (total, summary) => total + (summary.pnlChange || 0),
+    0,
+  );
+  const pnlEnd = summaries.reduce(
+    (total, summary) => total + (summary.pnlEnd || 0),
+    0,
+  );
+  const remainingCostBasisFiatEnd = summaries.reduce(
+    (total, summary) => total + (summary.remainingCostBasisFiatEnd || 0),
+    0,
+  );
+  const hasRate = summaries.some(
+    summary =>
+      typeof summary.rateEnd === 'number' &&
+      Number.isFinite(summary.rateEnd) &&
+      summary.rateEnd > 0,
+  );
+  const hasPnl = summaries.length > 0;
+
+  return {
+    fiatValue,
+    pnlChange,
+    pnlEnd,
+    remainingCostBasisFiatEnd,
+    hasRate,
+    hasPnl,
+    pnlPercent:
+      remainingCostBasisFiatEnd > 0
+        ? (pnlEnd / remainingCostBasisFiatEnd) * 100
+        : 0,
+  };
+}
+
+export function buildAssetRowMetricsFromAnalysis(args: {
   storedWallets: StoredWallet[];
   analysis?: PnlAnalysisResult;
-  quoteCurrency: string;
   gainLossMode: GainLossMode;
   collapseAcrossChains?: boolean;
-}): AssetRowItem[] {
-  const quoteCurrency = (args.quoteCurrency || 'USD').toUpperCase();
+}): AssetRowMetrics[] {
   const collapseAcrossChains = args.collapseAcrossChains !== false;
   const isTodayGainLoss = args.gainLossMode === '1D';
   const analysis = args.analysis;
   const assetSummaryByAssetId = new Map(
     (analysis?.assetSummaries || []).map(summary => [summary.assetId, summary]),
   );
-  const lastPoint = analysis?.points?.length
-    ? analysis.points[analysis.points.length - 1]
-    : undefined;
 
   const walletsByGroupKey = new Map<string, StoredWallet[]>();
 
@@ -60,19 +131,7 @@ export function buildAssetRowsFromAnalysis(args: {
     walletsByGroupKey.set(groupKey, list);
   }
 
-  const rows: Array<{
-    key: string;
-    coin: string;
-    chain: string;
-    tokenAddress?: string;
-    cryptoAmount: string;
-    fiatValue: number;
-    pnlFiat: number;
-    pnlRatio: number;
-    hasRate: boolean;
-    hasPnl: boolean;
-    debugCopyPayload?: Record<string, unknown>;
-  }> = [];
+  const rows: AssetRowMetrics[] = [];
 
   for (const [key, groupWallets] of walletsByGroupKey.entries()) {
     if (!groupWallets.length) {
@@ -82,42 +141,24 @@ export function buildAssetRowsFromAnalysis(args: {
     const first = groupWallets[0];
     const coin = (first.summary.currencyAbbreviation || '').toLowerCase();
     const repWallet = collapseAcrossChains
-      ?
-          groupWallets.find(
-            wallet =>
-              (wallet.summary.chain || '').toLowerCase() === coin &&
-              !wallet.summary.tokenAddress,
-          ) || first
+      ? groupWallets.find(
+          wallet =>
+            (wallet.summary.chain || '').toLowerCase() === coin &&
+            !wallet.summary.tokenAddress,
+        ) || first
       : first;
 
     let totalAtomic = 0n;
-    let fiatValue = 0;
-    let pnlFiat = 0;
-    let remainingBasisFiat = 0;
-    let hasRate = false;
-    let hasPnl = false;
     const walletDebugRows: Array<Record<string, unknown>> = [];
+    const uniqueAssetIds = new Set<string>();
 
     for (const wallet of groupWallets) {
       const assetId = getAssetIdFromWallet(wallet.summary);
-      const assetSummary = assetSummaryByAssetId.get(assetId);
+      uniqueAssetIds.add(assetId);
+
       const decimals = getAtomicDecimals(wallet.credentials);
       const atomic = parseAtomicToBigint(wallet.summary.balanceAtomic || '0');
-      const toUnitNumber = makeAtomicToUnitNumberConverter(decimals);
-
       totalAtomic += atomic;
-
-      if (assetSummary && assetSummary.rateEnd > 0) {
-        fiatValue += toUnitNumber(atomic) * assetSummary.rateEnd;
-        hasRate = true;
-      }
-
-      const walletPoint = lastPoint?.byWalletId?.[wallet.summary.walletId];
-      if (walletPoint) {
-        pnlFiat += Number(walletPoint.unrealizedPnlFiat || 0);
-        remainingBasisFiat += Number(walletPoint.remainingCostBasisFiat || 0);
-        hasPnl = true;
-      }
 
       walletDebugRows.push({
         walletId: wallet.summary.walletId,
@@ -132,15 +173,7 @@ export function buildAssetRowsFromAnalysis(args: {
           decimals,
           Math.min(decimals, 8),
         ),
-        hasAssetSummary: !!assetSummary,
-        assetSummaryRateEnd: assetSummary?.rateEnd ?? null,
-        assetSummaryPnlEnd: assetSummary?.pnlEnd ?? null,
-        hasWalletPoint: !!walletPoint,
-        walletPointUnrealizedPnlFiat: walletPoint?.unrealizedPnlFiat ?? null,
-        walletPointRemainingCostBasisFiat:
-          walletPoint?.remainingCostBasisFiat ?? null,
-        walletPointFiatBalance: walletPoint?.fiatBalance ?? null,
-        walletPointBalanceAtomic: walletPoint?.balanceAtomic ?? null,
+        assetSummary: assetSummaryByAssetId.get(assetId) ?? null,
       });
     }
 
@@ -148,89 +181,88 @@ export function buildAssetRowsFromAnalysis(args: {
       continue;
     }
 
+    const summaries = Array.from(uniqueAssetIds)
+      .map(assetId => assetSummaryByAssetId.get(assetId))
+      .filter((summary): summary is AssetPnlSummary => !!summary);
+    const aggregatedSummary = aggregateAssetSummaries(summaries);
     const repDecimals = getAtomicDecimals(repWallet.credentials);
-    const pnlRatio = remainingBasisFiat > 0 ? pnlFiat / remainingBasisFiat : 0;
     const cryptoAmount = formatBigIntDecimal(
       totalAtomic,
       repDecimals,
       Math.min(repDecimals, 8),
     );
-    const showPnlPlaceholder = !hasPnl && (!isTodayGainLoss || !hasRate);
-    const debugCopyPayload = {
-      version: 1,
-      source: 'buildAssetRowsFromAnalysis',
-      generatedAtUtc: new Date().toISOString(),
-      quoteCurrency,
-      gainLossMode: args.gainLossMode,
-      collapseAcrossChains,
-      groupKey: key,
-      rowCoin: coin,
-      rowChain: repWallet.summary.chain,
-      rowTokenAddress: repWallet.summary.tokenAddress || null,
-      rowAssetIds: Array.from(
-        new Set(walletDebugRows.map(walletRow => String(walletRow.assetId || ''))),
-      ).filter(Boolean),
-      rowWalletIds: walletDebugRows
-        .map(walletRow => String(walletRow.walletId || ''))
-        .filter(Boolean),
-      totalAtomic: totalAtomic.toString(),
-      cryptoAmount,
-      fiatValue,
-      pnlFiat,
-      remainingBasisFiat,
-      pnlRatio: Number.isFinite(pnlRatio) ? pnlRatio : 0,
-      hasRate,
-      hasPnl,
-      showPnlPlaceholder,
-      analysisPointCount: analysis?.points?.length ?? 0,
-      hasLastPoint: !!lastPoint,
-      lastPointWalletCount: Object.keys(lastPoint?.byWalletId || {}).length,
-      wallets: walletDebugRows,
-    };
+    const showPnlPlaceholder =
+      !aggregatedSummary.hasPnl &&
+      (!isTodayGainLoss || !aggregatedSummary.hasRate);
 
     rows.push({
       key,
-      coin,
+      currencyAbbreviation: coin,
       chain: repWallet.summary.chain,
       tokenAddress: repWallet.summary.tokenAddress,
       cryptoAmount,
-      fiatValue,
-      pnlFiat,
-      pnlRatio: Number.isFinite(pnlRatio) ? pnlRatio : 0,
-      hasRate,
-      hasPnl,
-      debugCopyPayload,
+      fiatValue: aggregatedSummary.fiatValue,
+      pnlFiat: aggregatedSummary.pnlChange,
+      pnlPercent: aggregatedSummary.pnlPercent,
+      hasRate: aggregatedSummary.hasRate,
+      hasPnl: aggregatedSummary.hasPnl,
+      showPnlPlaceholder,
+      debugCopyPayload: {
+        version: 2,
+        source: 'buildAssetRowMetricsFromAnalysis',
+        generatedAtUtc: new Date().toISOString(),
+        gainLossMode: args.gainLossMode,
+        collapseAcrossChains,
+        groupKey: key,
+        rowCoin: coin,
+        rowChain: repWallet.summary.chain,
+        rowTokenAddress: repWallet.summary.tokenAddress || null,
+        rowAssetIds: Array.from(uniqueAssetIds),
+        rowWalletIds: walletDebugRows
+          .map(walletRow => String(walletRow.walletId || ''))
+          .filter(Boolean),
+        totalAtomic: totalAtomic.toString(),
+        cryptoAmount,
+        aggregatedSummary,
+        wallets: walletDebugRows,
+      },
     });
   }
 
-  rows.sort((a, b) => (b.fiatValue || 0) - (a.fiatValue || 0));
+  return rows.sort((left, right) => right.fiatValue - left.fiatValue);
+}
 
-  return rows.map(row => {
-    const showPnlPlaceholder = !row.hasPnl && (!isTodayGainLoss || !row.hasRate);
+export function buildAssetRowsFromAnalysis(args: {
+  storedWallets: StoredWallet[];
+  analysis?: PnlAnalysisResult;
+  quoteCurrency: string;
+  gainLossMode: GainLossMode;
+  collapseAcrossChains?: boolean;
+}): AssetRowItem[] {
+  const quoteCurrency = (args.quoteCurrency || 'USD').toUpperCase();
 
-    return {
-      key: row.key,
-      currencyAbbreviation: row.coin,
-      chain: row.chain,
-      tokenAddress: row.tokenAddress,
-      name: formatCurrencyAbbreviation(row.coin),
-      cryptoAmount: row.cryptoAmount,
-      fiatAmount: formatFiatAmount(row.fiatValue, quoteCurrency, {
-        customPrecision: 'minimal',
-      }),
-      deltaFiat: showPnlPlaceholder
-        ? UNAVAILABLE_DELTA_FIAT
-        : formatDeltaFiat(row.pnlFiat, quoteCurrency),
-      deltaPercent: showPnlPlaceholder
-        ? UNAVAILABLE_DELTA_PERCENT
-        : formatDeltaPercent(row.pnlRatio),
-      isPositive: row.pnlFiat >= 0,
-      hasRate: row.hasRate,
-      hasPnl: row.hasPnl,
-      showPnlPlaceholder,
-      debugCopyPayload: row.debugCopyPayload,
-    } as AssetRowItem;
-  });
+  return buildAssetRowMetricsFromAnalysis(args).map(row => ({
+    key: row.key,
+    currencyAbbreviation: row.currencyAbbreviation,
+    chain: row.chain,
+    tokenAddress: row.tokenAddress,
+    name: formatCurrencyAbbreviation(row.currencyAbbreviation),
+    cryptoAmount: row.cryptoAmount,
+    fiatAmount: formatFiatAmount(row.fiatValue, quoteCurrency, {
+      customPrecision: 'minimal',
+    }),
+    deltaFiat: row.showPnlPlaceholder
+      ? UNAVAILABLE_DELTA_FIAT
+      : formatDeltaFiat(row.pnlFiat, quoteCurrency),
+    deltaPercent: row.showPnlPlaceholder
+      ? UNAVAILABLE_DELTA_PERCENT
+      : formatDeltaPercent(row.pnlPercent),
+    isPositive: row.pnlFiat >= 0,
+    hasRate: row.hasRate,
+    hasPnl: row.hasPnl,
+    showPnlPlaceholder: row.showPnlPlaceholder,
+    debugCopyPayload: row.debugCopyPayload,
+  }));
 }
 
 export default buildAssetRowsFromAnalysis;

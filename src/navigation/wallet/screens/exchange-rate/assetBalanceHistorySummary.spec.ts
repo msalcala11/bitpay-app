@@ -7,25 +7,45 @@ jest.mock('../../../../utils/helper-methods', () => ({
 }));
 
 describe('buildAssetBalanceHistoryIdleSummary', () => {
-  it('uses the last analysis point for both balance and pnl change row', () => {
+  it('reuses the shared asset-row metrics for idle balance and pnl', () => {
     expect(
       buildAssetBalanceHistoryIdleSummary({
-        analysis: {
-          points: [
-            {
-              totalFiatBalance: 100,
-              totalUnrealizedPnlFiat: 10,
-              totalPnlPercent: 5,
+        storedWallets: [
+          {
+            walletId: 'wallet-1',
+            credentials: {
+              walletId: 'wallet-1',
+              chain: 'btc',
+              coin: 'btc',
             },
+            summary: {
+              walletId: 'wallet-1',
+              walletName: 'BTC Wallet',
+              chain: 'btc',
+              network: 'livenet',
+              currencyAbbreviation: 'btc',
+              balanceAtomic: '100000000',
+              balanceFormatted: '1',
+            },
+            addedAt: 0,
+          } as any,
+        ],
+        analysis: {
+          assetSummaries: [
             {
-              totalFiatBalance: 125,
-              totalUnrealizedPnlFiat: 25,
-              totalPnlPercent: 12.5,
+              assetId: 'btc:btc',
+              rateEnd: 125,
+              fiatBalanceEnd: 125,
+              pnlEnd: 25,
+              pnlChange: 25,
+              remainingCostBasisFiatEnd: 200,
             },
           ],
         } as any,
         quoteCurrency: 'USD',
         rangeLabel: '1D',
+        gainLossMode: '1D',
+        assetKey: 'btc',
       }),
     ).toEqual({
       assetBalance: 125,
@@ -37,12 +57,15 @@ describe('buildAssetBalanceHistoryIdleSummary', () => {
     });
   });
 
-  it('returns no balance or change row when analysis has no points', () => {
+  it('returns no balance or change row when the asset row cannot be resolved', () => {
     expect(
       buildAssetBalanceHistoryIdleSummary({
-        analysis: {points: []} as any,
+        storedWallets: [],
+        analysis: {assetSummaries: []} as any,
         quoteCurrency: 'USD',
         rangeLabel: '1D',
+        gainLossMode: '1D',
+        assetKey: 'btc',
       }),
     ).toEqual({
       assetBalance: undefined,

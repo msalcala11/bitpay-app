@@ -328,7 +328,17 @@ export const getQuoteCurrency = (args: {
   portfolioQuoteCurrency?: string;
   defaultAltCurrencyIsoCode?: string;
 }): string => {
-  return args.defaultAltCurrencyIsoCode || args.portfolioQuoteCurrency || 'USD';
+  const committedQuote = String(args.portfolioQuoteCurrency || '')
+    .trim()
+    .toUpperCase();
+  if (committedQuote) {
+    return committedQuote;
+  }
+
+  const defaultAlt = String(args.defaultAltCurrencyIsoCode || '')
+    .trim()
+    .toUpperCase();
+  return defaultAlt || 'USD';
 };
 
 export const isPopulateLoadingForWallets = (args: {

@@ -211,14 +211,18 @@ describe('analysisStreaming preload helpers', () => {
 
     expect(last.totalFiatBalance).toBe(150);
     expect(last.totalUnrealizedPnlFiat).toBe(50);
+    expect(last.totalPnlChange).toBe(50);
     expect(last.totalPnlPercent).toBe(50);
     expect(last.byWalletId.w1?.markRate).toBe(150);
     expect(res.assetSummaries[0]?.rateEnd).toBe(150);
+    expect(res.assetSummaries[0]?.fiatBalanceEnd).toBe(150);
     expect(res.assetSummaries[0]?.pnlEnd).toBe(50);
+    expect(res.assetSummaries[0]?.pnlChange).toBe(50);
     expect(chart.totalFiatBalance[chart.totalFiatBalance.length - 1]).toBe(150);
     expect(
       chart.totalUnrealizedPnlFiat[chart.totalUnrealizedPnlFiat.length - 1],
     ).toBe(50);
+    expect(chart.totalPnlChange[chart.totalPnlChange.length - 1]).toBe(50);
     expect(chart.lastSpotRatesByRateKey).toEqual({eth: 150});
     expect(chart.latestHoldingsByRateKey).toEqual({
       eth: {units: 1},
@@ -419,6 +423,46 @@ describe('analysisStreaming preload helpers', () => {
     expect(chart).toEqual(compactPnlAnalysisResultForChart(full));
   });
 
+  it('makes 1D no-transaction pnl percent match rate percent change naturally', () => {
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-02T00:00:00Z');
+
+    const result = buildPnlAnalysisSeriesFromPreloaded({
+      cfg: {quoteCurrency: 'USD'},
+      timeframe: '1D',
+      nowMs: t1,
+      maxPoints: 2,
+      startTs: t0,
+      endTs: t1,
+      ratePointsByAssetId: {
+        'eth:eth': [
+          {ts: t0, rate: 100},
+          {ts: t1, rate: 120},
+        ],
+      },
+      currentRatesByAssetId: {
+        'eth:eth': 125,
+      },
+      wallets: [
+        {
+          wallet: mkWallet({walletId: 'w1'}),
+          basePoint: mkPoint(t0, '2000000000000000000'),
+          points: [],
+        },
+      ],
+    });
+
+    const summary = result.assetSummaries[0];
+    const last = result.points[result.points.length - 1];
+
+    expect(summary?.pnlChange).toBe(50);
+    expect(summary?.pnlPercent).toBe(25);
+    expect(summary?.ratePercentChange).toBe(25);
+    expect(last.totalPnlChange).toBe(50);
+    expect(last.totalPnlPercent).toBe(25);
+    expect(result.totalSummary.pnlPercent).toBe(25);
+  });
+
   it('keeps same-symbol assets separate by asset id during analysis', () => {
     const t0 = Date.parse('2024-01-01T00:00:00Z');
     const t1 = Date.parse('2024-01-01T01:00:00Z');
@@ -532,12 +576,12 @@ describe('analysisStreaming preload helpers', () => {
 
     expect(chart.singleAsset).toBe(true);
     expect(chart.timestamps).toEqual([t0, t0 + 45 * 60_000, t1 + 30 * 60_000, t2 + 15 * 60_000, t3]);
-    expect(chart.totalFiatBalance).toEqual([1000, 1100, 1100, 2400, 2600]);
+    expect(chart.totalFiatBalance).toEqual([1000, 1075, 1150, 2450, 2600]);
     expect(chart.totalRemainingCostBasisFiat).toEqual([1000, 1000, 1000, 2200, 2200]);
-    expect(chart.totalUnrealizedPnlFiat).toEqual([0, 100, 100, 200, 400]);
-    expect(chart.totalPnlChange).toEqual([0, 100, 100, 200, 400]);
+    expect(chart.totalUnrealizedPnlFiat).toEqual([0, 75, 150, 250, 400]);
+    expect(chart.totalPnlChange).toEqual([0, 75, 150, 250, 400]);
     expect(chart.totalPnlPercent[chart.totalPnlPercent.length - 1]).toBeCloseTo((400 / 2200) * 100, 8);
-    expect(chart.driverMarkRate).toEqual([1000, 1100, 1100, 1200, 1300]);
-    expect(chart.driverRatePercentChange).toEqual([0, 10, 10, 20, 30]);
+    expect(chart.driverMarkRate).toEqual([1000, 1075, 1150, 1225, 1300]);
+    expect(chart.driverRatePercentChange).toEqual([0, 7.5, 15, 22.5, 30]);
   });
 });

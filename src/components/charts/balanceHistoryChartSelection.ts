@@ -1,6 +1,6 @@
 import type {GraphPoint} from 'react-native-graph';
 import type {HydratedBalanceChartSeries} from '../../utils/portfolio/chartCache';
-import type {PnlAnalysisPoint} from '../../utils/portfolio/core/pnl/analysis';
+import type {PnlAnalysisPoint} from '../../portfolio/core/pnl/analysisStreaming';
 import {formatFiatAmount} from '../../utils/helper-methods';
 
 export type ChangeRowData = {
@@ -50,7 +50,10 @@ export const getDisplayedBalanceHistoryAnalysisPoint = (args: {
 };
 
 export const buildBalanceHistoryChartChangeRowData = (args: {
-  displayedAnalysisPoint?: PnlAnalysisPoint;
+  displayedAnalysisPoint?: Pick<
+    PnlAnalysisPoint,
+    'totalPnlChange' | 'totalPnlPercent'
+  >;
   quoteCurrency: string;
   label?: string;
 }): ChangeRowData | undefined => {
@@ -60,11 +63,8 @@ export const buildBalanceHistoryChartChangeRowData = (args: {
 
   return {
     percent: args.displayedAnalysisPoint.totalPnlPercent ?? 0,
-    // Keep the asset detail balance-history row aligned with the asset list:
-    // both should show the current unrealized P/L for the selected point, not
-    // the interval change from the first point in the window.
     deltaFiatFormatted: formatFiatAmount(
-      args.displayedAnalysisPoint.totalUnrealizedPnlFiat ?? 0,
+      args.displayedAnalysisPoint.totalPnlChange ?? 0,
       args.quoteCurrency,
       {
         customPrecision: 'minimal',

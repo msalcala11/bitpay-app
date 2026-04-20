@@ -3,37 +3,57 @@ import {
   type ChangeRowData,
 } from '../../../../components/charts/balanceHistoryChartSelection';
 import type {PnlAnalysisResult} from '../../../../portfolio/core/pnl/analysisStreaming';
+import type {StoredWallet} from '../../../../portfolio/core/types';
+import {buildAssetRowMetricsFromAnalysis} from '../../../../portfolio/ui/selectors/buildAssetRowsFromAnalysis';
+import type {GainLossMode} from '../../../../utils/portfolio/assets';
 
 export type AssetBalanceHistoryIdleSummary = {
   assetBalance?: number;
   changeRow?: ChangeRowData;
 };
 
-const getLastAnalysisPoint = (
-  analysis?: Pick<PnlAnalysisResult, 'points'>,
-) => {
-  const points = analysis?.points || [];
-  return points.length ? points[points.length - 1] : undefined;
-};
-
 export const buildAssetBalanceHistoryIdleSummary = (args: {
-  analysis?: Pick<PnlAnalysisResult, 'points'>;
+  storedWallets: StoredWallet[];
+  analysis?: PnlAnalysisResult;
   quoteCurrency: string;
   rangeLabel: string;
+  gainLossMode: GainLossMode;
+  assetKey?: string;
 }): AssetBalanceHistoryIdleSummary => {
-  const lastPoint = getLastAnalysisPoint(args.analysis);
+  const rows = buildAssetRowMetricsFromAnalysis({
+    storedWallets: args.storedWallets,
+    analysis: args.analysis,
+    gainLossMode: args.gainLossMode,
+    collapseAcrossChains: true,
+  });
+  const normalizedAssetKey = String(args.assetKey || '').toLowerCase();
+  const row =
+    rows.find(candidate => candidate.key === normalizedAssetKey) ||
+    (rows.length === 1 ? rows[0] : undefined);
+
+  if (!row) {
+    return {
+      assetBalance: undefined,
+      changeRow: undefined,
+    };
+  }
 
   return {
     assetBalance:
-      typeof lastPoint?.totalFiatBalance === 'number' &&
-      Number.isFinite(lastPoint.totalFiatBalance)
-        ? lastPoint.totalFiatBalance
+      row.hasRate &&
+      typeof row.fiatValue === 'number' &&
+      Number.isFinite(row.fiatValue)
+        ? row.fiatValue
         : undefined,
-    changeRow: buildBalanceHistoryChartChangeRowData({
-      displayedAnalysisPoint: lastPoint,
-      quoteCurrency: args.quoteCurrency,
-      label: args.rangeLabel,
-    }),
+    changeRow: row.showPnlPlaceholder
+      ? undefined
+      : buildBalanceHistoryChartChangeRowData({
+          displayedAnalysisPoint: {
+            totalPnlChange: row.pnlFiat,
+            totalPnlPercent: row.pnlPercent,
+          },
+          quoteCurrency: args.quoteCurrency,
+          label: args.rangeLabel,
+        }),
   };
 };
-
