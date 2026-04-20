@@ -1,6 +1,5 @@
 import {useEffect, useMemo, useRef} from 'react';
 import {useIsFocused} from '@react-navigation/native';
-import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
 import type {AssetRowItem, GainLossMode} from '../../../utils/portfolio/assets';
 import {
   buildWalletIdsByAssetGroupKey,
@@ -10,7 +9,7 @@ import {
   sortAssetRowItemsByAssetFiatPriority,
 } from '../../../utils/portfolio/assets';
 import type {Key} from '../../../store/wallet/wallet.models';
-import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
+import {useAppSelector} from '../../../utils/hooks';
 import buildAssetRowsFromAnalysis from '../selectors/buildAssetRowsFromAnalysis';
 import {usePortfolioAnalysis} from './usePortfolioAnalysis';
 
@@ -28,7 +27,6 @@ type Result = {
 
 export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
   const isFocused = useIsFocused();
-  const dispatch = useAppDispatch();
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
   const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
@@ -40,19 +38,6 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
 
     return getVisibleWalletsFromKeys(keys, homeCarouselConfig);
   }, [homeCarouselConfig, keyId, keys]);
-
-  const walletIdsSig = useMemo(() => {
-    return wallets
-      .map(wallet => wallet?.id)
-      .filter((id): id is string => typeof id === 'string' && !!id)
-      .join(',');
-  }, [wallets]);
-  const hasKnownSnapshotMismatch = useMemo(() => {
-    return wallets.some(wallet => {
-      const walletId = String(wallet?.id || '').trim();
-      return !!walletId && !!portfolio.snapshotBalanceMismatchesByWalletId?.[walletId];
-    });
-  }, [portfolio.snapshotBalanceMismatchesByWalletId, wallets]);
 
   const populateCompletionStateToken = useMemo(() => {
     return [
@@ -405,36 +390,6 @@ export function usePortfolioAssetRows({gainLossMode, keyId}: Args): Result {
     populateLoadingByKeyPrevRef.current =
       stablePopulatePresentation.isPopulateLoadingByKey;
   }, [stablePopulatePresentation.isPopulateLoadingByKey]);
-
-  useEffect(() => {
-    if (!isFocused || !walletIdsSig || portfolio.populateStatus?.inProgress) {
-      return;
-    }
-
-    const hasCommittedPortfolioData =
-      !!analysis.committedData || !!analysis.data || !!portfolio.lastPopulatedAt;
-    if (hasCommittedPortfolioData && !hasKnownSnapshotMismatch) {
-      return;
-    }
-
-    dispatch(
-      maybePopulatePortfolioForWallets({
-        wallets,
-        quoteCurrency: analysis.quoteCurrency,
-      }) as any,
-    );
-  }, [
-    analysis.committedData,
-    analysis.data,
-    analysis.quoteCurrency,
-    dispatch,
-    hasKnownSnapshotMismatch,
-    isFocused,
-    portfolio.lastPopulatedAt,
-    portfolio.populateStatus?.inProgress,
-    walletIdsSig,
-    wallets,
-  ]);
 
   return {
     visibleItems: stablePopulatePresentation.visibleItems,

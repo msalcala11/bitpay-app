@@ -16,7 +16,6 @@ import {
 } from '../../../../../components/styled/Containers';
 import {
   FlatList,
-  InteractionManager,
   Keyboard,
   SectionList,
   View,
@@ -33,7 +32,6 @@ import {FormatKeyBalances} from '../../../../../store/wallet/effects/status/stat
 import {updatePortfolioBalance} from '../../../../../store/wallet/wallet.actions';
 import {
   cancelPopulatePortfolio,
-  populatePortfolio,
 } from '../../../../../store/portfolio';
 import {useTranslation} from 'react-i18next';
 import {coinbaseInitialize} from '../../../../../store/coinbase';
@@ -216,15 +214,6 @@ const AltCurrencySettings = () => {
               await sleep(500);
               navigation.goBack();
 
-              if (isDisplayCurrencyChange) {
-                InteractionManager.runAfterInteractions(() => {
-                  dispatch(
-                    populatePortfolio({
-                      quoteCurrency: nextQuoteCurrency,
-                    }),
-                  );
-                });
-              }
             }}
           />
           {!selected ? <Hr /> : null}

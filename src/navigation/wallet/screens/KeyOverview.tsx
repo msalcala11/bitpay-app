@@ -19,7 +19,6 @@ import {LogBox, RefreshControl, View, useWindowDimensions} from 'react-native';
 import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 import {TouchableOpacity} from 'react-native-gesture-handler';
 import styled from 'styled-components/native';
-import {useStore} from 'react-redux';
 import haptic from '../../../components/haptic-feedback/haptic';
 import {
   Balance,
@@ -138,7 +137,6 @@ import {
   isPopulateLoadingForWallets,
 } from '../../../utils/portfolio/assets';
 import usePortfolioGainLossSummary from '../../../portfolio/ui/hooks/usePortfolioGainLossSummary';
-import {maybePopulatePortfolioForWallets} from '../../../store/portfolio';
 
 LogBox.ignoreLogs([
   'Non-serializable values were found in the navigation state',
@@ -325,7 +323,6 @@ const KeyOverview = () => {
   } = useRoute<RouteProp<WalletGroupParamList, 'KeyOverview'>>();
   const navigation = useNavigation();
   const dispatch = useAppDispatch();
-  const reduxStore = useStore();
   const logger = useLogger();
   const theme = useTheme();
   const isFocused = useIsFocused();
@@ -340,7 +337,6 @@ const KeyOverview = () => {
     ({WALLET}) => WALLET,
   );
   const {rates} = useAppSelector(({RATE}) => RATE);
-  const lastDayRates = useAppSelector(({RATE}) => RATE.lastDayRates);
   const {defaultAltCurrency, hideAllBalances, showPortfolioValue} =
     useAppSelector(({APP}) => APP);
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
@@ -368,6 +364,12 @@ const KeyOverview = () => {
   const selectedChainFilterOption = useAppSelector(
     ({APP}) => APP.selectedChainFilterOption,
   );
+  const quoteCurrency = useMemo(() => {
+    return getQuoteCurrency({
+      portfolioQuoteCurrency: portfolio.quoteCurrency,
+      defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
+    });
+  }, [defaultAltCurrency?.isoCode, portfolio.quoteCurrency]);
 
   const memoizedAccountList = useMemo(() => {
     return buildAccountList(key, defaultAltCurrency.isoCode, rates, dispatch, {
@@ -540,94 +542,6 @@ const KeyOverview = () => {
       defaultAltCurrency.isoCode,
     );
   }, [allocationWalletRows, defaultAltCurrency.isoCode]);
-
-  const quoteCurrency = useMemo(() => {
-    return getQuoteCurrency({
-      portfolioQuoteCurrency: portfolio.quoteCurrency,
-      defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
-    });
-  }, [defaultAltCurrency?.isoCode, portfolio.quoteCurrency]);
-
-  const visibleKeyWalletIdsSig = useMemo(() => {
-    return Array.from(
-      new Set(
-        visibleKeyWallets
-          .map(w => w?.id)
-          .filter(
-            (walletId): walletId is string =>
-              typeof walletId === 'string' && !!walletId,
-          ),
-      ),
-    )
-      .sort((a, b) => a.localeCompare(b))
-      .join(',');
-  }, [visibleKeyWallets]);
-
-  // If we try to populate portfolio snapshots while another populate pass is
-  // already running, the thunk may no-op. Track a pending request so we can
-  // retry once populate finishes, preventing the balance chart from getting
-  // stuck in a perpetual loading state.
-  const pendingKeyBalanceChartRefreshRef = useRef(false);
-
-  const maybeRefreshKeyBalanceChart = useCallback(async () => {
-    const state = reduxStore.getState() as RootState;
-    if (state.PORTFOLIO?.populateStatus?.inProgress) {
-      pendingKeyBalanceChartRefreshRef.current = true;
-      return;
-    }
-
-    pendingKeyBalanceChartRefreshRef.current = false;
-    const latestKey = state.WALLET?.keys?.[id] as Key | undefined;
-    const latestVisibleWallets = getVisibleWalletsForKey(latestKey);
-    if (!latestVisibleWallets.length) {
-      return;
-    }
-
-    const latestQuoteCurrency = getQuoteCurrency({
-      portfolioQuoteCurrency: state.PORTFOLIO?.quoteCurrency,
-      defaultAltCurrencyIsoCode: state.APP?.defaultAltCurrency?.isoCode,
-    }).toUpperCase();
-
-    await dispatch(
-      maybePopulatePortfolioForWallets({
-        // IMPORTANT: re-read the latest Redux wallet objects after any
-        // balance/rate refresh completes so chart snapshot population does not
-        // get stuck using stale wallet balances from the first render. Keep the
-        // wallet scope aligned with the wallets visible in KeyOverview.
-        wallets: latestVisibleWallets,
-        quoteCurrency: latestQuoteCurrency,
-      }) as any,
-    );
-  }, [dispatch, id, reduxStore]);
-
-  useEffect(() => {
-    if (!isFocused) {
-      return;
-    }
-
-    maybeRefreshKeyBalanceChart();
-  }, [
-    isFocused,
-    maybeRefreshKeyBalanceChart,
-    quoteCurrency,
-    visibleKeyWalletIdsSig,
-  ]);
-
-  useEffect(() => {
-    if (
-      !isFocused ||
-      portfolio.populateStatus?.inProgress ||
-      !pendingKeyBalanceChartRefreshRef.current
-    ) {
-      return;
-    }
-
-    maybeRefreshKeyBalanceChart();
-  }, [
-    isFocused,
-    maybeRefreshKeyBalanceChart,
-    portfolio.populateStatus?.inProgress,
-  ]);
 
   const isKeyPopulateLoading = useMemo(() => {
     return isPopulateLoadingForWallets({
@@ -969,14 +883,13 @@ const KeyOverview = () => {
           sleep(1000),
         ]);
         dispatch(updatePortfolioBalance());
-        await maybeRefreshKeyBalanceChart();
         setIsViewUpdating(false);
       } catch {
         setIsViewUpdating(false);
         dispatch(showBottomNotificationModal(BalanceUpdateError()));
       }
     },
-    [dispatch, isViewUpdating, key, logger, maybeRefreshKeyBalanceChart],
+    [dispatch, isViewUpdating, key, logger],
   );
 
   const updateStatusForKeyRef = useRef(updateStatusForKey);
@@ -1284,6 +1197,7 @@ const KeyOverview = () => {
     navigation,
     showPortfolioValue,
     showArchaxBanner,
+    showAllocationGainLossFooter,
     todayGainLossText,
     todayIsPositive,
     totalBalance,
