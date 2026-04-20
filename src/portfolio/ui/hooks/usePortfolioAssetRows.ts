@@ -861,6 +861,11 @@ export function usePortfolioAssetRows({
             ? 'asset_group_committed'
             : 'asset_group_unknown'
         : 'portfolio_fallback';
+      const showScopedPnlLoading =
+        gainLossMode === 'ALL' &&
+        !!groupSpec &&
+        !groupAnalysisForDisplay &&
+        !groupState?.error;
       const baseDebugPayload = item.debugCopyPayload || {};
       const rowWalletIds = Array.isArray(baseDebugPayload.rowWalletIds)
         ? baseDebugPayload.rowWalletIds
@@ -875,6 +880,7 @@ export function usePortfolioAssetRows({
 
       return {
         ...item,
+        showScopedPnlLoading,
         debugCopyPayload: buildAssetPnlDebugPayload({
           surface: 'asset_list',
           assetKey: item.key,

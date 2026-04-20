@@ -246,21 +246,40 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
     [assetContext.currencyAbbreviation, resolvedQuoteCurrency],
   );
 
+  const visibleWallets = useMemo(() => {
+    return getVisibleWalletsFromKeys(keys, homeCarouselConfig);
+  }, [homeCarouselConfig, keys]);
+
   const assetWallets = useMemo(() => {
+    // Asset balance history needs the full historical wallet scope so ALL-time
+    // PnL matches the asset list even after some wallets reach zero balance.
     return getWalletsMatchingExchangeRateAsset({
-      wallets: getVisibleWalletsFromKeys(keys, homeCarouselConfig),
+      wallets: visibleWallets,
+      currencyAbbreviation: assetContext.currencyAbbreviation,
+      tokenAddress: assetContext.tokenAddress,
+      includeZeroBalance: isAssetBalanceHistoryMode,
+    });
+  }, [
+    assetContext.currencyAbbreviation,
+    assetContext.tokenAddress,
+    isAssetBalanceHistoryMode,
+    visibleWallets,
+  ]);
+
+  const walletsForAssetDisplay = useMemo(() => {
+    return getWalletsMatchingExchangeRateAsset({
+      wallets: visibleWallets,
       currencyAbbreviation: assetContext.currencyAbbreviation,
       tokenAddress: assetContext.tokenAddress,
     });
   }, [
     assetContext.currencyAbbreviation,
     assetContext.tokenAddress,
-    homeCarouselConfig,
-    keys,
+    visibleWallets,
   ]);
 
   const walletsForAsset = useMemo<ExchangeRateWalletWithUi[]>(() => {
-    return assetWallets
+    return walletsForAssetDisplay
       .map(wallet => {
         const baseUi = buildUIFormattedWallet(
           wallet,
@@ -287,9 +306,9 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
         return {wallet, ui};
       })
       .sort((a, b) => (b.ui.fiatBalance || 0) - (a.ui.fiatBalance || 0));
-  }, [assetWallets, dispatch, rates, resolvedQuoteCurrency]);
+  }, [dispatch, rates, resolvedQuoteCurrency, walletsForAssetDisplay]);
 
-  const hasWalletsForAsset = walletsForAsset.length > 0;
+  const hasWalletsForAsset = assetWallets.length > 0;
 
   const assetTotalFiatBalance = useMemo(() => {
     return walletsForAsset.reduce((total, {ui}) => {

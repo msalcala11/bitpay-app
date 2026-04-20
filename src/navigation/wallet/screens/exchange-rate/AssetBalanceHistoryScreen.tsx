@@ -56,11 +56,14 @@ const AssetBalanceHistoryScreen = ({
   const [chartDiagnostics, setChartDiagnostics] = useState<
     BalanceHistoryChartDiagnostics | undefined
   >(undefined);
+  const fundedAssetWallets = useMemo(() => {
+    return shared.walletsForAsset.map(({wallet}) => wallet);
+  }, [shared.walletsForAsset]);
   const {
     hasAllSnapshots: allAssetWalletsHaveSnapshots,
     checked: assetSnapshotsChecked,
   } = usePortfolioWalletSnapshotPresence({
-    wallets: shared.assetWallets,
+    wallets: fundedAssetWallets,
   });
   const analysis = usePortfolioAnalysis({
     wallets: shared.assetWallets,
