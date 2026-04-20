@@ -13,7 +13,10 @@ import {
   getHistoricalRateAssetRequestFromItem,
   type HistoricalRateAssetRequest,
 } from '../hooks/portfolioAssetHistoryRequests';
-import {getAssetRowPopulateLoading} from './assetRowLoading';
+import {
+  getAssetRowFiatLoading,
+  getAssetRowPopulateLoading,
+} from './assetRowLoading';
 
 const List = styled.View`
   margin: 10px ${ScreenGutter} 10px;
@@ -77,8 +80,11 @@ const AssetsList: React.FC<Props> = ({
           rowKey: item.key,
         });
         const isRowScopedPnlLoading = !!item.showScopedPnlLoading;
-        const isRowFiatLoading =
-          (!!isFiatLoading && isRowPopulateLoading) || isRowScopedPnlLoading;
+        const isRowFiatLoading = getAssetRowFiatLoading({
+          isFiatLoading,
+          isRowPopulateLoading,
+          showScopedPnlLoading: isRowScopedPnlLoading,
+        });
 
         return (
           <AssetRow

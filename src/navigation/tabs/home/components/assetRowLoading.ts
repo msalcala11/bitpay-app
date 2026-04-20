@@ -10,3 +10,14 @@ export function getAssetRowPopulateLoading(args: {
 
   return args.rowLoadingByKey?.[args.rowKey] ?? !!args.populateInProgress;
 }
+
+export function getAssetRowFiatLoading(args: {
+  isFiatLoading?: boolean;
+  isRowPopulateLoading?: boolean;
+  showScopedPnlLoading?: boolean;
+}): boolean {
+  return (
+    (!!args.isFiatLoading && !!args.isRowPopulateLoading) ||
+    !!args.showScopedPnlLoading
+  );
+}

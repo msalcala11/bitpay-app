@@ -40,7 +40,10 @@ import {
   type HistoricalRateAssetRequest,
 } from '../hooks/portfolioAssetHistoryRequests';
 import useRuntimeFiatRateSeriesCache from '../../../../portfolio/ui/hooks/useRuntimeFiatRateSeriesCache';
-import {getAssetRowPopulateLoading} from '../components/assetRowLoading';
+import {
+  getAssetRowFiatLoading,
+  getAssetRowPopulateLoading,
+} from '../components/assetRowLoading';
 import useScreenFocusRefreshToken from '../hooks/useScreenFocusRefreshToken';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AllAssets'>;
@@ -241,7 +244,12 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
         rowLoadingByKey: isPopulateLoadingByKey,
         rowKey: item.key,
       });
-      const isRowFiatLoading = !!isFiatLoading && isRowPopulateLoading;
+      const isRowScopedPnlLoading = !!item.showScopedPnlLoading;
+      const isRowFiatLoading = getAssetRowFiatLoading({
+        isFiatLoading,
+        isRowPopulateLoading,
+        showScopedPnlLoading: isRowScopedPnlLoading,
+      });
 
       return (
         <AssetRow
