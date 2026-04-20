@@ -219,6 +219,11 @@ describe('analysisStreaming preload helpers', () => {
     expect(
       chart.totalUnrealizedPnlFiat[chart.totalUnrealizedPnlFiat.length - 1],
     ).toBe(50);
+    expect(chart.lastSpotRatesByRateKey).toEqual({eth: 150});
+    expect(chart.latestHoldingsByRateKey).toEqual({
+      eth: {units: 1},
+    });
+    expect(chart.latestRemainingCostBasisFiatTotal).toBe(100);
   });
 
   it('uses the overridden current rate for basis updates on end-timestamp balance changes', () => {

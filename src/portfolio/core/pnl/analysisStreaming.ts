@@ -124,6 +124,9 @@ export type PnlAnalysisChartResult = {
   totalPnlPercent: number[];
   driverMarkRate?: Array<number | null>;
   driverRatePercentChange?: Array<number | null>;
+  lastSpotRatesByRateKey: Record<string, number>;
+  latestHoldingsByRateKey: Record<string, {units: number}>;
+  latestRemainingCostBasisFiatTotal: number;
 };
 
 export type PnlAnalysisPreloadedArgs = {
@@ -199,6 +202,103 @@ type StreamedWalletState = WalletAnalysisState & {
   nextPoint: PreparedWalletPoint | null;
 };
 
+function getWalletChartRateKey(wallet: WalletForAnalysisMeta): string {
+  'worklet';
+
+  const normalizeCoin = (value?: string): string => {
+    const coin = String(value || '').trim().toLowerCase();
+    switch (coin) {
+      case 'matic':
+      case 'pol':
+        return 'pol';
+      default:
+        return coin;
+    }
+  };
+
+  const normalizeChain = (value?: string): string => {
+    return String(value || '').trim().toLowerCase();
+  };
+
+  const normalizeTokenAddress = (
+    chain?: string,
+    tokenAddress?: string,
+  ): string => {
+    const normalized = String(tokenAddress || '').trim();
+    if (!normalized) {
+      return '';
+    }
+
+    return chain === 'sol' || chain === 'solana'
+      ? normalized
+      : normalized.toLowerCase();
+  };
+
+  const coin = normalizeCoin(wallet.rateCoin || wallet.currencyAbbreviation);
+  if (!coin) {
+    return '';
+  }
+
+  const chain = wallet.tokenAddress ? normalizeChain(wallet.chain) : '';
+  const tokenAddress = normalizeTokenAddress(chain, wallet.tokenAddress);
+
+  if (!chain && !tokenAddress) {
+    return coin;
+  }
+
+  return [coin, chain, ...(tokenAddress ? [tokenAddress] : [])].join('|');
+}
+
+function buildChartPatchMetadataFromAnalysisResult(result: PnlAnalysisResult): {
+  lastSpotRatesByRateKey: Record<string, number>;
+  latestHoldingsByRateKey: Record<string, {units: number}>;
+  latestRemainingCostBasisFiatTotal: number;
+} {
+  'worklet';
+
+  const lastPoint = result.points.length
+    ? result.points[result.points.length - 1]
+    : undefined;
+  const latestHoldingsByRateKey: Record<string, {units: number}> = {};
+  const lastSpotRatesByRateKey: Record<string, number> = {};
+
+  if (lastPoint) {
+    for (const wallet of result.wallets) {
+      const walletPoint = lastPoint.byWalletId[wallet.walletId];
+      if (!walletPoint) {
+        continue;
+      }
+
+      const rateKey = getWalletChartRateKey(wallet);
+      const decimals = getAtomicDecimals(wallet.credentials);
+      const units = makeAtomicToUnitNumberConverter(decimals)(
+        parseAtomicToBigint(walletPoint.balanceAtomic || '0'),
+      );
+
+      if (!latestHoldingsByRateKey[rateKey]) {
+        latestHoldingsByRateKey[rateKey] = {units: 0};
+      }
+      latestHoldingsByRateKey[rateKey].units += units;
+
+      if (
+        !(rateKey in lastSpotRatesByRateKey) &&
+        typeof walletPoint.markRate === 'number' &&
+        Number.isFinite(walletPoint.markRate) &&
+        walletPoint.markRate > 0
+      ) {
+        lastSpotRatesByRateKey[rateKey] = walletPoint.markRate;
+      }
+    }
+  }
+
+  return {
+    lastSpotRatesByRateKey,
+    latestHoldingsByRateKey,
+    latestRemainingCostBasisFiatTotal:
+      lastPoint?.totalRemainingCostBasisFiat || 0,
+  };
+}
+
 export function compactPnlAnalysisResultForChart(result: PnlAnalysisResult): PnlAnalysisChartResult {
   'worklet';
 
@@ -214,6 +314,7 @@ export function compactPnlAnalysisResultForChart(result: PnlAnalysisResult): Pnl
   const driverMarkRate = singleAsset ? new Array<number | null>(pointCount) : undefined;
   const driverRatePercentChange = singleAsset ? new Array<number | null>(pointCount) : undefined;
   const pnlStart = pointCount > 0 ? result.points[0].totalUnrealizedPnlFiat : 0;
+  const patchMetadata = buildChartPatchMetadataFromAnalysisResult(result);
 
   for (let i = 0; i < pointCount; i++) {
     const point = result.points[i];
@@ -252,6 +353,10 @@ export function compactPnlAnalysisResultForChart(result: PnlAnalysisResult): Pnl
     totalPnlPercent,
     driverMarkRate,
     driverRatePercentChange,
+    lastSpotRatesByRateKey: patchMetadata.lastSpotRatesByRateKey,
+    latestHoldingsByRateKey: patchMetadata.latestHoldingsByRateKey,
+    latestRemainingCostBasisFiatTotal:
+      patchMetadata.latestRemainingCostBasisFiatTotal,
   };
 }
 
@@ -663,6 +768,9 @@ function buildEmptyAnalysisChartResult(timeframe: PnlTimeframe, quoteCurrency: s
     totalUnrealizedPnlFiat: [],
     totalPnlChange: [],
     totalPnlPercent: [],
+    lastSpotRatesByRateKey: {},
+    latestHoldingsByRateKey: {},
+    latestRemainingCostBasisFiatTotal: 0,
   };
 }
 
@@ -1328,6 +1436,8 @@ export async function buildPnlAnalysisChartSeriesFromStreamed(
   const totalPnlPercent = new Array<number>(pointCount);
   const driverMarkRate = singleAsset ? new Array<number | null>(pointCount) : undefined;
   const driverRatePercentChange = singleAsset ? new Array<number | null>(pointCount) : undefined;
+  const latestHoldingsByRateKey: Record<string, {units: number}> = {};
+  const lastSpotRatesByRateKey: Record<string, number> = {};
   let pnlStart: number | null = null;
 
   for (let i = 0; i < pointCount; i++) {
@@ -1368,6 +1478,22 @@ export async function buildPnlAnalysisChartSeriesFromStreamed(
       const units = st.atomicToUnitNumber(st.unitsAtomic);
       totalFiat += units * rate;
       totalBasis += st.basisFiat;
+
+      if (i === pointCount - 1) {
+        const rateKey = getWalletChartRateKey(wallet);
+        if (!latestHoldingsByRateKey[rateKey]) {
+          latestHoldingsByRateKey[rateKey] = {units: 0};
+        }
+        latestHoldingsByRateKey[rateKey].units += units;
+
+        if (
+          !(rateKey in lastSpotRatesByRateKey) &&
+          Number.isFinite(rate) &&
+          rate > 0
+        ) {
+          lastSpotRatesByRateKey[rateKey] = rate;
+        }
+      }
     }
 
     const totalUnrealized = totalFiat - totalBasis;
@@ -1403,5 +1529,9 @@ export async function buildPnlAnalysisChartSeriesFromStreamed(
     totalPnlPercent,
     driverMarkRate,
     driverRatePercentChange,
+    lastSpotRatesByRateKey,
+    latestHoldingsByRateKey,
+    latestRemainingCostBasisFiatTotal:
+      pointCount > 0 ? totalRemainingCostBasisFiat[pointCount - 1] || 0 : 0,
   };
 }
