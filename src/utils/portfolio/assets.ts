@@ -4,7 +4,7 @@ import type {
   PortfolioPopulateStatus,
   WalletPopulateState,
 } from '../../store/portfolio/portfolio.models';
-import type {FiatRateInterval} from '../../store/rate/rate.models';
+import type {FiatRateInterval, Rates} from '../../store/rate/rate.models';
 import type {Key, Wallet} from '../../store/wallet/wallet.models';
 import {IsSVMChain} from '../../store/wallet/utils/currency';
 import type {SupportedCurrencyOption} from '../../constants/SupportedCurrencyOptions';
@@ -21,12 +21,14 @@ import {tokenManager} from '../../managers/TokenManager';
 import {
   getCurrencyAbbreviation,
   calculatePercentageDifference,
+  getRateByCurrencyName,
   unitStringToAtomicBigInt,
 } from '../helper-methods';
 import {
   createSupportedCurrencyOptionLookup,
   type SupportedCurrencyOptionLookup,
 } from './supportedCurrencyOptionsLookup';
+import {atomicToUnitNumber} from './core/pnl/atomic';
 import {toStringOrEmpty} from '../text';
 
 export type GainLossMode = FiatRateInterval;
@@ -717,6 +719,40 @@ export const getWalletLiveAtomicBalance = (args: {
   }
 
   return getWalletAtomicBalanceFromCryptoBalance(args);
+};
+
+export const getWalletLiveFiatBalance = (args: {
+  wallet: Wallet;
+  rates?: Rates;
+  quoteCurrency?: string;
+}): number => {
+  const quoteCurrency = String(args.quoteCurrency || 'USD').toUpperCase();
+  const wallet = args.wallet;
+  const walletRates = getRateByCurrencyName(
+    args.rates || {},
+    wallet.currencyAbbreviation,
+    wallet.chain,
+    wallet.tokenAddress,
+  );
+  const currentRate = walletRates?.find(
+    rate => String(rate.code || '').toUpperCase() === quoteCurrency,
+  )?.rate;
+
+  if (
+    typeof currentRate !== 'number' ||
+    !Number.isFinite(currentRate) ||
+    currentRate <= 0
+  ) {
+    return 0;
+  }
+
+  const {unitDecimals} = getWalletUnitInfo(wallet);
+  const liveAtomicBalance = getWalletLiveAtomicBalance({
+    wallet,
+    unitDecimals,
+  });
+
+  return atomicToUnitNumber(liveAtomicBalance, unitDecimals) * currentRate;
 };
 
 export const walletHasNonZeroLiveBalance = (wallet: Wallet): boolean => {
