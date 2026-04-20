@@ -1099,6 +1099,7 @@ export class PortfolioEngine {
       wallets: selectedWalletMetas,
       timeframe: prepared.timeframe,
       ratePointsByAssetId: prepared.ratePointsByAssetId,
+      currentRatesByAssetId: prepared.currentRatesByAssetId,
       firstNonZeroTs,
       nowMs: prepared.nowMs,
       maxPoints: prepared.maxPoints,

@@ -395,6 +395,53 @@ function buildEvenTimeline(startMs: number, endMs: number, n: number): number[] 
   return out;
 }
 
+function buildAnalysisTimeline(args: {
+  startTs: number;
+  historicalEndTs: number;
+  nowMs: number;
+  maxPoints: number;
+  includeLiveTerminalPoint: boolean;
+}): number[] {
+  'worklet';
+
+  const maxPoints = Math.max(0, Math.floor(args.maxPoints));
+  if (maxPoints <= 0) return [];
+
+  const startTs = Math.round(args.startTs);
+  const historicalEndTs = Math.max(startTs, Math.round(args.historicalEndTs));
+  const nowMs = Math.max(historicalEndTs, Math.round(args.nowMs));
+  const shouldAppendLiveTerminalPoint =
+    args.includeLiveTerminalPoint && nowMs > historicalEndTs;
+
+  if (!shouldAppendLiveTerminalPoint) {
+    return buildEvenTimeline(startTs, historicalEndTs, maxPoints);
+  }
+
+  if (maxPoints === 1) {
+    return [nowMs];
+  }
+
+  if (maxPoints === 2) {
+    return [startTs, nowMs];
+  }
+
+  const historicalPointCount = maxPoints - 1;
+  const historicalTimeline =
+    historicalEndTs <= startTs || historicalPointCount <= 1
+      ? [startTs]
+      : buildEvenTimeline(startTs, historicalEndTs, historicalPointCount);
+
+  if (!historicalTimeline.length) {
+    return [nowMs];
+  }
+
+  if (historicalTimeline[historicalTimeline.length - 1] === nowMs) {
+    return historicalTimeline;
+  }
+
+  return historicalTimeline.concat(nowMs);
+}
+
 function getWindowMs(timeframe: PnlTimeframe): number {
   'worklet';
 
@@ -677,6 +724,7 @@ export function resolvePnlAnalysisPreloadWindow(args: {
   wallets: WalletForAnalysisMeta[];
   timeframe: PnlTimeframe;
   ratePointsByAssetId: Record<string, FiatRatePoint[]>;
+  currentRatesByAssetId?: Record<string, number>;
   firstNonZeroTs?: number | null;
   nowMs?: number;
   maxPoints?: number;
@@ -746,8 +794,23 @@ export function resolvePnlAnalysisPreloadWindow(args: {
       : baselineMs ?? overlapStart;
 
   const startTs = Math.max(overlapStart, desiredStart);
-  const endTs = Math.max(startTs, nowMs);
-  const timeline = buildEvenTimeline(startTs, endTs, maxPoints);
+  const historicalEndTs = Math.max(startTs, Math.min(overlapEnd, nowMs));
+  const hasLiveTerminalRates =
+    nowMs > historicalEndTs &&
+    assetIds.every(assetId => {
+      const overrideRate = getCurrentRateOverride(
+        args.currentRatesByAssetId || {},
+        assetId,
+      );
+      return typeof overrideRate === 'number' && Number.isFinite(overrideRate);
+    });
+  const timeline = buildAnalysisTimeline({
+    startTs,
+    historicalEndTs,
+    nowMs,
+    maxPoints,
+    includeLiveTerminalPoint: hasLiveTerminalRates,
+  });
   if (!timeline.length) {
     throw new Error('Failed to build analysis timeline.');
   }
@@ -806,17 +869,29 @@ function buildAnalysisContext(args: {
       wallets: args.wallets,
       timeframe: args.timeframe,
       ratePointsByAssetId: args.ratePointsByAssetId,
+      currentRatesByAssetId: args.currentRatesByAssetId,
       firstNonZeroTs: args.firstNonZeroTs,
       nowMs: args.nowMs,
       maxPoints: args.maxPoints,
     });
 
+  const timelineMatchesResolvedWindow =
+    !!args.resolvedWindow &&
+    (typeof args.startTs !== 'number' ||
+      !Number.isFinite(args.startTs) ||
+      args.startTs === resolved.startTs) &&
+    (typeof args.endTs !== 'number' ||
+      !Number.isFinite(args.endTs) ||
+      args.endTs === resolved.endTs);
+
   const timeline =
-    typeof args.startTs === 'number' &&
-    Number.isFinite(args.startTs) &&
-    typeof args.endTs === 'number' &&
-    Number.isFinite(args.endTs) &&
-    args.endTs >= args.startTs
+    timelineMatchesResolvedWindow
+      ? resolved.timeline
+      : typeof args.startTs === 'number' &&
+          Number.isFinite(args.startTs) &&
+          typeof args.endTs === 'number' &&
+          Number.isFinite(args.endTs) &&
+          args.endTs >= args.startTs
       ? buildEvenTimeline(args.startTs, args.endTs, maxPoints)
       : resolved.timeline;
   if (!timeline.length) {

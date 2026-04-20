@@ -130,6 +130,89 @@ describe('analysisStreaming preload helpers', () => {
     expect(resolved.timeline[0]).toBe(t1);
   });
 
+  it('appends only a single live terminal point after historical overlap when current rates are available', () => {
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-01T01:00:00Z');
+    const t2 = Date.parse('2024-01-01T02:00:00Z');
+    const t4 = Date.parse('2024-01-01T04:00:00Z');
+
+    const resolved = resolvePnlAnalysisPreloadWindow({
+      cfg: {quoteCurrency: 'USD'},
+      wallets: [mkWallet()],
+      timeframe: '1D',
+      nowMs: t4,
+      maxPoints: 5,
+      currentRatesByAssetId: {
+        'eth:eth': 150,
+      },
+      ratePointsByAssetId: {
+        'eth:eth': [
+          {ts: t0, rate: 100},
+          {ts: t1, rate: 110},
+          {ts: t2, rate: 120},
+        ],
+      },
+    });
+
+    expect(resolved.endTs).toBe(t4);
+    expect(resolved.timeline[resolved.timeline.length - 1]).toBe(t4);
+    expect(resolved.timeline.filter(ts => ts > t2)).toEqual([t4]);
+    expect(
+      resolved.timeline.slice(0, -1).every(ts => ts >= t0 && ts <= t2),
+    ).toBe(true);
+  });
+
+  it('uses start and live end directly for two-point timelines with a live terminal point', () => {
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t2 = Date.parse('2024-01-01T02:00:00Z');
+    const t4 = Date.parse('2024-01-01T04:00:00Z');
+
+    const resolved = resolvePnlAnalysisPreloadWindow({
+      cfg: {quoteCurrency: 'USD'},
+      wallets: [mkWallet()],
+      timeframe: '1D',
+      nowMs: t4,
+      maxPoints: 2,
+      currentRatesByAssetId: {
+        'eth:eth': 150,
+      },
+      ratePointsByAssetId: {
+        'eth:eth': [
+          {ts: t0, rate: 100},
+          {ts: t2, rate: 120},
+        ],
+      },
+    });
+
+    expect(resolved.timeline).toEqual([t0, t4]);
+  });
+
+  it('falls back to the historical overlap end when live terminal rates are unavailable', () => {
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-01T01:00:00Z');
+    const t2 = Date.parse('2024-01-01T02:00:00Z');
+    const t4 = Date.parse('2024-01-01T04:00:00Z');
+
+    const resolved = resolvePnlAnalysisPreloadWindow({
+      cfg: {quoteCurrency: 'USD'},
+      wallets: [mkWallet()],
+      timeframe: '1D',
+      nowMs: t4,
+      maxPoints: 5,
+      ratePointsByAssetId: {
+        'eth:eth': [
+          {ts: t0, rate: 100},
+          {ts: t1, rate: 110},
+          {ts: t2, rate: 120},
+        ],
+      },
+    });
+
+    expect(resolved.endTs).toBe(t2);
+    expect(resolved.timeline[resolved.timeline.length - 1]).toBe(t2);
+    expect(resolved.timeline.every(ts => ts <= t2)).toBe(true);
+  });
+
   it('accepts engine-prepared windows and sorted wallet points without re-normalizing', () => {
     const t0 = Date.parse('2024-01-01T00:00:00Z');
     const t1 = Date.parse('2024-01-01T01:00:00Z');
@@ -175,6 +258,60 @@ describe('analysisStreaming preload helpers', () => {
     expect(res.points[0]?.timestamp).toBe(t0);
     expect(res.points[0]?.totalFiatBalance).toBe(1000);
     expect(res.points[res.points.length - 1]?.totalFiatBalance).toBe(2600);
+  });
+
+  it('preserves the single live terminal point shape when building the analysis series from a resolved window', () => {
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-01T01:00:00Z');
+    const t2 = Date.parse('2024-01-01T02:00:00Z');
+    const t4 = Date.parse('2024-01-01T04:00:00Z');
+
+    const resolved = resolvePnlAnalysisPreloadWindow({
+      cfg: {quoteCurrency: 'USD'},
+      wallets: [mkWallet({walletId: 'w1'})],
+      timeframe: '1D',
+      nowMs: t4,
+      maxPoints: 5,
+      currentRatesByAssetId: {
+        'eth:eth': 150,
+      },
+      ratePointsByAssetId: {
+        'eth:eth': [
+          {ts: t0, rate: 100},
+          {ts: t1, rate: 110},
+          {ts: t2, rate: 120},
+        ],
+      },
+    });
+
+    const res = buildPnlAnalysisSeriesFromPreloaded({
+      cfg: {quoteCurrency: 'USD'},
+      timeframe: '1D',
+      nowMs: t4,
+      maxPoints: 5,
+      startTs: resolved.startTs,
+      endTs: resolved.endTs,
+      resolvedWindow: resolved,
+      currentRatesByAssetId: {
+        'eth:eth': 150,
+      },
+      walletPointsArePrepared: true,
+      ratePointsByAssetId: resolved.rawPointsByAssetId,
+      wallets: [
+        {
+          wallet: mkWallet({walletId: 'w1'}),
+          basePoint: mkPoint(t0, '1000000000000000000'),
+          points: [],
+        },
+      ],
+    });
+
+    const timestamps = res.points.map(point => point.timestamp);
+
+    expect(timestamps.filter(ts => ts > t2)).toEqual([t4]);
+    expect(timestamps[timestamps.length - 2]).toBeLessThanOrEqual(t2);
+    expect(res.points[res.points.length - 2]?.totalFiatBalance).toBe(120);
+    expect(res.points[res.points.length - 1]?.totalFiatBalance).toBe(150);
   });
 
   it('applies current rate overrides to the final point and asset summary', () => {
