@@ -1,8 +1,7 @@
-jest.mock('../../../utils/helper-methods', () => ({
-  calculatePercentageDifference: jest.fn(() => 0),
-}));
-
-import {prepareExchangeRateChartPoints} from './useExchangeRateChartData';
+import {
+  formatExchangeRateChartData,
+  prepareExchangeRateChartPoints,
+} from './useExchangeRateChartData';
 
 describe('prepareExchangeRateChartPoints', () => {
   it('uses the explicit nowMs when clipping an ALL-series window for display', () => {
@@ -97,5 +96,16 @@ describe('prepareExchangeRateChartPoints', () => {
       {ts: startMs, rate: 100},
       {ts: asOfMs, rate: 102},
     ]);
+  });
+});
+
+describe('formatExchangeRateChartData', () => {
+  it('returns the raw percent change without rounding in the math layer', () => {
+    const result = formatExchangeRateChartData([
+      {ts: 1, rate: 100},
+      {ts: 2, rate: 110.123456},
+    ]);
+
+    expect(result.percentChange).toBeCloseTo(10.123456, 6);
   });
 });
