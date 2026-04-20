@@ -42,6 +42,9 @@ jest.mock('../common', () => ({
       })),
     }),
   ),
+  resolveCurrentRatesAsOfMs: jest.fn(
+    ({ratesUpdatedAt}: {ratesUpdatedAt?: number}) => ratesUpdatedAt ?? 0,
+  ),
   resolveCommittedPortfolioQuoteCurrency: jest.fn(() => 'USD'),
 }));
 
@@ -50,6 +53,7 @@ const mockUseAppSelector = useAppSelector as jest.Mock;
 
 const execute = jest.fn(() => new Promise<never>(() => undefined));
 let consoleErrorSpy: jest.SpyInstance;
+let mockState: any;
 
 const walletFactory = () =>
   ({
@@ -74,21 +78,23 @@ describe('usePortfolioRuntimeQuery', () => {
     mockUseAppDispatch.mockReset();
     mockUseAppDispatch.mockReturnValue(jest.fn());
     mockUseAppSelector.mockReset();
+    mockState = {
+      APP: {
+        defaultAltCurrency: {isoCode: 'USD'},
+      },
+      PORTFOLIO: {
+        quoteCurrency: 'USD',
+        lastPopulatedAt: 1,
+      },
+      RATE: {
+        rates: {
+          btc: [{code: 'USD', rate: 100}],
+        },
+        ratesUpdatedAt: 1234,
+      },
+    };
     mockUseAppSelector.mockImplementation(selector =>
-      selector({
-        APP: {
-          defaultAltCurrency: {isoCode: 'USD'},
-        },
-        PORTFOLIO: {
-          quoteCurrency: 'USD',
-          lastPopulatedAt: 1,
-        },
-        RATE: {
-          rates: {
-            btc: [{code: 'USD', rate: 100}],
-          },
-        },
-      }),
+      selector(mockState),
     );
   });
 
@@ -104,6 +110,11 @@ describe('usePortfolioRuntimeQuery', () => {
     });
 
     expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        asOfMs: 1234,
+      }),
+    );
 
     const rerenderedWallet = walletFactory();
     await act(async () => {
@@ -111,5 +122,38 @@ describe('usePortfolioRuntimeQuery', () => {
     });
 
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-runs the runtime query when the shared rates snapshot timestamp changes', async () => {
+    let view: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      view = TestRenderer.create(<HookHarness wallets={[walletFactory()]} />);
+    });
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        asOfMs: 1234,
+      }),
+    );
+
+    mockState = {
+      ...mockState,
+      RATE: {
+        ...mockState.RATE,
+        ratesUpdatedAt: 5678,
+      },
+    };
+
+    await act(async () => {
+      view!.update(<HookHarness wallets={[walletFactory()]} />);
+    });
+
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(execute).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        asOfMs: 5678,
+      }),
+    );
   });
 });

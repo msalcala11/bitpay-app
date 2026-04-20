@@ -143,6 +143,7 @@ const ExchangeRateScreen = ({shared}: ExchangeRateScreenProps) => {
       selectedTimeframe,
       seriesDataInterval,
       currentFiatRate: shared.currentFiatRate,
+      nowMs: shared.asOfMs,
     });
 
   useEffect(() => {
@@ -217,9 +218,11 @@ const ExchangeRateScreen = ({shared}: ExchangeRateScreenProps) => {
       timeframe: selectedTimeframe,
       currentRate: shared.currentFiatRate,
       historicalRateIdentity: shared.historicalRateIdentity,
+      nowMs: shared.asOfMs,
     });
   }, [
     fiatRateSeriesCache,
+    shared.asOfMs,
     selectedTimeframe,
     shared.currentFiatRate,
     shared.historicalRateIdentity,

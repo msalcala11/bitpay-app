@@ -8,6 +8,7 @@ import {
   getLastFiniteNumber,
   getStoredWalletRequestSignature,
   mapWalletsToStoredWallets,
+  resolveCurrentRatesAsOfMs,
   resolveCommittedPortfolioQuoteCurrency,
   runPortfolioChartQuery,
 } from '../common';
@@ -33,6 +34,7 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
     ({PORTFOLIO}) => PORTFOLIO.quoteCurrency,
   );
   const rates = useAppSelector(({RATE}) => RATE.rates);
+  const ratesUpdatedAt = useAppSelector(({RATE}) => RATE.ratesUpdatedAt);
   const committedRevisionToken = useAppSelector(({PORTFOLIO}) =>
     buildCommittedPortfolioRevisionToken({
       quoteCurrency: PORTFOLIO.quoteCurrency,
@@ -46,6 +48,15 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
       defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
     });
   }, [defaultAltCurrency?.isoCode, portfolioQuoteCurrency]);
+  const fallbackAsOfMsRef = useRef<number>(Date.now());
+  const asOfMs = useMemo(() => {
+    return (
+      resolveCurrentRatesAsOfMs({
+        ratesUpdatedAt,
+        rates,
+      }) ?? fallbackAsOfMsRef.current
+    );
+  }, [rates, ratesUpdatedAt]);
 
   const keyInputs = useMemo(() => {
     return (args.keys || []).map(key => {
@@ -73,6 +84,7 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
   const requestKey = useMemo(() => {
     return [
       quoteCurrency,
+      String(asOfMs),
       ...keyInputs.map(
         input =>
           [
@@ -83,7 +95,7 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
           ].join(':'),
       ),
     ].join('|');
-  }, [keyInputs, quoteCurrency]);
+  }, [asOfMs, keyInputs, quoteCurrency]);
   const stableKeyInputsRef = useRef(keyInputs);
   stableKeyInputsRef.current = keyInputs;
 
@@ -118,6 +130,7 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
           timeframe: '1D',
           maxPoints: 2,
           currentRatesByAssetId: input.currentRatesByAssetId,
+          asOfMs,
         });
 
         return {
@@ -150,7 +163,7 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
     return () => {
       cancelled = true;
     };
-  }, [committedRevisionToken, quoteCurrency, requestKey]);
+  }, [asOfMs, committedRevisionToken, quoteCurrency, requestKey]);
 
   return Object.keys(currentMap).length ? currentMap : committedMap;
 }

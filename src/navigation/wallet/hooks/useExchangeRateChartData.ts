@@ -262,6 +262,7 @@ type Args = {
   selectedTimeframe: FiatRateInterval;
   seriesDataInterval: CachedFiatRateInterval;
   currentFiatRate: number | undefined;
+  nowMs?: number;
 };
 
 type Result = {
@@ -299,7 +300,11 @@ export const prepareExchangeRateChartPoints = ({
   if (!pointsToDisplay.length) {
     return pointsToDisplay;
   }
-  if (!Number.isFinite(currentFiatRate)) {
+  const currentSpotRate =
+    typeof currentFiatRate === 'number' && Number.isFinite(currentFiatRate)
+      ? currentFiatRate
+      : undefined;
+  if (typeof currentSpotRate !== 'number') {
     return pointsToDisplay;
   }
 
@@ -307,14 +312,14 @@ export const prepareExchangeRateChartPoints = ({
   const last = pointsToDisplay[lastIdx];
   if (
     !last ||
-    Math.abs(last.rate - currentFiatRate) <= SPOT_RATE_MATCH_EPSILON
+    Math.abs(last.rate - currentSpotRate) <= SPOT_RATE_MATCH_EPSILON
   ) {
     return pointsToDisplay;
   }
 
   // Never mutate cached series points in Redux; only override in-memory for rendering.
   const copy = [...pointsToDisplay];
-  copy[lastIdx] = {...last, rate: currentFiatRate};
+  copy[lastIdx] = {...last, rate: currentSpotRate};
   return copy;
 };
 
@@ -323,6 +328,7 @@ const useExchangeRateChartData = ({
   selectedTimeframe,
   seriesDataInterval,
   currentFiatRate,
+  nowMs,
 }: Args): Result => {
   const pointsForChartRaw = useMemo<FiatRatePoint[] | undefined>(() => {
     return prepareExchangeRateChartPoints({
@@ -330,9 +336,11 @@ const useExchangeRateChartData = ({
       selectedTimeframe,
       seriesDataInterval,
       currentFiatRate,
+      nowMs,
     });
   }, [
     currentFiatRate,
+    nowMs,
     selectedSeriesPoints,
     selectedTimeframe,
     seriesDataInterval,

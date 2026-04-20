@@ -166,12 +166,49 @@ export function getCurrentRatesByAssetIdSignature(
     .join('|');
 }
 
+export function resolveCurrentRatesAsOfMs(args: {
+  ratesUpdatedAt?: number;
+  rates?: Rates;
+}): number | undefined {
+  if (
+    typeof args.ratesUpdatedAt === 'number' &&
+    Number.isFinite(args.ratesUpdatedAt) &&
+    args.ratesUpdatedAt > 0
+  ) {
+    return args.ratesUpdatedAt;
+  }
+
+  let latestTimestamp: number | undefined;
+  for (const rateEntries of Object.values(args.rates || {})) {
+    if (!Array.isArray(rateEntries)) {
+      continue;
+    }
+
+    for (const rateEntry of rateEntries) {
+      const candidateTimestamps = [rateEntry?.fetchedOn, rateEntry?.ts];
+      for (const candidateTimestamp of candidateTimestamps) {
+        if (
+          typeof candidateTimestamp === 'number' &&
+          Number.isFinite(candidateTimestamp) &&
+          candidateTimestamp > 0 &&
+          (latestTimestamp == null || candidateTimestamp > latestTimestamp)
+        ) {
+          latestTimestamp = candidateTimestamp;
+        }
+      }
+    }
+  }
+
+  return latestTimestamp;
+}
+
 export async function runPortfolioAnalysisQuery(args: {
   wallets: StoredWallet[];
   quoteCurrency: string;
   timeframe: PnlTimeframe;
   maxPoints?: number;
   currentRatesByAssetId?: Record<string, number>;
+  asOfMs?: number;
 }): Promise<PnlAnalysisResult> {
   return getPortfolioRuntimeClient().computeAnalysis({
     cfg: createPortfolioQueryBwsConfig(),
@@ -180,6 +217,7 @@ export async function runPortfolioAnalysisQuery(args: {
     timeframe: args.timeframe,
     maxPoints: args.maxPoints,
     currentRatesByAssetId: args.currentRatesByAssetId,
+    nowMs: args.asOfMs,
   });
 }
 
@@ -189,6 +227,7 @@ export async function runPortfolioChartQuery(args: {
   timeframe: PnlTimeframe;
   maxPoints?: number;
   currentRatesByAssetId?: Record<string, number>;
+  asOfMs?: number;
 }): Promise<PnlAnalysisChartResult> {
   const analysis = await getPortfolioRuntimeClient().computeAnalysis({
     cfg: createPortfolioQueryBwsConfig(),
@@ -197,6 +236,7 @@ export async function runPortfolioChartQuery(args: {
     timeframe: args.timeframe,
     maxPoints: args.maxPoints,
     currentRatesByAssetId: args.currentRatesByAssetId,
+    nowMs: args.asOfMs,
   });
 
   return compactPnlAnalysisResultForChart(analysis);
