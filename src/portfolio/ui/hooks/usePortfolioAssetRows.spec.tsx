@@ -30,6 +30,7 @@ jest.mock('../common', () => ({
   getCurrentRatesByAssetIdSignature: jest.fn(() => ''),
   getStoredWalletRequestSignature: jest.fn(() => ''),
   preparePortfolioAnalysisSessionQuery: jest.fn(),
+  runPortfolioAnalysisQuery: jest.fn(),
   runPortfolioAnalysisSessionScopeQuery: jest.fn(),
 }));
 
@@ -55,6 +56,9 @@ const mockSortAssetRowItemsByAssetFiatPriority = jest.requireMock(
 const mockPreparePortfolioAnalysisSessionQuery = jest.requireMock(
   '../common',
 ).preparePortfolioAnalysisSessionQuery as jest.Mock;
+const mockRunPortfolioAnalysisQuery = jest.requireMock(
+  '../common',
+).runPortfolioAnalysisQuery as jest.Mock;
 const mockRunPortfolioAnalysisSessionScopeQuery = jest.requireMock(
   '../common',
 ).runPortfolioAnalysisSessionScopeQuery as jest.Mock;
@@ -124,6 +128,8 @@ describe('usePortfolioAssetRows', () => {
     mockPreparePortfolioAnalysisSessionQuery.mockResolvedValue({
       sessionId: 'session-1',
     });
+    mockRunPortfolioAnalysisQuery.mockReset();
+    mockRunPortfolioAnalysisQuery.mockResolvedValue(undefined);
     mockRunPortfolioAnalysisSessionScopeQuery.mockReset();
     mockRunPortfolioAnalysisSessionScopeQuery.mockResolvedValue(undefined);
     mockDisposePortfolioAnalysisSessionQuery.mockReset();
@@ -660,6 +666,144 @@ describe('usePortfolioAssetRows', () => {
 
     await act(async () => {
       resolveScopedAnalysis?.(scopedAnalysis);
+    });
+
+    await waitFor(() => {
+      expect(latestResult?.visibleItems).toEqual([
+        expect.objectContaining({
+          key: 'btc',
+          deltaFiat: '-$5.22',
+          deltaPercent: '-1.64%',
+        }),
+      ]);
+    });
+  });
+
+  it('falls back to a direct scoped query when a prepared session goes missing', async () => {
+    const globalAnalysis = {
+      driverCoin: 'eth',
+      assetIds: ['btc-asset'],
+      wallets: [{walletId: 'btc-wallet'}, {walletId: 'eth-wallet'}],
+    };
+    const scopedAnalysis = {
+      driverCoin: 'btc',
+      assetIds: ['btc-asset'],
+      wallets: [{walletId: 'btc-wallet'}],
+    };
+
+    mockState.PORTFOLIO.lastPopulatedAt = 5;
+    mockUsePortfolioAnalysis.mockReturnValue({
+      data: globalAnalysis,
+      committedData: globalAnalysis,
+      currentData: globalAnalysis,
+      error: undefined,
+      loading: false,
+      quoteCurrency: 'USD',
+      requestKey: 'portfolio-request',
+      currentRatesByAssetId: {['btc-asset']: 74333.76},
+      currentRatesSignature: 'btc-rate',
+      asOfMs: 123456789,
+      eligibleWallets: [
+        {
+          id: 'btc-wallet',
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+        },
+      ],
+      storedWallets: [
+        {
+          walletId: 'btc-wallet',
+          addedAt: 0,
+          summary: {
+            walletId: 'btc-wallet',
+            walletName: 'Bitcoin',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+            tokenAddress: undefined,
+            network: 'livenet',
+            balanceAtomic: '422258',
+            balanceFormatted: '0.00422258',
+          },
+          credentials: {
+            keyId: 'key-id',
+          },
+        },
+      ],
+    });
+    mockPreparePortfolioAnalysisSessionQuery.mockResolvedValue({
+      sessionId: 'session-btc',
+    });
+    mockRunPortfolioAnalysisSessionScopeQuery.mockRejectedValue(
+      new Error('Prepared portfolio analysis session not found: session-btc'),
+    );
+    mockRunPortfolioAnalysisQuery.mockResolvedValue(scopedAnalysis);
+    mockBuildAssetRowsFromAnalysis.mockImplementation(({analysis}: any) => {
+      if (analysis !== globalAnalysis) {
+        return [
+          {
+            key: 'btc',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+            name: 'BTC',
+            cryptoAmount: '0.00422258',
+            fiatAmount: '$313.88',
+            deltaFiat: '-$5.22',
+            deltaPercent: '-1.64%',
+            isPositive: false,
+            hasRate: true,
+            hasPnl: true,
+            debugCopyPayload: {
+              aggregatedSummary: {
+                fiatValue: 313.88024830079996,
+                pnlChange: -5.217464442377093,
+                pnlPercent: -1.6350679538014496,
+              },
+            },
+          },
+        ];
+      }
+
+      return [
+        {
+          key: 'btc',
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+          name: 'BTC',
+          cryptoAmount: '0.00422258',
+          fiatAmount: '$313.88',
+          deltaFiat: '-$9.21',
+          deltaPercent: '-1.80%',
+          isPositive: false,
+          hasRate: true,
+          hasPnl: true,
+          debugCopyPayload: {
+            aggregatedSummary: {
+              fiatValue: 313.88024830079996,
+              pnlChange: -9.208673313419354,
+              pnlPercent: -1.8038049153872324,
+            },
+          },
+        },
+      ];
+    });
+
+    render(<HookHarness />);
+
+    await waitFor(() => {
+      expect(mockRunPortfolioAnalysisQuery).toHaveBeenCalledWith({
+        wallets: [
+          expect.objectContaining({
+            summary: expect.objectContaining({
+              walletId: 'btc-wallet',
+            }),
+          }),
+        ],
+        quoteCurrency: 'USD',
+        timeframe: '1D',
+        maxPoints: 2,
+        currentRatesByAssetId: expect.any(Object),
+        asOfMs: 123456789,
+      });
     });
 
     await waitFor(() => {
