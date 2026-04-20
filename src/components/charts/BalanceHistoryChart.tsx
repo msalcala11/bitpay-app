@@ -7,6 +7,7 @@ import Animated, {useAnimatedStyle} from 'react-native-reanimated';
 import type {FiatRateInterval, Rates} from '../../store/rate/rate.models';
 import {FIAT_RATE_SERIES_TARGET_POINTS} from '../../store/rate/rate.models';
 import type {Wallet} from '../../store/wallet/wallet.models';
+import {HISTORIC_RATES_CACHE_DURATION} from '../../constants/wallet';
 import {
   DEFAULT_BALANCE_CHART_TIMEFRAME,
   getFiatChartTimeframeOptions,
@@ -37,11 +38,17 @@ import {
 import {useStableBalanceHistoryChartAxisLabels} from './useStableBalanceHistoryChartAxisLabels';
 import {runPortfolioChartQuery} from '../../portfolio/ui/common';
 import {usePortfolioBalanceChartScope} from '../../portfolio/ui/hooks/usePortfolioBalanceChartScope';
+import useRuntimeFiatRateSeriesCache from '../../portfolio/ui/hooks/useRuntimeFiatRateSeriesCache';
 import {formatUnknownError} from '../../utils/errors/formatUnknownError';
 import haptic from '../haptic-feedback/haptic';
 import {
+  areBalanceChartHistoricalRatesReady,
+  buildBalanceChartHistoricalRateDeps,
+  buildBalanceChartHistoricalRateRequests,
   buildCachedTimeframeFromRuntimeChart,
   buildHydratedSeriesFromRuntimeChart,
+  getBalanceChartHistoricalRateCacheKeys,
+  getBalanceChartHistoricalRateCacheRevision,
   resolveCachedBalanceChartSeries,
 } from '../../utils/portfolio/balanceChartData';
 
@@ -206,18 +213,81 @@ const BalanceHistoryChart = ({
     );
   }, [cachedScope?.timeframes, selectedTimeframe]);
 
+  const historicalRateRequests = useMemo(() => {
+    return buildBalanceChartHistoricalRateRequests({
+      wallets: storedWallets,
+      timeframes: [selectedTimeframe],
+    });
+  }, [selectedTimeframe, storedWallets]);
+
+  const {
+    cache: fiatRateSeriesCache,
+    error: fiatRateSeriesCacheError,
+    loading: fiatRateSeriesCacheLoading,
+  } = useRuntimeFiatRateSeriesCache({
+    quoteCurrency: committedQueryQuoteCurrency,
+    requests: historicalRateRequests,
+    maxAgeMs: HISTORIC_RATES_CACHE_DURATION * 1000,
+    enabled:
+      !!committedQueryQuoteCurrency && historicalRateRequests.length > 0,
+  });
+
+  const historicalRateDepKeys = useMemo(() => {
+    return getBalanceChartHistoricalRateCacheKeys({
+      wallets: storedWallets,
+      quoteCurrency: committedQueryQuoteCurrency,
+      timeframes: [selectedTimeframe],
+    });
+  }, [committedQueryQuoteCurrency, selectedTimeframe, storedWallets]);
+
+  const historicalRateCacheReady = useMemo(() => {
+    return (
+      !historicalRateDepKeys.length ||
+      areBalanceChartHistoricalRatesReady({
+        depKeys: historicalRateDepKeys,
+        fiatRateSeriesCache,
+      })
+    );
+  }, [fiatRateSeriesCache, historicalRateDepKeys]);
+
+  const historicalRateCacheRevision = useMemo(() => {
+    return getBalanceChartHistoricalRateCacheRevision({
+      depKeys: historicalRateDepKeys,
+      fiatRateSeriesCache,
+    });
+  }, [fiatRateSeriesCache, historicalRateDepKeys]);
+
+  const historicalRateDeps = useMemo(() => {
+    return buildBalanceChartHistoricalRateDeps({
+      wallets: storedWallets,
+      quoteCurrency: committedQueryQuoteCurrency,
+      timeframes: [selectedTimeframe],
+      fiatRateSeriesCache,
+    });
+  }, [
+    committedQueryQuoteCurrency,
+    fiatRateSeriesCache,
+    selectedTimeframe,
+    storedWallets,
+  ]);
+
   const cachedSelectedSeriesResult = useMemo(() => {
     return resolveCachedBalanceChartSeries({
       cachedTimeframe: cachedSelectedTimeframe,
       currentSpotRatesByRateKey,
       dataRevisionSig: chartDataRevisionSig,
       asOfMs,
+      fiatRateSeriesCache: historicalRateCacheReady
+        ? fiatRateSeriesCache
+        : undefined,
     });
   }, [
     asOfMs,
     cachedSelectedTimeframe,
     chartDataRevisionSig,
     currentSpotRatesByRateKey,
+    fiatRateSeriesCache,
+    historicalRateCacheReady,
   ]);
   const cachedSelectedTimeframeStatus = cachedSelectedSeriesResult.status;
   const cachedSelectedSeries = cachedSelectedSeriesResult.series;
@@ -257,11 +327,13 @@ const BalanceHistoryChart = ({
       storedWalletRequestSig,
       currentRatesSignature,
       currentSpotRatesSignature,
+      historicalRateCacheRevision,
     ].join('|');
   }, [
     chartDataRevisionSig,
     currentRatesSignature,
     currentSpotRatesSignature,
+    historicalRateCacheRevision,
     scopeId,
     selectedTimeframe,
     storedWalletRequestSig,
@@ -289,6 +361,17 @@ const BalanceHistoryChart = ({
 
   useEffect(() => {
     if (cachedSelectedSeries) {
+      return;
+    }
+
+    if (
+      historicalRateDepKeys.length &&
+      !historicalRateCacheReady &&
+      !fiatRateSeriesCacheError &&
+      fiatRateSeriesCacheLoading
+    ) {
+      setLoading(true);
+      setError(undefined);
       return;
     }
 
@@ -336,6 +419,7 @@ const BalanceHistoryChart = ({
           quoteCurrency: chartQueryArgs.quoteCurrency,
           balanceOffset,
           dataRevisionSig: chartQueryArgs.dataRevisionSig,
+          historicalRateDeps,
         });
         if (!cacheEntry) {
           return;
@@ -368,6 +452,11 @@ const BalanceHistoryChart = ({
     cachedSelectedSeries,
     chartDataRevisionSig,
     dispatch,
+    fiatRateSeriesCacheError,
+    fiatRateSeriesCacheLoading,
+    historicalRateCacheReady,
+    historicalRateDepKeys.length,
+    historicalRateDeps,
     queryRevisionKey,
     scopeId,
     sortedWalletIds,
