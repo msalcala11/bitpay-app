@@ -131,11 +131,29 @@ const AssetsSection: React.FC<AssetsSectionProps> = ({enabled = true}) => {
     const seenKeys = new Set<string>();
     const shouldUsePreviewFallback =
       !enabled || !!isFiatLoading || !visibleItems.length;
+    const resolveDisplayItem = (key: string): AssetRowItem | undefined => {
+      const previewItem = previewItemsByKey.get(key);
+      const visibleItem = visibleItemsByKey.get(key);
+
+      if (!visibleItem) {
+        return shouldUsePreviewFallback ? previewItem : undefined;
+      }
+
+      // Keep the wallet-derived preview row on screen if the scoped portfolio
+      // analysis only has a placeholder row for this asset so we do not flicker
+      // from a stable preview into a weaker intermediate presentation.
+      const shouldPreferPreviewItem =
+        !!previewItem &&
+        (visibleItem.showPnlPlaceholder ||
+          (!visibleItem.hasRate &&
+            !visibleItem.hasPnl &&
+            !visibleItem.showScopedPnlLoading));
+
+      return shouldPreferPreviewItem ? previewItem : visibleItem;
+    };
 
     for (const key of topAssetKeys) {
-      const item =
-        visibleItemsByKey.get(key) ||
-        (shouldUsePreviewFallback ? previewItemsByKey.get(key) : undefined);
+      const item = resolveDisplayItem(key);
       if (!item) {
         continue;
       }
