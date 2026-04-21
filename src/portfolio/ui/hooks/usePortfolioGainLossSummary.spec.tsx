@@ -5,6 +5,7 @@ import {useIsFocused} from '@react-navigation/native';
 import {useAppDispatch} from '../../../utils/hooks';
 import {runPortfolioChartQuery} from '../common';
 import {
+  BALANCE_GAIN_LOSS_SUMMARY_CACHE_IDENTITY_KEY,
   getCachedBalanceChartTimeframe,
   getCachedTimeframeStatus,
   deserializeCachedTimeframeToComputedSeries,
@@ -171,6 +172,13 @@ describe('usePortfolioGainLossSummary', () => {
   it('derives today and all-time summary values from cached balance chart timeframes', () => {
     render(<HookHarness />);
 
+    expect(mockUsePortfolioBalanceChartScope).toHaveBeenCalledWith(
+      expect.objectContaining({
+        balanceOffset: 0,
+        cacheIdentityKey: BALANCE_GAIN_LOSS_SUMMARY_CACHE_IDENTITY_KEY,
+        wallets: [sampleWallet],
+      }),
+    );
     expect(mockRunPortfolioChartQuery).not.toHaveBeenCalled();
     expect(latestResult?.summary).toEqual({
       quoteCurrency: 'USD',

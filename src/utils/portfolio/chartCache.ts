@@ -4,6 +4,7 @@ import type {
   FiatRateSeriesCacheEntry,
   FiatRateInterval,
 } from '../../store/rate/rate.models';
+import {FIAT_RATE_SERIES_TARGET_POINTS} from '../../store/rate/rate.models';
 import type {
   CachedBalanceChartTimeframe,
   CachedBalanceChartTimeframes,
@@ -64,6 +65,15 @@ export type HydratedBalanceChartSeries = {
 
 const SPOT_RATE_EPSILON = 1e-9;
 const MAX_LIVE_TAIL_PATCH_GAP_INTERVAL_MULTIPLIER = 2;
+const DEFAULT_BALANCE_CHART_CACHE_IDENTITY_KEY = 'balance_chart';
+
+export const BALANCE_HISTORY_CHART_CACHE_IDENTITY_KEY = [
+  'balance_history_chart',
+  String(FIAT_RATE_SERIES_TARGET_POINTS),
+].join(':');
+
+export const BALANCE_GAIN_LOSS_SUMMARY_CACHE_IDENTITY_KEY =
+  'balance_gain_loss_summary:2';
 
 const toFiniteNumber = (value: unknown, fallback = 0): number => {
   const normalized = typeof value === 'number' ? value : Number(value);
@@ -481,13 +491,18 @@ export const buildBalanceChartScopeId = (args: {
   walletIds: string[];
   quoteCurrency: string;
   balanceOffset?: number;
+  cacheIdentityKey?: string;
 }): string => {
   const walletIds = getSortedUniqueWalletIds(args.walletIds || []);
   const quoteCurrency = String(args.quoteCurrency || '').toUpperCase();
   const balanceOffset = normalizeBalanceChartOffset(args.balanceOffset);
+  const cacheIdentityKey =
+    String(args.cacheIdentityKey || '').trim() ||
+    DEFAULT_BALANCE_CHART_CACHE_IDENTITY_KEY;
 
   return [
     `v${BALANCE_CHART_CACHE_SCHEMA_VERSION}`,
+    cacheIdentityKey,
     quoteCurrency,
     balanceOffset,
     walletIds.join(','),
