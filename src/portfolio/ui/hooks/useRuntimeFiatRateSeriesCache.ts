@@ -23,20 +23,45 @@ export function useRuntimeFiatRateSeriesCache(args: {
   clearOnRequestChange?: boolean;
 }): RuntimeFiatRateSeriesCacheState {
   const enabled = args.enabled !== false;
-  const requests = useMemo(
-    () => normalizeRuntimeFiatRateCacheRequests(args.requests),
-    [args.requests],
-  );
-  const requestKey = useMemo(
+  const rawRequestsRef = useRef(args.requests);
+  rawRequestsRef.current = args.requests;
+  const normalizedRequestsKey = useMemo(
     () =>
       buildRuntimeFiatRateCacheRequestKey({
-        quoteCurrency: args.quoteCurrency,
-        requests,
-        maxAgeMs: args.maxAgeMs,
+        quoteCurrency: '',
+        requests: args.requests,
       }),
-    [args.maxAgeMs, args.quoteCurrency, requests],
+    [args.requests],
   );
-  const [cache, setCache] = useState<FiatRateSeriesCache>({});
+  const normalizedRequestsStateRef = useRef<{
+    key: string;
+    value: FiatRateCacheRequest[];
+  }>({
+    key: '',
+    value: [],
+  });
+  if (normalizedRequestsStateRef.current.key !== normalizedRequestsKey) {
+    normalizedRequestsStateRef.current = {
+      key: normalizedRequestsKey,
+      value: normalizeRuntimeFiatRateCacheRequests(rawRequestsRef.current),
+    };
+  }
+  const requests = normalizedRequestsStateRef.current.value;
+  const requestKey = useMemo(
+    () =>
+      [
+        String(args.quoteCurrency || '')
+          .trim()
+          .toUpperCase(),
+        typeof args.maxAgeMs === 'number' && Number.isFinite(args.maxAgeMs)
+          ? String(args.maxAgeMs)
+          : '',
+        normalizedRequestsKey,
+      ].join('|'),
+    [args.maxAgeMs, args.quoteCurrency, normalizedRequestsKey],
+  );
+  const emptyCacheRef = useRef<FiatRateSeriesCache>({});
+  const [cache, setCache] = useState<FiatRateSeriesCache>(emptyCacheRef.current);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | undefined>(undefined);
   const activeRequestIdRef = useRef(0);
@@ -44,11 +69,12 @@ export function useRuntimeFiatRateSeriesCache(args: {
   const runLoad = useCallback(
     async (opts?: {force?: boolean}): Promise<FiatRateSeriesCache> => {
       if (!enabled || !requests.length || !args.quoteCurrency) {
-        const empty: FiatRateSeriesCache = {};
-        setCache(empty);
+        setCache(prev =>
+          prev === emptyCacheRef.current ? prev : emptyCacheRef.current,
+        );
         setLoading(false);
         setError(undefined);
-        return empty;
+        return emptyCacheRef.current;
       }
 
       const requestId = activeRequestIdRef.current + 1;
@@ -86,17 +112,21 @@ export function useRuntimeFiatRateSeriesCache(args: {
   useEffect(() => {
     if (!enabled || !requests.length || !args.quoteCurrency) {
       activeRequestIdRef.current += 1;
-      setCache({});
+      setCache(prev =>
+        prev === emptyCacheRef.current ? prev : emptyCacheRef.current,
+      );
       setLoading(false);
       setError(undefined);
       return;
     }
 
     if (args.clearOnRequestChange) {
-      setCache({});
+      setCache(prev =>
+        prev === emptyCacheRef.current ? prev : emptyCacheRef.current,
+      );
     }
 
-    void runLoad().catch(() => undefined);
+    runLoad().catch(() => undefined);
   }, [
     args.clearOnRequestChange,
     args.quoteCurrency,

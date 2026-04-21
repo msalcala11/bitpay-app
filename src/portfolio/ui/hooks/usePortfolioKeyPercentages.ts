@@ -93,6 +93,7 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
   }, [asOfMs, keyInputs, quoteCurrency]);
   const stableKeyInputsRef = useRef(keyInputs);
   stableKeyInputsRef.current = keyInputs;
+  const emptyPercentageMapRef = useRef<Record<string, number | null>>({});
   const cachedMapByRequestKeyRef = useRef<
     Map<string, Record<string, number | null>>
   >(new Map());
@@ -102,7 +103,7 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
     value: Record<string, number | null>;
   }>({
     requestKey: '',
-    value: {},
+    value: emptyPercentageMapRef.current,
   });
 
   useEffect(() => {
@@ -111,7 +112,7 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
     if (!stableKeyInputs.length) {
       setCurrentMapState({
         requestKey,
-        value: {},
+        value: emptyPercentageMapRef.current,
       });
       return;
     }
@@ -122,7 +123,9 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
         ? prev
         : {
             requestKey,
-            value: cachedMapByRequestKeyRef.current.get(requestKey) || {},
+            value:
+              cachedMapByRequestKeyRef.current.get(requestKey) ||
+              emptyPercentageMapRef.current,
           },
     );
 
@@ -187,7 +190,10 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
     return currentMapState.value;
   }
 
-  return cachedMapByRequestKeyRef.current.get(requestKey) || {};
+  return (
+    cachedMapByRequestKeyRef.current.get(requestKey) ||
+    emptyPercentageMapRef.current
+  );
 }
 
 export default usePortfolioKeyPercentages;
