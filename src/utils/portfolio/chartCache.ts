@@ -63,6 +63,7 @@ export type HydratedBalanceChartSeries = {
 };
 
 const SPOT_RATE_EPSILON = 1e-9;
+const MAX_LIVE_TAIL_PATCH_GAP_INTERVAL_MULTIPLIER = 2;
 
 const toFiniteNumber = (value: unknown, fallback = 0): number => {
   const normalized = typeof value === 'number' ? value : Number(value);
@@ -76,6 +77,44 @@ const toOptionalFiniteNumber = (value: unknown): number | undefined => {
 
 export const normalizeBalanceChartOffset = (value: unknown): number => {
   return toFiniteNumber(value, 0);
+};
+
+const getMostRecentPositiveChartIntervalMs = (
+  timestamps: unknown[],
+  endIndexInclusive: number,
+): number | undefined => {
+  for (let endIndex = endIndexInclusive; endIndex >= 1; endIndex--) {
+    const currentTs = toOptionalFiniteNumber(timestamps[endIndex]);
+    const previousTs = toOptionalFiniteNumber(timestamps[endIndex - 1]);
+    if (
+      typeof currentTs === 'number' &&
+      typeof previousTs === 'number' &&
+      currentTs > previousTs
+    ) {
+      return currentTs - previousTs;
+    }
+  }
+
+  return undefined;
+};
+
+const getMaxLiveTailPatchGapMs = (
+  cachedTimeframe: CachedBalanceChartTimeframe,
+): number | undefined => {
+  const lastHistoricalIntervalMs = getMostRecentPositiveChartIntervalMs(
+    cachedTimeframe.ts,
+    cachedTimeframe.ts.length - 2,
+  );
+  const fallbackLastIntervalMs = getMostRecentPositiveChartIntervalMs(
+    cachedTimeframe.ts,
+    cachedTimeframe.ts.length - 1,
+  );
+  const referenceIntervalMs =
+    lastHistoricalIntervalMs ?? fallbackLastIntervalMs;
+
+  return typeof referenceIntervalMs === 'number' && referenceIntervalMs > 0
+    ? referenceIntervalMs * MAX_LIVE_TAIL_PATCH_GAP_INTERVAL_MULTIPLIER
+    : undefined;
 };
 
 const findNearestGraphPointIndexByTimestamp = (
@@ -227,6 +266,23 @@ const getLiveTailPatchState = (args: {
   const timestampChanged =
     typeof patchedAt === 'number' &&
     (typeof currentLastTimestamp !== 'number' || patchedAt > currentLastTimestamp);
+
+  if (
+    typeof patchedAt === 'number' &&
+    typeof currentLastTimestamp === 'number' &&
+    patchedAt > currentLastTimestamp
+  ) {
+    const maxPatchGapMs = getMaxLiveTailPatchGapMs(args.cachedTimeframe);
+    if (
+      typeof maxPatchGapMs === 'number' &&
+      patchedAt - currentLastTimestamp > maxPatchGapMs
+    ) {
+      return {
+        patchable: false,
+        changed: true,
+      };
+    }
+  }
 
   return {
     patchable: true,
