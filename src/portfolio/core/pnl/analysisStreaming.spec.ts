@@ -213,6 +213,73 @@ describe('analysisStreaming preload helpers', () => {
     expect(resolved.timeline.every(ts => ts <= t2)).toBe(true);
   });
 
+  it('does not apply partial current-rate overrides when the final point remains historical', () => {
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t2 = Date.parse('2024-01-01T02:00:00Z');
+    const t4 = Date.parse('2024-01-01T04:00:00Z');
+
+    const ethWallet = mkWallet({
+      walletId: 'eth-wallet',
+      walletName: 'ETH Wallet',
+      currencyAbbreviation: 'eth',
+      chain: 'eth',
+      credentials: {chain: 'eth', coin: 'eth', network: 'livenet'} as WalletCredentials,
+    });
+    const btcWallet = mkWallet({
+      walletId: 'btc-wallet',
+      walletName: 'BTC Wallet',
+      currencyAbbreviation: 'btc',
+      chain: 'btc',
+      credentials: {chain: 'btc', coin: 'btc', network: 'livenet'} as WalletCredentials,
+    });
+
+    const res = buildPnlAnalysisSeriesFromPreloaded({
+      cfg: {quoteCurrency: 'USD'},
+      timeframe: '1D',
+      nowMs: t4,
+      maxPoints: 2,
+      currentRatesByAssetId: {
+        [ethWallet.assetId]: 150,
+      },
+      ratePointsByAssetId: {
+        [ethWallet.assetId]: [
+          {ts: t0, rate: 100},
+          {ts: t2, rate: 120},
+        ],
+        [btcWallet.assetId]: [
+          {ts: t0, rate: 1000},
+          {ts: t2, rate: 1100},
+        ],
+      },
+      wallets: [
+        {
+          wallet: ethWallet,
+          basePoint: mkPoint(t0, '1000000000000000000'),
+          points: [],
+        },
+        {
+          wallet: btcWallet,
+          basePoint: mkPoint(t0, '100000000'),
+          points: [],
+        },
+      ],
+    });
+
+    expect(res.analysisWindow).toEqual({
+      startTs: t0,
+      endTs: t2,
+      nowMs: t4,
+    });
+
+    const last = res.points[res.points.length - 1];
+    expect(last.timestamp).toBe(t2);
+    expect(last.totalFiatBalance).toBe(1220);
+    expect(last.byWalletId[ethWallet.walletId]?.markRate).toBe(120);
+    expect(last.byWalletId[btcWallet.walletId]?.markRate).toBe(1100);
+    expect(res.assetSummaries.find(summary => summary.assetId === ethWallet.assetId)?.rateEnd).toBe(120);
+    expect(res.assetSummaries.find(summary => summary.assetId === btcWallet.assetId)?.rateEnd).toBe(1100);
+  });
+
   it('accepts engine-prepared windows and sorted wallet points without re-normalizing', () => {
     const t0 = Date.parse('2024-01-01T00:00:00Z');
     const t1 = Date.parse('2024-01-01T01:00:00Z');
