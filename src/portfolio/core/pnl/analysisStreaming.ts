@@ -178,6 +178,7 @@ export type ResolvedPnlAnalysisPreloadWindow = {
   driverAssetId: string;
   rawPointsByAssetId: Record<string, FiatRatePoint[]>;
   nowMs: number;
+  liveTerminalTs?: number;
   startTs: number;
   endTs: number;
   timeline: number[];
@@ -195,6 +196,7 @@ type AnalysisContext = {
   driverAssetId: string;
   driverCoin: string;
   nowMs: number;
+  liveTerminalTs?: number;
   currentRatesByAssetId: Record<string, number>;
   rawPointsByAssetId: Record<string, FiatRatePoint[]>;
   timeline: number[];
@@ -569,14 +571,15 @@ function getCurrentRateOverride(
 function getAnalysisRateAtTimestamp(args: {
   assetId: string;
   ts: number;
-  endTs: number;
+  liveTerminalTs?: number;
   rateCursorByAssetId: Record<string, RateCursor>;
   currentRatesByAssetId: Record<string, number>;
 }): number {
   'worklet';
 
   const overrideRate =
-    args.ts === args.endTs
+    typeof args.liveTerminalTs === 'number' &&
+    args.ts === args.liveTerminalTs
       ? getCurrentRateOverride(args.currentRatesByAssetId, args.assetId)
       : undefined;
 
@@ -588,7 +591,7 @@ function getAnalysisRateAtTimestamp(args: {
 function getAnalysisBasisRateAtTimestamp(args: {
   assetId: string;
   ts: number;
-  endTs: number;
+  liveTerminalTs?: number;
   rateCursorByAssetId: Record<string, RateCursor>;
   baselineRateByAssetId: Record<string, number>;
   currentRatesByAssetId: Record<string, number>;
@@ -596,7 +599,8 @@ function getAnalysisBasisRateAtTimestamp(args: {
   'worklet';
 
   const overrideRate =
-    args.ts === args.endTs
+    typeof args.liveTerminalTs === 'number' &&
+    args.ts === args.liveTerminalTs
       ? getCurrentRateOverride(args.currentRatesByAssetId, args.assetId)
       : undefined;
 
@@ -747,6 +751,7 @@ export function resolvePnlAnalysisPreloadWindow(args: {
       driverAssetId: '',
       rawPointsByAssetId: {},
       nowMs: nowMsRequested,
+      liveTerminalTs: undefined,
       startTs: nowMsRequested,
       endTs: nowMsRequested,
       timeline: [],
@@ -796,7 +801,6 @@ export function resolvePnlAnalysisPreloadWindow(args: {
   const startTs = Math.max(overlapStart, desiredStart);
   const historicalEndTs = Math.max(startTs, Math.min(overlapEnd, nowMs));
   const hasLiveTerminalRates =
-    nowMs > historicalEndTs &&
     assetIds.every(assetId => {
       const overrideRate = getCurrentRateOverride(
         args.currentRatesByAssetId || {},
@@ -804,6 +808,8 @@ export function resolvePnlAnalysisPreloadWindow(args: {
       );
       return typeof overrideRate === 'number' && Number.isFinite(overrideRate);
     });
+  const liveTerminalTs =
+    hasLiveTerminalRates ? nowMs : undefined;
   const timeline = buildAnalysisTimeline({
     startTs,
     historicalEndTs,
@@ -822,6 +828,7 @@ export function resolvePnlAnalysisPreloadWindow(args: {
     driverAssetId,
     rawPointsByAssetId,
     nowMs,
+    liveTerminalTs,
     startTs: timeline[0],
     endTs: timeline[timeline.length - 1],
     timeline,
@@ -904,6 +911,11 @@ function buildAnalysisContext(args: {
   const rawPointsByAssetId = resolved.rawPointsByAssetId;
   const startTs = timeline[0];
   const endTs = timeline[timeline.length - 1];
+  const liveTerminalTs =
+    typeof resolved.liveTerminalTs === 'number' &&
+    endTs === resolved.liveTerminalTs
+      ? resolved.liveTerminalTs
+      : undefined;
   const rateCursorByAssetId: Record<string, RateCursor> = {};
   for (const assetId of assetIds) {
     rateCursorByAssetId[assetId] = makeLinearRateCursor(
@@ -928,6 +940,7 @@ function buildAnalysisContext(args: {
     driverAssetId,
     driverCoin,
     nowMs: resolved.nowMs,
+    liveTerminalTs,
     currentRatesByAssetId: args.currentRatesByAssetId || {},
     rawPointsByAssetId,
     timeline,
@@ -990,7 +1003,7 @@ function applyAnalysisPointToWalletState(args: {
   rateCursorByAssetId: Record<string, RateCursor>;
   baselineRateByAssetId: Record<string, number>;
   currentRatesByAssetId: Record<string, number>;
-  endTs: number;
+  liveTerminalTs?: number;
 }): void {
   'worklet';
 
@@ -1000,7 +1013,7 @@ function applyAnalysisPointToWalletState(args: {
     rateCursorByAssetId,
     baselineRateByAssetId,
     currentRatesByAssetId,
-    endTs,
+    liveTerminalTs,
   } = args;
   const afterAtomic = parseAtomicToBigint(point.cryptoBalance);
   const beforeAtomic = state.unitsAtomic;
@@ -1011,7 +1024,7 @@ function applyAnalysisPointToWalletState(args: {
       const rateForBasis = getAnalysisBasisRateAtTimestamp({
         assetId: state.wallet.assetId,
         ts: point.timestamp,
-        endTs,
+        liveTerminalTs,
         rateCursorByAssetId,
         baselineRateByAssetId,
         currentRatesByAssetId,
@@ -1049,7 +1062,7 @@ async function advanceStreamedWalletStateToTimestamp(args: {
       rateCursorByAssetId: context.rateCursorByAssetId,
       baselineRateByAssetId: context.baselineRateByAssetId,
       currentRatesByAssetId: context.currentRatesByAssetId,
-      endTs: context.endTs,
+      liveTerminalTs: context.liveTerminalTs,
     });
     state.nextPoint = await readNextPreparedWalletPointFromStream({
       iterator: state.iterator,
@@ -1081,6 +1094,7 @@ function finalizeAnalysisResult(args: {
   rateCursorByAssetId: Record<string, RateCursor>;
   currentRatesByAssetId: Record<string, number>;
   endTs: number;
+  liveTerminalTs?: number;
 }): PnlAnalysisResult {
   'worklet';
 
@@ -1155,7 +1169,9 @@ function finalizeAnalysisResult(args: {
 
     const rateStart = args.baselineRateByAssetId[assetId] ?? 0;
     const rateEnd =
-      getCurrentRateOverride(args.currentRatesByAssetId, assetId) ??
+      (typeof args.liveTerminalTs === 'number' && args.endTs === args.liveTerminalTs
+        ? getCurrentRateOverride(args.currentRatesByAssetId, assetId)
+        : undefined) ??
       args.rateCursorByAssetId[assetId].getRateAt(args.endTs) ??
       0;
     const rateChange = rateEnd - rateStart;
@@ -1266,7 +1282,7 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
     const driverRate = getAnalysisRateAtTimestamp({
       assetId: context.driverAssetId,
       ts,
-      endTs: context.endTs,
+      liveTerminalTs: context.liveTerminalTs,
       rateCursorByAssetId: context.rateCursorByAssetId,
       currentRatesByAssetId: context.currentRatesByAssetId,
     });
@@ -1281,7 +1297,7 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
           rateCursorByAssetId: context.rateCursorByAssetId,
           baselineRateByAssetId: context.baselineRateByAssetId,
           currentRatesByAssetId: context.currentRatesByAssetId,
-          endTs: context.endTs,
+          liveTerminalTs: context.liveTerminalTs,
         });
         st.nextIndex += 1;
       }
@@ -1291,7 +1307,7 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
       const rate = getAnalysisRateAtTimestamp({
         assetId: st.wallet.assetId,
         ts,
-        endTs: context.endTs,
+        liveTerminalTs: context.liveTerminalTs,
         rateCursorByAssetId: context.rateCursorByAssetId,
         currentRatesByAssetId: context.currentRatesByAssetId,
       });
@@ -1368,6 +1384,7 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
     rateCursorByAssetId: context.rateCursorByAssetId,
     currentRatesByAssetId: context.currentRatesByAssetId,
     endTs: context.endTs,
+    liveTerminalTs: context.liveTerminalTs,
   });
 }
 
@@ -1413,7 +1430,7 @@ export async function buildPnlAnalysisSeriesFromStreamed(args: PnlAnalysisStream
     const driverRate = getAnalysisRateAtTimestamp({
       assetId: context.driverAssetId,
       ts,
-      endTs: context.endTs,
+      liveTerminalTs: context.liveTerminalTs,
       rateCursorByAssetId: context.rateCursorByAssetId,
       currentRatesByAssetId: context.currentRatesByAssetId,
     });
@@ -1433,7 +1450,7 @@ export async function buildPnlAnalysisSeriesFromStreamed(args: PnlAnalysisStream
       const rate = getAnalysisRateAtTimestamp({
         assetId: st.wallet.assetId,
         ts,
-        endTs: context.endTs,
+        liveTerminalTs: context.liveTerminalTs,
         rateCursorByAssetId: context.rateCursorByAssetId,
         currentRatesByAssetId: context.currentRatesByAssetId,
       });
@@ -1510,6 +1527,7 @@ export async function buildPnlAnalysisSeriesFromStreamed(args: PnlAnalysisStream
     rateCursorByAssetId: context.rateCursorByAssetId,
     currentRatesByAssetId: context.currentRatesByAssetId,
     endTs: context.endTs,
+    liveTerminalTs: context.liveTerminalTs,
   });
 }
 
