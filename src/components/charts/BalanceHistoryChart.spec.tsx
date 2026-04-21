@@ -38,6 +38,7 @@ const mockPendingHistoricalRateCache = {};
 
 const mockOneDayPoint = {date: new Date(1_000), value: 100};
 const mockOneWeekPoint = {date: new Date(2_000), value: 150};
+const mockUpdatedOneDayPoint = {date: new Date(3_000), value: 115};
 
 const mockOneDaySeries = {
   graphPoints: [mockOneDayPoint],
@@ -89,6 +90,33 @@ const mockOneWeekSeries = {
   ]),
   maxPoint: mockOneWeekPoint,
   minPoint: mockOneWeekPoint,
+  maxIndex: 0,
+  minIndex: 0,
+};
+
+const mockUpdatedOneDaySeries = {
+  graphPoints: [mockUpdatedOneDayPoint],
+  analysisPoints: [
+    {
+      timestamp: mockUpdatedOneDayPoint.date.getTime(),
+      totalFiatBalance: 115,
+      totalPnlChange: 15,
+      totalPnlPercent: 12,
+    },
+  ],
+  pointByTimestamp: new Map([
+    [
+      mockUpdatedOneDayPoint.date.getTime(),
+      {
+        timestamp: mockUpdatedOneDayPoint.date.getTime(),
+        totalFiatBalance: 115,
+        totalPnlChange: 15,
+        totalPnlPercent: 12,
+      },
+    ],
+  ]),
+  maxPoint: mockUpdatedOneDayPoint,
+  minPoint: mockUpdatedOneDayPoint,
   maxIndex: 0,
   minIndex: 0,
 };
@@ -480,5 +508,163 @@ describe('BalanceHistoryChart', () => {
     expect(latestInteractiveLineChartProps.points).toBe(
       mockOneWeekSeries.graphPoints,
     );
+  });
+
+  it('keeps the current same-quote timeframe series visible while a new query revision hydrates', async () => {
+    jest.useFakeTimers();
+    const deferred = createDeferred<{__series: typeof mockUpdatedOneDaySeries}>();
+    mockRunPortfolioChartQuery.mockReturnValue(deferred.promise);
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(
+        <BalanceHistoryChart
+          wallets={[
+            {
+              id: 'wallet-1',
+            } as any,
+          ]}
+          quoteCurrency="USD"
+          showLoaderWhenNoSnapshots
+        />,
+      );
+    });
+
+    expect(latestInteractiveLineChartProps.points).toBe(
+      mockOneDaySeries.graphPoints,
+    );
+    expect(latestInteractiveLineChartProps.isLoading).toBe(false);
+
+    mockUsePortfolioBalanceChartScope.mockReturnValue({
+      asOfMs: 1235,
+      cachedScope: {
+        timeframes: {},
+      },
+      chartDataRevisionSig: 'chart-rev-2',
+      currentRatesByAssetId: {},
+      currentRatesSignature: 'rates-rev-2',
+      currentSpotRatesByRateKey: {},
+      currentSpotRatesSignature: 'spot-rev-2',
+      quoteCurrency: 'USD',
+      scopeId: 'scope-1',
+      sortedWalletIds: ['wallet-1'],
+      storedWalletRequestSig: 'wallet-req',
+      storedWallets: [
+        {
+          summary: {
+            walletId: 'wallet-1',
+          },
+        },
+      ],
+    });
+
+    await act(async () => {
+      renderer.update(
+        <BalanceHistoryChart
+          wallets={[
+            {
+              id: 'wallet-1',
+            } as any,
+          ]}
+          quoteCurrency="USD"
+          showLoaderWhenNoSnapshots
+        />,
+      );
+    });
+
+    expect(mockRunPortfolioChartQuery).toHaveBeenCalledTimes(1);
+    expect(latestInteractiveLineChartProps.points).toBe(
+      mockOneDaySeries.graphPoints,
+    );
+    expect(latestInteractiveLineChartProps.isLoading).toBe(false);
+
+    await act(async () => {
+      jest.advanceTimersByTime(120);
+    });
+
+    expect(latestInteractiveLineChartProps.isLoading).toBe(true);
+    expect(latestInteractiveLineChartProps.points).toBe(
+      mockOneDaySeries.graphPoints,
+    );
+
+    await act(async () => {
+      deferred.resolve({__series: mockUpdatedOneDaySeries});
+      await deferred.promise;
+    });
+
+    expect(latestInteractiveLineChartProps.isLoading).toBe(false);
+    expect(latestInteractiveLineChartProps.points).toBe(
+      mockUpdatedOneDaySeries.graphPoints,
+    );
+  });
+
+  it('does not keep the previous series visible across a quote change while the new quote hydrates', async () => {
+    const deferred = createDeferred<{__series: typeof mockOneWeekSeries}>();
+    mockRunPortfolioChartQuery.mockReturnValue(deferred.promise);
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(
+        <BalanceHistoryChart
+          wallets={[
+            {
+              id: 'wallet-1',
+            } as any,
+          ]}
+          quoteCurrency="USD"
+          showLoaderWhenNoSnapshots
+        />,
+      );
+    });
+
+    expect(latestInteractiveLineChartProps.points).toBe(
+      mockOneDaySeries.graphPoints,
+    );
+
+    mockUsePortfolioBalanceChartScope.mockReturnValue({
+      asOfMs: 1235,
+      cachedScope: {
+        timeframes: {},
+      },
+      chartDataRevisionSig: 'chart-rev-eur',
+      currentRatesByAssetId: {},
+      currentRatesSignature: 'rates-rev-eur',
+      currentSpotRatesByRateKey: {},
+      currentSpotRatesSignature: 'spot-rev-eur',
+      quoteCurrency: 'EUR',
+      scopeId: 'scope-1',
+      sortedWalletIds: ['wallet-1'],
+      storedWalletRequestSig: 'wallet-req',
+      storedWallets: [
+        {
+          summary: {
+            walletId: 'wallet-1',
+          },
+        },
+      ],
+    });
+
+    await act(async () => {
+      renderer.update(
+        <BalanceHistoryChart
+          wallets={[
+            {
+              id: 'wallet-1',
+            } as any,
+          ]}
+          quoteCurrency="EUR"
+          showLoaderWhenNoSnapshots
+        />,
+      );
+    });
+
+    expect(mockRunPortfolioChartQuery).toHaveBeenCalledTimes(1);
+    expect(latestInteractiveLineChartProps.isLoading).toBe(true);
+    expect(latestInteractiveLineChartProps.points).toEqual([]);
+
+    await act(async () => {
+      deferred.resolve({__series: mockOneWeekSeries});
+      await deferred.promise;
+    });
   });
 });

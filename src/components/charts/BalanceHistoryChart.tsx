@@ -128,6 +128,7 @@ type DisplayState = {
   series: HydratedBalanceChartSeries;
   timeframe: FiatRateInterval;
   queryRevisionKey: string;
+  quoteCurrency: string;
 };
 
 const PENDING_CHART_OVERLAY_DELAY_MS = 120;
@@ -341,7 +342,8 @@ const BalanceHistoryChart = ({
       if (
         prev?.timeframe === selectedTimeframe &&
         prev?.series === committableCachedSelectedSeries &&
-        prev?.queryRevisionKey === queryRevisionKey
+        prev?.queryRevisionKey === queryRevisionKey &&
+        prev?.quoteCurrency === committedQueryQuoteCurrency
       ) {
         return prev;
       }
@@ -350,6 +352,7 @@ const BalanceHistoryChart = ({
         series: committableCachedSelectedSeries,
         timeframe: selectedTimeframe,
         queryRevisionKey,
+        quoteCurrency: committedQueryQuoteCurrency,
       };
     });
     setLoading(false);
@@ -362,6 +365,7 @@ const BalanceHistoryChart = ({
   }, [
     committableCachedSelectedSeries,
     dispatch,
+    committedQueryQuoteCurrency,
     queryRevisionKey,
     scopeId,
     selectedTimeframe,
@@ -438,6 +442,7 @@ const BalanceHistoryChart = ({
           series,
           timeframe: chartQueryArgs.timeframe,
           queryRevisionKey,
+          quoteCurrency: chartQueryArgs.quoteCurrency,
         });
         setLoading(false);
 
@@ -519,22 +524,33 @@ const BalanceHistoryChart = ({
 
   const activeDisplayState =
     displayState?.timeframe === selectedTimeframe &&
-    displayState?.queryRevisionKey === queryRevisionKey
+    displayState?.queryRevisionKey === queryRevisionKey &&
+    displayState?.quoteCurrency === committedQueryQuoteCurrency
+      ? displayState
+      : undefined;
+  const staleSelectedTimeframeDisplayState =
+    !activeDisplayState &&
+    !committableCachedSelectedSeries &&
+    displayState?.timeframe === selectedTimeframe &&
+    displayState?.quoteCurrency === committedQueryQuoteCurrency
       ? displayState
       : undefined;
   const staleTimeframeDisplayState =
     !activeDisplayState &&
     !committableCachedSelectedSeries &&
-    displayState?.timeframe !== selectedTimeframe
+    displayState?.timeframe !== selectedTimeframe &&
+    displayState?.quoteCurrency === committedQueryQuoteCurrency
       ? displayState
       : undefined;
   const renderedSeries =
     activeDisplayState?.series ||
     committableCachedSelectedSeries ||
+    staleSelectedTimeframeDisplayState?.series ||
     staleTimeframeDisplayState?.series;
   const displayedTimeframe =
     activeDisplayState?.timeframe ??
     (committableCachedSelectedSeries ? selectedTimeframe : undefined) ??
+    staleSelectedTimeframeDisplayState?.timeframe ??
     staleTimeframeDisplayState?.timeframe ??
     selectedTimeframe;
 
