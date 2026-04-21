@@ -15,7 +15,15 @@ import {
   useTheme,
 } from '@react-navigation/native';
 import {FlashList} from '@shopify/flash-list';
-import {LogBox, RefreshControl, View, useWindowDimensions} from 'react-native';
+import {
+  LayoutChangeEvent,
+  LogBox,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  RefreshControl,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 import {TouchableOpacity} from 'react-native-gesture-handler';
 import styled from 'styled-components/native';
@@ -316,6 +324,158 @@ const HeaderRightContainer = styled(_HeaderRightContainer)`
   align-items: center;
 `;
 
+const KeyOverviewAllocationGainLossFooter = React.memo(
+  ({
+    hideAllBalances,
+    isPopulateLoading,
+    liveFiatTotal,
+    wallets,
+  }: {
+    hideAllBalances: boolean;
+    isPopulateLoading: boolean;
+    liveFiatTotal: number;
+    wallets: Wallet[];
+  }) => {
+    const {
+      summary: gainLossSummary,
+      loading: isGainLossSummaryLoading,
+    } = usePortfolioGainLossSummary({
+      wallets,
+      liveFiatTotal,
+    });
+
+    const allTimeGainLossText = useMemo(() => {
+      if (!gainLossSummary.total.available) {
+        return null;
+      }
+
+      if (hideAllBalances) {
+        const pctSign = gainLossSummary.total.percentRatio >= 0 ? '+' : '-';
+        const pct = Math.abs(gainLossSummary.total.percentRatio * 100).toFixed(2);
+        return `****  (${pctSign}${pct}%)`;
+      }
+
+      const sign = gainLossSummary.total.deltaFiat >= 0 ? '+' : '-';
+      const pctSign = gainLossSummary.total.percentRatio >= 0 ? '+' : '-';
+      const amt = formatFiatAmount(
+        Math.abs(gainLossSummary.total.deltaFiat),
+        gainLossSummary.quoteCurrency,
+        {
+          customPrecision: 'minimal',
+          currencyDisplay: 'symbol',
+        },
+      );
+      const pct = Math.abs(gainLossSummary.total.percentRatio * 100).toFixed(2);
+      return `${sign}${amt}  (${pctSign}${pct}%)`;
+    }, [
+      gainLossSummary.quoteCurrency,
+      gainLossSummary.total.available,
+      gainLossSummary.total.deltaFiat,
+      gainLossSummary.total.percentRatio,
+      hideAllBalances,
+    ]);
+
+    const allTimeIsPositive = useMemo(() => {
+      return gainLossSummary.total.available
+        ? gainLossSummary.total.deltaFiat >= 0
+        : true;
+    }, [gainLossSummary.total.available, gainLossSummary.total.deltaFiat]);
+
+    const todayGainLossText = useMemo(() => {
+      if (!gainLossSummary.today.available) {
+        return null;
+      }
+
+      if (hideAllBalances) {
+        const pctSign = gainLossSummary.today.percentRatio >= 0 ? '+' : '-';
+        const pct = Math.abs(gainLossSummary.today.percentRatio * 100).toFixed(2);
+        return `****  (${pctSign}${pct}%)`;
+      }
+
+      const sign = gainLossSummary.today.deltaFiat >= 0 ? '+' : '-';
+      const pctSign = gainLossSummary.today.percentRatio >= 0 ? '+' : '-';
+      const amt = formatFiatAmount(
+        Math.abs(gainLossSummary.today.deltaFiat),
+        gainLossSummary.quoteCurrency,
+        {
+          customPrecision: 'minimal',
+          currencyDisplay: 'symbol',
+        },
+      );
+      const pct = Math.abs(gainLossSummary.today.percentRatio * 100).toFixed(2);
+      return `${sign}${amt}  (${pctSign}${pct}%)`;
+    }, [
+      gainLossSummary.quoteCurrency,
+      gainLossSummary.today.available,
+      gainLossSummary.today.deltaFiat,
+      gainLossSummary.today.percentRatio,
+      hideAllBalances,
+    ]);
+
+    const todayIsPositive = useMemo(() => {
+      return gainLossSummary.today.available
+        ? gainLossSummary.today.deltaFiat >= 0
+        : true;
+    }, [gainLossSummary.today.available, gainLossSummary.today.deltaFiat]);
+
+    const showAllTimeGainLossSkeleton = useMemo(() => {
+      return (
+        isPopulateLoading ||
+        (isGainLossSummaryLoading && allTimeGainLossText === null)
+      );
+    }, [allTimeGainLossText, isGainLossSummaryLoading, isPopulateLoading]);
+
+    const showTodayGainLossSkeleton = useMemo(() => {
+      return (
+        isPopulateLoading ||
+        (isGainLossSummaryLoading && todayGainLossText === null)
+      );
+    }, [isGainLossSummaryLoading, isPopulateLoading, todayGainLossText]);
+
+    const showAllTimeGainLossColumn = useMemo(() => {
+      return allTimeGainLossText !== null || showAllTimeGainLossSkeleton;
+    }, [allTimeGainLossText, showAllTimeGainLossSkeleton]);
+
+    return (
+      <>
+        <AllocationDivider />
+
+        <AllocationRow>
+          {showAllTimeGainLossColumn ? (
+            <AllocationColumn style={{paddingRight: 12}}>
+              <AllocationLabel>All-Time Gain / Loss ($)</AllocationLabel>
+              {showAllTimeGainLossSkeleton ? (
+                <AllocationMetricSkeleton />
+              ) : allTimeGainLossText !== null ? (
+                <AllocationMetricValue positive={allTimeIsPositive}>
+                  {allTimeGainLossText}
+                </AllocationMetricValue>
+              ) : null}
+            </AllocationColumn>
+          ) : null}
+          <AllocationColumn
+            style={
+              showAllTimeGainLossColumn ? {paddingLeft: 12} : undefined
+            }>
+            <AllocationLabel style={{textAlign: 'right'}}>
+              Today's Gain / Loss ($)
+            </AllocationLabel>
+            {showTodayGainLossSkeleton ? (
+              <AllocationMetricSkeleton align="right" />
+            ) : todayGainLossText !== null ? (
+              <AllocationMetricValue
+                positive={todayIsPositive}
+                style={{textAlign: 'right'}}>
+                {todayGainLossText}
+              </AllocationMetricValue>
+            ) : null}
+          </AllocationColumn>
+        </AllocationRow>
+      </>
+    );
+  },
+);
+
 const KeyOverview = () => {
   const {t} = useTranslation();
   const {
@@ -352,10 +512,20 @@ const KeyOverview = () => {
   const [showKeyDropdown, setShowKeyDropdown] = useState(false);
   const key = keys[id];
   const viewedKeyId = key?.id;
+  const [shouldLoadAllocationGainLoss, setShouldLoadAllocationGainLoss] =
+    useState(false);
+  const allocationFooterViewRef = useRef<View | null>(null);
+  const overviewContainerRef = useRef<View | null>(null);
+  const allocationFooterVisibilityCheckInFlightRef = useRef(false);
 
   useEffect(() => {
     setSelectedBalance(undefined);
     setDisplayedBalance(undefined);
+  }, [id]);
+
+  useEffect(() => {
+    setShouldLoadAllocationGainLoss(false);
+    allocationFooterVisibilityCheckInFlightRef.current = false;
   }, [id]);
   const hasMultipleKeys =
     Object.values(keys).filter(k => k.backupComplete).length > 1;
@@ -553,102 +723,66 @@ const KeyOverview = () => {
 
   const showAllocationGainLossFooter = !portfolio.populateDisabled;
 
-  const {
-    summary: gainLossSummary,
-    loading: isGainLossSummaryLoading,
-  } = usePortfolioGainLossSummary({
-    wallets: visibleKeyWallets,
-    liveFiatTotal: totalBalance,
-  });
-
-  const allTimeGainLossText = useMemo(() => {
-    if (!gainLossSummary.total.available) {
-      return null;
+  const maybeActivateAllocationGainLoss = useCallback(() => {
+    if (shouldLoadAllocationGainLoss || !showAllocationGainLossFooter) {
+      return;
     }
 
-    if (hideAllBalances) {
-      const pctSign = gainLossSummary.total.percentRatio >= 0 ? '+' : '-';
-      const pct = Math.abs(gainLossSummary.total.percentRatio * 100).toFixed(2);
-      return `****  (${pctSign}${pct}%)`;
+    const overviewContainer = overviewContainerRef.current;
+    const allocationFooterView = allocationFooterViewRef.current;
+    if (
+      allocationFooterVisibilityCheckInFlightRef.current ||
+      !overviewContainer?.measureInWindow ||
+      !allocationFooterView?.measureInWindow
+    ) {
+      return;
     }
 
-    const sign = gainLossSummary.total.deltaFiat >= 0 ? '+' : '-';
-    const pctSign = gainLossSummary.total.percentRatio >= 0 ? '+' : '-';
-    const amt = formatFiatAmount(
-      Math.abs(gainLossSummary.total.deltaFiat),
-      gainLossSummary.quoteCurrency,
-      {
-        customPrecision: 'minimal',
-        currencyDisplay: 'symbol',
+    allocationFooterVisibilityCheckInFlightRef.current = true;
+
+    overviewContainer.measureInWindow(
+      (_overviewX, overviewY, _overviewWidth, overviewHeight) => {
+        allocationFooterView.measureInWindow(
+          (_footerX, footerY, _footerWidth, footerHeight) => {
+            allocationFooterVisibilityCheckInFlightRef.current = false;
+
+            const overviewBottom = overviewY + overviewHeight;
+            const footerBottom = footerY + footerHeight;
+            const isVisible =
+              overviewHeight > 0 &&
+              footerHeight > 0 &&
+              footerBottom >= overviewY &&
+              footerY <= overviewBottom;
+
+            if (isVisible) {
+              setShouldLoadAllocationGainLoss(true);
+            }
+          },
+        );
       },
     );
-    const pct = Math.abs(gainLossSummary.total.percentRatio * 100).toFixed(2);
-    return `${sign}${amt}  (${pctSign}${pct}%)`;
-  }, [
-    gainLossSummary.quoteCurrency,
-    gainLossSummary.total.available,
-    gainLossSummary.total.deltaFiat,
-    gainLossSummary.total.percentRatio,
-    hideAllBalances,
-  ]);
+  }, [shouldLoadAllocationGainLoss, showAllocationGainLossFooter]);
 
-  const allTimeIsPositive = useMemo(() => {
-    return gainLossSummary.total.available
-      ? gainLossSummary.total.deltaFiat >= 0
-      : true;
-  }, [gainLossSummary.total.available, gainLossSummary.total.deltaFiat]);
+  const onAllocationFooterLayout = useCallback(
+    (_event: LayoutChangeEvent) => {
+      maybeActivateAllocationGainLoss();
+    },
+    [maybeActivateAllocationGainLoss],
+  );
 
-  const todayGainLossText = useMemo(() => {
-    if (!gainLossSummary.today.available) {
-      return null;
-    }
+  const onOverviewLayout = useCallback(
+    (_event: LayoutChangeEvent) => {
+      maybeActivateAllocationGainLoss();
+    },
+    [maybeActivateAllocationGainLoss],
+  );
 
-    if (hideAllBalances) {
-      const pctSign = gainLossSummary.today.percentRatio >= 0 ? '+' : '-';
-      const pct = Math.abs(gainLossSummary.today.percentRatio * 100).toFixed(2);
-      return `****  (${pctSign}${pct}%)`;
-    }
-
-    const sign = gainLossSummary.today.deltaFiat >= 0 ? '+' : '-';
-    const pctSign = gainLossSummary.today.percentRatio >= 0 ? '+' : '-';
-    const amt = formatFiatAmount(
-      Math.abs(gainLossSummary.today.deltaFiat),
-      gainLossSummary.quoteCurrency,
-      {
-        customPrecision: 'minimal',
-        currencyDisplay: 'symbol',
-      },
-    );
-    const pct = Math.abs(gainLossSummary.today.percentRatio * 100).toFixed(2);
-    return `${sign}${amt}  (${pctSign}${pct}%)`;
-  }, [
-    gainLossSummary.quoteCurrency,
-    gainLossSummary.today.available,
-    gainLossSummary.today.deltaFiat,
-    gainLossSummary.today.percentRatio,
-    hideAllBalances,
-  ]);
-
-  const todayIsPositive = useMemo(() => {
-    return gainLossSummary.today.available
-      ? gainLossSummary.today.deltaFiat >= 0
-      : true;
-  }, [gainLossSummary.today.available, gainLossSummary.today.deltaFiat]);
-  const showAllTimeGainLossSkeleton = useMemo(() => {
-    return (
-      isKeyPopulateLoading ||
-      (isGainLossSummaryLoading && allTimeGainLossText === null)
-    );
-  }, [allTimeGainLossText, isGainLossSummaryLoading, isKeyPopulateLoading]);
-  const showTodayGainLossSkeleton = useMemo(() => {
-    return (
-      isKeyPopulateLoading ||
-      (isGainLossSummaryLoading && todayGainLossText === null)
-    );
-  }, [isGainLossSummaryLoading, isKeyPopulateLoading, todayGainLossText]);
-  const showAllTimeGainLossColumn = useMemo(() => {
-    return allTimeGainLossText !== null || showAllTimeGainLossSkeleton;
-  }, [allTimeGainLossText, showAllTimeGainLossSkeleton]);
+  const onListScroll = useCallback(
+    (_event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      maybeActivateAllocationGainLoss();
+    },
+    [maybeActivateAllocationGainLoss],
+  );
 
   const _tokenOptionsByAddress = useAppSelector(({WALLET}: RootState) => {
     return {
@@ -1142,47 +1276,13 @@ const KeyOverview = () => {
                       : '****'}
                   </AllocationValue>
 
-                  {showAllocationGainLossFooter ? (
-                    <>
-                      <AllocationDivider />
-
-                      <AllocationRow>
-                        {showAllTimeGainLossColumn ? (
-                          <AllocationColumn style={{paddingRight: 12}}>
-                            <AllocationLabel>
-                              All-Time Gain / Loss ($)
-                            </AllocationLabel>
-                            {showAllTimeGainLossSkeleton ? (
-                              <AllocationMetricSkeleton />
-                            ) : allTimeGainLossText !== null ? (
-                              <AllocationMetricValue
-                                positive={allTimeIsPositive}>
-                                {allTimeGainLossText}
-                              </AllocationMetricValue>
-                            ) : null}
-                          </AllocationColumn>
-                        ) : null}
-                        <AllocationColumn
-                          style={
-                            showAllTimeGainLossColumn
-                              ? {paddingLeft: 12}
-                              : undefined
-                          }>
-                          <AllocationLabel style={{textAlign: 'right'}}>
-                            Today's Gain / Loss ($)
-                          </AllocationLabel>
-                          {showTodayGainLossSkeleton ? (
-                            <AllocationMetricSkeleton align="right" />
-                          ) : todayGainLossText !== null ? (
-                            <AllocationMetricValue
-                              positive={todayIsPositive}
-                              style={{textAlign: 'right'}}>
-                              {todayGainLossText}
-                            </AllocationMetricValue>
-                          ) : null}
-                        </AllocationColumn>
-                      </AllocationRow>
-                    </>
+                  {showAllocationGainLossFooter && shouldLoadAllocationGainLoss ? (
+                    <KeyOverviewAllocationGainLossFooter
+                      hideAllBalances={hideAllBalances}
+                      isPopulateLoading={isKeyPopulateLoading}
+                      liveFiatTotal={totalBalance}
+                      wallets={visibleKeyWallets}
+                    />
                   ) : null}
                 </AllocationFooter>
               }
@@ -1197,22 +1297,18 @@ const KeyOverview = () => {
     allocationData.legendItems,
     allocationData.slices,
     allocationData.totalFiat,
-    allTimeGainLossText,
-    allTimeIsPositive,
     defaultAltCurrency.isoCode,
     hideAllBalances,
     id,
+    isKeyPopulateLoading,
     key,
     navigation,
-    showAllTimeGainLossColumn,
-    showAllTimeGainLossSkeleton,
+    shouldLoadAllocationGainLoss,
     showPortfolioValue,
     showArchaxBanner,
     showAllocationGainLossFooter,
-    showTodayGainLossSkeleton,
-    todayGainLossText,
-    todayIsPositive,
     totalBalance,
+    visibleKeyWallets,
   ]);
 
   const listEmptyComponent = useMemo(
@@ -1237,8 +1333,16 @@ const KeyOverview = () => {
     selectedChainFilterOption,
   ]);
 
+  const listFooterComponent = useMemo(() => {
+    return (
+      <View ref={allocationFooterViewRef} onLayout={onAllocationFooterLayout}>
+        {renderListFooterComponent()}
+      </View>
+    );
+  }, [onAllocationFooterLayout, renderListFooterComponent]);
+
   return (
-    <OverviewContainer>
+    <OverviewContainer ref={overviewContainerRef} onLayout={onOverviewLayout}>
       <FlashList<AccountRowProps>
         refreshControl={
           <RefreshControl
@@ -1247,8 +1351,10 @@ const KeyOverview = () => {
             onRefresh={() => onRefresh()}
           />
         }
+        onScroll={onListScroll}
+        scrollEventThrottle={32}
         ListHeaderComponent={listHeaderComponent}
-        ListFooterComponent={renderListFooterComponent}
+        ListFooterComponent={listFooterComponent}
         data={renderDataComponent}
         renderItem={memoizedRenderItem}
         ListEmptyComponent={listEmptyComponent}
