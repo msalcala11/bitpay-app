@@ -308,8 +308,7 @@ const BalanceHistoryChart = ({
   const cachedSelectedSeries = cachedSelectedSeriesResult.series;
   const committableCachedSelectedSeries =
     cachedSelectedTimeframeStatus === 'fresh' ||
-    cachedSelectedTimeframeStatus === 'patchable' ||
-    cachedSelectedTimeframeStatus === 'pending_historical'
+    cachedSelectedTimeframeStatus === 'patchable'
       ? cachedSelectedSeries
       : undefined;
 
@@ -392,7 +391,7 @@ const BalanceHistoryChart = ({
   };
 
   useEffect(() => {
-    if (cachedSelectedSeries) {
+    if (committableCachedSelectedSeries) {
       return;
     }
 
@@ -483,7 +482,7 @@ const BalanceHistoryChart = ({
     };
   }, [
     balanceOffset,
-    cachedSelectedSeries,
+    committableCachedSelectedSeries,
     chartDataRevisionSig,
     dispatch,
     fiatRateSeriesCacheError,
