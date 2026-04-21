@@ -19,6 +19,8 @@ import {
 } from '../../constants/currencies';
 import {tokenManager} from '../../managers/TokenManager';
 import {
+  formatCurrencyAbbreviation,
+  formatFiatAmount,
   getCurrencyAbbreviation,
   calculatePercentageDifference,
   unitStringToAtomicBigInt,
@@ -33,6 +35,7 @@ import {
   getAssetCurrentDisplayQuoteRate,
   resolveActivePortfolioDisplayQuoteCurrency,
 } from './displayCurrency';
+import {formatBigIntDecimal} from '../../portfolio/core/format';
 
 export type GainLossMode = FiatRateInterval;
 
@@ -161,6 +164,122 @@ export const sortAssetRowItemsByAssetFiatPriority = (args: {
       return a.index - b.index;
     })
     .map(entry => entry.item);
+};
+
+export const buildAssetPreviewRowItemsFromWallets = (args: {
+  wallets: Wallet[] | undefined;
+  quoteCurrency?: string;
+  orderedAssetKeys?: string[];
+  showScopedPnlLoading?: boolean;
+}): AssetRowItem[] => {
+  const quoteCurrency = resolveActivePortfolioDisplayQuoteCurrency({
+    quoteCurrency: args.quoteCurrency,
+  });
+  const groupByKey = new Map<
+    string,
+    {
+      key: string;
+      currencyAbbreviation: string;
+      chain: string;
+      tokenAddress?: string;
+      representativeWallet: Wallet;
+      representativeUnitDecimals: number;
+      fiatValue: number;
+      totalAtomic: bigint;
+      firstIndex: number;
+    }
+  >();
+
+  for (const [index, wallet] of (args.wallets || []).entries()) {
+    const key = getPortfolioWalletCurrencyAbbreviationLower(wallet);
+    if (!key) {
+      continue;
+    }
+
+    const {unitDecimals} = getWalletUnitInfo(wallet);
+    const atomicBalance = getWalletLiveAtomicBalance({
+      wallet,
+      unitDecimals,
+    });
+    const fiatValue = Math.max(0, toNumber(wallet.balance?.fiat));
+    const existing = groupByKey.get(key);
+
+    if (!existing) {
+      groupByKey.set(key, {
+        key,
+        currencyAbbreviation: key,
+        chain: getPortfolioWalletChain(wallet),
+        tokenAddress: getPortfolioWalletTokenAddress(wallet),
+        representativeWallet: wallet,
+        representativeUnitDecimals: unitDecimals,
+        fiatValue,
+        totalAtomic: atomicBalance,
+        firstIndex: index,
+      });
+      continue;
+    }
+
+    existing.fiatValue += fiatValue;
+    existing.totalAtomic += atomicBalance;
+    existing.firstIndex = Math.min(existing.firstIndex, index);
+
+    const shouldPromoteRepresentative =
+      !existing.tokenAddress &&
+      (existing.chain || '').toLowerCase() === key
+        ? false
+        : !getPortfolioWalletTokenAddress(wallet) &&
+          getPortfolioWalletChainLower(wallet) === key;
+
+    if (shouldPromoteRepresentative) {
+      existing.chain = getPortfolioWalletChain(wallet);
+      existing.tokenAddress = getPortfolioWalletTokenAddress(wallet);
+      existing.representativeWallet = wallet;
+      existing.representativeUnitDecimals = unitDecimals;
+    }
+  }
+
+  const groups = Array.from(groupByKey.values());
+  const groupsByKey = new Map(groups.map(group => [group.key, group]));
+  const orderedGroups = Array.isArray(args.orderedAssetKeys)
+    ? args.orderedAssetKeys
+        ?.map(key => groupsByKey.get(String(key || '').toLowerCase()))
+        .filter(
+          (
+            group,
+          ): group is NonNullable<typeof group> => !!group && group.fiatValue > 0,
+        ) || []
+    : groups
+        .filter(group => group.fiatValue > 0)
+        .sort((left, right) => {
+          const fiatDiff = right.fiatValue - left.fiatValue;
+          if (fiatDiff !== 0) {
+            return fiatDiff;
+          }
+
+          return left.firstIndex - right.firstIndex;
+        });
+
+  return orderedGroups.map(group => ({
+    key: group.key,
+    currencyAbbreviation: group.currencyAbbreviation,
+    chain: group.chain,
+    tokenAddress: group.tokenAddress,
+    name: formatCurrencyAbbreviation(group.currencyAbbreviation),
+    cryptoAmount: formatBigIntDecimal(
+      group.totalAtomic,
+      group.representativeUnitDecimals,
+      Math.min(group.representativeUnitDecimals, 8),
+    ),
+    fiatAmount: formatFiatAmount(group.fiatValue, quoteCurrency, {
+      customPrecision: 'minimal',
+    }),
+    deltaFiat: '',
+    deltaPercent: '',
+    isPositive: true,
+    hasRate: group.fiatValue > 0,
+    hasPnl: false,
+    showScopedPnlLoading: !!args.showScopedPnlLoading,
+  }));
 };
 
 type AssetRowItemSupportInfo = {
