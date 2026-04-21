@@ -21,8 +21,24 @@ export function getAssetRowFiatLoading(args: {
 }): boolean {
   return (
     (!!args.isFiatLoading && !!args.isRowPopulateLoading) ||
-    (!args.populateInProgress && !!args.showScopedPnlLoading)
+    !!args.showScopedPnlLoading
   );
+}
+
+export function shouldForceAssetListSkeleton(args: {
+  items: AssetRowItem[];
+  forceSkeleton?: boolean;
+  isFiatLoading?: boolean;
+}): boolean {
+  if (args.forceSkeleton) {
+    return true;
+  }
+
+  if (!args.isFiatLoading || !args.items.length) {
+    return false;
+  }
+
+  return args.items.every(item => !!item.showPnlPlaceholder);
 }
 
 export function resolveAssetRowDisplayPresentation(args: {

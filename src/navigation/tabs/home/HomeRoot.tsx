@@ -6,6 +6,7 @@ import {
   AppStateStatus,
   RefreshControl,
   ScrollView,
+  View,
 } from 'react-native';
 import {
   EXCHANGE_RATES_CURRENCIES,
@@ -348,11 +349,68 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
 
   const scrollViewRef = useRef<ScrollView>(null);
   useScrollToTop(scrollViewRef);
+  const homeViewportRef = useRef<View>(null);
+  const homeAssetsSectionRef = useRef<View>(null);
+  const homeAssetsSectionVisibilityCheckInFlightRef = useRef(false);
+  const [shouldActivateHomeAssetsSection, setShouldActivateHomeAssetsSection] =
+    useState(false);
 
   const exchangeRatesRef = useRef(memoizedExchangeRates);
   useEffect(() => {
     exchangeRatesRef.current = memoizedExchangeRates;
   }, [memoizedExchangeRates]);
+
+  const maybeActivateHomeAssetsSection = useCallback(() => {
+    if (shouldActivateHomeAssetsSection) {
+      return;
+    }
+
+    const homeViewport = homeViewportRef.current;
+    const homeAssetsSection = homeAssetsSectionRef.current;
+    if (
+      homeAssetsSectionVisibilityCheckInFlightRef.current ||
+      !homeViewport?.measureInWindow ||
+      !homeAssetsSection?.measureInWindow
+    ) {
+      return;
+    }
+
+    homeAssetsSectionVisibilityCheckInFlightRef.current = true;
+
+    homeViewport.measureInWindow(
+      (_viewportX, viewportY, _viewportWidth, viewportHeight) => {
+        homeAssetsSection.measureInWindow(
+          (_sectionX, sectionY, _sectionWidth, sectionHeight) => {
+            homeAssetsSectionVisibilityCheckInFlightRef.current = false;
+
+            const viewportBottom = viewportY + viewportHeight;
+            const sectionBottom = sectionY + sectionHeight;
+            const isVisible =
+              viewportHeight > 0 &&
+              sectionHeight > 0 &&
+              sectionBottom >= viewportY &&
+              sectionY <= viewportBottom;
+
+            if (isVisible) {
+              setShouldActivateHomeAssetsSection(true);
+            }
+          },
+        );
+      },
+    );
+  }, [shouldActivateHomeAssetsSection]);
+
+  const onHomeViewportLayout = useCallback(() => {
+    maybeActivateHomeAssetsSection();
+  }, [maybeActivateHomeAssetsSection]);
+
+  const onHomeScroll = useCallback(() => {
+    maybeActivateHomeAssetsSection();
+  }, [maybeActivateHomeAssetsSection]);
+
+  const onHomeAssetsSectionLayout = useCallback(() => {
+    maybeActivateHomeAssetsSection();
+  }, [maybeActivateHomeAssetsSection]);
 
   const handleAppStateChange = useCallback(
     (status: AppStateStatus) => {
@@ -413,112 +471,120 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
             ) : null}
             <ProfileButton />
           </HeaderContainer>
-          <ScrollView
-            ref={scrollViewRef}
-            // Prevent iOS from injecting automatic top insets which creates a gap
-            // between the Archax banner and the Home header when the scene is edge-to-edge
-            contentInsetAdjustmentBehavior="never"
-            refreshControl={
-              <RefreshControl
-                tintColor={theme.dark ? White : SlateDark}
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-              />
-            }>
-            {/* ////////////////////////////// PORTFOLIO BALANCE */}
-            {showPortfolioValue ? (
-              <HomeSection style={{marginTop: 20, marginBottom: 20}}>
-                <PortfolioBalance />
-              </HomeSection>
-            ) : null}
+          <View ref={homeViewportRef} onLayout={onHomeViewportLayout} style={{flex: 1}}>
+            <ScrollView
+                ref={scrollViewRef}
+                onScroll={onHomeScroll}
+                scrollEventThrottle={32}
+                // Prevent iOS from injecting automatic top insets which creates a gap
+                // between the Archax banner and the Home header when the scene is edge-to-edge
+                contentInsetAdjustmentBehavior="never"
+                refreshControl={
+                  <RefreshControl
+                    tintColor={theme.dark ? White : SlateDark}
+                    refreshing={refreshing}
+                    onRefresh={onRefresh}
+                  />
+                }>
+                {/* ////////////////////////////// PORTFOLIO BALANCE */}
+                {showPortfolioValue ? (
+                  <HomeSection style={{marginTop: 20, marginBottom: 20}}>
+                    <PortfolioBalance />
+                  </HomeSection>
+                ) : null}
 
-            {/* ////////////////////////////// CTA BUY SWAP RECEIVE SEND BUTTONS */}
-            {hasKeys && showPortfolioValue ? (
-              <HomeSection style={{marginBottom: 25}}>
-                <LinkingButtons
-                  debugTraceName="HomeRootLinkingButtons"
-                  receive={{
-                    cta: () => {
-                      dispatch(
-                        Analytics.track('Clicked Receive Crypto', {
-                          context: 'HomeRoot',
-                        }),
-                      );
-                      dispatch(receiveCrypto(navigation, 'HomeRoot'));
-                    },
-                  }}
-                  send={{
-                    cta: () => {
-                      dispatch(
-                        Analytics.track('Clicked Send Crypto', {
-                          context: 'HomeRoot',
-                        }),
-                      );
-                      dispatch(sendCrypto('HomeRoot'));
-                    },
-                  }}
-                />
-              </HomeSection>
-            ) : null}
+                {/* ////////////////////////////// CTA BUY SWAP RECEIVE SEND BUTTONS */}
+                {hasKeys && showPortfolioValue ? (
+                  <HomeSection style={{marginBottom: 25}}>
+                    <LinkingButtons
+                      debugTraceName="HomeRootLinkingButtons"
+                      receive={{
+                        cta: () => {
+                          dispatch(
+                            Analytics.track('Clicked Receive Crypto', {
+                              context: 'HomeRoot',
+                            }),
+                          );
+                          dispatch(receiveCrypto(navigation, 'HomeRoot'));
+                        },
+                      }}
+                      send={{
+                        cta: () => {
+                          dispatch(
+                            Analytics.track('Clicked Send Crypto', {
+                              context: 'HomeRoot',
+                            }),
+                          );
+                          dispatch(sendCrypto('HomeRoot'));
+                        },
+                      }}
+                    />
+                  </HomeSection>
+                ) : null}
 
-            {/* ////////////////////////////// MARKETING */}
-            {memoizedMarketingCards.length ? (
-              <HomeSection>
-                <MarketingCarousel contentCards={memoizedMarketingCards} />
-              </HomeSection>
-            ) : null}
+                {/* ////////////////////////////// MARKETING */}
+                {memoizedMarketingCards.length ? (
+                  <HomeSection>
+                    <MarketingCarousel contentCards={memoizedMarketingCards} />
+                  </HomeSection>
+                ) : null}
 
-            {/* ////////////////////////////// CRYPTO */}
-            <HomeSection>
-              <Crypto />
-            </HomeSection>
+                {/* ////////////////////////////// CRYPTO */}
+                <HomeSection>
+                  <Crypto />
+                </HomeSection>
 
-            {/* ////////////////////////////// SECURE WITH PASSKEY */}
-            <SecurePasskeyBannerGate />
+                {/* ////////////////////////////// SECURE WITH PASSKEY */}
+                <SecurePasskeyBannerGate />
 
-            {showPortfolioValue ? (
-              <HomeSection>
-                <AssetsSection />
-              </HomeSection>
-            ) : null}
+                {showPortfolioValue ? (
+                  <HomeSection>
+                    <View
+                      ref={homeAssetsSectionRef}
+                      onLayout={onHomeAssetsSectionLayout}>
+                      <AssetsSection enabled={shouldActivateHomeAssetsSection} />
+                    </View>
+                  </HomeSection>
+                ) : null}
 
-            {showPortfolioValue && showPortfolioAllocationSection ? (
-              <HomeSection>
-                <AllocationSection />
-              </HomeSection>
-            ) : null}
+                {showPortfolioValue && showPortfolioAllocationSection ? (
+                  <HomeSection>
+                    <AllocationSection />
+                  </HomeSection>
+                ) : null}
 
-            {/* ////////////////////////////// DO MORE */}
-            {memoizedShopWithCryptoCards.length ? (
-              <HomeSection
-                style={{marginBottom: 20}}
-                title={t('Do More')}
-                // action={t('Shop all')}
-                // onActionPress={() => {
-                //   (navigation as any).navigate('Tabs', {screen: 'Shop'});
-                //   dispatch(
-                //     Analytics.track('Clicked Shop with Crypto', {
-                //       context: 'HomeRoot',
-                //     }),
-                //   );
-                // }}
-              >
-                <OffersCarousel contentCards={memoizedShopWithCryptoCards} />
-              </HomeSection>
-            ) : null}
+                {/* ////////////////////////////// DO MORE */}
+                {memoizedShopWithCryptoCards.length ? (
+                  <HomeSection
+                    style={{marginBottom: 20}}
+                    title={t('Do More')}
+                    // action={t('Shop all')}
+                    // onActionPress={() => {
+                    //   (navigation as any).navigate('Tabs', {screen: 'Shop'});
+                    //   dispatch(
+                    //     Analytics.track('Clicked Shop with Crypto', {
+                    //       context: 'HomeRoot',
+                    //     }),
+                    //   );
+                    // }}
+                  >
+                    <OffersCarousel contentCards={memoizedShopWithCryptoCards} />
+                  </HomeSection>
+                ) : null}
 
-            {/* ////////////////////////////// EXCHANGE RATES */}
-            {!showArchaxBanner && memoizedExchangeRates.length ? (
-              <HomeSection title={t('Exchange Rates')} label="24H">
-                <ExchangeRatesList
-                  items={memoizedExchangeRates}
-                  defaultAltCurrencyIsoCode={defaultAltCurrency.isoCode}
-                />
-              </HomeSection>
-            ) : null}
+                {/* ////////////////////////////// EXCHANGE RATES */}
+                {!showArchaxBanner && memoizedExchangeRates.length ? (
+                  <HomeSection title={t('Exchange Rates')} label="24H">
+                    <ExchangeRatesList
+                      items={memoizedExchangeRates}
+                      defaultAltCurrencyIsoCode={defaultAltCurrency.isoCode}
+                    />
+                  </HomeSection>
+                ) : null}
 
-            {showArchaxBanner && <ArchaxFooter />}
-          </ScrollView>
+                {showArchaxBanner && <ArchaxFooter />}
+            </ScrollView>
+          </View>
         </>
       )}
       <KeyMigrationFailureModal />

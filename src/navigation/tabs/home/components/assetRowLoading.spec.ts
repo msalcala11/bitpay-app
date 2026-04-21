@@ -2,6 +2,7 @@ import {
   getAssetRowFiatLoading,
   getAssetRowPopulateLoading,
   resolveAssetRowDisplayPresentation,
+  shouldForceAssetListSkeleton,
 } from './assetRowLoading';
 
 describe('getAssetRowPopulateLoading', () => {
@@ -50,7 +51,7 @@ describe('getAssetRowFiatLoading', () => {
     ).toBe(true);
   });
 
-  it('does not keep fiat loading active during populate when only scoped pnl loading is pending', () => {
+  it('keeps fiat loading active during populate when scoped pnl loading is pending', () => {
     expect(
       getAssetRowFiatLoading({
         populateInProgress: true,
@@ -58,7 +59,7 @@ describe('getAssetRowFiatLoading', () => {
         isRowPopulateLoading: false,
         showScopedPnlLoading: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('shows fiat loading after populate completes when scoped pnl loading is pending', () => {
@@ -147,5 +148,59 @@ describe('resolveAssetRowDisplayPresentation', () => {
       shouldShowSkeleton: true,
       usingPreservedItem: false,
     });
+  });
+});
+
+describe('shouldForceAssetListSkeleton', () => {
+  const placeholderItem = {
+    key: 'btc',
+    currencyAbbreviation: 'btc',
+    chain: 'btc',
+    name: 'Bitcoin',
+    cryptoAmount: '1.0',
+    fiatAmount: '$0.00',
+    deltaFiat: '—',
+    deltaPercent: '—',
+    isPositive: true,
+    hasRate: false,
+    hasPnl: false,
+    showPnlPlaceholder: true,
+  };
+
+  it('forces skeletons when explicitly requested', () => {
+    expect(
+      shouldForceAssetListSkeleton({
+        items: [placeholderItem],
+        forceSkeleton: true,
+        isFiatLoading: false,
+      }),
+    ).toBe(true);
+  });
+
+  it('forces skeletons while fiat loading and all items are still placeholders', () => {
+    expect(
+      shouldForceAssetListSkeleton({
+        items: [placeholderItem],
+        isFiatLoading: true,
+      }),
+    ).toBe(true);
+  });
+
+  it('does not force skeletons once at least one row is resolved', () => {
+    expect(
+      shouldForceAssetListSkeleton({
+        items: [
+          placeholderItem,
+          {
+            ...placeholderItem,
+            key: 'eth',
+            showPnlPlaceholder: false,
+            hasRate: true,
+            hasPnl: true,
+          },
+        ],
+        isFiatLoading: true,
+      }),
+    ).toBe(false);
   });
 });

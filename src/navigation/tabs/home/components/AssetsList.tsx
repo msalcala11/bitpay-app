@@ -11,6 +11,7 @@ import {useAssetIconResolver} from '../hooks/useAssetIconResolver';
 import {
   getAssetRowFiatLoading,
   getAssetRowPopulateLoading,
+  shouldForceAssetListSkeleton,
 } from './assetRowLoading';
 
 const List = styled.View`
@@ -22,6 +23,7 @@ interface Props {
   isFiatLoading?: boolean;
   populateInProgress?: boolean;
   isPopulateLoadingByKey?: Record<string, boolean>;
+  forceSkeleton?: boolean;
 }
 
 const AssetsList: React.FC<Props> = ({
@@ -29,8 +31,16 @@ const AssetsList: React.FC<Props> = ({
   isFiatLoading,
   populateInProgress,
   isPopulateLoadingByKey,
+  forceSkeleton,
 }) => {
   const {getAssetIconData} = useAssetIconResolver();
+  const shouldForceSkeletonMode = useMemo(() => {
+    return shouldForceAssetListSkeleton({
+      items,
+      forceSkeleton,
+      isFiatLoading,
+    });
+  }, [forceSkeleton, isFiatLoading, items]);
   const itemSignature = useMemo(() => {
     return items
       .map(
@@ -65,6 +75,7 @@ const AssetsList: React.FC<Props> = ({
     itemCount: items.length,
     itemSignature,
     rowLoadingSignature,
+    forceSkeleton: shouldForceSkeletonMode,
     isFiatLoading: !!isFiatLoading,
     populateInProgress: !!populateInProgress,
   });
@@ -94,6 +105,7 @@ const AssetsList: React.FC<Props> = ({
             isLast={index === items.length - 1}
             isFiatLoading={isRowFiatLoading}
             isPopulateLoading={isRowPopulateLoading}
+            forceSkeleton={shouldForceSkeletonMode}
             img={img}
             imgSrc={imgSrc}
           />
