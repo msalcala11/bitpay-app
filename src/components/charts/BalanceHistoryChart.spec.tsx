@@ -27,8 +27,8 @@ let mockHistoricalRatesReady = true;
 let mockOneWeekCachedSeriesStatus: 'fresh' | 'pending_historical' | 'stale' =
   'stale';
 const mockEmptyHistoricalRateDeps: any[] = [];
-const mockEmptyHistoricalRateRequests: any[] = [];
-const mockEmptyHistoricalRateCacheKeys: any[] = [];
+let mockHistoricalRateRequests: any[] = [];
+let mockHistoricalRateCacheKeys: any[] = [];
 const mockReadyHistoricalRateCache = {
   ready: {
     points: [],
@@ -219,14 +219,14 @@ jest.mock('../../utils/portfolio/balanceChartData', () => ({
   areBalanceChartHistoricalRatesReady: jest.fn(() => mockHistoricalRatesReady),
   buildBalanceChartHistoricalRateDeps: jest.fn(() => mockEmptyHistoricalRateDeps),
   buildBalanceChartHistoricalRateRequests: jest.fn(
-    () => mockEmptyHistoricalRateRequests,
+    () => mockHistoricalRateRequests,
   ),
   buildCachedTimeframeFromRuntimeChart: jest.fn(() => undefined),
   buildHydratedSeriesFromRuntimeChart: jest.fn((args: {chart: {__series: any}}) => {
     return args.chart.__series;
   }),
   getBalanceChartHistoricalRateCacheKeys: jest.fn(
-    () => mockEmptyHistoricalRateCacheKeys,
+    () => mockHistoricalRateCacheKeys,
   ),
   getBalanceChartHistoricalRateCacheRevision: jest.fn(() => 'hist-rev'),
   resolveCachedBalanceChartSeries: jest.fn(
@@ -297,6 +297,8 @@ describe('BalanceHistoryChart', () => {
     latestTimeframeSelectorProps = undefined;
     mockHistoricalRatesReady = true;
     mockOneWeekCachedSeriesStatus = 'stale';
+    mockHistoricalRateRequests = [];
+    mockHistoricalRateCacheKeys = [];
     mockUseAppDispatch.mockReset();
     mockUseAppDispatch.mockReturnValue(jest.fn());
     mockUsePortfolioHistoricalRateDepsCache.mockReset();
@@ -442,10 +444,17 @@ describe('BalanceHistoryChart', () => {
     );
   });
 
-  it('renders a pending historical cached timeframe immediately without showing the delayed loader', async () => {
+  it('keeps the previous series visible and shows the delayed loader while a pending historical timeframe hydrates', async () => {
     jest.useFakeTimers();
     mockHistoricalRatesReady = false;
     mockOneWeekCachedSeriesStatus = 'pending_historical';
+    mockHistoricalRateRequests = [
+      {
+        quoteCurrency: 'USD',
+        requests: [{coin: 'btc', intervals: ['1W']}],
+      },
+    ];
+    mockHistoricalRateCacheKeys = ['USD:BTC:1W'];
     mockUsePortfolioBalanceChartScope.mockReturnValue({
       asOfMs: 1234,
       cachedScope: {
@@ -472,8 +481,9 @@ describe('BalanceHistoryChart', () => {
       ],
     });
 
+    let renderer!: TestRenderer.ReactTestRenderer;
     await act(async () => {
-      TestRenderer.create(
+      renderer = TestRenderer.create(
         <BalanceHistoryChart
           wallets={[
             {
@@ -497,11 +507,42 @@ describe('BalanceHistoryChart', () => {
     expect(mockRunPortfolioChartQuery).not.toHaveBeenCalled();
     expect(latestInteractiveLineChartProps.isLoading).toBe(false);
     expect(latestInteractiveLineChartProps.points).toBe(
-      mockOneWeekSeries.graphPoints,
+      mockOneDaySeries.graphPoints,
     );
 
     await act(async () => {
-      jest.advanceTimersByTime(120);
+      jest.advanceTimersByTime(119);
+    });
+
+    expect(latestInteractiveLineChartProps.isLoading).toBe(false);
+    expect(latestInteractiveLineChartProps.points).toBe(
+      mockOneDaySeries.graphPoints,
+    );
+
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
+
+    expect(latestInteractiveLineChartProps.isLoading).toBe(true);
+    expect(latestInteractiveLineChartProps.points).toBe(
+      mockOneDaySeries.graphPoints,
+    );
+
+    mockHistoricalRatesReady = true;
+    mockOneWeekCachedSeriesStatus = 'fresh';
+
+    await act(async () => {
+      renderer.update(
+        <BalanceHistoryChart
+          wallets={[
+            {
+              id: 'wallet-1',
+            } as any,
+          ]}
+          quoteCurrency="USD"
+          showLoaderWhenNoSnapshots
+        />,
+      );
     });
 
     expect(latestInteractiveLineChartProps.isLoading).toBe(false);
