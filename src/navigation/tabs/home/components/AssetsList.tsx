@@ -4,15 +4,6 @@ import {ScreenGutter} from '../../../../components/styled/Containers';
 import AssetRow from './AssetRow';
 import {AssetRowItem} from '../../../../utils/portfolio/assets';
 import {useAssetIconResolver} from '../hooks/useAssetIconResolver';
-import {useAppSelector} from '../../../../utils/hooks';
-import useRuntimeFiatRateSeriesCache from '../../../../portfolio/ui/hooks/useRuntimeFiatRateSeriesCache';
-import {HISTORIC_RATES_CACHE_DURATION} from '../../../../constants/wallet';
-import {FIAT_RATE_SERIES_CACHED_INTERVALS} from '../../../../store/rate/rate.models';
-import {getQuoteCurrency} from '../../../../utils/portfolio/assets';
-import {
-  getHistoricalRateAssetRequestFromItem,
-  type HistoricalRateAssetRequest,
-} from '../hooks/portfolioAssetHistoryRequests';
 import {
   getAssetRowFiatLoading,
   getAssetRowPopulateLoading,
@@ -36,38 +27,6 @@ const AssetsList: React.FC<Props> = ({
   isPopulateLoadingByKey,
 }) => {
   const {getAssetIconData} = useAssetIconResolver();
-  const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
-  const portfolioQuoteCurrency = useAppSelector(
-    ({PORTFOLIO}) => PORTFOLIO.quoteCurrency,
-  );
-  const quoteCurrency = getQuoteCurrency({
-    portfolioQuoteCurrency,
-    defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
-  }).toUpperCase();
-  const historicalRateRequests = React.useMemo(() => {
-    return items
-      .map(item =>
-        getHistoricalRateAssetRequestFromItem(
-          item,
-          defaultAltCurrency?.isoCode || 'USD',
-        ),
-      )
-      .filter(
-        (request): request is HistoricalRateAssetRequest => request != null,
-      )
-      .map(request => ({
-        coin: request.coin,
-        chain: request.chain,
-        tokenAddress: request.tokenAddress,
-        intervals: [...FIAT_RATE_SERIES_CACHED_INTERVALS],
-      }));
-  }, [defaultAltCurrency?.isoCode, items]);
-  const {cache: fiatRateSeriesCache} = useRuntimeFiatRateSeriesCache({
-    quoteCurrency,
-    requests: historicalRateRequests,
-    maxAgeMs: HISTORIC_RATES_CACHE_DURATION * 1000,
-    enabled: items.length > 0,
-  });
 
   return (
     <List>
@@ -96,7 +55,6 @@ const AssetsList: React.FC<Props> = ({
             isPopulateLoading={isRowPopulateLoading}
             img={img}
             imgSrc={imgSrc}
-            fiatRateSeriesCache={fiatRateSeriesCache}
           />
         );
       })}

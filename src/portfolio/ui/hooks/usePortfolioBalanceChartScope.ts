@@ -18,7 +18,7 @@ import {
   getCurrentRatesByAssetIdSignature,
   getStoredWalletRequestSignature,
   mapWalletsToStoredWallets,
-  resolveCommittedPortfolioQuoteCurrency,
+  resolveActivePortfolioDisplayQuoteCurrency,
   resolveCurrentRatesAsOfMs,
 } from '../common';
 
@@ -48,9 +48,6 @@ export function usePortfolioBalanceChartScope(args: {
   const defaultAltCurrencyIsoCode = useAppSelector(
     ({APP}) => APP.defaultAltCurrency?.isoCode,
   );
-  const committedPortfolioQuoteCurrency = useAppSelector(
-    ({PORTFOLIO}) => PORTFOLIO.quoteCurrency,
-  );
   const committedPortfolioLastPopulatedAt = useAppSelector(
     ({PORTFOLIO}) => PORTFOLIO.lastPopulatedAt,
   );
@@ -64,31 +61,17 @@ export function usePortfolioBalanceChartScope(args: {
       : 0;
 
   const quoteCurrency = useMemo(() => {
-    return resolveCommittedPortfolioQuoteCurrency({
-      portfolioQuoteCurrency:
-        committedPortfolioQuoteCurrency || args.quoteCurrency,
+    return resolveActivePortfolioDisplayQuoteCurrency({
+      quoteCurrency: args.quoteCurrency,
       defaultAltCurrencyIsoCode,
     });
-  }, [
-    args.quoteCurrency,
-    committedPortfolioQuoteCurrency,
-    defaultAltCurrencyIsoCode,
-  ]);
+  }, [args.quoteCurrency, defaultAltCurrencyIsoCode]);
 
   const committedDataRevisionSig = useMemo(() => {
     return buildCommittedPortfolioRevisionToken({
-      quoteCurrency:
-        committedPortfolioQuoteCurrency ||
-        args.quoteCurrency ||
-        defaultAltCurrencyIsoCode,
       lastPopulatedAt: committedPortfolioLastPopulatedAt,
     });
-  }, [
-    args.quoteCurrency,
-    committedPortfolioLastPopulatedAt,
-    committedPortfolioQuoteCurrency,
-    defaultAltCurrencyIsoCode,
-  ]);
+  }, [committedPortfolioLastPopulatedAt]);
 
   const {storedWallets, eligibleWallets} = useMemo(() => {
     return mapWalletsToStoredWallets({

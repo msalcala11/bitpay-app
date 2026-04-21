@@ -5,10 +5,6 @@ import {NavigationProp, useNavigation} from '@react-navigation/native';
 import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 import styled, {useTheme} from 'styled-components/native';
 import type {RootStackParamList} from '../../../../Root';
-import {
-  FIAT_RATE_SERIES_CACHED_INTERVALS,
-  type FiatRateSeriesCache,
-} from '../../../../store/rate/rate.models';
 import {TouchableOpacity} from '../../../../components/base/TouchableOpacity';
 import {CurrencyImage} from '../../../../components/currency-image/CurrencyImage';
 import {ActiveOpacity} from '../../../../components/styled/Containers';
@@ -36,10 +32,6 @@ import {
   canNavigateToExchangeRateForAssetRowItem,
 } from '../../../../utils/portfolio/assets';
 import {createSupportedCurrencyOptionLookup} from '../../../../utils/portfolio/supportedCurrencyOptionsLookup';
-import {
-  getHistoricalRateAssetRequestFromItem,
-  hasHistoricalRateSeriesForAsset,
-} from '../hooks/portfolioAssetHistoryRequests';
 import {redactDebugIdentifiers} from '../../../../portfolio/ui/debug/buildAssetPnlDebugPayload';
 
 const supportedCurrencyOptionLookup = createSupportedCurrencyOptionLookup(
@@ -135,7 +127,6 @@ interface Props {
   isPopulateLoading?: boolean;
   img?: SupportedCurrencyOption['img'];
   imgSrc?: ImageRequireSource;
-  fiatRateSeriesCache?: FiatRateSeriesCache;
 }
 
 const AssetRow: React.FC<Props> = ({
@@ -145,12 +136,10 @@ const AssetRow: React.FC<Props> = ({
   isPopulateLoading,
   img,
   imgSrc,
-  fiatRateSeriesCache,
 }) => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const theme = useTheme();
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
-  const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
   const option = useMemo(() => {
     return supportedCurrencyOptionLookup.getOption({
       currencyAbbreviation: item.currencyAbbreviation,
@@ -158,41 +147,12 @@ const AssetRow: React.FC<Props> = ({
       tokenAddress: item.tokenAddress,
     });
   }, [item.chain, item.currencyAbbreviation, item.tokenAddress]);
-  const historicalRateRequest = useMemo(() => {
-    return getHistoricalRateAssetRequestFromItem(
-      {
-        currencyAbbreviation: item.currencyAbbreviation,
-        chain: item.chain,
-        tokenAddress: item.tokenAddress,
-      },
-      defaultAltCurrency?.isoCode || 'USD',
-    );
-  }, [
-    defaultAltCurrency?.isoCode,
-    item.chain,
-    item.currencyAbbreviation,
-    item.tokenAddress,
-  ]);
   const hasRate = !!item.hasRate;
   const hasPnl = !!item.hasPnl;
   const showPnlPlaceholder = !!item.showPnlPlaceholder;
   const showScopedPnlLoading = !!item.showScopedPnlLoading;
   const shouldShowRightSide =
     hasRate || showPnlPlaceholder || showScopedPnlLoading;
-  const hasHistoricalV4Rates = useMemo(() => {
-    if (!historicalRateRequest) {
-      return false;
-    }
-
-    return hasHistoricalRateSeriesForAsset({
-      cache: fiatRateSeriesCache,
-      fiatCode: defaultAltCurrency?.isoCode || 'USD',
-      intervals: FIAT_RATE_SERIES_CACHED_INTERVALS,
-      coin: historicalRateRequest.coin,
-      chain: historicalRateRequest.chain,
-      tokenAddress: historicalRateRequest.tokenAddress,
-    });
-  }, [defaultAltCurrency?.isoCode, fiatRateSeriesCache, historicalRateRequest]);
   const canNavigate = useMemo(() => {
     return canNavigateToExchangeRateForAssetRowItem({
       item,
@@ -237,28 +197,18 @@ const AssetRow: React.FC<Props> = ({
         shouldShowDeltaFiat,
         shouldShowDeltaFiatSkeleton,
         fiatAmountDisplay,
-        hasHistoricalV4Rates,
         canNavigate,
         isFiatLoading: !!isFiatLoading,
         isPopulateLoading: !!isPopulateLoading,
       },
-      historicalRateRequest: historicalRateRequest
-        ? {
-            coin: historicalRateRequest.coin,
-            chain: historicalRateRequest.chain,
-            tokenAddress: historicalRateRequest.tokenAddress || null,
-          }
-        : null,
       copiedFrom: 'home.assetRow.longPress',
       copiedAtUtc: new Date().toISOString(),
     });
   }, [
     canNavigate,
     fiatAmountDisplay,
-    hasHistoricalV4Rates,
     hasPnl,
     hasRate,
-    historicalRateRequest,
     isFiatLoading,
     isPopulateLoading,
     item.chain,

@@ -1,5 +1,5 @@
 import React from 'react';
-import {render, waitFor} from '../../../../test/render';
+import TestRenderer, {act} from 'react-test-renderer';
 import {
   clearPortfolioAnalysisCommittedCacheForTests,
   usePortfolioAnalysis,
@@ -11,12 +11,18 @@ jest.mock('../../../utils/hooks', () => ({
   useAppSelector: jest.fn(),
 }));
 
+jest.mock('../common', () => ({
+  runPortfolioAnalysisQuery: jest.fn(),
+}));
+
 jest.mock('./usePortfolioRuntimeQuery', () => ({
   usePortfolioRuntimeQuery: jest.fn(),
 }));
 
 const mockUsePortfolioRuntimeQuery = usePortfolioRuntimeQuery as jest.Mock;
 const mockUseAppSelector = useAppSelector as jest.Mock;
+
+;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 let latestResult: ReturnType<typeof usePortfolioAnalysis> | undefined;
 
@@ -80,11 +86,12 @@ describe('usePortfolioAnalysis', () => {
       requestKey: 'req-1',
     });
 
-    const first = render(<HookHarness />);
-
-    await waitFor(() => {
-      expect(latestResult?.committedData).toBe(completedAnalysis);
+    let view: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      view = TestRenderer.create(<HookHarness />);
     });
+
+    expect(latestResult?.committedData).toBe(completedAnalysis);
 
     expect(mockUsePortfolioRuntimeQuery).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -93,7 +100,9 @@ describe('usePortfolioAnalysis', () => {
       }),
     );
 
-    first.unmount();
+    await act(async () => {
+      view!.unmount();
+    });
 
     mockState = {
       PORTFOLIO: {
@@ -114,7 +123,9 @@ describe('usePortfolioAnalysis', () => {
       requestKey: 'req-1',
     });
 
-    render(<HookHarness />);
+    await act(async () => {
+      TestRenderer.create(<HookHarness />);
+    });
 
     expect(latestResult?.currentData).toBe(inProgressAnalysis);
     expect(latestResult?.committedData).toBe(completedAnalysis);
@@ -150,13 +161,16 @@ describe('usePortfolioAnalysis', () => {
       requestKey: 'req-1',
     });
 
-    const first = render(<HookHarness />);
-
-    await waitFor(() => {
-      expect(latestResult?.committedData).toBe(completedAnalysis);
+    let view: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      view = TestRenderer.create(<HookHarness />);
     });
 
-    first.unmount();
+    expect(latestResult?.committedData).toBe(completedAnalysis);
+
+    await act(async () => {
+      view!.unmount();
+    });
 
     mockState = {
       PORTFOLIO: {
@@ -177,12 +191,64 @@ describe('usePortfolioAnalysis', () => {
       requestKey: 'req-1',
     });
 
-    render(<HookHarness />);
-
-    await waitFor(() => {
-      expect(latestResult?.committedData).toBeUndefined();
-      expect(latestResult?.data).toBeUndefined();
+    await act(async () => {
+      TestRenderer.create(<HookHarness />);
     });
+
+    expect(latestResult?.committedData).toBeUndefined();
+    expect(latestResult?.data).toBeUndefined();
     expect(latestResult?.currentData).toBe(inProgressAnalysis);
+  });
+
+  it('does not surface the previous quote analysis after the request key changes', async () => {
+    const usdAnalysis = {
+      points: [{ts: 1}],
+      assetSummaries: [{assetId: 'btc'}],
+    } as any;
+
+    mockState = {
+      PORTFOLIO: {
+        lastPopulatedAt: 1,
+        populateStatus: {
+          inProgress: false,
+        },
+      },
+    };
+    mockUseAppSelector.mockImplementation(selector => selector(mockState));
+    mockUsePortfolioRuntimeQuery.mockReturnValue({
+      data: usdAnalysis,
+      loading: false,
+      error: undefined,
+      quoteCurrency: 'USD',
+      storedWallets: [],
+      eligibleWallets: [],
+      requestKey: 'req-usd',
+    });
+
+    let view: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      view = TestRenderer.create(<HookHarness />);
+    });
+
+    expect(latestResult?.data).toBe(usdAnalysis);
+    expect(latestResult?.committedData).toBe(usdAnalysis);
+
+    mockUsePortfolioRuntimeQuery.mockReturnValue({
+      data: undefined,
+      loading: true,
+      error: undefined,
+      quoteCurrency: 'EUR',
+      storedWallets: [],
+      eligibleWallets: [],
+      requestKey: 'req-eur',
+    });
+
+    await act(async () => {
+      view!.update(<HookHarness />);
+    });
+
+    expect(latestResult?.currentData).toBeUndefined();
+    expect(latestResult?.committedData).toBeUndefined();
+    expect(latestResult?.data).toBeUndefined();
   });
 });

@@ -333,6 +333,7 @@ const KeyOverview = () => {
   const [showKeyOptions, setShowKeyOptions] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedBalance, setSelectedBalance] = useState<number | undefined>();
+  const [displayedBalance, setDisplayedBalance] = useState<number | undefined>();
   const {keys}: {keys: {[key: string]: Key}} = useAppSelector(
     ({WALLET}) => WALLET,
   );
@@ -354,6 +355,7 @@ const KeyOverview = () => {
 
   useEffect(() => {
     setSelectedBalance(undefined);
+    setDisplayedBalance(undefined);
   }, [id]);
   const hasMultipleKeys =
     Object.values(keys).filter(k => k.backupComplete).length > 1;
@@ -1002,8 +1004,9 @@ const KeyOverview = () => {
             {!hideAllBalances ? (
               <Balance scale={shouldScale(totalBalance)}>
                 {formatFiatAmount(
-                  selectedBalance ?? totalBalance,
-                  typeof selectedBalance === 'number'
+                  selectedBalance ?? displayedBalance ?? totalBalance,
+                  typeof selectedBalance === 'number' ||
+                    typeof displayedBalance === 'number'
                     ? quoteCurrency
                     : defaultAltCurrency.isoCode,
                   {
@@ -1023,6 +1026,9 @@ const KeyOverview = () => {
               rates={rates}
               timeframeSelectorWidth={timeframeSelectorWidth}
               onSelectedBalanceChange={setSelectedBalance}
+              onDisplayedAnalysisPointChange={point =>
+                setDisplayedBalance(point?.totalFiatBalance)
+              }
             />
           ) : null}
         </BalanceContainer>
@@ -1053,6 +1059,7 @@ const KeyOverview = () => {
   }, [
     defaultAltCurrency.isoCode,
     dispatch,
+    displayedBalance,
     hideAllBalances,
     memoizedAccountList,
     quoteCurrency,

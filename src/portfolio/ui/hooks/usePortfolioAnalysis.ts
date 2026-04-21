@@ -60,23 +60,54 @@ export function usePortfolioAnalysis(args: {
       refreshToken: args.clearDataToken ?? args.refreshToken,
     });
   }, [args.clearDataToken, args.refreshToken, query.requestKey]);
-
-  const [committedData, setCommittedData] = useState<
-    PnlAnalysisResult | undefined
-  >(() =>
-    hasCommittedPortfolioBaseline
+  const [committedDataState, setCommittedDataState] = useState<{
+    cacheKey: string;
+    value?: PnlAnalysisResult;
+  }>(() => ({
+    cacheKey: committedDataCacheKey,
+    value: hasCommittedPortfolioBaseline
       ? getCommittedAnalysisCacheValue(committedDataCacheKey)
       : undefined,
-  );
+  }));
 
   useEffect(() => {
     if (!hasCommittedPortfolioBaseline) {
-      setCommittedData(undefined);
+      setCommittedDataState(prev =>
+        prev.cacheKey === '' && prev.value === undefined
+          ? prev
+          : {
+              cacheKey: '',
+              value: undefined,
+            },
+      );
       return;
     }
 
-    setCommittedData(getCommittedAnalysisCacheValue(committedDataCacheKey));
+    const cachedValue = getCommittedAnalysisCacheValue(committedDataCacheKey);
+    setCommittedDataState(prev =>
+      prev.cacheKey === committedDataCacheKey && prev.value === cachedValue
+        ? prev
+        : {
+            cacheKey: committedDataCacheKey,
+            value: cachedValue,
+          },
+    );
   }, [committedDataCacheKey, hasCommittedPortfolioBaseline]);
+
+  const committedData = useMemo(() => {
+    if (!hasCommittedPortfolioBaseline) {
+      return undefined;
+    }
+
+    return committedDataState.cacheKey === committedDataCacheKey
+      ? committedDataState.value
+      : getCommittedAnalysisCacheValue(committedDataCacheKey);
+  }, [
+    committedDataCacheKey,
+    committedDataState.cacheKey,
+    committedDataState.value,
+    hasCommittedPortfolioBaseline,
+  ]);
 
   useEffect(() => {
     if (!query.data) {
@@ -88,11 +119,17 @@ export function usePortfolioAnalysis(args: {
     }
 
     committedAnalysisCache.set(committedDataCacheKey, query.data);
-    setCommittedData(query.data);
+    setCommittedDataState(prev =>
+      prev.cacheKey === committedDataCacheKey && prev.value === query.data
+        ? prev
+        : {
+            cacheKey: committedDataCacheKey,
+            value: query.data,
+          },
+    );
   }, [
     args.freezeWhilePopulate,
     committedDataCacheKey,
-    hasCommittedPortfolioBaseline,
     populateInProgress,
     query.data,
   ]);

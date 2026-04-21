@@ -46,7 +46,6 @@ export default function usePortfolioWalletSnapshotPresence(args: {
 }): PortfolioWalletSnapshotPresenceState {
   const committedPortfolioRevisionToken = useAppSelector(({PORTFOLIO}) => {
     return buildCommittedPortfolioRevisionToken({
-      quoteCurrency: PORTFOLIO.quoteCurrency,
       lastPopulatedAt: PORTFOLIO.lastPopulatedAt,
     });
   });

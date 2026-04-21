@@ -10,9 +10,12 @@ import {
   getPortfolioWalletChainLower,
   getPortfolioWalletTokenAddress,
 } from './assets';
-import {getRateByCurrencyName} from '../helper-methods';
+import {
+  CANONICAL_FIAT_QUOTE,
+  FX_BRIDGE_COIN,
+  resolveStoredFiatRateInterval,
+} from '../../portfolio/core/fiatRatesShared';
 import type {FiatRateCacheRequest} from '../../portfolio/core/fiatRatesShared';
-import {resolveStoredFiatRateInterval} from '../../portfolio/core/fiatRatesShared';
 import type {StoredWallet} from '../../portfolio/core/types';
 import {
   getFiatRateSeriesAssetKey,
@@ -36,6 +39,7 @@ import {
   normalizeGraphPointsForChart,
   recomputeMinMaxFromGraphPoints,
 } from './chartGraph';
+import {getAssetCurrentDisplayQuoteRate} from './displayCurrency';
 import type {
   PnlAnalysisChartResult,
   PnlAnalysisPoint,
@@ -76,9 +80,55 @@ const getHistoricalRateAssetFromStoredWallet = (
 
 export function buildBalanceChartHistoricalRateRequests(args: {
   wallets: StoredWallet[];
+  quoteCurrency: string;
   timeframes: FiatRateInterval[];
-}): FiatRateCacheRequest[] {
-  const requestsByAssetKey = new Map<string, FiatRateCacheRequest>();
+}): Array<{
+  quoteCurrency: string;
+  requests: FiatRateCacheRequest[];
+}> {
+  const requestMapsByQuoteCurrency = new Map<
+    string,
+    Map<string, FiatRateCacheRequest>
+  >();
+
+  const upsertRequest = (quoteCurrency: string, request: FiatRateCacheRequest) => {
+    const normalizedQuoteCurrency = String(quoteCurrency || '')
+      .trim()
+      .toUpperCase();
+    if (!normalizedQuoteCurrency) {
+      return;
+    }
+
+    const requestsByAssetKey =
+      requestMapsByQuoteCurrency.get(normalizedQuoteCurrency) ??
+      new Map<string, FiatRateCacheRequest>();
+    requestMapsByQuoteCurrency.set(normalizedQuoteCurrency, requestsByAssetKey);
+
+    const assetKey = getFiatRateSeriesAssetKey(request.coin, {
+      chain: request.chain,
+      tokenAddress: request.tokenAddress,
+    });
+    if (!assetKey) {
+      return;
+    }
+
+    const existing = requestsByAssetKey.get(assetKey);
+    if (existing) {
+      existing.intervals = Array.from(
+        new Set([...(existing.intervals || []), ...(request.intervals || [])]),
+      ).sort((a, b) => a.localeCompare(b)) as FiatRateCacheRequest['intervals'];
+      return;
+    }
+
+    requestsByAssetKey.set(assetKey, {
+      coin: request.coin,
+      ...(request.chain ? {chain: request.chain} : {}),
+      ...(request.tokenAddress ? {tokenAddress: request.tokenAddress} : {}),
+      intervals: Array.from(new Set(request.intervals || [])).sort((a, b) =>
+        a.localeCompare(b),
+      ) as FiatRateCacheRequest['intervals'],
+    });
+  };
 
   for (const wallet of args.wallets || []) {
     const asset = getHistoricalRateAssetFromStoredWallet(wallet);
@@ -86,23 +136,7 @@ export function buildBalanceChartHistoricalRateRequests(args: {
       continue;
     }
 
-    const assetKey = getFiatRateSeriesAssetKey(asset.coin, {
-      chain: asset.chain,
-      tokenAddress: asset.tokenAddress,
-    });
-    if (!assetKey) {
-      continue;
-    }
-
-    const existing = requestsByAssetKey.get(assetKey);
-    if (existing) {
-      existing.intervals = Array.from(
-        new Set([...(existing.intervals || []), ...(args.timeframes || [])]),
-      ).sort((a, b) => a.localeCompare(b)) as FiatRateCacheRequest['intervals'];
-      continue;
-    }
-
-    requestsByAssetKey.set(assetKey, {
+    upsertRequest(CANONICAL_FIAT_QUOTE, {
       coin: asset.coin,
       ...(asset.chain ? {chain: asset.chain} : {}),
       ...(asset.tokenAddress ? {tokenAddress: asset.tokenAddress} : {}),
@@ -112,17 +146,40 @@ export function buildBalanceChartHistoricalRateRequests(args: {
     });
   }
 
-  return Array.from(requestsByAssetKey.values()).sort((a, b) =>
-    getFiatRateSeriesAssetKey(a.coin, {
-      chain: a.chain,
-      tokenAddress: a.tokenAddress,
-    }).localeCompare(
-      getFiatRateSeriesAssetKey(b.coin, {
-        chain: b.chain,
-        tokenAddress: b.tokenAddress,
-      }),
-    ),
-  );
+  const normalizedQuoteCurrency = String(args.quoteCurrency || '')
+    .trim()
+    .toUpperCase();
+  if (
+    normalizedQuoteCurrency &&
+    normalizedQuoteCurrency !== CANONICAL_FIAT_QUOTE &&
+    requestMapsByQuoteCurrency.size > 0
+  ) {
+    const bridgeRequest: FiatRateCacheRequest = {
+      coin: FX_BRIDGE_COIN,
+      intervals: Array.from(new Set(args.timeframes || [])).sort((a, b) =>
+        a.localeCompare(b),
+      ) as FiatRateCacheRequest['intervals'],
+    };
+    upsertRequest(CANONICAL_FIAT_QUOTE, bridgeRequest);
+    upsertRequest(normalizedQuoteCurrency, bridgeRequest);
+  }
+
+  return Array.from(requestMapsByQuoteCurrency.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([requestQuoteCurrency, requestsByAssetKey]) => ({
+      quoteCurrency: requestQuoteCurrency,
+      requests: Array.from(requestsByAssetKey.values()).sort((a, b) =>
+        getFiatRateSeriesAssetKey(a.coin, {
+          chain: a.chain,
+          tokenAddress: a.tokenAddress,
+        }).localeCompare(
+          getFiatRateSeriesAssetKey(b.coin, {
+            chain: b.chain,
+            tokenAddress: b.tokenAddress,
+          }),
+        ),
+      ),
+    }));
 }
 
 export function getBalanceChartHistoricalRateCacheKeys(args: {
@@ -130,27 +187,23 @@ export function getBalanceChartHistoricalRateCacheKeys(args: {
   quoteCurrency: string;
   timeframes: FiatRateInterval[];
 }): string[] {
-  const quoteCurrency = String(args.quoteCurrency || 'USD').toUpperCase();
   const cacheKeys = new Set<string>();
 
-  for (const wallet of args.wallets || []) {
-    const asset = getHistoricalRateAssetFromStoredWallet(wallet);
-    if (!asset) {
-      continue;
-    }
-
-    for (const timeframe of args.timeframes || []) {
-      cacheKeys.add(
-        getFiatRateSeriesCacheKey(
-          quoteCurrency,
-          asset.coin,
-          resolveStoredFiatRateInterval(timeframe),
-          {
-            chain: asset.chain,
-            tokenAddress: asset.tokenAddress,
-          },
-        ),
-      );
+  for (const requestGroup of buildBalanceChartHistoricalRateRequests(args)) {
+    for (const request of requestGroup.requests) {
+      for (const timeframe of request.intervals || []) {
+        cacheKeys.add(
+          getFiatRateSeriesCacheKey(
+            requestGroup.quoteCurrency,
+            request.coin,
+            resolveStoredFiatRateInterval(timeframe),
+            {
+              chain: request.chain,
+              tokenAddress: request.tokenAddress,
+            },
+          ),
+        );
+      }
     }
   }
 
@@ -242,15 +295,13 @@ export function buildCurrentSpotRatesByRateKey(args: {
       continue;
     }
 
-    const walletRates = getRateByCurrencyName(
-      args.rates || {},
-      wallet.currencyAbbreviation,
-      wallet.chain,
-      wallet.tokenAddress,
-    );
-    const currentRate = walletRates?.find(
-      rate => String(rate.code || '').toUpperCase() === quoteCurrency,
-    )?.rate;
+    const currentRate = getAssetCurrentDisplayQuoteRate({
+      rates: args.rates,
+      currencyAbbreviation: wallet.currencyAbbreviation,
+      chain: wallet.chain,
+      tokenAddress: wallet.tokenAddress,
+      quoteCurrency,
+    });
 
     if (
       typeof currentRate === 'number' &&

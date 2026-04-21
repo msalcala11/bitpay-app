@@ -173,6 +173,7 @@ import {ExternalServicesScreens} from '../../services/ExternalServicesGroup';
 import {AllocationDonutLegendCard} from '../../tabs/home/components/AllocationSection';
 import {AllocationRowsList} from '../../tabs/home/screens/Allocation';
 import {buildAllocationDataFromWalletRows} from '../../../utils/portfolio/allocation';
+import {getQuoteCurrency} from '../../../utils/portfolio/assets';
 
 export type AccountDetailsScreenParamList = {
   selectedAccountAddress: string;
@@ -429,6 +430,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     ({PORTFOLIO}) => PORTFOLIO.quoteCurrency,
   );
   const [selectedBalance, setSelectedBalance] = useState<number | undefined>();
+  const [displayedBalance, setDisplayedBalance] = useState<number | undefined>();
   const [showKeyOptions, setShowKeyOptions] = useState(false);
 
   const [searchResultsHistory, setSearchResultsHistory] = useState(
@@ -441,6 +443,11 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   const linkedCoinbase = useAppSelector(
     ({COINBASE}) => !!COINBASE.token[COINBASE_ENV],
   );
+
+  useEffect(() => {
+    setSelectedBalance(undefined);
+    setDisplayedBalance(undefined);
+  }, [keyId, selectedAccountAddress]);
 
   const keyFullWalletObjs = useMemo(
     () =>
@@ -482,11 +489,16 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   const accountItem = memorizedAccountList.find(
     a => a.receiveAddress === selectedAccountAddress,
   )!;
+  const displayQuoteCurrency = getQuoteCurrency({
+    portfolioQuoteCurrency: committedPortfolioQuoteCurrency,
+    defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
+  });
   const totalBalance =
-    typeof selectedBalance === 'number'
+    typeof selectedBalance === 'number' ||
+    typeof displayedBalance === 'number'
       ? formatFiatAmount(
-          selectedBalance,
-          committedPortfolioQuoteCurrency || defaultAltCurrency.isoCode,
+          selectedBalance ?? displayedBalance ?? 0,
+          displayQuoteCurrency,
           {
             currencyDisplay: 'symbol',
             customPrecision: 'minimal',
@@ -1438,11 +1450,14 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
               <BalanceHistoryChart
                 wallets={keyFullWalletObjs}
                 quoteCurrency={
-                  committedPortfolioQuoteCurrency || defaultAltCurrency.isoCode
+                  displayQuoteCurrency
                 }
                 rates={rates}
                 timeframeSelectorWidth={timeframeSelectorWidth}
                 onSelectedBalanceChange={setSelectedBalance}
+                onDisplayedAnalysisPointChange={point =>
+                  setDisplayedBalance(point?.totalFiatBalance)
+                }
                 preChartContent={
                   <AccountAddressBadge address={accountItem?.receiveAddress} />
                 }

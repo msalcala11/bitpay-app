@@ -1,6 +1,9 @@
 import React from 'react';
 import TestRenderer, {act} from 'react-test-renderer';
-import {usePortfolioRuntimeQuery} from './usePortfolioRuntimeQuery';
+import {
+  type PortfolioRuntimeQueryState,
+  usePortfolioRuntimeQuery,
+} from './usePortfolioRuntimeQuery';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -45,7 +48,7 @@ jest.mock('../common', () => ({
   resolveCurrentRatesAsOfMs: jest.fn(
     ({ratesUpdatedAt}: {ratesUpdatedAt?: number}) => ratesUpdatedAt ?? 0,
   ),
-  resolveCommittedPortfolioQuoteCurrency: jest.fn(() => 'USD'),
+  resolveActivePortfolioDisplayQuoteCurrency: jest.fn(() => 'USD'),
 }));
 
 const mockUseAppDispatch = useAppDispatch as jest.Mock;
@@ -54,6 +57,7 @@ const mockUseAppSelector = useAppSelector as jest.Mock;
 const execute = jest.fn(() => new Promise<never>(() => undefined));
 let consoleErrorSpy: jest.SpyInstance;
 let mockState: any;
+let latestResult: PortfolioRuntimeQueryState<any> | undefined;
 
 const walletFactory = () =>
   ({
@@ -63,7 +67,7 @@ const walletFactory = () =>
   }) as any;
 
 const HookHarness = ({wallets}: {wallets: any[]}) => {
-  usePortfolioRuntimeQuery({
+  latestResult = usePortfolioRuntimeQuery({
     wallets,
     timeframe: '1D',
     execute,
@@ -74,6 +78,12 @@ const HookHarness = ({wallets}: {wallets: any[]}) => {
 describe('usePortfolioRuntimeQuery', () => {
   beforeEach(() => {
     execute.mockClear();
+    latestResult = undefined;
+    (
+      jest.requireMock('../common') as {
+        resolveActivePortfolioDisplayQuoteCurrency: jest.Mock;
+      }
+    ).resolveActivePortfolioDisplayQuoteCurrency.mockReturnValue('USD');
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     mockUseAppDispatch.mockReset();
     mockUseAppDispatch.mockReturnValue(jest.fn());
@@ -155,5 +165,67 @@ describe('usePortfolioRuntimeQuery', () => {
         asOfMs: 5678,
       }),
     );
+  });
+
+  it('resolves the active display quote from APP.defaultAltCurrency instead of stale PORTFOLIO.quoteCurrency', async () => {
+    const common = jest.requireMock('../common') as {
+      resolveActivePortfolioDisplayQuoteCurrency: jest.Mock;
+    };
+    common.resolveActivePortfolioDisplayQuoteCurrency.mockReturnValue('EUR');
+    mockState = {
+      ...mockState,
+      APP: {
+        defaultAltCurrency: {isoCode: 'EUR'},
+      },
+      PORTFOLIO: {
+        quoteCurrency: 'USD',
+        lastPopulatedAt: 1,
+      },
+    };
+
+    await act(async () => {
+      TestRenderer.create(<HookHarness wallets={[walletFactory()]} />);
+    });
+
+    expect(execute).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        quoteCurrency: 'EUR',
+      }),
+    );
+  });
+
+  it('clears query data immediately when the active display quote changes', async () => {
+    const common = jest.requireMock('../common') as {
+      resolveActivePortfolioDisplayQuoteCurrency: jest.Mock;
+    };
+    execute.mockImplementation(
+      ({quoteCurrency}: {quoteCurrency: string}) =>
+        quoteCurrency === 'USD'
+          ? Promise.resolve({quoteCurrency})
+          : new Promise<never>(() => undefined),
+    );
+
+    let view: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      view = TestRenderer.create(<HookHarness wallets={[walletFactory()]} />);
+    });
+
+    expect(latestResult?.data).toEqual({quoteCurrency: 'USD'});
+    expect(latestResult?.quoteCurrency).toBe('USD');
+
+    common.resolveActivePortfolioDisplayQuoteCurrency.mockReturnValue('EUR');
+    mockState = {
+      ...mockState,
+      APP: {
+        defaultAltCurrency: {isoCode: 'EUR'},
+      },
+    };
+
+    await act(async () => {
+      view!.update(<HookHarness wallets={[walletFactory()]} />);
+    });
+
+    expect(latestResult?.quoteCurrency).toBe('EUR');
+    expect(latestResult?.data).toBeUndefined();
   });
 });

@@ -341,7 +341,15 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const [selectedFiatBalance, setSelectedFiatBalance] = useState<
     number | undefined
   >();
+  const [displayedFiatBalance, setDisplayedFiatBalance] = useState<
+    number | undefined
+  >();
   const {walletId, skipInitializeHistory, copayerId} = route.params;
+
+  useEffect(() => {
+    setSelectedFiatBalance(undefined);
+    setDisplayedFiatBalance(undefined);
+  }, [copayerId, walletId]);
   const {keys} = useAppSelector(({WALLET}) => WALLET);
   const {rates} = useAppSelector(({RATE}) => RATE);
   const supportedCardMap = useAppSelector(
@@ -582,9 +590,10 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   } = uiFormattedWallet;
 
   const displayedFiatBalanceFormat =
-    typeof selectedFiatBalance === 'number'
+    typeof selectedFiatBalance === 'number' ||
+    typeof displayedFiatBalance === 'number'
       ? formatFiatAmount(
-          selectedFiatBalance,
+          selectedFiatBalance ?? displayedFiatBalance ?? 0,
           getQuoteCurrency({
             portfolioQuoteCurrency: committedPortfolioQuoteCurrency,
             defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
@@ -1314,6 +1323,9 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
                         isLoading === undefined || !!isLoading || refreshing
                       }
                       onSelectedBalanceChange={setSelectedFiatBalance}
+                      onDisplayedAnalysisPointChange={point =>
+                        setDisplayedFiatBalance(point?.totalFiatBalance)
+                      }
                       timeframeSelectorWidth={timeframeSelectorWidth}
                       changeRowStyle={{marginTop: 2}}
                       preChartContentTopMargin={12}
