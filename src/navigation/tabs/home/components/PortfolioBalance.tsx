@@ -598,4 +598,4 @@ const PortfolioBalance = () => {
   );
 };
 
-export default PortfolioBalance;
+export default React.memo(PortfolioBalance);

@@ -463,6 +463,7 @@ export function resolveCachedBalanceChartSeries(args: {
     cachedTimeframe: args.cachedTimeframe,
     dataRevisionSig: args.dataRevisionSig,
     currentSpotRatesByRateKey: args.currentSpotRatesByRateKey,
+    asOfMs: args.asOfMs,
     fiatRateSeriesCache: args.fiatRateSeriesCache,
   });
 

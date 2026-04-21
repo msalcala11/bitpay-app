@@ -201,17 +201,51 @@ const getExactExtremaFromCachedTimeframe = (
   };
 };
 
-const buildLiveTailOverlayFromSpotRates = (args: {
+const getLiveTailPatchState = (args: {
   cachedTimeframe: CachedBalanceChartTimeframe;
   currentSpotRatesByRateKey: Record<string, number>;
   patchedAt?: number;
-}): LiveTailOverlay | undefined => {
+}): {patchable: boolean; changed: boolean} => {
   const spotRateChange = getPatchableSpotRateChange({
     cachedTimeframe: args.cachedTimeframe,
     currentSpotRatesByRateKey: args.currentSpotRatesByRateKey,
   });
 
-  if (!spotRateChange.patchable || !spotRateChange.changed) {
+  if (!spotRateChange.patchable) {
+    return spotRateChange;
+  }
+
+  const lastIndex = args.cachedTimeframe.ts.length - 1;
+  const currentLastTimestamp =
+    lastIndex >= 0
+      ? toOptionalFiniteNumber(args.cachedTimeframe.ts[lastIndex])
+      : undefined;
+  const patchedAt =
+    typeof args.patchedAt === 'number' && Number.isFinite(args.patchedAt)
+      ? args.patchedAt
+      : undefined;
+  const timestampChanged =
+    typeof patchedAt === 'number' &&
+    (typeof currentLastTimestamp !== 'number' || patchedAt > currentLastTimestamp);
+
+  return {
+    patchable: true,
+    changed: spotRateChange.changed || timestampChanged,
+  };
+};
+
+const buildLiveTailOverlayFromSpotRates = (args: {
+  cachedTimeframe: CachedBalanceChartTimeframe;
+  currentSpotRatesByRateKey: Record<string, number>;
+  patchedAt?: number;
+}): LiveTailOverlay | undefined => {
+  const liveTailPatchState = getLiveTailPatchState({
+    cachedTimeframe: args.cachedTimeframe,
+    currentSpotRatesByRateKey: args.currentSpotRatesByRateKey,
+    patchedAt: args.patchedAt,
+  });
+
+  if (!liveTailPatchState.patchable || !liveTailPatchState.changed) {
     return undefined;
   }
 
@@ -553,6 +587,7 @@ export const getCachedTimeframeStatus = (args: {
   cachedTimeframe?: CachedBalanceChartTimeframe;
   dataRevisionSig: string;
   currentSpotRatesByRateKey: Record<string, number>;
+  asOfMs?: number;
   fiatRateSeriesCache: FiatRateSeriesCache | undefined;
 }): CachedTimeframeStatus => {
   const cachedTimeframe = args.cachedTimeframe;
@@ -579,12 +614,13 @@ export const getCachedTimeframeStatus = (args: {
     return 'pending_historical';
   }
 
-  const spotRateChange = getPatchableSpotRateChange({
+  const liveTailPatchState = getLiveTailPatchState({
     cachedTimeframe,
     currentSpotRatesByRateKey: args.currentSpotRatesByRateKey,
+    patchedAt: args.asOfMs,
   });
-  if (spotRateChange.changed) {
-    return spotRateChange.patchable ? 'patchable' : 'stale_historical';
+  if (liveTailPatchState.changed) {
+    return liveTailPatchState.patchable ? 'patchable' : 'stale_historical';
   }
 
   return 'fresh';

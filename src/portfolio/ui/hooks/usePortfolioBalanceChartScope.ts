@@ -120,9 +120,10 @@ export function usePortfolioBalanceChartScope(args: {
       }) ?? fallbackAsOfMsRef.current
     );
   }, [ratesUpdatedAt, resolvedRates]);
-  const chartDataRevisionSig = useMemo(() => {
-    return [committedDataRevisionSig, String(asOfMs)].join('|');
-  }, [asOfMs, committedDataRevisionSig]);
+  // Historical chart cache identity should only track committed holdings data.
+  // Keep the live rates timestamp out of this revision so cached series can be
+  // reused and live-tail patched when shared spot rates refresh after launch.
+  const chartDataRevisionSig = committedDataRevisionSig;
 
   const scopeId = useMemo(() => {
     return buildBalanceChartScopeId({
