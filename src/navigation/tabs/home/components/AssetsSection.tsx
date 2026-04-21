@@ -1,5 +1,6 @@
 import React, {useMemo, useState} from 'react';
-import styled from 'styled-components/native';
+import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
+import styled, {useTheme} from 'styled-components/native';
 import {NavigationProp, useNavigation} from '@react-navigation/native';
 import {useTranslation} from 'react-i18next';
 import type {RootStackParamList} from '../../../../Root';
@@ -7,9 +8,15 @@ import {ScreenGutter} from '../../../../components/styled/Containers';
 import Button from '../../../../components/button/Button';
 import {HomeSectionTitle} from './Styled';
 import AssetsList from './AssetsList';
-import {GainLossMode} from '../../../../utils/portfolio/assets';
+import {AssetRowItem, GainLossMode} from '../../../../utils/portfolio/assets';
 import AssetsGainLossDropdown from './AssetsGainLossDropdown';
 import {useAppSelector} from '../../../../utils/hooks';
+import {
+  CharcoalBlack,
+  GhostWhite,
+  LightBlack,
+  NeutralSlate,
+} from '../../../../styles/colors';
 import {
   useDevLayoutTrace,
   useDevRenderTrace,
@@ -33,11 +40,47 @@ const ButtonContainer = styled.View`
   margin: 0px ${ScreenGutter} 0;
 `;
 
-const AssetsSection: React.FC = () => {
+const PlaceholderButtonContainer = styled.View`
+  margin: 0px ${ScreenGutter} 0;
+`;
+
+const PlaceholderButtonShell = styled.View`
+  height: 50px;
+  border-radius: 999px;
+`;
+
+const SKELETON_ASSET_ITEMS: AssetRowItem[] = Array.from(
+  {length: 4},
+  (_value, index) => ({
+    key: `asset-skeleton-${index}`,
+    currencyAbbreviation: 'btc',
+    chain: 'btc',
+    name: 'Loading',
+    cryptoAmount: '',
+    fiatAmount: '',
+    deltaFiat: '',
+    deltaPercent: '',
+    isPositive: true,
+    hasRate: true,
+    hasPnl: true,
+  }),
+);
+
+type AssetsSectionProps = {
+  enabled?: boolean;
+};
+
+const AssetsSection: React.FC<AssetsSectionProps> = ({enabled = true}) => {
   const {t} = useTranslation();
+  const theme = useTheme();
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
+  const hasAnyWallets = useAppSelector(({WALLET}) =>
+    Object.values(WALLET?.keys || {}).some((key: any) =>
+      Array.isArray(key?.wallets) && key.wallets.length > 0,
+    ),
+  );
   const focusRefreshToken = useScreenFocusRefreshToken();
   const {
     visibleItems,
@@ -46,6 +89,7 @@ const AssetsSection: React.FC = () => {
     hasAnyPortfolioData,
   } = usePortfolioAssetRows({
     gainLossMode,
+    enabled,
     externalRefreshToken: focusRefreshToken,
   });
 
@@ -69,6 +113,7 @@ const AssetsSection: React.FC = () => {
   const assetsSectionOnLayout = useDevLayoutTrace('HomeAssetsSectionLayout');
 
   useDevRenderTrace('AssetsSection', {
+    enabled,
     gainLossMode,
     focusRefreshToken:
       focusRefreshToken == null ? '' : String(focusRefreshToken),
@@ -83,6 +128,35 @@ const AssetsSection: React.FC = () => {
     populateLoadingSignature,
     hasAnyPortfolioData,
   });
+
+  const shouldShowActivationPlaceholder =
+    !enabled &&
+    !items.length &&
+    (hasAnyWallets || !!portfolio.populateStatus?.inProgress);
+
+  if (shouldShowActivationPlaceholder) {
+    return (
+      <Container onLayout={assetsSectionOnLayout}>
+        <Header>
+          <HomeSectionTitle>{t('Assets')}</HomeSectionTitle>
+          <AssetsGainLossDropdown
+            value={gainLossMode}
+            onChange={setGainLossMode}
+          />
+        </Header>
+
+        <AssetsList items={SKELETON_ASSET_ITEMS} forceSkeleton />
+
+        <PlaceholderButtonContainer>
+          <SkeletonPlaceholder
+            backgroundColor={theme.dark ? CharcoalBlack : NeutralSlate}
+            highlightColor={theme.dark ? LightBlack : GhostWhite}>
+            <PlaceholderButtonShell />
+          </SkeletonPlaceholder>
+        </PlaceholderButtonContainer>
+      </Container>
+    );
+  }
 
   if (!portfolio.populateStatus?.inProgress && !hasAnyPortfolioData) {
     return null;

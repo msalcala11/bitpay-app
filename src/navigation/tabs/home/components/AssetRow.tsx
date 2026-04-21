@@ -127,6 +127,7 @@ interface Props {
   isLast: boolean;
   isFiatLoading?: boolean;
   isPopulateLoading?: boolean;
+  forceSkeleton?: boolean;
   img?: SupportedCurrencyOption['img'];
   imgSrc?: ImageRequireSource;
 }
@@ -136,6 +137,7 @@ const AssetRow: React.FC<Props> = ({
   isLast,
   isFiatLoading,
   isPopulateLoading,
+  forceSkeleton,
   img,
   imgSrc,
 }) => {
@@ -143,6 +145,7 @@ const AssetRow: React.FC<Props> = ({
   const theme = useTheme();
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
   const rowLoading = !!(isFiatLoading || isPopulateLoading);
+  const shouldForceSkeleton = !!forceSkeleton;
   const lastSettledItemRef = useRef<AssetRowItem | undefined>(undefined);
   const [loadingDelayElapsed, setLoadingDelayElapsed] = useState(false);
 
@@ -295,6 +298,61 @@ const AssetRow: React.FC<Props> = ({
     console.log('[AssetRow][debugCopy]', debugCopyText);
     Clipboard.setString(debugCopyText);
   }, [debugCopyPayload]);
+
+  if (shouldForceSkeleton) {
+    return (
+      <Row activeOpacity={1} isLast={isLast}>
+        <IconContainer>
+          <SkeletonPlaceholder
+            backgroundColor={theme.dark ? CharcoalBlack : NeutralSlate}
+            highlightColor={theme.dark ? LightBlack : GhostWhite}>
+            <SkeletonPlaceholder.Item width={40} height={40} borderRadius={20} />
+          </SkeletonPlaceholder>
+        </IconContainer>
+
+        <AssetInfo>
+          <SkeletonPlaceholder
+            backgroundColor={theme.dark ? CharcoalBlack : NeutralSlate}
+            highlightColor={theme.dark ? LightBlack : GhostWhite}>
+            <SkeletonPlaceholder.Item width={120} height={13} borderRadius={2} />
+            <SkeletonPlaceholder.Item
+              width={88}
+              height={12}
+              borderRadius={2}
+              marginTop={8}
+            />
+          </SkeletonPlaceholder>
+        </AssetInfo>
+
+        <Values>
+          <SkeletonPlaceholder
+            backgroundColor={theme.dark ? CharcoalBlack : NeutralSlate}
+            highlightColor={theme.dark ? LightBlack : GhostWhite}>
+            <SkeletonPlaceholder.Item
+              width={72}
+              height={12}
+              borderRadius={2}
+              marginBottom={6}
+              marginTop={3}
+            />
+            <SkeletonPlaceholder.Item width={54} height={12} borderRadius={2} />
+          </SkeletonPlaceholder>
+        </Values>
+
+        <PercentPill>
+          <SkeletonPlaceholder
+            backgroundColor={theme.dark ? CharcoalBlack : NeutralSlate}
+            highlightColor={theme.dark ? LightBlack : GhostWhite}>
+            <SkeletonPlaceholder.Item width={48} height={12} borderRadius={2} />
+          </SkeletonPlaceholder>
+        </PercentPill>
+
+        <ChevronContainer visible={false}>
+          <ChevronRightSvg width={9} height={15} gray />
+        </ChevronContainer>
+      </Row>
+    );
+  }
 
   return (
     <Row

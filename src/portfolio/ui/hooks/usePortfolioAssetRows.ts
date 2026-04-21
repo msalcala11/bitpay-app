@@ -28,6 +28,7 @@ type Args = {
   gainLossMode: GainLossMode;
   keyId?: string;
   externalRefreshToken?: string | number;
+  enabled?: boolean;
 };
 
 type Result = {
@@ -108,7 +109,9 @@ export function usePortfolioAssetRows({
   gainLossMode,
   keyId,
   externalRefreshToken,
+  enabled,
 }: Args): Result {
+  const analysisEnabled = enabled !== false;
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
   const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
@@ -194,6 +197,7 @@ export function usePortfolioAssetRows({
     wallets,
     timeframe: gainLossMode,
     maxPoints: 2,
+    enabled: analysisEnabled,
     refreshToken: analysisRefreshToken,
     clearDataToken: analysisClearDataToken,
     freezeWhilePopulate: true,
@@ -203,7 +207,7 @@ export function usePortfolioAssetRows({
     typeof portfolio.lastPopulatedAt === 'number' &&
     Number.isFinite(portfolio.lastPopulatedAt);
   const assetGroupAnalysisSpecs = useMemo<AssetGroupAnalysisSpec[]>(() => {
-    if (!analysis.storedWallets.length) {
+    if (!analysisEnabled || !analysis.storedWallets.length) {
       return [];
     }
 
@@ -281,6 +285,7 @@ export function usePortfolioAssetRows({
 
     return nextSpecs.sort((left, right) => left.key.localeCompare(right.key));
   }, [
+    analysisEnabled,
     analysis.currentRatesByAssetId,
     analysis.asOfMs,
     analysis.eligibleWallets,
@@ -816,6 +821,10 @@ export function usePortfolioAssetRows({
     !analysis.currentData;
 
   const items = useMemo(() => {
+    if (!analysisEnabled) {
+      return [];
+    }
+
     const builtItems = buildAssetRowsFromAnalysis({
       storedWallets: analysis.storedWallets,
       analysis: analysis.data,
@@ -901,6 +910,13 @@ export function usePortfolioAssetRows({
         !!groupSpec &&
         !!groupState &&
         groupState.requestKey !== groupSpec.requestKey;
+      const isAwaitingScopedGroupBootstrap =
+        !!groupSpec &&
+        !groupAnalysisForDisplay &&
+        !matchingGroupState?.error &&
+        (!matchingGroupState ||
+          (!matchingGroupState.currentData &&
+            !matchingGroupState.committedData));
       const groupAnalysisDisplaySource = groupAnalysisForDisplay
         ? matchingGroupState?.currentData === groupAnalysisForDisplay
           ? 'asset_group_current'
@@ -911,6 +927,7 @@ export function usePortfolioAssetRows({
       const showScopedPnlLoading =
         (gainLossMode === 'ALL' ||
           hasStaleScopedGroupState ||
+          isAwaitingScopedGroupBootstrap ||
           !!matchingGroupState?.loading) &&
         !!groupSpec &&
         !groupAnalysisForDisplay &&
@@ -1042,6 +1059,7 @@ export function usePortfolioAssetRows({
       };
     });
   }, [
+    analysisEnabled,
     assetGroupAnalysisForDisplayByKey,
     assetGroupAnalysisSpecByKey,
     assetGroupAnalysisSpecs,
@@ -1324,6 +1342,7 @@ export function usePortfolioAssetRows({
   }, [assetGroupAnalysisStateByKey]);
 
   useDevRenderTrace('usePortfolioAssetRows', {
+    analysisEnabled,
     gainLossMode,
     keyId: keyId || '',
     walletCount: wallets.length,
