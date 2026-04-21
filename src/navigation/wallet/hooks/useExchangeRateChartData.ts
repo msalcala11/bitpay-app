@@ -270,6 +270,7 @@ type Args = {
 type Result = {
   pointsForChartRaw: FiatRatePoint[] | undefined;
   displayData: ChartDataType | undefined;
+  displayedRangeMs: number | undefined;
 };
 
 type PrepareExchangeRateChartPointsArgs = Args & {
@@ -368,6 +369,28 @@ export const prepareExchangeRateChartPoints = ({
   ];
 };
 
+export const getDisplayedExchangeRateRangeMs = (
+  points: FiatRatePoint[] | undefined,
+): number | undefined => {
+  if (!points?.length) {
+    return undefined;
+  }
+
+  const firstTimestamp = points[0]?.ts;
+  const lastTimestamp = points[points.length - 1]?.ts;
+
+  if (
+    typeof firstTimestamp !== 'number' ||
+    !Number.isFinite(firstTimestamp) ||
+    typeof lastTimestamp !== 'number' ||
+    !Number.isFinite(lastTimestamp)
+  ) {
+    return undefined;
+  }
+
+  return Math.max(0, lastTimestamp - firstTimestamp);
+};
+
 const useExchangeRateChartData = ({
   selectedSeriesPoints,
   selectedTimeframe,
@@ -400,9 +423,14 @@ const useExchangeRateChartData = ({
     });
   }, [pointsForChartRaw]);
 
+  const displayedRangeMs = useMemo(() => {
+    return getDisplayedExchangeRateRangeMs(pointsForChartRaw);
+  }, [pointsForChartRaw]);
+
   return {
     pointsForChartRaw,
     displayData,
+    displayedRangeMs,
   };
 };
 

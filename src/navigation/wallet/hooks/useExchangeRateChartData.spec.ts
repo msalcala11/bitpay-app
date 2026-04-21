@@ -1,5 +1,6 @@
 import {
   formatExchangeRateChartData,
+  getDisplayedExchangeRateRangeMs,
   prepareExchangeRateChartPoints,
 } from './useExchangeRateChartData';
 
@@ -96,6 +97,25 @@ describe('prepareExchangeRateChartPoints', () => {
       {ts: startMs, rate: 100},
       {ts: asOfMs, rate: 102},
     ]);
+  });
+
+  it('computes displayed range metadata from the prepared points including an appended live terminal point', () => {
+    const startMs = Date.UTC(2026, 3, 19, 15, 0, 0);
+    const historicalEndMs = Date.UTC(2026, 3, 20, 14, 0, 0);
+    const asOfMs = Date.UTC(2026, 3, 20, 15, 0, 0);
+
+    const prepared = prepareExchangeRateChartPoints({
+      selectedSeriesPoints: [
+        {ts: startMs, rate: 100},
+        {ts: historicalEndMs, rate: 101},
+      ],
+      selectedTimeframe: '1D',
+      seriesDataInterval: '1D',
+      currentFiatRate: 102,
+      nowMs: asOfMs,
+    });
+
+    expect(getDisplayedExchangeRateRangeMs(prepared)).toBe(asOfMs - startMs);
   });
 });
 
