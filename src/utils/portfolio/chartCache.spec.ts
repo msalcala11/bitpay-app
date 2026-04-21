@@ -50,10 +50,47 @@ describe('chartCache', () => {
         currentSpotRatesByRateKey: {
           eth: 100,
         },
-        asOfMs: 10,
+        asOfMs: 3,
         fiatRateSeriesCache: undefined,
       }),
     ).toBe('patchable');
+  });
+
+  it('forces a refresh when the live-tail timestamp drifts too far beyond the cached chart cadence', () => {
+    expect(
+      getCachedTimeframeStatus({
+        cachedTimeframe: makeCachedTimeframe(),
+        dataRevisionSig: 'rev-1',
+        currentSpotRatesByRateKey: {
+          eth: 100,
+        },
+        asOfMs: 10,
+        fiatRateSeriesCache: undefined,
+      }),
+    ).toBe('stale_historical');
+  });
+
+  it('measures the allowable live-tail drift from the historical cadence instead of an already-stretched terminal gap', () => {
+    const cachedTimeframe = {
+      ...makeCachedTimeframe(),
+      ts: [1, 2, 10],
+      totalFiatBalance: [100, 100, 100],
+      totalPnlChange: [0, 0, 0],
+      totalUnrealizedPnlFiat: [0, 0, 0],
+      totalPnlPercent: [0, 0, 0],
+    };
+
+    expect(
+      getCachedTimeframeStatus({
+        cachedTimeframe,
+        dataRevisionSig: 'rev-1',
+        currentSpotRatesByRateKey: {
+          eth: 100,
+        },
+        asOfMs: 13,
+        fiatRateSeriesCache: undefined,
+      }),
+    ).toBe('stale_historical');
   });
 
   it('forces a refresh when live spot rates changed but cached charts cannot be patched', () => {
@@ -123,7 +160,7 @@ describe('chartCache', () => {
         currentSpotRatesByRateKey: {
           eth: 120,
         },
-        patchedAt: 10,
+        patchedAt: 3,
       }).totalPnlChange,
     ).toEqual([0, 20]);
   });
@@ -135,9 +172,9 @@ describe('chartCache', () => {
         currentSpotRatesByRateKey: {
           eth: 120,
         },
-        patchedAt: 10,
+        patchedAt: 3,
       }).ts,
-    ).toEqual([1, 10]);
+    ).toEqual([1, 3]);
   });
 
   it('patches the effective final timestamp when only asOfMs advances', () => {
@@ -147,9 +184,21 @@ describe('chartCache', () => {
         currentSpotRatesByRateKey: {
           eth: 100,
         },
+        patchedAt: 3,
+      }).ts,
+    ).toEqual([1, 3]);
+  });
+
+  it('does not stretch the cached terminal point forward when the live-tail gap is too large', () => {
+    expect(
+      patchCachedLatestPointWithSpotRates({
+        cachedTimeframe: makeCachedTimeframe(),
+        currentSpotRatesByRateKey: {
+          eth: 120,
+        },
         patchedAt: 10,
       }).ts,
-    ).toEqual([1, 10]);
+    ).toEqual([1, 2]);
   });
 
   it('hydrates a live tail overlay without mutating the raw cached timeframe', () => {
@@ -159,14 +208,14 @@ describe('chartCache', () => {
       currentSpotRatesByRateKey: {
         eth: 120,
       },
-      patchedAt: 10,
+      patchedAt: 3,
     });
 
     expect(cachedTimeframe.ts).toEqual([1, 2]);
     expect(cachedTimeframe.totalFiatBalance).toEqual([100, 100]);
     expect(hydrated.analysisPoints[1]).toEqual(
       expect.objectContaining({
-        timestamp: 10,
+        timestamp: 3,
         totalFiatBalance: 120,
         totalPnlChange: 20,
         totalUnrealizedPnlFiat: 20,
