@@ -422,6 +422,7 @@ const BalanceHistoryChart = ({
         setDisplayState({
           series,
           timeframe: chartQueryArgs.timeframe,
+          queryRevisionKey,
         });
         setLoading(false);
 
@@ -501,13 +502,26 @@ const BalanceHistoryChart = ({
     onSelectionActiveChangeRef.current?.(!!selectedPoint);
   }, [selectedPoint]);
 
-  const displayedTimeframe = displayState?.timeframe ?? selectedTimeframe;
-  const activeSeries =
+  const activeDisplayState =
     displayState?.timeframe === selectedTimeframe &&
     displayState?.queryRevisionKey === queryRevisionKey
-      ? displayState.series
+      ? displayState
       : undefined;
-  const renderedSeries = activeSeries || cachedSelectedSeries;
+  const staleTimeframeDisplayState =
+    !activeDisplayState &&
+    !cachedSelectedSeries &&
+    displayState?.timeframe !== selectedTimeframe
+      ? displayState
+      : undefined;
+  const renderedSeries =
+    activeDisplayState?.series ||
+    cachedSelectedSeries ||
+    staleTimeframeDisplayState?.series;
+  const displayedTimeframe =
+    activeDisplayState?.timeframe ??
+    (cachedSelectedSeries ? selectedTimeframe : undefined) ??
+    staleTimeframeDisplayState?.timeframe ??
+    selectedTimeframe;
 
   useEffect(() => {
     const pendingTimestamp = pendingSelectedTimestampRef.current;
@@ -649,8 +663,10 @@ const BalanceHistoryChart = ({
     return !!walletId && !!wallet;
   });
   const shouldShowLoader =
-    !hasRenderableSeries &&
-    (loading || (showLoaderWhenNoSnapshots && hasAnyWallets));
+    loading ||
+    (!hasRenderableSeries &&
+      showLoaderWhenNoSnapshots &&
+      hasAnyWallets);
 
   useEffect(() => {
     const firstAnalysisPoint = renderedSeries?.analysisPoints?.[0];
