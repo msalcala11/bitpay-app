@@ -38,7 +38,7 @@ import {
   getVisibleKeysFromKeys,
   getVisibleWalletsFromKeys,
 } from '../../../../utils/portfolio/assets';
-import {resolveCommittedPortfolioQuoteCurrency} from '../../../../portfolio/ui/common';
+import {resolveActivePortfolioDisplayQuoteCurrency} from '../../../../portfolio/ui/common';
 import {setHomeChartCollapsed} from '../../../../store/portfolio-charts';
 import type {FiatRateInterval} from '../../../../store/rate/rate.models';
 import type {Wallet} from '../../../../store/wallet/wallet.models';
@@ -103,9 +103,6 @@ const PortfolioBalance = () => {
   const keys = useSelector(({WALLET}: RootState) => WALLET.keys);
   const {rates} = useSelector(({RATE}: RootState) => RATE);
 
-  const committedPortfolioQuoteCurrency = useAppSelector(
-    ({PORTFOLIO}) => PORTFOLIO.quoteCurrency,
-  );
   const committedPortfolioLastPopulatedAt = useAppSelector(
     ({PORTFOLIO}) => PORTFOLIO.lastPopulatedAt,
   );
@@ -121,6 +118,9 @@ const PortfolioBalance = () => {
   } = useAppSelector(({PORTFOLIO_CHARTS}) => PORTFOLIO_CHARTS);
 
   const [selectedChartBalance, setSelectedChartBalance] = useState<
+    number | undefined
+  >();
+  const [displayedChartBalance, setDisplayedChartBalance] = useState<
     number | undefined
   >();
   const [chartChangeRowData, setChartChangeRowData] = useState<{
@@ -346,8 +346,7 @@ const PortfolioBalance = () => {
     [],
   );
 
-  const quoteCurrency = resolveCommittedPortfolioQuoteCurrency({
-    portfolioQuoteCurrency: committedPortfolioQuoteCurrency,
+  const quoteCurrency = resolveActivePortfolioDisplayQuoteCurrency({
     defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
   });
   const collapseChartAccessibilityLabel = t('Collapse portfolio chart');
@@ -371,9 +370,10 @@ const PortfolioBalance = () => {
   const displayedPortfolioBalance =
     typeof selectedChartBalance === 'number'
       ? selectedChartBalance
-      : totalBalanceIncludingCoinbase;
+      : displayedChartBalance ?? totalBalanceIncludingCoinbase;
   const displayedPortfolioBalanceCurrency =
-    typeof selectedChartBalance === 'number'
+    typeof selectedChartBalance === 'number' ||
+    typeof displayedChartBalance === 'number'
       ? quoteCurrency
       : defaultAltCurrency.isoCode;
   const formattedPortfolioBalance = useMemo(() => {
@@ -546,6 +546,9 @@ const PortfolioBalance = () => {
                   // (Option B per product requirements) because we do not have historized
                   // Coinbase balance snapshots.
                   onSelectedBalanceChange={setSelectedChartBalance}
+                  onDisplayedAnalysisPointChange={point =>
+                    setDisplayedChartBalance(point?.totalFiatBalance)
+                  }
                 />
                 {isChartCollapsed ? (
                   <TouchableOpacity
@@ -585,6 +588,9 @@ const PortfolioBalance = () => {
             // (Option B per product requirements) because we do not have historized
             // Coinbase balance snapshots.
             onSelectedBalanceChange={setSelectedChartBalance}
+            onDisplayedAnalysisPointChange={point =>
+              setDisplayedChartBalance(point?.totalFiatBalance)
+            }
           />
         )
       ) : null}

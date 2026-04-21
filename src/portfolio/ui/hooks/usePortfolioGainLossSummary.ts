@@ -13,14 +13,14 @@ import {
   areBalanceChartHistoricalRatesReady,
   buildBalanceChartHistoricalRateDeps,
   buildBalanceChartHistoricalRateRequests,
-  buildCachedTimeframeFromRuntimeChart,
   getBalanceChartHistoricalRateCacheKeys,
   getBalanceChartHistoricalRateCacheRevision,
   resolveCachedBalanceChartSeries,
+  buildCachedTimeframeFromRuntimeChart,
 } from '../../../utils/portfolio/balanceChartData';
 import {runPortfolioChartQuery} from '../common';
 import {usePortfolioBalanceChartScope} from './usePortfolioBalanceChartScope';
-import useRuntimeFiatRateSeriesCache from './useRuntimeFiatRateSeriesCache';
+import usePortfolioHistoricalRateDepsCache from './usePortfolioHistoricalRateDepsCache';
 
 const SUMMARY_TIMEFRAMES: FiatRateInterval[] = ['1D', 'ALL'];
 
@@ -85,19 +85,23 @@ export function usePortfolioGainLossSummary(args: {
   const historicalRateRequests = useMemo(() => {
     return buildBalanceChartHistoricalRateRequests({
       wallets: storedWallets,
+      quoteCurrency,
       timeframes: SUMMARY_TIMEFRAMES,
     });
-  }, [storedWallets]);
+  }, [quoteCurrency, storedWallets]);
 
   const {
     cache: fiatRateSeriesCache,
     error: fiatRateSeriesCacheError,
     loading: fiatRateSeriesCacheLoading,
-  } = useRuntimeFiatRateSeriesCache({
+  } = usePortfolioHistoricalRateDepsCache({
+    wallets: storedWallets,
     quoteCurrency,
-    requests: historicalRateRequests,
+    timeframes: SUMMARY_TIMEFRAMES,
     maxAgeMs: HISTORIC_RATES_CACHE_DURATION * 1000,
-    enabled: !!quoteCurrency && historicalRateRequests.length > 0,
+    enabled:
+      !!quoteCurrency &&
+      historicalRateRequests.some(group => group.requests.length > 0),
   });
 
   const historicalRateDepKeys = useMemo(() => {

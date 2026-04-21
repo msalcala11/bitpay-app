@@ -38,7 +38,7 @@ import {
 import {useStableBalanceHistoryChartAxisLabels} from './useStableBalanceHistoryChartAxisLabels';
 import {runPortfolioChartQuery} from '../../portfolio/ui/common';
 import {usePortfolioBalanceChartScope} from '../../portfolio/ui/hooks/usePortfolioBalanceChartScope';
-import useRuntimeFiatRateSeriesCache from '../../portfolio/ui/hooks/useRuntimeFiatRateSeriesCache';
+import usePortfolioHistoricalRateDepsCache from '../../portfolio/ui/hooks/usePortfolioHistoricalRateDepsCache';
 import {formatUnknownError} from '../../utils/errors/formatUnknownError';
 import haptic from '../haptic-feedback/haptic';
 import {
@@ -78,7 +78,7 @@ export type BalanceHistoryChartProps = {
     percent: number;
     deltaFiatFormatted?: string;
     rangeLabel?: string;
-  }) => void;
+  } | undefined) => void;
   onDisplayedAnalysisPointChange?: (point?: {
     timestamp?: number;
     totalFiatBalance?: number;
@@ -127,6 +127,7 @@ export type BalanceHistoryChartDiagnostics = {
 type DisplayState = {
   series: HydratedBalanceChartSeries;
   timeframe: FiatRateInterval;
+  queryRevisionKey: string;
 };
 
 const BalanceHistoryChart = ({
@@ -191,6 +192,9 @@ const BalanceHistoryChart = ({
   const activeRequestIdRef = useRef(0);
   const gestureStartedRef = useRef(false);
   const lastHapticPointTsRef = useRef<number | undefined>(undefined);
+  const pendingSelectedTimestampRef = useRef<number | undefined>(undefined);
+  const shouldPreserveSelectionOnQueryRef = useRef(true);
+  const selectedPointRef = useRef<GraphPoint | undefined>(undefined);
   const onSelectedBalanceChangeRef = useRef(onSelectedBalanceChange);
   const onSelectionActiveChangeRef = useRef(onSelectionActiveChange);
 
@@ -201,6 +205,10 @@ const BalanceHistoryChart = ({
   useEffect(() => {
     onSelectionActiveChangeRef.current = onSelectionActiveChange;
   }, [onSelectionActiveChange]);
+
+  useEffect(() => {
+    selectedPointRef.current = selectedPoint;
+  }, [selectedPoint]);
 
   useEffect(() => {
     setSelectedTimeframe(initialSelectedTimeframe);
@@ -216,20 +224,23 @@ const BalanceHistoryChart = ({
   const historicalRateRequests = useMemo(() => {
     return buildBalanceChartHistoricalRateRequests({
       wallets: storedWallets,
+      quoteCurrency: committedQueryQuoteCurrency,
       timeframes: [selectedTimeframe],
     });
-  }, [selectedTimeframe, storedWallets]);
+  }, [committedQueryQuoteCurrency, selectedTimeframe, storedWallets]);
 
   const {
     cache: fiatRateSeriesCache,
     error: fiatRateSeriesCacheError,
     loading: fiatRateSeriesCacheLoading,
-  } = useRuntimeFiatRateSeriesCache({
+  } = usePortfolioHistoricalRateDepsCache({
+    wallets: storedWallets,
     quoteCurrency: committedQueryQuoteCurrency,
-    requests: historicalRateRequests,
+    timeframes: [selectedTimeframe],
     maxAgeMs: HISTORIC_RATES_CACHE_DURATION * 1000,
     enabled:
-      !!committedQueryQuoteCurrency && historicalRateRequests.length > 0,
+      !!committedQueryQuoteCurrency &&
+      historicalRateRequests.some(group => group.requests.length > 0),
   });
 
   const historicalRateDepKeys = useMemo(() => {
@@ -292,33 +303,6 @@ const BalanceHistoryChart = ({
   const cachedSelectedTimeframeStatus = cachedSelectedSeriesResult.status;
   const cachedSelectedSeries = cachedSelectedSeriesResult.series;
 
-  useEffect(() => {
-    if (!cachedSelectedSeries) {
-      return;
-    }
-
-    setDisplayState(prev => {
-      if (
-        prev?.timeframe === selectedTimeframe &&
-        prev?.series === cachedSelectedSeries
-      ) {
-        return prev;
-      }
-
-      return {
-        series: cachedSelectedSeries,
-        timeframe: selectedTimeframe,
-      };
-    });
-    setLoading(false);
-    setError(undefined);
-    dispatch(
-      touchBalanceChartScope({
-        scopeId,
-      }),
-    );
-  }, [cachedSelectedSeries, dispatch, scopeId, selectedTimeframe]);
-
   const queryRevisionKey = useMemo(() => {
     return [
       scopeId,
@@ -338,6 +322,35 @@ const BalanceHistoryChart = ({
     selectedTimeframe,
     storedWalletRequestSig,
   ]);
+
+  useEffect(() => {
+    if (!cachedSelectedSeries) {
+      return;
+    }
+
+    setDisplayState(prev => {
+      if (
+        prev?.timeframe === selectedTimeframe &&
+        prev?.series === cachedSelectedSeries &&
+        prev?.queryRevisionKey === queryRevisionKey
+      ) {
+        return prev;
+      }
+
+      return {
+        series: cachedSelectedSeries,
+        timeframe: selectedTimeframe,
+        queryRevisionKey,
+      };
+    });
+    setLoading(false);
+    setError(undefined);
+    dispatch(
+      touchBalanceChartScope({
+        scopeId,
+      }),
+    );
+  }, [cachedSelectedSeries, dispatch, queryRevisionKey, scopeId, selectedTimeframe]);
   const chartQueryArgsRef = useRef({
     wallets: storedWallets,
     quoteCurrency: committedQueryQuoteCurrency,
@@ -463,19 +476,70 @@ const BalanceHistoryChart = ({
   ]);
 
   useEffect(() => {
+    shouldPreserveSelectionOnQueryRef.current = false;
+    gestureStartedRef.current = false;
+    lastHapticPointTsRef.current = undefined;
+    pendingSelectedTimestampRef.current = undefined;
+    setSelectedPoint(undefined);
+    onSelectedBalanceChangeRef.current?.(undefined);
+  }, [selectedTimeframe]);
+
+  useEffect(() => {
+    const activeSelectedPoint = selectedPointRef.current;
+    if (shouldPreserveSelectionOnQueryRef.current && activeSelectedPoint) {
+      pendingSelectedTimestampRef.current = activeSelectedPoint.date.getTime();
+    }
+
+    shouldPreserveSelectionOnQueryRef.current = true;
     gestureStartedRef.current = false;
     lastHapticPointTsRef.current = undefined;
     setSelectedPoint(undefined);
     onSelectedBalanceChangeRef.current?.(undefined);
-  }, [queryRevisionKey, selectedTimeframe]);
+  }, [queryRevisionKey]);
 
   useEffect(() => {
     onSelectionActiveChangeRef.current?.(!!selectedPoint);
   }, [selectedPoint]);
 
   const displayedTimeframe = displayState?.timeframe ?? selectedTimeframe;
-  const activeSeries = displayState?.series;
+  const activeSeries =
+    displayState?.timeframe === selectedTimeframe &&
+    displayState?.queryRevisionKey === queryRevisionKey
+      ? displayState.series
+      : undefined;
   const renderedSeries = activeSeries || cachedSelectedSeries;
+
+  useEffect(() => {
+    const pendingTimestamp = pendingSelectedTimestampRef.current;
+    if (typeof pendingTimestamp !== 'number' || !Number.isFinite(pendingTimestamp)) {
+      return;
+    }
+    if (!renderedSeries?.graphPoints?.length) {
+      return;
+    }
+    if (!renderedSeries.pointByTimestamp.has(pendingTimestamp)) {
+      pendingSelectedTimestampRef.current = undefined;
+      return;
+    }
+
+    const matchingPoint = renderedSeries.graphPoints.find(
+      point => point.date.getTime() === pendingTimestamp,
+    );
+    if (!matchingPoint) {
+      pendingSelectedTimestampRef.current = undefined;
+      return;
+    }
+
+    pendingSelectedTimestampRef.current = undefined;
+    setSelectedPoint(matchingPoint);
+    onSelectedBalanceChangeRef.current?.(
+      getSelectedBalanceHistoryValue({
+        point: matchingPoint,
+        activeSeries: renderedSeries,
+        balanceOffset,
+      }),
+    );
+  }, [balanceOffset, queryRevisionKey, renderedSeries]);
   const rangeLabel = useMemo(
     () => getRangeLabelForFiatTimeframe(t, displayedTimeframe),
     [displayedTimeframe, t],
@@ -523,15 +587,15 @@ const BalanceHistoryChart = ({
   ]);
 
   useEffect(() => {
-    if (!displayedChangeRowData) {
-      return;
-    }
-
-    onChangeRowData?.({
-      percent: displayedChangeRowData.percent,
-      deltaFiatFormatted: displayedChangeRowData.deltaFiatFormatted,
-      rangeLabel: displayedChangeRowData.rangeLabel,
-    });
+    onChangeRowData?.(
+      displayedChangeRowData
+        ? {
+            percent: displayedChangeRowData.percent,
+            deltaFiatFormatted: displayedChangeRowData.deltaFiatFormatted,
+            rangeLabel: displayedChangeRowData.rangeLabel,
+          }
+        : undefined,
+    );
   }, [displayedChangeRowData, onChangeRowData]);
 
   useEffect(() => {

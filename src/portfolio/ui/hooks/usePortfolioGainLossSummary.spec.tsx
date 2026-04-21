@@ -10,7 +10,7 @@ import {
   deserializeCachedTimeframeToComputedSeries,
 } from '../../../utils/portfolio/chartCache';
 import {usePortfolioBalanceChartScope} from './usePortfolioBalanceChartScope';
-import useRuntimeFiatRateSeriesCache from './useRuntimeFiatRateSeriesCache';
+import usePortfolioHistoricalRateDepsCache from './usePortfolioHistoricalRateDepsCache';
 
 jest.mock('@react-navigation/native', () => {
   return {
@@ -41,7 +41,7 @@ jest.mock('./usePortfolioBalanceChartScope', () => ({
   usePortfolioBalanceChartScope: jest.fn(),
 }));
 
-jest.mock('./useRuntimeFiatRateSeriesCache', () => jest.fn());
+jest.mock('./usePortfolioHistoricalRateDepsCache', () => jest.fn());
 
 jest.mock('../../../utils/portfolio/chartCache', () => {
   const actual = jest.requireActual('../../../utils/portfolio/chartCache');
@@ -63,8 +63,8 @@ const mockDeserializeCachedTimeframeToComputedSeries =
   deserializeCachedTimeframeToComputedSeries as jest.Mock;
 const mockUsePortfolioBalanceChartScope =
   usePortfolioBalanceChartScope as jest.Mock;
-const mockUseRuntimeFiatRateSeriesCache =
-  useRuntimeFiatRateSeriesCache as jest.Mock;
+const mockUsePortfolioHistoricalRateDepsCache =
+  usePortfolioHistoricalRateDepsCache as jest.Mock;
 
 let latestResult: ReturnType<typeof usePortfolioGainLossSummary> | undefined;
 
@@ -130,12 +130,11 @@ describe('usePortfolioGainLossSummary', () => {
         },
       ],
     });
-    mockUseRuntimeFiatRateSeriesCache.mockReset();
-    mockUseRuntimeFiatRateSeriesCache.mockReturnValue({
+    mockUsePortfolioHistoricalRateDepsCache.mockReset();
+    mockUsePortfolioHistoricalRateDepsCache.mockReturnValue({
       cache: {},
       loading: false,
       error: undefined,
-      reload: jest.fn(),
     });
     mockGetCachedBalanceChartTimeframe.mockReset();
     mockGetCachedBalanceChartTimeframe.mockImplementation(

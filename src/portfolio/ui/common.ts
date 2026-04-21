@@ -3,7 +3,6 @@ import {GetPrecision} from '../../store/wallet/utils/currency';
 import type {Wallet} from '../../store/wallet/wallet.models';
 import type {AppDispatch} from '../../utils/hooks';
 import type {Rates} from '../../store/rate/rate.models';
-import {getRateByCurrencyName} from '../../utils/helper-methods';
 import {
   isPortfolioRuntimeEligibleWallet,
   toPortfolioStoredWallet,
@@ -18,6 +17,11 @@ import {
 import type {BwsConfig} from '../core/shared/bws';
 import type {StoredWallet} from '../core/types';
 import {getPortfolioRuntimeClient} from '../runtime/portfolioRuntime';
+import {
+  buildCommittedPortfolioHoldingsRevisionToken,
+  getAssetCurrentDisplayQuoteRate,
+  resolveActivePortfolioDisplayQuoteCurrency,
+} from '../../utils/portfolio/displayCurrency';
 
 export function createPortfolioQueryBwsConfig(): BwsConfig {
   return {
@@ -47,21 +51,16 @@ export function buildCommittedPortfolioRevisionToken(args: {
   quoteCurrency?: string;
   lastPopulatedAt?: number;
 }): string {
-  const quoteCurrency = resolveCommittedPortfolioQuoteCurrency({
-    portfolioQuoteCurrency: args.quoteCurrency,
+  return buildCommittedPortfolioHoldingsRevisionToken({
+    lastPopulatedAt: args.lastPopulatedAt,
   });
-
-  return [
-    quoteCurrency,
-    typeof args.lastPopulatedAt === 'number'
-      ? String(args.lastPopulatedAt)
-      : 'uncommitted',
-  ].join('|');
 }
 
 // Backwards-compatible alias retained during the migration of portfolio UI
 // hooks to committed-only revision tokens.
 export const resolvePortfolioQuoteCurrency = resolveCommittedPortfolioQuoteCurrency;
+export {buildCommittedPortfolioHoldingsRevisionToken};
+export {resolveActivePortfolioDisplayQuoteCurrency};
 
 function getWalletUnitDecimals(dispatch: AppDispatch, wallet: Wallet): number {
   const precision =
@@ -121,8 +120,9 @@ export function buildCurrentRatesByAssetId(args: {
   quoteCurrency: string;
   rates?: Rates;
 }): Record<string, number> {
-  const quoteCurrency = String(args.quoteCurrency || 'USD').toUpperCase();
-  const rates = args.rates || {};
+  const quoteCurrency = resolveActivePortfolioDisplayQuoteCurrency({
+    quoteCurrency: args.quoteCurrency,
+  });
   const currentRatesByAssetId: Record<string, number> = {};
 
   for (const wallet of args.storedWallets || []) {
@@ -131,15 +131,13 @@ export function buildCurrentRatesByAssetId(args: {
       continue;
     }
 
-    const walletRates = getRateByCurrencyName(
-      rates,
-      wallet.summary.currencyAbbreviation,
-      wallet.summary.chain,
-      wallet.summary.tokenAddress,
-    );
-    const currentRate = walletRates?.find(
-      rate => String(rate.code || '').toUpperCase() === quoteCurrency,
-    )?.rate;
+    const currentRate = getAssetCurrentDisplayQuoteRate({
+      rates: args.rates,
+      currencyAbbreviation: wallet.summary.currencyAbbreviation,
+      chain: wallet.summary.chain,
+      tokenAddress: wallet.summary.tokenAddress,
+      quoteCurrency,
+    });
 
     if (
       typeof currentRate === 'number' &&

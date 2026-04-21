@@ -7,6 +7,12 @@ import {usePortfolioRuntimeQuery} from './usePortfolioRuntimeQuery';
 
 export type UsePortfolioChartResult = ReturnType<typeof usePortfolioChart>;
 
+const committedChartCache = new Map<string, PnlAnalysisChartResult>();
+
+export function clearPortfolioChartCommittedCacheForTests(): void {
+  committedChartCache.clear();
+}
+
 export function usePortfolioChart(args: {
   wallets: Wallet[];
   timeframe: PnlTimeframe;
@@ -25,13 +31,32 @@ export function usePortfolioChart(args: {
     enabled: args.enabled,
     execute: runPortfolioChartQuery,
   });
+  const [committedDataState, setCommittedDataState] = useState<{
+    requestKey: string;
+    value?: PnlAnalysisChartResult;
+  }>(() => ({
+    requestKey: query.requestKey,
+    value: committedChartCache.get(query.requestKey),
+  }));
 
-  const [committedData, setCommittedData] = useState<
-    PnlAnalysisChartResult | undefined
-  >(undefined);
+  const committedData = useMemo(
+    () =>
+      committedDataState.requestKey === query.requestKey
+        ? committedDataState.value
+        : committedChartCache.get(query.requestKey),
+    [committedDataState.requestKey, committedDataState.value, query.requestKey],
+  );
 
   useEffect(() => {
-    setCommittedData(undefined);
+    const cachedValue = committedChartCache.get(query.requestKey);
+    setCommittedDataState(prev =>
+      prev.requestKey === query.requestKey && prev.value === cachedValue
+        ? prev
+        : {
+            requestKey: query.requestKey,
+            value: cachedValue,
+          },
+    );
   }, [query.requestKey]);
 
   useEffect(() => {
@@ -43,8 +68,16 @@ export function usePortfolioChart(args: {
       return;
     }
 
-    setCommittedData(query.data);
-  }, [args.freezeWhilePopulate, populateInProgress, query.data]);
+    committedChartCache.set(query.requestKey, query.data);
+    setCommittedDataState(prev =>
+      prev.requestKey === query.requestKey && prev.value === query.data
+        ? prev
+        : {
+            requestKey: query.requestKey,
+            value: query.data,
+          },
+    );
+  }, [args.freezeWhilePopulate, populateInProgress, query.data, query.requestKey]);
 
   const data = useMemo(() => {
     if (!(args.freezeWhilePopulate && populateInProgress)) {

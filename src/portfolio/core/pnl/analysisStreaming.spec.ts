@@ -677,6 +677,96 @@ describe('analysisStreaming preload helpers', () => {
     expect(result.totalSummary.pnlPercent).toBe(25);
   });
 
+  it('computes quote-native pnl percent instead of keeping the USD percent invariant', () => {
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-02T00:00:00Z');
+
+    const usdResult = buildPnlAnalysisSeriesFromPreloaded({
+      cfg: {quoteCurrency: 'USD'},
+      timeframe: '1D',
+      nowMs: t1,
+      maxPoints: 2,
+      startTs: t0,
+      endTs: t1,
+      ratePointsByAssetId: {
+        'eth:eth': [
+          {ts: t0, rate: 100},
+          {ts: t1, rate: 150},
+        ],
+      },
+      wallets: [
+        {
+          wallet: mkWallet({walletId: 'w1'}),
+          basePoint: mkPoint(t0, '1000000000000000000'),
+          points: [],
+        },
+      ],
+    });
+    const eurResult = buildPnlAnalysisSeriesFromPreloaded({
+      cfg: {quoteCurrency: 'EUR'},
+      timeframe: '1D',
+      nowMs: t1,
+      maxPoints: 2,
+      startTs: t0,
+      endTs: t1,
+      ratePointsByAssetId: {
+        'eth:eth': [
+          {ts: t0, rate: 90},
+          {ts: t1, rate: 120},
+        ],
+      },
+      wallets: [
+        {
+          wallet: mkWallet({walletId: 'w1'}),
+          basePoint: mkPoint(t0, '1000000000000000000'),
+          points: [],
+        },
+      ],
+    });
+
+    expect(usdResult.assetSummaries[0]?.pnlPercent).toBe(50);
+    expect(eurResult.assetSummaries[0]?.pnlPercent).toBeCloseTo(
+      (30 / 90) * 100,
+      8,
+    );
+    expect(eurResult.assetSummaries[0]?.ratePercentChange).toBeCloseTo(
+      (30 / 90) * 100,
+      8,
+    );
+  });
+
+  it('uses acquisition/start timestamps for target-quote basis instead of the final FX point', () => {
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-02T00:00:00Z');
+
+    const result = buildPnlAnalysisSeriesFromPreloaded({
+      cfg: {quoteCurrency: 'EUR'},
+      timeframe: '1D',
+      nowMs: t1,
+      maxPoints: 2,
+      startTs: t0,
+      endTs: t1,
+      ratePointsByAssetId: {
+        'eth:eth': [
+          {ts: t0, rate: 90},
+          {ts: t1, rate: 120},
+        ],
+      },
+      wallets: [
+        {
+          wallet: mkWallet({walletId: 'w1'}),
+          basePoint: mkPoint(t0, '1000000000000000000'),
+          points: [],
+        },
+      ],
+    });
+
+    const summary = result.assetSummaries[0];
+    expect(summary?.remainingCostBasisFiatEnd).toBe(90);
+    expect(summary?.fiatBalanceEnd).toBe(120);
+    expect(summary?.pnlEnd).toBe(30);
+  });
+
   it('keeps same-symbol assets separate by asset id during analysis', () => {
     const t0 = Date.parse('2024-01-01T00:00:00Z');
     const t1 = Date.parse('2024-01-01T01:00:00Z');

@@ -8,8 +8,8 @@ import {
   getLastFiniteNumber,
   getStoredWalletRequestSignature,
   mapWalletsToStoredWallets,
+  resolveActivePortfolioDisplayQuoteCurrency,
   resolveCurrentRatesAsOfMs,
-  resolveCommittedPortfolioQuoteCurrency,
   runPortfolioChartQuery,
 } from '../common';
 import {buildKeyPercentageDifferenceMap} from '../selectors/buildKeySummariesFromAnalysis';
@@ -30,24 +30,19 @@ function arePercentageMapsEqual(
 export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
   const dispatch = useAppDispatch();
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
-  const portfolioQuoteCurrency = useAppSelector(
-    ({PORTFOLIO}) => PORTFOLIO.quoteCurrency,
-  );
   const rates = useAppSelector(({RATE}) => RATE.rates);
   const ratesUpdatedAt = useAppSelector(({RATE}) => RATE.ratesUpdatedAt);
   const committedRevisionToken = useAppSelector(({PORTFOLIO}) =>
     buildCommittedPortfolioRevisionToken({
-      quoteCurrency: PORTFOLIO.quoteCurrency,
       lastPopulatedAt: PORTFOLIO.lastPopulatedAt,
     }),
   );
 
   const quoteCurrency = useMemo(() => {
-    return resolveCommittedPortfolioQuoteCurrency({
-      portfolioQuoteCurrency,
+    return resolveActivePortfolioDisplayQuoteCurrency({
       defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
     });
-  }, [defaultAltCurrency?.isoCode, portfolioQuoteCurrency]);
+  }, [defaultAltCurrency?.isoCode]);
   const fallbackAsOfMsRef = useRef<number>(Date.now());
   const asOfMs = useMemo(() => {
     return (
@@ -98,22 +93,38 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
   }, [asOfMs, keyInputs, quoteCurrency]);
   const stableKeyInputsRef = useRef(keyInputs);
   stableKeyInputsRef.current = keyInputs;
+  const cachedMapByRequestKeyRef = useRef<
+    Map<string, Record<string, number | null>>
+  >(new Map());
 
-  const [currentMap, setCurrentMap] = useState<Record<string, number | null>>(
-    {},
-  );
-  const [committedMap, setCommittedMap] = useState<
-    Record<string, number | null>
-  >({});
+  const [currentMapState, setCurrentMapState] = useState<{
+    requestKey: string;
+    value: Record<string, number | null>;
+  }>({
+    requestKey: '',
+    value: {},
+  });
 
   useEffect(() => {
     const stableKeyInputs = stableKeyInputsRef.current;
 
     if (!stableKeyInputs.length) {
+      setCurrentMapState({
+        requestKey,
+        value: {},
+      });
       return;
     }
 
     let cancelled = false;
+    setCurrentMapState(prev =>
+      prev.requestKey === requestKey
+        ? prev
+        : {
+            requestKey,
+            value: cachedMapByRequestKeyRef.current.get(requestKey) || {},
+          },
+    );
 
     Promise.all(
       stableKeyInputs.map(async input => {
@@ -147,11 +158,18 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
         }
 
         const nextMap = buildKeyPercentageDifferenceMap({results});
-        setCurrentMap(prev =>
-          arePercentageMapsEqual(prev, nextMap) ? prev : nextMap,
-        );
-        setCommittedMap(prev =>
-          arePercentageMapsEqual(prev, nextMap) ? prev : nextMap,
+        const cachedMap = cachedMapByRequestKeyRef.current.get(requestKey);
+        if (!cachedMap || !arePercentageMapsEqual(cachedMap, nextMap)) {
+          cachedMapByRequestKeyRef.current.set(requestKey, nextMap);
+        }
+        setCurrentMapState(prev =>
+          prev.requestKey === requestKey &&
+          arePercentageMapsEqual(prev.value, nextMap)
+            ? prev
+            : {
+                requestKey,
+                value: nextMap,
+              },
         );
       })
       .catch(() => {
@@ -165,7 +183,11 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
     };
   }, [asOfMs, committedRevisionToken, quoteCurrency, requestKey]);
 
-  return Object.keys(currentMap).length ? currentMap : committedMap;
+  if (currentMapState.requestKey === requestKey) {
+    return currentMapState.value;
+  }
+
+  return cachedMapByRequestKeyRef.current.get(requestKey) || {};
 }
 
 export default usePortfolioKeyPercentages;

@@ -6,11 +6,11 @@ import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import {
   buildCurrentRatesByAssetId,
   buildCommittedPortfolioRevisionToken,
+  resolveActivePortfolioDisplayQuoteCurrency,
   getCurrentRatesByAssetIdSignature,
   getStoredWalletRequestSignature,
   mapWalletsToStoredWallets,
   resolveCurrentRatesAsOfMs,
-  resolveCommittedPortfolioQuoteCurrency,
 } from '../common';
 
 export type PortfolioRuntimeQueryState<T> = {
@@ -55,14 +55,10 @@ export function usePortfolioRuntimeQuery<T>(args: {
   } = args;
   const dispatch = useAppDispatch();
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
-  const portfolioQuoteCurrency = useAppSelector(
-    ({PORTFOLIO}) => PORTFOLIO.quoteCurrency,
-  );
   const rates = useAppSelector(({RATE}) => RATE.rates);
   const ratesUpdatedAt = useAppSelector(({RATE}) => RATE.ratesUpdatedAt);
   const committedPortfolioRevisionToken = useAppSelector(({PORTFOLIO}) => {
     return buildCommittedPortfolioRevisionToken({
-      quoteCurrency: PORTFOLIO.quoteCurrency,
       lastPopulatedAt: PORTFOLIO.lastPopulatedAt,
     });
   });
@@ -70,11 +66,10 @@ export function usePortfolioRuntimeQuery<T>(args: {
   const clearDataToken = clearDataTokenOverride ?? refreshToken;
 
   const quoteCurrency = useMemo(() => {
-    return resolveCommittedPortfolioQuoteCurrency({
-      portfolioQuoteCurrency,
+    return resolveActivePortfolioDisplayQuoteCurrency({
       defaultAltCurrencyIsoCode: defaultAltCurrency?.isoCode,
     });
-  }, [defaultAltCurrency?.isoCode, portfolioQuoteCurrency]);
+  }, [defaultAltCurrency?.isoCode]);
 
   const {eligibleWallets, storedWallets} = useMemo(() => {
     return mapWalletsToStoredWallets({
@@ -135,7 +130,13 @@ export function usePortfolioRuntimeQuery<T>(args: {
     currentRatesByAssetId,
     asOfMs,
   };
-  const [data, setData] = useState<T | undefined>(undefined);
+  const [data, setData] = useState<{
+    requestKey: string;
+    value?: T;
+  }>({
+    requestKey: '',
+    value: undefined,
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | undefined>(undefined);
   const lastClearDataTokenRef = useRef(clearDataToken);
@@ -147,7 +148,10 @@ export function usePortfolioRuntimeQuery<T>(args: {
     }
 
     if (lastClearDataTokenRef.current !== clearDataToken) {
-      setData(undefined);
+      setData({
+        requestKey: '',
+        value: undefined,
+      });
       lastClearDataTokenRef.current = clearDataToken;
       return;
     }
@@ -163,12 +167,23 @@ export function usePortfolioRuntimeQuery<T>(args: {
     const executeParams = executeParamsRef.current;
 
     if (!executeParams.wallets.length) {
-      setData(undefined);
+      setData({
+        requestKey,
+        value: undefined,
+      });
       setLoading(false);
       return;
     }
 
     let cancelled = false;
+    setData(prev =>
+      prev.requestKey === requestKey
+        ? prev
+        : {
+            requestKey,
+            value: undefined,
+          },
+    );
     setLoading(true);
     setError(undefined);
 
@@ -177,7 +192,10 @@ export function usePortfolioRuntimeQuery<T>(args: {
         if (cancelled) {
           return;
         }
-        setData(result);
+        setData({
+          requestKey,
+          value: result,
+        });
         setLoading(false);
       })
       .catch(err => {
@@ -199,7 +217,7 @@ export function usePortfolioRuntimeQuery<T>(args: {
   ]);
 
   return {
-    data,
+    data: data.requestKey === requestKey ? data.value : undefined,
     loading,
     error,
     quoteCurrency,

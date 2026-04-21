@@ -21,7 +21,6 @@ import {tokenManager} from '../../managers/TokenManager';
 import {
   getCurrencyAbbreviation,
   calculatePercentageDifference,
-  getRateByCurrencyName,
   unitStringToAtomicBigInt,
 } from '../helper-methods';
 import {
@@ -30,6 +29,10 @@ import {
 } from './supportedCurrencyOptionsLookup';
 import {atomicToUnitNumber} from './core/pnl/atomic';
 import {toStringOrEmpty} from '../text';
+import {
+  getAssetCurrentDisplayQuoteRate,
+  resolveActivePortfolioDisplayQuoteCurrency,
+} from './displayCurrency';
 
 export type GainLossMode = FiatRateInterval;
 
@@ -326,20 +329,14 @@ const getPortfolioWalletTokenDecimals = (
 };
 
 export const getQuoteCurrency = (args: {
+  quoteCurrency?: string;
   portfolioQuoteCurrency?: string;
   defaultAltCurrencyIsoCode?: string;
 }): string => {
-  const committedQuote = String(args.portfolioQuoteCurrency || '')
-    .trim()
-    .toUpperCase();
-  if (committedQuote) {
-    return committedQuote;
-  }
-
-  const defaultAlt = String(args.defaultAltCurrencyIsoCode || '')
-    .trim()
-    .toUpperCase();
-  return defaultAlt || 'USD';
+  return resolveActivePortfolioDisplayQuoteCurrency({
+    quoteCurrency: args.quoteCurrency,
+    defaultAltCurrencyIsoCode: args.defaultAltCurrencyIsoCode,
+  });
 };
 
 export const isPopulateLoadingForWallets = (args: {
@@ -737,17 +734,17 @@ export const getWalletLiveFiatBalance = (args: {
   rates?: Rates;
   quoteCurrency?: string;
 }): number => {
-  const quoteCurrency = String(args.quoteCurrency || 'USD').toUpperCase();
+  const quoteCurrency = resolveActivePortfolioDisplayQuoteCurrency({
+    quoteCurrency: args.quoteCurrency,
+  });
   const wallet = args.wallet;
-  const walletRates = getRateByCurrencyName(
-    args.rates || {},
-    wallet.currencyAbbreviation,
-    wallet.chain,
-    wallet.tokenAddress,
-  );
-  const currentRate = walletRates?.find(
-    rate => String(rate.code || '').toUpperCase() === quoteCurrency,
-  )?.rate;
+  const currentRate = getAssetCurrentDisplayQuoteRate({
+    rates: args.rates,
+    currencyAbbreviation: wallet.currencyAbbreviation,
+    chain: wallet.chain,
+    tokenAddress: wallet.tokenAddress,
+    quoteCurrency,
+  });
 
   if (
     typeof currentRate !== 'number' ||

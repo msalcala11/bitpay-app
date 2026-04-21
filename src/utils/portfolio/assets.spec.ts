@@ -9,6 +9,41 @@ jest.mock('react-native-device-info', () => ({
   getDeviceType: jest.fn(() => 'Handset'),
 }));
 
+jest.mock('../../store/wallet/utils/currency', () => ({
+  IsSVMChain: jest.fn(() => false),
+}));
+
+jest.mock('../../store/wallet/utils/wallet', () => ({
+  getWalletStableDeduplicationId: jest.fn(
+    (wallet: {id?: string}) => wallet?.id || '',
+  ),
+  isWalletVisibleForKey: jest.fn(() => true),
+}));
+
+jest.mock('../helper-methods', () => ({
+  getCurrencyAbbreviation: jest.fn(
+    (name: string, _chain: string) => String(name || '').toLowerCase(),
+  ),
+  getRateByCurrencyName: jest.fn(
+    (
+      rates: Record<string, Array<{code: string; rate: number}>>,
+      currencyAbbreviation: string,
+    ) => rates[currencyAbbreviation] || [],
+  ),
+  calculatePercentageDifference: jest.fn(() => 0),
+  unitStringToAtomicBigInt: jest.fn((value: string, unitDecimals: number) => {
+    const [intPartRaw, fracPartRaw = ''] = String(value || '0').split('.');
+    const intPart = BigInt(intPartRaw || '0');
+    const fracPart = (fracPartRaw + '0'.repeat(unitDecimals)).slice(
+      0,
+      unitDecimals,
+    );
+    return (
+      intPart * 10n ** BigInt(unitDecimals) + BigInt(fracPart || '0')
+    );
+  }),
+}));
+
 import type {Wallet} from '../../store/wallet/wallet.models';
 import {
   getWalletsMatchingExchangeRateAsset,
@@ -139,6 +174,35 @@ describe('getWalletLiveFiatBalance', () => {
     });
 
     expect(fiatBalance).toBe(150);
+  });
+
+  it('derives non-USD live fiat balances from canonical USD rates plus the BTC bridge', () => {
+    const wallet = {
+      id: 'eth-wallet',
+      currencyAbbreviation: 'eth',
+      chain: 'eth',
+      network: 'livenet',
+      balance: {
+        sat: 0,
+        satConfirmed: 0,
+        satPending: 0,
+        crypto: '2',
+      },
+    } as Wallet;
+
+    const fiatBalance = getWalletLiveFiatBalance({
+      wallet,
+      quoteCurrency: 'EUR',
+      rates: {
+        eth: [{code: 'USD', rate: 2000}],
+        btc: [
+          {code: 'USD', rate: 40000},
+          {code: 'EUR', rate: 36000},
+        ],
+      } as any,
+    });
+
+    expect(fiatBalance).toBeCloseTo(3600, 8);
   });
 });
 
