@@ -3,13 +3,12 @@ import type {AssetRowItem, GainLossMode} from '../../../utils/portfolio/assets';
 import {
   buildWalletIdsByAssetGroupKey,
   getPortfolioWalletCurrencyAbbreviationLower,
-  getDisplayAssetRowItems,
   getPopulateLoadingByAssetKey,
   getVisibleWalletsFromKeys,
-  sortAssetRowItemsByAssetFiatPriority,
 } from '../../../utils/portfolio/assets';
 import type {Key} from '../../../store/wallet/wallet.models';
 import {useAppSelector} from '../../../utils/hooks';
+import {useDevRenderTrace} from '../../../utils/hooks/useDevRenderTrace';
 import buildAssetPnlDebugPayload from '../debug/buildAssetPnlDebugPayload';
 import {getAssetIdFromWallet} from '../../core/pnl/assetId';
 import type {PnlAnalysisResult} from '../../core/pnl/analysisStreaming';
@@ -59,6 +58,42 @@ type AssetGroupAnalysisState = {
   loading: boolean;
   error?: Error;
 };
+
+function stabilizeVisibleItemOrder(args: {
+  items: AssetRowItem[];
+  previousKeys: string[];
+}): AssetRowItem[] {
+  const {items, previousKeys} = args;
+  if (items.length < 2 || previousKeys.length < 2) {
+    return items;
+  }
+
+  const itemsByKey = new Map(items.map(item => [item.key, item]));
+  const previousKeysSet = new Set(previousKeys);
+  const stabilizedItems: AssetRowItem[] = [];
+
+  for (const key of previousKeys) {
+    const item = itemsByKey.get(key);
+    if (item) {
+      stabilizedItems.push(item);
+    }
+  }
+
+  for (const item of items) {
+    if (!previousKeysSet.has(item.key)) {
+      stabilizedItems.push(item);
+    }
+  }
+
+  if (
+    stabilizedItems.length !== items.length ||
+    stabilizedItems.every((item, index) => item === items[index])
+  ) {
+    return items;
+  }
+
+  return stabilizedItems;
+}
 
 function getCommittedAssetGroupAnalysisCacheKey(args: {
   requestKey: string;
@@ -1023,17 +1058,9 @@ export function usePortfolioAssetRows({
     analysis.storedWallets,
     gainLossMode,
   ]);
-  const visibleItemsRaw = useMemo(() => getDisplayAssetRowItems(items), [items]);
   const visibleItemsStableDuringPopulate = useMemo(() => {
-    if (!portfolio.populateStatus?.inProgress || visibleItemsRaw.length < 2) {
-      return visibleItemsRaw;
-    }
-
-    return sortAssetRowItemsByAssetFiatPriority({
-      items: visibleItemsRaw,
-      wallets,
-    });
-  }, [portfolio.populateStatus?.inProgress, visibleItemsRaw, wallets]);
+    return items;
+  }, [items]);
   const lastNonEmptyVisibleItemsRef = useRef<AssetRowItem[]>([]);
   useEffect(() => {
     if (!visibleItemsStableDuringPopulate.length) {
@@ -1042,19 +1069,43 @@ export function usePortfolioAssetRows({
 
     lastNonEmptyVisibleItemsRef.current = visibleItemsStableDuringPopulate;
   }, [visibleItemsStableDuringPopulate]);
+  const hasLoadingVisibleItemsGap = useMemo(() => {
+    if (
+      visibleItemsStableDuringPopulate.length ||
+      !lastNonEmptyVisibleItemsRef.current.length
+    ) {
+      return false;
+    }
+
+    const hasLoadingScopedAnalysis = assetGroupAnalysisSpecs.some(spec => {
+      const state = assetGroupAnalysisStateByKey[spec.key];
+      return !!state?.loading;
+    });
+
+    return analysis.loading || hasLoadingScopedAnalysis;
+  }, [
+    analysis.loading,
+    assetGroupAnalysisSpecs,
+    assetGroupAnalysisStateByKey,
+    visibleItemsStableDuringPopulate,
+  ]);
 
   const visibleItems = useMemo(() => {
     if (visibleItemsStableDuringPopulate.length) {
       return visibleItemsStableDuringPopulate;
     }
 
-    if (portfolio.populateStatus?.inProgress && analysis.committedData) {
+    if (
+      (portfolio.populateStatus?.inProgress && analysis.committedData) ||
+      hasLoadingVisibleItemsGap
+    ) {
       return lastNonEmptyVisibleItemsRef.current;
     }
 
     return visibleItemsStableDuringPopulate;
   }, [
     analysis.committedData,
+    hasLoadingVisibleItemsGap,
     portfolio.populateStatus?.inProgress,
     visibleItemsStableDuringPopulate,
   ]);
@@ -1195,9 +1246,109 @@ export function usePortfolioAssetRows({
     populateLoadingByKeyPrevRef.current =
       stablePopulatePresentation.isPopulateLoadingByKey;
   }, [stablePopulatePresentation.isPopulateLoadingByKey]);
+  const hasPendingVisibleOrderStabilization = useMemo(() => {
+    return (
+      !!portfolio.populateStatus?.inProgress ||
+      analysis.loading ||
+      hasLoadingVisibleItemsGap ||
+      assetGroupAnalysisSpecs.some(spec => {
+        const state = assetGroupAnalysisStateByKey[spec.key];
+        return !!state?.loading;
+      })
+    );
+  }, [
+    analysis.loading,
+    assetGroupAnalysisSpecs,
+    assetGroupAnalysisStateByKey,
+    hasLoadingVisibleItemsGap,
+    portfolio.populateStatus?.inProgress,
+  ]);
+  const lastStableVisibleItemOrderRef = useRef<string[]>([]);
+  const visibleItemsForDisplay = useMemo(() => {
+    const nextItems = stablePopulatePresentation.visibleItems;
+    const previousKeys = lastStableVisibleItemOrderRef.current;
+
+    if (!hasPendingVisibleOrderStabilization || !previousKeys.length) {
+      return nextItems;
+    }
+
+    return stabilizeVisibleItemOrder({
+      items: nextItems,
+      previousKeys,
+    });
+  }, [
+    hasPendingVisibleOrderStabilization,
+    stablePopulatePresentation.visibleItems,
+  ]);
+  useEffect(() => {
+    if (!visibleItemsForDisplay.length) {
+      return;
+    }
+
+    if (
+      !lastStableVisibleItemOrderRef.current.length ||
+      !hasPendingVisibleOrderStabilization
+    ) {
+      lastStableVisibleItemOrderRef.current = visibleItemsForDisplay.map(
+        item => item.key,
+      );
+    }
+  }, [hasPendingVisibleOrderStabilization, visibleItemsForDisplay]);
+  const visibleItemsSignature = useMemo(() => {
+    return visibleItemsForDisplay
+      .map(
+        item =>
+          `${item.key}:${item.fiatAmount}:${item.deltaFiat}:${item.deltaPercent}:${item.showScopedPnlLoading ? '1' : '0'}:${item.showPnlPlaceholder ? '1' : '0'}`,
+      )
+      .join('|');
+  }, [visibleItemsForDisplay]);
+  const populateLoadingSignature = useMemo(() => {
+    return Object.entries(stablePopulatePresentation.isPopulateLoadingByKey || {})
+      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+      .map(([key, loading]) => `${key}:${loading ? '1' : '0'}`)
+      .join('|');
+  }, [stablePopulatePresentation.isPopulateLoadingByKey]);
+  const assetGroupStateSignature = useMemo(() => {
+    return Object.entries(assetGroupAnalysisStateByKey)
+      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+      .map(([key, state]) =>
+        [
+          key,
+          state.loading ? '1' : '0',
+          state.currentData ? '1' : '0',
+          state.committedData ? '1' : '0',
+          state.error?.name || '',
+        ].join(':'),
+      )
+      .join('|');
+  }, [assetGroupAnalysisStateByKey]);
+
+  useDevRenderTrace('usePortfolioAssetRows', {
+    gainLossMode,
+    keyId: keyId || '',
+    walletCount: wallets.length,
+    analysisRequestKey: analysis.requestKey,
+    analysisQuoteCurrency: analysis.quoteCurrency || '',
+    analysisLoading: analysis.loading,
+    analysisHasData: !!analysis.data,
+    analysisHasCommittedData: !!analysis.committedData,
+    analysisRefreshToken,
+    analysisClearDataToken: analysisClearDataToken || '',
+    assetGroupSpecCount: assetGroupAnalysisSpecs.length,
+    assetGroupSessionRequestKey,
+    assetGroupStateSignature,
+    populateInProgress: !!portfolio.populateStatus?.inProgress,
+    populateWalletsCompleted: portfolio.populateStatus?.walletsCompleted ?? null,
+    lastPopulatedAt: portfolio.lastPopulatedAt ?? null,
+    visibleItemCount: visibleItemsForDisplay.length,
+    visibleItemsSignature,
+    hasLoadingVisibleItemsGap,
+    hasPendingVisibleOrderStabilization,
+    populateLoadingSignature,
+  });
 
   return {
-    visibleItems: stablePopulatePresentation.visibleItems,
+    visibleItems: visibleItemsForDisplay,
     isFiatLoading:
       (analysis.loading && !analysis.data && !analysis.committedData) ||
       (!!assetGroupAnalysisSpecs.length &&
@@ -1211,6 +1362,7 @@ export function usePortfolioAssetRows({
         })),
     isPopulateLoadingByKey: stablePopulatePresentation.isPopulateLoadingByKey,
     hasAnyPortfolioData:
+      visibleItemsForDisplay.length > 0 ||
       !!analysis.data ||
       !!analysis.committedData ||
       Object.values(assetGroupAnalysisStateByKey).some(

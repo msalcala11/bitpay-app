@@ -27,6 +27,7 @@ import {
   getRateByCurrencyName,
 } from '../../../../utils/helper-methods';
 import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
+import {useDevRenderTrace} from '../../../../utils/hooks/useDevRenderTrace';
 import {getAssetTheme} from '../../../../utils/portfolio/assetTheme';
 import {resolveCurrentRatesAsOfMs} from '../../../../portfolio/ui/common';
 import {
@@ -315,6 +316,12 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
       return total + (ui.fiatBalance || 0);
     }, 0);
   }, [walletsForAsset]);
+  const assetWalletIdsSignature = useMemo(() => {
+    return assetWallets
+      .map(wallet => String(wallet.id || ''))
+      .sort()
+      .join('|');
+  }, [assetWallets]);
 
   const marketStatsCacheKey = useMemo(() => {
     return getMarketStatsCacheKey({
@@ -410,6 +417,29 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
       headerLeft: () => React.createElement(HeaderBackButton),
     });
   }, [currencyName, navigation]);
+
+  useDevRenderTrace('useExchangeRateSharedModel', {
+    assetKey: [
+      assetContext.currencyAbbreviation,
+      assetContext.chain,
+      assetContext.tokenAddress || '',
+    ].join(':'),
+    resolvedQuoteCurrency,
+    normalizedCoin,
+    hasWalletsForAsset,
+    visibleWalletCount: visibleWallets.length,
+    assetWalletCount: assetWallets.length,
+    assetWalletIdsSignature,
+    assetTotalFiatBalance,
+    currentFiatRate: currentFiatRate ?? null,
+    asOfMs,
+    hideAllBalances,
+    marketStatsCacheKey,
+    marketStatsLoaded: !!marketStats,
+    marketStatsHigh52w: marketStats?.high52w ?? null,
+    marketStatsVolume24h: marketStats?.volume24h ?? null,
+    ratesUpdatedAt: ratesUpdatedAt ?? null,
+  });
 
   return {
     aboutToDisplay,

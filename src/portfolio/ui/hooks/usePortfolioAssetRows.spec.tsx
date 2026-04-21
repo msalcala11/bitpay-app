@@ -300,7 +300,7 @@ describe('usePortfolioAssetRows', () => {
     expect(mockGetPopulateLoadingByAssetKey).not.toHaveBeenCalled();
   });
 
-  it('keeps asset ordering stable by wallet fiat priority during populate', () => {
+  it('keeps canonical analysis order stable during populate', () => {
     mockState.PORTFOLIO.populateStatus.inProgress = true;
     mockGetVisibleWalletsFromKeys.mockReturnValue([
       {
@@ -346,45 +346,11 @@ describe('usePortfolioAssetRows', () => {
         hasPnl: true,
       },
     ]);
-    mockSortAssetRowItemsByAssetFiatPriority.mockReturnValue([
-      {
-        key: 'doge',
-        currencyAbbreviation: 'doge',
-        chain: 'doge',
-        name: 'DOGE',
-        cryptoAmount: '2',
-        fiatAmount: '$500',
-        deltaFiat: '+$5',
-        deltaPercent: '+2%',
-        isPositive: true,
-        hasRate: true,
-        hasPnl: true,
-      },
-      {
-        key: 'btc',
-        currencyAbbreviation: 'btc',
-        chain: 'btc',
-        name: 'BTC',
-        cryptoAmount: '1',
-        fiatAmount: '$100',
-        deltaFiat: '+$1',
-        deltaPercent: '+1%',
-        isPositive: true,
-        hasRate: true,
-        hasPnl: true,
-      },
-    ]);
 
     render(<HookHarness />);
 
-    expect(mockSortAssetRowItemsByAssetFiatPriority).toHaveBeenCalledWith({
-      items: expect.any(Array),
-      wallets: expect.any(Array),
-    });
-    expect(latestResult?.visibleItems.map(item => item.key)).toEqual([
-      'doge',
-      'btc',
-    ]);
+    expect(mockSortAssetRowItemsByAssetFiatPriority).not.toHaveBeenCalled();
+    expect(latestResult?.visibleItems.map(item => item.key)).toEqual(['btc', 'doge']);
   });
 
   it('keeps an asset revealed after it resolves once during the active populate session', () => {
@@ -530,6 +496,168 @@ describe('usePortfolioAssetRows', () => {
         hasPnl: true,
         showPnlPlaceholder: false,
       }),
+    ]);
+  });
+
+  it('keeps the last non-empty asset rows visible across the post-populate hydration gap', () => {
+    const row = {
+      key: 'doge',
+      currencyAbbreviation: 'doge',
+      chain: 'doge',
+      name: 'DOGE',
+      cryptoAmount: '2',
+      fiatAmount: '$500',
+      deltaFiat: '+$5',
+      deltaPercent: '+2%',
+      isPositive: true,
+      hasRate: true,
+      hasPnl: true,
+      showPnlPlaceholder: false,
+    };
+    let analysisResult: any = {
+      data: {wallets: [{walletId: 'doge-wallet'}]},
+      committedData: undefined,
+      currentData: {wallets: [{walletId: 'doge-wallet'}]},
+      error: undefined,
+      loading: false,
+      quoteCurrency: 'USD',
+      requestKey: 'populate-request',
+      currentRatesByAssetId: {},
+      currentRatesSignature: '',
+      eligibleWallets: [],
+      storedWallets: [],
+    };
+
+    mockState.PORTFOLIO.populateStatus.inProgress = true;
+    mockState.PORTFOLIO.populateStatus.startedAt = 11;
+    mockUsePortfolioAnalysis.mockImplementation(() => analysisResult);
+    mockBuildAssetRowsFromAnalysis.mockImplementation(({analysis}: any) =>
+      analysis ? [row] : [],
+    );
+
+    const view = render(<HookHarness />);
+
+    expect(latestResult?.visibleItems).toEqual([expect.objectContaining(row)]);
+
+    analysisResult = {
+      data: undefined,
+      committedData: undefined,
+      currentData: undefined,
+      error: undefined,
+      loading: true,
+      quoteCurrency: 'USD',
+      requestKey: 'post-populate-request',
+      currentRatesByAssetId: {},
+      currentRatesSignature: '',
+      eligibleWallets: [],
+      storedWallets: [],
+    };
+    mockState = {
+      ...mockState,
+      PORTFOLIO: {
+        ...mockState.PORTFOLIO,
+        lastPopulatedAt: 20,
+        populateStatus: {
+          ...mockState.PORTFOLIO.populateStatus,
+          inProgress: false,
+          finishedAt: 20,
+          stopReason: 'completed',
+        },
+      },
+    };
+    view.rerender(<HookHarness />);
+
+    expect(latestResult?.visibleItems).toEqual([expect.objectContaining(row)]);
+    expect(latestResult?.hasAnyPortfolioData).toBe(true);
+
+    analysisResult = {
+      ...analysisResult,
+      loading: false,
+    };
+    view.rerender(<HookHarness />);
+
+    expect(latestResult?.visibleItems).toEqual([]);
+  });
+
+  it('keeps the previous visible order while the same asset keys are still loading', () => {
+    const firstOrder = [
+      {
+        key: 'doge',
+        currencyAbbreviation: 'doge',
+        chain: 'doge',
+        name: 'DOGE',
+        cryptoAmount: '2',
+        fiatAmount: '$500',
+        deltaFiat: '+$5',
+        deltaPercent: '+2%',
+        isPositive: true,
+        hasRate: true,
+        hasPnl: true,
+      },
+      {
+        key: 'btc',
+        currencyAbbreviation: 'btc',
+        chain: 'btc',
+        name: 'BTC',
+        cryptoAmount: '1',
+        fiatAmount: '$100',
+        deltaFiat: '+$1',
+        deltaPercent: '+1%',
+        isPositive: true,
+        hasRate: true,
+        hasPnl: true,
+      },
+    ];
+    const secondOrder = [firstOrder[1], firstOrder[0]];
+    let analysisResult: any = {
+      data: {wallets: [{walletId: 'doge-wallet'}, {walletId: 'btc-wallet'}]},
+      committedData: undefined,
+      currentData: {wallets: [{walletId: 'doge-wallet'}, {walletId: 'btc-wallet'}]},
+      error: undefined,
+      loading: false,
+      quoteCurrency: 'USD',
+      requestKey: 'steady-request',
+      currentRatesByAssetId: {},
+      currentRatesSignature: '',
+      eligibleWallets: [],
+      storedWallets: [],
+    };
+
+    mockUsePortfolioAnalysis.mockImplementation(() => analysisResult);
+    mockBuildAssetRowsFromAnalysis
+      .mockReturnValueOnce(firstOrder)
+      .mockReturnValueOnce(secondOrder)
+      .mockReturnValue(secondOrder);
+
+    const view = render(<HookHarness />);
+
+    expect(latestResult?.visibleItems.map(item => item.key)).toEqual([
+      'doge',
+      'btc',
+    ]);
+
+    analysisResult = {
+      ...analysisResult,
+      loading: true,
+      requestKey: 'loading-request',
+    };
+    view.rerender(<HookHarness />);
+
+    expect(latestResult?.visibleItems.map(item => item.key)).toEqual([
+      'doge',
+      'btc',
+    ]);
+
+    analysisResult = {
+      ...analysisResult,
+      loading: false,
+      requestKey: 'settled-request',
+    };
+    view.rerender(<HookHarness />);
+
+    expect(latestResult?.visibleItems.map(item => item.key)).toEqual([
+      'btc',
+      'doge',
     ]);
   });
 

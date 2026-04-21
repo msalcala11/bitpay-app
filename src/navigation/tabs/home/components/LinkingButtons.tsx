@@ -1,4 +1,4 @@
-import React, {ReactNode} from 'react';
+import React, {ReactNode, useMemo} from 'react';
 import styled from 'styled-components/native';
 import {Action, Midnight, White} from '../../../../styles/colors';
 import Haptic from '../../../../components/haptic-feedback/haptic';
@@ -13,6 +13,10 @@ import {useTranslation} from 'react-i18next';
 import {Analytics} from '../../../../store/analytics/analytics.effects';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import {ExternalServicesScreens} from '../../../services/ExternalServicesGroup';
+import {
+  useDevLayoutTrace,
+  useDevRenderTrace,
+} from '../../../../utils/hooks/useDevRenderTrace';
 
 const MAX_LINKING_BUTTON_ROW_WIDTH = 450;
 
@@ -133,14 +137,24 @@ interface Props {
     cta: () => void;
   };
   maxWidth?: number;
+  debugTraceName?: string;
 }
 
-const LinkingButtons = ({buy, sell, receive, send, swap, maxWidth}: Props) => {
+const LinkingButtons = ({
+  buy,
+  sell,
+  receive,
+  send,
+  swap,
+  maxWidth,
+  debugTraceName,
+}: Props) => {
   const {t} = useTranslation();
   const navigation = useNavigation();
   const dispatch = useAppDispatch();
   const appWasInit = useAppSelector(({APP}) => APP.appWasInit);
   const tokensDataLoaded = useAppSelector(({APP}) => APP.tokensDataLoaded);
+  const traceName = debugTraceName || 'LinkingButtons';
 
   const buyCryptoCta = useRequireKeyAndWalletRedirect(
     buy && buy.cta
@@ -221,9 +235,35 @@ const LinkingButtons = ({buy, sell, receive, send, swap, maxWidth}: Props) => {
   ];
   const visibleButtons = buttonsList.filter(({hide}) => !hide);
   const compactSpacing = visibleButtons.length <= 3;
+  const visibleButtonKeys = useMemo(() => {
+    return visibleButtons.map(({key}) => key).join('|');
+  }, [visibleButtons]);
+  const disabledButtonKeys = useMemo(() => {
+    return visibleButtons
+      .filter(
+        ({key}) =>
+          ['buy', 'sell', 'swap'].includes(key) &&
+          (!appWasInit || !tokensDataLoaded),
+      )
+      .map(({key}) => key)
+      .join('|');
+  }, [appWasInit, tokensDataLoaded, visibleButtons]);
+  const buttonsRowOnLayout = useDevLayoutTrace(`${traceName}:layout`);
+
+  useDevRenderTrace(traceName, {
+    appWasInit,
+    tokensDataLoaded,
+    visibleButtonKeys,
+    disabledButtonKeys,
+    compactSpacing,
+    maxWidth: maxWidth ?? MAX_LINKING_BUTTON_ROW_WIDTH,
+  });
 
   return (
-    <ButtonsRow $maxWidth={maxWidth} $compactSpacing={compactSpacing}>
+    <ButtonsRow
+      onLayout={buttonsRowOnLayout}
+      $maxWidth={maxWidth}
+      $compactSpacing={compactSpacing}>
       {visibleButtons.map(({key, label, cta, img}: ButtonListProps) => {
         const isDisabled =
           ['buy', 'sell', 'swap'].includes(key) &&

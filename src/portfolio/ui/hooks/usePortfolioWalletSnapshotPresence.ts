@@ -4,6 +4,7 @@ import {getPortfolioRuntimeClient} from '../../runtime/portfolioRuntime';
 import {buildCommittedPortfolioRevisionToken} from '../common';
 import type {Wallet} from '../../../store/wallet/wallet.models';
 import {useAppSelector} from '../../../utils/hooks';
+import {useDevRenderTrace} from '../../../utils/hooks/useDevRenderTrace';
 
 type PortfolioWalletSnapshotPresenceState = {
   hasAnySnapshots: boolean;
@@ -144,6 +145,16 @@ export default function usePortfolioWalletSnapshotPresence(args: {
       cancelled = true;
     };
   }, [args.enabled, committedPortfolioRevisionToken, walletIdsKey]);
+
+  useDevRenderTrace('usePortfolioWalletSnapshotPresence', {
+    enabled: args.enabled !== false,
+    walletIdsKey,
+    committedPortfolioRevisionToken,
+    hasAnySnapshots: state.hasAnySnapshots,
+    hasAllSnapshots: state.hasAllSnapshots,
+    loading: state.loading,
+    checked: state.checked,
+  });
 
   return state;
 }

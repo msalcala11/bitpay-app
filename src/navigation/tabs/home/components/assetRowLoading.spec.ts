@@ -1,6 +1,7 @@
 import {
   getAssetRowFiatLoading,
   getAssetRowPopulateLoading,
+  resolveAssetRowDisplayPresentation,
 } from './assetRowLoading';
 
 describe('getAssetRowPopulateLoading', () => {
@@ -80,5 +81,71 @@ describe('getAssetRowFiatLoading', () => {
         showScopedPnlLoading: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe('resolveAssetRowDisplayPresentation', () => {
+  const currentItem = {
+    key: 'btc',
+    currencyAbbreviation: 'btc',
+    chain: 'btc',
+    name: 'Bitcoin',
+    cryptoAmount: '1.0',
+    fiatAmount: '$100.00',
+    deltaFiat: '+$10.00',
+    deltaPercent: '+10%',
+    isPositive: true,
+    hasRate: true,
+    hasPnl: true,
+  };
+  const preservedItem = {
+    ...currentItem,
+    fiatAmount: '$95.00',
+    deltaFiat: '+$5.00',
+    deltaPercent: '+5%',
+  };
+
+  it('keeps the preserved item visible during a short loading pulse', () => {
+    expect(
+      resolveAssetRowDisplayPresentation({
+        item: currentItem,
+        preservedItem,
+        isLoading: true,
+        loadingDelayElapsed: false,
+      }),
+    ).toEqual({
+      displayItem: preservedItem,
+      shouldShowSkeleton: false,
+      usingPreservedItem: true,
+    });
+  });
+
+  it('shows the skeleton after the loading delay elapses', () => {
+    expect(
+      resolveAssetRowDisplayPresentation({
+        item: currentItem,
+        preservedItem,
+        isLoading: true,
+        loadingDelayElapsed: true,
+      }),
+    ).toEqual({
+      displayItem: currentItem,
+      shouldShowSkeleton: true,
+      usingPreservedItem: false,
+    });
+  });
+
+  it('shows the skeleton immediately when there is no preserved item to keep on screen', () => {
+    expect(
+      resolveAssetRowDisplayPresentation({
+        item: currentItem,
+        isLoading: true,
+        loadingDelayElapsed: false,
+      }),
+    ).toEqual({
+      displayItem: currentItem,
+      shouldShowSkeleton: true,
+      usingPreservedItem: false,
+    });
   });
 });

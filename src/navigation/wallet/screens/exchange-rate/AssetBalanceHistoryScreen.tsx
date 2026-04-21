@@ -1,5 +1,6 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTranslation} from 'react-i18next';
+import {View} from 'react-native';
 import BalanceHistoryChart, {
   type BalanceHistoryChartDiagnostics,
 } from '../../../../components/charts/BalanceHistoryChart';
@@ -11,6 +12,10 @@ import {usePortfolioAnalysis} from '../../../../portfolio/ui/hooks/usePortfolioA
 import buildAssetPnlDebugPayload from '../../../../portfolio/ui/debug/buildAssetPnlDebugPayload';
 import {formatFiatAmount} from '../../../../utils/helper-methods';
 import {useAppSelector} from '../../../../utils/hooks';
+import {
+  useDevLayoutTrace,
+  useDevRenderTrace,
+} from '../../../../utils/hooks/useDevRenderTrace';
 import {isPopulateLoadingForWallets} from '../../../../utils/portfolio/assets';
 import {shouldUseCompactFiatAmountText} from '../../../../utils/fiatAmountText';
 import ExchangeRateScreenLayout from './ExchangeRateScreenLayout';
@@ -25,6 +30,174 @@ type AssetBalanceHistoryScreenProps = {
   shared: ExchangeRateSharedModel;
 };
 
+const AssetBalanceChartSection = React.memo(
+  ({
+    shouldRender,
+    wallets,
+    quoteCurrency,
+    initialSelectedTimeframe,
+    rates,
+    lineColor,
+    gradientStartColor,
+    showLoaderWhenNoSnapshots,
+    onChangeRowData,
+    onDisplayedAnalysisPointChange,
+    onDiagnosticsChange,
+    onSelectionActiveChange,
+    onSelectedTimeframeChange,
+  }: {
+    shouldRender: boolean;
+    wallets: ExchangeRateSharedModel['assetWallets'];
+    quoteCurrency: string;
+    initialSelectedTimeframe: FiatRateInterval;
+    rates: ExchangeRateSharedModel['rates'];
+    lineColor: string;
+    gradientStartColor: string;
+    showLoaderWhenNoSnapshots: boolean;
+    onChangeRowData: (
+      data:
+        | {
+            percent: number;
+            deltaFiatFormatted?: string;
+            rangeLabel?: string;
+          }
+        | undefined,
+    ) => void;
+    onDisplayedAnalysisPointChange: (
+      point:
+        | {
+            timestamp?: number;
+            totalFiatBalance?: number;
+            totalPnlChange?: number;
+            totalPnlPercent?: number;
+          }
+        | undefined,
+    ) => void;
+    onDiagnosticsChange: (
+      diagnostics: BalanceHistoryChartDiagnostics | undefined,
+    ) => void;
+    onSelectionActiveChange: (active: boolean) => void;
+    onSelectedTimeframeChange: (timeframe: FiatRateInterval) => void;
+  }) => {
+    const assetWalletIdsSignature = useMemo(() => {
+      return wallets
+        .map(wallet => String(wallet.id || ''))
+        .sort()
+        .join('|');
+    }, [wallets]);
+    const chartSectionOnLayout = useDevLayoutTrace(
+      'AssetBalanceChartSectionLayout',
+    );
+
+    useDevRenderTrace('AssetBalanceChartSection', {
+      shouldRender,
+      quoteCurrency,
+      initialSelectedTimeframe,
+      assetWalletCount: wallets.length,
+      assetWalletIdsSignature,
+      showLoaderWhenNoSnapshots,
+    });
+
+    if (!shouldRender) {
+      return null;
+    }
+
+    return (
+      <View onLayout={chartSectionOnLayout}>
+        <BalanceHistoryChart
+          wallets={wallets}
+          quoteCurrency={quoteCurrency}
+          initialSelectedTimeframe={initialSelectedTimeframe}
+          rates={rates}
+          lineColor={lineColor}
+          gradientStartColor={gradientStartColor}
+          showLoaderWhenNoSnapshots={showLoaderWhenNoSnapshots}
+          onChangeRowData={onChangeRowData}
+          onDisplayedAnalysisPointChange={onDisplayedAnalysisPointChange}
+          onDiagnosticsChange={onDiagnosticsChange}
+          onSelectionActiveChange={onSelectionActiveChange}
+          onSelectedTimeframeChange={onSelectedTimeframeChange}
+          showChangeRow={false}
+          timeframeSelectorHorizontalInset={ScreenGutter}
+        />
+      </View>
+    );
+  },
+);
+
+function areChartChangeRowsEqual(
+  a:
+    | {
+        percent: number;
+        deltaFiatFormatted?: string;
+        rangeLabel?: string;
+      }
+    | undefined,
+  b:
+    | {
+        percent: number;
+        deltaFiatFormatted?: string;
+        rangeLabel?: string;
+      }
+    | undefined,
+): boolean {
+  return (
+    a?.percent === b?.percent &&
+    a?.deltaFiatFormatted === b?.deltaFiatFormatted &&
+    a?.rangeLabel === b?.rangeLabel
+  );
+}
+
+function areDisplayedAnalysisPointsEqual(
+  a:
+    | {
+        timestamp?: number;
+        totalFiatBalance?: number;
+        totalPnlChange?: number;
+        totalPnlPercent?: number;
+      }
+    | undefined,
+  b:
+    | {
+        timestamp?: number;
+        totalFiatBalance?: number;
+        totalPnlChange?: number;
+        totalPnlPercent?: number;
+      }
+    | undefined,
+): boolean {
+  return (
+    a?.timestamp === b?.timestamp &&
+    a?.totalFiatBalance === b?.totalFiatBalance &&
+    a?.totalPnlChange === b?.totalPnlChange &&
+    a?.totalPnlPercent === b?.totalPnlPercent
+  );
+}
+
+function areChartDiagnosticsEqual(
+  a: BalanceHistoryChartDiagnostics | undefined,
+  b: BalanceHistoryChartDiagnostics | undefined,
+): boolean {
+  return (
+    a?.timeframe === b?.timeframe &&
+    a?.displayedTimeframe === b?.displayedTimeframe &&
+    a?.queryRevisionKey === b?.queryRevisionKey &&
+    a?.quoteCurrency === b?.quoteCurrency &&
+    a?.cachedSelectedTimeframeStatus === b?.cachedSelectedTimeframeStatus &&
+    a?.loading === b?.loading &&
+    a?.hasRenderableSeries === b?.hasRenderableSeries &&
+    a?.selectionActive === b?.selectionActive &&
+    a?.renderedSeriesPointsCount === b?.renderedSeriesPointsCount &&
+    a?.displayedAnalysisPoint?.timestamp === b?.displayedAnalysisPoint?.timestamp &&
+    a?.displayedAnalysisPoint?.totalFiatBalance ===
+      b?.displayedAnalysisPoint?.totalFiatBalance &&
+    a?.displayedAnalysisPoint?.totalPnlChange ===
+      b?.displayedAnalysisPoint?.totalPnlChange &&
+    a?.displayedAnalysisPoint?.totalPnlPercent ===
+      b?.displayedAnalysisPoint?.totalPnlPercent
+  );
+}
+
 const AssetBalanceHistoryScreen = ({
   shared,
 }: AssetBalanceHistoryScreenProps) => {
@@ -32,7 +205,10 @@ const AssetBalanceHistoryScreen = ({
   const populateStatus = useAppSelector(
     ({PORTFOLIO}) => PORTFOLIO.populateStatus,
   );
-  const [selectedTimeframe, setSelectedTimeframe] = useState<FiatRateInterval>(
+  const [displayedTimeframe, setDisplayedTimeframe] = useState<FiatRateInterval>(
+    DEFAULT_BALANCE_CHART_TIMEFRAME,
+  );
+  const [requestedTimeframe, setRequestedTimeframe] = useState<FiatRateInterval>(
     DEFAULT_BALANCE_CHART_TIMEFRAME,
   );
   const [chartChangeRow, setChartChangeRow] = useState<
@@ -56,18 +232,16 @@ const AssetBalanceHistoryScreen = ({
   const [chartDiagnostics, setChartDiagnostics] = useState<
     BalanceHistoryChartDiagnostics | undefined
   >(undefined);
-  const fundedAssetWallets = useMemo(() => {
-    return shared.walletsForAsset.map(({wallet}) => wallet);
-  }, [shared.walletsForAsset]);
   const {
-    hasAllSnapshots: allAssetWalletsHaveSnapshots,
+    hasAnySnapshots: anyAssetWalletHasSnapshots,
     checked: assetSnapshotsChecked,
   } = usePortfolioWalletSnapshotPresence({
-    wallets: fundedAssetWallets,
+    wallets: shared.assetWallets,
+    enabled: shared.hasWalletsForAsset,
   });
   const analysis = usePortfolioAnalysis({
     wallets: shared.assetWallets,
-    timeframe: selectedTimeframe,
+    timeframe: displayedTimeframe,
     maxPoints: 2,
     enabled: shared.hasWalletsForAsset,
     freezeWhilePopulate: true,
@@ -80,13 +254,16 @@ const AssetBalanceHistoryScreen = ({
       wallets: shared.assetWallets,
     });
   }, [populateStatus, shared.assetWallets]);
+  const isTimeframeTransitionPending =
+    requestedTimeframe !== displayedTimeframe;
 
   useEffect(() => {
     setChartChangeRow(undefined);
     setSelectionActive(false);
     setChartDisplayedPoint(undefined);
     setChartDiagnostics(undefined);
-    setSelectedTimeframe(DEFAULT_BALANCE_CHART_TIMEFRAME);
+    setDisplayedTimeframe(DEFAULT_BALANCE_CHART_TIMEFRAME);
+    setRequestedTimeframe(DEFAULT_BALANCE_CHART_TIMEFRAME);
   }, [
     shared.assetContext.chain,
     shared.assetContext.currencyAbbreviation,
@@ -94,8 +271,8 @@ const AssetBalanceHistoryScreen = ({
   ]);
 
   const idleRangeLabel = useMemo(() => {
-    return getRangeLabelForFiatTimeframe(t, selectedTimeframe);
-  }, [selectedTimeframe, t]);
+    return getRangeLabelForFiatTimeframe(t, displayedTimeframe);
+  }, [displayedTimeframe, t]);
 
   const idleSummary = useMemo(() => {
     return buildAssetBalanceHistoryIdleSummary({
@@ -103,15 +280,15 @@ const AssetBalanceHistoryScreen = ({
       analysis: analysis.data,
       quoteCurrency: analysis.quoteCurrency || shared.resolvedQuoteCurrency,
       rangeLabel: idleRangeLabel,
-      gainLossMode: selectedTimeframe,
+      gainLossMode: displayedTimeframe,
       assetKey: shared.assetContext.currencyAbbreviation.toLowerCase(),
     });
   }, [
     analysis.data,
     analysis.quoteCurrency,
     analysis.storedWallets,
+    displayedTimeframe,
     idleRangeLabel,
-    selectedTimeframe,
     shared.assetContext.currencyAbbreviation,
     shared.resolvedQuoteCurrency,
   ]);
@@ -157,16 +334,66 @@ const AssetBalanceHistoryScreen = ({
   }, [selectedAssetBalanceToDisplay, shared.resolvedQuoteCurrency]);
 
   const marketPriceDisplay = shared.formatDisplayPrice(shared.currentFiatRate);
+  const assetWalletIdsSignature = useMemo(() => {
+    return shared.assetWallets
+      .map(wallet => String(wallet.id || ''))
+      .sort()
+      .join('|');
+  }, [shared.assetWallets]);
+  const changeRowSignature = useMemo(() => {
+    return changeRow
+      ? [
+          changeRow.percent,
+          changeRow.deltaFiatFormatted || '',
+          changeRow.rangeLabel || '',
+        ].join('|')
+      : '';
+  }, [changeRow]);
   const shouldRenderBalanceChart = useMemo(() => {
     return (
       !shared.hideAllBalances &&
-      (!assetSnapshotsChecked || allAssetWalletsHaveSnapshots)
+      shared.hasWalletsForAsset &&
+      (!assetSnapshotsChecked || anyAssetWalletHasSnapshots)
     );
   }, [
-    allAssetWalletsHaveSnapshots,
     assetSnapshotsChecked,
+    anyAssetWalletHasSnapshots,
     shared.hideAllBalances,
+    shared.hasWalletsForAsset,
   ]);
+
+  useDevRenderTrace('AssetBalanceHistoryScreen', {
+    assetKey: [
+      shared.assetContext.currencyAbbreviation,
+      shared.assetContext.chain,
+      shared.assetContext.tokenAddress || '',
+    ].join(':'),
+    displayedTimeframe,
+    requestedTimeframe,
+    selectionActive,
+    shouldRenderBalanceChart,
+    hasWalletsForAsset: shared.hasWalletsForAsset,
+    assetWalletCount: shared.assetWallets.length,
+    assetWalletIdsSignature,
+    currentFiatRate: shared.currentFiatRate ?? null,
+    assetTotalFiatBalance: shared.assetTotalFiatBalance,
+    snapshotsChecked: assetSnapshotsChecked,
+    anyAssetWalletHasSnapshots,
+    isAssetBalanceChartLoading,
+    isRefreshing,
+    analysisRequestKey: analysis.requestKey,
+    analysisLoading: analysis.loading,
+    analysisHasData: !!analysis.data,
+    analysisHasCommittedData: !!analysis.committedData,
+    displayedSummarySource: displayedSummary.source,
+    chartDiagnosticsTimeframe: chartDiagnostics?.timeframe ?? null,
+    chartDiagnosticsDisplayedTimeframe:
+      chartDiagnostics?.displayedTimeframe ?? null,
+    chartDiagnosticsLoading: chartDiagnostics?.loading ?? null,
+    chartRenderedPoints: chartDiagnostics?.renderedSeriesPointsCount ?? null,
+    changeRowSignature,
+    marketPriceDisplay,
+  });
 
   const topValue = shared.hideAllBalances ? '****' : formattedAssetBalance;
   const topValueIsLarge = shouldUseCompactFiatAmountText(formattedAssetBalance);
@@ -199,7 +426,7 @@ const AssetBalanceHistoryScreen = ({
     return buildAssetPnlDebugPayload({
       surface: selectionActive ? 'asset_details_selected' : 'asset_details_idle',
       assetKey: shared.assetContext.currencyAbbreviation.toLowerCase(),
-      gainLossMode: selectedTimeframe,
+      gainLossMode: displayedTimeframe,
       quoteCurrency: analysis.quoteCurrency || shared.resolvedQuoteCurrency,
       storedWallets: analysis.storedWallets,
       eligibleWallets: analysis.eligibleWallets,
@@ -236,7 +463,8 @@ const AssetBalanceHistoryScreen = ({
         },
         detailState: {
           displaySource: displayedSummary.source,
-          selectedTimeframe,
+          displayedTimeframe,
+          requestedTimeframe,
           idleRangeLabel,
           selectedAssetBalanceToDisplay: selectedAssetBalanceToDisplay ?? null,
           chartChangeRow: chartChangeRow || null,
@@ -266,7 +494,8 @@ const AssetBalanceHistoryScreen = ({
     idleSummary.assetMetrics,
     idleSummary.changeRow,
     selectedAssetBalanceToDisplay,
-    selectedTimeframe,
+    displayedTimeframe,
+    requestedTimeframe,
     selectionActive,
     shared.assetContext,
     shared.assetTotalFiatBalance,
@@ -277,30 +506,96 @@ const AssetBalanceHistoryScreen = ({
     topValue,
   ]);
 
+  const handleChartChangeRowData = useCallback(
+    (
+      nextChartChangeRow:
+        | {
+            percent: number;
+            deltaFiatFormatted?: string;
+            rangeLabel?: string;
+          }
+        | undefined,
+    ) => {
+      setChartChangeRow(prev =>
+        areChartChangeRowsEqual(prev, nextChartChangeRow)
+          ? prev
+          : nextChartChangeRow,
+      );
+    },
+    [],
+  );
+
+  const handleDisplayedAnalysisPointChange = useCallback(
+    (
+      nextDisplayedPoint:
+        | {
+            timestamp?: number;
+            totalFiatBalance?: number;
+            totalPnlChange?: number;
+            totalPnlPercent?: number;
+          }
+        | undefined,
+    ) => {
+      setChartDisplayedPoint(prev =>
+        areDisplayedAnalysisPointsEqual(prev, nextDisplayedPoint)
+          ? prev
+          : nextDisplayedPoint,
+      );
+    },
+    [],
+  );
+
+  const handleChartDiagnosticsChange = useCallback(
+    (nextDiagnostics: BalanceHistoryChartDiagnostics | undefined) => {
+      if (nextDiagnostics?.displayedTimeframe) {
+        setDisplayedTimeframe(prev =>
+          prev === nextDiagnostics.displayedTimeframe
+            ? prev
+            : nextDiagnostics.displayedTimeframe,
+        );
+      }
+
+      setChartDiagnostics(prev =>
+        areChartDiagnosticsEqual(prev, nextDiagnostics)
+          ? prev
+          : nextDiagnostics,
+      );
+    },
+    [],
+  );
+
+  const handleSelectedTimeframeChange = useCallback(
+    (nextTimeframe: FiatRateInterval) => {
+      setRequestedTimeframe(prev =>
+        prev === nextTimeframe ? prev : nextTimeframe,
+      );
+    },
+    [],
+  );
+
   return (
     <ExchangeRateScreenLayout
       changeRow={changeRow}
       chartSection={
-        shouldRenderBalanceChart ? (
-          <BalanceHistoryChart
-            wallets={shared.assetWallets}
-            quoteCurrency={shared.resolvedQuoteCurrency}
-            initialSelectedTimeframe={selectedTimeframe}
-            rates={shared.rates}
-            lineColor={shared.chartLineColor}
-            gradientStartColor={shared.gradientBackgroundColor}
-            showLoaderWhenNoSnapshots={
-              isAssetBalanceChartLoading || isRefreshing
-            }
-            onChangeRowData={setChartChangeRow}
-            onDisplayedAnalysisPointChange={setChartDisplayedPoint}
-            onDiagnosticsChange={setChartDiagnostics}
-            onSelectionActiveChange={setSelectionActive}
-            onSelectedTimeframeChange={setSelectedTimeframe}
-            showChangeRow={false}
-            timeframeSelectorHorizontalInset={ScreenGutter}
-          />
-        ) : null
+        <AssetBalanceChartSection
+          shouldRender={shouldRenderBalanceChart}
+          wallets={shared.assetWallets}
+          quoteCurrency={shared.resolvedQuoteCurrency}
+          initialSelectedTimeframe={displayedTimeframe}
+          rates={shared.rates}
+          lineColor={shared.chartLineColor}
+          gradientStartColor={shared.gradientBackgroundColor}
+          showLoaderWhenNoSnapshots={
+            isAssetBalanceChartLoading ||
+            isRefreshing ||
+            isTimeframeTransitionPending
+          }
+          onChangeRowData={handleChartChangeRowData}
+          onDisplayedAnalysisPointChange={handleDisplayedAnalysisPointChange}
+          onDiagnosticsChange={handleChartDiagnosticsChange}
+          onSelectionActiveChange={setSelectionActive}
+          onSelectedTimeframeChange={handleSelectedTimeframeChange}
+        />
       }
       isRefreshing={isRefreshing}
       marketPriceDisplay={marketPriceDisplay}

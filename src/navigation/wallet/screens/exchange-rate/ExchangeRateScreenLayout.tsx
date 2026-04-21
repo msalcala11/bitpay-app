@@ -33,6 +33,10 @@ import {
 import {ExternalServicesScreens} from '../../../services/ExternalServicesGroup';
 import {Analytics} from '../../../../store/analytics/analytics.effects';
 import {useAppDispatch} from '../../../../utils/hooks';
+import {
+  useDevLayoutTrace,
+  useDevRenderTrace,
+} from '../../../../utils/hooks/useDevRenderTrace';
 import type {ExchangeRateSharedModel} from './useExchangeRateSharedModel';
 import {
   resolveExchangeRateTopChangeRow,
@@ -272,6 +276,34 @@ const ExchangeRateScreenLayout = ({
     changeRow,
     reserveSpace: reserveChangeRowSpace,
   });
+  const actionsContainerOnLayout = useDevLayoutTrace(
+    'AssetDetailsActionsLayout',
+  );
+  const changeRowSignature = resolvedTopChangeRow
+    ? [
+        resolvedTopChangeRow.percent,
+        resolvedTopChangeRow.deltaFiatFormatted || '',
+        resolvedTopChangeRow.rangeLabel || '',
+        resolvedTopChangeRow.hidden ? '1' : '0',
+      ].join('|')
+    : '';
+
+  useDevRenderTrace('ExchangeRateScreenLayout', {
+    assetKey: [
+      shared.assetContext.currencyAbbreviation,
+      shared.assetContext.chain,
+      shared.assetContext.tokenAddress || '',
+    ].join(':'),
+    walletCount: shared.walletsForAsset.length,
+    topValue,
+    topValueIsLarge,
+    marketPriceDisplay,
+    marketCapToDisplay: shared.marketCapToDisplay,
+    marketVolume24hToDisplay: shared.marketVolume24hToDisplay,
+    changeRowSignature,
+    isRefreshing,
+    isAboutExpanded,
+  });
 
   return (
     <ScreenContainer>
@@ -309,8 +341,9 @@ const ExchangeRateScreenLayout = ({
 
         {chartSection}
 
-        <ActionsContainer>
+        <ActionsContainer onLayout={actionsContainerOnLayout}>
           <LinkingButtons
+            debugTraceName="AssetDetailsLinkingButtons"
             maxWidth={500}
             buy={{
               cta: () => {
