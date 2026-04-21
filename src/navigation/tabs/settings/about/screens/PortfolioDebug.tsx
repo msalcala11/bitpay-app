@@ -22,6 +22,7 @@ import type {
 import type {Wallet} from '../../../../../store/wallet/wallet.models';
 import type {SnapshotBalanceMismatch} from '../../../../../store/portfolio/portfolio.models';
 import {clearPortfolioWithRuntime, populatePortfolio} from '../../../../../store/portfolio';
+import {clearPortfolioCharts} from '../../../../../store/portfolio-charts';
 import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
 import {
   DebugButtonRow,
@@ -450,6 +451,17 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
     }
   }, [load]);
 
+  const clearCharts = useCallback(() => {
+    try {
+      setRuntimeError('');
+      dispatch(clearPortfolioCharts());
+      load();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRuntimeError(message);
+    }
+  }, [dispatch, load]);
+
   return (
     <DebugScreenContainer>
       <ScrollView keyboardShouldPersistTaps="handled">
@@ -491,6 +503,11 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
             </DebugPillButton>
             <DebugPillButton onPress={clearRates}>
               <DebugPillButtonText>{t('Clear Rates')}</DebugPillButtonText>
+            </DebugPillButton>
+            <DebugPillButton onPress={clearCharts}>
+              <DebugPillButtonText>
+                {t('Clear Portfolio Charts')}
+              </DebugPillButtonText>
             </DebugPillButton>
             <DebugPillButton disabled={isClearing} onPress={clearAll}>
               <DebugPillButtonText>
