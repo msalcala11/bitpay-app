@@ -23,6 +23,18 @@ function createDeferred<T>(): Deferred<T> {
 
 let latestInteractiveLineChartProps: any;
 let latestTimeframeSelectorProps: any;
+let mockHistoricalRatesReady = true;
+let mockOneWeekCachedSeriesStatus: 'fresh' | 'pending_historical' | 'stale' =
+  'stale';
+const mockEmptyHistoricalRateDeps: any[] = [];
+const mockEmptyHistoricalRateRequests: any[] = [];
+const mockEmptyHistoricalRateCacheKeys: any[] = [];
+const mockReadyHistoricalRateCache = {
+  ready: {
+    points: [],
+  },
+};
+const mockPendingHistoricalRateCache = {};
 
 const mockOneDayPoint = {date: new Date(1_000), value: 100};
 const mockOneWeekPoint = {date: new Date(2_000), value: 150};
@@ -176,14 +188,18 @@ jest.mock('../../utils/portfolio/chartCache', () => ({
 }));
 
 jest.mock('../../utils/portfolio/balanceChartData', () => ({
-  areBalanceChartHistoricalRatesReady: jest.fn(() => true),
-  buildBalanceChartHistoricalRateDeps: jest.fn(() => []),
-  buildBalanceChartHistoricalRateRequests: jest.fn(() => []),
+  areBalanceChartHistoricalRatesReady: jest.fn(() => mockHistoricalRatesReady),
+  buildBalanceChartHistoricalRateDeps: jest.fn(() => mockEmptyHistoricalRateDeps),
+  buildBalanceChartHistoricalRateRequests: jest.fn(
+    () => mockEmptyHistoricalRateRequests,
+  ),
   buildCachedTimeframeFromRuntimeChart: jest.fn(() => undefined),
   buildHydratedSeriesFromRuntimeChart: jest.fn((args: {chart: {__series: any}}) => {
     return args.chart.__series;
   }),
-  getBalanceChartHistoricalRateCacheKeys: jest.fn(() => []),
+  getBalanceChartHistoricalRateCacheKeys: jest.fn(
+    () => mockEmptyHistoricalRateCacheKeys,
+  ),
   getBalanceChartHistoricalRateCacheRevision: jest.fn(() => 'hist-rev'),
   resolveCachedBalanceChartSeries: jest.fn(
     (args: {cachedTimeframe?: {timeframe?: string}}) => {
@@ -194,8 +210,24 @@ jest.mock('../../utils/portfolio/balanceChartData', () => ({
         };
       }
 
+       if (args.cachedTimeframe?.timeframe === '1W') {
+         if (mockOneWeekCachedSeriesStatus === 'fresh') {
+           return {
+             status: 'fresh',
+             series: mockOneWeekSeries,
+           };
+         }
+
+         if (mockOneWeekCachedSeriesStatus === 'pending_historical') {
+           return {
+             status: 'pending_historical',
+             series: mockOneWeekSeries,
+           };
+         }
+       }
+
       return {
-        status: 'stale',
+        status: 'stale_historical',
         series: undefined,
       };
     },
@@ -232,16 +264,21 @@ const mockRunPortfolioChartQuery = runPortfolioChartQuery as jest.Mock;
 
 describe('BalanceHistoryChart', () => {
   beforeEach(() => {
+    jest.useRealTimers();
     latestInteractiveLineChartProps = undefined;
     latestTimeframeSelectorProps = undefined;
+    mockHistoricalRatesReady = true;
+    mockOneWeekCachedSeriesStatus = 'stale';
     mockUseAppDispatch.mockReset();
     mockUseAppDispatch.mockReturnValue(jest.fn());
     mockUsePortfolioHistoricalRateDepsCache.mockReset();
-    mockUsePortfolioHistoricalRateDepsCache.mockReturnValue({
-      cache: {},
-      loading: false,
+    mockUsePortfolioHistoricalRateDepsCache.mockImplementation(() => ({
+      cache: mockHistoricalRatesReady
+        ? mockReadyHistoricalRateCache
+        : mockPendingHistoricalRateCache,
+      loading: !mockHistoricalRatesReady,
       error: undefined,
-    });
+    }));
     mockUsePortfolioBalanceChartScope.mockReset();
     mockUsePortfolioBalanceChartScope.mockReturnValue({
       asOfMs: 1234,
@@ -270,7 +307,12 @@ describe('BalanceHistoryChart', () => {
     mockRunPortfolioChartQuery.mockReset();
   });
 
-  it('keeps the previous series visible under the loader during an uncached timeframe switch and swaps immediately when the new result resolves', async () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('avoids flashing the loader when an uncached timeframe switch resolves before the pending overlay delay', async () => {
+    jest.useFakeTimers();
     const deferred = createDeferred<{__series: typeof mockOneWeekSeries}>();
     mockRunPortfolioChartQuery.mockReturnValue(deferred.promise);
 
@@ -298,6 +340,64 @@ describe('BalanceHistoryChart', () => {
     });
 
     expect(mockRunPortfolioChartQuery).toHaveBeenCalledTimes(1);
+    expect(latestInteractiveLineChartProps.isLoading).toBe(false);
+    expect(latestInteractiveLineChartProps.points).toBe(
+      mockOneDaySeries.graphPoints,
+    );
+
+    await act(async () => {
+      jest.advanceTimersByTime(100);
+      deferred.resolve({__series: mockOneWeekSeries});
+      await deferred.promise;
+    });
+
+    expect(latestInteractiveLineChartProps.isLoading).toBe(false);
+    expect(latestInteractiveLineChartProps.points).toBe(
+      mockOneWeekSeries.graphPoints,
+    );
+  });
+
+  it('shows the delayed loader over the previous series during a slow uncached timeframe switch', async () => {
+    jest.useFakeTimers();
+    const deferred = createDeferred<{__series: typeof mockOneWeekSeries}>();
+    mockRunPortfolioChartQuery.mockReturnValue(deferred.promise);
+
+    await act(async () => {
+      TestRenderer.create(
+        <BalanceHistoryChart
+          wallets={[
+            {
+              id: 'wallet-1',
+            } as any,
+          ]}
+          quoteCurrency="USD"
+          showLoaderWhenNoSnapshots
+        />,
+      );
+    });
+
+    await act(async () => {
+      latestTimeframeSelectorProps.onSelect('1W');
+    });
+
+    expect(latestInteractiveLineChartProps.isLoading).toBe(false);
+    expect(latestInteractiveLineChartProps.points).toBe(
+      mockOneDaySeries.graphPoints,
+    );
+
+    await act(async () => {
+      jest.advanceTimersByTime(119);
+    });
+
+    expect(latestInteractiveLineChartProps.isLoading).toBe(false);
+    expect(latestInteractiveLineChartProps.points).toBe(
+      mockOneDaySeries.graphPoints,
+    );
+
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
+
     expect(latestInteractiveLineChartProps.isLoading).toBe(true);
     expect(latestInteractiveLineChartProps.points).toBe(
       mockOneDaySeries.graphPoints,
@@ -306,6 +406,74 @@ describe('BalanceHistoryChart', () => {
     await act(async () => {
       deferred.resolve({__series: mockOneWeekSeries});
       await deferred.promise;
+    });
+
+    expect(latestInteractiveLineChartProps.isLoading).toBe(false);
+    expect(latestInteractiveLineChartProps.points).toBe(
+      mockOneWeekSeries.graphPoints,
+    );
+  });
+
+  it('renders a pending historical cached timeframe immediately without showing the delayed loader', async () => {
+    jest.useFakeTimers();
+    mockHistoricalRatesReady = false;
+    mockOneWeekCachedSeriesStatus = 'pending_historical';
+    mockUsePortfolioBalanceChartScope.mockReturnValue({
+      asOfMs: 1234,
+      cachedScope: {
+        timeframes: {
+          '1D': {timeframe: '1D'},
+          '1W': {timeframe: '1W'},
+        },
+      },
+      chartDataRevisionSig: 'chart-rev',
+      currentRatesByAssetId: {},
+      currentRatesSignature: 'rates-rev',
+      currentSpotRatesByRateKey: {},
+      currentSpotRatesSignature: 'spot-rev',
+      quoteCurrency: 'USD',
+      scopeId: 'scope-1',
+      sortedWalletIds: ['wallet-1'],
+      storedWalletRequestSig: 'wallet-req',
+      storedWallets: [
+        {
+          summary: {
+            walletId: 'wallet-1',
+          },
+        },
+      ],
+    });
+
+    await act(async () => {
+      TestRenderer.create(
+        <BalanceHistoryChart
+          wallets={[
+            {
+              id: 'wallet-1',
+            } as any,
+          ]}
+          quoteCurrency="USD"
+          showLoaderWhenNoSnapshots
+        />,
+      );
+    });
+
+    expect(latestInteractiveLineChartProps.points).toBe(
+      mockOneDaySeries.graphPoints,
+    );
+
+    await act(async () => {
+      latestTimeframeSelectorProps.onSelect('1W');
+    });
+
+    expect(mockRunPortfolioChartQuery).not.toHaveBeenCalled();
+    expect(latestInteractiveLineChartProps.isLoading).toBe(false);
+    expect(latestInteractiveLineChartProps.points).toBe(
+      mockOneWeekSeries.graphPoints,
+    );
+
+    await act(async () => {
+      jest.advanceTimersByTime(120);
     });
 
     expect(latestInteractiveLineChartProps.isLoading).toBe(false);
