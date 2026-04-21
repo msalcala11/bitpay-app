@@ -67,8 +67,7 @@ import {
   BitpaySupportedTokens,
 } from '../../../constants/currencies';
 import {HISTORIC_RATES_CACHE_DURATION} from '../../../constants/wallet';
-import {Network} from '../../../constants';
-import SecurePasskeyBanner from './components/SecurePasskeyBanner';
+import SecurePasskeyBannerGate from './components/SecurePasskeyBannerGate';
 import DefaultMarketingCards from './components/DefaultMarketingCards';
 import AllocationSection from './components/AllocationSection';
 import AssetsSection from './components/AssetsSection';
@@ -134,26 +133,6 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
     portfolioAllocationTotalFiat > 0 || hasAnyVisibleWalletBalance;
 
   const showArchaxBanner = useAppSelector(({APP}) => APP.showArchaxBanner);
-  const network: Network = useAppSelector(({APP}) => APP.network);
-  const user = useAppSelector(({BITPAY_ID}) => BITPAY_ID.user[network]);
-  const passkeyCredentials = useAppSelector(
-    ({BITPAY_ID}) => BITPAY_ID.passkeyCredentials,
-  );
-  const [showSecureAccountBanner, setShowSecureAccountBanner] = useState(false);
-
-  // Check if user has passkey
-  useEffect(() => {
-    if (!user) {
-      setShowSecureAccountBanner(false);
-    } else if (
-      (passkeyCredentials && passkeyCredentials.length > 0) ||
-      !user?.verified
-    ) {
-      setShowSecureAccountBanner(false);
-    } else {
-      setShowSecureAccountBanner(true);
-    }
-  }, [passkeyCredentials, user]);
 
   const memoizedMarketingCards = useMemo(() => {
     const cards =
@@ -254,8 +233,8 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
           const {
             id,
             img,
-            currencyName,
-            currencyAbbreviation,
+            currencyName: optionCurrencyName,
+            currencyAbbreviation: optionCurrencyAbbreviation,
             chain,
             tokenAddress,
           } = option;
@@ -268,8 +247,8 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
           ratesList.push({
             id,
             img,
-            currencyName,
-            currencyAbbreviation,
+            currencyName: optionCurrencyName,
+            currencyAbbreviation: optionCurrencyAbbreviation,
             chain,
             tokenAddress: tokenAddress,
             average: percentChange,
@@ -479,11 +458,7 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
             </HomeSection>
 
             {/* ////////////////////////////// SECURE WITH PASSKEY */}
-            {showSecureAccountBanner ? (
-              <HomeSection>
-                <SecurePasskeyBanner />
-              </HomeSection>
-            ) : null}
+            <SecurePasskeyBannerGate />
 
             {showPortfolioValue ? (
               <HomeSection>

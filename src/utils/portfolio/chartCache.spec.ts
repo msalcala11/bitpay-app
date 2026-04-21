@@ -42,6 +42,20 @@ describe('chartCache', () => {
     ).toBe('patchable');
   });
 
+  it('marks cached charts patchable when asOfMs advances even if spot rates are unchanged', () => {
+    expect(
+      getCachedTimeframeStatus({
+        cachedTimeframe: makeCachedTimeframe(),
+        dataRevisionSig: 'rev-1',
+        currentSpotRatesByRateKey: {
+          eth: 100,
+        },
+        asOfMs: 10,
+        fiatRateSeriesCache: undefined,
+      }),
+    ).toBe('patchable');
+  });
+
   it('forces a refresh when live spot rates changed but cached charts cannot be patched', () => {
     expect(
       getCachedTimeframeStatus({
@@ -120,6 +134,18 @@ describe('chartCache', () => {
         cachedTimeframe: makeCachedTimeframe(),
         currentSpotRatesByRateKey: {
           eth: 120,
+        },
+        patchedAt: 10,
+      }).ts,
+    ).toEqual([1, 10]);
+  });
+
+  it('patches the effective final timestamp when only asOfMs advances', () => {
+    expect(
+      patchCachedLatestPointWithSpotRates({
+        cachedTimeframe: makeCachedTimeframe(),
+        currentSpotRatesByRateKey: {
+          eth: 100,
         },
         patchedAt: 10,
       }).ts,
