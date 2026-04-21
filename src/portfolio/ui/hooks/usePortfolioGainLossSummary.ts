@@ -208,7 +208,11 @@ export function usePortfolioGainLossSummary(args: {
           ? fiatRateSeriesCache
           : undefined,
       });
-      if (status === 'fresh' || status === 'patchable') {
+      if (
+        status === 'fresh' ||
+        status === 'patchable' ||
+        status === 'pending_historical'
+      ) {
         continue;
       }
 
