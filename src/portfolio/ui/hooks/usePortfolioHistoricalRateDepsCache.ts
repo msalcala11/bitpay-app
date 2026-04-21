@@ -1,8 +1,95 @@
-import {useMemo} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import type {FiatRateInterval, FiatRateSeriesCache} from '../../../store/rate/rate.models';
 import type {StoredWallet} from '../../core/types';
 import {buildBalanceChartHistoricalRateRequests} from '../../../utils/portfolio/balanceChartData';
 import useRuntimeFiatRateSeriesCache from './useRuntimeFiatRateSeriesCache';
+
+const hasCacheEntries = (cache: FiatRateSeriesCache | undefined): boolean =>
+  !!cache && Object.keys(cache).length > 0;
+
+const areSeriesPointsEqual = (
+  leftPoints: Array<{ts: number; rate: number}> | undefined,
+  rightPoints: Array<{ts: number; rate: number}> | undefined,
+): boolean => {
+  const left = Array.isArray(leftPoints) ? leftPoints : [];
+  const right = Array.isArray(rightPoints) ? rightPoints : [];
+
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let i = 0; i < left.length; i++) {
+    if (left[i]?.ts !== right[i]?.ts || left[i]?.rate !== right[i]?.rate) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+const areSeriesEntriesEqual = (
+  left:
+    | {
+        fetchedOn?: number;
+        points?: Array<{ts: number; rate: number}>;
+      }
+    | undefined,
+  right:
+    | {
+        fetchedOn?: number;
+        points?: Array<{ts: number; rate: number}>;
+      }
+    | undefined,
+): boolean => {
+  if (left === right) {
+    return true;
+  }
+
+  if (!left || !right) {
+    return false;
+  }
+
+  return (
+    left.fetchedOn === right.fetchedOn &&
+    areSeriesPointsEqual(left.points, right.points)
+  );
+};
+
+const mergeCacheIfChanged = (
+  current: FiatRateSeriesCache,
+  updates: FiatRateSeriesCache | undefined,
+): FiatRateSeriesCache => {
+  if (!hasCacheEntries(updates)) {
+    return current;
+  }
+
+  let next = current;
+
+  for (const [cacheKey, series] of Object.entries(updates || {})) {
+    if (!series) {
+      continue;
+    }
+
+    if (
+      areSeriesEntriesEqual(
+        current[cacheKey] as
+          | {fetchedOn?: number; points?: Array<{ts: number; rate: number}>}
+          | undefined,
+        series,
+      )
+    ) {
+      continue;
+    }
+
+    if (next === current) {
+      next = {...current};
+    }
+
+    next[cacheKey] = series;
+  }
+
+  return next;
+};
 
 export function usePortfolioHistoricalRateDepsCache(args: {
   wallets: StoredWallet[];
@@ -53,12 +140,38 @@ export function usePortfolioHistoricalRateDepsCache(args: {
       !!displayQuoteGroup?.requests?.length,
   });
 
+  const emptyCacheRef = useRef<FiatRateSeriesCache>({});
+  const [retainedCanonicalCache, setRetainedCanonicalCache] =
+    useState<FiatRateSeriesCache>(emptyCacheRef.current);
+  const [retainedDisplayQuoteCache, setRetainedDisplayQuoteCache] =
+    useState<FiatRateSeriesCache>(emptyCacheRef.current);
+
+  useEffect(() => {
+    if (!hasCacheEntries(canonicalCacheState.cache)) {
+      return;
+    }
+
+    setRetainedCanonicalCache(prev =>
+      mergeCacheIfChanged(prev, canonicalCacheState.cache),
+    );
+  }, [canonicalCacheState.cache]);
+
+  useEffect(() => {
+    if (!hasCacheEntries(displayQuoteCacheState.cache)) {
+      return;
+    }
+
+    setRetainedDisplayQuoteCache(prev =>
+      mergeCacheIfChanged(prev, displayQuoteCacheState.cache),
+    );
+  }, [displayQuoteCacheState.cache]);
+
   const cache = useMemo<FiatRateSeriesCache>(() => {
     return {
-      ...(canonicalCacheState.cache || {}),
-      ...(displayQuoteCacheState.cache || {}),
+      ...(retainedCanonicalCache || {}),
+      ...(retainedDisplayQuoteCache || {}),
     };
-  }, [canonicalCacheState.cache, displayQuoteCacheState.cache]);
+  }, [retainedCanonicalCache, retainedDisplayQuoteCache]);
 
   return {
     cache,
