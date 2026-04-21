@@ -1,4 +1,4 @@
-import React, {useCallback, useMemo} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import Clipboard from '@react-native-clipboard/clipboard';
 import {ImageRequireSource} from 'react-native';
 import {NavigationProp, useNavigation} from '@react-navigation/native';
@@ -33,10 +33,12 @@ import {
 } from '../../../../utils/portfolio/assets';
 import {createSupportedCurrencyOptionLookup} from '../../../../utils/portfolio/supportedCurrencyOptionsLookup';
 import {redactDebugIdentifiers} from '../../../../portfolio/ui/debug/buildAssetPnlDebugPayload';
+import {resolveAssetRowDisplayPresentation} from './assetRowLoading';
 
 const supportedCurrencyOptionLookup = createSupportedCurrencyOptionLookup(
   SupportedCurrencyOptions,
 );
+const PRESERVED_ASSET_ROW_LOADING_DELAY_MS = 250;
 
 const Row = styled(TouchableOpacity)<{isLast: boolean}>`
   flex-direction: row;
@@ -140,34 +142,70 @@ const AssetRow: React.FC<Props> = ({
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const theme = useTheme();
   const hideAllBalances = useAppSelector(({APP}) => APP.hideAllBalances);
+  const rowLoading = !!(isFiatLoading || isPopulateLoading);
+  const lastSettledItemRef = useRef<AssetRowItem | undefined>(undefined);
+  const [loadingDelayElapsed, setLoadingDelayElapsed] = useState(false);
+
+  useEffect(() => {
+    if (!rowLoading) {
+      lastSettledItemRef.current = item;
+      setLoadingDelayElapsed(false);
+      return;
+    }
+
+    if (!lastSettledItemRef.current) {
+      setLoadingDelayElapsed(true);
+      return;
+    }
+
+    setLoadingDelayElapsed(false);
+    const timeout = setTimeout(() => {
+      setLoadingDelayElapsed(true);
+    }, PRESERVED_ASSET_ROW_LOADING_DELAY_MS);
+
+    return () => clearTimeout(timeout);
+  }, [item, rowLoading]);
+  const {
+    displayItem,
+    shouldShowSkeleton,
+    usingPreservedItem,
+  } = useMemo(() => {
+    return resolveAssetRowDisplayPresentation({
+      item,
+      preservedItem: lastSettledItemRef.current,
+      isLoading: rowLoading,
+      loadingDelayElapsed,
+    });
+  }, [item, loadingDelayElapsed, rowLoading]);
   const option = useMemo(() => {
     return supportedCurrencyOptionLookup.getOption({
-      currencyAbbreviation: item.currencyAbbreviation,
-      chain: item.chain,
-      tokenAddress: item.tokenAddress,
+      currencyAbbreviation: displayItem.currencyAbbreviation,
+      chain: displayItem.chain,
+      tokenAddress: displayItem.tokenAddress,
     });
-  }, [item.chain, item.currencyAbbreviation, item.tokenAddress]);
-  const hasRate = !!item.hasRate;
-  const hasPnl = !!item.hasPnl;
-  const showPnlPlaceholder = !!item.showPnlPlaceholder;
-  const showScopedPnlLoading = !!item.showScopedPnlLoading;
+  }, [displayItem.chain, displayItem.currencyAbbreviation, displayItem.tokenAddress]);
+  const hasRate = !!displayItem.hasRate;
+  const hasPnl = !!displayItem.hasPnl;
+  const showPnlPlaceholder = !!displayItem.showPnlPlaceholder;
+  const showScopedPnlLoading = !!displayItem.showScopedPnlLoading;
   const shouldShowRightSide =
     hasRate || showPnlPlaceholder || showScopedPnlLoading;
   const canNavigate = useMemo(() => {
     return canNavigateToExchangeRateForAssetRowItem({
-      item,
+      item: displayItem,
       options: option ? [option] : [],
     });
-  }, [item, option]);
+  }, [displayItem, option]);
   const shouldShowDeltaFiat = hasPnl;
   const shouldShowDeltaFiatSkeleton =
     shouldShowDeltaFiat || showPnlPlaceholder || showScopedPnlLoading;
   const isCryptoAmountLoading =
+    shouldShowSkeleton &&
     !!isPopulateLoading &&
     !isFiatLoading &&
-    !String(item.cryptoAmount || '').trim();
+    !String(displayItem.cryptoAmount || '').trim();
 
-  const fiatAmountDisplay = hasRate ? item.fiatAmount : '— ';
+  const fiatAmountDisplay = hasRate ? displayItem.fiatAmount : '— ';
   const debugCopyPayload = useMemo(() => {
     if (!item.debugCopyPayload) {
       return undefined;
@@ -193,6 +231,8 @@ const AssetRow: React.FC<Props> = ({
         hasPnl,
         showPnlPlaceholder,
         showScopedPnlLoading,
+        shouldShowSkeleton,
+        usingPreservedItem,
         shouldShowRightSide,
         shouldShowDeltaFiat,
         shouldShowDeltaFiatSkeleton,
@@ -222,11 +262,13 @@ const AssetRow: React.FC<Props> = ({
     item.key,
     item.name,
     item.tokenAddress,
+    shouldShowSkeleton,
     shouldShowDeltaFiat,
     shouldShowDeltaFiatSkeleton,
     shouldShowRightSide,
     showScopedPnlLoading,
     showPnlPlaceholder,
+    usingPreservedItem,
   ]);
 
   const handlePress = () => {
@@ -235,11 +277,11 @@ const AssetRow: React.FC<Props> = ({
     }
 
     navigation.navigate('ExchangeRate', {
-      currencyName: option.currencyName || item.name,
+      currencyName: option.currencyName || displayItem.name,
       currencyAbbreviation:
-        option.currencyAbbreviation || item.currencyAbbreviation,
-      chain: option.chain || item.chain,
-      tokenAddress: option.tokenAddress || item.tokenAddress,
+        option.currencyAbbreviation || displayItem.currencyAbbreviation,
+      chain: option.chain || displayItem.chain,
+      tokenAddress: option.tokenAddress || displayItem.tokenAddress,
       chartType: 'assetBalanceHistory',
     });
   };
@@ -258,8 +300,8 @@ const AssetRow: React.FC<Props> = ({
     <Row
       activeOpacity={canNavigate ? ActiveOpacity : 1}
       isLast={isLast}
-      testID={`home-asset-row-item-${item.currencyAbbreviation}-${item.chain}`}
-      accessibilityLabel={`${item.name} asset`}
+      testID={`home-asset-row-item-${displayItem.currencyAbbreviation}-${displayItem.chain}`}
+      accessibilityLabel={`${displayItem.name} asset`}
       accessibilityHint={
         debugCopyPayload
           ? 'Long press to copy asset debug diagnostics'
@@ -282,10 +324,10 @@ const AssetRow: React.FC<Props> = ({
 
       <AssetInfo>
         <AssetName numberOfLines={1} ellipsizeMode="tail">
-          {item.name}
+          {displayItem.name}
         </AssetName>
         {hideAllBalances ? (
-          <AssetAmount>{maskIfHidden(true, item.cryptoAmount)}</AssetAmount>
+          <AssetAmount>{maskIfHidden(true, displayItem.cryptoAmount)}</AssetAmount>
         ) : isCryptoAmountLoading ? (
           <SkeletonPlaceholder
             backgroundColor={theme.dark ? CharcoalBlack : NeutralSlate}
@@ -298,7 +340,7 @@ const AssetRow: React.FC<Props> = ({
             />
           </SkeletonPlaceholder>
         ) : (
-          <AssetAmount>{item.cryptoAmount}</AssetAmount>
+          <AssetAmount>{displayItem.cryptoAmount}</AssetAmount>
         )}
       </AssetInfo>
 
@@ -311,12 +353,12 @@ const AssetRow: React.FC<Props> = ({
                   {hasRate ? maskIfHidden(true, fiatAmountDisplay) : '—'}
                 </FiatAmount>
                 {shouldShowDeltaFiat ? (
-                  <DeltaFiat isPositive={item.isPositive} hasPnl={hasPnl}>
-                    {maskIfHidden(true, item.deltaFiat)}
+                  <DeltaFiat isPositive={displayItem.isPositive} hasPnl={hasPnl}>
+                    {maskIfHidden(true, displayItem.deltaFiat)}
                   </DeltaFiat>
                 ) : null}
               </>
-            ) : isFiatLoading || isPopulateLoading ? (
+            ) : shouldShowSkeleton ? (
               <SkeletonPlaceholder
                 backgroundColor={theme.dark ? CharcoalBlack : NeutralSlate}
                 highlightColor={theme.dark ? LightBlack : GhostWhite}>
@@ -339,8 +381,8 @@ const AssetRow: React.FC<Props> = ({
               <>
                 <FiatAmount>{fiatAmountDisplay}</FiatAmount>
                 {shouldShowDeltaFiat ? (
-                  <DeltaFiat isPositive={item.isPositive} hasPnl={hasPnl}>
-                    {item.deltaFiat}
+                  <DeltaFiat isPositive={displayItem.isPositive} hasPnl={hasPnl}>
+                    {displayItem.deltaFiat}
                   </DeltaFiat>
                 ) : null}
               </>
@@ -348,7 +390,7 @@ const AssetRow: React.FC<Props> = ({
           </Values>
 
           <PercentPill>
-            {isFiatLoading || isPopulateLoading ? (
+            {shouldShowSkeleton ? (
               <SkeletonPlaceholder
                 backgroundColor={theme.dark ? CharcoalBlack : NeutralSlate}
                 highlightColor={theme.dark ? LightBlack : GhostWhite}>
@@ -359,8 +401,8 @@ const AssetRow: React.FC<Props> = ({
                 />
               </SkeletonPlaceholder>
             ) : (
-              <PercentText isPositive={item.isPositive} hasPnl={hasPnl}>
-                {item.deltaPercent}
+              <PercentText isPositive={displayItem.isPositive} hasPnl={hasPnl}>
+                {displayItem.deltaPercent}
               </PercentText>
             )}
           </PercentPill>

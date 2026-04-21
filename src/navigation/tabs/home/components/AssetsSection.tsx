@@ -10,6 +10,10 @@ import AssetsList from './AssetsList';
 import {GainLossMode} from '../../../../utils/portfolio/assets';
 import AssetsGainLossDropdown from './AssetsGainLossDropdown';
 import {useAppSelector} from '../../../../utils/hooks';
+import {
+  useDevLayoutTrace,
+  useDevRenderTrace,
+} from '../../../../utils/hooks/useDevRenderTrace';
 import usePortfolioAssetRows from '../hooks/usePortfolioAssetRows';
 import useScreenFocusRefreshToken from '../hooks/useScreenFocusRefreshToken';
 
@@ -48,6 +52,37 @@ const AssetsSection: React.FC = () => {
   const items = useMemo(() => {
     return visibleItems.slice(0, 4);
   }, [visibleItems]);
+  const itemSignature = useMemo(() => {
+    return items
+      .map(
+        item =>
+          `${item.key}:${item.fiatAmount}:${item.deltaFiat}:${item.deltaPercent}:${item.showScopedPnlLoading ? '1' : '0'}:${item.showPnlPlaceholder ? '1' : '0'}`,
+      )
+      .join('|');
+  }, [items]);
+  const populateLoadingSignature = useMemo(() => {
+    return Object.entries(isPopulateLoadingByKey || {})
+      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+      .map(([key, loading]) => `${key}:${loading ? '1' : '0'}`)
+      .join('|');
+  }, [isPopulateLoadingByKey]);
+  const assetsSectionOnLayout = useDevLayoutTrace('HomeAssetsSectionLayout');
+
+  useDevRenderTrace('AssetsSection', {
+    gainLossMode,
+    focusRefreshToken:
+      focusRefreshToken == null ? '' : String(focusRefreshToken),
+    populateInProgress: !!portfolio.populateStatus?.inProgress,
+    populateWalletsCompleted: portfolio.populateStatus?.walletsCompleted ?? null,
+    populateFinishedAt: portfolio.populateStatus?.finishedAt ?? null,
+    lastPopulatedAt: portfolio.lastPopulatedAt ?? null,
+    visibleItemCount: visibleItems.length,
+    renderedItemCount: items.length,
+    itemSignature,
+    isFiatLoading: !!isFiatLoading,
+    populateLoadingSignature,
+    hasAnyPortfolioData,
+  });
 
   if (!portfolio.populateStatus?.inProgress && !hasAnyPortfolioData) {
     return null;
@@ -58,7 +93,7 @@ const AssetsSection: React.FC = () => {
   }
 
   return (
-    <Container>
+    <Container onLayout={assetsSectionOnLayout}>
       <Header>
         <HomeSectionTitle>{t('Assets')}</HomeSectionTitle>
         <AssetsGainLossDropdown
@@ -89,4 +124,4 @@ const AssetsSection: React.FC = () => {
   );
 };
 
-export default AssetsSection;
+export default React.memo(AssetsSection);

@@ -30,6 +30,7 @@ import {
   getCurrencyAbbreviation,
   getLastDayTimestampStartOfHourMs,
 } from '../../../utils/helper-methods';
+import {useDevRenderTrace} from '../../../utils/hooks/useDevRenderTrace';
 import {getFiatRateFromSeriesCacheAtTimestamp} from '../../../utils/portfolio/rate';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import useRuntimeFiatRateSeriesCache from '../../../portfolio/ui/hooks/useRuntimeFiatRateSeriesCache';
@@ -280,6 +281,20 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
     });
   }, [fiatRateSeriesCache, lastDayRates, quoteCurrency, rates]);
 
+  useDevRenderTrace('HomeRoot', {
+    refreshing,
+    appIsLoading,
+    quoteCurrency,
+    keyCount: hasKeys,
+    walletCount: wallets.length,
+    pendingTxpCount: pendingTxps.length,
+    exchangeRateCount: memoizedExchangeRates.length,
+    showPortfolioAllocationSection,
+    showArchaxBanner,
+    marketingCardCount: memoizedMarketingCards.length,
+    shopWithCryptoCount: memoizedShopWithCryptoCards.length,
+  });
+
   useEffect(() => {
     return navigation.addListener('focus', () => {
       if (!appIsLoading) {
@@ -421,6 +436,7 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
             {hasKeys && showPortfolioValue ? (
               <HomeSection style={{marginBottom: 25}}>
                 <LinkingButtons
+                  debugTraceName="HomeRootLinkingButtons"
                   receive={{
                     cta: () => {
                       dispatch(

@@ -1,3 +1,5 @@
+import type {AssetRowItem} from '../../../../utils/portfolio/assets';
+
 export function getAssetRowPopulateLoading(args: {
   populateInProgress?: boolean;
   showPnlPlaceholder?: boolean;
@@ -21,4 +23,26 @@ export function getAssetRowFiatLoading(args: {
     (!!args.isFiatLoading && !!args.isRowPopulateLoading) ||
     (!args.populateInProgress && !!args.showScopedPnlLoading)
   );
+}
+
+export function resolveAssetRowDisplayPresentation(args: {
+  item: AssetRowItem;
+  preservedItem?: AssetRowItem;
+  isLoading: boolean;
+  loadingDelayElapsed: boolean;
+}): {
+  displayItem: AssetRowItem;
+  shouldShowSkeleton: boolean;
+  usingPreservedItem: boolean;
+} {
+  const hasPreservedItem = !!args.preservedItem;
+  const usingPreservedItem =
+    args.isLoading && hasPreservedItem && !args.loadingDelayElapsed;
+
+  return {
+    displayItem: usingPreservedItem ? (args.preservedItem as AssetRowItem) : args.item,
+    shouldShowSkeleton:
+      args.isLoading && (!hasPreservedItem || args.loadingDelayElapsed),
+    usingPreservedItem,
+  };
 }

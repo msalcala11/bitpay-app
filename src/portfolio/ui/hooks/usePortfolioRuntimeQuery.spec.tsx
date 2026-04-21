@@ -227,5 +227,6 @@ describe('usePortfolioRuntimeQuery', () => {
 
     expect(latestResult?.quoteCurrency).toBe('EUR');
     expect(latestResult?.data).toBeUndefined();
+    expect(latestResult?.loading).toBe(true);
   });
 });

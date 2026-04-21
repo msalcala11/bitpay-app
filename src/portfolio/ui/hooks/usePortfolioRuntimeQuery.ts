@@ -140,6 +140,10 @@ export function usePortfolioRuntimeQuery<T>(args: {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | undefined>(undefined);
   const lastClearDataTokenRef = useRef(clearDataToken);
+  const hasPendingRequest =
+    enabled !== false &&
+    !!storedWallets.length &&
+    data.requestKey !== requestKey;
 
   useEffect(() => {
     if (!clearDataOnRefreshToken) {
@@ -218,7 +222,7 @@ export function usePortfolioRuntimeQuery<T>(args: {
 
   return {
     data: data.requestKey === requestKey ? data.value : undefined,
-    loading,
+    loading: loading || hasPendingRequest,
     error,
     quoteCurrency,
     storedWallets,
