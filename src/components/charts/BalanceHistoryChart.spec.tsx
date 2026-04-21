@@ -207,6 +207,7 @@ jest.mock('../../portfolio/ui/common', () => ({
 }));
 
 jest.mock('../../utils/portfolio/chartCache', () => ({
+  BALANCE_HISTORY_CHART_CACHE_IDENTITY_KEY: 'balance_history_chart:89',
   getCachedBalanceChartTimeframe: jest.fn(
     (
       timeframes: Record<string, {timeframe: string}> | undefined,

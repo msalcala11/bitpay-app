@@ -2,6 +2,7 @@ import React from 'react';
 import TestRenderer, {act} from 'react-test-renderer';
 import {usePortfolioBalanceChartScope} from './usePortfolioBalanceChartScope';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
+import {buildBalanceChartScopeId} from '../../../utils/portfolio/chartCache';
 
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -13,15 +14,18 @@ jest.mock('../../../utils/hooks', () => ({
 jest.mock('../../../utils/portfolio/chartCache', () => ({
   buildBalanceChartScopeId: jest.fn(
     ({
+      cacheIdentityKey,
       walletIds,
       quoteCurrency,
       balanceOffset,
     }: {
+      cacheIdentityKey?: string;
       walletIds: string[];
       quoteCurrency: string;
       balanceOffset?: number;
     }) =>
       [
+        cacheIdentityKey || 'default',
         quoteCurrency,
         typeof balanceOffset === 'number' ? String(balanceOffset) : '0',
         walletIds.join(','),
@@ -116,6 +120,7 @@ jest.mock('../common', () => ({
 
 const mockUseAppDispatch = useAppDispatch as jest.Mock;
 const mockUseAppSelector = useAppSelector as jest.Mock;
+const mockBuildBalanceChartScopeId = buildBalanceChartScopeId as jest.Mock;
 
 let mockState: any;
 let latestResult:
@@ -129,8 +134,15 @@ const walletFactory = () =>
     currencyAbbreviation: 'btc',
   }) as any;
 
-const HookHarness = ({wallets}: {wallets: any[]}) => {
+const HookHarness = ({
+  cacheIdentityKey,
+  wallets,
+}: {
+  cacheIdentityKey?: string;
+  wallets: any[];
+}) => {
   latestResult = usePortfolioBalanceChartScope({
+    cacheIdentityKey,
     wallets,
   });
   return null;
@@ -139,6 +151,7 @@ const HookHarness = ({wallets}: {wallets: any[]}) => {
 describe('usePortfolioBalanceChartScope', () => {
   beforeEach(() => {
     latestResult = undefined;
+    mockBuildBalanceChartScopeId.mockClear();
     mockUseAppDispatch.mockReset();
     mockUseAppDispatch.mockReturnValue(jest.fn());
     mockUseAppSelector.mockReset();
@@ -186,5 +199,43 @@ describe('usePortfolioBalanceChartScope', () => {
 
     expect(latestResult?.chartDataRevisionSig).toBe('111');
     expect(latestResult?.asOfMs).toBe(5678);
+  });
+
+  it('includes the cache identity key in the scope id so different chart series do not collide', async () => {
+    let view: TestRenderer.ReactTestRenderer;
+
+    await act(async () => {
+      view = TestRenderer.create(
+        <HookHarness
+          cacheIdentityKey="balance_history_chart:89"
+          wallets={[walletFactory()]}
+        />,
+      );
+    });
+
+    expect(mockBuildBalanceChartScopeId).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        cacheIdentityKey: 'balance_history_chart:89',
+      }),
+    );
+    expect(latestResult?.scopeId).toBe('balance_history_chart:89|USD|0|wallet-1');
+
+    await act(async () => {
+      view!.update(
+        <HookHarness
+          cacheIdentityKey="balance_gain_loss_summary:2"
+          wallets={[walletFactory()]}
+        />,
+      );
+    });
+
+    expect(mockBuildBalanceChartScopeId).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        cacheIdentityKey: 'balance_gain_loss_summary:2',
+      }),
+    );
+    expect(latestResult?.scopeId).toBe(
+      'balance_gain_loss_summary:2|USD|0|wallet-1',
+    );
   });
 });

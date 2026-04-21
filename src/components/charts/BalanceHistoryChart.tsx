@@ -26,6 +26,7 @@ import {
   upsertBalanceChartScopeTimeframes,
 } from '../../store/portfolio-charts';
 import {
+  BALANCE_HISTORY_CHART_CACHE_IDENTITY_KEY,
   getCachedBalanceChartTimeframe,
   type HydratedBalanceChartSeries,
 } from '../../utils/portfolio/chartCache';
@@ -181,6 +182,7 @@ const BalanceHistoryChart = ({
   } = usePortfolioBalanceChartScope({
     wallets,
     balanceOffset,
+    cacheIdentityKey: BALANCE_HISTORY_CHART_CACHE_IDENTITY_KEY,
     quoteCurrency,
     rates: _rates,
   });

@@ -6,6 +6,7 @@ import {HISTORIC_RATES_CACHE_DURATION} from '../../../constants/wallet';
 import {useAppDispatch} from '../../../utils/hooks';
 import type {PortfolioGainLossSummary} from '../../../utils/portfolio/assets';
 import {
+  BALANCE_GAIN_LOSS_SUMMARY_CACHE_IDENTITY_KEY,
   getCachedBalanceChartTimeframe,
 } from '../../../utils/portfolio/chartCache';
 import {upsertBalanceChartScopeTimeframes} from '../../../store/portfolio-charts';
@@ -80,6 +81,7 @@ export function usePortfolioGainLossSummary(args: {
   } = usePortfolioBalanceChartScope({
     wallets: args.wallets,
     balanceOffset: 0,
+    cacheIdentityKey: BALANCE_GAIN_LOSS_SUMMARY_CACHE_IDENTITY_KEY,
   });
 
   const historicalRateRequests = useMemo(() => {

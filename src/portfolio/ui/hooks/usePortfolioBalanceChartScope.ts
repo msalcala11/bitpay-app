@@ -41,6 +41,7 @@ export type PortfolioBalanceChartScope = {
 export function usePortfolioBalanceChartScope(args: {
   wallets: Wallet[];
   balanceOffset?: number;
+  cacheIdentityKey?: string;
   quoteCurrency?: string;
   rates?: Rates;
 }): PortfolioBalanceChartScope {
@@ -130,8 +131,9 @@ export function usePortfolioBalanceChartScope(args: {
       walletIds: sortedWalletIds,
       quoteCurrency,
       balanceOffset,
+      cacheIdentityKey: args.cacheIdentityKey,
     });
-  }, [balanceOffset, quoteCurrency, sortedWalletIds]);
+  }, [args.cacheIdentityKey, balanceOffset, quoteCurrency, sortedWalletIds]);
 
   const cachedScope = useAppSelector(
     ({PORTFOLIO_CHARTS}) => PORTFOLIO_CHARTS.cacheByScopeId?.[scopeId],
