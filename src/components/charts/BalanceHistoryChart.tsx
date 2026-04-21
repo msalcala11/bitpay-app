@@ -130,6 +130,8 @@ type DisplayState = {
   queryRevisionKey: string;
 };
 
+const PENDING_CHART_OVERLAY_DELAY_MS = 120;
+
 const BalanceHistoryChart = ({
   wallets,
   quoteCurrency,
@@ -188,6 +190,7 @@ const BalanceHistoryChart = ({
   const [displayState, setDisplayState] = useState<DisplayState | undefined>();
   const [selectedPoint, setSelectedPoint] = useState<GraphPoint | undefined>();
   const [loading, setLoading] = useState(false);
+  const [pendingOverlayVisible, setPendingOverlayVisible] = useState(false);
   const [error, setError] = useState<Error | undefined>();
   const activeRequestIdRef = useRef(0);
   const gestureStartedRef = useRef(false);
@@ -302,6 +305,12 @@ const BalanceHistoryChart = ({
   ]);
   const cachedSelectedTimeframeStatus = cachedSelectedSeriesResult.status;
   const cachedSelectedSeries = cachedSelectedSeriesResult.series;
+  const committableCachedSelectedSeries =
+    cachedSelectedTimeframeStatus === 'fresh' ||
+    cachedSelectedTimeframeStatus === 'patchable' ||
+    cachedSelectedTimeframeStatus === 'pending_historical'
+      ? cachedSelectedSeries
+      : undefined;
 
   const queryRevisionKey = useMemo(() => {
     return [
@@ -324,21 +333,21 @@ const BalanceHistoryChart = ({
   ]);
 
   useEffect(() => {
-    if (!cachedSelectedSeries) {
+    if (!committableCachedSelectedSeries) {
       return;
     }
 
     setDisplayState(prev => {
       if (
         prev?.timeframe === selectedTimeframe &&
-        prev?.series === cachedSelectedSeries &&
+        prev?.series === committableCachedSelectedSeries &&
         prev?.queryRevisionKey === queryRevisionKey
       ) {
         return prev;
       }
 
       return {
-        series: cachedSelectedSeries,
+        series: committableCachedSelectedSeries,
         timeframe: selectedTimeframe,
         queryRevisionKey,
       };
@@ -350,7 +359,13 @@ const BalanceHistoryChart = ({
         scopeId,
       }),
     );
-  }, [cachedSelectedSeries, dispatch, queryRevisionKey, scopeId, selectedTimeframe]);
+  }, [
+    committableCachedSelectedSeries,
+    dispatch,
+    queryRevisionKey,
+    scopeId,
+    selectedTimeframe,
+  ]);
   const chartQueryArgsRef = useRef({
     wallets: storedWallets,
     quoteCurrency: committedQueryQuoteCurrency,
@@ -509,17 +524,17 @@ const BalanceHistoryChart = ({
       : undefined;
   const staleTimeframeDisplayState =
     !activeDisplayState &&
-    !cachedSelectedSeries &&
+    !committableCachedSelectedSeries &&
     displayState?.timeframe !== selectedTimeframe
       ? displayState
       : undefined;
   const renderedSeries =
     activeDisplayState?.series ||
-    cachedSelectedSeries ||
+    committableCachedSelectedSeries ||
     staleTimeframeDisplayState?.series;
   const displayedTimeframe =
     activeDisplayState?.timeframe ??
-    (cachedSelectedSeries ? selectedTimeframe : undefined) ??
+    (committableCachedSelectedSeries ? selectedTimeframe : undefined) ??
     staleTimeframeDisplayState?.timeframe ??
     selectedTimeframe;
 
@@ -662,8 +677,27 @@ const BalanceHistoryChart = ({
     const walletId = String(wallet?.id || '');
     return !!walletId && !!wallet;
   });
+  const isBusy = loading;
+  const shouldDelayPendingOverlay = isBusy && hasRenderableSeries;
+
+  useEffect(() => {
+    if (!shouldDelayPendingOverlay) {
+      setPendingOverlayVisible(false);
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      setPendingOverlayVisible(true);
+    }, PENDING_CHART_OVERLAY_DELAY_MS);
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [shouldDelayPendingOverlay]);
+
   const shouldShowLoader =
-    loading ||
+    pendingOverlayVisible ||
+    (isBusy && !hasRenderableSeries) ||
     (!hasRenderableSeries &&
       showLoaderWhenNoSnapshots &&
       hasAnyWallets);
@@ -684,7 +718,7 @@ const BalanceHistoryChart = ({
       currentRatesSignature,
       currentSpotRatesSignature,
       cachedSelectedTimeframeStatus,
-      loading,
+      loading: isBusy,
       hasRenderableSeries,
       selectionActive: !!selectedPoint,
       renderedSeriesPointsCount: renderedSeries?.analysisPoints?.length || 0,
@@ -721,7 +755,7 @@ const BalanceHistoryChart = ({
     displayedAnalysisPoint,
     displayedTimeframe,
     hasRenderableSeries,
-    loading,
+    isBusy,
     onDiagnosticsChange,
     queryRevisionKey,
     renderedSeries,
@@ -825,7 +859,7 @@ const BalanceHistoryChart = ({
         showFirstPointGuideLine={hasRenderableSeries}
         isLoading={shouldShowLoader}
         hideLineWhileLoading={!hasRenderableSeries}
-        enablePanGesture={!loading && !disablePanGesture && hasRenderableSeries}
+        enablePanGesture={!isBusy && !disablePanGesture && hasRenderableSeries}
         SelectionDot={ChartSelectionDot}
         TopAxisLabel={MaxAxisLabel}
         BottomAxisLabel={MinAxisLabel}
