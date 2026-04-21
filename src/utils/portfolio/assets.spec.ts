@@ -21,6 +21,12 @@ jest.mock('../../store/wallet/utils/wallet', () => ({
 }));
 
 jest.mock('../helper-methods', () => ({
+  formatCurrencyAbbreviation: jest.fn((value: string) =>
+    String(value || '').toUpperCase(),
+  ),
+  formatFiatAmount: jest.fn((value: number, currency: string) => {
+    return `${currency}:${value.toFixed(2)}`;
+  }),
   getCurrencyAbbreviation: jest.fn(
     (name: string, _chain: string) => String(name || '').toLowerCase(),
   ),
@@ -46,6 +52,7 @@ jest.mock('../helper-methods', () => ({
 
 import type {Wallet} from '../../store/wallet/wallet.models';
 import {
+  buildAssetPreviewRowItemsFromWallets,
   getWalletsMatchingExchangeRateAsset,
   getWalletLiveFiatBalance,
   sortAssetRowItemsByAssetFiatPriority,
@@ -147,6 +154,113 @@ describe('sortAssetRowItemsByAssetFiatPriority', () => {
         ],
       }).map(item => item.key),
     ).toEqual(['doge', 'btc']);
+  });
+});
+
+describe('buildAssetPreviewRowItemsFromWallets', () => {
+  const makeWallet = (args: {
+    id: string;
+    coin: string;
+    chain?: string;
+    currencyName?: string;
+    fiat: number;
+    crypto: string;
+    tokenAddress?: string;
+  }): Wallet =>
+    ({
+      id: args.id,
+      currencyAbbreviation: args.coin,
+      chain: args.chain || args.coin,
+      currencyName: args.currencyName,
+      tokenAddress: args.tokenAddress,
+      network: 'livenet',
+      balance: {
+        fiat: args.fiat,
+        crypto: args.crypto,
+      },
+    } as Wallet);
+
+  it('reuses an externally supplied asset order while aggregating live balances', () => {
+    const rows = buildAssetPreviewRowItemsFromWallets({
+      wallets: [
+        makeWallet({
+          id: 'btc-1',
+          coin: 'btc',
+          currencyName: 'Bitcoin',
+          fiat: 100,
+          crypto: '1',
+        }),
+        makeWallet({
+          id: 'doge-1',
+          coin: 'doge',
+          currencyName: 'Dogecoin',
+          fiat: 200,
+          crypto: '10',
+        }),
+        makeWallet({
+          id: 'btc-2',
+          coin: 'btc',
+          currencyName: 'Bitcoin',
+          fiat: 50,
+          crypto: '0.25',
+        }),
+      ],
+      quoteCurrency: 'USD',
+      orderedAssetKeys: ['doge', 'btc'],
+      showScopedPnlLoading: true,
+    });
+
+    expect(rows.map(row => row.key)).toEqual(['doge', 'btc']);
+    expect(rows).toEqual([
+      expect.objectContaining({
+        key: 'doge',
+        cryptoAmount: '10',
+        hasRate: true,
+        hasPnl: false,
+        showScopedPnlLoading: true,
+      }),
+      expect.objectContaining({
+        key: 'btc',
+        cryptoAmount: '1.25',
+        hasRate: true,
+        hasPnl: false,
+        showScopedPnlLoading: true,
+      }),
+    ]);
+  });
+
+  it('prefers a native wallet as the representative row identity for collapsed assets', () => {
+    const rows = buildAssetPreviewRowItemsFromWallets({
+      wallets: [
+        makeWallet({
+          id: 'eth-base',
+          coin: 'eth',
+          chain: 'base',
+          currencyName: 'Ethereum on Base',
+          fiat: 25,
+          crypto: '0.1',
+        }),
+        makeWallet({
+          id: 'eth-native',
+          coin: 'eth',
+          chain: 'eth',
+          currencyName: 'Ethereum',
+          fiat: 75,
+          crypto: '0.2',
+        }),
+      ],
+      quoteCurrency: 'USD',
+    });
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        key: 'eth',
+        chain: 'eth',
+        tokenAddress: undefined,
+        name: 'ETH',
+        cryptoAmount: '0.3',
+      }),
+    ]);
   });
 });
 

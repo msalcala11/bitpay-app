@@ -8,7 +8,12 @@ import {ScreenGutter} from '../../../../components/styled/Containers';
 import Button from '../../../../components/button/Button';
 import {HomeSectionTitle} from './Styled';
 import AssetsList from './AssetsList';
-import {AssetRowItem, GainLossMode} from '../../../../utils/portfolio/assets';
+import {
+  AssetRowItem,
+  GainLossMode,
+  buildAssetPreviewRowItemsFromWallets,
+  getVisibleWalletsFromKeys,
+} from '../../../../utils/portfolio/assets';
 import AssetsGainLossDropdown from './AssetsGainLossDropdown';
 import {useAppSelector} from '../../../../utils/hooks';
 import {
@@ -23,6 +28,11 @@ import {
 } from '../../../../utils/hooks/useDevRenderTrace';
 import usePortfolioAssetRows from '../hooks/usePortfolioAssetRows';
 import useScreenFocusRefreshToken from '../hooks/useScreenFocusRefreshToken';
+import {
+  buildAllocationDataFromWalletRows,
+  toAllocationWallet,
+} from '../../../../utils/portfolio/allocation';
+import type {Key} from '../../../../store/wallet/wallet.models';
 
 const Container = styled.View`
   margin-top: 5px;
@@ -76,12 +86,29 @@ const AssetsSection: React.FC<AssetsSectionProps> = ({enabled = true}) => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
-  const hasAnyWallets = useAppSelector(({WALLET}) =>
-    Object.values(WALLET?.keys || {}).some((key: any) =>
-      Array.isArray(key?.wallets) && key.wallets.length > 0,
-    ),
-  );
+  const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
+  const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
+  const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
   const focusRefreshToken = useScreenFocusRefreshToken();
+  const visibleWallets = useMemo(() => {
+    return getVisibleWalletsFromKeys(keys, homeCarouselConfig);
+  }, [homeCarouselConfig, keys]);
+  const topAssetKeys = useMemo(() => {
+    const allocationData = buildAllocationDataFromWalletRows(
+      visibleWallets.map(toAllocationWallet),
+      defaultAltCurrency.isoCode,
+    );
+
+    return allocationData.rows.slice(0, 4).map(row => row.key);
+  }, [defaultAltCurrency.isoCode, visibleWallets]);
+  const previewItems = useMemo(() => {
+    return buildAssetPreviewRowItemsFromWallets({
+      wallets: visibleWallets,
+      quoteCurrency: defaultAltCurrency.isoCode,
+      orderedAssetKeys: topAssetKeys,
+      showScopedPnlLoading: topAssetKeys.length > 0,
+    });
+  }, [defaultAltCurrency.isoCode, topAssetKeys, visibleWallets]);
   const {
     visibleItems,
     isFiatLoading,
@@ -94,8 +121,42 @@ const AssetsSection: React.FC<AssetsSectionProps> = ({enabled = true}) => {
   });
 
   const items = useMemo(() => {
-    return visibleItems.slice(0, 4);
-  }, [visibleItems]);
+    if (!previewItems.length) {
+      return visibleItems.slice(0, 4);
+    }
+
+    const previewItemsByKey = new Map(previewItems.map(item => [item.key, item]));
+    const visibleItemsByKey = new Map(visibleItems.map(item => [item.key, item]));
+    const nextItems: AssetRowItem[] = [];
+    const seenKeys = new Set<string>();
+    const shouldUsePreviewFallback =
+      !enabled || !!isFiatLoading || !visibleItems.length;
+
+    for (const key of topAssetKeys) {
+      const item =
+        visibleItemsByKey.get(key) ||
+        (shouldUsePreviewFallback ? previewItemsByKey.get(key) : undefined);
+      if (!item) {
+        continue;
+      }
+
+      nextItems.push(item);
+      seenKeys.add(key);
+    }
+
+    for (const item of visibleItems) {
+      if (seenKeys.has(item.key)) {
+        continue;
+      }
+
+      nextItems.push(item);
+      if (nextItems.length >= 4) {
+        break;
+      }
+    }
+
+    return nextItems.slice(0, 4);
+  }, [enabled, isFiatLoading, previewItems, topAssetKeys, visibleItems]);
   const itemSignature = useMemo(() => {
     return items
       .map(
@@ -121,6 +182,7 @@ const AssetsSection: React.FC<AssetsSectionProps> = ({enabled = true}) => {
     populateWalletsCompleted: portfolio.populateStatus?.walletsCompleted ?? null,
     populateFinishedAt: portfolio.populateStatus?.finishedAt ?? null,
     lastPopulatedAt: portfolio.lastPopulatedAt ?? null,
+    previewItemCount: previewItems.length,
     visibleItemCount: visibleItems.length,
     renderedItemCount: items.length,
     itemSignature,
@@ -130,9 +192,8 @@ const AssetsSection: React.FC<AssetsSectionProps> = ({enabled = true}) => {
   });
 
   const shouldShowActivationPlaceholder =
-    !enabled &&
     !items.length &&
-    (hasAnyWallets || !!portfolio.populateStatus?.inProgress);
+    (!!visibleWallets.length || !!portfolio.populateStatus?.inProgress);
 
   if (shouldShowActivationPlaceholder) {
     return (
@@ -158,7 +219,11 @@ const AssetsSection: React.FC<AssetsSectionProps> = ({enabled = true}) => {
     );
   }
 
-  if (!portfolio.populateStatus?.inProgress && !hasAnyPortfolioData) {
+  if (
+    !portfolio.populateStatus?.inProgress &&
+    !hasAnyPortfolioData &&
+    !previewItems.length
+  ) {
     return null;
   }
 
