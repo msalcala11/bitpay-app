@@ -132,6 +132,15 @@ const formatBytes = (bytes?: number): string => {
   return `${Number(fixed)} ${units[index]}`;
 };
 
+const getSerializedBytes = (value: unknown): number => {
+  try {
+    const serialized = JSON.stringify(value ?? null);
+    return typeof serialized === 'string' ? serialized.length : 0;
+  } catch {
+    return 0;
+  }
+};
+
 const toIso = (value?: number): string => {
   if (!Number.isFinite(value)) {
     return '—';
@@ -213,6 +222,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
   const dispatch = useAppDispatch();
 
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
+  const portfolioCharts = useAppSelector(({PORTFOLIO_CHARTS}) => PORTFOLIO_CHARTS);
   const walletKeys = useAppSelector(({WALLET}) => WALLET?.keys || {});
 
   const [walletRows, setWalletRows] = useState<RuntimeWalletRow[]>([]);
@@ -346,11 +356,21 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
       mismatchCount,
       rateEntries: rateEntries.length,
       kvStats,
+      portfolioChartsBytes: getSerializedBytes(portfolioCharts),
       populateStatus: portfolio.populateStatus,
       lastPopulatedAt: portfolio.lastPopulatedAt,
       lastRefreshedAt,
     };
-  }, [kvStats, lastRefreshedAt, portfolio.lastPopulatedAt, portfolio.populateStatus, rateEntries.length, walletRows, wallets.length]);
+  }, [
+    kvStats,
+    lastRefreshedAt,
+    portfolio.lastPopulatedAt,
+    portfolio.populateStatus,
+    portfolioCharts,
+    rateEntries.length,
+    walletRows,
+    wallets.length,
+  ]);
 
   const filteredWalletRows = useMemo(() => {
     if (!hasActiveQuery) {
@@ -493,6 +513,9 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
           {`Runtime bytes: ${formatBytes(summary.kvStats?.totalBytes)}\n`}
           {`Snapshot bytes: ${formatBytes(summary.kvStats?.snapBytes)}\n`}
           {`Rate bytes: ${formatBytes(summary.kvStats?.rateBytes)}\n`}
+          {`Portfolio chart cache bytes: ${formatBytes(
+            summary.portfolioChartsBytes,
+          )}\n`}
           {`Rate entries: ${summary.rateEntries}\n`}
           {`Populate in progress: ${summary.populateStatus?.inProgress ? 'yes' : 'no'}\n`}
           {`Wallets completed: ${summary.populateStatus?.walletsCompleted || 0}/${summary.populateStatus?.walletsTotal || 0}\n`}
