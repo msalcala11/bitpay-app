@@ -48,6 +48,7 @@ type LiveTailOverlay = {
 export type CachedTimeframeStatus =
   | 'fresh'
   | 'patchable'
+  | 'pending_historical'
   | 'stale_historical'
   | 'missing';
 
@@ -462,10 +463,12 @@ export const buildHistoricalRateDependencyMetadataFromCache = (args: {
   }));
 };
 
-const haveHistoricalRateDependenciesChanged = (args: {
+const getHistoricalRateDependencyStatus = (args: {
   historicalRateDeps: HistoricalRateDependencyMeta[];
   fiatRateSeriesCache: FiatRateSeriesCache | undefined;
-}): boolean => {
+}): 'unchanged' | 'pending' | 'changed' => {
+  let hasPendingDependency = false;
+
   for (const dep of args.historicalRateDeps || []) {
     if (!dep?.cacheKey) {
       continue;
@@ -475,7 +478,8 @@ const haveHistoricalRateDependenciesChanged = (args: {
       dep.cacheKey,
     );
     if (!current) {
-      return true;
+      hasPendingDependency = true;
+      continue;
     }
     const currentFetchedOn = toOptionalFiniteNumber(current.fetchedOn);
     const currentLastTs = getLatestSeriesPointTs(
@@ -483,10 +487,11 @@ const haveHistoricalRateDependenciesChanged = (args: {
       dep.cacheKey,
     );
     if (dep.fetchedOn !== currentFetchedOn || dep.lastTs !== currentLastTs) {
-      return true;
+      return 'changed';
     }
   }
-  return false;
+
+  return hasPendingDependency ? 'pending' : 'unchanged';
 };
 
 const isSpotRateDifferent = (a: number, b: number): boolean => {
@@ -563,13 +568,15 @@ export const getCachedTimeframeStatus = (args: {
     return 'stale_historical';
   }
 
-  if (
-    haveHistoricalRateDependenciesChanged({
-      historicalRateDeps: cachedTimeframe.historicalRateDeps || [],
-      fiatRateSeriesCache: args.fiatRateSeriesCache,
-    })
-  ) {
+  const historicalRateDependencyStatus = getHistoricalRateDependencyStatus({
+    historicalRateDeps: cachedTimeframe.historicalRateDeps || [],
+    fiatRateSeriesCache: args.fiatRateSeriesCache,
+  });
+  if (historicalRateDependencyStatus === 'changed') {
     return 'stale_historical';
+  }
+  if (historicalRateDependencyStatus === 'pending') {
+    return 'pending_historical';
   }
 
   const spotRateChange = getPatchableSpotRateChange({

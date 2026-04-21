@@ -80,6 +80,28 @@ describe('chartCache', () => {
     ).toBe('stale_historical');
   });
 
+  it('marks cached charts pending while historical rate dependencies are still loading', () => {
+    const cachedTimeframe = makeCachedTimeframe();
+    cachedTimeframe.historicalRateDeps = [
+      {
+        cacheKey: 'USD:btc:ALL',
+        fetchedOn: 10,
+        lastTs: 20,
+      },
+    ];
+
+    expect(
+      getCachedTimeframeStatus({
+        cachedTimeframe,
+        dataRevisionSig: 'rev-1',
+        currentSpotRatesByRateKey: {
+          eth: 100,
+        },
+        fiatRateSeriesCache: undefined,
+      }),
+    ).toBe('pending_historical');
+  });
+
   it('patches final total pnl change when live spot rates change', () => {
     expect(
       patchCachedLatestPointWithSpotRates({

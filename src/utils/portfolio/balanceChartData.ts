@@ -415,7 +415,10 @@ export function resolveCachedBalanceChartSeries(args: {
     fiatRateSeriesCache: args.fiatRateSeriesCache,
   });
 
-  if (status === 'missing' || status === 'stale_historical') {
+  if (
+    status === 'missing' ||
+    status === 'stale_historical'
+  ) {
     return {
       status,
       series: undefined,
@@ -426,7 +429,7 @@ export function resolveCachedBalanceChartSeries(args: {
     status,
     series: deserializeCachedTimeframeToComputedSeries(
       args.cachedTimeframe,
-      status === 'patchable'
+      status === 'patchable' || status === 'pending_historical'
         ? {
             currentSpotRatesByRateKey: args.currentSpotRatesByRateKey,
             patchedAt: args.asOfMs,

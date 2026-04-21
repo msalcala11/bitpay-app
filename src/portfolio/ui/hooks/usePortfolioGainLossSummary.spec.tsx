@@ -187,4 +187,12 @@ describe('usePortfolioGainLossSummary', () => {
       },
     });
   });
+
+  it('does not recompute summaries while cached chart timeframes are pending historical dependency validation', () => {
+    mockGetCachedTimeframeStatus.mockReturnValue('pending_historical');
+
+    render(<HookHarness />);
+
+    expect(mockRunPortfolioChartQuery).not.toHaveBeenCalled();
+  });
 });
