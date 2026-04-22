@@ -9,7 +9,6 @@ import {
 } from '../adapters/rn/walletMappers';
 import {getAssetIdFromWallet} from '../core/pnl/assetId';
 import {
-  compactPnlAnalysisResultForChart,
   type PnlAnalysisChartResult,
   type PnlAnalysisResult,
   type PnlTimeframe,
@@ -58,7 +57,8 @@ export function buildCommittedPortfolioRevisionToken(args: {
 
 // Backwards-compatible alias retained during the migration of portfolio UI
 // hooks to committed-only revision tokens.
-export const resolvePortfolioQuoteCurrency = resolveCommittedPortfolioQuoteCurrency;
+export const resolvePortfolioQuoteCurrency =
+  resolveCommittedPortfolioQuoteCurrency;
 export {buildCommittedPortfolioHoldingsRevisionToken};
 export {resolveActivePortfolioDisplayQuoteCurrency};
 
@@ -82,9 +82,9 @@ export function mapWalletsToStoredWallets(args: {
   eligibleWallets: Wallet[];
   storedWallets: StoredWallet[];
 } {
-  const eligibleWallets = (Array.isArray(args.wallets) ? args.wallets : []).filter(
-    isPortfolioRuntimeEligibleWallet,
-  );
+  const eligibleWallets = (
+    Array.isArray(args.wallets) ? args.wallets : []
+  ).filter(isPortfolioRuntimeEligibleWallet);
 
   return {
     eligibleWallets,
@@ -264,7 +264,7 @@ export async function runPortfolioChartQuery(args: {
   currentRatesByAssetId?: Record<string, number>;
   asOfMs?: number;
 }): Promise<PnlAnalysisChartResult> {
-  const analysis = await getPortfolioRuntimeClient().computeAnalysis({
+  return getPortfolioRuntimeClient().computeAnalysisChart({
     cfg: createPortfolioQueryBwsConfig(),
     wallets: args.wallets,
     quoteCurrency: args.quoteCurrency,
@@ -273,11 +273,11 @@ export async function runPortfolioChartQuery(args: {
     currentRatesByAssetId: args.currentRatesByAssetId,
     nowMs: args.asOfMs,
   });
-
-  return compactPnlAnalysisResultForChart(analysis);
 }
 
-export function getLastFiniteNumber(values: Array<number | null | undefined> | undefined): number | undefined {
+export function getLastFiniteNumber(
+  values: Array<number | null | undefined> | undefined,
+): number | undefined {
   if (!Array.isArray(values) || !values.length) {
     return undefined;
   }
@@ -292,7 +292,9 @@ export function getLastFiniteNumber(values: Array<number | null | undefined> | u
   return undefined;
 }
 
-export function normalizeDisplayPercentage(value: number | undefined): number | null {
+export function normalizeDisplayPercentage(
+  value: number | undefined,
+): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return null;
   }

@@ -44,10 +44,10 @@ import {
   type FiatRateProvider,
 } from '../pnl/fiatRateStore';
 import {
-  buildPnlAnalysisSeriesFromPreloaded,
+  buildPnlAnalysisChartSeriesFromStreamed,
   buildPnlAnalysisSeriesFromStreamed,
-  compactPnlAnalysisResultForChart,
   resolvePnlAnalysisPreloadWindow,
+  type PnlAnalysisStreamedArgs,
   type PnlTimeframe,
   type PnlAnalysisChartResult,
   type PnlAnalysisResult,
@@ -201,7 +201,10 @@ export class PortfolioEngine {
       pendingTxs: Tx[];
     }
   >();
-  private preparedAnalysisSessions = new Map<string, PreparedAnalysisSessionData>();
+  private preparedAnalysisSessions = new Map<
+    string,
+    PreparedAnalysisSessionData
+  >();
   private nextPreparedAnalysisSessionId = 1;
 
   constructor(kv: KvStore, opts?: PortfolioEngineOptions) {
@@ -827,14 +830,18 @@ export class PortfolioEngine {
   async computeAnalysisChart(
     args: ComputeAnalysisArgs,
   ): Promise<PnlAnalysisChartResult> {
-    return compactPnlAnalysisResultForChart(await this.computeAnalysis(args));
+    const prepared = await this.prepareAnalysisSessionData(args);
+    const streamedArgs =
+      await this.buildStreamedAnalysisArgsFromPreparedSession(prepared);
+    return buildPnlAnalysisChartSeriesFromStreamed(streamedArgs);
   }
 
   async prepareAnalysisSession(
     args: ComputeAnalysisArgs,
   ): Promise<PrepareAnalysisSessionResult> {
     const prepared = await this.prepareAnalysisSessionData(args);
-    const sessionId = `analysis-session:${this.nextPreparedAnalysisSessionId++}`;
+    const sessionId = `analysis-session:${this
+      .nextPreparedAnalysisSessionId++}`;
     this.preparedAnalysisSessions.set(sessionId, prepared);
     return {sessionId};
   }
@@ -852,7 +859,9 @@ export class PortfolioEngine {
     return this.computeAnalysisFromPreparedSession(prepared, args.walletIds);
   }
 
-  async disposeAnalysisSession(args: DisposeAnalysisSessionArgs): Promise<void> {
+  async disposeAnalysisSession(
+    args: DisposeAnalysisSessionArgs,
+  ): Promise<void> {
     this.preparedAnalysisSessions.delete(args.sessionId);
   }
 
@@ -1051,6 +1060,18 @@ export class PortfolioEngine {
     prepared: PreparedAnalysisSessionData,
     walletIds?: string[],
   ): Promise<PnlAnalysisResult> {
+    const streamedArgs =
+      await this.buildStreamedAnalysisArgsFromPreparedSession(
+        prepared,
+        walletIds,
+      );
+    return buildPnlAnalysisSeriesFromStreamed(streamedArgs);
+  }
+
+  private async buildStreamedAnalysisArgsFromPreparedSession(
+    prepared: PreparedAnalysisSessionData,
+    walletIds?: string[],
+  ): Promise<PnlAnalysisStreamedArgs> {
     const selectedWalletIds = Array.from(
       new Set(
         (Array.isArray(walletIds) && walletIds.length
@@ -1063,7 +1084,7 @@ export class PortfolioEngine {
     );
 
     if (!selectedWalletIds.length) {
-      return buildPnlAnalysisSeriesFromPreloaded({
+      return {
         cfg: {quoteCurrency: prepared.quoteCurrency},
         wallets: [],
         timeframe: prepared.timeframe,
@@ -1071,7 +1092,7 @@ export class PortfolioEngine {
         currentRatesByAssetId: prepared.currentRatesByAssetId,
         nowMs: prepared.nowMs,
         maxPoints: prepared.maxPoints,
-      });
+      };
     }
 
     const selectedWalletMetas = selectedWalletIds
@@ -1126,7 +1147,7 @@ export class PortfolioEngine {
       });
     }
 
-    return buildPnlAnalysisSeriesFromStreamed({
+    return {
       cfg: {quoteCurrency: prepared.quoteCurrency},
       wallets,
       timeframe: prepared.timeframe,
@@ -1138,6 +1159,6 @@ export class PortfolioEngine {
       nowMs: resolved.nowMs,
       maxPoints: prepared.maxPoints,
       resolvedWindow: resolved,
-    });
+    };
   }
 }

@@ -6,6 +6,10 @@ import {
   prepareWorkletAnalysisSession,
 } from './portfolioWorkletAnalysis';
 import {
+  compactPnlAnalysisResultForChart,
+  setPnlAnalysisDebugHooksForTests,
+} from '../../core/pnl/analysisStreaming';
+import {
   appendWorkletSnapshotChunk,
   buildWorkletWalletMetaForStore,
 } from './portfolioWorkletSnapshots';
@@ -51,7 +55,7 @@ const createStoredWallet = () =>
       network: 'livenet',
       coin: 'btc',
     },
-  }) as any;
+  } as any);
 
 const createStoredTokenWallet = () =>
   ({
@@ -77,14 +81,40 @@ const createStoredTokenWallet = () =>
         symbol: 'usdc',
       },
     },
-  }) as any;
+  } as any);
 
 const makeJsonResponse = (body: unknown, status = 200) =>
   ({
     ok: status >= 200 && status < 300,
     status,
     text: async () => JSON.stringify(body),
-  }) as any;
+  } as any);
+
+const createDebugCounters = () => {
+  const counters = {
+    pnlAnalysisPointConstruction: 0,
+    byWalletIdConstruction: 0,
+    formattedCryptoBalance: 0,
+    finalizeAnalysisResult: 0,
+  };
+
+  setPnlAnalysisDebugHooksForTests({
+    onPnlAnalysisPointConstruction: () => {
+      counters.pnlAnalysisPointConstruction += 1;
+    },
+    onByWalletIdConstruction: () => {
+      counters.byWalletIdConstruction += 1;
+    },
+    onFormattedCryptoBalance: () => {
+      counters.formattedCryptoBalance += 1;
+    },
+    onFinalizeAnalysisResult: () => {
+      counters.finalizeAnalysisResult += 1;
+    },
+  });
+
+  return counters;
+};
 
 describe('portfolioWorkletAnalysis', () => {
   const originalFetch = global.fetch;
@@ -92,6 +122,7 @@ describe('portfolioWorkletAnalysis', () => {
   afterEach(() => {
     global.fetch = originalFetch;
     jest.restoreAllMocks();
+    setPnlAnalysisDebugHooksForTests(undefined);
   });
 
   it('does not warm rate cache for analysis when no wallets have stored snapshots', async () => {
@@ -276,6 +307,69 @@ describe('portfolioWorkletAnalysis', () => {
     expect(last?.totalUnrealizedPnlFiat).toBe(5000);
     expect(result.assetSummaries[0]?.rateEnd).toBe(15000);
     expect(result.assetSummaries[0]?.pnlEnd).toBe(5000);
+  });
+
+  it('computes chart output without routing through full worklet analysis', async () => {
+    const storage = createStorage();
+    const config = {storage, registryKey: '__registry__'};
+    const wallet = createStoredWallet();
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-02T00:00:00Z');
+
+    const meta = buildWorkletWalletMetaForStore({
+      wallet: wallet.summary,
+      credentials: wallet.credentials,
+      quoteCurrency: 'USD',
+      compressionEnabled: false,
+      chunkRows: 128,
+    });
+    await appendWorkletSnapshotChunk({
+      ...config,
+      meta,
+      snapshots: [
+        {timestamp: t0, cryptoBalance: '100000000'},
+        {timestamp: t1, cryptoBalance: '200000000'},
+      ],
+      checkpoint: {
+        nextSkip: 2,
+        balanceAtomic: '200000000',
+        remainingCostBasisFiat: 21000,
+        lastMarkRate: 11000,
+        lastTimestamp: t1,
+        firstNonZeroTs: t0,
+      },
+    });
+
+    const fetchMock = jest.fn(async () =>
+      makeJsonResponse({
+        btc: [
+          {ts: t0, rate: 10000},
+          {ts: t1, rate: 11000},
+        ],
+      }),
+    );
+    global.fetch = fetchMock as typeof global.fetch;
+
+    const args = {
+      cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
+      wallets: [wallet],
+      quoteCurrency: 'USD',
+      timeframe: '1D' as const,
+      nowMs: t1,
+      maxPoints: 5,
+    };
+
+    const full = await computeWorkletAnalysis(config, args);
+    const counters = createDebugCounters();
+    const chart = await computeWorkletAnalysisChart(config, args);
+
+    expect(chart).toEqual(compactPnlAnalysisResultForChart(full));
+    expect(counters).toEqual({
+      pnlAnalysisPointConstruction: 0,
+      byWalletIdConstruction: 0,
+      formattedCryptoBalance: 0,
+      finalizeAnalysisResult: 0,
+    });
   });
 
   it('reuses a prepared worklet analysis session for scoped computations', async () => {
