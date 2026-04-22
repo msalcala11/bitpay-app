@@ -167,9 +167,14 @@ export type WorkerNitroFetchSmokeResult = {
   responseHeaderPreview: string[];
   bodyLength: number;
   bodyPreview: string;
-  echoedUrl?: string;
-  echoedOrigin?: string;
-  echoedArgs: Record<string, string>;
+  quoteCurrency: string;
+  rateCoin: string;
+  returnedCoinKeys: string[];
+  parsedPointCount: number;
+  firstPointTs?: number;
+  firstPointRate?: number;
+  latestPointTs?: number;
+  latestPointRate?: number;
 };
 
 type TxHistoryRequestWalletContext = Pick<
@@ -314,8 +319,9 @@ const WORKER_MMKV_KEY_PREFIX = 'worklets-mmkv-roundtrip';
 const WORKER_MMKV_STRESS_KEY_PREFIX = 'worklets-mmkv-stress';
 const TXHISTORY_BASE_PATH = '/v1/txhistory/';
 const DEFAULT_NITRO_FETCH_TIMEOUT_MS = 15000;
-const NITRO_FETCH_SMOKE_TEST_URL =
-  'https://httpbin.org/get?source=bitpay-app-pnl&probe=nitro-fetch-worker';
+const NITRO_FETCH_SMOKE_TEST_QUOTE_CURRENCY = 'USD';
+const NITRO_FETCH_SMOKE_TEST_RATE_COIN = 'btc';
+const NITRO_FETCH_SMOKE_TEST_URL = `${BASE_BWS_URL}/v4/fiatrates/${NITRO_FETCH_SMOKE_TEST_QUOTE_CURRENCY}?days=1&coin=${NITRO_FETCH_SMOKE_TEST_RATE_COIN}`;
 
 let workletsBundleModeRuntime: WorkletRuntime | undefined;
 let workletsBundleModeDemoStorage: MMKV | undefined;
@@ -1132,28 +1138,45 @@ function tryParseJson(text: string) {
   }
 }
 
-const toStringRecord = (value: unknown): Record<string, string> => {
+type WorkerFiatRatePoint = {
+  ts: number;
+  rate: number;
+};
+
+const parseWorkerFiatRatePoints = (
+  payload: unknown,
+  rateCoin: string,
+): WorkerFiatRatePoint[] => {
   'worklet';
 
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {};
+  let rawPoints: unknown;
+  if (Array.isArray(payload)) {
+    rawPoints = payload;
+  } else if (payload && typeof payload === 'object') {
+    const payloadRecord = payload as Record<string, unknown>;
+    rawPoints =
+      payloadRecord[rateCoin] ??
+      payloadRecord[rateCoin.toUpperCase()] ??
+      payloadRecord[rateCoin.toLowerCase()];
   }
 
-  const record: Record<string, string> = {};
-  const keys = Object.keys(value as Record<string, unknown>);
-
-  for (const key of keys) {
-    const entry = (value as Record<string, unknown>)[key];
-    if (
-      typeof entry === 'string' ||
-      typeof entry === 'number' ||
-      typeof entry === 'boolean'
-    ) {
-      record[key] = String(entry);
-    }
+  if (!Array.isArray(rawPoints)) {
+    return [];
   }
 
-  return record;
+  const parsedPoints = rawPoints
+    .map(point => ({
+      ts: Number((point as any)?.ts),
+      rate: Number((point as any)?.rate),
+    }))
+    .filter(point => Number.isFinite(point.ts) && Number.isFinite(point.rate));
+
+  if (!parsedPoints.length) {
+    return [];
+  }
+
+  parsedPoints.sort((a, b) => a.ts - b.ts);
+  return parsedPoints;
 };
 
 const summarizeTx = (tx: any): WorkerTxHistoryPreviewItem => {
@@ -1758,18 +1781,35 @@ export const smokeTestNitroFetchRequestOnWorker =
             }
 
             const parsedBody = tryParseJson(bodyString) as any;
-            const echoedArgs = toStringRecord(parsedBody?.args);
-            const echoedUrl =
-              typeof parsedBody?.url === 'string' ? parsedBody.url : undefined;
-            const echoedOrigin =
-              typeof parsedBody?.origin === 'string'
-                ? parsedBody.origin
-                : undefined;
+            const returnedCoinKeys =
+              parsedBody &&
+              typeof parsedBody === 'object' &&
+              !Array.isArray(parsedBody)
+                ? Object.keys(parsedBody as Record<string, unknown>).slice(
+                    0,
+                    12,
+                  )
+                : [];
+            const ratePoints = parseWorkerFiatRatePoints(
+              parsedBody,
+              NITRO_FETCH_SMOKE_TEST_RATE_COIN,
+            );
+            const firstRatePoint = ratePoints[0];
+            const latestRatePoint = ratePoints[ratePoints.length - 1];
             const responseHeaderPreview = Array.isArray(response.headers)
               ? response.headers
                   .slice(0, 6)
                   .map(header => `${header.key}: ${header.value}`)
               : [];
+
+            if (!ratePoints.length) {
+              const payloadCoins = returnedCoinKeys.length
+                ? returnedCoinKeys.join(', ')
+                : 'none';
+              throw new Error(
+                `BTC v4 rates payload did not contain any valid points. Returned coin keys: ${payloadCoins}.`,
+              );
+            }
 
             scheduleOnRN(resolveOnRN, {
               workerRuntimeName,
@@ -1788,9 +1828,14 @@ export const smokeTestNitroFetchRequestOnWorker =
               responseHeaderPreview,
               bodyLength: bodyString.length,
               bodyPreview: bodyString.slice(0, 240),
-              echoedUrl,
-              echoedOrigin,
-              echoedArgs,
+              quoteCurrency: NITRO_FETCH_SMOKE_TEST_QUOTE_CURRENCY,
+              rateCoin: NITRO_FETCH_SMOKE_TEST_RATE_COIN,
+              returnedCoinKeys,
+              parsedPointCount: ratePoints.length,
+              firstPointTs: firstRatePoint?.ts,
+              firstPointRate: firstRatePoint?.rate,
+              latestPointTs: latestRatePoint?.ts,
+              latestPointRate: latestRatePoint?.rate,
             });
           } catch (err: unknown) {
             scheduleOnRN(

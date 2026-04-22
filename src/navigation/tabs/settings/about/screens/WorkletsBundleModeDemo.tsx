@@ -551,19 +551,19 @@ const WorkletsBundleModeDemo = (_props: Props) => {
         </Card>
 
         <Card>
-          <SectionTitle>Worker Nitro Fetch GET</SectionTitle>
+          <SectionTitle>Worker Nitro Fetch BTC v4 Rates</SectionTitle>
           <SectionBody>
             This smoke test boxes the `NitroFetch` hybrid on the RN runtime,
-            unboxes it inside the existing worker runtime, performs a simple
-            HTTPS GET to `httpbin.org/get`, and returns a small parsed summary
+            unboxes it inside the existing worker runtime, fetches BTC USD v4
+            rates from the BitPay BWS API, and returns a small parsed summary
             back to RN.
           </SectionBody>
           <Button
             state={nitroFetchLoading ? 'loading' : undefined}
             disabled={workerActionLoading}
             onPress={handleRunNitroFetchSmokeTest}
-            accessibilityLabel="Run a simple Nitro Fetch GET request from the worker runtime">
-            Run Nitro Fetch GET on worker
+            accessibilityLabel="Run a Nitro Fetch BTC v4 rates request from the worker runtime">
+            Run Nitro Fetch BTC v4 rates on worker
           </Button>
         </Card>
 
@@ -925,7 +925,8 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             <StatusRow>
               <ActivityIndicator />
               <LoadingText>
-                Making a Nitro Fetch GET request from the worker runtime...
+                Fetching BTC v4 rates with Nitro Fetch from the worker
+                runtime...
               </LoadingText>
             </StatusRow>
           </Card>
@@ -933,7 +934,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
 
         {nitroFetchError ? (
           <Card>
-            <SectionTitle>Worker Nitro Fetch request failed</SectionTitle>
+            <SectionTitle>Worker Nitro Fetch BTC v4 rates failed</SectionTitle>
             <RawOutput selectable>{nitroFetchError}</RawOutput>
           </Card>
         ) : null}
@@ -961,17 +962,33 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             </MetaText>
             <MetaText>Body length: {nitroFetchResult.bodyLength}</MetaText>
             <MetaText>
-              Echoed args: source=
-              {nitroFetchResult.echoedArgs.source || 'n/a'} • probe=
-              {nitroFetchResult.echoedArgs.probe || 'n/a'}
+              Quote currency: {nitroFetchResult.quoteCurrency}
             </MetaText>
-            {nitroFetchResult.echoedOrigin ? (
+            <MetaText>Rate coin: {nitroFetchResult.rateCoin}</MetaText>
+            <MetaText>
+              Parsed rate points: {nitroFetchResult.parsedPointCount}
+            </MetaText>
+            {nitroFetchResult.returnedCoinKeys.length ? (
               <MetaText>
-                Echoed origin: {nitroFetchResult.echoedOrigin}
+                Returned coin keys:{' '}
+                {nitroFetchResult.returnedCoinKeys.join(', ')}
               </MetaText>
             ) : null}
-            {nitroFetchResult.echoedUrl ? (
-              <MetaText>Echoed URL: {nitroFetchResult.echoedUrl}</MetaText>
+            {typeof nitroFetchResult.firstPointRate === 'number' ? (
+              <MetaText>
+                First point: {nitroFetchResult.firstPointRate} @{' '}
+                {typeof nitroFetchResult.firstPointTs === 'number'
+                  ? new Date(nitroFetchResult.firstPointTs).toISOString()
+                  : 'n/a'}
+              </MetaText>
+            ) : null}
+            {typeof nitroFetchResult.latestPointRate === 'number' ? (
+              <MetaText>
+                Latest point: {nitroFetchResult.latestPointRate} @{' '}
+                {typeof nitroFetchResult.latestPointTs === 'number'
+                  ? new Date(nitroFetchResult.latestPointTs).toISOString()
+                  : 'n/a'}
+              </MetaText>
             ) : null}
 
             <Spacer />
