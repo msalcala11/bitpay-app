@@ -70,6 +70,18 @@ type AssetGroupAnalysisState = {
   error?: Error;
 };
 
+type SharedPopulateAssetGroupCurrentCacheEntry = {
+  requestKey: string;
+  displayScopeKey: string;
+  resolvedPopulateSessionToken: string;
+  data: PnlAnalysisResult;
+};
+
+const sharedPopulateAssetGroupCurrentCache = new Map<
+  string,
+  SharedPopulateAssetGroupCurrentCacheEntry
+>();
+
 function summarizeAnalysisResultShape(
   value: PnlAnalysisResult | undefined,
 ): {
@@ -167,6 +179,55 @@ function getCommittedAssetGroupAnalysisCacheKey(args: {
   return args.refreshToken
     ? [args.requestKey, args.refreshToken].join('|')
     : args.requestKey;
+}
+
+function getSharedPopulateAssetGroupCurrentCacheValue(args: {
+  cacheKey: string;
+  requestKey: string;
+  displayScopeKey: string;
+  populateSessionToken?: string;
+}): SharedPopulateAssetGroupCurrentCacheEntry | undefined {
+  if (!args.populateSessionToken) {
+    return undefined;
+  }
+
+  const entry = sharedPopulateAssetGroupCurrentCache.get(args.cacheKey);
+  if (!entry) {
+    return undefined;
+  }
+
+  if (
+    entry.requestKey !== args.requestKey ||
+    entry.displayScopeKey !== args.displayScopeKey ||
+    entry.resolvedPopulateSessionToken !== args.populateSessionToken
+  ) {
+    return undefined;
+  }
+
+  return entry;
+}
+
+function setSharedPopulateAssetGroupCurrentCacheValue(args: {
+  cacheKey: string;
+  requestKey: string;
+  displayScopeKey: string;
+  populateSessionToken?: string;
+  data: PnlAnalysisResult;
+}): void {
+  if (!args.populateSessionToken) {
+    return;
+  }
+
+  sharedPopulateAssetGroupCurrentCache.set(args.cacheKey, {
+    requestKey: args.requestKey,
+    displayScopeKey: args.displayScopeKey,
+    resolvedPopulateSessionToken: args.populateSessionToken,
+    data: args.data,
+  });
+}
+
+export function clearPortfolioAssetGroupPopulateCacheForTests(): void {
+  sharedPopulateAssetGroupCurrentCache.clear();
 }
 
 export function usePortfolioAssetRows({
@@ -487,8 +548,43 @@ export function usePortfolioAssetRows({
     assetGroupSessionStoredWallets,
     gainLossMode,
   ]);
+  const currentScopedAssetPopulateSessionToken = portfolio.populateStatus
+    ?.inProgress
+    ? populateSessionStateToken
+    : undefined;
   const [assetGroupAnalysisStateByKey, setAssetGroupAnalysisStateByKey] =
-    useState<Record<string, AssetGroupAnalysisState>>({});
+    useState<Record<string, AssetGroupAnalysisState>>(() => {
+      const next: Record<string, AssetGroupAnalysisState> = {};
+
+      for (const spec of assetGroupAnalysisSpecs) {
+        const sharedPopulateScopedResult =
+          getSharedPopulateAssetGroupCurrentCacheValue({
+            cacheKey: spec.committedCacheKey,
+            requestKey: spec.requestKey,
+            displayScopeKey: spec.displayScopeKey,
+            populateSessionToken: currentScopedAssetPopulateSessionToken,
+          });
+        next[spec.key] = {
+          displayScopeKey: spec.displayScopeKey,
+          requestKey: spec.requestKey,
+          committedCacheKey: spec.committedCacheKey,
+          resolvedPopulateSessionToken:
+            sharedPopulateScopedResult?.resolvedPopulateSessionToken,
+          sessionId: undefined,
+          runId: undefined,
+          currentData: sharedPopulateScopedResult?.data,
+          committedData: hasCommittedPortfolioBaseline
+            ? assetGroupCommittedAnalysisCacheRef.current.get(
+                spec.committedCacheKey,
+              )
+            : undefined,
+          loading: false,
+          error: undefined,
+        };
+      }
+
+      return next;
+    });
   const assetGroupAnalysisStateByKeyRef = useRef<
     Record<string, AssetGroupAnalysisState>
   >(assetGroupAnalysisStateByKey);
@@ -503,10 +599,6 @@ export function usePortfolioAssetRows({
   );
   const latestAssetGroupScopeRunSignatureRef = useRef('');
   const [assetGroupScopeRerunToken, setAssetGroupScopeRerunToken] = useState(0);
-  const currentScopedAssetPopulateSessionToken = portfolio.populateStatus
-    ?.inProgress
-    ? populateSessionStateToken
-    : undefined;
   const populateProgressSnapshotRef = useRef({
     walletsCompleted: 0,
     txRequestsMade: 0,
@@ -566,6 +658,13 @@ export function usePortfolioAssetRows({
         const prevState = prev[spec.key];
         const preserveDisplayScopeData =
           prevState?.displayScopeKey === spec.displayScopeKey;
+        const sharedPopulateScopedResult =
+          getSharedPopulateAssetGroupCurrentCacheValue({
+            cacheKey: spec.committedCacheKey,
+            requestKey: spec.requestKey,
+            displayScopeKey: spec.displayScopeKey,
+            populateSessionToken: currentScopedAssetPopulateSessionToken,
+          });
         const cachedCommittedData = hasCommittedPortfolioBaseline
           ? assetGroupCommittedAnalysisCacheRef.current.get(
               spec.committedCacheKey,
@@ -576,8 +675,9 @@ export function usePortfolioAssetRows({
           requestKey: spec.requestKey,
           committedCacheKey: spec.committedCacheKey,
           resolvedPopulateSessionToken: preserveDisplayScopeData
-            ? prevState?.resolvedPopulateSessionToken
-            : undefined,
+            ? prevState?.resolvedPopulateSessionToken ??
+              sharedPopulateScopedResult?.resolvedPopulateSessionToken
+            : sharedPopulateScopedResult?.resolvedPopulateSessionToken,
           sessionId:
             prevState?.requestKey === spec.requestKey
               ? prevState.sessionId
@@ -588,8 +688,8 @@ export function usePortfolioAssetRows({
               : undefined,
           currentData:
             preserveDisplayScopeData
-              ? prevState.currentData
-              : undefined,
+              ? prevState.currentData ?? sharedPopulateScopedResult?.data
+              : sharedPopulateScopedResult?.data,
           committedData: preserveDisplayScopeData
             ? prevState?.committedData ?? cachedCommittedData
             : cachedCommittedData,
@@ -620,7 +720,11 @@ export function usePortfolioAssetRows({
 
       return changed ? next : prev;
     });
-  }, [assetGroupAnalysisSpecs, hasCommittedPortfolioBaseline]);
+  }, [
+    assetGroupAnalysisSpecs,
+    currentScopedAssetPopulateSessionToken,
+    hasCommittedPortfolioBaseline,
+  ]);
   useEffect(() => {
     if (!assetGroupAnalysisSpecs.length) {
       return;
@@ -679,6 +783,13 @@ export function usePortfolioAssetRows({
         const prevState = next[spec.key];
         const preserveDisplayScopeData =
           prevState?.displayScopeKey === spec.displayScopeKey;
+        const sharedPopulateScopedResult =
+          getSharedPopulateAssetGroupCurrentCacheValue({
+            cacheKey: spec.committedCacheKey,
+            requestKey: spec.requestKey,
+            displayScopeKey: spec.displayScopeKey,
+            populateSessionToken: currentScopedAssetPopulateSessionToken,
+          });
         const cachedCommittedData = hasCommittedPortfolioBaseline
           ? assetGroupCommittedAnalysisCacheRef.current.get(
               spec.committedCacheKey,
@@ -689,8 +800,9 @@ export function usePortfolioAssetRows({
           requestKey: spec.requestKey,
           committedCacheKey: spec.committedCacheKey,
           resolvedPopulateSessionToken: preserveDisplayScopeData
-            ? prevState?.resolvedPopulateSessionToken
-            : undefined,
+            ? prevState?.resolvedPopulateSessionToken ??
+              sharedPopulateScopedResult?.resolvedPopulateSessionToken
+            : sharedPopulateScopedResult?.resolvedPopulateSessionToken,
           sessionId:
             prevState?.requestKey === spec.requestKey
               ? prevState.sessionId
@@ -698,8 +810,8 @@ export function usePortfolioAssetRows({
           runId: scopeRunId,
           currentData:
             preserveDisplayScopeData
-              ? prevState.currentData
-              : undefined,
+              ? prevState.currentData ?? sharedPopulateScopedResult?.data
+              : sharedPopulateScopedResult?.data,
           committedData:
             preserveDisplayScopeData
               ? prevState.committedData ?? cachedCommittedData
@@ -745,6 +857,13 @@ export function usePortfolioAssetRows({
         sessionId?: string,
         runId?: number,
       ): AssetGroupAnalysisState => {
+        const sharedPopulateScopedResult =
+          getSharedPopulateAssetGroupCurrentCacheValue({
+            cacheKey: spec.committedCacheKey,
+            requestKey: spec.requestKey,
+            displayScopeKey: spec.displayScopeKey,
+            populateSessionToken: currentScopedAssetPopulateSessionToken,
+          });
         const cachedCommittedData = hasCommittedPortfolioBaseline
           ? assetGroupCommittedAnalysisCacheRef.current.get(
               spec.committedCacheKey,
@@ -755,10 +874,11 @@ export function usePortfolioAssetRows({
           displayScopeKey: spec.displayScopeKey,
           requestKey: spec.requestKey,
           committedCacheKey: spec.committedCacheKey,
-          resolvedPopulateSessionToken: undefined,
+          resolvedPopulateSessionToken:
+            sharedPopulateScopedResult?.resolvedPopulateSessionToken,
           sessionId,
           runId,
-          currentData: undefined,
+          currentData: sharedPopulateScopedResult?.data,
           committedData: cachedCommittedData,
           loading: true,
           error: undefined,
@@ -856,6 +976,15 @@ export function usePortfolioAssetRows({
             [args.spec.key]: nextState,
           };
         });
+        if (commitDisposition !== 'stale') {
+          setSharedPopulateAssetGroupCurrentCacheValue({
+            cacheKey: args.spec.committedCacheKey,
+            requestKey: args.spec.requestKey,
+            displayScopeKey: args.spec.displayScopeKey,
+            populateSessionToken: currentScopedAssetPopulateSessionToken,
+            data: args.result,
+          });
+        }
         console.log('[portfolio-assets-scope] spec result', {
           surface: assetScopeSurface,
           runId: scopeRunId,
