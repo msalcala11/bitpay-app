@@ -868,11 +868,8 @@ describe('usePortfolioAssetRows', () => {
     });
   });
 
-  it('stops cancelled populate runs after the in-flight asset and skips resolved specs on the next run', async () => {
+  it('keeps the active populate run alive through tx-progress churn without restarting the session', async () => {
     let resolveFirstPrepare:
-      | ((value: {sessionId: string}) => void)
-      | undefined;
-    let resolveSecondPrepare:
       | ((value: {sessionId: string}) => void)
       | undefined;
     let resolveFirstScope:
@@ -974,12 +971,6 @@ describe('usePortfolioAssetRows', () => {
           new Promise(resolve => {
             resolveFirstPrepare = resolve as (value: {sessionId: string}) => void;
           }),
-      )
-      .mockImplementationOnce(
-        () =>
-          new Promise(resolve => {
-            resolveSecondPrepare = resolve as (value: {sessionId: string}) => void;
-          }),
       );
     mockRunPortfolioAnalysisSessionScopeQuery
       .mockImplementationOnce(
@@ -1026,9 +1017,7 @@ describe('usePortfolioAssetRows', () => {
     };
     view.rerender(<HookHarness gainLossMode="ALL" />);
 
-    await waitFor(() => {
-      expect(mockPreparePortfolioAnalysisSessionQuery).toHaveBeenCalledTimes(2);
-    });
+    expect(mockPreparePortfolioAnalysisSessionQuery).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       resolveFirstScope?.({
@@ -1041,22 +1030,6 @@ describe('usePortfolioAssetRows', () => {
     await waitFor(() => {
       expect(mockRunPortfolioAnalysisSessionScopeQuery).toHaveBeenCalledTimes(1);
     });
-
-    await act(async () => {
-      resolveSecondPrepare?.({sessionId: 'session-2'});
-      await Promise.resolve();
-    });
-
-    await waitFor(() => {
-      expect(mockRunPortfolioAnalysisSessionScopeQuery).toHaveBeenCalledTimes(2);
-    });
-
-    expect(mockRunPortfolioAnalysisSessionScopeQuery).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        walletIds: ['btc-wallet'],
-      }),
-    );
   });
 
   it('does not auto-populate on refocus even when committed portfolio data is missing', () => {
@@ -2047,7 +2020,7 @@ describe('usePortfolioAssetRows', () => {
     ]);
   });
 
-  it('applies a compatible scoped result after a newer populate run starts and then upgrades it when the newer result arrives', async () => {
+  it('discards a stale scoped result when newer populate inputs arrive and queues a newer run', async () => {
     const globalAnalysis = {
       driverCoin: 'eth',
       assetIds: ['btc-asset', 'eth-asset'],
@@ -2200,25 +2173,49 @@ describe('usePortfolioAssetRows', () => {
 
     mockState = {
       ...mockState,
-      PORTFOLIO: {
-        ...mockState.PORTFOLIO,
-        populateStatus: {
-          ...mockState.PORTFOLIO.populateStatus,
-          txRequestsMade: 1,
-          txsProcessed: 750,
-        },
-      },
     };
+    mockUsePortfolioAnalysis.mockImplementation(() => ({
+      data: globalAnalysis,
+      committedData: globalAnalysis,
+      currentData: globalAnalysis,
+      error: undefined,
+      loading: false,
+      quoteCurrency: 'USD',
+      requestKey: 'portfolio-request-2',
+      currentRatesByAssetId: {['btc-asset']: 74333.77},
+      currentRatesSignature: 'btc-rate-2',
+      asOfMs: 123456790,
+      eligibleWallets: [
+        {
+          id: 'btc-wallet',
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+        },
+      ],
+      storedWallets: [
+        {
+          walletId: 'btc-wallet',
+          addedAt: 0,
+          summary: {
+            walletId: 'btc-wallet',
+            walletName: 'Bitcoin',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+            tokenAddress: undefined,
+            network: 'livenet',
+            balanceAtomic: '422258',
+            balanceFormatted: '0.00422258',
+          },
+          credentials: {
+            keyId: 'key-id',
+          },
+        },
+      ],
+    }));
     view.rerender(<HookHarness />);
 
-    await act(async () => {
-      prepareResolvers.shift()?.({sessionId: 'session-btc-2'});
-      await Promise.resolve();
-    });
-
-    await waitFor(() => {
-      expect(mockRunPortfolioAnalysisSessionScopeQuery).toHaveBeenCalledTimes(2);
-    });
+    expect(mockPreparePortfolioAnalysisSessionQuery).toHaveBeenCalledTimes(1);
+    expect(mockRunPortfolioAnalysisSessionScopeQuery).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       scopedResolvers.shift()?.(firstScopedAnalysis);
@@ -2229,31 +2226,19 @@ describe('usePortfolioAssetRows', () => {
       expect(latestResult?.visibleItems).toEqual([
         expect.objectContaining({
           key: 'btc',
-          deltaFiat: '-$5.22',
-          deltaPercent: '-1.64%',
-          showScopedPnlLoading: false,
+          deltaFiat: '-$9.21',
+          deltaPercent: '-1.80%',
+          showScopedPnlLoading: true,
         }),
       ]);
-    });
-
-    await act(async () => {
-      scopedResolvers.shift()?.(secondScopedAnalysis);
-      await Promise.resolve();
     });
 
     await waitFor(() => {
-      expect(latestResult?.visibleItems).toEqual([
-        expect.objectContaining({
-          key: 'btc',
-          deltaFiat: '-$4.01',
-          deltaPercent: '-1.27%',
-          showScopedPnlLoading: false,
-        }),
-      ]);
+      expect(mockPreparePortfolioAnalysisSessionQuery).toHaveBeenCalledTimes(2);
     });
   });
 
-  it('discards a cancelled prepared session and only scopes from the latest populate run', async () => {
+  it('queues a newer populate run even when the current run is still preparing', async () => {
     const globalAnalysis = {
       driverCoin: 'eth',
       assetIds: ['btc-asset', 'eth-asset'],
@@ -2364,26 +2349,49 @@ describe('usePortfolioAssetRows', () => {
 
     mockState = {
       ...mockState,
-      PORTFOLIO: {
-        ...mockState.PORTFOLIO,
-        populateStatus: {
-          ...mockState.PORTFOLIO.populateStatus,
-          txRequestsMade: 1,
-          txsProcessed: 750,
-        },
-      },
     };
+    mockUsePortfolioAnalysis.mockImplementation(() => ({
+      data: globalAnalysis,
+      committedData: globalAnalysis,
+      currentData: globalAnalysis,
+      error: undefined,
+      loading: false,
+      quoteCurrency: 'USD',
+      requestKey: 'portfolio-request-2',
+      currentRatesByAssetId: {['btc-asset']: 74333.77},
+      currentRatesSignature: 'btc-rate-2',
+      asOfMs: 123456790,
+      eligibleWallets: [
+        {
+          id: 'btc-wallet',
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+        },
+      ],
+      storedWallets: [
+        {
+          walletId: 'btc-wallet',
+          addedAt: 0,
+          summary: {
+            walletId: 'btc-wallet',
+            walletName: 'Bitcoin',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+            tokenAddress: undefined,
+            network: 'livenet',
+            balanceAtomic: '422258',
+            balanceFormatted: '0.00422258',
+          },
+          credentials: {
+            keyId: 'key-id',
+          },
+        },
+      ],
+    }));
     view.rerender(<HookHarness gainLossMode="ALL" />);
 
     await act(async () => {
       prepareResolvers.shift()?.({sessionId: 'session-btc-1'});
-      await Promise.resolve();
-    });
-
-    expect(mockRunPortfolioAnalysisSessionScopeQuery).toHaveBeenCalledTimes(0);
-
-    await act(async () => {
-      prepareResolvers.shift()?.({sessionId: 'session-btc-2'});
       await Promise.resolve();
     });
 
@@ -2397,14 +2405,7 @@ describe('usePortfolioAssetRows', () => {
     });
 
     await waitFor(() => {
-      expect(latestResult?.visibleItems).toEqual([
-        expect.objectContaining({
-          key: 'btc',
-          deltaFiat: '-$4.01',
-          deltaPercent: '-1.27%',
-          showScopedPnlLoading: false,
-        }),
-      ]);
+      expect(mockPreparePortfolioAnalysisSessionQuery).toHaveBeenCalledTimes(2);
     });
   });
 
