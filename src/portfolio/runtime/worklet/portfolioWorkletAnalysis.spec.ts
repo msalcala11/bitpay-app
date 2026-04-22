@@ -1,4 +1,5 @@
 import {
+  clearWorkletAnalysisSessions,
   computeWorkletAnalysis,
   computeWorkletAnalysisChart,
   computeWorkletAnalysisSessionScope,
@@ -154,6 +155,7 @@ const createDebugCounters = () => {
 
 describe('portfolioWorkletAnalysis', () => {
   afterEach(() => {
+    clearWorkletAnalysisSessions();
     clearPortfolioTxHistorySigningDispatchContextOnRuntime();
     jest.restoreAllMocks();
     setPnlAnalysisDebugHooksForTests(undefined);
@@ -470,6 +472,83 @@ describe('portfolioWorkletAnalysis', () => {
     disposeWorkletAnalysisSession({sessionId: prepared.sessionId});
     await expect(
       computeWorkletAnalysisSessionScope(config, {
+        sessionId: prepared.sessionId,
+        walletIds: ['w1'],
+      }),
+    ).rejects.toThrow('Prepared portfolio analysis session not found');
+  });
+
+  it('keeps prepared worklet analysis sessions alive across module reloads', async () => {
+    const storage = createStorage();
+    const config = {storage, registryKey: '__registry__'};
+    const wallet = createStoredWallet();
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-02T00:00:00Z');
+
+    const meta = buildWorkletWalletMetaForStore({
+      wallet: wallet.summary,
+      credentials: wallet.credentials,
+      quoteCurrency: 'USD',
+      compressionEnabled: false,
+      chunkRows: 128,
+    });
+    await appendWorkletSnapshotChunk({
+      ...config,
+      meta,
+      snapshots: [
+        {timestamp: t0, cryptoBalance: '100000000'},
+        {timestamp: t1, cryptoBalance: '200000000'},
+      ],
+      checkpoint: {
+        nextSkip: 2,
+        balanceAtomic: '200000000',
+        remainingCostBasisFiat: 21000,
+        lastMarkRate: 11000,
+        lastTimestamp: t1,
+        firstNonZeroTs: t0,
+      },
+    });
+
+    installNitroFetchMock(() =>
+      makeJsonResponse({
+        btc: [
+          {ts: t0, rate: 10000},
+          {ts: t1, rate: 11000},
+        ],
+      }),
+    );
+
+    const args = {
+      cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
+      wallets: [wallet],
+      quoteCurrency: 'USD',
+      timeframe: '1D' as const,
+      nowMs: t1,
+      maxPoints: 5,
+    };
+
+    const prepared = await prepareWorkletAnalysisSession(config, args);
+
+    jest.resetModules();
+
+    const reloadedModule =
+      require('./portfolioWorkletAnalysis') as typeof import('./portfolioWorkletAnalysis');
+    const direct = await reloadedModule.computeWorkletAnalysis(config, args);
+    const scoped = await reloadedModule.computeWorkletAnalysisSessionScope(
+      config,
+      {
+        sessionId: prepared.sessionId,
+        walletIds: ['w1'],
+      },
+    );
+
+    expect(scoped).toEqual(direct);
+
+    reloadedModule.disposeWorkletAnalysisSession({
+      sessionId: prepared.sessionId,
+    });
+    await expect(
+      reloadedModule.computeWorkletAnalysisSessionScope(config, {
         sessionId: prepared.sessionId,
         walletIds: ['w1'],
       }),

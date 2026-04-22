@@ -158,6 +158,43 @@ function snapshotIndexHasRows(
   return index.chunks.some(chunk => Number(chunk?.rows) > 0);
 }
 
+function getSnapshotIndexChunkCount(
+  index:
+    | {
+        chunks?: Array<{
+          rows?: number;
+        }>;
+      }
+    | null
+    | undefined,
+): number {
+  'worklet';
+
+  return Array.isArray(index?.chunks) ? index.chunks.length : 0;
+}
+
+function getSnapshotIndexRowCount(
+  index:
+    | {
+        chunks?: Array<{
+          rows?: number;
+        }>;
+      }
+    | null
+    | undefined,
+): number {
+  'worklet';
+
+  if (!Array.isArray(index?.chunks) || !index.chunks.length) {
+    return 0;
+  }
+
+  return index.chunks.reduce((total, chunk) => {
+    const rows = Number(chunk?.rows || 0);
+    return total + (Number.isFinite(rows) && rows > 0 ? rows : 0);
+  }, 0);
+}
+
 type PreparedWorkletAnalysisSessionData = {
   quoteCurrency: string;
   timeframe: ComputeAnalysisArgs['timeframe'];
@@ -169,6 +206,21 @@ type PreparedWorkletAnalysisSessionData = {
   walletIds: string[];
   firstNonZeroTsByWalletId: Record<string, number | null>;
 };
+
+type PortfolioWorkletAnalysisState = {
+  nextPreparedWorkletAnalysisSessionId: number;
+  preparedSessionsById: Record<
+    string,
+    PreparedWorkletAnalysisSessionData | undefined
+  >;
+};
+
+type GlobalWithPortfolioWorkletAnalysisState = typeof globalThis & {
+  __bitpayPortfolioWorkletAnalysisStateV1__?: PortfolioWorkletAnalysisState;
+};
+
+const PORTFOLIO_WORKLET_ANALYSIS_STATE_GLOBAL_KEY =
+  '__bitpayPortfolioWorkletAnalysisStateV1__';
 
 function logWorkletAnalysisPreparation(args: {
   stage:
@@ -184,6 +236,9 @@ function logWorkletAnalysisPreparation(args: {
   rateAssetCount: number;
   walletsWithRatesCount: number;
   currentRateAssetCount: number;
+  snapshotChunkCount: number;
+  snapshotRowCount: number;
+  maxSnapshotRowsPerWallet: number;
 }): void {
   'worklet';
 
@@ -197,14 +252,29 @@ function logWorkletAnalysisPreparation(args: {
     rateAssetCount: args.rateAssetCount,
     walletsWithRatesCount: args.walletsWithRatesCount,
     currentRateAssetCount: args.currentRateAssetCount,
+    snapshotChunkCount: args.snapshotChunkCount,
+    snapshotRowCount: args.snapshotRowCount,
+    maxSnapshotRowsPerWallet: args.maxSnapshotRowsPerWallet,
   });
 }
 
-let nextPreparedWorkletAnalysisSessionId = 1;
-const preparedWorkletAnalysisSessions = new Map<
-  string,
-  PreparedWorkletAnalysisSessionData
->();
+function getOrCreatePortfolioWorkletAnalysisState(): PortfolioWorkletAnalysisState {
+  'worklet';
+
+  const globalWithState = globalThis as GlobalWithPortfolioWorkletAnalysisState;
+  const existing =
+    globalWithState[PORTFOLIO_WORKLET_ANALYSIS_STATE_GLOBAL_KEY];
+  if (existing) {
+    return existing;
+  }
+
+  const created: PortfolioWorkletAnalysisState = {
+    nextPreparedWorkletAnalysisSessionId: 1,
+    preparedSessionsById: {},
+  };
+  globalWithState[PORTFOLIO_WORKLET_ANALYSIS_STATE_GLOBAL_KEY] = created;
+  return created;
+}
 
 function buildEmptyPreparedWorkletAnalysisSessionData(args: {
   quoteCurrency: string;
@@ -245,6 +315,9 @@ async function prepareWorkletAnalysisSessionData(
       rateAssetCount: 0,
       walletsWithRatesCount: 0,
       currentRateAssetCount: Object.keys(args.currentRatesByAssetId || {}).length,
+      snapshotChunkCount: 0,
+      snapshotRowCount: 0,
+      maxSnapshotRowsPerWallet: 0,
     });
     return buildEmptyPreparedWorkletAnalysisSessionData({
       quoteCurrency: String(args.quoteCurrency || 'USD').toUpperCase(),
@@ -283,6 +356,19 @@ async function prepareWorkletAnalysisSessionData(
       }),
     ),
   );
+  let snapshotChunkCount = 0;
+  let snapshotRowCount = 0;
+  let maxSnapshotRowsPerWallet = 0;
+  for (const wallet of args.wallets) {
+    const index = snapshotIndexesByWalletId.get(wallet.summary.walletId);
+    const chunkCount = getSnapshotIndexChunkCount(index);
+    const rowCount = getSnapshotIndexRowCount(index);
+    snapshotChunkCount += chunkCount;
+    snapshotRowCount += rowCount;
+    if (rowCount > maxSnapshotRowsPerWallet) {
+      maxSnapshotRowsPerWallet = rowCount;
+    }
+  }
 
   const walletIdsWithSnapshots = new Set(
     args.wallets
@@ -308,6 +394,9 @@ async function prepareWorkletAnalysisSessionData(
       rateAssetCount: 0,
       walletsWithRatesCount: 0,
       currentRateAssetCount: Object.keys(args.currentRatesByAssetId || {}).length,
+      snapshotChunkCount,
+      snapshotRowCount,
+      maxSnapshotRowsPerWallet,
     });
     return buildEmptyPreparedWorkletAnalysisSessionData({
       quoteCurrency: targetQuoteCurrency,
@@ -387,6 +476,9 @@ async function prepareWorkletAnalysisSessionData(
       rateAssetCount: Object.keys(ratePointsByAssetId).length,
       walletsWithRatesCount: 0,
       currentRateAssetCount: Object.keys(args.currentRatesByAssetId || {}).length,
+      snapshotChunkCount,
+      snapshotRowCount,
+      maxSnapshotRowsPerWallet,
     });
     return buildEmptyPreparedWorkletAnalysisSessionData({
       quoteCurrency: targetQuoteCurrency,
@@ -416,6 +508,9 @@ async function prepareWorkletAnalysisSessionData(
     rateAssetCount: Object.keys(ratePointsByAssetId).length,
     walletsWithRatesCount: walletsWithSnapshotsAndRates.length,
     currentRateAssetCount: Object.keys(args.currentRatesByAssetId || {}).length,
+    snapshotChunkCount,
+    snapshotRowCount,
+    maxSnapshotRowsPerWallet,
   });
 
   return {
@@ -577,8 +672,9 @@ export async function prepareWorkletAnalysisSession(
   'worklet';
 
   const prepared = await prepareWorkletAnalysisSessionData(config, args);
-  const sessionId = `analysis-session:${nextPreparedWorkletAnalysisSessionId++}`;
-  preparedWorkletAnalysisSessions.set(sessionId, prepared);
+  const state = getOrCreatePortfolioWorkletAnalysisState();
+  const sessionId = `analysis-session:${state.nextPreparedWorkletAnalysisSessionId++}`;
+  state.preparedSessionsById[sessionId] = prepared;
   return {sessionId};
 }
 
@@ -588,7 +684,10 @@ export async function computeWorkletAnalysisSessionScope(
 ): Promise<PnlAnalysisResult> {
   'worklet';
 
-  const prepared = preparedWorkletAnalysisSessions.get(args.sessionId);
+  const prepared =
+    getOrCreatePortfolioWorkletAnalysisState().preparedSessionsById[
+      args.sessionId
+    ];
   if (!prepared) {
     throw new Error(
       `Prepared portfolio analysis session not found: ${args.sessionId}`,
@@ -607,13 +706,15 @@ export function disposeWorkletAnalysisSession(
 ): void {
   'worklet';
 
-  preparedWorkletAnalysisSessions.delete(args.sessionId);
+  delete getOrCreatePortfolioWorkletAnalysisState().preparedSessionsById[
+    args.sessionId
+  ];
 }
 
 export function clearWorkletAnalysisSessions(): void {
   'worklet';
 
-  preparedWorkletAnalysisSessions.clear();
+  getOrCreatePortfolioWorkletAnalysisState().preparedSessionsById = {};
 }
 
 export async function computeWorkletAnalysisChart(

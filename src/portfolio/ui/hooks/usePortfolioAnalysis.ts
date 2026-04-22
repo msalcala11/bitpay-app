@@ -9,6 +9,26 @@ export type UsePortfolioAnalysisResult = ReturnType<typeof usePortfolioAnalysis>
 
 const committedAnalysisCache = new Map<string, PnlAnalysisResult>();
 
+function shouldLogPortfolioAssetDiagnostics(debugSource?: string): boolean {
+  return /asset/i.test(String(debugSource || ''));
+}
+
+function summarizeAnalysisResultShape(
+  value: PnlAnalysisResult | undefined,
+): {
+  walletCount: number;
+  pointCount: number;
+  assetSummaryCount: number;
+} {
+  return {
+    walletCount: Array.isArray(value?.wallets) ? value.wallets.length : 0,
+    pointCount: Array.isArray(value?.points) ? value.points.length : 0,
+    assetSummaryCount: Array.isArray(value?.assetSummaries)
+      ? value.assetSummaries.length
+      : 0,
+  };
+}
+
 function getCommittedAnalysisCacheKey(args: {
   requestKey: string;
   refreshToken?: string;
@@ -62,6 +82,9 @@ export function usePortfolioAnalysis(args: {
       refreshToken: args.clearDataToken ?? args.refreshToken,
     });
   }, [args.clearDataToken, args.refreshToken, query.requestKey]);
+  const shouldLogDiagnostics = shouldLogPortfolioAssetDiagnostics(
+    args.debugSource,
+  );
   const [committedDataState, setCommittedDataState] = useState<{
     cacheKey: string;
     value?: PnlAnalysisResult;
@@ -157,6 +180,62 @@ export function usePortfolioAnalysis(args: {
     hasCommittedPortfolioBaseline,
     populateInProgress,
     query.data,
+  ]);
+
+  useEffect(() => {
+    if (!shouldLogDiagnostics) {
+      return;
+    }
+
+    const selectedSource = (() => {
+      if (!(args.freezeWhilePopulate && populateInProgress)) {
+        if (query.data) {
+          return 'query';
+        }
+
+        return committedData ? 'committed_fallback' : 'none';
+      }
+
+      if (args.allowCurrentWhilePopulate && query.data) {
+        return 'query_during_populate';
+      }
+
+      if (hasCommittedPortfolioBaseline && committedData) {
+        return 'committed_during_populate';
+      }
+
+      return args.allowCurrentWhilePopulate ? 'query_empty_during_populate' : 'none';
+    })();
+
+    console.log('[portfolio-analysis-hook] selection', {
+      source: args.debugSource || 'unknown',
+      populateInProgress,
+      hasCommittedPortfolioBaseline,
+      freezeWhilePopulate: !!args.freezeWhilePopulate,
+      allowCurrentWhilePopulate: !!args.allowCurrentWhilePopulate,
+      queryLoading: query.loading,
+      hasQueryError: !!query.error,
+      refreshToken: args.refreshToken || null,
+      clearDataToken: args.clearDataToken || null,
+      selectedSource,
+      query: summarizeAnalysisResultShape(query.data),
+      committed: summarizeAnalysisResultShape(committedData),
+      selected: summarizeAnalysisResultShape(data),
+    });
+  }, [
+    args.allowCurrentWhilePopulate,
+    args.clearDataToken,
+    args.debugSource,
+    args.freezeWhilePopulate,
+    args.refreshToken,
+    committedData,
+    data,
+    hasCommittedPortfolioBaseline,
+    populateInProgress,
+    query.data,
+    query.error,
+    query.loading,
+    shouldLogDiagnostics,
   ]);
 
   return {
