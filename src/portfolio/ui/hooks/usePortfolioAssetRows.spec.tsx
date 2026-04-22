@@ -1,6 +1,9 @@
 import React from 'react';
 import {act, render, waitFor} from '@testing-library/react-native';
-import {usePortfolioAssetRows} from './usePortfolioAssetRows';
+import {
+  clearPortfolioAssetGroupPopulateCacheForTests,
+  usePortfolioAssetRows,
+} from './usePortfolioAssetRows';
 import {usePortfolioAnalysis} from './usePortfolioAnalysis';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 
@@ -140,6 +143,7 @@ describe('usePortfolioAssetRows', () => {
 
   beforeEach(() => {
     latestResult = undefined;
+    clearPortfolioAssetGroupPopulateCacheForTests();
     mockUseAppDispatch.mockReset();
     mockUseAppDispatch.mockReturnValue(jest.fn());
     mockUseAppSelector.mockReset();
@@ -3168,6 +3172,170 @@ describe('usePortfolioAssetRows', () => {
           showPnlPlaceholder: false,
         }),
       ]);
+    });
+  });
+
+  it('hydrates already resolved scoped pnl into a new hook instance during the same populate session', async () => {
+    const globalAnalysis = {
+      driverCoin: 'btc',
+      assetIds: ['btc-asset'],
+      wallets: [{walletId: 'btc-wallet'}],
+    };
+    const scopedAnalysis = {
+      driverCoin: 'btc',
+      assetIds: ['btc-asset'],
+      wallets: [{walletId: 'btc-wallet'}],
+      points: [{timestamp: 1, value: 1}],
+      assetSummaries: [{assetId: 'btc-asset'}],
+    };
+    const prepareResolvers: Array<(value: {sessionId: string}) => void> = [];
+    const scopedResolvers: Array<(value: typeof scopedAnalysis) => void> = [];
+
+    mockState.PORTFOLIO.lastPopulatedAt = 10;
+    mockState.PORTFOLIO.populateStatus.inProgress = true;
+    mockState.PORTFOLIO.populateStatus.startedAt = 11;
+
+    mockUsePortfolioAnalysis.mockReturnValue({
+      data: globalAnalysis,
+      committedData: globalAnalysis,
+      currentData: globalAnalysis,
+      error: undefined,
+      loading: false,
+      quoteCurrency: 'USD',
+      requestKey: 'portfolio-request',
+      currentRatesByAssetId: {['btc-asset']: 74333.76},
+      currentRatesSignature: 'btc-rate',
+      asOfMs: 123456789,
+      eligibleWallets: [
+        {
+          id: 'btc-wallet',
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+        },
+      ],
+      storedWallets: [
+        {
+          walletId: 'btc-wallet',
+          addedAt: 0,
+          summary: {
+            walletId: 'btc-wallet',
+            walletName: 'Bitcoin',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+            tokenAddress: undefined,
+            network: 'livenet',
+            balanceAtomic: '422258',
+            balanceFormatted: '0.00422258',
+          },
+          credentials: {
+            keyId: 'key-id',
+          },
+        },
+      ],
+    });
+    mockPreparePortfolioAnalysisSessionQuery.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          prepareResolvers.push(resolve as (value: {sessionId: string}) => void);
+        }),
+    );
+    mockRunPortfolioAnalysisSessionScopeQuery.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          scopedResolvers.push(resolve as (value: typeof scopedAnalysis) => void);
+        }),
+    );
+    mockBuildAssetRowsFromAnalysis.mockImplementation(({analysis}: any) => {
+      if (analysis === scopedAnalysis) {
+        return [
+          {
+            key: 'btc',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+            name: 'BTC',
+            cryptoAmount: '0.00422258',
+            fiatAmount: '$313.88',
+            deltaFiat: '-$4.01',
+            deltaPercent: '-1.27%',
+            isPositive: false,
+            hasRate: true,
+            hasPnl: true,
+            showPnlPlaceholder: false,
+          },
+        ];
+      }
+
+      return [
+        {
+          key: 'btc',
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+          name: 'BTC',
+          cryptoAmount: '0.00422258',
+          fiatAmount: '$313.88',
+          deltaFiat: '—',
+          deltaPercent: '—',
+          isPositive: false,
+          hasRate: true,
+          hasPnl: false,
+          showPnlPlaceholder: true,
+        },
+      ];
+    });
+
+    const homeView = render(<HookHarness />);
+
+    await act(async () => {
+      prepareResolvers.shift()?.({sessionId: 'session-home'});
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mockRunPortfolioAnalysisSessionScopeQuery).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      scopedResolvers.shift()?.(scopedAnalysis);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(latestResult?.visibleItems).toEqual([
+        expect.objectContaining({
+          key: 'btc',
+          deltaFiat: '-$4.01',
+          deltaPercent: '-1.27%',
+          showPnlPlaceholder: false,
+          showScopedPnlLoading: false,
+        }),
+      ]);
+    });
+
+    homeView.unmount();
+
+    render(<HookHarness />);
+
+    expect(latestResult?.visibleItems).toEqual([
+      expect.objectContaining({
+        key: 'btc',
+        deltaFiat: '-$4.01',
+        deltaPercent: '-1.27%',
+        showPnlPlaceholder: false,
+        showScopedPnlLoading: false,
+      }),
+    ]);
+
+    await waitFor(() => {
+      expect(mockPreparePortfolioAnalysisSessionQuery).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      prepareResolvers.shift()?.({sessionId: 'session-all-assets'});
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mockRunPortfolioAnalysisSessionScopeQuery).toHaveBeenCalledTimes(1);
     });
   });
 });
