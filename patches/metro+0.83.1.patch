@@ -1,10 +1,8 @@
 diff --git a/node_modules/metro/src/node-haste/DependencyGraph.js b/node_modules/metro/src/node-haste/DependencyGraph.js
-index bd42485..417de6c 100644
+index 4edf7dfd1..ab3edd108 100644
 --- a/node_modules/metro/src/node-haste/DependencyGraph.js
 +++ b/node_modules/metro/src/node-haste/DependencyGraph.js
-@@ -175,7 +175,26 @@ class DependencyGraph extends _events.default {
-   getAllFiles() {
-     return nullthrows(this._fileSystem).getAllFiles();
+@@ -178,6 +178,23 @@ class DependencyGraph extends EventEmitter {
    }
    async getOrComputeSha1(mixedPath) {
      const result = await this._fileSystem.getOrComputeSha1(mixedPath);
@@ -27,3 +25,4 @@ index bd42485..417de6c 100644
 +    }
      if (!result || !result.sha1) {
        throw new Error(`Failed to get the SHA-1 for: ${mixedPath}.
+       Potential causes:

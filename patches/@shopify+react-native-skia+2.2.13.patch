@@ -1,29 +1,30 @@
 diff --git a/node_modules/@shopify/react-native-skia/src/sksg/Container.native.ts b/node_modules/@shopify/react-native-skia/src/sksg/Container.native.ts
-index 0000000..0000000 100644
+index 3a2dbdbbd..b2104cc03 100644
 --- a/node_modules/@shopify/react-native-skia/src/sksg/Container.native.ts
 +++ b/node_modules/@shopify/react-native-skia/src/sksg/Container.native.ts
-@@ -17,7 +17,7 @@ const nativeDrawOnscreen = (
+@@ -18,14 +18,15 @@ const nativeDrawOnscreen = (
    onSize?: SharedValue<SkSize>
  ) => {
    "worklet";
--  if (onSize) {
 +  const skiaViewApi = globalThis.SkiaViewApi;
-+  if (onSize) {
+   if (onSize) {
 -    SkiaViewApi.setJsiProperty(nativeId, "onSize", onSize);
 +    skiaViewApi.setJsiProperty(nativeId, "onSize", onSize);
    }
    //const start = performance.now();
    const picture = recorder.play();
-@@ -25,7 +25,7 @@ const nativeDrawOnscreen = (
+   //const end = performance.now();
    //console.log("Recording time: ", end - start);
 -  SkiaViewApi.setJsiProperty(nativeId, "picture", picture);
 +  skiaViewApi.setJsiProperty(nativeId, "picture", picture);
  };
+ 
+ class NativeReanimatedContainer extends Container {
 diff --git a/node_modules/@shopify/react-native-skia/src/sksg/StaticContainer.ts b/node_modules/@shopify/react-native-skia/src/sksg/StaticContainer.ts
-index 0000000..0000000 100644
+index 07d8754a7..ce1afadbd 100644
 --- a/node_modules/@shopify/react-native-skia/src/sksg/StaticContainer.ts
 +++ b/node_modules/@shopify/react-native-skia/src/sksg/StaticContainer.ts
-@@ -52,10 +52,11 @@ export class StaticContainer extends Container {
+@@ -58,11 +58,12 @@ export class StaticContainer extends Container {
      this.recording = recorder.getRecording();
      const isOnScreen = this.nativeId !== -1;
      if (isOnScreen) {
@@ -38,7 +39,7 @@ index 0000000..0000000 100644
    }
  }
 diff --git a/node_modules/@shopify/react-native-skia/src/renderer/Canvas.tsx b/node_modules/@shopify/react-native-skia/src/renderer/Canvas.tsx
-index 0000000..0000000 100644
+index 993f07c33..61589908b 100644
 --- a/node_modules/@shopify/react-native-skia/src/renderer/Canvas.tsx
 +++ b/node_modules/@shopify/react-native-skia/src/renderer/Canvas.tsx
 @@ -110,13 +110,13 @@ export const Canvas = ({
@@ -59,10 +60,10 @@ index 0000000..0000000 100644
          getNativeId: () => {
            return nativeId;
 diff --git a/node_modules/@shopify/react-native-skia/src/views/SkiaPictureView.tsx b/node_modules/@shopify/react-native-skia/src/views/SkiaPictureView.tsx
-index 0000000..0000000 100644
+index e9edf1c82..33be033b1 100644
 --- a/node_modules/@shopify/react-native-skia/src/views/SkiaPictureView.tsx
 +++ b/node_modules/@shopify/react-native-skia/src/views/SkiaPictureView.tsx
-@@ -95,8 +95,9 @@ export class SkiaPictureView extends React.Component<SkiaPictureViewProps> {
+@@ -96,12 +96,14 @@ export class SkiaPictureView extends React.Component<SkiaPictureViewProps> {
  }
  
  const assertSkiaViewApi = () => {

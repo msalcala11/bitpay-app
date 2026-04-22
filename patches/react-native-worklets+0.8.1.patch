@@ -1,14 +1,18 @@
 diff --git a/node_modules/react-native-worklets/src/bundleMode/metroOverrides.native.ts b/node_modules/react-native-worklets/src/bundleMode/metroOverrides.native.ts
-index 0000000..0000000 100644
+index 72c8588c6..61166965c 100644
 --- a/node_modules/react-native-worklets/src/bundleMode/metroOverrides.native.ts
 +++ b/node_modules/react-native-worklets/src/bundleMode/metroOverrides.native.ts
-@@ -34,7 +34,8 @@ export function disallowRNImports() {
+@@ -38,7 +38,8 @@ export function silenceHMRWarnings() {
+ export function disallowRNImports() {
+   assertWorkletRuntime('disallowRNImports');
  
 -  const modules = require.getModules();
 +  const metroRequire = require.getModules ? require : globalThis.__r;
 +  const modules = metroRequire.getModules();
    const ReactNativeModuleId = require.resolveWeak('react-native');
-@@ -64,7 +65,7 @@ export function disallowRNImports() {
+ 
+   const moduleFactory = makeModuleFactory((module) => {
+@@ -65,7 +66,7 @@ export function disallowRNImports() {
  
    const mockModule = {
      dependencyMap: [],
@@ -17,19 +21,21 @@ index 0000000..0000000 100644
      hasError: false,
      importedAll: {},
      importedDefault: {},
-@@ -86,10 +87,22 @@ export function mockTurboModuleRegistry() {
+@@ -86,17 +87,28 @@ export function disallowRNImports() {
+  * Native.
   */
  export function mockTurboModuleRegistry() {
 -  const modules = require.getModules();
--  
+-
 -  const TurboModuleRegistryId = require.resolveWeak(
 -    'react-native/Libraries/TurboModule/TurboModuleRegistry'
 -  );
-+  const TurboModules = new Map<string, unknown>();
-+
-+  TurboModules.set('Networking', {});
-+
-+  globalThis.TurboModules = TurboModules;
+-
+   const TurboModules = new Map<string, unknown>();
+ 
+   TurboModules.set('Networking', {});
+ 
+   globalThis.TurboModules = TurboModules;
 +  (
 +    globalThis as typeof globalThis & {
 +      __turboModuleProxy?: (name: string) => unknown | null;
@@ -47,17 +53,24 @@ index 0000000..0000000 100644
 +  const TurboModuleRegistryId = require.resolveWeak(
 +    'react-native/Libraries/TurboModule/TurboModuleRegistry'
 +  );
+ 
+   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   const moduleFactory = makeModuleFactory((module: any) => {
 diff --git a/node_modules/react-native-worklets/lib/module/bundleMode/metroOverrides.native.js b/node_modules/react-native-worklets/lib/module/bundleMode/metroOverrides.native.js
-index 0000000..0000000 100644
+index fa8df7c5b..548f7dded 100644
 --- a/node_modules/react-native-worklets/lib/module/bundleMode/metroOverrides.native.js
 +++ b/node_modules/react-native-worklets/lib/module/bundleMode/metroOverrides.native.js
-@@ -30,7 +30,8 @@ export function disallowRNImports() {
+@@ -32,7 +32,8 @@ export function silenceHMRWarnings() {
+  */
+ export function disallowRNImports() {
    assertWorkletRuntime('disallowRNImports');
 -  const modules = require.getModules();
 +  const metroRequire = require.getModules ? require : globalThis.__r;
 +  const modules = metroRequire.getModules();
    const ReactNativeModuleId = require.resolveWeak('react-native');
-@@ -49,7 +50,7 @@ export function disallowRNImports() {
+   const moduleFactory = makeModuleFactory(module => {
+     module.exports = new Proxy({}, {
+@@ -50,7 +51,7 @@ export function disallowRNImports() {
    });
    const mockModule = {
      dependencyMap: [],
@@ -66,7 +79,7 @@ index 0000000..0000000 100644
      hasError: false,
      importedAll: {},
      importedDefault: {},
-@@ -70,8 +71,15 @@ export function disallowRNImports() {
+@@ -70,11 +71,16 @@ export function disallowRNImports() {
   * Native.
   */
  export function mockTurboModuleRegistry() {
@@ -82,8 +95,11 @@ index 0000000..0000000 100644
 +  }
 +  const modules = metroRequire.getModules();
 +  const TurboModuleRegistryId = require.resolveWeak('react-native/Libraries/TurboModule/TurboModuleRegistry');
+ 
+   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   const moduleFactory = makeModuleFactory(module => {
 diff --git a/node_modules/react-native-worklets/src/initializers/initializers.native.ts b/node_modules/react-native-worklets/src/initializers/initializers.native.ts
-index 0000000..0000000 100644
+index 8132edd29..af7ca8d81 100644
 --- a/node_modules/react-native-worklets/src/initializers/initializers.native.ts
 +++ b/node_modules/react-native-worklets/src/initializers/initializers.native.ts
 @@ -152,7 +152,10 @@ function initializeWorkletRuntime() {
@@ -99,7 +115,7 @@ index 0000000..0000000 100644
        initializeNetworking();
      }
 diff --git a/node_modules/react-native-worklets/lib/module/initializers/initializers.native.js b/node_modules/react-native-worklets/lib/module/initializers/initializers.native.js
-index 0000000..0000000 100644
+index d02f3136d..5d284560e 100644
 --- a/node_modules/react-native-worklets/lib/module/initializers/initializers.native.js
 +++ b/node_modules/react-native-worklets/lib/module/initializers/initializers.native.js
 @@ -131,7 +131,7 @@ function initializeWorkletRuntime() {
@@ -112,15 +128,16 @@ index 0000000..0000000 100644
        initializeNetworking();
      }
 diff --git a/node_modules/react-native-worklets/android/src/main/java/com/swmansion/worklets/ScriptBufferWrapper.java b/node_modules/react-native-worklets/android/src/main/java/com/swmansion/worklets/ScriptBufferWrapper.java
-index 0000000..0000000 100644
+index 3114bfed4..e0bb3f98f 100644
 --- a/node_modules/react-native-worklets/android/src/main/java/com/swmansion/worklets/ScriptBufferWrapper.java
 +++ b/node_modules/react-native-worklets/android/src/main/java/com/swmansion/worklets/ScriptBufferWrapper.java
-@@ -1,15 +1,16 @@
+@@ -1,23 +1,25 @@
  package com.swmansion.worklets;
  
  import android.annotation.SuppressLint;
 +import android.content.Context;
  import android.content.res.AssetManager;
+-import android.os.Build;
  import com.facebook.jni.HybridData;
  import com.facebook.proguard.annotations.DoNotStrip;
  import com.facebook.proguard.annotations.DoNotStripAny;
@@ -134,7 +151,7 @@ index 0000000..0000000 100644
  
  /** A wrapper around a JavaScript bundle that is backed by a native C++ object. */
  @SuppressWarnings("JavaJniMissingFunction")
-@@ -17,7 +18,8 @@ import java.nio.charset.StandardCharsets;
+ @SuppressLint("MissingNativeLoadLibrary")
  @DoNotStripAny
  public class ScriptBufferWrapper {
 -  public ScriptBufferWrapper(String uri, AssetManager assetManager) {
@@ -143,7 +160,7 @@ index 0000000..0000000 100644
      String filePrefix = "file://";
      String assetsPrefix = "assets://";
  
-@@ -27,37 +29,35 @@ public class ScriptBufferWrapper {
+@@ -28,29 +30,29 @@ public class ScriptBufferWrapper {
        String assetURL = uri.substring(assetsPrefix.length());
        mHybridData = initHybridFromAssets(assetManager, assetURL);
      } else {
@@ -184,7 +201,7 @@ index 0000000..0000000 100644
      } finally {
        if (connection != null) {
          connection.disconnect();
-       }
+@@ -58,20 +60,15 @@ public class ScriptBufferWrapper {
      }
    }
  
@@ -201,21 +218,21 @@ index 0000000..0000000 100644
        int len;
 -      while ((len = inputStream.read(buffer)) != -1) {
 -        byteBuffer.write(buffer, 0, len);
-+      while ((len = stream.read(buffer)) != -1) {
-+        outputStream.write(buffer, 0, len);
-       }
+-      }
 -      return byteBuffer.toByteArray();
 -    } finally {
 -      if (inputStream != null) {
 -        inputStream.close();
--      }
++      while ((len = stream.read(buffer)) != -1) {
++        outputStream.write(buffer, 0, len);
+       }
      }
    }
 diff --git a/node_modules/react-native-worklets/android/src/no-networking/com/swmansion/worklets/WorkletsModule.java b/node_modules/react-native-worklets/android/src/no-networking/com/swmansion/worklets/WorkletsModule.java
-index 0000000..0000000 100644
+index b9a5df446..23b13c4cd 100644
 --- a/node_modules/react-native-worklets/android/src/no-networking/com/swmansion/worklets/WorkletsModule.java
 +++ b/node_modules/react-native-worklets/android/src/no-networking/com/swmansion/worklets/WorkletsModule.java
-@@ -74,7 +74,7 @@ public class WorkletsModule extends NativeWorkletsModuleSpec implements Lifecyc
+@@ -75,7 +75,7 @@ public class WorkletsModule extends NativeWorkletsModuleSpec implements Lifecycl
  
      ScriptBufferWrapper scriptBufferWrapper = null;
      if (bundleModeEnabled) {
@@ -225,10 +242,10 @@ index 0000000..0000000 100644
  
      mHybridData =
 diff --git a/node_modules/react-native-worklets/android/src/networking/com/swmansion/worklets/WorkletsModule.java b/node_modules/react-native-worklets/android/src/networking/com/swmansion/worklets/WorkletsModule.java
-index 0000000..0000000 100644
+index 6294cde6e..949c4dfb9 100644
 --- a/node_modules/react-native-worklets/android/src/networking/com/swmansion/worklets/WorkletsModule.java
 +++ b/node_modules/react-native-worklets/android/src/networking/com/swmansion/worklets/WorkletsModule.java
-@@ -79,7 +79,7 @@ public class WorkletsModule extends NativeWorkletsModuleSpec implements Lifecyc
+@@ -80,7 +80,7 @@ public class WorkletsModule extends NativeWorkletsModuleSpec implements Lifecycl
  
      ScriptBufferWrapper scriptBufferWrapper = null;
      if (bundleModeEnabled) {

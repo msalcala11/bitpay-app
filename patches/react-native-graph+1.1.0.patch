@@ -1,26 +1,30 @@
 diff --git a/node_modules/react-native-graph/src/GetYForX.ts b/node_modules/react-native-graph/src/GetYForX.ts
-index 0000000..0000000 100644
+index d243ac702..44179fbd0 100644
 --- a/node_modules/react-native-graph/src/GetYForX.ts
 +++ b/node_modules/react-native-graph/src/GetYForX.ts
-@@ -1,2 +1,4 @@
+@@ -1,5 +1,7 @@
 -import type { Vector, PathCommand } from '@shopify/react-native-skia'
 -import { PathVerb, vec } from '@shopify/react-native-skia'
 +import type {Vector} from '@shopify/react-native-skia/src/skia/types'
 +import type {PathCommand} from '@shopify/react-native-skia/src/skia/types/Path/Path'
 +import {PathVerb} from '@shopify/react-native-skia/src/skia/types/Path/Path'
 +import {vec} from '@shopify/react-native-skia/src/skia/core/Vector'
+ 
+ // code from William Candillon
+ 
 diff --git a/node_modules/react-native-graph/src/AnimatedLineGraph.tsx b/node_modules/react-native-graph/src/AnimatedLineGraph.tsx
-index 0000000..0000000 100644
+index bee225a35..c705858e7 100644
 --- a/node_modules/react-native-graph/src/AnimatedLineGraph.tsx
 +++ b/node_modules/react-native-graph/src/AnimatedLineGraph.tsx
 @@ -23,10 +23,10 @@ import {
-   Skia,
    vec,
    Group,
--  PathCommand,
+   PathCommand,
 -  mix,
-+  PathCommand,
    Circle,
    Shadow,
  } from '@shopify/react-native-skia'
 +import {mix} from '@shopify/react-native-skia/src/renderer/processors/math/Math'
+ 
+ import type { AnimatedLineGraphProps } from './LineGraphProps'
+ import { SelectionDot as DefaultSelectionDot } from './SelectionDot'
