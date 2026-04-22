@@ -1,13 +1,17 @@
 const {getDefaultConfig, mergeConfig} = require('@react-native/metro-config');
+const {resolve: resolveWithMetro} = require('metro-resolver');
 const path = require('path');
 
 const {withSentryConfig} = require('@sentry/react-native/metro');
-const {bundleModeMetroConfig} = require('react-native-worklets/bundleMode');
+const {WORKLETS_BUNDLE_MODE_ENABLED} = require('./workletsBuildConfig');
 
 const defaultConfig = getDefaultConfig(__dirname);
 const {
   resolver: {sourceExts, assetExts},
 } = defaultConfig;
+const bundleModeMetroConfig = WORKLETS_BUNDLE_MODE_ENABLED
+  ? require('react-native-worklets/bundleMode').bundleModeMetroConfig
+  : undefined;
 
 const SHIM_PATH = path.resolve(__dirname, 'shims/silence-dkls-web.js');
 const REAL_SILENCE_PATH = path.resolve(
@@ -44,6 +48,22 @@ const config = {
       ...ALIASES,
     },
   },
+};
+
+const delegateResolveRequest = (context, moduleName, platform) => {
+  if (bundleModeMetroConfig?.resolver?.resolveRequest) {
+    return bundleModeMetroConfig.resolver.resolveRequest(
+      context,
+      moduleName,
+      platform,
+    );
+  }
+
+  if (typeof context.resolveRequest === 'function') {
+    return context.resolveRequest(context, moduleName, platform);
+  }
+
+  return resolveWithMetro(context, moduleName, platform);
 };
 
 // Ensure Metro resolves to the ES6 build of tslib to avoid '__extends' undefined errors
@@ -86,7 +106,7 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName === '@@silence-original') moduleName = REAL_SILENCE_PATH;
   if (moduleName === '@@silence-wasm') moduleName = SILENCE_WASM_PATH;
 
-  return bundleModeMetroConfig.resolver.resolveRequest(
+  return delegateResolveRequest(
     context,
     ALIASES[moduleName] ?? moduleName,
     platform,
@@ -94,5 +114,7 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
 };
 
 module.exports = withSentryConfig(
-  mergeConfig(defaultConfig, bundleModeMetroConfig, config),
+  WORKLETS_BUNDLE_MODE_ENABLED
+    ? mergeConfig(defaultConfig, bundleModeMetroConfig, config)
+    : mergeConfig(defaultConfig, config),
 );

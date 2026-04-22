@@ -1,4 +1,5 @@
 const {NODE_ENV} = process.env;
+const {WORKLETS_BUNDLE_MODE_ENABLED} = require('./workletsBuildConfig');
 
 const prod = NODE_ENV === 'production';
 
@@ -35,11 +36,11 @@ if (prod) {
   plugins.push('transform-remove-console');
 }
 
-// Bundle Mode is global for this build. Even though the new feature is a worker
-// demo, UI-runtime worklets like Skia/Reanimated charts are affected too.
+// Keep this toggle shared with Metro so worker smoke tests can verify the
+// non-bundle-mode path without accidentally leaving Metro in bundle mode.
 /** @type {import('react-native-worklets/plugin').PluginOptions} */
 const workletsPluginOptions = {
-  bundleMode: true,
+  bundleMode: WORKLETS_BUNDLE_MODE_ENABLED,
   strictGlobal: true,
   workletizableModules: [
     '@bitpay-labs/bitcore-lib',
