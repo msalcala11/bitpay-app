@@ -1008,6 +1008,7 @@ describe('usePortfolioAssetRows', () => {
       expect(mockRunPortfolioAnalysisSessionScopeQuery).toHaveBeenCalledWith({
         sessionId: 'session-btc',
         walletIds: ['btc-wallet'],
+        debugSource: 'home_assets_session_scope',
       });
     });
 
@@ -1670,20 +1671,23 @@ describe('usePortfolioAssetRows', () => {
     render(<HookHarness />);
 
     await waitFor(() => {
-      expect(mockRunPortfolioAnalysisQuery).toHaveBeenCalledWith({
-        wallets: [
-          expect.objectContaining({
-            summary: expect.objectContaining({
-              walletId: 'btc-wallet',
+      expect(mockRunPortfolioAnalysisQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          wallets: [
+            expect.objectContaining({
+              summary: expect.objectContaining({
+                walletId: 'btc-wallet',
+              }),
             }),
-          }),
-        ],
-        quoteCurrency: 'USD',
-        timeframe: '1D',
-        maxPoints: 2,
-        currentRatesByAssetId: expect.any(Object),
-        asOfMs: 123456789,
-      });
+          ],
+          quoteCurrency: 'USD',
+          timeframe: '1D',
+          maxPoints: 2,
+          currentRatesByAssetId: expect.any(Object),
+          asOfMs: 123456789,
+          debugSource: 'home_assets_session_fallback',
+        }),
+      );
     });
 
     await waitFor(() => {

@@ -145,6 +145,7 @@ export function usePortfolioKeyPercentages(args: {keys: Key[]}) {
           maxPoints: 2,
           currentRatesByAssetId: input.currentRatesByAssetId,
           asOfMs,
+          debugSource: 'home_key_percentages',
         });
 
         return {

@@ -256,6 +256,7 @@ export function usePortfolioGainLossSummary(args: {
         maxPoints: 2,
         currentRatesByAssetId,
         asOfMs,
+        debugSource: 'portfolio_gain_loss_summary',
       })
         .then(chart => {
           if (

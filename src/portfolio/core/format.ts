@@ -42,7 +42,7 @@ export function getAtomicDecimals(credentials: WalletCredentials): number {
     case 'arb':
     case 'base':
     case 'op':
-      return getEvmDecimals();
+      return 18;
     case 'xrp':
       return 6;
     case 'sol':
@@ -181,11 +181,11 @@ export function getPow10BigInt(decimals: number): bigint {
 
 export function makeAtomicToUnitNumberConverter(
   decimals: number,
-  maxFractionDigits = getMaxAtomicToUnitFractionDigits(),
+  maxFractionDigits = 15,
 ): (atomic: bigint) => number {
   'worklet';
 
-  const maxAtomicToUnitFractionDigits = getMaxAtomicToUnitFractionDigits();
+  const maxAtomicToUnitFractionDigits = 15;
   const normalizedDecimals = normalizeNonNegativeInteger(decimals);
   const fractionDigits = Math.min(
     normalizedDecimals,
@@ -221,7 +221,7 @@ export function ratioBigIntToNumber(n: bigint, d: bigint): number {
   'worklet';
 
   if (d === 0n) return 0;
-  const ratioScale = getRatioScale();
+  const ratioScale = 1_000_000_000_000n;
   const sign = (n < 0n) !== (d < 0n) ? -1 : 1;
   const an = n < 0n ? -n : n;
   const ad = d < 0n ? -d : d;

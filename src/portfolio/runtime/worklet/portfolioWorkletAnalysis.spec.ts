@@ -10,6 +10,10 @@ import {
   setPnlAnalysisDebugHooksForTests,
 } from '../../core/pnl/analysisStreaming';
 import {
+  clearPortfolioTxHistorySigningDispatchContextOnRuntime,
+  setPortfolioTxHistorySigningDispatchContextOnRuntime,
+} from '../../adapters/rn/txHistorySigning';
+import {
   appendWorkletSnapshotChunk,
   buildWorkletWalletMetaForStore,
 } from './portfolioWorkletSnapshots';
@@ -20,6 +24,20 @@ type FakeStorage = {
   delete: (key: string) => void;
   getString: (key: string) => string | undefined;
   set: (key: string, value: string) => void;
+};
+
+type FakeNitroRequest = {
+  url: string;
+  method?: string;
+  headers?: Array<{key: string; value: string}>;
+  timeoutMs?: number;
+  followRedirects?: boolean;
+};
+
+type FakeNitroResponse = {
+  ok: boolean;
+  status: number;
+  bodyString?: string;
 };
 
 const createStorage = (): FakeStorage => {
@@ -87,8 +105,26 @@ const makeJsonResponse = (body: unknown, status = 200) =>
   ({
     ok: status >= 200 && status < 300,
     status,
-    text: async () => JSON.stringify(body),
+    bodyString: JSON.stringify(body),
+  } as FakeNitroResponse);
+
+function installNitroFetchMock(
+  handler: (request: FakeNitroRequest) => FakeNitroResponse,
+) {
+  const requestSync = jest.fn((request: FakeNitroRequest) => handler(request));
+  const request = jest.fn(async (requestArgs: FakeNitroRequest) =>
+    handler(requestArgs),
+  );
+
+  setPortfolioTxHistorySigningDispatchContextOnRuntime({
+    nitroFetchClient: {
+      request,
+      requestSync,
+    },
   } as any);
+
+  return requestSync;
+}
 
 const createDebugCounters = () => {
   const counters = {
@@ -117,10 +153,8 @@ const createDebugCounters = () => {
 };
 
 describe('portfolioWorkletAnalysis', () => {
-  const originalFetch = global.fetch;
-
   afterEach(() => {
-    global.fetch = originalFetch;
+    clearPortfolioTxHistorySigningDispatchContextOnRuntime();
     jest.restoreAllMocks();
     setPnlAnalysisDebugHooksForTests(undefined);
   });
@@ -128,8 +162,11 @@ describe('portfolioWorkletAnalysis', () => {
   it('does not warm rate cache for analysis when no wallets have stored snapshots', async () => {
     const storage = createStorage();
     const config = {storage, registryKey: '__registry__'};
-    const fetchMock = jest.fn();
-    global.fetch = fetchMock as typeof global.fetch;
+    const requestSyncMock = installNitroFetchMock(() => ({
+      ok: true,
+      status: 200,
+      bodyString: '{}',
+    }));
 
     const result = await computeWorkletAnalysis(config, {
       cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
@@ -146,15 +183,18 @@ describe('portfolioWorkletAnalysis', () => {
       points: [],
       assetSummaries: [],
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(requestSyncMock).not.toHaveBeenCalled();
     expect(workletKvListKeys(config)).toEqual([]);
   });
 
   it('does not warm rate cache for chart analysis when no wallets have stored snapshots', async () => {
     const storage = createStorage();
     const config = {storage, registryKey: '__registry__'};
-    const fetchMock = jest.fn();
-    global.fetch = fetchMock as typeof global.fetch;
+    const requestSyncMock = installNitroFetchMock(() => ({
+      ok: true,
+      status: 200,
+      bodyString: '{}',
+    }));
 
     const result = await computeWorkletAnalysisChart(config, {
       cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
@@ -171,7 +211,7 @@ describe('portfolioWorkletAnalysis', () => {
       timestamps: [],
       totalFiatBalance: [],
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(requestSyncMock).not.toHaveBeenCalled();
     expect(workletKvListKeys(config)).toEqual([]);
   });
 
@@ -218,8 +258,8 @@ describe('portfolioWorkletAnalysis', () => {
       {timestamp: t1, cryptoBalance: '2000000'},
     ]);
 
-    const fetchMock = jest.fn(async (input: any) => {
-      const url = String(input);
+    installNitroFetchMock((request: FakeNitroRequest) => {
+      const url = String(request.url);
       if (url.includes('tokenAddress=0xmissing')) {
         return makeJsonResponse({});
       }
@@ -230,7 +270,6 @@ describe('portfolioWorkletAnalysis', () => {
         ],
       });
     });
-    global.fetch = fetchMock as typeof global.fetch;
 
     const result = await computeWorkletAnalysis(config, {
       cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
@@ -279,7 +318,7 @@ describe('portfolioWorkletAnalysis', () => {
       },
     });
 
-    const fetchMock = jest.fn(async () =>
+    installNitroFetchMock(() =>
       makeJsonResponse({
         btc: [
           {ts: t0, rate: 10000},
@@ -287,7 +326,6 @@ describe('portfolioWorkletAnalysis', () => {
         ],
       }),
     );
-    global.fetch = fetchMock as typeof global.fetch;
 
     const result = await computeWorkletAnalysis(config, {
       cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
@@ -340,7 +378,7 @@ describe('portfolioWorkletAnalysis', () => {
       },
     });
 
-    const fetchMock = jest.fn(async () =>
+    installNitroFetchMock(() =>
       makeJsonResponse({
         btc: [
           {ts: t0, rate: 10000},
@@ -348,7 +386,6 @@ describe('portfolioWorkletAnalysis', () => {
         ],
       }),
     );
-    global.fetch = fetchMock as typeof global.fetch;
 
     const args = {
       cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
@@ -403,7 +440,7 @@ describe('portfolioWorkletAnalysis', () => {
       },
     });
 
-    const fetchMock = jest.fn(async () =>
+    installNitroFetchMock(() =>
       makeJsonResponse({
         btc: [
           {ts: t0, rate: 10000},
@@ -411,7 +448,6 @@ describe('portfolioWorkletAnalysis', () => {
         ],
       }),
     );
-    global.fetch = fetchMock as typeof global.fetch;
 
     const args = {
       cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},

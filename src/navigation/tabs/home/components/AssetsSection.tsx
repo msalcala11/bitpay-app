@@ -175,19 +175,8 @@ const AssetsSection: React.FC<AssetsSectionProps> = ({enabled = true}) => {
 
     return nextItems.slice(0, 4);
   }, [enabled, isFiatLoading, previewItems, topAssetKeys, visibleItems]);
-  const itemSignature = useMemo(() => {
-    return items
-      .map(
-        item =>
-          `${item.key}:${item.fiatAmount}:${item.deltaFiat}:${item.deltaPercent}:${item.showScopedPnlLoading ? '1' : '0'}:${item.showPnlPlaceholder ? '1' : '0'}`,
-      )
-      .join('|');
-  }, [items]);
-  const populateLoadingSignature = useMemo(() => {
-    return Object.entries(isPopulateLoadingByKey || {})
-      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
-      .map(([key, loading]) => `${key}:${loading ? '1' : '0'}`)
-      .join('|');
+  const populateLoadingRowCount = useMemo(() => {
+    return Object.values(isPopulateLoadingByKey || {}).filter(Boolean).length;
   }, [isPopulateLoadingByKey]);
   const assetsSectionOnLayout = useDevLayoutTrace('HomeAssetsSectionLayout');
 
@@ -203,9 +192,8 @@ const AssetsSection: React.FC<AssetsSectionProps> = ({enabled = true}) => {
     previewItemCount: previewItems.length,
     visibleItemCount: visibleItems.length,
     renderedItemCount: items.length,
-    itemSignature,
     isFiatLoading: !!isFiatLoading,
-    populateLoadingSignature,
+    populateLoadingRowCount,
     hasAnyPortfolioData,
   });
 

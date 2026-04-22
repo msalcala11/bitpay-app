@@ -1,14 +1,281 @@
 import type {FiatRateInterval, FiatRatePoint} from '../fiatRatesShared';
-import {resolveStoredFiatRateInterval} from '../fiatRatesShared';
-import {
-  formatAtomicAmount,
-  getAtomicDecimals,
-  makeAtomicToUnitNumberConverter,
-  parseAtomicToBigint,
-  ratioBigIntToNumber,
-} from '../format';
 import type {WalletCredentials} from '../types';
 import type {SnapshotPointV2} from './snapshotStore';
+
+// Keep the analysis worklet self-contained at runtime so it does not depend on
+// cross-file helper imports when Worklets bundle mode is disabled.
+function resolveStoredFiatRateInterval(
+  interval: FiatRateInterval,
+): FiatRateInterval {
+  'worklet';
+
+  switch (interval) {
+    case '3M':
+    case '1Y':
+    case '5Y':
+      return 'ALL';
+    default:
+      return interval;
+  }
+}
+
+function normalizeNonNegativeInteger(value: number): number {
+  'worklet';
+
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.trunc(value));
+}
+
+function getAtomicDecimals(credentials: WalletCredentials): number {
+  'worklet';
+
+  const token = credentials?.token;
+  if (token && typeof token.decimals === 'number') {
+    return token.decimals;
+  }
+
+  const chain = String(credentials?.chain || credentials?.coin || '').toLowerCase();
+  switch (chain) {
+    case 'btc':
+    case 'bch':
+    case 'ltc':
+    case 'doge':
+      return 8;
+    case 'eth':
+    case 'matic':
+    case 'arb':
+    case 'base':
+    case 'op':
+      return 18;
+    case 'xrp':
+      return 6;
+    case 'sol':
+      return 9;
+    default:
+      return 8;
+  }
+}
+
+function toSignificantStr(n: number, maxDecimals: number): string {
+  'worklet';
+
+  if (!Number.isFinite(n)) {
+    return '0';
+  }
+
+  const s = n.toFixed(Math.min(maxDecimals, 18));
+  return s.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+}
+
+function parseScientificToTruncatedIntegerString(
+  s: string,
+): string | null {
+  'worklet';
+
+  const match = s.trim().match(/^([+-]?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  const sign = match[1] === '-' ? '-' : '';
+  const intPart = match[2];
+  const fracPart = match[3] ?? '';
+  const exponent = Number(match[4]);
+  if (!Number.isInteger(exponent)) {
+    return null;
+  }
+
+  const digits = intPart + fracPart;
+  const decimalPos = intPart.length + exponent;
+  if (decimalPos <= 0) {
+    return '0';
+  }
+
+  const rawInt =
+    decimalPos >= digits.length
+      ? digits + '0'.repeat(decimalPos - digits.length)
+      : digits.slice(0, decimalPos);
+  const normalized = rawInt.replace(/^0+(?=\d)/, '');
+  if (!normalized || /^0+$/.test(normalized)) {
+    return '0';
+  }
+
+  return sign ? `${sign}${normalized}` : normalized;
+}
+
+function parseAtomicToBigint(v: number | string | bigint): bigint {
+  'worklet';
+
+  if (typeof v === 'bigint') {
+    return v;
+  }
+
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v)) {
+      return 0n;
+    }
+
+    if (Number.isSafeInteger(v)) {
+      return BigInt(v);
+    }
+
+    const s = String(v);
+    if (/[eE]/.test(s)) {
+      const expanded = parseScientificToTruncatedIntegerString(s);
+      if (expanded) {
+        return BigInt(expanded);
+      }
+    }
+
+    const match = s.match(/^(-?\d+)(?:\.\d+)?$/);
+    if (match) {
+      return BigInt(match[1]);
+    }
+
+    return BigInt(Math.trunc(v));
+  }
+
+  const s = String(v).trim();
+  if (!s) {
+    return 0n;
+  }
+
+  if (/[eE]/.test(s)) {
+    const expanded = parseScientificToTruncatedIntegerString(s);
+    if (expanded) {
+      return BigInt(expanded);
+    }
+    const n = Number(s);
+    if (!Number.isFinite(n)) {
+      return 0n;
+    }
+    return BigInt(Math.trunc(n));
+  }
+
+  const match = s.match(/^(-?\d+)(?:\.\d+)?$/);
+  if (!match) {
+    throw new Error('Invalid atomic string');
+  }
+
+  return BigInt(match[1]);
+}
+
+function getPow10BigInt(decimals: number): bigint {
+  'worklet';
+
+  const normalized = normalizeNonNegativeInteger(decimals);
+  return 10n ** BigInt(normalized);
+}
+
+function formatBigIntDecimal(
+  atomic: bigint,
+  decimals: number,
+  maxDecimals = decimals,
+): string {
+  'worklet';
+
+  const sign = atomic < 0n ? '-' : '';
+  const abs = atomic < 0n ? -atomic : atomic;
+
+  if (decimals <= 0) {
+    return sign + abs.toString();
+  }
+
+  const base = getPow10BigInt(decimals);
+  const whole = abs / base;
+  let frac = (abs % base).toString().padStart(decimals, '0');
+  const sliceTo = Math.max(0, Math.min(decimals, maxDecimals));
+  frac = frac.slice(0, sliceTo);
+  frac = frac.replace(/0+$/, '');
+
+  return frac ? `${sign}${whole.toString()}.${frac}` : sign + whole.toString();
+}
+
+function formatAtomicAmount(
+  atomic: number | string | bigint,
+  credentials: WalletCredentials,
+  opts?: {maxDecimals?: number},
+): string {
+  'worklet';
+
+  const decimals = getAtomicDecimals(credentials);
+  const maxDecimals = opts?.maxDecimals ?? decimals;
+
+  try {
+    const b = parseAtomicToBigint(atomic);
+    return formatBigIntDecimal(b, decimals, maxDecimals);
+  } catch {
+    const asNum = typeof atomic === 'number' ? atomic : Number(String(atomic));
+    const unit = Math.pow(10, decimals);
+    return toSignificantStr(asNum / unit, maxDecimals);
+  }
+}
+
+function makeAtomicToUnitNumberConverter(
+  decimals: number,
+  maxFractionDigits = 15,
+): (atomic: bigint) => number {
+  'worklet';
+
+  const maxAtomicToUnitFractionDigits = 15;
+  const normalizedDecimals = normalizeNonNegativeInteger(decimals);
+  const fractionDigits = Math.min(
+    normalizedDecimals,
+    normalizeNonNegativeInteger(maxFractionDigits),
+    maxAtomicToUnitFractionDigits,
+  );
+  const base = getPow10BigInt(normalizedDecimals);
+  const fractionalDivisor =
+    fractionDigits > 0
+      ? getPow10BigInt(normalizedDecimals - fractionDigits)
+      : 1n;
+  const fractionalScale = fractionDigits > 0 ? 10 ** fractionDigits : 1;
+
+  return (atomic: bigint): number => {
+    'worklet';
+
+    if (atomic === 0n) {
+      return 0;
+    }
+
+    const sign = atomic < 0n ? -1 : 1;
+    const abs = atomic < 0n ? -atomic : atomic;
+    const whole = Number(abs / base);
+    if (!Number.isFinite(whole)) {
+      return 0;
+    }
+
+    let out = whole;
+    if (fractionDigits > 0) {
+      const fractional = Number((abs % base) / fractionalDivisor);
+      if (!Number.isFinite(fractional)) {
+        return 0;
+      }
+      out += fractional / fractionalScale;
+    }
+
+    return sign * out;
+  };
+}
+
+function ratioBigIntToNumber(n: bigint, d: bigint): number {
+  'worklet';
+
+  if (d === 0n) {
+    return 0;
+  }
+
+  const ratioScale = 1_000_000_000_000n;
+  const sign = (n < 0n) !== (d < 0n) ? -1 : 1;
+  const an = n < 0n ? -n : n;
+  const ad = d < 0n ? -d : d;
+  const scaled = (an * ratioScale) / ad;
+  const asNum = Number(scaled);
+  return sign * (Number.isFinite(asNum) ? asNum / Number(ratioScale) : 0);
+}
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 const MS_PER_DAY = 24 * MS_PER_HOUR;

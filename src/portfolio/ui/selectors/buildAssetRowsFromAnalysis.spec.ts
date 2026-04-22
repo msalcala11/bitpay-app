@@ -54,4 +54,51 @@ describe('buildAssetRowsFromAnalysis', () => {
       }),
     ]);
   });
+
+  it('builds rows for wallets whose summary network is reported as mainnet', () => {
+    const rows = buildAssetRowsFromAnalysis({
+      storedWallets: [
+        {
+          walletId: 'wallet-1',
+          credentials: {
+            walletId: 'wallet-1',
+            chain: 'eth',
+            coin: 'eth',
+          },
+          summary: {
+            walletId: 'wallet-1',
+            walletName: 'ETH Wallet',
+            chain: 'eth',
+            network: 'mainnet',
+            currencyAbbreviation: 'eth',
+            balanceAtomic: '1000000000000000000',
+            balanceFormatted: '1',
+          },
+          addedAt: 0,
+        } as any,
+      ],
+      analysis: {
+        assetSummaries: [
+          {
+            assetId: 'eth:eth',
+            rateEnd: 2000,
+            fiatBalanceEnd: 2000,
+            pnlEnd: 50,
+            pnlChange: 50,
+            remainingCostBasisFiatEnd: 1950,
+          },
+        ],
+      } as any,
+      quoteCurrency: 'USD',
+      gainLossMode: '1D',
+      collapseAcrossChains: true,
+    });
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        key: 'eth',
+        fiatAmount: 'USD:2000',
+      }),
+    ]);
+  });
 });

@@ -41,40 +41,43 @@ const AssetsList: React.FC<Props> = ({
       isFiatLoading,
     });
   }, [forceSkeleton, isFiatLoading, items]);
-  const itemSignature = useMemo(() => {
-    return items
-      .map(
-        item =>
-          `${item.key}:${item.fiatAmount}:${item.deltaFiat}:${item.deltaPercent}:${item.showScopedPnlLoading ? '1' : '0'}:${item.showPnlPlaceholder ? '1' : '0'}`,
-      )
-      .join('|');
-  }, [items]);
-  const rowLoadingSignature = useMemo(() => {
-    return items
-      .map(item => {
-        const isRowPopulateLoading = getAssetRowPopulateLoading({
-          populateInProgress,
-          showPnlPlaceholder: item.showPnlPlaceholder,
-          rowLoadingByKey: isPopulateLoadingByKey,
-          rowKey: item.key,
-        });
-        const isRowFiatLoading = getAssetRowFiatLoading({
-          populateInProgress,
-          isFiatLoading,
-          isRowPopulateLoading,
-          showScopedPnlLoading: !!item.showScopedPnlLoading,
-        });
+  const rowLoadingCounts = useMemo(() => {
+    let populateLoadingCount = 0;
+    let fiatLoadingCount = 0;
 
-        return `${item.key}:${isRowPopulateLoading ? '1' : '0'}:${isRowFiatLoading ? '1' : '0'}`;
-      })
-      .join('|');
+    for (const item of items) {
+      const isRowPopulateLoading = getAssetRowPopulateLoading({
+        populateInProgress,
+        showPnlPlaceholder: item.showPnlPlaceholder,
+        rowLoadingByKey: isPopulateLoadingByKey,
+        rowKey: item.key,
+      });
+      const isRowFiatLoading = getAssetRowFiatLoading({
+        populateInProgress,
+        isFiatLoading,
+        isRowPopulateLoading,
+        showScopedPnlLoading: !!item.showScopedPnlLoading,
+      });
+
+      if (isRowPopulateLoading) {
+        populateLoadingCount += 1;
+      }
+      if (isRowFiatLoading) {
+        fiatLoadingCount += 1;
+      }
+    }
+
+    return {
+      populateLoadingCount,
+      fiatLoadingCount,
+    };
   }, [isFiatLoading, isPopulateLoadingByKey, items, populateInProgress]);
   const assetsListOnLayout = useDevLayoutTrace('HomeAssetsListLayout');
 
   useDevRenderTrace('AssetsList', {
     itemCount: items.length,
-    itemSignature,
-    rowLoadingSignature,
+    rowPopulateLoadingCount: rowLoadingCounts.populateLoadingCount,
+    rowFiatLoadingCount: rowLoadingCounts.fiatLoadingCount,
     forceSkeleton: shouldForceSkeletonMode,
     isFiatLoading: !!isFiatLoading,
     populateInProgress: !!populateInProgress,

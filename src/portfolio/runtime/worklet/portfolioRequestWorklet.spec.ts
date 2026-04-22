@@ -1,5 +1,9 @@
 import {handlePortfolioRequestOnRuntime} from './portfolioRequestWorklet';
 import {
+  clearPortfolioTxHistorySigningDispatchContextOnRuntime,
+  setPortfolioTxHistorySigningDispatchContextOnRuntime,
+} from '../../adapters/rn/txHistorySigning';
+import {
   appendWorkletSnapshotChunk,
   buildWorkletWalletMetaForStore,
   ensureWorkletWalletIndex,
@@ -11,6 +15,20 @@ type FakeStorage = {
   delete: (key: string) => void;
   getString: (key: string) => string | undefined;
   set: (key: string, value: string) => void;
+};
+
+type FakeNitroRequest = {
+  url: string;
+  method?: string;
+  headers?: Array<{key: string; value: string}>;
+  timeoutMs?: number;
+  followRedirects?: boolean;
+};
+
+type FakeNitroResponse = {
+  ok: boolean;
+  status: number;
+  bodyString?: string;
 };
 
 const createStorage = (): FakeStorage => {
@@ -27,11 +45,27 @@ const createStorage = (): FakeStorage => {
   };
 };
 
-describe('portfolioRequestWorklet', () => {
-  const originalFetch = global.fetch;
+function installNitroFetchMock(
+  handler: (request: FakeNitroRequest) => FakeNitroResponse,
+) {
+  const requestSync = jest.fn((request: FakeNitroRequest) => handler(request));
+  const request = jest.fn(async (requestArgs: FakeNitroRequest) =>
+    handler(requestArgs),
+  );
 
+  setPortfolioTxHistorySigningDispatchContextOnRuntime({
+    nitroFetchClient: {
+      request,
+      requestSync,
+    },
+  } as any);
+
+  return requestSync;
+}
+
+describe('portfolioRequestWorklet', () => {
   afterEach(() => {
-    global.fetch = originalFetch;
+    clearPortfolioTxHistorySigningDispatchContextOnRuntime();
     jest.restoreAllMocks();
   });
 
@@ -302,17 +336,16 @@ describe('portfolioRequestWorklet', () => {
       },
     });
 
-    global.fetch = jest.fn(async () => ({
+    installNitroFetchMock(() => ({
       ok: true,
       status: 200,
-      text: async () =>
-        JSON.stringify({
-          btc: [
-            {ts: t0, rate: 10000},
-            {ts: t1, rate: 11000},
-          ],
-        }),
-    })) as typeof global.fetch;
+      bodyString: JSON.stringify({
+        btc: [
+          {ts: t0, rate: 10000},
+          {ts: t1, rate: 11000},
+        ],
+      }),
+    }));
 
     const wallet = {
       walletId: 'w3',

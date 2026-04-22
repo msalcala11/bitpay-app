@@ -1,6 +1,14 @@
 import type {StoredWallet, WalletCredentials, WalletSummary} from '../../core/types';
 import type {Wallet} from '../../../store/wallet/wallet.models';
 import {getWalletLiveAtomicBalance} from '../../../utils/portfolio/assets';
+import {isPortfolioRuntimeEligibleWallet} from './walletEligibility';
+
+export {
+  isPortfolioRuntimeEligibleWallet,
+  isPortfolioRuntimeMainnetLikeNetwork,
+  summarizePortfolioRuntimeWalletEligibility,
+  type PortfolioRuntimeWalletEligibilitySummary,
+} from './walletEligibility';
 
 export type PortfolioWalletCredentialsSnapshot = WalletCredentials & {
   walletId: string;
@@ -21,46 +29,12 @@ export type PortfolioWalletCredentialsSnapshot = WalletCredentials & {
   };
 };
 
-const isMainnetLikeNetwork = (network: string | undefined): boolean => {
-  const normalized = String(network || '').trim().toLowerCase();
-  return normalized === 'livenet' || normalized === 'mainnet';
-};
-
 const sanitizeString = (value: unknown): string | undefined => {
   if (typeof value !== 'string') {
     return undefined;
   }
   const normalized = value.trim();
   return normalized ? normalized : undefined;
-};
-
-export const isPortfolioRuntimeEligibleWallet = (wallet: Wallet): boolean => {
-  const credentials = (wallet as any)?.credentials;
-  const walletId = sanitizeString(wallet?.id || credentials?.walletId);
-  const copayerId = sanitizeString(credentials?.copayerId);
-  const requestPrivKey = sanitizeString(credentials?.requestPrivKey);
-  const network = sanitizeString(wallet?.network || credentials?.network);
-
-  if (!walletId || !copayerId || !requestPrivKey || !isMainnetLikeNetwork(network)) {
-    return false;
-  }
-
-  if ((wallet as any)?.pendingTssSession) {
-    return false;
-  }
-
-  try {
-    if (
-      typeof credentials?.isComplete === 'function' &&
-      !credentials.isComplete()
-    ) {
-      return false;
-    }
-  } catch {
-    return false;
-  }
-
-  return true;
 };
 
 export const extractPortfolioWalletCredentialsSnapshot = (

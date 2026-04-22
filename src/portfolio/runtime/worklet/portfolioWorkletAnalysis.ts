@@ -8,16 +8,7 @@ import {
   type WalletForAnalysisMeta,
   type WalletForStreamedAnalysis,
 } from '../../core/pnl/analysisStreaming';
-import {getAssetIdFromWallet} from '../../core/pnl/assetId';
-import {
-  normalizeFiatRateSeriesChain,
-  normalizeFiatRateSeriesTokenAddress,
-  type FiatRatePoint,
-} from '../../core/fiatRatesShared';
-import {
-  getFiatRateAssetRef,
-  normalizeFiatRateSeriesCoin,
-} from '../../core/pnl/rates';
+import type {FiatRatePoint} from '../../core/fiatRatesShared';
 import type {
   ComputeAnalysisArgs,
   ComputeAnalysisSessionScopeArgs,
@@ -34,6 +25,104 @@ import {
   iterateWorkletPoints,
   loadWorkletSnapshotIndex,
 } from './portfolioWorkletSnapshots';
+
+function normalizeFiatRateSeriesChain(
+  chain?: string,
+): string | undefined {
+  'worklet';
+
+  const normalized = String(chain || '')
+    .trim()
+    .toLowerCase();
+  return normalized || undefined;
+}
+
+function normalizeFiatRateSeriesTokenAddress(
+  chain?: string,
+  tokenAddress?: string,
+): string | undefined {
+  'worklet';
+
+  const normalized = String(tokenAddress || '').trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  const normalizedChain = normalizeFiatRateSeriesChain(chain);
+  return normalizedChain === 'sol' || normalizedChain === 'solana'
+    ? normalized
+    : normalized.toLowerCase();
+}
+
+function normalizeFiatRateSeriesCoin(
+  currencyAbbreviation?: string,
+): string {
+  'worklet';
+
+  switch ((currencyAbbreviation || '').toLowerCase()) {
+    case 'wbtc':
+      return 'btc';
+    case 'weth':
+      return 'eth';
+    case 'matic':
+    case 'pol':
+      return 'pol';
+    default:
+      return (currencyAbbreviation || '').toLowerCase();
+  }
+}
+
+function getAssetIdFromWallet(wallet: {
+  chain?: string;
+  currencyAbbreviation?: string;
+  tokenAddress?: string;
+}): string {
+  'worklet';
+
+  const chain = (wallet.chain || '').toLowerCase();
+  const coin = (wallet.currencyAbbreviation || '').toLowerCase();
+  if (wallet.tokenAddress) {
+    return `${chain}:${coin}:${wallet.tokenAddress.toLowerCase()}`;
+  }
+
+  return `${chain}:${coin}`;
+}
+
+function getFiatRateAssetRef(args: {
+  currencyAbbreviation?: string;
+  chain?: string;
+  tokenAddress?: string;
+}): {
+  coin: string;
+  chain?: string;
+  tokenAddress?: string;
+} {
+  'worklet';
+
+  const rawTokenAddress = String(args.tokenAddress || '').trim();
+  const chain = rawTokenAddress
+    ? normalizeFiatRateSeriesChain(args.chain) || ''
+    : '';
+  const tokenAddress =
+    normalizeFiatRateSeriesTokenAddress(chain, rawTokenAddress) || '';
+  const coin = normalizeFiatRateSeriesCoin(args.currencyAbbreviation);
+
+  if (
+    tokenAddress === '0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0' &&
+    chain === 'eth' &&
+    coin === 'pol'
+  ) {
+    return {
+      coin: 'pol',
+    };
+  }
+
+  return {
+    coin,
+    chain: chain || undefined,
+    tokenAddress: tokenAddress || undefined,
+  };
+}
 
 function sanitizeRatePoints(
   pointsRaw: FiatRatePoint[] | undefined,
@@ -81,6 +170,36 @@ type PreparedWorkletAnalysisSessionData = {
   firstNonZeroTsByWalletId: Record<string, number | null>;
 };
 
+function logWorkletAnalysisPreparation(args: {
+  stage:
+    | 'no_request_wallets'
+    | 'no_snapshot_wallets'
+    | 'no_snapshot_wallets_with_rates'
+    | 'prepared';
+  targetQuoteCurrency: string;
+  timeframe: ComputeAnalysisArgs['timeframe'];
+  requestWalletCount: number;
+  snapshotWalletCount: number;
+  baseAssetCount: number;
+  rateAssetCount: number;
+  walletsWithRatesCount: number;
+  currentRateAssetCount: number;
+}): void {
+  'worklet';
+
+  console.log('[portfolio-analysis-prep] worklet', {
+    stage: args.stage,
+    targetQuoteCurrency: args.targetQuoteCurrency,
+    timeframe: args.timeframe,
+    requestWalletCount: args.requestWalletCount,
+    snapshotWalletCount: args.snapshotWalletCount,
+    baseAssetCount: args.baseAssetCount,
+    rateAssetCount: args.rateAssetCount,
+    walletsWithRatesCount: args.walletsWithRatesCount,
+    currentRateAssetCount: args.currentRateAssetCount,
+  });
+}
+
 let nextPreparedWorkletAnalysisSessionId = 1;
 const preparedWorkletAnalysisSessions = new Map<
   string,
@@ -116,6 +235,17 @@ async function prepareWorkletAnalysisSessionData(
   'worklet';
 
   if (!args.wallets.length) {
+    logWorkletAnalysisPreparation({
+      stage: 'no_request_wallets',
+      targetQuoteCurrency: String(args.quoteCurrency || 'USD').toUpperCase(),
+      timeframe: args.timeframe,
+      requestWalletCount: 0,
+      snapshotWalletCount: 0,
+      baseAssetCount: 0,
+      rateAssetCount: 0,
+      walletsWithRatesCount: 0,
+      currentRateAssetCount: Object.keys(args.currentRatesByAssetId || {}).length,
+    });
     return buildEmptyPreparedWorkletAnalysisSessionData({
       quoteCurrency: String(args.quoteCurrency || 'USD').toUpperCase(),
       timeframe: args.timeframe,
@@ -168,6 +298,17 @@ async function prepareWorkletAnalysisSessionData(
   );
 
   if (!walletsWithSnapshots.length) {
+    logWorkletAnalysisPreparation({
+      stage: 'no_snapshot_wallets',
+      targetQuoteCurrency,
+      timeframe: args.timeframe,
+      requestWalletCount: args.wallets.length,
+      snapshotWalletCount: 0,
+      baseAssetCount: 0,
+      rateAssetCount: 0,
+      walletsWithRatesCount: 0,
+      currentRateAssetCount: Object.keys(args.currentRatesByAssetId || {}).length,
+    });
     return buildEmptyPreparedWorkletAnalysisSessionData({
       quoteCurrency: targetQuoteCurrency,
       timeframe: args.timeframe,
@@ -236,6 +377,17 @@ async function prepareWorkletAnalysisSessionData(
   );
 
   if (!walletsWithSnapshotsAndRates.length) {
+    logWorkletAnalysisPreparation({
+      stage: 'no_snapshot_wallets_with_rates',
+      targetQuoteCurrency,
+      timeframe: args.timeframe,
+      requestWalletCount: args.wallets.length,
+      snapshotWalletCount: walletsWithSnapshots.length,
+      baseAssetCount: baseAssets.length,
+      rateAssetCount: Object.keys(ratePointsByAssetId).length,
+      walletsWithRatesCount: 0,
+      currentRateAssetCount: Object.keys(args.currentRatesByAssetId || {}).length,
+    });
     return buildEmptyPreparedWorkletAnalysisSessionData({
       quoteCurrency: targetQuoteCurrency,
       timeframe: args.timeframe,
@@ -253,6 +405,18 @@ async function prepareWorkletAnalysisSessionData(
     firstNonZeroTsByWalletId[walletId] =
       typeof ts === 'number' && Number.isFinite(ts) && ts > 0 ? ts : null;
   }
+
+  logWorkletAnalysisPreparation({
+    stage: 'prepared',
+    targetQuoteCurrency,
+    timeframe: args.timeframe,
+    requestWalletCount: args.wallets.length,
+    snapshotWalletCount: walletsWithSnapshots.length,
+    baseAssetCount: baseAssets.length,
+    rateAssetCount: Object.keys(ratePointsByAssetId).length,
+    walletsWithRatesCount: walletsWithSnapshotsAndRates.length,
+    currentRateAssetCount: Object.keys(args.currentRatesByAssetId || {}).length,
+  });
 
   return {
     quoteCurrency: targetQuoteCurrency,

@@ -37,6 +37,7 @@ export function usePortfolioAnalysis(args: {
   clearDataToken?: string;
   freezeWhilePopulate?: boolean;
   allowCurrentWhilePopulate?: boolean;
+  debugSource?: string;
 }) {
   const populateInProgress = useAppSelector(
     ({PORTFOLIO}) => !!PORTFOLIO.populateStatus?.inProgress,
@@ -53,6 +54,7 @@ export function usePortfolioAnalysis(args: {
     clearDataToken: args.clearDataToken,
     clearDataOnRefreshToken: !!args.refreshToken,
     execute: runPortfolioAnalysisQuery,
+    debugSource: args.debugSource,
   });
   const committedDataCacheKey = useMemo(() => {
     return getCommittedAnalysisCacheKey({

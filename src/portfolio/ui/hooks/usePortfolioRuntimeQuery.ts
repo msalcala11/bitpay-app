@@ -41,7 +41,9 @@ export function usePortfolioRuntimeQuery<T>(args: {
     maxPoints?: number;
     currentRatesByAssetId?: Record<string, number>;
     asOfMs: number;
+    debugSource?: string;
   }) => Promise<T>;
+  debugSource?: string;
 }): PortfolioRuntimeQueryState<T> {
   const {
     wallets,
@@ -52,6 +54,7 @@ export function usePortfolioRuntimeQuery<T>(args: {
     clearDataToken: clearDataTokenOverride,
     clearDataOnRefreshToken,
     execute,
+    debugSource,
   } = args;
   const dispatch = useAppDispatch();
   const defaultAltCurrency = useAppSelector(({APP}) => APP.defaultAltCurrency);
@@ -121,6 +124,7 @@ export function usePortfolioRuntimeQuery<T>(args: {
     maxPoints,
     currentRatesByAssetId,
     asOfMs,
+    debugSource,
   });
   executeParamsRef.current = {
     wallets: storedWallets,
@@ -129,6 +133,7 @@ export function usePortfolioRuntimeQuery<T>(args: {
     maxPoints,
     currentRatesByAssetId,
     asOfMs,
+    debugSource,
   };
   const [data, setData] = useState<{
     requestKey: string;

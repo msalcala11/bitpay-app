@@ -24,6 +24,7 @@ type GlobalRenderTraceConfig =
 
 const DEFAULT_ENABLED_TRACE_NAMES = new Set([
   'HomeRoot',
+  'PortfolioBalance',
   'AssetsSection',
   'HomeAssetsSectionLayout',
   'AssetsList',

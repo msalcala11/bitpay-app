@@ -85,6 +85,55 @@ const WORKLET_METHODS: Record<WorkerMethod, true> = {
   'debug.getPopulateWalletTrace': true,
 };
 
+function clonePortableForRnBridge<T>(value: T): T {
+  'worklet';
+
+  try {
+    return JSON.parse(JSON.stringify(value)) as T;
+  } catch {
+    return value;
+  }
+}
+
+function logPortableAnalysisResultSummary(args: {
+  method:
+    | 'analysis.compute'
+    | 'analysis.computeSessionScope'
+    | 'analysis.computeChart';
+  result: unknown;
+}): void {
+  'worklet';
+
+  const result = args.result as any;
+  if (args.method === 'analysis.computeChart') {
+    console.log('[portfolio-analysis-bridge] worklet chart result', {
+      method: args.method,
+      timestampCount: Array.isArray(result?.timestamps)
+        ? result.timestamps.length
+        : 0,
+      totalFiatBalanceCount: Array.isArray(result?.totalFiatBalance)
+        ? result.totalFiatBalance.length
+        : 0,
+      lastSpotRateCount: result?.lastSpotRatesByRateKey
+        ? Object.keys(result.lastSpotRatesByRateKey).length
+        : 0,
+      latestHoldingsCount: result?.latestHoldingsByRateKey
+        ? Object.keys(result.latestHoldingsByRateKey).length
+        : 0,
+    });
+    return;
+  }
+
+  console.log('[portfolio-analysis-bridge] worklet analysis result', {
+    method: args.method,
+    walletCount: Array.isArray(result?.wallets) ? result.wallets.length : 0,
+    pointCount: Array.isArray(result?.points) ? result.points.length : 0,
+    assetSummaryCount: Array.isArray(result?.assetSummaries)
+      ? result.assetSummaries.length
+      : 0,
+  });
+}
+
 function getKvConfig(
   config: PortfolioWorkletRequestConfig,
 ): PortfolioWorkletKvConfig {
@@ -360,10 +409,15 @@ export async function handlePortfolioRequestOnRuntime(
         }
 
         case 'analysis.compute': {
-          const result = await computeWorkletAnalysis(
+          const rawResult = await computeWorkletAnalysis(
             kvConfig,
             request.params as any,
           );
+          logPortableAnalysisResultSummary({
+            method: 'analysis.compute',
+            result: rawResult,
+          });
+          const result = clonePortableForRnBridge(rawResult);
           return {
             id: request.id,
             ok: true,
@@ -384,10 +438,15 @@ export async function handlePortfolioRequestOnRuntime(
         }
 
         case 'analysis.computeSessionScope': {
-          const result = await computeWorkletAnalysisSessionScope(
+          const rawResult = await computeWorkletAnalysisSessionScope(
             kvConfig,
             request.params as any,
           );
+          logPortableAnalysisResultSummary({
+            method: 'analysis.computeSessionScope',
+            result: rawResult,
+          });
+          const result = clonePortableForRnBridge(rawResult);
           return {
             id: request.id,
             ok: true,
@@ -405,10 +464,15 @@ export async function handlePortfolioRequestOnRuntime(
         }
 
         case 'analysis.computeChart': {
-          const result = await computeWorkletAnalysisChart(
+          const rawResult = await computeWorkletAnalysisChart(
             kvConfig,
             request.params as any,
           );
+          logPortableAnalysisResultSummary({
+            method: 'analysis.computeChart',
+            result: rawResult,
+          });
+          const result = clonePortableForRnBridge(rawResult);
           return {
             id: request.id,
             ok: true,
