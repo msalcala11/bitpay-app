@@ -26,13 +26,7 @@ import {getAndDispatchUpdatedWalletBalances} from '../../../store/wallet/effects
 import {refreshRatesForPortfolioPnl} from '../../../store/wallet/effects';
 import {updatePortfolioBalance} from '../../../store/wallet/wallet.actions';
 import {SlateDark, White} from '../../../styles/colors';
-import {
-  calculatePercentageDifference,
-  getCurrencyAbbreviation,
-  getLastDayTimestampStartOfHourMs,
-} from '../../../utils/helper-methods';
 import {useDevRenderTrace} from '../../../utils/hooks/useDevRenderTrace';
-import {getFiatRateFromSeriesCacheAtTimestamp} from '../../../utils/portfolio/rate';
 import {useAppDispatch, useAppSelector} from '../../../utils/hooks';
 import useRuntimeFiatRateSeriesCache from '../../../portfolio/ui/hooks/useRuntimeFiatRateSeriesCache';
 import {BalanceUpdateError} from '../../wallet/components/ErrorMessages';
@@ -75,15 +69,14 @@ import AllocationSection from './components/AllocationSection';
 import AssetsSection from './components/AssetsSection';
 import {getPortfolioAllocationTotalFiat} from '../../../utils/portfolio/allocation';
 import type {Key} from '../../../store/wallet/wallet.models';
-import type {Rate, Rates} from '../../../store/rate/rate.models';
-import {getCoinAndChainFromCurrencyCode} from '../../bitpay-id/utils/bitpay-id-utils';
+import type {Rates} from '../../../store/rate/rate.models';
 import {
-  findSupportedCurrencyOptionForAsset,
   getQuoteCurrency,
   getVisibleWalletsFromKeys,
   walletHasNonZeroLiveBalance,
 } from '../../../utils/portfolio/assets';
 import {sortNewestFirst} from '../../../utils/braze';
+import buildHomeExchangeRateItems from './homeExchangeRates';
 
 export type HomeScreenProps = NativeStackScreenProps<
   TabsStackParamList,
@@ -181,104 +174,18 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
       enabled: true,
     });
   const memoizedExchangeRates: Array<ExchangeRateItemProps> = useMemo(() => {
-    const baselineTimestampMs = getLastDayTimestampStartOfHourMs();
-    const result = (
-      Object.entries(lastDayRates) as Array<[string, Rate[]]>
-    ).reduce((ratesList, [key, lastDayRate]) => {
-      const lastDayRateForDefaultCurrency = lastDayRate.find(
-        ({code}: {code: string}) => code === quoteCurrency,
-      );
-      const rateForDefaultCurrency = rates[key].find(
-        ({code}: {code: string}) => code === quoteCurrency,
-      );
-      const {coin: targetCoin, chain: targetChain} =
-        getCoinAndChainFromCurrencyCode(key);
-      const option = findSupportedCurrencyOptionForAsset({
-        options: SupportedCurrencyOptions,
-        currencyAbbreviation: targetCoin,
-        chain: targetChain,
-      });
-
-      if (option && option.chain && option.currencyAbbreviation) {
-        const currencyName = getCurrencyAbbreviation(
-          option?.tokenAddress
-            ? option?.tokenAddress
-            : option?.currencyAbbreviation,
-          option?.chain,
-        );
-        const isStableCoin =
+    return buildHomeExchangeRateItems({
+      fiatRateSeriesCache,
+      lastDayRates,
+      rates,
+      quoteCurrency,
+      exchangeRateCurrencies: EXCHANGE_RATES_CURRENCIES,
+      supportedCurrencyOptions: SupportedCurrencyOptions,
+      isStableCoinCurrencyName: currencyName =>
+        !!(
           BitpaySupportedCoins[currencyName]?.properties?.isStableCoin ||
-          BitpaySupportedTokens[currencyName]?.properties?.isStableCoin;
-
-        if (
-          rateForDefaultCurrency?.rate &&
-          !isStableCoin &&
-          EXCHANGE_RATES_CURRENCIES.includes(
-            option.currencyAbbreviation.toLowerCase(),
-          )
-        ) {
-          const prevRateFromSeries = getFiatRateFromSeriesCacheAtTimestamp({
-            fiatRateSeriesCache,
-            fiatCode: quoteCurrency,
-            currencyAbbreviation: option.currencyAbbreviation,
-            interval: '1D',
-            timestampMs: baselineTimestampMs,
-            method: 'linear',
-          });
-          const prevRate =
-            prevRateFromSeries ?? lastDayRateForDefaultCurrency?.rate;
-
-          if (!(prevRate && prevRate > 0)) {
-            return ratesList;
-          }
-
-          const {
-            id,
-            img,
-            currencyName: optionCurrencyName,
-            currencyAbbreviation: optionCurrencyAbbreviation,
-            chain,
-            tokenAddress,
-          } = option;
-
-          const percentChange = calculatePercentageDifference(
-            rateForDefaultCurrency.rate,
-            prevRate,
-          );
-
-          ratesList.push({
-            id,
-            img,
-            currencyName: optionCurrencyName,
-            currencyAbbreviation: optionCurrencyAbbreviation,
-            chain,
-            tokenAddress: tokenAddress,
-            average: percentChange,
-            currentPrice: rateForDefaultCurrency.rate,
-          });
-        }
-      }
-      return ratesList;
-    }, [] as ExchangeRateItemProps[]);
-
-    return result.sort((a, b) => {
-      const indexA = EXCHANGE_RATES_CURRENCIES.indexOf(
-        a.currencyAbbreviation.toLowerCase(),
-      );
-      const indexB = EXCHANGE_RATES_CURRENCIES.indexOf(
-        b.currencyAbbreviation.toLowerCase(),
-      );
-
-      if (indexA !== -1 && indexB !== -1) {
-        return indexA - indexB;
-      }
-      if (indexA !== -1) {
-        return -1;
-      }
-      if (indexB !== -1) {
-        return 1;
-      }
-      return a.currencyName.localeCompare(b.currencyName);
+          BitpaySupportedTokens[currencyName]?.properties?.isStableCoin
+        ),
     });
   }, [fiatRateSeriesCache, lastDayRates, quoteCurrency, rates]);
 
