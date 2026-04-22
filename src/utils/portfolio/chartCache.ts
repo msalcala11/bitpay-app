@@ -69,11 +69,12 @@ const DEFAULT_BALANCE_CHART_CACHE_IDENTITY_KEY = 'balance_chart';
 
 export const BALANCE_HISTORY_CHART_CACHE_IDENTITY_KEY = [
   'balance_history_chart',
+  '2',
   String(FIAT_RATE_SERIES_TARGET_POINTS),
 ].join(':');
 
 export const BALANCE_GAIN_LOSS_SUMMARY_CACHE_IDENTITY_KEY =
-  'balance_gain_loss_summary:2';
+  'balance_gain_loss_summary:3';
 
 const toFiniteNumber = (value: unknown, fallback = 0): number => {
   const normalized = typeof value === 'number' ? value : Number(value);
