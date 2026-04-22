@@ -34,6 +34,8 @@ export function createNegativeBalanceInvalidHistoryError(args: {
   balanceAtomic: bigint | string;
   source: string;
 }): Error {
+  'worklet';
+
   const txId = String(args.txId || '').trim() || 'unknown';
   const balanceAtomic = String(args.balanceAtomic ?? '').trim() || '0';
   const error = new Error(
@@ -52,6 +54,8 @@ export function createNegativeBalanceInvalidHistoryError(args: {
 export function isSnapshotInvalidHistoryError(
   error: unknown,
 ): error is SnapshotInvalidHistoryError {
+  'worklet';
+
   if (!(error instanceof Error)) {
     return false;
   }
@@ -70,6 +74,8 @@ export function toSnapshotInvalidHistoryMarker(args: {
   detectedAt?: number;
   retryCooldownMs?: number;
 }): SnapshotInvalidHistoryMarkerV1 | null {
+  'worklet';
+
   if (!isSnapshotInvalidHistoryError(args.error)) {
     return null;
   }
@@ -104,6 +110,8 @@ export function isSnapshotInvalidHistoryMarkerActive(
   marker: SnapshotInvalidHistoryMarkerV1 | null | undefined,
   nowMs: number = Date.now(),
 ): boolean {
+  'worklet';
+
   if (!marker) {
     return false;
   }
