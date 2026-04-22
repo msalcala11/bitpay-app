@@ -1,6 +1,7 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import type {AssetRowItem, GainLossMode} from '../../../utils/portfolio/assets';
 import {
+  buildAssetFiatPriorityByKey,
   buildWalletIdsByAssetGroupKey,
   getPortfolioWalletCurrencyAbbreviationLower,
   getPopulateLoadingByAssetKey,
@@ -60,11 +61,66 @@ type AssetGroupAnalysisState = {
   requestKey: string;
   committedCacheKey: string;
   sessionId?: string;
+  runId?: number;
   currentData?: PnlAnalysisResult;
   committedData?: PnlAnalysisResult;
   loading: boolean;
   error?: Error;
 };
+
+function summarizeAnalysisResultShape(
+  value: PnlAnalysisResult | undefined,
+): {
+  walletCount: number;
+  pointCount: number;
+  assetSummaryCount: number;
+  assetIdCount: number;
+} {
+  return {
+    walletCount: Array.isArray(value?.wallets) ? value.wallets.length : 0,
+    pointCount: Array.isArray(value?.points) ? value.points.length : 0,
+    assetSummaryCount: Array.isArray(value?.assetSummaries)
+      ? value.assetSummaries.length
+      : 0,
+    assetIdCount: Array.isArray(value?.assetIds) ? value.assetIds.length : 0,
+  };
+}
+
+function summarizeAssetRowDisplayState(args: {
+  item?: AssetRowItem;
+  populateLoading?: boolean;
+}): {
+  present: boolean;
+  hasRate: boolean;
+  hasPnl: boolean;
+  showPnlPlaceholder: boolean;
+  showScopedPnlLoading: boolean;
+  populateLoading: boolean;
+  hasVisiblePnl: boolean;
+  sourceAnalysisScope: string | null;
+  groupAnalysisDisplaySource: string | null;
+} {
+  const hookDebugData = (args.item?.debugCopyPayload as any)?.extraDebugData
+    ?.homeAnalysisHook;
+
+  return {
+    present: !!args.item,
+    hasRate: !!args.item?.hasRate,
+    hasPnl: !!args.item?.hasPnl,
+    showPnlPlaceholder: !!args.item?.showPnlPlaceholder,
+    showScopedPnlLoading: !!args.item?.showScopedPnlLoading,
+    populateLoading: !!args.populateLoading,
+    hasVisiblePnl: !!args.item && !args.item.showPnlPlaceholder,
+    sourceAnalysisScope:
+      typeof hookDebugData?.sourceAnalysisScope === 'string'
+        ? hookDebugData.sourceAnalysisScope
+        : null,
+    groupAnalysisDisplaySource:
+      typeof hookDebugData?.groupAnalysisDisplaySource === 'string'
+        ? hookDebugData.groupAnalysisDisplaySource
+        : null,
+  };
+}
 
 function stabilizeVisibleItemOrder(args: {
   items: AssetRowItem[];
@@ -118,6 +174,7 @@ export function usePortfolioAssetRows({
   enabled,
 }: Args): Result {
   const analysisEnabled = enabled !== false;
+  const assetScopeSurface = keyId ? 'scoped_assets' : 'home_assets';
   const portfolio = useAppSelector(({PORTFOLIO}) => PORTFOLIO);
   const homeCarouselConfig = useAppSelector(({APP}) => APP.homeCarouselConfig);
   const keys = useAppSelector(({WALLET}) => WALLET.keys) as Record<string, Key>;
@@ -135,6 +192,13 @@ export function usePortfolioAssetRows({
   const previousPopulateInProgressRef = useRef<boolean>(
     !!portfolio.populateStatus?.inProgress,
   );
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const populateCompletionStateToken = useMemo(() => {
     return [
@@ -157,20 +221,26 @@ export function usePortfolioAssetRows({
   ]);
   const populateSessionStateToken = useMemo(() => {
     return [
-      populateCompletionStateToken,
+      typeof portfolio.lastPopulatedAt === 'number'
+        ? String(portfolio.lastPopulatedAt)
+        : '',
+      '',
+      '',
+      '0',
       portfolio.populateStatus?.inProgress ? '1' : '0',
       typeof portfolio.populateStatus?.startedAt === 'number'
         ? String(portfolio.populateStatus.startedAt)
         : '',
     ].join('|');
   }, [
-    populateCompletionStateToken,
+    portfolio.lastPopulatedAt,
     portfolio.populateStatus?.inProgress,
     portfolio.populateStatus?.startedAt,
   ]);
   const analysisRefreshToken = useMemo(() => {
+    const populateInProgress = !!portfolio.populateStatus?.inProgress;
     const baseToken = (() => {
-      if (!portfolio.populateStatus?.inProgress) {
+      if (!populateInProgress) {
         return populateCompletionStateToken;
       }
 
@@ -179,13 +249,23 @@ export function usePortfolioAssetRows({
         typeof portfolio.populateStatus?.walletsCompleted === 'number'
           ? String(portfolio.populateStatus.walletsCompleted)
           : '0',
+        typeof portfolio.populateStatus?.txRequestsMade === 'number'
+          ? String(portfolio.populateStatus.txRequestsMade)
+          : '0',
+        typeof portfolio.populateStatus?.txsProcessed === 'number'
+          ? String(portfolio.populateStatus.txsProcessed)
+          : '0',
         typeof portfolio.populateStatus?.errors?.length === 'number'
           ? String(portfolio.populateStatus.errors.length)
           : '0',
       ].join('|');
     })();
 
+    // Populate progress already drives live reruns. Ignore focus-driven refresh
+    // churn until the active populate session settles so we do not restart the
+    // scoped asset session with identical in-flight data.
     if (
+      populateInProgress ||
       externalRefreshToken == null ||
       externalRefreshToken === ''
     ) {
@@ -199,6 +279,8 @@ export function usePortfolioAssetRows({
     populateSessionStateToken,
     portfolio.populateStatus?.errors?.length,
     portfolio.populateStatus?.inProgress,
+    portfolio.populateStatus?.txRequestsMade,
+    portfolio.populateStatus?.txsProcessed,
     portfolio.populateStatus?.walletsCompleted,
   ]);
   const analysisClearDataToken = portfolio.populateStatus?.inProgress
@@ -308,7 +390,28 @@ export function usePortfolioAssetRows({
       });
     }
 
-    return nextSpecs.sort((left, right) => left.key.localeCompare(right.key));
+    const priorityByKey = buildAssetFiatPriorityByKey(
+      analysis.eligibleWallets?.length ? analysis.eligibleWallets : wallets,
+    );
+
+    return nextSpecs.sort((left, right) => {
+      const leftPriority = priorityByKey[left.key];
+      const rightPriority = priorityByKey[right.key];
+      const fiatDiff =
+        (rightPriority?.fiatBalance || 0) - (leftPriority?.fiatBalance || 0);
+      if (fiatDiff !== 0) {
+        return fiatDiff;
+      }
+
+      const firstIndexDiff =
+        (leftPriority?.firstIndex ?? Number.MAX_SAFE_INTEGER) -
+        (rightPriority?.firstIndex ?? Number.MAX_SAFE_INTEGER);
+      if (firstIndexDiff !== 0) {
+        return firstIndexDiff;
+      }
+
+      return left.key.localeCompare(right.key);
+    });
   }, [
     analysisEnabled,
     analysis.currentRatesByAssetId,
@@ -319,6 +422,7 @@ export function usePortfolioAssetRows({
     analysisClearDataToken,
     analysisRefreshToken,
     gainLossMode,
+    wallets,
   ]);
   const assetGroupAnalysisSpecsRevision = useMemo(() => {
     return assetGroupAnalysisSpecs
@@ -383,6 +487,21 @@ export function usePortfolioAssetRows({
   ]);
   const [assetGroupAnalysisStateByKey, setAssetGroupAnalysisStateByKey] =
     useState<Record<string, AssetGroupAnalysisState>>({});
+  const assetGroupAnalysisStateByKeyRef = useRef<
+    Record<string, AssetGroupAnalysisState>
+  >(assetGroupAnalysisStateByKey);
+  assetGroupAnalysisStateByKeyRef.current = assetGroupAnalysisStateByKey;
+  const latestAssetGroupSessionRequestKeyRef = useRef(
+    assetGroupSessionRequestKey,
+  );
+  latestAssetGroupSessionRequestKeyRef.current = assetGroupSessionRequestKey;
+  const assetGroupScopeRunIdRef = useRef(0);
+  const previousVisibleRowStateByKeyRef = useRef<
+    Record<
+      string,
+      ReturnType<typeof summarizeAssetRowDisplayState>
+    >
+  >({});
   useEffect(() => {
     const allowedCacheKeys = new Set(
       assetGroupAnalysisSpecs.map(spec => spec.committedCacheKey),
@@ -419,6 +538,10 @@ export function usePortfolioAssetRows({
             prevState?.requestKey === spec.requestKey
               ? prevState.sessionId
               : undefined,
+          runId:
+            prevState?.requestKey === spec.requestKey
+              ? prevState.runId
+              : undefined,
           currentData:
             preserveDisplayScopeData
               ? prevState.currentData
@@ -439,6 +562,7 @@ export function usePortfolioAssetRows({
           prevState.requestKey !== nextState.requestKey ||
           prevState.committedCacheKey !== nextState.committedCacheKey ||
           prevState.sessionId !== nextState.sessionId ||
+          prevState.runId !== nextState.runId ||
           prevState.currentData !== nextState.currentData ||
           prevState.committedData !== nextState.committedData ||
           prevState.loading !== nextState.loading ||
@@ -458,6 +582,24 @@ export function usePortfolioAssetRows({
 
     let cancelled = false;
     let preparedSessionId: string | undefined;
+    const scopeRunId = assetGroupScopeRunIdRef.current + 1;
+    assetGroupScopeRunIdRef.current = scopeRunId;
+    const scopeRunStartedAt = Date.now();
+    console.log('[portfolio-assets-scope] run start', {
+      surface: assetScopeSurface,
+      runId: scopeRunId,
+      gainLossMode,
+      specCount: assetGroupAnalysisSpecs.length,
+      sessionWalletCount: assetGroupSessionStoredWallets.length,
+      sessionRateAssetCount: Object.keys(
+        assetGroupSessionCurrentRatesByAssetId,
+      ).length,
+      populateInProgress: !!portfolio.populateStatus?.inProgress,
+      walletsCompleted: portfolio.populateStatus?.walletsCompleted ?? 0,
+      txRequestsMade: portfolio.populateStatus?.txRequestsMade ?? 0,
+      txsProcessed: portfolio.populateStatus?.txsProcessed ?? 0,
+      sampleKeys: assetGroupAnalysisSpecs.slice(0, 6).map(spec => spec.key),
+    });
     setAssetGroupAnalysisStateByKey(prev => {
       const next = {...prev};
       let changed = false;
@@ -479,6 +621,7 @@ export function usePortfolioAssetRows({
             prevState?.requestKey === spec.requestKey
               ? prevState.sessionId
               : undefined,
+          runId: scopeRunId,
           currentData:
             preserveDisplayScopeData
               ? prevState.currentData
@@ -497,6 +640,7 @@ export function usePortfolioAssetRows({
           prevState.requestKey === nextState.requestKey &&
           prevState.committedCacheKey === nextState.committedCacheKey &&
           prevState.sessionId === nextState.sessionId &&
+          prevState.runId === nextState.runId &&
           prevState.currentData === nextState.currentData &&
           prevState.committedData === nextState.committedData &&
           prevState.loading === nextState.loading &&
@@ -513,10 +657,17 @@ export function usePortfolioAssetRows({
     });
 
     (async () => {
+      const shouldStopRun = (): boolean => cancelled || !isMountedRef.current;
+      const shouldDiscardCancelledResult = (): boolean =>
+        !isMountedRef.current ||
+        latestAssetGroupSessionRequestKeyRef.current !==
+          assetGroupSessionRequestKey;
+
       const buildBaseState = (
         prevState: AssetGroupAnalysisState | undefined,
         spec: AssetGroupAnalysisSpec,
         sessionId?: string,
+        runId?: number,
       ): AssetGroupAnalysisState => {
         const cachedCommittedData = hasCommittedPortfolioBaseline
           ? assetGroupCommittedAnalysisCacheRef.current.get(
@@ -529,6 +680,7 @@ export function usePortfolioAssetRows({
           requestKey: spec.requestKey,
           committedCacheKey: spec.committedCacheKey,
           sessionId,
+          runId,
           currentData: undefined,
           committedData: cachedCommittedData,
           loading: true,
@@ -537,103 +689,250 @@ export function usePortfolioAssetRows({
       };
 
       const commitScopedResult = (
-        spec: AssetGroupAnalysisSpec,
-        sessionId: string,
-        result: PnlAnalysisResult,
+        args: {
+          spec: AssetGroupAnalysisSpec;
+          sessionId: string;
+          runId: number;
+          result: PnlAnalysisResult;
+          via: 'session_scope' | 'fallback';
+          elapsedMs: number;
+        },
       ) => {
+        let commitDisposition: 'applied' | 'stale' | 'noop' = 'applied';
         setAssetGroupAnalysisStateByKey(prev => {
-          const prevState = prev[spec.key];
-          if (
-            prevState &&
-            (prevState.requestKey !== spec.requestKey ||
-              prevState.sessionId !== sessionId)
-          ) {
+          const prevState = prev[args.spec.key];
+          if (prevState && prevState.requestKey !== args.spec.requestKey) {
+            commitDisposition = 'stale';
             return prev;
           }
 
-          const baseState = buildBaseState(prevState, spec, sessionId);
+          const hasNewerCompatibleRun =
+            !!prevState &&
+            typeof prevState.runId === 'number' &&
+            prevState.runId > args.runId;
+          const shouldBackfillCompatibleRun =
+            hasNewerCompatibleRun &&
+            prevState.displayScopeKey === args.spec.displayScopeKey &&
+            !prevState.currentData;
+
+          if (hasNewerCompatibleRun && !shouldBackfillCompatibleRun) {
+            commitDisposition = 'stale';
+            return prev;
+          }
+
+          const effectiveSessionId = shouldBackfillCompatibleRun
+            ? prevState?.sessionId
+            : args.sessionId;
+          const effectiveRunId = shouldBackfillCompatibleRun
+            ? prevState?.runId
+            : args.runId;
+
+          const baseState = buildBaseState(
+            prevState,
+            args.spec,
+            effectiveSessionId,
+            effectiveRunId,
+          );
 
           let committedData = baseState.committedData;
           if (!portfolio.populateStatus?.inProgress) {
             assetGroupCommittedAnalysisCacheRef.current.set(
-              spec.committedCacheKey,
-              result,
+              args.spec.committedCacheKey,
+              args.result,
             );
-            committedData = result;
+            committedData = args.result;
           }
 
           const nextState: AssetGroupAnalysisState = {
             ...baseState,
-            displayScopeKey: spec.displayScopeKey,
-            sessionId,
-            currentData: result,
+            displayScopeKey: args.spec.displayScopeKey,
+            sessionId: effectiveSessionId,
+            runId: effectiveRunId,
+            currentData: args.result,
             committedData,
-            loading: false,
+            loading: shouldBackfillCompatibleRun
+              ? baseState.loading
+              : false,
             error: undefined,
           };
 
           if (
             baseState.displayScopeKey === nextState.displayScopeKey &&
             baseState.sessionId === nextState.sessionId &&
+            baseState.runId === nextState.runId &&
             baseState.currentData === nextState.currentData &&
             baseState.committedData === nextState.committedData &&
             baseState.loading === nextState.loading &&
             baseState.error === nextState.error
           ) {
+            commitDisposition = 'noop';
             return prev;
           }
 
+          commitDisposition = 'applied';
           return {
             ...prev,
-            [spec.key]: nextState,
+            [args.spec.key]: nextState,
           };
+        });
+        console.log('[portfolio-assets-scope] spec result', {
+          surface: assetScopeSurface,
+          runId: scopeRunId,
+          assetKey: args.spec.key,
+          via: args.via,
+          elapsedMs: args.elapsedMs,
+          commitDisposition,
+          populateInProgress: !!portfolio.populateStatus?.inProgress,
+          ...summarizeAnalysisResultShape(args.result),
         });
       };
 
       const commitScopedError = (
-        spec: AssetGroupAnalysisSpec,
-        sessionId: string | undefined,
-        error: Error,
+        args: {
+          spec: AssetGroupAnalysisSpec;
+          sessionId: string | undefined;
+          runId: number;
+          error: Error;
+          via: 'session_scope' | 'fallback' | 'session_prepare';
+          elapsedMs: number;
+        },
       ) => {
+        let commitDisposition: 'applied' | 'stale' | 'noop' = 'applied';
         setAssetGroupAnalysisStateByKey(prev => {
-          const prevState = prev[spec.key];
-          if (
-            prevState &&
-            (prevState.requestKey !== spec.requestKey ||
-              (sessionId && prevState.sessionId !== sessionId))
-          ) {
+          const prevState = prev[args.spec.key];
+          if (prevState && prevState.requestKey !== args.spec.requestKey) {
+            commitDisposition = 'stale';
             return prev;
           }
 
-          const baseState = buildBaseState(prevState, spec, sessionId);
+          if (
+            prevState &&
+            typeof prevState.runId === 'number' &&
+            prevState.runId > args.runId
+          ) {
+            commitDisposition = 'stale';
+            return prev;
+          }
+
+          const baseState = buildBaseState(
+            prevState,
+            args.spec,
+            args.sessionId,
+            args.runId,
+          );
           const nextState: AssetGroupAnalysisState = {
             ...baseState,
-            displayScopeKey: spec.displayScopeKey,
-            sessionId,
+            displayScopeKey: args.spec.displayScopeKey,
+            sessionId: args.sessionId,
+            runId: args.runId,
             loading: false,
-            error,
+            error: args.error,
           };
 
           if (
             baseState.displayScopeKey === nextState.displayScopeKey &&
             baseState.sessionId === nextState.sessionId &&
+            baseState.runId === nextState.runId &&
             baseState.loading === nextState.loading &&
             baseState.error === nextState.error
           ) {
+            commitDisposition = 'noop';
             return prev;
           }
 
+          commitDisposition = 'applied';
+          return {
+            ...prev,
+            [args.spec.key]: nextState,
+          };
+        });
+        console.log('[portfolio-assets-scope] spec error', {
+          surface: assetScopeSurface,
+          runId: scopeRunId,
+          assetKey: args.spec.key,
+          via: args.via,
+          elapsedMs: args.elapsedMs,
+          commitDisposition,
+          populateInProgress: !!portfolio.populateStatus?.inProgress,
+          message: args.error.message,
+        });
+      };
+
+      const tryUseExistingScopedResultForSpec = (
+        sessionId: string,
+        spec: AssetGroupAnalysisSpec,
+      ): boolean => {
+        const currentState = assetGroupAnalysisStateByKeyRef.current[spec.key];
+        if (
+          currentState?.requestKey !== spec.requestKey ||
+          currentState?.displayScopeKey !== spec.displayScopeKey ||
+          !currentState.currentData
+        ) {
+          return false;
+        }
+
+        let commitDisposition: 'applied' | 'stale' | 'noop' = 'applied';
+        setAssetGroupAnalysisStateByKey(prev => {
+          const prevState = prev[spec.key];
+          if (
+            !prevState ||
+            prevState.requestKey !== spec.requestKey ||
+            prevState.displayScopeKey !== spec.displayScopeKey ||
+            !prevState.currentData
+          ) {
+            commitDisposition = 'stale';
+            return prev;
+          }
+
+          const nextState: AssetGroupAnalysisState = {
+            ...prevState,
+            sessionId,
+            runId: scopeRunId,
+            loading: false,
+            error: undefined,
+          };
+
+          if (
+            prevState.sessionId === nextState.sessionId &&
+            prevState.runId === nextState.runId &&
+            prevState.loading === nextState.loading &&
+            prevState.error === nextState.error
+          ) {
+            commitDisposition = 'noop';
+            return prev;
+          }
+
+          commitDisposition = 'applied';
           return {
             ...prev,
             [spec.key]: nextState,
           };
         });
+        console.log('[portfolio-assets-scope] spec skipped', {
+          surface: assetScopeSurface,
+          runId: scopeRunId,
+          assetKey: spec.key,
+          reason: 'already_resolved_for_request',
+          scopedWalletCount: spec.storedWalletIds.length,
+          commitDisposition,
+          populateInProgress: !!portfolio.populateStatus?.inProgress,
+        });
+        return true;
       };
 
       const runScopedAnalysisForSpec = async (
         sessionId: string,
         spec: AssetGroupAnalysisSpec,
       ) => {
+        const scopeRequestStartedAt = Date.now();
+        console.log('[portfolio-assets-scope] spec request', {
+          surface: assetScopeSurface,
+          runId: scopeRunId,
+          assetKey: spec.key,
+          via: 'session_scope',
+          scopedWalletCount: spec.storedWalletIds.length,
+          populateInProgress: !!portfolio.populateStatus?.inProgress,
+        });
         try {
           const result = await runPortfolioAnalysisSessionScopeQuery({
             sessionId,
@@ -642,13 +941,43 @@ export function usePortfolioAssetRows({
               ? 'scoped_assets_session_scope'
               : 'home_assets_session_scope',
           });
-          if (cancelled) {
+          if (!isMountedRef.current) {
             return;
           }
 
-          commitScopedResult(spec, sessionId, result);
+          if (cancelled && shouldDiscardCancelledResult()) {
+            console.log('[portfolio-assets-scope] spec result discarded', {
+              surface: assetScopeSurface,
+              runId: scopeRunId,
+              assetKey: spec.key,
+              via: 'session_scope',
+              elapsedMs: Date.now() - scopeRequestStartedAt,
+              reason: 'cancelled_after_result',
+              ...summarizeAnalysisResultShape(result),
+            });
+            return;
+          }
+
+          commitScopedResult({
+            spec,
+            sessionId,
+            runId: scopeRunId,
+            result,
+            via: 'session_scope',
+            elapsedMs: Date.now() - scopeRequestStartedAt,
+          });
         } catch (reason) {
-          if (cancelled) {
+          if (shouldStopRun()) {
+            console.log('[portfolio-assets-scope] spec error discarded', {
+              surface: assetScopeSurface,
+              runId: scopeRunId,
+              assetKey: spec.key,
+              via: 'session_scope',
+              elapsedMs: Date.now() - scopeRequestStartedAt,
+              reason: 'cancelled_after_error',
+              message:
+                reason instanceof Error ? reason.message : String(reason),
+            });
             return;
           }
 
@@ -659,6 +988,15 @@ export function usePortfolioAssetRows({
           );
 
           if (isMissingPreparedSession) {
+            const fallbackStartedAt = Date.now();
+            console.log('[portfolio-assets-scope] spec fallback start', {
+              surface: assetScopeSurface,
+              runId: scopeRunId,
+              assetKey: spec.key,
+              reason: 'missing_prepared_session',
+              scopedWalletCount: spec.storedWalletIds.length,
+              populateInProgress: !!portfolio.populateStatus?.inProgress,
+            });
             try {
               const fallbackResult = await runPortfolioAnalysisQuery({
                 wallets: spec.storedWallets,
@@ -671,33 +1009,87 @@ export function usePortfolioAssetRows({
                   ? 'scoped_assets_session_fallback'
                   : 'home_assets_session_fallback',
               });
-              if (cancelled) {
+              if (!isMountedRef.current) {
                 return;
               }
 
-              commitScopedResult(spec, sessionId, fallbackResult);
-              return;
-            } catch (fallbackReason) {
-              if (cancelled) {
+              if (cancelled && shouldDiscardCancelledResult()) {
+                console.log('[portfolio-assets-scope] spec result discarded', {
+                  surface: assetScopeSurface,
+                  runId: scopeRunId,
+                  assetKey: spec.key,
+                  via: 'fallback',
+                  elapsedMs: Date.now() - fallbackStartedAt,
+                  reason: 'cancelled_after_result',
+                  ...summarizeAnalysisResultShape(fallbackResult),
+                });
                 return;
               }
 
-              commitScopedError(
+              commitScopedResult({
                 spec,
                 sessionId,
-                fallbackReason instanceof Error
-                  ? fallbackReason
-                  : new Error(String(fallbackReason)),
-              );
+                runId: scopeRunId,
+                result: fallbackResult,
+                via: 'fallback',
+                elapsedMs: Date.now() - fallbackStartedAt,
+              });
+              return;
+            } catch (fallbackReason) {
+              if (shouldStopRun()) {
+                console.log('[portfolio-assets-scope] spec error discarded', {
+                  surface: assetScopeSurface,
+                  runId: scopeRunId,
+                  assetKey: spec.key,
+                  via: 'fallback',
+                  elapsedMs: Date.now() - fallbackStartedAt,
+                  reason: 'cancelled_after_error',
+                  message:
+                    fallbackReason instanceof Error
+                      ? fallbackReason.message
+                      : String(fallbackReason),
+                });
+                return;
+              }
+
+              commitScopedError({
+                spec,
+                sessionId,
+                runId: scopeRunId,
+                error:
+                  fallbackReason instanceof Error
+                    ? fallbackReason
+                    : new Error(String(fallbackReason)),
+                via: 'fallback',
+                elapsedMs: Date.now() - fallbackStartedAt,
+              });
               return;
             }
           }
 
-          commitScopedError(spec, sessionId, error);
+          commitScopedError({
+            spec,
+            sessionId,
+            runId: scopeRunId,
+            error,
+            via: 'session_scope',
+            elapsedMs: Date.now() - scopeRequestStartedAt,
+          });
         }
       };
 
       try {
+        console.log('[portfolio-assets-scope] run prepare request', {
+          surface: assetScopeSurface,
+          runId: scopeRunId,
+          gainLossMode,
+          specCount: assetGroupAnalysisSpecs.length,
+          sessionWalletCount: assetGroupSessionStoredWallets.length,
+          sessionRateAssetCount: Object.keys(
+            assetGroupSessionCurrentRatesByAssetId,
+          ).length,
+          populateInProgress: !!portfolio.populateStatus?.inProgress,
+        });
         const session = await preparePortfolioAnalysisSessionQuery({
           wallets: assetGroupSessionStoredWallets,
           quoteCurrency: analysis.quoteCurrency,
@@ -711,9 +1103,23 @@ export function usePortfolioAssetRows({
         });
 
         preparedSessionId = session.sessionId;
-        if (cancelled) {
+        if (shouldStopRun()) {
+          console.log('[portfolio-assets-scope] run prepare discarded', {
+            surface: assetScopeSurface,
+            runId: scopeRunId,
+            elapsedMs: Date.now() - scopeRunStartedAt,
+            reason: 'cancelled_after_prepare',
+          });
           return;
         }
+        console.log('[portfolio-assets-scope] run prepared', {
+          surface: assetScopeSurface,
+          runId: scopeRunId,
+          elapsedMs: Date.now() - scopeRunStartedAt,
+          specCount: assetGroupAnalysisSpecs.length,
+          populateInProgress: !!portfolio.populateStatus?.inProgress,
+          disposition: 'current',
+        });
 
         setAssetGroupAnalysisStateByKey(prev => {
           const next = {...prev};
@@ -734,6 +1140,7 @@ export function usePortfolioAssetRows({
               ...baseState,
               displayScopeKey: spec.displayScopeKey,
               sessionId: session.sessionId,
+              runId: scopeRunId,
               loading: true,
               error: undefined,
             };
@@ -744,6 +1151,7 @@ export function usePortfolioAssetRows({
               prevState.requestKey === nextState.requestKey &&
               prevState.committedCacheKey === nextState.committedCacheKey &&
               prevState.sessionId === nextState.sessionId &&
+              prevState.runId === nextState.runId &&
               prevState.currentData === nextState.currentData &&
               prevState.committedData === nextState.committedData &&
               prevState.loading === nextState.loading &&
@@ -759,18 +1167,58 @@ export function usePortfolioAssetRows({
           return changed ? next : prev;
         });
 
-        await Promise.allSettled(
-          assetGroupAnalysisSpecs.map(spec =>
-            runScopedAnalysisForSpec(session.sessionId, spec),
-          ),
-        );
+        if (portfolio.populateStatus?.inProgress) {
+          // During populate, serialize scoped asset requests in the same
+          // priority order as the asset groups so rows can reveal
+          // progressively instead of bunching behind a parallel fanout.
+          for (const spec of assetGroupAnalysisSpecs) {
+            if (shouldStopRun()) {
+              break;
+            }
+
+            if (tryUseExistingScopedResultForSpec(session.sessionId, spec)) {
+              continue;
+            }
+
+            await runScopedAnalysisForSpec(session.sessionId, spec);
+          }
+        } else {
+          await Promise.allSettled(
+            assetGroupAnalysisSpecs.map(spec =>
+              runScopedAnalysisForSpec(session.sessionId, spec),
+            ),
+          );
+        }
+        console.log('[portfolio-assets-scope] run settled', {
+          surface: assetScopeSurface,
+          runId: scopeRunId,
+          elapsedMs: Date.now() - scopeRunStartedAt,
+          specCount: assetGroupAnalysisSpecs.length,
+          populateInProgress: !!portfolio.populateStatus?.inProgress,
+        });
       } catch (reason) {
-        if (cancelled) {
+        if (shouldStopRun()) {
+          console.log('[portfolio-assets-scope] run error discarded', {
+            surface: assetScopeSurface,
+            runId: scopeRunId,
+            elapsedMs: Date.now() - scopeRunStartedAt,
+            reason: 'cancelled_after_prepare_error',
+            message:
+              reason instanceof Error ? reason.message : String(reason),
+          });
           return;
         }
 
         const error =
           reason instanceof Error ? reason : new Error(String(reason));
+        console.log('[portfolio-assets-scope] run error', {
+          surface: assetScopeSurface,
+          runId: scopeRunId,
+          elapsedMs: Date.now() - scopeRunStartedAt,
+          specCount: assetGroupAnalysisSpecs.length,
+          populateInProgress: !!portfolio.populateStatus?.inProgress,
+          message: error.message,
+        });
         setAssetGroupAnalysisStateByKey(prev => {
           const next = {...prev};
           let changed = false;
@@ -788,6 +1236,7 @@ export function usePortfolioAssetRows({
                 )
               : undefined,
               sessionId: preparedSessionId,
+              runId: scopeRunId,
               loading: true,
               error: undefined,
             };
@@ -795,12 +1244,14 @@ export function usePortfolioAssetRows({
               ...baseState,
               displayScopeKey: spec.displayScopeKey,
               sessionId: preparedSessionId,
+              runId: scopeRunId,
               loading: false,
               error,
             };
 
             if (
               prevState?.sessionId !== nextState.sessionId ||
+              prevState?.runId !== nextState.runId ||
               !prevState ||
               prevState.loading !== nextState.loading ||
               prevState.error !== nextState.error
@@ -817,6 +1268,12 @@ export function usePortfolioAssetRows({
           await disposePortfolioAnalysisSessionQuery({
             sessionId: preparedSessionId,
           }).catch(() => {});
+          console.log('[portfolio-assets-scope] run disposed', {
+            surface: assetScopeSurface,
+            runId: scopeRunId,
+            elapsedMs: Date.now() - scopeRunStartedAt,
+            hadPreparedSession: true,
+          });
         }
       }
     })();
@@ -832,9 +1289,14 @@ export function usePortfolioAssetRows({
     assetGroupSessionStoredWallets,
     assetGroupAnalysisSpecs,
     assetGroupAnalysisSpecsRevision,
+    assetScopeSurface,
     gainLossMode,
     hasCommittedPortfolioBaseline,
+    analysisRefreshToken,
     portfolio.populateStatus?.inProgress,
+    portfolio.populateStatus?.txRequestsMade,
+    portfolio.populateStatus?.txsProcessed,
+    portfolio.populateStatus?.walletsCompleted,
   ]);
   const assetGroupAnalysisForDisplayByKey = useMemo(() => {
     const next: Record<string, PnlAnalysisResult | undefined> = {};
@@ -1295,12 +1757,23 @@ export function usePortfolioAssetRows({
     };
     const nextItems = visibleItems.map(item => {
       const cachedItem = resolvedItemsByKey[item.key];
-      const canFreezeResolvedItem = !item.showPnlPlaceholder;
-      if (isPopulateLoadingByKeyRaw[item.key] === false) {
-        if (canFreezeResolvedItem && cachedItem !== item) {
+      const hasResolvedDisplayData = !item.showPnlPlaceholder;
+
+      // Once a row has concrete PnL output, keep it visible for the rest of
+      // the populate session even if later refreshes briefly fall back.
+      if (hasResolvedDisplayData) {
+        if (cachedItem !== item) {
           resolvedItemsByKey[item.key] = item;
         }
 
+        if (nextLoadingByKey[item.key] !== false) {
+          loadingChanged = true;
+        }
+        nextLoadingByKey[item.key] = false;
+        return item;
+      }
+
+      if (isPopulateLoadingByKeyRaw[item.key] === false) {
         nextLoadingByKey[item.key] = false;
         return item;
       }
@@ -1405,6 +1878,190 @@ export function usePortfolioAssetRows({
       stablePopulatePresentation.isPopulateLoadingByKey || {},
     ).filter(Boolean).length;
   }, [stablePopulatePresentation.isPopulateLoadingByKey]);
+  useEffect(() => {
+    const nextVisibleRowStateByKey = visibleItemsForDisplay.reduce<
+      Record<string, ReturnType<typeof summarizeAssetRowDisplayState>>
+    >((accumulator, item) => {
+      accumulator[item.key] = summarizeAssetRowDisplayState({
+        item,
+        populateLoading:
+          stablePopulatePresentation.isPopulateLoadingByKey?.[item.key] ??
+          false,
+      });
+      return accumulator;
+    }, {});
+    const previousVisibleRowStateByKey =
+      previousVisibleRowStateByKeyRef.current;
+    previousVisibleRowStateByKeyRef.current = nextVisibleRowStateByKey;
+
+    const changedRows = Array.from(
+      new Set([
+        ...Object.keys(previousVisibleRowStateByKey),
+        ...Object.keys(nextVisibleRowStateByKey),
+      ]),
+    )
+      .filter(key => {
+        return (
+          JSON.stringify(previousVisibleRowStateByKey[key] || null) !==
+          JSON.stringify(nextVisibleRowStateByKey[key] || null)
+        );
+      })
+      .slice(0, 6)
+      .map(key => ({
+        key,
+        prev: previousVisibleRowStateByKey[key] || null,
+        next: nextVisibleRowStateByKey[key] || null,
+      }));
+
+    if (!changedRows.length) {
+      return;
+    }
+
+    console.log('[portfolio-row-display] transition', {
+      surface: assetScopeSurface,
+      gainLossMode,
+      populateInProgress: !!portfolio.populateStatus?.inProgress,
+      walletsCompleted: portfolio.populateStatus?.walletsCompleted ?? 0,
+      txRequestsMade: portfolio.populateStatus?.txRequestsMade ?? 0,
+      txsProcessed: portfolio.populateStatus?.txsProcessed ?? 0,
+      visibleItemCount: visibleItemsForDisplay.length,
+      changedRows,
+    });
+  }, [
+    assetScopeSurface,
+    gainLossMode,
+    portfolio.populateStatus?.inProgress,
+    portfolio.populateStatus?.txRequestsMade,
+    portfolio.populateStatus?.txsProcessed,
+    portfolio.populateStatus?.walletsCompleted,
+    stablePopulatePresentation.isPopulateLoadingByKey,
+    visibleItemsForDisplay,
+  ]);
+  const lastIncrementalDiagnosticsSignatureRef = useRef('');
+
+  useEffect(() => {
+    if (
+      !analysisEnabled ||
+      (!portfolio.populateStatus?.inProgress &&
+        !analysis.loading &&
+        assetGroupLoadingCount === 0)
+    ) {
+      return;
+    }
+
+    const rowDiagnostics = visibleItemsForDisplay.slice(0, 6).map(item => ({
+      key: item.key,
+      hasRate: !!item.hasRate,
+      hasPnl: !!item.hasPnl,
+      showPnlPlaceholder: !!item.showPnlPlaceholder,
+      showScopedPnlLoading: !!item.showScopedPnlLoading,
+      populateLoading:
+        stablePopulatePresentation.isPopulateLoadingByKey?.[item.key] ?? false,
+      deltaFiat: item.deltaFiat,
+      deltaPercent: item.deltaPercent,
+    }));
+    const assetGroupDiagnostics = assetGroupAnalysisSpecs
+      .slice(0, 6)
+      .map(spec => {
+        const state = assetGroupAnalysisStateByKey[spec.key];
+        const displayScopeState =
+          state?.displayScopeKey === spec.displayScopeKey ? state : undefined;
+        return {
+          key: spec.key,
+          loading: !!state?.loading,
+          hasDisplayData: !!assetGroupAnalysisForDisplayByKey[spec.key],
+          hasCurrentData: !!displayScopeState?.currentData,
+          hasCommittedData: !!displayScopeState?.committedData,
+          hasError: !!state?.error,
+          current: summarizeAnalysisResultShape(displayScopeState?.currentData),
+          committed: summarizeAnalysisResultShape(
+            displayScopeState?.committedData,
+          ),
+        };
+      });
+
+    const summary = {
+      surface: assetScopeSurface,
+      gainLossMode,
+      populate: {
+        inProgress: !!portfolio.populateStatus?.inProgress,
+        walletsCompleted: portfolio.populateStatus?.walletsCompleted ?? 0,
+        txRequestsMade: portfolio.populateStatus?.txRequestsMade ?? 0,
+        txsProcessed: portfolio.populateStatus?.txsProcessed ?? 0,
+        errorCount: portfolio.populateStatus?.errors?.length ?? 0,
+      },
+      analysisTokens: {
+        refreshToken: analysisRefreshToken,
+        clearDataToken: analysisClearDataToken,
+      },
+      analysis: {
+        loading: analysis.loading,
+        hasError: !!analysis.error,
+        currentRatesAssetCount: Object.keys(
+          analysis.currentRatesByAssetId || {},
+        ).length,
+        selected: summarizeAnalysisResultShape(analysis.data),
+        current: summarizeAnalysisResultShape(analysis.currentData),
+        committed: summarizeAnalysisResultShape(analysis.committedData),
+      },
+      rows: {
+        visibleCount: visibleItemsForDisplay.length,
+        resolvedCount: visibleItemsForDisplay.filter(
+          item => !item.showPnlPlaceholder,
+        ).length,
+        placeholderCount: visibleItemsForDisplay.filter(item =>
+          !!item.showPnlPlaceholder,
+        ).length,
+        scopedLoadingCount: visibleItemsForDisplay.filter(item =>
+          !!item.showScopedPnlLoading,
+        ).length,
+        populateLoadingCount: populateLoadingItemCount,
+        sample: rowDiagnostics,
+      },
+      assetGroups: {
+        specCount: assetGroupAnalysisSpecs.length,
+        loadingCount: assetGroupLoadingCount,
+        currentDataCount: assetGroupCurrentDataCount,
+        committedDataCount: assetGroupCommittedDataCount,
+        errorCount: assetGroupErrorCount,
+        sample: assetGroupDiagnostics,
+      },
+    };
+    const signature = JSON.stringify(summary);
+    if (lastIncrementalDiagnosticsSignatureRef.current === signature) {
+      return;
+    }
+
+    lastIncrementalDiagnosticsSignatureRef.current = signature;
+    console.log('[portfolio-incremental-diagnostics] usePortfolioAssetRows', summary);
+  }, [
+    analysis.data,
+    analysis.loading,
+    analysis.currentData,
+    analysis.committedData,
+    analysis.currentRatesByAssetId,
+    analysis.error,
+    analysisClearDataToken,
+    analysisEnabled,
+    analysisRefreshToken,
+    assetGroupAnalysisForDisplayByKey,
+    assetGroupAnalysisSpecs,
+    assetGroupAnalysisStateByKey,
+    assetGroupCommittedDataCount,
+    assetGroupCurrentDataCount,
+    assetGroupErrorCount,
+    assetGroupLoadingCount,
+    assetScopeSurface,
+    gainLossMode,
+    populateLoadingItemCount,
+    portfolio.populateStatus?.errors?.length,
+    portfolio.populateStatus?.inProgress,
+    portfolio.populateStatus?.txRequestsMade,
+    portfolio.populateStatus?.txsProcessed,
+    portfolio.populateStatus?.walletsCompleted,
+    stablePopulatePresentation.isPopulateLoadingByKey,
+    visibleItemsForDisplay,
+  ]);
 
   useDevRenderTrace('usePortfolioAssetRows', {
     analysisEnabled,

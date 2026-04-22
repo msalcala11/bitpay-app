@@ -26,6 +26,32 @@ export type PortfolioRuntimeQueryState<T> = {
   asOfMs: number;
 };
 
+function shouldLogPortfolioAssetDiagnostics(debugSource?: string): boolean {
+  return /asset/i.test(String(debugSource || ''));
+}
+
+function summarizeRuntimeQueryResultShape(value: unknown): {
+  walletCount: number;
+  pointCount: number;
+  assetSummaryCount: number;
+} {
+  const record = value as
+    | {
+        wallets?: unknown[];
+        points?: unknown[];
+        assetSummaries?: unknown[];
+      }
+    | undefined;
+
+  return {
+    walletCount: Array.isArray(record?.wallets) ? record.wallets.length : 0,
+    pointCount: Array.isArray(record?.points) ? record.points.length : 0,
+    assetSummaryCount: Array.isArray(record?.assetSummaries)
+      ? record.assetSummaries.length
+      : 0,
+  };
+}
+
 export function usePortfolioRuntimeQuery<T>(args: {
   wallets: Wallet[];
   timeframe: PnlTimeframe;
@@ -67,6 +93,7 @@ export function usePortfolioRuntimeQuery<T>(args: {
   });
   const refreshToken = refreshTokenOverride ?? committedPortfolioRevisionToken;
   const clearDataToken = clearDataTokenOverride ?? refreshToken;
+  const shouldLogDiagnostics = shouldLogPortfolioAssetDiagnostics(debugSource);
 
   const quoteCurrency = useMemo(() => {
     return resolveActivePortfolioDisplayQuoteCurrency({
@@ -145,10 +172,28 @@ export function usePortfolioRuntimeQuery<T>(args: {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | undefined>(undefined);
   const lastClearDataTokenRef = useRef(clearDataToken);
+  const executionIdRef = useRef(0);
+  const lastAppliedExecutionIdRef = useRef(0);
+  const inFlightExecutionIdsRef = useRef(new Set<number>());
+  const latestRequestKeyRef = useRef(requestKey);
+  const latestClearDataTokenRef = useRef(clearDataToken);
+  const latestEnabledRef = useRef(enabled !== false);
+  const unmountedRef = useRef(false);
   const hasPendingRequest =
     enabled !== false &&
     !!storedWallets.length &&
     data.requestKey !== requestKey;
+
+  latestRequestKeyRef.current = requestKey;
+  latestClearDataTokenRef.current = clearDataToken;
+  latestEnabledRef.current = enabled !== false;
+
+  useEffect(() => {
+    return () => {
+      unmountedRef.current = true;
+      inFlightExecutionIdsRef.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (!clearDataOnRefreshToken) {
@@ -157,6 +202,15 @@ export function usePortfolioRuntimeQuery<T>(args: {
     }
 
     if (lastClearDataTokenRef.current !== clearDataToken) {
+      if (shouldLogDiagnostics) {
+        console.log('[portfolio-runtime-query] clear-data', {
+          source: debugSource || 'unknown',
+          previousClearDataToken: lastClearDataTokenRef.current,
+          nextClearDataToken: clearDataToken,
+          hadData: !!data.value,
+          loading,
+        });
+      }
       setData({
         requestKey: '',
         value: undefined,
@@ -166,9 +220,17 @@ export function usePortfolioRuntimeQuery<T>(args: {
     }
 
     lastClearDataTokenRef.current = clearDataToken;
-  }, [clearDataOnRefreshToken, clearDataToken]);
+  }, [
+    clearDataOnRefreshToken,
+    clearDataToken,
+    data.value,
+    debugSource,
+    loading,
+    shouldLogDiagnostics,
+  ]);
   useEffect(() => {
     if (enabled === false) {
+      inFlightExecutionIdsRef.current.clear();
       setLoading(false);
       return;
     }
@@ -176,6 +238,7 @@ export function usePortfolioRuntimeQuery<T>(args: {
     const executeParams = executeParamsRef.current;
 
     if (!executeParams.wallets.length) {
+      inFlightExecutionIdsRef.current.clear();
       setData({
         requestKey,
         value: undefined,
@@ -184,7 +247,31 @@ export function usePortfolioRuntimeQuery<T>(args: {
       return;
     }
 
-    let cancelled = false;
+    const executionId = executionIdRef.current + 1;
+    executionIdRef.current = executionId;
+    const startedAt = Date.now();
+    inFlightExecutionIdsRef.current.add(executionId);
+
+    if (shouldLogDiagnostics) {
+      console.log('[portfolio-runtime-query] execute', {
+        source: debugSource || 'unknown',
+        executionId,
+        timeframe,
+        maxPoints: typeof maxPoints === 'number' ? maxPoints : null,
+        enabled: enabled !== false,
+        walletCount: wallets.length,
+        storedWalletCount: executeParams.wallets.length,
+        eligibleWalletCount: eligibleWallets.length,
+        quoteCurrency: executeParams.quoteCurrency,
+        currentRateAssetCount: Object.keys(
+          executeParams.currentRatesByAssetId || {},
+        ).length,
+        asOfMs: executeParams.asOfMs,
+        refreshToken,
+        clearDataToken,
+      });
+    }
+
     setData(prev =>
       prev.requestKey === requestKey
         ? prev
@@ -198,31 +285,94 @@ export function usePortfolioRuntimeQuery<T>(args: {
 
     execute(executeParams)
       .then(result => {
-        if (cancelled) {
+        const requestKeyMatches =
+          latestRequestKeyRef.current === requestKey;
+        const clearDataTokenMatches =
+          latestClearDataTokenRef.current === clearDataToken;
+        const compatibleSession =
+          !unmountedRef.current &&
+          latestEnabledRef.current &&
+          requestKeyMatches &&
+          clearDataTokenMatches;
+        const accepted =
+          compatibleSession &&
+          executionId >= lastAppliedExecutionIdRef.current;
+
+        if (shouldLogDiagnostics) {
+          console.log('[portfolio-runtime-query] result', {
+            source: debugSource || 'unknown',
+            executionId,
+            elapsedMs: Date.now() - startedAt,
+            accepted,
+            requestKeyMatches,
+            clearDataTokenMatches,
+            ...summarizeRuntimeQueryResultShape(result),
+          });
+        }
+
+        if (!accepted) {
           return;
         }
+
+        lastAppliedExecutionIdRef.current = executionId;
         setData({
           requestKey,
           value: result,
         });
-        setLoading(false);
+        setError(undefined);
       })
       .catch(err => {
-        if (cancelled) {
+        const requestKeyMatches =
+          latestRequestKeyRef.current === requestKey;
+        const clearDataTokenMatches =
+          latestClearDataTokenRef.current === clearDataToken;
+        const accepted =
+          !unmountedRef.current &&
+          latestEnabledRef.current &&
+          requestKeyMatches &&
+          clearDataTokenMatches &&
+          executionId === executionIdRef.current;
+
+        if (shouldLogDiagnostics) {
+          console.log('[portfolio-runtime-query] error', {
+            source: debugSource || 'unknown',
+            executionId,
+            elapsedMs: Date.now() - startedAt,
+            accepted,
+            requestKeyMatches,
+            clearDataTokenMatches,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+        if (!accepted) {
           return;
         }
-        setLoading(false);
-        setError(err instanceof Error ? err : new Error(String(err)));
-      });
 
-    return () => {
-      cancelled = true;
-    };
+        setError(err instanceof Error ? err : new Error(String(err)));
+      })
+      .finally(() => {
+        inFlightExecutionIdsRef.current.delete(executionId);
+        if (unmountedRef.current) {
+          return;
+        }
+
+        const nextLoading =
+          latestEnabledRef.current &&
+          inFlightExecutionIdsRef.current.size > 0;
+        setLoading(prev => (prev === nextLoading ? prev : nextLoading));
+      });
   }, [
     enabled,
     execute,
+    clearDataToken,
+    debugSource,
+    eligibleWallets.length,
+    maxPoints,
     requestKey,
     refreshToken,
+    shouldLogDiagnostics,
+    timeframe,
+    wallets.length,
   ]);
 
   return {

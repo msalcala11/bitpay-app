@@ -66,10 +66,20 @@ const walletFactory = () =>
     currencyAbbreviation: 'btc',
   }) as any;
 
-const HookHarness = ({wallets}: {wallets: any[]}) => {
+const HookHarness = ({
+  wallets,
+  refreshToken,
+  clearDataToken,
+}: {
+  wallets: any[];
+  refreshToken?: string;
+  clearDataToken?: string;
+}) => {
   latestResult = usePortfolioRuntimeQuery({
     wallets,
     timeframe: '1D',
+    refreshToken,
+    clearDataToken,
     execute,
   });
   return null;
@@ -228,5 +238,140 @@ describe('usePortfolioRuntimeQuery', () => {
     expect(latestResult?.quoteCurrency).toBe('EUR');
     expect(latestResult?.data).toBeUndefined();
     expect(latestResult?.loading).toBe(true);
+  });
+
+  it('keeps compatible in-flight refresh results during populate-style refresh churn', async () => {
+    let resolveFirst:
+      | ((value: {quoteCurrency: string; revision: string}) => void)
+      | undefined;
+    let resolveSecond:
+      | ((value: {quoteCurrency: string; revision: string}) => void)
+      | undefined;
+
+    execute
+      .mockImplementationOnce(
+        () =>
+          new Promise<{quoteCurrency: string; revision: string}>(resolve => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<{quoteCurrency: string; revision: string}>(resolve => {
+            resolveSecond = resolve;
+          }),
+      );
+
+    let view: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      view = TestRenderer.create(
+        <HookHarness
+          wallets={[walletFactory()]}
+          refreshToken="refresh-1"
+          clearDataToken="session-1"
+        />,
+      );
+    });
+
+    expect(latestResult?.data).toBeUndefined();
+    expect(latestResult?.loading).toBe(true);
+
+    await act(async () => {
+      view!.update(
+        <HookHarness
+          wallets={[walletFactory()]}
+          refreshToken="refresh-2"
+          clearDataToken="session-1"
+        />,
+      );
+    });
+
+    expect(execute).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolveFirst?.({quoteCurrency: 'USD', revision: 'first'});
+      await Promise.resolve();
+    });
+
+    expect(latestResult?.data).toEqual({
+      quoteCurrency: 'USD',
+      revision: 'first',
+    });
+    expect(latestResult?.loading).toBe(true);
+
+    await act(async () => {
+      resolveSecond?.({quoteCurrency: 'USD', revision: 'second'});
+      await Promise.resolve();
+    });
+
+    expect(latestResult?.data).toEqual({
+      quoteCurrency: 'USD',
+      revision: 'second',
+    });
+    expect(latestResult?.loading).toBe(false);
+  });
+
+  it('does not let an older refresh overwrite a newer compatible result', async () => {
+    let resolveFirst:
+      | ((value: {quoteCurrency: string; revision: string}) => void)
+      | undefined;
+    let resolveSecond:
+      | ((value: {quoteCurrency: string; revision: string}) => void)
+      | undefined;
+
+    execute
+      .mockImplementationOnce(
+        () =>
+          new Promise<{quoteCurrency: string; revision: string}>(resolve => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<{quoteCurrency: string; revision: string}>(resolve => {
+            resolveSecond = resolve;
+          }),
+      );
+
+    let view: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      view = TestRenderer.create(
+        <HookHarness
+          wallets={[walletFactory()]}
+          refreshToken="refresh-1"
+          clearDataToken="session-1"
+        />,
+      );
+    });
+
+    await act(async () => {
+      view!.update(
+        <HookHarness
+          wallets={[walletFactory()]}
+          refreshToken="refresh-2"
+          clearDataToken="session-1"
+        />,
+      );
+    });
+
+    await act(async () => {
+      resolveSecond?.({quoteCurrency: 'USD', revision: 'second'});
+      await Promise.resolve();
+    });
+
+    expect(latestResult?.data).toEqual({
+      quoteCurrency: 'USD',
+      revision: 'second',
+    });
+
+    await act(async () => {
+      resolveFirst?.({quoteCurrency: 'USD', revision: 'first'});
+      await Promise.resolve();
+    });
+
+    expect(latestResult?.data).toEqual({
+      quoteCurrency: 'USD',
+      revision: 'second',
+    });
   });
 });

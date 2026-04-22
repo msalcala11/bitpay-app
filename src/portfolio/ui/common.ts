@@ -62,6 +62,38 @@ export const resolvePortfolioQuoteCurrency =
 export {buildCommittedPortfolioHoldingsRevisionToken};
 export {resolveActivePortfolioDisplayQuoteCurrency};
 
+function shouldLogPortfolioAssetDiagnostics(debugSource?: string): boolean {
+  return /asset/i.test(String(debugSource || ''));
+}
+
+function summarizeAnalysisResultShape(
+  value: PnlAnalysisResult | undefined,
+): {
+  walletCount: number;
+  pointCount: number;
+  assetSummaryCount: number;
+  assetIdCount: number;
+} {
+  return {
+    walletCount: Array.isArray(value?.wallets) ? value.wallets.length : 0,
+    pointCount: Array.isArray(value?.points) ? value.points.length : 0,
+    assetSummaryCount: Array.isArray(value?.assetSummaries)
+      ? value.assetSummaries.length
+      : 0,
+    assetIdCount: Array.isArray(value?.assetIds) ? value.assetIds.length : 0,
+  };
+}
+
+function toAnalysisSessionTag(sessionId: string | undefined): string {
+  const raw = String(sessionId || '').trim();
+  if (!raw) {
+    return 'unknown';
+  }
+
+  const parts = raw.split(':');
+  return parts[parts.length - 1] || raw;
+}
+
 function getWalletUnitDecimals(dispatch: AppDispatch, wallet: Wallet): number {
   const precision =
     dispatch(
@@ -288,6 +320,10 @@ export async function preparePortfolioAnalysisSessionQuery(args: {
   asOfMs?: number;
   debugSource?: string;
 }): Promise<{sessionId: string}> {
+  const shouldLogDiagnostics = shouldLogPortfolioAssetDiagnostics(
+    args.debugSource,
+  );
+  const startedAt = Date.now();
   if (args.debugSource) {
     console.log('[portfolio-analysis-bridge] js analysis session prepare', {
       source: args.debugSource,
@@ -302,7 +338,7 @@ export async function preparePortfolioAnalysisSessionQuery(args: {
       asOfMs: args.asOfMs ?? null,
     });
   }
-  return getPortfolioRuntimeClient().prepareAnalysisSession({
+  const session = await getPortfolioRuntimeClient().prepareAnalysisSession({
     cfg: createPortfolioQueryBwsConfig(),
     wallets: args.wallets,
     quoteCurrency: args.quoteCurrency,
@@ -311,6 +347,19 @@ export async function preparePortfolioAnalysisSessionQuery(args: {
     currentRatesByAssetId: args.currentRatesByAssetId,
     nowMs: args.asOfMs,
   });
+  if (shouldLogDiagnostics) {
+    console.log('[portfolio-analysis-bridge] js analysis session prepared', {
+      source: args.debugSource || 'unknown',
+      sessionTag: toAnalysisSessionTag(session.sessionId),
+      elapsedMs: Date.now() - startedAt,
+      walletCount: args.wallets.length,
+      timeframe: args.timeframe,
+      currentRateAssetCount: args.currentRatesByAssetId
+        ? Object.keys(args.currentRatesByAssetId).length
+        : 0,
+    });
+  }
+  return session;
 }
 
 export async function runPortfolioAnalysisSessionScopeQuery(args: {
@@ -318,11 +367,16 @@ export async function runPortfolioAnalysisSessionScopeQuery(args: {
   walletIds?: string[];
   debugSource?: string;
 }): Promise<PnlAnalysisResult> {
+  const shouldLogDiagnostics = shouldLogPortfolioAssetDiagnostics(
+    args.debugSource,
+  );
+  const startedAt = Date.now();
   if (args.debugSource) {
     console.log(
       '[portfolio-analysis-bridge] js analysis session scope request',
       {
         source: args.debugSource,
+        sessionTag: toAnalysisSessionTag(args.sessionId),
         scopedWalletCount: Array.isArray(args.walletIds)
           ? args.walletIds.length
           : 0,
@@ -333,6 +387,20 @@ export async function runPortfolioAnalysisSessionScopeQuery(args: {
     sessionId: args.sessionId,
     walletIds: args.walletIds,
   });
+  if (shouldLogDiagnostics) {
+    console.log(
+      '[portfolio-analysis-bridge] js analysis session scope result',
+      {
+        source: args.debugSource || 'unknown',
+        sessionTag: toAnalysisSessionTag(args.sessionId),
+        elapsedMs: Date.now() - startedAt,
+        scopedWalletCount: Array.isArray(args.walletIds)
+          ? args.walletIds.length
+          : 0,
+        ...summarizeAnalysisResultShape(result),
+      },
+    );
+  }
   if (
     result &&
     (!Array.isArray(result.wallets) || result.wallets.length === 0) &&
@@ -344,6 +412,8 @@ export async function runPortfolioAnalysisSessionScopeQuery(args: {
       '[portfolio-analysis-bridge] js analysis session scope result empty',
       {
         source: args.debugSource || 'unknown',
+        sessionTag: toAnalysisSessionTag(args.sessionId),
+        elapsedMs: Date.now() - startedAt,
         scopedWalletCount: Array.isArray(args.walletIds)
           ? args.walletIds.length
           : 0,
