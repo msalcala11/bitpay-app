@@ -498,10 +498,45 @@ export function usePortfolioAssetRows({
   );
   latestAssetGroupSessionRequestKeyRef.current = assetGroupSessionRequestKey;
   const assetGroupScopeRunIdRef = useRef(0);
+  const activeAssetGroupScopeRunSignatureRef = useRef<string | undefined>(
+    undefined,
+  );
+  const latestAssetGroupScopeRunSignatureRef = useRef('');
+  const [assetGroupScopeRerunToken, setAssetGroupScopeRerunToken] = useState(0);
   const currentScopedAssetPopulateSessionToken = portfolio.populateStatus
     ?.inProgress
     ? populateSessionStateToken
     : undefined;
+  const populateProgressSnapshotRef = useRef({
+    walletsCompleted: 0,
+    txRequestsMade: 0,
+    txsProcessed: 0,
+  });
+  populateProgressSnapshotRef.current = {
+    walletsCompleted: portfolio.populateStatus?.walletsCompleted ?? 0,
+    txRequestsMade: portfolio.populateStatus?.txRequestsMade ?? 0,
+    txsProcessed: portfolio.populateStatus?.txsProcessed ?? 0,
+  };
+  const assetGroupScopeRunSignature = useMemo(() => {
+    return [
+      assetScopeSurface,
+      gainLossMode,
+      analysis.quoteCurrency,
+      typeof analysis.asOfMs === 'number' ? String(analysis.asOfMs) : '',
+      assetGroupSessionRequestKey,
+      assetGroupAnalysisSpecsRevision,
+      currentScopedAssetPopulateSessionToken || '',
+    ].join('|');
+  }, [
+    analysis.asOfMs,
+    analysis.quoteCurrency,
+    assetGroupAnalysisSpecsRevision,
+    assetGroupSessionRequestKey,
+    assetScopeSurface,
+    currentScopedAssetPopulateSessionToken,
+    gainLossMode,
+  ]);
+  latestAssetGroupScopeRunSignatureRef.current = assetGroupScopeRunSignature;
   const previousVisibleRowStateByKeyRef = useRef<
     Record<
       string,
@@ -591,10 +626,35 @@ export function usePortfolioAssetRows({
       return;
     }
 
+    const scopeRunSignature = assetGroupScopeRunSignature;
+    const populateProgressSnapshot = populateProgressSnapshotRef.current;
+    const activeScopeRunSignature =
+      activeAssetGroupScopeRunSignatureRef.current;
+    if (activeScopeRunSignature) {
+      if (activeScopeRunSignature === scopeRunSignature) {
+        return;
+      }
+
+      if (portfolio.populateStatus?.inProgress) {
+        console.log('[portfolio-assets-scope] run queued', {
+          surface: assetScopeSurface,
+          gainLossMode,
+          pendingRunSignature: scopeRunSignature,
+          activeRunSignature: activeScopeRunSignature,
+          specCount: assetGroupAnalysisSpecs.length,
+          walletsCompleted: populateProgressSnapshot.walletsCompleted,
+          txRequestsMade: populateProgressSnapshot.txRequestsMade,
+          txsProcessed: populateProgressSnapshot.txsProcessed,
+        });
+        return;
+      }
+    }
+
     let cancelled = false;
     let preparedSessionId: string | undefined;
     const scopeRunId = assetGroupScopeRunIdRef.current + 1;
     assetGroupScopeRunIdRef.current = scopeRunId;
+    activeAssetGroupScopeRunSignatureRef.current = scopeRunSignature;
     const scopeRunStartedAt = Date.now();
     console.log('[portfolio-assets-scope] run start', {
       surface: assetScopeSurface,
@@ -606,9 +666,9 @@ export function usePortfolioAssetRows({
         assetGroupSessionCurrentRatesByAssetId,
       ).length,
       populateInProgress: !!portfolio.populateStatus?.inProgress,
-      walletsCompleted: portfolio.populateStatus?.walletsCompleted ?? 0,
-      txRequestsMade: portfolio.populateStatus?.txRequestsMade ?? 0,
-      txsProcessed: portfolio.populateStatus?.txsProcessed ?? 0,
+      walletsCompleted: populateProgressSnapshot.walletsCompleted,
+      txRequestsMade: populateProgressSnapshot.txRequestsMade,
+      txsProcessed: populateProgressSnapshot.txsProcessed,
       sampleKeys: assetGroupAnalysisSpecs.slice(0, 6).map(spec => spec.key),
     });
     setAssetGroupAnalysisStateByKey(prev => {
@@ -1306,6 +1366,11 @@ export function usePortfolioAssetRows({
           return changed ? next : prev;
         });
       } finally {
+        if (
+          activeAssetGroupScopeRunSignatureRef.current === scopeRunSignature
+        ) {
+          activeAssetGroupScopeRunSignatureRef.current = undefined;
+        }
         if (preparedSessionId) {
           await disposePortfolioAnalysisSessionQuery({
             sessionId: preparedSessionId,
@@ -1317,10 +1382,24 @@ export function usePortfolioAssetRows({
             hadPreparedSession: true,
           });
         }
+
+        if (
+          isMountedRef.current &&
+          latestAssetGroupScopeRunSignatureRef.current !== scopeRunSignature
+        ) {
+          setAssetGroupScopeRerunToken(value => value + 1);
+        }
       }
     })();
 
     return () => {
+      const shouldPreserveInFlightPopulateRun =
+        !!portfolio.populateStatus?.inProgress &&
+        activeAssetGroupScopeRunSignatureRef.current === scopeRunSignature &&
+        latestAssetGroupScopeRunSignatureRef.current !== scopeRunSignature;
+      if (shouldPreserveInFlightPopulateRun) {
+        return;
+      }
       cancelled = true;
     };
   }, [
@@ -1331,14 +1410,14 @@ export function usePortfolioAssetRows({
     assetGroupSessionStoredWallets,
     assetGroupAnalysisSpecs,
     assetGroupAnalysisSpecsRevision,
+    assetGroupScopeRunSignature,
+    assetGroupScopeRerunToken,
     assetScopeSurface,
     gainLossMode,
     hasCommittedPortfolioBaseline,
-    analysisRefreshToken,
+    keyId,
+    currentScopedAssetPopulateSessionToken,
     portfolio.populateStatus?.inProgress,
-    portfolio.populateStatus?.txRequestsMade,
-    portfolio.populateStatus?.txsProcessed,
-    portfolio.populateStatus?.walletsCompleted,
   ]);
   const assetGroupAnalysisForDisplayByKey = useMemo(() => {
     const next: Record<string, PnlAnalysisResult | undefined> = {};
@@ -2223,6 +2302,7 @@ export function usePortfolioAssetRows({
     analysis.error,
     analysis.eligibleWallets,
     analysis.loading,
+    analysis.requestKey,
     analysis.committedData,
     analysis.storedWallets,
     assetGroupAnalysisSpecs,
