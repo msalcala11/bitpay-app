@@ -5,6 +5,7 @@ import {
 
 import {
   createPortfolioTxHistorySigningDispatchContextOnRN,
+  type PortfolioTxHistorySigningContextBuildMetrics,
   type PortfolioTxHistorySigningDispatchContext,
 } from '../adapters/rn/txHistorySigning';
 import {
@@ -27,6 +28,71 @@ export type WorkletPortfolioTransportConfig = {
   runtime: WorkletRuntime;
   host: PortfolioRuntimeHostBootstrapConfig;
 };
+
+function nowMs(): number {
+  const candidate = globalThis?.performance?.now?.();
+  return Number.isFinite(candidate) ? Number(candidate) : Date.now();
+}
+
+function roundMs(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function metricMs(value?: number): number {
+  return Number.isFinite(value) ? Number(value) : 0;
+}
+
+type PopulateSigningContextSlowWalletSummary = {
+  walletId: string;
+  requestPrivKeyPresent: boolean;
+  totalElapsedMs: number;
+  nitroModulesProxyElapsedMs: number;
+  nitroFetchElapsedMs: number;
+  requestPrivKeySec1DerElapsedMs: number;
+  objectAssemblyElapsedMs: number;
+  otherElapsedMs: number;
+};
+
+function summarizePopulateSigningContextSlowWallets(
+  walletMetrics: Array<{
+    walletId: string;
+    metrics: PortfolioTxHistorySigningContextBuildMetrics;
+  }>,
+): PopulateSigningContextSlowWalletSummary[] {
+  return walletMetrics
+    .map(({walletId, metrics}) => {
+      const totalElapsedMs = metricMs(metrics.totalElapsedMs);
+      const nitroModulesProxyElapsedMs = metricMs(
+        metrics.nitroModulesProxy?.elapsedMs,
+      );
+      const nitroFetchElapsedMs = metricMs(metrics.nitroFetch?.elapsedMs);
+      const requestPrivKeySec1DerElapsedMs = metricMs(
+        metrics.requestPrivKeySec1Der?.elapsedMs,
+      );
+      const objectAssemblyElapsedMs = metricMs(metrics.objectAssemblyElapsedMs);
+      return {
+        walletId,
+        requestPrivKeyPresent: metrics.requestPrivKeyPresent === true,
+        totalElapsedMs: roundMs(totalElapsedMs),
+        nitroModulesProxyElapsedMs: roundMs(nitroModulesProxyElapsedMs),
+        nitroFetchElapsedMs: roundMs(nitroFetchElapsedMs),
+        requestPrivKeySec1DerElapsedMs: roundMs(requestPrivKeySec1DerElapsedMs),
+        objectAssemblyElapsedMs: roundMs(objectAssemblyElapsedMs),
+        otherElapsedMs: roundMs(
+          Math.max(
+            0,
+            totalElapsedMs -
+              nitroModulesProxyElapsedMs -
+              nitroFetchElapsedMs -
+              requestPrivKeySec1DerElapsedMs -
+              objectAssemblyElapsedMs,
+          ),
+        ),
+      };
+    })
+    .sort((a, b) => b.totalElapsedMs - a.totalElapsedMs)
+    .slice(0, 5);
+}
 
 function cloneWalletCredentialsForTransport(
   credentials: WalletCredentials,
@@ -94,6 +160,24 @@ function buildPopulateJobSigningContextsForRequest(
 
   const out: PortfolioPopulateJobSigningContextMap = {};
   let populated = false;
+  let requestPrivKeyWalletCount = 0;
+  const startedAt = nowMs();
+  const walletBuildMetrics: Array<{
+    walletId: string;
+    metrics: PortfolioTxHistorySigningContextBuildMetrics;
+  }> = [];
+  let contextBuildElapsedMs = 0;
+  let nitroModulesProxyElapsedMs = 0;
+  let nitroModulesProxyCacheMissCount = 0;
+  let nitroFetchElapsedMs = 0;
+  let nitroFetchCacheMissCount = 0;
+  let requestPrivKeySec1DerElapsedMs = 0;
+  let requestPrivKeySec1DerBitcoreLoadElapsedMs = 0;
+  let requestPrivKeySec1DerBitcoreLoadCacheMissCount = 0;
+  let requestPrivKeySec1DerPrivateKeyParseElapsedMs = 0;
+  let requestPrivKeySec1DerPrivateKeyToBufferElapsedMs = 0;
+  let requestPrivKeySec1DerEncodeElapsedMs = 0;
+  let objectAssemblyElapsedMs = 0;
 
   for (const wallet of wallets) {
     const walletId = String(wallet?.summary?.walletId || wallet?.walletId || '').trim();
@@ -103,14 +187,99 @@ function buildPopulateJobSigningContextsForRequest(
       continue;
     }
 
+    if (requestPrivKey) {
+      requestPrivKeyWalletCount += 1;
+    }
+
+    const metrics: PortfolioTxHistorySigningContextBuildMetrics = {};
     out[walletId] = createPortfolioTxHistorySigningDispatchContextOnRN({
       requestPrivKey: requestPrivKey || undefined,
       requestPubKey: requestPubKey || undefined,
       requestCount: 4,
-    });
+    }, metrics);
+    walletBuildMetrics.push({walletId, metrics});
+    contextBuildElapsedMs += metricMs(metrics.totalElapsedMs);
+    nitroModulesProxyElapsedMs += metricMs(metrics.nitroModulesProxy?.elapsedMs);
+    nitroModulesProxyCacheMissCount += metrics.nitroModulesProxy?.cacheMiss
+      ? 1
+      : 0;
+    nitroFetchElapsedMs += metricMs(metrics.nitroFetch?.elapsedMs);
+    nitroFetchCacheMissCount += metrics.nitroFetch?.cacheMiss ? 1 : 0;
+    requestPrivKeySec1DerElapsedMs += metricMs(
+      metrics.requestPrivKeySec1Der?.elapsedMs,
+    );
+    requestPrivKeySec1DerBitcoreLoadElapsedMs += metricMs(
+      metrics.requestPrivKeySec1Der?.bitcoreLoadElapsedMs,
+    );
+    requestPrivKeySec1DerBitcoreLoadCacheMissCount +=
+      metrics.requestPrivKeySec1Der?.bitcoreLoadCacheMiss ? 1 : 0;
+    requestPrivKeySec1DerPrivateKeyParseElapsedMs += metricMs(
+      metrics.requestPrivKeySec1Der?.privateKeyParseElapsedMs,
+    );
+    requestPrivKeySec1DerPrivateKeyToBufferElapsedMs += metricMs(
+      metrics.requestPrivKeySec1Der?.privateKeyToBufferElapsedMs,
+    );
+    requestPrivKeySec1DerEncodeElapsedMs += metricMs(
+      metrics.requestPrivKeySec1Der?.sec1DerEncodeElapsedMs,
+    );
+    objectAssemblyElapsedMs += metricMs(metrics.objectAssemblyElapsedMs);
 
     populated = true;
   }
+
+  const elapsedMs = nowMs() - startedAt;
+  const bucketOverheadElapsedMs = Math.max(0, elapsedMs - contextBuildElapsedMs);
+  const contextOtherElapsedMs = Math.max(
+    0,
+    contextBuildElapsedMs -
+      nitroModulesProxyElapsedMs -
+      nitroFetchElapsedMs -
+      requestPrivKeySec1DerElapsedMs -
+      objectAssemblyElapsedMs,
+  );
+  const requestPrivKeySec1DerHelperOtherElapsedMs = Math.max(
+    0,
+    requestPrivKeySec1DerElapsedMs -
+      requestPrivKeySec1DerBitcoreLoadElapsedMs -
+      requestPrivKeySec1DerPrivateKeyParseElapsedMs -
+      requestPrivKeySec1DerPrivateKeyToBufferElapsedMs -
+      requestPrivKeySec1DerEncodeElapsedMs,
+  );
+
+  console.log('[portfolio-populate-startup] transport populate signing contexts', {
+    walletCount: wallets.length,
+    populatedWalletCount: populated ? Object.keys(out).length : 0,
+    requestPrivKeyWalletCount,
+    elapsedMs: roundMs(elapsedMs),
+    mode: 'lazy_runtime_hydration_with_js_precompute',
+    breakdown: {
+      contextBuildElapsedMs: roundMs(contextBuildElapsedMs),
+      bucketOverheadElapsedMs: roundMs(bucketOverheadElapsedMs),
+      nitroModulesProxyElapsedMs: roundMs(nitroModulesProxyElapsedMs),
+      nitroModulesProxyCacheMissCount,
+      nitroFetchElapsedMs: roundMs(nitroFetchElapsedMs),
+      nitroFetchCacheMissCount,
+      requestPrivKeySec1DerElapsedMs: roundMs(requestPrivKeySec1DerElapsedMs),
+      objectAssemblyElapsedMs: roundMs(objectAssemblyElapsedMs),
+      contextOtherElapsedMs: roundMs(contextOtherElapsedMs),
+      requestPrivKeySec1DerBreakdown: {
+        bitcoreLoadElapsedMs: roundMs(requestPrivKeySec1DerBitcoreLoadElapsedMs),
+        bitcoreLoadCacheMissCount:
+          requestPrivKeySec1DerBitcoreLoadCacheMissCount,
+        privateKeyParseElapsedMs: roundMs(
+          requestPrivKeySec1DerPrivateKeyParseElapsedMs,
+        ),
+        privateKeyToBufferElapsedMs: roundMs(
+          requestPrivKeySec1DerPrivateKeyToBufferElapsedMs,
+        ),
+        sec1DerEncodeElapsedMs: roundMs(requestPrivKeySec1DerEncodeElapsedMs),
+        helperOtherElapsedMs: roundMs(
+          requestPrivKeySec1DerHelperOtherElapsedMs,
+        ),
+      },
+    },
+    slowWallets: summarizePopulateSigningContextSlowWallets(walletBuildMetrics),
+  });
 
   return populated ? out : undefined;
 }
@@ -185,6 +354,23 @@ export function createWorkletPortfolioTransport(
       onResponse: (response: WorkerResponse) => void,
       onFatalError: (error: Error) => void,
     ): Promise<void> => {
+      const isPopulateStartRequest = request.method === 'populate.startJob';
+      const requestStartedAt = isPopulateStartRequest ? nowMs() : 0;
+      const requestWalletCount = isPopulateStartRequest
+        ? Array.isArray((request.params as any)?.wallets)
+          ? (request.params as any).wallets.length
+          : 0
+        : 0;
+
+      if (isPopulateStartRequest) {
+        console.log('[portfolio-populate-startup] transport dispatch begin', {
+          requestId: request.id,
+          walletCount: requestWalletCount,
+          awaitTerminal: (request.params as {awaitTerminal?: boolean})
+            ?.awaitTerminal === true,
+        });
+      }
+
       const walletId = getWalletIdFromRequest(request);
       if (request.method === 'snapshots.prepareWallet' && walletId) {
         const credentials = (request.params as any)?.credentials as WalletCredentials;
@@ -207,6 +393,7 @@ export function createWorkletPortfolioTransport(
         return;
       }
 
+      const dispatchContextStartedAt = isPopulateStartRequest ? nowMs() : 0;
       const dispatchContext: PortfolioRuntimeDispatchContext = {
         singleRequestSigningContext: buildSingleRequestSigningContextForRequest({
           request,
@@ -216,10 +403,25 @@ export function createWorkletPortfolioTransport(
           buildPopulateJobSigningContextsForRequest(request),
       };
 
+      if (isPopulateStartRequest) {
+        console.log('[portfolio-populate-startup] transport dispatch context ready', {
+          requestId: request.id,
+          walletCount: requestWalletCount,
+          populateSigningContextCount: dispatchContext
+            .populateJobSigningContextsByWalletId
+            ? Object.keys(dispatchContext.populateJobSigningContextsByWalletId)
+                .length
+            : 0,
+          elapsedMs: roundMs(nowMs() - dispatchContextStartedAt),
+          totalElapsedMs: roundMs(nowMs() - requestStartedAt),
+        });
+      }
+
       const dispatchOnRuntime = shouldAwaitPopulateTerminalResponse(request)
         ? dispatchPortfolioPopulateStartAndWaitOnRuntime
         : dispatchPortfolioRequestOnRuntime;
 
+      const runOnRuntimeStartedAt = isPopulateStartRequest ? nowMs() : 0;
       await runOnRuntimeAsync(
         config.runtime,
         dispatchOnRuntime,
@@ -227,6 +429,18 @@ export function createWorkletPortfolioTransport(
         request,
         dispatchContext,
         (response: WorkerResponse) => {
+          if (isPopulateStartRequest) {
+            console.log('[portfolio-populate-startup] transport response', {
+              requestId: request.id,
+              walletCount: requestWalletCount,
+              ok: response.ok,
+              elapsedMs: roundMs(nowMs() - requestStartedAt),
+              responseState:
+                response.ok && (response as any)?.result?.status
+                  ? (response as any).result.status.state
+                  : undefined,
+            });
+          }
           reconcileSessionCredentialsAfterResponse({
             request,
             response,
@@ -236,6 +450,14 @@ export function createWorkletPortfolioTransport(
           onResponse(response);
         },
         (message: string, stack?: string) => {
+          if (isPopulateStartRequest) {
+            console.log('[portfolio-populate-startup] transport runtime rejection', {
+              requestId: request.id,
+              walletCount: requestWalletCount,
+              elapsedMs: roundMs(nowMs() - requestStartedAt),
+              message,
+            });
+          }
           reconcileSessionCredentialsAfterFatalError({
             request,
             walletId,
@@ -243,14 +465,37 @@ export function createWorkletPortfolioTransport(
           });
           onFatalError(buildRuntimeErrorFromDetails(message, stack));
         },
-      ).catch(error => {
-        reconcileSessionCredentialsAfterFatalError({
-          request,
-          walletId,
-          sessionCredentialsByWalletId,
+      )
+        .then(() => {
+          if (isPopulateStartRequest) {
+            console.log(
+              '[portfolio-populate-startup] transport runOnRuntimeAsync settled',
+              {
+                requestId: request.id,
+                walletCount: requestWalletCount,
+                elapsedMs: roundMs(nowMs() - runOnRuntimeStartedAt),
+                totalElapsedMs: roundMs(nowMs() - requestStartedAt),
+              },
+            );
+          }
+        })
+        .catch(error => {
+          if (isPopulateStartRequest) {
+            console.log('[portfolio-populate-startup] transport fatal error', {
+              requestId: request.id,
+              walletCount: requestWalletCount,
+              elapsedMs: roundMs(nowMs() - requestStartedAt),
+              message:
+                error instanceof Error ? error.message : String(error || ''),
+            });
+          }
+          reconcileSessionCredentialsAfterFatalError({
+            request,
+            walletId,
+            sessionCredentialsByWalletId,
+          });
+          onFatalError(toRuntimeError(error));
         });
-        onFatalError(toRuntimeError(error));
-      });
     },
     destroy: () => {
       sessionCredentialsByWalletId.clear();

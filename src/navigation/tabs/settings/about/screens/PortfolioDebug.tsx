@@ -6,7 +6,12 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {Pressable, ScrollView, TextInput} from 'react-native';
+import {
+  InteractionManager,
+  Pressable,
+  ScrollView,
+  TextInput,
+} from 'react-native';
 import styled, {useTheme} from 'styled-components/native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import {useTranslation} from 'react-i18next';
@@ -15,6 +20,7 @@ import SearchSvg from '../../../../../../assets/img/search.svg';
 import {Network} from '../../../../../constants';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {getPortfolioRuntimeClient} from '../../../../../portfolio/runtime/portfolioRuntime';
+import {PORTFOLIO_REQUEST_KEY_DEBUG_PROBE_PRIVATE_KEY_HEX} from '../../../../../portfolio/adapters/rn/txHistorySigning';
 import type {
   SnapshotIndexV2,
   SnapshotPersistDebugMode,
@@ -133,6 +139,13 @@ const formatBytes = (bytes?: number): string => {
   return `${Number(fixed)} ${units[index]}`;
 };
 
+const nowMs = (): number => {
+  const candidate = globalThis?.performance?.now?.();
+  return Number.isFinite(candidate) ? Number(candidate) : Date.now();
+};
+
+const roundMs = (value: number): number => Math.round(value * 100) / 100;
+
 const getSerializedBytes = (value: unknown): number => {
   try {
     const serialized = JSON.stringify(value ?? null);
@@ -231,6 +244,8 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
   const [kvStats, setKvStats] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isClearing, setIsClearing] = useState<boolean>(false);
+  const [isRunningQuickCryptoProbe, setIsRunningQuickCryptoProbe] =
+    useState<boolean>(false);
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
   const [runtimeError, setRuntimeError] = useState<string>('');
   const [lastRefreshedAt, setLastRefreshedAt] = useState<number | undefined>();
@@ -243,6 +258,18 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
   const walletsRef = useRef<Wallet[]>(wallets);
   const mismatchByWalletIdRef = useRef(
     portfolio.snapshotBalanceMismatchesByWalletId,
+  );
+  const populateStartProbeRef = useRef<
+    | {
+        startedAtMs: number;
+        walletCount: number;
+        walletRowCount: number;
+        snapshotDebugMode: SnapshotPersistDebugMode;
+      }
+    | undefined
+  >(undefined);
+  const previousPopulateInProgressRef = useRef(
+    !!portfolio.populateStatus?.inProgress,
   );
 
   useEffect(() => {
@@ -340,6 +367,35 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
     load();
   }, [load, refreshToken]);
 
+  useEffect(() => {
+    const previous = previousPopulateInProgressRef.current;
+    const current = !!portfolio.populateStatus?.inProgress;
+    const probe = populateStartProbeRef.current;
+
+    if (!previous && current) {
+      console.log('[portfolio-raw-populate-freeze] inProgress observed', {
+        elapsedMs: probe ? roundMs(nowMs() - probe.startedAtMs) : undefined,
+        walletCount: probe?.walletCount ?? wallets.length,
+        walletRowCount: probe?.walletRowCount ?? walletRows.length,
+        snapshotDebugMode: probe?.snapshotDebugMode,
+        currentWalletId: portfolio.populateStatus?.currentWalletId,
+        walletsTotal: portfolio.populateStatus?.walletsTotal,
+      });
+    }
+
+    if (previous && !current) {
+      populateStartProbeRef.current = undefined;
+    }
+
+    previousPopulateInProgressRef.current = current;
+  }, [
+    portfolio.populateStatus?.currentWalletId,
+    portfolio.populateStatus?.inProgress,
+    portfolio.populateStatus?.walletsTotal,
+    walletRows.length,
+    wallets.length,
+  ]);
+
   const summary = useMemo(() => {
     const walletsWithSnapshots = walletRows.filter(row => !!row.index).length;
     const totalRows = walletRows.reduce((total, row) => total + row.rowCount, 0);
@@ -412,16 +468,114 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
   }, [rateEntries, summary, walletRows]);
 
   const repopulate = useCallback(async () => {
+    const startedAtMs = nowMs();
+    const walletCount = wallets.length;
+    const walletRowCount = walletRows.length;
+    const probe = {
+      startedAtMs,
+      walletCount,
+      walletRowCount,
+      snapshotDebugMode: populateDebugMode,
+    };
+    populateStartProbeRef.current = probe;
+
+    console.log('[portfolio-raw-populate-freeze] tap start', {
+      walletCount,
+      walletRowCount,
+      snapshotDebugMode: populateDebugMode,
+      populateInProgress: !!portfolio.populateStatus?.inProgress,
+    });
+
+    setTimeout(() => {
+      if (populateStartProbeRef.current !== probe) {
+        return;
+      }
+      console.log('[portfolio-raw-populate-freeze] post-tap setTimeout', {
+        elapsedMs: roundMs(nowMs() - startedAtMs),
+        walletCount,
+      });
+    }, 0);
+
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => {
+        if (populateStartProbeRef.current !== probe) {
+          return;
+        }
+        console.log('[portfolio-raw-populate-freeze] post-tap animationFrame', {
+          elapsedMs: roundMs(nowMs() - startedAtMs),
+          walletCount,
+        });
+      });
+    }
+
+    InteractionManager.runAfterInteractions(() => {
+      if (populateStartProbeRef.current !== probe) {
+        return;
+      }
+      console.log('[portfolio-raw-populate-freeze] after interactions', {
+        elapsedMs: roundMs(nowMs() - startedAtMs),
+        walletCount,
+      });
+    });
+
     try {
-      await dispatch(
+      const dispatchStartedAt = nowMs();
+      const populatePromise = dispatch(
         populatePortfolio({snapshotDebugMode: populateDebugMode}) as any,
       );
-      load();
+
+      console.log('[portfolio-raw-populate-freeze] dispatch returned', {
+        syncElapsedMs: roundMs(nowMs() - dispatchStartedAt),
+        elapsedSinceTapMs: roundMs(nowMs() - startedAtMs),
+        walletCount,
+      });
+
+      await populatePromise;
+
+      console.log('[portfolio-raw-populate-freeze] populate dispatch resolved', {
+        elapsedSinceTapMs: roundMs(nowMs() - startedAtMs),
+        walletCount,
+      });
+
+      const loadStartedAt = nowMs();
+      load()
+        .then(() => {
+          console.log(
+            '[portfolio-raw-populate-freeze] post-dispatch load resolved',
+            {
+              elapsedMs: roundMs(nowMs() - loadStartedAt),
+              elapsedSinceTapMs: roundMs(nowMs() - startedAtMs),
+              walletCount,
+            },
+          );
+        })
+        .catch((loadError: unknown) => {
+          const loadMessage =
+            loadError instanceof Error ? loadError.message : String(loadError);
+          console.log('[portfolio-raw-populate-freeze] post-dispatch load error', {
+            elapsedMs: roundMs(nowMs() - loadStartedAt),
+            elapsedSinceTapMs: roundMs(nowMs() - startedAtMs),
+            walletCount,
+            message: loadMessage,
+          });
+        });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      console.log('[portfolio-raw-populate-freeze] populate dispatch error', {
+        elapsedSinceTapMs: roundMs(nowMs() - startedAtMs),
+        walletCount,
+        message,
+      });
       setRuntimeError(message);
     }
-  }, [dispatch, load, populateDebugMode]);
+  }, [
+    dispatch,
+    load,
+    populateDebugMode,
+    portfolio.populateStatus?.inProgress,
+    walletRows.length,
+    wallets.length,
+  ]);
 
   const clearAll = useCallback(async () => {
     if (isClearing) {
@@ -461,6 +615,44 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
       setRuntimeError(message);
     }
   }, [dispatch, load]);
+
+  const runQuickCryptoPubKeyProbe = useCallback(async () => {
+    if (isRunningQuickCryptoProbe) {
+      return;
+    }
+
+    setRuntimeError('');
+    setIsRunningQuickCryptoProbe(true);
+    try {
+      const result = await getPortfolioRuntimeClient().quickCryptoPubKeyProbe();
+      const bitcoreLib = require('@bitpay-labs/bitcore-lib') as any;
+      const expectedPublicKey = new bitcoreLib.PrivateKey(
+        PORTFOLIO_REQUEST_KEY_DEBUG_PROBE_PRIVATE_KEY_HEX,
+      ).toPublicKey();
+      const expectedCoordinates = expectedPublicKey.toObject();
+      const comparison = {
+        compressedMatches:
+          result.compressedPublicKeyHex === expectedPublicKey.toString(),
+        xMatches: result.publicKeyXHex === expectedCoordinates.x,
+        yMatches: result.publicKeyYHex === expectedCoordinates.y,
+      };
+
+      console.log('[portfolio-quick-crypto-pubkey-probe]', {
+        comparison,
+        runtime: result,
+        expected: {
+          compressedPublicKeyHex: expectedPublicKey.toString(),
+          publicKeyXHex: expectedCoordinates.x,
+          publicKeyYHex: expectedCoordinates.y,
+        },
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRuntimeError(message);
+    } finally {
+      setIsRunningQuickCryptoProbe(false);
+    }
+  }, [isRunningQuickCryptoProbe]);
 
   return (
     <DebugScreenContainer>
@@ -507,6 +699,13 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
             <DebugPillButton onPress={clearCharts}>
               <DebugPillButtonText>
                 {t('Clear Portfolio Charts')}
+              </DebugPillButtonText>
+            </DebugPillButton>
+            <DebugPillButton onPress={runQuickCryptoPubKeyProbe}>
+              <DebugPillButtonText>
+                {isRunningQuickCryptoProbe
+                  ? t('QC Probe...')
+                  : t('QC Pubkey Probe')}
               </DebugPillButtonText>
             </DebugPillButton>
             <DebugPillButton disabled={isClearing} onPress={clearAll}>

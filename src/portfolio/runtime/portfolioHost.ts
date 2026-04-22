@@ -12,6 +12,7 @@ import {
   MmkvKvStore,
   type WorkletMmkvStorageBridge,
 } from '../adapters/rn/mmkvKvStore';
+import {probeQuickCryptoRequestPubKeyDerivationOnRN} from '../adapters/rn/txHistorySigning';
 import {createPortfolioEngineOptionsForRnRuntime} from '../adapters/rn/portfolioEngineOptions';
 import {createSerialExecutor} from './serialQueue';
 
@@ -187,6 +188,11 @@ export class PortfolioRuntimeHost {
 
         case 'debug.getPopulateWalletTrace':
           return {id: req.id, ok: true, result: null} as any;
+
+        case 'debug.quickCryptoPubKeyProbe': {
+          const res = probeQuickCryptoRequestPubKeyDerivationOnRN();
+          return {id: req.id, ok: true, result: res} as any;
+        }
 
         default:
           throw new Error(`Unknown method: ${String((req as any).method)}`);

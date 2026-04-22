@@ -43,6 +43,11 @@ describe('portfolioRequestRouting', () => {
         'debug.getPopulateWalletTrace',
       ),
     ).toBe(true);
+    expect(
+      shouldDispatchPortfolioRequestOnRuntimeWorklet(
+        'debug.quickCryptoPubKeyProbe',
+      ),
+    ).toBe(true);
 
     expect(
       shouldDispatchPortfolioRequestOnRuntimeWorklet({

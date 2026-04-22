@@ -6,10 +6,8 @@ import {
   normalizeTokenWalletTxHistoryPage,
 } from '../../core/tokenTxHistory';
 import {
-  assertPortfolioTxHistoryRequestKeyDetails,
   DEFAULT_PORTFOLIO_NITRO_FETCH_TIMEOUT_MS,
   getPortfolioNitroFetchClientOnRuntime,
-  requirePortfolioTxHistorySigningDispatchContextOnRuntime,
   signBwsGetRequestWithTransferredNitro,
   takeNextPortfolioTransferredSignHandleOnRuntime,
 } from './txHistorySigning';
@@ -122,8 +120,6 @@ function buildSignedHeaders(args: {
   'worklet';
 
   const copayerId = getWalletCopayerId(args.credentials);
-  const runtimeContext = requirePortfolioTxHistorySigningDispatchContextOnRuntime();
-  assertPortfolioTxHistoryRequestKeyDetails(runtimeContext.requestKey);
 
   const transferredNitro = takeNextPortfolioTransferredSignHandleOnRuntime();
   if (!transferredNitro) {

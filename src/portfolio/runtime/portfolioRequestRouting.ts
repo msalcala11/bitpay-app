@@ -25,6 +25,7 @@ const WORKLET_METHODS: Record<WorkerMethod, true> = {
   'debug.clearAll': true,
   'debug.kvStats': true,
   'debug.getPopulateWalletTrace': true,
+  'debug.quickCryptoPubKeyProbe': true,
 };
 
 export function isWorkletPopulateMethod(method: WorkerMethod): boolean {

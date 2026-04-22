@@ -113,4 +113,76 @@ describe('createWorkletPortfolioTransport', () => {
       requestCount: 4,
     });
   });
+
+  it('passes lightweight per-wallet populate signing metadata without eagerly hydrating Nitro hybrids', async () => {
+    const transport = createWorkletPortfolioTransport({
+      runtime: {} as any,
+      host: {} as any,
+    });
+
+    await transport.dispatch(
+      {
+        id: 3,
+        method: 'populate.startJob',
+        params: {
+          wallets: [
+            {
+              walletId: 'wallet-1',
+              credentials: {
+                requestPrivKey: 'priv-key-1',
+                requestPubKey: 'pub-key-1',
+              },
+              summary: {
+                walletId: 'wallet-1',
+              },
+            },
+            {
+              walletId: 'wallet-2',
+              credentials: {
+                requestPrivKey: 'priv-key-2',
+              },
+              summary: {
+                walletId: 'wallet-2',
+              },
+            },
+          ],
+        },
+      } as any,
+      jest.fn(),
+      jest.fn(),
+    );
+
+    expect(mockedCreateSigningContext).toHaveBeenCalledTimes(3);
+    expect(mockedCreateSigningContext).toHaveBeenNthCalledWith(1, {
+      requestPrivKey: undefined,
+      requestPubKey: undefined,
+      requestCount: 1,
+    });
+    expect(mockedCreateSigningContext).toHaveBeenNthCalledWith(2, {
+      requestPrivKey: 'priv-key-1',
+      requestPubKey: 'pub-key-1',
+      requestCount: 4,
+    }, expect.any(Object));
+    expect(mockedCreateSigningContext).toHaveBeenNthCalledWith(3, {
+      requestPrivKey: 'priv-key-2',
+      requestPubKey: undefined,
+      requestCount: 4,
+    }, expect.any(Object));
+
+    const dispatchContext = mockedRunOnRuntimeAsync.mock.calls[0]?.[4] as any;
+    expect(dispatchContext?.populateJobSigningContextsByWalletId).toEqual({
+      'wallet-1': {
+        kind: 'dispatch-context',
+        requestPrivKey: 'priv-key-1',
+        requestPubKey: 'pub-key-1',
+        requestCount: 4,
+      },
+      'wallet-2': {
+        kind: 'dispatch-context',
+        requestPrivKey: 'priv-key-2',
+        requestPubKey: undefined,
+        requestCount: 4,
+      },
+    });
+  });
 });

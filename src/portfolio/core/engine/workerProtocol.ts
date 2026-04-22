@@ -30,6 +30,7 @@ import type {
   PortfolioPopulateJobStatus,
 } from './populateJob';
 import type {PortfolioPopulateWalletDebugTrace} from './populateDebug';
+import type {PortfolioQuickCryptoPubKeyProbeResult} from '../../adapters/rn/txHistorySigning';
 
 export type WorkerMethodMap = {
   'rates.ensure': {
@@ -182,6 +183,11 @@ export type WorkerMethodMap = {
   'debug.getPopulateWalletTrace': {
     params: {walletId: string};
     result: PortfolioPopulateWalletDebugTrace | null;
+  };
+
+  'debug.quickCryptoPubKeyProbe': {
+    params: {};
+    result: PortfolioQuickCryptoPubKeyProbeResult;
   };
 };
 
