@@ -20,7 +20,9 @@ import {
   fetchWalletTxHistoryPagesOnWorker,
   probeMmkvRoundTripOnWorker,
   probeSharedAppMmkvRoundTripOnWorker,
+  smokeTestNitroFetchRequestOnWorker,
   stressTestMmkvOnWorker,
+  type WorkerNitroFetchSmokeResult,
   type WorkerMmkvContentionTestResult,
   type WorkerMmkvRoundTripResult,
   type WorkerMmkvStressTestResult,
@@ -265,9 +267,8 @@ const buildWalletOption = (
 const WorkletsBundleModeDemo = (_props: Props) => {
   const [mmkvLoading, setMmkvLoading] = useState(false);
   const [mmkvError, setMmkvError] = useState<string | null>(null);
-  const [mmkvResult, setMmkvResult] = useState<WorkerMmkvRoundTripResult | null>(
-    null,
-  );
+  const [mmkvResult, setMmkvResult] =
+    useState<WorkerMmkvRoundTripResult | null>(null);
   const [sharedAppMmkvLoading, setSharedAppMmkvLoading] = useState(false);
   const [sharedAppMmkvError, setSharedAppMmkvError] = useState<string | null>(
     null,
@@ -279,10 +280,15 @@ const WorkletsBundleModeDemo = (_props: Props) => {
   const [mmkvStressResult, setMmkvStressResult] =
     useState<WorkerMmkvStressTestResult | null>(null);
   const [mmkvContentionLoading, setMmkvContentionLoading] = useState(false);
-  const [mmkvContentionError, setMmkvContentionError] =
-    useState<string | null>(null);
+  const [mmkvContentionError, setMmkvContentionError] = useState<string | null>(
+    null,
+  );
   const [mmkvContentionResult, setMmkvContentionResult] =
     useState<WorkerMmkvContentionTestResult | null>(null);
+  const [nitroFetchLoading, setNitroFetchLoading] = useState(false);
+  const [nitroFetchError, setNitroFetchError] = useState<string | null>(null);
+  const [nitroFetchResult, setNitroFetchResult] =
+    useState<WorkerNitroFetchSmokeResult | null>(null);
   const [txHistoryLoading, setTxHistoryLoading] = useState(false);
   const [txHistoryError, setTxHistoryError] = useState<string | null>(null);
   const [txHistoryResult, setTxHistoryResult] =
@@ -326,6 +332,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
     sharedAppMmkvLoading ||
     mmkvStressLoading ||
     mmkvContentionLoading ||
+    nitroFetchLoading ||
     txHistoryLoading;
 
   React.useEffect(() => {
@@ -409,6 +416,21 @@ const WorkletsBundleModeDemo = (_props: Props) => {
     }
   };
 
+  const handleRunNitroFetchSmokeTest = async () => {
+    setNitroFetchLoading(true);
+    setNitroFetchError(null);
+    setNitroFetchResult(null);
+
+    try {
+      const nextNitroFetchResult = await smokeTestNitroFetchRequestOnWorker();
+      setNitroFetchResult(nextNitroFetchResult);
+    } catch (err: unknown) {
+      setNitroFetchError(toErrorMessage(err));
+    } finally {
+      setNitroFetchLoading(false);
+    }
+  };
+
   const handleRunTxHistory = async () => {
     if (!selectedWallet) {
       return;
@@ -442,9 +464,10 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             This screen keeps the bundle-mode POC focused on concrete
             worker-runtime checks: an MMKV write/read roundtrip on the
             background JS runtime, a sequential MMKV stress test, a same-key
-            MMKV contention race between RN and the worker runtime, and an
-            end-to-end txhistory flow that signs BWS `/v1/txhistory/` requests
-            with transferred Nitro crypto handles.
+            MMKV contention race between RN and the worker runtime, a simple
+            Nitro Fetch GET executed from that worker runtime, and an end-to-end
+            txhistory flow that signs BWS `/v1/txhistory/` requests with
+            transferred Nitro crypto handles.
           </SectionBody>
           <SectionBody>
             The MMKV probe is isolated to a demo-specific storage instance, so
@@ -452,10 +475,11 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             Redux keys.
           </SectionBody>
           <Smallest>
-            Expected result: the MMKV probe and stress test succeed cleanly,
-            the contention race only observes recognized RN or worker writes on
-            the shared key, and the txhistory proof fetches three worker-side
-            pages for the selected wallet.
+            Expected result: the MMKV probe and stress test succeed cleanly, the
+            contention race only observes recognized RN or worker writes on the
+            shared key, the Nitro Fetch probe returns HTTP 200 with the expected
+            echoed query params, and the txhistory proof fetches three
+            worker-side pages for the selected wallet.
           </Smallest>
         </Card>
 
@@ -527,6 +551,23 @@ const WorkletsBundleModeDemo = (_props: Props) => {
         </Card>
 
         <Card>
+          <SectionTitle>Worker Nitro Fetch GET</SectionTitle>
+          <SectionBody>
+            This smoke test boxes the `NitroFetch` hybrid on the RN runtime,
+            unboxes it inside the existing worker runtime, performs a simple
+            HTTPS GET to `httpbin.org/get`, and returns a small parsed summary
+            back to RN.
+          </SectionBody>
+          <Button
+            state={nitroFetchLoading ? 'loading' : undefined}
+            disabled={workerActionLoading}
+            onPress={handleRunNitroFetchSmokeTest}
+            accessibilityLabel="Run a simple Nitro Fetch GET request from the worker runtime">
+            Run Nitro Fetch GET on worker
+          </Button>
+        </Card>
+
+        <Card>
           <SectionTitle>Select a wallet</SectionTitle>
           <MetaText>Eligible wallets found: {walletOptions.length}</MetaText>
           {walletOptions.length ? (
@@ -585,7 +626,9 @@ const WorkletsBundleModeDemo = (_props: Props) => {
           <Card>
             <StatusRow>
               <ActivityIndicator />
-              <LoadingText>Writing and reading MMKV on the worker runtime...</LoadingText>
+              <LoadingText>
+                Writing and reading MMKV on the worker runtime...
+              </LoadingText>
             </StatusRow>
           </Card>
         ) : null}
@@ -611,7 +654,8 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               {mmkvResult.workerReadMatchesWrite ? 'yes' : 'no'}
             </MetaText>
             <MetaText>
-              RN read matches write: {mmkvResult.rnReadMatchesWrite ? 'yes' : 'no'}
+              RN read matches write:{' '}
+              {mmkvResult.rnReadMatchesWrite ? 'yes' : 'no'}
             </MetaText>
             <MetaText>
               Worker contains key after write:{' '}
@@ -628,7 +672,9 @@ const WorkletsBundleModeDemo = (_props: Props) => {
 
             <Spacer />
             <SectionTitle>Raw JSON</SectionTitle>
-            <RawOutput selectable>{JSON.stringify(mmkvResult, null, 2)}</RawOutput>
+            <RawOutput selectable>
+              {JSON.stringify(mmkvResult, null, 2)}
+            </RawOutput>
           </Card>
         ) : null}
 
@@ -698,8 +744,8 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             <StatusRow>
               <ActivityIndicator />
               <LoadingText>
-                Running {MMKV_STRESS_TEST_ITERATIONS} sequential MMKV
-                write/read checks on the worker runtime...
+                Running {MMKV_STRESS_TEST_ITERATIONS} sequential MMKV write/read
+                checks on the worker runtime...
               </LoadingText>
             </StatusRow>
           </Card>
@@ -725,7 +771,9 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             <MetaText>
               Worker duration: {mmkvStressResult.workerDurationMs} ms
             </MetaText>
-            <MetaText>Total duration: {mmkvStressResult.totalDurationMs} ms</MetaText>
+            <MetaText>
+              Total duration: {mmkvStressResult.totalDurationMs} ms
+            </MetaText>
             <MetaText>
               Worker write/read matches:{' '}
               {mmkvStressResult.workerWriteReadMatches}
@@ -734,9 +782,12 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               Worker contains checks passed:{' '}
               {mmkvStressResult.workerContainsChecksPassed}
             </MetaText>
-            <MetaText>RN read matches: {mmkvStressResult.rnReadMatches}</MetaText>
             <MetaText>
-              RN contains checks passed: {mmkvStressResult.rnContainsChecksPassed}
+              RN read matches: {mmkvStressResult.rnReadMatches}
+            </MetaText>
+            <MetaText>
+              RN contains checks passed:{' '}
+              {mmkvStressResult.rnContainsChecksPassed}
             </MetaText>
             <MetaText>
               Cleanup removed key count:{' '}
@@ -792,7 +843,9 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             <MetaText>
               Completed at: {mmkvContentionResult.completedAtIso}
             </MetaText>
-            <MetaText>RN duration: {mmkvContentionResult.rnDurationMs} ms</MetaText>
+            <MetaText>
+              RN duration: {mmkvContentionResult.rnDurationMs} ms
+            </MetaText>
             <MetaText>
               Worker duration: {mmkvContentionResult.workerDurationMs} ms
             </MetaText>
@@ -823,7 +876,8 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               {mmkvContentionResult.workerStaleOwnReadCount}
             </MetaText>
             <MetaText>
-              RN unexpected values: {mmkvContentionResult.rnUnexpectedValueCount}
+              RN unexpected values:{' '}
+              {mmkvContentionResult.rnUnexpectedValueCount}
             </MetaText>
             <MetaText>
               Worker unexpected values:{' '}
@@ -866,6 +920,68 @@ const WorkletsBundleModeDemo = (_props: Props) => {
           </Card>
         ) : null}
 
+        {nitroFetchLoading ? (
+          <Card>
+            <StatusRow>
+              <ActivityIndicator />
+              <LoadingText>
+                Making a Nitro Fetch GET request from the worker runtime...
+              </LoadingText>
+            </StatusRow>
+          </Card>
+        ) : null}
+
+        {nitroFetchError ? (
+          <Card>
+            <SectionTitle>Worker Nitro Fetch request failed</SectionTitle>
+            <RawOutput selectable>{nitroFetchError}</RawOutput>
+          </Card>
+        ) : null}
+
+        {nitroFetchResult ? (
+          <Card>
+            <SectionTitle>Worker Nitro Fetch result</SectionTitle>
+            <MetaText>
+              Worker runtime: {nitroFetchResult.workerRuntimeName}
+            </MetaText>
+            <MetaText>Requested URL: {nitroFetchResult.requestedUrl}</MetaText>
+            <MetaText>Response URL: {nitroFetchResult.responseUrl}</MetaText>
+            <MetaText>Started at: {nitroFetchResult.startedAtIso}</MetaText>
+            <MetaText>Completed at: {nitroFetchResult.completedAtIso}</MetaText>
+            <MetaText>Duration: {nitroFetchResult.durationMs} ms</MetaText>
+            <MetaText>
+              Status: {nitroFetchResult.status} {nitroFetchResult.statusText}
+            </MetaText>
+            <MetaText>OK: {nitroFetchResult.ok ? 'yes' : 'no'}</MetaText>
+            <MetaText>
+              Redirected: {nitroFetchResult.redirected ? 'yes' : 'no'}
+            </MetaText>
+            <MetaText>
+              Response headers captured: {nitroFetchResult.responseHeadersCount}
+            </MetaText>
+            <MetaText>Body length: {nitroFetchResult.bodyLength}</MetaText>
+            <MetaText>
+              Echoed args: source=
+              {nitroFetchResult.echoedArgs.source || 'n/a'} • probe=
+              {nitroFetchResult.echoedArgs.probe || 'n/a'}
+            </MetaText>
+            {nitroFetchResult.echoedOrigin ? (
+              <MetaText>
+                Echoed origin: {nitroFetchResult.echoedOrigin}
+              </MetaText>
+            ) : null}
+            {nitroFetchResult.echoedUrl ? (
+              <MetaText>Echoed URL: {nitroFetchResult.echoedUrl}</MetaText>
+            ) : null}
+
+            <Spacer />
+            <SectionTitle>Raw JSON</SectionTitle>
+            <RawOutput selectable>
+              {JSON.stringify(nitroFetchResult, null, 2)}
+            </RawOutput>
+          </Card>
+        ) : null}
+
         {txHistoryLoading ? (
           <Card>
             <StatusRow>
@@ -888,7 +1004,9 @@ const WorkletsBundleModeDemo = (_props: Props) => {
         {txHistoryResult ? (
           <Card>
             <SectionTitle>Worker batch result</SectionTitle>
-            <MetaText>Worker runtime: {txHistoryResult.workerRuntimeName}</MetaText>
+            <MetaText>
+              Worker runtime: {txHistoryResult.workerRuntimeName}
+            </MetaText>
             <MetaText>
               Session initialized: {txHistoryResult.session.initializedAtIso}
             </MetaText>
@@ -908,7 +1026,9 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             <MetaText>
               Request sequence: {txHistoryResult.session.requestSequence}
             </MetaText>
-            <MetaText>Total duration: {txHistoryResult.totalDurationMs} ms</MetaText>
+            <MetaText>
+              Total duration: {txHistoryResult.totalDurationMs} ms
+            </MetaText>
             <MetaText>
               Stop reason:{' '}
               {txHistoryResult.stoppedEarly
@@ -936,7 +1056,9 @@ const WorkletsBundleModeDemo = (_props: Props) => {
                     {page.transactionsPreview.length ? (
                       page.transactionsPreview.map((tx, txIndex) => {
                         const txMeta = [
-                          tx.amount != null ? `Amount: ${tx.amount}` : undefined,
+                          tx.amount != null
+                            ? `Amount: ${tx.amount}`
+                            : undefined,
                           tx.confirmations != null
                             ? `Confirmations: ${tx.confirmations}`
                             : undefined,
@@ -956,12 +1078,16 @@ const WorkletsBundleModeDemo = (_props: Props) => {
                                 ? ` • ${truncateMiddle(tx.txid, 8)}`
                                 : ''}
                             </TxPreviewTitle>
-                            {txMeta ? <TxPreviewMeta>{txMeta}</TxPreviewMeta> : null}
+                            {txMeta ? (
+                              <TxPreviewMeta>{txMeta}</TxPreviewMeta>
+                            ) : null}
                           </React.Fragment>
                         );
                       })
                     ) : (
-                      <TxPreviewMeta>No transactions returned for this page.</TxPreviewMeta>
+                      <TxPreviewMeta>
+                        No transactions returned for this page.
+                      </TxPreviewMeta>
                     )}
                   </TxPreviewRow>
 

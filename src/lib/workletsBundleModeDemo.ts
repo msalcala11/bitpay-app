@@ -7,6 +7,11 @@ import {
   type WorkletRuntime,
 } from 'react-native-worklets';
 import {MMKV, type NativeMMKV} from 'react-native-mmkv';
+import {
+  NitroFetch as NitroFetchSingleton,
+  NitroRequest as NitroFetchRequest,
+  NitroResponse as NitroFetchResponse,
+} from 'react-native-nitro-fetch';
 import {Buffer as NodeBuffer} from 'buffer';
 import processPolyfill from 'process';
 import {BASE_BWS_URL} from '../constants/config';
@@ -147,6 +152,26 @@ export type WorkerMmkvContentionTestResult = {
   cleanupRemovedKeyOnRN: boolean;
 };
 
+export type WorkerNitroFetchSmokeResult = {
+  workerRuntimeName: string;
+  requestedUrl: string;
+  responseUrl: string;
+  startedAtIso: string;
+  completedAtIso: string;
+  durationMs: number;
+  status: number;
+  statusText: string;
+  ok: boolean;
+  redirected: boolean;
+  responseHeadersCount: number;
+  responseHeaderPreview: string[];
+  bodyLength: number;
+  bodyPreview: string;
+  echoedUrl?: string;
+  echoedOrigin?: string;
+  echoedArgs: Record<string, string>;
+};
+
 type TxHistoryRequestWalletContext = Pick<
   WorkletsTxHistoryWalletSnapshot,
   'tokenAddress' | 'multisigContractAddress'
@@ -169,8 +194,13 @@ type WorkerTxHistorySession = {
   requestSequence: number;
 };
 
+type BoxedHybridObjectLike<T> = {
+  unbox(): T;
+};
+
 type NitroModulesLike = {
   createHybridObject<T = unknown>(name: string): T;
+  box?<T = unknown>(obj: T): BoxedHybridObjectLike<T>;
 };
 
 type QuickCryptoHashHybrid = {
@@ -210,6 +240,15 @@ type QuickCryptoEnums = {
   KeyEncoding: {
     SEC1: number;
   };
+};
+
+type NitroFetchClientHybrid = {
+  request(req: NitroFetchRequest): Promise<NitroFetchResponse>;
+  requestSync(req: NitroFetchRequest): NitroFetchResponse;
+};
+
+type NitroFetchHybrid = {
+  createClient(): NitroFetchClientHybrid;
 };
 
 type TransferredNitroBwsSigningBatchHybrids = {
@@ -274,6 +313,9 @@ const WORKER_MMKV_CONTENTION_KEY_PREFIX = 'worklets-mmkv-contention';
 const WORKER_MMKV_KEY_PREFIX = 'worklets-mmkv-roundtrip';
 const WORKER_MMKV_STRESS_KEY_PREFIX = 'worklets-mmkv-stress';
 const TXHISTORY_BASE_PATH = '/v1/txhistory/';
+const DEFAULT_NITRO_FETCH_TIMEOUT_MS = 15000;
+const NITRO_FETCH_SMOKE_TEST_URL =
+  'https://httpbin.org/get?source=bitpay-app-pnl&probe=nitro-fetch-worker';
 
 let workletsBundleModeRuntime: WorkletRuntime | undefined;
 let workletsBundleModeDemoStorage: MMKV | undefined;
@@ -364,7 +406,11 @@ const getAppSharedNativeStorageOnRN = (): WorkerMmkvStorageBridge => {
 };
 
 const buildWorkerMmkvKey = (prefix: string, iteration?: number) => {
-  const parts = [prefix, String(Date.now()), Math.random().toString(36).slice(2, 10)];
+  const parts = [
+    prefix,
+    String(Date.now()),
+    Math.random().toString(36).slice(2, 10),
+  ];
 
   if (typeof iteration === 'number') {
     parts.push(String(iteration));
@@ -561,7 +607,9 @@ function waitForWorkerMmkvContentionBarrierIteration(
 
   while (true) {
     const state = barrier.getBlocking();
-    if (getWorkerMmkvContentionBarrierIteration(state, actor, phase) >= iteration) {
+    if (
+      getWorkerMmkvContentionBarrierIteration(state, actor, phase) >= iteration
+    ) {
       return;
     }
 
@@ -629,7 +677,10 @@ function executeWorkerMmkvContentionLoop(
     if (immediateRead === nextValue) {
       immediateSelfReadMatches += 1;
     } else {
-      const summarizedRead = summarizeWorkerMmkvContentionRead(key, immediateRead);
+      const summarizedRead = summarizeWorkerMmkvContentionRead(
+        key,
+        immediateRead,
+      );
 
       if (!summarizedRead) {
         unexpectedValueCount += 1;
@@ -774,6 +825,19 @@ const createQuickCryptoSignHybridOnRN = (): QuickCryptoSignHybrid => {
     'SignHandle',
   );
 };
+
+const createBoxedNitroFetchHybridOnRN =
+  (): BoxedHybridObjectLike<NitroFetchHybrid> => {
+    const nitroModules = getNitroModulesForRN();
+
+    if (typeof nitroModules.box !== 'function') {
+      throw new Error(
+        'react-native-nitro-modules.NitroModules.box() is unavailable on the RN runtime.',
+      );
+    }
+
+    return nitroModules.box(NitroFetchSingleton as NitroFetchHybrid);
+  };
 
 const getQuickCryptoEnumsForRN = (): QuickCryptoEnums => {
   const quickCrypto = require('react-native-quick-crypto') as any;
@@ -1039,9 +1103,8 @@ const signBwsGetRequestWithTransferredNitro = (
   const rawNitroSignatureHex = NodeBuffer.from(
     signHandleHybrid.sign(privateKeyHandle, undefined, undefined, 0),
   ).toString('hex');
-  const nitroSignature = bitcoreLib.crypto.Signature.fromString(
-    rawNitroSignatureHex,
-  );
+  const nitroSignature =
+    bitcoreLib.crypto.Signature.fromString(rawNitroSignatureHex);
 
   return nitroSignature.hasLowS()
     ? rawNitroSignatureHex
@@ -1068,6 +1131,30 @@ function tryParseJson(text: string) {
     return text;
   }
 }
+
+const toStringRecord = (value: unknown): Record<string, string> => {
+  'worklet';
+
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const record: Record<string, string> = {};
+  const keys = Object.keys(value as Record<string, unknown>);
+
+  for (const key of keys) {
+    const entry = (value as Record<string, unknown>)[key];
+    if (
+      typeof entry === 'string' ||
+      typeof entry === 'number' ||
+      typeof entry === 'boolean'
+    ) {
+      record[key] = String(entry);
+    }
+  }
+
+  return record;
+};
 
 const summarizeTx = (tx: any): WorkerTxHistoryPreviewItem => {
   'worklet';
@@ -1121,9 +1208,9 @@ const executePreparedTxHistoryRequestForPrimedWallet = async (
     });
   } catch (err: unknown) {
     throw new Error(
-      `Worker fetch failed for txhistory page ${pageIndex + 1} (${requestPath}). ${toWorkerErrorMessage(
-        err,
-      )}`,
+      `Worker fetch failed for txhistory page ${
+        pageIndex + 1
+      } (${requestPath}). ${toWorkerErrorMessage(err)}`,
     );
   }
 
@@ -1357,7 +1444,9 @@ export const stressTestMmkvOnWorker = async (opts?: {
             const valueReadOnWorker = storageBridge.getString(entry.key);
             if (valueReadOnWorker !== entry.value) {
               throw new Error(
-                `Worker read mismatch at iteration ${entry.iteration}. Expected ${entry.value.length} bytes, received ${
+                `Worker read mismatch at iteration ${
+                  entry.iteration
+                }. Expected ${entry.value.length} bytes, received ${
                   valueReadOnWorker?.length ?? 0
                 }.`,
               );
@@ -1377,7 +1466,9 @@ export const stressTestMmkvOnWorker = async (opts?: {
           const lastEntry = workerEntries[workerEntries.length - 1];
 
           if (!firstEntry || !lastEntry) {
-            throw new Error('Worker MMKV stress test did not receive any entries.');
+            throw new Error(
+              'Worker MMKV stress test did not receive any entries.',
+            );
           }
 
           scheduleOnRN(resolveOnRN, {
@@ -1422,9 +1513,9 @@ export const stressTestMmkvOnWorker = async (opts?: {
       const valueReadOnRN = mmkvStorage.getString(entry.key);
       if (valueReadOnRN !== entry.value) {
         throw new Error(
-          `RN read mismatch at iteration ${entry.iteration}. Expected ${entry.value.length} bytes, received ${
-            valueReadOnRN?.length ?? 0
-          }.`,
+          `RN read mismatch at iteration ${entry.iteration}. Expected ${
+            entry.value.length
+          } bytes, received ${valueReadOnRN?.length ?? 0}.`,
         );
       }
       rnReadMatches += 1;
@@ -1479,9 +1570,7 @@ export const contentionTestMmkvOnWorker = async (opts?: {
     mmkvStorage.delete(key);
   } catch {}
 
-  let notifyWorkerStartedOnRN:
-    | (() => void)
-    | undefined;
+  let notifyWorkerStartedOnRN: (() => void) | undefined;
   const workerStartedPromise = new Promise<void>(resolve => {
     notifyWorkerStartedOnRN = resolve;
   });
@@ -1539,8 +1628,7 @@ export const contentionTestMmkvOnWorker = async (opts?: {
             workerRuntimeName,
             storageId,
             workerDurationMs: loopResult.durationMs,
-            workerImmediateSelfReadMatches:
-              loopResult.immediateSelfReadMatches,
+            workerImmediateSelfReadMatches: loopResult.immediateSelfReadMatches,
             workerStaleOwnReadCount: loopResult.staleOwnReadCount,
             workerObservedRnWrites: loopResult.observedOtherWrites,
             workerUnexpectedValueCount: loopResult.unexpectedValueCount,
@@ -1601,8 +1689,7 @@ export const contentionTestMmkvOnWorker = async (opts?: {
     workerDurationMs: workerResult.workerDurationMs,
     totalDurationMs: Date.now() - totalStartedAtMs,
     rnImmediateSelfReadMatches: rnLoopResult.immediateSelfReadMatches,
-    workerImmediateSelfReadMatches:
-      workerResult.workerImmediateSelfReadMatches,
+    workerImmediateSelfReadMatches: workerResult.workerImmediateSelfReadMatches,
     rnStaleOwnReadCount: rnLoopResult.staleOwnReadCount,
     workerStaleOwnReadCount: workerResult.workerStaleOwnReadCount,
     rnObservedWorkerWrites: rnLoopResult.observedOtherWrites,
@@ -1617,6 +1704,114 @@ export const contentionTestMmkvOnWorker = async (opts?: {
     cleanupRemovedKeyOnRN,
   };
 };
+
+export const smokeTestNitroFetchRequestOnWorker =
+  async (): Promise<WorkerNitroFetchSmokeResult> => {
+    const boxedNitroFetch = createBoxedNitroFetchHybridOnRN();
+
+    return new Promise((resolve, reject) => {
+      const rejectOnRN = (message: string) => {
+        reject(new Error(message));
+      };
+
+      runOnRuntimeAsync(
+        getWorkletsBundleModeRuntime(),
+        (
+          workerRuntimeName: string,
+          requestedUrl: string,
+          timeoutMs: number,
+          boxedNitroFetchOnWorker: BoxedHybridObjectLike<NitroFetchHybrid>,
+          resolveOnRN: (value: WorkerNitroFetchSmokeResult) => void,
+          rejectOnRNWorklet: (message: string) => void,
+        ): void => {
+          'worklet';
+
+          try {
+            const startedAtMs = Date.now();
+            const startedAtIso = new Date(startedAtMs).toISOString();
+
+            const nitroFetch = boxedNitroFetchOnWorker.unbox();
+            const client = nitroFetch.createClient();
+            const response = client.requestSync({
+              url: requestedUrl,
+              method: 'GET',
+              headers: [
+                {key: 'Accept', value: 'application/json'},
+                {key: 'Cache-Control', value: 'no-store'},
+              ],
+              timeoutMs,
+              followRedirects: true,
+            });
+
+            const bodyString =
+              typeof response.bodyString === 'string'
+                ? response.bodyString
+                : '';
+
+            if (!response.ok) {
+              const bodyPreview = bodyString
+                ? bodyString.slice(0, 240)
+                : 'Empty response body.';
+              throw new Error(
+                `Nitro Fetch request failed with status ${response.status}. ${bodyPreview}`,
+              );
+            }
+
+            const parsedBody = tryParseJson(bodyString) as any;
+            const echoedArgs = toStringRecord(parsedBody?.args);
+            const echoedUrl =
+              typeof parsedBody?.url === 'string' ? parsedBody.url : undefined;
+            const echoedOrigin =
+              typeof parsedBody?.origin === 'string'
+                ? parsedBody.origin
+                : undefined;
+            const responseHeaderPreview = Array.isArray(response.headers)
+              ? response.headers
+                  .slice(0, 6)
+                  .map(header => `${header.key}: ${header.value}`)
+              : [];
+
+            scheduleOnRN(resolveOnRN, {
+              workerRuntimeName,
+              requestedUrl,
+              responseUrl: response.url,
+              startedAtIso,
+              completedAtIso: new Date().toISOString(),
+              durationMs: Date.now() - startedAtMs,
+              status: response.status,
+              statusText: response.statusText,
+              ok: response.ok,
+              redirected: response.redirected,
+              responseHeadersCount: Array.isArray(response.headers)
+                ? response.headers.length
+                : 0,
+              responseHeaderPreview,
+              bodyLength: bodyString.length,
+              bodyPreview: bodyString.slice(0, 240),
+              echoedUrl,
+              echoedOrigin,
+              echoedArgs,
+            });
+          } catch (err: unknown) {
+            scheduleOnRN(
+              rejectOnRNWorklet,
+              `Worker Nitro Fetch smoke test failed. ${toWorkerErrorMessage(
+                err,
+              )}`,
+            );
+          }
+        },
+        WORKER_RUNTIME_NAME,
+        NITRO_FETCH_SMOKE_TEST_URL,
+        DEFAULT_NITRO_FETCH_TIMEOUT_MS,
+        boxedNitroFetch,
+        resolve,
+        rejectOnRN,
+      ).catch(err => {
+        reject(toRuntimeError(err));
+      });
+    });
+  };
 
 export const fetchWalletTxHistoryPagesOnWorker = async (opts: {
   wallet: WorkletsTxHistoryWalletSnapshot;
@@ -1720,7 +1915,9 @@ export const fetchWalletTxHistoryPagesOnWorker = async (opts: {
                 activeSession.wallet,
                 nextSkip,
                 pageSizeArg,
-                activeSession.initializedAtMs + activeSession.requestSequence + 1,
+                activeSession.initializedAtMs +
+                  activeSession.requestSequence +
+                  1,
               );
 
               let signature: string;
