@@ -33,6 +33,8 @@ import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
 import {useAppSelector} from '../../../../../utils/hooks';
 import type {Key} from '../../../../../store/wallet/wallet.models';
 
+const {WORKLETS_BUNDLE_MODE_ENABLED} = require('../../../../../../workletsBuildConfig');
+
 type Props = NativeStackScreenProps<
   AboutGroupParamList,
   AboutScreens.WORKLETS_BUNDLE_MODE_DEMO
@@ -459,22 +461,24 @@ const WorkletsBundleModeDemo = (_props: Props) => {
     <Container>
       <Content contentContainerStyle={{paddingBottom: 32}}>
         <Card>
-          <SectionTitle>Reduced Bundle Mode worker proofs</SectionTitle>
+          <SectionTitle>Worker Runtime Smoke Tests</SectionTitle>
           <SectionBody>
-            This screen keeps the bundle-mode POC focused on concrete
-            worker-runtime checks: an MMKV write/read roundtrip on the
-            background JS runtime, a sequential MMKV stress test, a same-key
-            MMKV contention race between RN and the worker runtime, a simple
-            Nitro Fetch GET executed from that worker runtime, and an end-to-end
-            txhistory flow that signs BWS `/v1/txhistory/` requests with
-            transferred Nitro crypto handles and transports them with Nitro
-            Fetch.
+            This screen focuses on concrete worker-runtime checks: an MMKV
+            write/read roundtrip on the background JS runtime, a sequential
+            MMKV stress test, a same-key MMKV contention race between RN and
+            the worker runtime, a simple Nitro Fetch GET executed from that
+            worker runtime, and an end-to-end txhistory flow that signs BWS
+            `/v1/txhistory/` requests with transferred Nitro crypto handles and
+            transports them with Nitro Fetch.
           </SectionBody>
           <SectionBody>
             The MMKV probe is isolated to a demo-specific storage instance, so
             it can verify worker access without touching the app's persisted
             Redux keys.
           </SectionBody>
+          <MetaText>
+            Worklets bundle mode: {WORKLETS_BUNDLE_MODE_ENABLED ? 'enabled' : 'disabled'}
+          </MetaText>
           <Smallest>
             Expected result: the MMKV probe and stress test succeed cleanly, the
             contention race only observes recognized RN or worker writes on the

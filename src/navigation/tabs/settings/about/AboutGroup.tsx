@@ -80,7 +80,7 @@ const AboutGroup = ({About, theme}: AboutProps) => {
         name={AboutScreens.WORKLETS_BUNDLE_MODE_DEMO}
         getComponent={() => require('./screens/WorkletsBundleModeDemo').default}
         options={{
-          headerTitle: 'Worklets TxHistory Demo',
+          headerTitle: 'Worker Smoke Tests',
         }}
       />
     </About.Group>
