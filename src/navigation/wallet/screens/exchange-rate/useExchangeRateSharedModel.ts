@@ -24,16 +24,18 @@ import {
   formatCurrencyAbbreviation,
   formatFiat,
   formatFiatAmount,
-  getRateByCurrencyName,
 } from '../../../../utils/helper-methods';
 import {useAppDispatch, useAppSelector} from '../../../../utils/hooks';
 import {useDevRenderTrace} from '../../../../utils/hooks/useDevRenderTrace';
 import {getAssetTheme} from '../../../../utils/portfolio/assetTheme';
 import {resolveCurrentRatesAsOfMs} from '../../../../portfolio/ui/common';
 import {
+  getAssetCurrentDisplayQuoteRate,
+  resolveActivePortfolioDisplayQuoteCurrency,
+} from '../../../../utils/portfolio/displayCurrency';
+import {
   findSupportedCurrencyOptionForAsset,
   getWalletLiveFiatBalance,
-  getQuoteCurrency,
   getWalletsMatchingExchangeRateAsset,
   getVisibleWalletsFromKeys,
 } from '../../../../utils/portfolio/assets';
@@ -112,9 +114,6 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
   const hideAllBalances = useAppSelector(
     ({APP}: RootState) => APP.hideAllBalances,
   );
-  const portfolioQuoteCurrency = useAppSelector(
-    ({PORTFOLIO}: RootState) => PORTFOLIO.quoteCurrency,
-  );
   const {params} = useRoute<RouteProp<WalletGroupParamList, 'ExchangeRate'>>();
   const isAssetBalanceHistoryMode = params?.chartType === 'assetBalanceHistory';
 
@@ -172,11 +171,10 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
   );
 
   const resolvedQuoteCurrency = useMemo(() => {
-    return getQuoteCurrency({
-      portfolioQuoteCurrency,
+    return resolveActivePortfolioDisplayQuoteCurrency({
       defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
     }).toUpperCase();
-  }, [defaultAltCurrency.isoCode, portfolioQuoteCurrency]);
+  }, [defaultAltCurrency.isoCode]);
 
   const normalizedCoin = normalizeFiatRateSeriesCoin(
     assetContext.currencyAbbreviation,
@@ -200,22 +198,13 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
       return undefined;
     }
 
-    const currencyRates = getRateByCurrencyName(
+    return getAssetCurrentDisplayQuoteRate({
       rates,
-      assetContext.currencyAbbreviation,
-      assetContext.chain,
-      assetContext.tokenAddress,
-    );
-
-    if (!currencyRates?.length) {
-      return undefined;
-    }
-
-    const matchingRate = currencyRates.find(
-      rate => rate.code?.toUpperCase() === resolvedQuoteCurrency,
-    );
-
-    return matchingRate?.rate;
+      currencyAbbreviation: assetContext.currencyAbbreviation,
+      chain: assetContext.chain,
+      tokenAddress: assetContext.tokenAddress,
+      quoteCurrency: resolvedQuoteCurrency,
+    });
   }, [
     assetContext.chain,
     assetContext.currencyAbbreviation,
