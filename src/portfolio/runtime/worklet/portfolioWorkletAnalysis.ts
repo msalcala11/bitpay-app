@@ -1,10 +1,10 @@
 import {
-  buildPnlAnalysisSeriesFromPreloaded,
+  buildPnlAnalysisChartSeriesFromStreamed,
   buildPnlAnalysisSeriesFromStreamed,
-  compactPnlAnalysisResultForChart,
   resolvePnlAnalysisPreloadWindow,
   type PnlAnalysisChartResult,
   type PnlAnalysisResult,
+  type PnlAnalysisStreamedArgs,
   type WalletForAnalysisMeta,
   type WalletForStreamedAnalysis,
 } from '../../core/pnl/analysisStreaming';
@@ -35,7 +35,9 @@ import {
   loadWorkletSnapshotIndex,
 } from './portfolioWorkletSnapshots';
 
-function sanitizeRatePoints(pointsRaw: FiatRatePoint[] | undefined): FiatRatePoint[] {
+function sanitizeRatePoints(
+  pointsRaw: FiatRatePoint[] | undefined,
+): FiatRatePoint[] {
   'worklet';
 
   if (!Array.isArray(pointsRaw)) {
@@ -246,7 +248,8 @@ async function prepareWorkletAnalysisSessionData(
   const firstNonZeroTsByWalletId: Record<string, number | null> = {};
   for (const wallet of walletsWithSnapshotsAndRates) {
     const walletId = wallet.summary.walletId;
-    const ts = snapshotIndexesByWalletId.get(walletId)?.checkpoint?.firstNonZeroTs;
+    const ts =
+      snapshotIndexesByWalletId.get(walletId)?.checkpoint?.firstNonZeroTs;
     firstNonZeroTsByWalletId[walletId] =
       typeof ts === 'number' && Number.isFinite(ts) && ts > 0 ? ts : null;
   }
@@ -269,16 +272,18 @@ async function prepareWorkletAnalysisSessionData(
       accumulator[walletId] = walletMeta;
       return accumulator;
     }, {}),
-    walletIds: walletsWithSnapshotsAndRates.map(wallet => wallet.summary.walletId),
+    walletIds: walletsWithSnapshotsAndRates.map(
+      wallet => wallet.summary.walletId,
+    ),
     firstNonZeroTsByWalletId,
   };
 }
 
-async function computeWorkletAnalysisFromPreparedSessionData(
+async function buildWorkletStreamedAnalysisArgsFromPreparedSessionData(
   config: PortfolioWorkletKvConfig,
   prepared: PreparedWorkletAnalysisSessionData,
   walletIds?: string[],
-): Promise<PnlAnalysisResult> {
+): Promise<PnlAnalysisStreamedArgs> {
   'worklet';
 
   const selectedWalletIds = Array.from(
@@ -293,7 +298,7 @@ async function computeWorkletAnalysisFromPreparedSessionData(
   );
 
   if (!selectedWalletIds.length) {
-    return buildPnlAnalysisSeriesFromPreloaded({
+    return {
       cfg: {quoteCurrency: prepared.quoteCurrency},
       wallets: [],
       timeframe: prepared.timeframe,
@@ -301,7 +306,7 @@ async function computeWorkletAnalysisFromPreparedSessionData(
       currentRatesByAssetId: prepared.currentRatesByAssetId,
       nowMs: prepared.nowMs,
       maxPoints: prepared.maxPoints,
-    });
+    };
   }
 
   const selectedWalletMetas = selectedWalletIds
@@ -360,7 +365,7 @@ async function computeWorkletAnalysisFromPreparedSessionData(
     });
   }
 
-  return buildPnlAnalysisSeriesFromStreamed({
+  return {
     cfg: {quoteCurrency: prepared.quoteCurrency},
     wallets,
     timeframe: prepared.timeframe,
@@ -372,7 +377,24 @@ async function computeWorkletAnalysisFromPreparedSessionData(
     nowMs: resolved.nowMs,
     maxPoints: prepared.maxPoints,
     resolvedWindow: resolved,
-  });
+  };
+}
+
+async function computeWorkletAnalysisFromPreparedSessionData(
+  config: PortfolioWorkletKvConfig,
+  prepared: PreparedWorkletAnalysisSessionData,
+  walletIds?: string[],
+): Promise<PnlAnalysisResult> {
+  'worklet';
+
+  const streamedArgs =
+    await buildWorkletStreamedAnalysisArgsFromPreparedSessionData(
+      config,
+      prepared,
+      walletIds,
+    );
+
+  return buildPnlAnalysisSeriesFromStreamed(streamedArgs);
 }
 
 export async function computeWorkletAnalysis(
@@ -435,7 +457,11 @@ export async function computeWorkletAnalysisChart(
   args: ComputeAnalysisArgs,
 ): Promise<PnlAnalysisChartResult> {
   'worklet';
-  return compactPnlAnalysisResultForChart(
-    await computeWorkletAnalysis(config, args),
-  );
+  const prepared = await prepareWorkletAnalysisSessionData(config, args);
+  const streamedArgs =
+    await buildWorkletStreamedAnalysisArgsFromPreparedSessionData(
+      config,
+      prepared,
+    );
+  return buildPnlAnalysisChartSeriesFromStreamed(streamedArgs);
 }

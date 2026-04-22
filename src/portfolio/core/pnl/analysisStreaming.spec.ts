@@ -6,20 +6,27 @@ import {
   buildPnlAnalysisSeriesFromPreloaded,
   compactPnlAnalysisResultForChart,
   resolvePnlAnalysisPreloadWindow,
+  setPnlAnalysisDebugHooksForTests,
   type SnapshotPointStream,
   type WalletForAnalysisMeta,
 } from './analysisStreaming';
 import {getAssetIdFromWallet} from './assetId';
 import {normalizeFiatRateSeriesCoin} from './rates';
 
-const mkWallet = (overrides?: Partial<WalletForAnalysisMeta>): WalletForAnalysisMeta => {
+const mkWallet = (
+  overrides?: Partial<WalletForAnalysisMeta>,
+): WalletForAnalysisMeta => {
   const wallet = {
     walletId: 'w1',
     walletName: 'Wallet 1',
     currencyAbbreviation: 'eth',
     chain: 'eth',
     tokenAddress: undefined,
-    credentials: {chain: 'eth', coin: 'eth', network: 'livenet'} as WalletCredentials,
+    credentials: {
+      chain: 'eth',
+      coin: 'eth',
+      network: 'livenet',
+    } as WalletCredentials,
     ...overrides,
   };
 
@@ -32,11 +39,16 @@ const mkWallet = (overrides?: Partial<WalletForAnalysisMeta>): WalletForAnalysis
         currencyAbbreviation: wallet.currencyAbbreviation,
         tokenAddress: wallet.tokenAddress,
       }),
-    rateCoin: overrides?.rateCoin ?? normalizeFiatRateSeriesCoin(wallet.currencyAbbreviation),
+    rateCoin:
+      overrides?.rateCoin ??
+      normalizeFiatRateSeriesCoin(wallet.currencyAbbreviation),
   };
 };
 
-const mkPoint = (timestamp: number, cryptoBalance: string): SnapshotPointV2 => ({
+const mkPoint = (
+  timestamp: number,
+  cryptoBalance: string,
+): SnapshotPointV2 => ({
   timestamp,
   cryptoBalance,
 });
@@ -53,6 +65,36 @@ function emitPoints(points: SnapshotPointV2[]): SnapshotPointStream {
     },
   };
 }
+
+function createDebugCounters() {
+  const counters = {
+    pnlAnalysisPointConstruction: 0,
+    byWalletIdConstruction: 0,
+    formattedCryptoBalance: 0,
+    finalizeAnalysisResult: 0,
+  };
+
+  setPnlAnalysisDebugHooksForTests({
+    onPnlAnalysisPointConstruction: () => {
+      counters.pnlAnalysisPointConstruction += 1;
+    },
+    onByWalletIdConstruction: () => {
+      counters.byWalletIdConstruction += 1;
+    },
+    onFormattedCryptoBalance: () => {
+      counters.formattedCryptoBalance += 1;
+    },
+    onFinalizeAnalysisResult: () => {
+      counters.finalizeAnalysisResult += 1;
+    },
+  });
+
+  return counters;
+}
+
+afterEach(() => {
+  setPnlAnalysisDebugHooksForTests(undefined);
+});
 
 describe('analysisStreaming preload helpers', () => {
   it('computes pnl from preloaded bounded snapshot points and rate points', () => {
@@ -223,14 +265,22 @@ describe('analysisStreaming preload helpers', () => {
       walletName: 'ETH Wallet',
       currencyAbbreviation: 'eth',
       chain: 'eth',
-      credentials: {chain: 'eth', coin: 'eth', network: 'livenet'} as WalletCredentials,
+      credentials: {
+        chain: 'eth',
+        coin: 'eth',
+        network: 'livenet',
+      } as WalletCredentials,
     });
     const btcWallet = mkWallet({
       walletId: 'btc-wallet',
       walletName: 'BTC Wallet',
       currencyAbbreviation: 'btc',
       chain: 'btc',
-      credentials: {chain: 'btc', coin: 'btc', network: 'livenet'} as WalletCredentials,
+      credentials: {
+        chain: 'btc',
+        coin: 'btc',
+        network: 'livenet',
+      } as WalletCredentials,
     });
 
     const res = buildPnlAnalysisSeriesFromPreloaded({
@@ -276,8 +326,14 @@ describe('analysisStreaming preload helpers', () => {
     expect(last.totalFiatBalance).toBe(1220);
     expect(last.byWalletId[ethWallet.walletId]?.markRate).toBe(120);
     expect(last.byWalletId[btcWallet.walletId]?.markRate).toBe(1100);
-    expect(res.assetSummaries.find(summary => summary.assetId === ethWallet.assetId)?.rateEnd).toBe(120);
-    expect(res.assetSummaries.find(summary => summary.assetId === btcWallet.assetId)?.rateEnd).toBe(1100);
+    expect(
+      res.assetSummaries.find(summary => summary.assetId === ethWallet.assetId)
+        ?.rateEnd,
+    ).toBe(120);
+    expect(
+      res.assetSummaries.find(summary => summary.assetId === btcWallet.assetId)
+        ?.rateEnd,
+    ).toBe(1100);
   });
 
   it('accepts engine-prepared windows and sorted wallet points without re-normalizing', () => {
@@ -507,7 +563,10 @@ describe('analysisStreaming preload helpers', () => {
       },
     });
 
-    const wallet1Points = [mkPoint(t1, '1500000000000000000'), mkPoint(t3, '1000000000000000000')];
+    const wallet1Points = [
+      mkPoint(t1, '1500000000000000000'),
+      mkPoint(t3, '1000000000000000000'),
+    ];
     const wallet2Points = [mkPoint(t2, '2000000000000000000')];
 
     const preloaded = buildPnlAnalysisSeriesFromPreloaded({
@@ -560,7 +619,7 @@ describe('analysisStreaming preload helpers', () => {
     expect(streamed).toEqual(preloaded);
   });
 
-  it('matches compacted full streamed analysis when building chart-native streamed output', async () => {
+  it('matches compacted full streamed analysis for multiple wallets on the same asset without full-analysis hooks', async () => {
     const t0 = Date.parse('2024-01-01T00:00:00Z');
     const t1 = Date.parse('2024-01-01T01:00:00Z');
     const t2 = Date.parse('2024-01-01T02:00:00Z');
@@ -585,12 +644,14 @@ describe('analysisStreaming preload helpers', () => {
       },
     });
 
-    const wallet1Points = [mkPoint(t1, '1500000000000000000'), mkPoint(t3, '1000000000000000000')];
+    const wallet1Points = [
+      mkPoint(t1, '1500000000000000000'),
+      mkPoint(t3, '1000000000000000000'),
+    ];
     const wallet2Points = [mkPoint(t2, '2000000000000000000')];
-
-    const full = await buildPnlAnalysisSeriesFromStreamed({
-      cfg: {quoteCurrency: 'USD'},
-      timeframe: '1D',
+    const buildArgs = () => ({
+      cfg: {quoteCurrency: 'USD' as const},
+      timeframe: '1D' as const,
       nowMs: t3,
       maxPoints: 5,
       startTs: resolved.startTs,
@@ -611,30 +672,162 @@ describe('analysisStreaming preload helpers', () => {
       ],
     });
 
-    const chart = await buildPnlAnalysisChartSeriesFromStreamed({
-      cfg: {quoteCurrency: 'USD'},
-      timeframe: '1D',
-      nowMs: t3,
-      maxPoints: 5,
-      startTs: resolved.startTs,
-      endTs: resolved.endTs,
-      resolvedWindow: resolved,
-      ratePointsByAssetId: resolved.rawPointsByAssetId,
-      wallets: [
-        {
-          wallet: mkWallet({walletId: 'w1'}),
-          basePoint: mkPoint(t0, '1000000000000000000'),
-          points: emitPoints(wallet1Points),
-        },
-        {
-          wallet: mkWallet({walletId: 'w2', walletName: 'Wallet 2'}),
-          basePoint: null,
-          points: emitPoints(wallet2Points),
-        },
-      ],
-    });
+    const full = await buildPnlAnalysisSeriesFromStreamed(buildArgs());
+    const counters = createDebugCounters();
+    const chart = await buildPnlAnalysisChartSeriesFromStreamed(buildArgs());
 
     expect(chart).toEqual(compactPnlAnalysisResultForChart(full));
+    expect(chart.singleAsset).toBe(true);
+    expect(chart.latestHoldingsByRateKey).toEqual({eth: {units: 3}});
+    expect(counters).toEqual({
+      pnlAnalysisPointConstruction: 0,
+      byWalletIdConstruction: 0,
+      formattedCryptoBalance: 0,
+      finalizeAnalysisResult: 0,
+    });
+  });
+
+  it('matches compacted full streamed analysis for a mixed-portfolio chart fixture', async () => {
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-01T01:00:00Z');
+    const t2 = Date.parse('2024-01-01T02:00:00Z');
+    const t3 = Date.parse('2024-01-01T03:00:00Z');
+
+    const btcWallet = mkWallet({
+      walletId: 'btc-wallet',
+      walletName: 'BTC Wallet',
+      chain: 'btc',
+      currencyAbbreviation: 'btc',
+      credentials: {
+        chain: 'btc',
+        coin: 'btc',
+        network: 'livenet',
+      } as WalletCredentials,
+    });
+    const ethWallet = mkWallet({
+      walletId: 'eth-wallet',
+      walletName: 'ETH Wallet',
+    });
+    const tokenWallet = mkWallet({
+      walletId: 'usdc-wallet',
+      walletName: 'USDC Wallet',
+      chain: 'eth',
+      currencyAbbreviation: 'usdc',
+      tokenAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      credentials: {
+        chain: 'eth',
+        coin: 'eth',
+        network: 'livenet',
+        token: {
+          address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          symbol: 'USDC',
+          decimals: 6,
+        },
+      } as WalletCredentials,
+    });
+
+    const resolved = resolvePnlAnalysisPreloadWindow({
+      cfg: {quoteCurrency: 'USD'},
+      wallets: [btcWallet, ethWallet, tokenWallet],
+      timeframe: '1D',
+      nowMs: t3,
+      maxPoints: 5,
+      ratePointsByAssetId: {
+        [btcWallet.assetId]: [
+          {ts: t0, rate: 40000},
+          {ts: t1, rate: 41000},
+          {ts: t2, rate: 42000},
+          {ts: t3, rate: 43000},
+        ],
+        [ethWallet.assetId]: [
+          {ts: t0, rate: 2000},
+          {ts: t1, rate: 2100},
+          {ts: t2, rate: 2200},
+          {ts: t3, rate: 2300},
+        ],
+        [tokenWallet.assetId]: [
+          {ts: t0, rate: 1},
+          {ts: t1, rate: 1},
+          {ts: t2, rate: 1},
+          {ts: t3, rate: 1},
+        ],
+      },
+    });
+
+    const buildArgs = () => ({
+      cfg: {quoteCurrency: 'USD' as const},
+      timeframe: '1D' as const,
+      nowMs: t3,
+      maxPoints: 5,
+      startTs: resolved.startTs,
+      endTs: resolved.endTs,
+      resolvedWindow: resolved,
+      ratePointsByAssetId: resolved.rawPointsByAssetId,
+      wallets: [
+        {
+          wallet: btcWallet,
+          basePoint: mkPoint(t0, '100000000'),
+          points: emitPoints([mkPoint(t2, '150000000')]),
+        },
+        {
+          wallet: ethWallet,
+          basePoint: mkPoint(t0, '1000000000000000000'),
+          points: emitPoints([mkPoint(t1, '2000000000000000000')]),
+        },
+        {
+          wallet: tokenWallet,
+          basePoint: mkPoint(t0, '5000000'),
+          points: emitPoints([mkPoint(t3, '7000000')]),
+        },
+      ],
+    });
+
+    const full = await buildPnlAnalysisSeriesFromStreamed(buildArgs());
+    const chart = await buildPnlAnalysisChartSeriesFromStreamed(buildArgs());
+
+    expect(chart).toEqual(compactPnlAnalysisResultForChart(full));
+    expect(chart.singleAsset).toBe(false);
+    expect(chart.assetIds.slice().sort()).toEqual(
+      [btcWallet.assetId, ethWallet.assetId, tokenWallet.assetId].sort(),
+    );
+  });
+
+  it('matches compacted full streamed analysis when a wallet starts funded before the selected window', async () => {
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-01T01:00:00Z');
+    const t2 = Date.parse('2024-01-01T02:00:00Z');
+    const t3 = Date.parse('2024-01-01T03:00:00Z');
+
+    const buildArgs = () => ({
+      cfg: {quoteCurrency: 'USD' as const},
+      timeframe: '1D' as const,
+      nowMs: t3,
+      maxPoints: 5,
+      startTs: t1,
+      endTs: t3,
+      ratePointsByAssetId: {
+        'eth:eth': [
+          {ts: t0, rate: 1000},
+          {ts: t1, rate: 1100},
+          {ts: t2, rate: 1200},
+          {ts: t3, rate: 1300},
+        ],
+      },
+      wallets: [
+        {
+          wallet: mkWallet({walletId: 'w1'}),
+          basePoint: mkPoint(t0, '2000000000000000000'),
+          points: emitPoints([mkPoint(t2, '3000000000000000000')]),
+        },
+      ],
+    });
+
+    const full = await buildPnlAnalysisSeriesFromStreamed(buildArgs());
+    const chart = await buildPnlAnalysisChartSeriesFromStreamed(buildArgs());
+
+    expect(chart).toEqual(compactPnlAnalysisResultForChart(full));
+    expect(chart.totalRemainingCostBasisFiat[0]).toBe(2200);
+    expect(chart.latestRemainingCostBasisFiatTotal).toBe(3400);
   });
 
   it('makes 1D no-transaction pnl percent match rate percent change naturally', () => {
@@ -781,7 +974,11 @@ describe('analysisStreaming preload helpers', () => {
         chain: 'eth',
         coin: 'eth',
         network: 'livenet',
-        token: {symbol: 'USDC', decimals: 6, address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'},
+        token: {
+          symbol: 'USDC',
+          decimals: 6,
+          address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        },
       } as WalletCredentials,
     });
     const arbUsdc = mkWallet({
@@ -794,7 +991,11 @@ describe('analysisStreaming preload helpers', () => {
         chain: 'arb',
         coin: 'eth',
         network: 'livenet',
-        token: {symbol: 'USDC', decimals: 6, address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'},
+        token: {
+          symbol: 'USDC',
+          decimals: 6,
+          address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        },
       } as WalletCredentials,
     });
 
@@ -830,20 +1031,30 @@ describe('analysisStreaming preload helpers', () => {
     });
 
     const last = result.points[result.points.length - 1];
-    const summariesByAssetId = Object.fromEntries(result.assetSummaries.map(summary => [summary.assetId, summary]));
+    const summariesByAssetId = Object.fromEntries(
+      result.assetSummaries.map(summary => [summary.assetId, summary]),
+    );
     const chart = compactPnlAnalysisResultForChart(result);
 
-    expect(result.assetIds.slice().sort()).toEqual([arbUsdc.assetId, ethUsdc.assetId].sort());
+    expect(result.assetIds.slice().sort()).toEqual(
+      [arbUsdc.assetId, ethUsdc.assetId].sort(),
+    );
     expect(result.coins).toEqual(['usdc']);
     expect(result.assetSummaries).toHaveLength(2);
-    expect(result.driverAssetId).toBe([arbUsdc.assetId, ethUsdc.assetId].sort()[0]);
+    expect(result.driverAssetId).toBe(
+      [arbUsdc.assetId, ethUsdc.assetId].sort()[0],
+    );
     expect(summariesByAssetId[ethUsdc.assetId]?.pnlEnd).toBe(1);
     expect(summariesByAssetId[arbUsdc.assetId]?.pnlEnd).toBe(10);
-    expect(summariesByAssetId[ethUsdc.assetId]?.displaySymbol).not.toBe(summariesByAssetId[arbUsdc.assetId]?.displaySymbol);
+    expect(summariesByAssetId[ethUsdc.assetId]?.displaySymbol).not.toBe(
+      summariesByAssetId[arbUsdc.assetId]?.displaySymbol,
+    );
     expect(last.totalFiatBalance).toBe(22);
     expect(last.totalUnrealizedPnlFiat).toBe(11);
     expect(chart.singleAsset).toBe(false);
-    expect(chart.assetIds.slice().sort()).toEqual([arbUsdc.assetId, ethUsdc.assetId].sort());
+    expect(chart.assetIds.slice().sort()).toEqual(
+      [arbUsdc.assetId, ethUsdc.assetId].sort(),
+    );
   });
 
   it('compacts a single-asset analysis result into aligned chart arrays', () => {
@@ -879,12 +1090,23 @@ describe('analysisStreaming preload helpers', () => {
     const chart = compactPnlAnalysisResultForChart(result);
 
     expect(chart.singleAsset).toBe(true);
-    expect(chart.timestamps).toEqual([t0, t0 + 45 * 60_000, t1 + 30 * 60_000, t2 + 15 * 60_000, t3]);
+    expect(chart.timestamps).toEqual([
+      t0,
+      t0 + 45 * 60_000,
+      t1 + 30 * 60_000,
+      t2 + 15 * 60_000,
+      t3,
+    ]);
     expect(chart.totalFiatBalance).toEqual([1000, 1075, 1150, 2450, 2600]);
-    expect(chart.totalRemainingCostBasisFiat).toEqual([1000, 1000, 1000, 2200, 2200]);
+    expect(chart.totalRemainingCostBasisFiat).toEqual([
+      1000, 1000, 1000, 2200, 2200,
+    ]);
     expect(chart.totalUnrealizedPnlFiat).toEqual([0, 75, 150, 250, 400]);
     expect(chart.totalPnlChange).toEqual([0, 75, 150, 250, 400]);
-    expect(chart.totalPnlPercent[chart.totalPnlPercent.length - 1]).toBeCloseTo((400 / 2200) * 100, 8);
+    expect(chart.totalPnlPercent[chart.totalPnlPercent.length - 1]).toBeCloseTo(
+      (400 / 2200) * 100,
+      8,
+    );
     expect(chart.driverMarkRate).toEqual([1000, 1075, 1150, 1225, 1300]);
     expect(chart.driverRatePercentChange).toEqual([0, 7.5, 15, 22.5, 30]);
   });

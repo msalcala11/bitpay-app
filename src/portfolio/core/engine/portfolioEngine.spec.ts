@@ -2,7 +2,10 @@ import type {FiatRateSeriesCache} from '../fiatRatesShared';
 import type {KvStore} from '../kv/types';
 import type {Tx, WalletCredentials, WalletSummary} from '../types';
 import {PortfolioEngine} from './portfolioEngine';
-import {compactPnlAnalysisResultForChart} from '../pnl/analysisStreaming';
+import {
+  compactPnlAnalysisResultForChart,
+  setPnlAnalysisDebugHooksForTests,
+} from '../pnl/analysisStreaming';
 
 class MemoryKv implements KvStore {
   private data = new Map<string, string>();
@@ -66,7 +69,57 @@ const mkCache = (
   return out;
 };
 
+const approxRuntimeResponseSizeBytes = (value: unknown): number => {
+  const stableSerialize = (input: unknown): string => {
+    if (Array.isArray(input)) {
+      return `[${input.map(stableSerialize).join(',')}]`;
+    }
+    if (input && typeof input === 'object') {
+      const objectValue = input as Record<string, unknown>;
+      const keys = Object.keys(objectValue).sort();
+      return `{${keys
+        .map(
+          key => `${JSON.stringify(key)}:${stableSerialize(objectValue[key])}`,
+        )
+        .join(',')}}`;
+    }
+    return JSON.stringify(input);
+  };
+
+  return Buffer.byteLength(stableSerialize(value), 'utf8');
+};
+
+const createDebugCounters = () => {
+  const counters = {
+    pnlAnalysisPointConstruction: 0,
+    byWalletIdConstruction: 0,
+    formattedCryptoBalance: 0,
+    finalizeAnalysisResult: 0,
+  };
+
+  setPnlAnalysisDebugHooksForTests({
+    onPnlAnalysisPointConstruction: () => {
+      counters.pnlAnalysisPointConstruction += 1;
+    },
+    onByWalletIdConstruction: () => {
+      counters.byWalletIdConstruction += 1;
+    },
+    onFormattedCryptoBalance: () => {
+      counters.formattedCryptoBalance += 1;
+    },
+    onFinalizeAnalysisResult: () => {
+      counters.finalizeAnalysisResult += 1;
+    },
+  });
+
+  return counters;
+};
+
 describe('PortfolioEngine compute sessions', () => {
+  afterEach(() => {
+    setPnlAnalysisDebugHooksForTests(undefined);
+  });
+
   it('can fetch the next tx page inside the session when a page fetcher is injected', async () => {
     const kv = new MemoryKv();
     const t0 = Date.parse('2024-01-01T00:00:00Z');
@@ -659,6 +712,8 @@ describe('PortfolioEngine compute sessions', () => {
     };
 
     const full = await engine.computeAnalysis(args);
+    const computeAnalysisSpy = jest.spyOn(engine, 'computeAnalysis');
+    const counters = createDebugCounters();
     const chart = await engine.computeAnalysisChart(args);
 
     expect(chart).toEqual(compactPnlAnalysisResultForChart(full));
@@ -669,6 +724,16 @@ describe('PortfolioEngine compute sessions', () => {
     );
     expect(chart.driverMarkRate?.[0]).toBe(10000);
     expect(chart.driverMarkRate?.[chart.driverMarkRate.length - 1]).toBe(11000);
+    expect(computeAnalysisSpy).not.toHaveBeenCalled();
+    expect(approxRuntimeResponseSizeBytes(chart)).toBeLessThan(
+      approxRuntimeResponseSizeBytes(full),
+    );
+    expect(counters).toEqual({
+      pnlAnalysisPointConstruction: 0,
+      byWalletIdConstruction: 0,
+      formattedCryptoBalance: 0,
+      finalizeAnalysisResult: 0,
+    });
   });
 
   it('reuses a prepared analysis session for scoped computations', async () => {

@@ -142,6 +142,13 @@ export type PnlAnalysisChartResult = {
   latestRemainingCostBasisFiatTotal: number;
 };
 
+export type PnlAnalysisDebugHooks = {
+  onPnlAnalysisPointConstruction?: () => void;
+  onByWalletIdConstruction?: () => void;
+  onFormattedCryptoBalance?: () => void;
+  onFinalizeAnalysisResult?: () => void;
+};
+
 export type PnlAnalysisPreloadedArgs = {
   cfg: {quoteCurrency: string};
   wallets: WalletForPreloadedAnalysis[];
@@ -218,11 +225,45 @@ type StreamedWalletState = WalletAnalysisState & {
   nextPoint: PreparedWalletPoint | null;
 };
 
+let pnlAnalysisDebugHooksForTests: PnlAnalysisDebugHooks | undefined;
+
+export function setPnlAnalysisDebugHooksForTests(
+  hooks?: PnlAnalysisDebugHooks,
+): void {
+  pnlAnalysisDebugHooksForTests = hooks;
+}
+
+function notifyPnlAnalysisPointConstruction(): void {
+  'worklet';
+
+  pnlAnalysisDebugHooksForTests?.onPnlAnalysisPointConstruction?.();
+}
+
+function notifyByWalletIdConstruction(): void {
+  'worklet';
+
+  pnlAnalysisDebugHooksForTests?.onByWalletIdConstruction?.();
+}
+
+function notifyFormattedCryptoBalance(): void {
+  'worklet';
+
+  pnlAnalysisDebugHooksForTests?.onFormattedCryptoBalance?.();
+}
+
+function notifyFinalizeAnalysisResult(): void {
+  'worklet';
+
+  pnlAnalysisDebugHooksForTests?.onFinalizeAnalysisResult?.();
+}
+
 function getWalletChartRateKey(wallet: WalletForAnalysisMeta): string {
   'worklet';
 
   const normalizeCoin = (value?: string): string => {
-    const coin = String(value || '').trim().toLowerCase();
+    const coin = String(value || '')
+      .trim()
+      .toLowerCase();
     switch (coin) {
       case 'matic':
       case 'pol':
@@ -233,7 +274,9 @@ function getWalletChartRateKey(wallet: WalletForAnalysisMeta): string {
   };
 
   const normalizeChain = (value?: string): string => {
-    return String(value || '').trim().toLowerCase();
+    return String(value || '')
+      .trim()
+      .toLowerCase();
   };
 
   const normalizeTokenAddress = (
@@ -315,7 +358,9 @@ function buildChartPatchMetadataFromAnalysisResult(result: PnlAnalysisResult): {
   };
 }
 
-export function compactPnlAnalysisResultForChart(result: PnlAnalysisResult): PnlAnalysisChartResult {
+export function compactPnlAnalysisResultForChart(
+  result: PnlAnalysisResult,
+): PnlAnalysisChartResult {
   'worklet';
 
   const pointCount = result.points.length;
@@ -327,8 +372,12 @@ export function compactPnlAnalysisResultForChart(result: PnlAnalysisResult): Pnl
   const totalUnrealizedPnlFiat = new Array<number>(pointCount);
   const totalPnlChange = new Array<number>(pointCount);
   const totalPnlPercent = new Array<number>(pointCount);
-  const driverMarkRate = singleAsset ? new Array<number | null>(pointCount) : undefined;
-  const driverRatePercentChange = singleAsset ? new Array<number | null>(pointCount) : undefined;
+  const driverMarkRate = singleAsset
+    ? new Array<number | null>(pointCount)
+    : undefined;
+  const driverRatePercentChange = singleAsset
+    ? new Array<number | null>(pointCount)
+    : undefined;
   const patchMetadata = buildChartPatchMetadataFromAnalysisResult(result);
 
   for (let i = 0; i < pointCount; i++) {
@@ -342,11 +391,14 @@ export function compactPnlAnalysisResultForChart(result: PnlAnalysisResult): Pnl
 
     if (driverMarkRate) {
       driverMarkRate[i] =
-        typeof point.markRate === 'number' && Number.isFinite(point.markRate) ? point.markRate : null;
+        typeof point.markRate === 'number' && Number.isFinite(point.markRate)
+          ? point.markRate
+          : null;
     }
     if (driverRatePercentChange) {
       driverRatePercentChange[i] =
-        typeof point.ratePercentChange === 'number' && Number.isFinite(point.ratePercentChange)
+        typeof point.ratePercentChange === 'number' &&
+        Number.isFinite(point.ratePercentChange)
           ? point.ratePercentChange
           : null;
     }
@@ -376,7 +428,11 @@ export function compactPnlAnalysisResultForChart(result: PnlAnalysisResult): Pnl
   };
 }
 
-function buildEvenTimeline(startMs: number, endMs: number, n: number): number[] {
+function buildEvenTimeline(
+  startMs: number,
+  endMs: number,
+  n: number,
+): number[] {
   'worklet';
 
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || n <= 0) return [];
@@ -497,7 +553,9 @@ function isSortedByTsAsc(points: FiatRatePoint[]): boolean {
 function makeLinearRateCursor(pointsRaw: FiatRatePoint[]): RateCursor {
   'worklet';
 
-  const points = isSortedByTsAsc(pointsRaw) ? pointsRaw : pointsRaw.slice().sort((a, b) => a.ts - b.ts);
+  const points = isSortedByTsAsc(pointsRaw)
+    ? pointsRaw
+    : pointsRaw.slice().sort((a, b) => a.ts - b.ts);
   let idx = 0;
   let lastTarget = -Infinity;
 
@@ -578,13 +636,14 @@ function getAnalysisRateAtTimestamp(args: {
   'worklet';
 
   const overrideRate =
-    typeof args.liveTerminalTs === 'number' &&
-    args.ts === args.liveTerminalTs
+    typeof args.liveTerminalTs === 'number' && args.ts === args.liveTerminalTs
       ? getCurrentRateOverride(args.currentRatesByAssetId, args.assetId)
       : undefined;
 
   return (
-    overrideRate ?? args.rateCursorByAssetId[args.assetId].getRateAt(args.ts) ?? 0
+    overrideRate ??
+    args.rateCursorByAssetId[args.assetId].getRateAt(args.ts) ??
+    0
   );
 }
 
@@ -599,8 +658,7 @@ function getAnalysisBasisRateAtTimestamp(args: {
   'worklet';
 
   const overrideRate =
-    typeof args.liveTerminalTs === 'number' &&
-    args.ts === args.liveTerminalTs
+    typeof args.liveTerminalTs === 'number' && args.ts === args.liveTerminalTs
       ? getCurrentRateOverride(args.currentRatesByAssetId, args.assetId)
       : undefined;
 
@@ -623,7 +681,9 @@ function isSingleAsset(wallets: WalletForAnalysisMeta[]): boolean {
   return assetIds.size === 1;
 }
 
-function findFirstNonZeroTsFromPreloadedWallets(wallets: WalletForPreloadedAnalysis[]): number | null {
+function findFirstNonZeroTsFromPreloadedWallets(
+  wallets: WalletForPreloadedAnalysis[],
+): number | null {
   'worklet';
 
   let best: number | null = null;
@@ -660,7 +720,12 @@ function normalizeWalletPointsForAnalysis(
       timestamp: Number(p.timestamp),
       cryptoBalance: String(p.cryptoBalance),
     }))
-    .filter(p => Number.isFinite(p.timestamp) && p.timestamp > startTs && p.timestamp <= endTs)
+    .filter(
+      p =>
+        Number.isFinite(p.timestamp) &&
+        p.timestamp > startTs &&
+        p.timestamp <= endTs,
+    )
     .sort((a, b) => a.timestamp - b.timestamp);
 }
 
@@ -675,13 +740,19 @@ function validatePreparedWalletPoint(
 
   const timestamp = Number(pointRaw.timestamp);
   if (!Number.isFinite(timestamp)) {
-    throw new Error(`Prepared analysis point has invalid timestamp (${detail}).`);
+    throw new Error(
+      `Prepared analysis point has invalid timestamp (${detail}).`,
+    );
   }
   if (timestamp <= startTs || timestamp > endTs) {
-    throw new Error(`Prepared analysis point is outside the requested window (${detail}).`);
+    throw new Error(
+      `Prepared analysis point is outside the requested window (${detail}).`,
+    );
   }
   if (timestamp < prevTs) {
-    throw new Error(`Prepared analysis points must be sorted ascending by timestamp (${detail}).`);
+    throw new Error(
+      `Prepared analysis points must be sorted ascending by timestamp (${detail}).`,
+    );
   }
   return {
     timestamp,
@@ -701,7 +772,13 @@ function validatePreparedWalletPoints(
   let prevTs = -Infinity;
 
   for (let i = 0; i < points.length; i++) {
-    const prepared = validatePreparedWalletPoint(points[i], startTs, endTs, prevTs, `row ${i}`);
+    const prepared = validatePreparedWalletPoint(
+      points[i],
+      startTs,
+      endTs,
+      prevTs,
+      `row ${i}`,
+    );
     prevTs = prepared.timestamp;
     out[i] = prepared;
   }
@@ -720,7 +797,13 @@ async function readNextPreparedWalletPointFromStream(args: {
 
   const next = await args.iterator.next();
   if (next.done) return null;
-  return validatePreparedWalletPoint(next.value, args.startTs, args.endTs, args.prevTs, args.detail);
+  return validatePreparedWalletPoint(
+    next.value,
+    args.startTs,
+    args.endTs,
+    args.prevTs,
+    args.detail,
+  );
 }
 
 export function resolvePnlAnalysisPreloadWindow(args: {
@@ -735,12 +818,15 @@ export function resolvePnlAnalysisPreloadWindow(args: {
 }): ResolvedPnlAnalysisPreloadWindow {
   'worklet';
 
-  const nowMsRequested = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
+  const nowMsRequested =
+    typeof args.nowMs === 'number' ? args.nowMs : Date.now();
   const maxPoints = typeof args.maxPoints === 'number' ? args.maxPoints : 91;
 
   const wallets = args.wallets.slice();
   const quoteCurrency = args.cfg.quoteCurrency.toUpperCase();
-  const assetIds = Array.from(new Set(wallets.map(w => w.assetId))).sort((a, b) => a.localeCompare(b));
+  const assetIds = Array.from(new Set(wallets.map(w => w.assetId))).sort(
+    (a, b) => a.localeCompare(b),
+  );
   const storedInterval = resolveStoredFiatRateInterval(args.timeframe);
 
   if (!assetIds.length) {
@@ -769,11 +855,16 @@ export function resolvePnlAnalysisPreloadWindow(args: {
       .sort((a, b) => a.ts - b.ts);
 
     if (!points.length) {
-      throw new Error(`Missing rates for ${quoteCurrency}:${assetId}:${storedInterval} (requested ${args.timeframe}).`);
+      throw new Error(
+        `Missing rates for ${quoteCurrency}:${assetId}:${storedInterval} (requested ${args.timeframe}).`,
+      );
     }
 
     rawPointsByAssetId[assetId] = points;
-    if (points.length > driverLen || (points.length === driverLen && assetId < driverAssetId)) {
+    if (
+      points.length > driverLen ||
+      (points.length === driverLen && assetId < driverAssetId)
+    ) {
       driverAssetId = assetId;
       driverLen = points.length;
     }
@@ -786,7 +877,11 @@ export function resolvePnlAnalysisPreloadWindow(args: {
     overlapStart = Math.max(overlapStart, pts[0].ts);
     overlapEnd = Math.min(overlapEnd, pts[pts.length - 1].ts);
   }
-  if (!Number.isFinite(overlapStart) || !Number.isFinite(overlapEnd) || overlapEnd <= overlapStart) {
+  if (
+    !Number.isFinite(overlapStart) ||
+    !Number.isFinite(overlapEnd) ||
+    overlapEnd <= overlapStart
+  ) {
     throw new Error('No overlapping rate window across selected assets.');
   }
 
@@ -794,22 +889,22 @@ export function resolvePnlAnalysisPreloadWindow(args: {
   const baselineMs = getBaselineMs(args.timeframe, nowMs);
   const desiredStart =
     args.timeframe === 'ALL'
-      ? (typeof args.firstNonZeroTs === 'number' && Number.isFinite(args.firstNonZeroTs) ? args.firstNonZeroTs : null) ??
-        overlapStart
+      ? (typeof args.firstNonZeroTs === 'number' &&
+        Number.isFinite(args.firstNonZeroTs)
+          ? args.firstNonZeroTs
+          : null) ?? overlapStart
       : baselineMs ?? overlapStart;
 
   const startTs = Math.max(overlapStart, desiredStart);
   const historicalEndTs = Math.max(startTs, Math.min(overlapEnd, nowMs));
-  const hasLiveTerminalRates =
-    assetIds.every(assetId => {
-      const overrideRate = getCurrentRateOverride(
-        args.currentRatesByAssetId || {},
-        assetId,
-      );
-      return typeof overrideRate === 'number' && Number.isFinite(overrideRate);
-    });
-  const liveTerminalTs =
-    hasLiveTerminalRates ? nowMs : undefined;
+  const hasLiveTerminalRates = assetIds.every(assetId => {
+    const overrideRate = getCurrentRateOverride(
+      args.currentRatesByAssetId || {},
+      assetId,
+    );
+    return typeof overrideRate === 'number' && Number.isFinite(overrideRate);
+  });
+  const liveTerminalTs = hasLiveTerminalRates ? nowMs : undefined;
   const timeline = buildAnalysisTimeline({
     startTs,
     historicalEndTs,
@@ -835,7 +930,10 @@ export function resolvePnlAnalysisPreloadWindow(args: {
   };
 }
 
-function buildEmptyAnalysisResult(timeframe: PnlTimeframe, quoteCurrency: string): PnlAnalysisResult {
+function buildEmptyAnalysisResult(
+  timeframe: PnlTimeframe,
+  quoteCurrency: string,
+): PnlAnalysisResult {
   'worklet';
 
   return {
@@ -850,6 +948,35 @@ function buildEmptyAnalysisResult(timeframe: PnlTimeframe, quoteCurrency: string
     points: [],
     assetSummaries: [],
     totalSummary: {pnlStart: 0, pnlEnd: 0, pnlChange: 0, pnlPercent: 0},
+  };
+}
+
+function buildEmptyAnalysisChartResult(
+  timeframe: PnlTimeframe,
+  quoteCurrency: string,
+): PnlAnalysisChartResult {
+  'worklet';
+
+  return {
+    timeframe,
+    quoteCurrency: quoteCurrency.toUpperCase(),
+    driverAssetId: '',
+    driverCoin: '',
+    analysisWindow: undefined,
+    assetIds: [],
+    coins: [],
+    singleAsset: false,
+    timestamps: [],
+    totalFiatBalance: [],
+    totalRemainingCostBasisFiat: [],
+    totalUnrealizedPnlFiat: [],
+    totalPnlChange: [],
+    totalPnlPercent: [],
+    driverMarkRate: undefined,
+    driverRatePercentChange: undefined,
+    lastSpotRatesByRateKey: {},
+    latestHoldingsByRateKey: {},
+    latestRemainingCostBasisFiatTotal: 0,
   };
 }
 
@@ -891,16 +1018,15 @@ function buildAnalysisContext(args: {
       !Number.isFinite(args.endTs) ||
       args.endTs === resolved.endTs);
 
-  const timeline =
-    timelineMatchesResolvedWindow
-      ? resolved.timeline
-      : typeof args.startTs === 'number' &&
-          Number.isFinite(args.startTs) &&
-          typeof args.endTs === 'number' &&
-          Number.isFinite(args.endTs) &&
-          args.endTs >= args.startTs
-      ? buildEvenTimeline(args.startTs, args.endTs, maxPoints)
-      : resolved.timeline;
+  const timeline = timelineMatchesResolvedWindow
+    ? resolved.timeline
+    : typeof args.startTs === 'number' &&
+      Number.isFinite(args.startTs) &&
+      typeof args.endTs === 'number' &&
+      Number.isFinite(args.endTs) &&
+      args.endTs >= args.startTs
+    ? buildEvenTimeline(args.startTs, args.endTs, maxPoints)
+    : resolved.timeline;
   if (!timeline.length) {
     throw new Error('Failed to build analysis timeline.');
   }
@@ -926,12 +1052,18 @@ function buildAnalysisContext(args: {
   const baselineRateByAssetId: Record<string, number> = {};
   for (const assetId of assetIds) {
     const r0 = rateCursorByAssetId[assetId].getRateAt(timeline[0]);
-    if (r0 === undefined) throw new Error(`Missing ${quoteCurrency}:${assetId} rate at ts=${timeline[0]}.`);
+    if (r0 === undefined)
+      throw new Error(
+        `Missing ${quoteCurrency}:${assetId} rate at ts=${timeline[0]}.`,
+      );
     baselineRateByAssetId[assetId] = r0;
   }
 
-  const coins = Array.from(new Set(resolved.wallets.map(w => w.rateCoin))).sort((a, b) => a.localeCompare(b));
-  const driverCoin = resolved.wallets.find(w => w.assetId === driverAssetId)?.rateCoin ?? '';
+  const coins = Array.from(new Set(resolved.wallets.map(w => w.rateCoin))).sort(
+    (a, b) => a.localeCompare(b),
+  );
+  const driverCoin =
+    resolved.wallets.find(w => w.assetId === driverAssetId)?.rateCoin ?? '';
 
   return {
     quoteCurrency,
@@ -960,8 +1092,12 @@ function createWalletAnalysisState(
 
   const decimals = getAtomicDecimals(wallet.credentials);
   const atomicToUnitNumber = makeAtomicToUnitNumberConverter(decimals);
-  const unitsAtomic = basePoint ? parseAtomicToBigint(basePoint.cryptoBalance) : 0n;
-  const basisFiat = atomicToUnitNumber(unitsAtomic) * (baselineRateByAssetId[wallet.assetId] ?? 0);
+  const unitsAtomic = basePoint
+    ? parseAtomicToBigint(basePoint.cryptoBalance)
+    : 0n;
+  const basisFiat =
+    atomicToUnitNumber(unitsAtomic) *
+    (baselineRateByAssetId[wallet.assetId] ?? 0);
 
   return {
     wallet,
@@ -982,7 +1118,11 @@ async function createStreamedWalletStateById(
   for (const entry of wallets) {
     const iterator = entry.points;
     stateByWalletId[entry.wallet.walletId] = {
-      ...createWalletAnalysisState(entry.wallet, entry.basePoint, context.baselineRateByAssetId),
+      ...createWalletAnalysisState(
+        entry.wallet,
+        entry.basePoint,
+        context.baselineRateByAssetId,
+      ),
       iterator,
       nextPoint: await readNextPreparedWalletPointFromStream({
         iterator,
@@ -1077,7 +1217,8 @@ async function advanceStreamedWalletStateToTimestamp(args: {
 function clampWalletAnalysisState(state: WalletAnalysisState): void {
   'worklet';
 
-  if (!Number.isFinite(state.basisFiat) || state.basisFiat < 0) state.basisFiat = 0;
+  if (!Number.isFinite(state.basisFiat) || state.basisFiat < 0)
+    state.basisFiat = 0;
 }
 
 function finalizeAnalysisResult(args: {
@@ -1097,6 +1238,8 @@ function finalizeAnalysisResult(args: {
   liveTerminalTs?: number;
 }): PnlAnalysisResult {
   'worklet';
+
+  notifyFinalizeAnalysisResult();
 
   if (!args.points.length) {
     return {
@@ -1123,26 +1266,41 @@ function finalizeAnalysisResult(args: {
   for (const wallet of args.walletMetas) {
     if (!assetMetaById.has(wallet.assetId)) {
       assetMetaById.set(wallet.assetId, wallet);
-      const displayBase = String(wallet.currencyAbbreviation || wallet.rateCoin || wallet.assetId).toUpperCase();
-      displayBaseCount.set(displayBase, (displayBaseCount.get(displayBase) ?? 0) + 1);
+      const displayBase = String(
+        wallet.currencyAbbreviation || wallet.rateCoin || wallet.assetId,
+      ).toUpperCase();
+      displayBaseCount.set(
+        displayBase,
+        (displayBaseCount.get(displayBase) ?? 0) + 1,
+      );
     }
-    const walletIds = walletIdsByAssetId.get(wallet.assetId) ?? new Set<string>();
+    const walletIds =
+      walletIdsByAssetId.get(wallet.assetId) ?? new Set<string>();
     walletIds.add(wallet.walletId);
     walletIdsByAssetId.set(wallet.assetId, walletIds);
   }
 
   const shortenTokenAddress = (tokenAddress?: string): string => {
     if (!tokenAddress) return '';
-    return tokenAddress.length <= 10 ? tokenAddress : `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`;
+    return tokenAddress.length <= 10
+      ? tokenAddress
+      : `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`;
   };
 
   const displaySymbolForAsset = (meta: WalletForAnalysisMeta): string => {
-    const displayBase = String(meta.currencyAbbreviation || meta.rateCoin || meta.assetId).toUpperCase();
+    const displayBase = String(
+      meta.currencyAbbreviation || meta.rateCoin || meta.assetId,
+    ).toUpperCase();
     if ((displayBaseCount.get(displayBase) ?? 0) <= 1) return displayBase;
     const chain = meta.chain ? meta.chain.toUpperCase() : '';
-    if (!meta.tokenAddress) return chain ? `${displayBase} (${chain})` : `${displayBase} (${meta.assetId})`;
+    if (!meta.tokenAddress)
+      return chain
+        ? `${displayBase} (${chain})`
+        : `${displayBase} (${meta.assetId})`;
     const shortToken = shortenTokenAddress(meta.tokenAddress);
-    return chain ? `${displayBase} (${chain}:${shortToken})` : `${displayBase} (${shortToken})`;
+    return chain
+      ? `${displayBase} (${chain}:${shortToken})`
+      : `${displayBase} (${shortToken})`;
   };
 
   const assetSummaries: AssetPnlSummary[] = args.assetIds.map(assetId => {
@@ -1169,7 +1327,8 @@ function finalizeAnalysisResult(args: {
 
     const rateStart = args.baselineRateByAssetId[assetId] ?? 0;
     const rateEnd =
-      (typeof args.liveTerminalTs === 'number' && args.endTs === args.liveTerminalTs
+      (typeof args.liveTerminalTs === 'number' &&
+      args.endTs === args.liveTerminalTs
         ? getCurrentRateOverride(args.currentRatesByAssetId, assetId)
         : undefined) ??
       args.rateCursorByAssetId[assetId].getRateAt(args.endTs) ??
@@ -1222,13 +1381,16 @@ function finalizeAnalysisResult(args: {
   };
 }
 
-export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedArgs): PnlAnalysisResult {
+export function buildPnlAnalysisSeriesFromPreloaded(
+  args: PnlAnalysisPreloadedArgs,
+): PnlAnalysisResult {
   'worklet';
 
   const wallets = args.wallets.slice();
   const walletMetas = wallets.map(w => w.wallet);
   const firstNonZeroTs =
-    typeof args.firstNonZeroTs === 'number' && Number.isFinite(args.firstNonZeroTs)
+    typeof args.firstNonZeroTs === 'number' &&
+    Number.isFinite(args.firstNonZeroTs)
       ? args.firstNonZeroTs
       : findFirstNonZeroTsFromPreloadedWallets(wallets);
 
@@ -1258,11 +1420,23 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
   const stateByWalletId: Record<string, PreloadedWalletState> = {};
   for (const entry of wallets) {
     const points = args.walletPointsArePrepared
-      ? validatePreparedWalletPoints(entry.points, context.startTs, context.endTs)
-      : normalizeWalletPointsForAnalysis(entry.points, context.startTs, context.endTs);
+      ? validatePreparedWalletPoints(
+          entry.points,
+          context.startTs,
+          context.endTs,
+        )
+      : normalizeWalletPointsForAnalysis(
+          entry.points,
+          context.startTs,
+          context.endTs,
+        );
 
     stateByWalletId[entry.wallet.walletId] = {
-      ...createWalletAnalysisState(entry.wallet, entry.basePoint, context.baselineRateByAssetId),
+      ...createWalletAnalysisState(
+        entry.wallet,
+        entry.basePoint,
+        context.baselineRateByAssetId,
+      ),
       points,
       nextIndex: 0,
     };
@@ -1273,6 +1447,7 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
 
   for (const ts of context.timeline) {
     const byWalletId: Record<string, WalletPoint> = {};
+    notifyByWalletIdConstruction();
 
     let totalFiatBalance = 0;
     let totalBasis = 0;
@@ -1290,7 +1465,10 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
     for (const wallet of walletMetas) {
       const st = stateByWalletId[wallet.walletId];
 
-      while (st.nextIndex < st.points.length && st.points[st.nextIndex].timestamp <= ts) {
+      while (
+        st.nextIndex < st.points.length &&
+        st.points[st.nextIndex].timestamp <= ts
+      ) {
         applyAnalysisPointToWalletState({
           state: st,
           point: st.points[st.nextIndex],
@@ -1319,9 +1497,13 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
       const ratePct = baseRate > 0 ? ((rate - baseRate) / baseRate) * 100 : 0;
       const pnlPct = st.basisFiat > 0 ? (unrealized / st.basisFiat) * 100 : 0;
 
+      notifyFormattedCryptoBalance();
       byWalletId[wallet.walletId] = {
         balanceAtomic: st.unitsAtomic.toString(),
-        formattedCryptoBalance: formatAtomicAmount(st.unitsAtomic, wallet.credentials),
+        formattedCryptoBalance: formatAtomicAmount(
+          st.unitsAtomic,
+          wallet.credentials,
+        ),
         fiatBalance,
         remainingCostBasisFiat: st.basisFiat,
         unrealizedPnlFiat: unrealized,
@@ -1342,15 +1524,29 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
     const totalUnrealized = totalFiatBalance - totalBasis;
     const pnlStart =
       points.length > 0 ? points[0].totalUnrealizedPnlFiat : totalUnrealized;
-    const totalPnlPercent = totalBasis > 0 ? (totalUnrealized / totalBasis) * 100 : 0;
+    const totalPnlPercent =
+      totalBasis > 0 ? (totalUnrealized / totalBasis) * 100 : 0;
 
-    const driverBase = context.baselineRateByAssetId[context.driverAssetId] || driverRate;
-    const ratePercentChange = driverBase > 0 ? ((driverRate - driverBase) / driverBase) * 100 : undefined;
+    const driverBase =
+      context.baselineRateByAssetId[context.driverAssetId] || driverRate;
+    const ratePercentChange =
+      driverBase > 0
+        ? ((driverRate - driverBase) / driverBase) * 100
+        : undefined;
 
-    const totalCryptoBalanceAtomic = singleAsset ? totalCryptoAtomic.toString() : undefined;
-    const totalCryptoBalanceFormatted =
-      singleAsset && totalCryptoCreds ? formatAtomicAmount(totalCryptoAtomic, totalCryptoCreds) : undefined;
+    const totalCryptoBalanceAtomic = singleAsset
+      ? totalCryptoAtomic.toString()
+      : undefined;
+    let totalCryptoBalanceFormatted: string | undefined;
+    if (singleAsset && totalCryptoCreds) {
+      notifyFormattedCryptoBalance();
+      totalCryptoBalanceFormatted = formatAtomicAmount(
+        totalCryptoAtomic,
+        totalCryptoCreds,
+      );
+    }
 
+    notifyPnlAnalysisPointConstruction();
     points.push({
       timestamp: ts,
       markRate: singleAsset ? driverRate : undefined,
@@ -1388,13 +1584,18 @@ export function buildPnlAnalysisSeriesFromPreloaded(args: PnlAnalysisPreloadedAr
   });
 }
 
-export async function buildPnlAnalysisSeriesFromStreamed(args: PnlAnalysisStreamedArgs): Promise<PnlAnalysisResult> {
+export async function buildPnlAnalysisSeriesFromStreamed(
+  args: PnlAnalysisStreamedArgs,
+): Promise<PnlAnalysisResult> {
   'worklet';
 
   const wallets = args.wallets.slice();
   const walletMetas = wallets.map(w => w.wallet);
   const firstNonZeroTs =
-    typeof args.firstNonZeroTs === 'number' && Number.isFinite(args.firstNonZeroTs) ? args.firstNonZeroTs : null;
+    typeof args.firstNonZeroTs === 'number' &&
+    Number.isFinite(args.firstNonZeroTs)
+      ? args.firstNonZeroTs
+      : null;
 
   if (!walletMetas.length) {
     return buildEmptyAnalysisResult(args.timeframe, args.cfg.quoteCurrency);
@@ -1421,6 +1622,7 @@ export async function buildPnlAnalysisSeriesFromStreamed(args: PnlAnalysisStream
 
   for (const ts of context.timeline) {
     const byWalletId: Record<string, WalletPoint> = {};
+    notifyByWalletIdConstruction();
 
     let totalFiatBalance = 0;
     let totalBasis = 0;
@@ -1462,9 +1664,13 @@ export async function buildPnlAnalysisSeriesFromStreamed(args: PnlAnalysisStream
       const ratePct = baseRate > 0 ? ((rate - baseRate) / baseRate) * 100 : 0;
       const pnlPct = st.basisFiat > 0 ? (unrealized / st.basisFiat) * 100 : 0;
 
+      notifyFormattedCryptoBalance();
       byWalletId[wallet.walletId] = {
         balanceAtomic: st.unitsAtomic.toString(),
-        formattedCryptoBalance: formatAtomicAmount(st.unitsAtomic, wallet.credentials),
+        formattedCryptoBalance: formatAtomicAmount(
+          st.unitsAtomic,
+          wallet.credentials,
+        ),
         fiatBalance,
         remainingCostBasisFiat: st.basisFiat,
         unrealizedPnlFiat: unrealized,
@@ -1485,15 +1691,29 @@ export async function buildPnlAnalysisSeriesFromStreamed(args: PnlAnalysisStream
     const totalUnrealized = totalFiatBalance - totalBasis;
     const pnlStart =
       points.length > 0 ? points[0].totalUnrealizedPnlFiat : totalUnrealized;
-    const totalPnlPercent = totalBasis > 0 ? (totalUnrealized / totalBasis) * 100 : 0;
+    const totalPnlPercent =
+      totalBasis > 0 ? (totalUnrealized / totalBasis) * 100 : 0;
 
-    const driverBase = context.baselineRateByAssetId[context.driverAssetId] || driverRate;
-    const ratePercentChange = driverBase > 0 ? ((driverRate - driverBase) / driverBase) * 100 : undefined;
+    const driverBase =
+      context.baselineRateByAssetId[context.driverAssetId] || driverRate;
+    const ratePercentChange =
+      driverBase > 0
+        ? ((driverRate - driverBase) / driverBase) * 100
+        : undefined;
 
-    const totalCryptoBalanceAtomic = singleAsset ? totalCryptoAtomic.toString() : undefined;
-    const totalCryptoBalanceFormatted =
-      singleAsset && totalCryptoCreds ? formatAtomicAmount(totalCryptoAtomic, totalCryptoCreds) : undefined;
+    const totalCryptoBalanceAtomic = singleAsset
+      ? totalCryptoAtomic.toString()
+      : undefined;
+    let totalCryptoBalanceFormatted: string | undefined;
+    if (singleAsset && totalCryptoCreds) {
+      notifyFormattedCryptoBalance();
+      totalCryptoBalanceFormatted = formatAtomicAmount(
+        totalCryptoAtomic,
+        totalCryptoCreds,
+      );
+    }
 
+    notifyPnlAnalysisPointConstruction();
     points.push({
       timestamp: ts,
       markRate: singleAsset ? driverRate : undefined,
@@ -1535,6 +1755,175 @@ export async function buildPnlAnalysisChartSeriesFromStreamed(
   args: PnlAnalysisStreamedArgs,
 ): Promise<PnlAnalysisChartResult> {
   'worklet';
-  const analysis = await buildPnlAnalysisSeriesFromStreamed(args);
-  return compactPnlAnalysisResultForChart(analysis);
+
+  const wallets = args.wallets.slice();
+  const walletMetas = wallets.map(w => w.wallet);
+  const firstNonZeroTs =
+    typeof args.firstNonZeroTs === 'number' &&
+    Number.isFinite(args.firstNonZeroTs)
+      ? args.firstNonZeroTs
+      : null;
+
+  if (!walletMetas.length) {
+    return buildEmptyAnalysisChartResult(
+      args.timeframe,
+      args.cfg.quoteCurrency,
+    );
+  }
+
+  const context = buildAnalysisContext({
+    cfg: args.cfg,
+    wallets: walletMetas,
+    timeframe: args.timeframe,
+    ratePointsByAssetId: args.ratePointsByAssetId,
+    currentRatesByAssetId: args.currentRatesByAssetId,
+    firstNonZeroTs,
+    startTs: args.startTs,
+    endTs: args.endTs,
+    nowMs: args.nowMs,
+    maxPoints: args.maxPoints,
+    resolvedWindow: args.resolvedWindow,
+  });
+
+  const stateByWalletId = await createStreamedWalletStateById(wallets, context);
+  const singleAsset = isSingleAsset(walletMetas);
+  const pointCount = context.timeline.length;
+  const timestamps = new Array<number>(pointCount);
+  const totalFiatBalance = new Array<number>(pointCount);
+  const totalRemainingCostBasisFiat = new Array<number>(pointCount);
+  const totalUnrealizedPnlFiat = new Array<number>(pointCount);
+  const totalPnlChange = new Array<number>(pointCount);
+  const totalPnlPercent = new Array<number>(pointCount);
+  const driverMarkRate = singleAsset
+    ? new Array<number | null>(pointCount)
+    : undefined;
+  const driverRatePercentChange = singleAsset
+    ? new Array<number | null>(pointCount)
+    : undefined;
+
+  let firstTotalUnrealized: number | undefined;
+  let latestRemainingCostBasisFiatTotal = 0;
+
+  for (let i = 0; i < pointCount; i++) {
+    const ts = context.timeline[i];
+    let totalFiatBalanceForPoint = 0;
+    let totalBasis = 0;
+
+    const driverRate = getAnalysisRateAtTimestamp({
+      assetId: context.driverAssetId,
+      ts,
+      liveTerminalTs: context.liveTerminalTs,
+      rateCursorByAssetId: context.rateCursorByAssetId,
+      currentRatesByAssetId: context.currentRatesByAssetId,
+    });
+
+    for (const wallet of walletMetas) {
+      const state = stateByWalletId[wallet.walletId];
+
+      await advanceStreamedWalletStateToTimestamp({
+        state,
+        walletId: wallet.walletId,
+        ts,
+        context,
+      });
+
+      clampWalletAnalysisState(state);
+
+      const rate = getAnalysisRateAtTimestamp({
+        assetId: state.wallet.assetId,
+        ts,
+        liveTerminalTs: context.liveTerminalTs,
+        rateCursorByAssetId: context.rateCursorByAssetId,
+        currentRatesByAssetId: context.currentRatesByAssetId,
+      });
+      const units = state.atomicToUnitNumber(state.unitsAtomic);
+      totalFiatBalanceForPoint += units * rate;
+      totalBasis += state.basisFiat;
+    }
+
+    const totalUnrealized = totalFiatBalanceForPoint - totalBasis;
+    if (typeof firstTotalUnrealized !== 'number') {
+      firstTotalUnrealized = totalUnrealized;
+    }
+
+    timestamps[i] = ts;
+    totalFiatBalance[i] = totalFiatBalanceForPoint;
+    totalRemainingCostBasisFiat[i] = totalBasis;
+    totalUnrealizedPnlFiat[i] = totalUnrealized;
+    totalPnlChange[i] = totalUnrealized - firstTotalUnrealized;
+    totalPnlPercent[i] =
+      totalBasis > 0 ? (totalUnrealized / totalBasis) * 100 : 0;
+    latestRemainingCostBasisFiatTotal = totalBasis;
+
+    if (driverMarkRate) {
+      driverMarkRate[i] = Number.isFinite(driverRate) ? driverRate : null;
+    }
+
+    if (driverRatePercentChange) {
+      const driverBase =
+        context.baselineRateByAssetId[context.driverAssetId] ?? driverRate;
+      driverRatePercentChange[i] =
+        driverBase > 0 ? ((driverRate - driverBase) / driverBase) * 100 : null;
+    }
+  }
+
+  const latestHoldingsByRateKey: Record<string, {units: number}> = {};
+  const lastSpotRatesByRateKey: Record<string, number> = {};
+
+  for (const wallet of walletMetas) {
+    const state = stateByWalletId[wallet.walletId];
+    if (!state) {
+      continue;
+    }
+
+    const rateKey = getWalletChartRateKey(wallet);
+    const units = state.atomicToUnitNumber(state.unitsAtomic);
+
+    if (!latestHoldingsByRateKey[rateKey]) {
+      latestHoldingsByRateKey[rateKey] = {units: 0};
+    }
+    latestHoldingsByRateKey[rateKey].units += units;
+
+    const markRate = getAnalysisRateAtTimestamp({
+      assetId: state.wallet.assetId,
+      ts: context.endTs,
+      liveTerminalTs: context.liveTerminalTs,
+      rateCursorByAssetId: context.rateCursorByAssetId,
+      currentRatesByAssetId: context.currentRatesByAssetId,
+    });
+
+    if (
+      !(rateKey in lastSpotRatesByRateKey) &&
+      Number.isFinite(markRate) &&
+      markRate > 0
+    ) {
+      lastSpotRatesByRateKey[rateKey] = markRate;
+    }
+  }
+
+  return {
+    timeframe: args.timeframe,
+    quoteCurrency: context.quoteCurrency,
+    driverAssetId: context.driverAssetId,
+    driverCoin: context.driverCoin,
+    analysisWindow: {
+      startTs: context.startTs,
+      endTs: context.endTs,
+      nowMs: context.nowMs,
+    },
+    assetIds: context.assetIds.slice(),
+    coins: context.coins.slice(),
+    singleAsset,
+    timestamps,
+    totalFiatBalance,
+    totalRemainingCostBasisFiat,
+    totalUnrealizedPnlFiat,
+    totalPnlChange,
+    totalPnlPercent,
+    driverMarkRate,
+    driverRatePercentChange,
+    lastSpotRatesByRateKey,
+    latestHoldingsByRateKey,
+    latestRemainingCostBasisFiatTotal,
+  };
 }
