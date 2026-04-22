@@ -314,7 +314,7 @@
   },
   "worklets": {
     "staticFeatureFlags": {
-      "FETCH_PREVIEW_ENABLED": true
+      "FETCH_PREVIEW_ENABLED": false
     }
   }
 }
