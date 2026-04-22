@@ -43,7 +43,7 @@ function makeNearestRateGetter(pointsRaw: FiatRatePoint[]): (ts: number) => numb
     let lo = 0;
     let hi = points.length;
     while (lo < hi) {
-      const mid = (lo + hi) >> 1;
+      const mid = Math.floor((lo + hi) / 2);
       if (points[mid].ts < ts) lo = mid + 1;
       else hi = mid;
     }
@@ -157,6 +157,7 @@ export async function getFiatRateSeriesWithFx(args: {
   tokenAddress?: string;
   canonicalQuote?: string;
   bridgeCoin?: string;
+  preferDirectTargetSeries?: boolean;
 }): Promise<FiatRateSeries | null> {
   'worklet';
 
@@ -166,14 +167,21 @@ export async function getFiatRateSeriesWithFx(args: {
   const bridgeCoin = normalizeFiatRateSeriesCoin(args.bridgeCoin || FX_BRIDGE_COIN);
   const storedInterval = resolveStoredFiatRateInterval(args.interval);
 
-  const direct = await args.getSeries({
-    quoteCurrency,
-    coin,
-    interval: storedInterval,
-    chain: args.chain,
-    tokenAddress: args.tokenAddress,
-  });
-  if (direct?.points?.length) return direct;
+  const shouldReadDirectTargetSeries =
+    quoteCurrency === canonicalQuote || args.preferDirectTargetSeries === true;
+
+  if (shouldReadDirectTargetSeries) {
+    const direct = await args.getSeries({
+      quoteCurrency,
+      coin,
+      interval: storedInterval,
+      chain: args.chain,
+      tokenAddress: args.tokenAddress,
+    });
+    if (direct?.points?.length) {
+      return direct;
+    }
+  }
 
   if (quoteCurrency === canonicalQuote) return null;
 
@@ -210,6 +218,7 @@ export function getFiatRateSeriesFromCacheWithFx(args: {
   tokenAddress?: string;
   canonicalQuote?: string;
   bridgeCoin?: string;
+  preferDirectTargetSeries?: boolean;
 }): FiatRateSeries | null {
   'worklet';
 
@@ -219,15 +228,22 @@ export function getFiatRateSeriesFromCacheWithFx(args: {
   const bridgeCoin = normalizeFiatRateSeriesCoin(args.bridgeCoin || FX_BRIDGE_COIN);
   const storedInterval = resolveStoredFiatRateInterval(args.interval);
 
-  const direct = getSeriesFromCache({
-    fiatRateSeriesCache: args.fiatRateSeriesCache,
-    quoteCurrency,
-    coin,
-    interval: storedInterval,
-    chain: args.chain,
-    tokenAddress: args.tokenAddress,
-  });
-  if (direct?.points?.length) return direct;
+  const shouldReadDirectTargetSeries =
+    quoteCurrency === canonicalQuote || args.preferDirectTargetSeries === true;
+
+  if (shouldReadDirectTargetSeries) {
+    const direct = getSeriesFromCache({
+      fiatRateSeriesCache: args.fiatRateSeriesCache,
+      quoteCurrency,
+      coin,
+      interval: storedInterval,
+      chain: args.chain,
+      tokenAddress: args.tokenAddress,
+    });
+    if (direct?.points?.length) {
+      return direct;
+    }
+  }
 
   if (quoteCurrency === canonicalQuote) return null;
 
