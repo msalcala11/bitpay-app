@@ -1,11 +1,23 @@
 import type {WalletCredentials} from './types';
 
-const EVM_DECIMALS = 18;
-const MAX_ATOMIC_TO_UNIT_FRACTION_DIGITS = 15;
-const RATIO_SCALE = 1_000_000_000_000n; // 1e12 keeps Number(scaled) exact.
-const POW10_BIGINT_CACHE = new Map<number, bigint>([[0, 1n]]);
+// Keep worklet-shared constants behind tiny helpers instead of module-scoped
+// values so imported worklet code keeps working with bundle mode disabled.
+export function getEvmDecimals(): number {
+  'worklet';
+  return 18;
+}
 
-function normalizeNonNegativeInteger(value: number): number {
+export function getMaxAtomicToUnitFractionDigits(): number {
+  'worklet';
+  return 15;
+}
+
+export function getRatioScale(): bigint {
+  'worklet';
+  return 1_000_000_000_000n; // 1e12 keeps Number(scaled) exact.
+}
+
+export function normalizeNonNegativeInteger(value: number): number {
   'worklet';
 
   if (!Number.isFinite(value)) return 0;
@@ -30,7 +42,7 @@ export function getAtomicDecimals(credentials: WalletCredentials): number {
     case 'arb':
     case 'base':
     case 'op':
-      return EVM_DECIMALS;
+      return getEvmDecimals();
     case 'xrp':
       return 6;
     case 'sol':
@@ -41,7 +53,7 @@ export function getAtomicDecimals(credentials: WalletCredentials): number {
   }
 }
 
-function toSignificantStr(n: number, maxDecimals: number): string {
+export function toSignificantStr(n: number, maxDecimals: number): string {
   'worklet';
 
   if (!Number.isFinite(n)) return '0';
@@ -51,7 +63,9 @@ function toSignificantStr(n: number, maxDecimals: number): string {
   return s.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
 }
 
-function parseScientificToTruncatedIntegerString(s: string): string | null {
+export function parseScientificToTruncatedIntegerString(
+  s: string,
+): string | null {
   'worklet';
 
   const m = s.trim().match(/^([+-]?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/);
@@ -162,25 +176,21 @@ export function getPow10BigInt(decimals: number): bigint {
   'worklet';
 
   const normalized = normalizeNonNegativeInteger(decimals);
-  const cached = POW10_BIGINT_CACHE.get(normalized);
-  if (cached !== undefined) return cached;
-
-  const computed = 10n ** BigInt(normalized);
-  POW10_BIGINT_CACHE.set(normalized, computed);
-  return computed;
+  return 10n ** BigInt(normalized);
 }
 
 export function makeAtomicToUnitNumberConverter(
   decimals: number,
-  maxFractionDigits = MAX_ATOMIC_TO_UNIT_FRACTION_DIGITS,
+  maxFractionDigits = getMaxAtomicToUnitFractionDigits(),
 ): (atomic: bigint) => number {
   'worklet';
 
+  const maxAtomicToUnitFractionDigits = getMaxAtomicToUnitFractionDigits();
   const normalizedDecimals = normalizeNonNegativeInteger(decimals);
   const fractionDigits = Math.min(
     normalizedDecimals,
     normalizeNonNegativeInteger(maxFractionDigits),
-    MAX_ATOMIC_TO_UNIT_FRACTION_DIGITS,
+    maxAtomicToUnitFractionDigits,
   );
   const base = getPow10BigInt(normalizedDecimals);
   const fractionalDivisor = fractionDigits > 0 ? getPow10BigInt(normalizedDecimals - fractionDigits) : 1n;
@@ -211,12 +221,13 @@ export function ratioBigIntToNumber(n: bigint, d: bigint): number {
   'worklet';
 
   if (d === 0n) return 0;
+  const ratioScale = getRatioScale();
   const sign = (n < 0n) !== (d < 0n) ? -1 : 1;
   const an = n < 0n ? -n : n;
   const ad = d < 0n ? -d : d;
-  const scaled = (an * RATIO_SCALE) / ad;
+  const scaled = (an * ratioScale) / ad;
   const asNum = Number(scaled);
-  return sign * (Number.isFinite(asNum) ? asNum / Number(RATIO_SCALE) : 0);
+  return sign * (Number.isFinite(asNum) ? asNum / Number(ratioScale) : 0);
 }
 
 export function formatBigIntDecimal(

@@ -35,11 +35,11 @@ if (prod) {
   plugins.push('transform-remove-console');
 }
 
-// Bundle Mode is global for this build. Even though the new feature is a worker
-// demo, UI-runtime worklets like Skia/Reanimated charts are affected too.
+// Keep bundle mode disabled and transfer any required runtime helpers into the
+// worker explicitly so UI worklets stay on the default Metro execution path.
 /** @type {import('react-native-worklets/plugin').PluginOptions} */
 const workletsPluginOptions = {
-  bundleMode: true,
+  bundleMode: false,
   strictGlobal: true,
   workletizableModules: [
     '@bitpay-labs/bitcore-lib',

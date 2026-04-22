@@ -1,7 +1,11 @@
 import {
-  getWorkletRateSeriesCache,
+  clearPortfolioTxHistorySigningDispatchContextOnRuntime,
+  setPortfolioTxHistorySigningDispatchContextOnRuntime,
+} from '../../adapters/rn/txHistorySigning';
+import {
   ensureWorkletRates,
   ensureWorkletSnapshotRateSeriesCache,
+  getWorkletRateSeriesCache,
   parseWorkletStoredFiatRateSeries,
 } from './portfolioWorkletRates';
 
@@ -10,6 +14,20 @@ type FakeStorage = {
   delete: (key: string) => void;
   getString: (key: string) => string | undefined;
   set: (key: string, value: string) => void;
+};
+
+type FakeNitroRequest = {
+  url: string;
+  method?: string;
+  headers?: Array<{key: string; value: string}>;
+  timeoutMs?: number;
+  followRedirects?: boolean;
+};
+
+type FakeNitroResponse = {
+  ok: boolean;
+  status: number;
+  bodyString?: string;
 };
 
 const createStorage = (): FakeStorage => {
@@ -26,28 +44,43 @@ const createStorage = (): FakeStorage => {
   };
 };
 
-describe('portfolioWorkletRates', () => {
-  const originalFetch = global.fetch;
+function installNitroFetchMock(
+  handler: (request: FakeNitroRequest) => FakeNitroResponse,
+) {
+  const requestSync = jest.fn((request: FakeNitroRequest) => handler(request));
+  const request = jest.fn(async (requestArgs: FakeNitroRequest) =>
+    handler(requestArgs),
+  );
 
+  setPortfolioTxHistorySigningDispatchContextOnRuntime({
+    nitroFetchClient: {
+      request,
+      requestSync,
+    },
+  } as any);
+
+  return requestSync;
+}
+
+describe('portfolioWorkletRates', () => {
   afterEach(() => {
-    global.fetch = originalFetch;
+    clearPortfolioTxHistorySigningDispatchContextOnRuntime();
     jest.restoreAllMocks();
   });
 
   it('stores compact persisted series with fetchedOn metadata and reloads them', async () => {
     jest.spyOn(Date, 'now').mockReturnValue(321);
     const storage = createStorage();
-    const fetchMock = jest.fn().mockResolvedValue({
+    const requestSyncMock = installNitroFetchMock(() => ({
       ok: true,
-      text: async () =>
-        JSON.stringify({
-          bch: [
-            {ts: 2, rate: 120},
-            {ts: 1, rate: 100},
-          ],
-        }),
-    });
-    global.fetch = fetchMock as typeof global.fetch;
+      status: 200,
+      bodyString: JSON.stringify({
+        bch: [
+          {ts: 2, rate: 120},
+          {ts: 1, rate: 100},
+        ],
+      }),
+    }));
 
     const cache = await ensureWorkletSnapshotRateSeriesCache({
       storage,
@@ -81,23 +114,27 @@ describe('portfolioWorkletRates', () => {
         {ts: 2, rate: 120},
       ],
     });
+    expect(
+      requestSyncMock.mock.calls.some(call =>
+        String(call[0]?.url).includes('/v4/fiatrates/USD?days=1'),
+      ),
+    ).toBe(true);
   });
 
   it('refreshes legacy compact series without fetchedOn metadata on ensureWorkletRates', async () => {
     jest.spyOn(Date, 'now').mockReturnValue(654);
     const storage = createStorage();
     storage.set('rate:v1:USD:btc:1D', '{"v":2,"p":[[2,200],[1,100]]}');
-    const fetchMock = jest.fn().mockResolvedValue({
+    const requestSyncMock = installNitroFetchMock(() => ({
       ok: true,
-      text: async () =>
-        JSON.stringify({
-          btc: [
-            {ts: 2, rate: 200},
-            {ts: 1, rate: 100},
-          ],
-        }),
-    });
-    global.fetch = fetchMock as typeof global.fetch;
+      status: 200,
+      bodyString: JSON.stringify({
+        btc: [
+          {ts: 2, rate: 200},
+          {ts: 1, rate: 100},
+        ],
+      }),
+    }));
 
     await ensureWorkletRates({
       storage,
@@ -108,7 +145,7 @@ describe('portfolioWorkletRates', () => {
       coins: ['btc'],
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(requestSyncMock).toHaveBeenCalledTimes(1);
     expect(storage.getString('rate:v1:USD:btc:1D')).toBe(
       '{"v":3,"f":654,"p":[[1,100],[2,200]]}',
     );
@@ -118,15 +155,14 @@ describe('portfolioWorkletRates', () => {
     jest.spyOn(Date, 'now').mockReturnValue(10_000);
     const storage = createStorage();
     storage.set('rate:v1:USD:btc:1D', '{"v":3,"f":1,"p":[[1,100]]}');
-    const fetchMock = jest.fn().mockResolvedValue({
+    const requestSyncMock = installNitroFetchMock(() => ({
       ok: true,
-      text: async () =>
-        JSON.stringify({
-          btc: [{ts: 1, rate: 101}],
-          eth: [{ts: 1, rate: 202}],
-        }),
-    });
-    global.fetch = fetchMock as typeof global.fetch;
+      status: 200,
+      bodyString: JSON.stringify({
+        btc: [{ts: 1, rate: 101}],
+        eth: [{ts: 1, rate: 202}],
+      }),
+    }));
 
     const cache = await getWorkletRateSeriesCache({
       storage,
@@ -140,7 +176,7 @@ describe('portfolioWorkletRates', () => {
       maxAgeMs: 1_000,
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(requestSyncMock).toHaveBeenCalledTimes(1);
     expect(cache).toEqual({
       'USD:btc:1D': {
         fetchedOn: 10_000,
@@ -154,17 +190,16 @@ describe('portfolioWorkletRates', () => {
   });
 
   it('uses the default fiat-rate endpoint for native-coin wallet snapshots', async () => {
-    const fetchMock = jest.fn().mockResolvedValue({
+    const requestSyncMock = installNitroFetchMock(() => ({
       ok: true,
-      text: async () =>
-        JSON.stringify({
-          bch: [
-            {ts: 1, rate: 100},
-            {ts: 2, rate: 120},
-          ],
-        }),
-    });
-    global.fetch = fetchMock as typeof global.fetch;
+      status: 200,
+      bodyString: JSON.stringify({
+        bch: [
+          {ts: 1, rate: 100},
+          {ts: 2, rate: 120},
+        ],
+      }),
+    }));
 
     await ensureWorkletSnapshotRateSeriesCache({
       storage: createStorage(),
@@ -182,24 +217,23 @@ describe('portfolioWorkletRates', () => {
       },
     });
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://bws.bitpay.com/bws/api/v4/fiatrates/USD?days=1',
+    expect(requestSyncMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        url: 'https://bws.bitpay.com/bws/api/v4/fiatrates/USD?days=1',
         method: 'GET',
       }),
     );
   });
 
   it('uses explicit chain and tokenAddress params for token wallet snapshots', async () => {
-    const fetchMock = jest.fn().mockResolvedValue({
+    const requestSyncMock = installNitroFetchMock(() => ({
       ok: true,
-      text: async () =>
-        JSON.stringify([
-          {ts: 1, rate: 1},
-          {ts: 2, rate: 1.01},
-        ]),
-    });
-    global.fetch = fetchMock as typeof global.fetch;
+      status: 200,
+      bodyString: JSON.stringify([
+        {ts: 1, rate: 1},
+        {ts: 2, rate: 1.01},
+      ]),
+    }));
 
     await ensureWorkletSnapshotRateSeriesCache({
       storage: createStorage(),
@@ -218,24 +252,23 @@ describe('portfolioWorkletRates', () => {
       },
     });
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://bws.bitpay.com/bws/api/v4/fiatrates/USD?days=1&chain=arb&tokenAddress=0xaf88d065e77c8cc2239327c5edb3a432268e5831',
+    expect(requestSyncMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        url: 'https://bws.bitpay.com/bws/api/v4/fiatrates/USD?days=1&chain=arb&tokenAddress=0xaf88d065e77c8cc2239327c5edb3a432268e5831',
         method: 'GET',
       }),
     );
   });
 
   it('preserves Solana token address case for token wallet snapshot requests', async () => {
-    const fetchMock = jest.fn().mockResolvedValue({
+    const requestSyncMock = installNitroFetchMock(() => ({
       ok: true,
-      text: async () =>
-        JSON.stringify([
-          {ts: 1, rate: 1},
-          {ts: 2, rate: 1.01},
-        ]),
-    });
-    global.fetch = fetchMock as typeof global.fetch;
+      status: 200,
+      bodyString: JSON.stringify([
+        {ts: 1, rate: 1},
+        {ts: 2, rate: 1.01},
+      ]),
+    }));
     const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
     await ensureWorkletSnapshotRateSeriesCache({
@@ -255,9 +288,9 @@ describe('portfolioWorkletRates', () => {
       },
     });
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      `https://bws.bitpay.com/bws/api/v4/fiatrates/USD?days=1&chain=sol&tokenAddress=${tokenAddress}`,
+    expect(requestSyncMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        url: `https://bws.bitpay.com/bws/api/v4/fiatrates/USD?days=1&chain=sol&tokenAddress=${tokenAddress}`,
         method: 'GET',
       }),
     );
@@ -265,21 +298,20 @@ describe('portfolioWorkletRates', () => {
 
   it('continues fetching later intervals for a token when earlier rate requests fail', async () => {
     const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-    const fetchMock = jest.fn().mockImplementation(async (url: string) => {
-      if (url.includes('days=1') || url.includes('days=7')) {
+    const requestSyncMock = installNitroFetchMock((request: FakeNitroRequest) => {
+      if (request.url.includes('days=1') || request.url.includes('days=7')) {
         throw new Error('token rate unavailable');
       }
 
       return {
         ok: true,
-        text: async () =>
-          JSON.stringify([
-            {ts: 1, rate: 1},
-            {ts: 2, rate: 1.01},
-          ]),
+        status: 200,
+        bodyString: JSON.stringify([
+          {ts: 1, rate: 1},
+          {ts: 2, rate: 1.01},
+        ]),
       };
     });
-    global.fetch = fetchMock as typeof global.fetch;
 
     const cache = await ensureWorkletSnapshotRateSeriesCache({
       storage: createStorage(),
@@ -300,25 +332,28 @@ describe('portfolioWorkletRates', () => {
 
     expect(Object.keys(cache)).toContain(`USD:usdc:1M:sol:${tokenAddress}`);
     expect(
-      fetchMock.mock.calls.some(call => String(call[0]).includes('days=30')),
+      requestSyncMock.mock.calls.some(call =>
+        String(call[0]?.url).includes('days=30'),
+      ),
     ).toBe(true);
     expect(
-      fetchMock.mock.calls.some(call => String(call[0]).includes('days=7')),
+      requestSyncMock.mock.calls.some(call =>
+        String(call[0]?.url).includes('days=7'),
+      ),
     ).toBe(true);
   });
 
   it('aliases the legacy ethereum matic token to native POL rates', async () => {
-    const fetchMock = jest.fn().mockResolvedValue({
+    const requestSyncMock = installNitroFetchMock(() => ({
       ok: true,
-      text: async () =>
-        JSON.stringify({
-          pol: [
-            {ts: 1, rate: 0.9},
-            {ts: 2, rate: 1.1},
-          ],
-        }),
-    });
-    global.fetch = fetchMock as typeof global.fetch;
+      status: 200,
+      bodyString: JSON.stringify({
+        pol: [
+          {ts: 1, rate: 0.9},
+          {ts: 2, rate: 1.1},
+        ],
+      }),
+    }));
 
     await ensureWorkletSnapshotRateSeriesCache({
       storage: createStorage(),
@@ -337,15 +372,15 @@ describe('portfolioWorkletRates', () => {
       },
     });
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://bws.bitpay.com/bws/api/v4/fiatrates/USD?days=1',
+    expect(requestSyncMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        url: 'https://bws.bitpay.com/bws/api/v4/fiatrates/USD?days=1',
         method: 'GET',
       }),
     );
     expect(
-      fetchMock.mock.calls.some(call =>
-        String(call[0]).includes(
+      requestSyncMock.mock.calls.some(call =>
+        String(call[0]?.url).includes(
           'tokenAddress=0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0',
         ),
       ),

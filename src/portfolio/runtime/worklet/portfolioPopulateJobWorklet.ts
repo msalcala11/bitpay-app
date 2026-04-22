@@ -358,17 +358,19 @@ async function runSingleWalletPopulateOnWorklet(args: {
   }
 
   try {
-    walletRun.prepared = await handlePrepareWalletOnPopulateWorklet(
-      config,
-      populateState,
-      {
-        cfg: params.cfg,
-        wallet: wallet.summary,
-        credentials: wallet.credentials,
-        ingest: params.ingest,
-        pageSize: params.pageSize,
-        emitRows: params.emitRows,
-      },
+    walletRun.prepared = await withWalletSigningContext(job, walletId, () =>
+      handlePrepareWalletOnPopulateWorklet(
+        config,
+        populateState,
+        {
+          cfg: params.cfg,
+          wallet: wallet.summary,
+          credentials: wallet.credentials,
+          ingest: params.ingest,
+          pageSize: params.pageSize,
+          emitRows: params.emitRows,
+        },
+      ),
     );
   } catch (error: unknown) {
     try {

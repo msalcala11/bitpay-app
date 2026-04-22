@@ -3,6 +3,11 @@ import {
   type FiatRateSeriesResponse,
 } from '../../core/fiatRatesShared';
 import type {FiatRateProvider} from '../../core/pnl/fiatRateStore';
+import type {NitroResponse as NitroFetchResponse} from 'react-native-nitro-fetch';
+import {
+  DEFAULT_PORTFOLIO_NITRO_FETCH_TIMEOUT_MS,
+  getPortfolioNitroFetchClientOnRuntime,
+} from './txHistorySigning';
 
 export class RnBwsFiatRateProvider implements FiatRateProvider {
   async loadSeries(
@@ -17,28 +22,40 @@ export class RnBwsFiatRateProvider implements FiatRateProvider {
       args.asset,
     );
 
-    let response: Response;
+    const nitroFetchClient = getPortfolioNitroFetchClientOnRuntime();
+    let response: NitroFetchResponse;
     try {
-      response = await fetch(url, {
+      response = nitroFetchClient.requestSync({
+        url,
         method: 'GET',
-        headers: {
-          Accept: 'application/json',
-        },
+        headers: [
+          {key: 'Accept', value: 'application/json'},
+          {key: 'Cache-Control', value: 'no-store'},
+        ],
+        timeoutMs: DEFAULT_PORTFOLIO_NITRO_FETCH_TIMEOUT_MS,
+        followRedirects: true,
       });
     } catch (error: unknown) {
-      const runtimeError = error instanceof Error ? error : new Error(String(error));
+      const runtimeError =
+        error instanceof Error ? error : new Error(String(error));
       throw new Error(
-        `Portfolio fiat-rate request failed for ${url}: ${runtimeError.message}`,
+        `Portfolio Nitro Fetch fiat-rate request failed for ${url}: ${runtimeError.message}`,
       );
     }
 
+    const rawResponseText =
+      typeof response.bodyString === 'string' ? response.bodyString : '';
     if (!response.ok) {
-      const responsePreview = (await response.text()).slice(0, 400);
+      const responsePreview = rawResponseText.slice(0, 400);
       throw new Error(
         `Failed to fetch fiat rates (${response.status}) for ${url}. ${responsePreview}`,
       );
     }
 
-    return (await response.json()) as FiatRateSeriesResponse;
+    try {
+      return (rawResponseText ? JSON.parse(rawResponseText) : {}) as FiatRateSeriesResponse;
+    } catch {
+      return {} as FiatRateSeriesResponse;
+    }
   }
 }
