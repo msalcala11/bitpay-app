@@ -3,15 +3,11 @@ const {resolve: resolveWithMetro} = require('metro-resolver');
 const path = require('path');
 
 const {withSentryConfig} = require('@sentry/react-native/metro');
-const {WORKLETS_BUNDLE_MODE_ENABLED} = require('./workletsBuildConfig');
 
 const defaultConfig = getDefaultConfig(__dirname);
 const {
   resolver: {sourceExts, assetExts},
 } = defaultConfig;
-const bundleModeMetroConfig = WORKLETS_BUNDLE_MODE_ENABLED
-  ? require('react-native-worklets/bundleMode').bundleModeMetroConfig
-  : undefined;
 
 const SHIM_PATH = path.resolve(__dirname, 'shims/silence-dkls-web.js');
 const REAL_SILENCE_PATH = path.resolve(
@@ -51,14 +47,6 @@ const config = {
 };
 
 const delegateResolveRequest = (context, moduleName, platform) => {
-  if (bundleModeMetroConfig?.resolver?.resolveRequest) {
-    return bundleModeMetroConfig.resolver.resolveRequest(
-      context,
-      moduleName,
-      platform,
-    );
-  }
-
   if (typeof context.resolveRequest === 'function') {
     return context.resolveRequest(context, moduleName, platform);
   }
@@ -113,8 +101,4 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   );
 };
 
-module.exports = withSentryConfig(
-  WORKLETS_BUNDLE_MODE_ENABLED
-    ? mergeConfig(defaultConfig, bundleModeMetroConfig, config)
-    : mergeConfig(defaultConfig, config),
-);
+module.exports = withSentryConfig(mergeConfig(defaultConfig, config));

@@ -33,8 +33,6 @@ import {AboutGroupParamList, AboutScreens} from '../AboutGroup';
 import {useAppSelector} from '../../../../../utils/hooks';
 import type {Key} from '../../../../../store/wallet/wallet.models';
 
-const {WORKLETS_BUNDLE_MODE_ENABLED} = require('../../../../../../workletsBuildConfig');
-
 type Props = NativeStackScreenProps<
   AboutGroupParamList,
   AboutScreens.WORKLETS_BUNDLE_MODE_DEMO
@@ -476,9 +474,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             it can verify worker access without touching the app's persisted
             Redux keys.
           </SectionBody>
-          <MetaText>
-            Worklets bundle mode: {WORKLETS_BUNDLE_MODE_ENABLED ? 'enabled' : 'disabled'}
-          </MetaText>
+          <MetaText>Worklets bundle mode: disabled</MetaText>
           <Smallest>
             Expected result: the MMKV probe and stress test succeed cleanly, the
             contention race only observes recognized RN or worker writes on the
