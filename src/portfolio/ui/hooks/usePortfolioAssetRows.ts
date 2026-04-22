@@ -60,6 +60,7 @@ type AssetGroupAnalysisState = {
   displayScopeKey: string;
   requestKey: string;
   committedCacheKey: string;
+  resolvedPopulateSessionToken?: string;
   sessionId?: string;
   runId?: number;
   currentData?: PnlAnalysisResult;
@@ -496,6 +497,10 @@ export function usePortfolioAssetRows({
   );
   latestAssetGroupSessionRequestKeyRef.current = assetGroupSessionRequestKey;
   const assetGroupScopeRunIdRef = useRef(0);
+  const currentScopedAssetPopulateSessionToken = portfolio.populateStatus
+    ?.inProgress
+    ? populateSessionStateToken
+    : undefined;
   const previousVisibleRowStateByKeyRef = useRef<
     Record<
       string,
@@ -534,6 +539,9 @@ export function usePortfolioAssetRows({
           displayScopeKey: spec.displayScopeKey,
           requestKey: spec.requestKey,
           committedCacheKey: spec.committedCacheKey,
+          resolvedPopulateSessionToken: preserveDisplayScopeData
+            ? prevState?.resolvedPopulateSessionToken
+            : undefined,
           sessionId:
             prevState?.requestKey === spec.requestKey
               ? prevState.sessionId
@@ -561,6 +569,8 @@ export function usePortfolioAssetRows({
           prevState.displayScopeKey !== nextState.displayScopeKey ||
           prevState.requestKey !== nextState.requestKey ||
           prevState.committedCacheKey !== nextState.committedCacheKey ||
+          prevState.resolvedPopulateSessionToken !==
+            nextState.resolvedPopulateSessionToken ||
           prevState.sessionId !== nextState.sessionId ||
           prevState.runId !== nextState.runId ||
           prevState.currentData !== nextState.currentData ||
@@ -617,6 +627,9 @@ export function usePortfolioAssetRows({
           displayScopeKey: spec.displayScopeKey,
           requestKey: spec.requestKey,
           committedCacheKey: spec.committedCacheKey,
+          resolvedPopulateSessionToken: preserveDisplayScopeData
+            ? prevState?.resolvedPopulateSessionToken
+            : undefined,
           sessionId:
             prevState?.requestKey === spec.requestKey
               ? prevState.sessionId
@@ -639,6 +652,8 @@ export function usePortfolioAssetRows({
           prevState.displayScopeKey === nextState.displayScopeKey &&
           prevState.requestKey === nextState.requestKey &&
           prevState.committedCacheKey === nextState.committedCacheKey &&
+          prevState.resolvedPopulateSessionToken ===
+            nextState.resolvedPopulateSessionToken &&
           prevState.sessionId === nextState.sessionId &&
           prevState.runId === nextState.runId &&
           prevState.currentData === nextState.currentData &&
@@ -679,6 +694,7 @@ export function usePortfolioAssetRows({
           displayScopeKey: spec.displayScopeKey,
           requestKey: spec.requestKey,
           committedCacheKey: spec.committedCacheKey,
+          resolvedPopulateSessionToken: undefined,
           sessionId,
           runId,
           currentData: undefined,
@@ -746,6 +762,8 @@ export function usePortfolioAssetRows({
           const nextState: AssetGroupAnalysisState = {
             ...baseState,
             displayScopeKey: args.spec.displayScopeKey,
+            resolvedPopulateSessionToken:
+              currentScopedAssetPopulateSessionToken,
             sessionId: effectiveSessionId,
             runId: effectiveRunId,
             currentData: args.result,
@@ -758,6 +776,8 @@ export function usePortfolioAssetRows({
 
           if (
             baseState.displayScopeKey === nextState.displayScopeKey &&
+            baseState.resolvedPopulateSessionToken ===
+              nextState.resolvedPopulateSessionToken &&
             baseState.sessionId === nextState.sessionId &&
             baseState.runId === nextState.runId &&
             baseState.currentData === nextState.currentData &&
@@ -823,6 +843,8 @@ export function usePortfolioAssetRows({
           const nextState: AssetGroupAnalysisState = {
             ...baseState,
             displayScopeKey: args.spec.displayScopeKey,
+            resolvedPopulateSessionToken:
+              baseState.resolvedPopulateSessionToken,
             sessionId: args.sessionId,
             runId: args.runId,
             loading: false,
@@ -831,6 +853,8 @@ export function usePortfolioAssetRows({
 
           if (
             baseState.displayScopeKey === nextState.displayScopeKey &&
+            baseState.resolvedPopulateSessionToken ===
+              nextState.resolvedPopulateSessionToken &&
             baseState.sessionId === nextState.sessionId &&
             baseState.runId === nextState.runId &&
             baseState.loading === nextState.loading &&
@@ -866,6 +890,8 @@ export function usePortfolioAssetRows({
         if (
           currentState?.requestKey !== spec.requestKey ||
           currentState?.displayScopeKey !== spec.displayScopeKey ||
+          currentState?.resolvedPopulateSessionToken !==
+            currentScopedAssetPopulateSessionToken ||
           !currentState.currentData
         ) {
           return false;
@@ -878,6 +904,8 @@ export function usePortfolioAssetRows({
             !prevState ||
             prevState.requestKey !== spec.requestKey ||
             prevState.displayScopeKey !== spec.displayScopeKey ||
+            prevState.resolvedPopulateSessionToken !==
+              currentScopedAssetPopulateSessionToken ||
             !prevState.currentData
           ) {
             commitDisposition = 'stale';
@@ -886,6 +914,8 @@ export function usePortfolioAssetRows({
 
           const nextState: AssetGroupAnalysisState = {
             ...prevState,
+            resolvedPopulateSessionToken:
+              prevState.resolvedPopulateSessionToken,
             sessionId,
             runId: scopeRunId,
             loading: false,
@@ -893,6 +923,8 @@ export function usePortfolioAssetRows({
           };
 
           if (
+            prevState.resolvedPopulateSessionToken ===
+              nextState.resolvedPopulateSessionToken &&
             prevState.sessionId === nextState.sessionId &&
             prevState.runId === nextState.runId &&
             prevState.loading === nextState.loading &&
@@ -1139,6 +1171,8 @@ export function usePortfolioAssetRows({
             const nextState: AssetGroupAnalysisState = {
               ...baseState,
               displayScopeKey: spec.displayScopeKey,
+              resolvedPopulateSessionToken:
+                baseState.resolvedPopulateSessionToken,
               sessionId: session.sessionId,
               runId: scopeRunId,
               loading: true,
@@ -1150,6 +1184,8 @@ export function usePortfolioAssetRows({
               prevState.displayScopeKey === nextState.displayScopeKey &&
               prevState.requestKey === nextState.requestKey &&
               prevState.committedCacheKey === nextState.committedCacheKey &&
+              prevState.resolvedPopulateSessionToken ===
+                nextState.resolvedPopulateSessionToken &&
               prevState.sessionId === nextState.sessionId &&
               prevState.runId === nextState.runId &&
               prevState.currentData === nextState.currentData &&
@@ -1229,12 +1265,13 @@ export function usePortfolioAssetRows({
               displayScopeKey: spec.displayScopeKey,
               requestKey: spec.requestKey,
               committedCacheKey: spec.committedCacheKey,
+              resolvedPopulateSessionToken: undefined,
               currentData: undefined,
               committedData: hasCommittedPortfolioBaseline
-              ? assetGroupCommittedAnalysisCacheRef.current.get(
-                  spec.committedCacheKey,
-                )
-              : undefined,
+                ? assetGroupCommittedAnalysisCacheRef.current.get(
+                    spec.committedCacheKey,
+                  )
+                : undefined,
               sessionId: preparedSessionId,
               runId: scopeRunId,
               loading: true,
@@ -1243,6 +1280,8 @@ export function usePortfolioAssetRows({
             const nextState: AssetGroupAnalysisState = {
               ...baseState,
               displayScopeKey: spec.displayScopeKey,
+              resolvedPopulateSessionToken:
+                baseState.resolvedPopulateSessionToken,
               sessionId: preparedSessionId,
               runId: scopeRunId,
               loading: false,
@@ -1250,6 +1289,8 @@ export function usePortfolioAssetRows({
             };
 
             if (
+              prevState?.resolvedPopulateSessionToken !==
+                nextState.resolvedPopulateSessionToken ||
               prevState?.sessionId !== nextState.sessionId ||
               prevState?.runId !== nextState.runId ||
               !prevState ||

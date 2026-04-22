@@ -28,6 +28,15 @@ export type PortfolioPopulateServiceOptions = {
 const PORTFOLIO_POPULATE_ABORTED_ERROR_MESSAGE = 'PORTFOLIO_POPULATE_ABORTED';
 const DEFAULT_POPULATE_STATUS_POLL_MS = 200;
 
+function nowMs(): number {
+  const candidate = globalThis?.performance?.now?.();
+  return Number.isFinite(candidate) ? Number(candidate) : Date.now();
+}
+
+function roundMs(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 function createDefaultBwsConfig(): BwsConfig {
   return {
     baseUrl: BASE_BWS_URL,
@@ -142,8 +151,18 @@ export class PortfolioPopulateService {
     this.resetCancel();
     const requestedJobId = createRequestedPopulateJobId();
     this.activeJobId = requestedJobId;
+    const populateStartedAt = nowMs();
+
+    console.log('[portfolio-populate-startup] service populateWallets begin', {
+      requestedJobId,
+      walletCount: Array.isArray(args.wallets) ? args.wallets.length : 0,
+      pageSize: this.pageSize,
+      emitRows: this.emitRows,
+      statusPollMs: this.statusPollMs,
+    });
 
     try {
+      const startJobStartedAt = nowMs();
       const start = await this.client.startPopulateJob({
         jobId: requestedJobId,
         awaitTerminal: false,
@@ -153,12 +172,24 @@ export class PortfolioPopulateService {
         pageSize: this.pageSize,
         emitRows: this.emitRows,
       });
+      const startJobElapsedMs = nowMs() - startJobStartedAt;
       const status = start?.status;
       if (!status) {
         throw new Error(
           'Portfolio populate job status is unavailable on the runtime.',
         );
       }
+
+      console.log('[portfolio-populate-startup] service startPopulateJob result', {
+        requestedJobId,
+        elapsedMs: roundMs(startJobElapsedMs),
+        totalElapsedMs: roundMs(nowMs() - populateStartedAt),
+        state: status.state,
+        inProgress: status.inProgress,
+        currentWalletId: status.currentWalletId,
+        walletsTotal: status.walletsTotal,
+        walletsCompleted: status.walletsCompleted,
+      });
 
       if (args.onProgress) {
         await args.onProgress(status);

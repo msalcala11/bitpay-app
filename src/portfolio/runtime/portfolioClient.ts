@@ -204,6 +204,12 @@ export class PortfolioRuntimeClient {
     return this.request('debug.getPopulateWalletTrace', params);
   }
 
+  quickCryptoPubKeyProbe(
+    params: WorkerMethodMap['debug.quickCryptoPubKeyProbe']['params'] = {},
+  ) {
+    return this.request('debug.quickCryptoPubKeyProbe', params);
+  }
+
   private handleResponse(response: WorkerResponse): void {
     const pending = this.pending.get(response.id);
     if (!pending) {

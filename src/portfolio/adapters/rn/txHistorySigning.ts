@@ -19,6 +19,16 @@ export type QuickCryptoKeyObjectHybrid = {
     type?: number,
     passphrase?: ArrayBuffer,
   ): boolean;
+  exportKey?(
+    format?: number,
+    type?: number,
+    cipher?: string,
+    passphrase?: ArrayBuffer,
+  ): ArrayBuffer;
+  exportJwk?(
+    key: Record<string, unknown>,
+    handleRsaPss: boolean,
+  ): Record<string, unknown>;
 };
 
 export type QuickCryptoSignHybrid = {
@@ -40,6 +50,7 @@ export type QuickCryptoEnums = {
     DER: number;
   };
   KeyEncoding: {
+    SPKI: number;
     SEC1: number;
   };
 };
@@ -55,10 +66,21 @@ export type TransferredNitroBwsSigningBatchHybrids = {
   privateKeyHandle: QuickCryptoKeyObjectHybrid;
 };
 
-export type PortfolioTxHistoryRequestKeyDetails = {
-  requestPubKey?: string;
-  derivedRequestPubKey: string;
-  requestPubKeyMatchesDerived?: boolean;
+export type PortfolioQuickCryptoPubKeyProbeResult = {
+  probeKeyTag: string;
+  requestPrivKeySec1DerHex: string;
+  publicKeySpkiHex?: string;
+  publicKeySpkiExportError?: string;
+  publicJwk: {
+    kty?: string;
+    crv?: string;
+    x?: string;
+    y?: string;
+  };
+  publicKeyXHex: string;
+  publicKeyYHex: string;
+  compressedPublicKeyHex: string;
+  uncompressedPublicKeyHex: string;
 };
 
 type BoxedHybridObjectLike<T> = {
@@ -76,7 +98,10 @@ type NitroFetchHybrid = {
 
 export type PortfolioTxHistorySigningDispatchContext = {
   requestPrivKey?: string;
-  requestKey?: PortfolioTxHistoryRequestKeyDetails;
+  requestPubKey?: string;
+  requestCount?: number;
+  requestPrivKeySec1DerHex?: string;
+  boxedNitroModulesProxy?: BoxedHybridObjectLike<NitroModulesLike>;
   boxedNitroFetch?: BoxedHybridObjectLike<NitroFetchHybrid>;
   nitroFetchClient?: NitroFetchClientHybrid;
   firstHashHybrid?: QuickCryptoHashHybrid;
@@ -89,6 +114,8 @@ type GlobalWithPortfolioSigningContext = typeof globalThis & {
   __bitpayPortfolioTxHistorySigningContextV1__?:
     | PortfolioTxHistorySigningDispatchContext
     | null;
+  __bitpayPortfolioBitcoreLibV1__?: any;
+  NitroModulesProxy?: NitroModulesLike;
 };
 
 const PORTFOLIO_TX_HISTORY_SIGNING_CONTEXT_GLOBAL_KEY =
@@ -98,17 +125,109 @@ const SECP256K1_CURVE_ORDER_HEX =
 const SECP256K1_CURVE_HALF_ORDER_HEX =
   '7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0';
 export const DEFAULT_PORTFOLIO_NITRO_FETCH_TIMEOUT_MS = 15000;
+export const PORTFOLIO_REQUEST_KEY_DEBUG_PROBE_PRIVATE_KEY_HEX =
+  '3da1b53f027ed856bb1922dde7438f91309a59fa1a3aaf7f64dd7f46a258c73c';
+const PORTFOLIO_REQUEST_KEY_DEBUG_PROBE_KEY_TAG = 'fixed_test_vector_v1';
+const QUICK_CRYPTO_ENUMS: QuickCryptoEnums = {
+  KeyType: {
+    PRIVATE: 2,
+  },
+  KFormatType: {
+    DER: 0,
+  },
+  KeyEncoding: {
+    SPKI: 2,
+    SEC1: 3,
+  },
+};
+let sharedBoxedNitroFetchOnJS: BoxedHybridObjectLike<NitroFetchHybrid> | undefined;
+let sharedBoxedNitroModulesProxyOnJS:
+  | BoxedHybridObjectLike<NitroModulesLike>
+  | undefined;
 
-function getBitcoreLibOnRN(): any {
-  const importedBitcoreLib = require('@bitpay-labs/bitcore-lib') as any;
-  return importedBitcoreLib?.default || importedBitcoreLib;
+function nowMs(): number {
+  const candidate = globalThis?.performance?.now?.();
+  return Number.isFinite(candidate) ? Number(candidate) : Date.now();
 }
 
-function getNitroModulesForRN(): NitroModulesLike {
+type PortfolioTxHistorySigningContextBuildStepMetrics = {
+  elapsedMs?: number;
+  cacheMiss?: boolean;
+};
+
+type PortfolioTxHistorySec1DerBuildMetrics = {
+  elapsedMs?: number;
+  bitcoreLoadElapsedMs?: number;
+  bitcoreLoadCacheMiss?: boolean;
+  privateKeyParseElapsedMs?: number;
+  privateKeyToBufferElapsedMs?: number;
+  sec1DerEncodeElapsedMs?: number;
+};
+
+export type PortfolioTxHistorySigningContextBuildMetrics = {
+  totalElapsedMs?: number;
+  requestPrivKeyPresent?: boolean;
+  nitroModulesProxy?: PortfolioTxHistorySigningContextBuildStepMetrics;
+  nitroFetch?: PortfolioTxHistorySigningContextBuildStepMetrics;
+  requestPrivKeySec1Der?: PortfolioTxHistorySec1DerBuildMetrics;
+  objectAssemblyElapsedMs?: number;
+};
+
+function getBitcoreLibOnJS(
+  metrics?: PortfolioTxHistorySigningContextBuildStepMetrics,
+): any {
+  const startedAt = metrics ? nowMs() : 0;
+  const globalRef = globalThis as GlobalWithPortfolioSigningContext;
+  const cacheMiss = !globalRef.__bitpayPortfolioBitcoreLibV1__;
+  if (cacheMiss) {
+    const importedBitcoreLib = require('@bitpay-labs/bitcore-lib') as any;
+    globalRef.__bitpayPortfolioBitcoreLibV1__ =
+      importedBitcoreLib?.default || importedBitcoreLib;
+  }
+
+  const bitcoreLib = globalRef.__bitpayPortfolioBitcoreLibV1__;
+  if (!bitcoreLib?.PrivateKey) {
+    throw new Error('@bitpay-labs/bitcore-lib is unavailable on the RN host.');
+  }
+
+  if (metrics) {
+    metrics.elapsedMs = nowMs() - startedAt;
+    metrics.cacheMiss = cacheMiss;
+  }
+
+  return bitcoreLib;
+}
+
+function getNitroModulesOnJS(): NitroModulesLike {
   const importedNitroModules = require('react-native-nitro-modules') as any;
   const nitroModules =
     importedNitroModules?.NitroModules ||
     importedNitroModules?.default?.NitroModules;
+
+  if (typeof nitroModules?.createHybridObject !== 'function') {
+    throw new Error(
+      'react-native-nitro-modules.NitroModules.createHybridObject() is unavailable on the RN host.',
+    );
+  }
+
+  return nitroModules as NitroModulesLike;
+}
+
+function getNitroModulesForRN(): NitroModulesLike {
+  'worklet';
+
+  const nitroModules = (globalThis as GlobalWithPortfolioSigningContext)
+    .NitroModulesProxy;
+  if (typeof nitroModules?.createHybridObject === 'function') {
+    return nitroModules as NitroModulesLike;
+  }
+
+  // Jest and other host-only environments exercise these helpers on the JS
+  // thread without a dedicated worklet runtime. Fall back to the host module
+  // when CommonJS is actually available there.
+  if (typeof require === 'function') {
+    return getNitroModulesOnJS();
+  }
 
   if (typeof nitroModules?.createHybridObject !== 'function') {
     throw new Error(
@@ -120,54 +239,116 @@ function getNitroModulesForRN(): NitroModulesLike {
 }
 
 function createQuickCryptoHashHybridOnRN(): QuickCryptoHashHybrid {
+  'worklet';
+
   return getNitroModulesForRN().createHybridObject<QuickCryptoHashHybrid>(
     'Hash',
   );
 }
 
 function createQuickCryptoKeyObjectHybridOnRN(): QuickCryptoKeyObjectHybrid {
+  'worklet';
+
   return getNitroModulesForRN().createHybridObject<QuickCryptoKeyObjectHybrid>(
     'KeyObjectHandle',
   );
 }
 
 function createQuickCryptoSignHybridOnRN(): QuickCryptoSignHybrid {
+  'worklet';
+
   return getNitroModulesForRN().createHybridObject<QuickCryptoSignHybrid>(
     'SignHandle',
   );
 }
 
-function createBoxedNitroFetchHybridOnRN(): BoxedHybridObjectLike<NitroFetchHybrid> {
-  const nitroModules = getNitroModulesForRN();
-  const {NitroFetch: nitroFetchSingleton} = require(
-    'react-native-nitro-fetch',
-  ) as {
-    NitroFetch: NitroFetchHybrid;
-  };
+function getSharedBoxedNitroFetchOnJS(
+  metrics?: PortfolioTxHistorySigningContextBuildStepMetrics,
+): BoxedHybridObjectLike<NitroFetchHybrid> {
+  const startedAt = metrics ? nowMs() : 0;
+  const cacheMiss = !sharedBoxedNitroFetchOnJS;
+  if (cacheMiss) {
+    const nitroModules = getNitroModulesOnJS();
+    if (typeof nitroModules.box !== 'function') {
+      throw new Error(
+        'react-native-nitro-modules.NitroModules.box() is unavailable on the RN host.',
+      );
+    }
 
-  if (typeof nitroModules.box !== 'function') {
-    throw new Error(
-      'react-native-nitro-modules.NitroModules.box() is unavailable on the RN runtime.',
-    );
+    const {NitroFetch: nitroFetchSingleton} = require(
+      'react-native-nitro-fetch',
+    ) as {
+      NitroFetch: NitroFetchHybrid;
+    };
+
+    sharedBoxedNitroFetchOnJS = nitroModules.box(nitroFetchSingleton);
   }
 
-  return nitroModules.box(nitroFetchSingleton);
+  if (metrics) {
+    metrics.elapsedMs = nowMs() - startedAt;
+    metrics.cacheMiss = cacheMiss;
+  }
+
+  return sharedBoxedNitroFetchOnJS;
+}
+
+function getSharedBoxedNitroModulesProxyOnJS(
+  metrics?: PortfolioTxHistorySigningContextBuildStepMetrics,
+): BoxedHybridObjectLike<NitroModulesLike> {
+  const startedAt = metrics ? nowMs() : 0;
+  const cacheMiss = !sharedBoxedNitroModulesProxyOnJS;
+  if (cacheMiss) {
+    const nitroModules = getNitroModulesOnJS();
+    if (typeof nitroModules.box !== 'function') {
+      throw new Error(
+        'react-native-nitro-modules.NitroModules.box() is unavailable on the RN host.',
+      );
+    }
+
+    sharedBoxedNitroModulesProxyOnJS = nitroModules.box(nitroModules);
+  }
+
+  if (metrics) {
+    metrics.elapsedMs = nowMs() - startedAt;
+    metrics.cacheMiss = cacheMiss;
+  }
+
+  return sharedBoxedNitroModulesProxyOnJS;
+}
+
+function installPortfolioNitroModulesProxyOnRuntime(
+  boxedNitroModulesProxy:
+    | BoxedHybridObjectLike<NitroModulesLike>
+    | undefined,
+): void {
+  'worklet';
+
+  if (!boxedNitroModulesProxy) {
+    return;
+  }
+
+  const globalRef = globalThis as GlobalWithPortfolioSigningContext;
+  if (typeof globalRef.NitroModulesProxy?.createHybridObject === 'function') {
+    return;
+  }
+
+  globalRef.NitroModulesProxy = boxedNitroModulesProxy.unbox();
 }
 
 function getQuickCryptoEnumsForRN(): QuickCryptoEnums {
-  const quickCrypto = require('react-native-quick-crypto') as any;
+  'worklet';
 
   if (
-    typeof quickCrypto?.KeyType?.PRIVATE !== 'number' ||
-    typeof quickCrypto?.KFormatType?.DER !== 'number' ||
-    typeof quickCrypto?.KeyEncoding?.SEC1 !== 'number'
+    typeof QUICK_CRYPTO_ENUMS.KeyType?.PRIVATE !== 'number' ||
+    typeof QUICK_CRYPTO_ENUMS.KFormatType?.DER !== 'number' ||
+    typeof QUICK_CRYPTO_ENUMS.KeyEncoding?.SEC1 !== 'number'
   ) {
     throw new Error(
       'react-native-quick-crypto key import enums are unavailable on the RN runtime.',
     );
   }
 
-  return quickCrypto as QuickCryptoEnums;
+  return QUICK_CRYPTO_ENUMS;
 }
 
 export function ensurePortfolioRuntimeSigningGlobals(): void {
@@ -225,6 +406,61 @@ function hexToBytes(hex: string): Uint8Array {
   return bytes;
 }
 
+function base64UrlToBytes(base64Url: string): Uint8Array {
+  'worklet';
+
+  const normalized = String(base64Url || '')
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+  const padded =
+    normalized.length % 4 === 0
+      ? normalized
+      : normalized.padEnd(normalized.length + (4 - (normalized.length % 4)), '=');
+  const alphabet =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const paddingLength = padded.endsWith('==') ? 2 : padded.endsWith('=') ? 1 : 0;
+  const outputLength = (padded.length / 4) * 3 - paddingLength;
+  const output = new Uint8Array(outputLength);
+  let outputIndex = 0;
+
+  for (let index = 0; index < padded.length; index += 4) {
+    const chars = padded.slice(index, index + 4);
+    let value = 0;
+
+    for (let offset = 0; offset < 4; offset += 1) {
+      const char = chars[offset];
+      if (char === '=') {
+        value *= 64;
+        continue;
+      }
+
+      const alphabetIndex = alphabet.indexOf(char);
+      if (alphabetIndex < 0) {
+        throw new Error(
+          `Encountered an invalid base64url character while decoding Quick Crypto JWK output: ${char}.`,
+        );
+      }
+
+      value = value * 64 + alphabetIndex;
+    }
+
+    if (outputIndex < outputLength) {
+      output[outputIndex] = Math.floor(value / 65536) % 256;
+      outputIndex += 1;
+    }
+    if (outputIndex < outputLength) {
+      output[outputIndex] = Math.floor(value / 256) % 256;
+      outputIndex += 1;
+    }
+    if (outputIndex < outputLength) {
+      output[outputIndex] = value % 256;
+      outputIndex += 1;
+    }
+  }
+
+  return output;
+}
+
 function concatBytes(...parts: Uint8Array[]): Uint8Array {
   'worklet';
 
@@ -243,82 +479,133 @@ function concatBytes(...parts: Uint8Array[]): Uint8Array {
   return result;
 }
 
-function nodeBufferToArrayBuffer(buffer: Buffer): ArrayBuffer {
+function uint8ArrayToArrayBuffer(view: Uint8Array): ArrayBuffer {
   'worklet';
 
-  const view = Uint8Array.from(buffer);
   return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
 }
 
-function buildSecp256k1Sec1PrivateKeyDer(privateKeyBytes: Buffer): Buffer {
+function buildSecp256k1Sec1PrivateKeyDer(
+  privateKeyBytes: ArrayLike<number>,
+): Uint8Array {
+  'worklet';
+
   if (privateKeyBytes.length !== 32) {
     throw new Error(
       `Expected a 32-byte secp256k1 private key, received ${privateKeyBytes.length} bytes.`,
     );
   }
 
-  return NodeBuffer.concat([
-    NodeBuffer.from([0x30, 0x2e, 0x02, 0x01, 0x01, 0x04, 0x20]),
-    privateKeyBytes,
-    NodeBuffer.from([0xa0, 0x07, 0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x0a]),
-  ]);
+  return concatBytes(
+    Uint8Array.from([0x30, 0x2e, 0x02, 0x01, 0x01, 0x04, 0x20]),
+    Uint8Array.from(privateKeyBytes),
+    Uint8Array.from([0xa0, 0x07, 0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x0a]),
+  );
 }
 
-function getPortfolioTxHistoryRequestKeyDetailsOnRN(args: {
-  requestPrivKey: string;
-  requestPubKey?: string;
-}): PortfolioTxHistoryRequestKeyDetails {
-  const bitcoreLib = getBitcoreLibOnRN();
+function normalizeSecp256k1PrivateKeyHexForProbe(rawPrivateKeyHex: string): string {
+  'worklet';
 
-  if (!bitcoreLib?.PrivateKey) {
+  const normalized = String(rawPrivateKeyHex || '')
+    .trim()
+    .replace(/^0x/i, '')
+    .toLowerCase();
+
+  if (!/^[0-9a-f]{64}$/.test(normalized)) {
     throw new Error(
-      '@bitpay-labs/bitcore-lib is unavailable on the RN runtime.',
+      'Quick Crypto pubkey probe requires a 32-byte secp256k1 private key hex string.',
     );
   }
 
-  const privateKey = new bitcoreLib.PrivateKey(args.requestPrivKey);
-  const derivedRequestPubKey = privateKey.toPublicKey().toString();
-  const requestPubKey = String(args.requestPubKey || '').trim() || undefined;
+  return normalized;
+}
+
+function buildSecp256k1PublicKeyHexFromEcJwk(jwk: {
+  x?: unknown;
+  y?: unknown;
+}): {
+  publicKeyXHex: string;
+  publicKeyYHex: string;
+  compressedPublicKeyHex: string;
+  uncompressedPublicKeyHex: string;
+} {
+  'worklet';
+
+  const xBase64Url = String(jwk?.x || '').trim();
+  const yBase64Url = String(jwk?.y || '').trim();
+  if (!xBase64Url || !yBase64Url) {
+    throw new Error(
+      'QuickCrypto KeyObjectHandle.exportJwk() did not return EC x/y coordinates.',
+    );
+  }
+
+  const xBytes = base64UrlToBytes(xBase64Url);
+  const yBytes = base64UrlToBytes(yBase64Url);
+  if (xBytes.length !== 32 || yBytes.length !== 32) {
+    throw new Error(
+      `Expected 32-byte secp256k1 public key coordinates, received x=${xBytes.length}, y=${yBytes.length}.`,
+    );
+  }
+
+  const publicKeyXHex = bytesToHex(xBytes);
+  const publicKeyYHex = bytesToHex(yBytes);
+  const compressedPrefix = yBytes[yBytes.length - 1] % 2 === 0 ? '02' : '03';
 
   return {
-    requestPubKey,
-    derivedRequestPubKey,
-    requestPubKeyMatchesDerived: requestPubKey
-      ? requestPubKey === derivedRequestPubKey
-      : undefined,
+    publicKeyXHex,
+    publicKeyYHex,
+    compressedPublicKeyHex: `${compressedPrefix}${publicKeyXHex}`,
+    uncompressedPublicKeyHex: `04${publicKeyXHex}${publicKeyYHex}`,
   };
 }
 
-export function assertPortfolioTxHistoryRequestKeyDetails(
-  requestKey: PortfolioTxHistoryRequestKeyDetails | undefined,
-): void {
-  'worklet';
+function buildRequestPrivKeySec1DerHexOnJS(
+  requestPrivKey: string,
+  metrics?: PortfolioTxHistorySec1DerBuildMetrics,
+): string {
+  const startedAt = metrics ? nowMs() : 0;
+  const bitcoreLoadMetrics = metrics
+    ? ({} as PortfolioTxHistorySigningContextBuildStepMetrics)
+    : undefined;
+  const bitcore = getBitcoreLibOnJS(bitcoreLoadMetrics);
+  const privateKeyParseStartedAt = metrics ? nowMs() : 0;
+  const privateKey = new bitcore.PrivateKey(requestPrivKey);
+  const privateKeyParseElapsedMs = metrics
+    ? nowMs() - privateKeyParseStartedAt
+    : 0;
+  const privateKeyToBufferStartedAt = metrics ? nowMs() : 0;
+  const privateKeyBytes = Uint8Array.from(privateKey.toBuffer());
+  const privateKeyToBufferElapsedMs = metrics
+    ? nowMs() - privateKeyToBufferStartedAt
+    : 0;
+  const sec1DerEncodeStartedAt = metrics ? nowMs() : 0;
+  const sec1DerHex = bytesToHex(buildSecp256k1Sec1PrivateKeyDer(privateKeyBytes));
 
-  if (!requestKey) {
-    throw new Error(
-      'No request-key details are initialized on the portfolio runtime for BWS signing.',
-    );
+  if (metrics) {
+    metrics.elapsedMs = nowMs() - startedAt;
+    metrics.bitcoreLoadElapsedMs = bitcoreLoadMetrics?.elapsedMs;
+    metrics.bitcoreLoadCacheMiss = bitcoreLoadMetrics?.cacheMiss;
+    metrics.privateKeyParseElapsedMs = privateKeyParseElapsedMs;
+    metrics.privateKeyToBufferElapsedMs = privateKeyToBufferElapsedMs;
+    metrics.sec1DerEncodeElapsedMs = nowMs() - sec1DerEncodeStartedAt;
   }
 
-  if (
-    requestKey.requestPubKey &&
-    requestKey.requestPubKeyMatchesDerived === false
-  ) {
-    throw new Error(
-      `Stored requestPubKey ${requestKey.requestPubKey} does not match the derived requestPubKey ${requestKey.derivedRequestPubKey}.`,
-    );
-  }
+  return sec1DerHex;
 }
 
 export function createTransferredNitroBwsSigningBatchOnRN(
-  requestPrivKey: string,
+  requestPrivKeySec1DerHex: string,
   requestCount: number,
 ): TransferredNitroBwsSigningBatchHybrids {
-  const bitcoreLib = getBitcoreLibOnRN();
+  'worklet';
+
   const {KeyType, KFormatType, KeyEncoding} = getQuickCryptoEnumsForRN();
-  const privateKey = new bitcoreLib.PrivateKey(requestPrivKey);
-  const privateKeyBytes = NodeBuffer.from(privateKey.toBuffer());
-  const sec1Der = buildSecp256k1Sec1PrivateKeyDer(privateKeyBytes);
+  const sec1DerHex = String(requestPrivKeySec1DerHex || '').trim();
+  if (!sec1DerHex) {
+    throw new Error(
+      'A SEC1 DER-encoded request private key is required to hydrate Nitro signing handles.',
+    );
+  }
 
   const firstHash = createQuickCryptoHashHybridOnRN();
   const privateKeyHandle = createQuickCryptoKeyObjectHybridOnRN();
@@ -326,7 +613,7 @@ export function createTransferredNitroBwsSigningBatchOnRN(
 
   const initialized = privateKeyHandle.init(
     KeyType.PRIVATE,
-    nodeBufferToArrayBuffer(sec1Der),
+    uint8ArrayToArrayBuffer(hexToBytes(sec1DerHex)),
     KFormatType.DER,
     KeyEncoding.SEC1,
   );
@@ -348,38 +635,202 @@ export function createTransferredNitroBwsSigningBatchOnRN(
   };
 }
 
+export function probeQuickCryptoRequestPubKeyDerivationOnRN(args?: {
+  rawPrivateKeyHex?: string;
+}): PortfolioQuickCryptoPubKeyProbeResult {
+  'worklet';
+
+  ensurePortfolioRuntimeSigningGlobals();
+
+  const rawPrivateKeyHex = normalizeSecp256k1PrivateKeyHexForProbe(
+    String(
+      args?.rawPrivateKeyHex || PORTFOLIO_REQUEST_KEY_DEBUG_PROBE_PRIVATE_KEY_HEX,
+    ),
+  );
+  const requestPrivKeySec1DerHex = bytesToHex(
+    buildSecp256k1Sec1PrivateKeyDer(hexToBytes(rawPrivateKeyHex)),
+  );
+  const {KeyType, KFormatType, KeyEncoding} = getQuickCryptoEnumsForRN();
+  if (typeof KeyEncoding.SPKI !== 'number') {
+    throw new Error(
+      'react-native-quick-crypto SPKI export enums are unavailable on the RN runtime.',
+    );
+  }
+
+  const privateKeyHandle = createQuickCryptoKeyObjectHybridOnRN();
+  const initialized = privateKeyHandle.init(
+    KeyType.PRIVATE,
+    uint8ArrayToArrayBuffer(hexToBytes(requestPrivKeySec1DerHex)),
+    KFormatType.DER,
+    KeyEncoding.SEC1,
+  );
+
+  if (!initialized) {
+    throw new Error(
+      'QuickCrypto KeyObjectHandle.init() returned false during the pubkey derivation probe.',
+    );
+  }
+
+  let publicKeySpkiHex: string | undefined;
+  let publicKeySpkiExportError: string | undefined;
+  if (typeof privateKeyHandle.exportKey === 'function') {
+    try {
+      publicKeySpkiHex = bytesToHex(
+        new Uint8Array(
+          privateKeyHandle.exportKey(KFormatType.DER, KeyEncoding.SPKI),
+        ),
+      );
+    } catch (error: unknown) {
+      publicKeySpkiExportError =
+        error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  if (typeof privateKeyHandle.exportJwk !== 'function') {
+    throw new Error(
+      'QuickCrypto KeyObjectHandle.exportJwk() is unavailable on the RN runtime.',
+    );
+  }
+
+  const exportedJwk = privateKeyHandle.exportJwk({}, false);
+  const publicJwk = {
+    kty:
+      typeof exportedJwk?.kty === 'string' ? String(exportedJwk.kty) : undefined,
+    crv:
+      typeof exportedJwk?.crv === 'string' ? String(exportedJwk.crv) : undefined,
+    x: typeof exportedJwk?.x === 'string' ? String(exportedJwk.x) : undefined,
+    y: typeof exportedJwk?.y === 'string' ? String(exportedJwk.y) : undefined,
+  };
+  const publicKeyHex = buildSecp256k1PublicKeyHexFromEcJwk(publicJwk);
+
+  return {
+    probeKeyTag: PORTFOLIO_REQUEST_KEY_DEBUG_PROBE_KEY_TAG,
+    requestPrivKeySec1DerHex,
+    publicKeySpkiHex,
+    publicKeySpkiExportError,
+    publicJwk,
+    ...publicKeyHex,
+  };
+}
+
 export function createPortfolioTxHistorySigningDispatchContextOnRN(args: {
   requestPrivKey?: string;
   requestPubKey?: string;
   requestCount?: number;
-}): PortfolioTxHistorySigningDispatchContext {
-  const boxedNitroFetch = createBoxedNitroFetchHybridOnRN();
+},
+metrics?: PortfolioTxHistorySigningContextBuildMetrics,
+): PortfolioTxHistorySigningDispatchContext {
+  const startedAt = metrics ? nowMs() : 0;
+  const nitroModulesProxyMetrics = metrics
+    ? ({} as PortfolioTxHistorySigningContextBuildStepMetrics)
+    : undefined;
+  const nitroFetchMetrics = metrics
+    ? ({} as PortfolioTxHistorySigningContextBuildStepMetrics)
+    : undefined;
+  const boxedNitroModulesProxy = getSharedBoxedNitroModulesProxyOnJS(
+    nitroModulesProxyMetrics,
+  );
+  const boxedNitroFetch = getSharedBoxedNitroFetchOnJS(nitroFetchMetrics);
   const requestPrivKey = String(args.requestPrivKey || '').trim();
+  const requestPubKey = String(args.requestPubKey || '').trim() || undefined;
+  const requestCount = Math.max(1, Math.floor(args.requestCount ?? 4));
+  const objectAssemblyStartedAt = metrics ? nowMs() : 0;
+
+  if (metrics) {
+    metrics.requestPrivKeyPresent = !!requestPrivKey;
+    metrics.nitroModulesProxy = nitroModulesProxyMetrics;
+    metrics.nitroFetch = nitroFetchMetrics;
+  }
 
   if (!requestPrivKey) {
-    return {
+    const context = {
+      requestPubKey,
+      requestCount,
+      boxedNitroModulesProxy,
       boxedNitroFetch,
       nextSignHandleIndex: 0,
     };
+
+    if (metrics) {
+      metrics.objectAssemblyElapsedMs = nowMs() - objectAssemblyStartedAt;
+      metrics.totalElapsedMs = nowMs() - startedAt;
+    }
+
+    return context;
   }
 
-  const hybrids = createTransferredNitroBwsSigningBatchOnRN(
+  const requestPrivKeySec1DerMetrics = metrics
+    ? ({} as PortfolioTxHistorySec1DerBuildMetrics)
+    : undefined;
+  const requestPrivKeySec1DerHex = buildRequestPrivKeySec1DerHexOnJS(
     requestPrivKey,
-    args.requestCount ?? 4,
+    requestPrivKeySec1DerMetrics,
   );
-
-  return {
+  const context = {
     requestPrivKey,
-    requestKey: getPortfolioTxHistoryRequestKeyDetailsOnRN({
-      requestPrivKey,
-      requestPubKey: args.requestPubKey,
-    }),
+    requestPubKey,
+    requestCount,
+    requestPrivKeySec1DerHex,
+    boxedNitroModulesProxy,
     boxedNitroFetch,
-    firstHashHybrid: hybrids.firstHash,
-    signHandleHybrids: hybrids.signHandles,
-    privateKeyHandle: hybrids.privateKeyHandle,
     nextSignHandleIndex: 0,
   };
+
+  if (metrics) {
+    metrics.requestPrivKeySec1Der = requestPrivKeySec1DerMetrics;
+    metrics.objectAssemblyElapsedMs = nowMs() - objectAssemblyStartedAt;
+    metrics.totalElapsedMs = nowMs() - startedAt;
+  }
+
+  return context;
+}
+
+function ensurePortfolioTxHistorySigningDispatchContextHydratedOnRuntime(
+  context: PortfolioTxHistorySigningDispatchContext | undefined,
+): PortfolioTxHistorySigningDispatchContext | undefined {
+  'worklet';
+
+  if (!context) {
+    return context;
+  }
+
+  const requestPrivKey = String(context.requestPrivKey || '').trim();
+  if (!requestPrivKey) {
+    return context;
+  }
+
+  const needsTransferredNitroBatch =
+    !context.firstHashHybrid ||
+    !context.privateKeyHandle ||
+    !Array.isArray(context.signHandleHybrids) ||
+    !context.signHandleHybrids.length;
+
+  if (needsTransferredNitroBatch) {
+    const requestPrivKeySec1DerHex = String(
+      context.requestPrivKeySec1DerHex || '',
+    ).trim();
+    if (!requestPrivKeySec1DerHex) {
+      throw new Error(
+        'No SEC1 DER-encoded request private key is available on the portfolio runtime for Nitro signing hydration.',
+      );
+    }
+
+    const hybrids = createTransferredNitroBwsSigningBatchOnRN(
+      requestPrivKeySec1DerHex,
+      context.requestCount ?? 4,
+    );
+
+    context.firstHashHybrid = hybrids.firstHash;
+    context.signHandleHybrids = hybrids.signHandles;
+    context.privateKeyHandle = hybrids.privateKeyHandle;
+  }
+
+  context.nextSignHandleIndex = Math.max(
+    0,
+    Math.floor(context.nextSignHandleIndex ?? 0),
+  );
+
+  return context;
 }
 
 function parseDerSignature(signatureHex: string): {r: bigint; s: bigint} {
@@ -547,12 +998,12 @@ export function signBwsGetRequestWithBitcore(
   requestPrivKey: string,
 ): string {
   const signingMessage = `get|${requestPath}|{}`;
-  const bitcoreLib = getBitcoreLibOnRN();
-  const privateKey = new bitcoreLib.PrivateKey(requestPrivKey);
-  const hash = bitcoreLib.crypto.Hash.sha256sha256(
+  const bitcore = getBitcoreLibOnJS();
+  const privateKey = new bitcore.PrivateKey(requestPrivKey);
+  const hash = bitcore.crypto.Hash.sha256sha256(
     NodeBuffer.from(signingMessage),
   );
-  const signature = bitcoreLib.crypto.ECDSA.sign(hash, privateKey);
+  const signature = bitcore.crypto.ECDSA.sign(hash, privateKey);
 
   if (!signature || typeof signature.toString !== 'function') {
     throw new Error('bitcore-lib did not return a serializable BWS signature.');
@@ -566,6 +1017,7 @@ export function setPortfolioTxHistorySigningDispatchContextOnRuntime(
 ): void {
   'worklet';
 
+  installPortfolioNitroModulesProxyOnRuntime(context?.boxedNitroModulesProxy);
   (globalThis as GlobalWithPortfolioSigningContext)[
     PORTFOLIO_TX_HISTORY_SIGNING_CONTEXT_GLOBAL_KEY
   ] = context || undefined;
@@ -593,7 +1045,9 @@ export function requirePortfolioTxHistorySigningDispatchContextOnRuntime():
   PortfolioTxHistorySigningDispatchContext {
   'worklet';
 
-  const context = getPortfolioTxHistorySigningDispatchContextOnRuntime();
+  const context = ensurePortfolioTxHistorySigningDispatchContextHydratedOnRuntime(
+    getPortfolioTxHistorySigningDispatchContextOnRuntime(),
+  );
   if (!context) {
     throw new Error(
       'No portfolio runtime request context is initialized on the worklet runtime.',
@@ -630,10 +1084,10 @@ export function takeNextPortfolioTransferredSignHandleOnRuntime(): {
 } | null {
   'worklet';
 
-  const context = getPortfolioTxHistorySigningDispatchContextOnRuntime();
+  const context = requirePortfolioTxHistorySigningDispatchContextOnRuntime();
   if (
-    !context?.firstHashHybrid ||
-    !context?.privateKeyHandle ||
+    !context.firstHashHybrid ||
+    !context.privateKeyHandle ||
     !Array.isArray(context.signHandleHybrids) ||
     !context.signHandleHybrids.length
   ) {

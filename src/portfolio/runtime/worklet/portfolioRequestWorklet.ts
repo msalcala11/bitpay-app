@@ -3,6 +3,7 @@ import type {
   WorkerRequest,
   WorkerResponse,
 } from '../../core/engine/workerProtocol';
+import {probeQuickCryptoRequestPubKeyDerivationOnRN} from '../../adapters/rn/txHistorySigning';
 import {DEFAULT_PORTFOLIO_MMKV_REGISTRY_KEY} from '../../adapters/rn/mmkvKvStore';
 import type {WorkletMmkvStorageBridge} from '../../adapters/rn/mmkvKvStore';
 import {
@@ -83,6 +84,7 @@ const WORKLET_METHODS: Record<WorkerMethod, true> = {
   'debug.clearAll': true,
   'debug.kvStats': true,
   'debug.getPopulateWalletTrace': true,
+  'debug.quickCryptoPubKeyProbe': true,
 };
 
 function clonePortableForRnBridge<T>(value: T): T {
@@ -536,6 +538,17 @@ export async function handlePortfolioRequestOnRuntime(
           const result = getPopulateWalletDebugTraceOnWorklet(
             state,
             String((request.params as any)?.walletId || ''),
+          );
+          return {
+            id: request.id,
+            ok: true,
+            result,
+          } as WorkerResponse;
+        }
+
+        case 'debug.quickCryptoPubKeyProbe': {
+          const result = clonePortableForRnBridge(
+            probeQuickCryptoRequestPubKeyDerivationOnRN(),
           );
           return {
             id: request.id,

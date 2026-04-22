@@ -10,6 +10,7 @@ import {
   getPortfolioPopulateDecisionsForWallets,
 } from '../../portfolio/service';
 import type {PortfolioPopulateJobStatus} from '../../portfolio/core/engine/populateJob';
+import type {StoredWallet} from '../../portfolio/core/types';
 import type {SnapshotPersistDebugMode} from '../../portfolio/core/pnl/snapshotStore';
 import {getPortfolioRuntimeClient} from '../../portfolio/runtime/portfolioRuntime';
 import {
@@ -29,6 +30,13 @@ import {
 } from './portfolio.actions';
 
 let activeRuntimePopulateService: PortfolioPopulateService | undefined;
+
+const nowMs = (): number => {
+  const candidate = globalThis?.performance?.now?.();
+  return Number.isFinite(candidate) ? Number(candidate) : Date.now();
+};
+
+const roundMs = (value: number): number => Math.round(value * 100) / 100;
 
 const resolveQuoteCurrency = (
   ...candidates: Array<string | undefined>
@@ -525,6 +533,7 @@ export const populatePortfolioWithRuntime = (args?: {
   quoteCurrency?: string;
   snapshotDebugMode?: SnapshotPersistDebugMode;
 }): Effect<Promise<void>> => async (dispatch, getState) => {
+  const startupStartedAt = nowMs();
   const state = getState();
   if (!isPortfolioEnabled(state) || isPortfolioPopulateDisabled(state)) {
     return;
@@ -538,37 +547,131 @@ export const populatePortfolioWithRuntime = (args?: {
     state.APP?.defaultAltCurrency?.isoCode,
   );
 
+  const resolveWalletsStartedAt = nowMs();
   const walletsToPopulate = resolvePopulateWallets({
     state,
     wallets: args?.wallets,
     walletIds: args?.walletIds,
   });
+  const resolveWalletsElapsedMs = nowMs() - resolveWalletsStartedAt;
+
+  const prioritizeWalletsStartedAt = nowMs();
   const prioritizedWalletsToPopulate =
     sortWalletsByAssetFiatPriority(walletsToPopulate);
+  const prioritizeWalletsElapsedMs = nowMs() - prioritizeWalletsStartedAt;
 
-  const storedWallets = prioritizedWalletsToPopulate
-    .filter(isPortfolioRuntimeEligibleWallet)
-    .map(wallet =>
-      toPortfolioStoredWallet({
-        wallet,
-        unitDecimals: toUnitDecimals(dispatch, wallet),
-      }),
-    );
+  const storedWalletsStartedAt = nowMs();
+  const storedWallets: StoredWallet[] = [];
+  const slowWalletPreparations: Array<{
+    walletId: string;
+    chain: string;
+    currencyAbbreviation: string;
+    unitDecimalsMs: number;
+    storedWalletMs: number;
+    totalMs: number;
+  }> = [];
+  let eligibleWalletCount = 0;
+  let requestPrivKeyWalletCount = 0;
+  let unitDecimalsTotalMs = 0;
+  let storedWalletBuildTotalMs = 0;
+
+  for (const wallet of prioritizedWalletsToPopulate) {
+    if (!isPortfolioRuntimeEligibleWallet(wallet)) {
+      continue;
+    }
+
+    eligibleWalletCount += 1;
+
+    const unitDecimalsStartedAt = nowMs();
+    const unitDecimals = toUnitDecimals(dispatch, wallet);
+    const unitDecimalsElapsedMs = nowMs() - unitDecimalsStartedAt;
+    unitDecimalsTotalMs += unitDecimalsElapsedMs;
+
+    const storedWalletStartedAt = nowMs();
+    const storedWallet = toPortfolioStoredWallet({
+      wallet,
+      unitDecimals,
+    });
+    const storedWalletElapsedMs = nowMs() - storedWalletStartedAt;
+    storedWalletBuildTotalMs += storedWalletElapsedMs;
+
+    if (storedWallet.credentials?.requestPrivKey) {
+      requestPrivKeyWalletCount += 1;
+    }
+
+    const walletPreparationTotalMs =
+      unitDecimalsElapsedMs + storedWalletElapsedMs;
+    if (
+      walletPreparationTotalMs >= 5 ||
+      unitDecimalsElapsedMs >= 5 ||
+      storedWalletElapsedMs >= 5
+    ) {
+      slowWalletPreparations.push({
+        walletId: String(wallet?.id || ''),
+        chain: String(wallet?.chain || ''),
+        currencyAbbreviation: String(wallet?.currencyAbbreviation || ''),
+        unitDecimalsMs: roundMs(unitDecimalsElapsedMs),
+        storedWalletMs: roundMs(storedWalletElapsedMs),
+        totalMs: roundMs(walletPreparationTotalMs),
+      });
+    }
+
+    storedWallets.push(storedWallet);
+  }
+
+  const storedWalletsElapsedMs = nowMs() - storedWalletsStartedAt;
 
   if (!storedWallets.length) {
     return;
   }
 
+  console.log('[portfolio-populate-startup] prepared wallets', {
+    requestedWalletCount: Array.isArray(args?.wallets)
+      ? args.wallets.length
+      : undefined,
+    requestedWalletIdCount: Array.isArray(args?.walletIds)
+      ? args.walletIds.length
+      : undefined,
+    resolvedWalletCount: walletsToPopulate.length,
+    prioritizedWalletCount: prioritizedWalletsToPopulate.length,
+    eligibleWalletCount,
+    storedWalletCount: storedWallets.length,
+    quoteCurrency,
+    resolveWalletsElapsedMs: roundMs(resolveWalletsElapsedMs),
+    prioritizeWalletsElapsedMs: roundMs(prioritizeWalletsElapsedMs),
+    storedWalletsElapsedMs: roundMs(storedWalletsElapsedMs),
+    unitDecimalsTotalMs: roundMs(unitDecimalsTotalMs),
+    storedWalletBuildTotalMs: roundMs(storedWalletBuildTotalMs),
+    requestPrivKeyWalletCount,
+    totalElapsedMs: roundMs(nowMs() - startupStartedAt),
+    slowWalletPreparations: slowWalletPreparations
+      .sort((a, b) => b.totalMs - a.totalMs)
+      .slice(0, 5),
+  });
+
+  const startDispatchStartedAt = nowMs();
   dispatch(startPopulatePortfolio({quoteCurrency}));
+  const startDispatchElapsedMs = nowMs() - startDispatchStartedAt;
   const reportedErrorKeys = new Set<string>();
 
+  const serviceCreateStartedAt = nowMs();
   const service = new PortfolioPopulateService({
     client: getPortfolioRuntimeClient(),
     ingestConfig: args?.snapshotDebugMode
       ? {snapshotDebugMode: args.snapshotDebugMode}
       : undefined,
   });
+  const serviceCreateElapsedMs = nowMs() - serviceCreateStartedAt;
   activeRuntimePopulateService = service;
+
+  console.log('[portfolio-populate-startup] service start', {
+    storedWalletCount: storedWallets.length,
+    quoteCurrency,
+    snapshotDebugMode: args?.snapshotDebugMode ?? 'none',
+    startDispatchElapsedMs: roundMs(startDispatchElapsedMs),
+    serviceCreateElapsedMs: roundMs(serviceCreateElapsedMs),
+    totalElapsedMs: roundMs(nowMs() - startupStartedAt),
+  });
 
   try {
     const result = await service.populateWallets({
