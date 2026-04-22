@@ -467,7 +467,8 @@ const WorkletsBundleModeDemo = (_props: Props) => {
             MMKV contention race between RN and the worker runtime, a simple
             Nitro Fetch GET executed from that worker runtime, and an end-to-end
             txhistory flow that signs BWS `/v1/txhistory/` requests with
-            transferred Nitro crypto handles.
+            transferred Nitro crypto handles and transports them with Nitro
+            Fetch.
           </SectionBody>
           <SectionBody>
             The MMKV probe is isolated to a demo-specific storage instance, so
@@ -477,9 +478,9 @@ const WorkletsBundleModeDemo = (_props: Props) => {
           <Smallest>
             Expected result: the MMKV probe and stress test succeed cleanly, the
             contention race only observes recognized RN or worker writes on the
-            shared key, the Nitro Fetch probe returns HTTP 200 with the expected
-            echoed query params, and the txhistory proof fetches three
-            worker-side pages for the selected wallet.
+            shared key, the Nitro Fetch probe returns HTTP 200 with BTC USD v4
+            rates, and the txhistory proof fetches up to three worker-side
+            pages for the selected wallet with Nitro Fetch transport.
           </Smallest>
         </Card>
 
@@ -1005,7 +1006,7 @@ const WorkletsBundleModeDemo = (_props: Props) => {
               <ActivityIndicator />
               <LoadingText>
                 Signing txhistory requests on the worker runtime and fetching
-                three pages...
+                three pages with Nitro Fetch...
               </LoadingText>
             </StatusRow>
           </Card>

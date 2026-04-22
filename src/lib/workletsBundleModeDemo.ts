@@ -1207,6 +1207,7 @@ const summarizeTx = (tx: any): WorkerTxHistoryPreviewItem => {
 };
 
 const executePreparedTxHistoryRequestForPrimedWallet = async (
+  nitroFetchClient: NitroFetchClientHybrid,
   session: WorkerTxHistorySession,
   pageIndex: number,
   skip: number,
@@ -1218,26 +1219,31 @@ const executePreparedTxHistoryRequestForPrimedWallet = async (
 
   const startedAt = Date.now();
 
-  let response: Response;
+  let response: NitroFetchResponse;
   try {
-    response = await fetch(`${session.baseBwsUrl}${requestPath}`, {
+    response = nitroFetchClient.requestSync({
+      url: `${session.baseBwsUrl}${requestPath}`,
       method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        'x-client-version': session.clientVersionHeader,
-        'x-identity': session.wallet.copayerId,
-        'x-signature': signature,
-      },
+      headers: [
+        {key: 'Accept', value: 'application/json'},
+        {key: 'Cache-Control', value: 'no-store'},
+        {key: 'x-client-version', value: session.clientVersionHeader},
+        {key: 'x-identity', value: session.wallet.copayerId},
+        {key: 'x-signature', value: signature},
+      ],
+      timeoutMs: DEFAULT_NITRO_FETCH_TIMEOUT_MS,
+      followRedirects: true,
     });
   } catch (err: unknown) {
     throw new Error(
-      `Worker fetch failed for txhistory page ${
+      `Worker Nitro Fetch failed for txhistory page ${
         pageIndex + 1
       } (${requestPath}). ${toWorkerErrorMessage(err)}`,
     );
   }
 
-  const rawResponseText = await response.text();
+  const rawResponseText =
+    typeof response.bodyString === 'string' ? response.bodyString : '';
   if (!response.ok) {
     const responsePreview = rawResponseText
       ? rawResponseText.slice(0, 400)
@@ -1878,6 +1884,17 @@ export const fetchWalletTxHistoryPagesOnWorker = async (opts: {
     DEFAULT_TXHISTORY_PAGE_COUNT,
   );
 
+  let boxedNitroFetch: BoxedHybridObjectLike<NitroFetchHybrid>;
+  try {
+    boxedNitroFetch = createBoxedNitroFetchHybridOnRN();
+  } catch (err: unknown) {
+    throw new Error(
+      `RN Nitro Fetch txhistory transport setup failed before crossing runtimes. ${
+        toRuntimeError(err).message
+      }`,
+    );
+  }
+
   let signingHybrids: TransferredNitroBwsSigningBatchHybrids;
   try {
     signingHybrids = createTransferredNitroBwsSigningBatchHybridsOnRN(
@@ -1910,6 +1927,7 @@ export const fetchWalletTxHistoryPagesOnWorker = async (opts: {
         firstHashHybrid: QuickCryptoHashHybrid,
         signHandleHybrids: QuickCryptoSignHybrid[],
         privateKeyHandle: QuickCryptoKeyObjectHybrid,
+        boxedNitroFetchOnWorker: BoxedHybridObjectLike<NitroFetchHybrid>,
         resolveOnRN: (value: WorkerTxHistoryBatchResult) => void,
         rejectOnRNWorklet: (message: string) => void,
       ): void => {
@@ -1919,6 +1937,8 @@ export const fetchWalletTxHistoryPagesOnWorker = async (opts: {
 
         (async () => {
           try {
+            const nitroFetch = boxedNitroFetchOnWorker.unbox();
+            const nitroFetchClient = nitroFetch.createClient();
             let session = getWorkerTxHistorySession();
 
             if (!walletSnapshotsMatch(session?.wallet, workerWallet)) {
@@ -1984,6 +2004,7 @@ export const fetchWalletTxHistoryPagesOnWorker = async (opts: {
               activeSession.requestSequence += 1;
 
               const page = await executePreparedTxHistoryRequestForPrimedWallet(
+                nitroFetchClient,
                 activeSession,
                 pageIndex,
                 nextSkip,
@@ -2038,6 +2059,7 @@ export const fetchWalletTxHistoryPagesOnWorker = async (opts: {
       signingHybrids.firstHash,
       signingHybrids.signHandles,
       signingHybrids.privateKeyHandle,
+      boxedNitroFetch,
       resolve,
       rejectOnRN,
     ).catch(err => {
