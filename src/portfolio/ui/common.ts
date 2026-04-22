@@ -207,8 +207,23 @@ export async function runPortfolioAnalysisQuery(args: {
   maxPoints?: number;
   currentRatesByAssetId?: Record<string, number>;
   asOfMs?: number;
+  debugSource?: string;
 }): Promise<PnlAnalysisResult> {
-  return getPortfolioRuntimeClient().computeAnalysis({
+  if (args.debugSource) {
+    console.log('[portfolio-analysis-bridge] js analysis request', {
+      source: args.debugSource,
+      walletCount: args.wallets.length,
+      quoteCurrency: args.quoteCurrency,
+      timeframe: args.timeframe,
+      maxPoints:
+        typeof args.maxPoints === 'number' ? args.maxPoints : null,
+      currentRateAssetCount: args.currentRatesByAssetId
+        ? Object.keys(args.currentRatesByAssetId).length
+        : 0,
+      asOfMs: args.asOfMs ?? null,
+    });
+  }
+  const result = await getPortfolioRuntimeClient().computeAnalysis({
     cfg: createPortfolioQueryBwsConfig(),
     wallets: args.wallets,
     quoteCurrency: args.quoteCurrency,
@@ -217,6 +232,51 @@ export async function runPortfolioAnalysisQuery(args: {
     currentRatesByAssetId: args.currentRatesByAssetId,
     nowMs: args.asOfMs,
   });
+  if (result && args.debugSource) {
+    console.log('[portfolio-analysis-bridge] js analysis result', {
+      source: args.debugSource,
+      walletCount: Array.isArray(result.wallets) ? result.wallets.length : 0,
+      pointCount: Array.isArray(result.points) ? result.points.length : 0,
+      assetSummaryCount: Array.isArray(result.assetSummaries)
+        ? result.assetSummaries.length
+        : 0,
+    });
+  }
+  if (!result) {
+    console.log('[portfolio-analysis-bridge] js analysis result undefined', {
+      source: args.debugSource || 'unknown',
+      walletCount: args.wallets.length,
+      quoteCurrency: args.quoteCurrency,
+      timeframe: args.timeframe,
+      maxPoints:
+        typeof args.maxPoints === 'number' ? args.maxPoints : null,
+      currentRateAssetCount: args.currentRatesByAssetId
+        ? Object.keys(args.currentRatesByAssetId).length
+        : 0,
+      asOfMs: args.asOfMs ?? null,
+    });
+  }
+  if (
+    result &&
+    (!Array.isArray(result.wallets) || result.wallets.length === 0) &&
+    (!Array.isArray(result.points) || result.points.length === 0) &&
+    (!Array.isArray(result.assetSummaries) ||
+      result.assetSummaries.length === 0)
+  ) {
+    console.log('[portfolio-analysis-bridge] js analysis result empty', {
+      source: args.debugSource || 'unknown',
+      walletCount: args.wallets.length,
+      quoteCurrency: args.quoteCurrency,
+      timeframe: args.timeframe,
+      maxPoints:
+        typeof args.maxPoints === 'number' ? args.maxPoints : null,
+      currentRateAssetCount: args.currentRatesByAssetId
+        ? Object.keys(args.currentRatesByAssetId).length
+        : 0,
+      asOfMs: args.asOfMs ?? null,
+    });
+  }
+  return result;
 }
 
 export async function preparePortfolioAnalysisSessionQuery(args: {
@@ -226,7 +286,22 @@ export async function preparePortfolioAnalysisSessionQuery(args: {
   maxPoints?: number;
   currentRatesByAssetId?: Record<string, number>;
   asOfMs?: number;
+  debugSource?: string;
 }): Promise<{sessionId: string}> {
+  if (args.debugSource) {
+    console.log('[portfolio-analysis-bridge] js analysis session prepare', {
+      source: args.debugSource,
+      walletCount: args.wallets.length,
+      quoteCurrency: args.quoteCurrency,
+      timeframe: args.timeframe,
+      maxPoints:
+        typeof args.maxPoints === 'number' ? args.maxPoints : null,
+      currentRateAssetCount: args.currentRatesByAssetId
+        ? Object.keys(args.currentRatesByAssetId).length
+        : 0,
+      asOfMs: args.asOfMs ?? null,
+    });
+  }
   return getPortfolioRuntimeClient().prepareAnalysisSession({
     cfg: createPortfolioQueryBwsConfig(),
     wallets: args.wallets,
@@ -241,11 +316,41 @@ export async function preparePortfolioAnalysisSessionQuery(args: {
 export async function runPortfolioAnalysisSessionScopeQuery(args: {
   sessionId: string;
   walletIds?: string[];
+  debugSource?: string;
 }): Promise<PnlAnalysisResult> {
-  return getPortfolioRuntimeClient().computeAnalysisSessionScope({
+  if (args.debugSource) {
+    console.log(
+      '[portfolio-analysis-bridge] js analysis session scope request',
+      {
+        source: args.debugSource,
+        scopedWalletCount: Array.isArray(args.walletIds)
+          ? args.walletIds.length
+          : 0,
+      },
+    );
+  }
+  const result = await getPortfolioRuntimeClient().computeAnalysisSessionScope({
     sessionId: args.sessionId,
     walletIds: args.walletIds,
   });
+  if (
+    result &&
+    (!Array.isArray(result.wallets) || result.wallets.length === 0) &&
+    (!Array.isArray(result.points) || result.points.length === 0) &&
+    (!Array.isArray(result.assetSummaries) ||
+      result.assetSummaries.length === 0)
+  ) {
+    console.log(
+      '[portfolio-analysis-bridge] js analysis session scope result empty',
+      {
+        source: args.debugSource || 'unknown',
+        scopedWalletCount: Array.isArray(args.walletIds)
+          ? args.walletIds.length
+          : 0,
+      },
+    );
+  }
+  return result;
 }
 
 export async function disposePortfolioAnalysisSessionQuery(args: {
@@ -263,8 +368,23 @@ export async function runPortfolioChartQuery(args: {
   maxPoints?: number;
   currentRatesByAssetId?: Record<string, number>;
   asOfMs?: number;
+  debugSource?: string;
 }): Promise<PnlAnalysisChartResult> {
-  return getPortfolioRuntimeClient().computeAnalysisChart({
+  if (args.debugSource) {
+    console.log('[portfolio-analysis-bridge] js chart request', {
+      source: args.debugSource,
+      walletCount: args.wallets.length,
+      quoteCurrency: args.quoteCurrency,
+      timeframe: args.timeframe,
+      maxPoints:
+        typeof args.maxPoints === 'number' ? args.maxPoints : null,
+      currentRateAssetCount: args.currentRatesByAssetId
+        ? Object.keys(args.currentRatesByAssetId).length
+        : 0,
+      asOfMs: args.asOfMs ?? null,
+    });
+  }
+  const result = await getPortfolioRuntimeClient().computeAnalysisChart({
     cfg: createPortfolioQueryBwsConfig(),
     wallets: args.wallets,
     quoteCurrency: args.quoteCurrency,
@@ -273,6 +393,57 @@ export async function runPortfolioChartQuery(args: {
     currentRatesByAssetId: args.currentRatesByAssetId,
     nowMs: args.asOfMs,
   });
+  if (result && args.debugSource) {
+    console.log('[portfolio-analysis-bridge] js chart result', {
+      source: args.debugSource,
+      timestampCount: Array.isArray(result.timestamps)
+        ? result.timestamps.length
+        : 0,
+      totalFiatBalanceCount: Array.isArray(result.totalFiatBalance)
+        ? result.totalFiatBalance.length
+        : 0,
+      lastSpotRateCount: result?.lastSpotRatesByRateKey
+        ? Object.keys(result.lastSpotRatesByRateKey).length
+        : 0,
+      latestHoldingsCount: result?.latestHoldingsByRateKey
+        ? Object.keys(result.latestHoldingsByRateKey).length
+        : 0,
+    });
+  }
+  if (!result) {
+    console.log('[portfolio-analysis-bridge] js chart result undefined', {
+      source: args.debugSource || 'unknown',
+      walletCount: args.wallets.length,
+      quoteCurrency: args.quoteCurrency,
+      timeframe: args.timeframe,
+      maxPoints:
+        typeof args.maxPoints === 'number' ? args.maxPoints : null,
+      currentRateAssetCount: args.currentRatesByAssetId
+        ? Object.keys(args.currentRatesByAssetId).length
+        : 0,
+      asOfMs: args.asOfMs ?? null,
+    });
+  }
+  if (
+    result &&
+    (!Array.isArray(result.timestamps) || result.timestamps.length === 0) &&
+    (!Array.isArray(result.totalFiatBalance) ||
+      result.totalFiatBalance.length === 0)
+  ) {
+    console.log('[portfolio-analysis-bridge] js chart result empty', {
+      source: args.debugSource || 'unknown',
+      walletCount: args.wallets.length,
+      quoteCurrency: args.quoteCurrency,
+      timeframe: args.timeframe,
+      maxPoints:
+        typeof args.maxPoints === 'number' ? args.maxPoints : null,
+      currentRateAssetCount: args.currentRatesByAssetId
+        ? Object.keys(args.currentRatesByAssetId).length
+        : 0,
+      asOfMs: args.asOfMs ?? null,
+    });
+  }
+  return result;
 }
 
 export function getLastFiniteNumber(

@@ -1316,6 +1316,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
                         portfolioQuoteCurrency: committedPortfolioQuoteCurrency,
                         defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
                       })}
+                      debugSource="wallet_details_balance_chart"
                       rates={rates}
                       lineColor={chartLineColor}
                       gradientStartColor={chartGradientBackgroundColor}

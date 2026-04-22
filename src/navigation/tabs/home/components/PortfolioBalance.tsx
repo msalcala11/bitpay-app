@@ -16,7 +16,9 @@ import {
   showBottomNotificationModal,
   toggleHideAllBalances,
 } from '../../../../store/app/app.actions';
-import BalanceHistoryChart from '../../../../components/charts/BalanceHistoryChart';
+import BalanceHistoryChart, {
+  type BalanceHistoryChartDiagnostics,
+} from '../../../../components/charts/BalanceHistoryChart';
 import ChartChangeRow from '../../../../components/charts/ChartChangeRow';
 import {DEFAULT_BALANCE_CHART_TIMEFRAME} from '../../../../components/charts/fiatTimeframes';
 import {COINBASE_ENV} from '../../../../api/coinbase/coinbase.constants';
@@ -38,7 +40,9 @@ import {
   getVisibleKeysFromKeys,
   getVisibleWalletsFromKeys,
 } from '../../../../utils/portfolio/assets';
+import {useDevRenderTrace} from '../../../../utils/hooks/useDevRenderTrace';
 import {resolveActivePortfolioDisplayQuoteCurrency} from '../../../../portfolio/ui/common';
+import {summarizePortfolioRuntimeWalletEligibility} from '../../../../portfolio/adapters/rn/walletEligibility';
 import {setHomeChartCollapsed} from '../../../../store/portfolio-charts';
 import type {FiatRateInterval} from '../../../../store/rate/rate.models';
 import type {Wallet} from '../../../../store/wallet/wallet.models';
@@ -116,6 +120,10 @@ const PortfolioBalance = () => {
     homeChartCollapsed: persistedHomeChartCollapsed,
     homeChartRemountNonce,
   } = useAppSelector(({PORTFOLIO_CHARTS}) => PORTFOLIO_CHARTS);
+  const chartScopeCount = useAppSelector(
+    ({PORTFOLIO_CHARTS}) =>
+      Object.keys(PORTFOLIO_CHARTS.cacheByScopeId || {}).length,
+  );
 
   const [selectedChartBalance, setSelectedChartBalance] = useState<
     number | undefined
@@ -139,6 +147,9 @@ const PortfolioBalance = () => {
   const collapseButtonPressOpacity = useSharedValue(1);
   const [collapseButtonLayout, setCollapseButtonLayout] =
     useState<LayoutRectangle>();
+  const [chartDiagnostics, setChartDiagnostics] =
+    useState<BalanceHistoryChartDiagnostics>();
+  const previousPopulateInProgressRef = React.useRef(populateInProgress);
   const selectedChartTimeframeRef = React.useRef<FiatRateInterval>(
     DEFAULT_BALANCE_CHART_TIMEFRAME,
   );
@@ -180,6 +191,9 @@ const PortfolioBalance = () => {
     }
     return Array.from(byId.values());
   }, [homeCarouselConfig, keys]);
+  const walletEligibilitySummary = useMemo(() => {
+    return summarizePortfolioRuntimeWalletEligibility(walletsAcrossKeys);
+  }, [walletsAcrossKeys]);
 
   const hasChartData = useMemo(() => {
     return walletsAcrossKeys.length > 0 && !!committedPortfolioLastPopulatedAt;
@@ -409,6 +423,103 @@ const PortfolioBalance = () => {
     );
   };
 
+  useDevRenderTrace('PortfolioBalance', {
+    walletCount: walletsAcrossKeys.length,
+    eligibleWalletCount: walletEligibilitySummary.eligibleWalletCount,
+    excludedWalletCount: walletEligibilitySummary.excludedWalletCount,
+    missingWalletIdCount: walletEligibilitySummary.missingWalletIdCount,
+    missingCopayerIdCount: walletEligibilitySummary.missingCopayerIdCount,
+    missingRequestPrivKeyCount:
+      walletEligibilitySummary.missingRequestPrivKeyCount,
+    nonMainnetNetworkCount: walletEligibilitySummary.nonMainnetNetworkCount,
+    pendingTssSessionCount: walletEligibilitySummary.pendingTssSessionCount,
+    incompleteCredentialsCount:
+      walletEligibilitySummary.incompleteCredentialsCount,
+    visibleKeyCount: visibleKeys.length,
+    committedPortfolioLastPopulatedAt:
+      committedPortfolioLastPopulatedAt ?? null,
+    populateInProgress,
+    hideAllBalances,
+    hasChartData,
+    chartScopeCount,
+    shouldLeftAlignTopSection,
+    chartLifecycleNonce: homeChartRemountNonce,
+    persistedHomeChartCollapsed,
+    isChartCollapsed,
+    chartDisplayedTimeframe: chartDiagnostics?.displayedTimeframe || '',
+    chartHasQueryRevision: !!chartDiagnostics?.queryRevisionKey,
+    chartEligibleWalletCount: chartDiagnostics?.eligibleWalletCount ?? null,
+    chartStoredWalletCount: chartDiagnostics?.storedWalletCount ?? null,
+    chartLoading: chartDiagnostics?.loading ?? null,
+    chartHasError: chartDiagnostics?.hasError ?? null,
+    chartHasRenderableSeries: chartDiagnostics?.hasRenderableSeries ?? null,
+    chartRenderedSeriesPointsCount:
+      chartDiagnostics?.renderedSeriesPointsCount ?? null,
+    chartCachedSelectedTimeframeStatus:
+      chartDiagnostics?.cachedSelectedTimeframeStatus || '',
+    chartSelectionActive: chartDiagnostics?.selectionActive ?? null,
+    chartDebugSource: chartDiagnostics?.debugSource || '',
+  });
+  useEffect(() => {
+    const previousPopulateInProgress = previousPopulateInProgressRef.current;
+    if (previousPopulateInProgress && !populateInProgress) {
+      console.log('[portfolio-post-populate] PortfolioBalance', {
+        walletCount: walletsAcrossKeys.length,
+        eligibleWalletCount: walletEligibilitySummary.eligibleWalletCount,
+        excludedWalletCount: walletEligibilitySummary.excludedWalletCount,
+        missingWalletIdCount: walletEligibilitySummary.missingWalletIdCount,
+        missingCopayerIdCount:
+          walletEligibilitySummary.missingCopayerIdCount,
+        missingRequestPrivKeyCount:
+          walletEligibilitySummary.missingRequestPrivKeyCount,
+        nonMainnetNetworkCount:
+          walletEligibilitySummary.nonMainnetNetworkCount,
+        pendingTssSessionCount:
+          walletEligibilitySummary.pendingTssSessionCount,
+        incompleteCredentialsCount:
+          walletEligibilitySummary.incompleteCredentialsCount,
+        visibleKeyCount: visibleKeys.length,
+        committedPortfolioLastPopulatedAt:
+          committedPortfolioLastPopulatedAt ?? null,
+        hideAllBalances,
+        hasChartData,
+        chartScopeCount,
+        chartDisplayedTimeframe: chartDiagnostics?.displayedTimeframe || '',
+        chartEligibleWalletCount:
+          chartDiagnostics?.eligibleWalletCount ?? null,
+        chartStoredWalletCount: chartDiagnostics?.storedWalletCount ?? null,
+        chartLoading: chartDiagnostics?.loading ?? null,
+        chartHasError: chartDiagnostics?.hasError ?? null,
+        chartHasRenderableSeries: chartDiagnostics?.hasRenderableSeries ?? null,
+        chartRenderedSeriesPointsCount:
+          chartDiagnostics?.renderedSeriesPointsCount ?? null,
+        chartCachedSelectedTimeframeStatus:
+          chartDiagnostics?.cachedSelectedTimeframeStatus || '',
+        chartHasQueryRevision: !!chartDiagnostics?.queryRevisionKey,
+        chartDebugSource: chartDiagnostics?.debugSource || '',
+      });
+    }
+
+    previousPopulateInProgressRef.current = populateInProgress;
+  }, [
+    chartDiagnostics,
+    chartScopeCount,
+    committedPortfolioLastPopulatedAt,
+    hasChartData,
+    hideAllBalances,
+    populateInProgress,
+    walletEligibilitySummary.eligibleWalletCount,
+    walletEligibilitySummary.excludedWalletCount,
+    walletEligibilitySummary.incompleteCredentialsCount,
+    walletEligibilitySummary.missingCopayerIdCount,
+    walletEligibilitySummary.missingRequestPrivKeyCount,
+    walletEligibilitySummary.missingWalletIdCount,
+    walletEligibilitySummary.nonMainnetNetworkCount,
+    walletEligibilitySummary.pendingTssSessionCount,
+    visibleKeys.length,
+    walletsAcrossKeys.length,
+  ]);
+
   return (
     <PortfolioContainer>
       {shouldLeftAlignTopSection ? (
@@ -527,6 +638,7 @@ const PortfolioBalance = () => {
                     key={chartLifecycleKey}
                     wallets={walletsAcrossKeys}
                     quoteCurrency={quoteCurrency}
+                    debugSource="home_portfolio_balance_chart"
                     initialSelectedTimeframe={selectedChartTimeframeRef.current}
                     rates={rates}
                     strokeScale={chartScale}
@@ -549,6 +661,7 @@ const PortfolioBalance = () => {
                   onDisplayedAnalysisPointChange={point =>
                     setDisplayedChartBalance(point?.totalFiatBalance)
                   }
+                  onDiagnosticsChange={setChartDiagnostics}
                 />
                 {isChartCollapsed ? (
                   <TouchableOpacity
@@ -577,6 +690,7 @@ const PortfolioBalance = () => {
             key={chartLifecycleKey}
             wallets={walletsAcrossKeys}
             quoteCurrency={quoteCurrency}
+            debugSource="home_portfolio_balance_chart"
             initialSelectedTimeframe={selectedChartTimeframeRef.current}
             rates={rates}
             onSelectedTimeframeChange={onSelectedChartTimeframeChange}
@@ -591,6 +705,7 @@ const PortfolioBalance = () => {
             onDisplayedAnalysisPointChange={point =>
               setDisplayedChartBalance(point?.totalFiatBalance)
             }
+            onDiagnosticsChange={setChartDiagnostics}
           />
         )
       ) : null}

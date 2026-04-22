@@ -56,6 +56,7 @@ import {
 export type BalanceHistoryChartProps = {
   wallets: Wallet[];
   quoteCurrency: string;
+  debugSource?: string;
   initialSelectedTimeframe?: FiatRateInterval;
   rates?: Rates;
   lineColor?: string;
@@ -93,15 +94,19 @@ export type BalanceHistoryChartProps = {
 };
 
 export type BalanceHistoryChartDiagnostics = {
+  debugSource?: string;
   timeframe: FiatRateInterval;
   displayedTimeframe: FiatRateInterval;
   queryRevisionKey: string;
   quoteCurrency: string;
+  eligibleWalletCount: number;
+  storedWalletCount: number;
   storedWalletRequestSig: string;
   currentRatesSignature: string;
   currentSpotRatesSignature: string;
   cachedSelectedTimeframeStatus?: string;
   loading: boolean;
+  hasError: boolean;
   hasRenderableSeries: boolean;
   selectionActive: boolean;
   renderedSeriesPointsCount: number;
@@ -137,6 +142,7 @@ const PENDING_CHART_OVERLAY_DELAY_MS = 120;
 const BalanceHistoryChart = ({
   wallets,
   quoteCurrency,
+  debugSource,
   initialSelectedTimeframe = DEFAULT_BALANCE_CHART_TIMEFRAME,
   rates: _rates,
   lineColor,
@@ -174,6 +180,7 @@ const BalanceHistoryChart = ({
     currentRatesSignature,
     currentSpotRatesByRateKey,
     currentSpotRatesSignature,
+    eligibleWallets,
     quoteCurrency: committedQueryQuoteCurrency,
     scopeId,
     sortedWalletIds,
@@ -380,6 +387,7 @@ const BalanceHistoryChart = ({
     dataRevisionSig: chartDataRevisionSig,
     walletIds: sortedWalletIds,
     asOfMs,
+    debugSource,
   });
   chartQueryArgsRef.current = {
     wallets: storedWallets,
@@ -390,6 +398,7 @@ const BalanceHistoryChart = ({
     dataRevisionSig: chartDataRevisionSig,
     walletIds: sortedWalletIds,
     asOfMs,
+    debugSource,
   };
 
   useEffect(() => {
@@ -426,6 +435,18 @@ const BalanceHistoryChart = ({
     runPortfolioChartQuery(chartQueryArgs)
       .then(chart => {
         if (cancelled || activeRequestIdRef.current !== requestId) {
+          if (debugSource) {
+            console.log('[portfolio-analysis-bridge] chart result ignored', {
+              source: debugSource,
+              reason: cancelled ? 'cancelled' : 'superseded',
+              timestampCount: Array.isArray(chart?.timestamps)
+                ? chart.timestamps.length
+                : 0,
+              totalFiatBalanceCount: Array.isArray(chart?.totalFiatBalance)
+                ? chart.totalFiatBalance.length
+                : 0,
+            });
+          }
           return;
         }
 
@@ -435,6 +456,33 @@ const BalanceHistoryChart = ({
         });
 
         if (!series) {
+          if (debugSource) {
+            console.log('[portfolio-analysis-bridge] chart hydration empty', {
+              source: debugSource,
+              timestampCount: Array.isArray(chart?.timestamps)
+                ? chart.timestamps.length
+                : 0,
+              totalFiatBalanceCount: Array.isArray(chart?.totalFiatBalance)
+                ? chart.totalFiatBalance.length
+                : 0,
+              totalRemainingCostBasisFiatCount: Array.isArray(
+                chart?.totalRemainingCostBasisFiat,
+              )
+                ? chart.totalRemainingCostBasisFiat.length
+                : 0,
+              totalUnrealizedPnlFiatCount: Array.isArray(
+                chart?.totalUnrealizedPnlFiat,
+              )
+                ? chart.totalUnrealizedPnlFiat.length
+                : 0,
+              totalPnlChangeCount: Array.isArray(chart?.totalPnlChange)
+                ? chart.totalPnlChange.length
+                : 0,
+              totalPnlPercentCount: Array.isArray(chart?.totalPnlPercent)
+                ? chart.totalPnlPercent.length
+                : 0,
+            });
+          }
           setLoading(false);
           return;
         }
@@ -727,15 +775,19 @@ const BalanceHistoryChart = ({
       ];
 
     onDiagnosticsChange?.({
+      debugSource,
       timeframe: selectedTimeframe,
       displayedTimeframe,
       queryRevisionKey,
       quoteCurrency: committedQueryQuoteCurrency,
+      eligibleWalletCount: eligibleWallets?.length ?? 0,
+      storedWalletCount: storedWallets?.length ?? 0,
       storedWalletRequestSig,
       currentRatesSignature,
       currentSpotRatesSignature,
       cachedSelectedTimeframeStatus,
       loading: isBusy,
+      hasError: !!error,
       hasRenderableSeries,
       selectionActive: !!selectedPoint,
       renderedSeriesPointsCount: renderedSeries?.analysisPoints?.length || 0,
@@ -769,6 +821,8 @@ const BalanceHistoryChart = ({
     committedQueryQuoteCurrency,
     currentRatesSignature,
     currentSpotRatesSignature,
+    debugSource,
+    eligibleWallets?.length,
     displayedAnalysisPoint,
     displayedTimeframe,
     hasRenderableSeries,
@@ -778,6 +832,7 @@ const BalanceHistoryChart = ({
     renderedSeries,
     selectedPoint,
     selectedTimeframe,
+    storedWallets?.length,
     storedWalletRequestSig,
   ]);
 

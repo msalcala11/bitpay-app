@@ -23,6 +23,10 @@ import {
 } from '../common';
 import buildAssetRowsFromAnalysis from '../selectors/buildAssetRowsFromAnalysis';
 import {usePortfolioAnalysis} from './usePortfolioAnalysis';
+import {
+  isPortfolioRuntimeMainnetLikeNetwork,
+  summarizePortfolioRuntimeWalletEligibility,
+} from '../../adapters/rn/walletEligibility';
 
 type Args = {
   gainLossMode: GainLossMode;
@@ -125,6 +129,12 @@ export function usePortfolioAssetRows({
 
     return getVisibleWalletsFromKeys(keys, homeCarouselConfig);
   }, [homeCarouselConfig, keyId, keys]);
+  const walletEligibilitySummary = useMemo(() => {
+    return summarizePortfolioRuntimeWalletEligibility(wallets);
+  }, [wallets]);
+  const previousPopulateInProgressRef = useRef<boolean>(
+    !!portfolio.populateStatus?.inProgress,
+  );
 
   const populateCompletionStateToken = useMemo(() => {
     return [
@@ -204,6 +214,9 @@ export function usePortfolioAssetRows({
     clearDataToken: analysisClearDataToken,
     freezeWhilePopulate: true,
     allowCurrentWhilePopulate: true,
+    debugSource: keyId
+      ? 'scoped_assets_analysis'
+      : 'home_assets_analysis',
   });
   const hasCommittedPortfolioBaseline =
     typeof portfolio.lastPopulatedAt === 'number' &&
@@ -215,7 +228,9 @@ export function usePortfolioAssetRows({
 
     const storedWalletsByKey = new Map<string, StoredWallet[]>();
     for (const storedWallet of analysis.storedWallets) {
-      if ((storedWallet.summary.network || '').toLowerCase() !== 'livenet') {
+      if (
+        !isPortfolioRuntimeMainnetLikeNetwork(storedWallet.summary.network)
+      ) {
         continue;
       }
 
@@ -623,6 +638,9 @@ export function usePortfolioAssetRows({
           const result = await runPortfolioAnalysisSessionScopeQuery({
             sessionId,
             walletIds: spec.storedWalletIds,
+            debugSource: keyId
+              ? 'scoped_assets_session_scope'
+              : 'home_assets_session_scope',
           });
           if (cancelled) {
             return;
@@ -649,6 +667,9 @@ export function usePortfolioAssetRows({
                 maxPoints: 2,
                 currentRatesByAssetId: spec.currentRatesByAssetId,
                 asOfMs: analysis.asOfMs,
+                debugSource: keyId
+                  ? 'scoped_assets_session_fallback'
+                  : 'home_assets_session_fallback',
               });
               if (cancelled) {
                 return;
@@ -684,6 +705,9 @@ export function usePortfolioAssetRows({
           maxPoints: 2,
           currentRatesByAssetId: assetGroupSessionCurrentRatesByAssetId,
           asOfMs: analysis.asOfMs,
+          debugSource: keyId
+            ? 'scoped_assets_session_prepare'
+            : 'home_assets_session_prepare',
         });
 
         preparedSessionId = session.sessionId;
@@ -1356,59 +1380,167 @@ export function usePortfolioAssetRows({
       );
     }
   }, [hasPendingVisibleOrderStabilization, visibleItemsForDisplay]);
-  const visibleItemsSignature = useMemo(() => {
-    return visibleItemsForDisplay
-      .map(
-        item =>
-          `${item.key}:${item.fiatAmount}:${item.deltaFiat}:${item.deltaPercent}:${item.showScopedPnlLoading ? '1' : '0'}:${item.showPnlPlaceholder ? '1' : '0'}`,
-      )
-      .join('|');
-  }, [visibleItemsForDisplay]);
-  const populateLoadingSignature = useMemo(() => {
-    return Object.entries(stablePopulatePresentation.isPopulateLoadingByKey || {})
-      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
-      .map(([key, loading]) => `${key}:${loading ? '1' : '0'}`)
-      .join('|');
-  }, [stablePopulatePresentation.isPopulateLoadingByKey]);
-  const assetGroupStateSignature = useMemo(() => {
-    return Object.entries(assetGroupAnalysisStateByKey)
-      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
-      .map(([key, state]) =>
-        [
-          key,
-          state.loading ? '1' : '0',
-          state.currentData ? '1' : '0',
-          state.committedData ? '1' : '0',
-          state.error?.name || '',
-        ].join(':'),
-      )
-      .join('|');
+  const assetGroupLoadingCount = useMemo(() => {
+    return Object.values(assetGroupAnalysisStateByKey).filter(
+      state => !!state?.loading,
+    ).length;
   }, [assetGroupAnalysisStateByKey]);
+  const assetGroupCurrentDataCount = useMemo(() => {
+    return Object.values(assetGroupAnalysisStateByKey).filter(
+      state => !!state?.currentData,
+    ).length;
+  }, [assetGroupAnalysisStateByKey]);
+  const assetGroupCommittedDataCount = useMemo(() => {
+    return Object.values(assetGroupAnalysisStateByKey).filter(
+      state => !!state?.committedData,
+    ).length;
+  }, [assetGroupAnalysisStateByKey]);
+  const assetGroupErrorCount = useMemo(() => {
+    return Object.values(assetGroupAnalysisStateByKey).filter(
+      state => !!state?.error,
+    ).length;
+  }, [assetGroupAnalysisStateByKey]);
+  const populateLoadingItemCount = useMemo(() => {
+    return Object.values(
+      stablePopulatePresentation.isPopulateLoadingByKey || {},
+    ).filter(Boolean).length;
+  }, [stablePopulatePresentation.isPopulateLoadingByKey]);
 
   useDevRenderTrace('usePortfolioAssetRows', {
     analysisEnabled,
     gainLossMode,
-    keyId: keyId || '',
+    hasKeyScope: !!keyId,
     walletCount: wallets.length,
-    analysisRequestKey: analysis.requestKey,
+    eligibleWalletCount: analysis.eligibleWallets?.length ?? 0,
+    storedWalletCount: analysis.storedWallets?.length ?? 0,
+    excludedWalletCount: walletEligibilitySummary.excludedWalletCount,
+    missingWalletIdCount: walletEligibilitySummary.missingWalletIdCount,
+    missingCopayerIdCount: walletEligibilitySummary.missingCopayerIdCount,
+    missingRequestPrivKeyCount:
+      walletEligibilitySummary.missingRequestPrivKeyCount,
+    nonMainnetNetworkCount: walletEligibilitySummary.nonMainnetNetworkCount,
+    pendingTssSessionCount: walletEligibilitySummary.pendingTssSessionCount,
+    incompleteCredentialsCount:
+      walletEligibilitySummary.incompleteCredentialsCount,
+    analysisHasRequestKey: !!analysis.requestKey,
     analysisQuoteCurrency: analysis.quoteCurrency || '',
     analysisLoading: analysis.loading,
+    analysisHasError: !!analysis.error,
     analysisHasData: !!analysis.data,
     analysisHasCommittedData: !!analysis.committedData,
-    analysisRefreshToken,
-    analysisClearDataToken: analysisClearDataToken || '',
+    analysisCurrentWalletCount: analysis.currentData?.wallets?.length ?? 0,
+    analysisCommittedWalletCount:
+      analysis.committedData?.wallets?.length ?? 0,
+    analysisHasRefreshToken: !!analysisRefreshToken,
+    analysisHasClearDataToken: !!analysisClearDataToken,
     assetGroupSpecCount: assetGroupAnalysisSpecs.length,
-    assetGroupSessionRequestKey,
-    assetGroupStateSignature,
+    assetGroupHasSessionRequestKey: !!assetGroupSessionRequestKey,
+    assetGroupLoadingCount,
+    assetGroupCurrentDataCount,
+    assetGroupCommittedDataCount,
+    assetGroupErrorCount,
     populateInProgress: !!portfolio.populateStatus?.inProgress,
     populateWalletsCompleted: portfolio.populateStatus?.walletsCompleted ?? null,
     lastPopulatedAt: portfolio.lastPopulatedAt ?? null,
     visibleItemCount: visibleItemsForDisplay.length,
-    visibleItemsSignature,
     hasLoadingVisibleItemsGap,
     hasPendingVisibleOrderStabilization,
-    populateLoadingSignature,
+    populateLoadingItemCount,
   });
+  useEffect(() => {
+    const previousPopulateInProgress = previousPopulateInProgressRef.current;
+    const nextPopulateInProgress = !!portfolio.populateStatus?.inProgress;
+
+    if (previousPopulateInProgress && !nextPopulateInProgress) {
+      console.log('[portfolio-post-populate] usePortfolioAssetRows', {
+        gainLossMode,
+        hasKeyScope: !!keyId,
+        walletCount: wallets.length,
+        eligibleWalletCount: analysis.eligibleWallets?.length ?? 0,
+        storedWalletCount: analysis.storedWallets?.length ?? 0,
+        excludedWalletCount: walletEligibilitySummary.excludedWalletCount,
+        missingWalletIdCount: walletEligibilitySummary.missingWalletIdCount,
+        missingCopayerIdCount:
+          walletEligibilitySummary.missingCopayerIdCount,
+        missingRequestPrivKeyCount:
+          walletEligibilitySummary.missingRequestPrivKeyCount,
+        nonMainnetNetworkCount:
+          walletEligibilitySummary.nonMainnetNetworkCount,
+        pendingTssSessionCount:
+          walletEligibilitySummary.pendingTssSessionCount,
+        incompleteCredentialsCount:
+          walletEligibilitySummary.incompleteCredentialsCount,
+        lastPopulatedAt: portfolio.lastPopulatedAt ?? null,
+        analysisHasRequestKey: !!analysis.requestKey,
+        analysisLoading: analysis.loading,
+        analysisHasError: !!analysis.error,
+        analysisHasData: !!analysis.data,
+        analysisHasCommittedData: !!analysis.committedData,
+        analysisCurrentWalletCount: analysis.currentData?.wallets?.length ?? 0,
+        analysisCommittedWalletCount:
+          analysis.committedData?.wallets?.length ?? 0,
+        assetGroupSpecCount: assetGroupAnalysisSpecs.length,
+        assetGroupLoadingCount,
+        assetGroupCurrentDataCount,
+        assetGroupCommittedDataCount,
+        assetGroupErrorCount,
+        visibleItemCount: visibleItemsForDisplay.length,
+        hasAnyPortfolioData:
+          visibleItemsForDisplay.length > 0 ||
+          !!analysis.data ||
+          !!analysis.committedData ||
+          Object.values(assetGroupAnalysisStateByKey).some(
+            state => !!state.currentData || !!state.committedData,
+          ),
+        isFiatLoading:
+          (analysis.loading && !analysis.data && !analysis.committedData) ||
+          (!!assetGroupAnalysisSpecs.length &&
+            assetGroupAnalysisSpecs.every(spec => {
+              const state = assetGroupAnalysisStateByKey[spec.key];
+              return (
+                !!state?.loading &&
+                !state.currentData &&
+                !state.committedData
+              );
+            })),
+        hasLoadingVisibleItemsGap,
+        hasPendingVisibleOrderStabilization,
+        populateLoadingItemCount,
+      });
+    }
+
+    previousPopulateInProgressRef.current = nextPopulateInProgress;
+  }, [
+    analysis.currentData,
+    analysis.data,
+    analysis.error,
+    analysis.eligibleWallets,
+    analysis.loading,
+    analysis.committedData,
+    analysis.storedWallets,
+    assetGroupAnalysisSpecs,
+    assetGroupAnalysisStateByKey,
+    assetGroupCommittedDataCount,
+    assetGroupCurrentDataCount,
+    assetGroupErrorCount,
+    assetGroupLoadingCount,
+    gainLossMode,
+    hasLoadingVisibleItemsGap,
+    hasPendingVisibleOrderStabilization,
+    keyId,
+    populateLoadingItemCount,
+    portfolio.lastPopulatedAt,
+    portfolio.populateStatus?.inProgress,
+    visibleItemsForDisplay,
+    walletEligibilitySummary.excludedWalletCount,
+    walletEligibilitySummary.incompleteCredentialsCount,
+    walletEligibilitySummary.missingCopayerIdCount,
+    walletEligibilitySummary.missingRequestPrivKeyCount,
+    walletEligibilitySummary.missingWalletIdCount,
+    walletEligibilitySummary.nonMainnetNetworkCount,
+    walletEligibilitySummary.pendingTssSessionCount,
+    wallets.length,
+  ]);
 
   return {
     visibleItems: visibleItemsForDisplay,

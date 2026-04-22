@@ -1452,6 +1452,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
                 quoteCurrency={
                   displayQuoteCurrency
                 }
+                debugSource="account_details_balance_chart"
                 rates={rates}
                 timeframeSelectorWidth={timeframeSelectorWidth}
                 onSelectedBalanceChange={setSelectedBalance}

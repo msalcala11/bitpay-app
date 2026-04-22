@@ -1157,6 +1157,7 @@ const KeyOverview = () => {
             <BalanceHistoryChart
               wallets={visibleKeyWallets}
               quoteCurrency={quoteCurrency}
+              debugSource="key_overview_balance_chart"
               rates={rates}
               timeframeSelectorWidth={timeframeSelectorWidth}
               onSelectedBalanceChange={setSelectedBalance}

@@ -14,6 +14,7 @@ import type {
   PnlAnalysisResult,
 } from '../../core/pnl/analysisStreaming';
 import type {StoredWallet} from '../../core/types';
+import {isPortfolioRuntimeMainnetLikeNetwork} from '../../adapters/rn/walletEligibility';
 
 const UNAVAILABLE_DELTA_FIAT = '—     ';
 const UNAVAILABLE_DELTA_PERCENT = '  —  %';
@@ -115,7 +116,9 @@ export function buildAssetRowMetricsFromAnalysis(args: {
   const walletsByGroupKey = new Map<string, StoredWallet[]>();
 
   for (const wallet of args.storedWallets || []) {
-    if ((wallet.summary.network || '').toLowerCase() !== 'livenet') {
+    if (
+      !isPortfolioRuntimeMainnetLikeNetwork(wallet.summary.network)
+    ) {
       continue;
     }
 

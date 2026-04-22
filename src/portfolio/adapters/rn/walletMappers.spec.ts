@@ -1,8 +1,19 @@
+jest.mock('../../../utils/portfolio/assets', () => ({
+  getWalletLiveAtomicBalance: jest.fn(({wallet, unitDecimals}: any) => {
+    const crypto = Number(wallet?.balance?.crypto || 0);
+    return BigInt(Math.round(crypto * 10 ** unitDecimals));
+  }),
+}));
+
 import {
   extractPortfolioWalletCredentialsSnapshot,
-  isPortfolioRuntimeEligibleWallet,
   toPortfolioStoredWallet,
 } from './walletMappers';
+import {
+  isPortfolioRuntimeMainnetLikeNetwork,
+  isPortfolioRuntimeEligibleWallet,
+  summarizePortfolioRuntimeWalletEligibility,
+} from './walletEligibility';
 
 describe('walletMappers', () => {
   it('detects runtime-eligible mainnet wallets with request signing credentials', () => {
@@ -71,5 +82,61 @@ describe('walletMappers', () => {
     } as any;
 
     expect(isPortfolioRuntimeEligibleWallet(wallet)).toBe(false);
+  });
+
+  it('treats both livenet and mainnet as runtime-mainnet networks', () => {
+    expect(isPortfolioRuntimeMainnetLikeNetwork('livenet')).toBe(true);
+    expect(isPortfolioRuntimeMainnetLikeNetwork('mainnet')).toBe(true);
+    expect(isPortfolioRuntimeMainnetLikeNetwork('testnet')).toBe(false);
+  });
+
+  it('summarizes runtime wallet eligibility without exposing identifiers', () => {
+    const summary = summarizePortfolioRuntimeWalletEligibility([
+      {
+        id: 'wallet-1',
+        network: 'livenet',
+        pendingTssSession: false,
+        credentials: {
+          walletId: 'wallet-1',
+          copayerId: 'copayer-1',
+          requestPrivKey: 'priv-key',
+          isComplete: () => true,
+        },
+      } as any,
+      {
+        id: 'wallet-2',
+        network: 'mainnet',
+        pendingTssSession: true,
+        credentials: {
+          walletId: 'wallet-2',
+          copayerId: 'copayer-2',
+          requestPrivKey: '',
+          isComplete: () => true,
+        },
+      } as any,
+      {
+        id: 'wallet-3',
+        network: 'testnet',
+        pendingTssSession: false,
+        credentials: {
+          walletId: 'wallet-3',
+          copayerId: '',
+          requestPrivKey: 'priv-key-3',
+          isComplete: () => false,
+        },
+      } as any,
+    ]);
+
+    expect(summary).toEqual({
+      walletCount: 3,
+      eligibleWalletCount: 1,
+      excludedWalletCount: 2,
+      missingWalletIdCount: 0,
+      missingCopayerIdCount: 1,
+      missingRequestPrivKeyCount: 1,
+      nonMainnetNetworkCount: 1,
+      pendingTssSessionCount: 1,
+      incompleteCredentialsCount: 1,
+    });
   });
 });

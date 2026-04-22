@@ -68,6 +68,10 @@ function buildSingleRequestSigningContextForRequest(args: {
     ? args.sessionCredentialsByWalletId.get(walletId)
     : undefined;
 
+  // Even requests that do not need BWS signing can still need Nitro Fetch on
+  // the runtime (for example, analysis/chart rate warming). Always provide the
+  // shared request context so non-wallet worklet queries keep working with
+  // fetch preview disabled.
   return createPortfolioTxHistorySigningDispatchContextOnRN({
     requestPrivKey:
       String((credentials as any)?.requestPrivKey || '').trim() || undefined,

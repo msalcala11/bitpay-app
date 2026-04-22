@@ -107,6 +107,7 @@ const AssetBalanceChartSection = React.memo(
         <BalanceHistoryChart
           wallets={wallets}
           quoteCurrency={quoteCurrency}
+          debugSource="asset_balance_history_chart"
           initialSelectedTimeframe={initialSelectedTimeframe}
           rates={rates}
           lineColor={lineColor}
@@ -246,6 +247,7 @@ const AssetBalanceHistoryScreen = ({
     enabled: shared.hasWalletsForAsset,
     freezeWhilePopulate: true,
     allowCurrentWhilePopulate: true,
+    debugSource: 'asset_balance_history_analysis',
   });
 
   const isAssetBalanceChartLoading = useMemo(() => {
