@@ -1,4 +1,5 @@
 import type {BwsConfig} from '../../core/shared/bws';
+import type {NitroResponse as NitroFetchResponse} from 'react-native-nitro-fetch';
 import {
   CANONICAL_FIAT_QUOTE,
   DEFAULT_STORED_FIAT_RATE_INTERVALS,
@@ -32,6 +33,10 @@ import {
   workletKvSetString,
   type PortfolioWorkletKvConfig,
 } from './portfolioWorkletKv';
+import {
+  DEFAULT_PORTFOLIO_NITRO_FETCH_TIMEOUT_MS,
+  getPortfolioNitroFetchClientOnRuntime,
+} from '../../adapters/rn/txHistorySigning';
 
 export const getWorkletRateStorageKey = (args: {
   quoteCurrency: string;
@@ -144,23 +149,29 @@ async function fetchFiatRatePayload(args: {
     },
   );
 
-  let response: Response;
+  const nitroFetchClient = getPortfolioNitroFetchClientOnRuntime();
+  let response: NitroFetchResponse;
   try {
-    response = await fetch(url, {
+    response = nitroFetchClient.requestSync({
+      url,
       method: 'GET',
-      headers: {
-        Accept: 'application/json',
-      },
+      headers: [
+        {key: 'Accept', value: 'application/json'},
+        {key: 'Cache-Control', value: 'no-store'},
+      ],
+      timeoutMs: DEFAULT_PORTFOLIO_NITRO_FETCH_TIMEOUT_MS,
+      followRedirects: true,
     });
   } catch (error: unknown) {
     const runtimeError =
       error instanceof Error ? error : new Error(String(error));
     throw new Error(
-      `Portfolio fiat-rate request failed for ${url}: ${runtimeError.message}`,
+      `Portfolio Nitro Fetch fiat-rate request failed for ${url}: ${runtimeError.message}`,
     );
   }
 
-  const rawText = await response.text();
+  const rawText =
+    typeof response.bodyString === 'string' ? response.bodyString : '';
   if (!response.ok) {
     throw new Error(
       `Failed to fetch fiat rates (${

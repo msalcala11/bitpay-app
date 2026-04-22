@@ -1,8 +1,8 @@
 const {getDefaultConfig, mergeConfig} = require('@react-native/metro-config');
+const {resolve: resolveWithMetro} = require('metro-resolver');
 const path = require('path');
 
 const {withSentryConfig} = require('@sentry/react-native/metro');
-const {bundleModeMetroConfig} = require('react-native-worklets/bundleMode');
 
 const defaultConfig = getDefaultConfig(__dirname);
 const {
@@ -46,6 +46,14 @@ const config = {
   },
 };
 
+const delegateResolveRequest = (context, moduleName, platform) => {
+  if (typeof context.resolveRequest === 'function') {
+    return context.resolveRequest(context, moduleName, platform);
+  }
+
+  return resolveWithMetro(context, moduleName, platform);
+};
+
 // Ensure Metro resolves to the ES6 build of tslib to avoid '__extends' undefined errors
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   // Normalize problematic deep imports to public exports for @noble/hashes
@@ -86,13 +94,11 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName === '@@silence-original') moduleName = REAL_SILENCE_PATH;
   if (moduleName === '@@silence-wasm') moduleName = SILENCE_WASM_PATH;
 
-  return bundleModeMetroConfig.resolver.resolveRequest(
+  return delegateResolveRequest(
     context,
     ALIASES[moduleName] ?? moduleName,
     platform,
   );
 };
 
-module.exports = withSentryConfig(
-  mergeConfig(defaultConfig, bundleModeMetroConfig, config),
-);
+module.exports = withSentryConfig(mergeConfig(defaultConfig, config));

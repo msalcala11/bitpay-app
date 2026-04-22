@@ -97,6 +97,36 @@ PODS:
     - Mixpanel-swift (= 5.2.0)
     - React-Core
   - MultiplatformBleAdapter (0.2.0)
+  - NitroFetch (1.0.3):
+    - boost
+    - DoubleConversion
+    - fast_float
+    - fmt
+    - glog
+    - hermes-engine
+    - NitroModules
+    - RCT-Folly
+    - RCT-Folly/Fabric
+    - RCTRequired
+    - RCTTypeSafety
+    - React-callinvoker
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - SocketRocket
+    - Yoga
   - NitroModules (0.35.1):
     - boost
     - DoubleConversion
@@ -3517,6 +3547,7 @@ DEPENDENCIES:
   - glog (from `../node_modules/react-native/third-party-podspecs/glog.podspec`)
   - hermes-engine (from `../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
   - MixpanelReactNative (from `../node_modules/mixpanel-react-native`)
+  - NitroFetch (from `../node_modules/react-native-nitro-fetch`)
   - NitroModules (from `../node_modules/react-native-nitro-modules`)
   - QuickCrypto (from `../node_modules/react-native-quick-crypto`)
   - RCT-Folly (from `../node_modules/react-native/third-party-podspecs/RCT-Folly.podspec`)
@@ -3680,6 +3711,8 @@ EXTERNAL SOURCES:
     :tag: hermes-2025-09-01-RNv0.82.0-265ef62ff3eb7289d17e366664ac0da82303e101
   MixpanelReactNative:
     :path: "../node_modules/mixpanel-react-native"
+  NitroFetch:
+    :path: "../node_modules/react-native-nitro-fetch"
   NitroModules:
     :path: "../node_modules/react-native-nitro-modules"
   QuickCrypto:
@@ -3939,6 +3972,7 @@ SPEC CHECKSUMS:
   Mixpanel-swift: de454db5987bf6f601106520a44663fc556e8cfa
   MixpanelReactNative: e6b7c6c37e88263744c9a5d46a1f05d209b68348
   MultiplatformBleAdapter: b1fddd0d499b96b607e00f0faa8e60648343dc1d
+  NitroFetch: 30653bc9871b9e929b76eaa63c0701125063faf8
   NitroModules: 944be1eb6b9235c902c6779263b35d5a533dce00
   QuickCrypto: 033c3aa0b39de28bb2369557fba5eeaeb8ab4956
   RCT-Folly: 59ec0ac1f2f39672a0c6e6cecdd39383b764646f
@@ -4056,7 +4090,7 @@ SPEC CHECKSUMS:
   RNSentry: 45be9e9f3bbbf982ffe661f912954bc795f191a4
   RNShare: 14a882c4b1202bd861e849cc60b1a18449fb3bb4
   RNSVG: 674a4656c5a2c84b18b6e1cc3c1bf43b2ecc6099
-  RNWorklets: 60e1501a54250864bbd4590c29738ebe7ec91f33
+  RNWorklets: 129a1d32d6e0ffc76d0d37df90ff73c0f87e8955
   SDWebImage: a7f831e1a65eb5e285e3fb046a23fcfbf08e696d
   SDWebImageWebPCoder: 908b83b6adda48effe7667cd2b7f78c897e5111d
   Sentry: d587a8fe91ca13503ecd69a1905f3e8a0fcf61be
@@ -4065,6 +4099,6 @@ SPEC CHECKSUMS:
   VisionCamera: 05e4bc4783174689a5878a0797015ab32afae9e4
   Yoga: 93bc00d78638987f9ffd928f4a9f895d3e601bc3
 
-PODFILE CHECKSUM: 9d0418736883a30a1763e2b7e0e5244ea1a618eb
+PODFILE CHECKSUM: 91e915b372fe50cffa909299965ad28bb54bc3f7
 
 COCOAPODS: 1.16.2

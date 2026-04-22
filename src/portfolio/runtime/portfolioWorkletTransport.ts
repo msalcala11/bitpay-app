@@ -63,32 +63,18 @@ function buildSingleRequestSigningContextForRequest(args: {
   request: WorkerRequest;
   sessionCredentialsByWalletId: Map<string, WalletCredentials>;
 }): PortfolioTxHistorySigningDispatchContext | undefined {
-  if (args.request.method !== 'snapshots.processNextPage') {
-    return undefined;
-  }
-
   const walletId = getWalletIdFromRequest(args.request);
-  if (!walletId) {
-    return undefined;
-  }
+  const credentials = walletId
+    ? args.sessionCredentialsByWalletId.get(walletId)
+    : undefined;
 
-  const credentials = args.sessionCredentialsByWalletId.get(walletId);
-  const requestPrivKey = String((credentials as any)?.requestPrivKey || '').trim();
-  if (!requestPrivKey) {
-    return undefined;
-  }
-
-  try {
-    return createPortfolioTxHistorySigningDispatchContextOnRN({
-      requestPrivKey,
-      requestCount: 4,
-    });
-  } catch {
-    return {
-      requestPrivKey,
-      nextSignHandleIndex: 0,
-    };
-  }
+  return createPortfolioTxHistorySigningDispatchContextOnRN({
+    requestPrivKey:
+      String((credentials as any)?.requestPrivKey || '').trim() || undefined,
+    requestPubKey:
+      String((credentials as any)?.requestPubKey || '').trim() || undefined,
+    requestCount: args.request.method === 'snapshots.processNextPage' ? 4 : 1,
+  });
 }
 
 function buildPopulateJobSigningContextsForRequest(
@@ -108,21 +94,16 @@ function buildPopulateJobSigningContextsForRequest(
   for (const wallet of wallets) {
     const walletId = String(wallet?.summary?.walletId || wallet?.walletId || '').trim();
     const requestPrivKey = String(wallet?.credentials?.requestPrivKey || '').trim();
-    if (!walletId || !requestPrivKey) {
+    const requestPubKey = String(wallet?.credentials?.requestPubKey || '').trim();
+    if (!walletId) {
       continue;
     }
 
-    try {
-      out[walletId] = createPortfolioTxHistorySigningDispatchContextOnRN({
-        requestPrivKey,
-        requestCount: 4,
-      });
-    } catch {
-      out[walletId] = {
-        requestPrivKey,
-        nextSignHandleIndex: 0,
-      };
-    }
+    out[walletId] = createPortfolioTxHistorySigningDispatchContextOnRN({
+      requestPrivKey: requestPrivKey || undefined,
+      requestPubKey: requestPubKey || undefined,
+      requestCount: 4,
+    });
 
     populated = true;
   }

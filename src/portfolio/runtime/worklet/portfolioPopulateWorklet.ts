@@ -4,7 +4,6 @@ import type {
   WorkerResponse,
 } from '../../core/engine/workerProtocol';
 import type {WalletCredentials, WalletSummary, Tx} from '../../core/types';
-import {parseAtomicToBigint} from '../../core/format';
 import type {
   PrepareWalletSessionResult,
   ProcessNextPageSessionResult,
@@ -104,6 +103,67 @@ type GlobalWithPortfolioPopulateState = typeof globalThis & {
 const PORTFOLIO_POPULATE_STATE_GLOBAL_KEY =
   '__bitpayPortfolioPopulateWorkletStateV1__';
 const POPULATE_DEBUG_TXID_HEAD_LIMIT = 10;
+
+function parseScientificToTruncatedIntegerString(s: string): string | null {
+  'worklet';
+
+  const m = s.trim().match(/^([+-]?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/);
+  if (!m) return null;
+
+  const sign = m[1] === '-' ? '-' : '';
+  const intPart = m[2];
+  const fracPart = m[3] ?? '';
+  const exp = Number(m[4]);
+  if (!Number.isInteger(exp)) return null;
+
+  const digits = intPart + fracPart;
+  const decimalPos = intPart.length + exp;
+  if (decimalPos <= 0) return '0';
+
+  const rawInt =
+    decimalPos >= digits.length
+      ? digits + '0'.repeat(decimalPos - digits.length)
+      : digits.slice(0, decimalPos);
+
+  const normalized = rawInt.replace(/^0+(?=\d)/, '');
+  if (!normalized || /^0+$/.test(normalized)) return '0';
+  return sign ? `${sign}${normalized}` : normalized;
+}
+
+function parseAtomicToBigint(v: number | string | bigint): bigint {
+  'worklet';
+
+  if (typeof v === 'bigint') return v;
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v)) return 0n;
+    if (Number.isSafeInteger(v)) return BigInt(v);
+
+    const s = String(v);
+    if (/[eE]/.test(s)) {
+      const expanded = parseScientificToTruncatedIntegerString(s);
+      if (expanded) return BigInt(expanded);
+    }
+
+    const m = s.match(/^(-?\d+)(?:\.\d+)?$/);
+    if (m) return BigInt(m[1]);
+
+    return BigInt(Math.trunc(v));
+  }
+
+  const s = String(v).trim();
+  if (!s) return 0n;
+  if (/[eE]/.test(s)) {
+    const expanded = parseScientificToTruncatedIntegerString(s);
+    if (expanded) return BigInt(expanded);
+    const n = Number(s);
+    if (!Number.isFinite(n)) return 0n;
+    return BigInt(Math.trunc(n));
+  }
+
+  const m = s.match(/^(-?\d+)(?:\.(\d+))?$/);
+  if (!m) throw new Error('Invalid atomic string');
+  return BigInt(m[1]);
+}
 
 export function getOrCreatePortfolioPopulateWorkletState(
   config: PortfolioPopulateWorkletConfig,

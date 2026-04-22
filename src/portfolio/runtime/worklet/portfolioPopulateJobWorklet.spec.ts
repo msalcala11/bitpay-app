@@ -246,6 +246,9 @@ describe('portfolioPopulateJobWorklet', () => {
         registryKey: config.registryKey,
       },
       'w1',
+      {
+        preserveInvalidHistoryMarker: false,
+      },
     );
   });
 
@@ -345,6 +348,9 @@ describe('portfolioPopulateJobWorklet', () => {
         registryKey: config.registryKey,
       },
       'w1',
+      {
+        preserveInvalidHistoryMarker: false,
+      },
     );
   });
 });

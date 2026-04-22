@@ -1,13 +1,15 @@
 import type {BwsConfig} from '../../core/shared/bws';
 import type {Tx, WalletCredentials} from '../../core/types';
+import type {NitroResponse as NitroFetchResponse} from 'react-native-nitro-fetch';
 import {
   buildTokenWalletTxHistoryContextFromCredentials,
   normalizeTokenWalletTxHistoryPage,
 } from '../../core/tokenTxHistory';
 import {
-  ensurePortfolioRuntimeSigningGlobals,
-  getPortfolioTxHistorySigningDispatchContextOnRuntime,
-  signBwsGetRequestWithBitcore,
+  assertPortfolioTxHistoryRequestKeyDetails,
+  DEFAULT_PORTFOLIO_NITRO_FETCH_TIMEOUT_MS,
+  getPortfolioNitroFetchClientOnRuntime,
+  requirePortfolioTxHistorySigningDispatchContextOnRuntime,
   signBwsGetRequestWithTransferredNitro,
   takeNextPortfolioTransferredSignHandleOnRuntime,
 } from './txHistorySigning';
@@ -27,6 +29,7 @@ function getMultisigContractAddressFromCredentials(
   credentials: WalletCredentials,
 ): string | undefined {
   'worklet';
+
   const raw =
     credentials?.multisigEthInfo?.multisigContractAddress ??
     credentials?.multisigContractAddress;
@@ -39,9 +42,7 @@ function getTokenAddressFromCredentials(
 ): string | undefined {
   'worklet';
 
-  const raw =
-    credentials?.token?.address ??
-    credentials?.tokenAddress;
+  const raw = credentials?.token?.address ?? credentials?.tokenAddress;
   const tokenAddress = String(raw || '').trim();
   return tokenAddress || undefined;
 }
@@ -50,6 +51,7 @@ export function buildPortfolioTxHistoryRequestPath(
   args: TxHistoryRequestArgs,
 ): string {
   'worklet';
+
   const params: string[] = [];
 
   if (Number.isFinite(args.skip) && args.skip > 0) {
@@ -88,7 +90,9 @@ export function appendPortfolioTxHistoryCacheBustParam(
 
   const normalizedRequestPath = String(requestPath || '').trim();
   if (!normalizedRequestPath) {
-    throw new Error('A txhistory request path is required before appending the cache-bust param.');
+    throw new Error(
+      'A txhistory request path is required before appending the cache-bust param.',
+    );
   }
 
   const separator = normalizedRequestPath.includes('?') ? '&' : '?';
@@ -101,54 +105,47 @@ export function appendPortfolioTxHistoryCacheBustParam(
 
 function getWalletCopayerId(credentials: WalletCredentials): string {
   'worklet';
+
   const copayerId = String(credentials?.copayerId || '').trim();
   if (!copayerId) {
-    throw new Error('Wallet credentials are missing copayerId for BWS txhistory requests.');
-  }
-  return copayerId;
-}
-
-function getWalletRequestPrivKey(credentials: WalletCredentials): string {
-  'worklet';
-  const runtimeContext = getPortfolioTxHistorySigningDispatchContextOnRuntime();
-  const requestPrivKeyFromContext = String(runtimeContext?.requestPrivKey || '').trim();
-  if (requestPrivKeyFromContext) {
-    return requestPrivKeyFromContext;
-  }
-
-  const requestPrivKey = String(credentials?.requestPrivKey || '').trim();
-  if (!requestPrivKey) {
     throw new Error(
-      'Wallet credentials are missing requestPrivKey for BWS txhistory signing.',
+      'Wallet credentials are missing copayerId for BWS txhistory requests.',
     );
   }
-  return requestPrivKey;
+  return copayerId;
 }
 
 function buildSignedHeaders(args: {
   credentials: WalletCredentials;
   requestPath: string;
-}): Record<string, string> {
+}): Array<{key: string; value: string}> {
   'worklet';
 
   const copayerId = getWalletCopayerId(args.credentials);
-  const requestPrivKey = getWalletRequestPrivKey(args.credentials);
-  const transferredNitro = takeNextPortfolioTransferredSignHandleOnRuntime();
-  const signature = transferredNitro
-    ? signBwsGetRequestWithTransferredNitro(
-        args.requestPath,
-        transferredNitro.firstHashHybrid,
-        transferredNitro.signHandleHybrid,
-        transferredNitro.privateKeyHandle,
-      )
-    : signBwsGetRequestWithBitcore(args.requestPath, requestPrivKey);
+  const runtimeContext = requirePortfolioTxHistorySigningDispatchContextOnRuntime();
+  assertPortfolioTxHistoryRequestKeyDetails(runtimeContext.requestKey);
 
-  return {
-    Accept: 'application/json',
-    'x-client-version': PORTFOLIO_BWS_CLIENT_VERSION_HEADER,
-    'x-identity': copayerId,
-    'x-signature': signature,
-  };
+  const transferredNitro = takeNextPortfolioTransferredSignHandleOnRuntime();
+  if (!transferredNitro) {
+    throw new Error(
+      `No transferred Nitro SignHandle is available on the portfolio runtime for ${args.requestPath}.`,
+    );
+  }
+
+  const signature = signBwsGetRequestWithTransferredNitro(
+    args.requestPath,
+    transferredNitro.firstHashHybrid,
+    transferredNitro.signHandleHybrid,
+    transferredNitro.privateKeyHandle,
+  );
+
+  return [
+    {key: 'Accept', value: 'application/json'},
+    {key: 'Cache-Control', value: 'no-store'},
+    {key: 'x-client-version', value: PORTFOLIO_BWS_CLIENT_VERSION_HEADER},
+    {key: 'x-identity', value: copayerId},
+    {key: 'x-signature', value: signature},
+  ];
 }
 
 function tryParseJson(text: string): unknown {
@@ -174,8 +171,6 @@ export async function fetchPortfolioTxHistoryPageByRequest(args: {
 }): Promise<Tx[]> {
   'worklet';
 
-  ensurePortfolioRuntimeSigningGlobals();
-
   const requestPath = buildPortfolioTxHistoryRequestPath({
     credentials: args.credentials,
     skip: args.skip,
@@ -194,20 +189,26 @@ export async function fetchPortfolioTxHistoryPageByRequest(args: {
     requestPath: signedRequestPath,
   });
 
-  let response: Response;
+  const nitroFetchClient = getPortfolioNitroFetchClientOnRuntime();
+  let response: NitroFetchResponse;
   try {
-    response = await fetch(`${baseUrl}${signedRequestPath}`, {
+    response = nitroFetchClient.requestSync({
+      url: `${baseUrl}${signedRequestPath}`,
       method: 'GET',
       headers,
+      timeoutMs: DEFAULT_PORTFOLIO_NITRO_FETCH_TIMEOUT_MS,
+      followRedirects: true,
     });
   } catch (error: unknown) {
-    const runtimeError = error instanceof Error ? error : new Error(String(error));
+    const runtimeError =
+      error instanceof Error ? error : new Error(String(error));
     throw new Error(
-      `Portfolio txhistory request failed for ${signedRequestPath}: ${runtimeError.message}`,
+      `Portfolio Nitro Fetch txhistory request failed for ${signedRequestPath}: ${runtimeError.message}`,
     );
   }
 
-  const rawResponseText = await response.text();
+  const rawResponseText =
+    typeof response.bodyString === 'string' ? response.bodyString : '';
   if (!response.ok) {
     const responsePreview = rawResponseText
       ? rawResponseText.slice(0, 400)
