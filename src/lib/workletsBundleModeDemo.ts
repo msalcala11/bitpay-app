@@ -319,6 +319,10 @@ const WORKER_MMKV_KEY_PREFIX = 'worklets-mmkv-roundtrip';
 const WORKER_MMKV_STRESS_KEY_PREFIX = 'worklets-mmkv-stress';
 const TXHISTORY_BASE_PATH = '/v1/txhistory/';
 const DEFAULT_NITRO_FETCH_TIMEOUT_MS = 15000;
+const SECP256K1_CURVE_ORDER_HEX =
+  'fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141';
+const SECP256K1_CURVE_HALF_ORDER_HEX =
+  '7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0';
 const NITRO_FETCH_SMOKE_TEST_QUOTE_CURRENCY = 'USD';
 const NITRO_FETCH_SMOKE_TEST_RATE_COIN = 'btc';
 const NITRO_FETCH_SMOKE_TEST_URL = `${BASE_BWS_URL}/v4/fiatrates/${NITRO_FETCH_SMOKE_TEST_QUOTE_CURRENCY}?days=1&coin=${NITRO_FETCH_SMOKE_TEST_RATE_COIN}`;
@@ -774,7 +778,10 @@ const ensureSigningGlobalsForWorker = () => {
   if (!globalRef.window) {
     globalRef.window = globalRef;
   }
-  if (!globalRef.Buffer) {
+  if (
+    !globalRef.Buffer &&
+    typeof (NodeBuffer as {from?: unknown})?.from === 'function'
+  ) {
     globalRef.Buffer = NodeBuffer;
   }
   if (!globalRef.process) {
@@ -785,13 +792,6 @@ const ensureSigningGlobalsForWorker = () => {
   if (typeof processRef.browser === 'undefined') {
     processRef.browser = true;
   }
-};
-
-const getBitcoreLibForWorker = () => {
-  'worklet';
-
-  const importedBitcoreLib = require('@bitpay-labs/bitcore-lib') as any;
-  return importedBitcoreLib?.default || importedBitcoreLib;
 };
 
 const getBitcoreLibForRN = () => {
@@ -868,6 +868,51 @@ const nodeBufferToArrayBuffer = (buffer: Buffer): ArrayBuffer => {
   return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
 };
 
+const bytesToHex = (bytes: ArrayLike<number>): string => {
+  'worklet';
+
+  let hex = '';
+
+  for (let index = 0; index < bytes.length; index += 1) {
+    hex += Number(bytes[index]).toString(16).padStart(2, '0');
+  }
+
+  return hex;
+};
+
+const hexToBytes = (hex: string): Uint8Array => {
+  'worklet';
+
+  const normalizedHex = hex.length % 2 === 0 ? hex : `0${hex}`;
+  const bytes = new Uint8Array(normalizedHex.length / 2);
+
+  for (let index = 0; index < normalizedHex.length; index += 2) {
+    const byteHex = normalizedHex.slice(index, index + 2);
+    bytes[index / 2] = Number.parseInt(byteHex, 16);
+  }
+
+  return bytes;
+};
+
+const concatBytes = (...parts: Uint8Array[]): Uint8Array => {
+  'worklet';
+
+  let totalLength = 0;
+  for (const part of parts) {
+    totalLength += part.length;
+  }
+
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+
+  for (const part of parts) {
+    result.set(part, offset);
+    offset += part.length;
+  }
+
+  return result;
+};
+
 const buildSecp256k1Sec1PrivateKeyDer = (privateKeyBytes: Buffer): Buffer => {
   if (privateKeyBytes.length !== 32) {
     throw new Error(
@@ -882,17 +927,14 @@ const buildSecp256k1Sec1PrivateKeyDer = (privateKeyBytes: Buffer): Buffer => {
   ]);
 };
 
-const getWorkerRequestKeyDetails = (
+const getWorkerRequestKeyDetailsOnRN = (
   wallet: WorkletsTxHistoryWalletSnapshot,
 ): WorkerTxHistoryRequestKeyDetails => {
-  'worklet';
-
-  ensureSigningGlobalsForWorker();
-  const bitcoreLib = getBitcoreLibForWorker();
+  const bitcoreLib = getBitcoreLibForRN();
 
   if (!bitcoreLib?.PrivateKey) {
     throw new Error(
-      '@bitpay-labs/bitcore-lib is unavailable inside the worker runtime.',
+      '@bitpay-labs/bitcore-lib is unavailable on the RN runtime.',
     );
   }
 
@@ -927,6 +969,138 @@ const assertWorkerRequestKeyDetails = (
       )}.`,
     );
   }
+};
+
+const parseDerSignature = (signatureHex: string) => {
+  'worklet';
+
+  const signatureBytes = hexToBytes(signatureHex);
+  if (signatureBytes.length < 8) {
+    throw new Error(
+      `Expected a DER-encoded ECDSA signature, received ${signatureBytes.length} bytes.`,
+    );
+  }
+
+  if (signatureBytes[0] !== 0x30) {
+    throw new Error(
+      `Expected DER sequence prefix 0x30, received 0x${signatureBytes[0].toString(
+        16,
+      )}.`,
+    );
+  }
+
+  const sequenceLength = signatureBytes[1];
+  if (sequenceLength !== signatureBytes.length - 2) {
+    throw new Error(
+      `Unexpected DER sequence length ${sequenceLength}; actual payload length is ${
+        signatureBytes.length - 2
+      }.`,
+    );
+  }
+
+  if (signatureBytes[2] !== 0x02) {
+    throw new Error(
+      `Expected DER integer marker for r, received 0x${signatureBytes[2].toString(
+        16,
+      )}.`,
+    );
+  }
+
+  const rLength = signatureBytes[3];
+  const rStart = 4;
+  const rEnd = rStart + rLength;
+
+  if (signatureBytes[rEnd] !== 0x02) {
+    throw new Error(
+      `Expected DER integer marker for s, received 0x${signatureBytes[rEnd].toString(
+        16,
+      )}.`,
+    );
+  }
+
+  const sLength = signatureBytes[rEnd + 1];
+  const sStart = rEnd + 2;
+  const sEnd = sStart + sLength;
+
+  if (sEnd !== signatureBytes.length) {
+    throw new Error(
+      `Unexpected DER signature tail length ${signatureBytes.length - sEnd}.`,
+    );
+  }
+
+  const rBytes = signatureBytes.subarray(rStart, rEnd);
+  const sBytes = signatureBytes.subarray(sStart, sEnd);
+
+  if (!rBytes.length || !sBytes.length) {
+    throw new Error('DER signature is missing an r or s component.');
+  }
+
+  return {
+    r: BigInt(`0x${bytesToHex(rBytes)}`),
+    s: BigInt(`0x${bytesToHex(sBytes)}`),
+  };
+};
+
+const encodeDerInteger = (value: bigint): Uint8Array => {
+  'worklet';
+
+  if (value < 0n) {
+    throw new Error('DER integer encoding only supports non-negative values.');
+  }
+
+  let hex = value.toString(16);
+  if (hex.length % 2 !== 0) {
+    hex = `0${hex}`;
+  }
+
+  let bytes = hex.length > 0 ? hexToBytes(hex) : Uint8Array.of(0x00);
+
+  while (bytes.length > 1 && bytes[0] === 0x00 && bytes[1] < 0x80) {
+    bytes = bytes.subarray(1);
+  }
+
+  if (bytes[0] >= 0x80) {
+    bytes = concatBytes(Uint8Array.of(0x00), bytes);
+  }
+
+  return bytes;
+};
+
+const encodeDerSignature = (r: bigint, s: bigint): string => {
+  'worklet';
+
+  const rBytes = encodeDerInteger(r);
+  const sBytes = encodeDerInteger(s);
+  const totalLength = 2 + rBytes.length + 2 + sBytes.length;
+
+  if (totalLength >= 0x80) {
+    throw new Error(
+      `DER signature payload is too large to encode (${totalLength} bytes).`,
+    );
+  }
+
+  return bytesToHex(
+    concatBytes(
+      Uint8Array.of(0x30, totalLength, 0x02, rBytes.length),
+      rBytes,
+      Uint8Array.of(0x02, sBytes.length),
+      sBytes,
+    ),
+  );
+};
+
+const normalizeSecp256k1LowSSignatureHex = (signatureHex: string): string => {
+  'worklet';
+
+  const {r, s} = parseDerSignature(signatureHex);
+  const curveHalfOrder = BigInt(`0x${SECP256K1_CURVE_HALF_ORDER_HEX}`);
+
+  if (s <= curveHalfOrder) {
+    return signatureHex;
+  }
+
+  const curveOrder = BigInt(`0x${SECP256K1_CURVE_ORDER_HEX}`);
+  return encodeDerSignature(r, curveOrder - s);
 };
 
 const toWalletSummary = (
@@ -991,6 +1165,7 @@ const toWorkerTxHistorySessionSummary = (
 
 const createWorkerTxHistorySession = (
   wallet: WorkletsTxHistoryWalletSnapshot,
+  requestKey: WorkerTxHistoryRequestKeyDetails,
   baseBwsUrl: string,
   clientVersionHeader: string,
   workerRuntimeName: string,
@@ -998,7 +1173,6 @@ const createWorkerTxHistorySession = (
   'worklet';
 
   ensureSigningGlobalsForWorker();
-  const requestKey = getWorkerRequestKeyDetails(wallet);
   assertWorkerRequestKeyDetails(requestKey);
 
   return {
@@ -1100,28 +1274,18 @@ const signBwsGetRequestWithTransferredNitro = (
 
   firstHashHybrid.createHash('sha256');
   firstHashHybrid.update(signingMessage);
-  const sha256Once = NodeBuffer.from(firstHashHybrid.digest());
+  const sha256Once = firstHashHybrid.digest();
 
   signHandleHybrid.init('sha256');
-  signHandleHybrid.update(nodeBufferToArrayBuffer(sha256Once));
+  signHandleHybrid.update(sha256Once);
 
-  const bitcoreLib = getBitcoreLibForWorker();
-  const rawNitroSignatureHex = NodeBuffer.from(
-    signHandleHybrid.sign(privateKeyHandle, undefined, undefined, 0),
-  ).toString('hex');
-  const nitroSignature =
-    bitcoreLib.crypto.Signature.fromString(rawNitroSignatureHex);
+  const rawNitroSignatureHex = bytesToHex(
+    new Uint8Array(
+      signHandleHybrid.sign(privateKeyHandle, undefined, undefined, 0),
+    ),
+  );
 
-  return nitroSignature.hasLowS()
-    ? rawNitroSignatureHex
-    : new bitcoreLib.crypto.Signature({
-        r: nitroSignature.r,
-        s: bitcoreLib.crypto.Point.getN().sub(nitroSignature.s),
-        compressed: nitroSignature.compressed,
-        isSchnorr: nitroSignature.isSchnorr,
-        nhashtype: nitroSignature.nhashtype,
-        i: nitroSignature.i,
-      }).toString();
+  return normalizeSecp256k1LowSSignatureHex(rawNitroSignatureHex);
 };
 
 function tryParseJson(text: string) {
@@ -1884,6 +2048,17 @@ export const fetchWalletTxHistoryPagesOnWorker = async (opts: {
     DEFAULT_TXHISTORY_PAGE_COUNT,
   );
 
+  let requestKey: WorkerTxHistoryRequestKeyDetails;
+  try {
+    requestKey = getWorkerRequestKeyDetailsOnRN(wallet);
+  } catch (err: unknown) {
+    throw new Error(
+      `RN txhistory request-key setup failed before crossing runtimes. ${
+        toRuntimeError(err).message
+      }`,
+    );
+  }
+
   let boxedNitroFetch: BoxedHybridObjectLike<NitroFetchHybrid>;
   try {
     boxedNitroFetch = createBoxedNitroFetchHybridOnRN();
@@ -1918,6 +2093,7 @@ export const fetchWalletTxHistoryPagesOnWorker = async (opts: {
       getWorkletsBundleModeRuntime(),
       (
         workerWallet: WorkletsTxHistoryWalletSnapshot,
+        workerRequestKey: WorkerTxHistoryRequestKeyDetails,
         baseBwsUrl: string,
         clientVersionHeader: string,
         workerRuntimeName: string,
@@ -1945,6 +2121,7 @@ export const fetchWalletTxHistoryPagesOnWorker = async (opts: {
               session = setWorkerTxHistorySession(
                 createWorkerTxHistorySession(
                   workerWallet,
+                  workerRequestKey,
                   baseBwsUrl,
                   clientVersionHeader,
                   workerRuntimeName,
@@ -2050,6 +2227,7 @@ export const fetchWalletTxHistoryPagesOnWorker = async (opts: {
         })();
       },
       wallet,
+      requestKey,
       BASE_BWS_URL,
       BWC_CLIENT_VERSION_HEADER,
       WORKER_RUNTIME_NAME,
