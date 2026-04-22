@@ -6,6 +6,7 @@ import {
   getPortfolioWalletCurrencyAbbreviationLower,
   getPopulateLoadingByAssetKey,
   getVisibleWalletsFromKeys,
+  sortAssetRowItemsByAssetFiatPriority,
 } from '../../../utils/portfolio/assets';
 import type {Key} from '../../../store/wallet/wallet.models';
 import {useAppSelector} from '../../../utils/hooks';
@@ -1411,7 +1412,7 @@ export function usePortfolioAssetRows({
       }
     }
 
-    return builtItems.map(baseItem => {
+    const nextItems = builtItems.map(baseItem => {
       const item = groupItemsByKey.get(baseItem.key) || baseItem;
       const groupState = assetGroupAnalysisStateByKey[item.key];
       const groupSpec = assetGroupAnalysisSpecByKey.get(item.key);
@@ -1629,6 +1630,13 @@ export function usePortfolioAssetRows({
         }),
       };
     });
+
+    // Keep the canonical asset-row order aligned with wallet-allocation order
+    // so Home root previews and All Assets reveal rows in the same sequence.
+    return sortAssetRowItemsByAssetFiatPriority({
+      items: nextItems,
+      wallets,
+    });
   }, [
     analysisEnabled,
     assetGroupAnalysisForDisplayByKey,
@@ -1646,6 +1654,7 @@ export function usePortfolioAssetRows({
     analysis.requestKey,
     analysis.storedWallets,
     gainLossMode,
+    wallets,
   ]);
   const visibleItemsStableDuringPopulate = useMemo(() => {
     return items;

@@ -1191,7 +1191,7 @@ describe('usePortfolioAssetRows', () => {
     expect(latestResult?.isPopulateLoadingByKey).toEqual({doge: false});
   });
 
-  it('keeps canonical analysis order stable during populate', () => {
+  it('reorders canonical analysis rows to match allocation priority during populate', () => {
     mockState.PORTFOLIO.populateStatus.inProgress = true;
     mockGetVisibleWalletsFromKeys.mockReturnValue([
       {
@@ -1237,11 +1237,44 @@ describe('usePortfolioAssetRows', () => {
         hasPnl: true,
       },
     ]);
+    mockSortAssetRowItemsByAssetFiatPriority.mockImplementation(({items, wallets}) => {
+      const priorityByKey = buildPriorityByKey(wallets);
+      return [...items].sort((left, right) => {
+        const leftPriority = priorityByKey[left.key];
+        const rightPriority = priorityByKey[right.key];
+        const fiatDiff =
+          (rightPriority?.fiatBalance || 0) - (leftPriority?.fiatBalance || 0);
+        if (fiatDiff !== 0) {
+          return fiatDiff;
+        }
+
+        const firstIndexDiff =
+          (leftPriority?.firstIndex ?? Number.MAX_SAFE_INTEGER) -
+          (rightPriority?.firstIndex ?? Number.MAX_SAFE_INTEGER);
+        if (firstIndexDiff !== 0) {
+          return firstIndexDiff;
+        }
+
+        return left.key.localeCompare(right.key);
+      });
+    });
 
     render(<HookHarness />);
 
-    expect(mockSortAssetRowItemsByAssetFiatPriority).not.toHaveBeenCalled();
-    expect(latestResult?.visibleItems.map(item => item.key)).toEqual(['btc', 'doge']);
+    expect(mockSortAssetRowItemsByAssetFiatPriority).toHaveBeenCalledWith({
+      items: expect.arrayContaining([
+        expect.objectContaining({key: 'btc'}),
+        expect.objectContaining({key: 'doge'}),
+      ]),
+      wallets: expect.arrayContaining([
+        expect.objectContaining({currencyAbbreviation: 'doge'}),
+        expect.objectContaining({currencyAbbreviation: 'btc'}),
+      ]),
+    });
+    expect(latestResult?.visibleItems.map(item => item.key)).toEqual([
+      'doge',
+      'btc',
+    ]);
   });
 
   it('keeps an asset revealed after it resolves once during the active populate session', () => {
