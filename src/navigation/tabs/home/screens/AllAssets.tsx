@@ -116,6 +116,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
   const populateInProgress = !!portfolio.populateStatus?.inProgress;
   const {getAssetIconData, getSupportedOption} = useAssetIconResolver();
   const focusRefreshToken = useScreenFocusRefreshToken();
+  const keyId = route.params?.keyId;
 
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
   const [query, setQuery] = useState('');
@@ -129,7 +130,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
   const {visibleItems, isFiatLoading, isPopulateLoadingByKey} =
     usePortfolioAssetRows({
       gainLossMode,
-      keyId: route.params?.keyId,
+      keyId,
       externalRefreshToken: focusRefreshToken,
     });
   const quoteCurrency = getQuoteCurrency({
@@ -315,6 +316,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
         <AssetRow
           item={item}
           isLast={index === filteredItems.length - 1}
+          keyId={keyId}
           isFiatLoading={isRowFiatLoading}
           isPopulateLoading={isRowPopulateLoading}
           img={img}
@@ -329,6 +331,7 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
       getAssetIconData,
       isFiatLoading,
       isPopulateLoadingByKey,
+      keyId,
       populateInProgress,
     ],
   );

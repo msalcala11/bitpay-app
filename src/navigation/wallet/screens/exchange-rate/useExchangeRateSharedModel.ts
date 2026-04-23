@@ -37,6 +37,7 @@ import {
   findSupportedCurrencyOptionForAsset,
   getWalletLiveFiatBalance,
   getWalletsMatchingExchangeRateAsset,
+  getVisibleWalletsForKey,
   getVisibleWalletsFromKeys,
 } from '../../../../utils/portfolio/assets';
 import {normalizeFiatRateSeriesCoin} from '../../../../utils/portfolio/core/pnl/rates';
@@ -116,6 +117,7 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
   );
   const {params} = useRoute<RouteProp<WalletGroupParamList, 'ExchangeRate'>>();
   const isAssetBalanceHistoryMode = params?.chartType === 'assetBalanceHistory';
+  const scopeKeyId = params?.keyId;
 
   const currencyAbbreviation = formatCurrencyAbbreviation(
     params?.currencyAbbreviation || 'BTC',
@@ -237,8 +239,12 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
   );
 
   const visibleWallets = useMemo(() => {
+    if (scopeKeyId) {
+      return getVisibleWalletsForKey(keys?.[scopeKeyId]);
+    }
+
     return getVisibleWalletsFromKeys(keys, homeCarouselConfig);
-  }, [homeCarouselConfig, keys]);
+  }, [homeCarouselConfig, keys, scopeKeyId]);
 
   const assetWallets = useMemo(() => {
     // Asset balance history needs the full historical wallet scope so ALL-time

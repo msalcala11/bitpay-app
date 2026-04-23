@@ -222,4 +222,18 @@ describe('AssetBalanceHistoryScreen', () => {
 
     expect(latestBalanceHistoryChartProps).toBeDefined();
   });
+
+  it('does not pre-hide the chart when snapshot presence is empty so the chart query can resolve scoped data', async () => {
+    mockUsePortfolioWalletSnapshotPresence.mockReturnValue({
+      hasAnySnapshots: false,
+      hasAllSnapshots: false,
+      checked: true,
+    });
+
+    await act(async () => {
+      TestRenderer.create(<AssetBalanceHistoryScreen shared={sharedFactory()} />);
+    });
+
+    expect(latestBalanceHistoryChartProps).toBeDefined();
+  });
 });

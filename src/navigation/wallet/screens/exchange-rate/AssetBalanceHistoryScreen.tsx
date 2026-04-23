@@ -354,12 +354,9 @@ const AssetBalanceHistoryScreen = ({
   const shouldRenderBalanceChart = useMemo(() => {
     return (
       !shared.hideAllBalances &&
-      shared.hasWalletsForAsset &&
-      (!assetSnapshotsChecked || anyAssetWalletHasSnapshots)
+      shared.hasWalletsForAsset
     );
   }, [
-    assetSnapshotsChecked,
-    anyAssetWalletHasSnapshots,
     shared.hideAllBalances,
     shared.hasWalletsForAsset,
   ]);
