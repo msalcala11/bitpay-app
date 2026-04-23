@@ -1,8 +1,10 @@
 import React, {
   useCallback,
   useDeferredValue,
+  useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {TextInput} from 'react-native';
@@ -45,9 +47,18 @@ import {
   getAssetRowPopulateLoading,
 } from '../components/assetRowLoading';
 import useScreenFocusRefreshToken from '../hooks/useScreenFocusRefreshToken';
+import {redactDebugIdentifiers} from '../../../../portfolio/ui/debug/buildAssetPnlDebugPayload';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AllAssets'>;
 const LIST_HORIZONTAL_GUTTER = Number.parseInt(ScreenGutter, 10);
+let nextAllAssetsScreenInstanceId = 1;
+
+function logAllAssetsScreen(
+  message: string,
+  payload: Record<string, unknown>,
+): void {
+  console.log(message, redactDebugIdentifiers(payload));
+}
 
 const ScreenContainer = styled.SafeAreaView`
   flex: 1;
@@ -109,6 +120,11 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
   const [gainLossMode, setGainLossMode] = useState<GainLossMode>('1D');
   const [query, setQuery] = useState('');
   const deferredQuery = useDeferredValue(query);
+  const screenInstanceIdRef = useRef<number | undefined>(undefined);
+  if (screenInstanceIdRef.current == null) {
+    screenInstanceIdRef.current = nextAllAssetsScreenInstanceId++;
+  }
+  const screenInstanceId = screenInstanceIdRef.current as number;
 
   const {visibleItems, isFiatLoading, isPopulateLoadingByKey} =
     usePortfolioAssetRows({
@@ -181,6 +197,49 @@ const AllAssets: React.FC<Props> = ({navigation, route}) => {
     searchableVisibleItems,
     visibleItems,
   ]);
+  const latestScreenDiagnosticsRef = useRef({
+    focusRefreshToken: focusRefreshToken ?? null,
+    populateInProgress,
+    gainLossMode,
+    visibleItemCount: visibleItems.length,
+    filteredItemCount: filteredItems.length,
+    isFiatLoading: !!isFiatLoading,
+  });
+  latestScreenDiagnosticsRef.current = {
+    focusRefreshToken: focusRefreshToken ?? null,
+    populateInProgress,
+    gainLossMode,
+    visibleItemCount: visibleItems.length,
+    filteredItemCount: filteredItems.length,
+    isFiatLoading: !!isFiatLoading,
+  };
+
+  useEffect(() => {
+    logAllAssetsScreen('[all-assets-screen] mount', {
+      screenInstanceId,
+      routeKey: route.key,
+      keyScope: route.params?.keyId || null,
+      ...latestScreenDiagnosticsRef.current,
+    });
+
+    return () => {
+      logAllAssetsScreen('[all-assets-screen] unmount', {
+        screenInstanceId,
+        routeKey: route.key,
+        keyScope: route.params?.keyId || null,
+        ...latestScreenDiagnosticsRef.current,
+      });
+    };
+  }, [route.key, route.params?.keyId, screenInstanceId]);
+
+  useEffect(() => {
+    logAllAssetsScreen('[all-assets-screen] focus-refresh', {
+      screenInstanceId,
+      routeKey: route.key,
+      keyScope: route.params?.keyId || null,
+      ...latestScreenDiagnosticsRef.current,
+    });
+  }, [focusRefreshToken, route.key, route.params?.keyId, screenInstanceId]);
 
   const historicalRateRequests = useMemo(() => {
     return filteredItems
