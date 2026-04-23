@@ -29,7 +29,7 @@
 
 - **Cross-chain ticker collapse lands in v18.** Home / All Assets / Allocation / key-scoped All Assets use ticker-grouped asset rows (`assetGroupId = lowercased currencyAbbreviation`), matching current UX.
 - **Allocation order equals asset-list order in v18.** Allocation does not introduce its own ranking order; it reuses the canonical asset-group order from the portfolio state.
-- **`onQuoteCurrencyChanged(...)` lands in v18 as a BTC-bridge flow.** No trigger skeletons remain, and quote switches do not refetch every visible asset in the new currency.
+- **`onQuoteCurrencyChanged(...)` lands in v18 as a BTC-bridge flow.** No trigger skeletons remain, quote switches do not refetch every visible asset in the new currency, and quote changes still publish immediately from committed state even during deferred populate.
 - **`onPullToRefresh(...)` lands in v18.** No trigger skeletons remain.
 - **Key-scoped asset list lands in v18.** `AllAssets({keyId})`, row taps from `KeyOverview`, and scoped asset detail all stay within that key's wallet set.
 - **Initial populate is progressive; later incremental populate is deferred-commit.** This distinction is load-bearing and is implemented explicitly in Phase 5, not left as an implicit UI effect.
@@ -114,7 +114,7 @@ Total kept: **~13,805 LOC.**
 1. **Ship-green** after every phase under `PORTFOLIO_V2=false`.
 2. **Don't refactor kernels.** The "untouched" list is binding.
 3. **Don't regress MMKV layout** beyond the `revision` addition.
-4. **One writer, one state surface.** Only `recompute` writes `sharedPortfolioState`. Touch scopes are recompute scopes. **Reset paths (debug-clear, sign-out) also write to `sharedPortfolioState`** — see guardrail #17.
+4. **One compute-runtime writer, one state surface.** Only compute-runtime recompute functions write `sharedPortfolioState`: the normal `recompute(...)` path plus the quote-switch-specific `recomputeQuoteBridgeFromCommittedState(...)` path described in Phases 2/3. Touch scopes are recompute scopes. **Reset paths (debug-clear, sign-out) also write to `sharedPortfolioState`** — see guardrail #17.
 5. **LOC ledger per phase.**
 6. **Selectors are pure worklet functions** of state + primitives. No Redux.
 7. **Cancellation** via `populateCancelFlag.value` checks at yield points.
@@ -912,9 +912,11 @@ Total kept: **~13,805 LOC.**
 > Required behavior:
 > - Fetch/persist only BTC series for the target quote currency and canonical stored intervals (`1D`, `1W`, `1M`, `ALL`).
 > - Derive the old-quote -> new-quote bridge factor from persisted BTC data.
-> - Hand the bridge factor to `recompute(...)`, which applies the currency switch on the compute runtime using already-persisted asset rates and snapshots.
+> - Hand the bridge snapshot to `recomputeQuoteBridgeFromCommittedState(...)`, a compute-runtime helper from Phase 3 that transforms **only the currently committed** `sharedPortfolioState` into the new quote.
+> - `recomputeQuoteBridgeFromCommittedState(...)` must not consult `loadQueue()`, `queue.doneWalletIds`, or any in-flight deferred-populate MMKV writes. It is a committed-state bridge transform, not a fresh-data recompute.
 > - Do **not** call `ensureFresh(...)` for every visible asset group on quote switch.
 > - Displayed `3M` / `1Y` / `5Y` still derive from `ALL` after the bridge is applied.
+> - This committed-state bridge path is what allows quote switches to publish immediately even during deferred populate without leaking partially refreshed populate data.
 >
 > **Branch-specific concurrency wrapping:** depending on Phase 0.5 spike results (guardrail #28), `ensureFresh`'s `runOnRuntimeAsync` call and/or the target runtime may be wrapped with additional concurrency primitives. Branch A: no additional populate-vs-rate wrapping. Branch B: `portfolioRuntimeSerial` executor. Branch C: target `getRateFetchRuntime()` instead of `getPopulateRuntime()`. Branch D: worklet-side lock inside `loadSeriesWorkletWithContext`. Identical-args dedupe is always on. If probe 3 is dirty/flaky, additionally serialize non-identical `ensureFresh` calls at the JS level. See Phase 0.5 branch table for exact implementation per spike outcome.
 >
@@ -988,6 +990,17 @@ Total kept: **~13,805 LOC.**
 >
 > This helper is load-bearing for the product contract: if there are no transactions in the chosen window, the asset PnL percentage for that window must equal the Exchange Rate percentage for that same window. Resolve the displayed window boundaries against the **rate-series timestamps first**, then snap PnL derivation to those exact boundary timestamps before computing start/end values. Do not let PnL and Exchange Rate derive their windows independently.
 >
+> ## Quote-switch committed-state recompute
+>
+> Add one compute-runtime helper such as `recomputeQuoteBridgeFromCommittedState(args)` and call it **only** from `onQuoteCurrencyChanged(...)`.
+>
+> Required behavior:
+> - Read `sharedPortfolioState.value` as the sole portfolio-state input.
+> - Apply the BTC bridge snapshot to the already-committed chart/row outputs and `quoteCurrency`.
+> - Preserve readiness/order state; this helper is a quote transform of committed data, not a fresh populate publish.
+> - Do **not** read `loadQueue()`, `queue.doneWalletIds`, or snapshot/rate MMKV state that may already contain in-flight deferred-populate results.
+> - During deferred populate, this helper is intentionally allowed to publish immediately because it transforms committed state only. The scheduler hold below still applies to heavy recomputes that would incorporate fresh populate data.
+>
 > ## Fingerprints
 >
 > **Per-interval primitive:** includes `rateFetchedOnForThisInterval` (per-interval), `liveRate`, `liveRatesAsOfMs`, `quoteCurrency`, `assetId`, `sortedWalletIds`, `snapshotRevisionsByWalletId`, `interval`.
@@ -1045,6 +1058,9 @@ Total kept: **~13,805 LOC.**
 > // During a deferred incremental populate, heavy recomputes are allowed to
 > // accumulate in `pending` but must not publish until populateCommitTick fires.
 > // Touch scopes still drain immediately.
+> // Quote-currency switches are different: they publish via
+> // recomputeQuoteBridgeFromCommittedState(...) on already-committed state only,
+> // so they intentionally bypass this hold without leaking partial populate data.
 >
 > function shouldHoldHeavyDrainForDeferredPopulate(work: PendingWork): boolean {
 >   const queue = loadQueue();
@@ -1852,18 +1868,16 @@ Total kept: **~13,805 LOC.**
 > export async function onQuoteCurrencyChanged(newQuote): Promise<void> {
 >   if (!canRunPortfolioV2Work()) return;        // GUARD
 >   const quote = String(newQuote || '').toUpperCase() || getQuoteCurrencyFromStore();
->   await ensureQuoteCurrencyFxBridge({
+>   const bridge = await ensureQuoteCurrencyFxBridge({
 >     fromQuoteCurrency: getQuoteCurrencyFromStore(),
 >     toQuoteCurrency: quote,
 >     intervals: ['1D', '1W', '1M', 'ALL'],
 >   });
->   const base = buildBaseRecomputeInputs({
->     quote,
->     wallets: getEligibleStoredWalletsFromStore(),
->     rates: getLiveRatesByAssetIdFromStore(),
->     ratesAsOfMs: getLiveRatesAsOfMsFromStore(),
->   });
->   scheduleRecompute({ ...base, scope: 'full' });
+>   await runOnRuntimeAsync(
+>     getComputeRuntime(),
+>     recomputeQuoteBridgeFromCommittedState,
+>     {bridge, toQuoteCurrency: quote},
+>   );
 > }
 >
 > export async function onLiveRatesUpdated(): Promise<void> {
@@ -1885,6 +1899,8 @@ Total kept: **~13,805 LOC.**
 > Every trigger: `canRunPortfolioV2Work()` is the first executable statement. Before `ensureFresh`, before FX-bridge fetch, before queue writes, before `scheduleRecompute`, before anything. This is a universal rule; an agent implementing should be able to verify by inspection of the first line of every exported trigger.
 >
 > `ensureFresh` lives here, NEVER in scheduler. `ensureQuoteCurrencyFxBridge(...)` also lives here and is called only by `onQuoteCurrencyChanged(...)`.
+>
+> `onQuoteCurrencyChanged(...)` intentionally does **not** queue a scheduler-managed full recompute for the immediate quote switch. Instead it applies `recomputeQuoteBridgeFromCommittedState(...)` directly on the compute runtime using committed state only. During deferred populate, this means visible values change quote immediately while populate-driven fresh data remains held until `populateCommitTick`.
 >
 > `buildEnsureFreshArgsForVisibleAssetGroups(...)` is a new v2 helper that:
 > - reads the currently relevant wallet set (all eligible wallets, or a supplied key-scoped wallet set),
@@ -1910,7 +1926,7 @@ Total kept: **~13,805 LOC.**
 > Tests:
 > - Each trigger mocked; fire-time freshness verified.
 > - **Guard-before-side-effects regression:** while `populateResetFailed` is latched, invoke each trigger. Assert `ensureFresh` NOT called (for triggers that call it), `scheduleRecompute` NOT called, `populateWallet` NOT called. Zero side effects per trigger.
-> - `onQuoteCurrencyChanged(...)` regression: calls `ensureQuoteCurrencyFxBridge(...)`, does **not** call per-asset `ensureFresh(...)`, and recomputes immediately from the bridge.
+> - `onQuoteCurrencyChanged(...)` regression: calls `ensureQuoteCurrencyFxBridge(...)`, does **not** call per-asset `ensureFresh(...)`, and applies `recomputeQuoteBridgeFromCommittedState(...)` immediately from the committed-state BTC bridge.
 > - Timeframe-switch regression: changing `tf` on any portfolio screen triggers zero calls to `ensureFresh(...)`, `ensureQuoteCurrencyFxBridge(...)`, populate APIs, or snapshot refresh helpers.
 
 **LOC ledger:** +320 / 0 / +320.
@@ -1918,6 +1934,8 @@ Total kept: **~13,805 LOC.**
 ---
 
 # Phase 7 — Migrate UI consumers (flag-gated)
+
+**Global UI contract:** quote-currency switches are special. Even during deferred populate they immediately re-bridge the **committed** chart/row state into the new quote currency. Only populate-driven fresh data remains deferred until the final commit.
 
 ## 7a. Asset list
 > `AssetsList`: `selectOrderedAssetGroupIds`, render `AssetRowV2`. Memo on `(assetGroupId, mode)`, `areEqualByRowFingerprint`. Rows are collapsed by `assetGroupId = lowercased currencyAbbreviation`, matching current Home behavior across chains.
@@ -1927,14 +1945,17 @@ Total kept: **~13,805 LOC.**
 > - `selectIsAssetGroupReady(...)` controls the right-side content only: ready rows show PnL, unready rows show skeletons/placeholders. Do **not** hide unready rows.
 > - Home and All Assets use the same `orderedAssetGroupIdsForAssetList` mid-populate so navigation preserves continuity.
 > - Switching Today vs All Time mid-populate changes only which precomputed row payload is displayed; it must not change populate order or row visibility.
+> - During deferred populate, quote-currency switches immediately re-bridge the committed row values into the new quote; only fresh populate data waits for the final commit.
 
 ## 7b. Home chart + PortfolioBalance
 > Under flag: `selectTotalSeries` + `areEqualBySeriesFingerprint`. Chart keys on `series.fingerprint`. Gate on all eligible wallets ready. During the first-ever progressive populate this chart stays hidden until all eligible wallets are ready; during later deferred populates it keeps showing the stale pre-refresh chart until the final commit publishes.
 >
 > **First-ever vs stale-fallback predicate:** use `selectHasAnyPopulatedWallets(s)`, not `queue.publishMode`. If committed populated state is empty, hide charts until ready. If committed populated state is non-empty, show stale committed data during deferred populate until commit.
+> Quote-currency switches remain immediate in both cases because they transform committed chart state only; they do not wait for the deferred populate commit.
 
 ## 7c. Wallet / Account / Key detail
 > `WalletDetails`/`AccountDetails`: mount → `scheduleRecompute({ scope: { kind: 'wallet', walletId }, ...base })`. Subscribe `selectWalletSeries` + `areEqualBySeriesFingerprint`. `useFocusEffect` → `touchWallet`. Wallet/account charts stay hidden on first populate until that wallet is ready; on later deferred populates they keep showing stale data until the final commit. Use the same `selectHasAnyPopulatedWallets(s)` predicate for first-ever vs stale-fallback behavior.
+> Quote-currency switches still update the committed wallet/account chart immediately during deferred populate; only fresh populate results wait for commit.
 >
 > `KeyOverview`: resolve key → walletIds from Redux. Mount → `scheduleRecompute({ scope: { kind: 'wallets', walletIds }, ...base })`. Subscribe `selectKeySeries(s, walletIds, tf)`. The "See All Assets" route passes `keyId`, and the downstream All Assets / asset-detail screens use the **scoped** selectors (`selectScopedAssetGroupRows`, `selectScopedOrderedAssetGroupIds`, scoped detail series) so the key view never falls back to global Home rows.
 
@@ -1947,6 +1968,7 @@ Total kept: **~13,805 LOC.**
 > - If there are no transactions in the chosen interval window, asset PnL % for that window must equal Exchange Rate % for that same window.
 > - This equality must continue to hold after quote-currency switches, including BTC-bridge quote changes.
 > - Use the same `selectHasAnyPopulatedWallets(s)` predicate for first-ever hide vs stale-fallback behavior.
+> - During deferred populate, quote-currency switches immediately re-bridge the committed asset-detail / exchange-rate values into the new quote; only fresh populate data waits for commit.
 
 ## 7e. All Assets + Allocation
 > `AllAssets`: global route uses `selectOrderedAssetGroupIds`; key-scoped route uses `selectScopedOrderedAssetGroupIds`. `Allocation`: `selectAllocationRows`. **Order must match**: Allocation reuses the same canonical asset-group ordering as All Assets / Home rows; do not introduce a second value-ranked sort. Test asserts orders stay identical for the same wallet set. Mid-populate, All Assets shows the same ready-vs-skeleton continuity as Home.
@@ -2214,6 +2236,7 @@ Total kept: **~13,805 LOC.**
 64. **Deferred heavy-recompute gating:** while a deferred populate has remaining wallets, heavy `scheduleRecompute` work from non-populate triggers accumulates but does not drain until `populateCommitTick`; touch scopes still drain.
 65. **Chart gate predicate:** first-ever hide vs stale-fallback behavior keys off committed populated state (`selectHasAnyPopulatedWallets(s)`), not `queue.publishMode`.
 66. **Interval-window timestamp snapping:** the shared window helper resolves boundaries from rate-series timestamps first, and PnL derivation snaps to those exact timestamps so the no-tx-window parity test is deterministic.
+67. **Quote-switch during deferred populate:** while a deferred populate is active, `onQuoteCurrencyChanged(...)` applies `recomputeQuoteBridgeFromCommittedState(...)` immediately to the committed state, visible screens switch quote right away, scheduler-held heavy recomputes still do not drain early, and the later `populateCommitTick` publish lands fresh data in the already-selected quote.
 
 ---
 
@@ -2263,7 +2286,7 @@ Starting: ~31,160. Ending: ~20,930. Eliminated: ~10,230, ~33%.
 - **Readiness O(1)** via `populated*IdsById`.
 - **Chart-boundary equality** keys on `Series.fingerprint`.
 - **Only four fiat-rate intervals are fetched/persisted:** `1D`, `1W`, `1M`, and `ALL`. Displayed `3M`, `1Y`, and `5Y` derive from `ALL` on the compute runtime.
-- **Quote-currency switching uses a BTC FX bridge.** Quote changes fetch only BTC bridge data for the target quote and recompute portfolio/chart/list values instantly on the compute runtime instead of refetching every visible asset in the new quote.
+- **Quote-currency switching uses a BTC FX bridge.** Quote changes fetch only BTC bridge data for the target quote and recompute portfolio/chart/list values instantly on the compute runtime from the currently committed state instead of refetching every visible asset in the new quote. This immediate bridge path remains allowed during deferred populate; only populate-driven fresh data waits for the final commit.
 - **Queue persists IDs + config + `orderRevision`.** `buildQueue` monotonic: `(prev?.orderRevision ?? 0) + 1`. `markDone` does not bump.
 - **Reconciliation on every kick.** Bumps `orderRevision` iff order changed.
 - **Single ordering helper** used by `buildQueue` and `buildBaseRecomputeInputs` fallback.
