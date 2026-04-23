@@ -387,6 +387,115 @@ describe('usePortfolioAssetRows', () => {
     });
   });
 
+  it('reruns a same-signature scoped analysis when post-populate analysis churn cancels a preparing run', async () => {
+    const globalAnalysis = {
+      driverCoin: 'btc',
+      assetIds: ['btc-asset'],
+      wallets: [{walletId: 'btc-wallet'}],
+    };
+    const scopedAnalysis = {
+      driverCoin: 'btc',
+      assetIds: ['btc-asset'],
+      wallets: [{walletId: 'btc-wallet'}],
+    };
+    const prepareResolvers: Array<(value: {sessionId: string}) => void> = [];
+    let analysisRequestKey = 'post-populate-request';
+
+    mockState.PORTFOLIO.lastPopulatedAt = 10;
+    mockState.PORTFOLIO.populateStatus.finishedAt = 10;
+    mockState.PORTFOLIO.populateStatus.stopReason = 'completed';
+    mockGetVisibleWalletsFromKeys.mockReturnValue([
+      {
+        id: 'btc-wallet',
+        currencyAbbreviation: 'btc',
+        chain: 'btc',
+        network: 'livenet',
+      },
+    ]);
+    mockUsePortfolioAnalysis.mockImplementation(() => ({
+      data: globalAnalysis,
+      committedData: globalAnalysis,
+      currentData: globalAnalysis,
+      error: undefined,
+      loading: false,
+      quoteCurrency: 'USD',
+      requestKey: analysisRequestKey,
+      currentRatesByAssetId: {['btc-asset']: 74333.76},
+      currentRatesSignature: 'btc-rate',
+      asOfMs: 123456789,
+      eligibleWallets: [
+        {
+          id: 'btc-wallet',
+          currencyAbbreviation: 'btc',
+          chain: 'btc',
+        },
+      ],
+      storedWallets: [
+        {
+          walletId: 'btc-wallet',
+          addedAt: 0,
+          summary: {
+            walletId: 'btc-wallet',
+            walletName: 'Bitcoin',
+            currencyAbbreviation: 'btc',
+            chain: 'btc',
+            tokenAddress: undefined,
+            network: 'livenet',
+            balanceAtomic: '422258',
+            balanceFormatted: '0.00422258',
+          },
+          credentials: {
+            keyId: 'key-id',
+          },
+        },
+      ],
+    }));
+    mockPreparePortfolioAnalysisSessionQuery.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          prepareResolvers.push(resolve as (value: {sessionId: string}) => void);
+        }),
+    );
+    mockRunPortfolioAnalysisSessionScopeQuery.mockResolvedValue(scopedAnalysis);
+    mockBuildAssetRowsFromAnalysis.mockReturnValue([
+      {
+        key: 'btc',
+        currencyAbbreviation: 'btc',
+        chain: 'btc',
+        name: 'BTC',
+        cryptoAmount: '0.00422258',
+        fiatAmount: '$313.88',
+        deltaFiat: '-$9.21',
+        deltaPercent: '-1.80%',
+        isPositive: false,
+        hasRate: true,
+        hasPnl: true,
+        showPnlPlaceholder: false,
+      },
+    ]);
+
+    const view = render(<HookHarness gainLossMode="ALL" />);
+
+    await waitFor(() => {
+      expect(mockPreparePortfolioAnalysisSessionQuery).toHaveBeenCalledTimes(1);
+    });
+
+    analysisRequestKey = 'post-populate-request-2';
+    view.rerender(<HookHarness gainLossMode="ALL" />);
+
+    await act(async () => {
+      prepareResolvers.shift()?.({sessionId: 'session-cancelled'});
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mockPreparePortfolioAnalysisSessionQuery).toHaveBeenCalledTimes(2);
+    });
+    expect(mockRunPortfolioAnalysisSessionScopeQuery).not.toHaveBeenCalledWith(
+      expect.objectContaining({sessionId: 'session-cancelled'}),
+    );
+  });
+
   it('keeps the populate clear-data token stable when wallet errors change mid-session', () => {
     mockState.PORTFOLIO.lastPopulatedAt = 10;
     mockState.PORTFOLIO.populateStatus.inProgress = true;
@@ -1032,8 +1141,16 @@ describe('usePortfolioAssetRows', () => {
     });
 
     await waitFor(() => {
-      expect(mockRunPortfolioAnalysisSessionScopeQuery).toHaveBeenCalledTimes(1);
+      expect(mockRunPortfolioAnalysisSessionScopeQuery).toHaveBeenCalledTimes(2);
+      expect(mockPreparePortfolioAnalysisSessionQuery).toHaveBeenCalledTimes(1);
     });
+    expect(mockRunPortfolioAnalysisSessionScopeQuery).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        sessionId: 'session-1',
+        walletIds: ['btc-wallet'],
+      }),
+    );
   });
 
   it('does not auto-populate on refocus even when committed portfolio data is missing', () => {

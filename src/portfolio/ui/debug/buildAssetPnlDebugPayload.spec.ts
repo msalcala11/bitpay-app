@@ -1,4 +1,6 @@
-import buildAssetPnlDebugPayload from './buildAssetPnlDebugPayload';
+import buildAssetPnlDebugPayload, {
+  redactDebugIdentifiers,
+} from './buildAssetPnlDebugPayload';
 
 describe('buildAssetPnlDebugPayload', () => {
   it('redacts wallet identifiers, request keys, and addresses from copied diagnostics', () => {
@@ -96,6 +98,54 @@ describe('buildAssetPnlDebugPayload', () => {
     });
     expect((payload as any).asset.rowWalletIds[0]).toBe(
       (payload as any).asset.rowWalletIds[1],
+    );
+  });
+
+  it('redacts route, signature, and session token style diagnostic identifiers', () => {
+    const payload = redactDebugIdentifiers({
+      routeKey: 'AllAssets-5TmrtEM83pokCQHR6K5WT',
+      scopeRunSignature:
+        'home_assets|1D|USD|1776892189589|wallet-123:eth:usdc:0xAbC123',
+      activeRunSignature:
+        'home_assets|1D|USD|1776892189589|wallet-123:eth:usdc:0xAbC123',
+      analysisRefreshToken:
+        '1776892380723|completed with wallet-123 and 0xAbC123',
+      analysisClearDataToken:
+        '1776892380723|completed with wallet-123 and 0xAbC123',
+      currentScopedAssetPopulateSessionToken:
+        'populate|wallet-123|0xAbC123',
+      preparedSessionId: 'session-wallet-123',
+      keyScope: 'key-123',
+    });
+
+    const serialized = JSON.stringify(payload);
+
+    expect(serialized).not.toContain('AllAssets-5TmrtEM83pokCQHR6K5WT');
+    expect(serialized).not.toContain('wallet-123');
+    expect(serialized).not.toContain('0xAbC123');
+    expect((payload as any).routeKey).toEqual(
+      expect.stringMatching(/^<redacted:routekey:/),
+    );
+    expect((payload as any).scopeRunSignature).toEqual(
+      expect.stringMatching(/^<redacted:scoperunsignature:/),
+    );
+    expect((payload as any).activeRunSignature).toEqual(
+      expect.stringMatching(/^<redacted:activerunsignature:/),
+    );
+    expect((payload as any).analysisRefreshToken).toEqual(
+      expect.stringMatching(/^<redacted:analysisrefreshtoken:/),
+    );
+    expect((payload as any).analysisClearDataToken).toEqual(
+      expect.stringMatching(/^<redacted:analysiscleardatatoken:/),
+    );
+    expect((payload as any).currentScopedAssetPopulateSessionToken).toEqual(
+      expect.stringMatching(/^<redacted:currentscopedassetpopulatesessiontoken:/),
+    );
+    expect((payload as any).preparedSessionId).toEqual(
+      expect.stringMatching(/^<redacted:preparedsessionid:/),
+    );
+    expect((payload as any).keyScope).toEqual(
+      expect.stringMatching(/^<redacted:keyscope:/),
     );
   });
 });
