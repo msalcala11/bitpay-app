@@ -23,8 +23,6 @@ import {runPortfolioChartQuery} from '../common';
 import {usePortfolioBalanceChartScope} from './usePortfolioBalanceChartScope';
 import usePortfolioHistoricalRateDepsCache from './usePortfolioHistoricalRateDepsCache';
 
-const SUMMARY_TIMEFRAMES: FiatRateInterval[] = ['1D', 'ALL'];
-
 function buildUnavailableSummaryPart(): PortfolioGainLossSummary['today'] {
   return {
     deltaFiat: 0,
@@ -60,6 +58,267 @@ function buildSummaryPart(args: {
   };
 }
 
+function usePortfolioGainLossSummaryTimeframe(args: {
+  asOfMs: number;
+  cachedTimeframes: Parameters<typeof getCachedBalanceChartTimeframe>[0];
+  chartDataRevisionSig: string;
+  currentRatesByAssetId: Record<string, number>;
+  currentRatesSignature: string;
+  currentSpotRatesByRateKey: Record<string, number>;
+  dispatch: ReturnType<typeof useAppDispatch>;
+  isFocused: boolean;
+  liveFiatTotal: number;
+  quoteCurrency: string;
+  scopeId: string;
+  sortedWalletIds: string[];
+  storedWalletRequestSig: string;
+  storedWallets: ReturnType<typeof usePortfolioBalanceChartScope>['storedWallets'];
+  timeframe: FiatRateInterval;
+}) {
+  const historicalRateRequests = useMemo(() => {
+    return buildBalanceChartHistoricalRateRequests({
+      wallets: args.storedWallets,
+      quoteCurrency: args.quoteCurrency,
+      timeframes: [args.timeframe],
+    });
+  }, [args.quoteCurrency, args.storedWallets, args.timeframe]);
+
+  const {
+    cache: fiatRateSeriesCache,
+    error: fiatRateSeriesCacheError,
+    loading: fiatRateSeriesCacheLoading,
+  } = usePortfolioHistoricalRateDepsCache({
+    wallets: args.storedWallets,
+    quoteCurrency: args.quoteCurrency,
+    timeframes: [args.timeframe],
+    maxAgeMs: HISTORIC_RATES_CACHE_DURATION * 1000,
+    enabled:
+      !!args.quoteCurrency &&
+      historicalRateRequests.some(group => group.requests.length > 0),
+  });
+
+  const historicalRateDepKeys = useMemo(() => {
+    return getBalanceChartHistoricalRateCacheKeys({
+      wallets: args.storedWallets,
+      quoteCurrency: args.quoteCurrency,
+      timeframes: [args.timeframe],
+    });
+  }, [args.quoteCurrency, args.storedWallets, args.timeframe]);
+
+  const historicalRateCacheReady = useMemo(() => {
+    return (
+      !historicalRateDepKeys.length ||
+      areBalanceChartHistoricalRatesReady({
+        depKeys: historicalRateDepKeys,
+        fiatRateSeriesCache,
+      })
+    );
+  }, [fiatRateSeriesCache, historicalRateDepKeys]);
+
+  const historicalRateCacheRevision = useMemo(() => {
+    return getBalanceChartHistoricalRateCacheRevision({
+      depKeys: historicalRateDepKeys,
+      fiatRateSeriesCache,
+    });
+  }, [fiatRateSeriesCache, historicalRateDepKeys]);
+
+  const cachedTimeframe = useMemo(() => {
+    return getCachedBalanceChartTimeframe(
+      args.cachedTimeframes,
+      args.timeframe,
+    );
+  }, [args.cachedTimeframes, args.timeframe]);
+
+  const cachedSeriesResult = useMemo(() => {
+    return resolveCachedBalanceChartSeries({
+      cachedTimeframe,
+      currentSpotRatesByRateKey: args.currentSpotRatesByRateKey,
+      dataRevisionSig: args.chartDataRevisionSig,
+      asOfMs: args.asOfMs,
+      fiatRateSeriesCache: historicalRateCacheReady
+        ? fiatRateSeriesCache
+        : undefined,
+    });
+  }, [
+    args.asOfMs,
+    args.chartDataRevisionSig,
+    args.currentSpotRatesByRateKey,
+    cachedTimeframe,
+    fiatRateSeriesCache,
+    historicalRateCacheReady,
+  ]);
+
+  const summaryPart = useMemo(() => {
+    const lastPoint = cachedSeriesResult.series?.analysisPoints?.[
+      (cachedSeriesResult.series.analysisPoints?.length || 1) - 1
+    ];
+
+    if (!lastPoint) {
+      return buildUnavailableSummaryPart();
+    }
+
+    return buildSummaryPart({
+      totalFiatBalance: lastPoint.totalFiatBalance,
+      totalPnlChange: lastPoint.totalPnlChange,
+      totalPnlPercent: lastPoint.totalPnlPercent,
+      liveFiatTotal: args.liveFiatTotal,
+    });
+  }, [args.liveFiatTotal, cachedSeriesResult.series]);
+
+  const inFlightRequestKeyRef = useRef<string | undefined>(undefined);
+  const isMountedRef = useRef(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | undefined>(undefined);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!args.isFocused || !args.storedWallets.length) {
+      inFlightRequestKeyRef.current = undefined;
+      setLoading(false);
+      setError(undefined);
+      return;
+    }
+
+    const cachedStatus = cachedSeriesResult.status;
+    if (
+      cachedStatus === 'fresh' ||
+      cachedStatus === 'patchable' ||
+      cachedStatus === 'pending_historical'
+    ) {
+      inFlightRequestKeyRef.current = undefined;
+      setLoading(false);
+      setError(undefined);
+      return;
+    }
+
+    if (
+      historicalRateDepKeys.length &&
+      !historicalRateCacheReady &&
+      !fiatRateSeriesCacheError &&
+      fiatRateSeriesCacheLoading
+    ) {
+      setLoading(true);
+      setError(undefined);
+      return;
+    }
+
+    const requestKey = [
+      args.timeframe,
+      args.scopeId,
+      args.chartDataRevisionSig,
+      args.storedWalletRequestSig,
+      args.currentRatesSignature,
+      historicalRateCacheRevision,
+    ].join('|');
+    if (inFlightRequestKeyRef.current === requestKey) {
+      return;
+    }
+
+    inFlightRequestKeyRef.current = requestKey;
+    setLoading(true);
+    setError(undefined);
+
+    runPortfolioChartQuery({
+      wallets: args.storedWallets,
+      quoteCurrency: args.quoteCurrency,
+      timeframe: args.timeframe,
+      maxPoints: 2,
+      currentRatesByAssetId: args.currentRatesByAssetId,
+      asOfMs: args.asOfMs,
+      debugSource: 'portfolio_gain_loss_summary',
+    })
+      .then(chart => {
+        if (
+          !isMountedRef.current ||
+          inFlightRequestKeyRef.current !== requestKey
+        ) {
+          return;
+        }
+
+        const cacheEntry = buildCachedTimeframeFromRuntimeChart({
+          chart,
+          timeframe: args.timeframe,
+          walletIds: args.sortedWalletIds,
+          quoteCurrency: args.quoteCurrency,
+          balanceOffset: 0,
+          dataRevisionSig: args.chartDataRevisionSig,
+          historicalRateDeps: buildBalanceChartHistoricalRateDeps({
+            wallets: args.storedWallets,
+            quoteCurrency: args.quoteCurrency,
+            timeframes: [args.timeframe],
+            fiatRateSeriesCache,
+          }),
+        });
+        if (!cacheEntry) {
+          return;
+        }
+
+        args.dispatch(
+          upsertBalanceChartScopeTimeframes({
+            scopeId: args.scopeId,
+            walletIds: args.sortedWalletIds,
+            quoteCurrency: args.quoteCurrency,
+            balanceOffset: 0,
+            timeframes: [cacheEntry],
+          }),
+        );
+        setError(undefined);
+      })
+      .catch(err => {
+        if (
+          !isMountedRef.current ||
+          inFlightRequestKeyRef.current !== requestKey
+        ) {
+          return;
+        }
+
+        setError(err instanceof Error ? err : new Error(String(err)));
+      })
+      .finally(() => {
+        if (
+          !isMountedRef.current ||
+          inFlightRequestKeyRef.current !== requestKey
+        ) {
+          return;
+        }
+
+        inFlightRequestKeyRef.current = undefined;
+        setLoading(false);
+      });
+  }, [
+    args.asOfMs,
+    args.chartDataRevisionSig,
+    args.currentRatesByAssetId,
+    args.currentRatesSignature,
+    args.dispatch,
+    args.isFocused,
+    args.quoteCurrency,
+    args.scopeId,
+    args.sortedWalletIds,
+    args.storedWalletRequestSig,
+    args.storedWallets,
+    args.timeframe,
+    cachedSeriesResult.status,
+    fiatRateSeriesCache,
+    fiatRateSeriesCacheError,
+    fiatRateSeriesCacheLoading,
+    historicalRateCacheReady,
+    historicalRateCacheRevision,
+    historicalRateDepKeys.length,
+  ]);
+
+  return {
+    error,
+    loading,
+    summaryPart,
+  };
+}
+
 export function usePortfolioGainLossSummary(args: {
   wallets: Wallet[];
   liveFiatTotal: number;
@@ -84,284 +343,53 @@ export function usePortfolioGainLossSummary(args: {
     cacheIdentityKey: BALANCE_GAIN_LOSS_SUMMARY_CACHE_IDENTITY_KEY,
   });
 
-  const historicalRateRequests = useMemo(() => {
-    return buildBalanceChartHistoricalRateRequests({
-      wallets: storedWallets,
-      quoteCurrency,
-      timeframes: SUMMARY_TIMEFRAMES,
-    });
-  }, [quoteCurrency, storedWallets]);
-
-  const {
-    cache: fiatRateSeriesCache,
-    error: fiatRateSeriesCacheError,
-    loading: fiatRateSeriesCacheLoading,
-  } = usePortfolioHistoricalRateDepsCache({
-    wallets: storedWallets,
-    quoteCurrency,
-    timeframes: SUMMARY_TIMEFRAMES,
-    maxAgeMs: HISTORIC_RATES_CACHE_DURATION * 1000,
-    enabled:
-      !!quoteCurrency &&
-      historicalRateRequests.some(group => group.requests.length > 0),
-  });
-
-  const historicalRateDepKeys = useMemo(() => {
-    return getBalanceChartHistoricalRateCacheKeys({
-      wallets: storedWallets,
-      quoteCurrency,
-      timeframes: SUMMARY_TIMEFRAMES,
-    });
-  }, [quoteCurrency, storedWallets]);
-
-  const historicalRateCacheReady = useMemo(() => {
-    return (
-      !historicalRateDepKeys.length ||
-      areBalanceChartHistoricalRatesReady({
-        depKeys: historicalRateDepKeys,
-        fiatRateSeriesCache,
-      })
-    );
-  }, [fiatRateSeriesCache, historicalRateDepKeys]);
-
-  const historicalRateCacheRevision = useMemo(() => {
-    return getBalanceChartHistoricalRateCacheRevision({
-      depKeys: historicalRateDepKeys,
-      fiatRateSeriesCache,
-    });
-  }, [fiatRateSeriesCache, historicalRateDepKeys]);
-
-  const summaryByTimeframe = useMemo(() => {
-    const next = new Map<FiatRateInterval, PortfolioGainLossSummary['today']>();
-
-    for (const timeframe of SUMMARY_TIMEFRAMES) {
-      const cachedTimeframe = getCachedBalanceChartTimeframe(
-        cachedScope?.timeframes,
-        timeframe,
-      );
-      if (!cachedTimeframe) {
-        next.set(timeframe, buildUnavailableSummaryPart());
-        continue;
-      }
-
-      const {series} = resolveCachedBalanceChartSeries({
-        cachedTimeframe,
-        currentSpotRatesByRateKey,
-        dataRevisionSig: chartDataRevisionSig,
-        asOfMs,
-        fiatRateSeriesCache: historicalRateCacheReady
-          ? fiatRateSeriesCache
-          : undefined,
-      });
-      const lastPoint = series?.analysisPoints?.[
-        (series.analysisPoints?.length || 1) - 1
-      ];
-
-      if (!lastPoint) {
-        next.set(timeframe, buildUnavailableSummaryPart());
-        continue;
-      }
-
-      next.set(
-        timeframe,
-        buildSummaryPart({
-          totalFiatBalance: lastPoint?.totalFiatBalance,
-          totalPnlChange: lastPoint?.totalPnlChange,
-          totalPnlPercent: lastPoint?.totalPnlPercent,
-          liveFiatTotal: args.liveFiatTotal,
-        }),
-      );
-    }
-
-    return next;
-  }, [
-    args.liveFiatTotal,
+  const today = usePortfolioGainLossSummaryTimeframe({
     asOfMs,
-    cachedScope?.timeframes,
-    chartDataRevisionSig,
-    currentSpotRatesByRateKey,
-    fiatRateSeriesCache,
-    historicalRateCacheReady,
-  ]);
-
-  const inFlightRequestKeyByTimeframeRef = useRef<
-    Partial<Record<FiatRateInterval, string>>
-  >({});
-  const [loadingByTimeframe, setLoadingByTimeframe] = useState<
-    Partial<Record<FiatRateInterval, boolean>>
-  >({});
-  const [error, setError] = useState<Error | undefined>(undefined);
-
-  useEffect(() => {
-    if (!isFocused || !storedWallets.length) {
-      setLoadingByTimeframe({});
-      return;
-    }
-
-    let cancelled = false;
-
-    for (const timeframe of SUMMARY_TIMEFRAMES) {
-      const cachedTimeframe = getCachedBalanceChartTimeframe(
-        cachedScope?.timeframes,
-        timeframe,
-      );
-      const {status} = resolveCachedBalanceChartSeries({
-        cachedTimeframe,
-        currentSpotRatesByRateKey,
-        dataRevisionSig: chartDataRevisionSig,
-        asOfMs,
-        fiatRateSeriesCache: historicalRateCacheReady
-          ? fiatRateSeriesCache
-          : undefined,
-      });
-      if (
-        status === 'fresh' ||
-        status === 'patchable' ||
-        status === 'pending_historical'
-      ) {
-        continue;
-      }
-
-      if (
-        historicalRateDepKeys.length &&
-        !historicalRateCacheReady &&
-        !fiatRateSeriesCacheError &&
-        fiatRateSeriesCacheLoading
-      ) {
-        continue;
-      }
-
-      const requestKey = [
-        timeframe,
-        scopeId,
-        chartDataRevisionSig,
-        storedWalletRequestSig,
-        currentRatesSignature,
-        historicalRateCacheRevision,
-      ].join('|');
-      if (inFlightRequestKeyByTimeframeRef.current[timeframe] === requestKey) {
-        continue;
-      }
-
-      inFlightRequestKeyByTimeframeRef.current[timeframe] = requestKey;
-      setLoadingByTimeframe(prev => ({
-        ...prev,
-        [timeframe]: true,
-      }));
-
-      runPortfolioChartQuery({
-        wallets: storedWallets,
-        quoteCurrency,
-        timeframe,
-        maxPoints: 2,
-        currentRatesByAssetId,
-        asOfMs,
-        debugSource: 'portfolio_gain_loss_summary',
-      })
-        .then(chart => {
-          if (
-            cancelled ||
-            inFlightRequestKeyByTimeframeRef.current[timeframe] !== requestKey
-          ) {
-            return;
-          }
-
-          const cacheEntry = buildCachedTimeframeFromRuntimeChart({
-            chart,
-            timeframe,
-            walletIds: sortedWalletIds,
-            quoteCurrency,
-            balanceOffset: 0,
-            dataRevisionSig: chartDataRevisionSig,
-            historicalRateDeps: buildBalanceChartHistoricalRateDeps({
-              wallets: storedWallets,
-              quoteCurrency,
-              timeframes: [timeframe],
-              fiatRateSeriesCache,
-            }),
-          });
-          if (!cacheEntry) {
-            return;
-          }
-
-          dispatch(
-            upsertBalanceChartScopeTimeframes({
-              scopeId,
-              walletIds: sortedWalletIds,
-              quoteCurrency,
-              balanceOffset: 0,
-              timeframes: [cacheEntry],
-            }),
-          );
-          setError(undefined);
-        })
-        .catch(err => {
-          if (
-            cancelled ||
-            inFlightRequestKeyByTimeframeRef.current[timeframe] !== requestKey
-          ) {
-            return;
-          }
-
-          setError(err instanceof Error ? err : new Error(String(err)));
-        })
-        .finally(() => {
-          if (
-            cancelled ||
-            inFlightRequestKeyByTimeframeRef.current[timeframe] !== requestKey
-          ) {
-            return;
-          }
-
-          delete inFlightRequestKeyByTimeframeRef.current[timeframe];
-          setLoadingByTimeframe(prev => ({
-            ...prev,
-            [timeframe]: false,
-          }));
-        });
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    asOfMs,
-    cachedScope?.timeframes,
+    cachedTimeframes: cachedScope?.timeframes,
     chartDataRevisionSig,
     currentRatesByAssetId,
     currentRatesSignature,
     currentSpotRatesByRateKey,
     dispatch,
-    fiatRateSeriesCache,
-    fiatRateSeriesCacheError,
-    fiatRateSeriesCacheLoading,
-    historicalRateCacheReady,
-    historicalRateCacheRevision,
-    historicalRateDepKeys.length,
     isFocused,
+    liveFiatTotal: args.liveFiatTotal,
     quoteCurrency,
     scopeId,
     sortedWalletIds,
     storedWalletRequestSig,
     storedWallets,
-  ]);
+    timeframe: '1D',
+  });
+  const total = usePortfolioGainLossSummaryTimeframe({
+    asOfMs,
+    cachedTimeframes: cachedScope?.timeframes,
+    chartDataRevisionSig,
+    currentRatesByAssetId,
+    currentRatesSignature,
+    currentSpotRatesByRateKey,
+    dispatch,
+    isFocused,
+    liveFiatTotal: args.liveFiatTotal,
+    quoteCurrency,
+    scopeId,
+    sortedWalletIds,
+    storedWalletRequestSig,
+    storedWallets,
+    timeframe: 'ALL',
+  });
 
   const summary: PortfolioGainLossSummary = useMemo(() => {
     return {
       quoteCurrency,
-      today:
-        summaryByTimeframe.get('1D') || buildUnavailableSummaryPart(),
-      total:
-        summaryByTimeframe.get('ALL') || buildUnavailableSummaryPart(),
+      today: today.summaryPart,
+      total: total.summaryPart,
     };
-  }, [quoteCurrency, summaryByTimeframe]);
+  }, [quoteCurrency, today.summaryPart, total.summaryPart]);
 
   return {
     summary,
-    loading:
-      !!loadingByTimeframe['1D'] ||
-      !!loadingByTimeframe.ALL,
-    error,
+    loading: today.loading || total.loading,
+    error: today.error || total.error,
   };
 }
 
