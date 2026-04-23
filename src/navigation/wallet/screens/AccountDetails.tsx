@@ -489,10 +489,12 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
   const accountItem = memorizedAccountList.find(
     a => a.receiveAddress === selectedAccountAddress,
   )!;
-  const displayQuoteCurrency = getQuoteCurrency({
-    portfolioQuoteCurrency: committedPortfolioQuoteCurrency,
-    defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
-  });
+  const displayQuoteCurrency = useMemo(() => {
+    return getQuoteCurrency({
+      portfolioQuoteCurrency: committedPortfolioQuoteCurrency,
+      defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
+    });
+  }, [committedPortfolioQuoteCurrency, defaultAltCurrency.isoCode]);
   const totalBalance =
     typeof selectedBalance === 'number' ||
     typeof displayedBalance === 'number'
@@ -506,6 +508,15 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
         )
       : accountItem?.fiatBalanceFormat;
   const hasMultipleAccounts = memorizedAccountList.length > 1;
+  const onDisplayedChartAnalysisPointChange = useCallback(
+    (point?: {totalFiatBalance?: number}) => {
+      setDisplayedBalance(point?.totalFiatBalance);
+    },
+    [],
+  );
+  const accountChartPreContent = useMemo(() => {
+    return <AccountAddressBadge address={accountItem?.receiveAddress} />;
+  }, [accountItem?.receiveAddress]);
 
   const accounts = useAppSelector(
     ({SHOP}) => SHOP.billPayAccounts[accountItem?.wallets[0]?.network],
@@ -1449,19 +1460,15 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
             {!hideAllBalances ? (
               <BalanceHistoryChart
                 wallets={keyFullWalletObjs}
-                quoteCurrency={
-                  displayQuoteCurrency
-                }
+                quoteCurrency={displayQuoteCurrency}
                 debugSource="account_details_balance_chart"
                 rates={rates}
                 timeframeSelectorWidth={timeframeSelectorWidth}
                 onSelectedBalanceChange={setSelectedBalance}
-                onDisplayedAnalysisPointChange={point =>
-                  setDisplayedBalance(point?.totalFiatBalance)
+                onDisplayedAnalysisPointChange={
+                  onDisplayedChartAnalysisPointChange
                 }
-                preChartContent={
-                  <AccountAddressBadge address={accountItem?.receiveAddress} />
-                }
+                preChartContent={accountChartPreContent}
               />
             ) : null}
           </BalanceContainer>
@@ -1615,9 +1622,11 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     );
   }, [
     activeTab,
+    accountChartPreContent,
     accountItem?.fiatLockedBalanceFormat,
     accountItem?.receiveAddress,
     debouncedLoadHistory,
+    displayQuoteCurrency,
     defaultAltCurrency.isoCode,
     dispatch,
     groupedHistory,
@@ -1628,6 +1637,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     lockedBalanceCurrencyAbbreviation,
     memorizedAssetsByChainList,
     navigation,
+    onDisplayedChartAnalysisPointChange,
     rates,
     searchResultsAssets,
     searchResultsHistory,
@@ -1635,6 +1645,7 @@ const AccountDetails: React.FC<AccountDetailsScreenProps> = ({route}) => {
     selectedChainFilterOption,
     showPortfolioValue,
     t,
+    timeframeSelectorWidth,
     totalBalance,
   ]);
 
