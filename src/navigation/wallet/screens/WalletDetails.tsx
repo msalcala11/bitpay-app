@@ -588,16 +588,19 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
     network,
     pendingTxps,
   } = uiFormattedWallet;
+  const chartQuoteCurrency = useMemo(() => {
+    return getQuoteCurrency({
+      portfolioQuoteCurrency: committedPortfolioQuoteCurrency,
+      defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
+    });
+  }, [committedPortfolioQuoteCurrency, defaultAltCurrency.isoCode]);
 
   const displayedFiatBalanceFormat =
     typeof selectedFiatBalance === 'number' ||
     typeof displayedFiatBalance === 'number'
       ? formatFiatAmount(
           selectedFiatBalance ?? displayedFiatBalance ?? 0,
-          getQuoteCurrency({
-            portfolioQuoteCurrency: committedPortfolioQuoteCurrency,
-            defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
-          }),
+          chartQuoteCurrency,
           {
             currencyDisplay: 'symbol',
             customPrecision: 'minimal',
@@ -641,12 +644,20 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
   const [needActionUnsentTxps, setNeedActionUnsentTxps] = useState<any[]>([]);
   const [isScrolling, setIsScrolling] = useState<boolean>(false);
   const walletBalanceSat = Number(fullWalletObj.balance?.sat || 0);
+  const chartWallets = useMemo(() => [fullWalletObj], [fullWalletObj]);
   const {hasAnySnapshots: walletHasSnapshots, checked: walletSnapshotsChecked} =
     usePortfolioWalletSnapshotPresence({
-      wallets: [fullWalletObj],
+      wallets: chartWallets,
     });
   const showWalletBalanceChart =
     walletBalanceSat > 0 && (!walletSnapshotsChecked || walletHasSnapshots);
+  const onDisplayedChartAnalysisPointChange = useCallback(
+    (point?: {totalFiatBalance?: number}) => {
+      setDisplayedFiatBalance(point?.totalFiatBalance);
+    },
+    [],
+  );
+  const walletChartChangeRowStyle = useMemo(() => ({marginTop: 2}), []);
 
   const setNeedActionTxps = (pendingTxps: TransactionProposal[]) => {
     const txpsPending: TransactionProposal[] = [];
@@ -1180,77 +1191,103 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
     showActivatedBadge;
   const hasTopMetadataBadges =
     !!protocolName || showSpendableRow || hasBottomMetadataRow;
-  const walletChartPreContent = hasTopMetadataBadges ? (
-    <>
-      {protocolName ? (
-        <NetworkBadgeRow>
-          {showEvmGasWalletBadge && walletType ? (
+  const walletChartPreContent = useMemo(() => {
+    if (!hasTopMetadataBadges) {
+      return null;
+    }
+
+    return (
+      <>
+        {protocolName ? (
+          <NetworkBadgeRow>
+            {showEvmGasWalletBadge && walletType ? (
+              <NetworkBadgeContainer>
+                {walletType.icon ? (
+                  <IconContainer>{walletType.icon}</IconContainer>
+                ) : null}
+                <TypeText>{walletType.title}</TypeText>
+              </NetworkBadgeContainer>
+            ) : null}
             <NetworkBadgeContainer>
-              {walletType.icon ? (
-                <IconContainer>{walletType.icon}</IconContainer>
-              ) : null}
-              <TypeText>{walletType.title}</TypeText>
+              <IconContainer>
+                <Icons.Network />
+              </IconContainer>
+              <TypeText>{protocolName}</TypeText>
             </NetworkBadgeContainer>
-          ) : null}
-          <NetworkBadgeContainer>
-            <IconContainer>
-              <Icons.Network />
-            </IconContainer>
-            <TypeText>{protocolName}</TypeText>
-          </NetworkBadgeContainer>
-          {IsShared(fullWalletObj) ? (
-            <NetworkBadgeContainer>
-              <TypeText>
-                Multisig {fullWalletObj.m}/{fullWalletObj.n}
-              </TypeText>
-            </NetworkBadgeContainer>
-          ) : null}
-          {['xrp', 'sol'].includes(fullWalletObj?.currencyAbbreviation) ? (
-            <TouchableOpacity onPress={() => setShowBalanceDetailsModal(true)}>
-              <InfoSvg />
-            </TouchableOpacity>
-          ) : null}
-        </NetworkBadgeRow>
-      ) : null}
-      {showSpendableRow ? (
-        <TouchableRow onPress={() => setShowBalanceDetailsModal(true)}>
-          <TimerSvg width={28} height={15} fill={theme.dark ? White : Black} />
-          <Small>
-            <Text style={{fontWeight: 'bold'}}>
-              {cryptoSpendableBalance}{' '}
-              {formatCurrencyAbbreviation(currencyAbbreviation)}
-            </Text>
-            {showFiatBalance && <Text> ({fiatSpendableBalanceFormat})</Text>}
-          </Small>
-        </TouchableRow>
-      ) : null}
-      {hasBottomMetadataRow ? (
-        <Row>
-          {walletType && !showEvmGasWalletBadge && (
-            <TypeContainer>
-              {walletType.icon ? (
-                <IconContainer>{walletType.icon}</IconContainer>
-              ) : null}
-              <TypeText>{walletType.title}</TypeText>
-            </TypeContainer>
-          )}
-          {showThresholdBadge ? (
-            <TypeContainer>
-              <TypeText>
-                Threshold {fullWalletObj.tssMetadata?.m}/
-                {fullWalletObj.tssMetadata?.n}
-              </TypeText>
-            </TypeContainer>
-          ) : null}
-          {showActivatedBadge ? (
-            <TypeContainer>
-              <TypeText>{t('Activated')}</TypeText>
-            </TypeContainer>
-          ) : null}
-        </Row>
-      ) : null}
-    </>
-  ) : null;
+            {IsShared(fullWalletObj) ? (
+              <NetworkBadgeContainer>
+                <TypeText>
+                  Multisig {fullWalletObj.m}/{fullWalletObj.n}
+                </TypeText>
+              </NetworkBadgeContainer>
+            ) : null}
+            {['xrp', 'sol'].includes(fullWalletObj?.currencyAbbreviation) ? (
+              <TouchableOpacity onPress={() => setShowBalanceDetailsModal(true)}>
+                <InfoSvg />
+              </TouchableOpacity>
+            ) : null}
+          </NetworkBadgeRow>
+        ) : null}
+        {showSpendableRow ? (
+          <TouchableRow onPress={() => setShowBalanceDetailsModal(true)}>
+            <TimerSvg
+              width={28}
+              height={15}
+              fill={theme.dark ? White : Black}
+            />
+            <Small>
+              <Text style={{fontWeight: 'bold'}}>
+                {cryptoSpendableBalance}{' '}
+                {formatCurrencyAbbreviation(currencyAbbreviation)}
+              </Text>
+              {showFiatBalance && <Text> ({fiatSpendableBalanceFormat})</Text>}
+            </Small>
+          </TouchableRow>
+        ) : null}
+        {hasBottomMetadataRow ? (
+          <Row>
+            {walletType && !showEvmGasWalletBadge && (
+              <TypeContainer>
+                {walletType.icon ? (
+                  <IconContainer>{walletType.icon}</IconContainer>
+                ) : null}
+                <TypeText>{walletType.title}</TypeText>
+              </TypeContainer>
+            )}
+            {showThresholdBadge ? (
+              <TypeContainer>
+                <TypeText>
+                  Threshold {fullWalletObj.tssMetadata?.m}/
+                  {fullWalletObj.tssMetadata?.n}
+                </TypeText>
+              </TypeContainer>
+            ) : null}
+            {showActivatedBadge ? (
+              <TypeContainer>
+                <TypeText>{t('Activated')}</TypeText>
+              </TypeContainer>
+            ) : null}
+          </Row>
+        ) : null}
+      </>
+    );
+  }, [
+    cryptoSpendableBalance,
+    currencyAbbreviation,
+    fiatSpendableBalanceFormat,
+    fullWalletObj,
+    hasBottomMetadataRow,
+    hasTopMetadataBadges,
+    protocolName,
+    showActivatedBadge,
+    showEvmGasWalletBadge,
+    showFiatBalance,
+    showSpendableRow,
+    showThresholdBadge,
+    t,
+    theme.dark,
+    walletType,
+  ]);
 
   return (
     <WalletDetailsContainer>
@@ -1311,11 +1348,8 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
                 {!hideAllBalances ? (
                   showWalletBalanceChart ? (
                     <BalanceHistoryChart
-                      wallets={[fullWalletObj]}
-                      quoteCurrency={getQuoteCurrency({
-                        portfolioQuoteCurrency: committedPortfolioQuoteCurrency,
-                        defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
-                      })}
+                      wallets={chartWallets}
+                      quoteCurrency={chartQuoteCurrency}
                       debugSource="wallet_details_balance_chart"
                       rates={rates}
                       lineColor={chartLineColor}
@@ -1324,11 +1358,11 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
                         isLoading === undefined || !!isLoading || refreshing
                       }
                       onSelectedBalanceChange={setSelectedFiatBalance}
-                      onDisplayedAnalysisPointChange={point =>
-                        setDisplayedFiatBalance(point?.totalFiatBalance)
+                      onDisplayedAnalysisPointChange={
+                        onDisplayedChartAnalysisPointChange
                       }
                       timeframeSelectorWidth={timeframeSelectorWidth}
-                      changeRowStyle={{marginTop: 2}}
+                      changeRowStyle={walletChartChangeRowStyle}
                       preChartContentTopMargin={12}
                       preChartContent={walletChartPreContent}
                     />
