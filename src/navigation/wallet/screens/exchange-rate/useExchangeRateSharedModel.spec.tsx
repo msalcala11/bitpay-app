@@ -105,6 +105,7 @@ jest.mock('../../../../utils/portfolio/assets', () => ({
   findSupportedCurrencyOptionForAsset: jest.fn(() => undefined),
   getWalletLiveFiatBalance: jest.fn(() => 0),
   getWalletsMatchingExchangeRateAsset: jest.fn(() => []),
+  getVisibleWalletsForKey: jest.fn(() => []),
   getVisibleWalletsFromKeys: jest.fn(() => []),
 }));
 
@@ -129,11 +130,31 @@ const HookHarness = () => {
   return null;
 };
 
+const mockPortfolioAssets = jest.requireMock(
+  '../../../../utils/portfolio/assets',
+);
+const mockGetWalletsMatchingExchangeRateAsset =
+  mockPortfolioAssets.getWalletsMatchingExchangeRateAsset as jest.Mock;
+const mockGetVisibleWalletsForKey =
+  mockPortfolioAssets.getVisibleWalletsForKey as jest.Mock;
+const mockGetVisibleWalletsFromKeys =
+  mockPortfolioAssets.getVisibleWalletsFromKeys as jest.Mock;
+
 describe('useExchangeRateSharedModel', () => {
   beforeEach(() => {
     latestSharedModel = undefined;
     mockDispatch.mockReset();
     mockSetOptions.mockReset();
+    mockGetWalletsMatchingExchangeRateAsset.mockReset();
+    mockGetWalletsMatchingExchangeRateAsset.mockImplementation(
+      ({wallets}: {wallets?: unknown[]}) => wallets || [],
+    );
+    mockGetVisibleWalletsForKey.mockReset();
+    mockGetVisibleWalletsForKey.mockImplementation(
+      (key: {wallets?: unknown[]} | undefined) => key?.wallets || [],
+    );
+    mockGetVisibleWalletsFromKeys.mockReset();
+    mockGetVisibleWalletsFromKeys.mockReturnValue([]);
     mockRouteParams = {
       currencyAbbreviation: 'eth',
       chain: 'eth',
@@ -177,5 +198,48 @@ describe('useExchangeRateSharedModel', () => {
 
     expect(latestSharedModel?.resolvedQuoteCurrency).toBe('EUR');
     expect(latestSharedModel?.currentFiatRate).toBeCloseTo(1800, 8);
+  });
+
+  it('scopes asset wallets to the route key when opening asset details from key All Assets', async () => {
+    const keyWallet = {
+      id: 'wallet-in-key',
+      currencyAbbreviation: 'eth',
+      chain: 'eth',
+    };
+    const otherKeyWallet = {
+      id: 'wallet-outside-key',
+      currencyAbbreviation: 'eth',
+      chain: 'eth',
+    };
+
+    mockRouteParams = {
+      ...mockRouteParams,
+      chartType: 'assetBalanceHistory',
+      keyId: 'key-a',
+    };
+    mockState.WALLET.keys = {
+      'key-a': {
+        id: 'key-a',
+        wallets: [keyWallet],
+      },
+      'key-b': {
+        id: 'key-b',
+        wallets: [otherKeyWallet],
+      },
+    };
+    mockGetVisibleWalletsFromKeys.mockReturnValue([keyWallet, otherKeyWallet]);
+
+    await act(async () => {
+      TestRenderer.create(<HookHarness />);
+    });
+
+    expect(mockGetVisibleWalletsForKey).toHaveBeenCalledWith(
+      mockState.WALLET.keys['key-a'],
+    );
+    expect(mockGetVisibleWalletsFromKeys).not.toHaveBeenCalled();
+    expect(latestSharedModel?.assetWallets).toEqual([keyWallet]);
+    expect(latestSharedModel?.walletsForAsset.map(({wallet}) => wallet)).toEqual(
+      [keyWallet],
+    );
   });
 });

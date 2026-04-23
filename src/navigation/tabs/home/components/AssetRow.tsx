@@ -125,6 +125,7 @@ const ChevronContainer = styled.View<{visible: boolean}>`
 interface Props {
   item: AssetRowItem;
   isLast: boolean;
+  keyId?: string;
   isFiatLoading?: boolean;
   isPopulateLoading?: boolean;
   forceSkeleton?: boolean;
@@ -135,6 +136,7 @@ interface Props {
 const AssetRow: React.FC<Props> = ({
   item,
   isLast,
+  keyId,
   isFiatLoading,
   isPopulateLoading,
   forceSkeleton,
@@ -284,6 +286,7 @@ const AssetRow: React.FC<Props> = ({
       currencyAbbreviation:
         option.currencyAbbreviation || displayItem.currencyAbbreviation,
       chain: option.chain || displayItem.chain,
+      ...(keyId ? {keyId} : {}),
       tokenAddress: option.tokenAddress || displayItem.tokenAddress,
       chartType: 'assetBalanceHistory',
     });
