@@ -204,7 +204,8 @@ Total kept: **~13,805 LOC.**
 >    - which intervals are actually fetched/persisted vs derived for display,
 >    - whether timeframe switches currently trigger hidden rate/snapshot refresh work,
 >    - how the current incremental populate path rewinds from the latest persisted tip / overwrites the recent tail for reorg protection,
->    - whether the current app/worklets setup uses global bundle mode and where Quick Crypto / fetch hybrid objects are threaded through signing + fetch.
+>    - whether the current app/worklets setup uses global bundle mode and where Quick Crypto / fetch hybrid objects are threaded through signing + fetch,
+>    - the specific Redux action/event fired when the PIN / biometric screen is cleared on app launch. `onAppLaunchPostAuth(...)` must be invoked by this post-auth signal, not earlier in app init or store rehydration.
 >    These findings ground the v18 product-scope fixes in Phases 3, 5, 6, and 7.
 >
 > Add `PORTFOLIO_V2` feature flag, default `false`, readable JS + worklet. MMKV at `portfolio:v2:flag`.
@@ -1755,7 +1756,7 @@ Total kept: **~13,805 LOC.**
 >
 > ### Wire `app.effects.ts` post-auth transition
 >
-> `PORTFOLIO_V2` on: `maybeResumePopulateOnLaunch()`; first-ever-launch or wallet-set-changed → `startPopulate(...)`.
+> `PORTFOLIO_V2` on: hook `onAppLaunchPostAuth(...)` to the **specific post-auth Redux action/event identified in Phase 0 item #12** — the dispatch that fires only after the PIN / biometric gate clears on launch, not app init and not store rehydration. Inside that handler: `maybeResumePopulateOnLaunch()`; first-ever-launch or wallet-set-changed → `startPopulate(...)`.
 >
 > ### Tests
 >
