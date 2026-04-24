@@ -1212,11 +1212,30 @@ Total kept: **~13,805 LOC.**
 > ): T;
 > ```
 >
+> `src/portfolio/v2/hooks/useSharedValueAsState.ts`:
+>
+> ```ts
+> import {useState} from 'react';
+> import {runOnJS, useAnimatedReaction, type SharedValue} from 'react-native-reanimated';
+>
+> export function useSharedValueAsState<T>(sharedValue: SharedValue<T>): T {
+>   const [state, setState] = useState(sharedValue.value);
+>   useAnimatedReaction(
+>     () => sharedValue.value,
+>     (current, previous) => {
+>       if (current !== previous) runOnJS(setState)(current);
+>     },
+>   );
+>   return state;
+> }
+> ```
+>
 > `src/portfolio/v2/hooks/useIsPortfolioRefreshing.ts`:
 >
 > ```ts
 > import {useSyncExternalStore} from 'react';
 > import {populateLoopRunning} from '../sharedState';
+> import {useSharedValueAsState} from './useSharedValueAsState';
 > import {
 >   getEnsureFreshInFlightCount,
 >   subscribeToEnsureFreshInFlight,
@@ -1240,7 +1259,7 @@ Total kept: **~13,805 LOC.**
 > }
 > ```
 >
-> `useSharedValueAsState(...)` is a tiny hook backed by `useAnimatedReaction` + `runOnJS` that mirrors a boolean `SharedValue` into React state. The refreshing affordance is derived from work actually running, not from trigger-owned `set true / set false` bookkeeping; it may lag a just-kicked populate by a frame before `populateLoopRunning.value` flips true, which is acceptable because the indicator is not correctness state.
+> The refreshing affordance is derived from work actually running, not from trigger-owned `set true / set false` bookkeeping; it may lag a just-kicked populate by a frame before `populateLoopRunning.value` flips true, which is acceptable because the indicator is not correctness state.
 >
 > Equality helpers:
 >
