@@ -20,7 +20,7 @@
 - **Asset rows and allocation are grouped by ticker across chains.** Current UX collapses wallets by lowercased `currencyAbbreviation` across chains and token contracts for list/allocation display. V2 must preserve that behavior for Home, All Assets, Allocation, and key-scoped All Assets. This means the render-state model uses **asset-group ids** (ticker groups) for UI rows/order, while rate lookups and wallet internals still operate on raw `assetId` / `(coin, chain, tokenAddress)` values.
 - **Fiat-rate storage is canonicalized to four fetched/persisted intervals.** Only `1D`, `1W`, `1M`, and `ALL` are fetched or stored in MMKV. Displayed `3M`, `1Y`, and `5Y` are derived by windowing `ALL` on the compute runtime; they do not trigger separate rate fetches or persistence.
 - **Quote-currency switching must be instant via a BTC FX bridge.** Switching fiat currency must not fan out new-quote fetches for every visible asset. V2 fetches only the BTC bridge series needed for the target quote, then derives portfolio/chart/list values on the compute runtime from already-persisted asset rates plus the bridge factor.
-- **"Show Portfolio" settings visibility is a real product mode.** Turning the setting off must clear portfolio-owned cached data and hide all portfolio-owned balance charts and asset-list surfaces; turning it back on must repopulate from scratch and re-reveal those surfaces. This visibility clear is portfolio-scoped and preserves the shared `rate:v1:*` cache so the Home Exchange Rates section and the Exchange Rate detail screen remain visible and do not lose their rate cache because of this setting.
+- **"Show Portfolio" settings visibility is a real product mode.** Turning the setting off must clear the portfolio store and hide all portfolio-owned balance charts and asset-list surfaces; turning it back on must repopulate from scratch and re-reveal those surfaces. The Home Exchange Rates section and the Exchange Rate detail screen remain visible regardless of this setting. Because the portfolio store wipe also clears shared `rate:v1:*` cache entries, Exchange Rates may observe a transient cache miss and refetch, but the surfaces stay mounted.
 - **Populate publishing has two product modes.** First-ever populate reveals rows progressively as wallets finish. Later incremental populates (app-launch refresh, send-completion refresh, pull-to-refresh refresh) keep showing the old stale chart/PnL values until the populate completes, then publish one committed update.
 - **Incremental populate must be reorg-safe.** App-launch refresh, send-triggered refresh, and pull-to-refresh refreshes must start slightly before the latest persisted tip and overwrite the recent tail snapshots rather than strictly appending from the current tip. V2 relies on preserved kernel behavior here; Phase 0 must inventory the exact current mechanism and Phase 5 must keep it intact.
 - **Timeframe switches and chart scrubbing are read-only UI operations.** They never trigger `ensureFresh`, snapshot refresh, or populate work. Only the explicit refresh triggers named in Phase 6 may refresh rates or snapshots.
@@ -132,13 +132,13 @@ Total kept: **~13,805 LOC.**
 16. **All Redux store access via `reduxAccess.ts`.** Module-level `storeGetter` initialized inside the existing `getStore().then(...)` callback in `index.js`. Accessor calls inside function bodies only.
 17. **Reset paths must reset shared state.** Any code path that wipes portfolio MMKV (debug "clear all storage," sign-out if it clears portfolio data, any future full-reset flow) must also set `sharedPortfolioState.value = EMPTY_PORTFOLIO_STATE`, `populateProgressTick.value = 0`, `populateCommitTick.value = 0`, `populateRetryTick.value = 0`. A partial wipe that zeroes MMKV but leaves stale sharedState alive would cause the next populate cycle's fresh `orderRevision = 1` to lose merge arbitration against state's stale higher value and display stale order. The durable `portfolio:v2:cacheInvalid` bit prevents ordinary work from resuming on half-wiped state until a successful repair clears it.
 18. **Heavy scopes may advance `orderedAssetGroupIdsForAssetList` + `orderRevision`.** Any scope in `{'full', 'wallet', 'wallets'}` replaces order + revision in state if `inputs.orderRevision > prev.orderRevision`. Touch scopes never do. This is the single rule — no contradictory variants.
-19. **Reset is a simple joinable sequence with one durable invalid bit.** `performResetSequence({wipeScope})`:
-    1. If a reset is already active, join the in-flight promise. A `full` reset request may join an active `full` reset; if a `full` reset is requested while a weaker `portfolioOnly` reset is already active, queue the `full` reset immediately after the active one settles. A `portfolioOnly` request may join an active `full` reset because the active reset is stronger.
+19. **Reset is a simple joinable sequence with one durable invalid bit.** `performResetSequence()`:
+    1. If a reset is already active, join the in-flight promise.
     2. Set `populateResetInFlight = true` (before any side effect).
     3. `cancelPopulate()`.
     4. `await Promise.all([waitForPopulateLoopToStop(), waitForRecomputeDrainToStop(), waitForEnsureFreshToStop()])`. On any timeout: throw. Nothing wiped. **All three waits are needed**: populate loop, compute drain, and in-flight rate fetches are independent async subsystems, any of which can write MMKV or publish to `sharedPortfolioState` after the guard flip.
     5. `markPortfolioCacheInvalid()` — durably marks "portfolio cache may be partially wiped / invalid" before destructive deletion starts.
-    6. `await wipePortfolioMmkvKeys({scope: wipeScope})` — idempotent, excludes the feature flag key and `PORTFOLIO_CACHE_INVALID_KEY`.
+    6. `await wipePortfolioMmkvKeys()` — idempotent, excludes the feature flag key and `PORTFOLIO_CACHE_INVALID_KEY`.
     7. `resetSharedPortfolioStateForDebugClear()`.
     8. `clearPortfolioCacheInvalid()` — only after wipe + state reset succeed.
     9. In `finally`: clear `populateResetInFlight`.
@@ -146,7 +146,7 @@ Total kept: **~13,805 LOC.**
 20. **`populateCancelFlag` lifecycle.** Set `true` by `cancelPopulate()` and by reset paths. Set `false` by every kick path as its last action immediately before `runOnRuntimeAsync(...)`. Never persists across populate cycles.
 21. **Unified guard for ordinary v2 write paths.** Every ordinary function that writes to portfolio MMKV or `sharedPortfolioState` — triggers, kick paths, `scheduleRecompute`, `drain()` iterations, `reconcileQueueAgainstEligible`, `buildQueue` callers — checks `canRunPortfolioV2Work()` as the **first executable statement**, before parameter reads, before any side effect. The sole exception is the post-auth boot repair path in `onAppLaunchPostAuth(...)`, which may call `performResetSequence()` first when `portfolioCacheInvalid` is true, then re-evaluate `canRunPortfolioV2Work()`.
 22. **Async writers quiesce before wipe.** Any async portfolio task that can write to MMKV or publish to `sharedPortfolioState` must (a) track its in-flight state in a JS-side counter, (b) expose a `waitForXToStop()` primitive, (c) be included in `performResetSequence`'s `Promise.all`, and (d) re-check `canRunPortfolioV2Work()` immediately before its persist step so a call in-flight at guard-flip time no-ops on its write. The `runPopulate` / `drain` / `ensureFresh` triad is the complete registered set; any new async writer added to the system must extend the wait-set. Async *readers* that don't write do not need to register — they can tolerate reading mid-wipe storage without corrupting state. The trigger for registration is "writes that could land after guard flip," not "any async MMKV touch."
-23. **`wipePortfolioMmkvKeys` matches the repo's actual key namespaces and supports two scopes.** MMKV keys are split across prefixes: `snap:*` (snapshot meta/index/chunks/invalid-history, per `snapshotStore.ts:146-162`), `rate:v1:*` (fiat rate series, per `fiatRateStore.ts` `rateKey` function ~line 22), and `portfolio:v2:*` (v2-specific keys — queue, flag, cache-invalid bit). Full reset wipes `FULL_PORTFOLIO_WIPE_PREFIXES = ['snap:', 'rate:v1:', 'portfolio:v2:']`; Show Portfolio visibility reset wipes `PORTFOLIO_ONLY_WIPE_PREFIXES = ['snap:', 'portfolio:v2:']` so Exchange Rates keep their shared `rate:v1:*` cache. Both scopes exclude `WIPE_EXCLUDED_KEYS = { PORTFOLIO_V2_FLAG_KEY, PORTFOLIO_CACHE_INVALID_KEY }`. The feature flag is excluded so debug-clear/sign-out during rollout doesn't silently flip v2 off on a developer's device; the cache-invalid bit is excluded so it survives partial wipes until an explicit successful repair clears it. **The prefix set must be verified against Phase 0 inventory output** — if Phase 0 surfaces additional portfolio-related prefixes, they must be added here; the list above is the verified complete set as of v12.
+23. **`wipePortfolioMmkvKeys` matches the repo's actual key namespaces.** MMKV keys are split across prefixes: `snap:*` (snapshot meta/index/chunks/invalid-history, per `snapshotStore.ts:146-162`), `rate:v1:*` (fiat rate series, per `fiatRateStore.ts` `rateKey` function ~line 22), and `portfolio:v2:*` (v2-specific keys — queue, flag, cache-invalid bit). Wipe iterates all MMKV keys and deletes any matching `PORTFOLIO_WIPE_PREFIXES = ['snap:', 'rate:v1:', 'portfolio:v2:']` except those in `WIPE_EXCLUDED_KEYS = { PORTFOLIO_V2_FLAG_KEY, PORTFOLIO_CACHE_INVALID_KEY }`. The feature flag is excluded so debug-clear/sign-out during rollout doesn't silently flip v2 off on a developer's device; the cache-invalid bit is excluded so it survives partial wipes until an explicit successful repair clears it. **The prefix set must be verified against Phase 0 inventory output** — if Phase 0 surfaces additional portfolio-related prefixes, they must be added here; the list above is the verified complete set as of v12.
 24. **All v2 MMKV access uses the portfolio instance.** `getPortfolioMmkvStorageOnRN()` returns a dedicated `MMKV({ id: 'bitpay.portfolio.engine' })`. Flag, queue, cache-invalid, and reset operations — every read and write in v2 — must route through this instance. A bare `new MMKV()` or the default MMKV puts keys in a different namespace, which would make the wipe's key scan miss everything. Plan snippets that show `mmkv.get/set/delete` are shorthand for "the portfolio MMKV instance," not the default MMKV; implementation must make this explicit.
 25. **Wipe must update the key registry.** Portfolio storage tracks keys through `__bitpay.portfolio.engine.registry.v1__`; `listKeys()` reads it. Direct `MMKV.delete` leaves the registry stale. `wipePortfolioMmkvKeys` enumerates keys from `getPortfolioMmkvStorageOnRN().getAllKeys()` (the source of truth) and deletes through `kvStore.delete(key)` (which untracks). Test: `listKeys()` returns empty (except exclusions) after wipe. `getAllKeys()` also returns empty (except exclusions).
 26. **V2 runtime wiring preserves v1 kernel integration contracts.** The "untouched" v1 kernels (populate, rate provider, tx-history fetch) are load-bearing but have **runtime-global preconditions** that must hold when they execute:
@@ -188,7 +188,7 @@ Total kept: **~13,805 LOC.**
 > 2. Public exports of `src/portfolio/**/index.ts` labeled `keep`/`delete`/`replace`.
 > 3. Redux slices/fields storing portfolio data + v2 retention.
 > 4. **Exact state paths** for every piece of Redux data v2 needs: quote currency, eligible wallets, live rates (by asset id), live rates asOfMs, wallet balances, wallet→asset mapping, and the user-facing "Show Portfolio" visibility setting. These paths feed `reduxAccess.ts` accessors in Phase 1.
-> 5. **MMKV key prefixes in use.** Grep for `return \`[a-z]+:` patterns in `src/portfolio/core/pnl/**` and `src/portfolio/runtime/worklet/**` to find all key-construction sites. Expected: `snap:meta:v2:*`, `snap:index:v2:*`, `snap:chunk:v2:*`, `snap:invalid-history:v1:*`, `snap:*:*:*` (raw point keys), `rate:v1:*`. V2 adds `portfolio:v2:*`. Report the complete verified set. This list grounds the full and portfolio-only wipe-prefix constants in guardrail #23 and Phase 7.5's `wipePortfolioMmkvKeys` implementation. **If Phase 0 finds prefixes not in this expected list, they MUST be added** — otherwise debug-clear will leave orphan keys.
+> 5. **MMKV key prefixes in use.** Grep for `return \`[a-z]+:` patterns in `src/portfolio/core/pnl/**` and `src/portfolio/runtime/worklet/**` to find all key-construction sites. Expected: `snap:meta:v2:*`, `snap:index:v2:*`, `snap:chunk:v2:*`, `snap:invalid-history:v1:*`, `snap:*:*:*` (raw point keys), `rate:v1:*`. V2 adds `portfolio:v2:*`. Report the complete verified set. This list grounds the wipe-prefix constant in guardrail #23 and Phase 7.5's `wipePortfolioMmkvKeys` implementation. **If Phase 0 finds prefixes not in this expected list, they MUST be added** — otherwise debug-clear will leave orphan keys.
 > 6. **MMKV adapter layout.** Inspect `src/portfolio/adapters/rn/workletMmkvBridge.ts` and `mmkvKvStore.ts`. Confirm `getPortfolioMmkvStorageOnRN()` returns the dedicated `bitpay.portfolio.engine` MMKV instance. Confirm that there is **no existing** `getPortfolioKvStore()` accessor in the repo and that Phase 1 must create one in v2 using `MmkvKvStore`, `getPortfolioMmkvStorageOnRN()`, `PORTFOLIO_WORKLET_MMKV_STORAGE_ID`, and `PORTFOLIO_WORKLET_MMKV_REGISTRY_KEY`. Report the exact import paths for all four.
 > 7. **FiatRateStore fetch/persist separability.** Inspect `src/portfolio/core/pnl/fiatRateStore.ts`. Confirm that `ensureRates` uses an injected provider's `loadSeries` for the network step, `getSeries` for freshness checks, and `setSeries` for persistence. Confirm `extractSeries` is file-local (not exported) and therefore must be cloned/exported intentionally for v2. Confirm `BwsFiatRateProvider` at `adapters/rn/bwsFiatRateProvider.ts` implements `loadSeries`. These are the primitives Phase 2's `ensureFresh` uses.
 > 8. **Exact LOC** for every file in the kept/deleted lists. Flag discrepancies >10%, especially `balanceDiagnostic.ts`.
@@ -958,7 +958,7 @@ Total kept: **~13,805 LOC.**
 > - wallet/detail PnL/chart derivation,
 > - Exchange Rate screen parity tests.
 >
-> This helper is load-bearing for the product contract: if there are no transactions in the chosen window, the asset PnL percentage for that window must equal the Exchange Rate percentage for that same window. Resolve the displayed window boundaries against the **rate-series timestamps first**, then snap PnL derivation to those exact boundary timestamps before computing start/end values. Do not let PnL and Exchange Rate derive their windows independently.
+> This helper is load-bearing for the product contract: if there are no transactions in the chosen window, the asset PnL percentage for that window must equal the Exchange Rate percentage for that same window. Resolve one shared `{startTs, endTs, asOfMs}` window for the requested interval, then produce identical boundary samples for portfolio PnL and Exchange Rate calculations. If the rate series has no raw point exactly at `startTs` or `endTs`, linearly interpolate a synthetic boundary sample from the surrounding rate points. Do not let PnL and Exchange Rate derive their windows or boundary values independently.
 >
 > ## Quote-switch committed-state recompute
 >
@@ -1531,32 +1531,11 @@ Total kept: **~13,805 LOC.**
 >   clearPortfolioCacheInvalid,
 > } from './resetState';
 >
-> export type PortfolioResetWipeScope = 'full' | 'portfolioOnly';
+> let inFlightReset: Promise<void> | null = null;
 >
-> type InFlightReset = Readonly<{
->   scope: PortfolioResetWipeScope;
->   promise: Promise<void>;
-> }>;
->
-> let inFlightReset: InFlightReset | null = null;
->
-> export async function performResetSequence(
->   args: {wipeScope?: PortfolioResetWipeScope} = {},
-> ): Promise<void> {
+> export async function performResetSequence(): Promise<void> {
 >   // NOT guarded by canRunPortfolioV2Work — this IS the reset.
->   const wipeScope = args.wipeScope ?? 'full';
->   const active = inFlightReset;
->   if (active) {
->     if (wipeScope === 'full' && active.scope === 'portfolioOnly') {
->       try {
->         await active.promise;
->       } catch {
->         // Still attempt the stronger reset; it is the caller's requested repair.
->       }
->       return performResetSequence({wipeScope: 'full'});
->     }
->     return active.promise;
->   }
+>   if (inFlightReset) return inFlightReset;
 >
 >   const promise = (async () => {
 >     __setPopulateResetInFlight(true);
@@ -1574,7 +1553,7 @@ Total kept: **~13,805 LOC.**
 >       // throws after this point, ordinary v2 work stays blocked until a later
 >       // successful repair clears the bit.
 >       markPortfolioCacheInvalid();
->       await wipePortfolioMmkvKeys({scope: wipeScope});
+>       await wipePortfolioMmkvKeys();
 >       resetSharedPortfolioStateForDebugClear();
 >       clearPortfolioCacheInvalid();
 >     } finally {
@@ -1583,7 +1562,7 @@ Total kept: **~13,805 LOC.**
 >     }
 >   })();
 >
->   inFlightReset = {scope: wipeScope, promise};
+>   inFlightReset = promise;
 >   return promise;
 > }
 > ```
@@ -1775,8 +1754,7 @@ Total kept: **~13,805 LOC.**
 >   - Wait timeout: throws before the invalid bit is set, nothing wiped, `populateResetInFlight` cleared in `finally`, `portfolioCacheInvalid = false`.
 >   - Wipe throws mid-wipe: propagates to caller; `populateResetInFlight` cleared; `portfolioCacheInvalid` remains `true`. Ordinary kicks no-op until a later successful retry clears it.
 >   - State-reset throws: same propagation + cleanup; `portfolioCacheInvalid` remains `true`. Retry completes and clears it.
->   - Re-entry: two concurrent `performResetSequence({wipeScope: 'full'})` calls join the same in-flight promise; both resolve/reject with the same result.
->   - Scope precedence: `portfolioOnly` joins an active `full` reset; `full` requested during an active `portfolioOnly` reset runs immediately after the active reset settles, even if the weaker reset rejected.
+>   - Re-entry: two concurrent `performResetSequence()` calls join the same in-flight promise; both resolve/reject with the same result.
 > - `postAuthRepair.spec.ts` (NEW):
 >   - Boot with `PORTFOLIO_CACHE_INVALID_KEY = 1`; `onAppLaunchPostAuth(...)` runs `performResetSequence()` before `maybeResumePopulateOnLaunch()` / `startPopulate(...)`.
 >   - If the repair succeeds, ordinary v2 work resumes in the same post-auth flow.
@@ -1901,21 +1879,21 @@ Total kept: **~13,805 LOC.**
 > export function onShowPortfolioVisibilityChanged(enabled: boolean): void {
 >   const epoch = ++visibilityToggleEpoch;
 >   if (!enabled) {
->     // OFF creates a durable obligation: the next ON must not populate until a
->     // portfolio-scoped wipe has completed, even if this OFF event becomes stale.
+>     // OFF creates a durable obligation: the next ON must not populate until
+>     // the portfolio store wipe has completed, even if this OFF event becomes stale.
 >     visibilityWipeRequired = true;
 >   }
 >
 >   visibilityToggleSerial = visibilityToggleSerial.then(async () => {
 >     if (!enabled) {
 >       if (epoch !== visibilityToggleEpoch) return; // later event owns the final state
->       await performResetSequence({wipeScope: 'portfolioOnly'});
+>       await performResetSequence();
 >       visibilityWipeRequired = false;
 >       return;
 >     }
 >
 >     if (visibilityWipeRequired) {
->       await performResetSequence({wipeScope: 'portfolioOnly'});
+>       await performResetSequence();
 >       visibilityWipeRequired = false;
 >     }
 >
@@ -1942,11 +1920,11 @@ Total kept: **~13,805 LOC.**
 > `ensureFresh` lives here, NEVER in scheduler. `ensureQuoteCurrencyFxBridge(...)` also lives here and is called only by `onQuoteCurrencyChanged(...)`.
 >
 > `onShowPortfolioVisibilityChanged(...)` is the other intentional exception to the ordinary-trigger rule. It must remain callable even while portfolio work is disabled so that:
-> - turning the setting **off** always clears portfolio-owned cached data via `performResetSequence({wipeScope: 'portfolioOnly'})`,
+> - turning the setting **off** always clears cached portfolio data via `performResetSequence()`,
 > - turning it **on** first discharges any latched `visibilityWipeRequired` obligation, then repairs a latched invalid bit if needed, then starts a fresh from-scratch populate,
 > - rapid off/on churn is serialized by `visibilityToggleSerial` and resolved by `visibilityToggleEpoch` with **last-toggle-wins** semantics for final visibility, while `visibilityWipeRequired` preserves the "OFF requires a wipe before next ON populate" obligation.
 >
-> A re-entry into `performResetSequence(...)` from this toggle path is expected when another reset is already running (post-auth repair, debug-clear, sign-out, or a prior toggle). `performResetSequence(...)` is joinable: the toggle waits for the active reset or queued stronger reset, then re-checks epoch/store state before deciding whether to start populate. Do not turn these ordinary joined resets into user-facing alerts.
+> A re-entry into `performResetSequence(...)` from this toggle path is expected when another reset is already running (post-auth repair, debug-clear, sign-out, or a prior toggle). `performResetSequence(...)` is joinable: the toggle waits for the active reset, then re-checks epoch/store state before deciding whether to start populate. Do not turn these ordinary joined resets into user-facing alerts.
 >
 > `onQuoteCurrencyChanged(...)` intentionally does **not** queue a scheduler-managed full recompute for the immediate quote switch. Instead it applies `recomputeQuoteBridgeFromCommittedState(...)` directly on the compute runtime using committed state only. During deferred populate, this means visible values change quote immediately while populate-driven fresh data remains held until `populateCommitTick`.
 >
@@ -1958,7 +1936,7 @@ Total kept: **~13,805 LOC.**
 >
 > This preserves the product rule that UI rows are grouped by ticker while the rate-cache layer still fetches/stores by raw asset identity.
 >
-> **Portfolio-only visibility gate:** `getShowPortfolioEnabledFromStore()` gates portfolio-owned recompute/populate work only. It must not be reused to hide or suppress the Home Exchange Rates section or the Exchange Rate detail screen, which continue on their own rate/display path even when portfolio surfaces are disabled. The Show Portfolio disable path uses the `portfolioOnly` wipe scope, which excludes `rate:v1:*`, so it does not clear the shared Exchange Rates cache.
+> **Portfolio visibility gate:** `getShowPortfolioEnabledFromStore()` gates portfolio-owned recompute/populate work only. It must not be reused to hide or suppress the Home Exchange Rates section or the Exchange Rate detail screen, which continue on their own rate/display path even when portfolio surfaces are disabled. The Show Portfolio disable path uses the normal portfolio wipe and may clear shared `rate:v1:*` cache entries; Exchange Rates remain mounted and refetch on demand if they observe a cache miss.
 >
 > **Explicit non-triggered interactions (product-load-bearing):**
 > - Timeframe switches on Home / Wallet / Asset Detail / KeyOverview / Exchange Rate do **not** call `ensureFresh(...)`, `ensureQuoteCurrencyFxBridge(...)`, populate kicks, or snapshot refresh code.
@@ -1978,9 +1956,9 @@ Total kept: **~13,805 LOC.**
 > - Each trigger mocked; fire-time freshness verified.
 > - **Guard-before-side-effects regression:** while `populateResetInFlight` is set, invoke each trigger. Assert `ensureFresh` NOT called (for triggers that call it), `scheduleRecompute` NOT called, `populateWallet` NOT called. Zero side effects per trigger.
 > - `onQuoteCurrencyChanged(...)` regression: calls `ensureQuoteCurrencyFxBridge(...)`, does **not** call per-asset `ensureFresh(...)`, and applies `recomputeQuoteBridgeFromCommittedState(...)` immediately from the committed-state BTC bridge.
-> - `onShowPortfolioVisibilityChanged(false)` regression: immediately hides portfolio-owned UI via the setting, runs `performResetSequence({wipeScope: 'portfolioOnly'})`, clears `snap:*` / `portfolio:v2:*`, preserves `rate:v1:*`, and leaves Exchange Rates surfaces visible.
+> - `onShowPortfolioVisibilityChanged(false)` regression: immediately hides portfolio-owned UI via the setting, runs `performResetSequence()`, clears portfolio MMKV/shared state, and leaves Exchange Rates surfaces visible even if their next read refetches after a `rate:v1:*` cache miss.
 > - `onShowPortfolioVisibilityChanged(true)` regression: after a prior disable, starts a fresh from-scratch populate (`isFirstPopulate: true`) instead of resuming stale queue state.
-> - Rapid toggle regression: off/on/off/on in quick succession serializes cleanly, stale completions no-op, `visibilityWipeRequired` prevents ON from populating until a portfolio-only wipe has completed, no overlapping populate loops start, and the final persisted setting wins.
+> - Rapid toggle regression: off/on/off/on in quick succession serializes cleanly, stale completions no-op, `visibilityWipeRequired` prevents ON from populating until the OFF-created wipe has completed, no overlapping populate loops start, and the final persisted setting wins.
 > - Toggle-during-reset regression: if another reset is already active, the toggle joins/waits for it, then re-checks epoch/store state before starting any fresh populate.
 > - Timeframe-switch regression: changing `tf` on any portfolio screen triggers zero calls to `ensureFresh(...)`, `ensureQuoteCurrencyFxBridge(...)`, populate APIs, or snapshot refresh helpers.
 
@@ -1994,8 +1972,8 @@ Total kept: **~13,805 LOC.**
 >
 > **Show Portfolio contract (NEW, product-load-bearing):**
 > - When `getShowPortfolioEnabledFromStore()` is `false`, hide all portfolio-owned charts and asset-list surfaces: Home portfolio balance/chart, Home asset list section, All Assets, Allocation, Wallet/Account/Key portfolio charts, and `AssetBalanceHistoryScreen`.
-> - The Home **Exchange Rates** section and the **Exchange Rate** detail screen remain visible and continue to update whether the portfolio setting is on or off. The Show Portfolio disable path preserves the shared `rate:v1:*` cache; full debug/sign-out resets may still wipe it.
-> - Toggling the setting off hides portfolio-owned surfaces immediately via UI gating while `performResetSequence({wipeScope: 'portfolioOnly'})` clears portfolio-owned cached data in the background.
+> - The Home **Exchange Rates** section and the **Exchange Rate** detail screen remain visible and continue to update whether the portfolio setting is on or off. Because Show Portfolio off uses the normal portfolio wipe, these surfaces may observe a transient `rate:v1:*` cache miss and refetch on demand, but they must not be hidden by the portfolio setting.
+> - Toggling the setting off hides portfolio-owned surfaces immediately via UI gating while `performResetSequence()` clears cached portfolio data in the background.
 > - Toggling it back on starts a fresh populate-from-empty flow; portfolio-owned surfaces reappear by the same first-populate progressive reveal rules used for a cold start.
 
 ## 7a. Asset list
@@ -2061,20 +2039,20 @@ Total kept: **~13,805 LOC.**
 >
 > // Internal — used by performResetSequence. MUST be idempotent and MUST exclude
 > // PORTFOLIO_V2_FLAG_KEY and PORTFOLIO_CACHE_INVALID_KEY from its wipe scope.
-> export async function wipePortfolioMmkvKeys(args?: {scope?: PortfolioWipeScope}): Promise<void>;
+> export async function wipePortfolioMmkvKeys(): Promise<void>;
 > ```
 >
 > `clearAllStorage` is a thin wrapper around `performResetSequence`:
 >
 > ```ts
 > export async function clearAllStorage(): Promise<void> {
->   await performResetSequence({wipeScope: 'full'});
+>   await performResetSequence();
 > }
 > ```
 >
 > `wipePortfolioMmkvKeys` implementation:
 > - Enumerates keys from `getPortfolioMmkvStorageOnRN().getAllKeys()` (the real storage, source of truth — guardrail #25).
-> - Filters by the selected wipe-scope prefixes and excludes `WIPE_EXCLUDED_KEYS`.
+> - Filters by `PORTFOLIO_WIPE_PREFIXES` and excludes `WIPE_EXCLUDED_KEYS`.
 > - Deletes each matched key via `kvStore.delete(key)` so the registry stays consistent.
 > - NOT `kvStore.listKeys()` as the iteration source — a stale registry would miss real keys.
 >
@@ -2083,17 +2061,10 @@ Total kept: **~13,805 LOC.**
 > import { PORTFOLIO_V2_FLAG_KEY } from '../featureFlag';
 > import { PORTFOLIO_CACHE_INVALID_KEY } from '../populate/resetState';
 >
-> type PortfolioWipeScope = 'full' | 'portfolioOnly';
->
-> const FULL_PORTFOLIO_WIPE_PREFIXES: readonly string[] = [
+> const PORTFOLIO_WIPE_PREFIXES: readonly string[] = [
 >   'snap:',           // snapshot meta/index/chunk/invalid-history/raw-points
 >   'rate:v1:',        // fiat rate series
 >   'portfolio:v2:',   // v2-specific: queue, flag
-> ];
->
-> const PORTFOLIO_ONLY_WIPE_PREFIXES: readonly string[] = [
->   'snap:',           // snapshot data owned by portfolio
->   'portfolio:v2:',   // v2-specific: queue, flag, invalid bit
 > ];
 >
 > const WIPE_EXCLUDED_KEYS = new Set<string>([
@@ -2101,20 +2072,15 @@ Total kept: **~13,805 LOC.**
 >   PORTFOLIO_CACHE_INVALID_KEY,
 > ]);
 >
-> export async function wipePortfolioMmkvKeys(
->   args: {scope?: PortfolioWipeScope} = {},
-> ): Promise<void> {
+> export async function wipePortfolioMmkvKeys(): Promise<void> {
 >   const storage = getPortfolioMmkvStorageOnRN();
 >   const kvStore = getPortfolioKvStore();    // v2 helper added in Phase 1
->   const prefixes = args.scope === 'portfolioOnly'
->     ? PORTFOLIO_ONLY_WIPE_PREFIXES
->     : FULL_PORTFOLIO_WIPE_PREFIXES;
 >
 >   // Enumerate REAL keys from MMKV, not the registry.
 >   const allKeys = storage.getAllKeys();
 >
 >   for (const key of allKeys) {
->     const matchesPortfolioPrefix = prefixes.some(p => key.startsWith(p));
+>     const matchesPortfolioPrefix = PORTFOLIO_WIPE_PREFIXES.some(p => key.startsWith(p));
 >     if (!matchesPortfolioPrefix) continue;
 >     if (WIPE_EXCLUDED_KEYS.has(key)) continue;
 >     await kvStore.delete(key);   // untracks from registry (no-op if wasn't tracked)
@@ -2124,14 +2090,14 @@ Total kept: **~13,805 LOC.**
 >
 > - Idempotent on missing keys.
 > - If a delete throws mid-iteration, propagate; caller (`performResetSequence`) handles the failure.
-> - Future additions to `FULL_PORTFOLIO_WIPE_PREFIXES`, `PORTFOLIO_ONLY_WIPE_PREFIXES`, or `WIPE_EXCLUDED_KEYS` must be explicit and justified.
+> - Future additions to `PORTFOLIO_WIPE_PREFIXES` or `WIPE_EXCLUDED_KEYS` must be explicit and justified.
 >
 > ### Reset path integration
 >
 > For every reset path identified in Phase 0 inventory (sign-out, logout, any "reset app" flow that wipes portfolio data):
 >
 > 1. Identify the exact code location.
-> 2. Replace direct MMKV wipes with `await performResetSequence({wipeScope: 'full'})`.
+> 2. Replace direct MMKV wipes with `await performResetSequence()`.
 > 3. Wrap the call in a try/catch that surfaces a one-shot native Alert on failure ("Clear storage failed. Try again.").
 > 4. If the reset was part of sign-out / logout / account-switch, abort the enclosing flow on error. Do **not** continue navigation/account teardown until a later successful reset clears `portfolioCacheInvalid`.
 > 5. Gate behind `PORTFOLIO_V2` if the path is v1-specific.
@@ -2193,6 +2159,7 @@ Total kept: **~13,805 LOC.**
 > 2. `yarn tsc && yarn test && yarn lint`.
 > 3. Final inventory update.
 > 4. Flag stays as kill switch.
+> 5. Optional, benchmark-gated optimization only: if Phase 3/5 measurements show post-auth-to-first-portfolio-render latency exceeds the product bar, add persisted-derived-state hydration for the last committed `sharedPortfolioState`. This is not required for correctness; it introduces a derived-state schema, hydration invalidation, write coalescing, and additional wipe tests, so do it only if cold-start measurements justify the complexity.
 
 **LOC ledger:** 0 / ~200 / −200.
 
@@ -2268,11 +2235,11 @@ Total kept: **~13,805 LOC.**
 58. **Cross-screen refresh propagation:** send-triggered populates and pull-to-refresh updates propagate to every affected Home / All Assets / Asset Detail / Wallet / Exchange Rate surface after completion, with no stale divergence between screens.
 59. **Deferred heavy-recompute gating:** while a deferred populate has remaining wallets, heavy `scheduleRecompute` work from non-populate triggers accumulates but does not drain until `populateCommitTick`; touch scopes still drain.
 60. **Chart gate predicate:** first-ever hide vs stale-fallback behavior keys off committed populated state (`selectHasAnyPopulatedWallets(s)`), not `queue.publishMode`.
-61. **Interval-window timestamp snapping:** the shared window helper resolves boundaries from rate-series timestamps first, and PnL derivation snaps to those exact timestamps so the no-tx-window parity test is deterministic.
+61. **Interval-window boundary sampling:** the shared window helper resolves exact interval boundaries and linearly interpolates synthetic rate samples when no raw point exists at `startTs` / `endTs`; PnL and Exchange Rate calculations consume the same sampled boundary values so the no-tx-window parity test is deterministic and faithful to the displayed interval.
 62. **Quote-switch during deferred populate:** while a deferred populate is active, `onQuoteCurrencyChanged(...)` applies `recomputeQuoteBridgeFromCommittedState(...)` immediately to the committed state, visible screens switch quote right away, scheduler-held heavy recomputes still do not drain early, and the later `populateCommitTick` publish lands fresh data in the already-selected quote.
 63. **No recursive render / max-depth regression:** rapid timeframe toggles and chart scrubbing on Home / Wallet / Asset Detail / Exchange Rate do not produce "maximum update depth exceeded" errors, recursive scheduler churn, or blank intermediate flashes between valid series.
 64. **Post-auth repair path for durable invalid bit:** boot with `PORTFOLIO_CACHE_INVALID_KEY = 1`; `onAppLaunchPostAuth(...)` repairs via `performResetSequence()` before any ordinary v2 populate/recompute work runs, and only a successful repair clears the bit.
-65. **Show Portfolio off clears + hides:** toggling the user-facing setting off runs `performResetSequence({wipeScope: 'portfolioOnly'})`, clears portfolio-owned MMKV/shared state, preserves `rate:v1:*`, hides all portfolio-owned charts/list surfaces, and leaves Home Exchange Rates / Exchange Rate detail visible.
+65. **Show Portfolio off clears + hides:** toggling the user-facing setting off runs `performResetSequence()`, clears portfolio MMKV/shared state, hides all portfolio-owned charts/list surfaces, and leaves Home Exchange Rates / Exchange Rate detail visible even if those surfaces refetch after a `rate:v1:*` cache miss.
 66. **Show Portfolio on repopulates from scratch:** toggling the setting back on after a prior disable starts a fresh populate-from-empty flow (`isFirstPopulate: true`) and re-reveals portfolio-owned surfaces by the normal progressive populate rules.
 67. **Rapid Show Portfolio toggle churn:** repeated off/on/off/on toggles serialize cleanly with last-toggle-wins semantics for final visibility; `visibilityWipeRequired` guarantees an OFF-created wipe obligation completes before a later ON can start fresh populate; no overlapping populate loops survive, stale completions no-op, and the final setting determines whether portfolio surfaces are hidden or repopulating.
 68. **Joinable reset during Show Portfolio toggle:** toggling portfolio visibility while post-auth repair / debug-clear / sign-out reset is already in flight joins or waits for that reset, re-checks epoch and store state afterward, and never surfaces an "already in flight" error for normal toggle churn.
@@ -2335,11 +2302,11 @@ Starting: ~31,160. Ending: ~20,600. Eliminated: ~10,560, ~34%.
 - **`reduxAccess.ts`** single Redux access module. Initialized inside the existing `getStore().then(({store, persistor}) => {...})` callback before `<Provider>` mount. Accessor calls inside function bodies only.
 - **Reset paths reset shared state** (guardrail #17). Every wipe path — debug-clear, sign-out — goes through `performResetSequence`. Preserves `orderRevision` monotonicity invariant.
 - **Reset uses one durable invalid bit.** `performResetSequence(...)` is joinable, while persisted key `portfolio:v2:cacheInvalid` blocks ordinary v2 work whenever a destructive wipe may have left partial state behind. There is no tri-state sentinel and no banner UI, but failures after `markPortfolioCacheInvalid()` do not let work resume until a successful repair clears the bit.
-- **`performResetSequence`:** join or queue stronger reset if needed → set in-flight → cancel → `Promise.all` wait for populate loop, compute drain, and in-flight `ensureFresh` → `markPortfolioCacheInvalid()` → scoped wipe (idempotent, excludes feature flag + invalid bit) → reset shared state → `clearPortfolioCacheInvalid()` → clear in-flight in `finally`. Any throw after the invalid bit is marked leaves ordinary v2 work blocked until repair succeeds.
+- **`performResetSequence`:** join active reset if needed → set in-flight → cancel → `Promise.all` wait for populate loop, compute drain, and in-flight `ensureFresh` → `markPortfolioCacheInvalid()` → wipe (idempotent, excludes feature flag + invalid bit) → reset shared state → `clearPortfolioCacheInvalid()` → clear in-flight in `finally`. Any throw after the invalid bit is marked leaves ordinary v2 work blocked until repair succeeds.
 - **V2 kernel integration (guardrail #26):** `PopulateRuntimeContext` carries `signingContextsByWalletId` alongside `walletsById`. `runPopulate` delegates each wallet to a new v2-owned `drivePopulateForWallet(...)` orchestrator, which wraps the signing-required populate handlers with the signing context at the same granularity as v1 (`prepare` and each `processNextPage` call, not `finish` / `close`) — matching `withWalletSigningContext` in `portfolioPopulateJobWorklet.ts:315`. `ensureFresh` builds a **lightweight dispatch context** JS-side (no wallet signing, but `boxedNitroFetch` populated) and its worklet wrapper installs/clears it around the `RnBwsFiatRateProvider.loadSeries` call — matches the "non-signing requests still need Nitro fetch context" rule from `portfolioWorkletTransport.ts:137`. **Every worklet call that uses Nitro fetch requires a dispatch context for the duration of the call**, whether or not it signs.
 - **Runtime-global concurrency verification (guardrail #27):** Phase 0.5 spike runs four probes (two branch-deciders, two diagnostic) on both platforms at 1000 iterations. Probes 2 (v2-asymmetric populate-vs-rate) and 3 (rate-vs-rate) determine branch selection from A (no mitigation), C (dedicated rate-fetch runtime — architectural fork to four runtimes total, still requires per-call lightweight dispatch context), or D (worklet-side lock — most surgical but most complex). Branch B remains diagnostic-only because it violates the non-blocking-read product requirement. `ensureFresh` always dedupes identical args; serialization of non-identical calls is only required when Probe 3 is dirty/flaky.
 - **V18 keeps the current non-bundle worklet path.** Global `react-native-worklets` bundle mode is out of scope unless a future design proves it is isolated to the intended worklet runtime and preserves the existing Quick Crypto / fetch hybrid-object integration.
-- **Wipe scope (guardrail #23):** full reset matches actual repo prefixes `snap:*`, `rate:v1:*`, `portfolio:v2:*`; Show Portfolio visibility reset uses the portfolio-only scope `snap:*` + `portfolio:v2:*` so Exchange Rates keep the shared rate cache. Both scopes exclude `PORTFOLIO_V2_FLAG_KEY` (don't silently disable v2 during rollout) and `PORTFOLIO_CACHE_INVALID_KEY` (so the durable invalid bit survives partial wipes until a successful repair clears it). Verified against repo at `snapshotStore.ts:146-162` and `fiatRateStore.ts` `rateKey` function.
+- **Wipe scope (guardrail #23):** matches actual repo prefixes `snap:*`, `rate:v1:*`, `portfolio:v2:*`. Excludes `PORTFOLIO_V2_FLAG_KEY` (don't silently disable v2 during rollout) and `PORTFOLIO_CACHE_INVALID_KEY` (so the durable invalid bit survives partial wipes until a successful repair clears it). Verified against repo at `snapshotStore.ts:146-162` and `fiatRateStore.ts` `rateKey` function.
 - **Portfolio MMKV is a dedicated instance (guardrail #24):** `getPortfolioMmkvStorageOnRN()` returns `new MMKV({ id: 'bitpay.portfolio.engine' })`. All v2 MMKV access — flag, queue, wipe — goes through this instance, never the default MMKV.
 - **Wipe goes through the key registry (guardrail #25):** portfolio storage tracks keys via `__bitpay.portfolio.engine.registry.v1__`. Wipe uses `kvStore.delete(key)` (untracks) or equivalently clears the registry. `listKeys()` empty after wipe.
 - **`populateCancelFlag` lifecycle:** set true by cancel and reset; cleared false by every kick path before `runOnRuntimeAsync`. Never persists across cycles.
@@ -2349,7 +2316,7 @@ Starting: ~31,160. Ending: ~20,600. Eliminated: ~10,560, ~34%.
 - **Allocation order equals asset-list order.** No second ranking system.
 - **Key-scoped All Assets and asset detail stay scoped.** `AllAssets({keyId})` and row taps from `KeyOverview` use scoped selectors instead of Home-global rows, including any constituent wallet list rendered inside asset detail.
 - **Rate fetching and snapshot refresh happen only at explicit triggers**, not in the scheduler and not on timeframe switches or chart scrubbing.
-- **The user-facing "Show Portfolio" toggle is a first-class trigger.** Off clears portfolio-owned cached data and hides portfolio-owned surfaces immediately; on repopulates from scratch after the portfolio-only wipe obligation is discharged. Home Exchange Rates and the Exchange Rate detail screen stay visible and keep their shared `rate:v1:*` cache regardless of the setting.
+- **The user-facing "Show Portfolio" toggle is a first-class trigger.** Off clears cached portfolio data and hides portfolio-owned surfaces immediately; on repopulates from scratch after the wipe obligation is discharged. Home Exchange Rates and the Exchange Rate detail screen stay visible regardless of the setting and refetch on demand if the shared `rate:v1:*` cache was cleared.
 - **Mid-populate UI behavior is explicit.** Asset-list rows stay visible immediately in canonical order with skeletons for unready right-side content; charts stay hidden during first populate until their relevant data is ready and stay stale-but-visible during later deferred populates until commit.
 - **`runOnRuntimeAsync` non-curried**; fire-and-forget attaches `.catch(log)`.
 - **Rapid timeframe/scrub interaction has an explicit no-recursive-render bar.** The plan now requires a dedicated regression for no maximum-update-depth errors, no recursive scheduler churn, and no blank flashes during timeframe toggles or chart scrubbing.
