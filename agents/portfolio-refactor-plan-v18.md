@@ -108,6 +108,7 @@ Total kept: **~13,805 LOC.**
 - **Scoped render cache** — bounded `sharedPortfolioState.scopedByWalletSet[walletIdsKey]` cache of compute-runtime-produced render payloads for key/account/custom wallet scopes. Entries contain scoped total series, scoped asset-group slices, scoped row payloads, scoped order, readiness, invalid-history status, and fingerprints. JS selectors only select from this cache; missing entries return `undefined` / skeleton state until an explicit heavy recompute publishes the scope.
 - **Invalid-history marker** — v1-compatible `snap:invalid-history:v1:<walletId>` marker produced when snapshot building detects a corrupted tx history that drives the wallet's running balance negative. Shape comes from `src/portfolio/core/pnl/invalidHistory.ts`: `{v: 1, walletId, reason: 'negative_balance', detectedAt, retryAfter, message, source?, txId?, balanceAtomic?}` with a 24h default cooldown. Active markers suppress auto-populate for that wallet; successful later populate clears the marker.
 - **Stored fiat-rate interval** — canonical persisted/fetched interval in `{1D, 1W, 1M, ALL}`. Displayed `3M`, `1Y`, and `5Y` are derived from `ALL`.
+- **`FiatRateAssetRef`** — `{coin, chain?, tokenAddress?}` (defined at `src/portfolio/core/fiatRatesShared.ts:8`). Output of `getFiatRateAssetRef(...)` in `src/portfolio/core/pnl/rates.ts:28`, the single v4-rate classifier. A native coin has only `coin` populated and routes through the batched multi-coin path `GET /v4/fiatrates/{QUOTE}?days={N}`. A token has all three fields populated and routes through the per-token path `GET /v4/fiatrates/{QUOTE}?days={N}&chain={chain}&tokenAddress={tokenAddress}`. Classifier rules: coin-normalization aliases (`wbtc→btc`, `weth→eth`, `matic→pol`), legacy ETH-side MATIC token (`chain='eth' + coin='pol' + tokenAddress='0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0'`) reclassified to native POL, chain-case normalization (lowercase), token-address case-sensitivity (`{'sol', 'solana'}` preserve case; others lowercased). See Phase 2 "V4 fiat-rates endpoint contract" for the full fetch semantics.
 - **Refreshing portfolio state** — lightweight UI state set by incremental populate triggers. It may show subtle loading affordances, but it does not block progressive chart/PnL updates.
 - **Scalar signature** — joined string like `populatedWalletIdsKey`. Fingerprint-input / diff-key.
 - **Order revision** — monotonic counter for `orderedAssetGroupIdsForAssetList` mutations. Used for merge arbitration. **Monotonic across queue rebuilds**, not just within one queue's lifetime.
@@ -789,6 +790,47 @@ Total kept: **~13,805 LOC.**
 > `ratesFetch.ts` (JS):
 >
 > **Structural requirement:** `ensureFresh` must be implemented as separate **freshness-check + fetch** and **persist** steps with a `canRunPortfolioV2Work()` check between them (guardrail #22's "re-check before persist"). A thin wrapper around v1's `FiatRateStore.ensureRates()` (which bundles freshness-check + fetch + parse + persist at `fiatRateStore.ts:190`) is **not acceptable** — it makes the second guard check structurally impossible.
+>
+> **V4 fiat-rates endpoint contract (repo-accurate, preserve v1 behavior exactly):**
+>
+> The BWS endpoint is `${cfg.baseUrl}/v4/fiatrates/${QUOTE_UPPER}` (see `getFiatRateSeriesUrl` in `src/portfolio/core/fiatRatesShared.ts:148`). Query params:
+> - `days={N}` for bounded intervals (`1D=1`, `1W=7`, `1M=30`); omitted for `ALL`. `3M`/`1Y`/`5Y` are not fetched — they resolve to `ALL` via `resolveStoredFiatRateInterval(...)` per the canonical-stored-intervals rule.
+> - `chain={chain}` ONLY when the asset is a token.
+> - `tokenAddress={tokenAddress}` ONLY when the asset is a token.
+>
+> **Two distinct fetch paths — do not merge them:**
+>
+> 1. **Native-coin request (batched, multi-coin payload):** `GET /v4/fiatrates/USD?days=1` with no `chain` / `tokenAddress` params. BWS returns a JSON object keyed by coin symbol, e.g., `{btc: {...}, eth: {...}, sol: {...}, ...}`. All native-coin rates for the requested interval come back in **one round trip**. `ensureFresh` calls `loadSeries({coins: missingDefaults})` exactly once per interval/quote per `ensureFresh` invocation to get every native coin needed.
+>
+> 2. **Token-specific request (individual, per-token):** `GET /v4/fiatrates/USD?days=1&chain=eth&tokenAddress=0xa0b86...` — one request per `(chain, tokenAddress)` tuple. BWS returns a response that may be keyed by the token symbol or may be a single-key object whose key does not match the requested symbol exactly; `extractSeriesFromFiatRatePayload(...)` handles this with a single-value fallback. Tokens cannot be batched into the native-coin call because the endpoint only accepts one `chain`+`tokenAddress` pair per request. `ensureFresh` iterates `missingExplicit` sequentially and swallows per-token errors so one bad token does not abort the batch.
+>
+> **Asset classification rule (the one source of truth):** `getFiatRateAssetRef({currencyAbbreviation, chain, tokenAddress, credentials})` in `src/portfolio/core/pnl/rates.ts:28` is the **single classifier**. Its output `FiatRateAssetRef` is `{coin, chain?, tokenAddress?}`:
+> - `coin` is always present and normalized to lowercase via `normalizeFiatRateSeriesCoin(...)`.
+> - `chain` and `tokenAddress` are populated iff the asset is a token (`tokenAddress` present and non-empty). Native coins have both fields `undefined` so they route through path (1) above.
+>
+> **Coin-normalization aliases (preserve v1 exactly, `rates.ts:12-26`):**
+> - `wbtc` → `btc` (wrapped BTC reuses native BTC rates)
+> - `weth` → `eth` (wrapped ETH reuses native ETH rates)
+> - `matic` → `pol` / `pol` → `pol` (MATIC rebranded to POL; same native rates)
+> - All other coins: `lowercase(currencyAbbreviation)`.
+>
+> **Legacy ETH-side MATIC token special case (`rates.ts:52-62`):** A wallet whose credentials carry `chain='eth'`, `currencyAbbreviation='pol'`, and `tokenAddress='0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0'` is intentionally reclassified to native POL (`{coin: 'pol'}` with no `chain`/`tokenAddress`), so it routes through the native-coin batched path instead of the generic token-address endpoint. V2 must keep this reclassification — removing it would push those wallets to a token URL that would return empty/mismatched data.
+>
+> **Chain + tokenAddress normalization (preserve case-sensitivity rule, `fiatRatesShared.ts:82-109`):**
+> - `chain`: lowercase + trim via `normalizeFiatRateSeriesChain(...)`.
+> - `tokenAddress`: trim; then **lowercase UNLESS the chain is in `CASE_SENSITIVE_TOKEN_ADDRESS_CHAINS = {'sol', 'solana'}`** — Solana token addresses are base58 and case-distinguishing. V2 must use the same `normalizeFiatRateSeriesTokenAddress(...)` helper (already exported from `fiatRatesShared.ts`) — do not reimplement lowercase-all token-address handling, or Solana token rates will cache-miss against the case-sensitive MMKV key.
+>
+> **MMKV rate key format (`fiatRateStore.ts:30`, preserve exactly):**
+> - Native coin: `rate:v1:${QUOTE}:${coin}:${storedInterval}` (e.g., `rate:v1:USD:btc:1D`).
+> - Token: `rate:v1:${QUOTE}:${coin}:${storedInterval}:${chain}:${tokenAddress}` (e.g., `rate:v1:USD:usdc:1D:eth:0xa0b86...`).
+> - The token variant extends the base key with `:chain:tokenAddress` suffix via `rateKey(...)`. Persist the same coin entry separately per `(chain, tokenAddress)` when tokens need distinct rates — one USDC ticker may have different on-chain rates per deployment.
+>
+> **Response-parsing contract (`fiatRateStore.ts:71` / preserved in `extractSeriesFromFiatRatePayload`):**
+> - Direct match: response is already a series shape (`{fetchedOn, points}`) or an array of `{ts, rate}` points.
+> - Keyed match: response is `{[coin]: series}` — try exact key, then lowercase, then uppercase.
+> - Single-key token fallback: for token-specific responses that return a single-key object whose key does not match the requested symbol, use `Object.values(record)[0]` as the candidate. This is common for token endpoints; do not drop it.
+>
+> **Dedupe rule for `ensureFresh(coins, assets)` inputs:** `normalizeUniqueFiatRateAssets(coins, assets)` (mirrors `ensureRates`'s dedupe at `fiatRateStore.ts:200-217`) canonicalizes each input via `getFiatRateAssetRef(...)`, keys by `${coin}|${chain || ''}|${tokenAddress || ''}`, and keeps one entry per unique tuple. A caller passing both `coins: ['usdc']` and `assets: [{coin: 'usdc', chain: 'eth', tokenAddress: '0x...'}]` produces two distinct fetch targets — a native USDC batch request AND a token-specific request — because their normalized tuples differ. This is the correct v1 behavior for multi-deployment tokens.
 >
 > **Required v18 shape (repo-accurate):**
 >
@@ -2893,6 +2935,17 @@ Total kept: **~13,805 LOC.**
 90. **Invalid-history wallet never publishes clamped negative portfolio math:** seed shared/queue state where B previously failed with negative running balance. Assert recompute publishes `invalidHistoryWalletIdsById[B] === true` and the corresponding invalid-history asset-group map entry, but omits B from `byWallet`, total series, scoped slices, asset-group rows, and allocation math until a successful later populate writes valid snapshots. Assert no displayed `fiatBalance`, `pnlChange`, or `pnlPercent` is derived from a clamped negative running balance. For first-ever populate, `selectHasAnyPopulatedWallets(s)` reveals charts once completed valid wallets publish, while B remains not-ready and error-ready via invalid-history selector state.
 
 91. **Invalid-history queue status reconciliation:** with `remainingWalletIds = [A]`, `doneWalletIds = [B]`, `invalidHistoryWalletIds = [C]`, run `reconcileQueueAgainstEligible(...)` after deleting C or otherwise removing C from the livenet/not-deleted populate-eligible set. Assert C is removed from `invalidHistoryWalletIds`, asset-group order drops C-only groups, and `orderRevision` bumps iff order changed. Visibility-only hides must not prune C because populate eligibility is visibility-ignored. Paired assertion: `markSkippedInvalidHistory(B)` removes B from `doneWalletIds` before recording it as invalid-history skipped, preventing stale readiness if a previously-good wallet later corrupts during incremental populate.
+
+92. **V4 fiat-rates token-vs-coin fetch distinction:** seed `ensureFresh` with a mixed asset set: native coins `['btc', 'eth', 'sol']`, an Ethereum USDC token `{coin: 'usdc', chain: 'eth', tokenAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'}`, a Solana USDC token `{coin: 'usdc', chain: 'sol', tokenAddress: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'}`, a wrapped BTC wallet (`wbtc`), and a legacy ETH-side MATIC token `{coin: 'pol', chain: 'eth', tokenAddress: '0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0'}`. Instrument `loadSeriesWorkletWithContext` to record each call's `args` object. Assert:
+>    - (a) The classifier collapses `wbtc → btc` and legacy ETH-side MATIC → native `pol`, so after `normalizeUniqueFiatRateAssets` the native-coin set is exactly `{'btc', 'eth', 'sol', 'pol'}`.
+>    - (b) Exactly **one** native-coin batched fetch fires with `loadSeries({coins: ['btc', 'eth', 'sol', 'pol']})` and no `asset` param — the URL produced by `getFiatRateSeriesUrl` has no `chain`/`tokenAddress` query params.
+>    - (c) Exactly **two** token-specific fetches fire — one per token `(coin, chain, tokenAddress)` tuple: ETH USDC and SOL USDC. Each token fetch has the correct `chain` + `tokenAddress` query params on its URL.
+>    - (d) The SOL USDC tokenAddress is transmitted **case-preserved** (`EPjFWdd5...`), not lowercased. The ETH USDC tokenAddress is lowercased (`0xa0b86991...`).
+>    - (e) MMKV persist writes land at distinct keys: `rate:v1:USD:btc:1D`, `rate:v1:USD:eth:1D`, `rate:v1:USD:sol:1D`, `rate:v1:USD:pol:1D` (natives, no token suffix), and `rate:v1:USD:usdc:1D:eth:0xa0b86991...`, `rate:v1:USD:usdc:1D:sol:EPjFWdd5...` (tokens with `:chain:tokenAddress` suffix).
+>    - (f) `extractSeriesFromFiatRatePayload` handles the token response shape including the single-key fallback: seed a token payload like `{USDCET: {...}}` (key does not match requested `usdc` symbol) and assert the series is still extracted via `Object.values(record)[0]`.
+>    - (g) A native-coin fetch failure with every missing default having a fallback (stale cached series) is swallowed; a native-coin fetch failure with any coin lacking a fallback rethrows.
+>    - (h) A token-specific fetch failure does not abort the remaining token fetches — subsequent tokens in the loop still run.
+>    - (i) Timeframe `3M`/`1Y`/`5Y` never produces a fetch: the interval is resolved to `ALL` before the freshness gate, so cached `ALL` series satisfy the request without a network call.
 
 ---
 
