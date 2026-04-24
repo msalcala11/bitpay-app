@@ -1216,6 +1216,8 @@ Total kept: **~13,805 LOC.**
 >
 > Also build invalid-history status maps from `inputs.invalidHistoryWalletIds`: `invalidHistoryWalletIdsById` / `invalidHistoryWalletIdsKey` and `invalidHistoryAssetGroupIdsById` / `invalidHistoryAssetGroupIdsKey`. These maps are render metadata, not PnL math inputs. They let UI selectors distinguish "not ready yet" from "populate-blocked by active invalid-history marker" without reading the populate queue or MMKV during render. Scoped entries build the same invalid-history maps restricted to their `walletIds` set.
 >
+> Asset-group invalid-history derivation is **all-blocked, not any-blocked**: `invalidHistoryAssetGroupIdsById[groupId] === true` iff every wallet that would contribute to that asset group in the current visible scope is present in `invalidHistoryWalletIdsById`. Partial blockage leaves the group out of the blocked map and publishes PnL/series from the valid subset. Example: one corrupted Polygon USDC wallet must not make the whole collapsed USDC row error-ready if Ethereum/Solana USDC wallets have valid snapshots.
+>
 > ## Eviction (soft cap N=8)
 >
 > Post-wallet-scope writes. Current scope's walletIds / `walletIdsKey` protected. Soft — if protected set > 8, result > 8. Applies to `scopedByWalletSet` as well as wallet-scope caches.
