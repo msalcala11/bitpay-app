@@ -36,7 +36,7 @@
 - **`onPullToRefresh(...)` lands in v18.** No trigger skeletons remain.
 - **`onShowPortfolioVisibilityChanged(...)` lands in v18.** Turning portfolio visibility off clears portfolio-owned cached data and hides all portfolio-owned charts/lists; turning it back on repopulates from scratch. Rapid off/on churn is serialized with last-toggle-wins final visibility plus a latched wipe obligation so ON cannot populate before an OFF-created clear completes.
 - **Key-scoped asset list lands in v18.** `AllAssets({keyId})`, row taps from `KeyOverview`, and scoped asset detail all stay within that key's wallet set.
-- **Initial and incremental populate both publish progressively.** Initial populate uses skeleton reveal for not-yet-ready rows; incremental refresh may show a lightweight refreshing indicator while values update progressively.
+- **Initial and incremental populate both publish progressively.** Initial populate uses skeleton reveal for not-yet-ready rows; incremental refresh may show a lightweight refreshing indicator while values update progressively. V18 intentionally does **not** hold incremental values stable until populate completion.
 - **Timeframe switches / scrubbing stay read-only in v18.** No hidden rate fetches, snapshot updates, or populate kicks occur on timeframe-only interaction.
 
 ## Files that stay untouched (kernels, not orchestration)
@@ -116,7 +116,7 @@ Total kept: **~13,805 LOC.**
 1. **Ship-green** after every phase under `PORTFOLIO_V2=false`.
 2. **Don't refactor kernels.** The "untouched" list is binding.
 3. **Don't regress MMKV layout** beyond the `revision` addition.
-4. **One compute-runtime writer, one state surface.** Only compute-runtime recompute functions write `sharedPortfolioState`: the normal `recompute(...)` path plus the quote-switch-specific `recomputeQuoteBridgeFromCommittedState(...)` path described in Phases 2/3. Touch scopes are recompute scopes. **Reset paths (debug-clear, sign-out) also write to `sharedPortfolioState`** — see guardrail #17.
+4. **One compute-runtime writer, one state surface.** Only compute-runtime recompute functions write `sharedPortfolioState`: the normal `recompute(...)` path plus the quote-switch-specific `recomputeQuoteBridgeFromSharedState(...)` path described in Phases 2/3. Touch scopes are recompute scopes. **Reset paths (debug-clear, sign-out) also write to `sharedPortfolioState`** — see guardrail #17.
 5. **LOC ledger per phase.**
 6. **Selectors are pure worklet functions** of state + primitives. No Redux.
 7. **Cancellation** via `populateCancelFlag.value` checks at yield points.
@@ -692,6 +692,27 @@ Total kept: **~13,805 LOC.**
 > } from '../adapters/rn/txHistorySigning';
 >
 > let inFlightCount = 0;
+> const ensureFreshInFlightListeners = new Set<() => void>();
+>
+> function notifyEnsureFreshInFlightListeners(): void {
+>   ensureFreshInFlightListeners.forEach(listener => listener());
+> }
+>
+> function setEnsureFreshInFlightCount(next: number): void {
+>   const safeNext = Math.max(0, next);
+>   if (inFlightCount === safeNext) return;
+>   inFlightCount = safeNext;
+>   notifyEnsureFreshInFlightListeners();
+> }
+>
+> export function getEnsureFreshInFlightCount(): number {
+>   return inFlightCount;
+> }
+>
+> export function subscribeToEnsureFreshInFlight(listener: () => void): () => void {
+>   ensureFreshInFlightListeners.add(listener);
+>   return () => ensureFreshInFlightListeners.delete(listener);
+> }
 >
 > // V2-owned clone of fiatRateStore.ts:71 / portfolioWorkletRates.ts:104.
 > // Keep this helper in v2 so guardrail #2 ("don't refactor kernels") remains true.
@@ -710,7 +731,7 @@ Total kept: **~13,805 LOC.**
 >   force?: boolean;
 > }): Promise<void> {
 >   if (!canRunPortfolioV2Work()) return;       // GUARD at entry (guardrail #21)
->   inFlightCount++;
+>   setEnsureFreshInFlightCount(inFlightCount + 1);
 >   try {
 >     const quoteCurrency = String(args.quoteCurrency || 'USD').toUpperCase();
 >     const interval = resolveStoredFiatRateInterval(args.interval);
@@ -830,7 +851,7 @@ Total kept: **~13,805 LOC.**
 >       }
 >     }
 >   } finally {
->     inFlightCount--;
+>     setEnsureFreshInFlightCount(inFlightCount - 1);
 >   }
 > }
 >
@@ -879,8 +900,8 @@ Total kept: **~13,805 LOC.**
 > Required behavior:
 > - Fetch/persist only BTC series for the target quote currency and canonical stored intervals (`1D`, `1W`, `1M`, `ALL`).
 > - Derive the old-quote -> new-quote bridge factor from persisted BTC data.
-> - Hand the bridge snapshot to `recomputeQuoteBridgeFromCommittedState(...)`, a compute-runtime helper from Phase 3 that transforms **only the currently committed** `sharedPortfolioState` into the new quote.
-> - `recomputeQuoteBridgeFromCommittedState(...)` must not consult `loadQueue()`, `queue.doneWalletIds`, or raw snapshot/rate MMKV. It is a current-shared-state bridge transform, not a fresh-data recompute.
+> - Hand the bridge snapshot to `recomputeQuoteBridgeFromSharedState(...)`, a compute-runtime helper from Phase 3 that transforms only the current `sharedPortfolioState` into the new quote.
+> - `recomputeQuoteBridgeFromSharedState(...)` must not consult `loadQueue()`, `queue.doneWalletIds`, or raw snapshot/rate MMKV. It is a current-shared-state bridge transform, not a fresh-data recompute.
 > - Do **not** call `ensureFresh(...)` for every visible asset group on quote switch.
 > - Displayed `3M` / `1Y` / `5Y` still derive from `ALL` after the bridge is applied.
 > - This bridge path is what allows quote switches to publish immediately without forcing per-asset new-quote fetches.
@@ -957,14 +978,14 @@ Total kept: **~13,805 LOC.**
 >
 > This helper is load-bearing for the product contract: if there are no transactions in the chosen window, the asset PnL percentage for that window must equal the Exchange Rate percentage for that same window. Resolve one shared `{startTs, endTs, asOfMs}` window for the requested interval, then produce identical boundary samples for portfolio PnL and Exchange Rate calculations. If the rate series has no raw point exactly at `startTs` or `endTs`, linearly interpolate a synthetic boundary sample from the surrounding rate points. Do not let PnL and Exchange Rate derive their windows or boundary values independently.
 >
-> ## Quote-switch committed-state recompute
+> ## Quote-switch shared-state recompute
 >
-> Add one compute-runtime helper such as `recomputeQuoteBridgeFromCommittedState(args)` and call it **only** from `onQuoteCurrencyChanged(...)`.
+> Add one compute-runtime helper such as `recomputeQuoteBridgeFromSharedState(args)` and call it **only** from `onQuoteCurrencyChanged(...)`.
 >
 > Required behavior:
 > - Read `sharedPortfolioState.value` as the sole portfolio-state input.
 > - Apply the BTC bridge snapshot to the currently published chart/row outputs and `quoteCurrency`.
-> - Preserve readiness/order state; this helper is a quote transform of committed data, not a fresh populate publish.
+> - Preserve readiness/order state; this helper is a quote transform of currently published data, not a fresh populate publish.
 > - Do **not** read `loadQueue()`, `queue.doneWalletIds`, or raw snapshot/rate MMKV state. It transforms the currently published `sharedPortfolioState` only.
 >
 > ## Fingerprints
@@ -1021,6 +1042,27 @@ Total kept: **~13,805 LOC.**
 >
 > // Drain order: full → wallet-builds → touches.
 > // full does NOT subsume walletBuildIds or touchIds.
+> const schedulerDrainListeners = new Set<() => void>();
+>
+> function notifySchedulerDrainListeners(): void {
+>   schedulerDrainListeners.forEach(listener => listener());
+> }
+>
+> function setSchedulerDrainRunning(next: boolean): void {
+>   if (running === next) return;
+>   running = next;
+>   notifySchedulerDrainListeners();
+> }
+>
+> export function isRecomputeDrainRunning(): boolean {
+>   return running;
+> }
+>
+> export function subscribeToSchedulerDrain(listener: () => void): () => void {
+>   schedulerDrainListeners.add(listener);
+>   return () => schedulerDrainListeners.delete(listener);
+> }
+>
 > export function scheduleRecompute(next: RecomputeInputs): void {
 >   if (!canRunPortfolioV2Work()) return;   // GUARD — first executable statement
 >   pending = pending ? mergeInputs(pending, next) : toPendingWork(next);
@@ -1028,7 +1070,7 @@ Total kept: **~13,805 LOC.**
 > }
 >
 > async function drain(): Promise<void> {
->   running = true;
+>   setSchedulerDrainRunning(true);
 >   try {
 >     while (pending) {
 >       if (!canRunPortfolioV2Work()) { pending = null; return; }
@@ -1044,7 +1086,7 @@ Total kept: **~13,805 LOC.**
 >       if (!canRunPortfolioV2Work()) return;
 >       if (work.touchIds.size > 0) { /* ... touches scope ... */ }
 >     }
->   } finally { running = false; }
+>   } finally { setSchedulerDrainRunning(false); }
 > }
 >
 > /**
@@ -1170,6 +1212,36 @@ Total kept: **~13,805 LOC.**
 > ): T;
 > ```
 >
+> `src/portfolio/v2/hooks/useIsPortfolioRefreshing.ts`:
+>
+> ```ts
+> import {useSyncExternalStore} from 'react';
+> import {populateLoopRunning} from '../sharedState';
+> import {
+>   getEnsureFreshInFlightCount,
+>   subscribeToEnsureFreshInFlight,
+> } from '../workletData/ratesFetch';
+> import {
+>   isRecomputeDrainRunning,
+>   subscribeToSchedulerDrain,
+> } from '../scheduler';
+>
+> export function useIsPortfolioRefreshing(): boolean {
+>   const populateRunning = useSharedValueAsState(populateLoopRunning);
+>   const ensureFreshActive = useSyncExternalStore(
+>     subscribeToEnsureFreshInFlight,
+>     () => getEnsureFreshInFlightCount() > 0,
+>   );
+>   const recomputeActive = useSyncExternalStore(
+>     subscribeToSchedulerDrain,
+>     isRecomputeDrainRunning,
+>   );
+>   return populateRunning || ensureFreshActive || recomputeActive;
+> }
+> ```
+>
+> `useSharedValueAsState(...)` is a tiny hook backed by `useAnimatedReaction` + `runOnJS` that mirrors a boolean `SharedValue` into React state. The refreshing affordance is derived from work actually running, not from trigger-owned `set true / set false` bookkeeping; it may lag a just-kicked populate by a frame before `populateLoopRunning.value` flips true, which is acceptable because the indicator is not correctness state.
+>
 > Equality helpers:
 >
 > ```ts
@@ -1181,6 +1253,8 @@ Total kept: **~13,805 LOC.**
 > Chart-boundary contract: memoize on `series.fingerprint`, not `series.points`.
 >
 > Tests cover: re-renders only on !areEqual; cloned state with same fingerprints → no re-render.
+>
+> `useIsPortfolioRefreshing.spec.tsx`: hook returns true while `populateLoopRunning`, `ensureFresh` in-flight count, or scheduler drain running is active; returns false only when all three are idle; overlapping sources do not flicker false between transitions. Trigger tests assert no trigger owns manual refresh true/false state.
 >
 > **Key-scoped selector rule (product-load-bearing):** `AllAssets({keyId})` and asset-detail routes reached from `KeyOverview` do **not** read global Home rows and then filter them. They use the scoped selectors above so row values, readiness, and detail charts are all derived from that key's wallet set only.
 >
@@ -1447,7 +1521,7 @@ Total kept: **~13,805 LOC.**
 > **Populate publish contract (simplified, product-load-bearing):**
 > - Every completed wallet bumps `populateProgressTick`, which lets Home / All Assets progressively reveal or refresh rows in descending fiat order.
 > - First-ever populate still uses skeletons for unready rows/charts.
-> - Later incremental populates may show a lightweight `refreshingPortfolio` indicator while fresh chart/PnL values publish progressively as wallets finish.
+> - Later incremental populates may show a lightweight refreshing indicator while fresh chart/PnL values publish progressively as wallets finish.
 >
 > ### `src/portfolio/v2/populate/api.ts` (JS)
 >
@@ -1483,7 +1557,7 @@ Total kept: **~13,805 LOC.**
 > }
 > ```
 >
-> Every kick path: guard first, reconcile, set cancel flag false, kick. The cancel-flag clear happens only inside a guarded kick — `canRunPortfolioV2Work` being true means we're not in reset, so clearing is safe. Initial and incremental populates both publish progress via `populateProgressTick`; incremental triggers may set `refreshingPortfolio` in UI state but do not change the populate queue semantics.
+> Every kick path: guard first, reconcile, set cancel flag false, kick. The cancel-flag clear happens only inside a guarded kick — `canRunPortfolioV2Work` being true means we're not in reset, so clearing is safe. Initial and incremental populates both publish progress via `populateProgressTick`; the refreshing affordance is derived from in-flight state and does not change populate queue semantics.
 >
 > ### `src/portfolio/v2/populate/resume.ts` (JS)
 >
@@ -1686,7 +1760,7 @@ Total kept: **~13,805 LOC.**
 > - `resume.spec.ts` — kill/resume.
 > - `populatePublish.spec.ts` (NEW):
 >   - first-ever populate reveals ready rows incrementally in queue order.
->   - later app-launch/send/pull-to-refresh populates also publish progress ticks as wallets complete; no additional end-of-populate tick is expected.
+>   - later app-launch/send/pull-to-refresh populates also publish progress ticks as wallets complete; populate emits only progress/retry ticks.
 > - `retryStorm.spec.ts` — permanently missing wallet → 1 kick + 1 retry + reconciliation prunes → no loop.
 > - `portfolioV2Root.spec.tsx` — fire-time reads verified; 5 ticks → 1 debounced recompute call; independent retry handler; unmount clears timers; `prev` arg usage.
 > - `reduxAccess.spec.ts` — throws pre-init; works post-init; re-init allowed; test injection.
@@ -1740,7 +1814,6 @@ Total kept: **~13,805 LOC.**
 >   }
 >   if (!canRunPortfolioV2Work()) return;        // ordinary GUARD after repair path
 >   if (!getShowPortfolioEnabledFromStore()) return;
->   setRefreshingPortfolio(true);
 >   maybeResumePopulateOnLaunch();
 >   const quote = getQuoteCurrencyFromStore();
 >   await ensureFresh(buildEnsureFreshArgsForVisibleAssetGroups({quoteCurrency: quote}));
@@ -1751,19 +1824,16 @@ Total kept: **~13,805 LOC.**
 >     ratesAsOfMs: getLiveRatesAsOfMsFromStore(),
 >   });
 >   scheduleRecompute({ ...base, scope: 'full' });
->   setRefreshingPortfolio(false);
 > }
 >
 > export function onSendCompleted(args: { walletId: string }): void {
 >   if (!canRunPortfolioV2Work()) return;        // GUARD
->   setRefreshingPortfolio(true);
 >   populateWallet(args.walletId);
 > }
 >
 > export async function onPullToRefresh(args): Promise<void> {
 >   if (!canRunPortfolioV2Work()) return;        // GUARD
 >   if (!getShowPortfolioEnabledFromStore()) return;
->   setRefreshingPortfolio(true);
 >   const quote = getQuoteCurrencyFromStore();
 >   await ensureFresh({
 >     ...buildEnsureFreshArgsForVisibleAssetGroups({
@@ -1788,7 +1858,6 @@ Total kept: **~13,805 LOC.**
 >       ? {kind: 'wallets', walletIds: changedWalletIds}
 >       : 'full',
 >   });
->   setRefreshingPortfolio(false);
 > }
 >
 > export async function onQuoteCurrencyChanged(newQuote): Promise<void> {
@@ -1802,7 +1871,7 @@ Total kept: **~13,805 LOC.**
 >   });
 >   await runOnRuntimeAsync(
 >     getComputeRuntime(),
->     recomputeQuoteBridgeFromCommittedState,
+>     recomputeQuoteBridgeFromSharedState,
 >     {bridge, toQuoteCurrency: quote},
 >   );
 > }
@@ -1810,7 +1879,6 @@ Total kept: **~13,805 LOC.**
 > export async function onLiveRatesUpdated(): Promise<void> {
 >   if (!canRunPortfolioV2Work()) return;        // GUARD — before ensureFresh
 >   if (!getShowPortfolioEnabledFromStore()) return;
->   setRefreshingPortfolio(true);
 >   const quote = getQuoteCurrencyFromStore();
 >   await ensureFresh(
 >     buildEnsureFreshArgsForVisibleAssetGroups({quoteCurrency: quote}),
@@ -1822,7 +1890,6 @@ Total kept: **~13,805 LOC.**
 >     ratesAsOfMs: getLiveRatesAsOfMsFromStore(),
 >   });
 >   scheduleRecompute({ ...base, scope: 'full' });
->   setRefreshingPortfolio(false);
 > }
 >
 > let visibilityToggleEpoch = 0;
@@ -1872,7 +1939,7 @@ Total kept: **~13,805 LOC.**
 >
 > `ensureFresh` lives here, NEVER in scheduler. `ensureQuoteCurrencyFxBridge(...)` also lives here and is called only by `onQuoteCurrencyChanged(...)`.
 >
-> `setRefreshingPortfolio(...)` is a small UI-state helper (Redux or local app UI state per Phase 0 inventory). It is not part of correctness: it may show a subtle refresh affordance during incremental app-launch/send/pull-to-refresh/rate-refresh work, but selectors keep reading the latest published `sharedPortfolioState` and may update progressively as recomputes land.
+> The refreshing affordance is derived by `useIsPortfolioRefreshing()`, not set by triggers. It is visible while populate, `ensureFresh`, or scheduler drain work is actually in flight. It is not part of correctness: selectors keep reading the latest published `sharedPortfolioState` and may update progressively as recomputes land.
 >
 > `onShowPortfolioVisibilityChanged(...)` is the other intentional exception to the ordinary-trigger rule. It must remain callable even while portfolio work is disabled so that:
 > - turning the setting **off** always clears cached portfolio data via `performResetSequence()`,
@@ -1881,7 +1948,7 @@ Total kept: **~13,805 LOC.**
 >
 > A re-entry into `performResetSequence(...)` from this toggle path is expected when another reset is already running (post-auth repair, debug-clear, sign-out, or a prior toggle). `performResetSequence(...)` is joinable: the toggle waits for the active reset, then re-checks epoch/store state before deciding whether to start populate. Do not turn these ordinary joined resets into user-facing alerts.
 >
-> `onQuoteCurrencyChanged(...)` intentionally does **not** queue a scheduler-managed full recompute for the immediate quote switch. Instead it applies `recomputeQuoteBridgeFromCommittedState(...)` directly on the compute runtime using the current shared portfolio state only.
+> `onQuoteCurrencyChanged(...)` intentionally does **not** queue a scheduler-managed full recompute for the immediate quote switch. Instead it applies `recomputeQuoteBridgeFromSharedState(...)` directly on the compute runtime using the current shared portfolio state only.
 >
 > `buildEnsureFreshArgsForVisibleAssetGroups(...)` is a new v2 helper that:
 > - reads the currently relevant wallet set (all eligible wallets, or a supplied key-scoped wallet set),
@@ -1910,11 +1977,12 @@ Total kept: **~13,805 LOC.**
 > Tests:
 > - Each trigger mocked; fire-time freshness verified.
 > - **Guard-before-side-effects regression:** while `populateResetInFlight` is set, invoke each trigger. Assert `ensureFresh` NOT called (for triggers that call it), `scheduleRecompute` NOT called, `populateWallet` NOT called. Zero side effects per trigger.
-> - `onQuoteCurrencyChanged(...)` regression: calls `ensureQuoteCurrencyFxBridge(...)`, does **not** call per-asset `ensureFresh(...)`, and applies `recomputeQuoteBridgeFromCommittedState(...)` immediately from the committed-state BTC bridge.
+> - `onQuoteCurrencyChanged(...)` regression: calls `ensureQuoteCurrencyFxBridge(...)`, does **not** call per-asset `ensureFresh(...)`, and applies `recomputeQuoteBridgeFromSharedState(...)` immediately from the BTC bridge to the current shared state.
 > - `onShowPortfolioVisibilityChanged(false)` regression: immediately hides portfolio-owned UI via the setting, runs `performResetSequence()`, clears portfolio MMKV/shared state, and leaves Exchange Rates surfaces visible even if their next read refetches after a `rate:v1:*` cache miss.
 > - `onShowPortfolioVisibilityChanged(true)` regression: after a prior disable, starts a fresh from-scratch populate (`isFirstPopulate: true`) instead of resuming stale queue state.
 > - Rapid toggle regression: off/on/off/on in quick succession serializes cleanly, stale completions no-op, `visibilityWipeRequired` prevents ON from populating until the OFF-created wipe has completed, no overlapping populate loops start, and the final persisted setting wins.
 > - Toggle-during-reset regression: if another reset is already active, the toggle joins/waits for it, then re-checks epoch/store state before starting any fresh populate.
+> - Refreshing indicator regression: triggers do not set/clear refreshing state directly; `useIsPortfolioRefreshing()` derives it from populate / `ensureFresh` / scheduler in-flight signals.
 > - Timeframe-switch regression: changing `tf` on any portfolio screen triggers zero calls to `ensureFresh(...)`, `ensureQuoteCurrencyFxBridge(...)`, populate APIs, or snapshot refresh helpers.
 
 **LOC ledger:** +320 / 0 / +320.
@@ -1944,7 +2012,7 @@ Total kept: **~13,805 LOC.**
 ## 7b. Home chart + PortfolioBalance
 > Under flag: `selectTotalSeries` + `areEqualBySeriesFingerprint`. Chart keys on `series.fingerprint`. Gate on all eligible wallets ready. During first-ever populate this chart stays hidden until all eligible wallets are ready; during later incremental populates it may show a lightweight refreshing state while values update progressively.
 >
-> **First-ever chart gate predicate:** use `selectHasAnyPopulatedWallets(s)`. If committed populated state is empty, hide charts until ready. If committed populated state is non-empty, charts can continue showing current data while incremental refresh progresses.
+> **First-ever chart gate predicate:** use `selectHasAnyPopulatedWallets(s)`. If published populated state is empty, hide charts until ready. If published populated state is non-empty, charts can continue showing current data while incremental refresh progresses.
 > Quote-currency switches remain immediate because they transform current chart state directly.
 > If "Show Portfolio" is off, hide this Home portfolio chart/balance surface entirely, but leave the Home Exchange Rates section visible.
 
@@ -2113,7 +2181,7 @@ Total kept: **~13,805 LOC.**
 > 2. `yarn tsc && yarn test && yarn lint`.
 > 3. Final inventory update.
 > 4. Flag stays as kill switch.
-> 5. Optional, benchmark-gated optimization only: if Phase 3/5 measurements show post-auth-to-first-portfolio-render latency exceeds the product bar, add persisted-derived-state hydration for the last committed `sharedPortfolioState`. This is not required for correctness; it introduces a derived-state schema, hydration invalidation, write coalescing, and additional wipe tests, so do it only if cold-start measurements justify the complexity.
+> 5. Optional, benchmark-gated optimization only: if Phase 3/5 measurements show post-auth-to-first-portfolio-render latency exceeds the product bar, add persisted-derived-state hydration for the last published `sharedPortfolioState`. This is not required for correctness; it introduces a derived-state schema, hydration invalidation, write coalescing, and additional wipe tests, so do it only if cold-start measurements justify the complexity.
 
 **LOC ledger:** 0 / ~200 / −200.
 
@@ -2190,7 +2258,7 @@ Total kept: **~13,805 LOC.**
 59. **Heavy recomputes drain during incremental populate:** while an incremental populate has remaining wallets, heavy `scheduleRecompute` work from non-populate triggers drains normally.
 60. **First-ever chart gate predicate:** first-ever hide behavior keys off populated state (`selectHasAnyPopulatedWallets(s)`), not queue metadata.
 61. **Interval-window boundary sampling:** the shared window helper resolves exact interval boundaries and linearly interpolates synthetic rate samples when no raw point exists at `startTs` / `endTs`; PnL and Exchange Rate calculations consume the same sampled boundary values so the no-tx-window parity test is deterministic and faithful to the displayed interval.
-62. **Quote-switch during populate:** while populate is active, `onQuoteCurrencyChanged(...)` applies `recomputeQuoteBridgeFromCommittedState(...)` immediately to the current shared state and visible screens switch quote right away.
+62. **Quote-switch during populate:** while populate is active, `onQuoteCurrencyChanged(...)` applies `recomputeQuoteBridgeFromSharedState(...)` immediately to the current shared state and visible screens switch quote right away.
 63. **No recursive render / max-depth regression:** rapid timeframe toggles and chart scrubbing on Home / Wallet / Asset Detail / Exchange Rate do not produce "maximum update depth exceeded" errors, recursive scheduler churn, or blank intermediate flashes between valid series.
 64. **Post-auth repair path for durable invalid bit:** boot with `PORTFOLIO_CACHE_INVALID_KEY = 1`; `onAppLaunchPostAuth(...)` repairs via `performResetSequence()` before any ordinary v2 populate/recompute work runs, and only a successful repair clears the bit.
 65. **Show Portfolio off clears + hides:** toggling the user-facing setting off runs `performResetSequence()`, clears portfolio MMKV/shared state, hides all portfolio-owned charts/list surfaces, and leaves Home Exchange Rates / Exchange Rate detail visible even if those surfaces refetch after a `rate:v1:*` cache miss.
