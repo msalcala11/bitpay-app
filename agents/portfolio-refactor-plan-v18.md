@@ -438,7 +438,7 @@ Total kept: **~13,805 LOC.**
 >   populatedWalletIds: readonly string[];
 >   orderedAssetGroupIdsForAssetList: readonly string[];
 >   orderRevision: number;
->   // Walletids whose scoped-cache entries must be evicted before scoped
+>   // WalletIds whose scoped-cache entries must be evicted before scoped
 >   // rebuild in this recompute pass. Used by triggers (notably
 >   // `onWalletsDeleted`) to request atomic eviction + refresh through the
 >   // registered scheduler publish path instead of mutating
