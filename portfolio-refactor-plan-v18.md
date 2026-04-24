@@ -21,7 +21,7 @@
 - **Fiat-rate storage is canonicalized to four fetched/persisted intervals.** Only `1D`, `1W`, `1M`, and `ALL` are fetched or stored in MMKV. Displayed `3M`, `1Y`, and `5Y` are derived by windowing `ALL` on the compute runtime; they do not trigger separate rate fetches or persistence.
 - **Quote-currency switching must be instant via a BTC FX bridge.** Switching fiat currency must not fan out new-quote fetches for every visible asset. V2 fetches only the BTC bridge series needed for the target quote, then derives portfolio/chart/list values on the compute runtime from already-persisted asset rates plus the bridge factor.
 - **"Show Portfolio" settings visibility is a real product mode.** Turning the setting off must clear the portfolio store and hide all portfolio-owned balance charts and asset-list surfaces; turning it back on must repopulate from scratch and re-reveal those surfaces. The Home Exchange Rates section and the Exchange Rate detail screen remain visible regardless of this setting. Because the portfolio store wipe also clears shared `rate:v1:*` cache entries, Exchange Rates may observe a transient cache miss and refetch, but the surfaces stay mounted.
-- **Populate publishing has two product modes.** First-ever populate reveals rows progressively as wallets finish. Later incremental populates (app-launch refresh, send-completion refresh, pull-to-refresh refresh) keep showing the old stale chart/PnL values until the populate completes, then publish one committed update.
+- **Populate publishing is progressive for both initial and incremental populates.** First-ever populate reveals rows progressively as wallets finish. Later incremental populates (app-launch refresh, send-completion refresh, pull-to-refresh refresh) may show a subtle refreshing state while fresh chart/PnL values update progressively as recomputes land.
 - **Incremental populate must be reorg-safe.** App-launch refresh, send-triggered refresh, and pull-to-refresh refreshes must start slightly before the latest persisted tip and overwrite the recent tail snapshots rather than strictly appending from the current tip. V2 relies on preserved kernel behavior here; Phase 0 must inventory the exact current mechanism and Phase 5 must keep it intact.
 - **Timeframe switches and chart scrubbing are read-only UI operations.** They never trigger `ensureFresh`, snapshot refresh, or populate work. Only the explicit refresh triggers named in Phase 6 may refresh rates or snapshots.
 - **Global react-native-worklets bundle mode is out of scope for v18.** V2 assumes the current proven non-bundle worklet path with the existing Quick Crypto / fetch hybrid-object integration for signing and network work. If bundle mode is ever considered, it must be shown to affect only the worklet runtime and must be re-validated separately before adoption.
@@ -32,11 +32,11 @@
 
 - **Cross-chain ticker collapse lands in v18.** Home / All Assets / Allocation / key-scoped All Assets use ticker-grouped asset rows (`assetGroupId = lowercased currencyAbbreviation`), matching current UX.
 - **Allocation order equals asset-list order in v18.** Allocation does not introduce its own ranking order; it reuses the canonical asset-group order from the portfolio state.
-- **`onQuoteCurrencyChanged(...)` lands in v18 as a BTC-bridge flow.** No trigger skeletons remain, quote switches do not refetch every visible asset in the new currency, and quote changes still publish immediately from committed state even during deferred populate.
+- **`onQuoteCurrencyChanged(...)` lands in v18 as a BTC-bridge flow.** No trigger skeletons remain, quote switches do not refetch every visible asset in the new currency, and quote changes publish immediately from the current shared portfolio state.
 - **`onPullToRefresh(...)` lands in v18.** No trigger skeletons remain.
 - **`onShowPortfolioVisibilityChanged(...)` lands in v18.** Turning portfolio visibility off clears portfolio-owned cached data and hides all portfolio-owned charts/lists; turning it back on repopulates from scratch. Rapid off/on churn is serialized with last-toggle-wins final visibility plus a latched wipe obligation so ON cannot populate before an OFF-created clear completes.
 - **Key-scoped asset list lands in v18.** `AllAssets({keyId})`, row taps from `KeyOverview`, and scoped asset detail all stay within that key's wallet set.
-- **Initial populate is progressive; later incremental populate is deferred-commit.** This distinction is load-bearing and is implemented explicitly in Phase 5, not left as an implicit UI effect.
+- **Initial and incremental populate both publish progressively.** Initial populate uses skeleton reveal for not-yet-ready rows; incremental refresh may show a lightweight refreshing indicator while values update progressively.
 - **Timeframe switches / scrubbing stay read-only in v18.** No hidden rate fetches, snapshot updates, or populate kicks occur on timeframe-only interaction.
 
 ## Files that stay untouched (kernels, not orchestration)
@@ -89,8 +89,7 @@ Total kept: **~13,805 LOC.**
 - **Populate runtime** — `createWorkletRuntime({ name: 'portfolio-populate', enableEventLoop: true })`. Owns the populate loop.
 - **Rate runtime** — optional fourth runtime selected only by Branch C of guardrail #27. Dedicated to rate fetches if populate-vs-rate interleaving proves unsafe.
 - **`sharedPortfolioState`** — `SharedValue<PortfolioState>`, authoritative state.
-- **`populateProgressTick`** — `SharedValue<number>`. Per wallet completion during progressive first-populate sessions. Subscriber triggers incremental recompute only in that mode.
-- **`populateCommitTick`** — `SharedValue<number>`. Fired once when a deferred incremental populate finishes and the stale-to-fresh swap should publish.
+- **`populateProgressTick`** — `SharedValue<number>`. Per wallet completion. Subscriber triggers recompute so both initial and incremental populates can publish progressively.
 - **`populateRetryTick`** — `SharedValue<number>`. On loop-exit with work remaining. Subscriber reconciles + re-kicks.
 - **`populateLoopRunning`** — `SharedValue<boolean>`. Single-flight guard.
 - **`populateCancelFlag`** — `SharedValue<boolean>`.
@@ -98,7 +97,7 @@ Total kept: **~13,805 LOC.**
 - **Asset group** — UI-facing collapsed asset identity. Default `assetGroupId = lowercased currencyAbbreviation`, matching current Home / All Assets / Allocation behavior.
 - **Precomputed row payload** — `rowToday` / `rowAllTime` on `AssetGroupSlice`. Global Home / All Assets / Allocation selectors read these as O(1) lookups. Key-scoped selectors use a bounded memoized aggregation cache over the supplied wallet set.
 - **Stored fiat-rate interval** — canonical persisted/fetched interval in `{1D, 1W, 1M, ALL}`. Displayed `3M`, `1Y`, and `5Y` are derived from `ALL`.
-- **Populate publish mode** — `'progressive'` for the first-ever populate that should reveal rows as wallets complete, `'deferred'` for later incremental populates that must keep stale values visible until one final commit.
+- **Refreshing portfolio state** — lightweight UI state set by incremental populate triggers. It may show subtle loading affordances, but it does not block progressive chart/PnL updates.
 - **Scalar signature** — joined string like `populatedWalletIdsKey`. Fingerprint-input / diff-key.
 - **Order revision** — monotonic counter for `orderedAssetGroupIdsForAssetList` mutations. Used for merge arbitration. **Monotonic across queue rebuilds**, not just within one queue's lifetime.
 - **`populateResetInFlight`** — JS-side boolean, set only during an active `performResetSequence` invocation. Blocks ordinary kicks during reset; additional reset callers join the active sequence or queue a stronger full reset as described in guardrail #19.
@@ -130,7 +129,7 @@ Total kept: **~13,805 LOC.**
 14. **`orderRevision` threads through `PopulateQueueV1`, `RecomputeInputs`, `PortfolioState`.** Merge rule: take higher `orderRevision`. Monotonic across queue rebuilds: `buildQueue` uses `(loadQueue()?.orderRevision ?? 0) + 1`, never resets to 1. Non-order-mutating queue writes (e.g., `markDone`) leave `orderRevision` unchanged.
 15. **Fire-time reads, not ref-cached inputs.** `PortfolioV2Root` and triggers call `buildBaseRecomputeInputs(...)` at fire/call time, reading from `reduxAccess` helpers and current queue state.
 16. **All Redux store access via `reduxAccess.ts`.** Module-level `storeGetter` initialized inside the existing `getStore().then(...)` callback in `index.js`. Accessor calls inside function bodies only.
-17. **Reset paths must reset shared state.** Any code path that wipes portfolio MMKV (debug "clear all storage," sign-out if it clears portfolio data, any future full-reset flow) must also set `sharedPortfolioState.value = EMPTY_PORTFOLIO_STATE`, `populateProgressTick.value = 0`, `populateCommitTick.value = 0`, `populateRetryTick.value = 0`. A partial wipe that zeroes MMKV but leaves stale sharedState alive would cause the next populate cycle's fresh `orderRevision = 1` to lose merge arbitration against state's stale higher value and display stale order. The durable `portfolio:v2:cacheInvalid` bit prevents ordinary work from resuming on half-wiped state until a successful repair clears it.
+17. **Reset paths must reset shared state.** Any code path that wipes portfolio MMKV (debug "clear all storage," sign-out if it clears portfolio data, any future full-reset flow) must also set `sharedPortfolioState.value = EMPTY_PORTFOLIO_STATE`, `populateProgressTick.value = 0`, `populateRetryTick.value = 0`. A partial wipe that zeroes MMKV but leaves stale sharedState alive would cause the next populate cycle's fresh `orderRevision = 1` to lose merge arbitration against state's stale higher value and display stale order. The durable `portfolio:v2:cacheInvalid` bit prevents ordinary work from resuming on half-wiped state until a successful repair clears it.
 18. **Heavy scopes may advance `orderedAssetGroupIdsForAssetList` + `orderRevision`.** Any scope in `{'full', 'wallet', 'wallets'}` replaces order + revision in state if `inputs.orderRevision > prev.orderRevision`. Touch scopes never do. This is the single rule — no contradictory variants.
 19. **Reset is a simple joinable sequence with one durable invalid bit.** `performResetSequence()`:
     1. If a reset is already active, join the in-flight promise.
@@ -454,7 +453,6 @@ Total kept: **~13,805 LOC.**
 > export const populateCancelFlag: SharedValue<boolean>;                // → false
 > export const populateLoopRunning: SharedValue<boolean>;               // → false
 > export const populateProgressTick: SharedValue<number>;               // → 0
-> export const populateCommitTick: SharedValue<number>;                 // → 0
 > export const populateRetryTick: SharedValue<number>;                  // → 0
 > ```
 >
@@ -466,7 +464,6 @@ Total kept: **~13,805 LOC.**
 > export function resetSharedPortfolioStateForDebugClear(): void {
 >   sharedPortfolioState.value = EMPTY_PORTFOLIO_STATE;
 >   populateProgressTick.value = 0;
->   populateCommitTick.value = 0;
 >   populateRetryTick.value = 0;
 >   // populateLoopRunning and populateCancelFlag intentionally NOT reset here —
 >   // those are coordination primitives for an in-flight loop; the loop owns them.
@@ -883,10 +880,10 @@ Total kept: **~13,805 LOC.**
 > - Fetch/persist only BTC series for the target quote currency and canonical stored intervals (`1D`, `1W`, `1M`, `ALL`).
 > - Derive the old-quote -> new-quote bridge factor from persisted BTC data.
 > - Hand the bridge snapshot to `recomputeQuoteBridgeFromCommittedState(...)`, a compute-runtime helper from Phase 3 that transforms **only the currently committed** `sharedPortfolioState` into the new quote.
-> - `recomputeQuoteBridgeFromCommittedState(...)` must not consult `loadQueue()`, `queue.doneWalletIds`, or any in-flight deferred-populate MMKV writes. It is a committed-state bridge transform, not a fresh-data recompute.
+> - `recomputeQuoteBridgeFromCommittedState(...)` must not consult `loadQueue()`, `queue.doneWalletIds`, or raw snapshot/rate MMKV. It is a current-shared-state bridge transform, not a fresh-data recompute.
 > - Do **not** call `ensureFresh(...)` for every visible asset group on quote switch.
 > - Displayed `3M` / `1Y` / `5Y` still derive from `ALL` after the bridge is applied.
-> - This committed-state bridge path is what allows quote switches to publish immediately even during deferred populate without leaking partially refreshed populate data.
+> - This bridge path is what allows quote switches to publish immediately without forcing per-asset new-quote fetches.
 >
 > **Branch-specific concurrency wrapping:** depending on Phase 0.5 spike results (guardrail #27), `ensureFresh`'s `runOnRuntimeAsync` call and/or the target runtime may be wrapped with additional concurrency primitives. Branch A: no additional populate-vs-rate wrapping. Branch B: `portfolioRuntimeSerial` executor. Branch C: target `getRateFetchRuntime()` instead of `getPopulateRuntime()`. Branch D: worklet-side lock inside `loadSeriesWorkletWithContext`. Identical-args dedupe is always on. If probe 3 is dirty/flaky, additionally serialize non-identical `ensureFresh` calls at the JS level. See Phase 0.5 branch table for exact implementation per spike outcome.
 >
@@ -966,10 +963,9 @@ Total kept: **~13,805 LOC.**
 >
 > Required behavior:
 > - Read `sharedPortfolioState.value` as the sole portfolio-state input.
-> - Apply the BTC bridge snapshot to the already-committed chart/row outputs and `quoteCurrency`.
+> - Apply the BTC bridge snapshot to the currently published chart/row outputs and `quoteCurrency`.
 > - Preserve readiness/order state; this helper is a quote transform of committed data, not a fresh populate publish.
-> - Do **not** read `loadQueue()`, `queue.doneWalletIds`, or snapshot/rate MMKV state that may already contain in-flight deferred-populate results.
-> - During deferred populate, this helper is intentionally allowed to publish immediately because it transforms committed state only. The scheduler hold below still applies to heavy recomputes that would incorporate fresh populate data.
+> - Do **not** read `loadQueue()`, `queue.doneWalletIds`, or raw snapshot/rate MMKV state. It transforms the currently published `sharedPortfolioState` only.
 >
 > ## Fingerprints
 >
@@ -1025,24 +1021,9 @@ Total kept: **~13,805 LOC.**
 >
 > // Drain order: full → wallet-builds → touches.
 > // full does NOT subsume walletBuildIds or touchIds.
-> // During a deferred incremental populate, heavy recomputes are allowed to
-> // accumulate in `pending` but must not publish until populateCommitTick fires.
-> // Touch scopes still drain immediately.
-> // Quote-currency switches are different: they publish via
-> // recomputeQuoteBridgeFromCommittedState(...) on already-committed state only,
-> // so they intentionally bypass this hold without leaking partial populate data.
->
-> function shouldHoldHeavyDrainForDeferredPopulate(work: PendingWork): boolean {
->   const queue = loadQueue();
->   if (!queue || queue.publishMode !== 'deferred') return false;
->   if (queue.remainingWalletIds.length === 0) return false;
->   return work.runFull || work.walletBuildIds.size > 0;
-> }
->
 > export function scheduleRecompute(next: RecomputeInputs): void {
 >   if (!canRunPortfolioV2Work()) return;   // GUARD — first executable statement
 >   pending = pending ? mergeInputs(pending, next) : toPendingWork(next);
->   if (shouldHoldHeavyDrainForDeferredPopulate(pending)) return;
 >   if (!running) void drain();
 > }
 >
@@ -1051,7 +1032,6 @@ Total kept: **~13,805 LOC.**
 >   try {
 >     while (pending) {
 >       if (!canRunPortfolioV2Work()) { pending = null; return; }
->       if (shouldHoldHeavyDrainForDeferredPopulate(pending)) return;
 >       const work = pending;
 >       pending = null;
 >
@@ -1137,8 +1117,7 @@ Total kept: **~13,805 LOC.**
 > - `touchWallet A` then `wallet A` → touch removed from touchIds.
 > - 100 rapid touches different ids → 1 drain, phase C runs `touchWallets`.
 > - 100 rapid schedules → 1–3 drains.
-> - Deferred populate in progress + `onLiveRatesUpdated` queues a heavy recompute → `pending` accumulates but `drain()` does not publish until `populateCommitTick` fires.
-> - Deferred populate in progress + touch scope → touch still drains immediately.
+> - Incremental populate in progress + `onLiveRatesUpdated` queues a heavy recompute → scheduler still drains normally and can publish as recomputes land.
 >
 > **Order revision merge regression:**
 > - work rev=5 [X,Y,Z] + incoming rev=7 [X,Z] → rev=7, [X,Z] wins.
@@ -1242,7 +1221,6 @@ Total kept: **~13,805 LOC.**
 >   remainingWalletIds: readonly string[];
 >   doneWalletIds: readonly string[];
 >   orderedAssetGroupIdsForAssetList: readonly string[];
->   publishMode: 'progressive' | 'deferred';
 >   orderRevision: number;               // monotonic across queue rebuilds
 >   startedAt: number;
 >   cfg: BwsConfig;
@@ -1257,7 +1235,6 @@ Total kept: **~13,805 LOC.**
 >   cfg: BwsConfig;
 >   ingest: SnapshotIngestConfig;
 >   pageSize: number;
->   publishMode: 'progressive' | 'deferred';
 > }): PopulateQueueV1 {
 >   const prev = loadQueue();
 >   const order = computeOrderedAssetGroupIdsForAssetList({
@@ -1273,7 +1250,6 @@ Total kept: **~13,805 LOC.**
 >     remainingWalletIds: walletIdsInOrder,
 >     doneWalletIds: [],
 >     orderedAssetGroupIdsForAssetList: order,
->     publishMode: args.publishMode,
 >     orderRevision: nextOrderRevision,
 >     startedAt: Date.now(),
 >     cfg: args.cfg,
@@ -1448,9 +1424,7 @@ Total kept: **~13,805 LOC.**
 >       });
 >
 >       markDone(walletId);
->       if (queue.publishMode === 'progressive') {
->         populateProgressTick.value = populateProgressTick.value + 1;
->       }
+>       populateProgressTick.value = populateProgressTick.value + 1;
 >     }
 >   } finally {
 >     populateLoopRunning.value = false;
@@ -1460,8 +1434,6 @@ Total kept: **~13,805 LOC.**
 >       const final = loadQueue();
 >       if (final && final.remainingWalletIds.length > 0) {
 >         populateRetryTick.value = populateRetryTick.value + 1;
->       } else if (final?.publishMode === 'deferred') {
->         populateCommitTick.value = populateCommitTick.value + 1;
 >       }
 >     }
 >   }
@@ -1472,9 +1444,10 @@ Total kept: **~13,805 LOC.**
 >
 > **Incremental reorg protection (product-load-bearing):** later incremental populates must preserve the v1 kernel's "rewind before tip and overwrite recent tail snapshots" behavior rather than strictly appending from the latest persisted point. Phase 0 inventories the exact current mechanism; Phase 5 must keep passing the same effective tip-rewind inputs/config through the preserved populate kernel so app-launch refreshes, send refreshes, and pull-to-refresh refreshes remain reorg-safe.
 >
-> **Populate publish-mode contract (NEW, product-load-bearing):**
-> - `publishMode: 'progressive'` is used only for the first-ever populate. Each completed wallet bumps `populateProgressTick`, which lets Home / All Assets progressively reveal ready rows in descending fiat order.
-> - `publishMode: 'deferred'` is used for later incremental populates (app-launch refresh, send-completion refresh, pull-to-refresh refresh). Completed wallets do **not** publish fresh chart/PnL values mid-run; `populateCommitTick` fires once after the queue drains so stale values stay visible until one final commit.
+> **Populate publish contract (simplified, product-load-bearing):**
+> - Every completed wallet bumps `populateProgressTick`, which lets Home / All Assets progressively reveal or refresh rows in descending fiat order.
+> - First-ever populate still uses skeletons for unready rows/charts.
+> - Later incremental populates may show a lightweight `refreshingPortfolio` indicator while fresh chart/PnL values publish progressively as wallets finish.
 >
 > ### `src/portfolio/v2/populate/api.ts` (JS)
 >
@@ -1482,8 +1455,7 @@ Total kept: **~13,805 LOC.**
 > export function startPopulate(args): void {
 >   if (!canRunPortfolioV2Work()) return;          // GUARD first
 >   reconcileQueueAgainstEligible(getCurrentEligibleWalletIdSetFromStore());
->   const publishMode = args.isFirstPopulate ? 'progressive' : 'deferred';
->   buildAndSaveQueue({...args, publishMode});
+>   buildAndSaveQueue(args);
 >   populateCancelFlag.value = false;              // clear cancel BEFORE kick
 >   const ctx = buildPopulateRuntimeContextFromStore();
 >   runOnRuntimeAsync(getPopulateRuntime(), runPopulate, ctx)
@@ -1493,7 +1465,7 @@ Total kept: **~13,805 LOC.**
 > export function populateWallet(walletId: string): void {
 >   if (!canRunPortfolioV2Work()) return;
 >   reconcileQueueAgainstEligible(getCurrentEligibleWalletIdSetFromStore());
->   appendToQueue(walletId, {publishMode: 'deferred'});
+>   appendToQueue(walletId);
 >   populateCancelFlag.value = false;
 >   const ctx = buildPopulateRuntimeContextFromStore();
 >   runOnRuntimeAsync(getPopulateRuntime(), runPopulate, ctx)
@@ -1502,7 +1474,7 @@ Total kept: **~13,805 LOC.**
 >
 > export function populateWallets(walletIds: string[]): void {
 >   if (!canRunPortfolioV2Work()) return;
->   // ... same shape, always using publishMode: 'deferred'
+>   // ... same shape, appending wallet ids to the queue
 > }
 >
 > export function cancelPopulate(): void {
@@ -1511,7 +1483,7 @@ Total kept: **~13,805 LOC.**
 > }
 > ```
 >
-> Every kick path: guard first, reconcile, set cancel flag false, kick. The cancel-flag clear happens only inside a guarded kick — `canRunPortfolioV2Work` being true means we're not in reset, so clearing is safe. `startPopulate(...)` chooses `publishMode: 'progressive'` only for the first-ever populate; all later incremental refresh paths use `publishMode: 'deferred'`.
+> Every kick path: guard first, reconcile, set cancel flag false, kick. The cancel-flag clear happens only inside a guarded kick — `canRunPortfolioV2Work` being true means we're not in reset, so clearing is safe. Initial and incremental populates both publish progress via `populateProgressTick`; incremental triggers may set `refreshingPortfolio` in UI state but do not change the populate queue semantics.
 >
 > ### `src/portfolio/v2/populate/resume.ts` (JS)
 >
@@ -1605,29 +1577,12 @@ Total kept: **~13,805 LOC.**
 > ```tsx
 > export function PortfolioV2Root(): null {
 >   const debounceRecomputeRef = useRef<NodeJS.Timeout | null>(null);
->   const debounceCommitRef = useRef<NodeJS.Timeout | null>(null);
 >   const debounceRetryRef = useRef<NodeJS.Timeout | null>(null);
 >
 >   const scheduleDebouncedRecompute = useCallback(() => {
 >     if (debounceRecomputeRef.current) clearTimeout(debounceRecomputeRef.current);
 >     debounceRecomputeRef.current = setTimeout(() => {
 >       if (!canRunPortfolioV2Work()) return;   // GUARD at fire time
->       const queue = loadQueue();
->       if (queue?.publishMode === 'deferred') return; // keep stale values during incremental populate
->       const base = buildBaseRecomputeInputs({
->         quote: getQuoteCurrencyFromStore(),
->         wallets: getEligibleStoredWalletsFromStore(),
->         rates: getLiveRatesByAssetIdFromStore(),
->         ratesAsOfMs: getLiveRatesAsOfMsFromStore(),
->       });
->       scheduleRecompute({ ...base, scope: 'full' });
->     }, 50);
->   }, []);
->
->   const scheduleDebouncedCommitRecompute = useCallback(() => {
->     if (debounceCommitRef.current) clearTimeout(debounceCommitRef.current);
->     debounceCommitRef.current = setTimeout(() => {
->       if (!canRunPortfolioV2Work()) return;
 >       const base = buildBaseRecomputeInputs({
 >         quote: getQuoteCurrencyFromStore(),
 >         wallets: getEligibleStoredWalletsFromStore(),
@@ -1656,7 +1611,6 @@ Total kept: **~13,805 LOC.**
 >   useEffect(() => {
 >     return () => {
 >       if (debounceRecomputeRef.current) clearTimeout(debounceRecomputeRef.current);
->       if (debounceCommitRef.current) clearTimeout(debounceCommitRef.current);
 >       if (debounceRetryRef.current) clearTimeout(debounceRetryRef.current);
 >     };
 >   }, []);
@@ -1666,14 +1620,6 @@ Total kept: **~13,805 LOC.**
 >     (tick, prev) => {
 >       if (prev === null || tick === prev) return;
 >       runOnJS(scheduleDebouncedRecompute)();
->     },
->   );
->
->   useAnimatedReaction(
->     () => populateCommitTick.value,
->     (tick, prev) => {
->       if (prev === null || tick === prev) return;
->       runOnJS(scheduleDebouncedCommitRecompute)();
 >     },
 >   );
 >
@@ -1738,11 +1684,11 @@ Total kept: **~13,805 LOC.**
 >   - signing-context wrap matches v1 exactly: installed for `prepare` and each `processNextPage` call, not for `finish` / `close`, and cleared between wrapped calls.
 >   - incremental refresh fixtures preserve v1's tip-rewind / overwrite-tail behavior so the most recent snapshots are re-written on reorg-sensitive refreshes instead of strictly appended.
 > - `resume.spec.ts` — kill/resume.
-> - `populatePublishMode.spec.ts` (NEW):
->   - first-ever populate uses `publishMode: 'progressive'` and reveals ready rows incrementally in queue order.
->   - later app-launch/send/pull-to-refresh populates use `publishMode: 'deferred'` and keep stale chart/PnL values visible until one final commit tick.
+> - `populatePublish.spec.ts` (NEW):
+>   - first-ever populate reveals ready rows incrementally in queue order.
+>   - later app-launch/send/pull-to-refresh populates also publish progress ticks as wallets complete; no additional end-of-populate tick is expected.
 > - `retryStorm.spec.ts` — permanently missing wallet → 1 kick + 1 retry + reconciliation prunes → no loop.
-> - `portfolioV2Root.spec.tsx` — fire-time reads verified; 5 ticks → 1 call each; independent handlers; unmount clears timers; `prev` arg usage. Progressive mode publishes on `populateProgressTick`; deferred mode ignores progress ticks and publishes once on `populateCommitTick`.
+> - `portfolioV2Root.spec.tsx` — fire-time reads verified; 5 ticks → 1 debounced recompute call; independent retry handler; unmount clears timers; `prev` arg usage.
 > - `reduxAccess.spec.ts` — throws pre-init; works post-init; re-init allowed; test injection.
 > - `debugClearReset.spec.ts` (NEW) — see Phase 7.5 + Phase 8 for full coverage; stub here that verifies `resetSharedPortfolioStateForDebugClear` clears state correctly.
 > - `cancelFlagLifecycle.spec.ts` (NEW):
@@ -1794,6 +1740,7 @@ Total kept: **~13,805 LOC.**
 >   }
 >   if (!canRunPortfolioV2Work()) return;        // ordinary GUARD after repair path
 >   if (!getShowPortfolioEnabledFromStore()) return;
+>   setRefreshingPortfolio(true);
 >   maybeResumePopulateOnLaunch();
 >   const quote = getQuoteCurrencyFromStore();
 >   await ensureFresh(buildEnsureFreshArgsForVisibleAssetGroups({quoteCurrency: quote}));
@@ -1804,16 +1751,19 @@ Total kept: **~13,805 LOC.**
 >     ratesAsOfMs: getLiveRatesAsOfMsFromStore(),
 >   });
 >   scheduleRecompute({ ...base, scope: 'full' });
+>   setRefreshingPortfolio(false);
 > }
 >
 > export function onSendCompleted(args: { walletId: string }): void {
 >   if (!canRunPortfolioV2Work()) return;        // GUARD
+>   setRefreshingPortfolio(true);
 >   populateWallet(args.walletId);
 > }
 >
 > export async function onPullToRefresh(args): Promise<void> {
 >   if (!canRunPortfolioV2Work()) return;        // GUARD
 >   if (!getShowPortfolioEnabledFromStore()) return;
+>   setRefreshingPortfolio(true);
 >   const quote = getQuoteCurrencyFromStore();
 >   await ensureFresh({
 >     ...buildEnsureFreshArgsForVisibleAssetGroups({
@@ -1838,6 +1788,7 @@ Total kept: **~13,805 LOC.**
 >       ? {kind: 'wallets', walletIds: changedWalletIds}
 >       : 'full',
 >   });
+>   setRefreshingPortfolio(false);
 > }
 >
 > export async function onQuoteCurrencyChanged(newQuote): Promise<void> {
@@ -1859,6 +1810,7 @@ Total kept: **~13,805 LOC.**
 > export async function onLiveRatesUpdated(): Promise<void> {
 >   if (!canRunPortfolioV2Work()) return;        // GUARD — before ensureFresh
 >   if (!getShowPortfolioEnabledFromStore()) return;
+>   setRefreshingPortfolio(true);
 >   const quote = getQuoteCurrencyFromStore();
 >   await ensureFresh(
 >     buildEnsureFreshArgsForVisibleAssetGroups({quoteCurrency: quote}),
@@ -1870,6 +1822,7 @@ Total kept: **~13,805 LOC.**
 >     ratesAsOfMs: getLiveRatesAsOfMsFromStore(),
 >   });
 >   scheduleRecompute({ ...base, scope: 'full' });
+>   setRefreshingPortfolio(false);
 > }
 >
 > let visibilityToggleEpoch = 0;
@@ -1919,6 +1872,8 @@ Total kept: **~13,805 LOC.**
 >
 > `ensureFresh` lives here, NEVER in scheduler. `ensureQuoteCurrencyFxBridge(...)` also lives here and is called only by `onQuoteCurrencyChanged(...)`.
 >
+> `setRefreshingPortfolio(...)` is a small UI-state helper (Redux or local app UI state per Phase 0 inventory). It is not part of correctness: it may show a subtle refresh affordance during incremental app-launch/send/pull-to-refresh/rate-refresh work, but selectors keep reading the latest published `sharedPortfolioState` and may update progressively as recomputes land.
+>
 > `onShowPortfolioVisibilityChanged(...)` is the other intentional exception to the ordinary-trigger rule. It must remain callable even while portfolio work is disabled so that:
 > - turning the setting **off** always clears cached portfolio data via `performResetSequence()`,
 > - turning it **on** first discharges any latched `visibilityWipeRequired` obligation, then repairs a latched invalid bit if needed, then starts a fresh from-scratch populate,
@@ -1926,7 +1881,7 @@ Total kept: **~13,805 LOC.**
 >
 > A re-entry into `performResetSequence(...)` from this toggle path is expected when another reset is already running (post-auth repair, debug-clear, sign-out, or a prior toggle). `performResetSequence(...)` is joinable: the toggle waits for the active reset, then re-checks epoch/store state before deciding whether to start populate. Do not turn these ordinary joined resets into user-facing alerts.
 >
-> `onQuoteCurrencyChanged(...)` intentionally does **not** queue a scheduler-managed full recompute for the immediate quote switch. Instead it applies `recomputeQuoteBridgeFromCommittedState(...)` directly on the compute runtime using committed state only. During deferred populate, this means visible values change quote immediately while populate-driven fresh data remains held until `populateCommitTick`.
+> `onQuoteCurrencyChanged(...)` intentionally does **not** queue a scheduler-managed full recompute for the immediate quote switch. Instead it applies `recomputeQuoteBridgeFromCommittedState(...)` directly on the compute runtime using the current shared portfolio state only.
 >
 > `buildEnsureFreshArgsForVisibleAssetGroups(...)` is a new v2 helper that:
 > - reads the currently relevant wallet set (all eligible wallets, or a supplied key-scoped wallet set),
@@ -1968,7 +1923,7 @@ Total kept: **~13,805 LOC.**
 
 # Phase 7 — Migrate UI consumers (flag-gated)
 
-**Global UI contract:** quote-currency switches are special. Even during deferred populate they immediately re-bridge the **committed** chart/row state into the new quote currency. Only populate-driven fresh data remains deferred until the final commit.
+**Global UI contract:** quote-currency switches are special. They immediately re-bridge the current `sharedPortfolioState` chart/row values into the new quote currency without waiting for a fresh full recompute or per-asset new-quote fetch.
 >
 > **Show Portfolio contract (NEW, product-load-bearing):**
 > - When `getShowPortfolioEnabledFromStore()` is `false`, hide all portfolio-owned charts and asset-list surfaces: Home portfolio balance/chart, Home asset list section, All Assets, Allocation, Wallet/Account/Key portfolio charts, and `AssetBalanceHistoryScreen`.
@@ -1984,19 +1939,18 @@ Total kept: **~13,805 LOC.**
 > - `selectIsAssetGroupReady(...)` controls the right-side content only: ready rows show PnL, unready rows show skeletons/placeholders. Do **not** hide unready rows.
 > - Home and All Assets use the same `orderedAssetGroupIdsForAssetList` mid-populate so navigation preserves continuity.
 > - Switching Today vs All Time mid-populate changes only which precomputed row payload is displayed; it must not change populate order or row visibility.
-> - During deferred populate, quote-currency switches immediately re-bridge the committed row values into the new quote; only fresh populate data waits for the final commit.
 > - When "Show Portfolio" is off, this entire asset-list surface is hidden. The setting turning back on restarts from empty and re-reveals rows by the normal progressive populate rules.
 
 ## 7b. Home chart + PortfolioBalance
-> Under flag: `selectTotalSeries` + `areEqualBySeriesFingerprint`. Chart keys on `series.fingerprint`. Gate on all eligible wallets ready. During the first-ever progressive populate this chart stays hidden until all eligible wallets are ready; during later deferred populates it keeps showing the stale pre-refresh chart until the final commit publishes.
+> Under flag: `selectTotalSeries` + `areEqualBySeriesFingerprint`. Chart keys on `series.fingerprint`. Gate on all eligible wallets ready. During first-ever populate this chart stays hidden until all eligible wallets are ready; during later incremental populates it may show a lightweight refreshing state while values update progressively.
 >
-> **First-ever vs stale-fallback predicate:** use `selectHasAnyPopulatedWallets(s)`, not `queue.publishMode`. If committed populated state is empty, hide charts until ready. If committed populated state is non-empty, show stale committed data during deferred populate until commit.
-> Quote-currency switches remain immediate in both cases because they transform committed chart state only; they do not wait for the deferred populate commit.
+> **First-ever chart gate predicate:** use `selectHasAnyPopulatedWallets(s)`. If committed populated state is empty, hide charts until ready. If committed populated state is non-empty, charts can continue showing current data while incremental refresh progresses.
+> Quote-currency switches remain immediate because they transform current chart state directly.
 > If "Show Portfolio" is off, hide this Home portfolio chart/balance surface entirely, but leave the Home Exchange Rates section visible.
 
 ## 7c. Wallet / Account / Key detail
-> `WalletDetails`/`AccountDetails`: mount → `scheduleRecompute({ scope: { kind: 'wallet', walletId }, ...base })`. Subscribe `selectWalletSeries` + `areEqualBySeriesFingerprint`. `useFocusEffect` → `touchWallet`. Wallet/account charts stay hidden on first populate until that wallet is ready; on later deferred populates they keep showing stale data until the final commit. Use the same `selectHasAnyPopulatedWallets(s)` predicate for first-ever vs stale-fallback behavior.
-> Quote-currency switches still update the committed wallet/account chart immediately during deferred populate; only fresh populate results wait for commit.
+> `WalletDetails`/`AccountDetails`: mount → `scheduleRecompute({ scope: { kind: 'wallet', walletId }, ...base })`. Subscribe `selectWalletSeries` + `areEqualBySeriesFingerprint`. `useFocusEffect` → `touchWallet`. Wallet/account charts stay hidden on first populate until that wallet is ready; on later incremental populates they may show a lightweight refreshing state while values update progressively. Use `selectHasAnyPopulatedWallets(s)` for first-ever chart gating.
+> Quote-currency switches still update the current wallet/account chart immediately.
 > If "Show Portfolio" is off, hide these portfolio chart surfaces entirely.
 >
 > `KeyOverview`: resolve key → walletIds from Redux. Mount → `scheduleRecompute({ scope: { kind: 'wallets', walletIds }, ...base })`. Subscribe `selectKeySeries(s, walletIds, tf)`. The "See All Assets" route passes `keyId`, and the downstream All Assets / asset-detail screens use the **scoped** selectors (`selectScopedAssetGroupRows`, `selectScopedOrderedAssetGroupIds`, scoped detail series) so the key view never falls back to global Home rows.
@@ -2005,12 +1959,12 @@ Total kept: **~13,805 LOC.**
 > `AssetBalanceHistoryScreen`: default path uses `selectAssetGroupSeries` + `areEqualBySeriesFingerprint`. If the route carries `keyId`, use the scoped detail selector for that key's wallet set instead of the global Home asset-group slice. Required consistency test: row and detail match byte-for-byte under both global and key-scoped navigation.
 >
 > Product contract:
-> - Asset-detail charts stay hidden on first populate until the relevant asset group is ready; later deferred populates keep showing stale detail data until the final commit.
+> - Asset-detail charts stay hidden on first populate until the relevant asset group is ready; later incremental populates may show a lightweight refreshing state while values update progressively.
 > - Asset detail and Exchange Rate use the same interval-window helper from Phase 3.
 > - If there are no transactions in the chosen interval window, asset PnL % for that window must equal Exchange Rate % for that same window.
 > - This equality must continue to hold after quote-currency switches, including BTC-bridge quote changes.
-> - Use the same `selectHasAnyPopulatedWallets(s)` predicate for first-ever hide vs stale-fallback behavior.
-> - During deferred populate, quote-currency switches immediately re-bridge the committed asset-detail / exchange-rate values into the new quote; only fresh populate data waits for commit.
+> - Use the same `selectHasAnyPopulatedWallets(s)` predicate for first-ever chart gating.
+> - Quote-currency switches immediately re-bridge the current asset-detail / exchange-rate values into the new quote.
 > - If asset detail renders a constituent wallet list, that list uses the same scoped `memberWalletIds` / wallet set as the chart and row. A key-scoped asset detail must not show wallets from outside that key.
 > - If "Show Portfolio" is off, hide `AssetBalanceHistoryScreen`; the separate Exchange Rate detail screen remains available and unaffected.
 
@@ -2231,12 +2185,12 @@ Total kept: **~13,805 LOC.**
 54. **Timeframe switches are read-only:** switching timeframe on Home / Wallet / Asset Detail / KeyOverview / Exchange Rate causes zero `ensureFresh`, FX-bridge, populate, or snapshot-refresh side effects.
 55. **Chart scrubbing is read-only:** long-press/scrub reads existing points only and triggers no refresh or scheduler work.
 56. **Initial populate progressive reveal:** Home and All Assets show rows immediately in canonical order; ready rows reveal PnL, unready rows show skeletons; switching Today / All Time mid-populate does not perturb order.
-57. **Incremental populate deferred commit:** app-launch refresh, send-triggered populate, and pull-to-refresh keep stale chart/PnL values visible until populate drains, then publish one committed update.
-58. **Cross-screen refresh propagation:** send-triggered populates and pull-to-refresh updates propagate to every affected Home / All Assets / Asset Detail / Wallet / Exchange Rate surface after completion, with no stale divergence between screens.
-59. **Deferred heavy-recompute gating:** while a deferred populate has remaining wallets, heavy `scheduleRecompute` work from non-populate triggers accumulates but does not drain until `populateCommitTick`; touch scopes still drain.
-60. **Chart gate predicate:** first-ever hide vs stale-fallback behavior keys off committed populated state (`selectHasAnyPopulatedWallets(s)`), not `queue.publishMode`.
+57. **Incremental populate progressive refresh:** app-launch refresh, send-triggered populate, and pull-to-refresh may show a lightweight refreshing state while chart/PnL values update progressively as affected wallets finish.
+58. **Cross-screen refresh propagation:** send-triggered populates and pull-to-refresh updates propagate to every affected Home / All Assets / Asset Detail / Wallet / Exchange Rate surface as recomputes publish, with no stale divergence between screens.
+59. **Heavy recomputes drain during incremental populate:** while an incremental populate has remaining wallets, heavy `scheduleRecompute` work from non-populate triggers drains normally.
+60. **First-ever chart gate predicate:** first-ever hide behavior keys off populated state (`selectHasAnyPopulatedWallets(s)`), not queue metadata.
 61. **Interval-window boundary sampling:** the shared window helper resolves exact interval boundaries and linearly interpolates synthetic rate samples when no raw point exists at `startTs` / `endTs`; PnL and Exchange Rate calculations consume the same sampled boundary values so the no-tx-window parity test is deterministic and faithful to the displayed interval.
-62. **Quote-switch during deferred populate:** while a deferred populate is active, `onQuoteCurrencyChanged(...)` applies `recomputeQuoteBridgeFromCommittedState(...)` immediately to the committed state, visible screens switch quote right away, scheduler-held heavy recomputes still do not drain early, and the later `populateCommitTick` publish lands fresh data in the already-selected quote.
+62. **Quote-switch during populate:** while populate is active, `onQuoteCurrencyChanged(...)` applies `recomputeQuoteBridgeFromCommittedState(...)` immediately to the current shared state and visible screens switch quote right away.
 63. **No recursive render / max-depth regression:** rapid timeframe toggles and chart scrubbing on Home / Wallet / Asset Detail / Exchange Rate do not produce "maximum update depth exceeded" errors, recursive scheduler churn, or blank intermediate flashes between valid series.
 64. **Post-auth repair path for durable invalid bit:** boot with `PORTFOLIO_CACHE_INVALID_KEY = 1`; `onAppLaunchPostAuth(...)` repairs via `performResetSequence()` before any ordinary v2 populate/recompute work runs, and only a successful repair clears the bit.
 65. **Show Portfolio off clears + hides:** toggling the user-facing setting off runs `performResetSequence()`, clears portfolio MMKV/shared state, hides all portfolio-owned charts/list surfaces, and leaves Home Exchange Rates / Exchange Rate detail visible even if those surfaces refetch after a `rate:v1:*` cache miss.
@@ -2282,23 +2236,23 @@ Starting: ~31,160. Ending: ~20,600. Eliminated: ~10,560, ~34%.
 
 # Summary
 
-- **Three runtimes by default** (UI / compute / populate), with an **optional fourth rate runtime** under Branch C, **one state value**, **progress + commit + retry ticks** (distinct), **single-flight guard**, **debounced app-root subscriber with three independent reactions and unmount cleanup**, **six triggers**, **one read hook**, **~10 selectors**, **five scope kinds**, **three-phase scheduler drain**.
+- **Three runtimes by default** (UI / compute / populate), with an **optional fourth rate runtime** under Branch C, **one state value**, **progress + retry ticks** (distinct), **single-flight guard**, **debounced app-root subscriber with two independent reactions and unmount cleanup**, **six triggers**, **one read hook**, **~10 selectors**, **five scope kinds**, **three-phase scheduler drain**.
 - **Fingerprints are a render invalidation heuristic; numeric correctness is enforced by full point-by-point parity tests.**
 - **Interval-specific fingerprints** with first+last endpoint values. Mid-series mutations pinned.
-- **Precomputed row payloads** make the global row selectors O(1); key-scoped selectors use a bounded memoized aggregation cache keyed by committed state revision and wallet scope.
+- **Precomputed row payloads** make the global row selectors O(1); key-scoped selectors use a bounded memoized aggregation cache keyed by state revision and wallet scope.
 - **Scheduler accumulates, never subsumes.**
 - **One unified order-update rule:** heavy scopes may advance order + revision when incoming is newer; touch scopes never do.
 - **Touch scopes** never change `computedAtMs`, readiness, series, rows, total, order, or `orderRevision`.
 - **Readiness O(1)** via `populated*IdsById`.
 - **Chart-boundary equality** keys on `Series.fingerprint`.
 - **Only four fiat-rate intervals are fetched/persisted:** `1D`, `1W`, `1M`, and `ALL`. Displayed `3M`, `1Y`, and `5Y` derive from `ALL` on the compute runtime.
-- **Quote-currency switching uses a BTC FX bridge.** Quote changes fetch only BTC bridge data for the target quote and recompute portfolio/chart/list values instantly on the compute runtime from the currently committed state instead of refetching every visible asset in the new quote. This immediate bridge path remains allowed during deferred populate; only populate-driven fresh data waits for the final commit.
-- **Incremental populates remain reorg-safe.** Deferred refresh populates inherit the preserved kernel's "rewind before tip and overwrite the recent tail" behavior instead of strictly appending from the latest persisted point.
+- **Quote-currency switching uses a BTC FX bridge.** Quote changes fetch only BTC bridge data for the target quote and recompute portfolio/chart/list values instantly on the compute runtime from the current shared portfolio state instead of refetching every visible asset in the new quote.
+- **Incremental populates remain reorg-safe.** Incremental refresh populates inherit the preserved kernel's "rewind before tip and overwrite the recent tail" behavior instead of strictly appending from the latest persisted point.
 - **Queue persists IDs + config + `orderRevision`.** `buildQueue` monotonic: `(prev?.orderRevision ?? 0) + 1`. `markDone` does not bump.
 - **Reconciliation on every kick.** Bumps `orderRevision` iff order changed.
 - **Single ordering helper** used by `buildQueue` and `buildBaseRecomputeInputs` fallback.
 - **Fire-time reads** in `PortfolioV2Root` and triggers. No ref-cached inputs.
-- **Populate publishing is explicit, not incidental.** First-ever populate is progressive and reveals ready rows in queue order; later incremental populates are deferred-commit and keep stale chart/PnL values visible until one final publish.
+- **Populate publishing is explicit, not incidental.** First-ever populate is progressive and reveals ready rows in queue order; later incremental populates also publish progressively and may show a lightweight refreshing indicator.
 - **`reduxAccess.ts`** single Redux access module. Initialized inside the existing `getStore().then(({store, persistor}) => {...})` callback before `<Provider>` mount. Accessor calls inside function bodies only.
 - **Reset paths reset shared state** (guardrail #17). Every wipe path — debug-clear, sign-out — goes through `performResetSequence`. Preserves `orderRevision` monotonicity invariant.
 - **Reset uses one durable invalid bit.** `performResetSequence(...)` is joinable, while persisted key `portfolio:v2:cacheInvalid` blocks ordinary v2 work whenever a destructive wipe may have left partial state behind. There is no tri-state sentinel and no banner UI, but failures after `markPortfolioCacheInvalid()` do not let work resume until a successful repair clears the bit.
@@ -2317,7 +2271,7 @@ Starting: ~31,160. Ending: ~20,600. Eliminated: ~10,560, ~34%.
 - **Key-scoped All Assets and asset detail stay scoped.** `AllAssets({keyId})` and row taps from `KeyOverview` use scoped selectors instead of Home-global rows, including any constituent wallet list rendered inside asset detail.
 - **Rate fetching and snapshot refresh happen only at explicit triggers**, not in the scheduler and not on timeframe switches or chart scrubbing.
 - **The user-facing "Show Portfolio" toggle is a first-class trigger.** Off clears cached portfolio data and hides portfolio-owned surfaces immediately; on repopulates from scratch after the wipe obligation is discharged. Home Exchange Rates and the Exchange Rate detail screen stay visible regardless of the setting and refetch on demand if the shared `rate:v1:*` cache was cleared.
-- **Mid-populate UI behavior is explicit.** Asset-list rows stay visible immediately in canonical order with skeletons for unready right-side content; charts stay hidden during first populate until their relevant data is ready and stay stale-but-visible during later deferred populates until commit.
+- **Mid-populate UI behavior is explicit.** Asset-list rows stay visible immediately in canonical order with skeletons for unready right-side content; charts stay hidden during first populate until their relevant data is ready. Later incremental populates may update charts/rows progressively while a lightweight refreshing state is shown.
 - **`runOnRuntimeAsync` non-curried**; fire-and-forget attaches `.catch(log)`.
 - **Rapid timeframe/scrub interaction has an explicit no-recursive-render bar.** The plan now requires a dedicated regression for no maximum-update-depth errors, no recursive scheduler churn, and no blank flashes during timeframe toggles or chart scrubbing.
 - **No data migration.** `SnapshotIndexV2.revision` required, starts at 1.
