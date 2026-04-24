@@ -37,6 +37,7 @@
 - **`onShowPortfolioVisibilityChanged(...)` lands in v18.** Turning portfolio visibility off clears portfolio-owned cached data and hides all portfolio-owned charts/lists; turning it back on repopulates from scratch. Rapid off/on churn is serialized with last-toggle-wins final visibility plus a latched wipe obligation so ON cannot populate before an OFF-created clear completes.
 - **Key-scoped asset list lands in v18.** `AllAssets({keyId})`, row taps from `KeyOverview`, and scoped asset detail all stay within that key's wallet set.
 - **Key/account scoped render data is compute-runtime output, not JS selector math.** Scoped chart series, rows, order, and asset-detail payloads are built by heavy `wallet` / `wallets` recompute scopes on the compute runtime and published into a bounded scoped cache on `sharedPortfolioState`. JS selectors only look up the published scoped payload by `walletIdsKey` / asset / timeframe / mode; they never aggregate wallets, walk chart points, or compute PnL during timeframe switches or chart scrubbing.
+- **Corrupted tx histories with negative running balances are quarantined, not clamped.** V18 preserves v1's invalid-history behavior for wallets whose fetched tx history is missing incoming transactions and drives the snapshot running balance negative: throw/save a `negative_balance` invalid-history marker, clear that wallet's snapshot data while preserving the marker, skip the wallet without marking it populated, and suppress automatic retries until the marker cooldown expires.
 - **Initial and incremental populate both publish progressively.** Initial populate uses skeleton reveal for not-yet-ready rows; incremental refresh may show a lightweight refreshing indicator while values update progressively. V18 intentionally does **not** hold incremental values stable until populate completion.
 - **Timeframe switches / scrubbing stay read-only in v18.** No hidden rate fetches, snapshot updates, or populate kicks occur on timeframe-only interaction.
 - **Populate runs on livenet wallets only.** Testnet / regtest wallets are excluded from the populate queue at every construction site (initial populate, incremental populate, `onKeyImported`, `onSendCompleted`, `onPullToRefresh`, `onWalletsVisibilityChanged` unhide path). Eligibility for populate is `isLivenetWallet(wallet) && !wallet.deleted`, where `isLivenetWallet(w)` is the normalized predicate defined in Terminology (accepts both `'livenet'` and `'mainnet'` strings, case-insensitive, whitespace-trimmed — matches v1's `isMainnetLikeWallet` at [portfolio.runtime.effects.ts:237](src/store/portfolio/portfolio.runtime.effects.ts#L237)). This matches current app behavior — portfolio charts / PnL are a mainnet-only concept.
@@ -105,6 +106,7 @@ Total kept: **~13,805 LOC.**
 - **Asset group** — UI-facing collapsed asset identity. Default `assetGroupId = lowercased currencyAbbreviation`, matching current Home / All Assets / Allocation behavior.
 - **Precomputed row payload** — `rowToday` / `rowAllTime` on `AssetGroupSlice`. Global Home / All Assets / Allocation selectors read these as O(1) lookups. Key/account scoped selectors read precomputed `ScopedPortfolioSlice` entries published by the compute runtime; they do not aggregate wallets or chart points on the JS thread.
 - **Scoped render cache** — bounded `sharedPortfolioState.scopedByWalletSet[walletIdsKey]` cache of compute-runtime-produced render payloads for key/account/custom wallet scopes. Entries contain scoped total series, scoped asset-group slices, scoped row payloads, scoped order, readiness, and fingerprints. JS selectors only select from this cache; missing entries return `undefined` / skeleton state until an explicit heavy recompute publishes the scope.
+- **Invalid-history marker** — v1-compatible `snap:invalid-history:v1:<walletId>` marker produced when snapshot building detects a corrupted tx history that drives the wallet's running balance negative. Shape comes from `src/portfolio/core/pnl/invalidHistory.ts`: `{v: 1, walletId, reason: 'negative_balance', detectedAt, retryAfter, message, source?, txId?, balanceAtomic?}` with a 24h default cooldown. Active markers suppress auto-populate for that wallet; successful later populate clears the marker.
 - **Stored fiat-rate interval** — canonical persisted/fetched interval in `{1D, 1W, 1M, ALL}`. Displayed `3M`, `1Y`, and `5Y` are derived from `ALL`.
 - **Refreshing portfolio state** — lightweight UI state set by incremental populate triggers. It may show subtle loading affordances, but it does not block progressive chart/PnL updates.
 - **Scalar signature** — joined string like `populatedWalletIdsKey`. Fingerprint-input / diff-key.
@@ -176,6 +178,7 @@ Total kept: **~13,805 LOC.**
 30. **Populate eligibility and recompute eligibility are distinct.** `getPopulateEligibleWalletsFromStore()` (livenet, not deleted, visibility-**ignored**) drives populate. `getEligibleStoredWalletsFromStore()` (livenet, not deleted, visibility-**respected**) drives `buildBaseRecomputeInputs(...)`. Hidden wallets are populated (data warm) but excluded from displayed totals/series/rows. Unhide is instant — no populate-latency window — because the next fire-time recompute simply sees the wallet as eligible again and reads its already-warm snapshot data. **Edge case — "populated-late" livenet walletIds.** In normal flow, `onKeyImported` immediately kicks populate for livenet wallets regardless of visibility, so a hidden wallet imported while Show Portfolio is on gets populated at import time and its data is warm on unhide. The edge case is when the import lands during a populate-blocked window — `getShowPortfolioEnabledFromStore()` is false, `populateResetInFlight` is true, or `portfolioCacheInvalid` is latched — so `onKeyImported` no-ops and the walletId is never added to the queue. On unhide, `onWalletsVisibilityChanged(...)` handles this by kicking `populateWallets(...)` for any newly-visible livenet walletId absent from `queue.doneWalletIds`. Show-Portfolio re-enable also covers the Show-Portfolio-off case: it runs a fresh full populate that picks up the previously-unpopulated walletIds. Never call `buildBaseRecomputeInputs(...)` with `getPopulateEligibleWalletsFromStore()` or vice versa — the two sets have intentionally different membership rules and swapping them would cause hidden wallets to appear in totals or visible wallets to miss populate.
 31. **Chart-point endpoint invariants are load-bearing.** Every published `Series` satisfies: (a) `series.points[0].pnlChange === 0` exactly (the baseline point is zero-change against itself per the Phase 3 PnL formula step 6 — `firstTotalUnrealizedPnlFiat = totalUnrealizedPnlFiat` at the first emitted point means `totalPnlChange` at that point is `0 - 0 === 0`); (b) `series.points[last].fiatBalance`, `pnlChange`, and `pnlPercent` are the exact values the idle (non-scrubbing) balance header and PnL row display for the same screen / interval / quote / wallet scope. These are not a UI formatting concern — they are recompute output invariants pinned by Phase 3 formula tests and Phase 7 scrub parity tests.
 32. **Scoped aggregation is compute-runtime/precomputed only.** Key/account/scoped asset-detail rows and series are produced by `recompute(...)` on the compute runtime during heavy `wallet` / `wallets` scopes and stored under `sharedPortfolioState.scopedByWalletSet[walletIdsKey]`. JS selectors (`selectKeySeries`, `selectScopedAssetGroupRows`, `selectScopedOrderedAssetGroupIds`, scoped asset-detail selectors) are cache lookups over already-published payloads. They must not sum wallet series, walk `Series.points`, rebuild collapsed asset groups, or compute PnL in React/JS during render, timeframe switches, or scrubbing. A missing scoped cache entry returns `undefined` / skeleton-ready state until an explicit mount/trigger-scheduled recompute publishes it; selectors never synchronously "fix" a miss by doing heavy aggregation.
+33. **Invalid tx history / negative running balance parity.** Preserve v1 behavior from `snapshotStream.ts`, `portfolioWorkletSnapshotBuilder.ts`, `invalidHistory.ts`, `portfolioPopulateWorklet.ts`, and `portfolioStaleness.ts`: same-timestamp/block batches may be reordered greedily to avoid artificial underflow, but if processing still drives `balanceAtomic < 0`, throw `PortfolioInvalidHistoryError` / `PORTFOLIO_INVALID_HISTORY_NEGATIVE_BALANCE`, save an invalid-history marker, clear wallet snapshots while preserving that marker, do not mark the wallet populated, and do not retry that wallet while the marker is active. Recompute must omit wallets with no valid snapshots rather than publishing negative balances or clamping them into apparently-valid PnL.
 
 ---
 
@@ -216,11 +219,12 @@ Total kept: **~13,805 LOC.**
 > 5. **MMKV key prefixes in use.** Grep for `return \`[a-z]+:` patterns in `src/portfolio/core/pnl/**` and `src/portfolio/runtime/worklet/**` to find all key-construction sites. Expected: `snap:meta:v2:*`, `snap:index:v2:*`, `snap:chunk:v2:*`, `snap:invalid-history:v1:*`, `snap:*:*:*` (raw point keys), `rate:v1:*`. V2 adds `portfolio:v2:*`. Report the complete verified set. This list grounds the wipe-prefix constant in guardrail #23 and Phase 7.5's `wipePortfolioMmkvKeys` implementation. **If Phase 0 finds prefixes not in this expected list, they MUST be added** — otherwise debug-clear will leave orphan keys.
 > 6. **MMKV adapter layout.** Inspect `src/portfolio/adapters/rn/workletMmkvBridge.ts` and `mmkvKvStore.ts`. Confirm `getPortfolioMmkvStorageOnRN()` returns the dedicated `bitpay.portfolio.engine` MMKV instance. Confirm that there is **no existing** `getPortfolioKvStore()` accessor in the repo and that Phase 1 must create one in v2 using `MmkvKvStore`, `getPortfolioMmkvStorageOnRN()`, `PORTFOLIO_WORKLET_MMKV_STORAGE_ID`, and `PORTFOLIO_WORKLET_MMKV_REGISTRY_KEY`. Report the exact import paths for all four.
 > 7. **FiatRateStore fetch/persist separability.** Inspect `src/portfolio/core/pnl/fiatRateStore.ts`. Confirm that `ensureRates` uses an injected provider's `loadSeries` for the network step, `getSeries` for freshness checks, and `setSeries` for persistence. Confirm `extractSeries` is file-local (not exported) and therefore must be cloned/exported intentionally for v2. Confirm `BwsFiatRateProvider` at `adapters/rn/bwsFiatRateProvider.ts` implements `loadSeries`. These are the primitives Phase 2's `ensureFresh` uses.
-> 8. **Exact LOC** for every file in the kept/deleted lists. Flag discrepancies >10%, especially `balanceDiagnostic.ts`.
-> 9. Baseline `yarn test` counts.
-> 10. `getStore()` signature + location where its callback resolves in `index.js`. `RootState` type location.
-> 11. **Reset path inventory.** Every code path that wipes portfolio MMKV or equivalent. These become Phase 7.5 integration points for guardrail #17.
-> 12. **Product-parity inventory.** Verify and document:
+> 8. **Invalid-history / negative-running-balance inventory.** Verify the current flow end-to-end and cite exact files/functions: `reorderTxBatchToPreventUnderflow(...)`, `createNegativeBalanceInvalidHistoryError(...)`, `toSnapshotInvalidHistoryMarker(...)`, `saveInvalidHistoryMarker(...)` / `saveWorkletInvalidHistoryMarker(...)`, `clearWallet(... {preserveInvalidHistoryMarker: true})` / `clearWorkletWalletSnapshots(... {preserveInvalidHistoryMarker: true})`, `clearInvalidHistoryMarker(...)` on successful finish, and `getPortfolioPopulateDecisionForWallet(...)` suppressing auto-populate while `isSnapshotInvalidHistoryMarkerActive(...)` is true. These are guardrail #33's parity source of truth.
+> 9. **Exact LOC** for every file in the kept/deleted lists. Flag discrepancies >10%, especially `balanceDiagnostic.ts`.
+> 10. Baseline `yarn test` counts.
+> 11. `getStore()` signature + location where its callback resolves in `index.js`. `RootState` type location.
+> 12. **Reset path inventory.** Every code path that wipes portfolio MMKV or equivalent. These become Phase 7.5 integration points for guardrail #17.
+> 13. **Product-parity inventory.** Verify and document:
 >    - asset rows / allocation collapse wallets by lowercased `currencyAbbreviation` across chains,
 >    - All Assets and Allocation use the same ordering semantics,
 >    - `AllAssets({keyId})` and row taps from `KeyOverview` preserve key scope,
@@ -1490,6 +1494,9 @@ Total kept: **~13,805 LOC.**
 >   schemaVersion: 1;
 >   remainingWalletIds: readonly string[];
 >   doneWalletIds: readonly string[];
+>   // Wallets skipped because an active invalid-history marker exists or because
+>   // this populate run just detected negative running balance. Not readiness.
+>   invalidHistoryWalletIds: readonly string[];
 >   orderedAssetGroupIdsForAssetList: readonly string[];
 >   orderRevision: number;               // monotonic across queue rebuilds
 >   startedAt: number;
@@ -1525,6 +1532,7 @@ Total kept: **~13,805 LOC.**
 >     schemaVersion: 1,
 >     remainingWalletIds: walletIdsInOrder,
 >     doneWalletIds: [],
+>     invalidHistoryWalletIds: [],
 >     orderedAssetGroupIdsForAssetList: order,
 >     orderRevision: nextOrderRevision,
 >     startedAt: Date.now(),
@@ -1537,9 +1545,16 @@ Total kept: **~13,805 LOC.**
 > export function loadQueue(): PopulateQueueV1 | null;
 > export function saveQueue(q: PopulateQueueV1): void;
 >
-> // markDone mutates remainingWalletIds/doneWalletIds ONLY.
-> // MUST NOT touch orderRevision — it's not an order mutation.
+> // markDone moves walletId from remainingWalletIds to doneWalletIds and removes any
+> // stale invalidHistoryWalletIds entry for that walletId. It MUST NOT touch
+> // orderRevision — readiness/status changes are not order mutations.
 > export function markDone(walletId: string): void;
+>
+> // Invalid-history skip removes the wallet from remainingWalletIds and doneWalletIds
+> // (if present) and records it separately; it MUST NOT append to doneWalletIds
+> // because the wallet is not populated/ready. It preserves orderedAssetGroupIdsForAssetList
+> // so the row can remain visible with skeleton/error-ready state instead of disappearing.
+> export function markSkippedInvalidHistory(walletId: string): void;
 > ```
 >
 > **`loadQueue` must validate `schemaVersion`:**
@@ -1554,7 +1569,15 @@ Total kept: **~13,805 LOC.**
 >       logOnce('loadQueue: invalid schemaVersion ' + parsed?.schemaVersion);
 >       return null;
 >     }
->     return parsed as PopulateQueueV1;
+>     return {
+>       ...(parsed as PopulateQueueV1),
+>       // Forward-compatible dev migration within schemaVersion 1: queues written
+>       // before invalid-history status existed normalize to "no skipped wallets"
+>       // instead of being treated as corrupt.
+>       invalidHistoryWalletIds: Array.isArray(parsed.invalidHistoryWalletIds)
+>         ? parsed.invalidHistoryWalletIds
+>         : [],
+>     };
 >   } catch (err) {
 >     logOnce('loadQueue: parse error ' + String(err));
 >     return null;
@@ -1563,6 +1586,8 @@ Total kept: **~13,805 LOC.**
 > ```
 >
 > Treating invalid version or parse error as null causes populate to fall back to fresh queue on next kick — same recovery path as "no queue exists." Safest behavior for future schema migrations or persisted corruption. `logOnce` deduplicates per-message-per-session so a recurring invalid queue doesn't spam logs.
+>
+> Missing `invalidHistoryWalletIds` is the one allowed schemaVersion-1 normalization because it only affects in-flight queue status and defaults safely to empty. Any future required persisted field should bump `schemaVersion` instead of adding more silent migrations.
 >
 > MMKV key: `portfolio:v2:populate:queue:v1`.
 >
@@ -1576,13 +1601,19 @@ Total kept: **~13,805 LOC.**
 >
 >   const keptRemaining = queue.remainingWalletIds.filter(id => currentEligibleWalletIds.has(id));
 >   const keptDone = queue.doneWalletIds.filter(id => currentEligibleWalletIds.has(id));
->   const dropped = [...queue.remainingWalletIds, ...queue.doneWalletIds]
+>   const keptInvalidHistory = (queue.invalidHistoryWalletIds ?? [])
+>     .filter(id => currentEligibleWalletIds.has(id));
+>   const dropped = [
+>     ...queue.remainingWalletIds,
+>     ...queue.doneWalletIds,
+>     ...(queue.invalidHistoryWalletIds ?? []),
+>   ]
 >     .filter(id => !currentEligibleWalletIds.has(id));
 >
 >   if (dropped.length === 0) return;
 >
 >   const stillHeldAssetGroupIds = new Set<string>();
->   for (const walletId of [...keptRemaining, ...keptDone]) {
+>   for (const walletId of [...keptRemaining, ...keptDone, ...keptInvalidHistory]) {
 >     const assetGroupId = getAssetGroupIdForWalletFromStore(walletId);
 >     if (assetGroupId) stillHeldAssetGroupIds.add(assetGroupId);
 >   }
@@ -1596,6 +1627,7 @@ Total kept: **~13,805 LOC.**
 >     ...queue,
 >     remainingWalletIds: keptRemaining,
 >     doneWalletIds: keptDone,
+>     invalidHistoryWalletIds: keptInvalidHistory,
 >     orderedAssetGroupIdsForAssetList: newOrder,
 >     orderRevision: orderChanged ? queue.orderRevision + 1 : queue.orderRevision,
 >   });
@@ -1673,6 +1705,15 @@ Total kept: **~13,805 LOC.**
 >       if (!queue || queue.remainingWalletIds.length === 0) return;
 >
 >       const walletId = queue.remainingWalletIds[0];
+>       const invalidHistoryMarker = await loadWorkletInvalidHistoryMarker(walletId);
+>       if (isSnapshotInvalidHistoryMarkerActive(invalidHistoryMarker)) {
+>         // V1 parity: active negative-balance marker suppresses auto-populate
+>         // until retryAfter. Remove from remaining, but do NOT mark populated.
+>         markSkippedInvalidHistory(walletId);
+>         populateProgressTick.value = populateProgressTick.value + 1;
+>         continue;
+>       }
+>
 >       const walletCtx = ctx.walletsById[walletId];
 >       const signingCtx = ctx.signingContextsByWalletId[walletId];
 >       if (!walletCtx || !signingCtx) {
@@ -1689,15 +1730,28 @@ Total kept: **~13,805 LOC.**
 >         logInvalidIndexRecovery(walletId);
 >       }
 >
->       await drivePopulateForWallet({
->         walletId,
->         walletSummary: walletCtx.summary,
->         walletCredentials: walletCtx.credentials,
->         signingContext: signingCtx,
->         cfg: queue.cfg,
->         ingest: queue.ingest,
->         pageSize: queue.pageSize,
->       });
+>       try {
+>         await drivePopulateForWallet({
+>           walletId,
+>           walletSummary: walletCtx.summary,
+>           walletCredentials: walletCtx.credentials,
+>           signingContext: signingCtx,
+>           cfg: queue.cfg,
+>           ingest: queue.ingest,
+>           pageSize: queue.pageSize,
+>         });
+>       } catch (error) {
+>         if (isSnapshotInvalidHistoryError(error)) {
+>           // Existing v1 handlers save `snap:invalid-history:v1:<walletId>`
+>           // and clear this wallet's snapshots with preserveInvalidHistoryMarker.
+>           // V2 queue handling must continue to the next wallet rather than
+>           // immediately retrying this corrupted history forever.
+>           markSkippedInvalidHistory(walletId);
+>           populateProgressTick.value = populateProgressTick.value + 1;
+>           continue;
+>         }
+>         throw error;
+>       }
 >
 >       markDone(walletId);
 >       populateProgressTick.value = populateProgressTick.value + 1;
@@ -1717,6 +1771,15 @@ Total kept: **~13,805 LOC.**
 > ```
 >
 > `drivePopulateForWallet(...)` is a **new v2 orchestrator**, not an existing kernel surface. It composes the existing v1 handlers in `portfolioPopulateWorklet.ts` (`handlePrepareWalletOnPopulateWorklet`, `handleProcessNextPageOnPopulateWorklet`, `handleFinishWalletOnPopulateWorklet`, `handleCloseWalletSessionOnPopulateWorklet`) and mirrors v1's orchestration from `portfolioPopulateJobWorklet.ts`. **Default v18 behavior is v1-parity wrap granularity: signing context around `prepare` and each `processNextPage` call only, not one long wrap around the entire wallet session.**
+>
+> **Invalid-history / negative-balance contract (v1 parity, guardrail #33):**
+> - Preserve the existing kernel behavior that first tries `reorderTxBatchToPreventUnderflow(...)` for txs in the same fetched group, then throws `createNegativeBalanceInvalidHistoryError(...)` if the running balance still goes negative.
+> - `handleProcessNextPageOnPopulateWorklet(...)` and `handleFinishWalletOnPopulateWorklet(...)` already catch invalid-history errors, write `snap:invalid-history:v1:<walletId>` via `toSnapshotInvalidHistoryMarker(...)` / `saveWorkletInvalidHistoryMarker(...)`, clear wallet snapshots via `clearWorkletWalletSnapshots(... {preserveInvalidHistoryMarker: true})`, delete the worklet session, and rethrow. V2 must not bypass those handlers or swallow the error before the marker is saved.
+> - `runPopulate(...)` catches `isSnapshotInvalidHistoryError(error)` after `drivePopulateForWallet(...)`, calls `markSkippedInvalidHistory(walletId)`, bumps `populateProgressTick`, and continues with the next wallet. It must **not** call `markDone(walletId)` for this wallet and must **not** leave it at the head of `remainingWalletIds`, otherwise the loop will retry the same corrupted tx history forever.
+> - Before starting a wallet, `runPopulate(...)` checks the wallet's marker. If `isSnapshotInvalidHistoryMarkerActive(marker)` is true, skip the wallet the same way: remove from remaining, record in `invalidHistoryWalletIds`, do not mark done, and continue. If the marker is expired, the wallet is eligible to retry on the next populate trigger.
+> - A later successful `handleFinishWalletOnPopulateWorklet(...)` clears the invalid-history marker. Full portfolio wipes / Show Portfolio off / key deletion delete the marker with the rest of `snap:*`; metadata/index resets that are part of retry preserve the marker until success.
+> - Recompute never publishes negative running balances. Wallets skipped for active invalid history have no valid snapshots and are omitted from PnL math/readiness until a later successful populate; their asset-list row can remain visible from canonical order with skeleton/error-ready right-side state, but their corrupted data must not be clamped into a valid-looking chart.
+> - While an invalid-history marker is active, that wallet is treated as **populate-blocked**, not still-pending. It is excluded from first-populate chart-gate denominators so one corrupted wallet does not hide every Home / Account / Key chart indefinitely after the other eligible wallets have published valid snapshots. It is also not counted as populated/ready. When the marker expires, a later populate trigger may append it again; successful finish clears the marker and moves the wallet back into normal readiness.
 >
 > **Incremental reorg protection (product-load-bearing):** later incremental populates must preserve the v1 kernel's "rewind before tip and overwrite recent tail snapshots" behavior rather than strictly appending from the latest persisted point. Phase 0 inventories the exact current mechanism; Phase 5 must keep passing the same effective tip-rewind inputs/config through the preserved populate kernel so app-launch refreshes, send refreshes, and pull-to-refresh refreshes remain reorg-safe.
 >
@@ -1784,7 +1847,7 @@ Total kept: **~13,805 LOC.**
 > Every kick path: guard first, reconcile, set cancel flag false, kick. The cancel-flag clear happens only inside a guarded kick — `canRunPortfolioV2Work` being true means we're not in reset, so clearing is safe. Initial and incremental populates both publish progress via `populateProgressTick`; the refreshing affordance is derived from in-flight state and does not change populate queue semantics.
 >
 > **`appendToQueue(walletId)` / `populateWallets(walletIds)` idempotency contract (load-bearing):**
-> - **Dedupe scope.** `appendToQueue(walletId)` dedupes against BOTH `queue.remainingWalletIds` AND `queue.doneWalletIds`. The `PopulateQueueV1` type (defined above) has exactly these two walletId sets — there is no separate `currentWalletId` / `activeWalletId` / "in-flight" field. A walletId the populate loop is *currently processing* remains in `remainingWalletIds` until `markDone(walletId)` moves it to `doneWalletIds` at the end of its lifecycle. Therefore a `populateWallets([X])` call during active processing of X is an idempotent no-op against `remainingWalletIds`, and a `populateWallets([Y])` call after Y was already marked done is an idempotent no-op against `doneWalletIds`. No duplicate append in either case.
+> - **Dedupe scope.** `appendToQueue(walletId)` dedupes against `queue.remainingWalletIds` and `queue.doneWalletIds`. `invalidHistoryWalletIds` is different: it records populate-blocked wallets, not successful readiness. If a later trigger appends a wallet previously skipped for invalid history, `appendToQueue` may move it back into `remainingWalletIds` and remove the stale invalid-history status; `runPopulate` then checks the persisted marker and either skips again (still active) or retries (expired). A walletId the populate loop is *currently processing* remains in `remainingWalletIds` until `markDone(walletId)` moves it to `doneWalletIds` at the end of its lifecycle. Therefore a `populateWallets([X])` call during active processing of X is an idempotent no-op against `remainingWalletIds`, and a `populateWallets([Y])` call after Y was already marked done is an idempotent no-op against `doneWalletIds`. No duplicate append in either case.
 > - **`orderRevision` rule.** `appendToQueue` does NOT bump `orderRevision` when the resulting set of walletIds (remaining ∪ done) is unchanged. It advances `orderRevision` by exactly one only when a genuinely new walletId is added that extends the ordering. Matches the `buildQueue` monotonicity invariant (guardrail #14).
 > - **Kick semantics.** `populateWallets(walletIds)` is the correct "kick the existing reconciled queue" helper when callers pass walletIds already in the queue (e.g., `onWalletsDeleted`'s post-reconcile survivors). It is NOT a "rebuild the queue from these ids" helper — pass walletIds that belong in the current queue, not a fresh replacement set. Passing exclusively already-queued ids is strictly "clear cancel flag + runPopulate kick," which is the semantic `onWalletsDeleted`, `onSendCompleted`, and `onPullToRefresh` all rely on. Callers that want a fresh queue go through `startPopulate({isFirstPopulate: true, ...})` → `buildAndSaveQueue`, not `populateWallets`.
 > - **Single-flight interaction.** `populateWallets(...)` clears `populateCancelFlag` and dispatches `runOnRuntimeAsync(getPopulateRuntime(), runPopulate, ...)`. The populate loop is single-flight guarded by `populateLoopRunning` (guardrail #15), so a kick during an already-running loop is a no-op inside `runPopulate` (parity test #15). The kick is therefore always safe to call after `appendToQueue`, whether the loop is running or idle.
@@ -2409,9 +2472,9 @@ Total kept: **~13,805 LOC.**
 > - wallet-deletion wiring from the `cleanupPortfolioOnDeleteKeyMiddleware` in `src/store/index.ts` (replace its `clearWalletPortfolioDataWithRuntime({walletIds})` dispatch with a call to `onWalletsDeleted({walletIds})` so v2 sees key deletions; the middleware itself stays but swaps its payload),
 > - key-import wiring from the `WalletActionTypes.SUCCESS_IMPORT` handler — add a sibling middleware (or extend the deletion middleware into a general "wallet lifecycle" middleware) that calls `onKeyImported({key})` on each successful import,
 > - visibility-change wiring from every Redux action that mutates `hideKeyBalance` / `evmAccountsInfo[*].hideAccount` / `hideWallet` / `hideWalletByAccount` / `hideBalance` — wire each action through a middleware that resolves the delta set of walletIds whose effective visibility flipped and dispatches `onWalletsVisibilityChanged({affectedWalletIds})`. The delta resolution is caller responsibility; the trigger does not re-derive it from full state diffs,
-> - pull-to-refresh wiring from the Home / KeyOverview / Wallet / Account screens/hooks documented in inventory item #12,
-> - quote-currency-change wiring from the settings/rate-change path documented in inventory item #12,
-> - show-portfolio-toggle wiring from the settings path documented in inventory item #12.
+> - pull-to-refresh wiring from the Home / KeyOverview / Wallet / Account screens/hooks documented in inventory item #13,
+> - quote-currency-change wiring from the settings/rate-change path documented in inventory item #13,
+> - show-portfolio-toggle wiring from the settings path documented in inventory item #13.
 >
 > Tests:
 > - Each trigger mocked; fire-time freshness verified.
@@ -2477,7 +2540,7 @@ Total kept: **~13,805 LOC.**
 > - When "Show Portfolio" is off, this entire asset-list surface is hidden. The setting turning back on restarts from empty and re-reveals rows by the normal progressive populate rules.
 
 ## 7b. Home chart + PortfolioBalance
-> Under flag: `selectTotalSeries` + `areEqualBySeriesFingerprint`. Chart keys on `series.fingerprint`. Gate on all eligible wallets ready. During first-ever populate this chart stays hidden until all eligible wallets are ready; during later incremental populates it may show a lightweight refreshing state while values update progressively.
+> Under flag: `selectTotalSeries` + `areEqualBySeriesFingerprint`. Chart keys on `series.fingerprint`. First-ever chart gating is based on valid published snapshots, not merely queue metadata: active-invalid-history wallets are excluded from the "still pending" denominator while their marker is active, but are not counted as ready/populated. During first-ever populate this chart stays hidden until the non-blocked eligible wallet set has valid published data; during later incremental populates it may show a lightweight refreshing state while values update progressively.
 >
 > **First-ever chart gate predicate:** use `selectHasAnyPopulatedWallets(s)`. If published populated state is empty, hide charts until ready. If published populated state is non-empty, charts can continue showing current data while incremental refresh progresses.
 > Quote-currency switches remain immediate because they transform current chart state directly.
@@ -2731,6 +2794,7 @@ Total kept: **~13,805 LOC.**
    - `loadQueue` with `schemaVersion: 2` in MMKV → returns null, logs once.
    - `loadQueue` with malformed JSON → returns null, logs once.
    - `loadQueue` with missing `schemaVersion` → returns null.
+   - `loadQueue` with `schemaVersion: 1` but missing `invalidHistoryWalletIds` → returns a normalized queue with `invalidHistoryWalletIds: []`, no log.
    - Repeated `loadQueue` calls with same invalid state → log fires once, not N times.
 39. **`ensureFresh` race regression:** start `ensureFresh` with a slow network fetch. Before the fetch resolves, invoke `performResetSequence`. Assert: `waitForEnsureFreshToStop` blocks wipe until the fetch resolves. The second `canRunPortfolioV2Work` check causes `persistRates` to be skipped when the fetch lands mid-reset. No rate-cache MMKV writes after reset begins.
 40. **All three waits required in `Promise.all`:** reset with populate active / compute idle / ensureFresh idle → populate wait holds others. Reset with all three active → all three resolved before wipe. Reset with compute active and fetch in-flight → both hold, populate (idle) resolves immediately.
@@ -2789,6 +2853,18 @@ Total kept: **~13,805 LOC.**
 84. **Scoped cache eviction flows through `scheduleRecompute`, not direct trigger mutation:** populate three scoped entries covering wallets `{A, B, C, D, E}` across them. Dispatch `onWalletsDeleted({walletIds: ['B']})`. Assert: (a) the trigger does NOT write directly to `sharedPortfolioState.scopedByWalletSet` — instrument the SharedValue setter and assert the trigger's own stack frame performs zero scoped-cache writes (guardrail #22, no unregistered writers); (b) the trigger's tail `scheduleRecompute({scope: 'full', evictScopedWalletIds: ['B'], ...})` is called with `evictScopedWalletIds` populated; (c) inside the compute-runtime `recompute(...)` drain, entries whose `walletIds` intersect `['B']` are dropped first, then remaining scoped entries are refreshed per rule #82; (d) the published `sharedPortfolioState` revision shows both global drop-of-B and scoped-entry evictions atomically — there is no intermediate state where global state is post-delete but scoped entries still contain B; (e) scoped entries that did not contain `B` are refreshed with updated values but retain their `walletIdsKey` identity.
 
 85. **Singleton rule is route-typed, not count-typed:** (a) Mount `WalletDetails` for a single wallet — assert no `ScopedPortfolioSlice` entry is written; the chart reads from `byWallet[walletId]` directly. (b) Mount `KeyOverview` for a key whose visible wallet set after filtering is exactly one wallet — assert `scopedByWalletSet[walletIdsKey]` IS written with that single-wallet scope, and `KeyOverview`'s chart reads from the scoped cache, not from `byWallet` directly. (c) Mount an EVM `AccountDetails` for an account with exactly one wallet under it — assert the same: scoped-cache write, scoped-cache read. (d) Hide one of two visible wallets under a key so `KeyOverview`'s scope collapses to one wallet; assert the scoped-cache write happens for the new `walletIdsKey`, not a fallback to `byWallet`. This regresses against an implementation that conditionally skips scoped-cache writes whenever the runtime wallet count is 1 — route type decides, not wallet count.
+
+86. **Negative running balance writes invalid-history marker (guardrail #33):** build a corrupted tx-history fixture where an outgoing tx appears without the missing incoming tx that funded it, and same-batch `reorderTxBatchToPreventUnderflow(...)` cannot avoid underflow. Assert the snapshot builder throws `PortfolioInvalidHistoryError` with code `PORTFOLIO_INVALID_HISTORY_NEGATIVE_BALANCE`, `reason: 'negative_balance'`, `txId`, `balanceAtomic`, and source. Assert the marker is persisted at `snap:invalid-history:v1:<walletId>` with `retryAfter` approximately 24h after `detectedAt`.
+
+87. **Invalid-history clear semantics preserve marker during quarantine:** when populate detects negative running balance in `handleProcessNextPageOnPopulateWorklet(...)` or `handleFinishWalletOnPopulateWorklet(...)`, assert `saveWorkletInvalidHistoryMarker(...)` is called before wallet snapshot cleanup, `clearWorkletWalletSnapshots(walletId, {preserveInvalidHistoryMarker: true})` deletes meta/index/chunk/raw snapshot keys but leaves `snap:invalid-history:v1:<walletId>`, and the wallet session is closed/deleted. Full wipe / Show Portfolio off / key deletion still delete the marker with the rest of `snap:*`; successful later finish clears the marker explicitly.
+
+88. **Active invalid-history marker suppresses auto-populate without blocking the queue:** seed queue `[A, B, C]` and an active invalid-history marker for B. Run populate. Assert A completes, B is removed from `remainingWalletIds`, added to `invalidHistoryWalletIds`, not added to `doneWalletIds`, and C still runs to completion. Assert no tx-history fetch, snapshot index read, or snapshot write occurs for B while the marker is active. `populateProgressTick` advances for the skip so UI can stop treating B as endlessly pending.
+
+89. **Expired invalid-history marker retries and success clears quarantine:** seed an expired marker for B and call `populateWallets(['B'])`. Assert `appendToQueue` can move B out of stale `invalidHistoryWalletIds` into `remainingWalletIds`, `runPopulate` does not suppress the wallet because `isSnapshotInvalidHistoryMarkerActive(...)` is false, and a successful `handleFinishWalletOnPopulateWorklet(...)` clears `snap:invalid-history:v1:B`, removes B from `invalidHistoryWalletIds`, and moves B to `doneWalletIds`.
+
+90. **Invalid-history wallet never publishes clamped negative portfolio math:** seed shared/queue state where B previously failed with negative running balance. Assert recompute omits B from `byWallet`, total series, scoped slices, asset-group rows, and allocation math until a successful later populate writes valid snapshots. Assert no displayed `fiatBalance`, `pnlChange`, or `pnlPercent` is derived from a clamped negative running balance. For first-ever populate, active-invalid-history wallets are excluded from the chart-gate pending denominator but are not counted as ready/populated, so completed valid wallets can reveal charts while B remains skeleton/error-ready.
+
+91. **Invalid-history queue status reconciliation:** with `remainingWalletIds = [A]`, `doneWalletIds = [B]`, `invalidHistoryWalletIds = [C]`, run `reconcileQueueAgainstEligible(...)` after deleting C or otherwise removing C from the livenet/not-deleted populate-eligible set. Assert C is removed from `invalidHistoryWalletIds`, asset-group order drops C-only groups, and `orderRevision` bumps iff order changed. Visibility-only hides must not prune C because populate eligibility is visibility-ignored. Paired assertion: `markSkippedInvalidHistory(B)` removes B from `doneWalletIds` before recording it as invalid-history skipped, preventing stale readiness if a previously-good wallet later corrupts during incremental populate.
 
 ---
 
