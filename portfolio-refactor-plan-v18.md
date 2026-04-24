@@ -1,21 +1,21 @@
 # Portfolio runtime refactor plan (final, v18)
 
-**Target:** transform `src/portfolio/**` and its consumers into a three-runtime-by-default / one-shared-value architecture with scalar fingerprints as the render invalidation heuristic and full point-by-point parity tests as the correctness enforcement. Under Branch C of guardrail #28, the architecture escalates to a fourth runtime dedicated to rate fetches.
+**Target:** transform `src/portfolio/**` and its consumers into a three-runtime-by-default / one-shared-value architecture with scalar fingerprints as the render invalidation heuristic and full point-by-point parity tests as the correctness enforcement. Under Branch C of guardrail #27, the architecture escalates to a fourth runtime dedicated to rate fetches.
 
 **Executable by:** GPT-5.4 (high reasoning) or Claude Opus 4.7, phase by phase.
 
 ## Context the agent must internalize before starting
 
 - The current code has not shipped to users. No data migration, no legacy fallback, no schema versioning subsystem.
-- Reduce `src/portfolio/` substantially. **Current estimate: ~20.9k non-test LOC after refactor, from ~28.3k starting.** Likely lands in the 18–22k range pending Phase 0 inventory verification and Branch choice in Phase 0.5. Additional ~2.9k LOC deleted outside the module. Goal is structural clarity, not a specific number.
+- Reduce `src/portfolio/` substantially. **Current estimate: ~20.6k non-test LOC after refactor, from ~28.3k starting.** Likely lands in the 18–22k range pending Phase 0 inventory verification and Branch choice in Phase 0.5. Additional ~2.9k LOC deleted outside the module. Goal is structural clarity, not a specific number.
 - Architecture rests on **scalar fingerprints as a render invalidation heuristic**, not on cross-runtime object identity. **Numeric correctness is enforced by full point-by-point parity tests against v1 output** (Phase 3). Two distinct correctness properties, two distinct mechanisms.
 - Every phase ships green. `PORTFOLIO_V2` flag gates v1 vs v2 until Phase 8.
 - **Runtime API hygiene:** `runOnRuntimeAsync(runtime, workletFn, ...args)` — non-curried. Fire-and-forget usages attach `.catch(logPortfolioRuntimeError)`.
 - **Redux store access pattern:** `getStore()` in `src/store/index.ts:376` is an async factory returning `{store, persistor}` (from `src/store/index.ts:558`). Existing boot at `index.js:166` uses `getStore().then(({store, persistor}) => {...})` callback. All v2 Redux access goes through `src/portfolio/v2/reduxAccess.ts`, whose module-level `storeGetter` is initialized inside that existing callback before `<Provider>` mount. Accessor calls happen inside function bodies only, never at module top level. Re-init is allowed (Fast Refresh, tests).
-- **`orderRevision` monotonicity is a correctness invariant.** The `(sharedPortfolioState, PopulateQueueV1)` pair must remain synchronized across all reset paths — debug-clear, sign-out, or any other wipe. Partial wipes break merge arbitration.
-- **Reset / cancellation lifecycle is durable.** A `portfolio:v2:resetSentinel` MMKV key (outside the portfolio wipe scope) persists reset state across crashes, force-quits, and JS reloads. In-memory flags (`populateResetInFlight`, `populateResetFailed`) mirror it. On boot, the sentinel's value initializes `populateResetFailed` before any v2 code runs. A unified guard `canRunPortfolioV2Work()` gates all v2 write paths against this state.
-- **MMKV key namespaces (verified against repo):** snapshot data lives under `snap:*` (meta, index, chunk, invalid-history, raw points — see `snapshotStore.ts:146-162`); rate data lives under `rate:v1:*` (see `fiatRateStore.ts` `rateKey`); v2-specific data under `portfolio:v2:*` (queue, flag, sentinel). Wipe must cover all three. See guardrail #24.
-- **Portfolio storage is a dedicated MMKV instance, not the app default.** ID is `'bitpay.portfolio.engine'`. Created via `createPortfolioMmkvStorageOnRN()` / accessed via `getPortfolioMmkvStorageOnRN()` in `src/portfolio/adapters/rn/workletMmkvBridge.ts:8-25`. All v2 MMKV access — sentinel, flag, queue, wipe — must go through this instance, not a bare `new MMKV()` or the default MMKV. Using the wrong instance means writes and reads land in separate namespaces and coordination breaks silently.
+- **`orderRevision` monotonicity is a correctness invariant.** The `(sharedPortfolioState, PopulateQueueV1)` pair must stay in lockstep across reset paths (debug-clear, sign-out, any wipe): both reset together, or neither resets. Partial wipes break merge arbitration.
+- **Reset / cancellation is in-memory only. Portfolio data is disposable.** A single JS-side boolean `populateResetInFlight` prevents re-entry during an active `performResetSequence`. There is no persisted sentinel, no boot-time "reset failed" latch, no UI banner. If a wipe throws, the call site surfaces a one-shot error and the user retries; `wipePortfolioMmkvKeys` is idempotent and any partial wipe self-heals on next populate because snapshot/rate data is recreatable from scratch.
+- **MMKV key namespaces (verified against repo):** snapshot data lives under `snap:*` (meta, index, chunk, invalid-history, raw points — see `snapshotStore.ts:146-162`); rate data lives under `rate:v1:*` (see `fiatRateStore.ts` `rateKey`); v2-specific data under `portfolio:v2:*` (queue, flag). Wipe must cover all three. See guardrail #23.
+- **Portfolio storage is a dedicated MMKV instance, not the app default.** ID is `'bitpay.portfolio.engine'`. Created via `createPortfolioMmkvStorageOnRN()` / accessed via `getPortfolioMmkvStorageOnRN()` in `src/portfolio/adapters/rn/workletMmkvBridge.ts:8-25`. All v2 MMKV access — flag, queue, wipe — must go through this instance, not a bare `new MMKV()` or the default MMKV. Using the wrong instance means writes and reads land in separate namespaces and coordination breaks silently.
 - **Portfolio storage uses a registry-backed key tracker.** `MmkvKvStore` in `src/portfolio/adapters/rn/mmkvKvStore.ts` tracks every set/delete through `__bitpay.portfolio.engine.registry.v1__`. `listKeys()` reads from this registry, not from `MMKV.getAllKeys()`. Any wipe that deletes keys directly via `MMKV.delete` without also updating the registry will leave `listKeys()` returning stale deleted keys — breaks debug/stats/reset-path tests and any future code relying on `listKeys()`. Wipe must route through `kvStore.delete(key)` or equivalently clear the registry.
 - **Asset rows and allocation are grouped by ticker across chains.** Current UX collapses wallets by lowercased `currencyAbbreviation` across chains and token contracts for list/allocation display. V2 must preserve that behavior for Home, All Assets, Allocation, and key-scoped All Assets. This means the render-state model uses **asset-group ids** (ticker groups) for UI rows/order, while rate lookups and wallet internals still operate on raw `assetId` / `(coin, chain, tokenAddress)` values.
 - **Fiat-rate storage is canonicalized to four fetched/persisted intervals.** Only `1D`, `1W`, `1M`, and `ALL` are fetched or stored in MMKV. Displayed `3M`, `1Y`, and `5Y` are derived by windowing `ALL` on the compute runtime; they do not trigger separate rate fetches or persistence.
@@ -25,7 +25,7 @@
 - **Timeframe switches and chart scrubbing are read-only UI operations.** They never trigger `ensureFresh`, snapshot refresh, or populate work. Only the explicit refresh triggers named in Phase 6 may refresh rates or snapshots.
 - **Global react-native-worklets bundle mode is out of scope for v18.** V2 assumes the current proven non-bundle worklet path with the existing Quick Crypto / fetch hybrid-object integration for signing and network work. If bundle mode is ever considered, it must be shown to affect only the worklet runtime and must be re-validated separately before adoption.
 - **V1 kernels have runtime-wiring requirements v2 must preserve.** The populate kernel in `portfolioPopulateWorklet.ts` calls tx-history fetch paths (`txHistoryRequest.ts:124`, `:188`) that require a hydrated signing dispatch context on the active runtime. The fiat rate provider (`bwsFiatRateProvider.ts:13`) is `'worklet'`-tagged and calls `getPortfolioNitroFetchClientOnRuntime()` which reads the fetch client from the current dispatch context — **not** just from the runtime initializer. The transport file explicitly notes that "even requests that do not need BWS signing can still need Nitro Fetch on the runtime" (`portfolioWorkletTransport.ts:137`). V2 must preserve this pattern: `PopulateRuntimeContext` carries `signingContextsByWalletId`, and v2's new `drivePopulateForWallet(...)` installs those contexts around the same handler calls v1 wraps with `withWalletSigningContext` (`prepare` and each `processNextPage` call), rather than once around an entire wallet session. Rate fetches install a lightweight dispatch context around `loadSeriesWorkletWithContext`. **Failure to preserve these contracts means populate can't fetch tx history and ensureFresh can't fetch rates — the v2 system simply won't work.**
-- **Runtime-global dispatch context install/clear is a concurrency seam.** The populate runtime is shared between per-wallet populate work and rate fetches. Both paths install `PortfolioTxHistorySigningDispatchContext` on runtime globals. If `runOnRuntimeAsync` allows same-runtime tasks to interleave at `await` boundaries, two concurrent installs can clobber each other's context — populate's per-wallet context overwritten by a rate fetch's lightweight context mid-populate, or two rate fetches clobbering each other. V1 uses multiple serialization layers (`portfolioHost.ts:46` serial queue for request entry, `portfolioRequestWorklet.ts:265` worklet-side serial gate, `portfolioRequestWorklet.ts:278` allows `rates.ensure` during populate — a deliberate concurrency permission). V2's direct `runOnRuntimeAsync` calls from `ensureFresh` bypass v1's request-path serialization, so v2's concurrency safety requires explicit verification. **Phase 0.5 spike must verify scheduling behavior before Phase 5 commits to a runtime-wiring design.** See guardrail #28.
+- **Runtime-global dispatch context install/clear is a concurrency seam.** The populate runtime is shared between per-wallet populate work and rate fetches. Both paths install `PortfolioTxHistorySigningDispatchContext` on runtime globals. If `runOnRuntimeAsync` allows same-runtime tasks to interleave at `await` boundaries, two concurrent installs can clobber each other's context — populate's per-wallet context overwritten by a rate fetch's lightweight context mid-populate, or two rate fetches clobbering each other. V1 uses multiple serialization layers (`portfolioHost.ts:46` serial queue for request entry, `portfolioRequestWorklet.ts:265` worklet-side serial gate, `portfolioRequestWorklet.ts:278` allows `rates.ensure` during populate — a deliberate concurrency permission). V2's direct `runOnRuntimeAsync` calls from `ensureFresh` bypass v1's request-path serialization, so v2's concurrency safety requires explicit verification. **Phase 0.5 spike must verify scheduling behavior before Phase 5 commits to a runtime-wiring design.** See guardrail #27.
 
 ## Explicit Product Scope Decisions
 
@@ -85,7 +85,7 @@ Total kept: **~13,805 LOC.**
 - **UI runtime** — default Reanimated runtime. React components + selectors.
 - **Compute runtime** — `createWorkletRuntime({ name: 'portfolio-compute', enableEventLoop: true })`. Owns `recompute()`.
 - **Populate runtime** — `createWorkletRuntime({ name: 'portfolio-populate', enableEventLoop: true })`. Owns the populate loop.
-- **Rate runtime** — optional fourth runtime selected only by Branch C of guardrail #28. Dedicated to rate fetches if populate-vs-rate interleaving proves unsafe.
+- **Rate runtime** — optional fourth runtime selected only by Branch C of guardrail #27. Dedicated to rate fetches if populate-vs-rate interleaving proves unsafe.
 - **`sharedPortfolioState`** — `SharedValue<PortfolioState>`, authoritative state.
 - **`populateProgressTick`** — `SharedValue<number>`. Per wallet completion during progressive first-populate sessions. Subscriber triggers incremental recompute only in that mode.
 - **`populateCommitTick`** — `SharedValue<number>`. Fired once when a deferred incremental populate finishes and the stale-to-fresh swap should publish.
@@ -99,10 +99,8 @@ Total kept: **~13,805 LOC.**
 - **Populate publish mode** — `'progressive'` for the first-ever populate that should reveal rows as wallets complete, `'deferred'` for later incremental populates that must keep stale values visible until one final commit.
 - **Scalar signature** — joined string like `populatedWalletIdsKey`. Fingerprint-input / diff-key.
 - **Order revision** — monotonic counter for `orderedAssetGroupIdsForAssetList` mutations. Used for merge arbitration. **Monotonic across queue rebuilds**, not just within one queue's lifetime.
-- **Reset sentinel** — MMKV key `portfolio:v2:resetSentinel` storing `'none' | 'in_progress' | 'failed'`. Excluded from `wipePortfolioMmkvKeys` scope. Durable across crashes. Initializes `populateResetFailed` on boot.
-- **`populateResetInFlight`** — JS-side boolean, set only during an active `performResetSequence` invocation. Prevents re-entry and blocks kicks during reset.
-- **`populateResetFailed`** — JS-side boolean, mirrors the sentinel's `failed` or `in_progress` state. Blocks all v2 work until a successful reset clears both.
-- **`canRunPortfolioV2Work()`** — predicate: `!populateResetInFlight && !populateResetFailed`. First executable statement of every v2 function that writes to MMKV or `sharedPortfolioState`.
+- **`populateResetInFlight`** — JS-side boolean, set only during an active `performResetSequence` invocation. Prevents re-entry and blocks kicks during reset. Not persisted; any prior in-flight session is gone after a JS reload or app restart.
+- **`canRunPortfolioV2Work()`** — predicate: `!populateResetInFlight`. First executable statement of every v2 function that writes to MMKV or `sharedPortfolioState`.
 - **`waitForPopulateLoopToStop()`** — polls `populateLoopRunning.value`. Throws on 60s timeout. Used by `performResetSequence`.
 - **`waitForRecomputeDrainToStop()`** — polls scheduler's `running` flag. Throws on 30s timeout. Used by `performResetSequence` alongside the populate wait to quiesce both async subsystems before wipe.
 - **`waitForEnsureFreshToStop()`** — polls `ratesFetch.ts` in-flight count. Throws on 20s timeout. Third wait in the reset `Promise.all`. Covers rate fetches that started before the reset guard flipped.
@@ -129,34 +127,31 @@ Total kept: **~13,805 LOC.**
 14. **`orderRevision` threads through `PopulateQueueV1`, `RecomputeInputs`, `PortfolioState`.** Merge rule: take higher `orderRevision`. Monotonic across queue rebuilds: `buildQueue` uses `(loadQueue()?.orderRevision ?? 0) + 1`, never resets to 1. Non-order-mutating queue writes (e.g., `markDone`) leave `orderRevision` unchanged.
 15. **Fire-time reads, not ref-cached inputs.** `PortfolioV2Root` and triggers call `buildBaseRecomputeInputs(...)` at fire/call time, reading from `reduxAccess` helpers and current queue state.
 16. **All Redux store access via `reduxAccess.ts`.** Module-level `storeGetter` initialized inside the existing `getStore().then(...)` callback in `index.js`. Accessor calls inside function bodies only.
-17. **Reset paths must reset shared state.** Any code path that wipes portfolio MMKV (debug "clear all storage," sign-out if it clears portfolio data, any future full-reset flow) must also set `sharedPortfolioState.value = EMPTY_PORTFOLIO_STATE`, `populateProgressTick.value = 0`, `populateCommitTick.value = 0`, `populateRetryTick.value = 0`. Partial wipes (queue zeroed but state alive) will cause the next populate cycle's fresh `orderRevision = 1` to lose merge arbitration against state's stale higher value, resulting in silent stale-order display.
+17. **Reset paths must reset shared state.** Any code path that wipes portfolio MMKV (debug "clear all storage," sign-out if it clears portfolio data, any future full-reset flow) must also set `sharedPortfolioState.value = EMPTY_PORTFOLIO_STATE`, `populateProgressTick.value = 0`, `populateCommitTick.value = 0`, `populateRetryTick.value = 0`. A partial wipe that zeroes MMKV but leaves stale sharedState alive would cause the next populate cycle's fresh `orderRevision = 1` to lose merge arbitration against state's stale higher value and display stale order. Since portfolio data is disposable and fully recreatable from scratch, the healing path is: if anything looks off post-reset, wipe again — the next populate rebuilds everything.
 18. **Heavy scopes may advance `orderedAssetGroupIdsForAssetList` + `orderRevision`.** Any scope in `{'full', 'wallet', 'wallets'}` replaces order + revision in state if `inputs.orderRevision > prev.orderRevision`. Touch scopes never do. This is the single rule — no contradictory variants.
-19. **Reset is a durable, ordered, failure-aware sequence.** `performResetSequence`:
+19. **Reset is a simple, ordered, in-memory sequence.** `performResetSequence`:
     1. Set `populateResetInFlight = true` (before any side effect).
     2. `cancelPopulate()`.
-    3. `await Promise.all([waitForPopulateLoopToStop(), waitForRecomputeDrainToStop(), waitForEnsureFreshToStop()])`. On any timeout: throw. Nothing wiped, nothing latched. **All three waits are needed**: populate loop, compute drain, and in-flight rate fetches are independent async subsystems, any of which can write MMKV or publish to `sharedPortfolioState` after the guard flip.
-    4. `writeResetSentinel('in_progress')` — durably marks "wipe about to start."
-    5. `await wipePortfolioMmkvKeys()` — idempotent, excludes both sentinel and feature flag keys.
-    6. `resetSharedPortfolioStateForDebugClear()`.
-    7. `writeResetSentinel('none')`. Clear `populateResetFailed`.
-    8. In `finally`: clear `populateResetInFlight`.
-    On any throw between steps 4–7: `writeResetSentinel('failed')` (best-effort), set `populateResetFailed = true`, re-throw. Retry re-enters the sequence and self-heals on idempotent operations.
+    3. `await Promise.all([waitForPopulateLoopToStop(), waitForRecomputeDrainToStop(), waitForEnsureFreshToStop()])`. On any timeout: throw. Nothing wiped. **All three waits are needed**: populate loop, compute drain, and in-flight rate fetches are independent async subsystems, any of which can write MMKV or publish to `sharedPortfolioState` after the guard flip.
+    4. `await wipePortfolioMmkvKeys()` — idempotent, excludes the feature flag key.
+    5. `resetSharedPortfolioStateForDebugClear()`.
+    6. In `finally`: clear `populateResetInFlight`.
+    On any throw from the wait step or the wipe step, re-throw so the call site can surface a one-shot error ("Clear storage failed. Try again."). The user retries; the wipe is idempotent so a second attempt completes. If the app crashes mid-wipe, next boot starts with partial MMKV state, which populate rebuilds on first run — no durable "reset failed" flag is needed because portfolio data is disposable.
 20. **`populateCancelFlag` lifecycle.** Set `true` by `cancelPopulate()` and by reset paths. Set `false` by every kick path as its last action immediately before `runOnRuntimeAsync(...)`. Never persists across populate cycles.
 21. **Unified guard for all v2 write paths.** Every function that writes to portfolio MMKV or `sharedPortfolioState` — triggers, kick paths, `scheduleRecompute`, `drain()` iterations, `reconcileQueueAgainstEligible`, `buildQueue` callers — checks `canRunPortfolioV2Work()` as the **first executable statement**, before parameter reads, before any side effect. An agent implementing this should be able to satisfy the rule by inspecting the literal first line of every such function.
-22. **Reset sentinel is durable and boot-synced.** `portfolio:v2:resetSentinel` lives outside the wipe scope. On app bootstrap, inside the `getStore().then(({store, persistor}) => {...})` callback and before any v2 code can run, read the sentinel and set `populateResetFailed = true` if it reads `'in_progress'` or `'failed'`. The UI banner surfaces this state to the user regardless of which session the failure occurred in.
-23. **Async writers must register with the reset wait-set.** Any async portfolio task that can write to MMKV or publish to `sharedPortfolioState` *after* the reset guard has flipped must (a) track its in-flight state in a JS-side counter, (b) expose a `waitForXToStop()` primitive, (c) be included in `performResetSequence`'s `Promise.all`, and (d) re-check `canRunPortfolioV2Work()` immediately before its persist step so that a call in-flight at guard-flip time no-ops on its write. This is a contract for future extensions: the `runPopulate` / `drain` / `ensureFresh` triad is the complete registered set as of v11; any new async writer added to the system must extend the wait-set. Async *readers* that don't write do not need to register — they can tolerate reading mid-wipe storage without corrupting state. The trigger for registration is "writes that could land after guard flip," not "any async MMKV touch."
-24. **`wipePortfolioMmkvKeys` matches the repo's actual key namespaces.** MMKV keys are split across prefixes: `snap:*` (snapshot meta/index/chunks/invalid-history, per `snapshotStore.ts:146-162`), `rate:v1:*` (fiat rate series, per `fiatRateStore.ts` `rateKey` function ~line 22), and `portfolio:v2:*` (v2-specific keys — queue, flag, sentinel). Wipe iterates all MMKV keys and deletes any matching `PORTFOLIO_WIPE_PREFIXES = ['snap:', 'rate:v1:', 'portfolio:v2:']` except those in `WIPE_EXCLUDED_KEYS = { RESET_SENTINEL_KEY, PORTFOLIO_V2_FLAG_KEY }`. The sentinel is excluded for durability-across-crash (guardrail #22); the feature flag is excluded so debug-clear/sign-out during rollout doesn't silently flip v2 off on a developer's device. **The prefix set must be verified against Phase 0 inventory output** — if Phase 0 surfaces additional portfolio-related prefixes, they must be added here; the list above is the verified complete set as of v12.
-25. **All v2 MMKV access uses the portfolio instance.** `getPortfolioMmkvStorageOnRN()` returns a dedicated `MMKV({ id: 'bitpay.portfolio.engine' })`. Sentinel, flag, queue, reset operations — every read and write in v2 — must route through this instance. A bare `new MMKV()` or the default MMKV puts keys in a different namespace, which would make the sentinel unreadable on boot and the wipe's key scan miss everything. Plan snippets that show `mmkv.get/set/delete` are shorthand for "the portfolio MMKV instance," not the default MMKV; implementation must make this explicit.
-26. **Wipe must update the key registry.** Portfolio storage tracks keys through `__bitpay.portfolio.engine.registry.v1__`; `listKeys()` reads it. Direct `MMKV.delete` leaves the registry stale. `wipePortfolioMmkvKeys` enumerates keys from `getPortfolioMmkvStorageOnRN().getAllKeys()` (the source of truth) and deletes through `kvStore.delete(key)` (which untracks). Test: `listKeys()` returns empty (except exclusions) after wipe. `getAllKeys()` also returns empty (except exclusions).
-27. **V2 runtime wiring preserves v1 kernel integration contracts.** The "untouched" v1 kernels (populate, rate provider, tx-history fetch) are load-bearing but have **runtime-global preconditions** that must hold when they execute:
+22. **Async writers quiesce before wipe.** Any async portfolio task that can write to MMKV or publish to `sharedPortfolioState` must (a) track its in-flight state in a JS-side counter, (b) expose a `waitForXToStop()` primitive, (c) be included in `performResetSequence`'s `Promise.all`, and (d) re-check `canRunPortfolioV2Work()` immediately before its persist step so a call in-flight at guard-flip time no-ops on its write. The `runPopulate` / `drain` / `ensureFresh` triad is the complete registered set; any new async writer added to the system must extend the wait-set. Async *readers* that don't write do not need to register — they can tolerate reading mid-wipe storage without corrupting state. The trigger for registration is "writes that could land after guard flip," not "any async MMKV touch."
+23. **`wipePortfolioMmkvKeys` matches the repo's actual key namespaces.** MMKV keys are split across prefixes: `snap:*` (snapshot meta/index/chunks/invalid-history, per `snapshotStore.ts:146-162`), `rate:v1:*` (fiat rate series, per `fiatRateStore.ts` `rateKey` function ~line 22), and `portfolio:v2:*` (v2-specific keys — queue, flag). Wipe iterates all MMKV keys and deletes any matching `PORTFOLIO_WIPE_PREFIXES = ['snap:', 'rate:v1:', 'portfolio:v2:']` except those in `WIPE_EXCLUDED_KEYS = { PORTFOLIO_V2_FLAG_KEY }`. The feature flag is excluded so debug-clear/sign-out during rollout doesn't silently flip v2 off on a developer's device. **The prefix set must be verified against Phase 0 inventory output** — if Phase 0 surfaces additional portfolio-related prefixes, they must be added here; the list above is the verified complete set as of v12.
+24. **All v2 MMKV access uses the portfolio instance.** `getPortfolioMmkvStorageOnRN()` returns a dedicated `MMKV({ id: 'bitpay.portfolio.engine' })`. Flag, queue, reset operations — every read and write in v2 — must route through this instance. A bare `new MMKV()` or the default MMKV puts keys in a different namespace, which would make the wipe's key scan miss everything. Plan snippets that show `mmkv.get/set/delete` are shorthand for "the portfolio MMKV instance," not the default MMKV; implementation must make this explicit.
+25. **Wipe must update the key registry.** Portfolio storage tracks keys through `__bitpay.portfolio.engine.registry.v1__`; `listKeys()` reads it. Direct `MMKV.delete` leaves the registry stale. `wipePortfolioMmkvKeys` enumerates keys from `getPortfolioMmkvStorageOnRN().getAllKeys()` (the source of truth) and deletes through `kvStore.delete(key)` (which untracks). Test: `listKeys()` returns empty (except exclusions) after wipe. `getAllKeys()` also returns empty (except exclusions).
+26. **V2 runtime wiring preserves v1 kernel integration contracts.** The "untouched" v1 kernels (populate, rate provider, tx-history fetch) are load-bearing but have **runtime-global preconditions** that must hold when they execute:
     - **Every worklet call that uses Nitro fetch requires a dispatch context installed on the runtime for the duration of the call.** The fetch client is obtained via `getPortfolioNitroFetchClientOnRuntime()` (`txHistorySigning.ts:1060`), which reads from `requirePortfolioTxHistorySigningDispatchContextOnRuntime()`. No dispatch context = throw. This applies even when no BWS signing is needed — see the explicit transport-layer comment at `portfolioWorkletTransport.ts:137` ("Even requests that do not need BWS signing can still need Nitro Fetch on the runtime"). Two concrete cases in v2:
       - **Populate (per-wallet, with signing):** `signingContextsByWalletId[walletId]` built via `createPortfolioTxHistorySigningDispatchContextOnRN({requestPrivKey, requestPubKey, requestCount: 4})`. Installed around the same calls v1 wraps with `withWalletSigningContext` inside `drivePopulateForWallet(...)` (`handlePrepareWalletOnPopulateWorklet(...)` and each `handleProcessNextPageOnPopulateWorklet(...)` call), then cleared immediately after that handler returns. Do **not** widen that wrap to `handleFinishWalletOnPopulateWorklet(...)` / `handleCloseWalletSessionOnPopulateWorklet(...)` without separate justification.
       - **Rate fetch (single-shot, no signing):** lightweight context built via `createPortfolioTxHistorySigningDispatchContextOnRN({requestCount: 1})` with no `requestPrivKey`. Installed around `loadSeriesWorklet`, cleared in finally. `boxedNitroFetch` is populated regardless of whether `requestPrivKey` is provided, so this lightweight context is sufficient for non-signing Nitro requests.
     - The populate runtime's initializer must call `initializePortfolioRuntimeGlobals()` (which internally calls `ensurePortfolioRuntimeSigningGlobals()`) — same pattern as `portfolioRuntime.ts:34`. This sets up the *capacity* to hold contexts; per-call installation is still required.
     - `ensureFresh` fetch step runs on the populate runtime via `runOnRuntimeAsync(populateRuntime, loadSeriesWorkletWithContext, {args, dispatchContext})` — the worklet wrapper installs the lightweight context before calling the provider. See Phase 2 for implementation.
     - Any v2 change that bypasses these contracts (e.g., calling any populate handler without installing the signing context, or calling `loadSeriesWorklet` without the lightweight context) results in runtime throws on the first fetch. Future v2 worklet calls that use Nitro fetch must follow the same pattern.
-28. **Runtime-global dispatch context must not be clobbered by concurrent installs.** The populate runtime is shared between per-wallet populate work and rate fetches (guardrail #27). Both install `PortfolioTxHistorySigningDispatchContext` on runtime globals. If `runOnRuntimeAsync` allows same-runtime tasks to interleave across `await` boundaries, concurrent installs clobber each other and corrupt in-flight work. **Phase 0.5 spike (see Phase 0.5) must empirically determine the scheduling behavior before Phase 5 commits to a runtime-wiring design.** Implementation path branches on spike results per the table below. `ensureFresh` always dedupes identical-args calls; serialization of non-identical calls is required when Probe 3 is dirty and optional otherwise. An acceptance test verifies the invariant regardless of chosen branch: under deliberately concurrent populate + rate-fetch load, neither operation observes the other's dispatch context mid-flight.
-29. **Do not enable global worklets bundle mode in v18.** Keep the current standard non-bundle worklet mode plus the existing Quick Crypto / fetch hybrid-object path for tx-history signing and network work. Any future bundle-mode experiment requires a separate design proving it only affects the target worklet runtime and does not break the existing signing/fetch integration.
+27. **Runtime-global dispatch context must not be clobbered by concurrent installs.** The populate runtime is shared between per-wallet populate work and rate fetches (guardrail #26). Both install `PortfolioTxHistorySigningDispatchContext` on runtime globals. If `runOnRuntimeAsync` allows same-runtime tasks to interleave across `await` boundaries, concurrent installs clobber each other and corrupt in-flight work. **Phase 0.5 spike (see Phase 0.5) must empirically determine the scheduling behavior before Phase 5 commits to a runtime-wiring design.** Implementation path branches on spike results per the table below. `ensureFresh` always dedupes identical-args calls; serialization of non-identical calls is required when Probe 3 is dirty and optional otherwise. An acceptance test verifies the invariant regardless of chosen branch: under deliberately concurrent populate + rate-fetch load, neither operation observes the other's dispatch context mid-flight.
+28. **Do not enable global worklets bundle mode in v18.** Keep the current standard non-bundle worklet mode plus the existing Quick Crypto / fetch hybrid-object path for tx-history signing and network work. Any future bundle-mode experiment requires a separate design proving it only affects the target worklet runtime and does not break the existing signing/fetch integration.
 
 ---
 
@@ -187,7 +182,7 @@ Total kept: **~13,805 LOC.**
 > 2. Public exports of `src/portfolio/**/index.ts` labeled `keep`/`delete`/`replace`.
 > 3. Redux slices/fields storing portfolio data + v2 retention.
 > 4. **Exact state paths** for every piece of Redux data v2 needs: quote currency, eligible wallets, live rates (by asset id), live rates asOfMs, wallet balances, wallet→asset mapping. These paths feed `reduxAccess.ts` accessors in Phase 1.
-> 5. **MMKV key prefixes in use.** Grep for `return \`[a-z]+:` patterns in `src/portfolio/core/pnl/**` and `src/portfolio/runtime/worklet/**` to find all key-construction sites. Expected: `snap:meta:v2:*`, `snap:index:v2:*`, `snap:chunk:v2:*`, `snap:invalid-history:v1:*`, `snap:*:*:*` (raw point keys), `rate:v1:*`. V2 adds `portfolio:v2:*`. Report the complete verified set. This list grounds the `PORTFOLIO_WIPE_PREFIXES` constant in guardrail #24 and Phase 7.5's `wipePortfolioMmkvKeys` implementation. **If Phase 0 finds prefixes not in this expected list, they MUST be added** — otherwise debug-clear will leave orphan keys.
+> 5. **MMKV key prefixes in use.** Grep for `return \`[a-z]+:` patterns in `src/portfolio/core/pnl/**` and `src/portfolio/runtime/worklet/**` to find all key-construction sites. Expected: `snap:meta:v2:*`, `snap:index:v2:*`, `snap:chunk:v2:*`, `snap:invalid-history:v1:*`, `snap:*:*:*` (raw point keys), `rate:v1:*`. V2 adds `portfolio:v2:*`. Report the complete verified set. This list grounds the `PORTFOLIO_WIPE_PREFIXES` constant in guardrail #23 and Phase 7.5's `wipePortfolioMmkvKeys` implementation. **If Phase 0 finds prefixes not in this expected list, they MUST be added** — otherwise debug-clear will leave orphan keys.
 > 6. **MMKV adapter layout.** Inspect `src/portfolio/adapters/rn/workletMmkvBridge.ts` and `mmkvKvStore.ts`. Confirm `getPortfolioMmkvStorageOnRN()` returns the dedicated `bitpay.portfolio.engine` MMKV instance. Confirm that there is **no existing** `getPortfolioKvStore()` accessor in the repo and that Phase 1 must create one in v2 using `MmkvKvStore`, `getPortfolioMmkvStorageOnRN()`, `PORTFOLIO_WORKLET_MMKV_STORAGE_ID`, and `PORTFOLIO_WORKLET_MMKV_REGISTRY_KEY`. Report the exact import paths for all four.
 > 7. **FiatRateStore fetch/persist separability.** Inspect `src/portfolio/core/pnl/fiatRateStore.ts`. Confirm that `ensureRates` uses an injected provider's `loadSeries` for the network step, `getSeries` for freshness checks, and `setSeries` for persistence. Confirm `extractSeries` is file-local (not exported) and therefore must be cloned/exported intentionally for v2. Confirm `BwsFiatRateProvider` at `adapters/rn/bwsFiatRateProvider.ts` implements `loadSeries`. These are the primitives Phase 2's `ensureFresh` uses.
 > 8. **Exact LOC** for every file in the kept/deleted lists. Flag discrepancies >10%, especially `balanceDiagnostic.ts`.
@@ -229,11 +224,6 @@ Total kept: **~13,805 LOC.**
 > - **Identity preservation** across publishes.
 > - **Publish cost** at three sizes (empty / medium / large). Android mid-tier + iOS sim. P50 + P99.
 > - **Dual-writer MMKV safety.** Populate + compute runtimes write different keys concurrently, 1000 iters.
-> - **SharedValue persistence lifecycle** (NEW — needed for reset-on-boot correctness):
->   - Set `sharedPortfolioState.value` to a known non-empty test state.
->   - Background the app for 30s, foreground. Read the value. Report: `sharedValueSurvivesBackground`.
->   - Trigger a JS reload (Dev Settings or force-quit). Read the value. Report: `sharedValueResetsOnJsReload`.
->   - If survivesBackground is false or resetsOnJsReload is false, the reset-on-boot logic in Phase 5 may need adaptation (e.g., re-hydrate state on foreground). Results feed Phase 5 design.
 >
 > Decision matrix → `PORTFOLIO_V2_SPIKE_RESULTS.md`:
 >
@@ -245,7 +235,7 @@ Total kept: **~13,805 LOC.**
 >
 > Dual-writer must be safe; else stop.
 >
-> **Additional spike: runtime-global dispatch-context interleaving probe (see guardrail #28).**
+> **Additional spike: runtime-global dispatch-context interleaving probe (see guardrail #27).**
 >
 > The populate runtime is shared by per-wallet populate work and rate fetches. Both paths install `PortfolioTxHistorySigningDispatchContext` on runtime globals via `setPortfolioTxHistorySigningDispatchContextOnRuntime`. If `runOnRuntimeAsync` allows same-runtime tasks to interleave across `await` boundaries, concurrent installs clobber each other. This spike determines empirically whether that interleaving happens.
 >
@@ -272,7 +262,7 @@ Total kept: **~13,805 LOC.**
 >
 > **Branch descriptions:**
 >
-> - **Branch A — no mitigation.** Only if both probes are clean on both platforms across 1000 iterations. `ensureFresh` retains `inFlightCount` tracking for reset-wait (guardrail #23) and always dedupes identical-args requests. Populate and rate share the populate runtime without additional coordination.
+> - **Branch A — no mitigation.** Only if both probes are clean on both platforms across 1000 iterations. `ensureFresh` retains `inFlightCount` tracking for reset-wait (guardrail #22) and always dedupes identical-args requests. Populate and rate share the populate runtime without additional coordination.
 >
 > - **Branch B — shared JS serial executor (diagnostic only, not a ship target).** A `portfolioRuntimeSerial` executor wraps both `runOnRuntimeAsync` kick sites (populate and rate). Implementation ~30 LOC. **Significant behavioral regression from v1:** rate fetches kicked during an active populate kick wait for the *entire* populate loop to complete, not just one wallet. V1's populate iterates all wallets inside one task (`portfolioPopulateJobWorklet.ts:442-456`). For a session with 15 wallets at ~10s each, a rate fetch triggered mid-populate could wait 2+ minutes. V1 explicitly permits `rates.ensure` during populate (`portfolioRequestWorklet.ts:278`) — B forecloses that. Because the product requirements in v18 say reads must not block behind populate, Branch B may be used only as a spike-time diagnostic/reference implementation and must not be the shipped outcome.
 >
@@ -282,7 +272,7 @@ Total kept: **~13,805 LOC.**
 >
 > **Rate-vs-rate concurrency policy:**
 >
-> `ensureFresh` baseline tracks `inFlightCount` (guardrail #23).
+> `ensureFresh` baseline tracks `inFlightCount` (guardrail #22).
 > - **Dedupe (always on):** calls with identical `(quoteCurrency, intervals, coins, assets, maxAgeMs, force)` args merge into a single in-flight fetch. The second caller awaits the first's result.
 > - **Serialize (conditional):** when Probe 3 is dirty or flaky, non-identical calls queue on a JS-side serial executor scoped to rate-runtime kicks. If Probe 3 is clean, this serialization is optional hardening and not required by the plan.
 >
@@ -402,84 +392,25 @@ Total kept: **~13,805 LOC.**
 >
 > Verify `Interval` against `FiatRateInterval` in `core/fiatRatesShared.ts`.
 >
-> ### `src/portfolio/v2/populate/resetSentinel.ts`
->
-> ```ts
-> import { getPortfolioMmkvStorageOnRN } from '../adapters/rn/workletMmkvBridge';
->
-> export type ResetSentinel = 'none' | 'in_progress' | 'failed';
->
-> // Key lives OUTSIDE the portfolio wipe scope. wipePortfolioMmkvKeys MUST skip it.
-> // Stored in the dedicated portfolio MMKV instance ('bitpay.portfolio.engine').
-> const RESET_SENTINEL_KEY = 'portfolio:v2:resetSentinel';
->
-> export function readResetSentinel(): ResetSentinel {
->   const storage = getPortfolioMmkvStorageOnRN();
->   const raw = storage.getString(RESET_SENTINEL_KEY);
->   if (raw === 'in_progress' || raw === 'failed') return raw;
->   return 'none';
-> }
->
-> export function writeResetSentinel(state: ResetSentinel): void {
->   const storage = getPortfolioMmkvStorageOnRN();
->   if (state === 'none') storage.delete(RESET_SENTINEL_KEY);
->   else storage.set(RESET_SENTINEL_KEY, state);
-> }
->
-> export { RESET_SENTINEL_KEY };   // exported so wipe logic can exclude it
-> ```
->
-> **Note on direct MMKV access:** the sentinel bypasses the `MmkvKvStore` registry abstraction intentionally. If it were tracked by the registry, `clearAll()` on the registry (called during reset) would remove the sentinel — exactly the opposite of what we want. The sentinel must remain outside the tracked-key set. The feature flag (`portfolio:v2:flag`) has the same exemption for the same reason; see guardrail #24 `WIPE_EXCLUDED_KEYS`.
->
 > ### `src/portfolio/v2/populate/resetState.ts`
 >
 > ```ts
-> import { readResetSentinel } from './resetSentinel';
->
+> // In-memory re-entry guard for performResetSequence. Not persisted.
+> // Portfolio data is disposable; a crash mid-reset leaves partial MMKV
+> // that the next populate rebuilds from scratch.
 > let populateResetInFlight = false;
-> let populateResetFailed = false;
->
-> // Boot-time sync. Called once from index.js bootstrap, AFTER initializePortfolioV2ReduxAccess.
-> export function initializePortfolioV2ResetState(): void {
->   const sentinel = readResetSentinel();
->   populateResetFailed = (sentinel === 'in_progress' || sentinel === 'failed');
->   // populateResetInFlight stays false — any prior in-flight session is gone.
-> }
 >
 > export function canRunPortfolioV2Work(): boolean {
->   return !populateResetInFlight && !populateResetFailed;
+>   return !populateResetInFlight;
 > }
 >
-> // Reader for populateResetInFlight, used by performResetSequence for re-entry check.
 > export function isPopulateResetInFlight(): boolean {
 >   return populateResetInFlight;
 > }
 >
-> // Internal setters (used by performResetSequence).
-> export function __setPopulateResetInFlight(value: boolean): void { populateResetInFlight = value; }
-> export function __setPopulateResetFailed(value: boolean): void {
->   if (populateResetFailed === value) return;
->   populateResetFailed = value;
->   notifyResetStateListeners();
-> }
->
-> // Pub-sub for UI hook.
-> const listeners = new Set<() => void>();
-> export function subscribeResetState(l: () => void): () => void {
->   listeners.add(l); return () => listeners.delete(l);
-> }
-> function notifyResetStateListeners(): void { listeners.forEach(l => l()); }
-> export function __getPopulateResetFailedForHook(): boolean { return populateResetFailed; }
-> ```
->
-> ### `src/portfolio/v2/hooks/usePortfolioResetFailed.ts`
->
-> ```ts
-> import { useSyncExternalStore } from 'react';
-> import { subscribeResetState, __getPopulateResetFailedForHook } from '../populate/resetState';
->
-> export function usePortfolioResetFailed(): boolean {
->   return useSyncExternalStore(subscribeResetState, __getPopulateResetFailedForHook);
+> // Internal setter used by performResetSequence.
+> export function __setPopulateResetInFlight(value: boolean): void {
+>   populateResetInFlight = value;
 > }
 > ```
 
@@ -605,7 +536,7 @@ Total kept: **~13,805 LOC.**
 > // Builds walletsById AND signingContextsByWalletId. Signing contexts created via
 > // createPortfolioTxHistorySigningDispatchContextOnRN({requestPrivKey, requestPubKey, requestCount})
 > // from txHistorySigning.ts:716. Inputs (requestPrivKey, requestPubKey) come from each wallet's
-> // credentials. See guardrail #27.
+> // credentials. See guardrail #26.
 > ```
 >
 > **Rules (in the module's top comment):**
@@ -639,12 +570,11 @@ Total kept: **~13,805 LOC.**
 > - `model.spec.ts` — `EMPTY_PORTFOLIO_STATE` snapshot.
 > - `reduxAccess.spec.ts` — accessor throws pre-init; works post-init; re-init allowed; test injection works.
 > - `sharedState.spec.ts` — `resetSharedPortfolioStateForDebugClear` sets state to empty, zeros all three ticks, leaves loop/cancel flags alone. `waitForPopulateLoopToStop` resolves immediately if flag already false; throws on timeout.
-> - `resetSentinel.spec.ts` — read/write round-trip for each state; invalid raw values read as `'none'`.
-> - `resetState.spec.ts` — `initializePortfolioV2ResetState` sets `populateResetFailed = true` when sentinel is `'in_progress'` or `'failed'`; `false` when `'none'`. `canRunPortfolioV2Work` reflects both flags. Subscriber fires on `populateResetFailed` transitions.
+> - `resetState.spec.ts` — `canRunPortfolioV2Work` returns `true` initially; `false` while `populateResetInFlight` is set; `true` again once cleared.
 
 **Acceptance:** v2 compiles, tests pass, `tsc` clean, no v1 changes.
 
-**LOC ledger:** +610 / 0 / +610.
+**LOC ledger:** +480 / 0 / +480.
 
 ---
 
@@ -710,7 +640,7 @@ Total kept: **~13,805 LOC.**
 >
 > `ratesFetch.ts` (JS):
 >
-> **Structural requirement:** `ensureFresh` must be implemented as separate **freshness-check + fetch** and **persist** steps with a `canRunPortfolioV2Work()` check between them (guardrail #23's "re-check before persist"). A thin wrapper around v1's `FiatRateStore.ensureRates()` (which bundles freshness-check + fetch + parse + persist at `fiatRateStore.ts:190`) is **not acceptable** — it makes the second guard check structurally impossible.
+> **Structural requirement:** `ensureFresh` must be implemented as separate **freshness-check + fetch** and **persist** steps with a `canRunPortfolioV2Work()` check between them (guardrail #22's "re-check before persist"). A thin wrapper around v1's `FiatRateStore.ensureRates()` (which bundles freshness-check + fetch + parse + persist at `fiatRateStore.ts:190`) is **not acceptable** — it makes the second guard check structurally impossible.
 >
 > **Required v18 shape (repo-accurate):**
 >
@@ -924,9 +854,9 @@ Total kept: **~13,805 LOC.**
 > - Displayed `3M` / `1Y` / `5Y` still derive from `ALL` after the bridge is applied.
 > - This committed-state bridge path is what allows quote switches to publish immediately even during deferred populate without leaking partially refreshed populate data.
 >
-> **Branch-specific concurrency wrapping:** depending on Phase 0.5 spike results (guardrail #28), `ensureFresh`'s `runOnRuntimeAsync` call and/or the target runtime may be wrapped with additional concurrency primitives. Branch A: no additional populate-vs-rate wrapping. Branch B: `portfolioRuntimeSerial` executor. Branch C: target `getRateFetchRuntime()` instead of `getPopulateRuntime()`. Branch D: worklet-side lock inside `loadSeriesWorkletWithContext`. Identical-args dedupe is always on. If probe 3 is dirty/flaky, additionally serialize non-identical `ensureFresh` calls at the JS level. See Phase 0.5 branch table for exact implementation per spike outcome.
+> **Branch-specific concurrency wrapping:** depending on Phase 0.5 spike results (guardrail #27), `ensureFresh`'s `runOnRuntimeAsync` call and/or the target runtime may be wrapped with additional concurrency primitives. Branch A: no additional populate-vs-rate wrapping. Branch B: `portfolioRuntimeSerial` executor. Branch C: target `getRateFetchRuntime()` instead of `getPopulateRuntime()`. Branch D: worklet-side lock inside `loadSeriesWorkletWithContext`. Identical-args dedupe is always on. If probe 3 is dirty/flaky, additionally serialize non-identical `ensureFresh` calls at the JS level. See Phase 0.5 branch table for exact implementation per spike outcome.
 >
-> **Two defenses together** (guardrail #23 pattern):
+> **Two defenses together** (guardrail #22 pattern):
 > 1. `waitForEnsureFreshToStop` in `performResetSequence`'s `Promise.all` blocks the wipe until all fetches complete or exit.
 > 2. Second `canRunPortfolioV2Work` check after network fetch resolves prevents write-after-guard-flip even if the wait is about to decrement inFlightCount.
 > Both are needed: the wait ensures quiescence; the second check ensures no orphan writes during quiescence. Neither alone is sufficient — wait without second-check lets pre-wait-resolved fetches write; second-check without wait can still race with wipe iteration.
@@ -1400,7 +1330,7 @@ Total kept: **~13,805 LOC.**
 >   // Per-wallet signing dispatch contexts. Built JS-side by createPortfolioTxHistorySigningDispatchContextOnRN.
 >   // Installed on the runtime per populate-worklet handler call inside
 >   // drivePopulateForWallet(...), cleared immediately after that handler returns.
->   // Required by the tx-history fetch path — see guardrail #27.
+>   // Required by the tx-history fetch path — see guardrail #26.
 >   signingContextsByWalletId: Record<string, PortfolioTxHistorySigningDispatchContext>;
 > };
 >
@@ -1561,8 +1491,7 @@ Total kept: **~13,805 LOC.**
 > import { waitForRecomputeDrainToStop } from '../scheduler';
 > import { waitForEnsureFreshToStop } from '../workletData/ratesFetch';
 > import { wipePortfolioMmkvKeys } from '../debug';
-> import { writeResetSentinel } from './resetSentinel';
-> import { isPopulateResetInFlight, __setPopulateResetInFlight, __setPopulateResetFailed } from './resetState';
+> import { isPopulateResetInFlight, __setPopulateResetInFlight } from './resetState';
 >
 > export async function performResetSequence(): Promise<void> {
 >   // NOT guarded by canRunPortfolioV2Work — this IS the reset.
@@ -1571,35 +1500,19 @@ Total kept: **~13,805 LOC.**
 >   __setPopulateResetInFlight(true);
 >   try {
 >     cancelPopulate();
->     try {
->       // Wait for ALL THREE async subsystems concurrently. Each can write MMKV or
->       // publish sharedPortfolioState after the guard flip. All must quiesce before wipe.
->       // Serial waiting would triple latency for no benefit.
->       await Promise.all([
->         waitForPopulateLoopToStop(),        // 60s default
->         waitForRecomputeDrainToStop(),       // 30s default
->         waitForEnsureFreshToStop(),          // 20s default
->       ]);
->     } catch (waitErr) {
->       // Wait timeout on any: no wipe happened, sentinel unchanged, don't latch failed.
->       // In-flight work will complete naturally. User can retry reset after it does.
->       throw waitErr;
->     }
->
->     // From here, we're about to modify MMKV. Set sentinel FIRST.
->     writeResetSentinel('in_progress');
->
->     try {
->       await wipePortfolioMmkvKeys();    // idempotent; excludes RESET_SENTINEL_KEY + PORTFOLIO_V2_FLAG_KEY
->       resetSharedPortfolioStateForDebugClear();
->       writeResetSentinel('none');        // success
->       __setPopulateResetFailed(false);
->     } catch (wipeErr) {
->       // Wipe or state-reset failed after wait succeeded. Latch.
->       try { writeResetSentinel('failed'); } catch { /* best-effort */ }
->       __setPopulateResetFailed(true);
->       throw wipeErr;
->     }
+>     // Wait for ALL THREE async subsystems concurrently. Each can write MMKV or
+>     // publish sharedPortfolioState after the guard flip. All must quiesce before wipe.
+>     // Serial waiting would triple latency for no benefit.
+>     await Promise.all([
+>       waitForPopulateLoopToStop(),        // 60s default
+>       waitForRecomputeDrainToStop(),       // 30s default
+>       waitForEnsureFreshToStop(),          // 20s default
+>     ]);
+>     // Any throw from here propagates to the caller, which surfaces a one-shot
+>     // error. The wipe is idempotent; retrying completes it. Portfolio data is
+>     // disposable, so a crash mid-wipe just leaves the next populate to rebuild.
+>     await wipePortfolioMmkvKeys();         // idempotent; excludes PORTFOLIO_V2_FLAG_KEY
+>     resetSharedPortfolioStateForDebugClear();
 >   } finally {
 >     __setPopulateResetInFlight(false);
 >   }
@@ -1608,7 +1521,7 @@ Total kept: **~13,805 LOC.**
 >
 > UI contract: reset call sites are async and fallible. Callers must:
 > - Show a progress indicator during the await.
-> - Catch thrown errors, surface a user-facing retry prompt.
+> - Catch thrown errors and surface a one-shot native Alert ("Clear storage failed. Try again.").
 > - Not retry automatically — user-initiated only.
 >
 > ### `buildBaseRecomputeInputs` — fire-time
@@ -1743,16 +1656,14 @@ Total kept: **~13,805 LOC.**
 >
 > ```js
 > import { initializePortfolioV2ReduxAccess } from './src/portfolio/v2/reduxAccess';
-> import { initializePortfolioV2ResetState } from './src/portfolio/v2/populate/resetState';
 >
 > getStore().then(({store, persistor}) => {
 >   initializePortfolioV2ReduxAccess(() => store.getState());   // NEW
->   initializePortfolioV2ResetState();                          // NEW — reads sentinel, initializes populateResetFailed
 >   // ... existing <Provider store={store}> mount ...
 > });
 > ```
 >
-> Do not restructure the existing boot flow. Two added lines inside the existing callback. Order matters: `initializePortfolioV2ReduxAccess` before `initializePortfolioV2ResetState`, since some reset-state code paths may (in future extensions) need to reach into Redux; current implementation doesn't, but the ordering is defensive.
+> Do not restructure the existing boot flow. One added line inside the existing callback. Reset state is in-memory only, so no boot-time sync is required.
 >
 > ### Wire `app.effects.ts` post-auth transition
 >
@@ -1786,22 +1697,15 @@ Total kept: **~13,805 LOC.**
 >   - Cancel, then `populateWallet` — same.
 >   - Cancel during loop, wait, confirm flag still true post-wait. Then kick — flag cleared.
 > - `performResetSequence.spec.ts` (NEW):
->   - Happy path: cancel → wait → sentinel=in_progress → wipe → state reset → sentinel=none. `populateResetFailed = false`.
->   - Wait timeout: throws, sentinel unchanged (none), `populateResetFailed = false`. Subsequent kicks proceed.
->   - Wipe throws mid-wipe: sentinel=failed, `populateResetFailed = true`. Kicks no-op until retry.
->   - State-reset throws: sentinel=failed, `populateResetFailed = true`.
->   - Retry after wipe-throw: completes, sentinel=none, `populateResetFailed = false`.
+>   - Happy path: cancel → wait → wipe → state reset → `populateResetInFlight = false` in `finally`.
+>   - Wait timeout: throws, nothing wiped, `populateResetInFlight` cleared in `finally`. Subsequent kicks proceed (because `canRunPortfolioV2Work` is true again).
+>   - Wipe throws mid-wipe: propagates to caller; `populateResetInFlight` cleared. Retry succeeds because wipe is idempotent.
+>   - State-reset throws: same propagation + cleanup. Retry completes.
 >   - Re-entry: two concurrent `performResetSequence` calls — second throws "already in flight."
->   - Sentinel write failure (simulated throw on `writeResetSentinel`): propagates but in-memory flag state is still set; next retry succeeds because the sentinel still reflects the stuck state from the successful pre-wipe write.
 > - `resetInFlightGuard.spec.ts` (NEW):
 >   - While `performResetSequence` is mid-wait, invoke `populateWallet(X)`. Assert no new `runPopulate` kick, no cancel-flag clear.
 >   - While mid-wait, invoke `onLiveRatesUpdated`. Assert no `ensureFresh` call, no `scheduleRecompute` call.
 >   - While mid-wait, invoke `scheduleRecompute` directly. Assert no `pending` mutation, no `drain`.
-> - `bootSentinel.spec.ts` (NEW):
->   - Boot with sentinel=`in_progress` → `populateResetFailed = true` post-init → `canRunPortfolioV2Work = false` → kicks no-op.
->   - Boot with sentinel=`failed` → same.
->   - Boot with sentinel=`none` → `populateResetFailed = false` → normal operation.
->   - Subscriber fires on `populateResetFailed` transition.
 > - `computeDrainRace.spec.ts` (NEW):
 >   - Kick a full-scope recompute; while drain is awaiting the `runOnRuntimeAsync(recompute)`, invoke `performResetSequence`. Assert: `waitForRecomputeDrainToStop` awaits until drain's `running` flag flips false. Wipe starts only after drain stops. No compute publish lands after state-reset.
 >   - Kick reset with compute idle → `waitForRecomputeDrainToStop` resolves immediately (`running` was false).
@@ -1934,7 +1838,7 @@ Total kept: **~13,805 LOC.**
 >
 > Tests:
 > - Each trigger mocked; fire-time freshness verified.
-> - **Guard-before-side-effects regression:** while `populateResetFailed` is latched, invoke each trigger. Assert `ensureFresh` NOT called (for triggers that call it), `scheduleRecompute` NOT called, `populateWallet` NOT called. Zero side effects per trigger.
+> - **Guard-before-side-effects regression:** while `populateResetInFlight` is set, invoke each trigger. Assert `ensureFresh` NOT called (for triggers that call it), `scheduleRecompute` NOT called, `populateWallet` NOT called. Zero side effects per trigger.
 > - `onQuoteCurrencyChanged(...)` regression: calls `ensureQuoteCurrencyFxBridge(...)`, does **not** call per-asset `ensureFresh(...)`, and applies `recomputeQuoteBridgeFromCommittedState(...)` immediately from the committed-state BTC bridge.
 > - Timeframe-switch regression: changing `tf` on any portfolio screen triggers zero calls to `ensureFresh(...)`, `ensureQuoteCurrencyFxBridge(...)`, populate APIs, or snapshot refresh helpers.
 
@@ -2004,7 +1908,7 @@ Total kept: **~13,805 LOC.**
 > export async function quickCryptoPubKeyProbe(): Promise<...>;
 >
 > // Internal — used by performResetSequence. MUST be idempotent and MUST exclude
-> // RESET_SENTINEL_KEY from its wipe scope.
+> // PORTFOLIO_V2_FLAG_KEY from its wipe scope.
 > export async function wipePortfolioMmkvKeys(): Promise<void>;
 > ```
 >
@@ -2017,24 +1921,22 @@ Total kept: **~13,805 LOC.**
 > ```
 >
 > `wipePortfolioMmkvKeys` implementation:
-> - Enumerates keys from `getPortfolioMmkvStorageOnRN().getAllKeys()` (the real storage, source of truth — guardrail #26).
+> - Enumerates keys from `getPortfolioMmkvStorageOnRN().getAllKeys()` (the real storage, source of truth — guardrail #25).
 > - Filters by `PORTFOLIO_WIPE_PREFIXES` and excludes `WIPE_EXCLUDED_KEYS`.
 > - Deletes each matched key via `kvStore.delete(key)` so the registry stays consistent.
 > - NOT `kvStore.listKeys()` as the iteration source — a stale registry would miss real keys.
 >
 > ```ts
 > import { getPortfolioMmkvStorageOnRN } from '../adapters/rn/workletMmkvBridge';
-> import { RESET_SENTINEL_KEY } from '../populate/resetSentinel';
 > import { PORTFOLIO_V2_FLAG_KEY } from '../featureFlag';
 >
 > const PORTFOLIO_WIPE_PREFIXES: readonly string[] = [
 >   'snap:',           // snapshot meta/index/chunk/invalid-history/raw-points
 >   'rate:v1:',        // fiat rate series
->   'portfolio:v2:',   // v2-specific: queue, flag, sentinel
+>   'portfolio:v2:',   // v2-specific: queue, flag
 > ];
 >
 > const WIPE_EXCLUDED_KEYS = new Set<string>([
->   RESET_SENTINEL_KEY,
 >   PORTFOLIO_V2_FLAG_KEY,
 > ]);
 >
@@ -2064,38 +1966,10 @@ Total kept: **~13,805 LOC.**
 >
 > 1. Identify the exact code location.
 > 2. Replace direct MMKV wipes with `await performResetSequence()`.
-> 3. Wrap the call in a try/catch that surfaces a user-facing retry prompt.
+> 3. Wrap the call in a try/catch that surfaces a one-shot native Alert on failure ("Clear storage failed. Try again.").
 > 4. Gate behind `PORTFOLIO_V2` if the path is v1-specific.
 >
-> ### UI banner for `populateResetFailed` (guardrail #22)
->
-> Phase 7.5 MUST include a persistent, user-visible indicator shown whenever `populateResetFailed === true`. Requirements:
->
-> - Mounted at app root (or a persistent layout wrapper) so it's visible regardless of active screen.
-> - Renders via `usePortfolioResetFailed()` from `hooks/usePortfolioResetFailed.ts`.
-> - Text explains: storage clear incomplete, portfolio updates paused, retry needed.
-> - Provides a user-tappable action to retry (calls `performResetSequence()`).
-> - A toast, console log, or silent-failure is NOT sufficient.
->
-> Sample shape:
->
-> ```tsx
-> export function PortfolioResetFailedBanner(): React.ReactElement | null {
->   const failed = usePortfolioResetFailed();
->   const [retrying, setRetrying] = useState(false);
->   if (!failed) return null;
->   const onRetry = async () => {
->     setRetrying(true);
->     try { await performResetSequence(); } catch { /* banner stays visible */ }
->     finally { setRetrying(false); }
->   };
->   return <PersistentBanner ... onRetry={onRetry} retrying={retrying} />;
-> }
-> ```
->
-> Mount in the app root layout so it renders across all screens.
->
-> ### Tests (per reset path + banner)
+> ### Tests (per reset path)
 >
 > `resetPaths.spec.ts`:
 >
@@ -2110,26 +1984,13 @@ Total kept: **~13,805 LOC.**
 >   - `portfolio:v2:populate:queue:v1` (the v2 queue)
 > - Seed should write via `kvStore.setString` so the registry tracks the keys.
 > - Invoke the reset path.
-> - Assert **via `kvStore.listKeys()`** that the tracked set is empty except for explicit exclusions. This catches the bug where wipe deletes keys at the MMKV level but leaves them in the registry.
-> - Assert `portfolio:v2:resetSentinel` and `portfolio:v2:flag` still readable via direct MMKV access (they bypass the registry by design — guardrails #24, #25).
+> - Assert **via `kvStore.listKeys()`** that the tracked set is empty except for the feature-flag exclusion. This catches the bug where wipe deletes keys at the MMKV level but leaves them in the registry.
+> - Assert `portfolio:v2:flag` still readable via direct MMKV access (it bypasses the registry by design — guardrail #24).
 > - Assert `sharedPortfolioState.value === EMPTY_PORTFOLIO_STATE`, ticks zero.
-> - Sentinel ends at `'none'`.
 > - Invoke `startPopulate`; assert new queue's `orderRevision === 1`.
 > - Schedule recompute; assert state advances.
 >
-> This test is the load-bearing coverage for guardrails #24, #25, and #26: if wipe only matches `portfolio:` prefix, uses the wrong MMKV instance, or bypasses the registry, this test fails hard.
->
-> `resetFailedBanner.spec.tsx`:
->
-> - `populateResetFailed = true` → banner rendered, retry button present.
-> - Banner rendered regardless of active route.
-> - Retry action invokes `performResetSequence`; on success, banner disappears.
->
-> `resetDurabilityOnBoot.spec.ts`:
->
-> - Set sentinel to `in_progress` manually. Restart test context (simulating app kill). Call `initializePortfolioV2ResetState`. Assert `populateResetFailed = true`, banner renders, kicks no-op.
-> - Same for sentinel `failed`.
-> - Same for sentinel `none` → `populateResetFailed = false`, normal operation.
+> This test is the load-bearing coverage for guardrails #23, #24, and #25: if wipe only matches `portfolio:` prefix, uses the wrong MMKV instance, or bypasses the registry, this test fails hard.
 >
 > ### Debug screens
 >
@@ -2202,52 +2063,46 @@ Total kept: **~13,805 LOC.**
 29. **Scope uniformity** — `wallet`-scope recompute advances order when `inputs.orderRevision > prev.orderRevision` (regresses the v7 contradiction).
 30. **Reset paths preserve monotonicity invariant** — debug-clear / sign-out reset shared state; subsequent `buildQueue` produces `orderRevision = 1`; subsequent recompute advances state correctly.
 31. **Cancel flag lifecycle** — cancel, then fresh start, populate actually runs.
-32. **Wait-for-loop-to-stop timeout** — throws; `populateResetFailed` stays false; sentinel unchanged; subsequent kicks succeed.
+32. **Wait-for-loop-to-stop timeout** — throws; `populateResetInFlight` cleared in `finally`; subsequent kicks succeed.
 33. **Wipe-during-populate safety** — reset blocks until loop stops; no MMKV writes land after wipe.
 34. **Reset-in-flight guard** — during `performResetSequence` await, concurrent `populateWallet`/`onLiveRatesUpdated`/`scheduleRecompute` no-op; no side effects.
-35. **Sentinel durability** — simulated crash mid-wipe (sentinel stuck at `in_progress`); fresh boot reads sentinel; `populateResetFailed = true`; banner renders; all v2 work blocked; retry resolves.
-36. **Guard-before-side-effects** — for each trigger: while `populateResetFailed` latched, invoke trigger; assert ZERO side effects (no `ensureFresh`, no `scheduleRecompute`, no `populateWallet`, no writes to MMKV).
-37. **UI banner visibility** — `populateResetFailed = true` → banner rendered across all mounted routes; retry button triggers `performResetSequence`; on success banner disappears.
-38. **Wipe excludes sentinel** — invoke `wipePortfolioMmkvKeys`; sentinel key remains in MMKV.
-39. **Sentinel self-heal on partial wipe** — simulate `writeResetSentinel('none')` throwing after successful wipe+state-reset; sentinel stuck at `in_progress`; retry succeeds (idempotent wipe is no-op, idempotent state-reset is no-op, sentinel writes `'none'`).
-40. **Compute drain race regression:** start `performResetSequence` while `drain()` is mid-full-recompute. Assert: wipe happens only after drain's `runOnRuntimeAsync` resolves; no compute publish lands after `resetSharedPortfolioStateForDebugClear()`; final `sharedPortfolioState === EMPTY_PORTFOLIO_STATE`.
-41. **Both waits required:** start reset with populate idle and compute drain active. Assert `waitForRecomputeDrainToStop` is called; `Promise.all` waits for it even though populate wait resolves immediately. Conversely: reset with compute idle and populate active — populate wait holds, `Promise.all` waits for it.
-42. **Queue schema validation:**
+35. **Mid-wipe failure recovery** — wipe throws after partial deletes; caller receives error; retry completes the wipe (idempotent); next populate rebuilds snapshot/rate data from scratch.
+36. **Compute drain race regression:** start `performResetSequence` while `drain()` is mid-full-recompute. Assert: wipe happens only after drain's `runOnRuntimeAsync` resolves; no compute publish lands after `resetSharedPortfolioStateForDebugClear()`; final `sharedPortfolioState === EMPTY_PORTFOLIO_STATE`.
+37. **Both waits required:** start reset with populate idle and compute drain active. Assert `waitForRecomputeDrainToStop` is called; `Promise.all` waits for it even though populate wait resolves immediately. Conversely: reset with compute idle and populate active — populate wait holds, `Promise.all` waits for it.
+38. **Queue schema validation:**
    - `loadQueue` with `schemaVersion: 2` in MMKV → returns null, logs once.
    - `loadQueue` with malformed JSON → returns null, logs once.
    - `loadQueue` with missing `schemaVersion` → returns null.
    - Repeated `loadQueue` calls with same invalid state → log fires once, not N times.
-43. **`ensureFresh` race regression:** start `ensureFresh` with a slow network fetch. Before the fetch resolves, invoke `performResetSequence`. Assert: `waitForEnsureFreshToStop` blocks wipe until the fetch resolves. The second `canRunPortfolioV2Work` check causes `persistRates` to be skipped when the fetch lands mid-reset. No rate-cache MMKV writes after reset begins.
-44. **All three waits required in `Promise.all`:** reset with populate active / compute idle / ensureFresh idle → populate wait holds others. Reset with all three active → all three resolved before wipe. Reset with compute active and fetch in-flight → both hold, populate (idle) resolves immediately.
-45. **Feature flag survives wipe:** set `PORTFOLIO_V2 = true`. Invoke `wipePortfolioMmkvKeys`. Assert flag value unchanged. Read `PORTFOLIO_V2` via the flag module — still `true`. Same for `RESET_SENTINEL_KEY`.
-46. **Wipe targets correct MMKV instance:** seed `snap:*` and `rate:v1:*` keys in `getPortfolioMmkvStorageOnRN()`. Seed identical-looking keys in a different MMKV instance (app default). Invoke wipe. Assert portfolio instance's keys are deleted; other instance's keys untouched. Regresses guardrail #25.
-47. **Registry stays consistent with wipe:** write several keys via `kvStore.setString` (which tracks in registry). Invoke wipe. Assert `kvStore.listKeys()` returns empty list (except excluded keys). Regresses guardrail #26.
-48. **Sentinel and flag bypass registry:** write sentinel via `writeResetSentinel('in_progress')`. Assert `kvStore.listKeys()` does NOT include sentinel key (it was written directly to MMKV, not tracked). Same for flag key.
-49. **Populate signing context wrap parity (guardrail #27):** unit test `runPopulate` / `drivePopulateForWallet` with mock populate handlers that assert the signing context is active via `getPortfolioTxHistorySigningDispatchContextOnRuntime()`. Verify: context is installed for `handlePrepareWalletOnPopulateWorklet(...)` and each `handleProcessNextPageOnPopulateWorklet(...)` call, not for `handleFinishWalletOnPopulateWorklet(...)` / `handleCloseWalletSessionOnPopulateWorklet(...)`, and is cleared immediately after each wrapped call returns. A wallet with missing signing context causes loop exit without `markDone`.
-50. **Rate fetch runs on the correct worklet runtime:** `ensureFresh` mocks `runOnRuntimeAsync` and asserts the fetch step is called on `getPopulateRuntime()` by default, or `getRateFetchRuntime()` under Branch C — never invoked from JS directly. Verify the second guard check happens after fetch resolves and before `setSeries`.
-51. **Wipe enumeration uses real storage:** pre-seed MMKV with a key that's NOT in the registry (simulates registry staleness). Invoke wipe. Assert the unregistered key is deleted via `storage.getAllKeys()` iteration + `kvStore.delete(key)`. Regresses guardrail #26 using real storage enumeration.
-52. **`ensureFresh` dispatch context lifecycle (guardrail #27):** invoke `ensureFresh` with a mock `runOnRuntimeAsync` that synchronously inspects the runtime's dispatch context via `getPortfolioTxHistorySigningDispatchContextOnRuntime()`. Verify: context is set before provider call, context has `boxedNitroFetch` populated, context is cleared in `finally` even when provider throws. Also verify the v2-owned `extractSeriesFromFiatRatePayload(...)` path mirrors v1 behavior for bundled BWS payloads. Without the context, `getPortfolioNitroFetchClientOnRuntime()` would throw — test that path too (call `loadSeriesWorkletWithContext` with a broken context and verify the throw propagates cleanly, inFlightCount decrements).
-53. **Runtime-global dispatch-context invariant (guardrail #28):** under deliberately concurrent populate + rate-fetch load, neither operation observes the other's dispatch context mid-flight. Test implementation varies by chosen branch:
+39. **`ensureFresh` race regression:** start `ensureFresh` with a slow network fetch. Before the fetch resolves, invoke `performResetSequence`. Assert: `waitForEnsureFreshToStop` blocks wipe until the fetch resolves. The second `canRunPortfolioV2Work` check causes `persistRates` to be skipped when the fetch lands mid-reset. No rate-cache MMKV writes after reset begins.
+40. **All three waits required in `Promise.all`:** reset with populate active / compute idle / ensureFresh idle → populate wait holds others. Reset with all three active → all three resolved before wipe. Reset with compute active and fetch in-flight → both hold, populate (idle) resolves immediately.
+41. **Feature flag survives wipe:** set `PORTFOLIO_V2 = true`. Invoke `wipePortfolioMmkvKeys`. Assert flag value unchanged. Read `PORTFOLIO_V2` via the flag module — still `true`.
+42. **Wipe targets correct MMKV instance:** seed `snap:*` and `rate:v1:*` keys in `getPortfolioMmkvStorageOnRN()`. Seed identical-looking keys in a different MMKV instance (app default). Invoke wipe. Assert portfolio instance's keys are deleted; other instance's keys untouched. Regresses guardrail #24.
+43. **Registry stays consistent with wipe:** write several keys via `kvStore.setString` (which tracks in registry). Invoke wipe. Assert `kvStore.listKeys()` returns empty list (except excluded keys). Regresses guardrail #25.
+44. **Populate signing context wrap parity (guardrail #26):** unit test `runPopulate` / `drivePopulateForWallet` with mock populate handlers that assert the signing context is active via `getPortfolioTxHistorySigningDispatchContextOnRuntime()`. Verify: context is installed for `handlePrepareWalletOnPopulateWorklet(...)` and each `handleProcessNextPageOnPopulateWorklet(...)` call, not for `handleFinishWalletOnPopulateWorklet(...)` / `handleCloseWalletSessionOnPopulateWorklet(...)`, and is cleared immediately after each wrapped call returns. A wallet with missing signing context causes loop exit without `markDone`.
+45. **Rate fetch runs on the correct worklet runtime:** `ensureFresh` mocks `runOnRuntimeAsync` and asserts the fetch step is called on `getPopulateRuntime()` by default, or `getRateFetchRuntime()` under Branch C — never invoked from JS directly. Verify the second guard check happens after fetch resolves and before `setSeries`.
+46. **Wipe enumeration uses real storage:** pre-seed MMKV with a key that's NOT in the registry (simulates registry staleness). Invoke wipe. Assert the unregistered key is deleted via `storage.getAllKeys()` iteration + `kvStore.delete(key)`. Regresses guardrail #25 using real storage enumeration.
+47. **`ensureFresh` dispatch context lifecycle (guardrail #26):** invoke `ensureFresh` with a mock `runOnRuntimeAsync` that synchronously inspects the runtime's dispatch context via `getPortfolioTxHistorySigningDispatchContextOnRuntime()`. Verify: context is set before provider call, context has `boxedNitroFetch` populated, context is cleared in `finally` even when provider throws. Also verify the v2-owned `extractSeriesFromFiatRatePayload(...)` path mirrors v1 behavior for bundled BWS payloads. Without the context, `getPortfolioNitroFetchClientOnRuntime()` would throw — test that path too (call `loadSeriesWorkletWithContext` with a broken context and verify the throw propagates cleanly, inFlightCount decrements).
+48. **Runtime-global dispatch-context invariant (guardrail #27):** under deliberately concurrent populate + rate-fetch load, neither operation observes the other's dispatch context mid-flight. Test implementation varies by chosen branch:
    - Branch A: both complete successfully; markers remain consistent.
-   - Branch B: rate fetch kicked during populate kick serializes; populate completes first, rate fetch runs second.
    - Branch C: rate fetch runs concurrently on the separate runtime; populate unaffected.
    - Branch D: worklet-side lock serializes installs; both complete without marker corruption.
    Test asserts the invariant regardless of branch; implementation detects which branch is active via a module constant set after Phase 0.5 spike results.
-54. **Rate-vs-rate concurrency policy:** two overlapping `ensureFresh` calls with identical `(quoteCurrency, interval, coins, assets, maxAgeMs, force)` args dedupe — only one network call fires, both callers receive the result. Two overlapping calls with different args serialize only if probe 3 is dirty/flaky; otherwise they may remain concurrent. In either case, no runtime-global context clobber. `inFlightCount` accurately reflects in-flight calls regardless of dedupe/serialization behavior.
-55. **Allocation order parity:** `selectAllocationRows` and `selectOrderedAssetGroupIds` produce the same order for the same wallet set globally and under `keyId`.
-56. **Key-scoped asset list parity:** `AllAssets({keyId})` shows only that key's grouped assets, row taps carry `keyId`, and the asset detail chart/row/**wallet-list** values stay scoped to the key instead of falling back to Home-global data.
-57. **Quote-switch BTC bridge:** changing fiat currency fetches only BTC bridge data for canonical stored intervals, does not fan out per-asset new-quote fetches, and updates Home / All Assets / Asset Detail / Exchange Rate consistently.
-58. **Canonical stored intervals only:** only `1D`, `1W`, `1M`, and `ALL` are fetched/persisted. `3M`, `1Y`, and `5Y` are derived from `ALL` and do not create separate rate keys.
-59. **Timeframe switches are read-only:** switching timeframe on Home / Wallet / Asset Detail / KeyOverview / Exchange Rate causes zero `ensureFresh`, FX-bridge, populate, or snapshot-refresh side effects.
-60. **Chart scrubbing is read-only:** long-press/scrub reads existing points only and triggers no refresh or scheduler work.
-61. **Initial populate progressive reveal:** Home and All Assets show rows immediately in canonical order; ready rows reveal PnL, unready rows show skeletons; switching Today / All Time mid-populate does not perturb order.
-62. **Incremental populate deferred commit:** app-launch refresh, send-triggered populate, and pull-to-refresh keep stale chart/PnL values visible until populate drains, then publish one committed update.
-63. **Cross-screen refresh propagation:** send-triggered populates and pull-to-refresh updates propagate to every affected Home / All Assets / Asset Detail / Wallet / Exchange Rate surface after completion, with no stale divergence between screens.
-64. **Deferred heavy-recompute gating:** while a deferred populate has remaining wallets, heavy `scheduleRecompute` work from non-populate triggers accumulates but does not drain until `populateCommitTick`; touch scopes still drain.
-65. **Chart gate predicate:** first-ever hide vs stale-fallback behavior keys off committed populated state (`selectHasAnyPopulatedWallets(s)`), not `queue.publishMode`.
-66. **Interval-window timestamp snapping:** the shared window helper resolves boundaries from rate-series timestamps first, and PnL derivation snaps to those exact timestamps so the no-tx-window parity test is deterministic.
-67. **Quote-switch during deferred populate:** while a deferred populate is active, `onQuoteCurrencyChanged(...)` applies `recomputeQuoteBridgeFromCommittedState(...)` immediately to the committed state, visible screens switch quote right away, scheduler-held heavy recomputes still do not drain early, and the later `populateCommitTick` publish lands fresh data in the already-selected quote.
-68. **No recursive render / max-depth regression:** rapid timeframe toggles and chart scrubbing on Home / Wallet / Asset Detail / Exchange Rate do not produce "maximum update depth exceeded" errors, recursive scheduler churn, or blank intermediate flashes between valid series.
+49. **Rate-vs-rate concurrency policy:** two overlapping `ensureFresh` calls with identical `(quoteCurrency, interval, coins, assets, maxAgeMs, force)` args dedupe — only one network call fires, both callers receive the result. Two overlapping calls with different args serialize only if probe 3 is dirty/flaky; otherwise they may remain concurrent. In either case, no runtime-global context clobber. `inFlightCount` accurately reflects in-flight calls regardless of dedupe/serialization behavior.
+50. **Allocation order parity:** `selectAllocationRows` and `selectOrderedAssetGroupIds` produce the same order for the same wallet set globally and under `keyId`.
+51. **Key-scoped asset list parity:** `AllAssets({keyId})` shows only that key's grouped assets, row taps carry `keyId`, and the asset detail chart/row/**wallet-list** values stay scoped to the key instead of falling back to Home-global data.
+52. **Quote-switch BTC bridge:** changing fiat currency fetches only BTC bridge data for canonical stored intervals, does not fan out per-asset new-quote fetches, and updates Home / All Assets / Asset Detail / Exchange Rate consistently.
+53. **Canonical stored intervals only:** only `1D`, `1W`, `1M`, and `ALL` are fetched/persisted. `3M`, `1Y`, and `5Y` are derived from `ALL` and do not create separate rate keys.
+54. **Timeframe switches are read-only:** switching timeframe on Home / Wallet / Asset Detail / KeyOverview / Exchange Rate causes zero `ensureFresh`, FX-bridge, populate, or snapshot-refresh side effects.
+55. **Chart scrubbing is read-only:** long-press/scrub reads existing points only and triggers no refresh or scheduler work.
+56. **Initial populate progressive reveal:** Home and All Assets show rows immediately in canonical order; ready rows reveal PnL, unready rows show skeletons; switching Today / All Time mid-populate does not perturb order.
+57. **Incremental populate deferred commit:** app-launch refresh, send-triggered populate, and pull-to-refresh keep stale chart/PnL values visible until populate drains, then publish one committed update.
+58. **Cross-screen refresh propagation:** send-triggered populates and pull-to-refresh updates propagate to every affected Home / All Assets / Asset Detail / Wallet / Exchange Rate surface after completion, with no stale divergence between screens.
+59. **Deferred heavy-recompute gating:** while a deferred populate has remaining wallets, heavy `scheduleRecompute` work from non-populate triggers accumulates but does not drain until `populateCommitTick`; touch scopes still drain.
+60. **Chart gate predicate:** first-ever hide vs stale-fallback behavior keys off committed populated state (`selectHasAnyPopulatedWallets(s)`), not `queue.publishMode`.
+61. **Interval-window timestamp snapping:** the shared window helper resolves boundaries from rate-series timestamps first, and PnL derivation snaps to those exact timestamps so the no-tx-window parity test is deterministic.
+62. **Quote-switch during deferred populate:** while a deferred populate is active, `onQuoteCurrencyChanged(...)` applies `recomputeQuoteBridgeFromCommittedState(...)` immediately to the committed state, visible screens switch quote right away, scheduler-held heavy recomputes still do not drain early, and the later `populateCommitTick` publish lands fresh data in the already-selected quote.
+63. **No recursive render / max-depth regression:** rapid timeframe toggles and chart scrubbing on Home / Wallet / Asset Detail / Exchange Rate do not produce "maximum update depth exceeded" errors, recursive scheduler churn, or blank intermediate flashes between valid series.
 
 ---
 
@@ -2258,20 +2113,20 @@ Total kept: **~13,805 LOC.**
 | Phase | Added | Deleted | Net |
 |---|---|---|---|
 | 0 | +30 | 0 | +30 |
-| 0.5 | +400 | 0 | +400 |
-| 1 | +610 | 0 | +610 |
+| 0.5 | +380 | 0 | +380 |
+| 1 | +480 | 0 | +480 |
 | 2 | +680 | 0 | +680 |
 | 3 | +1,220 | 0 | +1,220 |
 | 4 | +290 | 0 | +290 |
-| 5 | +1,650 | 0 | +1,650 |
+| 5 | +1,600 | 0 | +1,600 |
 | 6 | +340 | 0 | +340 |
 | 7a–e | +600 | 0 | +600 |
-| 7.5 | +490 | 0 | +490 |
+| 7.5 | +360 | 0 | +360 |
 | 8 | +50 | ~13,500 | ~−13,450 |
 | 9 | 0 | ~200 | −200 |
-| **Total** | **~+6,360** | **~13,700** | **~−7,340** |
+| **Total** | **~+6,030** | **~13,700** | **~−7,670** |
 
-Start: ~28,268. End: ~20,930. Target 18–22k pending Phase 0 inventory verification. Actual end-of-phase LOC varies by Branch chosen in Phase 0.5: Branch A adds ~0, Branch B adds ~50, Branch C adds ~150 (new runtime infra), Branch D adds ~100 (lock primitive + integration).
+Start: ~28,268. End: ~20,600. Target 18–22k pending Phase 0 inventory verification. Actual end-of-phase LOC varies by Branch chosen in Phase 0.5: Branch A adds ~0, Branch C adds ~150 (new runtime infra), Branch D adds ~100 (lock primitive + integration). Branch B is diagnostic-only per guardrail #27.
 
 ### Outside `src/portfolio/`
 
@@ -2281,7 +2136,7 @@ Start: ~28,268. End: ~20,930. Target 18–22k pending Phase 0 inventory verifica
 
 ### Combined
 
-Starting: ~31,160. Ending: ~20,930. Eliminated: ~10,230, ~33%.
+Starting: ~31,160. Ending: ~20,600. Eliminated: ~10,560, ~34%.
 
 ---
 
@@ -2306,14 +2161,14 @@ Starting: ~31,160. Ending: ~20,930. Eliminated: ~10,230, ~33%.
 - **Populate publishing is explicit, not incidental.** First-ever populate is progressive and reveals ready rows in queue order; later incremental populates are deferred-commit and keep stale chart/PnL values visible until one final publish.
 - **`reduxAccess.ts`** single Redux access module. Initialized inside the existing `getStore().then(({store, persistor}) => {...})` callback before `<Provider>` mount. Accessor calls inside function bodies only.
 - **Reset paths reset shared state** (guardrail #17). Every wipe path — debug-clear, sign-out — goes through `performResetSequence`. Preserves `orderRevision` monotonicity invariant.
-- **Reset lifecycle is durable.** Sentinel MMKV key (`portfolio:v2:resetSentinel`) persists state across crashes. Boot reads sentinel, initializes `populateResetFailed`. All v2 write paths guarded by `canRunPortfolioV2Work()`. Guard is the **first executable statement** of every guarded function. Persistent UI banner surfaces failed state.
-- **`performResetSequence`:** set in-flight → cancel → `Promise.all` wait for populate loop, compute drain, and in-flight `ensureFresh` (throws on timeout, no latch) → sentinel=in_progress → wipe (idempotent, excludes sentinel + feature flag) → reset state → sentinel=none. Failure between wipe start and sentinel=none latches failed. Retry self-heals.
-- **V2 kernel integration (guardrail #27):** `PopulateRuntimeContext` carries `signingContextsByWalletId` alongside `walletsById`. `runPopulate` delegates each wallet to a new v2-owned `drivePopulateForWallet(...)` orchestrator, which wraps the signing-required populate handlers with the signing context at the same granularity as v1 (`prepare` and each `processNextPage` call, not `finish` / `close`) — matching `withWalletSigningContext` in `portfolioPopulateJobWorklet.ts:315`. `ensureFresh` builds a **lightweight dispatch context** JS-side (no wallet signing, but `boxedNitroFetch` populated) and its worklet wrapper installs/clears it around the `RnBwsFiatRateProvider.loadSeries` call — matches the "non-signing requests still need Nitro fetch context" rule from `portfolioWorkletTransport.ts:137`. **Every worklet call that uses Nitro fetch requires a dispatch context for the duration of the call**, whether or not it signs.
-- **Runtime-global concurrency verification (guardrail #28):** Phase 0.5 spike runs four probes (two branch-deciders, two diagnostic) on both platforms at 1000 iterations. Probes 2 (v2-asymmetric populate-vs-rate) and 3 (rate-vs-rate) determine branch selection from A (no mitigation), C (dedicated rate-fetch runtime — architectural fork to four runtimes total, still requires per-call lightweight dispatch context), or D (worklet-side lock — most surgical but most complex). Branch B remains diagnostic-only because it violates the non-blocking-read product requirement. `ensureFresh` always dedupes identical args; serialization of non-identical calls is only required when Probe 3 is dirty/flaky.
+- **Reset is in-memory only.** A single JS-side `populateResetInFlight` boolean prevents re-entry. All v2 write paths guarded by `canRunPortfolioV2Work()` (= `!populateResetInFlight`). Guard is the **first executable statement** of every guarded function. On wipe failure, the call site surfaces a one-shot native Alert; the user retries. No persisted sentinel, no boot-time latch, no UI banner — portfolio data is disposable and rebuilds on next populate.
+- **`performResetSequence`:** set in-flight → cancel → `Promise.all` wait for populate loop, compute drain, and in-flight `ensureFresh` (throws on timeout) → wipe (idempotent, excludes feature flag) → reset shared state → clear in-flight in `finally`. Any throw propagates to the caller.
+- **V2 kernel integration (guardrail #26):** `PopulateRuntimeContext` carries `signingContextsByWalletId` alongside `walletsById`. `runPopulate` delegates each wallet to a new v2-owned `drivePopulateForWallet(...)` orchestrator, which wraps the signing-required populate handlers with the signing context at the same granularity as v1 (`prepare` and each `processNextPage` call, not `finish` / `close`) — matching `withWalletSigningContext` in `portfolioPopulateJobWorklet.ts:315`. `ensureFresh` builds a **lightweight dispatch context** JS-side (no wallet signing, but `boxedNitroFetch` populated) and its worklet wrapper installs/clears it around the `RnBwsFiatRateProvider.loadSeries` call — matches the "non-signing requests still need Nitro fetch context" rule from `portfolioWorkletTransport.ts:137`. **Every worklet call that uses Nitro fetch requires a dispatch context for the duration of the call**, whether or not it signs.
+- **Runtime-global concurrency verification (guardrail #27):** Phase 0.5 spike runs four probes (two branch-deciders, two diagnostic) on both platforms at 1000 iterations. Probes 2 (v2-asymmetric populate-vs-rate) and 3 (rate-vs-rate) determine branch selection from A (no mitigation), C (dedicated rate-fetch runtime — architectural fork to four runtimes total, still requires per-call lightweight dispatch context), or D (worklet-side lock — most surgical but most complex). Branch B remains diagnostic-only because it violates the non-blocking-read product requirement. `ensureFresh` always dedupes identical args; serialization of non-identical calls is only required when Probe 3 is dirty/flaky.
 - **V18 keeps the current non-bundle worklet path.** Global `react-native-worklets` bundle mode is out of scope unless a future design proves it is isolated to the intended worklet runtime and preserves the existing Quick Crypto / fetch hybrid-object integration.
-- **Wipe scope (guardrail #24):** matches actual repo prefixes `snap:*`, `rate:v1:*`, `portfolio:v2:*`. Excludes `RESET_SENTINEL_KEY` (durability across crash) and `PORTFOLIO_V2_FLAG_KEY` (don't silently disable v2 during rollout). Verified against repo at `snapshotStore.ts:146-162` and `fiatRateStore.ts` `rateKey` function.
-- **Portfolio MMKV is a dedicated instance (guardrail #25):** `getPortfolioMmkvStorageOnRN()` returns `new MMKV({ id: 'bitpay.portfolio.engine' })`. All v2 MMKV access — sentinel, flag, wipe — goes through this instance, never the default MMKV.
-- **Wipe goes through the key registry (guardrail #26):** portfolio storage tracks keys via `__bitpay.portfolio.engine.registry.v1__`. Wipe uses `kvStore.delete(key)` (untracks) or equivalently clears the registry. `listKeys()` empty after wipe.
+- **Wipe scope (guardrail #23):** matches actual repo prefixes `snap:*`, `rate:v1:*`, `portfolio:v2:*`. Excludes `PORTFOLIO_V2_FLAG_KEY` (don't silently disable v2 during rollout). Verified against repo at `snapshotStore.ts:146-162` and `fiatRateStore.ts` `rateKey` function.
+- **Portfolio MMKV is a dedicated instance (guardrail #24):** `getPortfolioMmkvStorageOnRN()` returns `new MMKV({ id: 'bitpay.portfolio.engine' })`. All v2 MMKV access — flag, queue, wipe — goes through this instance, never the default MMKV.
+- **Wipe goes through the key registry (guardrail #25):** portfolio storage tracks keys via `__bitpay.portfolio.engine.registry.v1__`. Wipe uses `kvStore.delete(key)` (untracks) or equivalently clears the registry. `listKeys()` empty after wipe.
 - **`populateCancelFlag` lifecycle:** set true by cancel and reset; cleared false by every kick path before `runOnRuntimeAsync`. Never persists across cycles.
 - **Invalid indexes recover via clear-and-rebuild** before populate.
 - **Soft eviction cap** (N=8).
@@ -2326,4 +2181,4 @@ Starting: ~31,160. Ending: ~20,930. Eliminated: ~10,230, ~33%.
 - **Rapid timeframe/scrub interaction has an explicit no-recursive-render bar.** The plan now requires a dedicated regression for no maximum-update-depth errors, no recursive scheduler churn, and no blank flashes during timeframe toggles or chart scrubbing.
 - **No data migration.** `SnapshotIndexV2.revision` required, starts at 1.
 - **Every phase ships green.** Flag gates v1 vs v2 until Phase 8.
-- **LOC estimate ~20.9k inside `src/portfolio/`**, 18–22k range pending Phase 0 inventory.
+- **LOC estimate ~20.6k inside `src/portfolio/`**, 18–22k range pending Phase 0 inventory.
