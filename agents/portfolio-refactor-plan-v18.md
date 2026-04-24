@@ -38,6 +38,11 @@
 - **Key-scoped asset list lands in v18.** `AllAssets({keyId})`, row taps from `KeyOverview`, and scoped asset detail all stay within that key's wallet set.
 - **Initial and incremental populate both publish progressively.** Initial populate uses skeleton reveal for not-yet-ready rows; incremental refresh may show a lightweight refreshing indicator while values update progressively. V18 intentionally does **not** hold incremental values stable until populate completion.
 - **Timeframe switches / scrubbing stay read-only in v18.** No hidden rate fetches, snapshot updates, or populate kicks occur on timeframe-only interaction.
+- **Populate runs on livenet wallets only.** Testnet / regtest wallets are excluded from the populate queue at every construction site (initial populate, incremental populate, `onKeyImported`, `onSendCompleted`, `onPullToRefresh`, `onWalletsVisibilityChanged` unhide path). Eligibility for populate is: `wallet.network === Network.mainnet && !wallet.deleted`. This matches current app behavior — portfolio charts / PnL are a mainnet-only concept.
+- **Key import triggers populate for new livenet wallets.** When a key is successfully imported (`WalletActionTypes.SUCCESS_IMPORT`) and the user has Show Portfolio enabled, `onKeyImported({key})` kicks populate for the key's livenet wallets through the normal `populateWallets(...)` kick helper. Testnet wallets in the same key are skipped. Reset/cache-invalid guards apply normally.
+- **Hide/unhide changes eligibility, not snapshot persistence.** Hiding a key (`hideKeyBalance`), an EVM account (`evmAccountsInfo[*].hideAccount`), or a wallet (`hideWallet` / `hideWalletByAccount` / `hideBalance`) removes the affected wallets from *displayed* portfolio totals/charts/lists — but does NOT delete their MMKV snapshot data. Unhiding re-includes them instantly from warm data without a re-populate, except in the edge case where a wallet was imported while already hidden (unlikely but possible); in that case, unhide kicks populate for any newly-visible livenet wallet not present in `queue.doneWalletIds`. Home / All Assets / Allocation / KeyOverview / AccountDetails / Wallet detail surfaces all honor visibility filtering.
+- **Chart scrubbing updates the balance header and PnL row with per-point values + a formatted timestamp.** On scrub, the big balance above the chart and the PnL row under it update to the scrubbed point's `fiatBalance` and `pnlChange` / `pnlPercent`. The PnL row also displays the scrubbed point's timestamp, formatted per interval (see Phase 7). On scrub end (release), the chart returns to idle: big balance = last point's `fiatBalance`, PnL row = last point's `pnlChange` / `pnlPercent` without a timestamp.
+- **Chart scrubbing endpoint invariants are load-bearing.** At the first chart point, scrubbed `pnlChange` must be exactly `0` (the baseline point is always zero-change relative to itself). At the final chart point, scrubbed `fiatBalance` and `pnlChange` / `pnlPercent` must exactly match the idle (non-scrubbing) balance header and PnL row shown above the chart in the same screen / interval / quote / wallet scope. These are pinned in Phase 3 formula + parity tests, not left to UI formatting logic.
 
 ## Files that stay untouched (kernels, not orchestration)
 
@@ -108,6 +113,11 @@ Total kept: **~13,805 LOC.**
 - **`waitForPopulateLoopToStop()`** — polls `populateLoopRunning.value`. Throws on 60s timeout. Used by `performResetSequence`.
 - **`waitForRecomputeDrainToStop()`** — polls scheduler's `running` flag. Throws on 30s timeout. Used by `performResetSequence` alongside the populate wait to quiesce both async subsystems before wipe.
 - **`waitForEnsureFreshToStop()`** — polls `ratesFetch.ts` in-flight count. Throws on 20s timeout. Third wait in the reset `Promise.all`. Covers rate fetches that started before the reset guard flipped.
+- **`isLivenetWallet(w)`** — `w.network === Network.mainnet`. Used everywhere populate-eligibility is decided. Testnet / regtest wallets are excluded from populate.
+- **`isWalletVisibleInStore(walletId)`** — JS-side predicate combining the key-level `hideKeyBalance`, EVM-account-level `evmAccountsInfo[accountName].hideAccount`, and wallet-level `hideWallet` / `hideWalletByAccount` / `hideBalance` flags. Returns true iff every applicable flag allows the wallet to appear in portfolio-owned surfaces. Does NOT interact with the global Show Portfolio setting (that is a separate, higher-priority gate via `getShowPortfolioEnabledFromStore()`).
+- **`getPopulateEligibleWalletsFromStore()`** — returns livenet, not-deleted wallets **regardless of visibility**. Drives `buildQueue(...)` inputs and every populate-kick helper. Hidden wallets ARE populated so their data is warm when unhidden (no populate latency on unhide for wallets that existed while hidden). The only exception is the edge case of a wallet imported while already hidden — `onWalletsVisibilityChanged(...)` unhide path kicks populate for any newly-visible livenet wallet not present in `queue.doneWalletIds`.
+- **`getEligibleStoredWalletsFromStore()`** — returns livenet, not-deleted, **visible** wallets (`isLivenetWallet(w) && !w.deleted && isWalletVisibleInStore(w.walletId)`). Drives `buildBaseRecomputeInputs(...)` → `scheduleRecompute` inputs. Because hidden wallets are excluded here, `recompute`'s `byWallet` slice and totals naturally drop them. `getEligibleStoredWalletsFromStore()` and `getPopulateEligibleWalletsFromStore()` are **distinct**: populate operates on the broader set; recompute operates on the visible-only set. Do not conflate them.
+- **`formatScrubTimestamp(ts, interval)`** — Phase 7 timestamp formatter for the PnL-row-under-balance scrub display. For `{1D, 1W, 1M}`: `"March 29, 2026 at 5:22 PM"` (locale-formatted date + short time). For `{3M, 1Y, 5Y}`: `"March 29, 2026"` (date only, no time). For `ALL`: if the resolved ALL-window duration is `< 3M` (e.g., account is freshly funded), include hours; otherwise omit hours. The helper is locale-aware and uses the app's existing date-formatting utilities — it is not reimplemented from scratch.
 - **`logPortfolioRuntimeError(err, extra?)`** — the JS-side logger every `runOnRuntimeAsync(...)` fire-and-forget `.catch(...)` attaches to. Lives at `src/portfolio/v2/logPortfolioRuntimeError.ts`. Signature: `logPortfolioRuntimeError(err: unknown, extra?: { tag?: string; [k: string]: unknown }): void`. Behavior: (1) serialize `err` with `extra` via the existing app error-logging util used elsewhere in `src/store/**` (grep Phase 0 — match the current project-wide pattern so Sentry/console output is consistent); (2) NEVER throw and NEVER return a Promise — the function is called in `.catch(...)` / `.catch(logPortfolioRuntimeError)` and must not itself invalidate the attached chain; (3) attach a fixed `subsystem: 'portfolio-v2'` tag so logs are filterable; (4) include `extra.tag` when provided so call sites can distinguish populate / ensureFresh / fx-bridge / quote-switch / reset / scheduler paths. All `.catch(logPortfolioRuntimeError)` call sites pass the error only (curry-free non-attached usage); call sites that already have contextual info (`logPortfolioRuntimeError(err, {tag: 'populate'})`) use the arity-2 form inside the `catch` lambda.
 
 **Fingerprints do two things:** (1) selector cost — O(1) lookups; numeric work happens once in `recompute`; (2) render invalidation — `React.memo` and `usePortfolioSlice(..., areEqual)` clone-proof.
@@ -160,6 +170,9 @@ Total kept: **~13,805 LOC.**
     - Any v2 change that bypasses these contracts (e.g., calling any populate handler without installing the signing context, or calling `loadSeriesWorklet` without the lightweight context) results in runtime throws on the first fetch. Future v2 worklet calls that use Nitro fetch must follow the same pattern.
 27. **Runtime-global dispatch context must not be clobbered by concurrent installs.** The populate runtime is shared between per-wallet populate work and rate fetches (guardrail #26). Both install `PortfolioTxHistorySigningDispatchContext` on runtime globals. If `runOnRuntimeAsync` allows same-runtime tasks to interleave across `await` boundaries, concurrent installs clobber each other and corrupt in-flight work. **Phase 0.5 spike (see Phase 0.5) must empirically determine the scheduling behavior before Phase 5 commits to a runtime-wiring design.** Implementation path branches on spike results per the table below. `ensureFresh` always dedupes identical-args calls; serialization of non-identical calls is required when Probe 3 is dirty and optional otherwise. An acceptance test verifies the invariant regardless of chosen branch: under deliberately concurrent populate + rate-fetch load, neither operation observes the other's dispatch context mid-flight.
 28. **Do not enable global worklets bundle mode in v18.** Keep the current standard non-bundle worklet mode plus the existing Quick Crypto / fetch hybrid-object path for tx-history signing and network work. Any future bundle-mode experiment requires a separate design proving it only affects the target worklet runtime and does not break the existing signing/fetch integration.
+29. **Populate is livenet-only at every construction site.** `buildQueue(...)`, `populateWallet(...)`, `populateWallets(...)`, `startPopulate(...)`, and every trigger that calls them filter wallet candidates through `isLivenetWallet(w)`. Testnet / regtest wallets never enter `PopulateQueueV1.remainingWalletIds` and never reach `runPopulate`. The sole source of "candidate wallets for populate" is `getPopulateEligibleWalletsFromStore()` — no ad hoc eligibility logic. `onKeyImported(key)` filters its walletIds by `isLivenetWallet` before kicking; `onSendCompleted({walletId})` no-ops on testnet walletIds.
+30. **Populate eligibility and recompute eligibility are distinct.** `getPopulateEligibleWalletsFromStore()` (livenet, not deleted, visibility-**ignored**) drives populate. `getEligibleStoredWalletsFromStore()` (livenet, not deleted, visibility-**respected**) drives `buildBaseRecomputeInputs(...)`. Hidden wallets are populated (data warm) but excluded from displayed totals/series/rows. Unhide is instant — no populate-latency window — because the next fire-time recompute simply sees the wallet as eligible again and reads its already-warm snapshot data. The edge case of a wallet imported while already hidden is handled by `onWalletsVisibilityChanged(...)` unhide path, which kicks populate for any newly-visible livenet walletId absent from `queue.doneWalletIds`. Never call `buildBaseRecomputeInputs(...)` with `getPopulateEligibleWalletsFromStore()` or vice versa — the two sets have intentionally different membership rules and swapping them would cause hidden wallets to appear in totals or visible wallets to miss populate.
+31. **Chart-point endpoint invariants are load-bearing.** Every published `Series` satisfies: (a) `series.points[0].pnlChange === 0` exactly (the baseline point is zero-change against itself per the Phase 3 PnL formula step 6 — `firstTotalUnrealizedPnlFiat = totalUnrealizedPnlFiat` at the first emitted point means `totalPnlChange` at that point is `0 - 0 === 0`); (b) `series.points[last].fiatBalance`, `pnlChange`, and `pnlPercent` are the exact values the idle (non-scrubbing) balance header and PnL row display for the same screen / interval / quote / wallet scope. These are not a UI formatting concern — they are recompute output invariants pinned by Phase 3 formula tests and Phase 7 scrub parity tests.
 
 ---
 
@@ -189,7 +202,14 @@ Total kept: **~13,805 LOC.**
 > 1. Mermaid call graph consumer → `getPortfolioRuntimeClient()` methods / portfolio hooks.
 > 2. Public exports of `src/portfolio/**/index.ts` labeled `keep`/`delete`/`replace`.
 > 3. Redux slices/fields storing portfolio data + v2 retention.
-> 4. **Exact state paths** for every piece of Redux data v2 needs: quote currency, eligible wallets, live rates (by asset id), live rates asOfMs, wallet balances, wallet→asset mapping, and the user-facing "Show Portfolio" visibility setting. These paths feed `reduxAccess.ts` accessors in Phase 1.
+> 4. **Exact state paths** for every piece of Redux data v2 needs: quote currency, eligible wallets, live rates (by asset id), live rates asOfMs, wallet balances, wallet→asset mapping, the user-facing "Show Portfolio" visibility setting, plus the wallet-and-key visibility + network fields required by guardrails #29–30:
+>    - `wallet.network` field (`Network.mainnet` / `Network.testnet` / `Network.regtest`) — source for `isLivenetWallet(w)` in `getPopulateEligibleWalletsFromStore()`.
+>    - Key-level `hideKeyBalance` (`src/store/wallet/wallet.models.ts:76`) — hides all wallets in that key from portfolio totals.
+>    - EVM-account-level `evmAccountsInfo[accountName].hideAccount` (`src/store/wallet/wallet.models.ts:78-84`) — hides all wallets under an EVM account.
+>    - Wallet-level `hideWallet` / `hideWalletByAccount` / `hideBalance` (`src/store/wallet/wallet.models.ts:155-157`) — per-wallet visibility flags.
+>    - The Redux action(s) that mutate each of the above (grep `hideKeyBalance`, `hideWallet`, `hideWalletByAccount`, `hideAccount`, `hideBalance`). `onWalletsVisibilityChanged({affectedWalletIds})` must be wired to every one of these action types.
+>    - The `WalletActionTypes.SUCCESS_IMPORT` payload shape — the imported `Key` plus its wallets. `onKeyImported({key})` consumes this.
+>    These paths feed `reduxAccess.ts` accessors in Phase 1 plus the `isWalletVisibleInStore(walletId)` predicate in Terminology.
 > 5. **MMKV key prefixes in use.** Grep for `return \`[a-z]+:` patterns in `src/portfolio/core/pnl/**` and `src/portfolio/runtime/worklet/**` to find all key-construction sites. Expected: `snap:meta:v2:*`, `snap:index:v2:*`, `snap:chunk:v2:*`, `snap:invalid-history:v1:*`, `snap:*:*:*` (raw point keys), `rate:v1:*`. V2 adds `portfolio:v2:*`. Report the complete verified set. This list grounds the wipe-prefix constant in guardrail #23 and Phase 7.5's `wipePortfolioMmkvKeys` implementation. **If Phase 0 finds prefixes not in this expected list, they MUST be added** — otherwise debug-clear will leave orphan keys.
 > 6. **MMKV adapter layout.** Inspect `src/portfolio/adapters/rn/workletMmkvBridge.ts` and `mmkvKvStore.ts`. Confirm `getPortfolioMmkvStorageOnRN()` returns the dedicated `bitpay.portfolio.engine` MMKV instance. Confirm that there is **no existing** `getPortfolioKvStore()` accessor in the repo and that Phase 1 must create one in v2 using `MmkvKvStore`, `getPortfolioMmkvStorageOnRN()`, `PORTFOLIO_WORKLET_MMKV_STORAGE_ID`, and `PORTFOLIO_WORKLET_MMKV_REGISTRY_KEY`. Report the exact import paths for all four.
 > 7. **FiatRateStore fetch/persist separability.** Inspect `src/portfolio/core/pnl/fiatRateStore.ts`. Confirm that `ensureRates` uses an injected provider's `loadSeries` for the network step, `getSeries` for freshness checks, and `setSeries` for persistence. Confirm `extractSeries` is file-local (not exported) and therefore must be cloned/exported intentionally for v2. Confirm `BwsFiatRateProvider` at `adapters/rn/bwsFiatRateProvider.ts` implements `loadSeries`. These are the primitives Phase 2's `ensureFresh` uses.
@@ -559,7 +579,19 @@ Total kept: **~13,805 LOC.**
 > // IMPORTANT: all reads inside function bodies. Never at module top level.
 > export function getQuoteCurrencyFromStore(): string;
 > export function getShowPortfolioEnabledFromStore(): boolean;
+> // Livenet + not deleted + VISIBLE (respects hideKeyBalance / hideAccount / hideWallet / hideWalletByAccount / hideBalance).
+> // Drives buildBaseRecomputeInputs → scheduleRecompute inputs. Guardrail #30.
 > export function getEligibleStoredWalletsFromStore(): readonly StoredWallet[];
+> // Livenet + not deleted, VISIBILITY-IGNORED. Drives buildQueue / populate kick helpers.
+> // Hidden wallets ARE populated so data is warm when unhidden. Guardrails #29, #30.
+> export function getPopulateEligibleWalletsFromStore(): readonly StoredWallet[];
+> // Low-level predicate used by both getters above plus onKeyImported's filter.
+> export function isLivenetWallet(w: StoredWallet): boolean;       // w.network === Network.mainnet
+> // Composite visibility predicate: key-level hideKeyBalance, EVM-account-level hideAccount,
+> // wallet-level hideWallet / hideWalletByAccount / hideBalance. Returns true iff ALL applicable
+> // flags allow the wallet to appear. Does NOT consult getShowPortfolioEnabledFromStore — that is a
+> // separate, higher-priority gate checked in Phase 6 triggers.
+> export function isWalletVisibleInStore(walletId: string): boolean;
 > export function getLiveRatesByAssetIdFromStore(): Record<string, number>;
 > export function getLiveRatesAsOfMsFromStore(): number | undefined;
 > export function getBalancesByWalletIdFromStore(): Record<string, bigint>;
@@ -1030,6 +1062,11 @@ Total kept: **~13,805 LOC.**
 >
 > **Do not replace this with `pnlChange / fiatBalanceStart`, `pnlChange / remainingCostBasisFiatStart`, `pnlChange / pnlStart`, or any other return formula.** The displayed PnL percent is the current unrealized PnL divided by current remaining cost basis for the selected timeframe/window. In a no-transaction window, this naturally reduces to the rate percent change because remaining cost basis is initialized from holdings at the baseline rate.
 >
+> **Chart-point endpoint invariants (load-bearing for UI scrub parity, guardrail #31):**
+> - **First-point `pnlChange = 0` exactly.** At the first emitted series point, step 6 sets `firstTotalUnrealizedPnlFiat = totalUnrealizedPnlFiat`, so `totalPnlChange = totalUnrealizedPnlFiat - firstTotalUnrealizedPnlFiat = 0` by construction. Same for per-wallet and asset-group first points (`pnlChange = pnlEnd - pnlStart` with `pnlEnd === pnlStart` at the first emitted point). The recompute MUST preserve this property — do not add smoothing / interpolation that nudges the first point off zero. The chart's y-axis baseline and the scrubbed "start of window" display both rely on this being exactly zero.
+> - **Last-point values match the idle balance header + PnL row byte-for-byte.** For every series (total / wallet / asset-group / key-scoped detail) and every interval, `series.points[last].fiatBalance`, `pnlChange`, and `pnlPercent` are the values the idle chart header + row display. The idle header's big number is `series.points[last].fiatBalance`; the idle PnL subtext below it is formatted from `series.points[last].pnlChange` and `series.points[last].pnlPercent`. There is no separate "idle" compute path — the idle display and the scrubbed-to-last-point display read from the same published point. Required parity test #70 enforces this for all series in the publishable set.
+> - **Scope consistency.** The two invariants apply per scope. For Home total, first-point = 0 across total series; last-point equals the Home idle big balance + total PnL subtext. For wallet detail, same per-wallet. For key-scoped detail, same per-key. For asset-group detail, same per-group. Cross-scope equality continues to be enforced by the existing Row/detail equality rule above.
+>
 > ## Quote-switch shared-state recompute
 >
 > Add one compute-runtime helper such as `recomputeQuoteBridgeFromSharedState(args)` and call it **only** from `onQuoteCurrencyChanged(...)`.
@@ -1373,6 +1410,12 @@ Total kept: **~13,805 LOC.**
 >   pageSize: number;
 > };
 >
+> // INVARIANT (guardrail #29): args.eligibleWallets MUST be `getPopulateEligibleWalletsFromStore()`
+> // — livenet-only, visibility-IGNORED. Do NOT pass `getEligibleStoredWalletsFromStore()` here
+> // (that set is visibility-respecting; using it would mean hidden wallets never get populated and
+> // unhide would have populate-latency). `buildQueue` itself does not re-filter; callers are
+> // authoritative for supplying the correct candidate set. Every populate-construction site in v2
+> // reads through `getPopulateEligibleWalletsFromStore()`.
 > export function buildQueue(args: {
 >   eligibleWallets: readonly StoredWallet[];
 >   rates: Record<string, number>;
@@ -1609,6 +1652,9 @@ Total kept: **~13,805 LOC.**
 >
 > export function populateWallet(walletId: string): void {
 >   if (!canRunPortfolioV2Work()) return;
+>   // Livenet filter (guardrail #29). No-op for testnet / regtest wallets.
+>   const w = getStoredWalletByIdFromStore(walletId);
+>   if (!w || !isLivenetWallet(w)) return;
 >   reconcileQueueAgainstEligible(getCurrentEligibleWalletIdSetFromStore());
 >   appendToQueue(walletId);
 >   populateCancelFlag.value = false;
@@ -1619,7 +1665,15 @@ Total kept: **~13,805 LOC.**
 >
 > export function populateWallets(walletIds: string[]): void {
 >   if (!canRunPortfolioV2Work()) return;
->   // Same shape as populateWallet, but appending a batch. Each walletId flows
+>   // Livenet filter (guardrail #29). Testnet / regtest walletIds are dropped silently
+>   // before reaching `appendToQueue`. Callers may pass mixed lists (e.g., an imported
+>   // key's walletIds include both); this helper does the filtering.
+>   const livenetIds = walletIds.filter(id => {
+>     const w = getStoredWalletByIdFromStore(id);
+>     return !!w && isLivenetWallet(w);
+>   });
+>   if (!livenetIds.length) return;
+>   // Same shape as populateWallet, but appending a batch. Each livenet walletId flows
 >   // through idempotent `appendToQueue` (see contract below).
 > }
 >
@@ -1906,7 +1960,65 @@ Total kept: **~13,805 LOC.**
 >
 > export function onSendCompleted(args: { walletId: string }): void {
 >   if (!canRunPortfolioV2Work()) return;        // GUARD
+>   // `populateWallet` internally filters testnet walletIds to no-op per guardrail #29.
 >   populateWallet(args.walletId);
+> }
+>
+> export function onKeyImported(args: { key: Key }): void {
+>   // Wired from the `WalletActionTypes.SUCCESS_IMPORT` action (Phase 0 inventory item #4).
+>   if (!canRunPortfolioV2Work()) return;        // GUARD
+>   if (!getShowPortfolioEnabledFromStore()) return; // Show Portfolio off ⇒ import does nothing portfolio-side
+>   // Filter the imported key's wallets to livenet only (guardrail #29). Testnet wallets
+>   // in the same key are silently dropped — they are not portfolio-eligible. `populateWallets`
+>   // also filters livenet internally, so this filter is belt-and-suspenders; doing it here
+>   // keeps the trigger contract obvious to readers.
+>   const livenetWalletIds = (args.key.wallets ?? [])
+>     .filter(isLivenetWallet)
+>     .map(w => w.walletId);
+>   if (!livenetWalletIds.length) return;        // e.g. testnet-only imported key
+>   populateWallets(livenetWalletIds);           // kick populate via normal kick helper (reconcile + append + runPopulate)
+>   // No immediate scheduleRecompute — initial populate's progressive publish will update UI
+>   // as wallets finish, same as any other first-time populate.
+> }
+>
+> export function onWalletsVisibilityChanged(args: {
+>   affectedWalletIds: readonly string[];        // walletIds whose effective visibility flipped (hide OR unhide)
+> }): void {
+>   // Wired from every Redux action that mutates hideKeyBalance / hideAccount /
+>   // hideWallet / hideWalletByAccount / hideBalance (Phase 0 inventory item #4).
+>   // The caller (the middleware or effect) resolves which walletIds were affected by
+>   // the action and passes only those — this trigger does not re-derive the delta.
+>   if (!canRunPortfolioV2Work()) return;        // GUARD
+>   if (!getShowPortfolioEnabledFromStore()) return;
+>   const walletIds = Array.from(new Set(args.affectedWalletIds ?? []));
+>   if (!walletIds.length) return;
+>
+>   // Unhide edge case (guardrail #30): a livenet wallet that was imported while hidden
+>   // has no MMKV snapshot data. If any affected wallet is now visible AND not in
+>   // `queue.doneWalletIds`, kick populate for it.
+>   const queue = loadQueue();
+>   const doneSet = new Set(queue?.doneWalletIds ?? []);
+>   const nowVisibleUnpopulated = walletIds.filter(id => {
+>     if (!isWalletVisibleInStore(id)) return false;
+>     const w = getStoredWalletByIdFromStore(id);
+>     return !!w && isLivenetWallet(w) && !doneSet.has(id);
+>   });
+>   if (nowVisibleUnpopulated.length) {
+>     populateWallets(nowVisibleUnpopulated); // guardrail #29-filtered internally too
+>   }
+>
+>   // Republish state with the new visibility-filtered eligible set. Hidden wallets
+>   // drop out of `byWallet` / totals / series because `getEligibleStoredWalletsFromStore()`
+>   // now excludes them; unhidden wallets reappear because they're back in that set and
+>   // their populate data is already warm (or is being populated per above).
+>   const quote = getQuoteCurrencyFromStore();
+>   const base = buildBaseRecomputeInputs({
+>     quote,
+>     wallets: getEligibleStoredWalletsFromStore(), // visibility-respecting (guardrail #30)
+>     rates: getLiveRatesByAssetIdFromStore(),
+>     ratesAsOfMs: getLiveRatesAsOfMsFromStore(),
+>   });
+>   scheduleRecompute({ ...base, scope: 'full' });  // full scope so Home/All-Assets/Allocation/KeyOverview all update
 > }
 >
 > export async function onWalletsDeleted(args: { walletIds: readonly string[] }): Promise<void> {
@@ -2181,6 +2293,8 @@ Total kept: **~13,805 LOC.**
 > - send-completion wiring from `src/store/wallet/effects/send/**`,
 > - live-rate-update wiring from `src/store/wallet/effects/rates/rates.ts`,
 > - wallet-deletion wiring from the `cleanupPortfolioOnDeleteKeyMiddleware` in `src/store/index.ts` (replace its `clearWalletPortfolioDataWithRuntime({walletIds})` dispatch with a call to `onWalletsDeleted({walletIds})` so v2 sees key deletions; the middleware itself stays but swaps its payload),
+> - key-import wiring from the `WalletActionTypes.SUCCESS_IMPORT` handler — add a sibling middleware (or extend the deletion middleware into a general "wallet lifecycle" middleware) that calls `onKeyImported({key})` on each successful import,
+> - visibility-change wiring from every Redux action that mutates `hideKeyBalance` / `evmAccountsInfo[*].hideAccount` / `hideWallet` / `hideWalletByAccount` / `hideBalance` — wire each action through a middleware that resolves the delta set of walletIds whose effective visibility flipped and dispatches `onWalletsVisibilityChanged({affectedWalletIds})`. The delta resolution is caller responsibility; the trigger does not re-derive it from full state diffs,
 > - pull-to-refresh wiring from the Home / KeyOverview / Wallet / Account screens/hooks documented in inventory item #12,
 > - quote-currency-change wiring from the settings/rate-change path documented in inventory item #12,
 > - show-portfolio-toggle wiring from the settings path documented in inventory item #12.
@@ -2211,6 +2325,16 @@ Total kept: **~13,805 LOC.**
 >
 > **Test-suite packaging note (implementation guidance, not plan-breaking):** the `onWalletsDeleted(...)` tests above pin distinct invariants at the plan level (three guards, carve-out, no-unregistered-writer, dedupe, populate-resume) and are intentionally granular so regressions fail with a specific explanatory test name. At implementation time, the three post-await race assertions — GUARD #3, clearWallet carve-out parity, and no-unregistered-writer — may be collapsed into a single `describe('reset-race invariants', ...)` block with multiple `expect(...)` assertions sharing one seeded-race scenario, as long as each asserted invariant is still named and reachable from CI failure output. Do not merge tests that pin different scenarios (e.g., second-guard vs. third-guard) because the race windows they cover are disjoint.
 > - Wallet-deletion middleware parity regression: asserting the existing `cleanupPortfolioOnDeleteKeyMiddleware` in `src/store/index.ts` now calls `onWalletsDeleted({walletIds})` instead of dispatching `clearWalletPortfolioDataWithRuntime({walletIds})`, and that every `walletIds` collected from the deleted key reaches the v2 trigger.
+> - `onKeyImported(...)` livenet-filter regression: dispatch `WalletActionTypes.SUCCESS_IMPORT` with a key containing three mainnet wallets and two testnet wallets. Assert `populateWallets(...)` is called with only the three mainnet walletIds; the two testnet walletIds never reach `appendToQueue`. Verifies guardrail #29.
+> - `onKeyImported(...)` testnet-only key regression: import a key with testnet wallets only. Assert `populateWallets` is NOT called (early return on empty `livenetWalletIds`). No queue mutation, no populate kick.
+> - `onKeyImported(...)` show-portfolio-off regression: with `getShowPortfolioEnabledFromStore() === false`, import a mainnet key. Assert the trigger no-ops — no populate kick, no queue write.
+> - `onKeyImported(...)` progressive-reveal regression: import a key with five mainnet wallets while Show Portfolio is on and no prior portfolio data exists. Assert rows reveal progressively (same first-populate behavior as cold start): rows appear in canonical order, ready rows show PnL as they finish, unready rows show skeletons.
+> - `onWalletsVisibilityChanged(...)` key-hide regression: populate a portfolio with two keys (K1: A, B, C; K2: D, E). Dispatch the action that sets `hideKeyBalance = true` on K1. Assert `onWalletsVisibilityChanged({affectedWalletIds: ['A', 'B', 'C']})` fires. After the scheduler drains, the published state has no `byWallet[A|B|C]` entries, totals equal the sum of D and E only, Home / All Assets / Allocation show only D and E. K1's `snap:*` MMKV keys are still present (hide does not delete).
+> - `onWalletsVisibilityChanged(...)` key-unhide regression: after the above, dispatch `hideKeyBalance = false` on K1. Assert the trigger fires with A/B/C; no populate kick (they're already in `queue.doneWalletIds`); full recompute publishes a state where A/B/C reappear in `byWallet` and totals include them. Unhide is instant — no populate-latency window.
+> - `onWalletsVisibilityChanged(...)` wallet-hide regression: with populated `[A, B, C]`, set `hideWallet = true` on B. Assert the affected walletIds the middleware passes is exactly `[B]`, the published state drops `byWallet[B]` and any B-only asset groups / order entries, Home / KeyOverview / AccountDetails for B's key stop counting B, and B's `snap:*` data remains on disk.
+> - `onWalletsVisibilityChanged(...)` unhide-cold-wallet regression (edge case per guardrail #30): import key K1 with wallets A, B while A is somehow hidden (test fixture sets `hideWallet` true on A at import time). After populate finishes, `queue.doneWalletIds = [B]`. Dispatch unhide on A. Assert the trigger kicks `populateWallets(['A'])` because A is livenet, visible, and not in `doneWalletIds`. Populate completes; A appears in `byWallet` and totals.
+> - `onWalletsVisibilityChanged(...)` EVM-account-hide regression: configure an EVM key with accounts `main` (visible) and `trading` (hidden via `evmAccountsInfo.trading.hideAccount = true`). Assert wallets under `trading` are excluded from `getEligibleStoredWalletsFromStore()` and dropped from `byWallet` post-recompute; flipping to visible re-includes them.
+> - Visibility getter isolation regression: `getPopulateEligibleWalletsFromStore()` and `getEligibleStoredWalletsFromStore()` return different sets for a fixture where A is hidden and B is visible (both livenet, both not deleted). Populate set contains both; eligible (recompute) set contains only B. Unit test pins this divergence to regress guardrail #30 against accidental reunification.
 > - Refreshing indicator regression: triggers do not set/clear refreshing state directly; `useIsPortfolioRefreshing()` derives it from populate / `ensureFresh` / scheduler in-flight signals.
 > - Timeframe-switch regression: changing `tf` on any portfolio screen triggers zero calls to `ensureFresh(...)`, `ensureQuoteCurrencyFxBridge(...)`, populate APIs, or snapshot refresh helpers.
 
@@ -2267,6 +2391,35 @@ Total kept: **~13,805 LOC.**
 
 ## 7e. All Assets + Allocation
 > `AllAssets`: global route uses `selectOrderedAssetGroupIds`; key-scoped route uses `selectScopedOrderedAssetGroupIds`. `Allocation`: `selectAllocationRows`. **Order must match**: Allocation reuses the same canonical asset-group ordering as All Assets / Home rows; do not introduce a second value-ranked sort. Test asserts orders stay identical for the same wallet set. Mid-populate, All Assets shows the same ready-vs-skeleton continuity as Home. When "Show Portfolio" is off, hide both All Assets and Allocation entirely.
+
+## 7f. Balance-chart scrubbing (balance header + PnL row + timestamp)
+> Every balance chart in the app — Home `PortfolioBalance`, `WalletDetails`, `AccountDetails`, `KeyOverview`, `AssetBalanceHistoryScreen` — implements scrubbing with the same three-element update rule. This section is the single spec; each chart surface reuses it via a shared hook (e.g., `usePortfolioScrubState(series, interval)`). **Scrubbing is purely local UI state** (a `SharedValue<ScrubState | null>` on the UI runtime). It does not call `ensureFresh`, populate kicks, or `scheduleRecompute` (guardrail #9), does not mutate `sharedPortfolioState`, and does not publish anything cross-runtime.
+>
+> **Idle state (no scrub in progress):**
+> - Big balance above chart: `series.points[last].fiatBalance`, formatted with the app's existing fiat formatter in the current quote currency.
+> - PnL row under balance: `series.points[last].pnlChange` (absolute) and `series.points[last].pnlPercent` (signed %), formatted with the existing PnL display util. No timestamp shown in idle.
+> - Guardrail #31 pins these values as exact byte-for-byte matches of the series's last point — there is no separate "idle" compute path. Parity test #70 asserts this equality per screen / interval / quote / wallet scope.
+>
+> **Scrubbing state (user finger/cursor on a point `p` at index `i`):**
+> - Big balance updates to `series.points[i].fiatBalance`.
+> - PnL row updates to `series.points[i].pnlChange` + `series.points[i].pnlPercent`.
+> - PnL row ALSO displays `formatScrubTimestamp(series.points[i].ts, interval)` appended after / alongside the PnL values. The timestamp is not shown in idle mode.
+> - At `i === 0` (first point), `pnlChange === 0` exactly by the Phase 3 formula step 6 invariant; UI displays the zero without artificial smoothing.
+> - At `i === last`, the displayed values equal the idle display exactly (guardrail #31).
+>
+> **Timestamp formatting (`formatScrubTimestamp(ts, interval)`):**
+> - `interval ∈ {1D, 1W, 1M}` → `"March 29, 2026 at 5:22 PM"` — full date + short time, locale-aware. Use the app's existing date util to format; do not reinvent.
+> - `interval ∈ {3M, 1Y, 5Y}` → `"March 29, 2026"` — date only, no time component.
+> - `interval === 'ALL'` → duration-based switch: if the resolved ALL-window duration (`windowEndTs - windowStartTs`) is strictly less than ~3 months (90 days), use the `1D/1W/1M` format with hours; otherwise use the `3M/1Y/5Y` format without hours. The 3M cutoff matches the display-derived intervals (`3M`, `1Y`, `5Y` are derived from `ALL` per the canonical-intervals rule) so the ALL scrub timestamp matches how a user would naturally read a 3M+ chart.
+>
+> **Scrub-end behavior:**
+> - Releasing the scrub returns big balance + PnL row to the idle state (last-point values, no timestamp).
+> - Scrub state is UI-local; the underlying `series` is not disturbed. If the series updates mid-scrub (e.g., incremental populate publishes a new series), the scrub cursor stays at its current `ts`, resolved against the new series by nearest-timestamp lookup. If the cursor's `ts` falls outside the new series range, scrub ends and falls back to idle.
+>
+> **Do not:**
+> - Trigger any refresh work (guardrail #9). Scrub is read-only.
+> - Compute PnL / fiat values on-the-fly in UI code — read from `series.points[i]` directly so the invariants pinned in Phase 3 and guardrail #31 hold automatically.
+> - Display a separate "scrub timestamp" component decoupled from the PnL row — the timestamp is part of the PnL row's display and only appears while scrubbing.
 
 **LOC ledger:** +600 / 0 / +600.
 
@@ -2500,6 +2653,17 @@ Total kept: **~13,805 LOC.**
 67. **Rapid Show Portfolio toggle churn:** repeated off/on/off/on toggles serialize cleanly with last-toggle-wins semantics for final visibility; `visibilityWipeRequired` guarantees an OFF-created wipe obligation completes before a later ON can start fresh populate; no overlapping populate loops survive, stale completions no-op, and the final setting determines whether portfolio surfaces are hidden or repopulating.
 68. **Joinable reset during Show Portfolio toggle:** toggling portfolio visibility while post-auth repair / debug-clear / sign-out reset is already in flight joins or waits for that reset, re-checks epoch and store state afterward, and never surfaces an "already in flight" error for normal toggle churn.
 69. **Key deletion clears portfolio data (triple-guarded + quiesced, no unregistered writers):** dispatching `WalletActionTypes.DELETE_KEY` routes through `cleanupPortfolioOnDeleteKeyMiddleware` → `onWalletsDeleted({walletIds})`. Normal path: the trigger (a) checks `canRunPortfolioV2Work()` as GUARD #1 — literal first executable statement per guardrail #21, before argument normalization, (b) calls `cancelPopulate()` + awaits `waitForPopulateLoopToStop()`, (c) re-checks `canRunPortfolioV2Work()` as GUARD #2, (d) calls the existing `reconcileQueueAgainstEligible(...)` primitive — no new queue-prune implementation — which drops deleted walletIds from `remainingWalletIds` / `doneWalletIds` / `orderedAssetGroupIdsForAssetList` and bumps `orderRevision` iff order changed, (e) `await`s `Promise.all(walletIds.map(id => snapshotStore.clearWallet(id)))` to remove wallet-scoped `snap:*` keys through the kernel's existing async API (same `kvStore.delete` + registry path v1 uses), shared `rate:v1:*` stays intact, (f) re-checks `canRunPortfolioV2Work()` as GUARD #3 (reset/cache-invalid can flip during the `Promise.all` above, same discipline `ensureFresh` uses before `persistRates`), then (g) publishes post-delete state via `scheduleRecompute({scope: 'full'})` — which rebuilds `byWallet` from `inputs.walletsById` and naturally drops deleted walletIds, through the registered scheduler observable by `waitForRecomputeDrainToStop` — and (h) re-kicks the populate loop for survivors via `populateWallets(loadQueue()?.remainingWalletIds ?? [])`, relying on the Phase 5 `populateWallets` / `appendToQueue` idempotency contract (already-queued ids append is a no-op and does not bump `orderRevision`, so this call is semantically "clear cancel flag + runPopulate kick") and parity with test #31. There is NO direct `sharedPortfolioState` writer invoked by `onWalletsDeleted` — all shared-state publishes flow through the registered scheduler. `snapshotStore.clearWallet` is explicitly carved out of the reset wait-set (guardrail #22 exception): delete-only, idempotent under `kvStore.delete` + registry, scoped to walletIds Redux has already removed, and a strict subset of what a concurrent `wipePortfolioMmkvKeys` would delete — so a race with `performResetSequence` produces at worst a redundant delete, never a stale write. Reset-window path: if `performResetSequence` is in flight or `portfolioCacheInvalid` is latched at any of the three guards, the trigger no-ops — the active reset/repair wipe removes the deleted wallets' data, and Redux's `DELETE_KEY` reducer is authoritative for the updated eligible-wallet set observed by the next fire-time trigger. In both paths, Home / All Assets / Allocation stop counting the deleted wallets' balances and PnL at the first publish after the Redux deletion is reflected in `getEligibleStoredWalletsFromStore()`. Additional coverage: (a) delete one wallet mid-populate of three; surviving two resume to completion via `populateWallets(...)`; (b) `kvStore.listKeys()` has no stale deleted-wallet `snap:*` keys post-delete; (c) no-unregistered-writer test — `onWalletsDeleted` run concurrently with `performResetSequence` makes zero `runOnRuntimeAsync(getComputeRuntime(), ...)` calls outside the scheduler; (d) `populateWallets` / `appendToQueue` idempotency regression — passing already-queued ids is a no-op bump-wise, passing a new id advances `orderRevision` by exactly one.
+70. **Livenet-only populate across every construction site (guardrail #29):** for fixtures containing mixed mainnet / testnet / regtest wallets, assert no populate-construction path ever produces a `PopulateQueueV1.remainingWalletIds` containing a non-mainnet walletId. Coverage: (a) cold start `maybeResumePopulateOnLaunch` with mixed eligible set, (b) `onKeyImported` with mixed key, (c) `onSendCompleted({walletId: testnetId})` no-op, (d) `onPullToRefresh` with mixed `changedWalletIds`, (e) `onWalletsVisibilityChanged` unhide-cold-wallet path. In every case, testnet / regtest wallets never enter the queue and never reach `runPopulate`.
+71. **Populate vs recompute eligibility divergence (guardrail #30):** unit test asserting `getPopulateEligibleWalletsFromStore()` returns a strict superset of `getEligibleStoredWalletsFromStore()` exactly when one or more wallets have any hide flag set. Under zero hidden wallets, the two getters return the same walletIds. Under all wallets hidden, populate-eligible is non-empty and recompute-eligible is empty. Pins the two-set model against accidental reunification.
+72. **Hide/unhide cycle preserves snapshot data:** run a populate, then hide all wallets (any hide flag), then unhide. Assert: (a) while hidden, `kvStore.listKeys()` still contains every `snap:*` key from before — hide does not touch MMKV; (b) the published state has empty `byWallet` while hidden; (c) on unhide, `byWallet` repopulates from the warm snapshot data in the next scheduler drain with zero populate kicks fired (guardrail #30 "unhide is instant").
+73. **Import-while-hidden cold populate path:** fixture where a mainnet wallet is imported with `hideWallet = true` already set. After the import and a full recompute, the wallet is NOT in `byWallet` (hidden) but also NOT in `queue.doneWalletIds` (never populated). Dispatch unhide. Assert `populateWallets([walletId])` fires, populate runs, `doneWalletIds` includes the walletId, and `byWallet` now contains it. Regression for guardrail #30 edge-case path.
+74. **`onKeyImported` wiring parity:** dispatching `WalletActionTypes.SUCCESS_IMPORT` routes through the wallet-lifecycle middleware to `onKeyImported({key})`; the key's livenet walletIds reach `populateWallets`; testnet walletIds do not. Progressive UI reveal matches first-populate behavior from cold start.
+75. **`onWalletsVisibilityChanged` delta-computation parity:** every Redux action that mutates a hide flag produces an `onWalletsVisibilityChanged({affectedWalletIds})` call with exactly the set of walletIds whose *effective* visibility (union of all applicable hide flags) flipped. Idempotent action (re-set to same value) produces empty delta and trigger no-ops.
+76. **Scrubbing endpoint equality + first-point zero (guardrail #31):** for every balance chart (Home total, wallet, account, key-scoped, asset-group detail) and every interval (`1D`, `1W`, `1M`, `3M`, `1Y`, `5Y`, `ALL`), assert: (a) `series.points[0].pnlChange === 0` exactly (1e-12 tolerance); (b) the idle balance header and PnL row display values equal `series.points[last].fiatBalance` / `pnlChange` / `pnlPercent` byte-for-byte in the formatted output; (c) scrubbing to index 0 displays `pnlChange = 0` + the first-point timestamp; (d) scrubbing to index `last` displays values byte-identical to the idle header + PnL row (timestamp included during scrub, omitted at idle); (e) after scrub release, the display returns to idle state byte-identical to its pre-scrub idle state. Run this across all publishable series.
+77. **Scrub timestamp formatting parity:** unit test `formatScrubTimestamp(ts, interval)` per the Terminology contract. Cases: (a) `1D/1W/1M` → full date + short time string matching the app's existing locale-aware date formatter; (b) `3M/1Y/5Y` → date-only string, no time; (c) `ALL` with window duration `< 90 days` → date + time; (d) `ALL` with window duration `>= 90 days` → date only. Assert no time component appears in the 3M+ cases and no date component is missing in any case.
+78. **Scrubbing is pure UI-local (no side effects, guardrail #9 reinforcement):** instrumented scrub test records every call to `ensureFresh`, `scheduleRecompute`, `populateWallet`, `populateWallets`, `runOnRuntimeAsync(getComputeRuntime(), ...)`, `runOnRuntimeAsync(getPopulateRuntime(), ...)`, and every MMKV write. Scrub through 200 points across every interval on every chart surface. Assert total count of all recorded events is zero. `sharedPortfolioState.value` is never written during scrub.
+79. **Scrub mid-publish cursor stability:** start scrubbing a chart at point 50 (timestamp `T`). While scrubbing, inject a scheduler publish that replaces `series` with a new series. Assert: (a) if the new series contains a point with `ts === T`, the cursor stays at that point and displayed values update to the new point's values; (b) if no exact-`T` point exists, the cursor snaps to the nearest-timestamp point in the new series; (c) if `T` falls outside the new series range, scrub ends and falls back to idle. In all three cases, no crashes, no recursive render, no "maximum update depth" error.
+80. **Scrub across quote-currency switch:** start scrubbing on Home chart at point 50 with quote = USD. While scrubbing, dispatch `onQuoteCurrencyChanged('EUR')`. Assert: (a) `recomputeQuoteBridgeFromSharedState(...)` runs and publishes a new bridged series; (b) scrub cursor stays at point 50's `ts`; (c) displayed values update to EUR-bridged `fiatBalance` / `pnlChange` / `pnlPercent`; (d) timestamp format unchanged (quote switch doesn't change interval). Scrub release returns to the new EUR idle display.
 
 ---
 
