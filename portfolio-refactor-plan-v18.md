@@ -21,7 +21,9 @@
 - **Fiat-rate storage is canonicalized to four fetched/persisted intervals.** Only `1D`, `1W`, `1M`, and `ALL` are fetched or stored in MMKV. Displayed `3M`, `1Y`, and `5Y` are derived by windowing `ALL` on the compute runtime; they do not trigger separate rate fetches or persistence.
 - **Quote-currency switching must be instant via a BTC FX bridge.** Switching fiat currency must not fan out new-quote fetches for every visible asset. V2 fetches only the BTC bridge series needed for the target quote, then derives portfolio/chart/list values on the compute runtime from already-persisted asset rates plus the bridge factor.
 - **Populate publishing has two product modes.** First-ever populate reveals rows progressively as wallets finish. Later incremental populates (app-launch refresh, send-completion refresh, pull-to-refresh refresh) keep showing the old stale chart/PnL values until the populate completes, then publish one committed update.
+- **Incremental populate must be reorg-safe.** App-launch refresh, send-triggered refresh, and pull-to-refresh refreshes must start slightly before the latest persisted tip and overwrite the recent tail snapshots rather than strictly appending from the current tip. V2 relies on preserved kernel behavior here; Phase 0 must inventory the exact current mechanism and Phase 5 must keep it intact.
 - **Timeframe switches and chart scrubbing are read-only UI operations.** They never trigger `ensureFresh`, snapshot refresh, or populate work. Only the explicit refresh triggers named in Phase 6 may refresh rates or snapshots.
+- **Global react-native-worklets bundle mode is out of scope for v18.** V2 assumes the current proven non-bundle worklet path with the existing Quick Crypto / fetch hybrid-object integration for signing and network work. If bundle mode is ever considered, it must be shown to affect only the worklet runtime and must be re-validated separately before adoption.
 - **V1 kernels have runtime-wiring requirements v2 must preserve.** The populate kernel in `portfolioPopulateWorklet.ts` calls tx-history fetch paths (`txHistoryRequest.ts:124`, `:188`) that require a hydrated signing dispatch context on the active runtime. The fiat rate provider (`bwsFiatRateProvider.ts:13`) is `'worklet'`-tagged and calls `getPortfolioNitroFetchClientOnRuntime()` which reads the fetch client from the current dispatch context — **not** just from the runtime initializer. The transport file explicitly notes that "even requests that do not need BWS signing can still need Nitro Fetch on the runtime" (`portfolioWorkletTransport.ts:137`). V2 must preserve this pattern: `PopulateRuntimeContext` carries `signingContextsByWalletId`, and v2's new `drivePopulateForWallet(...)` installs those contexts around the same handler calls v1 wraps with `withWalletSigningContext` (`prepare` and each `processNextPage` call), rather than once around an entire wallet session. Rate fetches install a lightweight dispatch context around `loadSeriesWorkletWithContext`. **Failure to preserve these contracts means populate can't fetch tx history and ensureFresh can't fetch rates — the v2 system simply won't work.**
 - **Runtime-global dispatch context install/clear is a concurrency seam.** The populate runtime is shared between per-wallet populate work and rate fetches. Both paths install `PortfolioTxHistorySigningDispatchContext` on runtime globals. If `runOnRuntimeAsync` allows same-runtime tasks to interleave at `await` boundaries, two concurrent installs can clobber each other's context — populate's per-wallet context overwritten by a rate fetch's lightweight context mid-populate, or two rate fetches clobbering each other. V1 uses multiple serialization layers (`portfolioHost.ts:46` serial queue for request entry, `portfolioRequestWorklet.ts:265` worklet-side serial gate, `portfolioRequestWorklet.ts:278` allows `rates.ensure` during populate — a deliberate concurrency permission). V2's direct `runOnRuntimeAsync` calls from `ensureFresh` bypass v1's request-path serialization, so v2's concurrency safety requires explicit verification. **Phase 0.5 spike must verify scheduling behavior before Phase 5 commits to a runtime-wiring design.** See guardrail #28.
 
@@ -154,6 +156,7 @@ Total kept: **~13,805 LOC.**
     - `ensureFresh` fetch step runs on the populate runtime via `runOnRuntimeAsync(populateRuntime, loadSeriesWorkletWithContext, {args, dispatchContext})` — the worklet wrapper installs the lightweight context before calling the provider. See Phase 2 for implementation.
     - Any v2 change that bypasses these contracts (e.g., calling any populate handler without installing the signing context, or calling `loadSeriesWorklet` without the lightweight context) results in runtime throws on the first fetch. Future v2 worklet calls that use Nitro fetch must follow the same pattern.
 28. **Runtime-global dispatch context must not be clobbered by concurrent installs.** The populate runtime is shared between per-wallet populate work and rate fetches (guardrail #27). Both install `PortfolioTxHistorySigningDispatchContext` on runtime globals. If `runOnRuntimeAsync` allows same-runtime tasks to interleave across `await` boundaries, concurrent installs clobber each other and corrupt in-flight work. **Phase 0.5 spike (see Phase 0.5) must empirically determine the scheduling behavior before Phase 5 commits to a runtime-wiring design.** Implementation path branches on spike results per the table below. `ensureFresh` always dedupes identical-args calls; serialization of non-identical calls is required when Probe 3 is dirty and optional otherwise. An acceptance test verifies the invariant regardless of chosen branch: under deliberately concurrent populate + rate-fetch load, neither operation observes the other's dispatch context mid-flight.
+29. **Do not enable global worklets bundle mode in v18.** Keep the current standard non-bundle worklet mode plus the existing Quick Crypto / fetch hybrid-object path for tx-history signing and network work. Any future bundle-mode experiment requires a separate design proving it only affects the target worklet runtime and does not break the existing signing/fetch integration.
 
 ---
 
@@ -199,8 +202,10 @@ Total kept: **~13,805 LOC.**
 >    - current quote-currency switching behavior for portfolio screens,
 >    - whether current quote switches already use a BTC bridge or fetch per-asset quote data,
 >    - which intervals are actually fetched/persisted vs derived for display,
->    - whether timeframe switches currently trigger hidden rate/snapshot refresh work.
->    These findings ground the v18 product-scope fixes in Phases 3, 6, and 7.
+>    - whether timeframe switches currently trigger hidden rate/snapshot refresh work,
+>    - how the current incremental populate path rewinds from the latest persisted tip / overwrites the recent tail for reorg protection,
+>    - whether the current app/worklets setup uses global bundle mode and where Quick Crypto / fetch hybrid objects are threaded through signing + fetch.
+>    These findings ground the v18 product-scope fixes in Phases 3, 5, 6, and 7.
 >
 > Add `PORTFOLIO_V2` feature flag, default `false`, readable JS + worklet. MMKV at `portfolio:v2:flag`.
 
@@ -1500,6 +1505,8 @@ Total kept: **~13,805 LOC.**
 >
 > `drivePopulateForWallet(...)` is a **new v2 orchestrator**, not an existing kernel surface. It composes the existing v1 handlers in `portfolioPopulateWorklet.ts` (`handlePrepareWalletOnPopulateWorklet`, `handleProcessNextPageOnPopulateWorklet`, `handleFinishWalletOnPopulateWorklet`, `handleCloseWalletSessionOnPopulateWorklet`) and mirrors v1's orchestration from `portfolioPopulateJobWorklet.ts`. **Default v18 behavior is v1-parity wrap granularity: signing context around `prepare` and each `processNextPage` call only, not one long wrap around the entire wallet session.**
 >
+> **Incremental reorg protection (product-load-bearing):** later incremental populates must preserve the v1 kernel's "rewind before tip and overwrite recent tail snapshots" behavior rather than strictly appending from the latest persisted point. Phase 0 inventories the exact current mechanism; Phase 5 must keep passing the same effective tip-rewind inputs/config through the preserved populate kernel so app-launch refreshes, send refreshes, and pull-to-refresh refreshes remain reorg-safe.
+>
 > **Populate publish-mode contract (NEW, product-load-bearing):**
 > - `publishMode: 'progressive'` is used only for the first-ever populate. Each completed wallet bumps `populateProgressTick`, which lets Home / All Assets progressively reveal ready rows in descending fiat order.
 > - `publishMode: 'deferred'` is used for later incremental populates (app-launch refresh, send-completion refresh, pull-to-refresh refresh). Completed wallets do **not** publish fresh chart/PnL values mid-run; `populateCommitTick` fires once after the queue drains so stale values stay visible until one final commit.
@@ -1764,6 +1771,7 @@ Total kept: **~13,805 LOC.**
 >   - prepare → page loop → finish → close sequence matches v1 `runSingleWalletPopulateOnWorklet(...)` behavior on the same fixture.
 >   - cleanup-on-error still calls `handleCloseWalletSessionOnPopulateWorklet(...)`.
 >   - signing-context wrap matches v1 exactly: installed for `prepare` and each `processNextPage` call, not for `finish` / `close`, and cleared between wrapped calls.
+>   - incremental refresh fixtures preserve v1's tip-rewind / overwrite-tail behavior so the most recent snapshots are re-written on reorg-sensitive refreshes instead of strictly appended.
 > - `resume.spec.ts` — kill/resume.
 > - `populatePublishMode.spec.ts` (NEW):
 >   - first-ever populate uses `publishMode: 'progressive'` and reveals ready rows incrementally in queue order.
@@ -1969,6 +1977,7 @@ Total kept: **~13,805 LOC.**
 > - This equality must continue to hold after quote-currency switches, including BTC-bridge quote changes.
 > - Use the same `selectHasAnyPopulatedWallets(s)` predicate for first-ever hide vs stale-fallback behavior.
 > - During deferred populate, quote-currency switches immediately re-bridge the committed asset-detail / exchange-rate values into the new quote; only fresh populate data waits for commit.
+> - If asset detail renders a constituent wallet list, that list uses the same scoped `memberWalletIds` / wallet set as the chart and row. A key-scoped asset detail must not show wallets from outside that key.
 
 ## 7e. All Assets + Allocation
 > `AllAssets`: global route uses `selectOrderedAssetGroupIds`; key-scoped route uses `selectScopedOrderedAssetGroupIds`. `Allocation`: `selectAllocationRows`. **Order must match**: Allocation reuses the same canonical asset-group ordering as All Assets / Home rows; do not introduce a second value-ranked sort. Test asserts orders stay identical for the same wallet set. Mid-populate, All Assets shows the same ready-vs-skeleton continuity as Home.
@@ -2225,7 +2234,7 @@ Total kept: **~13,805 LOC.**
    Test asserts the invariant regardless of branch; implementation detects which branch is active via a module constant set after Phase 0.5 spike results.
 54. **Rate-vs-rate concurrency policy:** two overlapping `ensureFresh` calls with identical `(quoteCurrency, interval, coins, assets, maxAgeMs, force)` args dedupe — only one network call fires, both callers receive the result. Two overlapping calls with different args serialize only if probe 3 is dirty/flaky; otherwise they may remain concurrent. In either case, no runtime-global context clobber. `inFlightCount` accurately reflects in-flight calls regardless of dedupe/serialization behavior.
 55. **Allocation order parity:** `selectAllocationRows` and `selectOrderedAssetGroupIds` produce the same order for the same wallet set globally and under `keyId`.
-56. **Key-scoped asset list parity:** `AllAssets({keyId})` shows only that key's grouped assets, row taps carry `keyId`, and the asset detail chart/row values stay scoped to the key instead of falling back to Home-global data.
+56. **Key-scoped asset list parity:** `AllAssets({keyId})` shows only that key's grouped assets, row taps carry `keyId`, and the asset detail chart/row/**wallet-list** values stay scoped to the key instead of falling back to Home-global data.
 57. **Quote-switch BTC bridge:** changing fiat currency fetches only BTC bridge data for canonical stored intervals, does not fan out per-asset new-quote fetches, and updates Home / All Assets / Asset Detail / Exchange Rate consistently.
 58. **Canonical stored intervals only:** only `1D`, `1W`, `1M`, and `ALL` are fetched/persisted. `3M`, `1Y`, and `5Y` are derived from `ALL` and do not create separate rate keys.
 59. **Timeframe switches are read-only:** switching timeframe on Home / Wallet / Asset Detail / KeyOverview / Exchange Rate causes zero `ensureFresh`, FX-bridge, populate, or snapshot-refresh side effects.
@@ -2237,6 +2246,7 @@ Total kept: **~13,805 LOC.**
 65. **Chart gate predicate:** first-ever hide vs stale-fallback behavior keys off committed populated state (`selectHasAnyPopulatedWallets(s)`), not `queue.publishMode`.
 66. **Interval-window timestamp snapping:** the shared window helper resolves boundaries from rate-series timestamps first, and PnL derivation snaps to those exact timestamps so the no-tx-window parity test is deterministic.
 67. **Quote-switch during deferred populate:** while a deferred populate is active, `onQuoteCurrencyChanged(...)` applies `recomputeQuoteBridgeFromCommittedState(...)` immediately to the committed state, visible screens switch quote right away, scheduler-held heavy recomputes still do not drain early, and the later `populateCommitTick` publish lands fresh data in the already-selected quote.
+68. **No recursive render / max-depth regression:** rapid timeframe toggles and chart scrubbing on Home / Wallet / Asset Detail / Exchange Rate do not produce "maximum update depth exceeded" errors, recursive scheduler churn, or blank intermediate flashes between valid series.
 
 ---
 
@@ -2287,6 +2297,7 @@ Starting: ~31,160. Ending: ~20,930. Eliminated: ~10,230, ~33%.
 - **Chart-boundary equality** keys on `Series.fingerprint`.
 - **Only four fiat-rate intervals are fetched/persisted:** `1D`, `1W`, `1M`, and `ALL`. Displayed `3M`, `1Y`, and `5Y` derive from `ALL` on the compute runtime.
 - **Quote-currency switching uses a BTC FX bridge.** Quote changes fetch only BTC bridge data for the target quote and recompute portfolio/chart/list values instantly on the compute runtime from the currently committed state instead of refetching every visible asset in the new quote. This immediate bridge path remains allowed during deferred populate; only populate-driven fresh data waits for the final commit.
+- **Incremental populates remain reorg-safe.** Deferred refresh populates inherit the preserved kernel's "rewind before tip and overwrite the recent tail" behavior instead of strictly appending from the latest persisted point.
 - **Queue persists IDs + config + `orderRevision`.** `buildQueue` monotonic: `(prev?.orderRevision ?? 0) + 1`. `markDone` does not bump.
 - **Reconciliation on every kick.** Bumps `orderRevision` iff order changed.
 - **Single ordering helper** used by `buildQueue` and `buildBaseRecomputeInputs` fallback.
@@ -2298,6 +2309,7 @@ Starting: ~31,160. Ending: ~20,930. Eliminated: ~10,230, ~33%.
 - **`performResetSequence`:** set in-flight → cancel → `Promise.all` wait for populate loop, compute drain, and in-flight `ensureFresh` (throws on timeout, no latch) → sentinel=in_progress → wipe (idempotent, excludes sentinel + feature flag) → reset state → sentinel=none. Failure between wipe start and sentinel=none latches failed. Retry self-heals.
 - **V2 kernel integration (guardrail #27):** `PopulateRuntimeContext` carries `signingContextsByWalletId` alongside `walletsById`. `runPopulate` delegates each wallet to a new v2-owned `drivePopulateForWallet(...)` orchestrator, which wraps the signing-required populate handlers with the signing context at the same granularity as v1 (`prepare` and each `processNextPage` call, not `finish` / `close`) — matching `withWalletSigningContext` in `portfolioPopulateJobWorklet.ts:315`. `ensureFresh` builds a **lightweight dispatch context** JS-side (no wallet signing, but `boxedNitroFetch` populated) and its worklet wrapper installs/clears it around the `RnBwsFiatRateProvider.loadSeries` call — matches the "non-signing requests still need Nitro fetch context" rule from `portfolioWorkletTransport.ts:137`. **Every worklet call that uses Nitro fetch requires a dispatch context for the duration of the call**, whether or not it signs.
 - **Runtime-global concurrency verification (guardrail #28):** Phase 0.5 spike runs four probes (two branch-deciders, two diagnostic) on both platforms at 1000 iterations. Probes 2 (v2-asymmetric populate-vs-rate) and 3 (rate-vs-rate) determine branch selection from A (no mitigation), C (dedicated rate-fetch runtime — architectural fork to four runtimes total, still requires per-call lightweight dispatch context), or D (worklet-side lock — most surgical but most complex). Branch B remains diagnostic-only because it violates the non-blocking-read product requirement. `ensureFresh` always dedupes identical args; serialization of non-identical calls is only required when Probe 3 is dirty/flaky.
+- **V18 keeps the current non-bundle worklet path.** Global `react-native-worklets` bundle mode is out of scope unless a future design proves it is isolated to the intended worklet runtime and preserves the existing Quick Crypto / fetch hybrid-object integration.
 - **Wipe scope (guardrail #24):** matches actual repo prefixes `snap:*`, `rate:v1:*`, `portfolio:v2:*`. Excludes `RESET_SENTINEL_KEY` (durability across crash) and `PORTFOLIO_V2_FLAG_KEY` (don't silently disable v2 during rollout). Verified against repo at `snapshotStore.ts:146-162` and `fiatRateStore.ts` `rateKey` function.
 - **Portfolio MMKV is a dedicated instance (guardrail #25):** `getPortfolioMmkvStorageOnRN()` returns `new MMKV({ id: 'bitpay.portfolio.engine' })`. All v2 MMKV access — sentinel, flag, wipe — goes through this instance, never the default MMKV.
 - **Wipe goes through the key registry (guardrail #26):** portfolio storage tracks keys via `__bitpay.portfolio.engine.registry.v1__`. Wipe uses `kvStore.delete(key)` (untracks) or equivalently clears the registry. `listKeys()` empty after wipe.
@@ -2306,10 +2318,11 @@ Starting: ~31,160. Ending: ~20,930. Eliminated: ~10,230, ~33%.
 - **Soft eviction cap** (N=8).
 - **Asset rows and allocation stay ticker-grouped across chains.** `assetGroupId = lowercased currencyAbbreviation` is the canonical UI row identity for Home / All Assets / Allocation, matching current UX.
 - **Allocation order equals asset-list order.** No second ranking system.
-- **Key-scoped All Assets and asset detail stay scoped.** `AllAssets({keyId})` and row taps from `KeyOverview` use scoped selectors instead of Home-global rows.
+- **Key-scoped All Assets and asset detail stay scoped.** `AllAssets({keyId})` and row taps from `KeyOverview` use scoped selectors instead of Home-global rows, including any constituent wallet list rendered inside asset detail.
 - **Rate fetching and snapshot refresh happen only at explicit triggers**, not in the scheduler and not on timeframe switches or chart scrubbing.
 - **Mid-populate UI behavior is explicit.** Asset-list rows stay visible immediately in canonical order with skeletons for unready right-side content; charts stay hidden during first populate until their relevant data is ready and stay stale-but-visible during later deferred populates until commit.
 - **`runOnRuntimeAsync` non-curried**; fire-and-forget attaches `.catch(log)`.
+- **Rapid timeframe/scrub interaction has an explicit no-recursive-render bar.** The plan now requires a dedicated regression for no maximum-update-depth errors, no recursive scheduler churn, and no blank flashes during timeframe toggles or chart scrubbing.
 - **No data migration.** `SnapshotIndexV2.revision` required, starts at 1.
 - **Every phase ships green.** Flag gates v1 vs v2 until Phase 8.
 - **LOC estimate ~20.9k inside `src/portfolio/`**, 18–22k range pending Phase 0 inventory.
