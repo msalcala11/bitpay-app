@@ -35,21 +35,7 @@ if (prod) {
   plugins.push('transform-remove-console');
 }
 
-// Keep bundle mode disabled and transfer any required runtime helpers into the
-// worker explicitly so UI worklets stay on the default Metro execution path.
-/** @type {import('react-native-worklets/plugin').PluginOptions} */
-const workletsPluginOptions = {
-  bundleMode: false,
-  strictGlobal: true,
-  workletizableModules: [
-    '@bitpay-labs/bitcore-lib',
-    'buffer',
-    'process',
-    'crypto',
-  ],
-};
-
-plugins.push(['react-native-worklets/plugin', workletsPluginOptions]);
+plugins.push('react-native-worklets/plugin');
 
 module.exports = {
   presets: [
