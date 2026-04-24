@@ -978,6 +978,55 @@ Total kept: **~13,805 LOC.**
 >
 > This helper is load-bearing for the product contract: if there are no transactions in the chosen window, the asset PnL percentage for that window must equal the Exchange Rate percentage for that same window. Resolve one shared `{startTs, endTs, asOfMs}` window for the requested interval, then produce identical boundary samples for portfolio PnL and Exchange Rate calculations. If the rate series has no raw point exactly at `startTs` or `endTs`, linearly interpolate a synthetic boundary sample from the surrounding rate points. Do not let PnL and Exchange Rate derive their windows or boundary values independently.
 >
+> ## PnL formula parity (do not change)
+>
+> V18 must preserve the existing v1 PnL formula exactly. The current source of truth is `src/portfolio/core/pnl/analysisStreaming.ts`:
+> - `createWalletAnalysisState(...)` initializes the timeframe-local remaining cost basis.
+> - `applyAnalysisPointToWalletState(...)` updates that basis for inflows/outflows inside the window.
+> - point construction computes chart `totalPnlChange` / `totalPnlPercent`.
+> - `finalizeAnalysisResult(...)` computes `AssetPnlSummary` / `TotalPnlSummary`.
+> Asset-list and asset-detail idle rows then reuse `src/portfolio/ui/selectors/buildAssetRowsFromAnalysis.ts`.
+> This prose is the v18 behavioral spec; `analysisStreaming.ts` is the current implementation of that spec; Required parity test #3 enforces that v2 matches both.
+>
+> **Formula, for every displayed timeframe (`1D`, `1W`, `1M`, `3M`, `1Y`, `5Y`, `ALL`):**
+>
+> 1. Resolve the timeframe window/timeline. The first timeline timestamp is the **baseline timestamp** for that timeframe. Timeframes change only this window/timeline; they do not change the math below.
+> 2. For each asset, `baselineRate = rateAt(firstTimelineTimestamp)`.
+> 3. For each wallet, initialize `unitsAtomic` from the wallet's `basePoint` at the window start and initialize `remainingCostBasisFiat = unitsAtWindowStart * baselineRate`.
+> 4. For each in-window balance-change point:
+>    - If `deltaAtomic > 0`, add cost basis for the new units at the event rate: `remainingCostBasisFiat += deltaUnits * rateAt(point.timestamp)`.
+>    - If `deltaAtomic < 0` and prior units are positive, dispose cost basis pro rata: `remainingCostBasisFiat *= afterAtomic / beforeAtomic`.
+>    - If units become zero or negative, set both units and remaining cost basis to zero.
+>    - Clamp non-finite or negative remaining cost basis back to zero.
+> 5. At each chart sample timestamp:
+>    - `fiatBalance = units * markRate`.
+>    - `unrealizedPnlFiat = fiatBalance - remainingCostBasisFiat`.
+>    - Per-wallet `pnlPercent = remainingCostBasisFiat > 0 ? (unrealizedPnlFiat / remainingCostBasisFiat) * 100 : 0`.
+> 6. For chart/series total points:
+>    - `totalFiatBalance = sum(wallet.fiatBalance)`.
+>    - `totalRemainingCostBasisFiat = sum(wallet.remainingCostBasisFiat)`.
+>    - `totalUnrealizedPnlFiat = totalFiatBalance - totalRemainingCostBasisFiat`.
+>    - `firstTotalUnrealizedPnlFiat = totalUnrealizedPnlFiat` at the first emitted point.
+>    - `totalPnlChange = totalUnrealizedPnlFiat - firstTotalUnrealizedPnlFiat`.
+>    - `totalPnlPercent = totalRemainingCostBasisFiat > 0 ? (totalUnrealizedPnlFiat / totalRemainingCostBasisFiat) * 100 : 0`.
+>    - At the final point of a series, these endpoint formulas are equivalent to the asset-summary formulas below when the scope, wallet set, quote currency, and interval window are identical.
+> 7. For each raw asset `AssetPnlSummary`:
+>    - `pnlStart = sum(firstPoint.wallet.unrealizedPnlFiat for wallets in asset)`.
+>    - `pnlEnd = sum(lastPoint.wallet.unrealizedPnlFiat for wallets in asset)`.
+>    - `remainingCostBasisFiatEnd = sum(lastPoint.wallet.remainingCostBasisFiat for wallets in asset)`.
+>    - `pnlChange = pnlEnd - pnlStart`.
+>    - `pnlPercent = remainingCostBasisFiatEnd > 0 ? (pnlEnd / remainingCostBasisFiatEnd) * 100 : 0`.
+>    - `ratePercentChange = rateStart > 0 ? ((rateEnd - rateStart) / rateStart) * 100 : 0`.
+> 8. For collapsed asset-group rows (`USDC` across chains, etc.), reuse the current row aggregation formula from `buildAssetRowsFromAnalysis.ts`:
+>    - `row.pnlFiat = sum(assetSummary.pnlChange)`.
+>    - `row.pnlPercent = sum(assetSummary.remainingCostBasisFiatEnd) > 0 ? (sum(assetSummary.pnlEnd) / sum(assetSummary.remainingCostBasisFiatEnd)) * 100 : 0`.
+>    - `row.fiatValue = sum(assetSummary.fiatBalanceEnd)`.
+>    - Asset-detail idle summaries must use the same row metrics so row and detail match byte-for-byte.
+>
+> **Row/detail equality rule:** `rowToday` and `rowAllTime` are endpoint extractions from the same scoped series used by Asset Detail, not separate business logic. For a given `(assetGroupId, optional keyId wallet scope, quoteCurrency)`, the asset-list row for Today must equal the Asset Detail `1D` chart's final displayed change row, and the asset-list row for All Time must equal the Asset Detail `ALL` chart's final displayed change row. Equality requires using the same grouped wallet set, same interval window, same quote, same rate boundary samples, and same collapsed-asset aggregation. If an implementation stores row payloads separately for selector speed, those payloads must be derived from the same recompute pass and endpoint values as the corresponding series. Test this byte-for-byte for row/detail endpoint equality; use `1e-8` numeric tolerance for formula parity unless existing v1 output is byte-for-byte stable.
+>
+> **Do not replace this with `pnlChange / fiatBalanceStart`, `pnlChange / remainingCostBasisFiatStart`, `pnlChange / pnlStart`, or any other return formula.** The displayed PnL percent is the current unrealized PnL divided by current remaining cost basis for the selected timeframe/window. In a no-transaction window, this naturally reduces to the rate percent change because remaining cost basis is initialized from holdings at the baseline rate.
+>
 > ## Quote-switch shared-state recompute
 >
 > Add one compute-runtime helper such as `recomputeQuoteBridgeFromSharedState(args)` and call it **only** from `onQuoteCurrencyChanged(...)`.
@@ -2211,6 +2260,7 @@ Total kept: **~13,805 LOC.**
 1. Numeric parity (load-bearing): point-by-point, every interval, 1e-8, across ~20 fixtures.
 2. Cross-screen consistency: asset row and asset detail match byte-for-byte.
 3. Rate ↔ PnL consistency, including the "no transactions in window => PnL % equals Exchange Rate %" case.
+   Formula pinning fixtures must cover buys, sells, partial disposals, zero-balance exits, no-transaction windows, and collapsed multi-chain asset groups. Include a named no-transaction fixture: 10 units held across a full `1D` window with no transactions; assert `pnlPercent === ratePercentChange` within `1e-8`. Assert the exact v1 formulas from Phase 3: chart `totalPnlChange = totalUnrealizedPnlFiat - firstTotalUnrealizedPnlFiat`, chart `totalPnlPercent = totalUnrealizedPnlFiat / totalRemainingCostBasisFiat * 100`, asset-summary `pnlChange = pnlEnd - pnlStart`, asset-summary `pnlPercent = pnlEnd / remainingCostBasisFiatEnd * 100`, and collapsed-row `pnlPercent = sum(pnlEnd) / sum(remainingCostBasisFiatEnd) * 100`. Use `1e-8` tolerance for numeric formula parity unless existing v1 output is byte-for-byte stable. Also assert endpoint equivalence: for the same `assetGroupId`, optional `keyId` wallet scope, quote, and interval window, row Today equals Asset Detail `1D` final chart change row and row All Time equals Asset Detail `ALL` final chart change row byte-for-byte.
 4. Non-blocking recompute.
 5. Non-blocking populate.
 6. Coalescing: 100 rapid schedules → 1–3 drains.
