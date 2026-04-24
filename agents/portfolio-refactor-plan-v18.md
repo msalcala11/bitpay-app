@@ -104,7 +104,9 @@ Total kept: **~13,805 LOC.**
 - **Asset group** — UI-facing collapsed asset identity. Default `assetGroupId = lowercased currencyAbbreviation`, matching current Home / All Assets / Allocation behavior.
 - **Precomputed row payload** — `rowToday` / `rowAllTime` on `AssetGroupSlice`. Global Home / All Assets / Allocation selectors read these as O(1) lookups. Key-scoped selectors use a bounded memoized aggregation cache over the supplied wallet set.
 - **Stored fiat-rate interval** — canonical persisted/fetched interval in `{1D, 1W, 1M, ALL}`. Displayed `3M`, `1Y`, and `5Y` are derived from `ALL`.
-- **Refreshing portfolio state** — lightweight UI state set by incremental populate triggers. It may show subtle loading affordances, but it does not block progressive chart/PnL updates.
+- **Refreshing portfolio state** — lightweight UI state derived from actual in-flight work (`populateLoopRunning`, `ensureFresh` in-flight count, scheduler drain running). It may show subtle loading affordances, but it does not block progressive chart/PnL updates and is not trigger-owned state.
+- **Portfolio freshness timestamp** — `sharedPortfolioState.value.computedAtMs`. This is the completed heavy-recompute publish time for the values currently on screen. It drives user-facing `Updated {relative}` labels. It is **not** `lastPopulateStartedAtMs` and is not changed by touch scopes.
+- **Rates freshness timestamp** — `getLiveRatesAsOfMsFromStore()` / `state.RATE.ratesUpdatedAt` (or the Phase 0-verified fallback accessor). This drives user-facing `Rates as of {relative}` labels when a surface chooses to show rate freshness. If absent, omit the rate freshness label rather than inventing a timestamp.
 - **Scalar signature** — joined string like `populatedWalletIdsKey`. Fingerprint-input / diff-key.
 - **Order revision** — monotonic counter for `orderedAssetGroupIdsForAssetList` mutations. Used for merge arbitration. **Monotonic across queue rebuilds**, not just within one queue's lifetime.
 - **`populateResetInFlight`** — JS-side boolean, set only during an active `performResetSequence` invocation. Blocks ordinary kicks during reset; additional reset callers join the active sequence or queue a stronger full reset as described in guardrail #19.
@@ -1013,7 +1015,7 @@ Total kept: **~13,805 LOC.**
 > ## Scope dispatch
 >
 > **Heavy scopes (`'full'`, `{ kind: 'wallet' }`, `{ kind: 'wallets' }`):**
-> - Update `computedAtMs`.
+> - Update `computedAtMs` to the completed publish time for this heavy recompute. This is the portfolio freshness timestamp displayed as `Updated {relative}` in Phase 7. Do not use populate-start time for freshness UX: `lastPopulateStartedAtMs` can precede the values currently on screen and is not a correctness/freshness timestamp.
 > - **Advance `orderedAssetGroupIdsForAssetList` + `orderRevision` if `inputs.orderRevision > prev.orderRevision`.** Otherwise preserve prev's order + revision. This is the one rule, applied uniformly across heavy scopes.
 > - `'full'`: rebuild `byAssetGroup` + `total`. Maintain `byWallet` (rebuild only changed; never add new).
 > - `{ kind: 'wallet' }`: build/update that `byWallet[walletId]`.
@@ -2400,6 +2402,14 @@ Total kept: **~13,805 LOC.**
 > - The Home **Exchange Rates** section and the **Exchange Rate** detail screen remain visible and continue to update whether the portfolio setting is on or off. Because Show Portfolio off uses the normal portfolio wipe, these surfaces may observe a transient `rate:v1:*` cache miss and refetch on demand, but they must not be hidden by the portfolio setting.
 > - Toggling the setting off hides portfolio-owned surfaces immediately via UI gating while `performResetSequence()` clears cached portfolio data in the background.
 > - Toggling it back on starts a fresh populate-from-empty flow; portfolio-owned surfaces reappear by the same first-populate progressive reveal rules used for a cold start.
+>
+> **Freshness UX contract (NEW, trust/debug affordance):**
+> - Portfolio-owned surfaces may show a subtle `Updated {relative}` label. The source is `sharedPortfolioState.value.computedAtMs` (via a selector such as `selectPortfolioComputedAtMs`), which represents the last completed heavy recompute publish for the values currently rendered.
+> - Never use `lastPopulateStartedAtMs` for this label. A populate can be in progress while the visible values still reflect an older publish; "started" is not "fresh."
+> - If `computedAtMs <= 0` or no portfolio state has published yet, omit the `Updated` label rather than showing a misleading time.
+> - Surfaces that already expose rate freshness may show `Rates as of {relative}` from `getLiveRatesAsOfMsFromStore()` / `state.RATE.ratesUpdatedAt` (Phase 0 verifies the exact source). If the rate timestamp is absent, omit the rate label.
+> - While `useIsPortfolioRefreshing()` is true, show a lightweight `Refreshing…` affordance near the freshness label. This is derived from in-flight populate / rate / recompute work and does not block scrolling, scrubbing, timeframe switches, or progressive publishes.
+> - Touch scopes do not update `computedAtMs`; focusing a wallet or touching recency metadata must not make stale values appear freshly recomputed.
 
 ## 7a. Asset list
 > `AssetsList`: `selectOrderedAssetGroupIds`, render `AssetRowV2`. Memo on `(assetGroupId, mode)`, `areEqualByRowFingerprint`. Rows are collapsed by `assetGroupId = lowercased currencyAbbreviation`, matching current Home behavior across chains.
@@ -2595,7 +2605,7 @@ Total kept: **~13,805 LOC.**
 
 > 1. `PORTFOLIO_V2` default → `true`.
 > 2. Delete listed v1 files after verifying zero imports.
-> 3. Delete Redux fields flagged in Phase 0. Keep `quoteCurrency`, `lastPopulateStartedAtMs`, `hydratedSummary`. `recompute` tail writes `hydratedSummary`.
+> 3. Delete Redux fields flagged in Phase 0. Keep `quoteCurrency`, `lastPopulateStartedAtMs`, `hydratedSummary`. `recompute` tail writes `hydratedSummary`. `lastPopulateStartedAtMs` may remain useful for debug/timeline context, but user-facing freshness labels use `sharedPortfolioState.computedAtMs`, not populate-start time.
 > 4. Delete v1 store subtrees and unwire them from the root reducer / store:
 >    - Remove `src/store/portfolio/**` (`portfolio.actions.ts`, `portfolio.models.ts`, `portfolio.reducer.ts`, `portfolio.runtime.effects.ts`, `portfolio.types.ts`, `portfolio.utils.ts`, `index.ts`). Remove the slice's entry from `combineReducers` / whitelist / blacklist / persistor config in `src/store/index.ts` and any typed selectors in `src/store/index.types.ts` / `RootState`.
 >    - Remove `src/store/portfolio-charts/**` (`portfolio-charts.actions.ts`, `portfolio-charts.models.ts`, `portfolio-charts.reducer.ts`, `portfolio-charts.types.ts`, `index.ts`). Same combineReducers / persistor cleanup.
@@ -2713,6 +2723,7 @@ Total kept: **~13,805 LOC.**
 78. **Scrubbing is pure UI-local (no side effects, guardrail #9 reinforcement):** instrumented scrub test records every call to `ensureFresh`, `scheduleRecompute`, `populateWallet`, `populateWallets`, `runOnRuntimeAsync(getComputeRuntime(), ...)`, `runOnRuntimeAsync(getPopulateRuntime(), ...)`, and every MMKV write. Scrub through 200 points across every interval on every chart surface. Assert total count of all recorded events is zero. `sharedPortfolioState.value` is never written during scrub.
 79. **Scrub mid-publish cursor stability:** start scrubbing a chart at point 50 (timestamp `T`). While scrubbing, inject a scheduler publish that replaces `series` with a new series. Assert: (a) if the new series contains a point with `ts === T`, the cursor stays at that point and displayed values update to the new point's values; (b) if no exact-`T` point exists, the cursor snaps to the nearest-timestamp point in the new series; (c) if `T` falls outside the new series range, scrub ends and falls back to idle. In all three cases, no crashes, no recursive render, no "maximum update depth" error.
 80. **Scrub across quote-currency switch:** start scrubbing on Home chart at point 50 with quote = USD. While scrubbing, dispatch `onQuoteCurrencyChanged('EUR')`. Assert: (a) `recomputeQuoteBridgeFromSharedState(...)` runs and publishes a new bridged series; (b) scrub cursor stays at point 50's `ts`; (c) displayed values update to EUR-bridged `fiatBalance` / `pnlChange` / `pnlPercent`; (d) timestamp format unchanged (quote switch doesn't change interval). Scrub release returns to the new EUR idle display.
+81. **Freshness UX uses completed publish timestamps:** after a heavy recompute publish, portfolio-owned surfaces that render freshness show `Updated {relative}` derived from `sharedPortfolioState.value.computedAtMs` / `selectPortfolioComputedAtMs`, not `lastPopulateStartedAtMs`. A touch scope updates `lastAccessedAt` but leaves `computedAtMs` and the rendered `Updated` label unchanged. While `useIsPortfolioRefreshing()` is true, the same surface may show `Refreshing…` without changing the `Updated` timestamp until a new heavy publish lands. If `computedAtMs <= 0`, no `Updated` label renders. Rate freshness labels, where present, derive from `getLiveRatesAsOfMsFromStore()` / `state.RATE.ratesUpdatedAt`; if absent, no `Rates as of` label renders.
 
 ---
 
@@ -2776,6 +2787,7 @@ Starting: ~30,000. Ending: ~20,600. Eliminated: ~9,400, ~31%. (Approximate — p
 - **Single ordering helper** used by `buildQueue` and `buildBaseRecomputeInputs` fallback.
 - **Fire-time reads** in `PortfolioV2Root` and triggers. No ref-cached inputs.
 - **Populate publishing is explicit, not incidental.** First-ever populate is progressive and reveals ready rows in queue order; later incremental populates also publish progressively and may show a lightweight refreshing indicator.
+- **Freshness UX is tied to completed publishes.** Portfolio `Updated {relative}` labels use `sharedPortfolioState.computedAtMs`; `Refreshing…` comes from in-flight work; rates freshness uses the rate as-of timestamp. `lastPopulateStartedAtMs` is not used as the displayed freshness source.
 - **`reduxAccess.ts`** single Redux access module. Initialized inside the existing `getStore().then(({store, persistor}) => {...})` callback before `<Provider>` mount. Accessor calls inside function bodies only.
 - **Reset paths reset shared state** (guardrail #17). Every wipe path — debug-clear, sign-out — goes through `performResetSequence`. Preserves `orderRevision` monotonicity invariant.
 - **Reset uses one durable invalid bit.** `performResetSequence(...)` is joinable, while persisted key `portfolio:v2:cacheInvalid` blocks ordinary v2 work whenever a destructive wipe may have left partial state behind. There is no tri-state sentinel and no banner UI, but failures after `markPortfolioCacheInvalid()` do not let work resume until a successful repair clears the bit.
