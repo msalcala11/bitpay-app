@@ -36,6 +36,7 @@
 - **`onPullToRefresh(...)` lands in v18.** No trigger skeletons remain.
 - **`onShowPortfolioVisibilityChanged(...)` lands in v18.** Turning portfolio visibility off clears portfolio-owned cached data and hides all portfolio-owned charts/lists; turning it back on repopulates from scratch. Rapid off/on churn is serialized with last-toggle-wins final visibility plus a latched wipe obligation so ON cannot populate before an OFF-created clear completes.
 - **Key-scoped asset list lands in v18.** `AllAssets({keyId})`, row taps from `KeyOverview`, and scoped asset detail all stay within that key's wallet set.
+- **Key/account scoped render data is compute-runtime output, not JS selector math.** Scoped chart series, rows, order, and asset-detail payloads are built by heavy `wallet` / `wallets` recompute scopes on the compute runtime and published into a bounded scoped cache on `sharedPortfolioState`. JS selectors only look up the published scoped payload by `walletIdsKey` / asset / timeframe / mode; they never aggregate wallets, walk chart points, or compute PnL during timeframe switches or chart scrubbing.
 - **Initial and incremental populate both publish progressively.** Initial populate uses skeleton reveal for not-yet-ready rows; incremental refresh may show a lightweight refreshing indicator while values update progressively. V18 intentionally does **not** hold incremental values stable until populate completion.
 - **Timeframe switches / scrubbing stay read-only in v18.** No hidden rate fetches, snapshot updates, or populate kicks occur on timeframe-only interaction.
 - **Populate runs on livenet wallets only.** Testnet / regtest wallets are excluded from the populate queue at every construction site (initial populate, incremental populate, `onKeyImported`, `onSendCompleted`, `onPullToRefresh`, `onWalletsVisibilityChanged` unhide path). Eligibility for populate is `isLivenetWallet(wallet) && !wallet.deleted`, where `isLivenetWallet(w)` is the normalized predicate defined in Terminology (accepts both `'livenet'` and `'mainnet'` strings, case-insensitive, whitespace-trimmed — matches v1's `isMainnetLikeWallet` at [portfolio.runtime.effects.ts:237](src/store/portfolio/portfolio.runtime.effects.ts#L237)). This matches current app behavior — portfolio charts / PnL are a mainnet-only concept.
@@ -102,7 +103,8 @@ Total kept: **~13,805 LOC.**
 - **`populateCancelFlag`** — `SharedValue<boolean>`.
 - **Fingerprint** — stable scalar string. Render invalidation heuristic. Clone-proof.
 - **Asset group** — UI-facing collapsed asset identity. Default `assetGroupId = lowercased currencyAbbreviation`, matching current Home / All Assets / Allocation behavior.
-- **Precomputed row payload** — `rowToday` / `rowAllTime` on `AssetGroupSlice`. Global Home / All Assets / Allocation selectors read these as O(1) lookups. Key-scoped selectors use a bounded memoized aggregation cache over the supplied wallet set.
+- **Precomputed row payload** — `rowToday` / `rowAllTime` on `AssetGroupSlice`. Global Home / All Assets / Allocation selectors read these as O(1) lookups. Key/account scoped selectors read precomputed `ScopedPortfolioSlice` entries published by the compute runtime; they do not aggregate wallets or chart points on the JS thread.
+- **Scoped render cache** — bounded `sharedPortfolioState.scopedByWalletSet[walletIdsKey]` cache of compute-runtime-produced render payloads for key/account/custom wallet scopes. Entries contain scoped total series, scoped asset-group slices, scoped row payloads, scoped order, readiness, and fingerprints. JS selectors only select from this cache; missing entries return `undefined` / skeleton state until an explicit heavy recompute publishes the scope.
 - **Stored fiat-rate interval** — canonical persisted/fetched interval in `{1D, 1W, 1M, ALL}`. Displayed `3M`, `1Y`, and `5Y` are derived from `ALL`.
 - **Refreshing portfolio state** — lightweight UI state set by incremental populate triggers. It may show subtle loading affordances, but it does not block progressive chart/PnL updates.
 - **Scalar signature** — joined string like `populatedWalletIdsKey`. Fingerprint-input / diff-key.
@@ -173,6 +175,7 @@ Total kept: **~13,805 LOC.**
 29. **Populate is livenet-only at every construction site.** `buildQueue(...)`, `populateWallet(...)`, `populateWallets(...)`, `startPopulate(...)`, and every trigger that calls them filter wallet candidates through `isLivenetWallet(w)`. Testnet / regtest wallets never enter `PopulateQueueV1.remainingWalletIds` and never reach `runPopulate`. The sole source of "candidate wallets for populate" is `getPopulateEligibleWalletsFromStore()` — no ad hoc eligibility logic. `onKeyImported(key)` filters its walletIds by `isLivenetWallet` before kicking; `onSendCompleted({walletId})` no-ops on testnet walletIds.
 30. **Populate eligibility and recompute eligibility are distinct.** `getPopulateEligibleWalletsFromStore()` (livenet, not deleted, visibility-**ignored**) drives populate. `getEligibleStoredWalletsFromStore()` (livenet, not deleted, visibility-**respected**) drives `buildBaseRecomputeInputs(...)`. Hidden wallets are populated (data warm) but excluded from displayed totals/series/rows. Unhide is instant — no populate-latency window — because the next fire-time recompute simply sees the wallet as eligible again and reads its already-warm snapshot data. **Edge case — "populated-late" livenet walletIds.** In normal flow, `onKeyImported` immediately kicks populate for livenet wallets regardless of visibility, so a hidden wallet imported while Show Portfolio is on gets populated at import time and its data is warm on unhide. The edge case is when the import lands during a populate-blocked window — `getShowPortfolioEnabledFromStore()` is false, `populateResetInFlight` is true, or `portfolioCacheInvalid` is latched — so `onKeyImported` no-ops and the walletId is never added to the queue. On unhide, `onWalletsVisibilityChanged(...)` handles this by kicking `populateWallets(...)` for any newly-visible livenet walletId absent from `queue.doneWalletIds`. Show-Portfolio re-enable also covers the Show-Portfolio-off case: it runs a fresh full populate that picks up the previously-unpopulated walletIds. Never call `buildBaseRecomputeInputs(...)` with `getPopulateEligibleWalletsFromStore()` or vice versa — the two sets have intentionally different membership rules and swapping them would cause hidden wallets to appear in totals or visible wallets to miss populate.
 31. **Chart-point endpoint invariants are load-bearing.** Every published `Series` satisfies: (a) `series.points[0].pnlChange === 0` exactly (the baseline point is zero-change against itself per the Phase 3 PnL formula step 6 — `firstTotalUnrealizedPnlFiat = totalUnrealizedPnlFiat` at the first emitted point means `totalPnlChange` at that point is `0 - 0 === 0`); (b) `series.points[last].fiatBalance`, `pnlChange`, and `pnlPercent` are the exact values the idle (non-scrubbing) balance header and PnL row display for the same screen / interval / quote / wallet scope. These are not a UI formatting concern — they are recompute output invariants pinned by Phase 3 formula tests and Phase 7 scrub parity tests.
+32. **Scoped aggregation is compute-runtime/precomputed only.** Key/account/scoped asset-detail rows and series are produced by `recompute(...)` on the compute runtime during heavy `wallet` / `wallets` scopes and stored under `sharedPortfolioState.scopedByWalletSet[walletIdsKey]`. JS selectors (`selectKeySeries`, `selectScopedAssetGroupRows`, `selectScopedOrderedAssetGroupIds`, scoped asset-detail selectors) are cache lookups over already-published payloads. They must not sum wallet series, walk `Series.points`, rebuild collapsed asset groups, or compute PnL in React/JS during render, timeframe switches, or scrubbing. A missing scoped cache entry returns `undefined` / skeleton-ready state until an explicit mount/trigger-scheduled recompute publishes it; selectors never synchronously "fix" a miss by doing heavy aggregation.
 
 ---
 
@@ -386,6 +389,20 @@ Total kept: **~13,805 LOC.**
 >   lastAccessedAt: number;
 > }>;
 >
+> export type ScopedPortfolioSlice = Readonly<{
+>   walletIdsKey: string;
+>   walletIds: readonly string[];
+>   fingerprint: string;
+>   computedAtMs: number;
+>   total: PerIntervalSeries;
+>   totalFingerprint: string;
+>   byAssetGroup: Readonly<Record<string, AssetGroupSlice>>;
+>   orderedAssetGroupIdsForAssetList: readonly string[];
+>   populatedAssetGroupIdsKey: string;
+>   populatedAssetGroupIdsById: Readonly<Record<string, true>>;
+>   lastAccessedAt: number;
+> }>;
+>
 > export type PortfolioState = Readonly<{
 >   revision: number;                    // publish counter
 >   quoteCurrency: string;
@@ -398,6 +415,9 @@ Total kept: **~13,805 LOC.**
 >   orderRevision: number;               // monotonic across queue rebuilds
 >   byAssetGroup: Readonly<Record<string, AssetGroupSlice>>;
 >   byWallet: Readonly<Record<string, WalletSlice>>;
+>   // Bounded cache of compute-runtime-produced scoped render payloads.
+>   // JS selectors only look up these entries; they never aggregate scoped rows/series.
+>   scopedByWalletSet: Readonly<Record<string, ScopedPortfolioSlice>>;
 >   total: PerIntervalSeries;
 >   totalFingerprint: string;
 > }>;
@@ -432,6 +452,7 @@ Total kept: **~13,805 LOC.**
 >   orderRevision: 0,
 >   byAssetGroup: {},
 >   byWallet: {},
+>   scopedByWalletSet: {},
 >   total: {},
 >   totalFingerprint: '',
 > };
@@ -1096,7 +1117,7 @@ Total kept: **~13,805 LOC.**
 >
 > **Chart-point endpoint invariants (load-bearing for UI scrub parity, guardrail #31):**
 > - **First-point `pnlChange = 0` exactly.** At the first emitted series point, step 6 sets `firstTotalUnrealizedPnlFiat = totalUnrealizedPnlFiat`, so `totalPnlChange = totalUnrealizedPnlFiat - firstTotalUnrealizedPnlFiat = 0` by construction. Same for per-wallet and asset-group first points (`pnlChange = pnlEnd - pnlStart` with `pnlEnd === pnlStart` at the first emitted point). The recompute MUST preserve this property — do not add smoothing / interpolation that nudges the first point off zero. The chart's y-axis baseline and the scrubbed "start of window" display both rely on this being exactly zero.
-> - **Last-point values match the idle balance header + PnL row byte-for-byte.** For every series (total / wallet / asset-group / key-scoped detail) and every interval, `series.points[last].fiatBalance`, `pnlChange`, and `pnlPercent` are the values the idle chart header + row display. The idle header's big number is `series.points[last].fiatBalance`; the idle PnL subtext below it is formatted from `series.points[last].pnlChange` and `series.points[last].pnlPercent`. There is no separate "idle" compute path — the idle display and the scrubbed-to-last-point display read from the same published point. Required parity test #70 enforces this for all series in the publishable set.
+> - **Last-point values match the idle balance header + PnL row byte-for-byte.** For every series (total / wallet / asset-group / key-scoped detail) and every interval, `series.points[last].fiatBalance`, `pnlChange`, and `pnlPercent` are the values the idle chart header + row display. The idle header's big number is `series.points[last].fiatBalance`; the idle PnL subtext below it is formatted from `series.points[last].pnlChange` and `series.points[last].pnlPercent`. There is no separate "idle" compute path — the idle display and the scrubbed-to-last-point display read from the same published point. Required parity test #76 enforces this for all series in the publishable set.
 > - **Scope consistency.** The two invariants apply per scope. For Home total, first-point = 0 across total series; last-point equals the Home idle big balance + total PnL subtext. For wallet detail, same per-wallet. For key-scoped detail, same per-key. For asset-group detail, same per-group. Cross-scope equality continues to be enforced by the existing Row/detail equality rule above.
 >
 > ## Quote-switch shared-state recompute
@@ -1105,7 +1126,7 @@ Total kept: **~13,805 LOC.**
 >
 > Required behavior:
 > - Read `sharedPortfolioState.value` as the sole portfolio-state input.
-> - Apply the BTC bridge snapshot to the currently published chart/row outputs and `quoteCurrency`.
+> - Apply the BTC bridge snapshot to the currently published chart/row outputs and `quoteCurrency`, including global slices, wallet slices, and every bounded `scopedByWalletSet` entry.
 > - Preserve readiness/order state; this helper is a quote transform of currently published data, not a fresh populate publish.
 > - Do **not** read `loadQueue()`, `queue.doneWalletIds`, or raw snapshot/rate MMKV state. It transforms the currently published `sharedPortfolioState` only.
 >
@@ -1131,6 +1152,16 @@ Total kept: **~13,805 LOC.**
 >
 > `rowToday` from `series['1D']` endpoints. `rowAllTime` from `series['ALL']`. Stored on `AssetGroupSlice`. Also store per-wallet `rowToday` / `rowAllTime` on `WalletSlice` so scoped key views can derive key-local rows without consulting Redux.
 >
+> ## Scoped render cache
+>
+> Heavy `wallet` / `wallets` recompute scopes also materialize a `ScopedPortfolioSlice` for the exact supplied wallet set and store it in `state.scopedByWalletSet[walletIdsKey]`. This cache is the only source for key/account scoped chart series, scoped asset rows, scoped asset order, and key-scoped asset-detail payloads.
+>
+> - `walletIdsKey = stableWalletIdsKey(walletIds)`; the helper canonicalizes the wallet-id set (dedupe + deterministic sort/join) so equivalent key/account scopes share one cache entry. Callers may compute/pass this scalar, but only the compute runtime builds the scoped payload behind it.
+> - Scoped asset-group slices are collapsed by the same `assetGroupId = lowercased currencyAbbreviation` rule as global rows.
+> - Scoped `rowToday` / `rowAllTime` are endpoint extractions from the scoped series, so key-scoped All Assets and key-scoped Asset Detail remain byte-for-byte consistent.
+> - The cache is bounded by the Phase 3 eviction cap (N=8 by default). Evict least-recently-accessed scoped entries, never the currently requested `walletIdsKey`.
+> - JS selectors must treat this as a published render cache: cache hit returns the scoped payload; cache miss returns `undefined` / skeleton-ready state and waits for the mount-triggered recompute. Selectors do **not** aggregate wallets or chart points as a fallback.
+>
 > ## Reuse-by-reference
 >
 > Same fingerprint as prev → reuse prev reference.
@@ -1141,7 +1172,7 @@ Total kept: **~13,805 LOC.**
 >
 > ## Eviction (soft cap N=8)
 >
-> Post-wallet-scope writes. Current scope's walletIds protected. Soft — if protected set > 8, result > 8.
+> Post-wallet-scope writes. Current scope's walletIds / `walletIdsKey` protected. Soft — if protected set > 8, result > 8. Applies to `scopedByWalletSet` as well as wallet-scope caches.
 >
 > ## Revision
 >
@@ -1319,9 +1350,11 @@ Total kept: **~13,805 LOC.**
 > export function selectHasAnyPopulatedWallets(s): boolean;
 > export function selectOrderedAssetGroupIds(s): readonly string[];
 > export function selectAllocationRows(s): readonly AllocationRow[];
-> export function selectKeySeries(s, walletIds, tf): Series | undefined;
-> export function selectScopedAssetGroupRows(s, walletIds, mode): readonly RowPayload[];
-> export function selectScopedOrderedAssetGroupIds(s, walletIds): readonly string[];
+> export function stableWalletIdsKey(walletIds: readonly string[]): string;
+> export function selectKeySeries(s, walletIdsKey, tf): Series | undefined;
+> export function selectScopedAssetGroupSeries(s, walletIdsKey, assetGroupId, tf): Series | undefined;
+> export function selectScopedAssetGroupRows(s, walletIdsKey, mode): readonly RowPayload[];
+> export function selectScopedOrderedAssetGroupIds(s, walletIdsKey): readonly string[];
 > ```
 >
 > `src/portfolio/v2/hooks/usePortfolioSlice.ts`:
@@ -1398,7 +1431,7 @@ Total kept: **~13,805 LOC.**
 >
 > **Key-scoped selector rule (product-load-bearing):** `AllAssets({keyId})` and asset-detail routes reached from `KeyOverview` do **not** read global Home rows and then filter them. They use the scoped selectors above so row values, readiness, and detail charts are all derived from that key's wallet set only.
 >
-> **Scoped aggregation strategy (explicit, not hand-waved):** keep selectors observationally pure, but memoize scoped aggregations inside the selector module with a bounded cache keyed by `(state.revision, walletIdsKey, assetGroupId, tf, mode)`. Do **not** recompute key-scoped grouped rows/series from scratch on every scrub tick.
+> **Scoped aggregation strategy (explicit, not hand-waved):** selectors are cache lookups only. `stableWalletIdsKey(walletIds)` may build the scalar key from the route's wallet ids via dedupe + deterministic sort/join, but `selectKeySeries`, `selectScopedAssetGroupSeries`, `selectScopedAssetGroupRows`, and `selectScopedOrderedAssetGroupIds` only read `state.scopedByWalletSet[walletIdsKey]` and return already-published series/rows/order. They must not iterate `state.byWallet`, sum wallet rows, walk `Series.points`, rebuild collapsed asset groups, or calculate PnL on the JS thread. Cache miss means "not ready yet" until `scheduleRecompute({scope: {kind: 'wallets', walletIds}, ...base})` publishes the scoped entry.
 
 **LOC ledger:** +290 / 0 / +290.
 
@@ -2423,10 +2456,10 @@ Total kept: **~13,805 LOC.**
 > Quote-currency switches still update the current wallet/account chart immediately.
 > If "Show Portfolio" is off, hide these portfolio chart surfaces entirely.
 >
-> `KeyOverview`: resolve key → walletIds from Redux. Mount → `scheduleRecompute({ scope: { kind: 'wallets', walletIds }, ...base })`. Subscribe `selectKeySeries(s, walletIds, tf)`. The "See All Assets" route passes `keyId`, and the downstream All Assets / asset-detail screens use the **scoped** selectors (`selectScopedAssetGroupRows`, `selectScopedOrderedAssetGroupIds`, scoped detail series) so the key view never falls back to global Home rows.
+> `KeyOverview`: resolve key → walletIds from Redux, derive `walletIdsKey = stableWalletIdsKey(walletIds)`, then mount → `scheduleRecompute({ scope: { kind: 'wallets', walletIds }, ...base })`. Subscribe `selectKeySeries(s, walletIdsKey, tf)`, which reads the compute-runtime-published `scopedByWalletSet[walletIdsKey]` entry. The "See All Assets" route passes `keyId` / `walletIdsKey`, and the downstream All Assets / asset-detail screens use the **scoped cache selectors** (`selectScopedAssetGroupRows`, `selectScopedOrderedAssetGroupIds`, scoped detail series) so the key view never falls back to global Home rows and never aggregates rows/series on the JS thread.
 
 ## 7d. Asset balance history + exchange rate
-> `AssetBalanceHistoryScreen`: default path uses `selectAssetGroupSeries` + `areEqualBySeriesFingerprint`. If the route carries `keyId`, use the scoped detail selector for that key's wallet set instead of the global Home asset-group slice. Required consistency test: row and detail match byte-for-byte under both global and key-scoped navigation.
+> `AssetBalanceHistoryScreen`: default path uses `selectAssetGroupSeries` + `areEqualBySeriesFingerprint`. If the route carries `keyId`, use `selectScopedAssetGroupSeries(s, walletIdsKey, assetGroupId, tf)` for that key's compute-runtime-published scoped cache entry instead of the global Home asset-group slice. Required consistency test: row and detail match byte-for-byte under both global and key-scoped navigation.
 >
 > Product contract:
 > - Asset-detail charts stay hidden on first populate until the relevant asset group is ready; later incremental populates may show a lightweight refreshing state while values update progressively.
@@ -2439,7 +2472,7 @@ Total kept: **~13,805 LOC.**
 > - If "Show Portfolio" is off, hide `AssetBalanceHistoryScreen`; the separate Exchange Rate detail screen remains available and unaffected.
 
 ## 7e. All Assets + Allocation
-> `AllAssets`: global route uses `selectOrderedAssetGroupIds`; key-scoped route uses `selectScopedOrderedAssetGroupIds`. `Allocation`: `selectAllocationRows`. **Order must match**: Allocation reuses the same canonical asset-group ordering as All Assets / Home rows; do not introduce a second value-ranked sort. Test asserts orders stay identical for the same wallet set. Mid-populate, All Assets shows the same ready-vs-skeleton continuity as Home. When "Show Portfolio" is off, hide both All Assets and Allocation entirely.
+> `AllAssets`: global route uses `selectOrderedAssetGroupIds`; key-scoped route uses `selectScopedOrderedAssetGroupIds(s, walletIdsKey)` from the compute-runtime-published scoped cache. `Allocation`: `selectAllocationRows`. **Order must match**: Allocation reuses the same canonical asset-group ordering as All Assets / Home rows; do not introduce a second value-ranked sort. Test asserts orders stay identical for the same wallet set. Mid-populate, All Assets shows the same ready-vs-skeleton continuity as Home. When "Show Portfolio" is off, hide both All Assets and Allocation entirely.
 
 ## 7f. Balance-chart scrubbing (balance header + PnL row + timestamp)
 > Every balance chart in the app — Home `PortfolioBalance`, `WalletDetails`, `AccountDetails`, `KeyOverview`, `AssetBalanceHistoryScreen` — implements scrubbing with the same three-element update rule. This section is the single spec; each chart surface reuses it via a shared hook (e.g., `usePortfolioScrubState(series, interval)`). **Scrubbing is purely local UI state** (a `SharedValue<ScrubState | null>` on the UI runtime). It does not call `ensureFresh`, populate kicks, or `scheduleRecompute` (guardrail #9), does not mutate `sharedPortfolioState`, and does not publish anything cross-runtime.
@@ -2447,7 +2480,7 @@ Total kept: **~13,805 LOC.**
 > **Idle state (no scrub in progress):**
 > - Big balance above chart: `series.points[last].fiatBalance`, formatted with the app's existing fiat formatter in the current quote currency.
 > - PnL row under balance: `series.points[last].pnlChange` (absolute) and `series.points[last].pnlPercent` (signed %), formatted with the existing PnL display util. No timestamp shown in idle.
-> - Guardrail #31 pins these values as exact byte-for-byte matches of the series's last point — there is no separate "idle" compute path. Parity test #70 asserts this equality per screen / interval / quote / wallet scope.
+> - Guardrail #31 pins these values as exact byte-for-byte matches of the series's last point — there is no separate "idle" compute path. Parity test #76 asserts this equality per screen / interval / quote / wallet scope.
 >
 > **Scrubbing state (user finger/cursor on a point `p` at index `i`):**
 > - Big balance updates to `series.points[i].fiatBalance`.
@@ -2683,7 +2716,7 @@ Total kept: **~13,805 LOC.**
    Test asserts the invariant regardless of branch; implementation detects which branch is active via a module constant set after Phase 0.5 spike results.
 49. **Rate-vs-rate concurrency policy:** two overlapping `ensureFresh` calls with identical `(quoteCurrency, interval, coins, assets, maxAgeMs, force)` args dedupe — only one network call fires, both callers receive the result. Two overlapping calls with different args serialize only if probe 3 is dirty/flaky; otherwise they may remain concurrent. In either case, no runtime-global context clobber. `inFlightCount` accurately reflects in-flight calls regardless of dedupe/serialization behavior.
 50. **Allocation order parity:** `selectAllocationRows` and `selectOrderedAssetGroupIds` produce the same order for the same wallet set globally and under `keyId`.
-51. **Key-scoped asset list parity:** `AllAssets({keyId})` shows only that key's grouped assets, row taps carry `keyId`, and the asset detail chart/row/**wallet-list** values stay scoped to the key instead of falling back to Home-global data.
+51. **Key-scoped asset list parity:** `AllAssets({keyId})` shows only that key's grouped assets, row taps carry `keyId` / `walletIdsKey`, and the asset detail chart/row/**wallet-list** values stay scoped to the key instead of falling back to Home-global data.
 52. **Quote-switch BTC bridge:** changing fiat currency fetches only BTC bridge data for canonical stored intervals, does not fan out per-asset new-quote fetches, and updates Home / All Assets / Asset Detail / Exchange Rate consistently.
 53. **Canonical stored intervals only:** only `1D`, `1W`, `1M`, and `ALL` are fetched/persisted. `3M`, `1Y`, and `5Y` are derived from `ALL` and do not create separate rate keys.
 54. **Timeframe switches are read-only:** switching timeframe on Home / Wallet / Asset Detail / KeyOverview / Exchange Rate causes zero `ensureFresh`, FX-bridge, populate, or snapshot-refresh side effects.
@@ -2713,6 +2746,7 @@ Total kept: **~13,805 LOC.**
 78. **Scrubbing is pure UI-local (no side effects, guardrail #9 reinforcement):** instrumented scrub test records every call to `ensureFresh`, `scheduleRecompute`, `populateWallet`, `populateWallets`, `runOnRuntimeAsync(getComputeRuntime(), ...)`, `runOnRuntimeAsync(getPopulateRuntime(), ...)`, and every MMKV write. Scrub through 200 points across every interval on every chart surface. Assert total count of all recorded events is zero. `sharedPortfolioState.value` is never written during scrub.
 79. **Scrub mid-publish cursor stability:** start scrubbing a chart at point 50 (timestamp `T`). While scrubbing, inject a scheduler publish that replaces `series` with a new series. Assert: (a) if the new series contains a point with `ts === T`, the cursor stays at that point and displayed values update to the new point's values; (b) if no exact-`T` point exists, the cursor snaps to the nearest-timestamp point in the new series; (c) if `T` falls outside the new series range, scrub ends and falls back to idle. In all three cases, no crashes, no recursive render, no "maximum update depth" error.
 80. **Scrub across quote-currency switch:** start scrubbing on Home chart at point 50 with quote = USD. While scrubbing, dispatch `onQuoteCurrencyChanged('EUR')`. Assert: (a) `recomputeQuoteBridgeFromSharedState(...)` runs and publishes a new bridged series; (b) scrub cursor stays at point 50's `ts`; (c) displayed values update to EUR-bridged `fiatBalance` / `pnlChange` / `pnlPercent`; (d) timestamp format unchanged (quote switch doesn't change interval). Scrub release returns to the new EUR idle display.
+81. **Scoped aggregation stays off the JS thread (guardrail #32):** seed a large fixture with many wallets, asset groups, and dense chart points. Mount `KeyOverview`, key-scoped `AllAssets`, and key-scoped `AssetBalanceHistoryScreen`. Assert the mount path schedules `scheduleRecompute({scope: {kind: 'wallets', walletIds}, ...base})`, the compute-runtime `recompute(...)` publishes `sharedPortfolioState.scopedByWalletSet[walletIdsKey]`, and the scoped selectors only read that cache entry. Instrument selector-side helpers so any attempt to iterate `state.byWallet`, walk `Series.points`, rebuild collapsed groups, or compute PnL in JS fails the test. Timeframe switches and chart scrubbing under the scoped route must cause zero recompute/fetch/populate side effects and zero scoped aggregation work; they only switch/read already-published scoped `Series` entries by fingerprint. A missing scoped cache entry returns `undefined` / skeleton-ready state until the scheduled recompute publishes it.
 
 ---
 
@@ -2762,7 +2796,7 @@ Starting: ~30,000. Ending: ~20,600. Eliminated: ~9,400, ~31%. (Approximate — p
 - **Three runtimes by default** (UI / compute / populate), with an **optional fourth rate runtime** under Branch C, **one state value**, **progress + retry ticks** (distinct), **single-flight guard**, **debounced app-root subscriber with two independent reactions and unmount cleanup**, **six triggers**, **one read hook**, **~10 selectors**, **five scope kinds**, **three-phase scheduler drain**.
 - **Fingerprints are a render invalidation heuristic; numeric correctness is enforced by full point-by-point parity tests.**
 - **Interval-specific fingerprints** with first+last endpoint values. Mid-series mutations pinned.
-- **Precomputed row payloads** make the global row selectors O(1); key-scoped selectors use a bounded memoized aggregation cache keyed by state revision and wallet scope.
+- **Precomputed row payloads** make the global row selectors O(1); key/account scoped selectors read bounded compute-runtime-published `scopedByWalletSet` entries and do not aggregate wallets or chart points on the JS thread.
 - **Scheduler accumulates, never subsumes.**
 - **One unified order-update rule:** heavy scopes may advance order + revision when incoming is newer; touch scopes never do.
 - **Touch scopes** never change `computedAtMs`, readiness, series, rows, total, order, or `orderRevision`.
@@ -2791,7 +2825,7 @@ Starting: ~30,000. Ending: ~20,600. Eliminated: ~9,400, ~31%. (Approximate — p
 - **Soft eviction cap** (N=8).
 - **Asset rows and allocation stay ticker-grouped across chains.** `assetGroupId = lowercased currencyAbbreviation` is the canonical UI row identity for Home / All Assets / Allocation, matching current UX.
 - **Allocation order equals asset-list order.** No second ranking system.
-- **Key-scoped All Assets and asset detail stay scoped.** `AllAssets({keyId})` and row taps from `KeyOverview` use scoped selectors instead of Home-global rows, including any constituent wallet list rendered inside asset detail.
+- **Key-scoped All Assets and asset detail stay scoped.** `AllAssets({keyId})` and row taps from `KeyOverview` use compute-runtime-published scoped cache selectors instead of Home-global rows or JS-side aggregation, including any constituent wallet list rendered inside asset detail.
 - **Rate fetching and snapshot refresh happen only at explicit triggers**, not in the scheduler and not on timeframe switches or chart scrubbing.
 - **The user-facing "Show Portfolio" toggle is a first-class trigger.** Off clears cached portfolio data and hides portfolio-owned surfaces immediately; on repopulates from scratch after the wipe obligation is discharged. Home Exchange Rates and the Exchange Rate detail screen stay visible regardless of the setting and refetch on demand if the shared `rate:v1:*` cache was cleared.
 - **Mid-populate UI behavior is explicit.** Asset-list rows stay visible immediately in canonical order with skeletons for unready right-side content; charts stay hidden during first populate until their relevant data is ready. Later incremental populates may update charts/rows progressively while a lightweight refreshing state is shown.
