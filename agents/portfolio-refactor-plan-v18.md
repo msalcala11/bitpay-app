@@ -75,10 +75,12 @@ Total kept: **~13,805 LOC.**
 - `src/portfolio/service/portfolioPopulateService.ts` (244)
 - `src/portfolio/service/portfolioStaleness.ts` (160)
 - `src/portfolio/debug/balanceDiagnostic.ts` (verify exact LOC in Phase 0)
-- All of `src/portfolio/ui/hooks/**` (~4,900)
+- All of `src/portfolio/ui/hooks/**` (~9,982, verified by Phase 0 `find ... | wc -l`)
 - `src/portfolio/ui/selectors/**`
 - `src/portfolio/ui/common.ts` (545) — helpers folded into v2
-- `src/navigation/tabs/home/hooks/usePortfolioAssetRows.ts` (2,892) — **outside `src/portfolio/`**
+- `src/navigation/tabs/home/hooks/usePortfolioAssetRows.ts` (2,892) — **outside `src/portfolio/`**. The re-export shim at this path stays as a ~2-line v2 indirection (see Phase 7/8); the 2,892 LOC refers to the v1 implementation being deleted.
+- `src/store/portfolio/**` (~1,236, verified by Phase 0 `find ... | wc -l`) — v1 Redux slice + `portfolio.runtime.effects.ts`. The `cleanupPortfolioOnDeleteKeyMiddleware` in `src/store/index.ts` that dispatches `clearWalletPortfolioDataWithRuntime({walletIds})` is replaced by `onWalletsDeleted({walletIds})` (Phase 6).
+- `src/store/portfolio-charts/**` (~536, verified by Phase 0 `find ... | wc -l`) — v1 chart cache slice. Superseded by `sharedPortfolioState` series. **Outside `src/portfolio/`**.
 
 ---
 
@@ -106,6 +108,7 @@ Total kept: **~13,805 LOC.**
 - **`waitForPopulateLoopToStop()`** — polls `populateLoopRunning.value`. Throws on 60s timeout. Used by `performResetSequence`.
 - **`waitForRecomputeDrainToStop()`** — polls scheduler's `running` flag. Throws on 30s timeout. Used by `performResetSequence` alongside the populate wait to quiesce both async subsystems before wipe.
 - **`waitForEnsureFreshToStop()`** — polls `ratesFetch.ts` in-flight count. Throws on 20s timeout. Third wait in the reset `Promise.all`. Covers rate fetches that started before the reset guard flipped.
+- **`logPortfolioRuntimeError(err, extra?)`** — the JS-side logger every `runOnRuntimeAsync(...)` fire-and-forget `.catch(...)` attaches to. Lives at `src/portfolio/v2/logPortfolioRuntimeError.ts`. Signature: `logPortfolioRuntimeError(err: unknown, extra?: { tag?: string; [k: string]: unknown }): void`. Behavior: (1) serialize `err` with `extra` via the existing app error-logging util used elsewhere in `src/store/**` (grep Phase 0 — match the current project-wide pattern so Sentry/console output is consistent); (2) NEVER throw and NEVER return a Promise — the function is called in `.catch(...)` / `.catch(logPortfolioRuntimeError)` and must not itself invalidate the attached chain; (3) attach a fixed `subsystem: 'portfolio-v2'` tag so logs are filterable; (4) include `extra.tag` when provided so call sites can distinguish populate / ensureFresh / fx-bridge / quote-switch / reset / scheduler paths. All `.catch(logPortfolioRuntimeError)` call sites pass the error only (curry-free non-attached usage); call sites that already have contextual info (`logPortfolioRuntimeError(err, {tag: 'populate'})`) use the arity-2 form inside the `catch` lambda.
 
 **Fingerprints do two things:** (1) selector cost — O(1) lookups; numeric work happens once in `recompute`; (2) render invalidation — `React.memo` and `usePortfolioSlice(..., areEqual)` clone-proof.
 
@@ -176,8 +179,8 @@ Total kept: **~13,805 LOC.**
 > - `src/navigation/tabs/settings/about/screens/{PortfolioDebug,PortfolioWalletDebug,StorageUsage}.tsx`
 > - `src/store/app/app.effects.ts` (portfolio effects only)
 > - `src/store/wallet/effects/send/**`
-> - `src/store/rate/rate.effects.ts`
-> - `src/store/index.ts` (confirm `getStore()` async factory returns `{store, persistor}`; note `RootState` export location)
+> - `src/store/wallet/effects/rates/rates.ts` (live-rate refresh effects; note: no `src/store/rate/rate.effects.ts` exists — the `src/store/rate/**` slice is reducer/actions/models/types only)
+> - `src/store/index.ts` (confirm `getStore()` async factory returns `{store, persistor}`; note `RootState` export location; also inventory the existing `cleanupPortfolioOnDeleteKeyMiddleware` that dispatches `clearWalletPortfolioDataWithRuntime({walletIds})` on `WalletActionTypes.DELETE_KEY` — v2 replaces this with `onWalletsDeleted({walletIds})`)
 > - `index.js` (confirm existing `getStore().then(({store, persistor}) => {...})` callback — v2 init goes inside this callback)
 > - **Sign-out / clear-all-storage paths** — grep for `signOut`, `logout`, `clearAllStorage`, `resetApp` or similar. List every code path that wipes portfolio MMKV. Phase 5 and Phase 7.5 will hook shared-state reset into each.
 >
@@ -1899,6 +1902,30 @@ Total kept: **~13,805 LOC.**
 >   populateWallet(args.walletId);
 > }
 >
+> export function onWalletsDeleted(args: { walletIds: readonly string[] }): void {
+>   // Replaces v1's `cleanupPortfolioOnDeleteKeyMiddleware` dispatch of
+>   // `clearWalletPortfolioDataWithRuntime({walletIds})` in `src/store/index.ts`.
+>   // This trigger does not go through `canRunPortfolioV2Work()`: even while
+>   // `populateResetInFlight` or `portfolioCacheInvalid` is set, the store MUST
+>   // forget the deleted wallets' portfolio data. Any ongoing reset or repair
+>   // will itself wipe everything and is still correct; the forget call is
+>   // idempotent.
+>   const walletIds = Array.from(new Set(args.walletIds ?? []));
+>   if (!walletIds.length) return;
+>   forgetDeletedWalletsInSharedState(walletIds);  // shared-state side on the compute runtime
+>   forgetDeletedWalletsInMmkv(walletIds);         // MMKV snap:*/rate-scoped keys for those walletIds
+>   if (!canRunPortfolioV2Work()) return;
+>   if (!getShowPortfolioEnabledFromStore()) return;
+>   const quote = getQuoteCurrencyFromStore();
+>   const base = buildBaseRecomputeInputs({
+>     quote,
+>     wallets: getEligibleStoredWalletsFromStore(),
+>     rates: getLiveRatesByAssetIdFromStore(),
+>     ratesAsOfMs: getLiveRatesAsOfMsFromStore(),
+>   });
+>   scheduleRecompute({ ...base, scope: 'full' });
+> }
+>
 > export async function onPullToRefresh(args): Promise<void> {
 >   if (!canRunPortfolioV2Work()) return;        // GUARD
 >   if (!getShowPortfolioEnabledFromStore()) return;
@@ -2037,7 +2064,8 @@ Total kept: **~13,805 LOC.**
 > Use the Phase 0 inventory as the call-site source of truth, not ad hoc grep:
 > - post-auth app-launch wiring from `src/store/app/app.effects.ts`,
 > - send-completion wiring from `src/store/wallet/effects/send/**`,
-> - live-rate-update wiring from `src/store/rate/rate.effects.ts`,
+> - live-rate-update wiring from `src/store/wallet/effects/rates/rates.ts`,
+> - wallet-deletion wiring from the `cleanupPortfolioOnDeleteKeyMiddleware` in `src/store/index.ts` (replace its `clearWalletPortfolioDataWithRuntime({walletIds})` dispatch with a call to `onWalletsDeleted({walletIds})` so v2 sees key deletions; the middleware itself stays but swaps its payload),
 > - pull-to-refresh wiring from the Home / KeyOverview / Wallet / Account screens/hooks documented in inventory item #12,
 > - quote-currency-change wiring from the settings/rate-change path documented in inventory item #12,
 > - show-portfolio-toggle wiring from the settings path documented in inventory item #12.
@@ -2050,6 +2078,8 @@ Total kept: **~13,805 LOC.**
 > - `onShowPortfolioVisibilityChanged(true)` regression: after a prior disable, starts a fresh from-scratch populate (`isFirstPopulate: true`) instead of resuming stale queue state.
 > - Rapid toggle regression: off/on/off/on in quick succession serializes cleanly, stale completions no-op, `visibilityWipeRequired` prevents ON from populating until the OFF-created wipe has completed, no overlapping populate loops start, and the final persisted setting wins.
 > - Toggle-during-reset regression: if another reset is already active, the toggle joins/waits for it, then re-checks epoch/store state before starting any fresh populate.
+> - `onWalletsDeleted(...)` regression: forgets shared-state + MMKV entries for the deleted wallets even when `populateResetInFlight` or `portfolioCacheInvalid` is set; `scheduleRecompute` is only queued afterwards if `canRunPortfolioV2Work()` and `getShowPortfolioEnabledFromStore()` allow; empty `walletIds` is a no-op.
+> - Wallet-deletion middleware parity regression: asserting the existing `cleanupPortfolioOnDeleteKeyMiddleware` in `src/store/index.ts` now calls `onWalletsDeleted({walletIds})` instead of dispatching `clearWalletPortfolioDataWithRuntime({walletIds})`, and that every `walletIds` collected from the deleted key reaches the v2 trigger.
 > - Refreshing indicator regression: triggers do not set/clear refreshing state directly; `useIsPortfolioRefreshing()` derives it from populate / `ensureFresh` / scheduler in-flight signals.
 > - Timeframe-switch regression: changing `tf` on any portfolio screen triggers zero calls to `ensureFresh(...)`, `ensureQuoteCurrencyFxBridge(...)`, populate APIs, or snapshot refresh helpers.
 
@@ -2233,11 +2263,15 @@ Total kept: **~13,805 LOC.**
 > 1. `PORTFOLIO_V2` default → `true`.
 > 2. Delete listed v1 files after verifying zero imports.
 > 3. Delete Redux fields flagged in Phase 0. Keep `quoteCurrency`, `lastPopulateStartedAtMs`, `hydratedSummary`. `recompute` tail writes `hydratedSummary`.
-> 4. Merge `src/portfolio/v2/**` up one level.
-> 5. Full test suite green — **including the reset-path tests from Phase 7.5.**
-> 6. Update inventory.
+> 4. Delete v1 store subtrees and unwire them from the root reducer / store:
+>    - Remove `src/store/portfolio/**` (`portfolio.actions.ts`, `portfolio.models.ts`, `portfolio.reducer.ts`, `portfolio.runtime.effects.ts`, `portfolio.types.ts`, `portfolio.utils.ts`, `index.ts`). Remove the slice's entry from `combineReducers` / whitelist / blacklist / persistor config in `src/store/index.ts` and any typed selectors in `src/store/index.types.ts` / `RootState`.
+>    - Remove `src/store/portfolio-charts/**` (`portfolio-charts.actions.ts`, `portfolio-charts.models.ts`, `portfolio-charts.reducer.ts`, `portfolio-charts.types.ts`, `index.ts`). Same combineReducers / persistor cleanup.
+>    - Keep `cleanupPortfolioOnDeleteKeyMiddleware` in `src/store/index.ts`; ensure its action payload is `onWalletsDeleted({walletIds})` (wired in Phase 6), not the deleted `clearWalletPortfolioDataWithRuntime`.
+> 5. Merge `src/portfolio/v2/**` up one level.
+> 6. Full test suite green — **including the reset-path tests from Phase 7.5.** Additionally run a typecheck pass to catch any dangling imports of `src/store/portfolio/**` or `src/store/portfolio-charts/**`.
+> 7. Update inventory.
 
-**LOC ledger:** inside `src/portfolio/`: +50 / ~13,500 / ~−13,450. Outside: 0 / ~2,900 / ~−2,900.
+**LOC ledger:** inside `src/portfolio/`: +50 / ~13,500 / ~−13,450. Outside: 0 / ~4,700 / ~−4,700 (2,892 for `usePortfolioAssetRows.ts` + ~1,236 for `src/store/portfolio/**` + ~536 for `src/store/portfolio-charts/**` + store-index glue).
 
 ---
 
@@ -2334,6 +2368,7 @@ Total kept: **~13,805 LOC.**
 66. **Show Portfolio on repopulates from scratch:** toggling the setting back on after a prior disable starts a fresh populate-from-empty flow (`isFirstPopulate: true`) and re-reveals portfolio-owned surfaces by the normal progressive populate rules.
 67. **Rapid Show Portfolio toggle churn:** repeated off/on/off/on toggles serialize cleanly with last-toggle-wins semantics for final visibility; `visibilityWipeRequired` guarantees an OFF-created wipe obligation completes before a later ON can start fresh populate; no overlapping populate loops survive, stale completions no-op, and the final setting determines whether portfolio surfaces are hidden or repopulating.
 68. **Joinable reset during Show Portfolio toggle:** toggling portfolio visibility while post-auth repair / debug-clear / sign-out reset is already in flight joins or waits for that reset, re-checks epoch and store state afterward, and never surfaces an "already in flight" error for normal toggle churn.
+69. **Key deletion clears portfolio data:** dispatching `WalletActionTypes.DELETE_KEY` routes through `cleanupPortfolioOnDeleteKeyMiddleware` → `onWalletsDeleted({walletIds})`. For each deleted wallet, shared-state and MMKV entries are forgotten even when `populateResetInFlight` / `portfolioCacheInvalid` is set, subsequent `scheduleRecompute` is gated only by the ordinary guard + visibility check, and Home / All Assets / Allocation immediately stop counting the deleted wallets' balances and PnL.
 
 ---
 
@@ -2363,11 +2398,17 @@ Start: ~28,268. End: ~20,600. Target 18–22k pending Phase 0 inventory verifica
 
 | Phase | Added | Deleted | Net |
 |---|---|---|---|
-| 8 | 0 | ~2,900 | ~−2,900 |
+| 8 | 0 | ~4,700 | ~−4,700 |
+
+Breakdown of the ~4,700 deleted LOC outside `src/portfolio/`:
+- `src/navigation/tabs/home/hooks/usePortfolioAssetRows.ts` — v1 implementation (~2,892 LOC). The path itself stays as a ~2-line v2 re-export shim so existing imports keep resolving during Phase 7/8 rollout.
+- `src/store/portfolio/**` — ~1,236 LOC across 7 files (`portfolio.actions.ts`, `portfolio.models.ts`, `portfolio.reducer.ts`, `portfolio.runtime.effects.ts`, `portfolio.types.ts`, `portfolio.utils.ts`, `index.ts`). Slice is removed from `combineReducers` / persistor config in `src/store/index.ts` and from `RootState` typing.
+- `src/store/portfolio-charts/**` — ~536 LOC across 5 files (`portfolio-charts.actions.ts`, `portfolio-charts.models.ts`, `portfolio-charts.reducer.ts`, `portfolio-charts.types.ts`, `index.ts`). Same `combineReducers` / persistor / `RootState` cleanup.
+- `src/store/index.ts` glue — a few dozen lines of imports, reducer wiring, persistor entries, and the `cleanupPortfolioOnDeleteKeyMiddleware` payload swap (`clearWalletPortfolioDataWithRuntime` → `onWalletsDeleted`). Middleware itself stays.
 
 ### Combined
 
-Starting: ~31,160. Ending: ~20,600. Eliminated: ~10,560, ~34%.
+Starting: ~33,000. Ending: ~20,600. Eliminated: ~12,400, ~38%.
 
 ---
 
