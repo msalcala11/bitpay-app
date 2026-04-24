@@ -1925,9 +1925,9 @@ Total kept: **~13,805 LOC.**
 >   // `snapshots.clearWallet` allowlist in `portfolioRequestRouting.ts` /
 >   // `portfolioRequestWorklet.ts`; v2 deletes that infrastructure, so we
 >   // re-establish the same ordering guarantee explicitly here.
+>   if (!canRunPortfolioV2Work()) return;            // GUARD #1 — literal first executable statement per guardrail #21. Reset/repair wipes these anyway.
 >   const walletIds = Array.from(new Set(args.walletIds ?? []));
 >   if (!walletIds.length) return;
->   if (!canRunPortfolioV2Work()) return;            // GUARD #1 — reset/repair wipes these anyway
 >
 >   cancelPopulate();
 >   await waitForPopulateLoopToStop();               // same primitive `performResetSequence` uses
@@ -1948,17 +1948,28 @@ Total kept: **~13,805 LOC.**
 >   // populate kicks (see Phase 5 / guardrail #12).
 >   reconcileQueueAgainstEligible(getCurrentEligibleWalletIdSetFromStore());
 >
->   // Cross-runtime writes are awaited so a subsequent reset's
->   // `waitForRecomputeDrainToStop` / `waitForPopulateLoopToStop` do not race
->   // with in-flight forget work.
->   await runOnRuntimeAsync(
->     getComputeRuntime(),
->     forgetDeletedWalletsInSharedStateWorklet,
->     {walletIds},
->   );
->   forgetDeletedWalletsInMmkv(walletIds);           // sync MMKV call. Wallet-scoped `snap:*` keys only. NOT `rate:v1:*` (those are `(coin, quote, interval)`-scoped and still valid for the surviving wallets).
+>   // Use the existing kernel API — `SnapshotStore.clearWallet(walletId)` —
+>   // which deletes each wallet's `snap:*` keys through `kvStore.delete` +
+>   // registry bookkeeping. See `snapshotStore.ts:509` and
+>   // `mmkvKvStore.ts:193`. Parity with v1's serialized `client.clearWallet(...)`
+>   // path, minus the deleted v1 runtime/serialQueue layer. `rate:v1:*` keys
+>   // are intentionally NOT touched: they are `(coin, quote, interval)`-scoped
+>   // and still valid for the surviving wallet set.
+>   await Promise.all(walletIds.map(id => snapshotStore.clearWallet(id)));
+>
+>   // NO direct `sharedPortfolioState` forget. `scheduleRecompute({scope: 'full'})`
+>   // below publishes a post-delete state through the registered scheduler
+>   // path — observable by `waitForRecomputeDrainToStop` during a reset. Full
+>   // scope rebuilds `byWallet` / order / totals from `inputs.walletsById`,
+>   // which comes from the post-`DELETE_KEY` eligible set and excludes the
+>   // deleted walletIds, so they drop out naturally. This avoids introducing
+>   // an unregistered async writer outside the reset wait-set — if we wrote
+>   // shared state directly here, `performResetSequence`'s `Promise.all`
+>   // couldn't wait for it and the forget could land after a concurrent reset
+>   // wipe, resurrecting deleted-wallet slices.
 >
 >   if (!getShowPortfolioEnabledFromStore()) return;
+>
 >   const quote = getQuoteCurrencyFromStore();
 >   const base = buildBaseRecomputeInputs({
 >     quote,
@@ -1966,7 +1977,19 @@ Total kept: **~13,805 LOC.**
 >     rates: getLiveRatesByAssetIdFromStore(),
 >     ratesAsOfMs: getLiveRatesAsOfMsFromStore(),
 >   });
->   scheduleRecompute({ ...base, scope: 'full' });   // surviving queued wallets resume via the normal scheduler path
+>   // `scheduleRecompute` publishes the compute-side state update through the
+>   // registered scheduler; it does NOT re-kick populate. The populate loop is
+>   // resumed explicitly via the `populateWallets(...)` kick helper below —
+>   // same mechanism `onPullToRefresh` uses after cancel/reconcile.
+>   // `populateWallets(...)` clears the cancel flag and starts a fresh loop
+>   // (parity test #31 "Cancel flag lifecycle"). Without this call the queue
+>   // still has surviving `remainingWalletIds` but the populate loop would sit
+>   // idle until the next populate trigger (send / pull-to-refresh / launch).
+>   scheduleRecompute({ ...base, scope: 'full' });
+>   const remainingWalletIds = loadQueue()?.remainingWalletIds ?? [];
+>   if (remainingWalletIds.length) {
+>     populateWallets(remainingWalletIds);
+>   }
 > }
 >
 > export async function onPullToRefresh(args): Promise<void> {
@@ -2121,14 +2144,18 @@ Total kept: **~13,805 LOC.**
 > - `onShowPortfolioVisibilityChanged(true)` regression: after a prior disable, starts a fresh from-scratch populate (`isFirstPopulate: true`) instead of resuming stale queue state.
 > - Rapid toggle regression: off/on/off/on in quick succession serializes cleanly, stale completions no-op, `visibilityWipeRequired` prevents ON from populating until the OFF-created wipe has completed, no overlapping populate loops start, and the final persisted setting wins.
 > - Toggle-during-reset regression: if another reset is already active, the toggle joins/waits for it, then re-checks epoch/store state before starting any fresh populate.
-> - `onWalletsDeleted(...)` normal-path regression: when `canRunPortfolioV2Work()` is true at both guard checks, calls `cancelPopulate()`, awaits `waitForPopulateLoopToStop()`, re-checks `canRunPortfolioV2Work()`, calls `reconcileQueueAgainstEligible(getCurrentEligibleWalletIdSetFromStore())` (the same primitive used by populate kicks), awaits the shared-state forget on the compute runtime, synchronously wipes `snap:*` MMKV keys, then (if `getShowPortfolioEnabledFromStore()`) queues a full `scheduleRecompute`. Empty `walletIds` is a no-op.
-> - `onWalletsDeleted(...)` second-guard regression: set up a scenario where `canRunPortfolioV2Work()` is true on entry, the `cancelPopulate() + waitForPopulateLoopToStop()` await takes non-trivial time, and during that await another code path invokes `performResetSequence()` (setting `populateResetInFlight = true`) or latches `portfolioCacheInvalid = true`. After the wait resolves, assert the trigger detects the flipped state via GUARD #2 and returns before any `reconcileQueueAgainstEligible` / shared-state forget / MMKV forget / `scheduleRecompute` call fires. No side effects post-flip.
+> - `onWalletsDeleted(...)` normal-path regression: when `canRunPortfolioV2Work()` is true at both guard checks, GUARD #1 runs as the literal first statement (before argument normalization), then `cancelPopulate()` → `await waitForPopulateLoopToStop()` → GUARD #2 → `reconcileQueueAgainstEligible(getCurrentEligibleWalletIdSetFromStore())` → `await Promise.all(walletIds.map(id => snapshotStore.clearWallet(id)))` → (if `getShowPortfolioEnabledFromStore()`) `scheduleRecompute({scope: 'full'})` → `populateWallets(loadQueue()?.remainingWalletIds ?? [])`. Empty `walletIds` is a no-op. No direct `sharedPortfolioState` writer is invoked outside the scheduler.
+> - `onWalletsDeleted(...)` second-guard regression: set up a scenario where `canRunPortfolioV2Work()` is true on entry, the `cancelPopulate() + waitForPopulateLoopToStop()` await takes non-trivial time, and during that await another code path invokes `performResetSequence()` (setting `populateResetInFlight = true`) or latches `portfolioCacheInvalid = true`. After the wait resolves, assert the trigger detects the flipped state via GUARD #2 and returns before any `reconcileQueueAgainstEligible` / `snapshotStore.clearWallet` / `scheduleRecompute` / `populateWallets` call fires. No side effects post-flip.
 > - `onWalletsDeleted(...)` reuses `reconcileQueueAgainstEligible`: unit test asserts the trigger calls `reconcileQueueAgainstEligible(...)` with the post-DELETE_KEY eligible set; the returned queue has deleted walletIds removed from `remainingWalletIds`, `doneWalletIds`, and `orderedAssetGroupIdsForAssetList`; `orderRevision` bumps iff order changed. Verifies no second prune path exists.
-> - `onWalletsDeleted(...)` surviving-queued-wallets resume regression: seed the queue with walletIds `[A, B, C]` and start populate. While the populate loop is mid-`handleProcessNextPageOnPopulateWorklet` for wallet A, invoke `onWalletsDeleted({walletIds: ['B']})`. Assert: (1) populate loop observes cancel and exits cleanly; (2) post-reconcile queue contains `[A, C]` in their original relative order with `orderRevision` preserved (since relative order between surviving wallets did not change); (3) the tail `scheduleRecompute({scope: 'full'})` triggers the normal populate-retry path; (4) A completes and C runs to completion; (5) no `snap:*` writes for wallet B land after the clear, and no MMKV reads of B's keys fire from any downstream `recompute()` drain.
+> - `onWalletsDeleted(...)` MMKV wipe uses `snapshotStore.clearWallet`: unit test stubs `snapshotStore.clearWallet(id)` and asserts the trigger calls it once per deleted walletId — not a raw `kvStore.delete(...)` loop. Confirms kernel-API parity with v1's `client.clearWallet(...)` path and that the registry tracked by `mmkvKvStore.ts` stays consistent (same discipline as guardrails #24 and #25).
+> - `onWalletsDeleted(...)` no stale keys via enumeration: seed `snap:*` keys for wallets `[A, B, C]` by running a short populate. Invoke `onWalletsDeleted({walletIds: ['B']})`. Then call `kvStore.listKeys()` and assert no key containing wallet B's id remains — and that A's and C's `snap:*` keys are present. Regresses against a `snapshotStore.clearWallet` that might miss a chunk/index/invalid-history key.
+> - `onWalletsDeleted(...)` no direct shared-state writer regression: in a test with `waitForRecomputeDrainToStop` stubbed to track all `runOnRuntimeAsync(getComputeRuntime(), ...)` calls, invoke `onWalletsDeleted({walletIds: ['B']})` concurrently with `performResetSequence()`. Assert: zero `runOnRuntimeAsync(getComputeRuntime(), ...)` calls are made by `onWalletsDeleted` itself outside the scheduler; all shared-state publishes originate from the scheduler's `drain()`; the reset's `Promise.all` wait can observe and wait on every shared-state publisher. Regresses against reintroducing an unregistered async writer.
+> - `onWalletsDeleted(...)` post-delete recompute drops deleted wallets: seed shared state containing `byWallet[A]`, `byWallet[B]`, `byWallet[C]`. Invoke `onWalletsDeleted({walletIds: ['B']})`. Assert the next published state from the scheduler drain has no `byWallet[B]` entry, no entry in `orderedAssetGroupIdsForAssetList` from B-only asset groups, and correct new totals. Regresses the "full scope rebuilds from `inputs.walletsById`" assumption that replaces the removed direct writer.
+> - `onWalletsDeleted(...)` surviving-queued-wallets resume regression: seed the queue with walletIds `[A, B, C]` and start populate. While the populate loop is mid-`handleProcessNextPageOnPopulateWorklet` for wallet A, invoke `onWalletsDeleted({walletIds: ['B']})`. Assert: (1) populate loop observes cancel and exits cleanly; (2) post-reconcile queue contains `[A, C]` with `orderRevision` preserved since relative order between surviving wallets is unchanged; (3) the trailing `populateWallets(remainingWalletIds)` call — not `scheduleRecompute` — re-kicks the populate loop by clearing the cancel flag and starting a fresh iteration (parity with test #31); (4) A completes and C runs to completion; (5) no `snap:*` writes for wallet B land after the clear.
 > - `onWalletsDeleted(...)` snap-only wipe regression: forgets only wallet-scoped `snap:*` MMKV keys for the deleted wallets; shared `rate:v1:*` keys (which are `(coin, quote, interval)`-scoped) are untouched and remain valid for the surviving wallet set. Write a test that seeds `rate:v1:*` keys for assets the deleted wallets held and asserts they are still present after `onWalletsDeleted`.
-> - `onWalletsDeleted(...)` reset-window regression: while `performResetSequence` is active (`populateResetInFlight === true`), invoke `onWalletsDeleted({walletIds})`. Assert zero side effects from the trigger (no `cancelPopulate`, no wait, no MMKV writes, no `scheduleRecompute`). The in-flight reset completes its wipe, which removes the deleted wallets' data as part of the full wipe; the next fire-time trigger after reset sees the Redux-authoritative eligible wallet set and recomputes correctly.
+> - `onWalletsDeleted(...)` reset-window regression: while `performResetSequence` is active (`populateResetInFlight === true`), invoke `onWalletsDeleted({walletIds})`. Assert zero side effects from the trigger (no `cancelPopulate`, no wait, no MMKV writes, no `scheduleRecompute`, no `populateWallets`). The in-flight reset completes its wipe, which removes the deleted wallets' data as part of the full wipe; the next fire-time trigger after reset sees the Redux-authoritative eligible wallet set and recomputes correctly.
 > - `onWalletsDeleted(...)` cache-invalid regression: with `portfolioCacheInvalid === true` (durable invalid bit latched), invoke the trigger. Assert no-op. The next `onAppLaunchPostAuth` / repair path wipes and clears the bit, then normal work resumes with the updated wallet set.
-> - `onWalletsDeleted(...)` no populate-vs-clear race regression: while an active populate loop is mid-`handleProcessNextPageOnPopulateWorklet` for one of the deleted walletIds, invoke `onWalletsDeleted({walletIds: [thatWalletId]})`. Assert the loop observes cancel and exits before any `snap:*` key delete fires, and no populate-side `snap:*` writes land after the clear.
+> - `onWalletsDeleted(...)` no populate-vs-clear race regression: while an active populate loop is mid-`handleProcessNextPageOnPopulateWorklet` for one of the deleted walletIds, invoke `onWalletsDeleted({walletIds: [thatWalletId]})`. Assert the loop observes cancel and exits before any `snapshotStore.clearWallet(...)` resolves, and no populate-side `snap:*` writes land after the clear.
 > - Wallet-deletion middleware parity regression: asserting the existing `cleanupPortfolioOnDeleteKeyMiddleware` in `src/store/index.ts` now calls `onWalletsDeleted({walletIds})` instead of dispatching `clearWalletPortfolioDataWithRuntime({walletIds})`, and that every `walletIds` collected from the deleted key reaches the v2 trigger.
 > - Refreshing indicator regression: triggers do not set/clear refreshing state directly; `useIsPortfolioRefreshing()` derives it from populate / `ensureFresh` / scheduler in-flight signals.
 > - Timeframe-switch regression: changing `tf` on any portfolio screen triggers zero calls to `ensureFresh(...)`, `ensureQuoteCurrencyFxBridge(...)`, populate APIs, or snapshot refresh helpers.
@@ -2418,7 +2445,7 @@ Total kept: **~13,805 LOC.**
 66. **Show Portfolio on repopulates from scratch:** toggling the setting back on after a prior disable starts a fresh populate-from-empty flow (`isFirstPopulate: true`) and re-reveals portfolio-owned surfaces by the normal progressive populate rules.
 67. **Rapid Show Portfolio toggle churn:** repeated off/on/off/on toggles serialize cleanly with last-toggle-wins semantics for final visibility; `visibilityWipeRequired` guarantees an OFF-created wipe obligation completes before a later ON can start fresh populate; no overlapping populate loops survive, stale completions no-op, and the final setting determines whether portfolio surfaces are hidden or repopulating.
 68. **Joinable reset during Show Portfolio toggle:** toggling portfolio visibility while post-auth repair / debug-clear / sign-out reset is already in flight joins or waits for that reset, re-checks epoch and store state afterward, and never surfaces an "already in flight" error for normal toggle churn.
-69. **Key deletion clears portfolio data (double-guarded + quiesced):** dispatching `WalletActionTypes.DELETE_KEY` routes through `cleanupPortfolioOnDeleteKeyMiddleware` → `onWalletsDeleted({walletIds})`. Normal path: the trigger (a) checks `canRunPortfolioV2Work()` as GUARD #1, (b) calls `cancelPopulate()` + awaits `waitForPopulateLoopToStop()`, (c) re-checks `canRunPortfolioV2Work()` as GUARD #2 (reset/cache-invalid state can flip during the wait; mirrors `ensureFresh`'s post-fetch re-check), (d) calls the existing `reconcileQueueAgainstEligible(...)` primitive — no new queue-prune implementation — which drops deleted walletIds from `remainingWalletIds` / `doneWalletIds` / `orderedAssetGroupIdsForAssetList` and bumps `orderRevision` iff order changed, (e) awaits the shared-state forget on the compute runtime and synchronously wipes `snap:*` MMKV keys for the deleted wallets only (shared `rate:v1:*` keys stay intact), then (f) re-kicks populate/recompute for the surviving wallet set behind `getShowPortfolioEnabledFromStore()`. Reset-window path: if `performResetSequence` is in flight or `portfolioCacheInvalid` is latched at either guard, the trigger no-ops — the active reset/repair wipe removes the deleted wallets' data as part of its full wipe, and Redux's `DELETE_KEY` reducer is authoritative for the updated eligible-wallet set observed by the next fire-time trigger. In both paths, Home / All Assets / Allocation stop counting the deleted wallets' balances and PnL at the first publish after the Redux deletion is reflected in `getEligibleStoredWalletsFromStore()`. Additional coverage: delete one wallet mid-populate of three; surviving two continue/resume to completion via the scheduler's normal path.
+69. **Key deletion clears portfolio data (double-guarded + quiesced, no unregistered writers):** dispatching `WalletActionTypes.DELETE_KEY` routes through `cleanupPortfolioOnDeleteKeyMiddleware` → `onWalletsDeleted({walletIds})`. Normal path: the trigger (a) checks `canRunPortfolioV2Work()` as GUARD #1 — literal first executable statement per guardrail #21, before argument normalization, (b) calls `cancelPopulate()` + awaits `waitForPopulateLoopToStop()`, (c) re-checks `canRunPortfolioV2Work()` as GUARD #2 (mirrors `ensureFresh`'s post-fetch re-check), (d) calls the existing `reconcileQueueAgainstEligible(...)` primitive — no new queue-prune implementation — which drops deleted walletIds from `remainingWalletIds` / `doneWalletIds` / `orderedAssetGroupIdsForAssetList` and bumps `orderRevision` iff order changed, (e) `await`s `Promise.all(walletIds.map(id => snapshotStore.clearWallet(id)))` to remove wallet-scoped `snap:*` keys through the kernel's existing async API (same `kvStore.delete` + registry path v1 uses), shared `rate:v1:*` stays intact, then (f) publishes post-delete state via `scheduleRecompute({scope: 'full'})` — which rebuilds `byWallet` from `inputs.walletsById` and naturally drops deleted walletIds, through the registered scheduler observable by `waitForRecomputeDrainToStop` — and (g) re-kicks the populate loop for survivors via `populateWallets(loadQueue()?.remainingWalletIds ?? [])`, which clears the cancel flag and starts a fresh iteration (parity with test #31). There is NO direct `sharedPortfolioState` writer invoked by `onWalletsDeleted` — all shared-state publishes flow through the registered scheduler. Reset-window path: if `performResetSequence` is in flight or `portfolioCacheInvalid` is latched at either guard, the trigger no-ops — the active reset/repair wipe removes the deleted wallets' data, and Redux's `DELETE_KEY` reducer is authoritative for the updated eligible-wallet set observed by the next fire-time trigger. In both paths, Home / All Assets / Allocation stop counting the deleted wallets' balances and PnL at the first publish after the Redux deletion is reflected in `getEligibleStoredWalletsFromStore()`. Additional coverage: (a) delete one wallet mid-populate of three; surviving two resume to completion via `populateWallets(...)`; (b) `kvStore.listKeys()` has no stale deleted-wallet `snap:*` keys post-delete; (c) no unregistered writer test — `onWalletsDeleted` run concurrently with `performResetSequence` makes zero `runOnRuntimeAsync(getComputeRuntime(), ...)` calls outside the scheduler.
 
 ---
 
