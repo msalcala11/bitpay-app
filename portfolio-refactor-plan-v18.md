@@ -13,9 +13,9 @@
 - **Runtime API hygiene:** `runOnRuntimeAsync(runtime, workletFn, ...args)` — non-curried. Fire-and-forget usages attach `.catch(logPortfolioRuntimeError)`.
 - **Redux store access pattern:** `getStore()` in `src/store/index.ts:376` is an async factory returning `{store, persistor}` (from `src/store/index.ts:558`). Existing boot at `index.js:166` uses `getStore().then(({store, persistor}) => {...})` callback. All v2 Redux access goes through `src/portfolio/v2/reduxAccess.ts`, whose module-level `storeGetter` is initialized inside that existing callback before `<Provider>` mount. Accessor calls happen inside function bodies only, never at module top level. Re-init is allowed (Fast Refresh, tests).
 - **`orderRevision` monotonicity is a correctness invariant.** The `(sharedPortfolioState, PopulateQueueV1)` pair must stay in lockstep across reset paths (debug-clear, sign-out, any wipe): both reset together, or neither resets. Partial wipes break merge arbitration.
-- **Reset / cancellation is in-memory only. Portfolio data is disposable.** A single JS-side boolean `populateResetInFlight` prevents re-entry during an active `performResetSequence`. There is no persisted sentinel, no boot-time "reset failed" latch, no UI banner. If a wipe throws, the call site surfaces a one-shot error and the user retries; `wipePortfolioMmkvKeys` is idempotent and any partial wipe self-heals on next populate because snapshot/rate data is recreatable from scratch.
-- **MMKV key namespaces (verified against repo):** snapshot data lives under `snap:*` (meta, index, chunk, invalid-history, raw points — see `snapshotStore.ts:146-162`); rate data lives under `rate:v1:*` (see `fiatRateStore.ts` `rateKey`); v2-specific data under `portfolio:v2:*` (queue, flag). Wipe must cover all three. See guardrail #23.
-- **Portfolio storage is a dedicated MMKV instance, not the app default.** ID is `'bitpay.portfolio.engine'`. Created via `createPortfolioMmkvStorageOnRN()` / accessed via `getPortfolioMmkvStorageOnRN()` in `src/portfolio/adapters/rn/workletMmkvBridge.ts:8-25`. All v2 MMKV access — flag, queue, wipe — must go through this instance, not a bare `new MMKV()` or the default MMKV. Using the wrong instance means writes and reads land in separate namespaces and coordination breaks silently.
+- **Reset / cancellation uses one durable invalid bit, not a full sentinel system.** A JS-side `populateResetInFlight` boolean prevents re-entry during an active `performResetSequence`, and a persisted `portfolio:v2:cacheInvalid` key marks "portfolio cache may be partially wiped / invalid." There is no tri-state sentinel, no banner, and no boot-time retry UI. If a wipe throws after `cacheInvalid` is set, ordinary v2 work stays blocked until a successful repair clears the bit.
+- **MMKV key namespaces (verified against repo):** snapshot data lives under `snap:*` (meta, index, chunk, invalid-history, raw points — see `snapshotStore.ts:146-162`); rate data lives under `rate:v1:*` (see `fiatRateStore.ts` `rateKey`); v2-specific data under `portfolio:v2:*` (queue, flag, cache-invalid bit). Wipe must cover all three. See guardrail #23.
+- **Portfolio storage is a dedicated MMKV instance, not the app default.** ID is `'bitpay.portfolio.engine'`. Created via `createPortfolioMmkvStorageOnRN()` / accessed via `getPortfolioMmkvStorageOnRN()` in `src/portfolio/adapters/rn/workletMmkvBridge.ts:8-25`. All v2 MMKV access — flag, queue, cache-invalid bit, wipe — must go through this instance, not a bare `new MMKV()` or the default MMKV. Using the wrong instance means writes and reads land in separate namespaces and coordination breaks silently.
 - **Portfolio storage uses a registry-backed key tracker.** `MmkvKvStore` in `src/portfolio/adapters/rn/mmkvKvStore.ts` tracks every set/delete through `__bitpay.portfolio.engine.registry.v1__`. `listKeys()` reads from this registry, not from `MMKV.getAllKeys()`. Any wipe that deletes keys directly via `MMKV.delete` without also updating the registry will leave `listKeys()` returning stale deleted keys — breaks debug/stats/reset-path tests and any future code relying on `listKeys()`. Wipe must route through `kvStore.delete(key)` or equivalently clear the registry.
 - **Asset rows and allocation are grouped by ticker across chains.** Current UX collapses wallets by lowercased `currencyAbbreviation` across chains and token contracts for list/allocation display. V2 must preserve that behavior for Home, All Assets, Allocation, and key-scoped All Assets. This means the render-state model uses **asset-group ids** (ticker groups) for UI rows/order, while rate lookups and wallet internals still operate on raw `assetId` / `(coin, chain, tokenAddress)` values.
 - **Fiat-rate storage is canonicalized to four fetched/persisted intervals.** Only `1D`, `1W`, `1M`, and `ALL` are fetched or stored in MMKV. Displayed `3M`, `1Y`, and `5Y` are derived by windowing `ALL` on the compute runtime; they do not trigger separate rate fetches or persistence.
@@ -99,8 +99,9 @@ Total kept: **~13,805 LOC.**
 - **Populate publish mode** — `'progressive'` for the first-ever populate that should reveal rows as wallets complete, `'deferred'` for later incremental populates that must keep stale values visible until one final commit.
 - **Scalar signature** — joined string like `populatedWalletIdsKey`. Fingerprint-input / diff-key.
 - **Order revision** — monotonic counter for `orderedAssetGroupIdsForAssetList` mutations. Used for merge arbitration. **Monotonic across queue rebuilds**, not just within one queue's lifetime.
-- **`populateResetInFlight`** — JS-side boolean, set only during an active `performResetSequence` invocation. Prevents re-entry and blocks kicks during reset. Not persisted; any prior in-flight session is gone after a JS reload or app restart.
-- **`canRunPortfolioV2Work()`** — predicate: `!populateResetInFlight`. First executable statement of every v2 function that writes to MMKV or `sharedPortfolioState`.
+- **`populateResetInFlight`** — JS-side boolean, set only during an active `performResetSequence` invocation. Prevents re-entry and blocks kicks during reset.
+- **`portfolioCacheInvalid`** — JS-side mirror of MMKV key `portfolio:v2:cacheInvalid`. Set before destructive wipe begins; cleared only after wipe + shared-state reset complete successfully. If true on boot, post-auth startup must repair the cache before ordinary v2 work resumes.
+- **`canRunPortfolioV2Work()`** — predicate: `!populateResetInFlight && !portfolioCacheInvalid`. First executable statement of every ordinary v2 function that writes to MMKV or `sharedPortfolioState`.
 - **`waitForPopulateLoopToStop()`** — polls `populateLoopRunning.value`. Throws on 60s timeout. Used by `performResetSequence`.
 - **`waitForRecomputeDrainToStop()`** — polls scheduler's `running` flag. Throws on 30s timeout. Used by `performResetSequence` alongside the populate wait to quiesce both async subsystems before wipe.
 - **`waitForEnsureFreshToStop()`** — polls `ratesFetch.ts` in-flight count. Throws on 20s timeout. Third wait in the reset `Promise.all`. Covers rate fetches that started before the reset guard flipped.
@@ -127,21 +128,23 @@ Total kept: **~13,805 LOC.**
 14. **`orderRevision` threads through `PopulateQueueV1`, `RecomputeInputs`, `PortfolioState`.** Merge rule: take higher `orderRevision`. Monotonic across queue rebuilds: `buildQueue` uses `(loadQueue()?.orderRevision ?? 0) + 1`, never resets to 1. Non-order-mutating queue writes (e.g., `markDone`) leave `orderRevision` unchanged.
 15. **Fire-time reads, not ref-cached inputs.** `PortfolioV2Root` and triggers call `buildBaseRecomputeInputs(...)` at fire/call time, reading from `reduxAccess` helpers and current queue state.
 16. **All Redux store access via `reduxAccess.ts`.** Module-level `storeGetter` initialized inside the existing `getStore().then(...)` callback in `index.js`. Accessor calls inside function bodies only.
-17. **Reset paths must reset shared state.** Any code path that wipes portfolio MMKV (debug "clear all storage," sign-out if it clears portfolio data, any future full-reset flow) must also set `sharedPortfolioState.value = EMPTY_PORTFOLIO_STATE`, `populateProgressTick.value = 0`, `populateCommitTick.value = 0`, `populateRetryTick.value = 0`. A partial wipe that zeroes MMKV but leaves stale sharedState alive would cause the next populate cycle's fresh `orderRevision = 1` to lose merge arbitration against state's stale higher value and display stale order. Since portfolio data is disposable and fully recreatable from scratch, the healing path is: if anything looks off post-reset, wipe again — the next populate rebuilds everything.
+17. **Reset paths must reset shared state.** Any code path that wipes portfolio MMKV (debug "clear all storage," sign-out if it clears portfolio data, any future full-reset flow) must also set `sharedPortfolioState.value = EMPTY_PORTFOLIO_STATE`, `populateProgressTick.value = 0`, `populateCommitTick.value = 0`, `populateRetryTick.value = 0`. A partial wipe that zeroes MMKV but leaves stale sharedState alive would cause the next populate cycle's fresh `orderRevision = 1` to lose merge arbitration against state's stale higher value and display stale order. The durable `portfolio:v2:cacheInvalid` bit prevents ordinary work from resuming on half-wiped state until a successful repair clears it.
 18. **Heavy scopes may advance `orderedAssetGroupIdsForAssetList` + `orderRevision`.** Any scope in `{'full', 'wallet', 'wallets'}` replaces order + revision in state if `inputs.orderRevision > prev.orderRevision`. Touch scopes never do. This is the single rule — no contradictory variants.
-19. **Reset is a simple, ordered, in-memory sequence.** `performResetSequence`:
+19. **Reset is a simple sequence with one durable invalid bit.** `performResetSequence`:
     1. Set `populateResetInFlight = true` (before any side effect).
     2. `cancelPopulate()`.
     3. `await Promise.all([waitForPopulateLoopToStop(), waitForRecomputeDrainToStop(), waitForEnsureFreshToStop()])`. On any timeout: throw. Nothing wiped. **All three waits are needed**: populate loop, compute drain, and in-flight rate fetches are independent async subsystems, any of which can write MMKV or publish to `sharedPortfolioState` after the guard flip.
-    4. `await wipePortfolioMmkvKeys()` — idempotent, excludes the feature flag key.
-    5. `resetSharedPortfolioStateForDebugClear()`.
-    6. In `finally`: clear `populateResetInFlight`.
-    On any throw from the wait step or the wipe step, re-throw so the call site can surface a one-shot error ("Clear storage failed. Try again."). The user retries; the wipe is idempotent so a second attempt completes. If the app crashes mid-wipe, next boot starts with partial MMKV state, which populate rebuilds on first run — no durable "reset failed" flag is needed because portfolio data is disposable.
+    4. `markPortfolioCacheInvalid()` — durably marks "portfolio cache may be partially wiped / invalid" before destructive deletion starts.
+    5. `await wipePortfolioMmkvKeys()` — idempotent, excludes the feature flag key and `PORTFOLIO_CACHE_INVALID_KEY`.
+    6. `resetSharedPortfolioStateForDebugClear()`.
+    7. `clearPortfolioCacheInvalid()` — only after wipe + state reset succeed.
+    8. In `finally`: clear `populateResetInFlight`.
+    On any throw before step 4, re-throw and leave `portfolioCacheInvalid = false`. On any throw during steps 4–7, re-throw and leave `portfolioCacheInvalid = true`. Ordinary v2 work stays blocked until a later successful `performResetSequence()` (manual retry or post-auth boot repair) clears the bit.
 20. **`populateCancelFlag` lifecycle.** Set `true` by `cancelPopulate()` and by reset paths. Set `false` by every kick path as its last action immediately before `runOnRuntimeAsync(...)`. Never persists across populate cycles.
-21. **Unified guard for all v2 write paths.** Every function that writes to portfolio MMKV or `sharedPortfolioState` — triggers, kick paths, `scheduleRecompute`, `drain()` iterations, `reconcileQueueAgainstEligible`, `buildQueue` callers — checks `canRunPortfolioV2Work()` as the **first executable statement**, before parameter reads, before any side effect. An agent implementing this should be able to satisfy the rule by inspecting the literal first line of every such function.
+21. **Unified guard for ordinary v2 write paths.** Every ordinary function that writes to portfolio MMKV or `sharedPortfolioState` — triggers, kick paths, `scheduleRecompute`, `drain()` iterations, `reconcileQueueAgainstEligible`, `buildQueue` callers — checks `canRunPortfolioV2Work()` as the **first executable statement**, before parameter reads, before any side effect. The sole exception is the post-auth boot repair path in `onAppLaunchPostAuth(...)`, which may call `performResetSequence()` first when `portfolioCacheInvalid` is true, then re-evaluate `canRunPortfolioV2Work()`.
 22. **Async writers quiesce before wipe.** Any async portfolio task that can write to MMKV or publish to `sharedPortfolioState` must (a) track its in-flight state in a JS-side counter, (b) expose a `waitForXToStop()` primitive, (c) be included in `performResetSequence`'s `Promise.all`, and (d) re-check `canRunPortfolioV2Work()` immediately before its persist step so a call in-flight at guard-flip time no-ops on its write. The `runPopulate` / `drain` / `ensureFresh` triad is the complete registered set; any new async writer added to the system must extend the wait-set. Async *readers* that don't write do not need to register — they can tolerate reading mid-wipe storage without corrupting state. The trigger for registration is "writes that could land after guard flip," not "any async MMKV touch."
-23. **`wipePortfolioMmkvKeys` matches the repo's actual key namespaces.** MMKV keys are split across prefixes: `snap:*` (snapshot meta/index/chunks/invalid-history, per `snapshotStore.ts:146-162`), `rate:v1:*` (fiat rate series, per `fiatRateStore.ts` `rateKey` function ~line 22), and `portfolio:v2:*` (v2-specific keys — queue, flag). Wipe iterates all MMKV keys and deletes any matching `PORTFOLIO_WIPE_PREFIXES = ['snap:', 'rate:v1:', 'portfolio:v2:']` except those in `WIPE_EXCLUDED_KEYS = { PORTFOLIO_V2_FLAG_KEY }`. The feature flag is excluded so debug-clear/sign-out during rollout doesn't silently flip v2 off on a developer's device. **The prefix set must be verified against Phase 0 inventory output** — if Phase 0 surfaces additional portfolio-related prefixes, they must be added here; the list above is the verified complete set as of v12.
-24. **All v2 MMKV access uses the portfolio instance.** `getPortfolioMmkvStorageOnRN()` returns a dedicated `MMKV({ id: 'bitpay.portfolio.engine' })`. Flag, queue, reset operations — every read and write in v2 — must route through this instance. A bare `new MMKV()` or the default MMKV puts keys in a different namespace, which would make the wipe's key scan miss everything. Plan snippets that show `mmkv.get/set/delete` are shorthand for "the portfolio MMKV instance," not the default MMKV; implementation must make this explicit.
+23. **`wipePortfolioMmkvKeys` matches the repo's actual key namespaces.** MMKV keys are split across prefixes: `snap:*` (snapshot meta/index/chunks/invalid-history, per `snapshotStore.ts:146-162`), `rate:v1:*` (fiat rate series, per `fiatRateStore.ts` `rateKey` function ~line 22), and `portfolio:v2:*` (v2-specific keys — queue, flag, cache-invalid bit). Wipe iterates all MMKV keys and deletes any matching `PORTFOLIO_WIPE_PREFIXES = ['snap:', 'rate:v1:', 'portfolio:v2:']` except those in `WIPE_EXCLUDED_KEYS = { PORTFOLIO_V2_FLAG_KEY, PORTFOLIO_CACHE_INVALID_KEY }`. The feature flag is excluded so debug-clear/sign-out during rollout doesn't silently flip v2 off on a developer's device; the cache-invalid bit is excluded so it survives partial wipes until an explicit successful repair clears it. **The prefix set must be verified against Phase 0 inventory output** — if Phase 0 surfaces additional portfolio-related prefixes, they must be added here; the list above is the verified complete set as of v12.
+24. **All v2 MMKV access uses the portfolio instance.** `getPortfolioMmkvStorageOnRN()` returns a dedicated `MMKV({ id: 'bitpay.portfolio.engine' })`. Flag, queue, cache-invalid, and reset operations — every read and write in v2 — must route through this instance. A bare `new MMKV()` or the default MMKV puts keys in a different namespace, which would make the wipe's key scan miss everything. Plan snippets that show `mmkv.get/set/delete` are shorthand for "the portfolio MMKV instance," not the default MMKV; implementation must make this explicit.
 25. **Wipe must update the key registry.** Portfolio storage tracks keys through `__bitpay.portfolio.engine.registry.v1__`; `listKeys()` reads it. Direct `MMKV.delete` leaves the registry stale. `wipePortfolioMmkvKeys` enumerates keys from `getPortfolioMmkvStorageOnRN().getAllKeys()` (the source of truth) and deletes through `kvStore.delete(key)` (which untracks). Test: `listKeys()` returns empty (except exclusions) after wipe. `getAllKeys()` also returns empty (except exclusions).
 26. **V2 runtime wiring preserves v1 kernel integration contracts.** The "untouched" v1 kernels (populate, rate provider, tx-history fetch) are load-bearing but have **runtime-global preconditions** that must hold when they execute:
     - **Every worklet call that uses Nitro fetch requires a dispatch context installed on the runtime for the duration of the call.** The fetch client is obtained via `getPortfolioNitroFetchClientOnRuntime()` (`txHistorySigning.ts:1060`), which reads from `requirePortfolioTxHistorySigningDispatchContextOnRuntime()`. No dispatch context = throw. This applies even when no BWS signing is needed — see the explicit transport-layer comment at `portfolioWorkletTransport.ts:137` ("Even requests that do not need BWS signing can still need Nitro Fetch on the runtime"). Two concrete cases in v2:
@@ -395,22 +398,47 @@ Total kept: **~13,805 LOC.**
 > ### `src/portfolio/v2/populate/resetState.ts`
 >
 > ```ts
-> // In-memory re-entry guard for performResetSequence. Not persisted.
-> // Portfolio data is disposable; a crash mid-reset leaves partial MMKV
-> // that the next populate rebuilds from scratch.
+> import { getPortfolioMmkvStorageOnRN } from '../adapters/rn/workletMmkvBridge';
+>
+> // Single durable invalid bit. Simpler than the old tri-state sentinel:
+> // either the cache is valid, or it is invalid and must be repaired before
+> // ordinary v2 work resumes.
+> export const PORTFOLIO_CACHE_INVALID_KEY = 'portfolio:v2:cacheInvalid';
 > let populateResetInFlight = false;
+> let portfolioCacheInvalid = false;
+>
+> export function initializePortfolioV2ResetState(): void {
+>   const storage = getPortfolioMmkvStorageOnRN();
+>   portfolioCacheInvalid = storage.getString(PORTFOLIO_CACHE_INVALID_KEY) === '1';
+> }
 >
 > export function canRunPortfolioV2Work(): boolean {
->   return !populateResetInFlight;
+>   return !populateResetInFlight && !portfolioCacheInvalid;
 > }
 >
 > export function isPopulateResetInFlight(): boolean {
 >   return populateResetInFlight;
 > }
 >
+> export function isPortfolioCacheInvalid(): boolean {
+>   return portfolioCacheInvalid;
+> }
+>
 > // Internal setter used by performResetSequence.
 > export function __setPopulateResetInFlight(value: boolean): void {
 >   populateResetInFlight = value;
+> }
+>
+> export function markPortfolioCacheInvalid(): void {
+>   const storage = getPortfolioMmkvStorageOnRN();
+>   storage.set(PORTFOLIO_CACHE_INVALID_KEY, '1');
+>   portfolioCacheInvalid = true;
+> }
+>
+> export function clearPortfolioCacheInvalid(): void {
+>   const storage = getPortfolioMmkvStorageOnRN();
+>   storage.delete(PORTFOLIO_CACHE_INVALID_KEY);
+>   portfolioCacheInvalid = false;
 > }
 > ```
 
@@ -570,7 +598,7 @@ Total kept: **~13,805 LOC.**
 > - `model.spec.ts` — `EMPTY_PORTFOLIO_STATE` snapshot.
 > - `reduxAccess.spec.ts` — accessor throws pre-init; works post-init; re-init allowed; test injection works.
 > - `sharedState.spec.ts` — `resetSharedPortfolioStateForDebugClear` sets state to empty, zeros all three ticks, leaves loop/cancel flags alone. `waitForPopulateLoopToStop` resolves immediately if flag already false; throws on timeout.
-> - `resetState.spec.ts` — `canRunPortfolioV2Work` returns `true` initially; `false` while `populateResetInFlight` is set; `true` again once cleared.
+> - `resetState.spec.ts` — `initializePortfolioV2ResetState()` reads `PORTFOLIO_CACHE_INVALID_KEY`; `canRunPortfolioV2Work` is `false` while `populateResetInFlight` or `portfolioCacheInvalid` is set; `markPortfolioCacheInvalid()` and `clearPortfolioCacheInvalid()` round-trip both MMKV and in-memory state.
 
 **Acceptance:** v2 compiles, tests pass, `tsc` clean, no v1 changes.
 
@@ -1491,7 +1519,12 @@ Total kept: **~13,805 LOC.**
 > import { waitForRecomputeDrainToStop } from '../scheduler';
 > import { waitForEnsureFreshToStop } from '../workletData/ratesFetch';
 > import { wipePortfolioMmkvKeys } from '../debug';
-> import { isPopulateResetInFlight, __setPopulateResetInFlight } from './resetState';
+> import {
+>   isPopulateResetInFlight,
+>   __setPopulateResetInFlight,
+>   markPortfolioCacheInvalid,
+>   clearPortfolioCacheInvalid,
+> } from './resetState';
 >
 > export async function performResetSequence(): Promise<void> {
 >   // NOT guarded by canRunPortfolioV2Work — this IS the reset.
@@ -1508,11 +1541,13 @@ Total kept: **~13,805 LOC.**
 >       waitForRecomputeDrainToStop(),       // 30s default
 >       waitForEnsureFreshToStop(),          // 20s default
 >     ]);
->     // Any throw from here propagates to the caller, which surfaces a one-shot
->     // error. The wipe is idempotent; retrying completes it. Portfolio data is
->     // disposable, so a crash mid-wipe just leaves the next populate to rebuild.
->     await wipePortfolioMmkvKeys();         // idempotent; excludes PORTFOLIO_V2_FLAG_KEY
+>     // Mark the cache invalid before destructive deletion begins. If anything
+>     // throws after this point, ordinary v2 work stays blocked until a later
+>     // successful repair clears the bit.
+>     markPortfolioCacheInvalid();
+>     await wipePortfolioMmkvKeys();         // idempotent; excludes FLAG + CACHE_INVALID keys
 >     resetSharedPortfolioStateForDebugClear();
+>     clearPortfolioCacheInvalid();
 >   } finally {
 >     __setPopulateResetInFlight(false);
 >   }
@@ -1522,6 +1557,7 @@ Total kept: **~13,805 LOC.**
 > UI contract: reset call sites are async and fallible. Callers must:
 > - Show a progress indicator during the await.
 > - Catch thrown errors and surface a one-shot native Alert ("Clear storage failed. Try again.").
+> - If the reset was part of sign-out / logout / account-switch, abort the enclosing flow on error. Do **not** continue account teardown/navigation while `portfolioCacheInvalid` remains set.
 > - Not retry automatically — user-initiated only.
 >
 > ### `buildBaseRecomputeInputs` — fire-time
@@ -1656,18 +1692,22 @@ Total kept: **~13,805 LOC.**
 >
 > ```js
 > import { initializePortfolioV2ReduxAccess } from './src/portfolio/v2/reduxAccess';
+> import { initializePortfolioV2ResetState } from './src/portfolio/v2/populate/resetState';
 >
 > getStore().then(({store, persistor}) => {
 >   initializePortfolioV2ReduxAccess(() => store.getState());   // NEW
+>   initializePortfolioV2ResetState();                          // NEW — reads durable cache-invalid bit
 >   // ... existing <Provider store={store}> mount ...
 > });
 > ```
 >
-> Do not restructure the existing boot flow. One added line inside the existing callback. Reset state is in-memory only, so no boot-time sync is required.
+> Do not restructure the existing boot flow. Two added lines inside the existing callback. Order matters: initialize Redux access first, then read the durable cache-invalid bit into memory before any v2 code runs.
 >
 > ### Wire `app.effects.ts` post-auth transition
 >
-> `PORTFOLIO_V2` on: hook `onAppLaunchPostAuth(...)` to the **specific post-auth Redux action/event identified in Phase 0 item #12** — the dispatch that fires only after the PIN / biometric gate clears on launch, not app init and not store rehydration. Inside that handler: `maybeResumePopulateOnLaunch()`; first-ever-launch or wallet-set-changed → `startPopulate(...)`.
+> `PORTFOLIO_V2` on: hook `onAppLaunchPostAuth(...)` to the **specific post-auth Redux action/event identified in Phase 0 item #12** — the dispatch that fires only after the PIN / biometric gate clears on launch, not app init and not store rehydration.
+>
+> If `isPortfolioCacheInvalid()` is true at that point, `onAppLaunchPostAuth(...)` first runs `performResetSequence()` as a best-effort repair path, then re-checks `canRunPortfolioV2Work()`. Only after the repair succeeds does it proceed with `maybeResumePopulateOnLaunch()` and first-ever-launch / wallet-set-changed `startPopulate(...)` decisions.
 >
 > ### Tests
 >
@@ -1697,11 +1737,15 @@ Total kept: **~13,805 LOC.**
 >   - Cancel, then `populateWallet` — same.
 >   - Cancel during loop, wait, confirm flag still true post-wait. Then kick — flag cleared.
 > - `performResetSequence.spec.ts` (NEW):
->   - Happy path: cancel → wait → wipe → state reset → `populateResetInFlight = false` in `finally`.
->   - Wait timeout: throws, nothing wiped, `populateResetInFlight` cleared in `finally`. Subsequent kicks proceed (because `canRunPortfolioV2Work` is true again).
->   - Wipe throws mid-wipe: propagates to caller; `populateResetInFlight` cleared. Retry succeeds because wipe is idempotent.
->   - State-reset throws: same propagation + cleanup. Retry completes.
+>   - Happy path: cancel → wait → `markPortfolioCacheInvalid()` → wipe → state reset → `clearPortfolioCacheInvalid()` → `populateResetInFlight = false` in `finally`.
+>   - Wait timeout: throws before the invalid bit is set, nothing wiped, `populateResetInFlight` cleared in `finally`, `portfolioCacheInvalid = false`.
+>   - Wipe throws mid-wipe: propagates to caller; `populateResetInFlight` cleared; `portfolioCacheInvalid` remains `true`. Ordinary kicks no-op until a later successful retry clears it.
+>   - State-reset throws: same propagation + cleanup; `portfolioCacheInvalid` remains `true`. Retry completes and clears it.
 >   - Re-entry: two concurrent `performResetSequence` calls — second throws "already in flight."
+> - `postAuthRepair.spec.ts` (NEW):
+>   - Boot with `PORTFOLIO_CACHE_INVALID_KEY = 1`; `onAppLaunchPostAuth(...)` runs `performResetSequence()` before `maybeResumePopulateOnLaunch()` / `startPopulate(...)`.
+>   - If the repair succeeds, ordinary v2 work resumes in the same post-auth flow.
+>   - If the repair fails, `canRunPortfolioV2Work()` stays false and no ordinary populate/recompute path runs until a later successful retry.
 > - `resetInFlightGuard.spec.ts` (NEW):
 >   - While `performResetSequence` is mid-wait, invoke `populateWallet(X)`. Assert no new `runPopulate` kick, no cancel-flag clear.
 >   - While mid-wait, invoke `onLiveRatesUpdated`. Assert no `ensureFresh` call, no `scheduleRecompute` call.
@@ -1732,7 +1776,10 @@ Total kept: **~13,805 LOC.**
 >
 > ```ts
 > export async function onAppLaunchPostAuth(ctx): Promise<void> {
->   if (!canRunPortfolioV2Work()) return;        // GUARD — first executable statement
+>   if (isPortfolioCacheInvalid()) {
+>     await performResetSequence();              // best-effort repair before ordinary v2 work
+>   }
+>   if (!canRunPortfolioV2Work()) return;        // ordinary GUARD after repair path
 >   maybeResumePopulateOnLaunch();
 >   const quote = getQuoteCurrencyFromStore();
 >   await ensureFresh(buildEnsureFreshArgsForVisibleAssetGroups({quoteCurrency: quote}));
@@ -1809,7 +1856,7 @@ Total kept: **~13,805 LOC.**
 > }
 > ```
 >
-> Every trigger: `canRunPortfolioV2Work()` is the first executable statement. Before `ensureFresh`, before FX-bridge fetch, before queue writes, before `scheduleRecompute`, before anything. This is a universal rule; an agent implementing should be able to verify by inspection of the first line of every exported trigger.
+> Every ordinary trigger: `canRunPortfolioV2Work()` is the first executable statement. Before `ensureFresh`, before FX-bridge fetch, before queue writes, before `scheduleRecompute`, before anything. The only exception is `onAppLaunchPostAuth(...)`, which may first repair a latched `portfolioCacheInvalid` bit via `performResetSequence()`, then re-check `canRunPortfolioV2Work()`.
 >
 > `ensureFresh` lives here, NEVER in scheduler. `ensureQuoteCurrencyFxBridge(...)` also lives here and is called only by `onQuoteCurrencyChanged(...)`.
 >
@@ -1908,7 +1955,7 @@ Total kept: **~13,805 LOC.**
 > export async function quickCryptoPubKeyProbe(): Promise<...>;
 >
 > // Internal — used by performResetSequence. MUST be idempotent and MUST exclude
-> // PORTFOLIO_V2_FLAG_KEY from its wipe scope.
+> // PORTFOLIO_V2_FLAG_KEY and PORTFOLIO_CACHE_INVALID_KEY from its wipe scope.
 > export async function wipePortfolioMmkvKeys(): Promise<void>;
 > ```
 >
@@ -1929,6 +1976,7 @@ Total kept: **~13,805 LOC.**
 > ```ts
 > import { getPortfolioMmkvStorageOnRN } from '../adapters/rn/workletMmkvBridge';
 > import { PORTFOLIO_V2_FLAG_KEY } from '../featureFlag';
+> import { PORTFOLIO_CACHE_INVALID_KEY } from '../populate/resetState';
 >
 > const PORTFOLIO_WIPE_PREFIXES: readonly string[] = [
 >   'snap:',           // snapshot meta/index/chunk/invalid-history/raw-points
@@ -1938,6 +1986,7 @@ Total kept: **~13,805 LOC.**
 >
 > const WIPE_EXCLUDED_KEYS = new Set<string>([
 >   PORTFOLIO_V2_FLAG_KEY,
+>   PORTFOLIO_CACHE_INVALID_KEY,
 > ]);
 >
 > export async function wipePortfolioMmkvKeys(): Promise<void> {
@@ -1967,7 +2016,8 @@ Total kept: **~13,805 LOC.**
 > 1. Identify the exact code location.
 > 2. Replace direct MMKV wipes with `await performResetSequence()`.
 > 3. Wrap the call in a try/catch that surfaces a one-shot native Alert on failure ("Clear storage failed. Try again.").
-> 4. Gate behind `PORTFOLIO_V2` if the path is v1-specific.
+> 4. If the reset was part of sign-out / logout / account-switch, abort the enclosing flow on error. Do **not** continue navigation/account teardown until a later successful reset clears `portfolioCacheInvalid`.
+> 5. Gate behind `PORTFOLIO_V2` if the path is v1-specific.
 >
 > ### Tests (per reset path)
 >
@@ -1986,11 +2036,12 @@ Total kept: **~13,805 LOC.**
 > - Invoke the reset path.
 > - Assert **via `kvStore.listKeys()`** that the tracked set is empty except for the feature-flag exclusion. This catches the bug where wipe deletes keys at the MMKV level but leaves them in the registry.
 > - Assert `portfolio:v2:flag` still readable via direct MMKV access (it bypasses the registry by design — guardrail #24).
+> - Assert `portfolio:v2:cacheInvalid` is cleared after a successful reset path, even though wipe itself excludes it.
 > - Assert `sharedPortfolioState.value === EMPTY_PORTFOLIO_STATE`, ticks zero.
 > - Invoke `startPopulate`; assert new queue's `orderRevision === 1`.
 > - Schedule recompute; assert state advances.
 >
-> This test is the load-bearing coverage for guardrails #23, #24, and #25: if wipe only matches `portfolio:` prefix, uses the wrong MMKV instance, or bypasses the registry, this test fails hard.
+> This test is the load-bearing coverage for guardrails #23, #24, and #25: if wipe only matches `portfolio:` prefix, uses the wrong MMKV instance, bypasses the registry, or forgets to clear the durable invalid bit after success, this test fails hard.
 >
 > ### Debug screens
 >
@@ -2063,10 +2114,10 @@ Total kept: **~13,805 LOC.**
 29. **Scope uniformity** — `wallet`-scope recompute advances order when `inputs.orderRevision > prev.orderRevision` (regresses the v7 contradiction).
 30. **Reset paths preserve monotonicity invariant** — debug-clear / sign-out reset shared state; subsequent `buildQueue` produces `orderRevision = 1`; subsequent recompute advances state correctly.
 31. **Cancel flag lifecycle** — cancel, then fresh start, populate actually runs.
-32. **Wait-for-loop-to-stop timeout** — throws; `populateResetInFlight` cleared in `finally`; subsequent kicks succeed.
+32. **Wait-for-loop-to-stop timeout** — throws before `markPortfolioCacheInvalid()`, `populateResetInFlight` is cleared in `finally`, and subsequent kicks may proceed because `portfolioCacheInvalid` is still false.
 33. **Wipe-during-populate safety** — reset blocks until loop stops; no MMKV writes land after wipe.
 34. **Reset-in-flight guard** — during `performResetSequence` await, concurrent `populateWallet`/`onLiveRatesUpdated`/`scheduleRecompute` no-op; no side effects.
-35. **Mid-wipe failure recovery** — wipe throws after partial deletes; caller receives error; retry completes the wipe (idempotent); next populate rebuilds snapshot/rate data from scratch.
+35. **Mid-wipe failure recovery** — wipe throws after `markPortfolioCacheInvalid()` and partial deletes; caller receives error; `portfolioCacheInvalid` stays true; ordinary v2 work remains blocked; retry completes the wipe/reset and clears the bit.
 36. **Compute drain race regression:** start `performResetSequence` while `drain()` is mid-full-recompute. Assert: wipe happens only after drain's `runOnRuntimeAsync` resolves; no compute publish lands after `resetSharedPortfolioStateForDebugClear()`; final `sharedPortfolioState === EMPTY_PORTFOLIO_STATE`.
 37. **Both waits required:** start reset with populate idle and compute drain active. Assert `waitForRecomputeDrainToStop` is called; `Promise.all` waits for it even though populate wait resolves immediately. Conversely: reset with compute idle and populate active — populate wait holds, `Promise.all` waits for it.
 38. **Queue schema validation:**
@@ -2076,7 +2127,7 @@ Total kept: **~13,805 LOC.**
    - Repeated `loadQueue` calls with same invalid state → log fires once, not N times.
 39. **`ensureFresh` race regression:** start `ensureFresh` with a slow network fetch. Before the fetch resolves, invoke `performResetSequence`. Assert: `waitForEnsureFreshToStop` blocks wipe until the fetch resolves. The second `canRunPortfolioV2Work` check causes `persistRates` to be skipped when the fetch lands mid-reset. No rate-cache MMKV writes after reset begins.
 40. **All three waits required in `Promise.all`:** reset with populate active / compute idle / ensureFresh idle → populate wait holds others. Reset with all three active → all three resolved before wipe. Reset with compute active and fetch in-flight → both hold, populate (idle) resolves immediately.
-41. **Feature flag survives wipe:** set `PORTFOLIO_V2 = true`. Invoke `wipePortfolioMmkvKeys`. Assert flag value unchanged. Read `PORTFOLIO_V2` via the flag module — still `true`.
+41. **Feature flag and invalid bit survive raw wipe:** set `PORTFOLIO_V2 = true` and `PORTFOLIO_CACHE_INVALID_KEY = 1`. Invoke `wipePortfolioMmkvKeys`. Assert flag value unchanged and the invalid bit still present. `performResetSequence()` is responsible for clearing the invalid bit only after success.
 42. **Wipe targets correct MMKV instance:** seed `snap:*` and `rate:v1:*` keys in `getPortfolioMmkvStorageOnRN()`. Seed identical-looking keys in a different MMKV instance (app default). Invoke wipe. Assert portfolio instance's keys are deleted; other instance's keys untouched. Regresses guardrail #24.
 43. **Registry stays consistent with wipe:** write several keys via `kvStore.setString` (which tracks in registry). Invoke wipe. Assert `kvStore.listKeys()` returns empty list (except excluded keys). Regresses guardrail #25.
 44. **Populate signing context wrap parity (guardrail #26):** unit test `runPopulate` / `drivePopulateForWallet` with mock populate handlers that assert the signing context is active via `getPortfolioTxHistorySigningDispatchContextOnRuntime()`. Verify: context is installed for `handlePrepareWalletOnPopulateWorklet(...)` and each `handleProcessNextPageOnPopulateWorklet(...)` call, not for `handleFinishWalletOnPopulateWorklet(...)` / `handleCloseWalletSessionOnPopulateWorklet(...)`, and is cleared immediately after each wrapped call returns. A wallet with missing signing context causes loop exit without `markDone`.
@@ -2103,6 +2154,7 @@ Total kept: **~13,805 LOC.**
 61. **Interval-window timestamp snapping:** the shared window helper resolves boundaries from rate-series timestamps first, and PnL derivation snaps to those exact timestamps so the no-tx-window parity test is deterministic.
 62. **Quote-switch during deferred populate:** while a deferred populate is active, `onQuoteCurrencyChanged(...)` applies `recomputeQuoteBridgeFromCommittedState(...)` immediately to the committed state, visible screens switch quote right away, scheduler-held heavy recomputes still do not drain early, and the later `populateCommitTick` publish lands fresh data in the already-selected quote.
 63. **No recursive render / max-depth regression:** rapid timeframe toggles and chart scrubbing on Home / Wallet / Asset Detail / Exchange Rate do not produce "maximum update depth exceeded" errors, recursive scheduler churn, or blank intermediate flashes between valid series.
+64. **Post-auth repair path for durable invalid bit:** boot with `PORTFOLIO_CACHE_INVALID_KEY = 1`; `onAppLaunchPostAuth(...)` repairs via `performResetSequence()` before any ordinary v2 populate/recompute work runs, and only a successful repair clears the bit.
 
 ---
 
@@ -2161,8 +2213,8 @@ Starting: ~31,160. Ending: ~20,600. Eliminated: ~10,560, ~34%.
 - **Populate publishing is explicit, not incidental.** First-ever populate is progressive and reveals ready rows in queue order; later incremental populates are deferred-commit and keep stale chart/PnL values visible until one final publish.
 - **`reduxAccess.ts`** single Redux access module. Initialized inside the existing `getStore().then(({store, persistor}) => {...})` callback before `<Provider>` mount. Accessor calls inside function bodies only.
 - **Reset paths reset shared state** (guardrail #17). Every wipe path — debug-clear, sign-out — goes through `performResetSequence`. Preserves `orderRevision` monotonicity invariant.
-- **Reset is in-memory only.** A single JS-side `populateResetInFlight` boolean prevents re-entry. All v2 write paths guarded by `canRunPortfolioV2Work()` (= `!populateResetInFlight`). Guard is the **first executable statement** of every guarded function. On wipe failure, the call site surfaces a one-shot native Alert; the user retries. No persisted sentinel, no boot-time latch, no UI banner — portfolio data is disposable and rebuilds on next populate.
-- **`performResetSequence`:** set in-flight → cancel → `Promise.all` wait for populate loop, compute drain, and in-flight `ensureFresh` (throws on timeout) → wipe (idempotent, excludes feature flag) → reset shared state → clear in-flight in `finally`. Any throw propagates to the caller.
+- **Reset uses one durable invalid bit.** `populateResetInFlight` prevents re-entry, and persisted key `portfolio:v2:cacheInvalid` blocks ordinary v2 work whenever a destructive wipe may have left partial state behind. There is no tri-state sentinel and no banner UI, but failures after `markPortfolioCacheInvalid()` do not let work resume until a successful repair clears the bit.
+- **`performResetSequence`:** set in-flight → cancel → `Promise.all` wait for populate loop, compute drain, and in-flight `ensureFresh` → `markPortfolioCacheInvalid()` → wipe (idempotent, excludes feature flag + invalid bit) → reset shared state → `clearPortfolioCacheInvalid()` → clear in-flight in `finally`. Any throw after the invalid bit is marked leaves ordinary v2 work blocked until repair succeeds.
 - **V2 kernel integration (guardrail #26):** `PopulateRuntimeContext` carries `signingContextsByWalletId` alongside `walletsById`. `runPopulate` delegates each wallet to a new v2-owned `drivePopulateForWallet(...)` orchestrator, which wraps the signing-required populate handlers with the signing context at the same granularity as v1 (`prepare` and each `processNextPage` call, not `finish` / `close`) — matching `withWalletSigningContext` in `portfolioPopulateJobWorklet.ts:315`. `ensureFresh` builds a **lightweight dispatch context** JS-side (no wallet signing, but `boxedNitroFetch` populated) and its worklet wrapper installs/clears it around the `RnBwsFiatRateProvider.loadSeries` call — matches the "non-signing requests still need Nitro fetch context" rule from `portfolioWorkletTransport.ts:137`. **Every worklet call that uses Nitro fetch requires a dispatch context for the duration of the call**, whether or not it signs.
 - **Runtime-global concurrency verification (guardrail #27):** Phase 0.5 spike runs four probes (two branch-deciders, two diagnostic) on both platforms at 1000 iterations. Probes 2 (v2-asymmetric populate-vs-rate) and 3 (rate-vs-rate) determine branch selection from A (no mitigation), C (dedicated rate-fetch runtime — architectural fork to four runtimes total, still requires per-call lightweight dispatch context), or D (worklet-side lock — most surgical but most complex). Branch B remains diagnostic-only because it violates the non-blocking-read product requirement. `ensureFresh` always dedupes identical args; serialization of non-identical calls is only required when Probe 3 is dirty/flaky.
 - **V18 keeps the current non-bundle worklet path.** Global `react-native-worklets` bundle mode is out of scope unless a future design proves it is isolated to the intended worklet runtime and preserves the existing Quick Crypto / fetch hybrid-object integration.
