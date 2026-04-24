@@ -78,7 +78,7 @@ Total kept: **~13,805 LOC.**
 - All of `src/portfolio/ui/hooks/**` (~9,982, verified by Phase 0 `find ... | wc -l`)
 - `src/portfolio/ui/selectors/**`
 - `src/portfolio/ui/common.ts` (545) — helpers folded into v2
-- `src/navigation/tabs/home/hooks/usePortfolioAssetRows.ts` (2,892) — **outside `src/portfolio/`**. The re-export shim at this path stays as a ~2-line v2 indirection (see Phase 7/8); the 2,892 LOC refers to the v1 implementation being deleted.
+- `src/navigation/tabs/home/hooks/usePortfolioAssetRows.ts` — the file at this path is a 2-line re-export shim that **stays** as a v2 indirection (see Phase 7/8). The 2,892-LOC implementation the shim currently re-exports lives at `src/portfolio/ui/hooks/usePortfolioAssetRows.ts` and is already counted in the `src/portfolio/ui/hooks/**` ~9,982 LOC total above — do not double-count it in the "outside `src/portfolio/`" ledger.
 - `src/store/portfolio/**` (~1,236, verified by Phase 0 `find ... | wc -l`) — v1 Redux slice + `portfolio.runtime.effects.ts`. The `cleanupPortfolioOnDeleteKeyMiddleware` in `src/store/index.ts` that dispatches `clearWalletPortfolioDataWithRuntime({walletIds})` is replaced by `onWalletsDeleted({walletIds})` (Phase 6).
 - `src/store/portfolio-charts/**` (~536, verified by Phase 0 `find ... | wc -l`) — v1 chart cache slice. Superseded by `sharedPortfolioState` series. **Outside `src/portfolio/`**.
 
@@ -1902,19 +1902,40 @@ Total kept: **~13,805 LOC.**
 >   populateWallet(args.walletId);
 > }
 >
-> export function onWalletsDeleted(args: { walletIds: readonly string[] }): void {
+> export async function onWalletsDeleted(args: { walletIds: readonly string[] }): Promise<void> {
 >   // Replaces v1's `cleanupPortfolioOnDeleteKeyMiddleware` dispatch of
 >   // `clearWalletPortfolioDataWithRuntime({walletIds})` in `src/store/index.ts`.
->   // This trigger does not go through `canRunPortfolioV2Work()`: even while
->   // `populateResetInFlight` or `portfolioCacheInvalid` is set, the store MUST
->   // forget the deleted wallets' portfolio data. Any ongoing reset or repair
->   // will itself wipe everything and is still correct; the forget call is
->   // idempotent.
+>   //
+>   // Reset-safety model: this trigger is guarded like every other ordinary
+>   // trigger. If `canRunPortfolioV2Work()` is false (reset in flight, or the
+>   // durable `portfolioCacheInvalid` bit is latched), we no-op here. The
+>   // active `performResetSequence()` or the post-auth repair path wipes all
+>   // wallet data during its sequence, including the just-deleted walletIds.
+>   // Redux's own `WalletActionTypes.DELETE_KEY` reducer is authoritative for
+>   // "this walletId no longer exists"; the next fire-time `buildBaseRecomputeInputs`
+>   // after reset/repair completes will see the updated eligible-wallet set
+>   // naturally, so no separate forget is needed during a reset window.
+>   //
+>   // Normal path: quiesce populate before clearing per-wallet data so we never
+>   // race the populate loop writing to `snap:*` keys for a walletId we are
+>   // about to delete. Same `cancelPopulate()` + `waitForPopulateLoopToStop()`
+>   // discipline `performResetSequence` uses, scoped here to per-wallet clear
+>   // instead of full wipe. Parity with v1: v1's `client.clearWallet(...)` ran
+>   // serialized with populate via `serialQueue.ts` + the
+>   // `snapshots.clearWallet` allowlist in `portfolioRequestRouting.ts` /
+>   // `portfolioRequestWorklet.ts`; v2 deletes that infrastructure, so we
+>   // re-establish the same ordering guarantee explicitly here.
 >   const walletIds = Array.from(new Set(args.walletIds ?? []));
 >   if (!walletIds.length) return;
->   forgetDeletedWalletsInSharedState(walletIds);  // shared-state side on the compute runtime
->   forgetDeletedWalletsInMmkv(walletIds);         // MMKV snap:*/rate-scoped keys for those walletIds
->   if (!canRunPortfolioV2Work()) return;
+>   if (!canRunPortfolioV2Work()) return;            // GUARD — reset/repair wipes these anyway
+>
+>   cancelPopulate();
+>   await waitForPopulateLoopToStop();               // same primitive `performResetSequence` uses
+>
+>   pruneQueueForDeletedWallets(walletIds);          // drop deleted walletIds from persisted queue + shared queue state
+>   forgetDeletedWalletsInSharedState(walletIds);    // drop walletsById / populatedWalletIdsById / per-wallet series
+>   forgetDeletedWalletsInMmkv(walletIds);           // wallet-scoped `snap:*` keys only. NOT `rate:v1:*` (those are `(coin, quote, interval)`-scoped and still valid for the surviving wallets).
+>
 >   if (!getShowPortfolioEnabledFromStore()) return;
 >   const quote = getQuoteCurrencyFromStore();
 >   const base = buildBaseRecomputeInputs({
@@ -1923,7 +1944,7 @@ Total kept: **~13,805 LOC.**
 >     rates: getLiveRatesByAssetIdFromStore(),
 >     ratesAsOfMs: getLiveRatesAsOfMsFromStore(),
 >   });
->   scheduleRecompute({ ...base, scope: 'full' });
+>   scheduleRecompute({ ...base, scope: 'full' });   // resume work for the surviving wallet set
 > }
 >
 > export async function onPullToRefresh(args): Promise<void> {
@@ -2078,7 +2099,11 @@ Total kept: **~13,805 LOC.**
 > - `onShowPortfolioVisibilityChanged(true)` regression: after a prior disable, starts a fresh from-scratch populate (`isFirstPopulate: true`) instead of resuming stale queue state.
 > - Rapid toggle regression: off/on/off/on in quick succession serializes cleanly, stale completions no-op, `visibilityWipeRequired` prevents ON from populating until the OFF-created wipe has completed, no overlapping populate loops start, and the final persisted setting wins.
 > - Toggle-during-reset regression: if another reset is already active, the toggle joins/waits for it, then re-checks epoch/store state before starting any fresh populate.
-> - `onWalletsDeleted(...)` regression: forgets shared-state + MMKV entries for the deleted wallets even when `populateResetInFlight` or `portfolioCacheInvalid` is set; `scheduleRecompute` is only queued afterwards if `canRunPortfolioV2Work()` and `getShowPortfolioEnabledFromStore()` allow; empty `walletIds` is a no-op.
+> - `onWalletsDeleted(...)` normal-path regression: when `canRunPortfolioV2Work()` is true, calls `cancelPopulate()`, awaits `waitForPopulateLoopToStop()`, prunes the queue of deleted walletIds, forgets them from shared state and the `snap:*` MMKV keys, then (if `getShowPortfolioEnabledFromStore()`) queues a full `scheduleRecompute`. Empty `walletIds` is a no-op.
+> - `onWalletsDeleted(...)` snap-only wipe regression: forgets only wallet-scoped `snap:*` MMKV keys for the deleted wallets; shared `rate:v1:*` keys (which are `(coin, quote, interval)`-scoped) are untouched and remain valid for the surviving wallet set. Write a test that seeds `rate:v1:*` keys for assets the deleted wallets held and asserts they are still present after `onWalletsDeleted`.
+> - `onWalletsDeleted(...)` reset-window regression: while `performResetSequence` is active (`populateResetInFlight === true`), invoke `onWalletsDeleted({walletIds})`. Assert zero side effects from the trigger (no `cancelPopulate`, no wait, no MMKV writes, no `scheduleRecompute`). The in-flight reset completes its wipe, which removes the deleted wallets' data as part of the full wipe; the next fire-time trigger after reset sees the Redux-authoritative eligible wallet set and recomputes correctly.
+> - `onWalletsDeleted(...)` cache-invalid regression: with `portfolioCacheInvalid === true` (durable invalid bit latched), invoke the trigger. Assert no-op. The next `onAppLaunchPostAuth` / repair path wipes and clears the bit, then normal work resumes with the updated wallet set.
+> - `onWalletsDeleted(...)` no populate-vs-clear race regression: while an active populate loop is mid-`handleProcessNextPageOnPopulateWorklet` for one of the deleted walletIds, invoke `onWalletsDeleted({walletIds: [thatWalletId]})`. Assert the loop observes cancel and exits before any `snap:*` key delete fires, and no populate-side `snap:*` writes land after the clear.
 > - Wallet-deletion middleware parity regression: asserting the existing `cleanupPortfolioOnDeleteKeyMiddleware` in `src/store/index.ts` now calls `onWalletsDeleted({walletIds})` instead of dispatching `clearWalletPortfolioDataWithRuntime({walletIds})`, and that every `walletIds` collected from the deleted key reaches the v2 trigger.
 > - Refreshing indicator regression: triggers do not set/clear refreshing state directly; `useIsPortfolioRefreshing()` derives it from populate / `ensureFresh` / scheduler in-flight signals.
 > - Timeframe-switch regression: changing `tf` on any portfolio screen triggers zero calls to `ensureFresh(...)`, `ensureQuoteCurrencyFxBridge(...)`, populate APIs, or snapshot refresh helpers.
@@ -2271,7 +2296,7 @@ Total kept: **~13,805 LOC.**
 > 6. Full test suite green — **including the reset-path tests from Phase 7.5.** Additionally run a typecheck pass to catch any dangling imports of `src/store/portfolio/**` or `src/store/portfolio-charts/**`.
 > 7. Update inventory.
 
-**LOC ledger:** inside `src/portfolio/`: +50 / ~13,500 / ~−13,450. Outside: 0 / ~4,700 / ~−4,700 (2,892 for `usePortfolioAssetRows.ts` + ~1,236 for `src/store/portfolio/**` + ~536 for `src/store/portfolio-charts/**` + store-index glue).
+**LOC ledger:** inside `src/portfolio/`: +50 / ~13,500 / ~−13,450. Outside: 0 / ~1,800 / ~−1,800 (~1,236 for `src/store/portfolio/**` + ~536 for `src/store/portfolio-charts/**` + a few dozen lines of store-index glue). The 2-line nav-hook shim at `src/navigation/tabs/home/hooks/usePortfolioAssetRows.ts` stays; its 2,892-LOC implementation lives inside `src/portfolio/ui/hooks/**` and is counted inside.
 
 ---
 
@@ -2368,7 +2393,7 @@ Total kept: **~13,805 LOC.**
 66. **Show Portfolio on repopulates from scratch:** toggling the setting back on after a prior disable starts a fresh populate-from-empty flow (`isFirstPopulate: true`) and re-reveals portfolio-owned surfaces by the normal progressive populate rules.
 67. **Rapid Show Portfolio toggle churn:** repeated off/on/off/on toggles serialize cleanly with last-toggle-wins semantics for final visibility; `visibilityWipeRequired` guarantees an OFF-created wipe obligation completes before a later ON can start fresh populate; no overlapping populate loops survive, stale completions no-op, and the final setting determines whether portfolio surfaces are hidden or repopulating.
 68. **Joinable reset during Show Portfolio toggle:** toggling portfolio visibility while post-auth repair / debug-clear / sign-out reset is already in flight joins or waits for that reset, re-checks epoch and store state afterward, and never surfaces an "already in flight" error for normal toggle churn.
-69. **Key deletion clears portfolio data:** dispatching `WalletActionTypes.DELETE_KEY` routes through `cleanupPortfolioOnDeleteKeyMiddleware` → `onWalletsDeleted({walletIds})`. For each deleted wallet, shared-state and MMKV entries are forgotten even when `populateResetInFlight` / `portfolioCacheInvalid` is set, subsequent `scheduleRecompute` is gated only by the ordinary guard + visibility check, and Home / All Assets / Allocation immediately stop counting the deleted wallets' balances and PnL.
+69. **Key deletion clears portfolio data (guarded + quiesced):** dispatching `WalletActionTypes.DELETE_KEY` routes through `cleanupPortfolioOnDeleteKeyMiddleware` → `onWalletsDeleted({walletIds})`. Normal path: the trigger (a) checks `canRunPortfolioV2Work()` first, (b) calls `cancelPopulate()` + awaits `waitForPopulateLoopToStop()` before writes, (c) prunes the queue, (d) forgets shared state + `snap:*` MMKV keys for the deleted wallets only (shared `rate:v1:*` keys stay intact), then (e) re-kicks populate/recompute for the surviving wallet set behind `getShowPortfolioEnabledFromStore()`. Reset-window path: if `performResetSequence` is in flight or `portfolioCacheInvalid` is latched, the trigger no-ops — the active reset/repair wipe removes the deleted wallets' data as part of its full wipe, and Redux's `DELETE_KEY` reducer is authoritative for the updated eligible-wallet set observed by the next fire-time trigger. In both paths, Home / All Assets / Allocation stop counting the deleted wallets' balances and PnL at the first publish after the Redux deletion is reflected in `getEligibleStoredWalletsFromStore()`.
 
 ---
 
@@ -2398,17 +2423,18 @@ Start: ~28,268. End: ~20,600. Target 18–22k pending Phase 0 inventory verifica
 
 | Phase | Added | Deleted | Net |
 |---|---|---|---|
-| 8 | 0 | ~4,700 | ~−4,700 |
+| 8 | 0 | ~1,800 | ~−1,800 |
 
-Breakdown of the ~4,700 deleted LOC outside `src/portfolio/`:
-- `src/navigation/tabs/home/hooks/usePortfolioAssetRows.ts` — v1 implementation (~2,892 LOC). The path itself stays as a ~2-line v2 re-export shim so existing imports keep resolving during Phase 7/8 rollout.
+Breakdown of the ~1,800 deleted LOC outside `src/portfolio/`:
 - `src/store/portfolio/**` — ~1,236 LOC across 7 files (`portfolio.actions.ts`, `portfolio.models.ts`, `portfolio.reducer.ts`, `portfolio.runtime.effects.ts`, `portfolio.types.ts`, `portfolio.utils.ts`, `index.ts`). Slice is removed from `combineReducers` / persistor config in `src/store/index.ts` and from `RootState` typing.
 - `src/store/portfolio-charts/**` — ~536 LOC across 5 files (`portfolio-charts.actions.ts`, `portfolio-charts.models.ts`, `portfolio-charts.reducer.ts`, `portfolio-charts.types.ts`, `index.ts`). Same `combineReducers` / persistor / `RootState` cleanup.
 - `src/store/index.ts` glue — a few dozen lines of imports, reducer wiring, persistor entries, and the `cleanupPortfolioOnDeleteKeyMiddleware` payload swap (`clearWalletPortfolioDataWithRuntime` → `onWalletsDeleted`). Middleware itself stays.
 
+**Not counted here** (already counted in the inside-`src/portfolio/` ledger above): the 2,892-LOC `src/portfolio/ui/hooks/usePortfolioAssetRows.ts` implementation is deleted as part of `src/portfolio/ui/hooks/**` (~9,982 LOC). The ~2-line re-export shim at `src/navigation/tabs/home/hooks/usePortfolioAssetRows.ts` stays.
+
 ### Combined
 
-Starting: ~33,000. Ending: ~20,600. Eliminated: ~12,400, ~38%.
+Starting: ~30,000. Ending: ~20,600. Eliminated: ~9,400, ~31%. (Approximate — pending Phase 0 inventory verification of exact file LOCs and exact glue cost in `src/store/index.ts`.)
 
 ---
 
