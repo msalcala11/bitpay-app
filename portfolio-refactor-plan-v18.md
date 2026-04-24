@@ -20,6 +20,7 @@
 - **Asset rows and allocation are grouped by ticker across chains.** Current UX collapses wallets by lowercased `currencyAbbreviation` across chains and token contracts for list/allocation display. V2 must preserve that behavior for Home, All Assets, Allocation, and key-scoped All Assets. This means the render-state model uses **asset-group ids** (ticker groups) for UI rows/order, while rate lookups and wallet internals still operate on raw `assetId` / `(coin, chain, tokenAddress)` values.
 - **Fiat-rate storage is canonicalized to four fetched/persisted intervals.** Only `1D`, `1W`, `1M`, and `ALL` are fetched or stored in MMKV. Displayed `3M`, `1Y`, and `5Y` are derived by windowing `ALL` on the compute runtime; they do not trigger separate rate fetches or persistence.
 - **Quote-currency switching must be instant via a BTC FX bridge.** Switching fiat currency must not fan out new-quote fetches for every visible asset. V2 fetches only the BTC bridge series needed for the target quote, then derives portfolio/chart/list values on the compute runtime from already-persisted asset rates plus the bridge factor.
+- **"Show Portfolio" settings visibility is a real product mode.** Turning the setting off must clear the portfolio store and hide all portfolio-owned balance charts and asset-list surfaces; turning it back on must repopulate from scratch and re-reveal those surfaces. The Home Exchange Rates section and the Exchange Rate detail screen remain visible regardless of this setting.
 - **Populate publishing has two product modes.** First-ever populate reveals rows progressively as wallets finish. Later incremental populates (app-launch refresh, send-completion refresh, pull-to-refresh refresh) keep showing the old stale chart/PnL values until the populate completes, then publish one committed update.
 - **Incremental populate must be reorg-safe.** App-launch refresh, send-triggered refresh, and pull-to-refresh refreshes must start slightly before the latest persisted tip and overwrite the recent tail snapshots rather than strictly appending from the current tip. V2 relies on preserved kernel behavior here; Phase 0 must inventory the exact current mechanism and Phase 5 must keep it intact.
 - **Timeframe switches and chart scrubbing are read-only UI operations.** They never trigger `ensureFresh`, snapshot refresh, or populate work. Only the explicit refresh triggers named in Phase 6 may refresh rates or snapshots.
@@ -33,6 +34,7 @@
 - **Allocation order equals asset-list order in v18.** Allocation does not introduce its own ranking order; it reuses the canonical asset-group order from the portfolio state.
 - **`onQuoteCurrencyChanged(...)` lands in v18 as a BTC-bridge flow.** No trigger skeletons remain, quote switches do not refetch every visible asset in the new currency, and quote changes still publish immediately from committed state even during deferred populate.
 - **`onPullToRefresh(...)` lands in v18.** No trigger skeletons remain.
+- **`onShowPortfolioVisibilityChanged(...)` lands in v18.** Turning portfolio visibility off clears cached portfolio data and hides all portfolio-owned charts/lists; turning it back on repopulates from scratch. Rapid off/on churn is serialized with last-toggle-wins semantics.
 - **Key-scoped asset list lands in v18.** `AllAssets({keyId})`, row taps from `KeyOverview`, and scoped asset detail all stay within that key's wallet set.
 - **Initial populate is progressive; later incremental populate is deferred-commit.** This distinction is load-bearing and is implemented explicitly in Phase 5, not left as an implicit UI effect.
 - **Timeframe switches / scrubbing stay read-only in v18.** No hidden rate fetches, snapshot updates, or populate kicks occur on timeframe-only interaction.
@@ -184,7 +186,7 @@ Total kept: **~13,805 LOC.**
 > 1. Mermaid call graph consumer → `getPortfolioRuntimeClient()` methods / portfolio hooks.
 > 2. Public exports of `src/portfolio/**/index.ts` labeled `keep`/`delete`/`replace`.
 > 3. Redux slices/fields storing portfolio data + v2 retention.
-> 4. **Exact state paths** for every piece of Redux data v2 needs: quote currency, eligible wallets, live rates (by asset id), live rates asOfMs, wallet balances, wallet→asset mapping. These paths feed `reduxAccess.ts` accessors in Phase 1.
+> 4. **Exact state paths** for every piece of Redux data v2 needs: quote currency, eligible wallets, live rates (by asset id), live rates asOfMs, wallet balances, wallet→asset mapping, and the user-facing "Show Portfolio" visibility setting. These paths feed `reduxAccess.ts` accessors in Phase 1.
 > 5. **MMKV key prefixes in use.** Grep for `return \`[a-z]+:` patterns in `src/portfolio/core/pnl/**` and `src/portfolio/runtime/worklet/**` to find all key-construction sites. Expected: `snap:meta:v2:*`, `snap:index:v2:*`, `snap:chunk:v2:*`, `snap:invalid-history:v1:*`, `snap:*:*:*` (raw point keys), `rate:v1:*`. V2 adds `portfolio:v2:*`. Report the complete verified set. This list grounds the `PORTFOLIO_WIPE_PREFIXES` constant in guardrail #23 and Phase 7.5's `wipePortfolioMmkvKeys` implementation. **If Phase 0 finds prefixes not in this expected list, they MUST be added** — otherwise debug-clear will leave orphan keys.
 > 6. **MMKV adapter layout.** Inspect `src/portfolio/adapters/rn/workletMmkvBridge.ts` and `mmkvKvStore.ts`. Confirm `getPortfolioMmkvStorageOnRN()` returns the dedicated `bitpay.portfolio.engine` MMKV instance. Confirm that there is **no existing** `getPortfolioKvStore()` accessor in the repo and that Phase 1 must create one in v2 using `MmkvKvStore`, `getPortfolioMmkvStorageOnRN()`, `PORTFOLIO_WORKLET_MMKV_STORAGE_ID`, and `PORTFOLIO_WORKLET_MMKV_REGISTRY_KEY`. Report the exact import paths for all four.
 > 7. **FiatRateStore fetch/persist separability.** Inspect `src/portfolio/core/pnl/fiatRateStore.ts`. Confirm that `ensureRates` uses an injected provider's `loadSeries` for the network step, `getSeries` for freshness checks, and `setSeries` for persistence. Confirm `extractSeries` is file-local (not exported) and therefore must be cloned/exported intentionally for v2. Confirm `BwsFiatRateProvider` at `adapters/rn/bwsFiatRateProvider.ts` implements `loadSeries`. These are the primitives Phase 2's `ensureFresh` uses.
@@ -196,11 +198,13 @@ Total kept: **~13,805 LOC.**
 >    - asset rows / allocation collapse wallets by lowercased `currencyAbbreviation` across chains,
 >    - All Assets and Allocation use the same ordering semantics,
 >    - `AllAssets({keyId})` and row taps from `KeyOverview` preserve key scope,
+>    - the exact Redux state path and settings action for the user-facing "Show Portfolio" toggle,
 >    - current pull-to-refresh behavior on Home and KeyOverview,
 >    - current quote-currency switching behavior for portfolio screens,
 >    - whether current quote switches already use a BTC bridge or fetch per-asset quote data,
 >    - which intervals are actually fetched/persisted vs derived for display,
 >    - whether timeframe switches currently trigger hidden rate/snapshot refresh work,
+>    - whether Home Exchange Rates / Exchange Rate detail are already independent from the "Show Portfolio" toggle and, if not, which UI sites need explicit decoupling,
 >    - how the current incremental populate path rewinds from the latest persisted tip / overwrites the recent tail for reorg protection,
 >    - whether the current app/worklets setup uses global bundle mode and where Quick Crypto / fetch hybrid objects are threaded through signing + fetch,
 >    - the specific Redux action/event fired when the PIN / biometric screen is cleared on app launch. `onAppLaunchPostAuth(...)` must be invoked by this post-auth signal, not earlier in app init or store rehydration.
@@ -553,6 +557,7 @@ Total kept: **~13,805 LOC.**
 > // Typed accessors. State paths must match Phase 0 inventory.
 > // IMPORTANT: all reads inside function bodies. Never at module top level.
 > export function getQuoteCurrencyFromStore(): string;
+> export function getShowPortfolioEnabledFromStore(): boolean;
 > export function getEligibleStoredWalletsFromStore(): readonly StoredWallet[];
 > export function getLiveRatesByAssetIdFromStore(): Record<string, number>;
 > export function getLiveRatesAsOfMsFromStore(): number | undefined;
@@ -1768,7 +1773,7 @@ Total kept: **~13,805 LOC.**
 
 # Phase 6 — Triggers (fire-time `buildBaseRecomputeInputs`)
 
-**Goal:** five triggers route through v2. Rate fetching at triggers. `buildBaseRecomputeInputs` called fire-time.
+**Goal:** six triggers route through v2. Rate fetching at triggers. `buildBaseRecomputeInputs` called fire-time.
 
 **Prompt:**
 
@@ -1780,6 +1785,7 @@ Total kept: **~13,805 LOC.**
 >     await performResetSequence();              // best-effort repair before ordinary v2 work
 >   }
 >   if (!canRunPortfolioV2Work()) return;        // ordinary GUARD after repair path
+>   if (!getShowPortfolioEnabledFromStore()) return;
 >   maybeResumePopulateOnLaunch();
 >   const quote = getQuoteCurrencyFromStore();
 >   await ensureFresh(buildEnsureFreshArgsForVisibleAssetGroups({quoteCurrency: quote}));
@@ -1799,6 +1805,7 @@ Total kept: **~13,805 LOC.**
 >
 > export async function onPullToRefresh(args): Promise<void> {
 >   if (!canRunPortfolioV2Work()) return;        // GUARD
+>   if (!getShowPortfolioEnabledFromStore()) return;
 >   const quote = getQuoteCurrencyFromStore();
 >   await ensureFresh({
 >     ...buildEnsureFreshArgsForVisibleAssetGroups({
@@ -1827,6 +1834,7 @@ Total kept: **~13,805 LOC.**
 >
 > export async function onQuoteCurrencyChanged(newQuote): Promise<void> {
 >   if (!canRunPortfolioV2Work()) return;        // GUARD
+>   if (!getShowPortfolioEnabledFromStore()) return;
 >   const quote = String(newQuote || '').toUpperCase() || getQuoteCurrencyFromStore();
 >   const bridge = await ensureQuoteCurrencyFxBridge({
 >     fromQuoteCurrency: getQuoteCurrencyFromStore(),
@@ -1842,6 +1850,7 @@ Total kept: **~13,805 LOC.**
 >
 > export async function onLiveRatesUpdated(): Promise<void> {
 >   if (!canRunPortfolioV2Work()) return;        // GUARD — before ensureFresh
+>   if (!getShowPortfolioEnabledFromStore()) return;
 >   const quote = getQuoteCurrencyFromStore();
 >   await ensureFresh(
 >     buildEnsureFreshArgsForVisibleAssetGroups({quoteCurrency: quote}),
@@ -1854,11 +1863,46 @@ Total kept: **~13,805 LOC.**
 >   });
 >   scheduleRecompute({ ...base, scope: 'full' });
 > }
+>
+> let visibilityToggleEpoch = 0;
+> let visibilityToggleSerial: Promise<void> = Promise.resolve();
+>
+> export function onShowPortfolioVisibilityChanged(enabled: boolean): void {
+>   const epoch = ++visibilityToggleEpoch;
+>   visibilityToggleSerial = visibilityToggleSerial.then(async () => {
+>     if (epoch !== visibilityToggleEpoch) return;
+>
+>     if (!enabled) {
+>       await performResetSequence();
+>       return;
+>     }
+>
+>     if (isPortfolioCacheInvalid()) {
+>       await performResetSequence();            // repair before re-enable populate
+>     }
+>
+>     if (epoch !== visibilityToggleEpoch) return;
+>     if (!getShowPortfolioEnabledFromStore()) return;
+>     if (!canRunPortfolioV2Work()) return;
+>
+>     startPopulate({
+>       isFirstPopulate: true,                  // repopulate from scratch after explicit disable
+>       // ... same args as app-launch populate path
+>     });
+>   }).catch(err => {
+>     logPortfolioRuntimeError(err);
+>   });
+> }
 > ```
 >
 > Every ordinary trigger: `canRunPortfolioV2Work()` is the first executable statement. Before `ensureFresh`, before FX-bridge fetch, before queue writes, before `scheduleRecompute`, before anything. The only exception is `onAppLaunchPostAuth(...)`, which may first repair a latched `portfolioCacheInvalid` bit via `performResetSequence()`, then re-check `canRunPortfolioV2Work()`.
 >
 > `ensureFresh` lives here, NEVER in scheduler. `ensureQuoteCurrencyFxBridge(...)` also lives here and is called only by `onQuoteCurrencyChanged(...)`.
+>
+> `onShowPortfolioVisibilityChanged(...)` is the other intentional exception to the ordinary-trigger rule. It must remain callable even while portfolio work is disabled so that:
+> - turning the setting **off** always clears cached portfolio data via `performResetSequence()`,
+> - turning it **on** can repair a latched invalid bit if needed and then start a fresh from-scratch populate,
+> - rapid off/on churn is serialized by `visibilityToggleSerial` and resolved by `visibilityToggleEpoch` with **last-toggle-wins** semantics.
 >
 > `onQuoteCurrencyChanged(...)` intentionally does **not** queue a scheduler-managed full recompute for the immediate quote switch. Instead it applies `recomputeQuoteBridgeFromCommittedState(...)` directly on the compute runtime using committed state only. During deferred populate, this means visible values change quote immediately while populate-driven fresh data remains held until `populateCommitTick`.
 >
@@ -1869,6 +1913,8 @@ Total kept: **~13,805 LOC.**
 > - emits the `coins` + `assets` arrays for `ensureFresh(...)`.
 >
 > This preserves the product rule that UI rows are grouped by ticker while the rate-cache layer still fetches/stores by raw asset identity.
+>
+> **Portfolio-only visibility gate:** `getShowPortfolioEnabledFromStore()` gates portfolio-owned recompute/populate work only. It must not be reused to hide or suppress the Home Exchange Rates section or the Exchange Rate detail screen, which continue on their own rate/display path even when portfolio surfaces are disabled.
 >
 > **Explicit non-triggered interactions (product-load-bearing):**
 > - Timeframe switches on Home / Wallet / Asset Detail / KeyOverview / Exchange Rate do **not** call `ensureFresh(...)`, `ensureQuoteCurrencyFxBridge(...)`, populate kicks, or snapshot refresh code.
@@ -1881,12 +1927,16 @@ Total kept: **~13,805 LOC.**
 > - send-completion wiring from `src/store/wallet/effects/send/**`,
 > - live-rate-update wiring from `src/store/rate/rate.effects.ts`,
 > - pull-to-refresh wiring from the Home / KeyOverview / Wallet / Account screens/hooks documented in inventory item #12,
-> - quote-currency-change wiring from the settings/rate-change path documented in inventory item #12.
+> - quote-currency-change wiring from the settings/rate-change path documented in inventory item #12,
+> - show-portfolio-toggle wiring from the settings path documented in inventory item #12.
 >
 > Tests:
 > - Each trigger mocked; fire-time freshness verified.
 > - **Guard-before-side-effects regression:** while `populateResetInFlight` is set, invoke each trigger. Assert `ensureFresh` NOT called (for triggers that call it), `scheduleRecompute` NOT called, `populateWallet` NOT called. Zero side effects per trigger.
 > - `onQuoteCurrencyChanged(...)` regression: calls `ensureQuoteCurrencyFxBridge(...)`, does **not** call per-asset `ensureFresh(...)`, and applies `recomputeQuoteBridgeFromCommittedState(...)` immediately from the committed-state BTC bridge.
+> - `onShowPortfolioVisibilityChanged(false)` regression: immediately hides portfolio-owned UI via the setting, runs `performResetSequence()`, and leaves Exchange Rates surfaces unaffected.
+> - `onShowPortfolioVisibilityChanged(true)` regression: after a prior disable, starts a fresh from-scratch populate (`isFirstPopulate: true`) instead of resuming stale queue state.
+> - Rapid toggle regression: off/on/off/on in quick succession serializes cleanly, stale completions no-op, no overlapping populate loops start, and the final persisted setting wins.
 > - Timeframe-switch regression: changing `tf` on any portfolio screen triggers zero calls to `ensureFresh(...)`, `ensureQuoteCurrencyFxBridge(...)`, populate APIs, or snapshot refresh helpers.
 
 **LOC ledger:** +320 / 0 / +320.
@@ -1896,6 +1946,12 @@ Total kept: **~13,805 LOC.**
 # Phase 7 — Migrate UI consumers (flag-gated)
 
 **Global UI contract:** quote-currency switches are special. Even during deferred populate they immediately re-bridge the **committed** chart/row state into the new quote currency. Only populate-driven fresh data remains deferred until the final commit.
+>
+> **Show Portfolio contract (NEW, product-load-bearing):**
+> - When `getShowPortfolioEnabledFromStore()` is `false`, hide all portfolio-owned charts and asset-list surfaces: Home portfolio balance/chart, Home asset list section, All Assets, Allocation, Wallet/Account/Key portfolio charts, and `AssetBalanceHistoryScreen`.
+> - The Home **Exchange Rates** section and the **Exchange Rate** detail screen remain visible and continue to update whether the portfolio setting is on or off.
+> - Toggling the setting off hides portfolio-owned surfaces immediately via UI gating while `performResetSequence()` clears cached portfolio data in the background.
+> - Toggling it back on starts a fresh populate-from-empty flow; portfolio-owned surfaces reappear by the same first-populate progressive reveal rules used for a cold start.
 
 ## 7a. Asset list
 > `AssetsList`: `selectOrderedAssetGroupIds`, render `AssetRowV2`. Memo on `(assetGroupId, mode)`, `areEqualByRowFingerprint`. Rows are collapsed by `assetGroupId = lowercased currencyAbbreviation`, matching current Home behavior across chains.
@@ -1906,16 +1962,19 @@ Total kept: **~13,805 LOC.**
 > - Home and All Assets use the same `orderedAssetGroupIdsForAssetList` mid-populate so navigation preserves continuity.
 > - Switching Today vs All Time mid-populate changes only which precomputed row payload is displayed; it must not change populate order or row visibility.
 > - During deferred populate, quote-currency switches immediately re-bridge the committed row values into the new quote; only fresh populate data waits for the final commit.
+> - When "Show Portfolio" is off, this entire asset-list surface is hidden. The setting turning back on restarts from empty and re-reveals rows by the normal progressive populate rules.
 
 ## 7b. Home chart + PortfolioBalance
 > Under flag: `selectTotalSeries` + `areEqualBySeriesFingerprint`. Chart keys on `series.fingerprint`. Gate on all eligible wallets ready. During the first-ever progressive populate this chart stays hidden until all eligible wallets are ready; during later deferred populates it keeps showing the stale pre-refresh chart until the final commit publishes.
 >
 > **First-ever vs stale-fallback predicate:** use `selectHasAnyPopulatedWallets(s)`, not `queue.publishMode`. If committed populated state is empty, hide charts until ready. If committed populated state is non-empty, show stale committed data during deferred populate until commit.
 > Quote-currency switches remain immediate in both cases because they transform committed chart state only; they do not wait for the deferred populate commit.
+> If "Show Portfolio" is off, hide this Home portfolio chart/balance surface entirely, but leave the Home Exchange Rates section visible.
 
 ## 7c. Wallet / Account / Key detail
 > `WalletDetails`/`AccountDetails`: mount → `scheduleRecompute({ scope: { kind: 'wallet', walletId }, ...base })`. Subscribe `selectWalletSeries` + `areEqualBySeriesFingerprint`. `useFocusEffect` → `touchWallet`. Wallet/account charts stay hidden on first populate until that wallet is ready; on later deferred populates they keep showing stale data until the final commit. Use the same `selectHasAnyPopulatedWallets(s)` predicate for first-ever vs stale-fallback behavior.
 > Quote-currency switches still update the committed wallet/account chart immediately during deferred populate; only fresh populate results wait for commit.
+> If "Show Portfolio" is off, hide these portfolio chart surfaces entirely.
 >
 > `KeyOverview`: resolve key → walletIds from Redux. Mount → `scheduleRecompute({ scope: { kind: 'wallets', walletIds }, ...base })`. Subscribe `selectKeySeries(s, walletIds, tf)`. The "See All Assets" route passes `keyId`, and the downstream All Assets / asset-detail screens use the **scoped** selectors (`selectScopedAssetGroupRows`, `selectScopedOrderedAssetGroupIds`, scoped detail series) so the key view never falls back to global Home rows.
 
@@ -1930,9 +1989,10 @@ Total kept: **~13,805 LOC.**
 > - Use the same `selectHasAnyPopulatedWallets(s)` predicate for first-ever hide vs stale-fallback behavior.
 > - During deferred populate, quote-currency switches immediately re-bridge the committed asset-detail / exchange-rate values into the new quote; only fresh populate data waits for commit.
 > - If asset detail renders a constituent wallet list, that list uses the same scoped `memberWalletIds` / wallet set as the chart and row. A key-scoped asset detail must not show wallets from outside that key.
+> - If "Show Portfolio" is off, hide `AssetBalanceHistoryScreen`; the separate Exchange Rate detail screen remains available and unaffected.
 
 ## 7e. All Assets + Allocation
-> `AllAssets`: global route uses `selectOrderedAssetGroupIds`; key-scoped route uses `selectScopedOrderedAssetGroupIds`. `Allocation`: `selectAllocationRows`. **Order must match**: Allocation reuses the same canonical asset-group ordering as All Assets / Home rows; do not introduce a second value-ranked sort. Test asserts orders stay identical for the same wallet set. Mid-populate, All Assets shows the same ready-vs-skeleton continuity as Home.
+> `AllAssets`: global route uses `selectOrderedAssetGroupIds`; key-scoped route uses `selectScopedOrderedAssetGroupIds`. `Allocation`: `selectAllocationRows`. **Order must match**: Allocation reuses the same canonical asset-group ordering as All Assets / Home rows; do not introduce a second value-ranked sort. Test asserts orders stay identical for the same wallet set. Mid-populate, All Assets shows the same ready-vs-skeleton continuity as Home. When "Show Portfolio" is off, hide both All Assets and Allocation entirely.
 
 **LOC ledger:** +600 / 0 / +600.
 
@@ -2155,6 +2215,9 @@ Total kept: **~13,805 LOC.**
 62. **Quote-switch during deferred populate:** while a deferred populate is active, `onQuoteCurrencyChanged(...)` applies `recomputeQuoteBridgeFromCommittedState(...)` immediately to the committed state, visible screens switch quote right away, scheduler-held heavy recomputes still do not drain early, and the later `populateCommitTick` publish lands fresh data in the already-selected quote.
 63. **No recursive render / max-depth regression:** rapid timeframe toggles and chart scrubbing on Home / Wallet / Asset Detail / Exchange Rate do not produce "maximum update depth exceeded" errors, recursive scheduler churn, or blank intermediate flashes between valid series.
 64. **Post-auth repair path for durable invalid bit:** boot with `PORTFOLIO_CACHE_INVALID_KEY = 1`; `onAppLaunchPostAuth(...)` repairs via `performResetSequence()` before any ordinary v2 populate/recompute work runs, and only a successful repair clears the bit.
+65. **Show Portfolio off clears + hides:** toggling the user-facing setting off runs `performResetSequence()`, clears portfolio MMKV/shared state, hides all portfolio-owned charts/list surfaces, and leaves Home Exchange Rates / Exchange Rate detail visible.
+66. **Show Portfolio on repopulates from scratch:** toggling the setting back on after a prior disable starts a fresh populate-from-empty flow (`isFirstPopulate: true`) and re-reveals portfolio-owned surfaces by the normal progressive populate rules.
+67. **Rapid Show Portfolio toggle churn:** repeated off/on/off/on toggles serialize cleanly with last-toggle-wins semantics; no overlapping populate loops survive, stale completions no-op, and the final setting determines whether portfolio surfaces are hidden or repopulating.
 
 ---
 
@@ -2194,7 +2257,7 @@ Starting: ~31,160. Ending: ~20,600. Eliminated: ~10,560, ~34%.
 
 # Summary
 
-- **Three runtimes by default** (UI / compute / populate), with an **optional fourth rate runtime** under Branch C, **one state value**, **progress + commit + retry ticks** (distinct), **single-flight guard**, **debounced app-root subscriber with three independent reactions and unmount cleanup**, **five triggers**, **one read hook**, **~10 selectors**, **five scope kinds**, **three-phase scheduler drain**.
+- **Three runtimes by default** (UI / compute / populate), with an **optional fourth rate runtime** under Branch C, **one state value**, **progress + commit + retry ticks** (distinct), **single-flight guard**, **debounced app-root subscriber with three independent reactions and unmount cleanup**, **six triggers**, **one read hook**, **~10 selectors**, **five scope kinds**, **three-phase scheduler drain**.
 - **Fingerprints are a render invalidation heuristic; numeric correctness is enforced by full point-by-point parity tests.**
 - **Interval-specific fingerprints** with first+last endpoint values. Mid-series mutations pinned.
 - **Precomputed row payloads** make the global row selectors O(1); key-scoped selectors use a bounded memoized aggregation cache keyed by committed state revision and wallet scope.
@@ -2218,7 +2281,7 @@ Starting: ~31,160. Ending: ~20,600. Eliminated: ~10,560, ~34%.
 - **V2 kernel integration (guardrail #26):** `PopulateRuntimeContext` carries `signingContextsByWalletId` alongside `walletsById`. `runPopulate` delegates each wallet to a new v2-owned `drivePopulateForWallet(...)` orchestrator, which wraps the signing-required populate handlers with the signing context at the same granularity as v1 (`prepare` and each `processNextPage` call, not `finish` / `close`) — matching `withWalletSigningContext` in `portfolioPopulateJobWorklet.ts:315`. `ensureFresh` builds a **lightweight dispatch context** JS-side (no wallet signing, but `boxedNitroFetch` populated) and its worklet wrapper installs/clears it around the `RnBwsFiatRateProvider.loadSeries` call — matches the "non-signing requests still need Nitro fetch context" rule from `portfolioWorkletTransport.ts:137`. **Every worklet call that uses Nitro fetch requires a dispatch context for the duration of the call**, whether or not it signs.
 - **Runtime-global concurrency verification (guardrail #27):** Phase 0.5 spike runs four probes (two branch-deciders, two diagnostic) on both platforms at 1000 iterations. Probes 2 (v2-asymmetric populate-vs-rate) and 3 (rate-vs-rate) determine branch selection from A (no mitigation), C (dedicated rate-fetch runtime — architectural fork to four runtimes total, still requires per-call lightweight dispatch context), or D (worklet-side lock — most surgical but most complex). Branch B remains diagnostic-only because it violates the non-blocking-read product requirement. `ensureFresh` always dedupes identical args; serialization of non-identical calls is only required when Probe 3 is dirty/flaky.
 - **V18 keeps the current non-bundle worklet path.** Global `react-native-worklets` bundle mode is out of scope unless a future design proves it is isolated to the intended worklet runtime and preserves the existing Quick Crypto / fetch hybrid-object integration.
-- **Wipe scope (guardrail #23):** matches actual repo prefixes `snap:*`, `rate:v1:*`, `portfolio:v2:*`. Excludes `PORTFOLIO_V2_FLAG_KEY` (don't silently disable v2 during rollout). Verified against repo at `snapshotStore.ts:146-162` and `fiatRateStore.ts` `rateKey` function.
+- **Wipe scope (guardrail #23):** matches actual repo prefixes `snap:*`, `rate:v1:*`, `portfolio:v2:*`. Excludes `PORTFOLIO_V2_FLAG_KEY` (don't silently disable v2 during rollout) and `PORTFOLIO_CACHE_INVALID_KEY` (so the durable invalid bit survives partial wipes until a successful repair clears it). Verified against repo at `snapshotStore.ts:146-162` and `fiatRateStore.ts` `rateKey` function.
 - **Portfolio MMKV is a dedicated instance (guardrail #24):** `getPortfolioMmkvStorageOnRN()` returns `new MMKV({ id: 'bitpay.portfolio.engine' })`. All v2 MMKV access — flag, queue, wipe — goes through this instance, never the default MMKV.
 - **Wipe goes through the key registry (guardrail #25):** portfolio storage tracks keys via `__bitpay.portfolio.engine.registry.v1__`. Wipe uses `kvStore.delete(key)` (untracks) or equivalently clears the registry. `listKeys()` empty after wipe.
 - **`populateCancelFlag` lifecycle:** set true by cancel and reset; cleared false by every kick path before `runOnRuntimeAsync`. Never persists across cycles.
@@ -2228,6 +2291,7 @@ Starting: ~31,160. Ending: ~20,600. Eliminated: ~10,560, ~34%.
 - **Allocation order equals asset-list order.** No second ranking system.
 - **Key-scoped All Assets and asset detail stay scoped.** `AllAssets({keyId})` and row taps from `KeyOverview` use scoped selectors instead of Home-global rows, including any constituent wallet list rendered inside asset detail.
 - **Rate fetching and snapshot refresh happen only at explicit triggers**, not in the scheduler and not on timeframe switches or chart scrubbing.
+- **The user-facing "Show Portfolio" toggle is a first-class trigger.** Off clears cached portfolio data and hides portfolio-owned surfaces immediately; on repopulates from scratch. Home Exchange Rates and the Exchange Rate detail screen stay visible regardless of the setting.
 - **Mid-populate UI behavior is explicit.** Asset-list rows stay visible immediately in canonical order with skeletons for unready right-side content; charts stay hidden during first populate until their relevant data is ready and stay stale-but-visible during later deferred populates until commit.
 - **`runOnRuntimeAsync` non-curried**; fire-and-forget attaches `.catch(log)`.
 - **Rapid timeframe/scrub interaction has an explicit no-recursive-render bar.** The plan now requires a dedicated regression for no maximum-update-depth errors, no recursive scheduler churn, and no blank flashes during timeframe toggles or chart scrubbing.
