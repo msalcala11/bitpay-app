@@ -225,7 +225,7 @@ export type PortfolioV2Metric =
   | Readonly<{
       kind: 'mmkvWrite';
       reason: PortfolioMmkvWriteReason;
-      keyHash: string;
+      localKeyHash?: string;
       keyLength: number;
       keyPrefixFamily: PortfolioMmkvPrefixFamily;
       approximateBytes: number;
@@ -2181,14 +2181,14 @@ export function clearPortfolioMmkvKeysForReset(args: {
 }): void;
 ```
 
-`writePortfolioMmkvString(...)` records redacted key metadata (`keyHash`,
+`writePortfolioMmkvString(...)` records redacted key metadata (`localKeyHash`,
 `keyLength`, `keyPrefixFamily`), approximate byte length, reason, and warning
 status before delegating to the registry-aware portfolio KV store. Production
 metrics must not include raw MMKV keys because keys can contain wallet IDs,
 token addresses, account/key identifiers, or asset identifiers. Tests that need
 raw keys may use local spies around the helper, not production metric payloads.
-If MMKV metrics leave the device, `keyHash` must be omitted. Stable key hashes
-are allowed only for local/dev diagnostics.
+If MMKV metrics leave the device, `localKeyHash` must be omitted. Stable key
+hashes are allowed only for local/dev diagnostics.
 Writes larger than `PORTFOLIO_MMKV_VALUE_WARN_BYTES` must either be split into
 smaller keys or pass `allowOversize: true` with a test-covered justification.
 `allowOversize: true` is reviewer-enforced in Phase 1: the call site must
@@ -2316,6 +2316,9 @@ export type PortfolioRuntimeLogExtra = Readonly<{
   rateSourceCount?: number;
   pointCount?: number;
   retryAttempt?: number;
+  startEpoch?: number;
+  currentEpoch?: number;
+  workEpoch?: number;
   warning?: boolean;
 }>;
 ```
@@ -2559,7 +2562,7 @@ The ordering is load-bearing: **refresh before eviction** prevents the actively 
 
 ### Selectors
 
-Selectors are pure worklet functions of `PortfolioState` and primitive args. They do not read Redux, MMKV, queue, or manifest.
+Selectors are pure worklet functions of `PortfolioPublishedState` and primitive args. They do not read Redux, MMKV, queue, or manifest. In Phase 1 `PortfolioPublishedState = PortfolioState`; the selector contract uses the published type so a future smaller projection does not require API churn.
 
 Core selectors:
 
@@ -3046,14 +3049,17 @@ Define model types from this plan, including `Point.remainingUnrealizedPnlFiat`,
 
 Acceptance:
 
-- Typecheck green.
+- Typecheck green for new/changed v2 files. Repo-wide typecheck should be green
+  if Phase 1 also fixes the known inherited baseline failures; otherwise Phase
+  1 must document the pre-existing failures from the Phase 0 inventory and prove
+  no new v2 errors were introduced.
 - Unit tests for empty state, `emptyPortfolioStateForEpoch(...)`, manifest load/save, queue load/save, reset invalid bit, Redux access init, shared values (`sharedPortfolioState`, cancel/running flags, progress/retry ticks), `resetSharedPortfolioStateForDebugClear`, and portfolio telemetry/logging allowlists.
 - Runtime scaffolding tests prove `react-native-worklets` is the portfolio runtime substrate and runtime-kind initializers install only the allowed globals.
 - `publishPortfolioState(...)` is the only legal write path for `sharedPortfolioState.value`, checks `workEpoch`, records metrics, and initially projects canonical state unchanged through the `PortfolioPublishedState = PortfolioState` alias.
 - `resetSharedPortfolioStateForDebugClear(...)` publishes through `publishPortfolioState(...)` with a current-epoch empty state and may only reset coordination ticks directly.
 - Metrics module records publish duration, approximate payload size, MMKV
   mutation value size (writes; deletes/clears report bytes as zero), revision,
-  reason, redacted key metadata (`keyHash`, `keyLength`, `keyPrefixFamily`),
+  reason, redacted key metadata (`localKeyHash`, `keyLength`, `keyPrefixFamily`),
   and warning state without failing CI on initial thresholds. Each MMKV mutation
   helper (`writePortfolioMmkvString`,
   `deletePortfolioMmkvKey`, `clearPortfolioMmkvKeysForReset`) emits a
