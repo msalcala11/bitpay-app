@@ -476,3 +476,51 @@ These are facts/decisions the implementer reading Phase 1 needs:
 9. **`BWS v3` is the live-rate endpoint; `BWS v4` is the historical-rate endpoint.** The v4 path is what the new architecture's `ensureFresh(...)` routes through.
 10. **`changedWalletIds` for pull-to-refresh** is not currently produced — Phase 6 must add the diffing logic (pre/post-refresh balance snapshot) at each refresh handler.
 11. **TypeScript baseline is not clean.** `yarn validate` currently surfaces pre-existing errors in `HomeRoot.tsx` and wallet-status files unrelated to portfolio v2. Phase 1's "typecheck green" gate must either fix or document an exception around these. The new `src/portfolio/v2/` files do typecheck cleanly in isolation; the failures are inherited from the existing baseline.
+
+---
+
+## 18. Retained-kernel classification
+
+Phase 0/8b acceptance requires that each kernel module the implementation plan keeps in v2 carry an explicit per-module classification, not a directory-wide keep decision. Labels:
+
+- `reuse unchanged` — v2 imports as-is; tests cover behavior under the new contracts without modification.
+- `adapt before v2 use` — module needs targeted edits (new field, tighter typing, or removal of a forbidden helper) before v2 phases can depend on it; the changes are surgical, not a rewrite.
+- `test fixture only` — kept solely as a reference/fixture for v2 test parity; not imported by v2 production code paths.
+- `delete after soak` — retained only to keep v1 working during rollout; deleted once the v2 flag is fully on and the legacy paths are unreferenced.
+
+| Module | Classification | Rationale |
+|---|---|---|
+| [src/portfolio/core/pnl/analysisStreaming.ts](src/portfolio/core/pnl/analysisStreaming.ts) | adapt before v2 use | Holds `clampWalletAnalysisState(...)`, which decision #34 forbids inside the per-step PnL kernel. v2 must remove or relocate this helper out of the streaming-analysis hot path before reuse. |
+| [src/portfolio/core/pnl/snapshotStream.ts](src/portfolio/core/pnl/snapshotStream.ts) | reuse unchanged | `BalanceSnapshotStreamBuilder` and the normalize/dedupe/carryover helpers operate on `Tx`/`NormalizedTx` shapes that v2 keeps; no v2-specific contract change touches this module. |
+| [src/portfolio/core/pnl/snapshotStore.ts](src/portfolio/core/pnl/snapshotStore.ts) | adapt before v2 use | `SnapshotIndexV2` has no `revision` field today (see §17 prereq #5). Phase 2 must add the revision field and the matching invalidation/migration so v2 manifest/queue logic can rely on it. |
+| [src/portfolio/core/pnl/fiatRateStore.ts](src/portfolio/core/pnl/fiatRateStore.ts) | adapt before v2 use | Must enforce the `StoredRateInterval` set (1D/1W/1M/ALL only) at the type and runtime boundary; today the `FiatRateProvider` and `FiatRateStore` accept the full `FiatRateInterval` union including 3M/1Y/5Y, which v2 forbids persisting. |
+| [src/portfolio/runtime/worklet/portfolioWorkletSnapshotBuilder.ts](src/portfolio/runtime/worklet/portfolioWorkletSnapshotBuilder.ts) | reuse unchanged | Pure builder over `Tx` + rate-lookup; v2 swaps the rate-lookup source but the builder contract is intact. |
+| [src/portfolio/runtime/worklet/portfolioPopulateWorklet.ts](src/portfolio/runtime/worklet/portfolioPopulateWorklet.ts) | adapt before v2 use | Existing worker-protocol entry point handles populate sessions but predates the work-epoch + Nitro-boundary contracts (decisions #28, #34, #36). v2 must thread `workEpoch` through every prepare/process/finish call and ensure no JS-trampoline helpers are reachable from inside the loop body. |
+| [src/portfolio/runtime/worklet/portfolioWorkletSnapshots.ts](src/portfolio/runtime/worklet/portfolioWorkletSnapshots.ts) | adapt before v2 use | Snapshot key/index helpers must move under the dedicated portfolio MMKV instance + registry, and read/write through the v2 KV adapter rather than free-standing `workletKv*` calls so the registry tracker sees every key (decision #29 / §11 wipe-on-flag-flip). |
+| [src/portfolio/runtime/worklet/portfolioWorkletRates.ts](src/portfolio/runtime/worklet/portfolioWorkletRates.ts) | adapt before v2 use | Rate-fetch worklet must run on the dedicated rate-fetch runtime, route signing/request/response processing through the Nitro boundary (decision #36), and project results into the `WeightedGroupRateSeries` discriminated union before publish. |
+
+> Note: `src/portfolio/v2/` is not subject to this classification — it is the new kernel, not a retained one. RN adapter modules are classified separately in §19.
+
+---
+
+## 19. RN adapter classification
+
+Phase 0/8b acceptance also requires that each module in `src/portfolio/adapters/rn/` carry an explicit classification. The implementation plan forbids a directory-wide keep/delete decision because v2-dependent Nitro/MMKV/rate/signing adapters must remain reachable until equivalent v2 adapter modules exist. Labels:
+
+- `v2 adapter, keep in place` — module already implements a v2-shaped contract at its current path; v2 imports it as-is.
+- `v2 adapter, relocate to src/portfolio/v2/adapters/rn/**` — module's contract belongs in v2, but the file should move under the v2 namespace before the legacy path is unreferenced.
+- `v1-only adapter, delete after soak` — module exists only to wire the v1 engine and has no v2 equivalent; deleted once v2 is fully on.
+- `shared low-level adapter, keep and document owner` — module is consumed by both v1 and v2 (or sits below the v2 line entirely); keep at current path and record the owning subsystem.
+
+| Module | Classification | Rationale / Owner |
+|---|---|---|
+| [src/portfolio/adapters/rn/bwsFiatRateProvider.ts](src/portfolio/adapters/rn/bwsFiatRateProvider.ts) | v2 adapter, relocate to `src/portfolio/v2/adapters/rn/**` | Implements the rate-fetch Nitro boundary (decision #36). Belongs under v2 once `FiatRateStore`'s `StoredRateInterval` tightening (§18) lands so its `loadSeries` signature matches v2 directly. |
+| [src/portfolio/adapters/rn/mmkvKvStore.ts](src/portfolio/adapters/rn/mmkvKvStore.ts) | shared low-level adapter, keep and document owner | Generic `KvStore`-over-MMKV with the registry tracker — consumed by both v1 and v2 against the same dedicated `bitpay.portfolio.engine` instance. Owner: portfolio-storage. |
+| [src/portfolio/adapters/rn/portfolioEngineOptions.ts](src/portfolio/adapters/rn/portfolioEngineOptions.ts) | v1-only adapter, delete after soak | Constructs the v1 `PortfolioEngineOptions`. v2 wires its own runtimes/clients directly and does not consume `PortfolioEngineOptions`. |
+| [src/portfolio/adapters/rn/txHistoryPageFetcher.ts](src/portfolio/adapters/rn/txHistoryPageFetcher.ts) | v1-only adapter, delete after soak | Thin wrapper that adapts `fetchPortfolioTxHistoryPageByRequest` to the v1 `TxHistoryPageFetcher` signature. v2's populate runtime calls the request module directly through the Nitro boundary, so this adapter has no v2 caller. |
+| [src/portfolio/adapters/rn/txHistoryRequest.ts](src/portfolio/adapters/rn/txHistoryRequest.ts) | v2 adapter, keep in place | Encodes the BWS tx-history request (URL, headers, signing handle plumbing). Already routed through `getPortfolioNitroFetchClientOnRuntime()`; v2 populate's loop body imports this directly per decision #36. |
+| [src/portfolio/adapters/rn/txHistorySigning.ts](src/portfolio/adapters/rn/txHistorySigning.ts) | v2 adapter, keep in place | Owns the worklet-runtime signing globals, transferred-handle pool, and Nitro fetch client. Required at its current path because both v1 and v2 import the same global-installation helpers; the JS-side context creator named in the Nitro spy-target inventory lives here. |
+| [src/portfolio/adapters/rn/walletEligibility.ts](src/portfolio/adapters/rn/walletEligibility.ts) | shared low-level adapter, keep and document owner | Pure-function wallet eligibility (livenet/credentials/TSS) used by both v1 and v2 trigger sites. Owner: wallet-eligibility. |
+| [src/portfolio/adapters/rn/walletMappers.ts](src/portfolio/adapters/rn/walletMappers.ts) | shared low-level adapter, keep and document owner | Maps Redux `Wallet` shape into `WalletCredentials`/`WalletSummary`/`StoredWallet`. Consumed by every trigger site. Owner: wallet-mapping. |
+| [src/portfolio/adapters/rn/workletMmkvBridge.ts](src/portfolio/adapters/rn/workletMmkvBridge.ts) | shared low-level adapter, keep and document owner | Lazy-singleton over the dedicated `bitpay.portfolio.engine` MMKV. Both v1 engine and v2 KV adapter resolve through this bridge. Owner: portfolio-storage. |
+| [src/portfolio/adapters/rn/workletRuntimeShared.ts](src/portfolio/adapters/rn/workletRuntimeShared.ts) | adapt before v2 use | Currently exposes a single runtime name + signing-globals installer. v2 needs three distinct runtime names (compute / populate / rate-fetch) and per-runtime install + teardown; the helper must be widened before v2 phases consume it. |
