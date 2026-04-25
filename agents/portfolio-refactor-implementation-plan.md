@@ -1546,6 +1546,41 @@ v2 imports it. Required tests must compare compressed and uncompressed fixtures
 on product-supported sample grids or explicitly pin any acceptable old
 intra-day divergence.
 
+### Txhistory duplicate-row handling
+
+Preserve the existing txhistory duplicate-row contract before snapshot/PnL
+processing. BWS may return duplicate economic transaction rows within one page
+or across adjacent pages. Populate must dedupe fetched txhistory rows by the
+canonical economic transaction identity used by the retained kernel before
+normalizing them into snapshots.
+
+The canonical identity prefers on-chain tx hash fields (`txid`, `txHash`,
+`txhash`, `hash`) and falls back to a composite of timestamp/action/amount/fees
+plus optional block/nonce/destination fields when no hash exists. Do not use
+BWS's internal `id` as the dedupe key; duplicate economic rows can carry
+different internal IDs. Pagination/cursor advancement must use the logical
+unique transaction count, not the raw fetched row count, so duplicate rows do
+not over-advance paging.
+
+This is distinct from populate queue dedupe. Queue dedupe controls wallet work
+items; txhistory dedupe controls duplicate transaction rows inside a wallet's
+fetched history.
+
+### Txhistory tie-group reorder before quarantine
+
+Preserve the retained kernel's tie-group reorder behavior before declaring a
+wallet invalid for negative running balance. Transactions sharing the same
+timestamp/block group are first sorted deterministically by `blockHeight`,
+`txIndex`, `nonce`, and original input order. If that deterministic order would
+make the running balance negative, but another order within the same tie group
+can avoid underflow, snapshot ingest greedily reorders the group to process
+non-underflowing transactions first.
+
+Only if no ordering within the tie group can avoid underflow does the wallet
+enter invalid-history quarantine for negative running units. This rule preserves
+current behavior where BWS may return same-block transactions in an order that
+does not match the wallet's economic balance flow.
+
 ### Core formula
 
 For each displayed interval:
@@ -3161,6 +3196,14 @@ Acceptance:
 - Checkpoint JSON/non-optional-boolean acceptance passes in this phase: persisted cursor data must be JSON-serializable/schema-validated, failure booleans are non-optional, and invalid checkpoints clear only wallet staging before safe restart.
 - Testnet/regtest wallets never enter queue.
 - Nitro boundary acceptance passes: populate's tx-history signing/request/pagination/response-processing loop body makes zero JS-thread fetch/signing/request calls; the JS-side context creator is called once at kick time and never inside the loop body.
+- Txhistory duplicate-row tests pass: duplicate economic rows within a page or
+  across adjacent pages are deduped before snapshot/PnL processing, BWS
+  internal `id` is not used as the dedupe key, and pagination advances by
+  logical unique transaction count rather than raw fetched row count.
+- Txhistory tie-group reorder tests pass: same timestamp/block transactions
+  that would underflow in deterministic order are reordered within the tie
+  group when another order avoids underflow, and only unrecoverable underflow
+  enters invalid-history quarantine.
 - Populate retry/backoff tests pass: missing context, network, and BWS failures respect `nextRetryAtMs`, do not spin, manual/pull/send paths can force retry, and success or urgent supersession clears retry state.
 
 ### Phase 6 — Triggers
@@ -3452,6 +3495,8 @@ These tests must exist before the plan is treated as implementation-complete. Fo
 120. **Nitro boundary tests:** using the Phase 0-inventoried JS helper module/export list, instrument JS-tagged tx-history signing/request helpers and BWS fiat-rate signing/request/fetch helpers. Run populate and assert tx-history signing, request fetching, pagination, and response processing occur through the worklet/Nitro hybrid-object path with zero JS-thread tx-history request/signing calls during the loop body; the JS-side context creator may be called once at kick time only. Run `ensureFresh` and assert BWS rate-fetch signing/request/response processing occurs through the rate-fetch runtime's worklet/Nitro path with zero JS-thread rate request/signing calls. Anti-regression variants stub populate to call a JS-thread signing helper from the loop body and stub `ensureFresh` to call a JS-thread BWS fetch/signing helper; both variants must fail.
 121. **Reset publish-helper test:** debug clear and reset paths call `publishPortfolioState({reason: 'debugClear' | 'reset'})`, record publish metrics, check the epoch, and never assign `sharedPortfolioState.value` directly. Coordination ticks may be reset directly.
 122. **Epoch-correct empty-state test:** after `bumpPortfolioWorkEpoch('resetStart')`, `emptyPortfolioStateForEpoch(...)` produces an empty state with the current epoch/quote/computed timestamp, and publishing it through `publishPortfolioState(...)` succeeds instead of failing the stale-epoch guard.
+123. **Txhistory duplicate-row test:** seed duplicate BWS txhistory rows within one page, overlapping duplicate rows across adjacent pages, rows whose only difference is BWS internal `id`, and rows missing tx hash fields that require composite identity fallback. Assert populate/snapshot ingest processes each economic transaction once, generated snapshots/PnL do not double-count balances, and cursor/page advancement uses logical unique transaction count. Anti-regression variant: stub dedupe to use raw row count or BWS internal `id`; the fixture must fail.
+124. **Txhistory tie-group reorder test:** seed same timestamp/block transactions returned spend-first where deterministic block/txIndex/nonce/original order would underflow, but processing the matching receive first avoids underflow. Assert snapshot ingest reorders within the tie group, does not mark invalid-history, and emits the expected balances. Also seed an unrecoverable underflow group and assert it still quarantines. Anti-regression variant: stub ingest to quarantine immediately on deterministic-order underflow; the recoverable fixture must fail.
 
 ---
 ## 17. Plan lock status
