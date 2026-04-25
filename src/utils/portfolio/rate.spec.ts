@@ -98,8 +98,8 @@ describe('getWindowMsForFiatRateTimeframe', () => {
     expect(getWindowMsForFiatRateTimeframe('5Y')).toBe(1825 * MS_PER_DAY);
   });
 
-  it('returns 0 for ALL (no fixed window)', () => {
-    expect(getWindowMsForFiatRateTimeframe('ALL')).toBe(0);
+  it('returns undefined for ALL (no fixed window)', () => {
+    expect(getWindowMsForFiatRateTimeframe('ALL')).toBeUndefined();
   });
 });
 
@@ -213,9 +213,9 @@ describe('getFiatRateTimeframeConfig', () => {
     expect(typeof cfg.baselineTimestampMs).toBe('number');
   });
 
-  it('returns windowMs 0 for ALL and undefined baseline', () => {
+  it('returns undefined windowMs for ALL and undefined baseline', () => {
     const cfg = getFiatRateTimeframeConfig({timeframe: 'ALL', nowMs});
-    expect(cfg.windowMs).toBe(0);
+    expect(cfg.windowMs).toBeUndefined();
     expect(cfg.baselineTimestampMs).toBeUndefined();
     expect(cfg.seriesInterval).toBe('ALL');
   });
