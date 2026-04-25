@@ -495,7 +495,7 @@ Phase 0/8b acceptance requires that each kernel module the implementation plan k
 | [src/portfolio/core/pnl/snapshotStream.ts](src/portfolio/core/pnl/snapshotStream.ts) | adapt before v2 use | Checkpoint state for in-progress UTC-day compression is already fully persisted and rehydrated (see §17 prereq #12), so app-kill resume is correct as-is. The adapt is narrow: `COMPRESSION_AGE_MS` is hardcoded as `90 * DAY_MS` inside the file and `compressionEnabled` has no v2-constants default. v2 must thread `PORTFOLIO_DAILY_SNAPSHOT_COMPRESSION_AGE_DAYS` and `PORTFOLIO_DAILY_SNAPSHOT_COMPRESSION_ENABLED` from `src/portfolio/v2/constants.ts` through the builder constructor so the constants module is the single source of truth. The existing 90-day numeric default may stay as the v1 fallback for legacy callers; only v2 callers are required to pass the constants. No logic rewrite. |
 | [src/portfolio/core/pnl/snapshotStore.ts](src/portfolio/core/pnl/snapshotStore.ts) | adapt before v2 use | `SnapshotIndexV2` has no `revision` field today (see §17 prereq #5). Phase 2 must add the revision field and the matching invalidation/migration so v2 manifest/queue logic can rely on it. |
 | [src/portfolio/core/pnl/fiatRateStore.ts](src/portfolio/core/pnl/fiatRateStore.ts) | adapt before v2 use | Must enforce the `StoredRateInterval` set (1D/1W/1M/ALL only) at the type and runtime boundary; today the `FiatRateProvider` and `FiatRateStore` accept the full `FiatRateInterval` union including 3M/1Y/5Y, which v2 forbids persisting. |
-| [src/portfolio/runtime/worklet/portfolioWorkletSnapshotBuilder.ts](src/portfolio/runtime/worklet/portfolioWorkletSnapshotBuilder.ts) | reuse unchanged | Pure builder over `Tx` + rate-lookup; v2 swaps the rate-lookup source but the builder contract is intact. |
+| [src/portfolio/runtime/worklet/portfolioWorkletSnapshotBuilder.ts](src/portfolio/runtime/worklet/portfolioWorkletSnapshotBuilder.ts) | adapt before v2 use | Builder contract over `Tx` + rate-lookup is intact and v2 just swaps the rate-lookup source — checkpoint resume already covers in-progress daily compression state. The same constants-source-of-truth caveat as [snapshotStream.ts](src/portfolio/core/pnl/snapshotStream.ts) applies: this module also hardcodes `COMPRESSION_AGE_MS = 90 * DAY_MS` at [portfolioWorkletSnapshotBuilder.ts:32](src/portfolio/runtime/worklet/portfolioWorkletSnapshotBuilder.ts#L32) and accepts `compressionEnabled` as a constructor arg with no v2-constants default. v2 must thread `PORTFOLIO_DAILY_SNAPSHOT_COMPRESSION_AGE_DAYS` and `PORTFOLIO_DAILY_SNAPSHOT_COMPRESSION_ENABLED` through both the worklet builder and the JS-thread builder so the constants module is the single source of truth. No logic rewrite. |
 | [src/portfolio/runtime/worklet/portfolioPopulateWorklet.ts](src/portfolio/runtime/worklet/portfolioPopulateWorklet.ts) | adapt before v2 use | Existing worker-protocol entry point handles populate sessions but predates the work-epoch + Nitro-boundary contracts (decisions #28, #34, #36). v2 must thread `workEpoch` through every prepare/process/finish call and ensure no JS-trampoline helpers are reachable from inside the loop body. |
 | [src/portfolio/runtime/worklet/portfolioWorkletSnapshots.ts](src/portfolio/runtime/worklet/portfolioWorkletSnapshots.ts) | adapt before v2 use | Snapshot key/index helpers must move under the dedicated portfolio MMKV instance + registry, and read/write through the v2 KV adapter rather than free-standing `workletKv*` calls so the registry tracker sees every key (decision #29 / §11 wipe-on-flag-flip). |
 | [src/portfolio/runtime/worklet/portfolioWorkletRates.ts](src/portfolio/runtime/worklet/portfolioWorkletRates.ts) | adapt before v2 use | Rate-fetch worklet must run on the dedicated rate-fetch runtime, route signing/request/response processing through the Nitro boundary (decision #36), and project results into the `WeightedGroupRateSeries` discriminated union before publish. |
@@ -530,12 +530,14 @@ Phase 0/8b acceptance also requires that each module in `src/portfolio/adapters/
 
 ## 20. MMKV write spy-target inventory
 
-Phase 0 acceptance requires that the MMKV write spy-target surface be checked in so the Phase 5/6 zero-write tests for timeframe switches, chart scrubbing, and passive live-rate touches have a stable set of exports to intercept (decision #37, helper `writePortfolioMmkvString(...)`). The future v2 helper does not exist yet — it is a Phase 1 deliverable. This inventory records the future helper plus every current low-level write export it must wrap, so that:
+Phase 0 acceptance requires that the MMKV mutation spy-target surface be checked in so the Phase 5/6 zero-write tests for timeframe switches, chart scrubbing, and passive live-rate touches have a stable set of exports to intercept (decision #37). The v2 mutation helpers do not exist yet — they are Phase 1 deliverables. This inventory records the future helper family plus every current low-level mutation export the spy tests must intercept, so that:
 
-- Phase 1 implements `writePortfolioMmkvString(...)` as the single legal v2 string-write entry point and routes every v2 caller through it.
-- Phase 5/6 zero-write tests can spy both the future helper (positive assertion: the helper is never called from read-only UI paths) and every low-level write export (negative assertion: no v2 caller bypasses the helper to hit the underlying MMKV).
+- Phase 1 implements the v2 mutation helper family as the single legal v2 entry points and routes every v2 caller through them.
+- Phase 5/6 zero-write tests can spy both the future helpers (positive assertion: helpers are never called from read-only UI paths) and every low-level mutation export (negative assertion: no v2 caller bypasses the helpers to hit the underlying MMKV).
 
-### Future v2 helper (Phase 1 deliverable)
+### Future v2 helper family (Phase 1 deliverable)
+
+`writePortfolioMmkvString(...)` only covers string writes. Deletes and reset-time clears need their own helpers so the spy surface stays type-clean and metrics carry the right reason for each mutation kind:
 
 ```ts
 // src/portfolio/v2/storage/writePortfolioMmkvString.ts (Phase 1)
@@ -545,22 +547,34 @@ export function writePortfolioMmkvString(args: {
   reason: PortfolioMmkvWriteReason;
   allowOversize?: boolean;
 }): void;
+
+// src/portfolio/v2/storage/deletePortfolioMmkvKey.ts (Phase 1)
+export function deletePortfolioMmkvKey(args: {
+  key: string;
+  reason: PortfolioMmkvWriteReason;
+}): void;
+
+// src/portfolio/v2/storage/clearPortfolioMmkvKeysForReset.ts (Phase 1)
+// Real-key-enumeration + registry-aware delete loop; NOT a `clearAll` proxy.
+export function clearPortfolioMmkvKeysForReset(args: {
+  reason: Extract<PortfolioMmkvWriteReason, 'reset' | 'wipe'>;
+}): void;
 ```
 
-All v2 string writes — manifest, queue, snap meta/index/chunk, invalid-history markers, rate cache, work epoch, cache-invalid bit, feature flag, reset/wipe sentinel writes, and any future generated-render-cache keys — must route through this single export. Tests assert per-`reason` call counts via the `PortfolioV2Metric` union without inspecting logger strings.
+All v2 mutations — manifest, queue, snap meta/index/chunk, invalid-history markers, rate cache, work epoch, cache-invalid bit, feature flag, reset/wipe sentinel writes, and any future generated-render-cache keys — must route through one of these three helpers. Tests assert per-`reason` call counts via the `PortfolioV2Metric` union without inspecting logger strings.
 
-### Current low-level write exports the helper must wrap
+### Current low-level mutation exports the spy tests must intercept
 
-The helper delegates to one of these low-level writers depending on caller context (JS thread vs worklet runtime). Phase 1 must lock down the export surface so spy tests can assert no v2 caller reaches these directly:
+The helper family above delegates to a subset of these low-level mutations depending on caller context (JS thread vs worklet runtime). Phase 1 must lock down the export surface so spy tests can assert no v2 caller reaches these directly. **Note**: only the string-write helper *wraps* the underlying writer; deletes/clears are wrapped only by their own helpers, and `clearAll` is intentionally **not** wrapped (see the row note).
 
-| Export | Path | Notes |
-|---|---|---|
-| `MmkvKvStore.setString(key, value)` | [src/portfolio/adapters/rn/mmkvKvStore.ts:182](src/portfolio/adapters/rn/mmkvKvStore.ts#L182) | JS-thread write through the registry-aware portfolio store. v2 reset/wipe and JS-thread metadata writes flow through this. |
-| `MmkvKvStore.delete(key)` | [src/portfolio/adapters/rn/mmkvKvStore.ts:193](src/portfolio/adapters/rn/mmkvKvStore.ts#L193) | JS-thread delete with registry update. Zero-write spy tests must include delete paths since wipe and key removal are write operations from a metric-cardinality perspective. |
-| `workletKvSetString(config, key, value)` | [src/portfolio/runtime/worklet/portfolioWorkletKv.ts:94](src/portfolio/runtime/worklet/portfolioWorkletKv.ts#L94) | Worklet-runtime string write. Used by populate/rate-fetch runtime code and by the snapshot worklet helpers. Phase 1 must add a worklet-side wrapper that emits the same `PortfolioV2Metric { kind: 'mmkvWrite' }` record. |
-| `workletKvDelete(config, key)` | [src/portfolio/runtime/worklet/portfolioWorkletKv.ts:133](src/portfolio/runtime/worklet/portfolioWorkletKv.ts#L133) | Worklet-runtime delete; same metric/spy treatment as the JS-thread delete. |
-| `workletKvClearAll(config)` | [src/portfolio/runtime/worklet/portfolioWorkletKv.ts:165](src/portfolio/runtime/worklet/portfolioWorkletKv.ts#L165) | Worklet-runtime registry-aware clear. Required for wipe; must also be spied. |
-| `MMKV.set` / `MMKV.delete` (raw) | `react-native-mmkv` | Forbidden in v2 outside the registry initialization in [workletMmkvBridge.ts](src/portfolio/adapters/rn/workletMmkvBridge.ts) and the low-level adapters above. Spy tests assert no v2 caller reaches the raw module. |
+| Export | Path | Wrapped by | Notes |
+|---|---|---|---|
+| `MmkvKvStore.setString(key, value)` | [src/portfolio/adapters/rn/mmkvKvStore.ts:182](src/portfolio/adapters/rn/mmkvKvStore.ts#L182) | `writePortfolioMmkvString` | JS-thread write through the registry-aware portfolio store. v2 reset/wipe and JS-thread metadata writes flow through this. |
+| `MmkvKvStore.delete(key)` | [src/portfolio/adapters/rn/mmkvKvStore.ts:193](src/portfolio/adapters/rn/mmkvKvStore.ts#L193) | `deletePortfolioMmkvKey` | JS-thread delete with registry update. Spied independently of the string-write helper because deletes carry their own metric reason. |
+| `workletKvSetString(config, key, value)` | [src/portfolio/runtime/worklet/portfolioWorkletKv.ts:94](src/portfolio/runtime/worklet/portfolioWorkletKv.ts#L94) | `writePortfolioMmkvString` (worklet-side wrapper, Phase 1) | Worklet-runtime string write. Used by populate/rate-fetch runtime code and by the snapshot worklet helpers. The Phase 1 worklet wrapper emits the same `PortfolioV2Metric { kind: 'mmkvWrite' }` record as the JS-thread wrapper. |
+| `workletKvDelete(config, key)` | [src/portfolio/runtime/worklet/portfolioWorkletKv.ts:133](src/portfolio/runtime/worklet/portfolioWorkletKv.ts#L133) | `deletePortfolioMmkvKey` (worklet-side wrapper, Phase 1) | Worklet-runtime delete; same metric/spy treatment as the JS-thread delete. |
+| `workletKvClearAll(config)` | [src/portfolio/runtime/worklet/portfolioWorkletKv.ts:165](src/portfolio/runtime/worklet/portfolioWorkletKv.ts#L165) | **not wrapped** — spy/forbid for v2 reset | Low-level registry-only clear. The plan's safer wipe contract is real-key enumeration plus registry-aware deletes (`clearPortfolioMmkvKeysForReset`), not a registry-only clear-all sweep. v2 reset/wipe must **not** call `workletKvClearAll` unless it is rewritten to satisfy the real-key-enumeration contract; spy tests forbid v2 callers from reaching it. |
+| `MMKV.set` / `MMKV.delete` (raw) | `react-native-mmkv` | **not wrapped** — forbidden | Forbidden in v2 outside the registry initialization in [workletMmkvBridge.ts](src/portfolio/adapters/rn/workletMmkvBridge.ts) and the low-level adapters above. Spy tests assert no v2 caller reaches the raw module. |
 
 ### Read-only path coverage required by decision #37
 
@@ -570,8 +584,8 @@ Zero-write spy tests must cover, at minimum:
 - chart scrub gestures across all of the above;
 - passive live-rate updates that fire `onLiveRatesUpdated` while no user-initiated trigger is active.
 
-Each path must produce zero calls to `writePortfolioMmkvString(...)` and zero calls to every low-level export listed above (with the exception of the registry-init write performed once at app boot, which Phase 1 must explicitly exclude from the spy assertion or perform before the spies attach). Anti-regression variants stub a read-only path to call `writePortfolioMmkvString({reason: 'rate'})`; the spy test must fail.
+Each path must produce zero calls to `writePortfolioMmkvString(...)`, `deletePortfolioMmkvKey(...)`, `clearPortfolioMmkvKeysForReset(...)`, and zero calls to every low-level mutation listed above (with the exception of the registry-init write performed once at app boot, which Phase 1 must explicitly exclude from the spy assertion or perform before the spies attach). Anti-regression variants stub a read-only path to call `writePortfolioMmkvString({reason: 'rate'})`, `deletePortfolioMmkvKey({reason: 'rate'})`, or any forbidden low-level mutation; the spy tests must fail.
 
 ### Migration tracking belongs to Phase 1
 
-This inventory does **not** enumerate every current call site of `kvStore.setString(...)` / `workletKvSetString(...)` that v2 must migrate to the helper. That migration list is Phase 1 implementation work, not a Phase 0 deliverable. Phase 0's contract is satisfied by naming the helper, the wrapped low-level exports, and the read-only paths the spy tests must cover.
+This inventory does **not** enumerate every current call site of `kvStore.setString(...)` / `kvStore.delete(...)` / `workletKvSetString(...)` / `workletKvDelete(...)` that v2 must migrate to the helper family. That migration list is Phase 1 implementation work, not a Phase 0 deliverable. Phase 0's contract is satisfied by naming the helper family, the wrapped low-level exports, the explicitly **un**wrapped exports (clear-all, raw MMKV) that v2 must avoid, and the read-only paths the spy tests must cover.
