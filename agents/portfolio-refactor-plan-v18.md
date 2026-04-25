@@ -189,7 +189,7 @@ Total kept: **~13,805 LOC.**
 33. **Invalid tx history / negative running balance parity.** Preserve v1 behavior from `snapshotStream.ts`, `portfolioWorkletSnapshotBuilder.ts`, `invalidHistory.ts`, `portfolioPopulateWorklet.ts`, and `portfolioStaleness.ts`: same-timestamp/block batches may be reordered greedily to avoid artificial underflow, but if processing still drives `balanceAtomic < 0`, throw `PortfolioInvalidHistoryError` / `PORTFOLIO_INVALID_HISTORY_NEGATIVE_BALANCE`, save an invalid-history marker, clear wallet snapshots while preserving that marker, do not mark the wallet populated, and do not retry that wallet while the marker is active. Recompute must omit wallets with no valid snapshots rather than publishing negative balances or clamping them into apparently-valid PnL.
 34. **`hideAllBalances` is UI-rendering-only — portfolio v2 code paths must not consume it.** `reduxAccess.ts` must not export a `getHideAllBalancesFromStore()` accessor. Triggers (`onAppLaunchPostAuth`, `onSendCompleted`, `onPullToRefresh`, `onQuoteCurrencyChanged`, `onLiveRatesUpdated`, `onShowPortfolioVisibilityChanged`, `onKeyImported`, `onWalletsDeleted`, `onWalletsVisibilityChanged`) must not branch on it. Scheduler, recompute, selectors, populate queue, `ensureFresh`, fingerprints, and `sharedPortfolioState` publish decisions must all be independent of the flag. The mask lives strictly at the UI rendering boundary: portfolio-owned components read `state.APP.hideAllBalances` directly via `useAppSelector` and apply `maskIfHidden(...)` to formatted strings + conditionally hide chart surfaces. A toggle produces zero `runOnRuntimeAsync`, zero MMKV writes, zero trigger fires, and zero recompute publishes — only React re-renders. This preserves orthogonality with "Show Portfolio" (which DOES affect data/cache) and guarantees instant reveal when the user toggles hide off.
 35. **Chart render point cap is load-bearing.** Balance chart `Series.points` and Exchange Rate chart render data must never exceed `MAX_CHART_POINTS = 89` points. For portfolio balance charts, the compute-runtime series builder applies the cap before publishing global, wallet, asset-group, and scoped series. For Exchange Rate charts, raw cached rate series may be denser, but the chart formatter/downsampler caps the rendered data before it reaches the chart component. Downsampling must preserve the resolved first and final window endpoints so first-point `pnlChange = 0`, last-point idle/scrub equality, and Exchange Rate window percent parity remain valid.
-36. **Chart sample-grid selection precedes heavy PnL math and reuses existing downsample primitives.** `resolveChartSampleGrid(...)` (name flexible) chooses at most `MAX_CHART_POINTS` timestamps for the resolved `{interval, windowStartTs, windowEndTs}` before the compute runtime runs portfolio math. The PnL formula iterates over that capped grid, not over a dense raw daily/hourly history and then trims afterward. This helper must be built on the existing shared primitives in `src/utils/portfolio/rate.ts`: `downsampleSeries(...)` / `downsampleTimestamps(...)`, with the Exchange Rate endpoint/extrema-preserving behavior extracted from `downsampleExchangeRateSeriesPreservingExtrema(...)` in `src/navigation/wallet/hooks/useExchangeRateChartData.ts` when needed. Exchange Rate chart formatting and balance-chart series construction must not maintain independent "89 point" algorithms.
+36. **Chart sample-grid selection caps emitted output, not event processing.** `resolveChartSampleGrid(...)` (name flexible) chooses at most `MAX_CHART_POINTS` timestamps for the resolved `{interval, windowStartTs, windowEndTs}`. These are the **emitted** chart sample timestamps — the points the series publishes to `Series.points`. The cost-basis state machine must still apply **every** in-window balance-change / tx event to `remainingCostBasisFiat` regardless of whether that event lands on an emitted sample timestamp; chart points are emitted at the sample grid, but cost-basis math advances through all events. Concretely: for each output sample `ti`, apply every balance-change event with `ts <= ti` to the running state, then emit one point at `ti` — a buy, sell, transfer, or receive between two sample timestamps updates cost basis before the next emitted sample, and that sample's `fiatBalance` / `remainingUnrealizedPnlFiat` / `pnlChange` / `pnlPercent` reflect the event. An implementation that iterates only the output grid and skips events between samples would silently produce wrong PnL on any window containing in-window txs. The helper must be built on the existing shared primitives in `src/utils/portfolio/rate.ts`: `downsampleSeries(...)` / `downsampleTimestamps(...)`, with the Exchange Rate endpoint/extrema-preserving behavior extracted from `downsampleExchangeRateSeriesPreservingExtrema(...)` in `src/navigation/wallet/hooks/useExchangeRateChartData.ts` when needed. Exchange Rate chart formatting and balance-chart series construction must not maintain independent "89 point" algorithms.
 37. **UI must not call generic v1 analysis / query / request APIs.** Portfolio-owned screens, components, and hooks must not import or call any of the following from `src/portfolio/v2/**` or anywhere else: `computeAnalysis(...)`, `prepareAnalysisSession(...)`, `computeSessionScope(...)`, `computeAnalysisChart(...)`, the v1 `getPortfolioRuntimeClient(...)` request methods, `portfolioClient.*` request methods, or any future "compute now from React" API. UI reads happen through `usePortfolioSlice(...)`, the typed hook façades (`usePortfolioChart`, `usePortfolioAssetRows`, `usePortfolioStatus`), or named selectors that perform O(1) lookups over `sharedPortfolioState`. Mounts schedule recompute through `scheduleRecompute(...)`; they do not invoke compute paths directly. Enforcement: an `eslint-no-restricted-imports` rule plus a v2 import-check test that greps `src/{components,navigation}/**` for any of the banned identifiers and asserts zero hits. Adding a new computation API to v2 requires either (a) routing it through `scheduleRecompute(...)` so it lands in `sharedPortfolioState`, or (b) adding it explicitly to this guardrail's allowlist with rationale. This guardrail prevents the v1 sprawl (per-screen analysis sessions, scoped query caches, chart-cache slices) from re-emerging behind new names.
 
 ---
@@ -359,11 +359,20 @@ Total kept: **~13,805 LOC.**
 > export const MAX_CHART_POINTS = 89;
 > // Point carries every field the UI displays — UI never computes fiat/PnL on the fly.
 > // `fiatBalance`: fiat value of wallet/group/total at this sample timestamp (units * markRate).
+> // `remainingUnrealizedPnlFiat`: fiatBalance - remainingCostBasisFiat at this sample
+> //   timestamp. Matches the requirement verbatim ("each point containing the timestamp,
+> //   the fiat value, and the remaining unrealized P/L"). Scrub UI displays this field
+> //   directly — do not derive it from pnlChange at render time.
 > // `pnlChange`: delta from first-series-point unrealized PnL (zero at index 0 by Phase 3 step 6).
+> //   Under v18's window-local formula, pnlChange equals remainingUnrealizedPnlFiat because
+> //   firstTotalUnrealizedPnlFiat === 0 at the window baseline by construction. Both fields
+> //   are carried explicitly so the math identity stays a formula property, not an API
+> //   contract — a future formula change would not silently break the scrub display.
 > // `pnlPercent`: unrealizedPnlFiat / remainingCostBasisFiat * 100 (zero when basis is zero or non-finite).
 > export type Point = Readonly<{
 >   ts: number;
 >   fiatBalance: number;
+>   remainingUnrealizedPnlFiat: number;
 >   pnlChange: number;
 >   pnlPercent: number;
 > }>;
@@ -398,6 +407,48 @@ Total kept: **~13,805 LOC.**
 >   memberWalletIdsKey: string;
 > }>;
 >
+> // Render metadata for an asset-list row. Published by the compute runtime on
+> // every recompute pass — including the first warm recompute before any wallet
+> // is populated — so the asset list can render left-side amounts + skeleton
+> // right side immediately. UI reads shell values directly; it must NOT iterate
+> // `memberWalletIds` to sum balances, fiat values, or PnL (guardrail #32).
+> //
+> // `currentCryptoAmount` is a display-unit aggregate string: the runtime
+> // normalizes each member wallet's atomic bigint balance into the asset group's
+> // canonical display-unit decimal convention (the group's `unitDecimals` —
+> // e.g., USDC = 6, BTC = 8), sums across the group, and formats once. UI never
+> // receives atomic balances or per-wallet strings for aggregation. Cross-chain
+> // ticker-collapse implication: USDC on ETH/Polygon/Solana all use the group's
+> // single decimal convention; per-chain atomic values are normalized to that
+> // convention before summing. `currentFiatValue` is optional: when the group's
+> // live rate is unavailable, shell publishes with `currentFiatValue: undefined`
+> // and UI renders crypto amount + blank / skeletoned fiat slot.
+> //
+> // `orderIndex` carries stable display order (position in the scope's
+> // `orderedAssetGroupIdsForAssetList`). UI renders in order; it does NOT
+> // re-sort rows by fiat value locally. Any numeric fiat values the runtime
+> // uses for its own ordering computation stay inside `buildBaseRecomputeInputs` /
+> // the ordering helper — they are not re-exposed on the shell beyond
+> // `currentFiatValue`.
+> //
+> // `memberWalletIds` is present for navigation (row tap → asset detail route
+> // carrying the wallet set) and optional wallet-count badges. It is NOT for
+> // aggregation — UI must treat it as opaque except when forwarding to
+> // navigation payloads.
+> export type AssetGroupRowShell = Readonly<{
+>   assetGroupId: string;
+>   displaySymbol: string;
+>   memberWalletIds: readonly string[];      // navigation / wallet-count only
+>   orderIndex: number;
+>   currentCryptoAmount: string;             // display-unit aggregate, not atomic
+>   currentFiatValue?: number;
+>   readyToday: boolean;
+>   readyAllTime: boolean;
+>   invalidHistoryBlocked: boolean;
+>   rowToday?: RowPayload;
+>   rowAllTime?: RowPayload;
+> }>;
+>
 > export type WalletSlice = Readonly<{
 >   walletId: string;
 >   assetGroupId: string;
@@ -417,6 +468,17 @@ Total kept: **~13,805 LOC.**
 >   total: PerIntervalSeries;
 >   totalFingerprint: string;
 >   byAssetGroup: Readonly<Record<string, AssetGroupSlice>>;
+>   // Scoped shell map. Published alongside `byAssetGroup` on every scoped
+>   // recompute — including the first warm scoped recompute before any wallet
+>   // in this scope is populated — so key-scoped asset lists (KeyOverview →
+>   // All Assets → Asset Detail) render left-side aggregates + skeleton right
+>   // side immediately without UI aggregation. Scoped shells are filtered
+>   // through the same "visible recompute-eligible ∩ populate-eligible livenet"
+>   // membership rule as global shells, but applied to this scope's wallet set.
+>   // Without scoped shells, key-scoped asset lists would either fall back to
+>   // global shells (wrong — would include wallets outside the key) or
+>   // aggregate in JS (forbidden by guardrail #32).
+>   shellsByAssetGroupId: Readonly<Record<string, AssetGroupRowShell>>;
 >   orderedAssetGroupIdsForAssetList: readonly string[];
 >   populatedAssetGroupIdsKey: string;
 >   populatedAssetGroupIdsById: Readonly<Record<string, true>>;
@@ -436,16 +498,24 @@ Total kept: **~13,805 LOC.**
 >   populatedAssetGroupIdsKey: string;
 >   populatedAssetGroupIdsById: Readonly<Record<string, true>>;
 >   // Active invalid-history marker status published for O(1) UI reads. Source
->   // is RecomputeInputs.invalidHistoryWalletIds from the queue; selectors must
->   // not read queue/MMKV during render just to decide skeleton/error-ready state.
+>   // is RecomputeInputs.invalidHistoryWalletIds from the PortfolioManifest;
+>   // selectors must not read manifest/queue/MMKV during render just to decide
+>   // skeleton/error-ready state.
 >   invalidHistoryWalletIdsKey: string;
 >   invalidHistoryWalletIdsById: Readonly<Record<string, true>>;
 >   invalidHistoryAssetGroupIdsKey: string;
 >   invalidHistoryAssetGroupIdsById: Readonly<Record<string, true>>;
 >   orderedAssetGroupIdsForAssetList: readonly string[];
->   orderRevision: number;               // monotonic across queue rebuilds
+>   orderRevision: number;               // monotonic across manifest rebuilds
 >   byAssetGroup: Readonly<Record<string, AssetGroupSlice>>;
 >   byWallet: Readonly<Record<string, WalletSlice>>;
+>   // Global (Home / All Assets / Allocation) row shells. Populated on every
+>   // recompute pass, including the first warm recompute before any wallet is
+>   // populated. UI reads these directly; it must NOT iterate each shell's
+>   // `memberWalletIds` to aggregate (guardrail #32). Scope-specific asset
+>   // lists (KeyOverview, EVM AccountDetails, key-scoped All Assets) read
+>   // `scopedByWalletSet[walletIdsKey].shellsByAssetGroupId`, NOT this map.
+>   shellsByAssetGroupId: Readonly<Record<string, AssetGroupRowShell>>;
 >   // Bounded cache of compute-runtime-produced scoped render payloads.
 >   // JS selectors only look up these entries; they never aggregate scoped rows/series.
 >   scopedByWalletSet: Readonly<Record<string, ScopedPortfolioSlice>>;
@@ -497,6 +567,7 @@ Total kept: **~13,805 LOC.**
 >   orderRevision: 0,
 >   byAssetGroup: {},
 >   byWallet: {},
+>   shellsByAssetGroupId: {},
 >   scopedByWalletSet: {},
 >   total: {},
 >   totalFingerprint: '',
@@ -504,6 +575,77 @@ Total kept: **~13,805 LOC.**
 > ```
 >
 > Verify `Interval` against `FiatRateInterval` in `core/fiatRatesShared.ts`.
+>
+> ### `src/portfolio/v2/populate/manifest.ts` — readiness state, split from the queue
+>
+> **Rationale (load-bearing for send/pull refresh correctness).** Earlier versions of this plan conflated two different concepts in `PopulateQueueV1.doneWalletIds`:
+> 1. **"Wallet has valid portfolio data and can be shown"** — render-readiness.
+> 2. **"Wallet should not be appended to the populate queue again"** — append dedupe.
+>
+> Treating #2 as a consequence of #1 breaks send-triggered and pull-to-refresh populates. `onSendCompleted({walletId: A})` calls `populateWallet(A)`. If A is already in `doneWalletIds`, the old contract made the append a no-op — meaning the send never actually re-populates the wallet. Same bug for `onPullToRefresh`'s `changedWalletIds`. The product requirement explicitly says wallet-specific populates must run after a send, so the dedupe must be scoped to "don't re-enqueue within the current refresh run," not "never re-enqueue once populated."
+>
+> V18 splits these into two persisted structures:
+>
+> ```ts
+> // Readiness state — "what wallets have valid data right now." Persisted in
+> // MMKV (not only in sharedPortfolioState) so post-kill resume reliably knows
+> // "A is already populated, show A's data immediately, but A remains refreshable."
+> // Mirrored into PortfolioState for render selectors; MMKV is source of truth.
+> export type PortfolioManifest = Readonly<{
+>   schemaVersion: 1;
+>   populatedWalletIds: readonly string[];
+>   // Wallets with an active invalid-history marker. Counted as non-pending
+>   // blockers (so they don't hide scopes forever), NOT as populated contributors
+>   // (so no clamped/corrupted PnL is ever published). See guardrail #33.
+>   invalidHistoryWalletIds: readonly string[];
+>   // Canonical populate order (visibility-ignored livenet/mainnet set) — the
+>   // display-order seed. Recompute publishes a visibility-respecting order per
+>   // scope by filtering this list against visible byWallet/byAssetGroup.
+>   populateOrderWalletIds: readonly string[];
+>   orderedAssetGroupIdsForAssetList: readonly string[];
+>   orderRevision: number;                 // monotonic across rebuilds
+>   updatedAtMs: number;
+> }>;
+>
+> // Transient per-run state. Lives alongside the manifest in MMKV so mid-run
+> // kills can resume cleanly, but contains NO render-readiness information.
+> export type PopulateQueue = Readonly<{
+>   schemaVersion: 1;
+>   runId: string;                          // new on every buildQueue / fresh kick
+>   reason: PopulateQueueReason;
+>   pendingWalletIds: readonly string[];    // work remaining in THIS run
+>   activeWalletId?: string;                // wallet currently being processed
+>   // Wallets completed within THIS run. Dedupe barrier for appendToQueue within
+>   // one runId only. A new runId starts with completedInRunWalletIds = [], so
+>   // wallets populated in a prior run can be freely enqueued by a refresh kick.
+>   completedInRunWalletIds: readonly string[];
+>   cfg: BwsConfig;
+>   ingest: SnapshotIngestConfig;
+>   pageSize: number;
+>   startedAt: number;
+> }>;
+>
+> export const PORTFOLIO_MANIFEST_KEY = 'portfolio:v2:manifest:v1';
+> export const PORTFOLIO_QUEUE_KEY = 'portfolio:v2:populate:queue:v1';
+>
+> export function loadManifest(): PortfolioManifest | null;
+> export function saveManifest(m: PortfolioManifest): void;
+> // Add/move a walletId to populatedWalletIds. Also removes it from
+> // invalidHistoryWalletIds if present (successful finish clears stale markers).
+> export function markManifestPopulated(walletId: string): void;
+> // Record a walletId as invalid-history-blocked. Also removes it from
+> // populatedWalletIds if previously populated (prior-good-now-corrupted case).
+> export function markManifestInvalidHistory(walletId: string): void;
+> // Remove a walletId from all manifest id-lists (used by onWalletsDeleted and
+> // by reconciliation when a wallet leaves the eligible set).
+> export function forgetManifestWallet(walletId: string): void;
+> ```
+>
+> **Schema validation (same discipline as loadQueue):** `loadManifest` validates `schemaVersion`, returns `null` on mismatch/parse error (logs once), and normalizes missing optional fields safely. No business-logic fields are silently migrated.
+>
+> **MMKV source of truth, mirrored into state.** Selectors read `populatedWalletIdsById` / `invalidHistoryWalletIdsById` from `sharedPortfolioState`, but those maps are built from `PortfolioManifest` during recompute. If the state mirror and manifest ever diverge, manifest is authoritative — the next recompute rebuilds the state maps from manifest. This is why boot must `loadManifest()` BEFORE the first recompute: a cold launch with no manifest publishes `EMPTY_PORTFOLIO_STATE`; a warm launch with a populated manifest publishes state reflecting already-populated wallets on the very first recompute.
+>
+> **Append dedupe rule (load-bearing contract).** `appendToQueue(walletId)` dedupes ONLY against the current run's `pendingWalletIds` / `activeWalletId` / `completedInRunWalletIds`. It does NOT read `PortfolioManifest.populatedWalletIds`. A new `runId` (created by every `startPopulate(...)` or `buildQueue(...)` call) starts with empty `completedInRunWalletIds`, so a wallet populated in a prior run may be freely re-enqueued by a refresh kick. This is the exact bug fix: manifest readiness never blocks enqueue; only "already in motion or finished within THIS run" blocks enqueue.
 >
 > ### `src/portfolio/v2/populate/resetState.ts`
 >
@@ -1202,10 +1344,10 @@ Total kept: **~13,805 LOC.**
 >    - If `deltaAtomic < 0` and prior units are positive, dispose cost basis pro rata: `remainingCostBasisFiat *= afterAtomic / beforeAtomic`.
 >    - If units become zero or negative, set both units and remaining cost basis to zero.
 >    - Clamp non-finite or negative remaining cost basis back to zero.
-> 5. At each chart sample timestamp:
+> 5. At each chart sample timestamp (only AFTER applying every in-window balance-change event with `ts <= sampleTs` per the cap rule in guardrail #36):
 >    - `fiatBalance = units * markRate`.
->    - `unrealizedPnlFiat = fiatBalance - remainingCostBasisFiat`.
->    - Per-wallet `pnlPercent = remainingCostBasisFiat > 0 ? (unrealizedPnlFiat / remainingCostBasisFiat) * 100 : 0`.
+>    - `remainingUnrealizedPnlFiat = fiatBalance - remainingCostBasisFiat`. **Emit this on the published `Point` directly** — it is a load-bearing field per the requirement ("each point containing the timestamp, the fiat value, and the remaining unrealized P/L"). Do not derive it from `pnlChange` at render time.
+>    - Per-wallet `pnlPercent = remainingCostBasisFiat > 0 ? (remainingUnrealizedPnlFiat / remainingCostBasisFiat) * 100 : 0`.
 > 6. For chart/series total points:
 >    - `totalFiatBalance = sum(wallet.fiatBalance)`.
 >    - `totalRemainingCostBasisFiat = sum(wallet.remainingCostBasisFiat)`.
@@ -1235,7 +1377,7 @@ Total kept: **~13,805 LOC.**
 > - **First-point `pnlChange = 0` exactly.** At the first emitted series point, step 6 sets `firstTotalUnrealizedPnlFiat = totalUnrealizedPnlFiat`, so `totalPnlChange = totalUnrealizedPnlFiat - firstTotalUnrealizedPnlFiat = 0` by construction. Same for per-wallet and asset-group first points (`pnlChange = pnlEnd - pnlStart` with `pnlEnd === pnlStart` at the first emitted point). The recompute MUST preserve this property — do not add smoothing / interpolation that nudges the first point off zero. The chart's y-axis baseline and the scrubbed "start of window" display both rely on this being exactly zero.
 > - **Last-point values match the idle balance header + PnL row byte-for-byte.** For every series (total / wallet / asset-group / key-scoped detail) and every interval, `series.points[last].fiatBalance`, `pnlChange`, and `pnlPercent` are the values the idle chart header + row display. The idle header's big number is `series.points[last].fiatBalance`; the idle PnL subtext below it is formatted from `series.points[last].pnlChange` and `series.points[last].pnlPercent`. There is no separate "idle" compute path — the idle display and the scrubbed-to-last-point display read from the same published point. Required parity test #76 enforces this for all series in the publishable set.
 > - **Scope consistency.** The two invariants apply per scope. For Home total, first-point = 0 across total series; last-point equals the Home idle big balance + total PnL subtext. For wallet detail, same per-wallet. For key-scoped detail, same per-key. For asset-group detail, same per-group. Cross-scope equality continues to be enforced by the existing Row/detail equality rule above.
-> - **Point cap.** Every emitted balance chart series has `series.points.length <= MAX_CHART_POINTS` (`89`). The compute runtime receives/derives a capped chart sample grid up front: if the resolved window has 89 or fewer sample timestamps, emit them all; if it has more, `resolveChartSampleGrid(...)` selects at most 89 timestamps before PnL math runs, preserving the first and final resolved window endpoints. This applies uniformly to Home total, wallet, account, key-scoped, asset-group detail, and every `scopedByWalletSet` series. Do not compute dense balance-chart arrays and trim them in React — the published render payload itself is capped, and the heavy formula only iterates the capped grid.
+> - **Point cap (emitted output only).** Every emitted balance chart series has `series.points.length <= MAX_CHART_POINTS` (`89`). The compute runtime receives/derives a capped chart sample grid up front: if the resolved window has 89 or fewer sample timestamps, emit them all; if it has more, `resolveChartSampleGrid(...)` selects at most 89 timestamps preserving the first and final resolved window endpoints. **The cap applies to emitted output, NOT to cost-basis event processing.** The formula structure is: for each output sample `ti`, apply every in-window balance-change event with `ts <= ti` to the running `remainingCostBasisFiat` / `units` state, then emit one point at `ti` with the updated state. A buy / sell / transfer / receive between two sample timestamps updates cost basis before the next emitted sample's `fiatBalance` / `remainingUnrealizedPnlFiat` / `pnlChange` / `pnlPercent` are computed. An implementation that iterates only the output grid and skips events between samples produces silently wrong PnL on any window containing in-window txs. This applies uniformly to Home total, wallet, account, key-scoped, asset-group detail, and every `scopedByWalletSet` series. Do not compute dense balance-chart arrays and trim them in React — the published render payload itself is capped, but the heavy formula processes all relevant events.
 >
 > ## Quote-switch targeted reprice
 >
@@ -1273,21 +1415,56 @@ Total kept: **~13,805 LOC.**
 >
 > **Asset:** derived from interval fingerprints.
 >
-> **Series** with first+last endpoints (O(1); mid-series mutations pinned as intentional limitation):
+> **Series — full-point hash (load-bearing for scrub correctness):**
+>
+> Earlier versions of this plan used an endpoint-only fingerprint and accepted "mid-series mutation" as a pinned limitation. That limitation is unsafe for scrub. Rate refreshes that update only middle samples, reorg-safe snapshot tip rewrites, and any compute change that adjusts middle points without changing endpoints would all produce identical endpoint fingerprints — `React.memo` skips the re-render and the chart shows stale middle points. The user can scrub onto a stale middle point and see wrong values. With the `MAX_CHART_POINTS = 89` cap, hashing every point is O(89) — bounded, non-networked, and below any rendering perf threshold.
 >
 > ```ts
-> seriesFingerprint = [
->   inputFingerprint, points.length,
->   first?.ts ?? '', first?.fiat ?? '', first?.pnl ?? '',
->   last?.ts ?? '',  last?.fiat ?? '',  last?.pnl ?? '',
-> ].join('|');
+> seriesFingerprint = hashStable([
+>   inputFingerprint,
+>   interval,
+>   windowStartTs,
+>   windowEndTs,
+>   points.length,
+>   ...points.flatMap(p => [
+>     p.ts,
+>     stableNumber(p.fiatBalance),
+>     stableNumber(p.remainingUnrealizedPnlFiat),
+>     stableNumber(p.pnlChange),
+>     stableNumber(p.pnlPercent),
+>   ]),
+> ]);
 > ```
+>
+> `hashStable(...)` is a stable scalar hash (e.g., a deterministic FNV-1a or similar over the joined string form) that produces a fixed-length output regardless of input length, so `React.memo` comparisons stay O(1) at render time. `stableNumber(...)` formats numbers deterministically so floating-point representation drift doesn't cause spurious invalidations. The full-point hash is computed once per series at recompute time, never on the render path.
 >
 > **Row:** `[fiatEnd, pnlChange, pnlPercent, rateEnd, ratePercent].map(stableFormat).join('|')`.
 >
 > ## Precomputed row payloads
 >
 > `rowToday` from `series['1D']` endpoints. `rowAllTime` from `series['ALL']`. Stored on `AssetGroupSlice`. Also store per-wallet `rowToday` / `rowAllTime` on `WalletSlice` so scoped key views can derive key-local rows without consulting Redux.
+>
+> ## Asset-group row shells (load-bearing for first-populate asset-list reveal)
+>
+> The compute runtime publishes `AssetGroupRowShell` entries on **every** recompute pass — including the first warm recompute, before any wallet has been populated. Shells are what make the asset list visible immediately on first launch with skeleton right-side cells, while PnL fills in progressively as wallets complete. Without published shells, the asset list either falls back to JS-side aggregation (forbidden by guardrail #32) or doesn't render at all until populate completes.
+>
+> **Membership rule (load-bearing for the two-set visibility model).** Shells are published for every asset group that satisfies BOTH:
+> 1. **Populate-aware** — at least one of the group's member wallets is populate-eligible (livenet/mainnet, not deleted). Visibility is ignored at this step. This anchors the group as a real asset the user holds.
+> 2. **Visibility-respecting** — at least one of the group's member wallets is also recompute-eligible (passes the visibility filter at mount/trigger time). A group whose every wallet is hidden has no visible members → no shell published → row doesn't appear.
+>
+> The two-step membership matches the broader two-set model from guardrail #30: populate eligibility decides "does this group exist," visibility decides "does it appear in display state right now."
+>
+> **`currentCryptoAmount` aggregation.** The runtime normalizes each member wallet's atomic bigint balance into the asset group's canonical display-unit decimal convention (e.g., USDC = 6 decimals across ETH / Polygon / Solana), sums across the group, and formats once into a string. UI reads `currentCryptoAmount` directly. UI must not iterate `memberWalletIds` to sum balances — the runtime already did that. Cross-chain ticker-collapse implication: when the same ticker exists on multiple chains, the group's display convention wins and per-chain atomic values are normalized to it before summing.
+>
+> **`currentFiatValue` aggregation.** Sum of `(walletCryptoAmount * liveRateForGroup)` across visible-recompute-eligible members at recompute time. If the group's live rate is unavailable (newly-imported asset, rate fetch in flight), publish `currentFiatValue: undefined`. UI renders crypto amount and a blank / skeletoned fiat slot.
+>
+> **`orderIndex`.** Stable display order — the group's position in `state.orderedAssetGroupIdsForAssetList` (or the scoped equivalent for `ScopedPortfolioSlice.shellsByAssetGroupId`). UI renders shells in `orderIndex` order; it does NOT re-sort by `currentFiatValue` locally. Numeric fiat values used internally for ordering computation stay inside `buildBaseRecomputeInputs` / the ordering helper — they are not re-exposed on the shell beyond `currentFiatValue`.
+>
+> **`readyToday` / `readyAllTime` / `invalidHistoryBlocked`.** Mirror the per-group readiness derived from `populatedWalletIdsById` ∪ `invalidHistoryWalletIdsById` membership over the group's visible wallets. `readyToday` is true iff the `1D` series is publishable for this scope (every visible wallet is populated-or-blocked); same for `readyAllTime`. `invalidHistoryBlocked` is the all-blocked predicate from earlier in this phase: every member wallet in the visible scope is in `invalidHistoryWalletIdsById`. UI uses these flags to choose between rendering the row's `rowToday` / `rowAllTime` payload, a skeleton, or an error-ready affordance.
+>
+> **Scoped shells.** `ScopedPortfolioSlice.shellsByAssetGroupId` follows the same publish rule applied to the scope's wallet set. Key-scoped All Assets / Asset Detail read scoped shells, never global shells — global shells include wallets outside the key, which would over-count the scope. Without scoped shells, key-scoped asset lists would either fall back to global shells (wrong) or aggregate in JS (forbidden).
+>
+> **Publish on warm recompute #1.** The first recompute after post-auth (`onAppLaunchPostAuth`'s warm publish, before any populate completes) must already include shells — readiness flags will all be `false`, but `currentCryptoAmount` / `currentFiatValue` / `orderIndex` / `displaySymbol` / `memberWalletIds` are computable from live data alone. This is what makes the asset list visible immediately on launch.
 >
 > ## Scoped render cache
 >
@@ -1505,15 +1682,52 @@ Total kept: **~13,805 LOC.**
 > export function selectIsWalletReady(s, walletId): boolean;
 > export function selectIsAssetGroupInvalidHistoryBlocked(s, assetGroupId): boolean;
 > export function selectIsWalletInvalidHistoryBlocked(s, walletId): boolean;
+> // Scope-specific first-populate readiness. Returns true iff EVERY wallet in
+> // `scopeWalletIds` is in (populatedWalletIdsById ∪ invalidHistoryWalletIdsById).
+> // Invalid-history wallets count as non-pending blockers (so one corrupted
+> // wallet doesn't hide a scope forever) but NOT as populated contributors —
+> // the published series is built from the populated subset only, per
+> // guardrail #33's all-blocked-vs-some-blocked rule.
+> //
+> // Replaces the earlier `selectHasAnyPopulatedWallets(s)` which was too
+> // permissive: it allowed Home charts to render after any single wallet
+> // completed, but the requirement says "balance charts should be hidden
+> // initially throughout the app and only shown on screens for which populate
+> // has finished" — Home is portfolio-scope, so it should not show until every
+> // visible Home-scope wallet is populated or invalid-history-blocked.
+> //
+> // Per-scope usage:
+> //   Home chart       → selectIsInitialScopeReady(s, allVisibleHomeWalletIds)
+> //   WalletDetails    → selectIsInitialScopeReady(s, [walletId])
+> //   AccountDetails   → selectIsInitialScopeReady(s, accountWalletIds)
+> //   KeyOverview      → selectIsInitialScopeReady(s, keyWalletIds)
+> //   Asset Detail     → selectIsInitialScopeReady(s, assetGroupVisibleWalletIds)
+> //
+> // For incremental refreshes (post-first-populate), see `useIsPortfolioRefreshing()`
+> // — stale series can stay visible while refreshing, no scope-readiness gate
+> // applies. The scope-readiness gate is for the FIRST-EVER series publish.
+> export function selectIsInitialScopeReady(s, scopeWalletIds: readonly string[]): boolean;
+> // True iff a populated/invalid-history wallet has EVER published in any scope.
+> // Used for app-level "any portfolio data exists yet" checks where appropriate;
+> // NOT for chart gating (use `selectIsInitialScopeReady` instead).
 > export function selectHasAnyPopulatedWallets(s): boolean;
 > export function selectOrderedAssetGroupIds(s): readonly string[];
+> export function selectAssetGroupRowShells(s): readonly AssetGroupRowShell[];
 > export function selectAllocationRows(s): readonly AllocationRow[];
 > export function stableWalletIdsKey(walletIds: readonly string[]): string;
 > export function selectKeySeries(s, walletIdsKey, tf): Series | undefined;
 > export function selectScopedAssetGroupSeries(s, walletIdsKey, assetGroupId, tf): Series | undefined;
 > export function selectScopedAssetGroupRows(s, walletIdsKey, mode): readonly RowPayload[];
+> export function selectScopedAssetGroupRowShells(s, walletIdsKey): readonly AssetGroupRowShell[];
 > export function selectScopedOrderedAssetGroupIds(s, walletIdsKey): readonly string[];
 > export function selectScopedIsAssetGroupInvalidHistoryBlocked(s, walletIdsKey, assetGroupId): boolean;
+> // Visibility-respecting display order for a given scope. Filters the
+> // queue-backed (visibility-ignored) `orderedAssetGroupIdsForAssetList`
+> // against the scope's published `byAssetGroup` keys, so hidden-only asset
+> // groups never appear in display order. Global Home/All Assets/Allocation
+> // use the unscoped form via `selectOrderedAssetGroupIds`; key/account routes
+> // use `selectScopedOrderedAssetGroupIds`. Both return visibility-respecting
+> // orders even though the seed order in queue/manifest is visibility-ignored.
 > ```
 >
 > `src/portfolio/v2/hooks/usePortfolioSlice.ts`:
@@ -1524,6 +1738,47 @@ Total kept: **~13,805 LOC.**
 >   areEqual?: (a: T, b: T) => boolean,
 > ): T;
 > ```
+>
+> **Implementation contract (load-bearing — do not naively compose with `useSharedValueAsState`):**
+>
+> The selector MUST run on the UI runtime via `useAnimatedReaction`, with only the *selected slice* crossing into React state via `runOnJS`. The full `PortfolioState` graph must NEVER cross the JS bridge per render. A naive composition like `selector(useSharedValueAsState(sharedPortfolioState))` would copy the whole state graph into React on every revision and run the selector on JS — exactly the "large data crossing into JS" problem the refactor exists to avoid.
+>
+> Required pattern:
+>
+> ```ts
+> import { useState } from 'react';
+> import { runOnJS, useAnimatedReaction } from 'react-native-reanimated';
+> import { sharedPortfolioState } from '../sharedState';
+>
+> export function usePortfolioSlice<T>(
+>   selector: (s: PortfolioState) => T,
+>   areEqual: (a: T, b: T) => boolean = Object.is,
+> ): T {
+>   // Initial value: run the selector ONCE on the UI runtime via the SharedValue
+>   // read — same selector body as the reaction. We extract just the slice, not
+>   // the full state, before the first React render.
+>   const [slice, setSlice] = useState<T>(() => selector(sharedPortfolioState.value));
+>
+>   useAnimatedReaction(
+>     () => {
+>       'worklet';
+>       return selector(sharedPortfolioState.value);   // selector runs on UI runtime
+>     },
+>     (next, prev) => {
+>       'worklet';
+>       if (prev !== null && areEqual(next, prev)) return;
+>       runOnJS(setSlice)(next);                        // ONLY the slice crosses to JS
+>     },
+>     [],
+>   );
+>
+>   return slice;
+> }
+> ```
+>
+> `useSharedValueAsState(sharedValue)` remains a valid helper for *small* shared values like `populateLoopRunning` (a boolean), but must NOT be used with `sharedPortfolioState` directly. The hook header / shell selectors / chart selectors all go through `usePortfolioSlice` so the selector-runs-on-UI invariant holds uniformly.
+>
+> Test coverage (also blocker test in the required-tests section): instrument the JS bridge payload size for `usePortfolioSlice` and assert it contains only the selected slice (e.g., a `Series` for a chart selector, a single `AssetGroupRowShell[]` for the asset-list selector), never the full `PortfolioState` graph.
 >
 > ### Typed route-scope descriptor
 >
@@ -1586,7 +1841,7 @@ Total kept: **~13,805 LOC.**
 > ): readonly RowPayload[] | undefined;
 >
 > // Returns whichever readiness/error-ready/refreshing state the surface needs.
-> // Internally composes selectIsAssetGroupReady / selectHasAnyPopulatedWallets /
+> // Internally composes selectIsAssetGroupReady / selectIsInitialScopeReady /
 > // useIsPortfolioRefreshing as appropriate.
 > export function usePortfolioStatus(
 >   resolved: ResolvedRouteScope,
@@ -2099,10 +2354,18 @@ Total kept: **~13,805 LOC.**
 >
 > Every kick path: guard first, reconcile, set cancel flag false, kick. The cancel-flag clear happens only inside a guarded kick — `canRunPortfolioV2Work` being true means we're not in reset, so clearing is safe. Initial and incremental populates both publish progress via `populateProgressTick`; the refreshing affordance is derived from in-flight state and does not change populate queue semantics.
 >
-> **`appendToQueue(walletId)` / `populateWallets(walletIds)` idempotency contract (load-bearing):**
-> - **Dedupe scope.** `appendToQueue(walletId)` dedupes against `queue.remainingWalletIds` and `queue.doneWalletIds`. `invalidHistoryWalletIds` is different: it records populate-blocked wallets, not successful readiness. **Non-idempotent retry seam:** `appendToQueue(B)` when `B ∈ invalidHistoryWalletIds` intentionally moves B out of `invalidHistoryWalletIds` and into `remainingWalletIds` so `runPopulate` can re-check the persisted marker. If the marker is still active, `runPopulate` re-skips B without fetching; if the marker expired, B retries. A walletId the populate loop is *currently processing* remains in `remainingWalletIds` until `markDone(walletId)` moves it to `doneWalletIds` at the end of its lifecycle. Therefore a `populateWallets([X])` call during active processing of X is an idempotent no-op against `remainingWalletIds`, and a `populateWallets([Y])` call after Y was already marked done is an idempotent no-op against `doneWalletIds`. No duplicate append in either case.
-> - **`orderRevision` rule.** `appendToQueue` does NOT bump `orderRevision` when the resulting set of walletIds (remaining ∪ done) is unchanged. It advances `orderRevision` by exactly one only when a genuinely new walletId is added that extends the ordering. Matches the `buildQueue` monotonicity invariant (guardrail #14).
-> - **Kick semantics.** `populateWallets(walletIds)` is the correct "kick the existing reconciled queue" helper when callers pass walletIds already in the queue (e.g., `onWalletsDeleted`'s post-reconcile survivors). It is NOT a "rebuild the queue from these ids" helper — pass walletIds that belong in the current queue, not a fresh replacement set. Passing exclusively already-queued ids is strictly "clear cancel flag + runPopulate kick," which is the semantic `onWalletsDeleted`, `onSendCompleted`, and `onPullToRefresh` all rely on. Callers that want a fresh queue go through `startPopulate({isFirstPopulate: true, ...})` → `buildAndSaveQueue`, not `populateWallets`.
+> **`appendToQueue(walletId)` / `populateWallets(walletIds)` idempotency contract (load-bearing — corrects the v18 send/pull-refresh bug):**
+>
+> Earlier versions of this plan deduped `appendToQueue` against a single `doneWalletIds` field that conflated "wallet has valid data" (manifest readiness) and "wallet should not be re-enqueued" (queue dedupe). That broke `onSendCompleted` and `onPullToRefresh`: a send-triggered `populateWallet(A)` against a previously populated A would no-op because A was in `doneWalletIds`, and the wallet would never re-populate. The Phase 1 split fixes this by separating manifest from queue and scoping queue dedupe to the current `runId`:
+>
+> - **Run-scoped dedupe.** `appendToQueue(walletId)` dedupes ONLY against the current run's `pendingWalletIds`, `activeWalletId`, and `completedInRunWalletIds`. It does NOT read `PortfolioManifest.populatedWalletIds` and NEVER blocks on manifest readiness. A walletId already populated in a prior run can be freely enqueued by a refresh kick — the new `runId` starts with empty `completedInRunWalletIds`, so the append succeeds.
+> - **New runId for fresh kicks.** `startPopulate(...)` and `buildQueue(...)` create a new `runId` for every fresh / first-of-its-kind kick. Refresh kicks (`populateWallet` from send, `populateWallets` from pull-to-refresh) implicitly share whichever `runId` is current — so within a single populate loop pass, dedupe works as expected; across runs (kill / resume / explicit fresh kick), prior-run completions don't block enqueue.
+> - **Refresh contract (the core bug fix).** `populateWallet(walletId)` and `populateWallets(walletIds)` are explicit refresh-allowed kick helpers. They take a wallet that may be in `manifest.populatedWalletIds` and enqueue it for re-population. The manifest entry remains during the refresh — old data stays visible in the asset list and charts via the manifest mirror in `sharedPortfolioState` — and is updated when the wallet's refresh completes. There is no "data goes blank during refresh" window.
+> - **Active-wallet semantics.** A walletId currently being processed is in `activeWalletId`, not `pendingWalletIds`. `appendToQueue(activeWalletId)` is an idempotent no-op against `activeWalletId` — the active wallet finishes its current pass first, and a follow-up refresh after that pass is a separate trigger.
+> - **Within-run dedupe.** `appendToQueue(B)` when B is already in `pendingWalletIds` (this run) is an idempotent no-op. `appendToQueue(B)` when B is already in `completedInRunWalletIds` (already finished this run) is also a no-op — a second send / pull within the same run doesn't re-enqueue. The next run can.
+> - **Invalid-history retry seam.** `appendToQueue(B)` when B is in `manifest.invalidHistoryWalletIds` intentionally enqueues B again so `runPopulate` can re-check the persisted marker. If the marker is still active, `runPopulate` re-skips B without fetching; if the marker expired, B retries. The invalid-history list is informational state for selectors, not a queue dedupe barrier.
+> - **`orderRevision` rule.** `appendToQueue` does NOT bump `orderRevision` when the resulting `populateOrderWalletIds` set is unchanged. It advances `orderRevision` by exactly one only when a genuinely new walletId extends the ordering. Re-enqueuing an already-populated wallet for refresh does NOT bump `orderRevision` — the populate order is unchanged.
+> - **Kick semantics.** `populateWallets(walletIds)` is the correct refresh kick helper. Callers may pass walletIds already in `manifest.populatedWalletIds` (refresh case), already in `pendingWalletIds` (idempotent within-run), or genuinely new (cold add). All three cases are handled by the dedupe rules above. Callers that want a fresh queue (e.g., `onShowPortfolioVisibilityChanged(true)` after a wipe) go through `startPopulate({reason: 'showPortfolioToggleOn', ...})` → new `runId` + `buildQueue(...)`, not `populateWallets`.
 > - **Single-flight interaction.** `populateWallets(...)` clears `populateCancelFlag` and dispatches `runOnRuntimeAsync(getPopulateRuntime(), runPopulate, ...)`. The populate loop is single-flight guarded by `populateLoopRunning` (guardrail #15), so a kick during an already-running loop is a no-op inside `runPopulate` (parity test #15). The kick is therefore always safe to call after `appendToQueue`, whether the loop is running or idle.
 >
 > ### `src/portfolio/v2/populate/resume.ts` (JS)
@@ -2219,10 +2482,17 @@ Total kept: **~13,805 LOC.**
 >     if (debounceRetryRef.current) clearTimeout(debounceRetryRef.current);
 >     debounceRetryRef.current = setTimeout(() => {
 >       if (!canRunPortfolioV2Work()) return;   // GUARD at fire time
->       const eligibleIds = getCurrentEligibleWalletIdSetFromStore();
+>       // POPULATE-SIDE reconcile — visibility-IGNORED so hidden livenet wallets
+>       // remain queued and populate warm data for unhide (guardrails #29–30).
+>       // Earlier versions of this plan called `getCurrentEligibleWalletIdSetFromStore()`
+>       // here, which is the recompute-side (visibility-respecting) set — that
+>       // would prune hidden livenet wallets from the queue, defeating the
+>       // warm-on-unhide invariant. Always use the populate-side set for any
+>       // populate-side `reconcileQueueAgainstEligible` call.
+>       const eligibleIds = getPopulateEligibleWalletIdSetFromStore();
 >       reconcileQueueAgainstEligible(eligibleIds);
 >       const queue = loadQueue();
->       if (!queue || queue.remainingWalletIds.length === 0) return;
+>       if (!queue || queue.pendingWalletIds.length === 0) return;
 >       populateCancelFlag.value = false;
 >       const ctx = buildPopulateRuntimeContextFromStore();
 >       runOnRuntimeAsync(getPopulateRuntime(), runPopulate, ctx)
@@ -2435,6 +2705,14 @@ Total kept: **~13,805 LOC.**
 > export function onSendCompleted(args: { walletId: string }): void {
 >   if (!canRunPortfolioV2Work()) return;        // GUARD
 >   // `populateWallet` internally filters testnet walletIds to no-op per guardrail #29.
+>   // Refresh-already-populated semantics (Phase 5 idempotency contract): the
+>   // walletId is almost always already in `manifest.populatedWalletIds` — that
+>   // is the normal case, since the user just sent from a wallet they have
+>   // populated portfolio data for. The append goes through because dedupe is
+>   // run-scoped, not manifest-scoped. The wallet's prior data stays visible
+>   // in the asset list / charts via the manifest mirror until the refresh
+>   // completes and recompute publishes updated values. See parity test
+>   // "send-after-done refresh" in the required-tests section.
 >   populateWallet(args.walletId);
 > }
 >
@@ -2656,6 +2934,13 @@ Total kept: **~13,805 LOC.**
 >   });
 >   const changedWalletIds = Array.from(new Set(args.changedWalletIds ?? []));
 >   if (changedWalletIds.length) {
+>     // Refresh-already-populated semantics (Phase 5 idempotency contract):
+>     // changedWalletIds typically contains wallets already in
+>     // `manifest.populatedWalletIds` — pull-to-refresh is by definition a
+>     // "this data may be stale, refresh it" trigger. The append goes through
+>     // because dedupe is run-scoped, not manifest-scoped. Old data stays
+>     // visible until the refresh completes. See parity test
+>     // "pull-to-refresh-after-done" in the required-tests section.
 >     populateWallets(changedWalletIds);
 >   }
 >   const base = buildBaseRecomputeInputs({
@@ -2794,9 +3079,18 @@ Total kept: **~13,805 LOC.**
 > - reads the currently relevant wallet set (all eligible wallets, or a supplied key-scoped wallet set),
 > - derives the collapsed `assetGroupId` list used by Home / All Assets / Allocation,
 > - expands each group to the raw `(coin, chain, tokenAddress)` requests the rate store needs,
-> - emits the `coins` + `assets` arrays for `ensureFresh(...)`.
+> - emits the `coins` + `assets` arrays for `ensureFresh(...)`,
+> - **always unions `{coin: 'btc'}` into the returned `coins` array, regardless of whether any user wallet owns BTC.** See the canonical-BTC invariant below.
 >
 > This preserves the product rule that UI rows are grouped by ticker while the rate-cache layer still fetches/stores by raw asset identity.
+>
+> **Canonical-BTC always-fetched invariant (load-bearing for quote-switch correctness):**
+>
+> Every `ensureFresh(...)` call whose target is `canonicalRateQuoteCurrency` must include `{coin: 'btc'}` in its `coins` set for every interval it fetches — `1D`, `1W`, `1M`, and `ALL`. The `buildEnsureFreshArgsForVisibleAssetGroups(...)` helper unions BTC in unconditionally. Rationale: the BTC FX bridge formula `rate(τ, targetQuote) = assetRate(τ, canonicalRateQuoteCurrency) * btcRate(τ, targetQuote) / btcRate(τ, canonicalRateQuoteCurrency)` requires `btcRate(τ, canonicalRateQuoteCurrency)` to be persisted for every interval the bridge reprices. If the user owns only USDC and ETH, `buildEnsureFreshArgsForVisibleAssetGroups` without BTC would never populate `rate:v1:USD:btc:*`, and the first quote switch to EUR would divide by a missing canonical BTC series. The unconditional BTC union makes the invariant structural — a future helper refactor that derives `coins` purely from visible asset groups would still preserve BTC because it is explicitly unioned after the derivation.
+>
+> Freshness semantics still apply: a BTC series that is already persisted and fresh under `maxAgeMs` does not re-fetch, so the union is effectively free on every call after the first cold populate. The batched multi-coin native path (`GET /v4/fiatrates/USD?days=N`) already batches BTC alongside other coins when they share the same interval, so the network cost is zero additional round-trips unless BTC is the only missing coin.
+>
+> Non-canonical `ensureFresh` callers do NOT need this rule. `ensureQuoteCurrencyFxBridge(...)` already fetches BTC for `targetQuoteCurrency` explicitly; that helper is the only site that targets a non-canonical quote and the BTC-only contract there is already the whole point.
 >
 > **Portfolio visibility gate:** `getShowPortfolioEnabledFromStore()` gates portfolio-owned recompute/populate work only. It must not be reused to hide or suppress the Home Exchange Rates section or the Exchange Rate detail screen, which continue on their own rate/display path even when portfolio surfaces are disabled. The Show Portfolio disable path uses the normal portfolio wipe and may clear shared `rate:v1:*` cache entries; Exchange Rates remain mounted and refetch on demand if they observe a cache miss.
 >
@@ -2871,24 +3165,32 @@ Total kept: **~13,805 LOC.**
 > - Toggling it back on starts a fresh populate-from-empty flow; portfolio-owned surfaces reappear by the same first-populate progressive reveal rules used for a cold start.
 
 ## 7a. Asset list
-> `AssetsList`: `selectOrderedAssetGroupIds`, render `AssetRowV2`. Memo on `(assetGroupId, mode)`, `areEqualByRowFingerprint`. Rows are collapsed by `assetGroupId = lowercased currencyAbbreviation`, matching current Home behavior across chains.
+> `AssetsList`: read `AssetGroupRowShell[]` directly from the runtime via `selectAssetGroupRowShells(s)` (global) or `selectScopedAssetGroupRowShells(s, walletIdsKey)` (key-scoped). Render `AssetRowV2` per shell. Memo on shell identity / `rowFingerprint`, NOT on per-wallet data. Rows are collapsed by `assetGroupId = lowercased currencyAbbreviation`, matching current Home behavior across chains.
 >
 > Product contract:
-> - Rows are visible immediately from the canonical queue-backed order, even when their PnL is not ready yet.
-> - `selectIsAssetGroupReady(...)` controls the right-side content only: ready rows show PnL, unready rows show skeletons/placeholders. If `selectIsAssetGroupInvalidHistoryBlocked(...)` (or the scoped equivalent) is true, the row may show the same skeleton footprint plus an error-ready affordance, but it still does not disappear. Do **not** hide unready rows.
-> - Home and All Assets use the same `orderedAssetGroupIdsForAssetList` mid-populate so navigation preserves continuity.
-> - Switching Today vs All Time mid-populate changes only which precomputed row payload is displayed; it must not change populate order or row visibility.
-> - When "Show Portfolio" is off, this entire asset-list surface is hidden. The setting turning back on restarts from empty and re-reveals rows by the normal progressive populate rules.
+> - **Rows visible from recompute #1 (load-bearing).** The runtime publishes shells on every recompute, including the first warm recompute before any wallet completes. UI renders shells in `orderIndex` order from the first frame. No empty asset-list state on launch.
+> - **Left side reads shell aggregates directly.** `currentCryptoAmount` (display-unit aggregate string) and `currentFiatValue?: number` come from the shell. UI formats these via the existing display utilities and applies `maskIfHidden(...)` if Hide Crypto Balances is on. UI does **not** read `state.byWallet` and sum amounts; it does **not** iterate `shell.memberWalletIds` to fetch per-wallet balances. The runtime did the aggregation; UI displays.
+> - **Right side reads `rowToday` / `rowAllTime` from the shell.** Shells expose `readyToday` / `readyAllTime` flags; when false, UI renders skeletons. When `invalidHistoryBlocked` is true, UI renders the same skeleton footprint plus an error-ready affordance. Unready rows do **not** disappear — order stays stable.
+> - **Today vs All Time toggle.** Switching the mode changes only which `rowToday` / `rowAllTime` payload is read from each shell; it must not change populate order, row visibility, or trigger any recompute.
+> - **Continuity Home → All Assets.** Both surfaces read shells from the same source (global `state.shellsByAssetGroupId`), so navigating from Home asset-list section to All Assets shows the same rows in the same order with the same readiness state. Same continuity for KeyOverview → key-scoped All Assets via `state.scopedByWalletSet[walletIdsKey].shellsByAssetGroupId`.
+> - **Show Portfolio off.** Hides the asset-list surface entirely. Toggling back on starts fresh populate; shells republish on the first recompute after re-enable, with all readiness flags initially false (skeletons), filling in as wallets complete.
+>
+> **Hard ban on UI-side aggregation (guardrail #32, lint-enforced):**
+> - UI must not iterate `shell.memberWalletIds` to derive any displayed value.
+> - UI must not read `state.byWallet` to sum amounts, fiat values, or PnL across wallets in an asset group.
+> - UI must not call any v1 analysis / query / request API (guardrail #37).
+> - The only legitimate UI use of `shell.memberWalletIds` is forwarding it to navigation routes (e.g., row tap → `AssetBalanceHistoryScreen({assetGroupId, walletIds})`) and rendering an optional wallet-count badge (`memberWalletIds.length`).
+> - Enforcement: the same `eslint-no-restricted-imports` + import-check test from guardrail #37, plus a runtime instrumentation test in the required-tests section that fails if the asset-list render reads from `state.byWallet` or sums any per-wallet field.
 
 ## 7b. Home chart + PortfolioBalance
-> Under flag: `selectTotalSeries` + `areEqualBySeriesFingerprint`. Chart keys on `series.fingerprint`. First-ever chart gating is based on valid published snapshots, not merely queue metadata. Home uses the numerator-only predicate `selectHasAnyPopulatedWallets(s)`: once at least one valid wallet has published, Home can show portfolio charts from the valid subset. Active-invalid-history wallets are visible to selectors through `invalidHistoryWalletIdsById` / `invalidHistoryAssetGroupIdsById`; they are not counted as populated/ready, and they are not treated as endlessly pending blockers. During later incremental populates Home may show a lightweight refreshing state while values update progressively.
+> Under flag: `selectTotalSeries` + `areEqualBySeriesFingerprint`. Chart keys on `series.fingerprint`. First-ever chart gating is **scope-specific**, not "any wallet populated." Home is portfolio-scope, so its chart is gated by `selectIsInitialScopeReady(s, allVisibleHomeWalletIds)` — the chart shows only when every visible Home-scope wallet is in `populatedWalletIdsById ∪ invalidHistoryWalletIdsById`. This matches the requirement that "balance charts should be hidden initially throughout the app and only shown on screens for which populate has finished" — Home's "finished" means Home's whole visible scope, not one wallet. Active-invalid-history wallets count as non-pending blockers (so one corrupted wallet doesn't hide Home forever) but NOT as populated contributors — the published series is built from the populated subset only. During later incremental populates Home may show a lightweight refreshing state while values update progressively.
 >
-> **First-ever chart gate predicate:** use `selectHasAnyPopulatedWallets(s)`. If published populated state is empty, hide charts until ready. If published populated state is non-empty, charts can continue showing current data while incremental refresh progresses. Route-specific blocked/error-ready UI reads invalid-history maps from `sharedPortfolioState`, never from the queue or MMKV during render.
-> Quote-currency switches remain immediate because they transform current chart state directly.
+> **First-ever chart gate predicate:** `selectIsInitialScopeReady(s, scopeWalletIds)` per scope. WalletDetails uses `[walletId]`; AccountDetails uses the account's wallets; KeyOverview uses the key's visible wallets; Asset Detail uses the asset group's visible wallets; Home uses all visible Home-scope wallets. The scope-specific gate replaces the earlier `selectHasAnyPopulatedWallets(s)` predicate, which was too permissive (would have shown Home after any single wallet completed). Once a scope has cleared its initial gate, incremental refresh keeps showing stale series while new values publish — the gate is for the FIRST-EVER series publish only.
+> Quote-currency switches remain immediate because the targeted reprice from `recomputeQuoteBridgeFromExistingData(...)` republishes the series.
 > If "Show Portfolio" is off, hide this Home portfolio chart/balance surface entirely, but leave the Home Exchange Rates section visible.
 
 ## 7c. Wallet / Account / Key detail
-> `WalletDetails`/`AccountDetails`: mount → `scheduleRecompute({ scope: { kind: 'wallet', walletId }, ...base })`. Subscribe `selectWalletSeries` + `areEqualBySeriesFingerprint`. `useFocusEffect` → `touchWallet`. Wallet/account charts stay hidden on first populate until that wallet is ready; on later incremental populates they may show a lightweight refreshing state while values update progressively. Use `selectHasAnyPopulatedWallets(s)` for first-ever chart gating.
+> `WalletDetails`/`AccountDetails`: mount → `scheduleRecompute({ scope: { kind: 'wallet', walletId }, ...base })`. Subscribe `selectWalletSeries` + `areEqualBySeriesFingerprint`. `useFocusEffect` → `touchWallet`. Wallet/account charts stay hidden on first populate until the scope is ready per `selectIsInitialScopeReady(s, scopeWalletIds)` — for WalletDetails the scope is `[walletId]`, for AccountDetails it is the account's wallets. On later incremental populates they may show a lightweight refreshing state while values update progressively.
 > Quote-currency switches still update the current wallet/account chart immediately.
 > If "Show Portfolio" is off, hide these portfolio chart surfaces entirely.
 >
@@ -2902,7 +3204,7 @@ Total kept: **~13,805 LOC.**
 > - Asset detail and Exchange Rate use the same interval-window helper from Phase 3.
 > - If there are no transactions in the chosen interval window, asset PnL % for that window must equal Exchange Rate % for that same window.
 > - This equality must continue to hold after quote-currency switches, including BTC-bridge quote changes.
-> - Use the same `selectHasAnyPopulatedWallets(s)` predicate for first-ever chart gating.
+> - Use `selectIsInitialScopeReady(s, assetGroupVisibleWalletIds)` for first-ever chart gating — the scope is the asset group's visible wallets at this route (global for Home-rooted asset detail, key-scoped for KeyOverview-rooted asset detail).
 > - Quote-currency switches immediately re-bridge the current asset-detail / exchange-rate values into the new quote.
 > - If asset detail renders a constituent wallet list, that list uses the same scoped `memberWalletIds` / wallet set as the chart and row. A key-scoped asset detail must not show wallets from outside that key.
 > - If "Show Portfolio" is off, hide `AssetBalanceHistoryScreen`; the separate Exchange Rate detail screen remains available and unaffected.
@@ -3197,7 +3499,7 @@ Total kept: **~13,805 LOC.**
 57. **Incremental populate progressive refresh:** app-launch refresh, send-triggered populate, and pull-to-refresh may show a lightweight refreshing state while chart/PnL values update progressively as affected wallets finish.
 58. **Cross-screen refresh propagation:** send-triggered populates and pull-to-refresh updates propagate to every affected Home / All Assets / Asset Detail / Wallet / Exchange Rate surface as recomputes publish, with no stale divergence between screens.
 59. **Heavy recomputes drain during incremental populate:** while an incremental populate has remaining wallets, heavy `scheduleRecompute` work from non-populate triggers drains normally.
-60. **First-ever chart gate predicate:** first-ever hide behavior keys off populated state (`selectHasAnyPopulatedWallets(s)`), not queue metadata.
+60. **First-ever chart gate predicate (scope-specific):** first-ever hide behavior is gated by `selectIsInitialScopeReady(s, scopeWalletIds)` per scope, NOT by the broader `selectHasAnyPopulatedWallets(s)`. Per-scope expectations: WalletDetails reveals chart when its single wallet is populated-or-invalid-history-blocked; Asset Detail reveals when every visible wallet in the asset group is populated-or-blocked; KeyOverview / AccountDetails / Home reveal only when every wallet in their respective visible scope is populated-or-blocked. A single populated wallet does NOT reveal Home (regresses the earlier too-permissive gate). Invalid-history-blocked wallets count as non-pending so one corrupted wallet does not hide a scope forever, but they do not contribute to the published series. Route-specific blocked/error-ready UI reads invalid-history maps from `sharedPortfolioState`, never from the queue/manifest/MMKV during render.
 61. **Interval-window boundary sampling:** the shared window helper resolves exact interval boundaries and linearly interpolates synthetic rate samples when no raw point exists at `startTs` / `endTs`; PnL and Exchange Rate calculations consume the same sampled boundary values so the no-tx-window parity test is deterministic and faithful to the displayed interval.
 62. **Quote-switch during populate:** while populate is active, `onQuoteCurrencyChanged(...)` runs `ensureQuoteCurrencyFxBridge(...)` then dispatches `recomputeQuoteBridgeFromExistingData(...)` on the compute runtime, which reprices from existing persisted snapshots/rates using the per-τ bridge formula. Visible screens switch quote when the reprice publishes. Populate continues unaffected (the reprice does not touch the populate queue).
 63. **No recursive render / max-depth regression:** rapid timeframe toggles and chart scrubbing on Home / Wallet / Asset Detail / Exchange Rate do not produce "maximum update depth exceeded" errors, recursive scheduler churn, or blank intermediate flashes between valid series.
@@ -3238,7 +3540,7 @@ Total kept: **~13,805 LOC.**
 
 89. **Invalid-history append retry seam:** seed B in `invalidHistoryWalletIds`. Case 1, active marker: call `populateWallets(['B'])`; assert `appendToQueue` moves B from `invalidHistoryWalletIds` to `remainingWalletIds`, then `runPopulate` loads the active marker, re-skips B without tx-history fetch/snapshot write, and records B back in `invalidHistoryWalletIds`. Case 2, expired marker: call `populateWallets(['B'])`; assert `appendToQueue` moves B to `remainingWalletIds`, `runPopulate` does not suppress the wallet because `isSnapshotInvalidHistoryMarkerActive(...)` is false, and a successful `handleFinishWalletOnPopulateWorklet(...)` clears `snap:invalid-history:v1:B`, removes B from `invalidHistoryWalletIds`, and moves B to `doneWalletIds`.
 
-90. **Invalid-history wallet never publishes clamped negative portfolio math:** seed shared/queue state where B previously failed with negative running balance. Assert recompute publishes `invalidHistoryWalletIdsById[B] === true` and the corresponding invalid-history asset-group map entry, but omits B from `byWallet`, total series, scoped slices, asset-group rows, and allocation math until a successful later populate writes valid snapshots. Assert no displayed `fiatBalance`, `pnlChange`, or `pnlPercent` is derived from a clamped negative running balance. For first-ever populate, `selectHasAnyPopulatedWallets(s)` reveals charts once completed valid wallets publish, while B remains not-ready and error-ready via invalid-history selector state.
+90. **Invalid-history wallet never publishes clamped negative portfolio math:** seed shared/queue state where B previously failed with negative running balance. Assert recompute publishes `invalidHistoryWalletIdsById[B] === true` and the corresponding invalid-history asset-group map entry, but omits B from `byWallet`, total series, scoped slices, asset-group rows, and allocation math until a successful later populate writes valid snapshots. Assert no displayed `fiatBalance`, `pnlChange`, or `pnlPercent` is derived from a clamped negative running balance. For first-ever populate, `selectIsInitialScopeReady(s, scopeWalletIds)` reveals charts once every wallet in the scope is populated-or-invalid-history-blocked; B counts as a non-pending blocker (so the scope can clear its initial gate) but does not contribute to the published series, and B's row shows error-ready state via the invalid-history selector.
 
 91. **Invalid-history queue status reconciliation:** with `remainingWalletIds = [A]`, `doneWalletIds = [B]`, `invalidHistoryWalletIds = [C]`, run `reconcileQueueAgainstEligible(...)` after deleting C or otherwise removing C from the livenet/not-deleted populate-eligible set. Assert C is removed from `invalidHistoryWalletIds`, asset-group order drops C-only groups, and `orderRevision` bumps iff order changed. Visibility-only hides must not prune C because populate eligibility is visibility-ignored. Paired assertion: `markSkippedInvalidHistory(B)` removes B from `doneWalletIds` before recording it as invalid-history skipped, preventing stale readiness if a previously-good wallet later corrupts during incremental populate.
 
@@ -3286,6 +3588,26 @@ Total kept: **~13,805 LOC.**
    - **(P4) USD → EUR → GBP two hops:** with the canonical quote still `'USD'`, dispatch `onQuoteCurrencyChanged('GBP')` after the EUR hop. Assert `ensureQuoteCurrencyFxBridge` is called with `canonicalRateQuoteCurrency: 'USD'` (not `'EUR'`!) and `targetQuoteCurrency: 'GBP'`. The bridge factor used is `btcRate(τ, GBP) / btcRate(τ, USD)` — sourced from the original USD canonical asset rates, not composed through the EUR hop. Compare the resulting GBP series to a from-scratch GBP recompute (built with the same per-τ formula, USD canonical → GBP). They must equal byte-for-byte within `1e-8`.
    - **(P5) Anti-regression:** run an instrumented variant that intentionally passes `fromQuoteCurrency: 'EUR'` to `ensureQuoteCurrencyFxBridge` for the second hop (simulating the bug where `getQuoteCurrencyFromStore()` was used instead of canonical). Assert this produces *different* GBP series than (P4) on the in-window-tx fixture, proving the test would catch the regression. The wrong-source path either crashes (no `rate:v1:EUR:*` asset series exists for non-BTC assets) or composes a chain that diverges from canonical-direct. Either failure mode is acceptable for the regression — the point is that the test *catches* it.
    - Paired no-tx fixture: same comparisons on a window with zero in-window txs must also match (P1)/(P3)/(P4) byte-for-byte — the canonical-vs-display distinction still matters even without txs because `btcRate(τ, EUR) / btcRate(τ, USD)` differs from `btcRate(τ, EUR) / btcRate(τ, EUR) === 1` at the second hop's source.
+
+102. **Send-after-done refresh (load-bearing for queue/manifest split):** seed `manifest.populatedWalletIds = ['A']` (A has valid portfolio data on disk) and an idle populate state (no active queue or empty `pendingWalletIds`). Dispatch `onSendCompleted({walletId: 'A'})`. Assert: (a) `populateWallet('A')` is called; (b) `appendToQueue('A')` succeeds and adds A to `pendingWalletIds` even though A is in `manifest.populatedWalletIds` — the dedupe is run-scoped, not manifest-scoped; (c) `runPopulate` runs and re-populates A; (d) during the refresh, A's prior portfolio data stays visible in the asset list (shell `currentCryptoAmount` / `currentFiatValue` / `rowToday` / `rowAllTime` reflect the manifest-mirrored prior state, not blanks); (e) on completion, recompute publishes updated values for A and the asset list updates. Anti-regression variant: stub `appendToQueue` to dedupe against `manifest.populatedWalletIds` (the old buggy behavior) — assert the test fails with "send refresh did not re-populate," proving the test catches the regression.
+
+103. **Pull-to-refresh-after-done refresh (same load-bearing fix, different trigger):** seed `manifest.populatedWalletIds = ['A', 'B', 'C']`. Dispatch `onPullToRefresh({changedWalletIds: ['A', 'B']})`. Assert: (a) `ensureFresh(...)` runs first per the per-trigger ordering table; (b) `populateWallets(['A', 'B'])` is called and both wallets enter `pendingWalletIds` despite being in `manifest.populatedWalletIds`; (c) C is NOT enqueued (not in `changedWalletIds`); (d) A's and B's prior data stay visible during the refresh; (e) on completion, recompute publishes updated values for A and B; C's published series is unchanged. Anti-regression: same stub as test #102 against `manifest.populatedWalletIds`.
+
+104. **Hidden livenet wallet stays in populate queue but absent from display state (load-bearing for two-set visibility model):** seed an eligible wallet set `[A (visible), B (hidden via hideWallet), C (visible)]`, all livenet. Dispatch `startPopulate({reason: 'initial'})`. Assert: (a) `buildQueue` includes B in `populateOrderWalletIds` and `pendingWalletIds` (populate-side, visibility-IGNORED); (b) populate runs for B and B's `snap:*` MMKV keys are written; (c) `manifest.populatedWalletIds` includes B after completion; (d) `state.byWallet[B]` is **absent** from published state because recompute eligibility is visibility-RESPECTING; (e) `state.shellsByAssetGroupId` does NOT include B-only asset groups; (f) Home / All Assets / Allocation render without B; (g) on dispatch unhide, the next recompute publishes B in `byWallet` and shells without any populate kick (data is warm). Paired anti-regression: change the retry handler in `PortfolioV2Root` to use `getCurrentEligibleWalletIdSetFromStore()` (visibility-respecting, the buggy version) — assert B gets pruned from the queue post-retry. The fixed version uses `getPopulateEligibleWalletIdSetFromStore()` and B remains queued.
+
+105. **Mid-series fingerprint invalidation (load-bearing for full-point hash):** seed a published series with N=10 points, fingerprint F1. Mutate only point[5] (a middle point) to a new value while keeping point[0] and point[N-1] identical. Recompute and publish a new series with the same first/last endpoints but different middle point. Assert: (a) the new series's fingerprint F2 ≠ F1 — the full-point hash detects the middle change; (b) `React.memo` on the chart component does not skip the re-render — `areEqualBySeriesFingerprint(prev, next) === false`; (c) scrub at index 5 displays the new middle value, not stale data. Anti-regression: revert the fingerprint to the endpoint-only version and assert the test fails — F1 === F2 with endpoint-only hashing, so the chart wrongly skips the re-render and scrub returns the stale value.
+
+106. **Transaction event between emitted chart samples (load-bearing for resolveChartSampleGrid wording):** build a fixture where the resolved 1D window has 24 hourly chart sample timestamps, but the user has a buy event at 10:30 — between the 10:00 and 11:00 samples. Assert: (a) the cost-basis state machine processes the 10:30 event before emitting the 11:00 sample; (b) the 11:00 sample's `fiatBalance` reflects the post-buy units; (c) the 11:00 sample's `remainingCostBasisFiat` reflects the post-buy basis (basis += `deltaUnits * rate(10:30)`); (d) the 11:00 sample's `pnlChange` and `pnlPercent` reflect the updated basis. Anti-regression: implement an alternative formula that iterates only over emitted sample timestamps (skipping the 10:30 event because it doesn't land on a sample) — assert that variant produces a wrong 11:00 sample (specifically, basis is unchanged from 10:00 because the 10:30 event was skipped). The test catches "iterate only the capped grid" implementations.
+
+107. **Quote switch with no BTC wallet (load-bearing for canonical-BTC always-fetched invariant):** seed a portfolio with only USDC and ETH wallets — no BTC wallet exists at any chain. Run a full populate; assert that despite no user-owned BTC, `rate:v1:USD:btc:1D`, `rate:v1:USD:btc:1W`, `rate:v1:USD:btc:1M`, and `rate:v1:USD:btc:ALL` all exist in MMKV after populate completes. The canonical-BTC always-fetched invariant unioned BTC into the `coins` set in `buildEnsureFreshArgsForVisibleAssetGroups(...)`. Now dispatch `onQuoteCurrencyChanged('EUR')`. Assert: (a) `ensureQuoteCurrencyFxBridge` fetches `rate:v1:EUR:btc:*` for all four canonical intervals; (b) `recomputeQuoteBridgeFromExistingData(...)` reads `rate:v1:USD:btc:*` (already persisted) and `rate:v1:EUR:btc:*` (just fetched) without crashing or returning NaN; (c) the EUR-quoted USDC and ETH series are computed correctly via the per-τ bridge formula. Anti-regression: revert the canonical-BTC invariant (remove the BTC union from `buildEnsureFreshArgsForVisibleAssetGroups`) — assert the EUR quote switch crashes or produces NaN values because `btcRate(τ, USD)` is missing from MMKV.
+
+108. **`usePortfolioSlice` selected-slice-only bridge payload (load-bearing for performance):** instrument the `runOnJS(setSlice)` call inside `usePortfolioSlice` to capture the payload size and structure on every revision. Mount a chart component using `usePortfolioSlice(selectTotalSeries('1D'))` and an asset list using `usePortfolioSlice(selectAssetGroupRowShells)`. Trigger 10 recomputes that change distinct sub-states. Assert: (a) the chart's bridge payload contains only one `Series` object (the 1D series), not the full `PortfolioState` graph; specifically, the payload does NOT contain `byWallet`, `byAssetGroup`, `scopedByWalletSet`, or any other unrelated slice; (b) the asset list's bridge payload contains only the `AssetGroupRowShell[]` array, not the full state; (c) when a recompute changes only a slice that the chart's selector doesn't read (e.g., a wallet-detail recompute that doesn't affect Home total), the chart's bridge payload is NOT sent (`areEqual` returns true, no `runOnJS` fires). Anti-regression: replace the implementation with `selector(useSharedValueAsState(sharedPortfolioState))` and assert the bridge payload contains the entire state graph — the test catches the naive composition.
+
+109. **Asset-group row shell published on warm recompute #1 (load-bearing for first-populate UX):** boot the app with no prior queue and no manifest (cold first launch). Mock the populate runtime to never actually populate. Dispatch `onAppLaunchPostAuth(...)`. Assert: (a) the first published `sharedPortfolioState` revision (after `await waitForRecomputeDrainToStop()`) contains `shellsByAssetGroupId` populated with one entry per visible recompute-eligible asset group; (b) every shell has `readyToday: false`, `readyAllTime: false`, `invalidHistoryBlocked: false`, `rowToday: undefined`, `rowAllTime: undefined`; (c) every shell has a non-empty `currentCryptoAmount` string and (when live rate is available) a finite `currentFiatValue`; (d) every shell has a stable `orderIndex` from the populate-order seed filtered through visibility; (e) the asset list renders with all rows visible at first frame, left-side amounts populated, right-side skeletons. Anti-regression: skip the shell publish on warm recompute (only publish when at least one wallet is populated) — assert the asset list is empty on first launch, regressing the UX requirement.
+
+110. **Scoped row shell published before scoped PnL is ready (key-scoped variant of #109):** seed a key K with wallets [A, B], visible. Mount `KeyOverview` for K with no scoped recompute yet published. Dispatch the mount-time `scheduleRecompute({scope: {kind: 'wallets', walletIds: [A, B]}, ...})`. Assert the warm scoped recompute publishes `state.scopedByWalletSet[walletIdsKey].shellsByAssetGroupId` containing scoped row shells with all readiness flags false but with scoped-aggregate `currentCryptoAmount` and `currentFiatValue`. Then populate A and B and dispatch progress recomputes. Assert the scoped shells update their readiness flags and `rowToday` / `rowAllTime` fields as wallets complete. Critical anti-regression: assert the scoped shells include only A's and B's wallets in their aggregation — instrument the test to check that `currentCryptoAmount` does NOT include any wallet outside `[A, B]` (no leak from global shells).
+
+111. **UI must not aggregate via `memberWalletIds` (lint + runtime instrumentation):** static check — grep all of `src/components/**`, `src/navigation/**`, and `src/portfolio/v2/hooks/**` for `.reduce(`, `.map(`, `.forEach(`, or any iteration over `shell.memberWalletIds` followed by an arithmetic operation, `state.byWallet`, or `state.byAssetGroup` access. Assert zero matches (allowlist exemption: forwarding `memberWalletIds` as a navigation route param, or rendering `memberWalletIds.length` as a wallet-count badge). Runtime instrumentation: in a test render of `AssetsList`, wrap `state.byWallet` and `state.byAssetGroup` proxies with access counters. Render the asset list with seeded shells. Assert zero proxy reads outside the shell map itself (`state.shellsByAssetGroupId` reads are allowed). Anti-regression: introduce a row component that sums `memberWalletIds.map(id => state.byWallet[id].fiatValue)` and assert the test fails with "UI aggregated via member ids — guardrail #32 violation."
 
 ---
 
