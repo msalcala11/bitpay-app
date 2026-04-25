@@ -363,7 +363,7 @@ The Exchange Rate screen's `useRuntimeFiatRateSeriesCache(...)` hook is the natu
 
 ## 14. JS-thread helper module surface (Nitro spy targets)
 
-For the Phase 5 + Phase 2 Nitro boundary tests (test #120 in the plan's lock-blocker test list).
+For the Phase 5 + Phase 2 Nitro boundary tests (currently test #120 in the plan's lock-blocker test list).
 
 ### `src/portfolio/adapters/rn/txHistorySigning.ts` (1112 LOC)
 
@@ -419,7 +419,7 @@ No JS-tagged exports — nothing to spy on for this module. Boundary tests asser
 
 The intent matches the txhistory boundary test, but the assertion shape differs because the BWS module has no JS surface to spy on — instead the test asserts on transport-level invariants (no JS HTTP, dispatch goes to rate-fetch runtime).
 
-### Spy-target summary (for test #120 instrumentation)
+### Spy-target summary (for Nitro boundary tests instrumentation, currently test #120)
 
 ```ts
 // JS-thread spy targets — assert spies have zero calls during populate / ensureFresh:
