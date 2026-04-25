@@ -528,7 +528,7 @@ Phase 0/8b acceptance also requires that each module in `src/portfolio/adapters/
 
 ---
 
-## 20. MMKV write spy-target inventory
+## 20. MMKV mutation spy-target inventory
 
 Phase 0 acceptance requires that the MMKV mutation spy-target surface be checked in so the Phase 5/6 zero-write tests for timeframe switches, chart scrubbing, and passive live-rate touches have a stable set of exports to intercept (decision #37). The v2 mutation helpers do not exist yet — they are Phase 1 deliverables. This inventory records the future helper family plus every current low-level mutation export the spy tests must intercept, so that:
 
