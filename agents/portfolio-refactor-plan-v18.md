@@ -111,6 +111,7 @@ Total kept: **~13,805 LOC.**
 - **Scoped render cache** — bounded `sharedPortfolioState.scopedByWalletSet[walletIdsKey]` cache of compute-runtime-produced render payloads for key/account/custom wallet scopes. Entries contain scoped total series, scoped asset-group slices, scoped row payloads, scoped order, readiness, invalid-history status, and fingerprints. JS selectors only select from this cache; missing entries return `undefined` / skeleton state until an explicit heavy recompute publishes the scope.
 - **Invalid-history marker** — v1-compatible `snap:invalid-history:v1:<walletId>` marker produced when snapshot building detects a corrupted tx history that drives the wallet's running balance negative. Shape comes from `src/portfolio/core/pnl/invalidHistory.ts`: `{v: 1, walletId, reason: 'negative_balance', detectedAt, retryAfter, message, source?, txId?, balanceAtomic?}` with a 24h default cooldown. Active markers suppress auto-populate for that wallet; successful later populate clears the marker.
 - **Stored fiat-rate interval** — canonical persisted/fetched interval in `{1D, 1W, 1M, ALL}`. Displayed `3M`, `1Y`, and `5Y` are derived from `ALL`.
+- **Canonical rate quote currency** — the stable quote currency in which asset rate series are persisted under `rate:v1:<QUOTE>:*`. Distinct from the user's currently-displayed quote (`getQuoteCurrencyFromStore()`). Determined at populate time by whichever quote `ensureFresh` originally fetched/persisted asset rates under (typically `'USD'`). Quote-switch reprice always bridges from this canonical quote to the target quote regardless of what the user is currently viewing — that invariant is what makes multi-hop chains (USD → EUR → GBP → JPY) correct. Switching the canonical quote itself is out of scope; it would require re-fetching every asset rate series, which is exactly what the BTC bridge exists to avoid. Phase 1 surfaces this via `getCanonicalRateQuoteCurrencyFromStore()` in `reduxAccess.ts`. See Phase 2's canonical-rate-quote rule and parity test #101.
 - **Chart point cap** — `MAX_CHART_POINTS = 89`, matching the current `FIAT_RATE_SERIES_TARGET_POINTS` constant in `src/store/rate/rate.models.ts:49`. Every balance chart's published `Series.points` array and every rendered Exchange Rate chart data array must have `length <= 89`. Raw MMKV rate series may contain more points; render/publish payloads may not.
 - **`FiatRateAssetRef`** — `{coin, chain?, tokenAddress?}` (defined at `src/portfolio/core/fiatRatesShared.ts:8`). Output of `getFiatRateAssetRef(...)` in `src/portfolio/core/pnl/rates.ts:28`, the canonical classifier for the v2 rate path. A kernel-local parity copy exists in `src/portfolio/runtime/worklet/portfolioWorkletAnalysis.ts:91` for analysis-side use (retained per guardrail #2); v2 paths must import from `rates.ts`, not duplicate the logic a third time. A native coin has only `coin` populated and routes through the batched multi-coin path `GET /v4/fiatrates/{QUOTE}?days={N}`. A valid token wallet has all three fields populated and routes through the per-token path `GET /v4/fiatrates/{QUOTE}?days={N}&chain={chain}&tokenAddress={tokenAddress}`. Classifier rules: coin-normalization aliases (`wbtc→btc`, `weth→eth`, `matic→pol`), legacy ETH-side MATIC token (normalized `coin='pol'` with `chain='eth' + tokenAddress='0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0'` — applies to both `currencyAbbreviation='pol'` and `'matic'` inputs since normalization maps `matic → pol`) reclassified to native POL, chain-case normalization (lowercase), token-address case-sensitivity (`{'sol', 'solana'}` preserve case; others lowercased). See Phase 2 "V4 fiat-rates endpoint contract" for the full fetch semantics.
 - **Refreshing portfolio state** — lightweight UI state set by incremental populate triggers. It may show subtle loading affordances, but it does not block progressive chart/PnL updates.
@@ -660,6 +661,17 @@ Total kept: **~13,805 LOC.**
 > // Typed accessors. State paths must match Phase 0 inventory.
 > // IMPORTANT: all reads inside function bodies. Never at module top level.
 > export function getQuoteCurrencyFromStore(): string;
+> // Stable persisted-rates quote — the quote in which asset rate series are stored
+> // under `rate:v1:<QUOTE>:*`. NOT the user's currently-displayed quote (that is
+> // `getQuoteCurrencyFromStore()`). Used by `onQuoteCurrencyChanged(...)` and
+> // `recomputeQuoteBridgeFromExistingData(...)` so multi-hop quote switches
+> // (USD → EUR → GBP → ...) always bridge from the same canonical source.
+> // Phase 0 inventory must identify the exact state path; default expectation
+> // is "whatever quote ensureFresh originally fetched/persisted asset rates under
+> // at populate time" (typically `'USD'`). Switching the canonical quote is out
+> // of scope — it would require re-fetching every asset rate series. See Phase 2's
+> // canonical-rate-quote rule.
+> export function getCanonicalRateQuoteCurrencyFromStore(): string;
 > export function getShowPortfolioEnabledFromStore(): boolean;
 > // Livenet + not deleted + VISIBLE (respects hideKeyBalance / hideAccount / hideWallet / hideWalletByAccount / hideBalance).
 > // Drives buildBaseRecomputeInputs → scheduleRecompute inputs. Guardrail #30.
@@ -1066,20 +1078,29 @@ Total kept: **~13,805 LOC.**
 >
 > ```ts
 > export async function ensureQuoteCurrencyFxBridge(args: {
->   fromQuoteCurrency: string;
->   toQuoteCurrency: string;
+>   // The quote in which asset rates are persisted. NOT the user's currently-displayed
+>   // quote — that distinction is load-bearing for multi-hop switches (USD → EUR → GBP).
+>   // See the canonical-rate-quote rule below.
+>   canonicalRateQuoteCurrency: string;
+>   targetQuoteCurrency: string;
 >   intervals: readonly StoredRateInterval[]; // canonical subset only
 > }): Promise<FxBridgeSnapshot>;
 > ```
 >
+> **Canonical rate quote (load-bearing for multi-hop quote switches).**
+>
+> The bridge always sources from a single stable `canonicalRateQuoteCurrency` — the quote in which asset rate series are persisted under `rate:v1:<QUOTE>:*` — never from whatever quote the user happens to be displaying right now. Otherwise USD → EUR → GBP would either need EUR-quoted asset rate series persisted between hops (which the spec doesn't fetch) or it would compose `bridge(USD→EUR) ∘ bridge(EUR→GBP)` against EUR asset rates that don't exist. Always bridge `canonicalRateQuoteCurrency → targetQuoteCurrency` directly using the formula in Phase 3, regardless of the user's current display quote.
+>
+> The canonical quote is fixed for a given populate (it's whatever quote `ensureFresh` originally fetched / persisted asset rates under at populate time — typically `'USD'`, but determined by the populate path's quote selection, not by user display preference). Implementations must surface a stable accessor like `getCanonicalRateQuoteCurrencyFromStore()` so triggers, the bridge helper, and the reprice helper all read the same value. Switching the canonical quote is out of scope — it would require re-fetching every asset rate series, which is exactly what the bridge exists to avoid.
+>
 > Required behavior:
-> - Fetch/persist only BTC series for the target quote currency and canonical stored intervals (`1D`, `1W`, `1M`, `ALL`).
-> - Derive the old-quote -> new-quote bridge factor from persisted BTC data.
-> - Hand the bridge snapshot to `recomputeQuoteBridgeFromExistingData(...)`, a compute-runtime helper from Phase 3 that re-prices the existing portfolio data into the new quote currency.
-> - `recomputeQuoteBridgeFromExistingData(...)` may read existing persisted snapshots and existing canonical-quote rate series on the compute runtime, but must not fetch per-asset rates in the new quote currency. It is a targeted reprice, not a scalar transform of `sharedPortfolioState`. It is **not** a "shared-state-only" transform — that wording was a correctness loophole because cost basis is built from per-tx-event rate lookups that cannot be reconstructed from a single bridge factor applied to published values. See Phase 3's pinned per-τ rate-lookup formula.
-> - Do **not** call `ensureFresh(...)` for every visible asset group on quote switch. The only network work is the BTC bridge fetch above.
+> - Fetch/persist only BTC series for the **target** quote currency and canonical stored intervals (`1D`, `1W`, `1M`, `ALL`). BTC series for the canonical quote are already persisted (they were fetched as part of normal populate).
+> - The bridge factor at any timestamp τ is `btcRate(τ, targetQuoteCurrency) / btcRate(τ, canonicalRateQuoteCurrency)`. Both BTC series come from MMKV after the fetch step above.
+> - Hand the bridge snapshot to `recomputeQuoteBridgeFromExistingData(...)`, a compute-runtime helper from Phase 3 that re-prices the existing portfolio data into the target quote currency using the per-τ formula.
+> - `recomputeQuoteBridgeFromExistingData(...)` may read existing persisted snapshots and persisted asset rate series in `canonicalRateQuoteCurrency` on the compute runtime, but must not fetch per-asset rates in any quote. It is a targeted reprice, not a scalar transform of `sharedPortfolioState`. It is **not** a "shared-state-only" transform — that wording was a correctness loophole because cost basis is built from per-tx-event rate lookups that cannot be reconstructed from a single bridge factor applied to published values. See Phase 3's pinned per-τ rate-lookup formula.
+> - Do **not** call `ensureFresh(...)` for every visible asset group on quote switch. The only network work is the BTC-bridge fetch above.
 > - Displayed `3M` / `1Y` / `5Y` still derive from `ALL` after the bridge is applied.
-> - This bridge path is what allows quote switches to publish correctly without forcing per-asset new-quote fetches.
+> - This bridge path is what allows quote switches to publish correctly without forcing per-asset new-quote fetches and supports arbitrary-length hop chains (USD → EUR → GBP → JPY → ...) because every hop bridges from the same canonical source.
 >
 > **Branch-specific concurrency wrapping:** depending on Phase 0.5 spike results (guardrail #27), `ensureFresh`'s `runOnRuntimeAsync` call and/or the target runtime may be wrapped with additional concurrency primitives. Branch A: no additional populate-vs-rate wrapping. Branch B: `portfolioRuntimeSerial` executor. Branch C: target `getRateFetchRuntime()` instead of `getPopulateRuntime()`. Branch D: worklet-side lock inside `loadSeriesWorkletWithContext`. Identical-args dedupe is always on. If probe 3 is dirty/flaky, additionally serialize non-identical `ensureFresh` calls at the JS level. See Phase 0.5 branch table for exact implementation per spike outcome.
 >
@@ -1219,21 +1240,26 @@ Total kept: **~13,805 LOC.**
 > **Why this is a reprice, not a transform.** A scalar bridge of published `fiatBalance(t)` is correct because `fiatBalance(t) = units(t) * rate(t)` is linear at a single timestamp. But `remainingCostBasisFiat` accumulates over prior tx events at *different* τ's: `Σ deltaUnits(τ) * rate(τ, quote)`. Each event has its own bridge factor `bridge(τ) = btcRate(τ, newQuote) / btcRate(τ, fromQuote)`, so the new cost basis is **not** equal to `oldCostBasis(t) * bridge(t)` whenever the window contains in-window balance changes. The only correct path is to recompute cost basis with bridge-aware rate lookups at every τ.
 >
 > Required behavior:
-> - Run on the compute runtime. Read existing persisted snapshots (per-tx events) and existing canonical/from-quote rate series. **Do not fetch per-asset rates in the new quote currency.** The only network input is the BTC bridge series the trigger already fetched via `ensureQuoteCurrencyFxBridge(...)`.
+> - Run on the compute runtime. Read existing persisted snapshots (per-tx events) and existing asset rate series in `canonicalRateQuoteCurrency`. **Do not fetch per-asset rates in any quote currency.** The only network input is the BTC bridge series the trigger already fetched via `ensureQuoteCurrencyFxBridge(...)`.
+> - Always bridge from `canonicalRateQuoteCurrency` (the persisted-rates quote) to the target quote, regardless of the user's currently-displayed quote. See Phase 2's canonical-rate-quote rule.
 > - Use the pinned per-τ rate formula below at every rate lookup the recompute performs — baseline `t0`, every chart sample `ti`, and every in-window balance-change / tx timestamp `τ`.
 > - Reprice all global slices, wallet slices, and every bounded `scopedByWalletSet` entry. Preserve readiness / invalid-history / order state; this helper does not change populate eligibility or queue state.
 > - Do not consult `loadQueue()` / `queue.doneWalletIds`. Reprice operates on whatever is already populated; the queue is unchanged by a quote switch.
 >
-> **Pinned per-τ rate-lookup formula (load-bearing for quote-switch correctness):**
+> **Pinned per-τ rate-lookup formula (load-bearing for quote-switch correctness, including multi-hop):**
 >
 > ```
-> rate(τ, newQuote) = assetRate(τ, fromQuote) * btcRate(τ, newQuote) / btcRate(τ, fromQuote)
+> rate(τ, targetQuote) = assetRate(τ, canonicalRateQuoteCurrency)
+>                      * btcRate(τ, targetQuote)
+>                      / btcRate(τ, canonicalRateQuoteCurrency)
 > ```
+>
+> Note: `canonicalRateQuoteCurrency` is the stable persisted-rates quote, NOT the user's current display quote. A USD → EUR → GBP chain is two separate `(canonical → target)` bridges (USD → EUR, then USD → GBP), not a composition of consecutive (display → target) bridges. See Phase 2's canonical-rate-quote rule and parity test #101.
 >
 > This formula must be applied at:
-> - **Baseline `t0`** — `baselineRate = rate(t0, newQuote)` for every wallet's window-start cost basis.
-> - **Every chart sample `ti`** — `markRate = rate(ti, newQuote)` for `fiatBalance(ti)`.
-> - **Every in-window balance-change / tx timestamp `τ`** — `rateAtChange = rate(τ, newQuote)` for cost-basis updates `remainingCostBasisFiat += deltaUnits * rate(τ, newQuote)`.
+> - **Baseline `t0`** — `baselineRate = rate(t0, targetQuote)` for every wallet's window-start cost basis.
+> - **Every chart sample `ti`** — `markRate = rate(ti, targetQuote)` for `fiatBalance(ti)`.
+> - **Every in-window balance-change / tx timestamp `τ`** — `rateAtChange = rate(τ, targetQuote)` for cost-basis updates `remainingCostBasisFiat += deltaUnits * rate(τ, targetQuote)`.
 >
 > A previous version of this plan described `recomputeQuoteBridgeFromExistingData(...)` as a "shared-state-only transform." That wording was a correctness loophole — applying a single bridge factor to published `pnlChange` / `pnlPercent` produces wrong values whenever a window contains in-window txs, because cost basis is path-dependent on per-event rates. The reprice above is the correct contract.
 >
@@ -1664,18 +1690,35 @@ Total kept: **~13,805 LOC.**
 > ### `src/portfolio/v2/populate/queue.ts`
 >
 > ```ts
-> // Telemetry-only; classifies why the queue was last (re)built. Used by log
-> // tags and Sentry breadcrumbs so production populate behavior can be diagnosed
-> // without inferring from which trigger fired. NOT consulted by any business
-> // logic — populate ordering, eligibility, and recompute behavior are
-> // independent of `reason`.
+> // Telemetry-only; classifies why the queue was last *rebuilt* via `buildQueue`.
+> // Used by log tags and Sentry breadcrumbs so production populate behavior can
+> // be diagnosed without inferring from which trigger fired. NOT consulted by
+> // any business logic — populate ordering, eligibility, and recompute behavior
+> // are all independent of `reason`.
+> //
+> // SCOPE: rebuild paths only. Append paths (`appendToQueue` / `populateWallet` /
+> // `populateWallets`) do NOT update `reason` — they don't rebuild the queue, so
+> // there is nothing to relabel. The "last kick reason" is implicit in the
+> // populate-progress publish path and does not need a separate field.
+> //
+> // Rebuild paths are limited to `startPopulate(...)`-style cold/fresh kicks:
+> //   - `'initial'`              — first-ever populate after install / clear
+> //   - `'appLaunchIncremental'` — post-auth `maybeResumePopulateOnLaunch` rebuilt
+> //                                 the queue because the wallet set changed
+> //                                 across sessions (key imported between launches,
+> //                                 etc.). Pure resume of an unchanged queue does
+> //                                 NOT rebuild and does NOT update `reason`.
+> //   - `'showPortfolioToggleOn'` — fresh populate after Show Portfolio re-enable
+> //   - `'manual'`               — debug screen or other explicit force-rebuild path
+> //
+> // If a future kick path needs telemetry granularity that's *not* rebuild-shaped
+> // (e.g., per-send breadcrumbs), add a separate event/log tag at the kick site
+> // rather than extending this enum and updating it from append paths.
 > type PopulateQueueReason =
->   | 'initial'              // first-ever populate from cold start
->   | 'appLaunchIncremental' // post-auth resume on a non-cold start
->   | 'send'                 // onSendCompleted kicked the affected wallet
->   | 'pullToRefresh'        // user-initiated refresh from Home / KeyOverview / etc.
->   | 'keyImport'            // onKeyImported kicked the new key's wallets
->   | 'manual';              // debug screen or other explicit kick path
+>   | 'initial'
+>   | 'appLaunchIncremental'
+>   | 'showPortfolioToggleOn'
+>   | 'manual';
 >
 > type PopulateQueueV1 = {
 >   schemaVersion: 1;
@@ -1790,7 +1833,12 @@ Total kept: **~13,805 LOC.**
 >
 > Treating invalid version or parse error as null causes populate to fall back to fresh queue on next kick — same recovery path as "no queue exists." Safest behavior for future schema migrations or persisted corruption. `logOnce` deduplicates per-message-per-session so a recurring invalid queue doesn't spam logs.
 >
-> Missing `invalidHistoryWalletIds` is the one allowed schemaVersion-1 normalization because it only affects in-flight queue status and defaults safely to empty. Any future required persisted field should bump `schemaVersion` instead of adding more silent migrations.
+> Two narrow schemaVersion-1 forward-compatible normalizations are allowed because both fields default safely and neither affects populate ordering, eligibility, or recompute math:
+>
+> 1. **Missing `invalidHistoryWalletIds`** — defaults to `[]` (empty). Only affects in-flight queue status display.
+> 2. **Missing or unknown `reason`** — defaults to `'manual'` (the most neutral telemetry tag). `reason` is telemetry-only per its type comment; a stale `'manual'` tag has no behavioral consequence.
+>
+> Any future required persisted field that affects business logic (populate eligibility, queue ordering, recompute inputs, etc.) must bump `schemaVersion` instead of adding more silent migrations. The schema-version validation tests below cover both normalizations explicitly.
 >
 > MMKV key: `portfolio:v2:populate:queue:v1`.
 >
@@ -2317,10 +2365,17 @@ Total kept: **~13,805 LOC.**
 >   // resume" — see required parity test "post-auth no-network publish"):
 >   //   1. Warm publish from already-persisted snapshots/rates so completed
 >   //      wallets render at first frame.
->   //   2. Resume populate so any pending wallets continue.
->   //   3. Background freshen rates and schedule a follow-up recompute when
->   //      fresh rates land. NOT awaited here — awaiting blocks the first
->   //      reveal on a network round trip.
+>   //   2. AWAIT the warm publish to actually land (drain is fast — MMKV reads
+>   //      + math, bounded ms). Without this await, scheduleRecompute is
+>   //      fire-and-forget, and the populate kick at step 3 races the warm
+>   //      publish: populate writes to `snap:*` and bumps populateProgressTick,
+>   //      which can trigger another recompute before the warm one publishes.
+>   //      The "completed PnL visible before populate starts" requirement
+>   //      needs the warm publish to be *committed*, not just *scheduled*.
+>   //   3. Resume populate so any pending wallets continue.
+>   //   4. Background freshen rates and schedule a follow-up recompute when
+>   //      fresh rates land. NOT awaited here — awaiting blocks reveal on a
+>   //      network round trip.
 >   //
 >   // This is the ONE trigger that flips the usual "ensureFresh first, then
 >   // recompute" order. See Phase 6's per-trigger ordering table for why every
@@ -2332,9 +2387,11 @@ Total kept: **~13,805 LOC.**
 >     rates: getLiveRatesByAssetIdFromStore(),
 >     ratesAsOfMs: getLiveRatesAsOfMsFromStore(),
 >   });
->   scheduleRecompute({ ...base, scope: 'full' });   // (1) warm publish first
->   maybeResumePopulateOnLaunch();                   // (2) resume populate
->   runBackgroundFreshenAndRefresh({quote});         // (3) background freshen — not awaited
+>   scheduleRecompute({ ...base, scope: 'full' });   // (1) schedule warm publish
+>   await waitForRecomputeDrainToStop();             // (2) await the warm publish to land
+>   if (!canRunPortfolioV2Work()) return;            // re-check after the await
+>   maybeResumePopulateOnLaunch();                   // (3) resume populate
+>   runBackgroundFreshenAndRefresh({quote});         // (4) background freshen — not awaited
 > }
 >
 > /**
@@ -2614,16 +2671,25 @@ Total kept: **~13,805 LOC.**
 > export async function onQuoteCurrencyChanged(newQuote): Promise<void> {
 >   if (!canRunPortfolioV2Work()) return;        // GUARD
 >   if (!getShowPortfolioEnabledFromStore()) return;
->   const quote = String(newQuote || '').toUpperCase() || getQuoteCurrencyFromStore();
+>   const targetQuote = String(newQuote || '').toUpperCase() || getQuoteCurrencyFromStore();
+>   // CANONICAL, not current. Bridges always source from the quote in which
+>   // asset rate series are persisted; the user's currently-displayed quote is
+>   // irrelevant to the bridge math. See Phase 2's canonical-rate-quote rule
+>   // and parity test #101 (multi-hop USD → EUR → GBP).
+>   const canonical = getCanonicalRateQuoteCurrencyFromStore();
 >   const bridge = await ensureQuoteCurrencyFxBridge({
->     fromQuoteCurrency: getQuoteCurrencyFromStore(),
->     toQuoteCurrency: quote,
+>     canonicalRateQuoteCurrency: canonical,
+>     targetQuoteCurrency: targetQuote,
 >     intervals: ['1D', '1W', '1M', 'ALL'],
 >   });
 >   await runOnRuntimeAsync(
 >     getComputeRuntime(),
 >     recomputeQuoteBridgeFromExistingData,
->     {bridge, toQuoteCurrency: quote},
+>     {
+>       bridge,
+>       canonicalRateQuoteCurrency: canonical,
+>       targetQuoteCurrency: targetQuote,
+>     },
 >   );
 > }
 >
@@ -3085,6 +3151,8 @@ Total kept: **~13,805 LOC.**
    - `loadQueue` with malformed JSON → returns null, logs once.
    - `loadQueue` with missing `schemaVersion` → returns null.
    - `loadQueue` with `schemaVersion: 1` but missing `invalidHistoryWalletIds` → returns a normalized queue with `invalidHistoryWalletIds: []`, no log.
+   - `loadQueue` with `schemaVersion: 1` but missing `reason` → returns a normalized queue with `reason: 'manual'`, no log. Telemetry-only field; safe forward-compat default.
+   - `loadQueue` with `schemaVersion: 1` and `reason` set to a string outside the `PopulateQueueReason` enum (e.g., `'pullToRefresh'` from a stale enum that included it) → returns a normalized queue with `reason: 'manual'`, no log. Unknown reason values are coerced to the neutral default.
    - Repeated `loadQueue` calls with same invalid state → log fires once, not N times.
 39. **`ensureFresh` race regression:** start `ensureFresh` with a slow network fetch. Before the fetch resolves, invoke `performResetSequence`. Assert: `waitForEnsureFreshToStop` blocks wipe until the fetch resolves. The second `canRunPortfolioV2Work` check causes `persistRates` to be skipped when the fetch lands mid-reset. No rate-cache MMKV writes after reset begins.
 40. **All three waits required in `Promise.all`:** reset with populate active / compute idle / ensureFresh idle → populate wait holds others. Reset with all three active → all three resolved before wipe. Reset with compute active and fetch in-flight → both hold, populate (idle) resolves immediately.
@@ -3191,7 +3259,15 @@ Total kept: **~13,805 LOC.**
 
 99. **Quote-switch in-window-tx parity (load-bearing for guardrail #4 / Phase 3 bridge formula):** seed a fixture with at least one wallet that has in-window balance changes (a buy plus a partial disposal) on every interval. Populate fully in `fromQuote = USD`. Compare two outputs: (a) `recomputeQuoteBridgeFromExistingData(...)` invoked from `onQuoteCurrencyChanged('EUR')` using the existing snapshots/rates plus the BTC bridge for EUR; (b) a from-scratch full recompute against the same snapshots with `quoteCurrency = EUR` configured ab initio (rates for EUR resolved through the same per-τ bridge formula). Assert byte-equal `Series.points` (every `ts`, `fiatBalance`, `pnlChange`, `pnlPercent`) within `1e-8` for every interval and scope. Specifically regresses against an implementation that bridges only chart points (correct `fiatBalance`, wrong `pnlChange` / `pnlPercent` because cost basis was scalar-bridged from `oldCostBasis(t) * bridge(t)` instead of recomputed from per-tx events with `bridge(τ)`). Paired no-tx fixture: same comparison on a window with zero in-window txs must also match within `1e-8` — both implementations should agree there since the scalar shortcut is mathematically correct in the no-tx case.
 
-100. **Post-auth no-network publish (load-bearing for "completed PnL appears immediately on resume"):** seed MMKV with persisted snapshots for wallets `[A, B, C]` (all populated) and persisted canonical-quote rate series for the relevant assets. Boot the app and reach post-auth. Mock the network layer to track every fetch initiated by `ensureFresh(...)` / `ensureQuoteCurrencyFxBridge(...)`. Assert: (a) the first published `sharedPortfolioState` revision after `onAppLaunchPostAuth(...)` returns contains all three wallets in `populatedWalletIdsById`, with non-empty `byWallet` / `byAssetGroup` / `total` series and finite `pnlChange` / `pnlPercent` values; (b) this first publish lands **without awaiting any network call** — instrument the timeline and assert the publish timestamp precedes any mocked fetch resolution; (c) the order is exactly: warm publish → `maybeResumePopulateOnLaunch()` kick → `runBackgroundFreshenAndRefresh(...)` started but unresolved; (d) when the mocked `ensureFresh` later resolves, a second publish lands with the refreshed rate values and a higher `revision`; (e) if the mocked `ensureFresh` rejects with a network error, the warm-publish revision remains the latest published state — no rollback, no error UI, only `logPortfolioRuntimeError(err, {tag: 'postAuthBackgroundFreshen'})`. Paired guard regression: while the background freshen await is in flight, invoke `performResetSequence()`. Assert `waitForEnsureFreshToStop` blocks the wipe until the freshen settles (the second `canRunPortfolioV2Work()` check inside the helper prevents the follow-up `scheduleRecompute`).
+100. **Post-auth no-network publish (load-bearing for "completed PnL appears immediately on resume"):** seed MMKV with persisted snapshots for wallets `[A, B, C]` (all populated) and persisted canonical-quote rate series for the relevant assets. Boot the app and reach post-auth. Mock the network layer to track every fetch initiated by `ensureFresh(...)` / `ensureQuoteCurrencyFxBridge(...)`. Instrument `runOnRuntimeAsync(getPopulateRuntime(), runPopulate, ...)` to capture every populate kick. Assert: (a) the first published `sharedPortfolioState` revision after `onAppLaunchPostAuth(...)` returns contains all three wallets in `populatedWalletIdsById`, with non-empty `byWallet` / `byAssetGroup` / `total` series and finite `pnlChange` / `pnlPercent` values; (b) this first publish lands **without awaiting any network call** — instrument the timeline and assert the publish timestamp precedes any mocked fetch resolution; (c) **publish-before-populate ordering (load-bearing):** the warm publish revision lands strictly before the first `runOnRuntimeAsync(getPopulateRuntime(), runPopulate, ...)` call. Specifically the `await waitForRecomputeDrainToStop()` between scheduleRecompute and maybeResumePopulateOnLaunch must observe the drain go from running → not-running before populate kicks. Without this await, populate's `populateProgressTick` could trigger a second recompute that races and lands first; (d) full ordering: schedule warm recompute → await drain → publish lands → populate kicks → `runBackgroundFreshenAndRefresh(...)` starts but stays unresolved; (e) when the mocked `ensureFresh` later resolves, a second publish lands with the refreshed rate values and a higher `revision`; (f) if the mocked `ensureFresh` rejects with a network error, the warm-publish revision remains the latest published state — no rollback, no error UI, only `logPortfolioRuntimeError(err, {tag: 'postAuthBackgroundFreshen'})`. Paired guard regression: while the background freshen await is in flight, invoke `performResetSequence()`. Assert `waitForEnsureFreshToStop` blocks the wipe until the freshen settles (the second `canRunPortfolioV2Work()` check inside the helper prevents the follow-up `scheduleRecompute`). Paired drain-failure regression: stub `waitForRecomputeDrainToStop()` to throw after timeout; assert `onAppLaunchPostAuth` propagates the error and does NOT kick populate or background freshen — the drain failure is a hard signal something is wrong.
+
+101. **Multi-hop quote-switch parity (canonical-rate-quote correctness):** seed a fixture with the canonical rate quote pinned to `'USD'`: persisted asset rate series under `rate:v1:USD:*`, populated wallet snapshots, and an in-window-tx fixture for at least one wallet (a buy + a partial disposal mid-window) on every interval. Compare three outputs for byte-equality within `1e-8`:
+   - **(P1) USD-from-scratch:** full recompute with `quoteCurrency = 'USD'` — the baseline.
+   - **(P2) USD → EUR single hop:** dispatch `onQuoteCurrencyChanged('EUR')`. Assert `ensureQuoteCurrencyFxBridge` is called with `canonicalRateQuoteCurrency: 'USD'`, `targetQuoteCurrency: 'EUR'` (NOT `fromQuoteCurrency: 'USD'`). The reprice must read `rate:v1:USD:*` series + the freshly-fetched `rate:v1:EUR:btc:*` series and apply the per-τ formula. Compare the resulting EUR series to (P3) below.
+   - **(P3) EUR-from-scratch reference:** a separate recompute path (test-only) that builds EUR series from-scratch using the same per-τ bridge formula on the same persisted USD asset rates. (P2) must equal (P3) byte-for-byte within `1e-8`.
+   - **(P4) USD → EUR → GBP two hops:** with the canonical quote still `'USD'`, dispatch `onQuoteCurrencyChanged('GBP')` after the EUR hop. Assert `ensureQuoteCurrencyFxBridge` is called with `canonicalRateQuoteCurrency: 'USD'` (not `'EUR'`!) and `targetQuoteCurrency: 'GBP'`. The bridge factor used is `btcRate(τ, GBP) / btcRate(τ, USD)` — sourced from the original USD canonical asset rates, not composed through the EUR hop. Compare the resulting GBP series to a from-scratch GBP recompute (built with the same per-τ formula, USD canonical → GBP). They must equal byte-for-byte within `1e-8`.
+   - **(P5) Anti-regression:** run an instrumented variant that intentionally passes `fromQuoteCurrency: 'EUR'` to `ensureQuoteCurrencyFxBridge` for the second hop (simulating the bug where `getQuoteCurrencyFromStore()` was used instead of canonical). Assert this produces *different* GBP series than (P4) on the in-window-tx fixture, proving the test would catch the regression. The wrong-source path either crashes (no `rate:v1:EUR:*` asset series exists for non-BTC assets) or composes a chain that diverges from canonical-direct. Either failure mode is acceptable for the regression — the point is that the test *catches* it.
+   - Paired no-tx fixture: same comparisons on a window with zero in-window txs must also match (P1)/(P3)/(P4) byte-for-byte — the canonical-vs-display distinction still matters even without txs because `btcRate(τ, EUR) / btcRate(τ, USD)` differs from `btcRate(τ, EUR) / btcRate(τ, EUR) === 1` at the second hop's source.
 
 ---
 
