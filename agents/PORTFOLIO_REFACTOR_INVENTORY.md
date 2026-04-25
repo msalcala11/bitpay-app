@@ -170,7 +170,7 @@ Mirror implementations in worklet runtime: `src/portfolio/runtime/worklet/portfo
 | KvStore class | `MmkvKvStore` | `src/portfolio/adapters/rn/mmkvKvStore.ts:160` |
 | `kvStore.delete(key)` untracks from registry | ✅ verified | `src/portfolio/adapters/rn/mmkvKvStore.ts:193-196` |
 
-**Wipe contract:** enumerate via `getPortfolioMmkvStorageOnRN().getAllKeys()` (real source of truth, not `kvStore.listKeys()`), filter by `PORTFOLIO_WIPE_PREFIXES`, delete via `kvStore.delete(key)` so the registry stays consistent.
+**Current MMKV instance/registry facts:** the registry-aware delete path (`kvStore.delete(key)`) untracks each key from the registry, so the v1 wipe convention has been "enumerate via `getPortfolioMmkvStorageOnRN().getAllKeys()` as the real source of truth (not `kvStore.listKeys()`), filter by `PORTFOLIO_WIPE_PREFIXES`, delete via `kvStore.delete(key)` so the registry stays consistent." V2 wipe behavior is superseded by the plan's helper-family contract: `clearPortfolioMmkvKeysForReset(...)` enumerates the **union** of real keys plus registry-tracked keys, filters by portfolio-owned prefixes, and routes every removal through `deletePortfolioMmkvKey(...)`. See the implementation plan's "MMKV registry discipline" and helper-family sections for the v2 contract.
 
 ---
 
@@ -307,7 +307,7 @@ Fires on:
 
 See §10 above. `state.RATE.rates` is keyed `${COIN}_${QUOTE}` and contains entries for **all** alt currencies the user can switch to. Recompute reads the rows matching `state.APP.defaultAltCurrency.isoCode`. There is no quote-mismatch state because every quote's data is present simultaneously.
 
-**Phase 0 conclusion:** Option (A) from spec decision #25's quote-safety contract. No new accessor required. Document this invariant in Phase 1 `reduxAccess.ts` so a future implementer doesn't try to add `getLiveRatesQuoteCurrencyFromStore()` thinking it's missing.
+**Phase 0 conclusion:** Option (A) from the plan's passive live-rate quote-metadata-safety section. No new accessor required because the live-rate slice is keyed by `${COIN}_${QUOTE}` and contains all alt currencies simultaneously, so any current-quote read is intrinsically quote-tagged. Document this invariant in Phase 1 `reduxAccess.ts` so a future implementer doesn't try to add `getLiveRatesQuoteCurrencyFromStore()` thinking it's missing.
 
 ---
 
@@ -363,7 +363,7 @@ The Exchange Rate screen's `useRuntimeFiatRateSeriesCache(...)` hook is the natu
 
 ## 14. JS-thread helper module surface (Nitro spy targets)
 
-For the Phase 5 + Phase 2 Nitro boundary tests (test #100 in the spec).
+For the Phase 5 + Phase 2 Nitro boundary tests (test #120 in the plan's lock-blocker test list).
 
 ### `src/portfolio/adapters/rn/txHistorySigning.ts` (1112 LOC)
 
@@ -414,12 +414,12 @@ No JS-tagged exports — nothing to spy on for this module. Boundary tests asser
 
 1. **Spy on `createPortfolioTxHistorySigningDispatchContextOnRN`** (already in the txhistory spy list — same JS-tagged context creator is used by both populate and ensureFresh). Assert it is called once per `ensureFresh(...)` invocation to build the lightweight (non-signing) dispatch context, then never re-called inside the rate-fetch loop.
 2. **Spy on the global `fetch` / `axios.get` / Node-side HTTP transports.** Assert zero calls during `ensureFresh(...)`. All HTTP must go through the Nitro fetch client inside the worklet runtime — any JS-thread HTTP call is a regression. Existing live-rate `axios.get(...)` calls in `src/store/wallet/effects/rates/rates.ts` are NOT a regression (they belong to the live-rate path, not historical-rate `ensureFresh`).
-3. **Spy on `runOnRuntimeAsync`** (or whatever the Reanimated dispatch wrapper is named in Phase 1). Assert `ensureFresh(...)` dispatches `RnBwsFiatRateProvider.loadSeries(...)` to the rate-fetch runtime, not the populate runtime, not JS.
+3. **Spy on `runOnRuntimeAsync`** (or whatever the `react-native-worklets` dispatch adapter is named in Phase 1). Assert `ensureFresh(...)` dispatches `RnBwsFiatRateProvider.loadSeries(...)` to the rate-fetch runtime, not the populate runtime, not JS.
 4. **Anti-regression variant:** stub `ensureFresh` to call a hand-written JS-thread BWS fetch helper (e.g., a direct `axios.get(...)` to `/v4/fiatrates/`) and assert the test fails. This proves the boundary test catches regressions that bypass the worklet path.
 
 The intent matches the txhistory boundary test, but the assertion shape differs because the BWS module has no JS surface to spy on — instead the test asserts on transport-level invariants (no JS HTTP, dispatch goes to rate-fetch runtime).
 
-### Spy-target summary (for test #100 instrumentation)
+### Spy-target summary (for test #120 instrumentation)
 
 ```ts
 // JS-thread spy targets — assert spies have zero calls during populate / ensureFresh:
@@ -498,7 +498,7 @@ Phase 0/8b acceptance requires that each kernel module the implementation plan k
 | [src/portfolio/core/txHistoryPaging.ts](src/portfolio/core/txHistoryPaging.ts) | reuse unchanged | Load-bearing helper for the txhistory duplicate-row contract. `getTxHistoryEntryId(...)` prefers on-chain hash fields (`txid`, `txHash`, `txhash`, `hash`) and intentionally refuses to use BWS internal `id`; `dedupeTxHistoryPage(...)` collapses duplicate economic rows before snapshot/PnL processing; `getTxHistoryLogicalPageSize(...)` advances paging by logical unique transaction count rather than raw fetched row count. Existing tests cover duplicate txids, composite fallback identity, and internal-ID-only duplicates. |
 | [src/portfolio/runtime/worklet/portfolioWorkletSnapshotBuilder.ts](src/portfolio/runtime/worklet/portfolioWorkletSnapshotBuilder.ts) | adapt before v2 use | Builder contract over `Tx` + rate-lookup is intact and v2 just swaps the rate-lookup source — checkpoint resume already covers in-progress daily compression state. The same constants-source-of-truth caveat as [snapshotStream.ts](src/portfolio/core/pnl/snapshotStream.ts) applies: this module also hardcodes `COMPRESSION_AGE_MS = 90 * DAY_MS` at [portfolioWorkletSnapshotBuilder.ts:32](src/portfolio/runtime/worklet/portfolioWorkletSnapshotBuilder.ts#L32) and accepts `compressionEnabled` as a constructor arg with no v2-constants default. v2 must thread `PORTFOLIO_DAILY_SNAPSHOT_COMPRESSION_AGE_DAYS` and `PORTFOLIO_DAILY_SNAPSHOT_COMPRESSION_ENABLED` through both the worklet builder and the JS-thread builder so the constants module is the single source of truth. No logic rewrite. |
 | [src/portfolio/runtime/worklet/portfolioPopulateWorklet.ts](src/portfolio/runtime/worklet/portfolioPopulateWorklet.ts) | adapt before v2 use | Existing worker-protocol entry point handles populate sessions but predates the work-epoch + Nitro-boundary contracts (decisions #28, #34, #36). v2 must thread `workEpoch` through every prepare/process/finish call and ensure no JS-trampoline helpers are reachable from inside the loop body. |
-| [src/portfolio/runtime/worklet/portfolioWorkletSnapshots.ts](src/portfolio/runtime/worklet/portfolioWorkletSnapshots.ts) | adapt before v2 use | Snapshot key/index helpers must move under the dedicated portfolio MMKV instance + registry, and read/write through the v2 KV adapter rather than free-standing `workletKv*` calls so the registry tracker sees every key (decision #29 / §11 wipe-on-flag-flip). The worklet-side chunk emitter (currently parameterized only by `chunkRows`) must enforce the same byte-fallback split rule as the JS-thread chunk writer in [snapshotStore.ts](src/portfolio/core/pnl/snapshotStore.ts): when a row-budget-sized chunk would exceed `PORTFOLIO_MMKV_VALUE_WARN_BYTES`, split further by byte size before calling the worklet-side `writePortfolioMmkvString` wrapper. |
+| [src/portfolio/runtime/worklet/portfolioWorkletSnapshots.ts](src/portfolio/runtime/worklet/portfolioWorkletSnapshots.ts) | adapt before v2 use | Snapshot key/index helpers must move under the dedicated portfolio MMKV instance + registry, and read/write through the v2 KV adapter rather than free-standing `workletKv*` calls so the registry tracker sees every key (per the implementation plan's "MMKV registry discipline" and helper-family sections governing reset/wipe). The worklet-side chunk emitter (currently parameterized only by `chunkRows`) must enforce the same byte-fallback split rule as the JS-thread chunk writer in [snapshotStore.ts](src/portfolio/core/pnl/snapshotStore.ts): when a row-budget-sized chunk would exceed `PORTFOLIO_MMKV_VALUE_WARN_BYTES`, split further by byte size before calling the worklet-side `writePortfolioMmkvString` wrapper. |
 | [src/portfolio/runtime/worklet/portfolioWorkletRates.ts](src/portfolio/runtime/worklet/portfolioWorkletRates.ts) | adapt before v2 use | Rate-fetch worklet must run on the dedicated rate-fetch runtime, route signing/request/response processing through the Nitro boundary (decision #36), enforce `StoredRateInterval`, and persist canonical market-rate series through the v2 rate store. It must **not** build `WeightedGroupRateSeries`; weighted group series are render-derived in compute/recompute from persisted constituent market rates plus scoped baseline holdings. |
 
 > Note: `src/portfolio/v2/` is not subject to this classification — it is the new kernel, not a retained one. RN adapter modules are classified separately in §19.
