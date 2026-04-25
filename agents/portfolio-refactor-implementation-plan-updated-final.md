@@ -1270,19 +1270,19 @@ Retry/backoff contract:
 
 ```ts
 export function resetSharedPortfolioStateForDebugClear(args: {
-  startEpoch: number;
+  publishEpoch: number;
   quoteCurrency: string;
   computedAtMs?: number;
   reason?: Extract<PortfolioPublishReason, 'reset' | 'debugClear'>;
 }): void {
   publishPortfolioState({
     canonical: emptyPortfolioStateForEpoch({
-      workEpoch: args.startEpoch,
+      workEpoch: args.publishEpoch,
       quoteCurrency: args.quoteCurrency,
       computedAtMs: args.computedAtMs ?? Date.now(),
     }),
     reason: args.reason ?? 'debugClear',
-    startEpoch: args.startEpoch,
+    startEpoch: args.publishEpoch,
   });
 
   // Coordination ticks are not published render state and are intentionally
@@ -2162,7 +2162,7 @@ async function performResetSequence(): Promise<void> {
       await wipePortfolioMmkvKeys();
       const publishEpoch = getCurrentPortfolioWorkEpoch();
       resetSharedPortfolioStateForDebugClear({
-        startEpoch: publishEpoch,
+        publishEpoch,
         quoteCurrency: getQuoteCurrencyFromStore(),
         reason: 'reset',
       });
