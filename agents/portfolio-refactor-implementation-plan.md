@@ -204,6 +204,10 @@ export type PortfolioMmkvWriteReason =
   | 'wipe'
   | 'generatedRenderCache';
 
+`generatedRenderCache` is reserved for the optional Phase 9 measured-cold-start
+cache path. Phase 1-8 code must not write this reason unless the optional
+persisted render cache is explicitly added by a benchmark-backed decision.
+
 export type PortfolioMmkvPrefixFamily =
   | 'portfolio:v2'
   | 'snap'
@@ -222,8 +226,9 @@ export type PortfolioV2Metric =
   | Readonly<{
       kind: 'mmkvWrite';
       reason: PortfolioMmkvWriteReason;
-      key: string;
-      prefixFamily: PortfolioMmkvPrefixFamily;
+      keyHash: string;
+      keyLength: number;
+      keyPrefixFamily: PortfolioMmkvPrefixFamily;
       approximateBytes: number;
       durationMs: number;
       warning: boolean;
@@ -1529,14 +1534,20 @@ event. The daily snapshot must carry the day bucket's final `timestamp`,
 preserved when debug mode records them. Recent tx events remain tx-level
 snapshots.
 
-Compression is storage-only. Recompute still treats emitted daily snapshots as
-authoritative balance-change points and must not infer missing intra-day tx
-events from compressed history. Resume checkpoints must preserve any in-progress
-daily compression state so app-kill recovery does not duplicate or drop a daily
+Compression is an ingest/storage compaction with pinned old-history semantics.
+For compressed days, recompute treats the emitted daily snapshot as the
+authoritative state transition for that UTC day and must not infer or
+reconstruct missing intra-day tx timing from compressed history. This is the
+intentional exception to the dense tx-event processing rule for already
+compressed old history; recent uncompressed history still processes every
+in-window event. Resume checkpoints must preserve any in-progress daily
+compression state so app-kill recovery does not duplicate or drop a daily
 snapshot. Phase 0 must verify the retained snapshot kernel checkpoint already
 carries that state (`daily` / partial UTC bucket equivalent). If not, classify
 the kernel as `adapt before v2 use` and add the missing checkpoint fields before
-v2 imports it.
+v2 imports it. Required tests must compare compressed and uncompressed fixtures
+on product-supported sample grids or explicitly pin any acceptable old
+intra-day divergence.
 
 ### Core formula
 
@@ -2139,8 +2150,9 @@ Required key granularity:
   `snap:meta:v2:<walletId>`, `snap:index:v2:<walletId>`,
   `snap:chunk:v2:<walletId>:<chunkId>`;
 - snapshot chunk writers must respect
-  `PORTFOLIO_SNAPSHOT_CHUNK_ROW_BUDGET` and split any oversized emitted batch
-  before writing;
+  `PORTFOLIO_SNAPSHOT_CHUNK_ROW_BUDGET` as the target row budget and must also
+  respect `PORTFOLIO_MMKV_VALUE_WARN_BYTES`; if a chunk at the row budget would
+  exceed the byte warning threshold, split further by byte size before writing;
 - rates are keyed per quote + asset/rate-source + stored interval:
   `rate:v1:<QUOTE>:<coin>:<storedInterval>` for native assets and
   `rate:v1:<QUOTE>:<coin>:<storedInterval>:<chain>:<tokenAddress>` for tokens;
@@ -2170,12 +2182,16 @@ export function clearPortfolioMmkvKeysForReset(args: {
 }): void;
 ```
 
-`writePortfolioMmkvString(...)` records key, approximate byte length, prefix
-family, reason, and warning status before delegating to the registry-aware
-portfolio KV store. Writes larger than `PORTFOLIO_MMKV_VALUE_WARN_BYTES` must
-either be split into smaller keys or pass `allowOversize: true` with a
-test-covered justification. `allowOversize: true` is reviewer-enforced in
-Phase 1: the call site must include a nearby grep-able
+`writePortfolioMmkvString(...)` records redacted key metadata (`keyHash`,
+`keyLength`, `keyPrefixFamily`), approximate byte length, reason, and warning
+status before delegating to the registry-aware portfolio KV store. Production
+metrics must not include raw MMKV keys because keys can contain wallet IDs,
+token addresses, account/key identifiers, or asset identifiers. Tests that need
+raw keys may use local spies around the helper, not production metric payloads.
+Writes larger than `PORTFOLIO_MMKV_VALUE_WARN_BYTES` must either be split into
+smaller keys or pass `allowOversize: true` with a test-covered justification.
+`allowOversize: true` is reviewer-enforced in Phase 1: the call site must
+include a nearby grep-able
 `portfolio-mmkv-allow-oversize` comment with the reason/ticket, and the
 covering test name must mention the oversized write family. Future lint may
 promote this convention to an automated check, but implementation must not
@@ -2399,7 +2415,7 @@ A touch recompute only updates `lastAccessedAt` for existing slices. It does not
 
 ### Passive live-rate touch recompute
 
-`{kind: 'liveRateTouch'}` is the only recompute scope that `onLiveRatesUpdated` may schedule. It consumes already-updated live-rate data from Redux and updates current-value surfaces only:
+`{kind: 'liveRateTouch'}` is the only recompute scope that `onLiveRatesUpdated` may schedule. Passive live-rate touches may update in-memory/current-value published render state, including live-rate-backed final points and row payloads, but they must perform zero MMKV mutations and zero historical snapshot/rate refresh work. They consume already-updated live-rate data from Redux and update current-value surfaces only:
 
 - global row-shell `currentFiatValue`;
 - current global total/scope fiat aggregates;
@@ -2996,8 +3012,9 @@ Acceptance:
 - `resetSharedPortfolioStateForDebugClear(...)` publishes through `publishPortfolioState(...)` with a current-epoch empty state and may only reset coordination ticks directly.
 - Metrics module records publish duration, approximate payload size, MMKV
   mutation value size (writes; deletes/clears report bytes as zero), revision,
-  reason, prefix family, and warning state without failing CI on initial
-  thresholds. Each MMKV mutation helper (`writePortfolioMmkvString`,
+  reason, redacted key metadata (`keyHash`, `keyLength`, `keyPrefixFamily`),
+  and warning state without failing CI on initial thresholds. Each MMKV mutation
+  helper (`writePortfolioMmkvString`,
   `deletePortfolioMmkvKey`, `clearPortfolioMmkvKeysForReset`) emits a
   `PortfolioV2Metric { kind: 'mmkvWrite' }` record so tests can assert
   per-kind/per-reason counts without inspecting logger strings.
@@ -3225,12 +3242,17 @@ Acceptance:
 5. Cache invalid bit blocks ordinary work after mid-wipe failure and repair clears it.
 6. Reset waits for populate, recompute, and ensureFresh.
 7. Snapshot/rate/generated-cache MMKV writes are sharded by the required key
-granularity, record approximate value size, and warn or split when exceeding
-`PORTFOLIO_MMKV_VALUE_WARN_BYTES`.
+granularity, record approximate value size with redacted key metadata, and warn
+or split when exceeding `PORTFOLIO_MMKV_VALUE_WARN_BYTES`. Snapshot chunk tests
+must prove byte-size splitting takes precedence over the
+`PORTFOLIO_SNAPSHOT_CHUNK_ROW_BUDGET` target when a row-budget-sized chunk is
+too large.
 8. Daily snapshot compression preserves the existing 90-day UTC-day behavior:
 older tx events compress to one daily snapshot per UTC day, recent tx events
 remain tx-level, and app-kill resume does not duplicate/drop an in-progress
-daily snapshot.
+daily snapshot. Tests compare compressed and uncompressed fixtures on
+product-supported sample grids or explicitly pin any acceptable old intra-day
+divergence.
 9. Timeframe switch, chart scrub, and passive live-rate touch spy tests assert
 zero calls to the v2 MMKV mutation helper family
 (`writePortfolioMmkvString(...)`, `deletePortfolioMmkvKey(...)`,
