@@ -882,14 +882,12 @@ No silent migration is allowed for business-logic fields such as populated-walle
 
 ### Runtime logger contract
 
-```ts
-export function logPortfolioRuntimeError(
-  err: unknown,
-  extra?: PortfolioRuntimeLogExtra,
-): void;
-```
-
-The logger never throws, never returns a Promise, always includes `subsystem: 'portfolio-v2'`, and preserves `extra.tag` when provided. It is safe for `.catch(logPortfolioRuntimeError)` and for contextual `.catch(err => logPortfolioRuntimeError(err, {tag}))` call sites. It accepts only the allowlisted fields in `PortfolioRuntimeLogExtra`; do not pass arbitrary objects.
+Runtime logging must go through `logPortfolioRuntimeError(...)`. It is safe for
+`.catch(logPortfolioRuntimeError)` and contextual
+`.catch(err => logPortfolioRuntimeError(err, {tag}))` call sites. See
+**Runtime error logger** in the storage/reset behavior section for the canonical
+signature, allowlisted `PortfolioRuntimeLogExtra` fields, and off-device
+telemetry restrictions.
 
 ### Populate queue
 
