@@ -1817,9 +1817,7 @@ Total kept: **~13,805 LOC.**
 >       reason:
 >         parsed.reason === 'initial' ||
 >         parsed.reason === 'appLaunchIncremental' ||
->         parsed.reason === 'send' ||
->         parsed.reason === 'pullToRefresh' ||
->         parsed.reason === 'keyImport' ||
+>         parsed.reason === 'showPortfolioToggleOn' ||
 >         parsed.reason === 'manual'
 >           ? parsed.reason
 >           : 'manual',
@@ -2365,8 +2363,10 @@ Total kept: **~13,805 LOC.**
 >   // resume" — see required parity test "post-auth no-network publish"):
 >   //   1. Warm publish from already-persisted snapshots/rates so completed
 >   //      wallets render at first frame.
->   //   2. AWAIT the warm publish to actually land (drain is fast — MMKV reads
->   //      + math, bounded ms). Without this await, scheduleRecompute is
+>   //   2. AWAIT the warm publish to actually land. The drain is bounded and
+>   //      non-networked (MMKV reads + math; no fetches), so its latency scales
+>   //      with portfolio size but is independent of network availability.
+>   //      Without this await, scheduleRecompute is
 >   //      fire-and-forget, and the populate kick at step 3 races the warm
 >   //      publish: populate writes to `snap:*` and bumps populateProgressTick,
 >   //      which can trigger another recompute before the warm one publishes.
