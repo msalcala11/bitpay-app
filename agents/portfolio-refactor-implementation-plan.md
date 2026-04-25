@@ -2265,7 +2265,9 @@ Wipe implementation contract:
 4. filter portfolio-owned prefixes;
 5. exclude PORTFOLIO_V2_FLAG_KEY, PORTFOLIO_CACHE_INVALID_KEY, and PORTFOLIO_WORK_EPOCH_KEY;
 6. delete through deletePortfolioMmkvKey(...), not raw MMKV.delete(...) or direct kvStore.delete(...);
-7. assert both storage.getAllKeys() and kvStore.listKeys() are clean after successful wipe.
+7. assert both storage.getAllKeys() and kvStore.listKeys() contain no deleted
+   wipe-target keys after filtering out explicit exclusions, non-target keys,
+   and default-retained shared `rate:v1:*` keys.
 ```
 
 Do not use `kvStore.listKeys()` as the only wipe source of truth because a stale registry could miss real MMKV keys. Do not call raw `MMKV.delete` or direct `kvStore.delete(...)` from v2 reset/delete orchestration because they bypass the mutation helper metrics/guards or can leave the registry reporting deleted keys.
@@ -3218,7 +3220,8 @@ Acceptance:
 
 - Debug clear resets manifest, queue, generated state, and snapshots.
 - Feature flag and cache-invalid bit exclusions behave correctly.
-- Registry list is clean after wipe.
+- Registry and real-key lists contain no wipe-target keys after applying the
+  explicit exclusions and default-retained shared keys.
 - Exchange Rate cached rates remain if using shared `rate:v1:*` default.
 
 ### Phase 7.75 — Portfolio UI preference migration
@@ -3287,7 +3290,9 @@ Acceptance:
 
 1. Large portfolio chart/rate/snapshot data is absent from persisted Redux.
 2. Portfolio MMKV instance is used for all v2 keys.
-3. Wipe uses registry-aware delete and leaves registry clean.
+3. Wipe uses registry-aware delete and leaves no wipe-target keys in the
+registry or real-key list after explicit exclusions/default-retained keys are
+filtered out.
 4. Show Portfolio off wipe excludes shared `rate:v1:*` by default; Exchange Rate surfaces remain visible.
 5. Cache invalid bit blocks ordinary work after mid-wipe failure and repair clears it.
 6. Reset waits for populate, recompute, and ensureFresh.
@@ -3421,7 +3426,7 @@ These tests must exist before the plan is treated as implementation-complete. Fo
 93. **Manifest/queue reconciliation test:** the helper prunes deleted/non-livenet wallets from manifest and queue, does not prune hidden livenet wallets, clears stale checkpoints/staging, and bumps orderRevision iff canonical order changes.
 94. **Publish-driven readiness test:** a scope that is metadata-ready but has not actually published a non-empty valid series keeps `hasEverPublishedValidSeries === false`; a valid published series flips it true.
 95. **Wallet/delete triple-guard race tests:** guard #2 flips during populate wait; guard #3 flips during snapshot clear; both return before later side effects.
-96. **MMKV registry test:** seed one registered key and one unregistered real MMKV key; wipe deletes both through registry-aware delete and leaves `kvStore.listKeys()` clean.
+96. **MMKV registry test:** seed one registered wipe-target key, one unregistered real wipe-target key, and explicit exclusion/default-retained keys; wipe deletes the target keys through registry-aware delete and leaves no wipe-target keys in `kvStore.listKeys()` or real MMKV keys after exclusions are filtered out.
 97. **Manifest schema validation test:** invalid/missing schema or malformed JSON returns `null` and logs once; no business-logic silent migration.
 98. **Logger/telemetry allowlist test:** `logPortfolioRuntimeError` never throws, never returns a Promise, includes `subsystem: 'portfolio-v2'`, preserves safe scalar allowlisted fields such as `extra.tag`, and drops/rejects non-allowlisted fields. Feed it an `Error` and `extra` containing `wallet-123`, `0xAbC123`, `txid`, `rate:v1:USD:usdc:1D:eth:0xAbC123`, `snap:chunk:v2:wallet-123:1`, a request URL, a manifest/queue fragment, and a raw checkpoint; assert the Sentry/log/metric sinks receive none of those raw values and no raw `Error.message`. Debug copy/export payloads remain user-local and are never auto-attached to runtime errors.
 99. **Hide Crypto Balances orthogonality test:** dispatch `toggleHideAllBalances()` twenty times and assert zero runtime calls, zero MMKV mutations (no calls to the v2 helper family or its wrapped low-level mutation exports), zero trigger invocations, zero `sharedPortfolioState` writes, and only UI re-renders.
