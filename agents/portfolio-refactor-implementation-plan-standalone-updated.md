@@ -2054,13 +2054,21 @@ onSendCompleted({walletId}) {
 
 ### Live rates updated
 
+```ts
+export function onLiveRatesUpdated(args?: {
+  changedAssetIds?: readonly string[];
+}): void;
+```
+
 1. Guard before side effects.
 2. If Show Portfolio is off, return.
-3. If the event was caused by an explicit freshness action (pull-to-refresh or another product-approved refresh), run `ensureFresh` via `buildEnsureFreshArgsForVisibleAssetGroups(...)`, which always unions canonical `BTC/USD`, then guard again after `ensureFresh`.
-4. If the event is passive/background live-rate churn, do **not** fetch historical rates or snapshots.
-5. Build fire-time recompute inputs from already-available store/rate data and `scheduleRecompute({scope: 'full'})`.
+3. Do **not** call `ensureFresh`, fetch historical rates, refresh snapshots, or touch populate.
+4. Debounce/coalesce passive live-rate triggers at the entrypoint before scheduling recompute. Start with `100-250ms`; Phase 0 inventory should record the existing live-rate effect's update frequency and adjust if needed.
+5. Build fire-time recompute inputs from already-available store/rate data and `scheduleRecompute({scope: 'full'})` or a narrower affected-wallet/asset scope if `changedAssetIds` can be mapped safely.
 
-Passive live-rate events are not permission to refresh historical portfolio rates. This preserves the product rule that only explicit refresh flows cause historical rate/snapshot updates while still allowing current live fiat values to update from already-fetched live-rate data.
+`onLiveRatesUpdated` is passive-only. Explicit freshness actions go through `onPullToRefresh` or a future dedicated manual-refresh trigger; they do not call a special ensureFresh branch on `onLiveRatesUpdated`.
+
+Passive live-rate events are not permission to refresh historical portfolio rates. Passive live-rate recompute affects current-value surfaces only: row-shell `currentFiatValue`, current total/scope fiat aggregates, and the final chart point only if that point is intentionally marked from the live rate. It must not rebuild historical chart points, mutate historical rate-derived fields for past timestamps, fetch historical rates, refresh snapshots, or enqueue populate.
 
 ### Key imported
 
@@ -2154,7 +2162,7 @@ Each trigger has a distinct product intent. Do not “consistency-ize” these i
 | `onPullToRefresh` | `ensureFresh(force: true)` → `populateWallets(changedWalletIds, {reason: 'pullToRefresh', priority: 'urgentUserVisible'})` → `scheduleRecompute` | User explicitly asked for fresh rates/snapshots. |
 | `onSendCompleted` | `populateWallet(walletId, {reason: 'send', priority: 'urgentUserVisible'})` | Sent-from wallet should refresh promptly; recompute publishes from progress tick. |
 | `onQuoteCurrencyChanged` | `ensureQuoteCurrencyFxBridge` → `recomputeQuoteBridgeFromExistingData` | Bridge data must exist before target-quote publish. No per-asset target-quote fetch. |
-| `onLiveRatesUpdated` | explicit refresh source: `ensureFresh` → `scheduleRecompute`; passive live-rate churn: `scheduleRecompute` only from already-updated live-rate data | Passive live-rate updates must not initiate historical rate/snapshot refreshes. |
+| `onLiveRatesUpdated` | debounce/coalesce → `scheduleRecompute` only from already-updated live-rate data | Passive live-rate updates must not initiate historical rate/snapshot refreshes. Explicit freshness belongs to pull/manual refresh triggers. |
 | `onKeyImported` | `populateWallets(livenetWalletIds, {reason: 'keyImport', priority: 'normalUserVisible'})` | New livenet wallets need snapshots before PnL exists. |
 | `onWalletsDeleted` | guard → cancel/wait populate → guard → reconcile → clear snapshots → guard → full recompute with `evictScopedWalletIds` → `kickPopulateLoopIfIdle()` | Prevents populate/write races and stale scoped entries. |
 | `onWalletsVisibilityChanged` | optional populate for newly visible never-populated wallets → full recompute | Visibility changes display eligibility, not snapshot persistence. |
@@ -2468,7 +2476,8 @@ Acceptance:
 - Send requeues already-populated wallet.
 - Pull-to-refresh requeues already-populated changed wallets and refreshes rates.
 - Quote switch fetches only BTC bridge rates, except target `USD`/canonical quote which performs no target BTC fetch.
-- Passive `onLiveRatesUpdated` recomputes from already-updated live-rate data without calling `ensureFresh`, fetching historical rates, refreshing snapshots, or touching populate. Only explicit freshness sources may use the `ensureFresh` branch.
+- Passive `onLiveRatesUpdated` recomputes from already-updated live-rate data without calling `ensureFresh`, fetching historical rates, refreshing snapshots, or touching populate. Explicit freshness sources use pull-to-refresh or a future dedicated manual-refresh trigger, not an `onLiveRatesUpdated` branch.
+- Passive live-rate trigger debounce/coalescing test passes, with the initial debounce window sized from Phase 0 inventory of the existing live-rate effect's update frequency.
 - Show Portfolio rapid toggle serializes, final state wins, and an OFF-created wipe obligation completes before any ON starts populate.
 
 ### Phase 7 — UI migration
@@ -2668,13 +2677,13 @@ These tests must exist before the plan is treated as implementation-complete. Fo
 95. **Logger contract test:** `logPortfolioRuntimeError` never throws, never returns a Promise, includes `subsystem: 'portfolio-v2'`, and preserves `extra.tag`.
 96. **Hide Crypto Balances orthogonality test:** dispatch `toggleHideAllBalances()` twenty times and assert zero runtime calls, zero MMKV writes, zero trigger invocations, zero `sharedPortfolioState` writes, and only UI re-renders.
 97. **Per-trigger ordering test:** table order is enforced; post-auth is the only warm-publish-first trigger, and pull/live/send/quote/delete/show-toggle follow their explicit orders.
-97a. **Passive live-rate update no-fetch test:** trigger `onLiveRatesUpdated` from passive/background live-rate churn and assert it schedules recompute from already-updated live-rate data with zero `ensureFresh` calls, zero historical rate fetches, zero snapshot refreshes, and zero populate queue mutations. Paired explicit-refresh variant asserts a product-approved freshness source may take the `ensureFresh` branch.
-98. **Helper contract tests:** `resetSharedPortfolioStateForDebugClear` resets every current state field/tick, `startPopulate` builds/appends through the pinned API, `getSeriesIdlePoint(series)` returns the final point, and `lastAccessedAt` changes only through scoped/wallet touch semantics.
-99. **All-zero shell fiat test:** visible member wallets exist, every current unit amount is zero, and one or more zero-unit rates may be missing; runtime still publishes a row shell with `currentFiatValue: 0`. A no-visible-members fixture publishes no shell.
-100. **Weighted route per-interval zero-baseline test:** a collapsed route remains `kind: 'portfolioWeightedAssetGroup'` when one interval is unavailable due to zero baseline, that interval renders the weighted-rate empty state without crashing, and switching to another valid interval renders normally without opening a representative market route.
-101. **Weighted missing-constituent-rate test:** seed a collapsed weighted route where one nonzero-baseline constituent has no canonical rate, no required BTC bridge rate, failed interpolation, or a non-finite bridged value at a required sample. The selected interval must publish `availability: 'unavailable'`, `unavailableReason: 'missingConstituentRate'`, and `points: []`; the UI keeps the timeframe selector enabled, does not render a partial chart, and does not navigate to `marketAsset`.
-102. **Expired invalid-history ownership test:** seed a wallet in manifest invalid-history state with an expired persisted marker, unhide it, and assert the trigger enqueues a retry but does not directly remove manifest invalid-history. If the retry fails before successful finish, invalid-history context remains or is replaced by a new marker. Only successful populate through `markManifestPopulated` clears manifest invalid-history and marks the wallet populated.
-103. **Phase-local acceptance placement test:** assert the missing-constituent-rate fixture is part of Phase 3, checkpoint JSON/non-optional boolean checks are part of Phase 5, and invalid-history unhide ownership is part of Phase 6 so these contracts cannot drift until the final pre-Phase-8 suite.
+98. **Passive live-rate update no-fetch test:** trigger `onLiveRatesUpdated` from passive/background live-rate churn and assert it debounces/coalesces entry calls, schedules recompute from already-updated live-rate data, and makes zero `ensureFresh` calls, zero historical rate fetches, zero snapshot refreshes, and zero populate queue mutations. Assert it affects current-value surfaces only and does not rebuild historical points for past timestamps. Explicit refresh is tested through pull-to-refresh or a dedicated manual-refresh trigger, not through an `onLiveRatesUpdated` branch.
+99. **Helper contract tests:** `resetSharedPortfolioStateForDebugClear` resets every current state field/tick, `startPopulate` builds/appends through the pinned API, `getSeriesIdlePoint(series)` returns the final point, and `lastAccessedAt` changes only through scoped/wallet touch semantics.
+100. **All-zero shell fiat test:** visible member wallets exist, every current unit amount is zero, and one or more zero-unit rates may be missing; runtime still publishes a row shell with `currentFiatValue: 0`. A no-visible-members fixture publishes no shell.
+101. **Weighted route per-interval zero-baseline test:** a collapsed route remains `kind: 'portfolioWeightedAssetGroup'` when one interval is unavailable due to zero baseline, that interval renders the weighted-rate empty state without crashing, and switching to another valid interval renders normally without opening a representative market route.
+102. **Weighted missing-constituent-rate test:** seed a collapsed weighted route where one nonzero-baseline constituent has no canonical rate, no required BTC bridge rate, failed interpolation, or a non-finite bridged value at a required sample. The selected interval must publish `availability: 'unavailable'`, `unavailableReason: 'missingConstituentRate'`, and `points: []`; the UI keeps the timeframe selector enabled, does not render a partial chart, and does not navigate to `marketAsset`.
+103. **Expired invalid-history ownership test:** seed a wallet in manifest invalid-history state with an expired persisted marker, unhide it, and assert the trigger enqueues a retry but does not directly remove manifest invalid-history. If the retry fails before successful finish, invalid-history context remains or is replaced by a new marker. Only successful populate through `markManifestPopulated` clears manifest invalid-history and marks the wallet populated.
+104. **Phase-local acceptance placement test:** assert the missing-constituent-rate fixture is part of Phase 3, checkpoint JSON/non-optional boolean checks are part of Phase 5, and invalid-history unhide ownership is part of Phase 6 so these contracts cannot drift until the final pre-Phase-8 suite.
 
 ---
 ## 17. Plan lock status
