@@ -50,7 +50,7 @@ These decisions are binding for implementation. They are listed up front so an i
 34. **Invalid wallet math is quarantined, not repaired by clamping.** Negative running balances, non-finite basis, impossible disposal math, missing required basis rates, and malformed snapshot state exclude the affected wallet from PnL until repopulated successfully.
 35. **Retained v1 kernels must be classified before import.** Every kept/adapted v1 kernel is classified as `reuse unchanged`, `adapt before v2 use`, `test fixture only`, or `delete after soak`; no v2 import is allowed before its v2-contract checklist passes.
 36. **Populate and rate-fetch loops never trampoline through JS.** Once dispatched to their runtimes, populate's tx-history signing/request/pagination/response-processing path and `ensureFresh`'s BWS signing/request/response-processing path execute inside their portfolio worklet runtimes through the Nitro hybrid-object path. JS may build the fire-time dispatch context once before kick and may dispatch worklet tasks; the loop body must not `runOnJS` back to JS-thread fetch/signing/request helpers and must not process/persist tx-history or rate responses on the JS thread.
-37. **Read-only UI interactions cause zero MMKV writes.** Timeframe switches, chart scrubbing, and passive live-rate touches are read/current-value-only paths. They must not call the v2 MMKV write helper, write `snap:*`, write `rate:v1:*`, write `portfolio:v2:*`, mutate generated render cache, enqueue populate, or refresh snapshots/rates. This is enforced with spy-target tests against the named MMKV write helper.
+37. **Read-only UI interactions cause zero MMKV mutations.** Timeframe switches, chart scrubbing, and passive live-rate touches are read/current-value-only paths. They must not call any of the v2 MMKV mutation helpers (`writePortfolioMmkvString(...)`, `deletePortfolioMmkvKey(...)`, `clearPortfolioMmkvKeysForReset(...)`), must not write/delete `snap:*`, `rate:v1:*`, or `portfolio:v2:*` keys, must not mutate generated render cache, must not enqueue populate, and must not refresh snapshots/rates. This is enforced with spy-target tests against the named helper family and against the low-level mutation exports the helpers wrap.
 
 ---
 ## 1. Non-negotiable product requirements
@@ -2147,7 +2147,9 @@ Required key granularity:
 - optional generated render cache, if added later, is keyed per scope and
   interval/fingerprint, not as one global render-state blob.
 
-All v2 MMKV string writes go through this named helper:
+All v2 MMKV mutations go through this named helper family. Each helper carries
+its own metric reason so spy tests can assert per-kind/per-reason counts
+without inspecting logger strings:
 
 ```ts
 export function writePortfolioMmkvString(args: {
@@ -2155,6 +2157,16 @@ export function writePortfolioMmkvString(args: {
   value: string;
   reason: PortfolioMmkvWriteReason;
   allowOversize?: boolean;
+}): void;
+
+export function deletePortfolioMmkvKey(args: {
+  key: string;
+  reason: PortfolioMmkvWriteReason;
+}): void;
+
+// Real-key-enumeration + registry-aware delete loop, NOT a `clearAll` proxy.
+export function clearPortfolioMmkvKeysForReset(args: {
+  reason: Extract<PortfolioMmkvWriteReason, 'reset' | 'wipe'>;
 }): void;
 ```
 
@@ -2167,10 +2179,23 @@ Phase 1: the call site must include a nearby grep-able
 `portfolio-mmkv-allow-oversize` comment with the reason/ticket, and the
 covering test name must mention the oversized write family. Future lint may
 promote this convention to an automated check, but implementation must not
-invent ad hoc oversized-write escape hatches. Raw `kvStore.setString(...)`, raw
-MMKV `.set(...)`, and ad hoc storage bridges are forbidden outside this helper
-and low-level tests. Timeframe switch, scrub, and passive live-rate touch paths
-perform zero MMKV writes through this helper.
+invent ad hoc oversized-write escape hatches.
+
+`deletePortfolioMmkvKey(...)` records the same metric shape with `kind:
+'mmkvWrite'` and the caller-supplied reason, then delegates to the
+registry-aware delete. `clearPortfolioMmkvKeysForReset(...)` is the only legal
+v2 reset/wipe entry point: it enumerates real MMKV keys plus registry-tracked
+keys and routes each removal through `deletePortfolioMmkvKey(...)` so every
+deletion is metric-traced. Direct calls to `workletKvClearAll(...)` or any
+registry-only clear-all proxy are forbidden in v2 because they bypass real-key
+enumeration; the safer wipe contract requires both surfaces to be reconciled.
+
+Raw `kvStore.setString(...)`, `kvStore.delete(...)`, raw MMKV `.set(...)` /
+`.delete(...)`, `workletKvClearAll(...)`, and ad hoc storage bridges are
+forbidden outside this helper family and low-level tests. Timeframe switch,
+scrub, and passive live-rate touch paths perform zero MMKV mutations through
+any of the three helpers and zero direct calls to the wrapped low-level
+exports.
 
 ### Show Portfolio off wipe
 
@@ -2891,10 +2916,13 @@ When hidden:
 - Inventory the live-rate Redux slice: verify whether it is always maintained in the current display quote. If not, add a `getLiveRatesQuoteCurrencyFromStore()` accessor and make passive live-rate touches no-op on quote mismatch.
 - Inventory Exchange Rate screen/navigation behavior: determine whether navigation-only or screen-local refresh paths persist shared historical `rate:v1:*` data outside v2-owned triggers. If yes, implement the no-fetch `onHistoricalRatesPersisted(...)` notification; if no, document that historical rate persistence is only from v2-owned pull/manual refresh paths.
 - Inventory the JS-thread helper module/export surface that Nitro boundary tests must spy on. Record tx-history signing/request helpers and BWS fiat-rate signing/request/fetch helpers so tests can assert populate and `ensureFresh` never trampoline through those JS helpers after dispatch. The JS-side context creator may be called once at kick time.
-- Inventory the v2 MMKV write helper spy-target surface. Record
-  `writePortfolioMmkvString(...)` and any low-level adapter exports it wraps so
-  zero-write tests can assert timeframe switches, chart scrubbing, and passive
-  live-rate touches perform no MMKV writes.
+- Inventory the v2 MMKV mutation spy-target surface. Record the helper family
+  (`writePortfolioMmkvString(...)`, `deletePortfolioMmkvKey(...)`,
+  `clearPortfolioMmkvKeysForReset(...)`), the low-level mutation exports each
+  helper wraps, and the explicitly **un**wrapped exports (`workletKvClearAll`,
+  raw MMKV `.set`/`.delete`) so zero-mutation tests can assert that timeframe
+  switches, chart scrubbing, and passive live-rate touches perform no MMKV
+  writes, deletes, or clears.
 - Verify retained snapshot compression checkpoint state. If the current kernel
   does not persist in-progress daily/UTC-bucket compression state across resume,
   classify the snapshot kernel as `adapt before v2 use` instead of
@@ -2909,8 +2937,9 @@ Acceptance:
 - Hidden livenet wallet fixture appears in populate eligibility and background rate coverage, but not display eligibility.
 - Retained-kernel classification document checked in; no v2 import is allowed before its adapter checklist passes.
 - Nitro boundary spy-target inventory is checked in and names the JS helper modules/exports that populate and rate-fetch loop bodies must not call.
-- MMKV write spy-target inventory is checked in and names the helper/module
-  exports used by zero-write UI-interaction tests.
+- MMKV mutation spy-target inventory is checked in and names the helper family
+  exports plus the wrapped/un-wrapped low-level mutations used by zero-mutation
+  UI-interaction tests.
 - Snapshot compression checkpoint inventory is checked in; retained snapshot
   kernels are classified `reuse unchanged` only if in-progress daily compression
   state survives resume.
@@ -2965,11 +2994,13 @@ Acceptance:
 - Runtime scaffolding tests prove `react-native-worklets` is the portfolio runtime substrate and runtime-kind initializers install only the allowed globals.
 - `publishPortfolioState(...)` is the only legal write path for `sharedPortfolioState.value`, checks `workEpoch`, records metrics, and initially projects canonical state unchanged through the `PortfolioPublishedState = PortfolioState` alias.
 - `resetSharedPortfolioStateForDebugClear(...)` publishes through `publishPortfolioState(...)` with a current-epoch empty state and may only reset coordination ticks directly.
-- Metrics module records publish duration, approximate payload size, MMKV write
-  value size, revision, reason, prefix family, and warning state without failing
-  CI on initial thresholds. Metrics are emitted through the pinned
-  `PortfolioV2Metric` union so tests can assert per-kind/per-reason counts
-  without inspecting logger strings.
+- Metrics module records publish duration, approximate payload size, MMKV
+  mutation value size (writes; deletes/clears report bytes as zero), revision,
+  reason, prefix family, and warning state without failing CI on initial
+  thresholds. Each MMKV mutation helper (`writePortfolioMmkvString`,
+  `deletePortfolioMmkvKey`, `clearPortfolioMmkvKeysForReset`) emits a
+  `PortfolioV2Metric { kind: 'mmkvWrite' }` record so tests can assert
+  per-kind/per-reason counts without inspecting logger strings.
 
 ### Phase 2 — Snapshot/rate readers and canonical rates
 
@@ -3173,7 +3204,7 @@ Acceptance:
 - Benchmark post-auth warm publish, first-populate reveal, timeframe switch, scrub, quote switch, pull-to-refresh, publish payload size, MMKV read counts, rate lookup counts, and scoped-cache refresh time.
 - Use `recordPortfolioV2Metric(...)` data gathered since Phase 1 to tune warning thresholds. Initial thresholds are warnings, not hard CI failures.
 - Initial budgets are checked in as warning thresholds and may be tuned after baseline measurement:
-  - timeframe switch and scrub: zero network, zero MMKV writes, zero populate;
+  - timeframe switch and scrub: zero network, zero MMKV mutations (writes, deletes, or clears), zero populate;
   - passive live-rate touch: no historical point rebuild and bounded publish payload;
   - quote switch: BTC bridge fetch only and no queue mutation;
   - post-auth warm publish: publish from persisted data before network freshen;
@@ -3201,7 +3232,11 @@ older tx events compress to one daily snapshot per UTC day, recent tx events
 remain tx-level, and app-kill resume does not duplicate/drop an in-progress
 daily snapshot.
 9. Timeframe switch, chart scrub, and passive live-rate touch spy tests assert
-zero calls to `writePortfolioMmkvString(...)` and zero low-level adapter writes.
+zero calls to the v2 MMKV mutation helper family
+(`writePortfolioMmkvString(...)`, `deletePortfolioMmkvKey(...)`,
+`clearPortfolioMmkvKeysForReset(...)`) and zero direct calls to the low-level
+mutation exports the helpers wrap, including the explicitly forbidden
+`workletKvClearAll(...)` and raw MMKV `.set`/`.delete` paths.
 
 ### Manifest and queue
 
@@ -3275,7 +3310,7 @@ zero calls to `writePortfolioMmkvString(...)` and zero low-level adapter writes.
 62. Chart scrubbing causes zero fetch/populate/snapshot/recompute/MMKV side effects.
 63. Scrub timestamp formatting matches interval rules.
 64. Scrub survives mid-publish by timestamp or falls back to idle.
-65. Hide Crypto Balances causes zero v2 runtime/MMKV/shared-state writes.
+65. Hide Crypto Balances causes zero v2 runtime mutations, zero MMKV mutations (writes, deletes, or clears), and zero shared-state writes.
 66. No maximum-update-depth errors during rapid timeframe toggles or scrubbing.
 
 ### Lifecycle
@@ -3317,9 +3352,9 @@ These tests must exist before the plan is treated as implementation-complete. Fo
 96. **MMKV registry test:** seed one registered key and one unregistered real MMKV key; wipe deletes both through registry-aware delete and leaves `kvStore.listKeys()` clean.
 97. **Manifest schema validation test:** invalid/missing schema or malformed JSON returns `null` and logs once; no business-logic silent migration.
 98. **Logger contract test:** `logPortfolioRuntimeError` never throws, never returns a Promise, includes `subsystem: 'portfolio-v2'`, and preserves `extra.tag`.
-99. **Hide Crypto Balances orthogonality test:** dispatch `toggleHideAllBalances()` twenty times and assert zero runtime calls, zero MMKV writes, zero trigger invocations, zero `sharedPortfolioState` writes, and only UI re-renders.
+99. **Hide Crypto Balances orthogonality test:** dispatch `toggleHideAllBalances()` twenty times and assert zero runtime calls, zero MMKV mutations (no calls to the v2 helper family or its wrapped low-level mutation exports), zero trigger invocations, zero `sharedPortfolioState` writes, and only UI re-renders.
 100. **Per-trigger ordering test:** table order is enforced; post-auth is the only warm-publish-first trigger, pull/send/quote/delete/show-toggle follow their explicit orders, and passive live-rate updates use only `liveRateTouch`.
-101. **Passive live-rate update no-fetch test:** trigger `onLiveRatesUpdated` from passive/background live-rate churn and assert: (1) entry calls debounce/coalesce through `PASSIVE_LIVE_RATE_RECOMPUTE_DEBOUNCE_MS`; (2) the debounced callback re-checks `canRunPortfolioV2Work()` and `getShowPortfolioEnabledFromStore()` at fire time and no-ops if either flipped; (3) it schedules `scope: {kind: 'liveRateTouch'}`, never `scope: 'full'`; (4) it makes zero `ensureFresh` calls, zero historical rate fetches, zero snapshot refreshes, zero MMKV historical writes, and zero populate queue mutations; (5) historical chart point values `points[0..last-1]` are unchanged; historical-rate-backed series fingerprints are unchanged; live-rate-backed series fingerprints change only if their final point changes; (6) only series with `finalPointSource === 'liveRate'` update their final point; (7) every `RowPayload` derived from updated final points updates in the same published revision; (8) cached `scopedByWalletSet` entries update current-value surfaces by the same rules as global slices, without rebuilding scoped historical points; (9) quote metadata mismatch no-ops per the Phase 0 decision; (10) uncertain `changedAssetIds` mapping falls back to all-current-value `liveRateTouch`. Anti-regression variant: stub the implementation to call `scope: 'full'` from `onLiveRatesUpdated` and assert historical point mutation causes the test to fail.
+101. **Passive live-rate update no-fetch test:** trigger `onLiveRatesUpdated` from passive/background live-rate churn and assert: (1) entry calls debounce/coalesce through `PASSIVE_LIVE_RATE_RECOMPUTE_DEBOUNCE_MS`; (2) the debounced callback re-checks `canRunPortfolioV2Work()` and `getShowPortfolioEnabledFromStore()` at fire time and no-ops if either flipped; (3) it schedules `scope: {kind: 'liveRateTouch'}`, never `scope: 'full'`; (4) it makes zero `ensureFresh` calls, zero historical rate fetches, zero snapshot refreshes, zero MMKV mutations of any kind (no calls to the v2 mutation helper family or its wrapped low-level exports against historical or current-value keys), and zero populate queue mutations; (5) historical chart point values `points[0..last-1]` are unchanged; historical-rate-backed series fingerprints are unchanged; live-rate-backed series fingerprints change only if their final point changes; (6) only series with `finalPointSource === 'liveRate'` update their final point; (7) every `RowPayload` derived from updated final points updates in the same published revision; (8) cached `scopedByWalletSet` entries update current-value surfaces by the same rules as global slices, without rebuilding scoped historical points; (9) quote metadata mismatch no-ops per the Phase 0 decision; (10) uncertain `changedAssetIds` mapping falls back to all-current-value `liveRateTouch`. Anti-regression variant: stub the implementation to call `scope: 'full'` from `onLiveRatesUpdated` and assert historical point mutation causes the test to fail.
 102. **Historical rates persisted decision test:** if Phase 0 requires `onHistoricalRatesPersisted(...)`, assert it recomputes from already-persisted rates without fetching, refreshing snapshots, enqueueing populate, or double-scheduling v2-owned pull/send flows. If Phase 0 proves it is unnecessary, assert the inventory documents that navigation-only Exchange Rate screens do not persist portfolio-relevant historical rates.
 103. **Helper contract tests:** `resetSharedPortfolioStateForDebugClear` publishes an epoch-correct empty render state through `publishPortfolioState(...)` and resets coordination ticks, `startPopulate` builds/appends through the pinned API, `getSeriesIdlePoint(series)` returns the final point, and `lastAccessedAt` changes only through scoped/wallet touch semantics.
 104. **All-zero shell fiat test:** visible member wallets exist, every current unit amount is zero, and one or more zero-unit rates may be missing; runtime still publishes a row shell with `currentFiatValue: 0`. A no-visible-members fixture publishes no shell.
