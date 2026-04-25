@@ -2704,7 +2704,7 @@ It must not call `ensureFresh`, fetch historical rates, refresh snapshots, enque
 
 ### Historical rates persisted notification 
 
-Phase 0 must decide whether this trigger is needed. Add it only if Exchange Rate screens, debug tools, or other non-v2-owned paths can persist shared historical `rate:v1:*` data that portfolio v2 did not itself fetch and already schedule.
+Phase 0 inventory found that the Exchange Rate screen can persist shared historical `rate:v1:*` data outside v2-owned triggers, so this notification is required.
 
 ```ts
 export function onHistoricalRatesPersisted(args: {
@@ -2715,7 +2715,7 @@ export function onHistoricalRatesPersisted(args: {
 }): void;
 ```
 
-This trigger is a no-fetch notification. It recomputes from already-persisted rates, with guard-before-side-effects and fire-time inputs, and may target affected assets/scopes or fall back to full historical recompute if mapping is unsafe. It must not fetch rates, refresh snapshots, or enqueue populate. V2 triggers that already orchestrate persist + recompute, such as `onPullToRefresh` or send-driven populate completion, must not also fire `onHistoricalRatesPersisted`; doing so would double-schedule recompute. If Phase 0 verifies navigation-only Exchange Rate screens do not persist portfolio-relevant historical rates, document that and do not add this trigger.
+This trigger is a no-fetch notification. It recomputes from already-persisted rates, with guard-before-side-effects and fire-time inputs, and may target affected assets/scopes or fall back to full historical recompute if mapping is unsafe. It must not fetch rates, refresh snapshots, or enqueue populate. V2 triggers that already orchestrate persist + recompute, such as `onPullToRefresh` or send-driven populate completion, must not also fire `onHistoricalRatesPersisted`; doing so would double-schedule recompute.
 
 ### Key imported
 
