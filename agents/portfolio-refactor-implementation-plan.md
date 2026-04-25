@@ -202,11 +202,10 @@ export type PortfolioMmkvWriteReason =
   | 'flag'
   | 'reset'
   | 'wipe'
+  // Reserved for the optional Phase 9 measured-cold-start cache path.
+  // Phase 1-8 code must not write this reason unless the optional persisted
+  // render cache is explicitly added by a benchmark-backed decision.
   | 'generatedRenderCache';
-
-`generatedRenderCache` is reserved for the optional Phase 9 measured-cold-start
-cache path. Phase 1-8 code must not write this reason unless the optional
-persisted render cache is explicitly added by a benchmark-backed decision.
 
 export type PortfolioMmkvPrefixFamily =
   | 'portfolio:v2'
@@ -886,11 +885,11 @@ No silent migration is allowed for business-logic fields such as populated-walle
 ```ts
 export function logPortfolioRuntimeError(
   err: unknown,
-  extra?: {tag?: string; [key: string]: unknown},
+  extra?: PortfolioRuntimeLogExtra,
 ): void;
 ```
 
-The logger never throws, never returns a Promise, always includes `subsystem: 'portfolio-v2'`, and preserves `extra.tag` when provided. It is safe for `.catch(logPortfolioRuntimeError)` and for contextual `.catch(err => logPortfolioRuntimeError(err, {tag}))` call sites.
+The logger never throws, never returns a Promise, always includes `subsystem: 'portfolio-v2'`, and preserves `extra.tag` when provided. It is safe for `.catch(logPortfolioRuntimeError)` and for contextual `.catch(err => logPortfolioRuntimeError(err, {tag}))` call sites. It accepts only the allowlisted fields in `PortfolioRuntimeLogExtra`; do not pass arbitrary objects.
 
 ### Populate queue
 
@@ -2188,6 +2187,8 @@ status before delegating to the registry-aware portfolio KV store. Production
 metrics must not include raw MMKV keys because keys can contain wallet IDs,
 token addresses, account/key identifiers, or asset identifiers. Tests that need
 raw keys may use local spies around the helper, not production metric payloads.
+If MMKV metrics leave the device, `keyHash` must be omitted. Stable key hashes
+are allowed only for local/dev diagnostics.
 Writes larger than `PORTFOLIO_MMKV_VALUE_WARN_BYTES` must either be split into
 smaller keys or pass `allowOversize: true` with a test-covered justification.
 `allowOversize: true` is reviewer-enforced in Phase 1: the call site must
@@ -2212,6 +2213,11 @@ forbidden outside this helper family and low-level tests. Timeframe switch,
 scrub, and passive live-rate touch paths perform zero MMKV mutations through
 any of the three helpers and zero direct calls to the wrapped low-level
 exports.
+
+The MMKV mutation helper family must be available from portfolio worklet
+runtimes, or expose worklet-safe wrappers with identical metrics and guard
+semantics. Populate and rate-fetch persistence must not route through JS merely
+to satisfy the helper-family requirement.
 
 ### Show Portfolio off wipe
 
@@ -2238,7 +2244,7 @@ Do **not** wipe shared `rate:v1:*` by default because Exchange Rate surfaces rem
 
 ### MMKV registry discipline
 
-All portfolio v2 MMKV access uses the dedicated portfolio storage instance returned by `getPortfolioMmkvStorageOnRN()`. All writes and deletes go through `getPortfolioKvStore()` / `kvStore.delete(key)` so the registry-backed key tracker remains consistent.
+All portfolio v2 MMKV access uses the dedicated portfolio storage instance returned by `getPortfolioMmkvStorageOnRN()`. All writes and deletes go through the v2 MMKV mutation helper family so the registry-backed key tracker remains consistent. Low-level helpers such as `kvStore.delete(key)` are implementation details inside that helper family, not reset/wipe orchestration entry points.
 
 Add an RN-only real-key enumeration helper:
 
@@ -2248,19 +2254,21 @@ export function listRealPortfolioMmkvKeysOnRN(): readonly string[] {
 }
 ```
 
-The worklet storage bridge does not need `getAllKeys`; reset/wipe orchestration runs from RN/JS and sends deletes through `kvStore.delete(key)`.
+The worklet storage bridge does not need `getAllKeys`; reset/wipe orchestration runs from RN/JS through `clearPortfolioMmkvKeysForReset(...)`.
 
 Wipe implementation contract:
 
 ```txt
 1. enumerate real keys from getPortfolioMmkvStorageOnRN().getAllKeys();
-2. filter portfolio-owned prefixes;
-3. exclude PORTFOLIO_V2_FLAG_KEY, PORTFOLIO_CACHE_INVALID_KEY, and PORTFOLIO_WORK_EPOCH_KEY;
-4. delete through kvStore.delete(key), not raw MMKV.delete(key);
-5. assert both storage.getAllKeys() and kvStore.listKeys() are clean after successful wipe.
+2. enumerate registry-tracked keys from kvStore.listKeys();
+3. union both sets so unregistered real keys and stale registry-only keys are both considered;
+4. filter portfolio-owned prefixes;
+5. exclude PORTFOLIO_V2_FLAG_KEY, PORTFOLIO_CACHE_INVALID_KEY, and PORTFOLIO_WORK_EPOCH_KEY;
+6. delete through deletePortfolioMmkvKey(...), not raw MMKV.delete(...) or direct kvStore.delete(...);
+7. assert both storage.getAllKeys() and kvStore.listKeys() are clean after successful wipe.
 ```
 
-Do not use `kvStore.listKeys()` as the wipe source of truth because a stale registry could miss real MMKV keys. Do not call raw `MMKV.delete` from v2 reset/delete paths because it can leave the registry reporting deleted keys.
+Do not use `kvStore.listKeys()` as the only wipe source of truth because a stale registry could miss real MMKV keys. Do not call raw `MMKV.delete` or direct `kvStore.delete(...)` from v2 reset/delete orchestration because they bypass the mutation helper metrics/guards or can leave the registry reporting deleted keys.
 Do not use legacy `PortfolioEngine.clearAllData()` or `kvStore.clearAll()` for v2 reset unless they are rewritten to follow this real-key enumeration contract; registry-only behavior is insufficient for wipe correctness.
 
 ### Manifest schema validation
@@ -2293,11 +2301,44 @@ No silent migration of business-logic fields is allowed. Safe defaults are allow
 ```ts
 export function logPortfolioRuntimeError(
   err: unknown,
-  extra?: {tag?: string; [key: string]: unknown},
+  extra?: PortfolioRuntimeLogExtra,
 ): void;
+
+export type PortfolioRuntimeLogExtra = Readonly<{
+  tag?: string;
+  reason?: string;
+  errorName?: string;
+  errorCode?: string;
+  phase?: string;
+  runtimeKind?: PortfolioRuntimeKind;
+  walletCount?: number;
+  assetGroupCount?: number;
+  rateSourceCount?: number;
+  pointCount?: number;
+  retryAttempt?: number;
+  warning?: boolean;
+}>;
 ```
 
 Contract: never throws, never returns a Promise, always tags `subsystem: 'portfolio-v2'`, includes `extra.tag` when present, and is safe for `.catch(logPortfolioRuntimeError)`.
+
+Portfolio v2 off-device telemetry/logging is allowlisted, not best-effort
+redacted. Portfolio v2 production code must not call `LogActions`, `logManager`,
+or `Sentry` directly; route runtime errors through `logPortfolioRuntimeError`
+and structured counters/timing through `recordPortfolioV2Metric(...)`.
+
+Allowed off-device runtime-log fields are only the safe scalar fields in
+`PortfolioRuntimeLogExtra` plus the fixed `subsystem: 'portfolio-v2'`. Do not
+pass arbitrary `extra` objects. Do not send raw `Error.message`, request URLs,
+headers, raw MMKV keys, wallet IDs, key/account IDs, token addresses, txids,
+manifests, queues, snapshots, rates, checkpoints, `PortfolioState`, or
+tx-history/rate response bodies to Sentry, breadcrumbs, persisted logs, or
+metrics. If a local developer build needs the original error message, keep it
+behind an explicit local-only diagnostic path and sanitize before display.
+
+Debug copy/export payloads are explicit user/local diagnostics only. They must
+remain redacted and must never be auto-attached to Sentry events, log
+breadcrumbs, runtime metrics, or error reports.
 
 ### Reset sequence
 
@@ -3006,7 +3047,7 @@ Define model types from this plan, including `Point.remainingUnrealizedPnlFiat`,
 Acceptance:
 
 - Typecheck green.
-- Unit tests for empty state, `emptyPortfolioStateForEpoch(...)`, manifest load/save, queue load/save, reset invalid bit, Redux access init, shared values (`sharedPortfolioState`, cancel/running flags, progress/retry ticks), and `resetSharedPortfolioStateForDebugClear`.
+- Unit tests for empty state, `emptyPortfolioStateForEpoch(...)`, manifest load/save, queue load/save, reset invalid bit, Redux access init, shared values (`sharedPortfolioState`, cancel/running flags, progress/retry ticks), `resetSharedPortfolioStateForDebugClear`, and portfolio telemetry/logging allowlists.
 - Runtime scaffolding tests prove `react-native-worklets` is the portfolio runtime substrate and runtime-kind initializers install only the allowed globals.
 - `publishPortfolioState(...)` is the only legal write path for `sharedPortfolioState.value`, checks `workEpoch`, records metrics, and initially projects canonical state unchanged through the `PortfolioPublishedState = PortfolioState` alias.
 - `resetSharedPortfolioStateForDebugClear(...)` publishes through `publishPortfolioState(...)` with a current-epoch empty state and may only reset coordination ticks directly.
@@ -3018,6 +3059,9 @@ Acceptance:
   `deletePortfolioMmkvKey`, `clearPortfolioMmkvKeysForReset`) emits a
   `PortfolioV2Metric { kind: 'mmkvWrite' }` record so tests can assert
   per-kind/per-reason counts without inspecting logger strings.
+- `logPortfolioRuntimeError` rejects or drops non-allowlisted fields and never
+  sends raw IDs/URLs/keys/error messages to Sentry breadcrumbs, persisted logs,
+  or metrics.
 
 ### Phase 2 — Snapshot/rate readers and canonical rates
 
@@ -3373,7 +3417,7 @@ These tests must exist before the plan is treated as implementation-complete. Fo
 95. **Wallet/delete triple-guard race tests:** guard #2 flips during populate wait; guard #3 flips during snapshot clear; both return before later side effects.
 96. **MMKV registry test:** seed one registered key and one unregistered real MMKV key; wipe deletes both through registry-aware delete and leaves `kvStore.listKeys()` clean.
 97. **Manifest schema validation test:** invalid/missing schema or malformed JSON returns `null` and logs once; no business-logic silent migration.
-98. **Logger contract test:** `logPortfolioRuntimeError` never throws, never returns a Promise, includes `subsystem: 'portfolio-v2'`, and preserves `extra.tag`.
+98. **Logger/telemetry allowlist test:** `logPortfolioRuntimeError` never throws, never returns a Promise, includes `subsystem: 'portfolio-v2'`, preserves safe scalar allowlisted fields such as `extra.tag`, and drops/rejects non-allowlisted fields. Feed it an `Error` and `extra` containing `wallet-123`, `0xAbC123`, `txid`, `rate:v1:USD:usdc:1D:eth:0xAbC123`, `snap:chunk:v2:wallet-123:1`, a request URL, a manifest/queue fragment, and a raw checkpoint; assert the Sentry/log/metric sinks receive none of those raw values and no raw `Error.message`. Debug copy/export payloads remain user-local and are never auto-attached to runtime errors.
 99. **Hide Crypto Balances orthogonality test:** dispatch `toggleHideAllBalances()` twenty times and assert zero runtime calls, zero MMKV mutations (no calls to the v2 helper family or its wrapped low-level mutation exports), zero trigger invocations, zero `sharedPortfolioState` writes, and only UI re-renders.
 100. **Per-trigger ordering test:** table order is enforced; post-auth is the only warm-publish-first trigger, pull/send/quote/delete/show-toggle follow their explicit orders, and passive live-rate updates use only `liveRateTouch`.
 101. **Passive live-rate update no-fetch test:** trigger `onLiveRatesUpdated` from passive/background live-rate churn and assert: (1) entry calls debounce/coalesce through `PASSIVE_LIVE_RATE_RECOMPUTE_DEBOUNCE_MS`; (2) the debounced callback re-checks `canRunPortfolioV2Work()` and `getShowPortfolioEnabledFromStore()` at fire time and no-ops if either flipped; (3) it schedules `scope: {kind: 'liveRateTouch'}`, never `scope: 'full'`; (4) it makes zero `ensureFresh` calls, zero historical rate fetches, zero snapshot refreshes, zero MMKV mutations of any kind (no calls to the v2 mutation helper family or its wrapped low-level exports against historical or current-value keys), and zero populate queue mutations; (5) historical chart point values `points[0..last-1]` are unchanged; historical-rate-backed series fingerprints are unchanged; live-rate-backed series fingerprints change only if their final point changes; (6) only series with `finalPointSource === 'liveRate'` update their final point; (7) every `RowPayload` derived from updated final points updates in the same published revision; (8) cached `scopedByWalletSet` entries update current-value surfaces by the same rules as global slices, without rebuilding scoped historical points; (9) quote metadata mismatch no-ops per the Phase 0 decision; (10) uncertain `changedAssetIds` mapping falls back to all-current-value `liveRateTouch`. Anti-regression variant: stub the implementation to call `scope: 'full'` from `onLiveRatesUpdated` and assert historical point mutation causes the test to fail.
