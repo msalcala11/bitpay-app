@@ -32,7 +32,7 @@
 
 - **Cross-chain ticker collapse lands in v18.** Home / All Assets / Allocation / key-scoped All Assets use ticker-grouped asset rows (`assetGroupId = lowercased currencyAbbreviation`), matching current UX.
 - **Allocation order equals asset-list order in v18.** Allocation does not introduce its own ranking order; it reuses the canonical asset-group order from the portfolio state.
-- **`onQuoteCurrencyChanged(...)` lands in v18 as a BTC-bridge flow.** No trigger skeletons remain, quote switches do not refetch every visible asset in the new currency, and quote changes publish immediately from the current shared portfolio state.
+- **`onQuoteCurrencyChanged(...)` lands in v18 as a BTC-bridge flow.** No trigger skeletons remain, quote switches do not refetch every visible asset in the new currency, and quote changes publish promptly via `recomputeQuoteBridgeFromExistingData(...)` — a targeted compute-runtime reprice from existing snapshots/rates using the per-τ bridge formula pinned in Phase 3 (correct under in-window txs, not a scalar transform).
 - **`onPullToRefresh(...)` lands in v18.** No trigger skeletons remain.
 - **`onShowPortfolioVisibilityChanged(...)` lands in v18.** Turning portfolio visibility off clears portfolio-owned cached data and hides all portfolio-owned charts/lists; turning it back on repopulates from scratch. Rapid off/on churn is serialized with last-toggle-wins final visibility plus a latched wipe obligation so ON cannot populate before an OFF-created clear completes.
 - **"Hide Crypto Balances" (`hideAllBalances`) is a UI-local mask, not a portfolio data gate.** The setting at `state.APP.hideAllBalances` (defined at `src/store/app/app.reducer.ts:133`) toggles a pure presentational mask (`maskIfHidden(...)` → `'****'`) and hides chart surfaces, but does NOT cancel populate, stop recompute, clear caches, suppress `ensureFresh`, or affect `sharedPortfolioState`. V2 continues populating / computing / caching as normal while the mask is on; toggling it off reveals already-warm data instantly with zero populate or fetch latency. This is orthogonal to the "Show Portfolio" setting: Show Portfolio off clears portfolio cache; Hide Crypto Balances ON only masks display while the cache stays warm. Both can be on simultaneously.
@@ -140,7 +140,7 @@ Total kept: **~13,805 LOC.**
 1. **Ship-green** after every phase under `PORTFOLIO_V2=false`.
 2. **Don't refactor kernels.** The "untouched" list is binding.
 3. **Don't regress MMKV layout** beyond the `revision` addition.
-4. **One compute-runtime writer, one state surface.** Only compute-runtime recompute functions write `sharedPortfolioState`: the normal `recompute(...)` path plus the quote-switch-specific `recomputeQuoteBridgeFromSharedState(...)` path described in Phases 2/3. Touch scopes are recompute scopes. **Reset paths (debug-clear, sign-out) also write to `sharedPortfolioState`** — see guardrail #17.
+4. **One compute-runtime writer, one state surface.** Only compute-runtime recompute functions write `sharedPortfolioState`: the normal `recompute(...)` path plus the quote-switch-specific `recomputeQuoteBridgeFromExistingData(...)` path described in Phases 2/3. Touch scopes are recompute scopes. **Reset paths (debug-clear, sign-out) also write to `sharedPortfolioState`** — see guardrail #17.
 5. **LOC ledger per phase.**
 6. **Selectors are pure worklet functions** of state + primitives. No Redux.
 7. **Cancellation** via `populateCancelFlag.value` checks at yield points.
@@ -189,6 +189,7 @@ Total kept: **~13,805 LOC.**
 34. **`hideAllBalances` is UI-rendering-only — portfolio v2 code paths must not consume it.** `reduxAccess.ts` must not export a `getHideAllBalancesFromStore()` accessor. Triggers (`onAppLaunchPostAuth`, `onSendCompleted`, `onPullToRefresh`, `onQuoteCurrencyChanged`, `onLiveRatesUpdated`, `onShowPortfolioVisibilityChanged`, `onKeyImported`, `onWalletsDeleted`, `onWalletsVisibilityChanged`) must not branch on it. Scheduler, recompute, selectors, populate queue, `ensureFresh`, fingerprints, and `sharedPortfolioState` publish decisions must all be independent of the flag. The mask lives strictly at the UI rendering boundary: portfolio-owned components read `state.APP.hideAllBalances` directly via `useAppSelector` and apply `maskIfHidden(...)` to formatted strings + conditionally hide chart surfaces. A toggle produces zero `runOnRuntimeAsync`, zero MMKV writes, zero trigger fires, and zero recompute publishes — only React re-renders. This preserves orthogonality with "Show Portfolio" (which DOES affect data/cache) and guarantees instant reveal when the user toggles hide off.
 35. **Chart render point cap is load-bearing.** Balance chart `Series.points` and Exchange Rate chart render data must never exceed `MAX_CHART_POINTS = 89` points. For portfolio balance charts, the compute-runtime series builder applies the cap before publishing global, wallet, asset-group, and scoped series. For Exchange Rate charts, raw cached rate series may be denser, but the chart formatter/downsampler caps the rendered data before it reaches the chart component. Downsampling must preserve the resolved first and final window endpoints so first-point `pnlChange = 0`, last-point idle/scrub equality, and Exchange Rate window percent parity remain valid.
 36. **Chart sample-grid selection precedes heavy PnL math and reuses existing downsample primitives.** `resolveChartSampleGrid(...)` (name flexible) chooses at most `MAX_CHART_POINTS` timestamps for the resolved `{interval, windowStartTs, windowEndTs}` before the compute runtime runs portfolio math. The PnL formula iterates over that capped grid, not over a dense raw daily/hourly history and then trims afterward. This helper must be built on the existing shared primitives in `src/utils/portfolio/rate.ts`: `downsampleSeries(...)` / `downsampleTimestamps(...)`, with the Exchange Rate endpoint/extrema-preserving behavior extracted from `downsampleExchangeRateSeriesPreservingExtrema(...)` in `src/navigation/wallet/hooks/useExchangeRateChartData.ts` when needed. Exchange Rate chart formatting and balance-chart series construction must not maintain independent "89 point" algorithms.
+37. **UI must not call generic v1 analysis / query / request APIs.** Portfolio-owned screens, components, and hooks must not import or call any of the following from `src/portfolio/v2/**` or anywhere else: `computeAnalysis(...)`, `prepareAnalysisSession(...)`, `computeSessionScope(...)`, `computeAnalysisChart(...)`, the v1 `getPortfolioRuntimeClient(...)` request methods, `portfolioClient.*` request methods, or any future "compute now from React" API. UI reads happen through `usePortfolioSlice(...)`, the typed hook façades (`usePortfolioChart`, `usePortfolioAssetRows`, `usePortfolioStatus`), or named selectors that perform O(1) lookups over `sharedPortfolioState`. Mounts schedule recompute through `scheduleRecompute(...)`; they do not invoke compute paths directly. Enforcement: an `eslint-no-restricted-imports` rule plus a v2 import-check test that greps `src/{components,navigation}/**` for any of the banned identifiers and asserts zero hits. Adding a new computation API to v2 requires either (a) routing it through `scheduleRecompute(...)` so it lands in `sharedPortfolioState`, or (b) adding it explicitly to this guardrail's allowlist with rationale. This guardrail prevents the v1 sprawl (per-screen analysis sessions, scoped query caches, chart-cache slices) from re-emerging behind new names.
 
 ---
 
@@ -1074,11 +1075,11 @@ Total kept: **~13,805 LOC.**
 > Required behavior:
 > - Fetch/persist only BTC series for the target quote currency and canonical stored intervals (`1D`, `1W`, `1M`, `ALL`).
 > - Derive the old-quote -> new-quote bridge factor from persisted BTC data.
-> - Hand the bridge snapshot to `recomputeQuoteBridgeFromSharedState(...)`, a compute-runtime helper from Phase 3 that transforms only the current `sharedPortfolioState` into the new quote.
-> - `recomputeQuoteBridgeFromSharedState(...)` must not consult `loadQueue()`, `queue.doneWalletIds`, or raw snapshot/rate MMKV. It is a current-shared-state bridge transform, not a fresh-data recompute.
-> - Do **not** call `ensureFresh(...)` for every visible asset group on quote switch.
+> - Hand the bridge snapshot to `recomputeQuoteBridgeFromExistingData(...)`, a compute-runtime helper from Phase 3 that re-prices the existing portfolio data into the new quote currency.
+> - `recomputeQuoteBridgeFromExistingData(...)` may read existing persisted snapshots and existing canonical-quote rate series on the compute runtime, but must not fetch per-asset rates in the new quote currency. It is a targeted reprice, not a scalar transform of `sharedPortfolioState`. It is **not** a "shared-state-only" transform — that wording was a correctness loophole because cost basis is built from per-tx-event rate lookups that cannot be reconstructed from a single bridge factor applied to published values. See Phase 3's pinned per-τ rate-lookup formula.
+> - Do **not** call `ensureFresh(...)` for every visible asset group on quote switch. The only network work is the BTC bridge fetch above.
 > - Displayed `3M` / `1Y` / `5Y` still derive from `ALL` after the bridge is applied.
-> - This bridge path is what allows quote switches to publish immediately without forcing per-asset new-quote fetches.
+> - This bridge path is what allows quote switches to publish correctly without forcing per-asset new-quote fetches.
 >
 > **Branch-specific concurrency wrapping:** depending on Phase 0.5 spike results (guardrail #27), `ensureFresh`'s `runOnRuntimeAsync` call and/or the target runtime may be wrapped with additional concurrency primitives. Branch A: no additional populate-vs-rate wrapping. Branch B: `portfolioRuntimeSerial` executor. Branch C: target `getRateFetchRuntime()` instead of `getPopulateRuntime()`. Branch D: worklet-side lock inside `loadSeriesWorkletWithContext`. Identical-args dedupe is always on. If probe 3 is dirty/flaky, additionally serialize non-identical `ensureFresh` calls at the JS level. See Phase 0.5 branch table for exact implementation per spike outcome.
 >
@@ -1211,15 +1212,30 @@ Total kept: **~13,805 LOC.**
 > - **Scope consistency.** The two invariants apply per scope. For Home total, first-point = 0 across total series; last-point equals the Home idle big balance + total PnL subtext. For wallet detail, same per-wallet. For key-scoped detail, same per-key. For asset-group detail, same per-group. Cross-scope equality continues to be enforced by the existing Row/detail equality rule above.
 > - **Point cap.** Every emitted balance chart series has `series.points.length <= MAX_CHART_POINTS` (`89`). The compute runtime receives/derives a capped chart sample grid up front: if the resolved window has 89 or fewer sample timestamps, emit them all; if it has more, `resolveChartSampleGrid(...)` selects at most 89 timestamps before PnL math runs, preserving the first and final resolved window endpoints. This applies uniformly to Home total, wallet, account, key-scoped, asset-group detail, and every `scopedByWalletSet` series. Do not compute dense balance-chart arrays and trim them in React — the published render payload itself is capped, and the heavy formula only iterates the capped grid.
 >
-> ## Quote-switch shared-state recompute
+> ## Quote-switch targeted reprice
 >
-> Add one compute-runtime helper such as `recomputeQuoteBridgeFromSharedState(args)` and call it **only** from `onQuoteCurrencyChanged(...)`.
+> Add one compute-runtime helper such as `recomputeQuoteBridgeFromExistingData(args)` and call it **only** from `onQuoteCurrencyChanged(...)`.
+>
+> **Why this is a reprice, not a transform.** A scalar bridge of published `fiatBalance(t)` is correct because `fiatBalance(t) = units(t) * rate(t)` is linear at a single timestamp. But `remainingCostBasisFiat` accumulates over prior tx events at *different* τ's: `Σ deltaUnits(τ) * rate(τ, quote)`. Each event has its own bridge factor `bridge(τ) = btcRate(τ, newQuote) / btcRate(τ, fromQuote)`, so the new cost basis is **not** equal to `oldCostBasis(t) * bridge(t)` whenever the window contains in-window balance changes. The only correct path is to recompute cost basis with bridge-aware rate lookups at every τ.
 >
 > Required behavior:
-> - Read `sharedPortfolioState.value` as the sole portfolio-state input.
-> - Apply the BTC bridge snapshot to the currently published chart/row outputs and `quoteCurrency`, including global slices, wallet slices, and every bounded `scopedByWalletSet` entry.
-> - Preserve readiness/invalid-history/order state; this helper is a quote transform of currently published data, not a fresh populate publish.
-> - Do **not** read `loadQueue()`, `queue.doneWalletIds`, or raw snapshot/rate MMKV state. It transforms the currently published `sharedPortfolioState` only.
+> - Run on the compute runtime. Read existing persisted snapshots (per-tx events) and existing canonical/from-quote rate series. **Do not fetch per-asset rates in the new quote currency.** The only network input is the BTC bridge series the trigger already fetched via `ensureQuoteCurrencyFxBridge(...)`.
+> - Use the pinned per-τ rate formula below at every rate lookup the recompute performs — baseline `t0`, every chart sample `ti`, and every in-window balance-change / tx timestamp `τ`.
+> - Reprice all global slices, wallet slices, and every bounded `scopedByWalletSet` entry. Preserve readiness / invalid-history / order state; this helper does not change populate eligibility or queue state.
+> - Do not consult `loadQueue()` / `queue.doneWalletIds`. Reprice operates on whatever is already populated; the queue is unchanged by a quote switch.
+>
+> **Pinned per-τ rate-lookup formula (load-bearing for quote-switch correctness):**
+>
+> ```
+> rate(τ, newQuote) = assetRate(τ, fromQuote) * btcRate(τ, newQuote) / btcRate(τ, fromQuote)
+> ```
+>
+> This formula must be applied at:
+> - **Baseline `t0`** — `baselineRate = rate(t0, newQuote)` for every wallet's window-start cost basis.
+> - **Every chart sample `ti`** — `markRate = rate(ti, newQuote)` for `fiatBalance(ti)`.
+> - **Every in-window balance-change / tx timestamp `τ`** — `rateAtChange = rate(τ, newQuote)` for cost-basis updates `remainingCostBasisFiat += deltaUnits * rate(τ, newQuote)`.
+>
+> A previous version of this plan described `recomputeQuoteBridgeFromExistingData(...)` as a "shared-state-only transform." That wording was a correctness loophole — applying a single bridge factor to published `pnlChange` / `pnlPercent` produces wrong values whenever a window contains in-window txs, because cost basis is path-dependent on per-event rates. The reprice above is the correct contract.
 >
 > ## Fingerprints
 >
@@ -1262,7 +1278,7 @@ Total kept: **~13,805 LOC.**
 > - **Visibility rule: mount sites pass visibility-filtered walletIds.** `KeyOverview` / key-scoped `AllAssets` / scoped `AssetBalanceHistoryScreen` derive their `walletIds` from Redux with visibility filters already applied (`hideKeyBalance` / `hideAccount` / `hideWallet` / `hideWalletByAccount` / `hideBalance`). Consequently `walletIdsKey = stableWalletIdsKey(walletIds)` naturally changes when visibility flips — a hide/unhide produces a new cache-miss key and schedules a fresh scoped recompute. Old entries remain in cache under their prior `walletIdsKey` for quick flip-back until LRU eviction. The compute runtime never filters visibility internally at scope level — that concern lives at the caller, same two-set model as `getPopulateEligibleWalletsFromStore()` vs `getEligibleStoredWalletsFromStore()` (guardrail #30).
 > - **`wallet` / `wallets` recompute: intersection refresh.** For each cached scoped entry, refresh it iff its `walletIds` set intersects `inputs.scope.walletIds`. Non-intersecting entries are left alone. Same fan-out-from-shared-inputs rule applies.
 > - **`onWalletsDeleted(...)` requests scoped eviction via the scheduler, not directly.** `scopedByWalletSet` lives inside `sharedPortfolioState`, so only the compute runtime publishes changes to it (guardrail #22 — no unregistered writers). The trigger passes the deleted walletIds into the tail `scheduleRecompute` inputs (e.g., `scheduleRecompute({scope: 'full', evictScopedWalletIds: walletIds, ...base})`). Inside the compute-runtime `recompute(...)`, the scoped-rebuild step first drops any `scopedByWalletSet[*]` entry whose `walletIds` intersects `inputs.evictScopedWalletIds`, then refreshes the remaining cached entries, then publishes once. Scoped eviction and global `full` rebuild land in the same published `sharedPortfolioState` revision — no intermediate state where global drops the wallet but scoped entries still contain it.
-> - **Quote switch: `recomputeQuoteBridgeFromSharedState(...)` bridges every cached scoped entry.** Already pinned earlier in Phase 3 — applies the BTC bridge snapshot to global slices, wallet slices, and every `scopedByWalletSet[*]` entry uniformly. Non-bridged scoped entries would drift from global state and violate cross-screen consistency.
+> - **Quote switch: `recomputeQuoteBridgeFromExistingData(...)` reprices every cached scoped entry.** Already pinned earlier in Phase 3 — applies the per-τ bridge formula to global slices, wallet slices, and every `scopedByWalletSet[*]` entry uniformly using the same persisted snapshot/rate inputs the original recompute used. Non-bridged scoped entries would drift from global state and violate cross-screen consistency.
 > - **Cache miss is always skeleton + scheduled recompute, never synchronous JS aggregation.** Guardrail #32 forbids the fallback path. Selectors return `undefined` on miss; the UI shows skeleton-ready state; the mount-site `scheduleRecompute({scope: {kind: 'wallets', walletIds}, ...base})` publishes the scoped entry asynchronously.
 > - **Singleton rule: route type decides, not wallet count.** `WalletDetails` is the one route that is singleton-by-design — it always renders a single walletId and reads `byWallet[walletId]` directly. It does NOT write to `scopedByWalletSet` even though conceptually it's a scope-of-one. Every other scoped route — `KeyOverview`, EVM `AccountDetails`, key-scoped `AllAssets`, key-scoped `AssetBalanceHistoryScreen` — always uses the scoped cache, even when the effective wallet count is 1 (e.g., a key with one visible wallet after visibility filtering, or an EVM account with a single wallet under it). Route uniformity trumps the micro-optimization of falling back to `byWallet` on singleton scopes: the mount path is the same, the scoped-cache read is O(1) either way, and implementation stays consistent across visibility changes that push a multi-wallet scope down to one wallet and back.
 >
@@ -1479,6 +1495,78 @@ Total kept: **~13,805 LOC.**
 > ): T;
 > ```
 >
+> ### Typed route-scope descriptor
+>
+> `src/portfolio/v2/routeScope.ts`:
+>
+> ```ts
+> // Single typed taxonomy for every route that reads portfolio data. Mount sites
+> // build one of these from props/Redux, then resolve it JS-side into the
+> // visibility-filtered walletIds + walletIdsKey the selectors actually consume.
+> // The compute runtime never receives a PortfolioRouteScope — it receives
+> // resolved walletIds (see guardrail #32 / scoped-cache rules in Phase 3).
+> export type PortfolioRouteScope =
+>   | { kind: 'home' }
+>   | { kind: 'wallet'; walletId: string }
+>   | { kind: 'key'; keyId: string }
+>   | { kind: 'account'; accountId: string }
+>   | { kind: 'assetGroup'; assetGroupId: string }
+>   | { kind: 'keyAssetGroup'; keyId: string; assetGroupId: string }
+>   | { kind: 'accountAssetGroup'; accountId: string; assetGroupId: string };
+>
+> export type ResolvedRouteScope = Readonly<{
+>   scope: PortfolioRouteScope;
+>   // Visibility-filtered walletIds. Mount sites apply hideKeyBalance /
+>   // hideAccount / hideWallet / hideWalletByAccount / hideBalance before
+>   // calling resolve. Empty array is a valid resolved scope (skeleton state).
+>   walletIds: readonly string[];
+>   walletIdsKey: string;                // stableWalletIdsKey(walletIds)
+>   assetGroupId?: string;
+> }>;
+>
+> // Pure JS resolver. Reads Redux via reduxAccess accessors, applies visibility
+> // filters at the caller (mount-site) layer, and returns the resolved scope.
+> // Does not write to sharedPortfolioState, does not call scheduleRecompute.
+> export function resolvePortfolioRouteScope(
+>   scope: PortfolioRouteScope,
+> ): ResolvedRouteScope;
+> ```
+>
+> Mount sites construct the scope, resolve it, then call `scheduleRecompute({scope: {kind: 'wallets', walletIds: resolved.walletIds}, ...base})` for non-singleton routes (every scope kind except `'home'` and `'wallet'`; the singleton-rule exception in Phase 3 still applies).
+>
+> ### Hook façades
+>
+> `src/portfolio/v2/hooks/usePortfolioChart.ts`, `usePortfolioAssetRows.ts`, `usePortfolioStatus.ts`. Thin wrappers over `usePortfolioSlice` so screens read uniformly without growing bespoke selector orchestration:
+>
+> ```ts
+> // Returns the Series for a resolved scope + interval. For `home` / `wallet`
+> // singletons, reads global slices directly; for every other scope, reads
+> // the bounded scopedByWalletSet[walletIdsKey] entry. Cache miss returns
+> // undefined (skeleton-ready); the mount site is responsible for kicking
+> // the scheduleRecompute that publishes the scoped entry.
+> export function usePortfolioChart(
+>   resolved: ResolvedRouteScope,
+>   interval: Interval,
+> ): Series | undefined;
+>
+> // Returns rows for a resolved scope. `mode` is 'today' | 'allTime'.
+> export function usePortfolioAssetRows(
+>   resolved: ResolvedRouteScope,
+>   mode: 'today' | 'allTime',
+> ): readonly RowPayload[] | undefined;
+>
+> // Returns whichever readiness/error-ready/refreshing state the surface needs.
+> // Internally composes selectIsAssetGroupReady / selectHasAnyPopulatedWallets /
+> // useIsPortfolioRefreshing as appropriate.
+> export function usePortfolioStatus(
+>   resolved: ResolvedRouteScope,
+> ): { ready: boolean; refreshing: boolean; invalidHistoryBlocked: boolean };
+> ```
+>
+> These façades exist so screens don't reach for `usePortfolioSlice` + bespoke selector composition every time — the Phase 8 deletion target is "no per-screen orchestration hooks," and these façades are the v2 replacement surface.
+>
+> Tests cover: façade output equals direct selector output for the same scope; scope resolution applies visibility filters correctly; cache-miss returns `undefined` without crashing.
+>
 > `src/portfolio/v2/hooks/useSharedValueAsState.ts`:
 >
 > ```ts
@@ -1576,8 +1664,22 @@ Total kept: **~13,805 LOC.**
 > ### `src/portfolio/v2/populate/queue.ts`
 >
 > ```ts
+> // Telemetry-only; classifies why the queue was last (re)built. Used by log
+> // tags and Sentry breadcrumbs so production populate behavior can be diagnosed
+> // without inferring from which trigger fired. NOT consulted by any business
+> // logic — populate ordering, eligibility, and recompute behavior are
+> // independent of `reason`.
+> type PopulateQueueReason =
+>   | 'initial'              // first-ever populate from cold start
+>   | 'appLaunchIncremental' // post-auth resume on a non-cold start
+>   | 'send'                 // onSendCompleted kicked the affected wallet
+>   | 'pullToRefresh'        // user-initiated refresh from Home / KeyOverview / etc.
+>   | 'keyImport'            // onKeyImported kicked the new key's wallets
+>   | 'manual';              // debug screen or other explicit kick path
+>
 > type PopulateQueueV1 = {
 >   schemaVersion: 1;
+>   reason: PopulateQueueReason;        // telemetry only; see PopulateQueueReason comment
 >   remainingWalletIds: readonly string[];
 >   doneWalletIds: readonly string[];
 >   // Wallets skipped because an active invalid-history marker exists or because
@@ -1604,6 +1706,7 @@ Total kept: **~13,805 LOC.**
 >   cfg: BwsConfig;
 >   ingest: SnapshotIngestConfig;
 >   pageSize: number;
+>   reason: PopulateQueueReason;          // telemetry only; see type comment
 > }): PopulateQueueV1 {
 >   const prev = loadQueue();
 >   const order = computeOrderedAssetGroupIdsForAssetList({
@@ -1616,6 +1719,7 @@ Total kept: **~13,805 LOC.**
 >   const walletIdsInOrder = expandOrderToWalletIds(order, args.eligibleWallets, args.balancesByWalletId);
 >   return {
 >     schemaVersion: 1,
+>     reason: args.reason,
 >     remainingWalletIds: walletIdsInOrder,
 >     doneWalletIds: [],
 >     invalidHistoryWalletIds: [],
@@ -1663,6 +1767,19 @@ Total kept: **~13,805 LOC.**
 >       invalidHistoryWalletIds: Array.isArray(parsed.invalidHistoryWalletIds)
 >         ? parsed.invalidHistoryWalletIds
 >         : [],
+>       // Forward-compatible dev migration within schemaVersion 1: queues written
+>       // before `reason` existed normalize to 'manual' (the most neutral telemetry
+>       // tag) instead of being treated as corrupt. `reason` is telemetry-only so
+>       // a stale 'manual' tag has no behavioral consequence.
+>       reason:
+>         parsed.reason === 'initial' ||
+>         parsed.reason === 'appLaunchIncremental' ||
+>         parsed.reason === 'send' ||
+>         parsed.reason === 'pullToRefresh' ||
+>         parsed.reason === 'keyImport' ||
+>         parsed.reason === 'manual'
+>           ? parsed.reason
+>           : 'manual',
 >     };
 >   } catch (err) {
 >     logOnce('loadQueue: parse error ' + String(err));
@@ -2195,16 +2312,63 @@ Total kept: **~13,805 LOC.**
 >   }
 >   if (!canRunPortfolioV2Work()) return;        // ordinary GUARD after repair path
 >   if (!getShowPortfolioEnabledFromStore()) return;
->   maybeResumePopulateOnLaunch();
+>
+>   // POST-AUTH ORDER (load-bearing for "completed PnL appears immediately on
+>   // resume" — see required parity test "post-auth no-network publish"):
+>   //   1. Warm publish from already-persisted snapshots/rates so completed
+>   //      wallets render at first frame.
+>   //   2. Resume populate so any pending wallets continue.
+>   //   3. Background freshen rates and schedule a follow-up recompute when
+>   //      fresh rates land. NOT awaited here — awaiting blocks the first
+>   //      reveal on a network round trip.
+>   //
+>   // This is the ONE trigger that flips the usual "ensureFresh first, then
+>   // recompute" order. See Phase 6's per-trigger ordering table for why every
+>   // other trigger keeps the original order.
 >   const quote = getQuoteCurrencyFromStore();
->   await ensureFresh(buildEnsureFreshArgsForVisibleAssetGroups({quoteCurrency: quote}));
 >   const base = buildBaseRecomputeInputs({
 >     quote,
 >     wallets: getEligibleStoredWalletsFromStore(),
 >     rates: getLiveRatesByAssetIdFromStore(),
 >     ratesAsOfMs: getLiveRatesAsOfMsFromStore(),
 >   });
->   scheduleRecompute({ ...base, scope: 'full' });
+>   scheduleRecompute({ ...base, scope: 'full' });   // (1) warm publish first
+>   maybeResumePopulateOnLaunch();                   // (2) resume populate
+>   runBackgroundFreshenAndRefresh({quote});         // (3) background freshen — not awaited
+> }
+>
+> /**
+>  * Guarded background freshen path. Same in-flight tracking, error logging, and
+>  * canRunPortfolioV2Work re-checks as any other ensureFresh caller — just not
+>  * awaited at the trigger boundary so the warm reveal isn't blocked. Used by
+>  * onAppLaunchPostAuth and any future trigger that wants "show what we've got
+>  * now, refresh in the background" semantics.
+>  *
+>  * `inFlightCount` inside ensureFresh still increments/decrements normally, so
+>  * `waitForEnsureFreshToStop` (third wait in performResetSequence's Promise.all)
+>  * still observes this work — a reset that fires while a background freshen is
+>  * in flight blocks the wipe until the freshen settles, exactly like an awaited
+>  * ensureFresh would.
+>  */
+> function runBackgroundFreshenAndRefresh(args: { quote: string }): void {
+>   void (async () => {
+>     try {
+>       if (!canRunPortfolioV2Work()) return;
+>       await ensureFresh(
+>         buildEnsureFreshArgsForVisibleAssetGroups({ quoteCurrency: args.quote }),
+>       );
+>       if (!canRunPortfolioV2Work()) return;
+>       const refreshed = buildBaseRecomputeInputs({
+>         quote: args.quote,
+>         wallets: getEligibleStoredWalletsFromStore(),
+>         rates: getLiveRatesByAssetIdFromStore(),
+>         ratesAsOfMs: getLiveRatesAsOfMsFromStore(),
+>       });
+>       scheduleRecompute({ ...refreshed, scope: 'full' });
+>     } catch (err) {
+>       logPortfolioRuntimeError(err, { tag: 'postAuthBackgroundFreshen' });
+>     }
+>   })();
 > }
 >
 > export function onSendCompleted(args: { walletId: string }): void {
@@ -2458,7 +2622,7 @@ Total kept: **~13,805 LOC.**
 >   });
 >   await runOnRuntimeAsync(
 >     getComputeRuntime(),
->     recomputeQuoteBridgeFromSharedState,
+>     recomputeQuoteBridgeFromExistingData,
 >     {bridge, toQuoteCurrency: quote},
 >   );
 > }
@@ -2535,7 +2699,26 @@ Total kept: **~13,805 LOC.**
 >
 > A re-entry into `performResetSequence(...)` from this toggle path is expected when another reset is already running (post-auth repair, debug-clear, sign-out, or a prior toggle). `performResetSequence(...)` is joinable: the toggle waits for the active reset, then re-checks epoch/store state before deciding whether to start populate. Do not turn these ordinary joined resets into user-facing alerts.
 >
-> `onQuoteCurrencyChanged(...)` intentionally does **not** queue a scheduler-managed full recompute for the immediate quote switch. Instead it applies `recomputeQuoteBridgeFromSharedState(...)` directly on the compute runtime using the current shared portfolio state only.
+> `onQuoteCurrencyChanged(...)` intentionally does **not** queue a scheduler-managed full recompute for the immediate quote switch. Instead it applies `recomputeQuoteBridgeFromExistingData(...)` directly on the compute runtime — a targeted reprice from existing snapshots/rates using the per-τ bridge formula pinned in Phase 3 (no per-asset new-quote fetches).
+>
+> ### Per-trigger ordering table (load-bearing — do not "consistency-ize" these)
+>
+> Each trigger has its own product intent for "show what we have" vs "wait for fresh." The post-auth flip is the *only* exception to the ensureFresh-first ordering; do not generalize it to other triggers without product sign-off.
+>
+> | Trigger | Order | Why |
+> |---|---|---|
+> | `onAppLaunchPostAuth` | warm publish → resume populate → background freshen → follow-up recompute | First-reveal latency: completed PnL must render before any network round trip resolves. |
+> | `onPullToRefresh` | `ensureFresh(force: true)` → `populateWallets(changedWalletIds)` → `scheduleRecompute` | User explicitly asked for fresh data; stale-during-refresh is acceptable and matches v1. |
+> | `onSendCompleted` | `populateWallet(walletId)` only | Affected wallet is repopulated; recompute publishes via `populateProgressTick`. No rate path. |
+> | `onQuoteCurrencyChanged` | `ensureQuoteCurrencyFxBridge` → `recomputeQuoteBridgeFromExistingData` | Bridge data must land before any new-quote publish is even possible. |
+> | `onLiveRatesUpdated` | `ensureFresh` → `scheduleRecompute` | The live-rate event itself is the freshness signal — fetching first then publishing is the whole point. |
+> | `onKeyImported` | `populateWallets(livenetWalletIds)` only | New wallets need to be populated; recompute publishes via `populateProgressTick`. |
+> | `onWalletsDeleted` | quiesce populate → reconcile queue → clear `snap:*` keys → `scheduleRecompute({scope: 'full', evictScopedWalletIds})` → `populateWallets(survivors)` | Order pinned by guardrail #22 + the three-guard reset-safety contract; not a freshness ordering question. |
+> | `onWalletsVisibilityChanged` | (optionally `populateWallets(nowVisibleUnpopulated)`) → `scheduleRecompute({scope: 'full'})` | No rate path; visibility just changes which wallets count toward eligible/totals. |
+> | `onShowPortfolioVisibilityChanged(false)` | `performResetSequence` (joined/serialized) | Wipe is the entire point; no recompute needed (state is empty). |
+> | `onShowPortfolioVisibilityChanged(true)` | discharge `visibilityWipeRequired` if latched → `startPopulate({isFirstPopulate: true})` | Fresh populate from empty; no warm path exists. |
+>
+> If a future trigger is added, default to the "ensureFresh first, then publish" order unless the product requirement is explicitly "show what we have, refresh in the background." In that case, use the `runBackgroundFreshenAndRefresh(...)` helper pattern from `onAppLaunchPostAuth` rather than inventing a new background-fresh path — same in-flight tracking, same guards, same error handling.
 >
 > `buildEnsureFreshArgsForVisibleAssetGroups(...)` is a new v2 helper that:
 > - reads the currently relevant wallet set (all eligible wallets, or a supplied key-scoped wallet set),
@@ -2567,7 +2750,7 @@ Total kept: **~13,805 LOC.**
 > Tests:
 > - Each trigger mocked; fire-time freshness verified.
 > - **Guard-before-side-effects regression:** while `populateResetInFlight` is set, invoke each trigger. Assert `ensureFresh` NOT called (for triggers that call it), `scheduleRecompute` NOT called, `populateWallet` NOT called. Zero side effects per trigger.
-> - `onQuoteCurrencyChanged(...)` regression: calls `ensureQuoteCurrencyFxBridge(...)`, does **not** call per-asset `ensureFresh(...)`, and applies `recomputeQuoteBridgeFromSharedState(...)` immediately from the BTC bridge to the current shared state.
+> - `onQuoteCurrencyChanged(...)` regression: calls `ensureQuoteCurrencyFxBridge(...)`, does **not** call per-asset `ensureFresh(...)` in the new quote, and dispatches `recomputeQuoteBridgeFromExistingData(...)` on the compute runtime — a targeted reprice that reads existing persisted snapshots/rates and applies the per-τ bridge formula at every rate lookup (baseline `t0`, every `ti`, every in-window τ). See parity test #99 for the in-window-tx correctness regression.
 > - `onShowPortfolioVisibilityChanged(false)` regression: immediately hides portfolio-owned UI via the setting, runs `performResetSequence()`, clears portfolio MMKV/shared state, and leaves Exchange Rates surfaces visible even if their next read refetches after a `rate:v1:*` cache miss.
 > - `onShowPortfolioVisibilityChanged(true)` regression: after a prior disable, starts a fresh from-scratch populate (`isFirstPopulate: true`) instead of resuming stale queue state.
 > - Rapid toggle regression: off/on/off/on in quick succession serializes cleanly, stale completions no-op, `visibilityWipeRequired` prevents ON from populating until the OFF-created wipe has completed, no overlapping populate loops start, and the final persisted setting wins.
@@ -2930,7 +3113,7 @@ Total kept: **~13,805 LOC.**
 59. **Heavy recomputes drain during incremental populate:** while an incremental populate has remaining wallets, heavy `scheduleRecompute` work from non-populate triggers drains normally.
 60. **First-ever chart gate predicate:** first-ever hide behavior keys off populated state (`selectHasAnyPopulatedWallets(s)`), not queue metadata.
 61. **Interval-window boundary sampling:** the shared window helper resolves exact interval boundaries and linearly interpolates synthetic rate samples when no raw point exists at `startTs` / `endTs`; PnL and Exchange Rate calculations consume the same sampled boundary values so the no-tx-window parity test is deterministic and faithful to the displayed interval.
-62. **Quote-switch during populate:** while populate is active, `onQuoteCurrencyChanged(...)` applies `recomputeQuoteBridgeFromSharedState(...)` immediately to the current shared state and visible screens switch quote right away.
+62. **Quote-switch during populate:** while populate is active, `onQuoteCurrencyChanged(...)` runs `ensureQuoteCurrencyFxBridge(...)` then dispatches `recomputeQuoteBridgeFromExistingData(...)` on the compute runtime, which reprices from existing persisted snapshots/rates using the per-τ bridge formula. Visible screens switch quote when the reprice publishes. Populate continues unaffected (the reprice does not touch the populate queue).
 63. **No recursive render / max-depth regression:** rapid timeframe toggles and chart scrubbing on Home / Wallet / Asset Detail / Exchange Rate do not produce "maximum update depth exceeded" errors, recursive scheduler churn, or blank intermediate flashes between valid series.
 64. **Post-auth repair path for durable invalid bit:** boot with `PORTFOLIO_CACHE_INVALID_KEY = 1`; `onAppLaunchPostAuth(...)` repairs via `performResetSequence()` before any ordinary v2 populate/recompute work runs, and only a successful repair clears the bit.
 65. **Show Portfolio off clears + hides:** toggling the user-facing setting off runs `performResetSequence()`, clears portfolio MMKV/shared state, hides all portfolio-owned charts/list surfaces, and leaves Home Exchange Rates / Exchange Rate detail visible even if those surfaces refetch after a `rate:v1:*` cache miss.
@@ -2948,7 +3131,7 @@ Total kept: **~13,805 LOC.**
 77. **Scrub timestamp formatting parity:** unit test `formatScrubTimestamp(ts, { interval, windowStartTs, windowEndTs })` per the Terminology contract. Cases: (a) `1D/1W/1M` → full date + short time string matching the app's existing locale-aware date formatter (window args unused for these intervals but must be accepted); (b) `3M/1Y/5Y` → date-only string, no time; (c) `ALL` with `windowEndTs - windowStartTs < 90 * 24 * 60 * 60 * 1000` → date + time; (d) `ALL` with `windowEndTs - windowStartTs >= 90 * 24 * 60 * 60 * 1000` → date only. Assert no time component appears in the 3M+ / long-ALL cases and no date component is missing in any case. Callers always pass `series.interval` + `series.windowStartTs` + `series.windowEndTs` from the currently-displayed `Series` — do not reach into UI state or recompute window bounds.
 78. **Scrubbing is pure UI-local (no side effects, guardrail #9 reinforcement):** instrumented scrub test records every call to `ensureFresh`, `scheduleRecompute`, `populateWallet`, `populateWallets`, `runOnRuntimeAsync(getComputeRuntime(), ...)`, `runOnRuntimeAsync(getPopulateRuntime(), ...)`, and every MMKV write. Seed dense raw histories/rates, assert each published balance chart series is capped to `<= MAX_CHART_POINTS` (89), then scrub through every emitted point across every interval on every chart surface. Assert total count of all recorded events is zero. `sharedPortfolioState.value` is never written during scrub.
 79. **Scrub mid-publish cursor stability:** start scrubbing a chart at point 50 (timestamp `T`). While scrubbing, inject a scheduler publish that replaces `series` with a new series. Assert: (a) if the new series contains a point with `ts === T`, the cursor stays at that point and displayed values update to the new point's values; (b) if no exact-`T` point exists, the cursor snaps to the nearest-timestamp point in the new series; (c) if `T` falls outside the new series range, scrub ends and falls back to idle. In all three cases, no crashes, no recursive render, no "maximum update depth" error.
-80. **Scrub across quote-currency switch:** start scrubbing on Home chart at point 50 with quote = USD. While scrubbing, dispatch `onQuoteCurrencyChanged('EUR')`. Assert: (a) `recomputeQuoteBridgeFromSharedState(...)` runs and publishes a new bridged series; (b) scrub cursor stays at point 50's `ts`; (c) displayed values update to EUR-bridged `fiatBalance` / `pnlChange` / `pnlPercent`; (d) timestamp format unchanged (quote switch doesn't change interval). Scrub release returns to the new EUR idle display.
+80. **Scrub across quote-currency switch:** start scrubbing on Home chart at point 50 with quote = USD. While scrubbing, dispatch `onQuoteCurrencyChanged('EUR')`. Assert: (a) `recomputeQuoteBridgeFromExistingData(...)` runs and publishes a new bridged series; (b) scrub cursor stays at point 50's `ts`; (c) displayed values update to EUR-bridged `fiatBalance` / `pnlChange` / `pnlPercent`; (d) timestamp format unchanged (quote switch doesn't change interval). Scrub release returns to the new EUR idle display.
 81. **Scoped aggregation stays off the JS thread (guardrail #32):** seed a large fixture with many wallets, asset groups, and dense chart points. Mount `KeyOverview`, key-scoped `AllAssets`, and key-scoped `AssetBalanceHistoryScreen`. Assert the mount path schedules `scheduleRecompute({scope: {kind: 'wallets', walletIds}, ...base})`, the compute-runtime `recompute(...)` publishes `sharedPortfolioState.scopedByWalletSet[walletIdsKey]`, and the scoped selectors only read that cache entry. Instrument selector-side helpers so any attempt to iterate `state.byWallet`, walk `Series.points`, rebuild collapsed groups, or compute PnL in JS fails the test. Timeframe switches and chart scrubbing under the scoped route must cause zero recompute/fetch/populate side effects and zero scoped aggregation work; they only switch/read already-published scoped `Series` entries by fingerprint. A missing scoped cache entry returns `undefined` / skeleton-ready state until the scheduled recompute publishes it. **Visibility-filtered `walletIdsKey` sub-assertion:** mount `KeyOverview` for a key with wallets `[A, B, C]`, let the scoped recompute publish under `walletIdsKey_1 = stableWalletIdsKey([A, B, C])`. Dispatch a visibility action that hides `B`. Assert: (a) the mount site's derived `walletIds` changes to `[A, C]` (visibility filter applied at the caller, not the compute runtime); (b) the new `walletIdsKey_2 = stableWalletIdsKey([A, C])` differs from `walletIdsKey_1`; (c) selectors for `walletIdsKey_2` initially miss the cache and return skeleton-ready state; (d) a fresh `scheduleRecompute({scope: {kind: 'wallets', walletIds: [A, C]}, ...base})` runs and publishes `scopedByWalletSet[walletIdsKey_2]`; (e) the prior `walletIdsKey_1` entry remains in cache (for flip-back) until LRU eviction. The compute runtime must NOT have filtered visibility internally at the scope level — verify by inspecting the published `walletIdsKey_1` entry's `walletIds` pre-hide still contains `B`.
 
 82. **Scoped cache full-recompute refresh:** populate three scoped entries under distinct `walletIdsKey`s by mounting three key-scoped screens in succession; let each publish. Fire a `full` recompute (e.g., `onLiveRatesUpdated`). Assert within the same recompute pass: (a) global state and all three scoped entries are refreshed (their `computedAtMs` advances); (b) **global inputs are reused across the global rebuild and every scoped rebuild within the pass**, not re-fetched per scoped entry — instrument `buildBaseRecomputeInputs` (the JS-side loader that assembles global rates/balances/wallet maps) and assert it is called exactly once per recompute pass regardless of how many scoped entries refresh in that pass; (c) Soft-cap eviction runs after the refresh step, so no entry just rebuilt in this pass is evicted in the same pass; (d) Scoped entries keep their prior `walletIds` / `walletIdsKey`, only values update.
@@ -3006,6 +3189,10 @@ Total kept: **~13,805 LOC.**
 
 98. **Chart point cap parity (`MAX_CHART_POINTS = 89`, guardrails #35-36):** seed dense inputs that would naturally produce more than 89 points for every interval and scope. Assert every published portfolio balance `Series.points` array has `length <= 89` for Home total, wallet, account, key-scoped, asset-group detail, and every cached `scopedByWalletSet` entry. For windows with more than 89 raw samples, assert `resolveChartSampleGrid(...)` returns the capped grid before portfolio PnL math runs; instrument the compute formula loop and verify it iterates no more than 89 chart timestamps per interval/scope, not the dense raw grid. Assert the capped series preserves the first resolved window endpoint and final resolved window endpoint; `series.points[0].pnlChange === 0` and the final point still matches idle header/PnL output per test #76. For Exchange Rate screens, seed a dense raw `rate:v1:*` series and assert the raw cached series may remain dense, but `formatExchangeRateChartData(...)` / the rendered graph payload has `data.length <= 89`, reuses the existing `downsampleSeries(...)` / `downsampleTimestamps(...)` primitive path (and the extracted `downsampleExchangeRateSeriesPreservingExtrema(...)` wrapper if needed), and uses the same first/final displayed window endpoints for percent-change calculation. No chart component should receive a points/data array longer than 89.
 
+99. **Quote-switch in-window-tx parity (load-bearing for guardrail #4 / Phase 3 bridge formula):** seed a fixture with at least one wallet that has in-window balance changes (a buy plus a partial disposal) on every interval. Populate fully in `fromQuote = USD`. Compare two outputs: (a) `recomputeQuoteBridgeFromExistingData(...)` invoked from `onQuoteCurrencyChanged('EUR')` using the existing snapshots/rates plus the BTC bridge for EUR; (b) a from-scratch full recompute against the same snapshots with `quoteCurrency = EUR` configured ab initio (rates for EUR resolved through the same per-τ bridge formula). Assert byte-equal `Series.points` (every `ts`, `fiatBalance`, `pnlChange`, `pnlPercent`) within `1e-8` for every interval and scope. Specifically regresses against an implementation that bridges only chart points (correct `fiatBalance`, wrong `pnlChange` / `pnlPercent` because cost basis was scalar-bridged from `oldCostBasis(t) * bridge(t)` instead of recomputed from per-tx events with `bridge(τ)`). Paired no-tx fixture: same comparison on a window with zero in-window txs must also match within `1e-8` — both implementations should agree there since the scalar shortcut is mathematically correct in the no-tx case.
+
+100. **Post-auth no-network publish (load-bearing for "completed PnL appears immediately on resume"):** seed MMKV with persisted snapshots for wallets `[A, B, C]` (all populated) and persisted canonical-quote rate series for the relevant assets. Boot the app and reach post-auth. Mock the network layer to track every fetch initiated by `ensureFresh(...)` / `ensureQuoteCurrencyFxBridge(...)`. Assert: (a) the first published `sharedPortfolioState` revision after `onAppLaunchPostAuth(...)` returns contains all three wallets in `populatedWalletIdsById`, with non-empty `byWallet` / `byAssetGroup` / `total` series and finite `pnlChange` / `pnlPercent` values; (b) this first publish lands **without awaiting any network call** — instrument the timeline and assert the publish timestamp precedes any mocked fetch resolution; (c) the order is exactly: warm publish → `maybeResumePopulateOnLaunch()` kick → `runBackgroundFreshenAndRefresh(...)` started but unresolved; (d) when the mocked `ensureFresh` later resolves, a second publish lands with the refreshed rate values and a higher `revision`; (e) if the mocked `ensureFresh` rejects with a network error, the warm-publish revision remains the latest published state — no rollback, no error UI, only `logPortfolioRuntimeError(err, {tag: 'postAuthBackgroundFreshen'})`. Paired guard regression: while the background freshen await is in flight, invoke `performResetSequence()`. Assert `waitForEnsureFreshToStop` blocks the wipe until the freshen settles (the second `canRunPortfolioV2Work()` check inside the helper prevents the follow-up `scheduleRecompute`).
+
 ---
 
 # Split LOC ledger
@@ -3061,7 +3248,7 @@ Starting: ~30,000. Ending: ~20,600. Eliminated: ~9,400, ~31%. (Approximate — p
 - **Readiness O(1)** via `populated*IdsById`.
 - **Chart-boundary equality** keys on `Series.fingerprint`.
 - **Only four fiat-rate intervals are fetched/persisted:** `1D`, `1W`, `1M`, and `ALL`. Displayed `3M`, `1Y`, and `5Y` derive from `ALL` on the compute runtime.
-- **Quote-currency switching uses a BTC FX bridge.** Quote changes fetch only BTC bridge data for the target quote and recompute portfolio/chart/list values instantly on the compute runtime from the current shared portfolio state instead of refetching every visible asset in the new quote.
+- **Quote-currency switching uses a BTC FX bridge.** Quote changes fetch only BTC bridge data for the target quote and reprice portfolio/chart/list values on the compute runtime via `recomputeQuoteBridgeFromExistingData(...)` — a targeted reprice from existing persisted snapshots/rates using the per-τ bridge formula at baseline `t0`, every chart sample `ti`, and every in-window balance-change timestamp τ. No per-asset new-quote fetches.
 - **Incremental populates remain reorg-safe.** Incremental refresh populates inherit the preserved kernel's "rewind before tip and overwrite the recent tail" behavior instead of strictly appending from the latest persisted point.
 - **Queue persists IDs + config + `orderRevision`.** `buildQueue` monotonic: `(prev?.orderRevision ?? 0) + 1`. `markDone` does not bump.
 - **Reconciliation on every kick.** Bumps `orderRevision` iff order changed.
