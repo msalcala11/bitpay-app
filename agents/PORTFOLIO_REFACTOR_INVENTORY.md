@@ -476,6 +476,7 @@ These are facts/decisions the implementer reading Phase 1 needs:
 9. **`BWS v3` is the live-rate endpoint; `BWS v4` is the historical-rate endpoint.** The v4 path is what the new architecture's `ensureFresh(...)` routes through.
 10. **`changedWalletIds` for pull-to-refresh** is not currently produced — Phase 6 must add the diffing logic (pre/post-refresh balance snapshot) at each refresh handler.
 11. **TypeScript baseline is not clean.** `yarn validate` currently surfaces pre-existing errors in `HomeRoot.tsx` and wallet-status files unrelated to portfolio v2. Phase 1's "typecheck green" gate must either fix or document an exception around these. The new `src/portfolio/v2/` files do typecheck cleanly in isolation; the failures are inherited from the existing baseline.
+12. **Daily snapshot compression checkpoint state already survives resume.** [snapshotStream.ts:355-461](src/portfolio/core/pnl/snapshotStream.ts#L355-L461) declares `SnapshotStreamCheckpoint.daily` (`dayIdx`, `lastTimestamp`, `lastMarkRate`, `balanceAtomic`, `remainingCostBasisFiat`, `txIds`), `BalanceSnapshotStreamBuilder` rehydrates it through its constructor, and `getCheckpoint()` re-emits the in-progress UTC bucket. [snapshotStore.ts:74-111](src/portfolio/core/pnl/snapshotStore.ts#L74-L111) persists the same `daily?` field plus `compressionEnabled` on `SnapshotPopulateCheckpointV1`/wallet meta. App-kill resume picks up the partial UTC day without duplicating or dropping a daily snapshot. **Caveat:** `COMPRESSION_AGE_MS = 90 * DAY_MS` is hardcoded inline at [snapshotStream.ts:11](src/portfolio/core/pnl/snapshotStream.ts#L11) and `compressionEnabled` is currently a constructor arg with no v2-constants default. Per the new daily-compression contract, v2 must thread `PORTFOLIO_DAILY_SNAPSHOT_COMPRESSION_AGE_DAYS` and `PORTFOLIO_DAILY_SNAPSHOT_COMPRESSION_ENABLED` through the builder so the constants module is the single source of truth — this is the reason the kernel below is reclassified from `reuse unchanged` to `adapt before v2 use`.
 
 ---
 
@@ -491,7 +492,7 @@ Phase 0/8b acceptance requires that each kernel module the implementation plan k
 | Module | Classification | Rationale |
 |---|---|---|
 | [src/portfolio/core/pnl/analysisStreaming.ts](src/portfolio/core/pnl/analysisStreaming.ts) | adapt before v2 use | Holds `clampWalletAnalysisState(...)`, which decision #34 forbids inside the per-step PnL kernel. v2 must remove or relocate this helper out of the streaming-analysis hot path before reuse. |
-| [src/portfolio/core/pnl/snapshotStream.ts](src/portfolio/core/pnl/snapshotStream.ts) | reuse unchanged | `BalanceSnapshotStreamBuilder` and the normalize/dedupe/carryover helpers operate on `Tx`/`NormalizedTx` shapes that v2 keeps; no v2-specific contract change touches this module. |
+| [src/portfolio/core/pnl/snapshotStream.ts](src/portfolio/core/pnl/snapshotStream.ts) | adapt before v2 use | Checkpoint state for in-progress UTC-day compression is already fully persisted and rehydrated (see §17 prereq #12), so app-kill resume is correct as-is. The adapt is narrow: `COMPRESSION_AGE_MS` is hardcoded as `90 * DAY_MS` inside the file and `compressionEnabled` has no v2-constants default. v2 must thread `PORTFOLIO_DAILY_SNAPSHOT_COMPRESSION_AGE_DAYS` and `PORTFOLIO_DAILY_SNAPSHOT_COMPRESSION_ENABLED` from `src/portfolio/v2/constants.ts` through the builder constructor so the constants module is the single source of truth. The existing 90-day numeric default may stay as the v1 fallback for legacy callers; only v2 callers are required to pass the constants. No logic rewrite. |
 | [src/portfolio/core/pnl/snapshotStore.ts](src/portfolio/core/pnl/snapshotStore.ts) | adapt before v2 use | `SnapshotIndexV2` has no `revision` field today (see §17 prereq #5). Phase 2 must add the revision field and the matching invalidation/migration so v2 manifest/queue logic can rely on it. |
 | [src/portfolio/core/pnl/fiatRateStore.ts](src/portfolio/core/pnl/fiatRateStore.ts) | adapt before v2 use | Must enforce the `StoredRateInterval` set (1D/1W/1M/ALL only) at the type and runtime boundary; today the `FiatRateProvider` and `FiatRateStore` accept the full `FiatRateInterval` union including 3M/1Y/5Y, which v2 forbids persisting. |
 | [src/portfolio/runtime/worklet/portfolioWorkletSnapshotBuilder.ts](src/portfolio/runtime/worklet/portfolioWorkletSnapshotBuilder.ts) | reuse unchanged | Pure builder over `Tx` + rate-lookup; v2 swaps the rate-lookup source but the builder contract is intact. |
@@ -524,3 +525,53 @@ Phase 0/8b acceptance also requires that each module in `src/portfolio/adapters/
 | [src/portfolio/adapters/rn/walletMappers.ts](src/portfolio/adapters/rn/walletMappers.ts) | shared low-level adapter, keep and document owner | Maps Redux `Wallet` shape into `WalletCredentials`/`WalletSummary`/`StoredWallet`. Consumed by every trigger site. Owner: wallet-mapping. |
 | [src/portfolio/adapters/rn/workletMmkvBridge.ts](src/portfolio/adapters/rn/workletMmkvBridge.ts) | shared low-level adapter, keep and document owner | Lazy-singleton over the dedicated `bitpay.portfolio.engine` MMKV. Both v1 engine and v2 KV adapter resolve through this bridge. Owner: portfolio-storage. |
 | [src/portfolio/adapters/rn/workletRuntimeShared.ts](src/portfolio/adapters/rn/workletRuntimeShared.ts) | adapt before v2 use | Currently exposes a single runtime name + signing-globals installer. v2 needs three distinct runtime names (compute / populate / rate-fetch) and per-runtime install + teardown; the helper must be widened before v2 phases consume it. |
+
+---
+
+## 20. MMKV write spy-target inventory
+
+Phase 0 acceptance requires that the MMKV write spy-target surface be checked in so the Phase 5/6 zero-write tests for timeframe switches, chart scrubbing, and passive live-rate touches have a stable set of exports to intercept (decision #37, helper `writePortfolioMmkvString(...)`). The future v2 helper does not exist yet — it is a Phase 1 deliverable. This inventory records the future helper plus every current low-level write export it must wrap, so that:
+
+- Phase 1 implements `writePortfolioMmkvString(...)` as the single legal v2 string-write entry point and routes every v2 caller through it.
+- Phase 5/6 zero-write tests can spy both the future helper (positive assertion: the helper is never called from read-only UI paths) and every low-level write export (negative assertion: no v2 caller bypasses the helper to hit the underlying MMKV).
+
+### Future v2 helper (Phase 1 deliverable)
+
+```ts
+// src/portfolio/v2/storage/writePortfolioMmkvString.ts (Phase 1)
+export function writePortfolioMmkvString(args: {
+  key: string;
+  value: string;
+  reason: PortfolioMmkvWriteReason;
+  allowOversize?: boolean;
+}): void;
+```
+
+All v2 string writes — manifest, queue, snap meta/index/chunk, invalid-history markers, rate cache, work epoch, cache-invalid bit, feature flag, reset/wipe sentinel writes, and any future generated-render-cache keys — must route through this single export. Tests assert per-`reason` call counts via the `PortfolioV2Metric` union without inspecting logger strings.
+
+### Current low-level write exports the helper must wrap
+
+The helper delegates to one of these low-level writers depending on caller context (JS thread vs worklet runtime). Phase 1 must lock down the export surface so spy tests can assert no v2 caller reaches these directly:
+
+| Export | Path | Notes |
+|---|---|---|
+| `MmkvKvStore.setString(key, value)` | [src/portfolio/adapters/rn/mmkvKvStore.ts:182](src/portfolio/adapters/rn/mmkvKvStore.ts#L182) | JS-thread write through the registry-aware portfolio store. v2 reset/wipe and JS-thread metadata writes flow through this. |
+| `MmkvKvStore.delete(key)` | [src/portfolio/adapters/rn/mmkvKvStore.ts:193](src/portfolio/adapters/rn/mmkvKvStore.ts#L193) | JS-thread delete with registry update. Zero-write spy tests must include delete paths since wipe and key removal are write operations from a metric-cardinality perspective. |
+| `workletKvSetString(config, key, value)` | [src/portfolio/runtime/worklet/portfolioWorkletKv.ts:94](src/portfolio/runtime/worklet/portfolioWorkletKv.ts#L94) | Worklet-runtime string write. Used by populate/rate-fetch runtime code and by the snapshot worklet helpers. Phase 1 must add a worklet-side wrapper that emits the same `PortfolioV2Metric { kind: 'mmkvWrite' }` record. |
+| `workletKvDelete(config, key)` | [src/portfolio/runtime/worklet/portfolioWorkletKv.ts:133](src/portfolio/runtime/worklet/portfolioWorkletKv.ts#L133) | Worklet-runtime delete; same metric/spy treatment as the JS-thread delete. |
+| `workletKvClearAll(config)` | [src/portfolio/runtime/worklet/portfolioWorkletKv.ts:165](src/portfolio/runtime/worklet/portfolioWorkletKv.ts#L165) | Worklet-runtime registry-aware clear. Required for wipe; must also be spied. |
+| `MMKV.set` / `MMKV.delete` (raw) | `react-native-mmkv` | Forbidden in v2 outside the registry initialization in [workletMmkvBridge.ts](src/portfolio/adapters/rn/workletMmkvBridge.ts) and the low-level adapters above. Spy tests assert no v2 caller reaches the raw module. |
+
+### Read-only path coverage required by decision #37
+
+Zero-write spy tests must cover, at minimum:
+
+- timeframe selector changes (1D/1W/1M/3M/1Y/5Y/ALL) on Home, KeyOverview, AccountDetails, WalletDetails, AssetDetails, and Exchange Rate screens;
+- chart scrub gestures across all of the above;
+- passive live-rate updates that fire `onLiveRatesUpdated` while no user-initiated trigger is active.
+
+Each path must produce zero calls to `writePortfolioMmkvString(...)` and zero calls to every low-level export listed above (with the exception of the registry-init write performed once at app boot, which Phase 1 must explicitly exclude from the spy assertion or perform before the spies attach). Anti-regression variants stub a read-only path to call `writePortfolioMmkvString({reason: 'rate'})`; the spy test must fail.
+
+### Migration tracking belongs to Phase 1
+
+This inventory does **not** enumerate every current call site of `kvStore.setString(...)` / `workletKvSetString(...)` that v2 must migrate to the helper. That migration list is Phase 1 implementation work, not a Phase 0 deliverable. Phase 0's contract is satisfied by naming the helper, the wrapped low-level exports, and the read-only paths the spy tests must cover.
