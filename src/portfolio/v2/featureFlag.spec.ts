@@ -1,6 +1,4 @@
-import {
-  type WorkletMmkvStorageBridge,
-} from '../adapters/rn/mmkvKvStore';
+import {type WorkletMmkvStorageBridge} from '../adapters/rn/mmkvKvStore';
 import {PORTFOLIO_V2_FLAG_KEY} from './constants';
 
 class FakeMmkv {
@@ -28,7 +26,8 @@ const mockMmkv = new FakeMmkv();
 jest.mock('../adapters/rn/workletMmkvBridge', () => ({
   __esModule: true,
   PORTFOLIO_WORKLET_MMKV_STORAGE_ID: 'bitpay.portfolio.engine',
-  PORTFOLIO_WORKLET_MMKV_REGISTRY_KEY: '__bitpay.portfolio.engine.registry.v1__',
+  PORTFOLIO_WORKLET_MMKV_REGISTRY_KEY:
+    '__bitpay.portfolio.engine.registry.v1__',
   getPortfolioMmkvStorageOnRN: () => mockMmkv,
   createPortfolioMmkvStorageOnRN: () => mockMmkv,
   getNativeMmkvStorageBridgeOnRN: () => mockMmkv,

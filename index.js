@@ -19,6 +19,7 @@ import {
 } from 'react-native-exception-handler';
 import {name as appName} from './app.json';
 import getStore from './src/store';
+import {initPortfolioReduxAccess} from './src/portfolio/v2/reduxAccess';
 import {Provider} from 'react-redux';
 import {PersistGate} from 'redux-persist/integration/react';
 import 'react-native-url-polyfill/auto'; // https://github.com/facebook/react-native/issues/23922#issuecomment-648096619
@@ -164,6 +165,7 @@ const ReduxProvider = () => {
         return;
       }
 
+      initPortfolioReduxAccess(store);
       setStore({store, persistor});
       setStoreReady(true);
       setJSExceptionHandler(makeErrorHandler(store), true);
@@ -181,8 +183,8 @@ const ReduxProvider = () => {
 
   return (
     <Provider store={reduxStore}>
-          <PersistGate loading={null} persistor={reduxPersistor}>
-            {storeRehydrated => (storeRehydrated ? <AppWrapper /> : null)}
+      <PersistGate loading={null} persistor={reduxPersistor}>
+        {storeRehydrated => (storeRehydrated ? <AppWrapper /> : null)}
       </PersistGate>
     </Provider>
   );
