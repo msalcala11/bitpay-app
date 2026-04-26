@@ -141,6 +141,28 @@ describe('portfolio v2 triggers', () => {
     });
   });
 
+  it('keeps all-current-value scope when a later debounced call provides changed ids', () => {
+    const input = normalizedInput();
+
+    onLiveRatesUpdated({
+      quoteCurrency: 'USD',
+      normalizedFormulaInput: input,
+    });
+    onLiveRatesUpdated({
+      changedAssetIds: ['btc'],
+      quoteCurrency: 'USD',
+      normalizedFormulaInput: input,
+    });
+    jest.advanceTimersByTime(PASSIVE_LIVE_RATE_RECOMPUTE_DEBOUNCE_MS);
+
+    expect(mockScheduleRecompute).toHaveBeenCalledTimes(1);
+    expect(mockScheduleRecompute).toHaveBeenCalledWith({
+      scope: {kind: 'liveRateTouch'},
+      startEpoch: 7,
+      normalizedFormulaInput: input,
+    });
+  });
+
   it('builds live-rate recompute input at debounce fire time', () => {
     const fireTimeInput = {
       ...normalizedInput(),
@@ -163,6 +185,66 @@ describe('portfolio v2 triggers', () => {
       startEpoch: 7,
       normalizedFormulaInput: fireTimeInput,
     });
+  });
+
+  it('does not schedule when live-rate input building fails at debounce fire time', () => {
+    const buildUndefinedInput = jest.fn(() => undefined);
+
+    onLiveRatesUpdated({
+      changedAssetIds: ['eth'],
+      quoteCurrency: 'USD',
+      buildNormalizedFormulaInput: buildUndefinedInput,
+    });
+    jest.advanceTimersByTime(PASSIVE_LIVE_RATE_RECOMPUTE_DEBOUNCE_MS);
+
+    expect(buildUndefinedInput).toHaveBeenCalledTimes(1);
+    expect(mockScheduleRecompute).not.toHaveBeenCalled();
+
+    const buildThrowingInput = jest.fn(() => {
+      throw new Error('failed to build input');
+    });
+
+    onLiveRatesUpdated({
+      changedAssetIds: ['eth'],
+      quoteCurrency: 'USD',
+      buildNormalizedFormulaInput: buildThrowingInput,
+    });
+    jest.advanceTimersByTime(PASSIVE_LIVE_RATE_RECOMPUTE_DEBOUNCE_MS);
+
+    expect(buildThrowingInput).toHaveBeenCalledTimes(1);
+    expect(mockScheduleRecompute).not.toHaveBeenCalled();
+  });
+
+  it('does not schedule when quote changes before debounce fire time', () => {
+    const input = normalizedInput('USD');
+    const buildNormalizedFormulaInput = jest.fn(() => input);
+
+    onLiveRatesUpdated({
+      changedAssetIds: ['eth'],
+      quoteCurrency: 'USD',
+      buildNormalizedFormulaInput,
+    });
+
+    mockQuoteCurrency = 'EUR';
+    jest.advanceTimersByTime(PASSIVE_LIVE_RATE_RECOMPUTE_DEBOUNCE_MS);
+
+    expect(buildNormalizedFormulaInput).not.toHaveBeenCalled();
+    expect(mockScheduleRecompute).not.toHaveBeenCalled();
+  });
+
+  it('does not schedule when fire-time live-rate input has a mismatched quote', () => {
+    const input = normalizedInput('EUR');
+    const buildNormalizedFormulaInput = jest.fn(() => input);
+
+    onLiveRatesUpdated({
+      changedAssetIds: ['eth'],
+      quoteCurrency: 'USD',
+      buildNormalizedFormulaInput,
+    });
+    jest.advanceTimersByTime(PASSIVE_LIVE_RATE_RECOMPUTE_DEBOUNCE_MS);
+
+    expect(buildNormalizedFormulaInput).toHaveBeenCalledTimes(1);
+    expect(mockScheduleRecompute).not.toHaveBeenCalled();
   });
 
   it('does not schedule live-rate touches when feature, redux, quote, or input guards fail', () => {
