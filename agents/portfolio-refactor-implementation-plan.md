@@ -2569,6 +2569,18 @@ If `changedAssetIds` can be mapped exactly to `FiatRateAssetRef` / `assetGroupId
 
 `liveRateTouch` is visibility-respecting for displayed/current-value surfaces. It does not replace the separate visibility-ignored hidden-wallet historical-rate warming performed by populate/background freshen.
 
+### v3⊂v4 coin-coverage asymmetry
+
+BWS `/v3/fiatrates/` (live rates, populates `state.RATE.rates` / `lastDayRates` on the JS thread) covers a narrower coin set than BWS `/v4/fiatrates/` (historical rates, ensured by `ensureFresh(...)` on the rate-fetch runtime). A coin can have full historical chart coverage from v4 but no live-rate entry from v3.
+
+For a coin present in v4 but absent from v3, runtime must:
+
+- Set `Series.finalPointSource: 'historicalRate'` for every interval. The series is sourced entirely from v4 historical points and the final chart point is the most recent v4 sample, not a live-rate-derived value. `liveRateTouch` correctly skips this series because `finalPointSource !== 'liveRate'`.
+- Publish `AssetGroupRowShell.currentFiatValue: undefined` per the existing missing-live-rate rule. The wallet IDs lacking a v3 entry surface in `groupHealth.missingLiveRateMemberWalletIds` and, if their current units are nonzero, in `nonzeroMissingLiveRateMemberWalletIds`. The chart remains visible.
+- For the 1D `rowToday.rateStart` baseline (which v1 sources from `lastDayRates` / `/v3/fiatrates?ts=yesterday` and is therefore also missing for v3-uncovered coins), fall back to a v4 read at the 24h-ago timestamp via `RateReader.linearRender` over the canonical USD series, then bridge to the display quote if needed. If v4 has no 24h-ago coverage either, omit `rowToday` from the asset-group slice (1D row endpoint cannot be built deterministically) but keep the 1D series in `PerIntervalSeries` if it has v4 points; other intervals (1W, 1M, 3M, 1Y, 5Y, ALL) remain unaffected because they use only v4 data and don't depend on a 24h-ago baseline.
+
+UI must not hide a chart because the row's `currentFiatValue` is undefined. The chart visibility decision uses `Series.points.length > 0` and the readiness flags, not row-shell fiat presence. A v3-uncovered coin renders its chart from historical rates while the live-fiat slot in its row shows a skeleton.
+
 ### Scheduler
 
 The scheduler coalesces and drains in this order:
@@ -3563,6 +3575,7 @@ These tests must exist before the plan is treated as implementation-complete. Fo
 122.  **Epoch-correct empty-state test:** after `bumpPortfolioWorkEpoch('resetStart')`, `emptyPortfolioStateForEpoch(...)` produces an empty state with the current epoch/quote/computed timestamp, and publishing it through `publishPortfolioState(...)` succeeds instead of failing the stale-epoch guard.
 123.  **Txhistory duplicate-row test:** seed duplicate BWS txhistory rows within one page, overlapping duplicate rows across adjacent pages, rows whose only difference is BWS internal `id`, and rows missing tx hash fields that require composite identity fallback. Assert populate/snapshot ingest processes each economic transaction once, generated snapshots/PnL do not double-count balances, and cursor/page advancement uses logical unique transaction count. Anti-regression variant: stub dedupe to use raw row count or BWS internal `id`; the fixture must fail.
 124.  **Txhistory tie-group reorder test:** seed same timestamp/block transactions returned spend-first where deterministic block/txIndex/nonce/original order would underflow, but processing the matching receive first avoids underflow. Assert snapshot ingest reorders within the tie group, does not mark invalid-history, and emits the expected balances. Also seed an unrecoverable underflow group and assert it still quarantines. Anti-regression variant: stub ingest to quarantine immediately on deterministic-order underflow; the recoverable fixture must fail.
+125.  **v3⊂v4 coverage asymmetry test:** seed a wallet whose coin has full v4 historical coverage but no entry in `state.RATE.rates` / `lastDayRates` (v3-uncovered). Assert: every interval's `Series.finalPointSource === 'historicalRate'`; `liveRateTouch` produces zero updates to that series's points; `AssetGroupRowShell.currentFiatValue === undefined`; the wallet ID appears in `groupHealth.missingLiveRateMemberWalletIds` (and `nonzeroMissingLiveRateMemberWalletIds` if units > 0); the chart series has nonempty points and renders. For 1D specifically, when v4 has 24h-ago coverage, `rowToday.rateStart` falls back to a v4 `RateReader.linearRender` read and `rowToday` is published; when v4 has no 24h-ago coverage, `rowToday` is omitted from the asset-group slice while the 1D series itself remains in `PerIntervalSeries` if it has v4 points; 1W/1M/3M/1Y/5Y/ALL row payloads and series remain valid because they don't depend on a 24h-ago baseline. Anti-regression variant: stub the series builder to set `finalPointSource: 'liveRate'` for v3-uncovered coins; assert `liveRateTouch` then attempts to update a final point with no live rate and the test fails.
 
 ---
 
