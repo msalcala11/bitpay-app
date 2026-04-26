@@ -92,6 +92,79 @@ describe('portfolio v2 triggers', () => {
     });
   });
 
+  it('coalesces changed asset ids across live-rate debounce calls', () => {
+    const ethInput = normalizedInput();
+    const btcInput = {
+      ...normalizedInput(),
+      computedAtMs: 120,
+    };
+
+    onLiveRatesUpdated({
+      changedAssetIds: ['eth'],
+      quoteCurrency: 'USD',
+      normalizedFormulaInput: ethInput,
+    });
+    onLiveRatesUpdated({
+      changedAssetIds: ['btc'],
+      quoteCurrency: 'USD',
+      normalizedFormulaInput: btcInput,
+    });
+    jest.advanceTimersByTime(PASSIVE_LIVE_RATE_RECOMPUTE_DEBOUNCE_MS);
+
+    expect(mockScheduleRecompute).toHaveBeenCalledTimes(1);
+    expect(mockScheduleRecompute).toHaveBeenCalledWith({
+      scope: {kind: 'liveRateTouch', changedAssetIds: ['btc', 'eth']},
+      startEpoch: 7,
+      normalizedFormulaInput: btcInput,
+    });
+  });
+
+  it('promotes debounced live-rate touches to all current values when any call omits changed ids', () => {
+    const input = normalizedInput();
+
+    onLiveRatesUpdated({
+      changedAssetIds: ['eth'],
+      quoteCurrency: 'USD',
+      normalizedFormulaInput: input,
+    });
+    onLiveRatesUpdated({
+      quoteCurrency: 'USD',
+      normalizedFormulaInput: input,
+    });
+    jest.advanceTimersByTime(PASSIVE_LIVE_RATE_RECOMPUTE_DEBOUNCE_MS);
+
+    expect(mockScheduleRecompute).toHaveBeenCalledTimes(1);
+    expect(mockScheduleRecompute).toHaveBeenCalledWith({
+      scope: {kind: 'liveRateTouch'},
+      startEpoch: 7,
+      normalizedFormulaInput: input,
+    });
+  });
+
+  it('builds live-rate recompute input at debounce fire time', () => {
+    const fireTimeInput = {
+      ...normalizedInput(),
+      computedAtMs: 200,
+    };
+    const buildNormalizedFormulaInput = jest.fn(() => fireTimeInput);
+
+    onLiveRatesUpdated({
+      changedAssetIds: ['eth'],
+      quoteCurrency: 'USD',
+      buildNormalizedFormulaInput,
+    });
+
+    expect(buildNormalizedFormulaInput).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(PASSIVE_LIVE_RATE_RECOMPUTE_DEBOUNCE_MS);
+
+    expect(buildNormalizedFormulaInput).toHaveBeenCalledTimes(1);
+    expect(mockScheduleRecompute).toHaveBeenCalledWith({
+      scope: {kind: 'liveRateTouch', changedAssetIds: ['eth']},
+      startEpoch: 7,
+      normalizedFormulaInput: fireTimeInput,
+    });
+  });
+
   it('does not schedule live-rate touches when feature, redux, quote, or input guards fail', () => {
     const input = normalizedInput();
 
