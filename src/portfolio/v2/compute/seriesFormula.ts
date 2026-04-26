@@ -8,6 +8,7 @@ import {buildWalletPointFromMark} from './rowPayload';
 export type BalanceChangeEvent = Readonly<{
   ts: number;
   unitsDelta: number;
+  order: number;
 }>;
 
 export type BuildCappedSampleGridArgs = Readonly<{
@@ -19,7 +20,10 @@ export type BuildCappedSampleGridArgs = Readonly<{
 export type WalletSeriesFormulaInvalidReason =
   | 'invalidWindow'
   | 'invalidInterval'
+  | 'invalidStoredInterval'
+  | 'invalidFinalPointSource'
   | 'invalidSampleGrid'
+  | 'missingSeriesIdentityKey'
   | 'nonFiniteBaselineUnits'
   | 'negativeBaselineUnits'
   | 'malformedBalanceEvent'
@@ -28,10 +32,23 @@ export type WalletSeriesFormulaInvalidReason =
 
 export type BuildWalletSeriesFromEventsArgs = Readonly<{
   interval: Interval;
+  /**
+   * Caller-owned series identity for the exact input set: quote/scope,
+   * wallet/asset/rate identifiers, snapshot revisions, rate fetchedOn/as-of
+   * values, bridge metadata, and any other upstream dependency that must
+   * invalidate a published Series even if emitted point values are equal.
+   */
+  seriesIdentityKey: string;
   windowStartTs: number;
   windowEndTs: number;
   sampledFromStoredInterval: StoredRateInterval;
   finalPointSource: Series['finalPointSource'];
+  /**
+   * Post-state after every event with `ts <= windowStartTs`. Runtime callers
+   * must pass only strictly in-window balance changes
+   * (`windowStartTs < ts <= windowEndTs`) here, sorted or sortable by `order`.
+   * This avoids double-counting exact-start transactions.
+   */
   baselineUnits: number;
   balanceEvents?: readonly BalanceChangeEvent[];
   ratePoints: readonly FiatRatePoint[];
@@ -95,6 +112,36 @@ function hasValidWindow(windowStartTs: number, windowEndTs: number): boolean {
   );
 }
 
+function isInterval(value: unknown): value is Interval {
+  'worklet';
+
+  return (
+    value === '1D' ||
+    value === '1W' ||
+    value === '1M' ||
+    value === '3M' ||
+    value === '1Y' ||
+    value === '5Y' ||
+    value === 'ALL'
+  );
+}
+
+function isFinalPointSource(
+  value: unknown,
+): value is Series['finalPointSource'] {
+  'worklet';
+
+  return value === 'historicalRate' || value === 'liveRate';
+}
+
+function isStrictIdentity(value: unknown): value is string {
+  'worklet';
+
+  return (
+    typeof value === 'string' && !!value.trim() && value === value.trim()
+  );
+}
+
 export function buildCappedSampleGrid(
   args: BuildCappedSampleGridArgs,
 ): readonly number[] {
@@ -114,6 +161,8 @@ export function buildCappedSampleGrid(
   const end = Math.round(args.windowEndTs);
   const span = end - start;
   const out = new Array<number>(pointCount);
+  const seen = new Set<number>();
+  const deduped: number[] = [];
 
   for (let i = 0; i < pointCount; i++) {
     out[i] = Math.round(start + (span * i) / (pointCount - 1));
@@ -122,7 +171,18 @@ export function buildCappedSampleGrid(
   out[0] = start;
   out[pointCount - 1] = end;
 
-  return out;
+  for (const ts of out) {
+    if (!seen.has(ts)) {
+      seen.add(ts);
+      deduped.push(ts);
+    }
+  }
+
+  if (deduped.length < 2 && start !== end) {
+    return [start, end];
+  }
+
+  return deduped.length >= 2 ? deduped : [];
 }
 
 function normalizeBalanceEvents(
@@ -140,6 +200,7 @@ function normalizeBalanceEvents(
       !event ||
       !isFiniteNumber(event.ts) ||
       !isFiniteNumber(event.unitsDelta) ||
+      !isFiniteNumber(event.order) ||
       event.ts <= windowStartTs ||
       event.ts > windowEndTs
     ) {
@@ -147,15 +208,23 @@ function normalizeBalanceEvents(
     }
 
     if (event.unitsDelta !== 0) {
-      out.push({ts: event.ts, unitsDelta: event.unitsDelta});
+      out.push({
+        ts: event.ts,
+        unitsDelta: event.unitsDelta,
+        order: event.order,
+      });
     }
   }
 
-  return out.sort((left, right) => left.ts - right.ts);
+  return out.sort((left, right) => {
+    const tsDelta = left.ts - right.ts;
+    return tsDelta !== 0 ? tsDelta : left.order - right.order;
+  });
 }
 
 function buildSeriesFingerprint(args: {
   interval: Interval;
+  seriesIdentityKey: string;
   windowStartTs: number;
   windowEndTs: number;
   sampledFromStoredInterval: StoredRateInterval;
@@ -165,6 +234,7 @@ function buildSeriesFingerprint(args: {
   'worklet';
 
   return stableHash([
+    args.seriesIdentityKey,
     args.interval,
     args.windowStartTs,
     args.windowEndTs,
@@ -185,12 +255,24 @@ export function buildWalletSeriesFromEvents(
 ): BuildWalletSeriesFromEventsResult {
   'worklet';
 
+  if (!isInterval(args.interval)) {
+    return {kind: 'invalidHistory', reason: 'invalidInterval'};
+  }
+
+  if (!isStrictIdentity(args.seriesIdentityKey)) {
+    return {kind: 'invalidHistory', reason: 'missingSeriesIdentityKey'};
+  }
+
   if (!hasValidWindow(args.windowStartTs, args.windowEndTs)) {
     return {kind: 'invalidHistory', reason: 'invalidWindow'};
   }
 
   if (!isStoredFiatRateInterval(args.sampledFromStoredInterval)) {
-    return {kind: 'invalidHistory', reason: 'invalidInterval'};
+    return {kind: 'invalidHistory', reason: 'invalidStoredInterval'};
+  }
+
+  if (!isFinalPointSource(args.finalPointSource)) {
+    return {kind: 'invalidHistory', reason: 'invalidFinalPointSource'};
   }
 
   if (!isFiniteNumber(args.baselineUnits)) {
@@ -293,6 +375,7 @@ export function buildWalletSeriesFromEvents(
     series: {
       fingerprint: buildSeriesFingerprint({
         interval: args.interval,
+        seriesIdentityKey: args.seriesIdentityKey,
         windowStartTs: args.windowStartTs,
         windowEndTs: args.windowEndTs,
         sampledFromStoredInterval: args.sampledFromStoredInterval,

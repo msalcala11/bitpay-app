@@ -30,7 +30,7 @@ export const IN_WINDOW_BUY_FIXTURE = {
     {ts: ORACLE_TS.middle, rate: 110},
     {ts: ORACLE_TS.end, rate: 130},
   ] satisfies readonly FiatRatePoint[],
-  balanceEvents: [{ts: ORACLE_TS.middle, unitsDelta: 1}],
+  balanceEvents: [{ts: ORACLE_TS.middle, unitsDelta: 1, order: 1}],
   expected: {
     finalRemainingCostBasisFiat: 210,
     fiatEnd: 260,
