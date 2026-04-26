@@ -19,6 +19,15 @@ export {
   type BuildWalletSeriesFromEventsResult,
   type WalletSeriesFormulaInvalidReason,
 } from './compute/seriesFormula';
+export {
+  buildFormulaComputedInputs,
+  type BuildFormulaComputedInputsArgs,
+  type BuildFormulaComputedInputsResult,
+  type FormulaAssetGroupInput,
+  type FormulaComputedInputsInvalidReason,
+  type FormulaWalletInput,
+  type FormulaWalletIntervalInput,
+} from './compute/recomputeFormula';
 
 export type RecomputeScope =
   | 'full'
