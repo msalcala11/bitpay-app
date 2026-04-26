@@ -160,6 +160,32 @@ describe('portfolio v2 wallet series formula adapter', () => {
     ).toEqual({kind: 'invalidHistory', reason: 'negativeUnits'});
   });
 
+  it('rejects non-integer or duplicate event ordering keys', () => {
+    expect(
+      buildWalletSeriesFromEvents({
+        ...BASE_FORMULA_ARGS,
+        baselineUnits: 0,
+        balanceEvents: [
+          {ts: ORACLE_TS.middle, unitsDelta: 1, order: 1.5},
+        ],
+        ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
+        maxPoints: 2,
+      }),
+    ).toEqual({kind: 'invalidHistory', reason: 'malformedBalanceEvent'});
+    expect(
+      buildWalletSeriesFromEvents({
+        ...BASE_FORMULA_ARGS,
+        baselineUnits: 0,
+        balanceEvents: [
+          {ts: ORACLE_TS.middle, unitsDelta: 1, order: 1},
+          {ts: ORACLE_TS.middle, unitsDelta: -1, order: 1},
+        ],
+        ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
+        maxPoints: 2,
+      }),
+    ).toEqual({kind: 'invalidHistory', reason: 'malformedBalanceEvent'});
+  });
+
   it('scales basis on partial sells and resets basis after full disposal before rebuy', () => {
     const partialSell = expectValidSeries(
       buildWalletSeriesFromEvents({

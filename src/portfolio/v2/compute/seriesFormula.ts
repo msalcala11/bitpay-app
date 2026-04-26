@@ -171,6 +171,8 @@ export function buildCappedSampleGrid(
   out[0] = start;
   out[pointCount - 1] = end;
 
+  // Portfolio windows are millisecond timestamps. If fractional/corrupt inputs
+  // collapse to one rounded millisecond, the grid is not usable by row helpers.
   for (const ts of out) {
     if (!seen.has(ts)) {
       seen.add(ts);
@@ -194,18 +196,25 @@ function normalizeBalanceEvents(
 
   const events = eventsRaw ?? [];
   const out: BalanceChangeEvent[] = [];
+  const seenEventOrderKeys = new Set<string>();
 
   for (const event of events) {
     if (
       !event ||
       !isFiniteNumber(event.ts) ||
       !isFiniteNumber(event.unitsDelta) ||
-      !isFiniteNumber(event.order) ||
+      !Number.isInteger(event.order) ||
       event.ts <= windowStartTs ||
       event.ts > windowEndTs
     ) {
       return null;
     }
+
+    const orderKey = `${event.ts}:${event.order}`;
+    if (seenEventOrderKeys.has(orderKey)) {
+      return null;
+    }
+    seenEventOrderKeys.add(orderKey);
 
     if (event.unitsDelta !== 0) {
       out.push({
