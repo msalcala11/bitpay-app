@@ -34,10 +34,13 @@ export {
 } from './compute/seriesFormula';
 export {
   buildFormulaComputedInputs,
+  buildQuoteBridgedFormulaComputedInputs,
   type BuildFormulaComputedInputsArgs,
   type BuildFormulaComputedInputsResult,
+  type BuildQuoteBridgedFormulaComputedInputsArgs,
   type FormulaAssetGroupInput,
   type FormulaComputedInputsInvalidReason,
+  type FormulaQuoteBridgeRatePoints,
   type FormulaWalletInput,
   type FormulaWalletIntervalInput,
 } from './compute/recomputeFormula';

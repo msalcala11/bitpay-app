@@ -1,6 +1,7 @@
 import {buildPortfolioComputedState} from './portfolioState';
 import {
   buildFormulaComputedInputs,
+  buildQuoteBridgedFormulaComputedInputs,
   type BuildFormulaComputedInputsResult,
   type FormulaWalletIntervalInput,
 } from './recomputeFormula';
@@ -139,6 +140,19 @@ function buildCollapsedUsdcFormula(args?: {
     ],
   });
 }
+
+const variableBridgeRates = {
+  targetBtcRatePoints: [
+    {ts: ORACLE_TS.start, rate: 0.9},
+    {ts: ORACLE_TS.middle, rate: 1},
+    {ts: ORACLE_TS.end, rate: 0.95},
+  ],
+  canonicalBtcRatePoints: [
+    {ts: ORACLE_TS.start, rate: 1},
+    {ts: ORACLE_TS.middle, rate: 1},
+    {ts: ORACLE_TS.end, rate: 1},
+  ],
+};
 
 describe('portfolio v2 formula recompute input builder', () => {
   it('wires no-transaction wallet formula output into state rows and detail equality', () => {
@@ -396,6 +410,230 @@ describe('portfolio v2 formula recompute input builder', () => {
       state.rowShells[0].rowToday,
     );
     expect(state.rowShells[0].groupHealth.symbolCollisionSuspected).toBe(true);
+  });
+
+  it('quote-bridges in-window transaction formula output to match from-scratch target recompute', () => {
+    const canonicalWallet = {
+      walletId: 'eth-wallet',
+      assetGroupId: 'eth',
+      assetIdentityKey: 'eth',
+      rateSourceKey: 'eth',
+      displayUnitsAtomic: '2000000000000000000',
+      displayUnitDecimals: 18,
+      liveRate: 117,
+      lastWrittenAt: 10,
+      lastAccessedAt: 20,
+      intervals: [
+        oneDayInterval({
+          seriesIdentityKey: 'wallet:eth|asset:eth|quote:USD|snap:1|rate:1',
+          baselineUnits: IN_WINDOW_BUY_FIXTURE.baselineUnits,
+          balanceEvents: IN_WINDOW_BUY_FIXTURE.balanceEvents,
+          ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
+        }),
+      ],
+    };
+    const targetWallet = {
+      ...canonicalWallet,
+      intervals: canonicalWallet.intervals.map(interval => ({
+        ...interval,
+        seriesIdentityKey: 'wallet:eth|asset:eth|quote:EUR|snap:1|rate:1',
+        ratePoints: interval.ratePoints.map(point => ({
+          ts: point.ts,
+          rate: point.rate * 0.9,
+        })),
+      })),
+    };
+    const assetGroups = [
+      {
+        assetGroupId: 'eth',
+        displaySymbol: 'ETH',
+        orderIndex: 1,
+      },
+    ];
+    const bridged = expectValidFormula(
+      buildQuoteBridgedFormulaComputedInputs({
+        targetQuoteCurrency: 'EUR',
+        wallets: [canonicalWallet],
+        assetGroups,
+        bridgeRatePointsByStoredInterval: {
+          '1D': {
+            targetBtcRatePoints: [
+              {ts: ORACLE_TS.start, rate: 0.9},
+              {ts: ORACLE_TS.middle, rate: 0.9},
+              {ts: ORACLE_TS.end, rate: 0.9},
+            ],
+            canonicalBtcRatePoints: [
+              {ts: ORACLE_TS.start, rate: 1},
+              {ts: ORACLE_TS.middle, rate: 1},
+              {ts: ORACLE_TS.end, rate: 1},
+            ],
+          },
+        },
+      }),
+    );
+    const fromScratch = expectValidFormula(
+      buildFormulaComputedInputs({
+        quoteCurrency: 'EUR',
+        wallets: [targetWallet],
+        assetGroups,
+      }),
+    );
+
+    expect(bridged.wallets[0].series['1D']?.points).toEqual(
+      fromScratch.wallets[0].series['1D']?.points,
+    );
+    const state = expectValidState(
+      buildPortfolioComputedState({
+        workEpoch: 1,
+        revision: 1,
+        quoteCurrency: 'EUR',
+        computedAtMs: 100,
+        wallets: bridged.wallets,
+        assetGroups: bridged.assetGroups,
+        populatedWalletIds: ['eth-wallet'],
+      }),
+    );
+
+    expect(state.byAssetGroup.eth.rowToday).toEqual(
+      state.rowShells[0].rowToday,
+    );
+    expect(state.byAssetGroup.eth.rowToday?.rateStart).toBe(90);
+    expect(state.byAssetGroup.eth.rowToday?.rateEnd).toBe(117);
+  });
+
+  it('quote-bridges collapsed weighted groups per timestamp', () => {
+    const bridged = expectValidFormula(
+      buildQuoteBridgedFormulaComputedInputs({
+        targetQuoteCurrency: 'EUR',
+        wallets: [
+          {
+            walletId: 'eth-usdc',
+            assetGroupId: 'usdc',
+            assetIdentityKey: 'usdc|eth',
+            rateSourceKey: 'usdc|eth',
+            displayUnitsAtomic: '1000000',
+            displayUnitDecimals: 6,
+            liveRate: 1.14,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [
+              oneDayInterval({
+                seriesIdentityKey: 'wallet:eth-usdc|snap:1|rate:1',
+                baselineUnits: 100,
+                ratePoints: [
+                  {ts: ORACLE_TS.start, rate: 1},
+                  {ts: ORACLE_TS.middle, rate: 1.05},
+                  {ts: ORACLE_TS.end, rate: 1.2},
+                ],
+                maxPoints: 3,
+              }),
+            ],
+          },
+          {
+            walletId: 'pol-usdc',
+            assetGroupId: 'usdc',
+            assetIdentityKey: 'usdc|pol',
+            rateSourceKey: 'usdc|pol',
+            displayUnitsAtomic: '1000000',
+            displayUnitDecimals: 6,
+            liveRate: 1.14,
+            lastWrittenAt: 11,
+            lastAccessedAt: 21,
+            intervals: [
+              oneDayInterval({
+                seriesIdentityKey: 'wallet:pol-usdc|snap:1|rate:1.1',
+                baselineUnits: 100,
+                ratePoints: [
+                  {ts: ORACLE_TS.start, rate: 1},
+                  {ts: ORACLE_TS.middle, rate: 1.1},
+                  {ts: ORACLE_TS.end, rate: 1.2},
+                ],
+                maxPoints: 3,
+              }),
+            ],
+          },
+        ],
+        assetGroups: [
+          {
+            assetGroupId: 'usdc',
+            displaySymbol: 'USDC',
+            orderIndex: 1,
+          },
+        ],
+        bridgeRatePointsByStoredInterval: {
+          '1D': variableBridgeRates,
+        },
+      }),
+    );
+    const state = expectValidState(
+      buildPortfolioComputedState({
+        workEpoch: 1,
+        revision: 1,
+        quoteCurrency: 'EUR',
+        computedAtMs: 100,
+        wallets: bridged.wallets,
+        assetGroups: bridged.assetGroups,
+        populatedWalletIds: ['eth-usdc', 'pol-usdc'],
+      }),
+    );
+
+    const weighted = state.byAssetGroup.usdc.weightedGroupRateSeries?.['1D'];
+    expect(weighted?.availability).toBe('valid');
+    if (weighted?.availability !== 'valid') {
+      throw new Error('Expected valid weighted quote bridge series');
+    }
+    expect(weighted.points.map(point => point.weightedRate)).toEqual([
+      0.9,
+      1.075,
+      1.14,
+    ]);
+    expect(weighted.points[2].weightedPercent).toBeCloseTo(
+      ((1.14 - 0.9) / 0.9) * 100,
+      10,
+    );
+    expect(state.byAssetGroup.usdc.rowToday).toEqual(
+      state.rowShells[0].rowToday,
+    );
+    expect(state.byAssetGroup.usdc.rowToday?.rateStart).toBe(0.9);
+    expect(state.byAssetGroup.usdc.rowToday?.rateEnd).toBe(1.14);
+    expect(state.byAssetGroup.usdc.rowToday?.ratePercent).toBeCloseTo(
+      ((1.14 - 0.9) / 0.9) * 100,
+      10,
+    );
+  });
+
+  it('reports missing rate sources when quote bridge coverage is unavailable', () => {
+    const formula = expectValidFormula(
+      buildQuoteBridgedFormulaComputedInputs({
+        targetQuoteCurrency: 'EUR',
+        wallets: [
+          {
+            walletId: 'eth-wallet',
+            assetGroupId: 'eth',
+            assetIdentityKey: 'eth',
+            rateSourceKey: 'eth',
+            displayUnitsAtomic: '2000000000000000000',
+            displayUnitDecimals: 18,
+            liveRate: 117,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [oneDayInterval()],
+          },
+        ],
+        assetGroups: [
+          {
+            assetGroupId: 'eth',
+            displaySymbol: 'ETH',
+            orderIndex: 1,
+          },
+        ],
+        bridgeRatePointsByStoredInterval: {},
+      }),
+    );
+
+    expect(formula.wallets[0].series).toEqual({});
+    expect(formula.wallets[0].rowToday).toBeUndefined();
+    expect(formula.missingRateSourceKeys).toEqual(['eth']);
   });
 
   it('rejects malformed formula bridge inputs before state assembly', () => {

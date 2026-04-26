@@ -13,7 +13,9 @@ import type {
   Series,
   StoredRateInterval,
 } from '../model';
+import {CANONICAL_RATE_QUOTE} from '../constants';
 import {
+  buildCappedSampleGrid,
   buildWalletSeriesFromEvents,
   type BalanceChangeEvent,
   type BuildWalletSeriesFromEventsArgs,
@@ -58,6 +60,21 @@ export type BuildFormulaComputedInputsArgs = Readonly<{
   quoteCurrency: string;
   wallets: readonly FormulaWalletInput[];
   assetGroups: readonly FormulaAssetGroupInput[];
+}>;
+
+export type FormulaQuoteBridgeRatePoints = Readonly<{
+  targetBtcRatePoints: readonly FiatRatePoint[];
+  canonicalBtcRatePoints: readonly FiatRatePoint[];
+}>;
+
+export type BuildQuoteBridgedFormulaComputedInputsArgs = Readonly<{
+  targetQuoteCurrency: string;
+  canonicalQuoteCurrency?: string;
+  wallets: readonly FormulaWalletInput[];
+  assetGroups: readonly FormulaAssetGroupInput[];
+  bridgeRatePointsByStoredInterval: Readonly<
+    Partial<Record<StoredRateInterval, FormulaQuoteBridgeRatePoints>>
+  >;
 }>;
 
 export type FormulaComputedInputsInvalidReason =
@@ -283,6 +300,150 @@ function validateFormulaWallet(
   }
 
   return undefined;
+}
+
+function bridgeHashValues(
+  points: readonly FiatRatePoint[],
+): readonly (number | string)[] {
+  'worklet';
+
+  return points.flatMap(point => [point.ts, point.rate]);
+}
+
+function buildFormulaRateReadTimestamps(
+  interval: FormulaWalletIntervalInput,
+): readonly number[] {
+  'worklet';
+
+  const timestamps = new Set<number>();
+  timestamps.add(interval.windowStartTs);
+  timestamps.add(interval.windowEndTs);
+  for (const ts of buildCappedSampleGrid({
+    windowStartTs: interval.windowStartTs,
+    windowEndTs: interval.windowEndTs,
+    maxPoints: interval.maxPoints,
+  })) {
+    timestamps.add(ts);
+  }
+  for (const event of interval.balanceEvents ?? []) {
+    if (event.unitsDelta > 0) {
+      timestamps.add(event.ts);
+    }
+  }
+
+  return Array.from(timestamps).sort((left, right) => left - right);
+}
+
+function buildQuoteBridgedRatePoints(args: {
+  interval: FormulaWalletIntervalInput;
+  bridge: FormulaQuoteBridgeRatePoints | undefined;
+}): readonly FiatRatePoint[] | undefined {
+  'worklet';
+
+  if (!args.bridge) {
+    return undefined;
+  }
+
+  const canonicalAssetReader = createPreparedRateReader({
+    series: args.interval.ratePoints,
+    policy: 'linearRender',
+  });
+  const targetBtcReader = createPreparedRateReader({
+    series: args.bridge.targetBtcRatePoints,
+    policy: 'linearRender',
+  });
+  const canonicalBtcReader = createPreparedRateReader({
+    series: args.bridge.canonicalBtcRatePoints,
+    policy: 'linearRender',
+  });
+  const points: FiatRatePoint[] = [];
+
+  for (const ts of buildFormulaRateReadTimestamps(args.interval)) {
+    const canonicalAssetRate = canonicalAssetReader.read(ts);
+    const targetBtcRate = targetBtcReader.read(ts);
+    const canonicalBtcRate = canonicalBtcReader.read(ts);
+    if (
+      canonicalAssetRate.kind !== 'rate' ||
+      targetBtcRate.kind !== 'rate' ||
+      canonicalBtcRate.kind !== 'rate' ||
+      canonicalAssetRate.rate <= 0 ||
+      targetBtcRate.rate <= 0 ||
+      canonicalBtcRate.rate <= 0
+    ) {
+      return undefined;
+    }
+
+    points.push({
+      ts,
+      rate:
+        (canonicalAssetRate.rate * targetBtcRate.rate) /
+        canonicalBtcRate.rate,
+    });
+  }
+
+  return points;
+}
+
+function buildQuoteBridgeIdentityKey(args: {
+  interval: FormulaWalletIntervalInput;
+  bridge: FormulaQuoteBridgeRatePoints;
+  targetQuoteCurrency: string;
+  canonicalQuoteCurrency: string;
+}): string {
+  'worklet';
+
+  return [
+    args.interval.seriesIdentityKey,
+    'quoteBridge',
+    args.canonicalQuoteCurrency,
+    args.targetQuoteCurrency,
+    args.interval.sampledFromStoredInterval,
+    stableHash([
+      'targetBtc',
+      ...bridgeHashValues(args.bridge.targetBtcRatePoints),
+      'canonicalBtc',
+      ...bridgeHashValues(args.bridge.canonicalBtcRatePoints),
+    ]),
+  ].join('|');
+}
+
+function buildQuoteBridgedInterval(args: {
+  interval: FormulaWalletIntervalInput;
+  bridge: FormulaQuoteBridgeRatePoints | undefined;
+  targetQuoteCurrency: string;
+  canonicalQuoteCurrency: string;
+}): FormulaWalletIntervalInput {
+  'worklet';
+
+  const ratePoints = buildQuoteBridgedRatePoints({
+    interval: args.interval,
+    bridge: args.bridge,
+  });
+
+  if (!ratePoints || !args.bridge) {
+    return {
+      ...args.interval,
+      seriesIdentityKey: [
+        args.interval.seriesIdentityKey,
+        'quoteBridgeMissing',
+        args.canonicalQuoteCurrency,
+        args.targetQuoteCurrency,
+        args.interval.sampledFromStoredInterval,
+      ].join('|'),
+      ratePoints: [],
+    };
+  }
+
+  return {
+    ...args.interval,
+    seriesIdentityKey: buildQuoteBridgeIdentityKey({
+      interval: args.interval,
+      bridge: args.bridge,
+      targetQuoteCurrency: args.targetQuoteCurrency,
+      canonicalQuoteCurrency: args.canonicalQuoteCurrency,
+    }),
+    ratePoints,
+  };
 }
 
 function buildMarketRatePointsForSeries(
@@ -714,4 +875,44 @@ export function buildFormulaComputedInputs(
     invalidHistoryWalletIds: uniqueSorted(invalidHistoryWalletIds),
     missingRateSourceKeys: uniqueSorted(missingRateSourceKeys),
   };
+}
+
+export function buildQuoteBridgedFormulaComputedInputs(
+  args: BuildQuoteBridgedFormulaComputedInputsArgs,
+): BuildFormulaComputedInputsResult {
+  'worklet';
+
+  const targetQuoteCurrency = String(
+    args.targetQuoteCurrency || '',
+  ).toUpperCase();
+  const canonicalQuoteCurrency = String(
+    args.canonicalQuoteCurrency || CANONICAL_RATE_QUOTE,
+  ).toUpperCase();
+
+  if (targetQuoteCurrency === canonicalQuoteCurrency) {
+    return buildFormulaComputedInputs({
+      quoteCurrency: targetQuoteCurrency,
+      wallets: args.wallets,
+      assetGroups: args.assetGroups,
+    });
+  }
+
+  return buildFormulaComputedInputs({
+    quoteCurrency: targetQuoteCurrency,
+    assetGroups: args.assetGroups,
+    wallets: args.wallets.map(wallet => ({
+      ...wallet,
+      intervals: wallet.intervals.map(interval =>
+        buildQuoteBridgedInterval({
+          interval,
+          bridge:
+            args.bridgeRatePointsByStoredInterval[
+              interval.sampledFromStoredInterval
+            ],
+          targetQuoteCurrency,
+          canonicalQuoteCurrency,
+        }),
+      ),
+    })),
+  });
 }
