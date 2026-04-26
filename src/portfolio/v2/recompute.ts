@@ -4,13 +4,21 @@ import {
   type ScopedPortfolioComputedStateInput,
 } from './compute/portfolioState';
 import {
+  buildAssetGroupRowShell,
+  type AssetGroupRowShellMemberInput,
+} from './compute/assetGroupRows';
+import {
   buildFormulaComputedInputs,
   type BuildFormulaComputedInputsArgs,
+  type FormulaWalletInput,
 } from './compute/recomputeFormula';
 import type {
+  AssetGroupRowShell,
   PerIntervalSeries,
   PortfolioStaleReason,
   PortfolioState,
+  ScopedPortfolioSlice,
+  WalletSlice,
 } from './model';
 export {
   buildPortfolioComputedState,
@@ -72,6 +80,7 @@ export type NormalizedFormulaRecomputeInput = Readonly<{
 export type RecomputeRequest = Readonly<{
   scope: RecomputeScope;
   startEpoch: number;
+  computedAtMs?: number;
   normalizedFormulaInput?: NormalizedFormulaRecomputeInput;
 }>;
 
@@ -89,16 +98,394 @@ function uniqueSorted(values: readonly string[]): readonly string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
 }
 
+function isStrictIdentity(value: unknown): value is string {
+  'worklet';
+
+  return typeof value === 'string' && !!value.trim() && value === value.trim();
+}
+
+function isValidTimestamp(value: number): boolean {
+  'worklet';
+
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function getTouchWalletIds(
+  scope: RecomputeScope,
+): readonly string[] | undefined {
+  'worklet';
+
+  if (typeof scope === 'string') {
+    return undefined;
+  }
+
+  if (scope.kind === 'touchWallet') {
+    return [scope.walletId];
+  }
+
+  if (scope.kind === 'touchWallets') {
+    return scope.walletIds;
+  }
+
+  return undefined;
+}
+
+function buildFormulaWalletById(
+  wallets: readonly FormulaWalletInput[],
+): ReadonlyMap<string, FormulaWalletInput> | null {
+  'worklet';
+
+  const byId = new Map<string, FormulaWalletInput>();
+  for (const wallet of wallets) {
+    if (!isStrictIdentity(wallet.walletId) || byId.has(wallet.walletId)) {
+      return null;
+    }
+    byId.set(wallet.walletId, wallet);
+  }
+
+  return byId;
+}
+
+function shouldRefreshRowShellForLiveRates(args: {
+  rowShell: AssetGroupRowShell;
+  walletById: ReadonlyMap<string, FormulaWalletInput>;
+  changedAssetIds?: ReadonlySet<string>;
+}): boolean {
+  'worklet';
+
+  if (!args.changedAssetIds) {
+    return true;
+  }
+
+  if (!args.changedAssetIds.size) {
+    return false;
+  }
+
+  if (args.changedAssetIds.has(args.rowShell.assetGroupId)) {
+    return true;
+  }
+
+  for (const walletId of args.rowShell.memberWalletIds) {
+    const wallet = args.walletById.get(walletId);
+    if (
+      wallet &&
+      (args.changedAssetIds.has(wallet.walletId) ||
+        args.changedAssetIds.has(wallet.assetGroupId) ||
+        args.changedAssetIds.has(wallet.assetIdentityKey) ||
+        args.changedAssetIds.has(wallet.rateSourceKey))
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function rebuildRowShellForLiveRates(args: {
+  rowShell: AssetGroupRowShell;
+  walletById: ReadonlyMap<string, FormulaWalletInput>;
+  invalidHistoryWalletIdsById: Readonly<Record<string, true>>;
+  changedAssetIds?: ReadonlySet<string>;
+}):
+  | Readonly<{kind: 'unchanged'}>
+  | Readonly<{kind: 'updated'; rowShell: AssetGroupRowShell}>
+  | Readonly<{kind: 'invalid'}> {
+  'worklet';
+
+  if (
+    !shouldRefreshRowShellForLiveRates({
+      rowShell: args.rowShell,
+      walletById: args.walletById,
+      changedAssetIds: args.changedAssetIds,
+    })
+  ) {
+    return {kind: 'unchanged'};
+  }
+
+  const members: AssetGroupRowShellMemberInput[] = [];
+  for (const walletId of args.rowShell.memberWalletIds) {
+    const wallet = args.walletById.get(walletId);
+    if (!wallet) {
+      return {kind: 'invalid'};
+    }
+
+    members.push({
+      walletId: wallet.walletId,
+      assetIdentityKey: wallet.assetIdentityKey,
+      rateSourceKey: wallet.rateSourceKey,
+      displayUnitsAtomic: wallet.displayUnitsAtomic,
+      displayUnitDecimals: wallet.displayUnitDecimals,
+      liveRate: wallet.liveRate,
+      invalidHistoryBlocked:
+        args.invalidHistoryWalletIdsById[wallet.walletId] === true,
+    });
+  }
+
+  const rowShell = buildAssetGroupRowShell({
+    assetGroupId: args.rowShell.assetGroupId,
+    displaySymbol: args.rowShell.displaySymbol,
+    orderIndex: args.rowShell.orderIndex,
+    members,
+    ...(args.rowShell.rowToday ? {rowToday: args.rowShell.rowToday} : {}),
+    ...(args.rowShell.rowAllTime ? {rowAllTime: args.rowShell.rowAllTime} : {}),
+    ...(typeof args.rowShell.groupHealth.symbolCollisionSuspected === 'boolean'
+      ? {
+          symbolCollisionSuspected:
+            args.rowShell.groupHealth.symbolCollisionSuspected,
+        }
+      : {}),
+  });
+
+  return rowShell.kind === 'visible'
+    ? {kind: 'updated', rowShell: rowShell.rowShell}
+    : {kind: 'invalid'};
+}
+
+function refreshRowShellsForLiveRates(args: {
+  rowShells: readonly AssetGroupRowShell[];
+  walletById: ReadonlyMap<string, FormulaWalletInput>;
+  invalidHistoryWalletIdsById: Readonly<Record<string, true>>;
+  changedAssetIds?: ReadonlySet<string>;
+}): readonly AssetGroupRowShell[] | null {
+  'worklet';
+
+  let changed = false;
+  const rowShells: AssetGroupRowShell[] = [];
+
+  for (const rowShell of args.rowShells) {
+    const rebuilt = rebuildRowShellForLiveRates({
+      rowShell,
+      walletById: args.walletById,
+      invalidHistoryWalletIdsById: args.invalidHistoryWalletIdsById,
+      changedAssetIds: args.changedAssetIds,
+    });
+
+    if (rebuilt.kind === 'invalid') {
+      return null;
+    }
+
+    if (rebuilt.kind === 'updated') {
+      changed = true;
+      rowShells.push(rebuilt.rowShell);
+    } else {
+      rowShells.push(rowShell);
+    }
+  }
+
+  return changed ? rowShells : args.rowShells;
+}
+
+function refreshScopedSlicesForLiveRates(args: {
+  scopedByWalletSet: PortfolioState['scopedByWalletSet'];
+  walletById: ReadonlyMap<string, FormulaWalletInput>;
+  changedAssetIds?: ReadonlySet<string>;
+}): PortfolioState['scopedByWalletSet'] | null {
+  'worklet';
+
+  let changed = false;
+  const scopedByWalletSet: Record<string, ScopedPortfolioSlice> = {};
+
+  for (const [key, scopedSlice] of Object.entries(args.scopedByWalletSet)) {
+    const refreshedRowShells = refreshRowShellsForLiveRates({
+      rowShells: scopedSlice.rowShells,
+      walletById: args.walletById,
+      invalidHistoryWalletIdsById: scopedSlice.invalidHistoryWalletIdsById,
+      changedAssetIds: args.changedAssetIds,
+    });
+    if (!refreshedRowShells) {
+      return null;
+    }
+
+    if (refreshedRowShells !== scopedSlice.rowShells) {
+      changed = true;
+      scopedByWalletSet[key] = {
+        ...scopedSlice,
+        rowShells: refreshedRowShells,
+      };
+    } else {
+      scopedByWalletSet[key] = scopedSlice;
+    }
+  }
+
+  return changed ? scopedByWalletSet : args.scopedByWalletSet;
+}
+
+function buildChangedAssetIdSet(
+  changedAssetIds: readonly string[] | undefined,
+): ReadonlySet<string> | undefined | null {
+  'worklet';
+
+  if (!changedAssetIds) {
+    return undefined;
+  }
+
+  const out = new Set<string>();
+  for (const value of changedAssetIds) {
+    if (!isStrictIdentity(value)) {
+      return null;
+    }
+    out.add(value);
+  }
+
+  return out;
+}
+
+function recomputeLiveRateTouch(
+  current: PortfolioState,
+  request: RecomputeRequest,
+  input: NormalizedFormulaRecomputeInput,
+): PortfolioState {
+  'worklet';
+
+  if (
+    typeof request.scope === 'string' ||
+    request.scope.kind !== 'liveRateTouch' ||
+    request.startEpoch !== current.workEpoch ||
+    input.formula.quoteCurrency !== current.quoteCurrency ||
+    !isValidTimestamp(input.computedAtMs)
+  ) {
+    return current;
+  }
+
+  const changedAssetIds = buildChangedAssetIdSet(request.scope.changedAssetIds);
+  if (changedAssetIds === null) {
+    return current;
+  }
+
+  const walletById = buildFormulaWalletById(input.formula.wallets);
+  if (!walletById) {
+    return current;
+  }
+
+  const rowShells = refreshRowShellsForLiveRates({
+    rowShells: current.rowShells,
+    walletById,
+    invalidHistoryWalletIdsById: current.invalidHistoryWalletIdsById,
+    changedAssetIds,
+  });
+  if (!rowShells) {
+    return current;
+  }
+
+  const scopedByWalletSet = refreshScopedSlicesForLiveRates({
+    scopedByWalletSet: current.scopedByWalletSet,
+    walletById,
+    changedAssetIds,
+  });
+  if (!scopedByWalletSet) {
+    return current;
+  }
+
+  if (
+    rowShells === current.rowShells &&
+    scopedByWalletSet === current.scopedByWalletSet
+  ) {
+    return current;
+  }
+
+  return {
+    ...current,
+    revision: current.revision + 1,
+    computedAtMs: input.computedAtMs,
+    rowShells,
+    scopedByWalletSet,
+  };
+}
+
+function recomputeTouchAccess(
+  current: PortfolioState,
+  request: RecomputeRequest,
+  computedAtMs: number | undefined,
+): PortfolioState {
+  'worklet';
+
+  if (
+    request.startEpoch !== current.workEpoch ||
+    !isValidTimestamp(computedAtMs)
+  ) {
+    return current;
+  }
+
+  const touchWalletIds = getTouchWalletIds(request.scope);
+  if (!touchWalletIds || !touchWalletIds.length) {
+    return current;
+  }
+
+  for (const walletId of touchWalletIds) {
+    if (!isStrictIdentity(walletId) || !current.byWallet[walletId]) {
+      return current;
+    }
+  }
+
+  const touchedWalletIds = new Set(touchWalletIds);
+  let changed = false;
+  const byWallet: Record<string, WalletSlice> = {...current.byWallet};
+  for (const walletId of touchedWalletIds) {
+    const wallet = current.byWallet[walletId];
+    if (wallet.lastAccessedAt !== computedAtMs) {
+      changed = true;
+      byWallet[walletId] = {
+        ...wallet,
+        lastAccessedAt: computedAtMs,
+      };
+    }
+  }
+
+  const scopedKey = uniqueSorted(Array.from(touchedWalletIds)).join('|');
+  let scopedByWalletSet = current.scopedByWalletSet;
+  const scopedSlice = current.scopedByWalletSet[scopedKey];
+  if (scopedSlice && scopedSlice.lastAccessedAt !== computedAtMs) {
+    changed = true;
+    scopedByWalletSet = {
+      ...current.scopedByWalletSet,
+      [scopedKey]: {
+        ...scopedSlice,
+        lastAccessedAt: computedAtMs,
+      },
+    };
+  }
+
+  if (!changed) {
+    return current;
+  }
+
+  return {
+    ...current,
+    revision: current.revision + 1,
+    byWallet,
+    scopedByWalletSet,
+  };
+}
+
 export function recomputePortfolioState(
   current: PortfolioState,
   request: RecomputeRequest,
 ): PortfolioState {
   const input = request.normalizedFormulaInput;
-  if (
-    !input ||
-    request.scope !== 'full' ||
-    request.startEpoch !== current.workEpoch
-  ) {
+
+  if (request.scope !== 'full') {
+    if (
+      typeof request.scope !== 'string' &&
+      request.scope.kind === 'liveRateTouch'
+    ) {
+      if (!input) {
+        return current;
+      }
+      return recomputeLiveRateTouch(current, request, input);
+    }
+
+    return recomputeTouchAccess(
+      current,
+      request,
+      request.computedAtMs ?? input?.computedAtMs,
+    );
+  }
+
+  if (!input) {
+    return current;
+  }
+
+  if (request.startEpoch !== current.workEpoch) {
     return current;
   }
 
