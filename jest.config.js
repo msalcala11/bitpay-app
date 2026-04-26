@@ -32,6 +32,9 @@ module.exports = {
     '^@env$': '<rootDir>/test/mock.js',
   },
   roots: ['<rootDir>/src/'],
+  testPathIgnorePatterns: [
+    '<rootDir>/src/portfolio/v2/__tests__/fixtures/',
+  ],
   collectCoverageFrom: [
     'src/utils/**/*.{ts,tsx}',
     'src/store/**/*.{ts,tsx}',

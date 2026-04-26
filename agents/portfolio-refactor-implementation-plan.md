@@ -285,6 +285,7 @@ src/portfolio/v2/logPortfolioRuntimeError.ts
 src/portfolio/v2/manifest.ts
 src/portfolio/v2/ordering.ts
 src/portfolio/v2/recompute.ts
+src/portfolio/v2/compute/
 src/portfolio/v2/scheduler.ts
 src/portfolio/v2/selectors.ts
 src/portfolio/v2/triggers.ts
@@ -308,6 +309,13 @@ src/portfolio/v2/debug.ts
 src/portfolio/v2/metrics.ts
 src/portfolio/v2/__tests__/fixtures/
 ```
+
+`src/portfolio/v2/compute/` owns the pure/worklet-friendly recompute
+building blocks that would otherwise make `recompute.ts` too large: formula
+series construction, row payload extraction, asset-group row shells, weighted
+group rates, recompute-state assembly, and final `PortfolioState` production.
+`src/portfolio/v2/recompute.ts` remains the public v2 recompute entrypoint and
+re-export surface; UI/runtime code should not import compute internals directly.
 
 The shared fixture library in `src/portfolio/v2/__tests__/fixtures/` owns the pinned numeric fixtures: transfer `$100.20`, cross-chain transfer `$100.192`, weighted group `180.392 → 180.592 → 0.1108696616%`, no-transaction parity, zero-baseline, missing-constituent-rate, checkpoint, and mid-series mutation fixtures. Phase-specific tests import from this library instead of re-declaring divergent fixture data.
 
