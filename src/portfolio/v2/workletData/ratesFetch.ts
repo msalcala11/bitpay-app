@@ -74,6 +74,15 @@ export type EnsureFreshArgs = Readonly<{
   startEpoch?: number;
 }>;
 
+export type EnsureQuoteCurrencyFxBridgeArgs = Readonly<{
+  quoteCurrency: string;
+  intervals: readonly StoredRateInterval[];
+  cfg?: BwsConfig;
+  force?: boolean;
+  maxAgeMs?: number;
+  startEpoch?: number;
+}>;
+
 export type RateFetchRuntimeResult = Readonly<{
   dependency: RateFetchDependency;
   fetched?: boolean;
@@ -173,6 +182,25 @@ export function buildEnsureFreshDependencies(
   }
 
   return uniqueDependencies(dependencies);
+}
+
+export function buildEnsureQuoteCurrencyFxBridgeDependencies(
+  args: EnsureQuoteCurrencyFxBridgeArgs,
+): readonly RateFetchDependency[] {
+  const targetQuoteCurrency = normalizeQuoteCurrency(args.quoteCurrency);
+  if (targetQuoteCurrency === CANONICAL_FIAT_QUOTE) {
+    return [];
+  }
+
+  return uniqueDependencies(
+    Array.from(
+      new Set((args.intervals || []).map(normalizeStoredInterval)),
+    ).map(interval => ({
+      quoteCurrency: targetQuoteCurrency,
+      asset: {coin: FX_BRIDGE_COIN},
+      storedInterval: interval,
+    })),
+  );
 }
 
 function isFresh(series: FiatRateSeries | null, maxAgeMs?: number): boolean {
@@ -498,15 +526,20 @@ export function getRateFetchRetryStatesForTesting(): readonly RateFetchRetryStat
   return Array.from(retryByDependencyKey.values());
 }
 
-export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
+async function ensureFreshDependencies(args: {
+  dependencies: readonly RateFetchDependency[];
+  cfg?: BwsConfig;
+  force?: boolean;
+  maxAgeMs?: number;
+  startEpoch?: number;
+}): Promise<void> {
   const startEpoch =
     typeof args.startEpoch === 'number'
       ? args.startEpoch
       : getCurrentPortfolioWorkEpoch();
-  const dependencies = buildEnsureFreshDependencies(args);
   const toFetch: RateFetchDependency[] = [];
 
-  for (const dependency of dependencies) {
+  for (const dependency of args.dependencies) {
     if (shouldSkipForRetry(dependency, args.force)) {
       continue;
     }
@@ -631,4 +664,26 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
       );
     }
   }
+}
+
+export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
+  return ensureFreshDependencies({
+    dependencies: buildEnsureFreshDependencies(args),
+    cfg: args.cfg,
+    force: args.force,
+    maxAgeMs: args.maxAgeMs,
+    startEpoch: args.startEpoch,
+  });
+}
+
+export async function ensureQuoteCurrencyFxBridge(
+  args: EnsureQuoteCurrencyFxBridgeArgs,
+): Promise<void> {
+  return ensureFreshDependencies({
+    dependencies: buildEnsureQuoteCurrencyFxBridgeDependencies(args),
+    cfg: args.cfg,
+    force: args.force,
+    maxAgeMs: args.maxAgeMs,
+    startEpoch: args.startEpoch,
+  });
 }

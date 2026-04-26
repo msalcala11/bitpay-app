@@ -54,6 +54,13 @@ export function getQuoteCurrencyFromStore(): string {
   );
 }
 
+export function getShowPortfolioEnabledFromStore(): boolean {
+  const state = getReduxStateForPortfolioV2() as unknown as {
+    APP?: {showPortfolioValue?: boolean};
+  };
+  return state.APP?.showPortfolioValue !== false;
+}
+
 type WalletLike = {
   id?: string;
   walletId?: string;

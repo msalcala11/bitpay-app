@@ -20,6 +20,12 @@ import {
   type WeightedGroupRateConstituentInput,
 } from './weightedGroupRates';
 
+export type WeightedGroupRateWindowInput = Readonly<{
+  windowStartTs: number;
+  windowEndTs: number;
+  sampledFromStoredInterval: StoredRateInterval;
+}>;
+
 export type WalletSliceAssemblyInput = Readonly<{
   walletId: string;
   assetGroupId: string;
@@ -56,6 +62,9 @@ export type AssetGroupSliceAssemblyInput = Readonly<{
   >;
   weightedConstituentsByInterval?: Readonly<
     Partial<Record<Interval, readonly WeightedGroupRateConstituentInput[]>>
+  >;
+  weightedRateWindowByInterval?: Readonly<
+    Partial<Record<Interval, WeightedGroupRateWindowInput>>
   >;
   sampledFromStoredIntervalByInterval?: Readonly<
     Partial<Record<Interval, StoredRateInterval>>
@@ -106,9 +115,7 @@ function uniqueSorted(values: readonly string[]): readonly string[] {
 function isStrictIdentity(value: unknown): value is string {
   'worklet';
 
-  return (
-    typeof value === 'string' && !!value.trim() && value === value.trim()
-  );
+  return typeof value === 'string' && !!value.trim() && value === value.trim();
 }
 
 function normalizeDisplaySymbol(value: unknown): string | null {
@@ -128,6 +135,36 @@ function getSeriesIntervals(series: PerIntervalSeries): readonly Interval[] {
   return (Object.keys(series) as Interval[]).filter(
     interval => !!series[interval],
   );
+}
+
+function getWeightedConstituentIntervals(
+  constituents: AssetGroupSliceAssemblyInput['weightedConstituentsByInterval'],
+): readonly Interval[] {
+  'worklet';
+
+  return (Object.keys(constituents ?? {}) as Interval[]).filter(
+    interval => !!constituents?.[interval],
+  );
+}
+
+function getWeightedRateWindow(args: {
+  assetGroup: AssetGroupSliceAssemblyInput;
+  interval: Interval;
+  series?: PerIntervalSeries[Interval];
+}): WeightedGroupRateWindowInput | undefined {
+  'worklet';
+
+  if (args.series) {
+    return {
+      windowStartTs: args.series.windowStartTs,
+      windowEndTs: args.series.windowEndTs,
+      sampledFromStoredInterval:
+        args.assetGroup.sampledFromStoredIntervalByInterval?.[args.interval] ??
+        args.series.sampledFromStoredInterval,
+    };
+  }
+
+  return args.assetGroup.weightedRateWindowByInterval?.[args.interval];
 }
 
 function hasMultipleRateSources(
@@ -160,11 +197,21 @@ function assembleWeightedGroupRateSeries(args: {
 
   const out: Partial<Record<Interval, WeightedGroupRateSeries>> = {};
 
-  for (const interval of getSeriesIntervals(args.assetGroup.series)) {
+  for (const interval of uniqueSorted([
+    ...getSeriesIntervals(args.assetGroup.series),
+    ...getWeightedConstituentIntervals(
+      args.assetGroup.weightedConstituentsByInterval,
+    ),
+  ]) as readonly Interval[]) {
     const series = args.assetGroup.series[interval];
     const constituents =
       args.assetGroup.weightedConstituentsByInterval?.[interval];
-    if (!series || !constituents) {
+    const window = getWeightedRateWindow({
+      assetGroup: args.assetGroup,
+      interval,
+      series,
+    });
+    if (!constituents || !window) {
       continue;
     }
 
@@ -173,11 +220,9 @@ function assembleWeightedGroupRateSeries(args: {
       assetGroupId: args.assetGroup.assetGroupId,
       walletIdsKey: args.memberWalletIdsKey,
       interval,
-      windowStartTs: series.windowStartTs,
-      windowEndTs: series.windowEndTs,
-      sampledFromStoredInterval:
-        args.assetGroup.sampledFromStoredIntervalByInterval?.[interval] ??
-        series.sampledFromStoredInterval,
+      windowStartTs: window.windowStartTs,
+      windowEndTs: window.windowEndTs,
+      sampledFromStoredInterval: window.sampledFromStoredInterval,
       constituents,
     });
   }

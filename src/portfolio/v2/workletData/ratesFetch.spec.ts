@@ -98,8 +98,10 @@ import {
 import {getRateKey} from './ratesKv';
 import {
   buildEnsureFreshDependencies,
+  buildEnsureQuoteCurrencyFxBridgeDependencies,
   clearRateFetchRetryStateForTesting,
   ensureFresh,
+  ensureQuoteCurrencyFxBridge,
   getRateFetchRetryStatesForTesting,
   setRateFetchExecutorForTesting,
   type RateFetchDependency,
@@ -181,6 +183,76 @@ describe('portfolio v2 ensureFresh', () => {
     ]);
   });
 
+  it('builds quote-switch bridge dependencies for target BTC only', () => {
+    expect(
+      buildEnsureQuoteCurrencyFxBridgeDependencies({
+        quoteCurrency: 'EUR',
+        intervals: ['1D', 'ALL'],
+      }),
+    ).toEqual([
+      {
+        quoteCurrency: 'EUR',
+        asset: {coin: 'btc', chain: undefined, tokenAddress: undefined},
+        storedInterval: '1D',
+      },
+      {
+        quoteCurrency: 'EUR',
+        asset: {coin: 'btc', chain: undefined, tokenAddress: undefined},
+        storedInterval: 'ALL',
+      },
+    ]);
+
+    expect(
+      buildEnsureQuoteCurrencyFxBridgeDependencies({
+        quoteCurrency: 'USD',
+        intervals: ['1D', 'ALL'],
+      }),
+    ).toEqual([]);
+  });
+
+  it('ensures quote-switch bridge freshness without fetching canonical assets', async () => {
+    const executor = jest.fn(
+      async (dependencies: readonly RateFetchDependency[]) =>
+        dependencies.map(
+          dependency =>
+            ({
+              dependency,
+              series: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
+            } satisfies RateFetchRuntimeResult),
+        ),
+    );
+    setRateFetchExecutorForTesting(executor);
+
+    await ensureQuoteCurrencyFxBridge({
+      quoteCurrency: 'EUR',
+      intervals: ['ALL'],
+      force: true,
+    });
+
+    expect(executor).toHaveBeenCalledWith(
+      [
+        {
+          quoteCurrency: 'EUR',
+          asset: {coin: 'btc', chain: undefined, tokenAddress: undefined},
+          storedInterval: 'ALL',
+        },
+      ],
+      {},
+      expect.any(Number),
+    );
+    expect(mockMmkv.getString(ethAllKey)).toBeUndefined();
+    expect(mockMmkv.getString(ltcAllKey)).toBeUndefined();
+    expect(
+      mockMmkv.getString(
+        getRateKey({
+          quoteCurrency: 'EUR',
+          asset: {coin: 'btc'},
+          storedInterval: 'ALL',
+        }),
+      ),
+    ).toBe('{"v":3,"f":123,"p":[[1,100]]}');
+  });
+
   it('rejects display-only intervals at the fetch/persist boundary', () => {
     expect(() =>
       buildEnsureFreshDependencies({
@@ -192,14 +264,15 @@ describe('portfolio v2 ensureFresh', () => {
   });
 
   it('persists fetched rates through the v2 MMKV mutation helper', async () => {
-    const executor = jest.fn(async (dependencies: readonly RateFetchDependency[]) =>
-      dependencies.map(
-        dependency =>
-          ({
-            dependency,
-            series: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
-          }) satisfies RateFetchRuntimeResult,
-      ),
+    const executor = jest.fn(
+      async (dependencies: readonly RateFetchDependency[]) =>
+        dependencies.map(
+          dependency =>
+            ({
+              dependency,
+              series: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
+            } satisfies RateFetchRuntimeResult),
+        ),
     );
     setRateFetchExecutorForTesting(executor);
 
@@ -276,13 +349,13 @@ describe('portfolio v2 ensureFresh', () => {
     jest.spyOn(Date, 'now').mockReturnValue(10_000);
     const failingExecutor = jest.fn(
       async (dependencies: readonly RateFetchDependency[]) =>
-      dependencies.map(
-        dependency =>
-          ({
-            dependency,
-            errorKind: 'network' as const,
-          }) satisfies RateFetchRuntimeResult,
-      ),
+        dependencies.map(
+          dependency =>
+            ({
+              dependency,
+              errorKind: 'network' as const,
+            } satisfies RateFetchRuntimeResult),
+        ),
     );
     setRateFetchExecutorForTesting(failingExecutor);
 
@@ -313,13 +386,13 @@ describe('portfolio v2 ensureFresh', () => {
 
     const successExecutor = jest.fn(
       async (dependencies: readonly RateFetchDependency[]) =>
-      dependencies.map(
-        dependency =>
-          ({
-            dependency,
-            series: {fetchedOn: 2000, points: [{ts: 1, rate: 101}]},
-          }) satisfies RateFetchRuntimeResult,
-      ),
+        dependencies.map(
+          dependency =>
+            ({
+              dependency,
+              series: {fetchedOn: 2000, points: [{ts: 1, rate: 101}]},
+            } satisfies RateFetchRuntimeResult),
+        ),
     );
     setRateFetchExecutorForTesting(successExecutor);
 
@@ -404,7 +477,7 @@ describe('portfolio v2 ensureFresh', () => {
           ({
             dependency,
             errorKind: 'network' as const,
-          }) satisfies RateFetchRuntimeResult,
+          } satisfies RateFetchRuntimeResult),
       );
     });
 
@@ -499,7 +572,7 @@ describe('portfolio v2 ensureFresh', () => {
           ({
             dependency: dependencies[0] ?? dependency,
             series: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
-          }) satisfies RateFetchRuntimeResult,
+          } satisfies RateFetchRuntimeResult),
       );
     });
 
@@ -692,7 +765,7 @@ describe('portfolio v2 ensureFresh', () => {
           ({
             dependency,
             fetched: true,
-          }) satisfies RateFetchRuntimeResult,
+          } satisfies RateFetchRuntimeResult),
       ),
     );
 
@@ -723,7 +796,7 @@ describe('portfolio v2 ensureFresh', () => {
           ({
             dependency,
             series: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
-          }) satisfies RateFetchRuntimeResult,
+          } satisfies RateFetchRuntimeResult),
       );
     });
 
@@ -748,13 +821,15 @@ describe('portfolio v2 ensureFresh', () => {
   });
 
   it('records retry state for current-epoch dropped runtime results', async () => {
-    setRateFetchExecutorForTesting(async dependencies => dependencies.slice(0, 1).map(
-      dependency =>
-        ({
-          dependency,
-          series: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
-        }) satisfies RateFetchRuntimeResult,
-    ));
+    setRateFetchExecutorForTesting(async dependencies =>
+      dependencies.slice(0, 1).map(
+        dependency =>
+          ({
+            dependency,
+            series: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
+          } satisfies RateFetchRuntimeResult),
+      ),
+    );
 
     await ensureFresh({
       quoteCurrency: 'EUR',
@@ -907,7 +982,7 @@ describe('portfolio v2 ensureFresh', () => {
               },
             },
           },
-        }) as any,
+        } as any),
     } as any);
 
     expect(

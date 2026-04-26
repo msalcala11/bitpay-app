@@ -75,9 +75,7 @@ function buildSingleEthFormula(
   });
 }
 
-function buildCollapsedUsdcFormula(args?: {
-  middleRateB?: number;
-}) {
+function buildCollapsedUsdcFormula(args?: {middleRateB?: number}) {
   const middleRateB = args?.middleRateB ?? 1.1;
 
   return buildFormulaComputedInputs({
@@ -412,6 +410,90 @@ describe('portfolio v2 formula recompute input builder', () => {
       state.rowShells[0].rowToday,
     );
     expect(state.rowShells[0].groupHealth.symbolCollisionSuspected).toBe(true);
+  });
+
+  it('publishes collapsed weighted missing-rate intervals when group pnl series is suppressed', () => {
+    const formula = expectValidFormula(
+      buildFormulaComputedInputs({
+        quoteCurrency: 'USD',
+        wallets: [
+          {
+            walletId: 'eth-usdc',
+            assetGroupId: 'usdc',
+            assetIdentityKey: 'usdc|eth',
+            rateSourceKey: 'usdc|eth',
+            displayUnitsAtomic: '1000000',
+            displayUnitDecimals: 6,
+            liveRate: 1.2,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [
+              oneDayInterval({
+                seriesIdentityKey: 'wallet:eth-usdc|snap:1|rate:1',
+                baselineUnits: 100,
+                ratePoints: [
+                  {ts: ORACLE_TS.start, rate: 1},
+                  {ts: ORACLE_TS.end, rate: 1.2},
+                ],
+                maxPoints: 2,
+              }),
+            ],
+          },
+          {
+            walletId: 'pol-usdc',
+            assetGroupId: 'usdc',
+            assetIdentityKey: 'usdc|pol',
+            rateSourceKey: 'usdc|pol',
+            displayUnitsAtomic: '1000000',
+            displayUnitDecimals: 6,
+            liveRate: 1.2,
+            lastWrittenAt: 11,
+            lastAccessedAt: 21,
+            intervals: [
+              oneDayInterval({
+                seriesIdentityKey: 'wallet:pol-usdc|snap:missing|rate:1',
+                baselineUnits: 100,
+                ratePoints: [{ts: ORACLE_TS.start, rate: 1}],
+                maxPoints: 2,
+              }),
+            ],
+          },
+        ],
+        assetGroups: [
+          {
+            assetGroupId: 'usdc',
+            displaySymbol: 'USDC',
+            orderIndex: 1,
+          },
+        ],
+      }),
+    );
+    const state = expectValidState(
+      buildPortfolioComputedState({
+        workEpoch: 1,
+        revision: 1,
+        quoteCurrency: 'USD',
+        computedAtMs: 100,
+        wallets: formula.wallets,
+        assetGroups: formula.assetGroups,
+        missingRateSourceKeys: formula.missingRateSourceKeys,
+      }),
+    );
+
+    expect(formula.assetGroups[0].series['1D']).toBeUndefined();
+    expect(formula.missingRateSourceKeys).toEqual(['usdc|pol']);
+    expect(
+      state.byAssetGroup.usdc.weightedGroupRateSeries?.['1D'],
+    ).toMatchObject({
+      availability: 'unavailable',
+      unavailableReason: 'missingConstituentRate',
+      points: [],
+    });
+    expect(state.byAssetGroup.usdc.rowToday).toBeUndefined();
+    expect(state.rowShells[0]).toMatchObject({
+      assetGroupId: 'usdc',
+      readyToday: false,
+    });
   });
 
   it('excludes invalid-history wallets from collapsed weighted constituent rows', () => {
@@ -800,9 +882,7 @@ describe('portfolio v2 formula recompute input builder', () => {
       throw new Error('Expected valid weighted quote bridge series');
     }
     expect(weighted.points.map(point => point.weightedRate)).toEqual([
-      0.9,
-      1.075,
-      1.14,
+      0.9, 1.075, 1.14,
     ]);
     expect(weighted.points[2].weightedPercent).toBeCloseTo(
       ((1.14 - 0.9) / 0.9) * 100,

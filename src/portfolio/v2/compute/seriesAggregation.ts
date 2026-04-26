@@ -46,6 +46,10 @@ export function aggregateAlignedSeries(args: {
   }
 
   const firstSeries = args.memberSeries[0];
+  if (firstSeries.interval !== args.interval) {
+    return null;
+  }
+
   const pointCount = firstSeries.points.length;
   const points = firstSeries.points.map((point, pointIndex) => {
     let fiatBalance = 0;
@@ -108,7 +112,7 @@ export function aggregateAlignedSeries(args: {
         point.pnlPercent,
       ]),
     ]),
-    interval: firstSeries.interval,
+    interval: args.interval,
     windowStartTs: firstSeries.windowStartTs,
     windowEndTs: firstSeries.windowEndTs,
     sampledFromStoredInterval: firstSeries.sampledFromStoredInterval,

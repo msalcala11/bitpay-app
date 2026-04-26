@@ -23,6 +23,7 @@ import {
 import {aggregateAlignedSeries, stableHash} from './seriesAggregation';
 import {buildRowPayloadFromSeries} from './rowPayload';
 import type {WeightedGroupRateConstituentInput} from './weightedGroupRates';
+import type {WeightedGroupRateWindowInput} from './recomputeState';
 
 export type FormulaWalletIntervalInput = Readonly<{
   interval: Interval;
@@ -668,6 +669,47 @@ function getWalletInterval(
   return wallet.intervals.find(candidate => candidate.interval === interval);
 }
 
+function getWeightedRateWindowForInterval(args: {
+  wallets: readonly WalletBuildState[];
+  interval: Interval;
+}): WeightedGroupRateWindowInput | null {
+  'worklet';
+
+  let window: WeightedGroupRateWindowInput | undefined;
+
+  for (const wallet of args.wallets) {
+    if (wallet.invalidHistoryBlocked) {
+      continue;
+    }
+
+    const walletInterval = getWalletInterval(wallet.input, args.interval);
+    if (!walletInterval) {
+      continue;
+    }
+
+    const candidate: WeightedGroupRateWindowInput = {
+      windowStartTs: walletInterval.windowStartTs,
+      windowEndTs: walletInterval.windowEndTs,
+      sampledFromStoredInterval: walletInterval.sampledFromStoredInterval,
+    };
+
+    if (!window) {
+      window = candidate;
+      continue;
+    }
+
+    if (
+      candidate.windowStartTs !== window.windowStartTs ||
+      candidate.windowEndTs !== window.windowEndTs ||
+      candidate.sampledFromStoredInterval !== window.sampledFromStoredInterval
+    ) {
+      return null;
+    }
+  }
+
+  return window ?? null;
+}
+
 function buildAssetGroupInput(args: {
   group: FormulaAssetGroupInput;
   wallets: readonly WalletBuildState[];
@@ -681,6 +723,9 @@ function buildAssetGroupInput(args: {
   > = {};
   const weightedConstituentsByInterval: Partial<
     Record<Interval, readonly WeightedGroupRateConstituentInput[]>
+  > = {};
+  const weightedRateWindowByInterval: Partial<
+    Record<Interval, WeightedGroupRateWindowInput>
   > = {};
   const sampledFromStoredIntervalByInterval: Partial<
     Record<Interval, StoredRateInterval>
@@ -744,6 +789,14 @@ function buildAssetGroupInput(args: {
         marketRatePointsByInterval[interval] = entry.points;
       }
     } else if (rateSourceKeys.length > 1) {
+      const weightedWindow = getWeightedRateWindowForInterval({
+        wallets: args.wallets,
+        interval,
+      });
+      if (!weightedWindow) {
+        return null;
+      }
+      weightedRateWindowByInterval[interval] = weightedWindow;
       weightedConstituentsByInterval[interval] = rateSourceKeys.map(key => {
         const entry = rateSourceEntries.get(key);
         return {
@@ -771,6 +824,7 @@ function buildAssetGroupInput(args: {
     })),
     marketRatePointsByInterval,
     weightedConstituentsByInterval,
+    weightedRateWindowByInterval,
     sampledFromStoredIntervalByInterval,
     ...(typeof args.group.symbolCollisionSuspected === 'boolean'
       ? {symbolCollisionSuspected: args.group.symbolCollisionSuspected}
