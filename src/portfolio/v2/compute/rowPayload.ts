@@ -12,6 +12,7 @@ export type WalletPointInvalidReason =
   | 'nonFiniteUnrealizedPnl';
 
 export type RowPayloadInvalidReason =
+  | 'missingAssetGroupId'
   | 'emptySeries'
   | 'invalidSeriesEndpoint'
   | 'malformedSeriesTimeline'
@@ -52,7 +53,7 @@ function stableNumber(value: number): string {
     return '0';
   }
 
-  return Number(value.toPrecision(15)).toString();
+  return String(value);
 }
 
 function stableHash(values: readonly (number | string)[]): string {
@@ -182,6 +183,10 @@ export function buildRowPayloadFromSeries(
 ): BuildRowPayloadFromSeriesResult {
   'worklet';
 
+  if (!args.assetGroupId.trim()) {
+    return {kind: 'invalidHistory', reason: 'missingAssetGroupId'};
+  }
+
   const points = args.series.points;
   if (!points.length) {
     return {kind: 'invalidHistory', reason: 'emptySeries'};
@@ -192,7 +197,7 @@ export function buildRowPayloadFromSeries(
     if (!isValidPointEndpoint(point)) {
       return {kind: 'invalidHistory', reason: 'invalidSeriesEndpoint'};
     }
-    if (point.ts < previousTs) {
+    if (point.ts <= previousTs) {
       return {kind: 'invalidHistory', reason: 'malformedSeriesTimeline'};
     }
     previousTs = point.ts;

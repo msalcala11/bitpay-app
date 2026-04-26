@@ -32,7 +32,7 @@ describe('portfolio v2 row payload compute adapter', () => {
         ts: 1,
         units: 2,
         markRate: 100,
-        remainingCostBasisFiat: 150,
+        remainingCostBasisFiat: 200,
       }),
     );
     const last = expectValidPoint(
@@ -40,7 +40,7 @@ describe('portfolio v2 row payload compute adapter', () => {
         ts: 2,
         units: 2,
         markRate: 125,
-        remainingCostBasisFiat: 150,
+        remainingCostBasisFiat: 200,
         firstRemainingUnrealizedPnlFiat: first.remainingUnrealizedPnlFiat,
       }),
     );
@@ -52,16 +52,16 @@ describe('portfolio v2 row payload compute adapter', () => {
     expect(first).toEqual({
       ts: 1,
       fiatBalance: 200,
-      remainingUnrealizedPnlFiat: 50,
+      remainingUnrealizedPnlFiat: 0,
       pnlChange: 0,
-      pnlPercent: 33.33333333333333,
+      pnlPercent: 0,
     });
     expect(last).toEqual({
       ts: 2,
       fiatBalance: 250,
-      remainingUnrealizedPnlFiat: 100,
+      remainingUnrealizedPnlFiat: 50,
       pnlChange: 50,
-      pnlPercent: 66.66666666666666,
+      pnlPercent: 25,
     });
 
     const row = expectValidRow(
@@ -81,7 +81,7 @@ describe('portfolio v2 row payload compute adapter', () => {
         fiatStart: 200,
         fiatEnd: 250,
         pnlChange: 50,
-        pnlPercent: 66.66666666666666,
+        pnlPercent: 25,
         rateStart: 100,
         rateEnd: 125,
         ratePercent: 25,
@@ -89,11 +89,12 @@ describe('portfolio v2 row payload compute adapter', () => {
       fiatStart: 200,
       fiatEnd: 250,
       pnlChange: 50,
-      pnlPercent: 66.66666666666666,
+      pnlPercent: 25,
       rateStart: 100,
       rateEnd: 125,
       ratePercent: 25,
     });
+    expect(row.pnlPercent).toBe(row.ratePercent);
   });
 
   it('quarantines invalid wallet math instead of clamping it', () => {
@@ -149,6 +150,14 @@ describe('portfolio v2 row payload compute adapter', () => {
 
     expect(
       buildRowPayloadFromSeries({
+        assetGroupId: '',
+        series: {interval: 'ALL', points: [validPoint]},
+        rateStart: 100,
+        rateEnd: 125,
+      }),
+    ).toEqual({kind: 'invalidHistory', reason: 'missingAssetGroupId'});
+    expect(
+      buildRowPayloadFromSeries({
         assetGroupId: 'eth',
         series: {interval: 'ALL', points: []},
         rateStart: 100,
@@ -178,6 +187,20 @@ describe('portfolio v2 row payload compute adapter', () => {
         series: {
           interval: 'ALL',
           points: [validPoint, {...validPoint, ts: 0}],
+        },
+        rateStart: 100,
+        rateEnd: 125,
+      }),
+    ).toEqual({
+      kind: 'invalidHistory',
+      reason: 'malformedSeriesTimeline',
+    });
+    expect(
+      buildRowPayloadFromSeries({
+        assetGroupId: 'eth',
+        series: {
+          interval: 'ALL',
+          points: [validPoint, {...validPoint}],
         },
         rateStart: 100,
         rateEnd: 125,
