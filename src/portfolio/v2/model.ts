@@ -86,14 +86,59 @@ export type Point = Readonly<{
 
 export type Series = Readonly<{
   fingerprint: string;
-  points: readonly Point[];
   interval: Interval;
   windowStartTs: number;
   windowEndTs: number;
+  sampledFromStoredInterval: StoredRateInterval;
   finalPointSource: 'historicalRate' | 'liveRate';
+  points: readonly Point[];
 }>;
 
 export type PerIntervalSeries = Readonly<Partial<Record<Interval, Series>>>;
+
+export type MarketRatePoint = Readonly<{
+  ts: number;
+  rate: number;
+  percentChange: number;
+}>;
+
+export type WeightedGroupRatePoint = Readonly<{
+  ts: number;
+  weightedRate: number;
+  weightedPercent: number;
+}>;
+
+type WeightedGroupRateSeriesBase = Readonly<{
+  fingerprint: string;
+  interval: Interval;
+  windowStartTs: number;
+  windowEndTs: number;
+  sampledFromStoredInterval: StoredRateInterval;
+  baselineUnitsByRateSourceKey: Readonly<Record<string, string>>;
+}>;
+
+export type WeightedGroupRateSeries =
+  | Readonly<
+      WeightedGroupRateSeriesBase & {
+        availability: 'valid';
+        points: readonly WeightedGroupRatePoint[];
+      }
+    >
+  | Readonly<
+      WeightedGroupRateSeriesBase & {
+        availability: 'unavailable';
+        unavailableReason:
+          | 'zeroBaseline'
+          | 'missingConstituentRate'
+          | 'missingBridgeRate'
+          | 'insufficientData';
+        points: readonly [];
+      }
+    >;
+
+export type PerIntervalWeightedGroupRateSeries = Readonly<
+  Partial<Record<Interval, WeightedGroupRateSeries>>
+>;
 
 export type AssetGroupHealth = Readonly<{
   collapsedAcrossDistinctAssets: boolean;
@@ -106,7 +151,6 @@ export type AssetGroupHealth = Readonly<{
 export type AssetGroupRowShell = Readonly<{
   assetGroupId: string;
   displaySymbol: string;
-  displayName?: string;
   currentCryptoAmount: string;
   currentFiatValue?: number;
   memberWalletIds: readonly string[];
@@ -114,34 +158,46 @@ export type AssetGroupRowShell = Readonly<{
   memberRateSourceKeys: readonly string[];
   canonicalUnitDecimals?: number;
   groupHealth: AssetGroupHealth;
-  invalidHistoryBlocked?: boolean;
+  orderIndex: number;
+  readyToday: boolean;
+  readyAllTime: boolean;
+  invalidHistoryBlocked: boolean;
+  rowToday?: RowPayload;
+  rowAllTime?: RowPayload;
 }>;
 
 export type RowPayload = Readonly<{
   assetGroupId: string;
-  interval: Interval;
+  rowFingerprint: string;
+  fiatStart: number;
+  fiatEnd: number;
   pnlChange: number;
   pnlPercent: number;
-  rateStart?: number;
-  rateEnd?: number;
-  ratePercent?: number;
-  fingerprint: string;
+  rateStart: number;
+  rateEnd: number;
+  ratePercent: number;
 }>;
 
 export type WalletSlice = Readonly<{
   walletId: string;
-  assetGroupIds: readonly string[];
-  series: PerIntervalSeries;
-  rowPayloadsByAssetGroupId: Readonly<Record<string, RowPayload>>;
+  assetGroupId: string;
   fingerprint: string;
+  series: PerIntervalSeries;
+  rowToday?: RowPayload;
+  rowAllTime?: RowPayload;
+  lastWrittenAt: number;
+  lastAccessedAt: number;
 }>;
 
 export type AssetGroupSlice = Readonly<{
   assetGroupId: string;
-  memberWalletIds: readonly string[];
-  series: PerIntervalSeries;
-  rowPayloadsByInterval: Readonly<Partial<Record<Interval, RowPayload>>>;
   fingerprint: string;
+  memberWalletIds: readonly string[];
+  memberWalletIdsKey: string;
+  series: PerIntervalSeries;
+  weightedGroupRateSeries?: PerIntervalWeightedGroupRateSeries;
+  rowToday?: RowPayload;
+  rowAllTime?: RowPayload;
 }>;
 
 export type PortfolioStaleReason =
@@ -154,35 +210,36 @@ export type PortfolioStaleReason =
   | 'populateRetryPending'
   | 'rateFetchRetryPending';
 
-export type PortfolioDataQuality = Readonly<{
-  snapshotCoverage: 'none' | 'partial' | 'complete';
-  rateCoverage: 'none' | 'partial' | 'complete';
-  stale: boolean;
-  staleReasons: readonly PortfolioStaleReason[];
-  lastSuccessfulPopulateAtByWalletId: Readonly<Record<string, number>>;
-  lastRateFetchAtByRateSourceKey: Readonly<Record<string, number>>;
-  missingRateSourceKeys: readonly string[];
-  invalidHistoryWalletIds: readonly string[];
-  retryScheduledWalletIds: readonly string[];
-}>;
-
 export type ScopeReadiness = Readonly<{
   empty: boolean;
-  initialScopeReady: boolean;
-  invalidHistoryBlocked: boolean;
   hasEverPublishedValidSeries: boolean;
+  initialScopeReady: boolean;
   refreshing: boolean;
-  dataQuality: PortfolioDataQuality;
+  invalidHistoryBlocked: boolean;
 }>;
 
 export type ScopedPortfolioSlice = Readonly<{
   walletIdsKey: string;
   walletIds: readonly string[];
-  total: PerIntervalSeries;
-  rowShells: readonly AssetGroupRowShell[];
-  readiness: ScopeReadiness;
   fingerprint: string;
+  computedAtMs: number;
+  readiness: ScopeReadiness;
+  total: PerIntervalSeries;
+  totalFingerprint: string;
+  byAssetGroup: Readonly<Record<string, AssetGroupSlice>>;
+  rowShells: readonly AssetGroupRowShell[];
+  orderedAssetGroupIdsForAssetList: readonly string[];
+  invalidHistoryWalletIdsById: Readonly<Record<string, true>>;
+  invalidHistoryAssetGroupIdsById: Readonly<Record<string, true>>;
   lastAccessedAt: number;
+}>;
+
+export type PortfolioStatus = Readonly<{
+  invalidHistoryWalletIds: readonly string[];
+  missingRateSourceKeys: readonly string[];
+  staleReasons: readonly PortfolioStaleReason[];
+  retryScheduledWalletIds: readonly string[];
+  retryScheduledRateSourceKeys: readonly string[];
 }>;
 
 export type PortfolioState = Readonly<{
@@ -192,8 +249,11 @@ export type PortfolioState = Readonly<{
   quoteCurrency: string;
   canonicalRateQuoteCurrency: typeof CANONICAL_RATE_QUOTE;
   computedAtMs: number;
+  status: PortfolioStatus;
   populatedWalletIdsKey: string;
+  populatedWalletIdsById: Readonly<Record<string, true>>;
   invalidHistoryWalletIdsKey: string;
+  invalidHistoryWalletIdsById: Readonly<Record<string, true>>;
   readinessByScopeKey: Readonly<Record<string, ScopeReadiness>>;
   orderedAssetGroupIdsForAssetList: readonly string[];
   orderRevision: number;
@@ -308,16 +368,12 @@ export type PortfolioManifestV1 = Readonly<{
   updatedAt: number;
 }>;
 
-export const EMPTY_DATA_QUALITY: PortfolioDataQuality = {
-  snapshotCoverage: 'none',
-  rateCoverage: 'none',
-  stale: false,
-  staleReasons: [],
-  lastSuccessfulPopulateAtByWalletId: {},
-  lastRateFetchAtByRateSourceKey: {},
-  missingRateSourceKeys: [],
+export const EMPTY_PORTFOLIO_STATUS: PortfolioStatus = {
   invalidHistoryWalletIds: [],
+  missingRateSourceKeys: [],
+  staleReasons: [],
   retryScheduledWalletIds: [],
+  retryScheduledRateSourceKeys: [],
 };
 
 export const EMPTY_PORTFOLIO_STATE: PortfolioState = {
@@ -327,8 +383,11 @@ export const EMPTY_PORTFOLIO_STATE: PortfolioState = {
   quoteCurrency: CANONICAL_RATE_QUOTE,
   canonicalRateQuoteCurrency: CANONICAL_RATE_QUOTE,
   computedAtMs: 0,
+  status: EMPTY_PORTFOLIO_STATUS,
   populatedWalletIdsKey: '',
+  populatedWalletIdsById: {},
   invalidHistoryWalletIdsKey: '',
+  invalidHistoryWalletIdsById: {},
   readinessByScopeKey: {},
   orderedAssetGroupIdsForAssetList: [],
   orderRevision: 0,

@@ -33,7 +33,8 @@ class FakeMmkv {
 }
 
 const mockMmkv = new FakeMmkv();
-const mockInitializeLegacyRuntimeGlobals = jest.fn();
+const mockInitializePopulateRuntimeGlobals = jest.fn();
+const mockInitializeRateFetchRuntimeGlobals = jest.fn();
 
 jest.mock('react-native-reanimated', () => ({
   makeMutable: (initial: unknown) => ({
@@ -54,7 +55,10 @@ jest.mock('react-native-worklets', () => ({
 }));
 
 jest.mock('../adapters/rn/workletRuntimeShared', () => ({
-  initializePortfolioRuntimeGlobals: () => mockInitializeLegacyRuntimeGlobals(),
+  initializePortfolioPopulateRuntimeGlobals: () =>
+    mockInitializePopulateRuntimeGlobals(),
+  initializePortfolioRateFetchRuntimeGlobals: () =>
+    mockInitializeRateFetchRuntimeGlobals(),
 }));
 
 jest.mock('../adapters/rn/workletMmkvBridge', () => ({
@@ -94,9 +98,11 @@ import {
   publishPortfolioState,
   resetSharedPortfolioStateForDebugClear,
   sharedPortfolioState,
+  subscribeToPortfolioPublishedState,
 } from './sharedState';
 import {emptyManifest, loadManifest, saveManifest} from './manifest';
 import {emptyQueue, loadQueue, saveQueue} from './populate/queue';
+import {startPopulate} from './populate/api';
 import {
   getPortfolioComputeRuntime,
   getPortfolioPopulateRuntime,
@@ -110,10 +116,12 @@ import {
   isPortfolioReduxAccessInitialized,
   resetPortfolioReduxAccessForTesting,
 } from './reduxAccess';
+import {normalizeExchangeRateRouteParams} from './routes/exchangeRateRoute';
 
 beforeEach(() => {
   mockMmkv.data.clear();
-  mockInitializeLegacyRuntimeGlobals.mockClear();
+  mockInitializePopulateRuntimeGlobals.mockClear();
+  mockInitializeRateFetchRuntimeGlobals.mockClear();
   (createWorkletRuntime as jest.Mock).mockClear();
   resetPortfolioKvStoreForTesting();
   resetPortfolioV2RuntimesForTesting();
@@ -145,6 +153,13 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
     });
     expect(sharedPortfolioState.value.revision).toBe(0);
     expect(getRecordedPortfolioV2MetricsForTesting()).toHaveLength(0);
+    expect(getPortfolioRuntimeLogPayloadsForTesting()).toEqual([
+      expect.objectContaining({
+        tag: 'staleWorkEpoch',
+        startEpoch: 2,
+        currentEpoch: 3,
+      }),
+    ]);
 
     publishPortfolioState({
       canonical: {...state, revision: 5},
@@ -159,6 +174,52 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
         revision: 5,
       }),
     ]);
+  });
+
+  it('notifies portfolio state subscribers after successful publishes only', () => {
+    mockMmkv.set(PORTFOLIO_WORK_EPOCH_KEY, '4');
+    const listener = jest.fn();
+    const unsubscribe = subscribeToPortfolioPublishedState(listener);
+
+    publishPortfolioState({
+      canonical: emptyPortfolioStateForEpoch({
+        workEpoch: 4,
+        quoteCurrency: 'USD',
+        computedAtMs: 1,
+      }),
+      reason: 'warmPublish',
+      startEpoch: 3,
+    });
+    expect(listener).not.toHaveBeenCalled();
+
+    publishPortfolioState({
+      canonical: {
+        ...emptyPortfolioStateForEpoch({
+          workEpoch: 4,
+          quoteCurrency: 'USD',
+          computedAtMs: 2,
+        }),
+        revision: 1,
+      },
+      reason: 'warmPublish',
+      startEpoch: 4,
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    publishPortfolioState({
+      canonical: {
+        ...emptyPortfolioStateForEpoch({
+          workEpoch: 4,
+          quoteCurrency: 'USD',
+          computedAtMs: 3,
+        }),
+        revision: 2,
+      },
+      reason: 'warmPublish',
+      startEpoch: 4,
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it('bumps and persists the work epoch through the MMKV mutation helper', () => {
@@ -211,12 +272,36 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
 
     mockMmkv.set(POPULATE_QUEUE_KEY, '{');
     expect(loadQueue()).toBeNull();
+    mockMmkv.set(
+      POPULATE_QUEUE_KEY,
+      JSON.stringify({
+        schemaVersion: 1,
+        pending: [],
+        completedInRunItemIds: {},
+        startedAt: 1,
+        updatedAt: 1,
+        pageSize: 1000,
+      }),
+    );
+    expect(loadQueue()).toBeNull();
     expect(getPortfolioRuntimeLogPayloadsForTesting()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({tag: 'loadManifest'}),
         expect.objectContaining({tag: 'loadQueue'}),
       ]),
     );
+  });
+
+  it('keeps populate pending items sorted by priority lanes', () => {
+    startPopulate({walletIds: ['background-wallet'], reason: 'initial'});
+    startPopulate({walletIds: ['normal-wallet'], reason: 'manual'});
+    startPopulate({walletIds: ['urgent-wallet'], reason: 'send'});
+
+    expect(loadQueue()?.pending.map(item => item.walletId)).toEqual([
+      'urgent-wallet',
+      'normal-wallet',
+      'background-wallet',
+    ]);
   });
 
   it('routes all MMKV mutations through helpers with redacted metrics and reset exclusions', async () => {
@@ -322,6 +407,22 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
     });
   });
 
+  it('normalizes legacy exchange-rate params to marketAsset route shape', () => {
+    expect(
+      normalizeExchangeRateRouteParams({
+        currencyAbbreviation: 'BTC',
+        chain: 'btc',
+      }),
+    ).toEqual({
+      kind: 'marketAsset',
+      fiatRateAssetRef: {
+        coin: 'btc',
+        chain: 'btc',
+        tokenAddress: undefined,
+      },
+    });
+  });
+
   it('uses react-native-worklets runtimes and scoped initializers', () => {
     expect(getPortfolioComputeRuntime()).toEqual({name: 'portfolio-compute'});
     expect(getPortfolioPopulateRuntime()).toEqual({name: 'portfolio-populate'});
@@ -349,9 +450,13 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
     );
 
     initializePortfolioRuntimeGlobals('compute');
-    expect(mockInitializeLegacyRuntimeGlobals).not.toHaveBeenCalled();
+    expect(mockInitializePopulateRuntimeGlobals).not.toHaveBeenCalled();
+    expect(mockInitializeRateFetchRuntimeGlobals).not.toHaveBeenCalled();
     initializePortfolioRuntimeGlobals('populate');
+    expect(mockInitializePopulateRuntimeGlobals).toHaveBeenCalledTimes(1);
+    expect(mockInitializeRateFetchRuntimeGlobals).not.toHaveBeenCalled();
     initializePortfolioRuntimeGlobals('rateFetch');
-    expect(mockInitializeLegacyRuntimeGlobals).toHaveBeenCalledTimes(2);
+    expect(mockInitializePopulateRuntimeGlobals).toHaveBeenCalledTimes(1);
+    expect(mockInitializeRateFetchRuntimeGlobals).toHaveBeenCalledTimes(1);
   });
 });

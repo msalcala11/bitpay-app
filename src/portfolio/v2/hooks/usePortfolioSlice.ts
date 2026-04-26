@@ -1,15 +1,16 @@
 import {useSyncExternalStore} from 'react';
 
-import {sharedPortfolioState} from '../sharedState';
+import {
+  sharedPortfolioState,
+  subscribeToPortfolioPublishedState,
+} from '../sharedState';
 import type {PortfolioPublishedState} from '../model';
-
-const subscribe = () => () => undefined;
 
 export function usePortfolioSlice<T>(
   selector: (state: PortfolioPublishedState) => T,
 ): T {
   return useSyncExternalStore(
-    subscribe,
+    subscribeToPortfolioPublishedState,
     () => selector(sharedPortfolioState.value),
     () => selector(sharedPortfolioState.value),
   );

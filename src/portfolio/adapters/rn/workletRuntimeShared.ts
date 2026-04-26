@@ -1,4 +1,7 @@
-import {ensurePortfolioRuntimeSigningGlobals} from './txHistorySigning';
+import {
+  clearPortfolioTxHistorySigningDispatchContextOnRuntime,
+  ensurePortfolioRuntimeSigningGlobals,
+} from './txHistorySigning';
 
 export type RuntimeErrorDetails = {
   message: string;
@@ -57,8 +60,27 @@ export function buildRuntimeErrorFromDetails(
  * Phase 2 intentionally keeps this light. Phase 3 can extend it with any
  * extra globals needed by the tx-history or fiat-rate adapters.
  */
-export function initializePortfolioRuntimeGlobals(): void {
+export function initializePortfolioRuntimeBaseGlobals(): void {
   'worklet';
 
   ensurePortfolioRuntimeSigningGlobals();
+}
+
+export function initializePortfolioPopulateRuntimeGlobals(): void {
+  'worklet';
+
+  initializePortfolioRuntimeBaseGlobals();
+}
+
+export function initializePortfolioRateFetchRuntimeGlobals(): void {
+  'worklet';
+
+  initializePortfolioRuntimeBaseGlobals();
+  clearPortfolioTxHistorySigningDispatchContextOnRuntime();
+}
+
+export function initializePortfolioRuntimeGlobals(): void {
+  'worklet';
+
+  initializePortfolioPopulateRuntimeGlobals();
 }

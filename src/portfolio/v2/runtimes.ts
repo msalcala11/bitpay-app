@@ -4,7 +4,10 @@ import {
   type WorkletRuntime,
 } from 'react-native-worklets';
 
-import {initializePortfolioRuntimeGlobals as initializeLegacyPortfolioRuntimeGlobals} from '../adapters/rn/workletRuntimeShared';
+import {
+  initializePortfolioPopulateRuntimeGlobals,
+  initializePortfolioRateFetchRuntimeGlobals,
+} from '../adapters/rn/workletRuntimeShared';
 import {logPortfolioRuntimeError} from './logPortfolioRuntimeError';
 import type {PortfolioRuntimeKind} from './model';
 
@@ -30,8 +33,10 @@ export function initializePortfolioRuntimeGlobals(
     case 'compute':
       return;
     case 'populate':
+      initializePortfolioPopulateRuntimeGlobals();
+      return;
     case 'rateFetch':
-      initializeLegacyPortfolioRuntimeGlobals();
+      initializePortfolioRateFetchRuntimeGlobals();
       return;
     default:
       return;

@@ -45,7 +45,10 @@ function encodeRegistry(keys: string[], registryKey: string): string {
   return JSON.stringify(payload);
 }
 
-function decodeRegistry(raw: string | undefined | null, registryKey: string): string[] {
+function decodeRegistry(
+  raw: string | undefined | null,
+  registryKey: string,
+): string[] {
   if (!raw) {
     return [];
   }
@@ -179,7 +182,7 @@ export class MmkvKvStore implements KvStore {
     return value == null ? null : value;
   }
 
-  async setString(key: string, value: string): Promise<void> {
+  setString(key: string, value: string): Promise<void> {
     if (key === this.registry.getKey()) {
       throw new Error(
         `${this.registry.getKey()} is reserved for the portfolio MMKV key registry.`,
@@ -188,11 +191,13 @@ export class MmkvKvStore implements KvStore {
 
     this.storage.set(key, value);
     this.registry.trackKey(key);
+    return Promise.resolve();
   }
 
-  async delete(key: string): Promise<void> {
+  delete(key: string): Promise<void> {
     this.storage.delete(key);
     this.registry.untrackKey(key);
+    return Promise.resolve();
   }
 
   async listKeys(prefix?: string): Promise<string[]> {

@@ -7,11 +7,66 @@ import {
 import {writePortfolioMmkvString} from '../kvStore';
 import {logPortfolioRuntimeError} from '../logPortfolioRuntimeError';
 import type {
+  BwsConfig,
   PopulateQueueItem,
   PopulateQueuePriority,
   PopulateQueueReason,
   PopulateQueueV1,
+  SnapshotIngestConfig,
 } from '../model';
+
+const POPULATE_REASONS: ReadonlySet<string> = new Set([
+  'initial',
+  'appLaunchIncremental',
+  'send',
+  'pullToRefresh',
+  'keyImport',
+  'showPortfolioToggleOn',
+  'manual',
+]);
+
+const POPULATE_PRIORITIES: ReadonlySet<string> = new Set([
+  'urgentUserVisible',
+  'normalUserVisible',
+  'background',
+]);
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isBwsConfig(value: unknown): value is BwsConfig {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+  return value.baseUrl === undefined || typeof value.baseUrl === 'string';
+}
+
+function isSnapshotIngestConfig(value: unknown): value is SnapshotIngestConfig {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+  return (
+    typeof value.compressionEnabled === 'boolean' &&
+    isFiniteNumber(value.compressionAgeDays) &&
+    value.compressionAgeDays >= 0 &&
+    isFiniteNumber(value.pageSize) &&
+    value.pageSize > 0
+  );
+}
+
+function isCompletedRecord(
+  value: unknown,
+): value is Readonly<Record<string, true>> {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+  return Object.values(value).every(entry => entry === true);
+}
 
 export function priorityForPopulateReason(
   reason: PopulateQueueReason,
@@ -60,8 +115,10 @@ function isQueueItem(value: unknown): value is PopulateQueueItem {
     typeof item.runId === 'string' &&
     typeof item.walletId === 'string' &&
     typeof item.reason === 'string' &&
+    POPULATE_REASONS.has(item.reason) &&
     typeof item.priority === 'string' &&
-    typeof item.requestedAtMs === 'number'
+    POPULATE_PRIORITIES.has(item.priority) &&
+    isFiniteNumber(item.requestedAtMs)
   );
 }
 
@@ -73,11 +130,13 @@ export function validateQueue(value: unknown): PopulateQueueV1 | null {
     !Array.isArray(candidate.pending) ||
     !candidate.pending.every(isQueueItem) ||
     (candidate.active !== undefined && !isQueueItem(candidate.active)) ||
-    !candidate.completedInRunItemIds ||
-    typeof candidate.completedInRunItemIds !== 'object' ||
-    typeof candidate.startedAt !== 'number' ||
-    typeof candidate.updatedAt !== 'number' ||
-    typeof candidate.pageSize !== 'number'
+    !isCompletedRecord(candidate.completedInRunItemIds) ||
+    !isFiniteNumber(candidate.startedAt) ||
+    !isFiniteNumber(candidate.updatedAt) ||
+    !isBwsConfig(candidate.cfg) ||
+    !isSnapshotIngestConfig(candidate.ingest) ||
+    !isFiniteNumber(candidate.pageSize) ||
+    candidate.pageSize <= 0
   ) {
     return null;
   }
@@ -89,8 +148,8 @@ export function validateQueue(value: unknown): PopulateQueueV1 | null {
     completedInRunItemIds: {...candidate.completedInRunItemIds},
     startedAt: candidate.startedAt,
     updatedAt: candidate.updatedAt,
-    cfg: candidate.cfg || {},
-    ingest: candidate.ingest || emptyQueue().ingest,
+    cfg: candidate.cfg,
+    ingest: candidate.ingest,
     pageSize: candidate.pageSize,
   };
 }

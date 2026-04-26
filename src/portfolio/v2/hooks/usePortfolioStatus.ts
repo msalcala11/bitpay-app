@@ -1,8 +1,14 @@
-import type {ScopeReadiness} from '../model';
+import type {PortfolioStatus, ScopeReadiness} from '../model';
 import {usePortfolioSlice} from './usePortfolioSlice';
 
-export function usePortfolioStatus(
-  scopeKey = 'home',
-): ScopeReadiness | undefined {
-  return usePortfolioSlice(state => state.readinessByScopeKey[scopeKey]);
+export type PortfolioStatusSnapshot = Readonly<{
+  status: PortfolioStatus;
+  readiness?: ScopeReadiness;
+}>;
+
+export function usePortfolioStatus(scopeKey = 'home'): PortfolioStatusSnapshot {
+  return usePortfolioSlice(state => ({
+    status: state.status,
+    readiness: state.readinessByScopeKey[scopeKey],
+  }));
 }

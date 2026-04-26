@@ -29,7 +29,11 @@ type PortfolioRuntimeLogSink = (payload: PortfolioRuntimeLogPayload) => void;
 
 let runtimeLogSink: PortfolioRuntimeLogSink | undefined;
 const runtimeLogPayloads: PortfolioRuntimeLogPayload[] = [];
+const MAX_RECORDED_PORTFOLIO_RUNTIME_LOGS_FOR_DEBUG = 100;
 
+// Local debug/test ring buffer only. Worklet runtimes have separate module
+// heaps, so this is not an off-device telemetry sink and not a cross-runtime
+// log transport.
 const ALLOWED_EXTRA_KEYS: ReadonlyArray<keyof PortfolioRuntimeLogExtra> = [
   'tag',
   'reason',
@@ -94,6 +98,15 @@ export function logPortfolioRuntimeError(
       errorName: sanitizedExtra.errorName || getErrorName(err),
     };
     runtimeLogPayloads.push(payload);
+    if (
+      runtimeLogPayloads.length > MAX_RECORDED_PORTFOLIO_RUNTIME_LOGS_FOR_DEBUG
+    ) {
+      runtimeLogPayloads.splice(
+        0,
+        runtimeLogPayloads.length -
+          MAX_RECORDED_PORTFOLIO_RUNTIME_LOGS_FOR_DEBUG,
+      );
+    }
     runtimeLogSink?.(payload);
   } catch {
     // Logging must never become a runtime failure source.

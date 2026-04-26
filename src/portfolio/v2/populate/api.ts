@@ -6,7 +6,29 @@ import {
   priorityForPopulateReason,
   saveQueue,
 } from './queue';
-import type {PopulateQueueReason} from '../model';
+import type {
+  PopulateQueueItem,
+  PopulateQueuePriority,
+  PopulateQueueReason,
+} from '../model';
+
+const PRIORITY_RANK: Record<PopulateQueuePriority, number> = {
+  urgentUserVisible: 0,
+  normalUserVisible: 1,
+  background: 2,
+};
+
+function sortPendingByPriority(
+  pending: readonly PopulateQueueItem[],
+): PopulateQueueItem[] {
+  return pending.slice().sort((a, b) => {
+    const priorityDelta = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+    return a.requestedAtMs - b.requestedAtMs;
+  });
+}
 
 export function startPopulate(args: {
   walletIds: readonly string[];
@@ -31,7 +53,7 @@ export function startPopulate(args: {
   }
   saveQueue({
     ...queue,
-    pending: [...queue.pending, ...toInsert],
+    pending: sortPendingByPriority([...queue.pending, ...toInsert]),
     updatedAt: requestedAtMs,
   });
 }

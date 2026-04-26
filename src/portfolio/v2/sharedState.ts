@@ -6,6 +6,7 @@ import {
   PORTFOLIO_WORK_EPOCH_KEY,
 } from './constants';
 import {writePortfolioMmkvString} from './kvStore';
+import {logPortfolioRuntimeError} from './logPortfolioRuntimeError';
 import {approximateJsonBytes, nowMs, recordPortfolioV2Metric} from './metrics';
 import {
   EMPTY_PORTFOLIO_STATE,
@@ -57,6 +58,27 @@ export const populateLoopRunning = createSharedValue(false);
 export const populateProgressTick = createSharedValue(0);
 export const populateRetryTick = createSharedValue(0);
 
+const portfolioPublishedStateListeners = new Set<() => void>();
+
+export function subscribeToPortfolioPublishedState(
+  listener: () => void,
+): () => void {
+  portfolioPublishedStateListeners.add(listener);
+  return () => {
+    portfolioPublishedStateListeners.delete(listener);
+  };
+}
+
+function notifyPortfolioPublishedStateListeners(): void {
+  for (const listener of portfolioPublishedStateListeners) {
+    try {
+      listener();
+    } catch (err) {
+      logPortfolioRuntimeError(err, {tag: 'portfolioStateListener'});
+    }
+  }
+}
+
 export function projectPortfolioStateForUi(
   canonical: PortfolioState,
 ): PortfolioPublishedState {
@@ -102,12 +124,18 @@ export function publishPortfolioState(args: {
   const startedAt = nowMs();
   const currentEpoch = getCurrentPortfolioWorkEpoch();
   if (args.startEpoch !== currentEpoch) {
+    logPortfolioRuntimeError(new Error('stale portfolio publish discarded'), {
+      tag: 'staleWorkEpoch',
+      startEpoch: args.startEpoch,
+      currentEpoch,
+    });
     return;
   }
 
   const published = projectPortfolioStateForUi(args.canonical);
   const approximateBytes = approximateJsonBytes(published);
   sharedPortfolioState.value = published;
+  notifyPortfolioPublishedStateListeners();
   recordPortfolioV2Metric({
     kind: 'publish',
     reason: args.reason,

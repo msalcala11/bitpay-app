@@ -4,15 +4,19 @@ import type {PortfolioRouteScope} from './routeScope';
 export type ExchangeRateRoute =
   | Readonly<{
       kind: 'marketAsset';
-      asset: FiatRateAssetRef;
-      initialInterval?: Interval;
+      fiatRateAssetRef: FiatRateAssetRef;
     }>
   | Readonly<{
       kind: 'portfolioWeightedAssetGroup';
       assetGroupId: string;
+      walletIdsKey: string;
       scope: PortfolioRouteScope;
-      initialInterval?: Interval;
     }>;
+
+export type SerializedExchangeRateRoute = Readonly<{
+  route: ExchangeRateRoute;
+  initialInterval?: Interval;
+}>;
 
 export type LegacyExchangeRateParams = Readonly<{
   currencyName?: string;
@@ -33,7 +37,7 @@ export function normalizeExchangeRateRouteParams(
 
   return {
     kind: 'marketAsset',
-    asset: {
+    fiatRateAssetRef: {
       coin: String(params.currencyAbbreviation || '').toLowerCase(),
       chain: params.chain || params.network,
       tokenAddress: params.tokenAddress,
