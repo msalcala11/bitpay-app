@@ -209,6 +209,38 @@ describe('portfolio v2 weighted group rate series compute adapter', () => {
     expect(weightsChangedSamePoints.fingerprint).not.toBe(base.fingerprint);
   });
 
+  it('fingerprints the sampled stored interval', () => {
+    const oneDay = buildWeightedGroupRateSeries({
+      quoteCurrency: 'USD',
+      assetGroupId: 'usdc',
+      walletIdsKey: 'wallet-a|wallet-b',
+      interval: '3M',
+      windowStartTs: 1,
+      windowEndTs: 2,
+      sampledFromStoredInterval: '1D',
+      constituents: [
+        constituent('eth-usdc', 100, [1, 1.2]),
+        constituent('pol-usdc', 40, [1, 1.2]),
+      ],
+    });
+    const all = buildWeightedGroupRateSeries({
+      quoteCurrency: 'USD',
+      assetGroupId: 'usdc',
+      walletIdsKey: 'wallet-a|wallet-b',
+      interval: '3M',
+      windowStartTs: 1,
+      windowEndTs: 2,
+      sampledFromStoredInterval: 'ALL',
+      constituents: [
+        constituent('eth-usdc', 100, [1, 1.2]),
+        constituent('pol-usdc', 40, [1, 1.2]),
+      ],
+    });
+
+    expect(oneDay.points).toEqual(all.points);
+    expect(oneDay.fingerprint).not.toBe(all.fingerprint);
+  });
+
   it('treats duplicate or malformed constituent identities as missing rates', () => {
     const duplicate = buildSeries([
       constituent('eth-usdc', 1, [1, 1.1]),
@@ -220,6 +252,41 @@ describe('portfolio v2 weighted group rate series compute adapter', () => {
     ]);
 
     for (const series of [duplicate, blank, negativeUnits]) {
+      expect(series).toMatchObject({
+        availability: 'unavailable',
+        unavailableReason: 'missingConstituentRate',
+        points: [],
+      });
+    }
+  });
+
+  it('treats malformed top-level identity or window inputs as missing rates', () => {
+    const validConstituents = [
+      constituent('eth-usdc', 1, [1, 1.1]),
+      constituent('pol-usdc', 1, [1, 1.1]),
+    ];
+    const blankAssetGroup = buildWeightedGroupRateSeries({
+      quoteCurrency: 'USD',
+      assetGroupId: ' usdc',
+      walletIdsKey: 'wallet-a|wallet-b',
+      interval: '1D',
+      windowStartTs: 1,
+      windowEndTs: 2,
+      sampledFromStoredInterval: '1D',
+      constituents: validConstituents,
+    });
+    const malformedWindow = buildWeightedGroupRateSeries({
+      quoteCurrency: 'USD',
+      assetGroupId: 'usdc',
+      walletIdsKey: 'wallet-a|wallet-b',
+      interval: '1D',
+      windowStartTs: 2,
+      windowEndTs: 1,
+      sampledFromStoredInterval: '1D',
+      constituents: validConstituents,
+    });
+
+    for (const series of [blankAssetGroup, malformedWindow]) {
       expect(series).toMatchObject({
         availability: 'unavailable',
         unavailableReason: 'missingConstituentRate',

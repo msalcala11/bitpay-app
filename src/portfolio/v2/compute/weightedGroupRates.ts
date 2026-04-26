@@ -70,6 +70,21 @@ function isStrictIdentity(value: string): boolean {
   return !!value.trim() && value === value.trim();
 }
 
+function hasValidTopLevelInputs(args: BuildWeightedGroupRateSeriesArgs): boolean {
+  'worklet';
+
+  return (
+    isStrictIdentity(args.quoteCurrency) &&
+    isStrictIdentity(args.assetGroupId) &&
+    isStrictIdentity(args.walletIdsKey) &&
+    typeof args.windowStartTs === 'number' &&
+    Number.isFinite(args.windowStartTs) &&
+    typeof args.windowEndTs === 'number' &&
+    Number.isFinite(args.windowEndTs) &&
+    args.windowEndTs > args.windowStartTs
+  );
+}
+
 function isFinitePositive(value: number): boolean {
   'worklet';
 
@@ -132,6 +147,7 @@ function buildWeightedGroupRateFingerprint(args: {
   interval: Interval;
   windowStartTs: number;
   windowEndTs: number;
+  sampledFromStoredInterval: StoredRateInterval;
   baselineUnitsByRateSourceKey: Readonly<Record<string, number>>;
   availability: WeightedGroupRateSeries['availability'];
   unavailableReason?: 'zeroBaseline' | 'missingConstituentRate';
@@ -150,6 +166,7 @@ function buildWeightedGroupRateFingerprint(args: {
     args.interval,
     args.windowStartTs,
     args.windowEndTs,
+    args.sampledFromStoredInterval,
     args.availability,
     args.unavailableReason ?? '',
     ...sortedRateSourceKeys.flatMap(key => [
@@ -229,7 +246,14 @@ function buildWeightedAvailability(args: {
       sum + constituent.baselineUnits * constituent.points[0].rate,
     0,
   );
-  if (!isFinitePositive(groupIndex0)) {
+  if (!Number.isFinite(groupIndex0)) {
+    return {
+      availability: 'unavailable',
+      unavailableReason: 'missingConstituentRate',
+      points: [],
+    };
+  }
+  if (groupIndex0 <= 0) {
     return {
       availability: 'unavailable',
       unavailableReason: 'zeroBaseline',
@@ -270,8 +294,11 @@ export function buildWeightedGroupRateSeries(
 ): WeightedGroupRateSeries {
   'worklet';
 
+  const topLevelInputsAreValid = hasValidTopLevelInputs(args);
   const validatedBaselineUnitsByRateSourceKey =
-    buildBaselineUnitsByRateSourceKey(args.constituents);
+    topLevelInputsAreValid
+      ? buildBaselineUnitsByRateSourceKey(args.constituents)
+      : null;
   const baselineUnitsByRateSourceKey =
     validatedBaselineUnitsByRateSourceKey ?? {};
   const memberRateSourceKeys = Object.keys(baselineUnitsByRateSourceKey).sort(
@@ -296,6 +323,7 @@ export function buildWeightedGroupRateSeries(
     interval: args.interval,
     windowStartTs: args.windowStartTs,
     windowEndTs: args.windowEndTs,
+    sampledFromStoredInterval: args.sampledFromStoredInterval,
     baselineUnitsByRateSourceKey,
     availability: availability.availability,
     unavailableReason:
