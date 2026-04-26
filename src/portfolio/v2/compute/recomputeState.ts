@@ -103,10 +103,12 @@ function uniqueSorted(values: readonly string[]): readonly string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
 }
 
-function isStrictIdentity(value: string): boolean {
+function isStrictIdentity(value: unknown): value is string {
   'worklet';
 
-  return !!value.trim() && value === value.trim();
+  return (
+    typeof value === 'string' && !!value.trim() && value === value.trim()
+  );
 }
 
 function getSeriesIntervals(series: PerIntervalSeries): readonly Interval[] {
