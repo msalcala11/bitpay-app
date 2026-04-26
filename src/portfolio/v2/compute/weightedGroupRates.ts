@@ -5,8 +5,7 @@ import type {
   WeightedGroupRatePoint,
   WeightedGroupRateSeries,
 } from '../model';
-
-const STORED_RATE_INTERVALS: readonly string[] = ['1D', '1W', '1M', 'ALL'];
+import {isStoredFiatRateInterval} from '../../core/fiatRatesShared';
 
 export type WeightedGroupRateConstituentInput = Readonly<{
   rateSourceKey: string;
@@ -66,10 +65,12 @@ function stableHash(values: readonly (number | string)[]): string {
   return `fnv1a:${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
-function isStrictIdentity(value: string): boolean {
+function isStrictIdentity(value: unknown): value is string {
   'worklet';
 
-  return !!value.trim() && value === value.trim();
+  return (
+    typeof value === 'string' && !!value.trim() && value === value.trim()
+  );
 }
 
 function hasValidTopLevelInputs(args: BuildWeightedGroupRateSeriesArgs): boolean {
@@ -84,7 +85,7 @@ function hasValidTopLevelInputs(args: BuildWeightedGroupRateSeriesArgs): boolean
     typeof args.windowEndTs === 'number' &&
     Number.isFinite(args.windowEndTs) &&
     args.windowEndTs > args.windowStartTs &&
-    STORED_RATE_INTERVALS.includes(args.sampledFromStoredInterval)
+    isStoredFiatRateInterval(args.sampledFromStoredInterval)
   );
 }
 
@@ -298,6 +299,11 @@ export function buildWeightedGroupRateSeries(
   'worklet';
 
   const topLevelInputsAreValid = hasValidTopLevelInputs(args);
+  const sampledFromStoredInterval = isStoredFiatRateInterval(
+    args.sampledFromStoredInterval,
+  )
+    ? args.sampledFromStoredInterval
+    : 'ALL';
   const validatedBaselineUnitsByRateSourceKey =
     topLevelInputsAreValid
       ? buildBaselineUnitsByRateSourceKey(args.constituents)
@@ -326,7 +332,7 @@ export function buildWeightedGroupRateSeries(
     interval: args.interval,
     windowStartTs: args.windowStartTs,
     windowEndTs: args.windowEndTs,
-    sampledFromStoredInterval: args.sampledFromStoredInterval,
+    sampledFromStoredInterval,
     baselineUnitsByRateSourceKey,
     availability: availability.availability,
     unavailableReason:
@@ -340,7 +346,7 @@ export function buildWeightedGroupRateSeries(
     interval: args.interval,
     windowStartTs: args.windowStartTs,
     windowEndTs: args.windowEndTs,
-    sampledFromStoredInterval: args.sampledFromStoredInterval,
+    sampledFromStoredInterval,
     memberRateSourceKeys,
     baselineUnitsByRateSourceKey,
     weighting: 'baselineUnitWeightedCollapsedGroup' as const,

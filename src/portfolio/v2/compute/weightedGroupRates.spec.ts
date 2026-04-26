@@ -265,6 +265,16 @@ describe('portfolio v2 weighted group rate series compute adapter', () => {
       constituent('eth-usdc', 1, [1, 1.1]),
       constituent('pol-usdc', 1, [1, 1.1]),
     ];
+    const invalidStoredInterval = buildWeightedGroupRateSeries({
+      quoteCurrency: 'USD',
+      assetGroupId: 'usdc',
+      walletIdsKey: 'wallet-a|wallet-b',
+      interval: '1D',
+      windowStartTs: 1,
+      windowEndTs: 2,
+      sampledFromStoredInterval: '3M' as any,
+      constituents: validConstituents,
+    });
     const malformedSeries = [
       buildWeightedGroupRateSeries({
         quoteCurrency: '',
@@ -326,16 +336,7 @@ describe('portfolio v2 weighted group rate series compute adapter', () => {
         sampledFromStoredInterval: '1D',
         constituents: validConstituents,
       }),
-      buildWeightedGroupRateSeries({
-        quoteCurrency: 'USD',
-        assetGroupId: 'usdc',
-        walletIdsKey: 'wallet-a|wallet-b',
-        interval: '1D',
-        windowStartTs: 1,
-        windowEndTs: 2,
-        sampledFromStoredInterval: '3M' as any,
-        constituents: validConstituents,
-      }),
+      invalidStoredInterval,
     ];
 
     for (const series of malformedSeries) {
@@ -345,5 +346,6 @@ describe('portfolio v2 weighted group rate series compute adapter', () => {
         points: [],
       });
     }
+    expect(invalidStoredInterval.sampledFromStoredInterval).toBe('ALL');
   });
 });
