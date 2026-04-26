@@ -21,11 +21,18 @@ import {
   setPortfolioTxHistorySigningDispatchContextOnRuntime,
   type PortfolioTxHistorySigningDispatchContext,
 } from '../../adapters/rn/txHistorySigning';
+import {getPortfolioMmkvNativeStorageOnRN} from '../../adapters/rn/workletMmkvBridge';
+import type {PortfolioWorkletKvConfig} from '../../runtime/worklet/portfolioWorkletKv';
 import {
+  PORTFOLIO_WORK_EPOCH_KEY,
   RATE_FETCH_RETRY_BASE_MS,
   RATE_FETCH_RETRY_MAX_MS,
 } from '../constants';
-import {getPortfolioKvStore, writePortfolioMmkvString} from '../kvStore';
+import {
+  createWorkletPortfolioKvConfig,
+  getPortfolioKvStore,
+  writePortfolioMmkvStringOnWorklet,
+} from '../kvStore';
 import {logPortfolioRuntimeError} from '../logPortfolioRuntimeError';
 import type {
   BwsConfig,
@@ -69,6 +76,8 @@ export type EnsureFreshArgs = Readonly<{
 
 export type RateFetchRuntimeResult = Readonly<{
   dependency: RateFetchDependency;
+  fetched?: boolean;
+  persisted?: boolean;
   series?: FiatRateSeries;
   errorKind?: RateFetchErrorKind;
 }>;
@@ -76,6 +85,7 @@ export type RateFetchRuntimeResult = Readonly<{
 type RateFetchExecutor = (
   dependencies: readonly RateFetchDependency[],
   cfg: BwsConfig,
+  startEpoch: number,
 ) => Promise<readonly RateFetchRuntimeResult[]>;
 
 // Phase 2 keeps rate-fetch retry backoff in memory. App restart intentionally
@@ -235,6 +245,16 @@ function computeRetryState(args: {
   };
 }
 
+function getCurrentPortfolioWorkEpochOnWorklet(
+  config: PortfolioWorkletKvConfig,
+): number {
+  'worklet';
+
+  const raw = config.storage.getString(PORTFOLIO_WORK_EPOCH_KEY);
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : 0;
+}
+
 function shouldSkipForRetry(dependency: RateFetchDependency, force?: boolean): boolean {
   if (force) return false;
   const retry = retryByDependencyKey.get(dependencyKey(dependency));
@@ -296,7 +316,11 @@ function classifyFetchError(error: unknown): RateFetchErrorKind {
 function isFailedRuntimeResult(result: RateFetchRuntimeResult): boolean {
   'worklet';
 
-  return !!result.errorKind || !hasUsableFetchedRateSeries(result.series);
+  return (
+    result.fetched !== true &&
+    result.persisted !== true &&
+    (!!result.errorKind || !hasUsableFetchedRateSeries(result.series))
+  );
 }
 
 function partitionRuntimeResults(args: {
@@ -391,6 +415,8 @@ async function fetchRateSeriesOnRuntime(
   dependencies: readonly RateFetchDependency[],
   cfg: BwsConfig,
   dispatchContext?: PortfolioTxHistorySigningDispatchContext,
+  kvConfig?: PortfolioWorkletKvConfig,
+  startEpoch?: number,
 ): Promise<readonly RateFetchRuntimeResult[]> {
   'worklet';
 
@@ -401,7 +427,31 @@ async function fetchRateSeriesOnRuntime(
   try {
     const out: RateFetchRuntimeResult[] = [];
     for (const dependency of dependencies) {
-      out.push(await fetchSingleRateOnRuntime(dependency, cfg));
+      const result = await fetchSingleRateOnRuntime(dependency, cfg);
+      if (!hasUsableFetchedRateSeries(result.series)) {
+        out.push(result);
+        continue;
+      }
+
+      if (
+        kvConfig &&
+        typeof startEpoch === 'number' &&
+        getCurrentPortfolioWorkEpochOnWorklet(kvConfig) === startEpoch
+      ) {
+        writePortfolioMmkvStringOnWorklet(kvConfig, {
+          key: dependencyKey(result.dependency),
+          value: stringifyStoredFiatRateSeries(result.series),
+          reason: 'rate',
+        });
+        out.push({
+          dependency: result.dependency,
+          fetched: true,
+          persisted: true,
+        });
+        continue;
+      }
+
+      out.push({dependency: result.dependency, fetched: true});
     }
     return out;
   } finally {
@@ -414,16 +464,22 @@ async function fetchRateSeriesOnRuntime(
 async function defaultRateFetchExecutor(
   dependencies: readonly RateFetchDependency[],
   cfg: BwsConfig,
+  startEpoch: number,
 ): Promise<readonly RateFetchRuntimeResult[]> {
   const dispatchContext = createPortfolioRateFetchDispatchContextOnRN({
     requestCount: dependencies.length,
   });
+  const kvConfig = createWorkletPortfolioKvConfig(
+    getPortfolioMmkvNativeStorageOnRN(),
+  );
   return runOnPortfolioRuntimeAsync(
     getPortfolioRateFetchRuntime(),
     fetchRateSeriesOnRuntime,
     dependencies,
     cfg,
     dispatchContext,
+    kvConfig,
+    startEpoch,
   );
 }
 
@@ -469,7 +525,7 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
   const executor = rateFetchExecutorForTesting ?? defaultRateFetchExecutor;
   let results: readonly RateFetchRuntimeResult[];
   try {
-    results = await executor(toFetch, args.cfg ?? {});
+    results = await executor(toFetch, args.cfg ?? {}, startEpoch);
   } catch (error: unknown) {
     const errorKind = classifyFetchError(error);
     const currentEpoch = getCurrentPortfolioWorkEpoch();
@@ -522,13 +578,24 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
 
   for (const result of partition.acceptedResults) {
     const key = dependencyKey(result.dependency);
+    if (result.fetched === true || result.persisted === true) {
+      retryByDependencyKey.delete(key);
+      continue;
+    }
+
     if (hasUsableFetchedRateSeries(result.series)) {
       retryByDependencyKey.delete(key);
-      writePortfolioMmkvString({
-        key,
-        value: stringifyStoredFiatRateSeries(result.series),
-        reason: 'rate',
-      });
+      // Synthetic unit-test executors can still return series directly. The
+      // default executor persists in the rate-fetch runtime and returns only
+      // status metadata so production response processing stays off JS.
+      writePortfolioMmkvStringOnWorklet(
+        createWorkletPortfolioKvConfig(getPortfolioMmkvNativeStorageOnRN()),
+        {
+          key,
+          value: stringifyStoredFiatRateSeries(result.series),
+          reason: 'rate',
+        },
+      );
       continue;
     }
 

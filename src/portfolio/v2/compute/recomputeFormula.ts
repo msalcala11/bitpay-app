@@ -835,6 +835,9 @@ function buildAssetGroupInput(args: {
       {baselineUnits: number; points: readonly MarketRatePoint[]}
     >();
     for (const wallet of args.wallets) {
+      if (wallet.invalidHistoryBlocked) {
+        continue;
+      }
       const walletInterval = getWalletInterval(wallet.input, interval);
       if (!walletInterval) {
         continue;

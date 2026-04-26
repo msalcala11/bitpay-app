@@ -52,14 +52,28 @@ const ALLOWED_EXTRA_KEYS: ReadonlyArray<keyof PortfolioRuntimeLogExtra> = [
   'warning',
 ];
 
+function sanitizeLogToken(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  if (!/^[A-Za-z][A-Za-z0-9_.]{0,63}$/.test(normalized)) {
+    return undefined;
+  }
+
+  return normalized;
+}
+
 function getErrorName(err: unknown): string {
   if (err instanceof Error && err.name) {
-    return err.name;
+    return sanitizeLogToken(err.name) ?? 'Error';
   }
   if (err && typeof err === 'object') {
     const candidate = (err as {name?: unknown}).name;
-    if (typeof candidate === 'string' && candidate.trim()) {
-      return candidate.trim();
+    const sanitized = sanitizeLogToken(candidate);
+    if (sanitized) {
+      return sanitized;
     }
   }
   return 'Error';
@@ -75,11 +89,12 @@ function sanitizeExtra(
   const out: Record<string, string | number | boolean> = {};
   for (const key of ALLOWED_EXTRA_KEYS) {
     const value = extra[key];
-    if (
-      typeof value === 'string' ||
-      typeof value === 'number' ||
-      typeof value === 'boolean'
-    ) {
+    if (typeof value === 'string') {
+      const sanitized = sanitizeLogToken(value);
+      if (sanitized) {
+        out[key] = sanitized;
+      }
+    } else if (typeof value === 'number' || typeof value === 'boolean') {
       out[key] = value;
     }
   }

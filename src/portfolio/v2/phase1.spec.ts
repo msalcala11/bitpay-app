@@ -493,6 +493,25 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
     expect(JSON.stringify(payload)).not.toContain('wallet-123');
     expect(JSON.stringify(payload)).not.toContain('raw secret');
     expect(JSON.stringify(payload)).not.toContain('rate:v1');
+
+    logPortfolioRuntimeError({name: 'https://bws.example/wallet-123'}, {
+      tag: 'wallet-123',
+      reason: 'rate:v1:USD:wallet-123',
+      errorCode: 'SAFE_CODE',
+    });
+
+    const unsafePayload = getPortfolioRuntimeLogPayloadsForTesting()[1];
+    expect(unsafePayload).toEqual(
+      expect.objectContaining({
+        subsystem: 'portfolio-v2',
+        errorName: 'Error',
+        errorCode: 'SAFE_CODE',
+      }),
+    );
+    expect(unsafePayload).not.toHaveProperty('tag');
+    expect(unsafePayload).not.toHaveProperty('reason');
+    expect(JSON.stringify(unsafePayload)).not.toContain('wallet-123');
+    expect(JSON.stringify(unsafePayload)).not.toContain('rate:v1');
   });
 
   it('initializes redux access only after an explicit store injection', () => {

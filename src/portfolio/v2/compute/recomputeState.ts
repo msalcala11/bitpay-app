@@ -135,7 +135,13 @@ function hasMultipleRateSources(
 ): boolean {
   'worklet';
 
-  return uniqueSorted(members.map(member => member.rateSourceKey)).length > 1;
+  return (
+    uniqueSorted(
+      members
+        .filter(member => !member.invalidHistoryBlocked)
+        .map(member => member.rateSourceKey),
+    ).length > 1
+  );
 }
 
 function assembleWeightedGroupRateSeries(args: {

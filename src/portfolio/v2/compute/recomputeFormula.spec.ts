@@ -414,6 +414,98 @@ describe('portfolio v2 formula recompute input builder', () => {
     expect(state.rowShells[0].groupHealth.symbolCollisionSuspected).toBe(true);
   });
 
+  it('excludes invalid-history wallets from collapsed weighted constituent rows', () => {
+    const formula = expectValidFormula(
+      buildFormulaComputedInputs({
+        quoteCurrency: 'USD',
+        wallets: [
+          {
+            walletId: 'eth-usdc',
+            assetGroupId: 'usdc',
+            assetIdentityKey: 'usdc|eth',
+            rateSourceKey: 'usdc|eth',
+            displayUnitsAtomic: '1000000',
+            displayUnitDecimals: 6,
+            liveRate: 1.2,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [
+              oneDayInterval({
+                seriesIdentityKey: 'wallet:eth-usdc|snap:1|rate:1',
+                baselineUnits: 100,
+                ratePoints: [
+                  {ts: ORACLE_TS.start, rate: 1},
+                  {ts: ORACLE_TS.middle, rate: 1.05},
+                  {ts: ORACLE_TS.end, rate: 1.2},
+                ],
+                maxPoints: 3,
+              }),
+            ],
+          },
+          {
+            walletId: 'pol-usdc',
+            assetGroupId: 'usdc',
+            assetIdentityKey: 'usdc|pol',
+            rateSourceKey: 'usdc|pol',
+            displayUnitsAtomic: '1000000',
+            displayUnitDecimals: 6,
+            liveRate: 1.2,
+            lastWrittenAt: 11,
+            lastAccessedAt: 21,
+            intervals: [
+              oneDayInterval({
+                seriesIdentityKey: 'wallet:pol-usdc|snap:bad|rate:1',
+                baselineUnits: 1,
+                balanceEvents: [
+                  {ts: ORACLE_TS.middle, unitsDelta: -2, order: 1},
+                ],
+                ratePoints: [
+                  {ts: ORACLE_TS.start, rate: 1},
+                  {ts: ORACLE_TS.middle, rate: 1.1},
+                  {ts: ORACLE_TS.end, rate: 1.2},
+                ],
+                maxPoints: 3,
+              }),
+            ],
+          },
+        ],
+        assetGroups: [
+          {
+            assetGroupId: 'usdc',
+            displaySymbol: 'USDC',
+            orderIndex: 1,
+          },
+        ],
+      }),
+    );
+    const state = expectValidState(
+      buildPortfolioComputedState({
+        workEpoch: 1,
+        revision: 1,
+        quoteCurrency: 'USD',
+        computedAtMs: 100,
+        wallets: formula.wallets,
+        assetGroups: formula.assetGroups,
+        invalidHistoryWalletIds: formula.invalidHistoryWalletIds,
+      }),
+    );
+
+    expect(formula.invalidHistoryWalletIds).toEqual(['pol-usdc']);
+    expect(state.byAssetGroup.usdc.weightedGroupRateSeries).toBeUndefined();
+    expect(state.byAssetGroup.usdc.rowToday).toMatchObject({
+      fiatStart: 100,
+      fiatEnd: 120,
+      pnlChange: 20,
+      pnlPercent: 20,
+    });
+    expect(state.byAssetGroup.usdc.rowToday?.ratePercent).toBeCloseTo(20, 10);
+    expect(state.rowShells[0]).toMatchObject({
+      assetGroupId: 'usdc',
+      invalidHistoryBlocked: true,
+      readyToday: true,
+    });
+  });
+
   it('quote-bridges in-window transaction formula output to match from-scratch target recompute', () => {
     const canonicalWallet = {
       walletId: 'eth-wallet',

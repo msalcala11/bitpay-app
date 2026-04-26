@@ -562,12 +562,18 @@ describe('portfolio v2 ensureFresh', () => {
   });
 
   it('executes default rate fetch work with a fetch-only Nitro context', async () => {
+    let runtimeResults: readonly RateFetchRuntimeResult[] | undefined;
     (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
       async (
         _runtime: unknown,
         workletFn: (...args: any[]) => unknown,
         ...args: any[]
-      ) => workletFn(...args),
+      ) => {
+        runtimeResults = (await workletFn(
+          ...args,
+        )) as readonly RateFetchRuntimeResult[];
+        return runtimeResults;
+      },
     );
     mockNitroRequestSync.mockReturnValueOnce({
       ok: true,
@@ -586,6 +592,10 @@ describe('portfolio v2 ensureFresh', () => {
     });
 
     expect(mockNitroRequestSync).toHaveBeenCalledTimes(1);
+    expect(runtimeResults).toEqual([
+      expect.objectContaining({persisted: true}),
+    ]);
+    expect(runtimeResults?.[0]).not.toHaveProperty('series');
     expect(mockMmkv.getString(btcAllKey)).toBe('{"v":3,"f":123,"p":[[1,100]]}');
     expect(
       txHistorySigning.getPortfolioTxHistorySigningDispatchContextOnRuntime(),
@@ -633,6 +643,46 @@ describe('portfolio v2 ensureFresh', () => {
     expect(
       txHistorySigning.getPortfolioTxHistorySigningDispatchContextOnRuntime(),
     ).toBeUndefined();
+  });
+
+  it('drops default runtime-fetched rates when the work epoch changes before runtime persist', async () => {
+    mockMmkv.set(PORTFOLIO_WORK_EPOCH_KEY, '1');
+    (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
+      async (
+        _runtime: unknown,
+        workletFn: (...args: any[]) => unknown,
+        ...args: any[]
+      ) => workletFn(...args),
+    );
+    mockNitroRequestSync.mockImplementationOnce(() => {
+      mockMmkv.set(PORTFOLIO_WORK_EPOCH_KEY, '2');
+      return {
+        ok: true,
+        status: 200,
+        bodyString: JSON.stringify({
+          btc: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
+        }),
+      };
+    });
+
+    await ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'btc'}],
+      intervals: ['ALL'],
+      force: true,
+    });
+
+    expect(mockMmkv.getString(btcAllKey)).toBeUndefined();
+    expect(getRateFetchRetryStatesForTesting()).toEqual([]);
+    expect(getPortfolioRuntimeLogPayloadsForTesting()).toEqual([
+      expect.objectContaining({
+        tag: 'staleWorkEpoch',
+        reason: 'runtimeResultSucceeded',
+        startEpoch: 1,
+        currentEpoch: 2,
+        runtimeKind: 'rateFetch',
+      }),
+    ]);
   });
 
   it('drops fetched results when the work epoch changes before persist', async () => {
