@@ -301,6 +301,9 @@ describe('portfolio v2 recompute entrypoint', () => {
       'eth-wallet',
       'explicit-invalid-wallet',
     ]);
+    expect(next.invalidHistoryWalletIdsKey).toBe(
+      'eth-wallet|explicit-invalid-wallet',
+    );
     expect(next.invalidHistoryWalletIdsById).toEqual({
       'eth-wallet': true,
       'explicit-invalid-wallet': true,
