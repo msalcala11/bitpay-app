@@ -60,8 +60,15 @@ export type BuildFormulaComputedInputsArgs = Readonly<{
 }>;
 
 export type FormulaComputedInputsInvalidReason =
+  | 'invalidQuoteCurrency'
+  | 'invalidWalletIdentity'
+  | 'invalidAssetGroupIdentity'
+  | 'invalidDisplayUnitsAtomic'
+  | 'invalidDisplayUnitDecimals'
+  | 'invalidWalletTimestamp'
   | 'duplicateWalletId'
   | 'duplicateAssetGroupId'
+  | 'duplicateWalletInterval'
   | 'unknownAssetGroup'
   | 'seriesTimelineMismatch';
 
@@ -125,8 +132,104 @@ function uniqueSorted(values: readonly string[]): readonly string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
 }
 
-function buildMarketRatePoints(
+function isStrictIdentity(value: unknown): value is string {
+  'worklet';
+
+  return (
+    typeof value === 'string' && !!value.trim() && value === value.trim()
+  );
+}
+
+function normalizeDisplaySymbol(value: unknown): string | null {
+  'worklet';
+
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  'worklet';
+
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isValidAtomicString(value: unknown): value is string {
+  'worklet';
+
+  return typeof value === 'string' && /^\d+$/.test(value);
+}
+
+function isValidDisplayUnitDecimals(value: unknown): value is number {
+  'worklet';
+
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= 30
+  );
+}
+
+function validateFormulaAssetGroup(
+  group: FormulaAssetGroupInput,
+): FormulaComputedInputsInvalidReason | undefined {
+  'worklet';
+
+  if (
+    !isStrictIdentity(group.assetGroupId) ||
+    !normalizeDisplaySymbol(group.displaySymbol) ||
+    !isFiniteNumber(group.orderIndex)
+  ) {
+    return 'invalidAssetGroupIdentity';
+  }
+
+  return undefined;
+}
+
+function validateFormulaWallet(
+  wallet: FormulaWalletInput,
+): FormulaComputedInputsInvalidReason | undefined {
+  'worklet';
+
+  if (
+    !isStrictIdentity(wallet.walletId) ||
+    !isStrictIdentity(wallet.assetGroupId) ||
+    !isStrictIdentity(wallet.assetIdentityKey) ||
+    !isStrictIdentity(wallet.rateSourceKey)
+  ) {
+    return 'invalidWalletIdentity';
+  }
+  if (!isValidAtomicString(wallet.displayUnitsAtomic)) {
+    return 'invalidDisplayUnitsAtomic';
+  }
+  if (!isValidDisplayUnitDecimals(wallet.displayUnitDecimals)) {
+    return 'invalidDisplayUnitDecimals';
+  }
+  if (
+    !isFiniteNumber(wallet.lastWrittenAt) ||
+    !isFiniteNumber(wallet.lastAccessedAt)
+  ) {
+    return 'invalidWalletTimestamp';
+  }
+
+  const seenIntervals = new Set<Interval>();
+  for (const interval of wallet.intervals) {
+    if (seenIntervals.has(interval.interval)) {
+      return 'duplicateWalletInterval';
+    }
+    seenIntervals.add(interval.interval);
+  }
+
+  return undefined;
+}
+
+function buildMarketRatePointsForSeries(
   interval: FormulaWalletIntervalInput,
+  series: Series,
 ): readonly MarketRatePoint[] | undefined {
   'worklet';
 
@@ -134,21 +237,26 @@ function buildMarketRatePoints(
     series: interval.ratePoints,
     policy: 'linearRender',
   });
-  const start = reader.read(interval.windowStartTs);
-  const end = reader.read(interval.windowEndTs);
+  const start = reader.read(series.windowStartTs);
 
-  if (start.kind !== 'rate' || end.kind !== 'rate') {
+  if (start.kind !== 'rate') {
     return undefined;
   }
 
-  return [
-    {ts: interval.windowStartTs, rate: start.rate, percentChange: 0},
-    {
-      ts: interval.windowEndTs,
-      rate: end.rate,
-      percentChange: ((end.rate - start.rate) / start.rate) * 100,
-    },
-  ];
+  const out: MarketRatePoint[] = [];
+  for (const point of series.points) {
+    const rate = reader.read(point.ts);
+    if (rate.kind !== 'rate') {
+      return undefined;
+    }
+    out.push({
+      ts: point.ts,
+      rate: rate.rate,
+      percentChange: ((rate.rate - start.rate) / start.rate) * 100,
+    });
+  }
+
+  return out;
 }
 
 function buildWalletRows(args: {
@@ -217,14 +325,16 @@ function buildWalletState(
       ...interval,
     };
     const built = buildWalletSeriesFromEvents(formulaArgs);
-    const marketPoints = buildMarketRatePoints(interval);
-    if (marketPoints) {
-      marketRatePointsByInterval[interval.interval] = marketPoints;
-    }
-
     if (built.kind === 'valid') {
       series[interval.interval] = built.series;
       validIntervals[interval.interval] = true;
+      const marketPoints = buildMarketRatePointsForSeries(
+        interval,
+        built.series,
+      );
+      if (marketPoints) {
+        marketRatePointsByInterval[interval.interval] = marketPoints;
+      }
       continue;
     }
 
@@ -237,23 +347,29 @@ function buildWalletState(
     invalidHistory = true;
   }
 
-  const rows = buildWalletRows({
-    assetGroupId: wallet.assetGroupId,
-    series,
-    marketRatePointsByInterval,
-  });
+  const effectiveSeries = invalidHistory ? {} : series;
+  const effectiveMarketRatePointsByInterval = invalidHistory
+    ? {}
+    : marketRatePointsByInterval;
+  const rows = invalidHistory
+    ? {}
+    : buildWalletRows({
+        assetGroupId: wallet.assetGroupId,
+        series: effectiveSeries,
+        marketRatePointsByInterval: effectiveMarketRatePointsByInterval,
+      });
 
   return {
     state: {
       input: wallet,
-      marketRatePointsByInterval,
-      validIntervals,
-      missingRateIntervals,
+      marketRatePointsByInterval: effectiveMarketRatePointsByInterval,
+      validIntervals: invalidHistory ? {} : validIntervals,
+      missingRateIntervals: invalidHistory ? {} : missingRateIntervals,
       invalidHistoryBlocked: invalidHistory,
       computed: {
         walletId: wallet.walletId,
         assetGroupId: wallet.assetGroupId,
-        series,
+        series: effectiveSeries,
         ...rows,
         lastWrittenAt: wallet.lastWrittenAt,
         lastAccessedAt: wallet.lastAccessedAt,
@@ -479,8 +595,16 @@ export function buildFormulaComputedInputs(
 ): BuildFormulaComputedInputsResult {
   'worklet';
 
+  if (!isStrictIdentity(args.quoteCurrency)) {
+    return {kind: 'invalid', reason: 'invalidQuoteCurrency'};
+  }
+
   const groupsById = new Map<string, FormulaAssetGroupInput>();
   for (const group of args.assetGroups) {
+    const invalidGroupReason = validateFormulaAssetGroup(group);
+    if (invalidGroupReason) {
+      return {kind: 'invalid', reason: invalidGroupReason};
+    }
     if (groupsById.has(group.assetGroupId)) {
       return {kind: 'invalid', reason: 'duplicateAssetGroupId'};
     }
@@ -493,6 +617,10 @@ export function buildFormulaComputedInputs(
   const missingRateSourceKeys: string[] = [];
 
   for (const wallet of args.wallets) {
+    const invalidWalletReason = validateFormulaWallet(wallet);
+    if (invalidWalletReason) {
+      return {kind: 'invalid', reason: invalidWalletReason};
+    }
     if (seenWalletIds.has(wallet.walletId)) {
       return {kind: 'invalid', reason: 'duplicateWalletId'};
     }

@@ -74,6 +74,72 @@ function buildSingleEthFormula(
   });
 }
 
+function buildCollapsedUsdcFormula(args?: {
+  middleRateB?: number;
+}) {
+  const middleRateB = args?.middleRateB ?? 1.1;
+
+  return buildFormulaComputedInputs({
+    quoteCurrency: 'USD',
+    wallets: [
+      {
+        walletId: 'eth-usdc',
+        assetGroupId: 'usdc',
+        assetIdentityKey: 'usdc|eth',
+        rateSourceKey: 'usdc|eth',
+        displayUnitsAtomic: '1000000',
+        displayUnitDecimals: 6,
+        liveRate: 1.2,
+        lastWrittenAt: 10,
+        lastAccessedAt: 20,
+        intervals: [
+          oneDayInterval({
+            seriesIdentityKey: 'wallet:eth-usdc|snap:1|rate:1',
+            baselineUnits: 100,
+            ratePoints: [
+              {ts: ORACLE_TS.start, rate: 1},
+              {ts: ORACLE_TS.middle, rate: 1.05},
+              {ts: ORACLE_TS.end, rate: 1.2},
+            ],
+            maxPoints: 3,
+          }),
+        ],
+      },
+      {
+        walletId: 'pol-usdc',
+        assetGroupId: 'usdc',
+        assetIdentityKey: 'usdc|pol',
+        rateSourceKey: 'usdc|pol',
+        displayUnitsAtomic: '1000000',
+        displayUnitDecimals: 6,
+        liveRate: 1.2,
+        lastWrittenAt: 11,
+        lastAccessedAt: 21,
+        intervals: [
+          oneDayInterval({
+            seriesIdentityKey: `wallet:pol-usdc|snap:1|rate:${middleRateB}`,
+            baselineUnits: 100,
+            ratePoints: [
+              {ts: ORACLE_TS.start, rate: 1},
+              {ts: ORACLE_TS.middle, rate: middleRateB},
+              {ts: ORACLE_TS.end, rate: 1.2},
+            ],
+            maxPoints: 3,
+          }),
+        ],
+      },
+    ],
+    assetGroups: [
+      {
+        assetGroupId: 'usdc',
+        displaySymbol: 'USDC',
+        orderIndex: 1,
+        symbolCollisionSuspected: true,
+      },
+    ],
+  });
+}
+
 describe('portfolio v2 formula recompute input builder', () => {
   it('wires no-transaction wallet formula output into state rows and detail equality', () => {
     const formula = expectValidFormula(buildSingleEthFormula());
@@ -165,6 +231,51 @@ describe('portfolio v2 formula recompute input builder', () => {
     });
   });
 
+  it('treats invalid-history as wallet-wide across intervals', () => {
+    const formula = expectValidFormula(
+      buildFormulaComputedInputs({
+        quoteCurrency: 'USD',
+        wallets: [
+          {
+            walletId: 'eth-wallet',
+            assetGroupId: 'eth',
+            assetIdentityKey: 'eth',
+            rateSourceKey: 'eth',
+            displayUnitsAtomic: '2000000000000000000',
+            displayUnitDecimals: 18,
+            liveRate: 125,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [
+              oneDayInterval(),
+              oneDayInterval({
+                interval: 'ALL',
+                sampledFromStoredInterval: 'ALL',
+                seriesIdentityKey: 'wallet:eth|asset:eth|quote:USD|snap:all',
+                baselineUnits: 1,
+                balanceEvents: [
+                  {ts: ORACLE_TS.middle, unitsDelta: -2, order: 1},
+                ],
+                ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
+              }),
+            ],
+          },
+        ],
+        assetGroups: [
+          {
+            assetGroupId: 'eth',
+            displaySymbol: 'ETH',
+            orderIndex: 1,
+          },
+        ],
+      }),
+    );
+
+    expect(formula.invalidHistoryWalletIds).toEqual(['eth-wallet']);
+    expect(formula.wallets[0].series).toEqual({});
+    expect(formula.wallets[0].rowToday).toBeUndefined();
+  });
+
   it('propagates missing rate source status without publishing partial rows', () => {
     const formula = expectValidFormula(
       buildSingleEthFormula({
@@ -240,5 +351,153 @@ describe('portfolio v2 formula recompute input builder', () => {
     expect(firstState.byAssetGroup.eth.fingerprint).not.toBe(
       secondState.byAssetGroup.eth.fingerprint,
     );
+  });
+
+  it('builds collapsed weighted state from full-grid market constituents', () => {
+    const first = expectValidFormula(buildCollapsedUsdcFormula());
+    const second = expectValidFormula(
+      buildCollapsedUsdcFormula({middleRateB: 1.15}),
+    );
+    const state = expectValidState(
+      buildPortfolioComputedState({
+        workEpoch: 1,
+        revision: 1,
+        quoteCurrency: 'USD',
+        computedAtMs: 100,
+        wallets: first.wallets,
+        assetGroups: first.assetGroups,
+      }),
+    );
+    const changedMiddleState = expectValidState(
+      buildPortfolioComputedState({
+        workEpoch: 1,
+        revision: 1,
+        quoteCurrency: 'USD',
+        computedAtMs: 100,
+        wallets: second.wallets,
+        assetGroups: second.assetGroups,
+      }),
+    );
+
+    const weighted = state.byAssetGroup.usdc.weightedGroupRateSeries?.['1D'];
+    const changedWeighted =
+      changedMiddleState.byAssetGroup.usdc.weightedGroupRateSeries?.['1D'];
+    expect(weighted?.availability).toBe('valid');
+    expect(weighted?.points).toHaveLength(3);
+    expect(weighted?.points.map(point => point.ts)).toEqual([
+      ORACLE_TS.start,
+      ORACLE_TS.middle,
+      ORACLE_TS.end,
+    ]);
+    expect(changedWeighted?.points[0]).toEqual(weighted?.points[0]);
+    expect(changedWeighted?.points[2]).toEqual(weighted?.points[2]);
+    expect(changedWeighted?.fingerprint).not.toBe(weighted?.fingerprint);
+    expect(state.byAssetGroup.usdc.rowToday).toEqual(
+      state.rowShells[0].rowToday,
+    );
+    expect(state.rowShells[0].groupHealth.symbolCollisionSuspected).toBe(true);
+  });
+
+  it('rejects malformed formula bridge inputs before state assembly', () => {
+    expect(
+      buildFormulaComputedInputs({
+        quoteCurrency: ' USD',
+        wallets: [],
+        assetGroups: [],
+      }),
+    ).toEqual({kind: 'invalid', reason: 'invalidQuoteCurrency'});
+    expect(
+      buildFormulaComputedInputs({
+        quoteCurrency: 'USD',
+        wallets: [],
+        assetGroups: [
+          {
+            assetGroupId: 'eth',
+            displaySymbol: 'ETH',
+            orderIndex: 1,
+          },
+          {
+            assetGroupId: 'eth',
+            displaySymbol: 'ETH',
+            orderIndex: 2,
+          },
+        ],
+      }),
+    ).toEqual({kind: 'invalid', reason: 'duplicateAssetGroupId'});
+    expect(
+      buildFormulaComputedInputs({
+        quoteCurrency: 'USD',
+        wallets: [
+          {
+            walletId: 'eth-wallet',
+            assetGroupId: 'eth',
+            assetIdentityKey: 'eth',
+            rateSourceKey: 'eth',
+            displayUnitsAtomic: '2000000000000000000',
+            displayUnitDecimals: 18,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [oneDayInterval(), oneDayInterval()],
+          },
+        ],
+        assetGroups: [
+          {
+            assetGroupId: 'eth',
+            displaySymbol: 'ETH',
+            orderIndex: 1,
+          },
+        ],
+      }),
+    ).toEqual({kind: 'invalid', reason: 'duplicateWalletInterval'});
+    expect(
+      buildFormulaComputedInputs({
+        quoteCurrency: 'USD',
+        wallets: [
+          {
+            walletId: ' eth-wallet',
+            assetGroupId: 'eth',
+            assetIdentityKey: 'eth',
+            rateSourceKey: 'eth',
+            displayUnitsAtomic: '2000000000000000000',
+            displayUnitDecimals: 18,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [oneDayInterval()],
+          },
+        ],
+        assetGroups: [
+          {
+            assetGroupId: 'eth',
+            displaySymbol: 'ETH',
+            orderIndex: 1,
+          },
+        ],
+      }),
+    ).toEqual({kind: 'invalid', reason: 'invalidWalletIdentity'});
+    expect(
+      buildFormulaComputedInputs({
+        quoteCurrency: 'USD',
+        wallets: [
+          {
+            walletId: 'eth-wallet',
+            assetGroupId: 'eth',
+            assetIdentityKey: 'eth',
+            rateSourceKey: 'eth',
+            displayUnitsAtomic: '-1',
+            displayUnitDecimals: 18,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [oneDayInterval()],
+          },
+        ],
+        assetGroups: [
+          {
+            assetGroupId: 'eth',
+            displaySymbol: 'ETH',
+            orderIndex: 1,
+          },
+        ],
+      }),
+    ).toEqual({kind: 'invalid', reason: 'invalidDisplayUnitsAtomic'});
   });
 });
