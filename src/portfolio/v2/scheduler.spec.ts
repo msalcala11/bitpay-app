@@ -27,6 +27,8 @@ import {
   sharedPortfolioState,
 } from './sharedState';
 import type {
+  FormulaAssetGroupInput,
+  FormulaWalletInput,
   FormulaWalletIntervalInput,
   NormalizedFormulaRecomputeInput,
 } from './recompute';
@@ -135,6 +137,35 @@ function oneDayInterval(
   };
 }
 
+function formulaWalletInput(
+  overrides: Partial<FormulaWalletInput> = {},
+): FormulaWalletInput {
+  return {
+    walletId: 'eth-wallet',
+    assetGroupId: 'eth',
+    assetIdentityKey: 'eth',
+    rateSourceKey: 'eth',
+    displayUnitsAtomic: '2000000000000000000',
+    displayUnitDecimals: 18,
+    liveRate: 125,
+    lastWrittenAt: 10,
+    lastAccessedAt: 20,
+    intervals: [oneDayInterval()],
+    ...overrides,
+  };
+}
+
+function formulaAssetGroupInput(
+  overrides: Partial<FormulaAssetGroupInput> = {},
+): FormulaAssetGroupInput {
+  return {
+    assetGroupId: 'eth',
+    displaySymbol: 'ETH',
+    orderIndex: 1,
+    ...overrides,
+  };
+}
+
 function normalizedInput(
   overrides: Partial<NormalizedFormulaRecomputeInput> = {},
 ): NormalizedFormulaRecomputeInput {
@@ -143,27 +174,8 @@ function normalizedInput(
     populatedWalletIds: ['eth-wallet'],
     formula: {
       quoteCurrency: 'USD',
-      wallets: [
-        {
-          walletId: 'eth-wallet',
-          assetGroupId: 'eth',
-          assetIdentityKey: 'eth',
-          rateSourceKey: 'eth',
-          displayUnitsAtomic: '2000000000000000000',
-          displayUnitDecimals: 18,
-          liveRate: 125,
-          lastWrittenAt: 10,
-          lastAccessedAt: 20,
-          intervals: [oneDayInterval()],
-        },
-      ],
-      assetGroups: [
-        {
-          assetGroupId: 'eth',
-          displaySymbol: 'ETH',
-          orderIndex: 1,
-        },
-      ],
+      wallets: [formulaWalletInput()],
+      assetGroups: [formulaAssetGroupInput()],
     },
     ...overrides,
   };
@@ -320,6 +332,185 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
     ]);
   });
 
+  it('merges normalized payloads when wallet scopes coalesce', () => {
+    scheduleRecompute({
+      scope: {kind: 'wallet', walletId: 'eth-wallet'},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({
+        computedAtMs: 100,
+        populatedWalletIds: ['eth-wallet'],
+        invalidHistoryWalletIds: ['legacy-invalid'],
+        retryScheduledWalletIds: ['retry-wallet-a'],
+        retryScheduledRateSourceKeys: ['retry-rate-a'],
+        staleReasons: ['missingSnapshot'],
+        orderRevision: 1,
+        scopes: [{scopeKey: 'eth-wallet', walletIds: ['eth-wallet']}],
+        scopedSlices: [
+          {
+            walletIds: ['eth-wallet'],
+            walletIdsKey: 'eth-wallet',
+            assetGroups: [],
+            lastAccessedAt: 10,
+          },
+        ],
+        protectedScopedWalletIdsKeys: ['eth-wallet'],
+        evictScopedWalletIds: ['deleted-a'],
+        formula: {
+          quoteCurrency: 'USD',
+          wallets: [formulaWalletInput({liveRate: 111})],
+          assetGroups: [formulaAssetGroupInput({orderIndex: 2})],
+        },
+      }),
+    });
+
+    scheduleRecompute({
+      scope: {kind: 'wallet', walletId: 'btc-wallet'},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({
+        computedAtMs: 120,
+        populatedWalletIds: ['btc-wallet'],
+        invalidHistoryWalletIds: ['new-invalid'],
+        retryScheduledWalletIds: ['retry-wallet-b'],
+        retryScheduledRateSourceKeys: ['retry-rate-b'],
+        staleReasons: ['missingHistoricalRate'],
+        orderRevision: 3,
+        scopes: [{scopeKey: 'btc-wallet', walletIds: ['btc-wallet']}],
+        scopedSlices: [
+          {
+            walletIds: ['btc-wallet'],
+            walletIdsKey: 'btc-wallet',
+            assetGroups: [],
+            lastAccessedAt: 11,
+          },
+        ],
+        protectedScopedWalletIdsKeys: ['btc-wallet'],
+        evictScopedWalletIds: ['deleted-b'],
+        formula: {
+          quoteCurrency: 'USD',
+          wallets: [
+            formulaWalletInput({
+              walletId: 'btc-wallet',
+              assetGroupId: 'btc',
+              assetIdentityKey: 'btc',
+              rateSourceKey: 'btc',
+              displayUnitsAtomic: '100000000',
+              displayUnitDecimals: 8,
+              liveRate: 222,
+            }),
+          ],
+          assetGroups: [
+            formulaAssetGroupInput({
+              assetGroupId: 'btc',
+              displaySymbol: 'BTC',
+              orderIndex: 1,
+            }),
+          ],
+        },
+      }),
+    });
+
+    const [pending] = getPendingRecomputesForTesting();
+    expect(pending.scope).toEqual({
+      kind: 'wallets',
+      walletIds: ['btc-wallet', 'eth-wallet'],
+    });
+    const input = pending.normalizedFormulaInput;
+    expect(input).toBeDefined();
+    expect(input?.computedAtMs).toBe(120);
+    expect(input?.orderRevision).toBe(3);
+    expect(input?.formula.wallets.map(wallet => wallet.walletId)).toEqual([
+      'btc-wallet',
+      'eth-wallet',
+    ]);
+    expect(
+      input?.formula.wallets.find(wallet => wallet.walletId === 'btc-wallet')
+        ?.liveRate,
+    ).toBe(222);
+    expect(
+      input?.formula.wallets.find(wallet => wallet.walletId === 'eth-wallet')
+        ?.liveRate,
+    ).toBe(111);
+    expect(input?.formula.assetGroups.map(group => group.assetGroupId)).toEqual([
+      'btc',
+      'eth',
+    ]);
+    expect(input?.populatedWalletIds).toEqual(['btc-wallet', 'eth-wallet']);
+    expect(input?.invalidHistoryWalletIds).toEqual([
+      'legacy-invalid',
+      'new-invalid',
+    ]);
+    expect(input?.retryScheduledWalletIds).toEqual([
+      'retry-wallet-a',
+      'retry-wallet-b',
+    ]);
+    expect(input?.retryScheduledRateSourceKeys).toEqual([
+      'retry-rate-a',
+      'retry-rate-b',
+    ]);
+    expect(input?.staleReasons).toEqual([
+      'missingHistoricalRate',
+      'missingSnapshot',
+    ]);
+    expect(input?.scopes?.map(scope => scope.scopeKey)).toEqual([
+      'btc-wallet',
+      'eth-wallet',
+    ]);
+    expect(input?.scopedSlices?.map(slice => slice.walletIdsKey)).toEqual([
+      'btc-wallet',
+      'eth-wallet',
+    ]);
+    expect(input?.protectedScopedWalletIdsKeys).toEqual([
+      'btc-wallet',
+      'eth-wallet',
+    ]);
+    expect(input?.evictScopedWalletIds).toEqual(['deleted-a', 'deleted-b']);
+  });
+
+  it('merges newer live-rate payloads into a pending full recompute when the touch is subsumed', () => {
+    scheduleRecompute({
+      scope: 'full',
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({
+        computedAtMs: 100,
+        protectedScopedWalletIdsKeys: ['old-scope'],
+        formula: {
+          quoteCurrency: 'USD',
+          wallets: [formulaWalletInput({liveRate: 100})],
+          assetGroups: [formulaAssetGroupInput()],
+        },
+      }),
+    });
+
+    scheduleRecompute({
+      scope: {kind: 'liveRateTouch', changedAssetIds: ['eth']},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({
+        computedAtMs: 130,
+        protectedScopedWalletIdsKeys: ['new-scope'],
+        evictScopedWalletIds: ['deleted-wallet'],
+        formula: {
+          quoteCurrency: 'USD',
+          wallets: [formulaWalletInput({liveRate: 150})],
+          assetGroups: [formulaAssetGroupInput()],
+        },
+      }),
+    });
+
+    const [pending] = getPendingRecomputesForTesting();
+    expect(getPendingRecomputesForTesting()).toHaveLength(1);
+    expect(pending.scope).toBe('full');
+    expect(pending.normalizedFormulaInput?.computedAtMs).toBe(130);
+    expect(pending.normalizedFormulaInput?.formula.wallets[0].liveRate).toBe(
+      150,
+    );
+    expect(pending.normalizedFormulaInput?.protectedScopedWalletIdsKeys).toEqual(
+      ['new-scope', 'old-scope'],
+    );
+    expect(pending.normalizedFormulaInput?.evictScopedWalletIds).toEqual([
+      'deleted-wallet',
+    ]);
+  });
+
   it('drains by plan priority instead of FIFO while preserving FIFO inside a class', async () => {
     const current = makeCurrentState();
     sharedPortfolioState.value = current;
@@ -382,7 +573,7 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
       normalizedFormulaInput: normalizedInput(),
     });
     scheduleRecompute({
-      scope: 'full',
+      scope: {kind: 'wallet', walletId: 'eth-wallet'},
       startEpoch: 7,
       normalizedFormulaInput: normalizedInput({computedAtMs: 101}),
     });

@@ -1,5 +1,8 @@
 import {
   recomputePortfolioState,
+  type FormulaAssetGroupInput,
+  type FormulaWalletInput,
+  type NormalizedFormulaRecomputeInput,
   type RecomputeRequest,
   type RecomputeScope,
 } from './recompute';
@@ -61,6 +64,198 @@ function uniqueSorted(values: readonly string[]): readonly string[] {
   return Array.from(new Set(values)).sort((left, right) =>
     left.localeCompare(right),
   );
+}
+
+function maxOptionalNumber(
+  left: number | undefined,
+  right: number | undefined,
+): number | undefined {
+  if (typeof left !== 'number') {
+    return right;
+  }
+  if (typeof right !== 'number') {
+    return left;
+  }
+  return Math.max(left, right);
+}
+
+function mergeOptionalIdentityList<T extends string>(
+  left: readonly T[] | undefined,
+  right: readonly T[] | undefined,
+): readonly T[] | undefined {
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+  return Array.from(new Set<T>([...left, ...right])).sort((leftValue, rightValue) =>
+    leftValue.localeCompare(rightValue),
+  );
+}
+
+function isRightNewerFormulaInput(args: {
+  left: NormalizedFormulaRecomputeInput;
+  right: NormalizedFormulaRecomputeInput;
+}): boolean {
+  return args.right.computedAtMs >= args.left.computedAtMs;
+}
+
+function mergeWalletInputs(args: {
+  left: readonly FormulaWalletInput[];
+  right: readonly FormulaWalletInput[];
+  preferRight: boolean;
+}): readonly FormulaWalletInput[] {
+  const out = new Map<string, FormulaWalletInput>();
+  const primary = args.preferRight ? args.right : args.left;
+  const secondary = args.preferRight ? args.left : args.right;
+
+  for (const wallet of secondary) {
+    out.set(wallet.walletId, wallet);
+  }
+  for (const wallet of primary) {
+    out.set(wallet.walletId, wallet);
+  }
+
+  return Array.from(out.values()).sort((left, right) =>
+    left.walletId.localeCompare(right.walletId),
+  );
+}
+
+function mergeAssetGroupInputs(args: {
+  left: NormalizedFormulaRecomputeInput;
+  right: NormalizedFormulaRecomputeInput;
+  newest: NormalizedFormulaRecomputeInput;
+}): readonly FormulaAssetGroupInput[] {
+  const leftRevision = args.left.orderRevision ?? -1;
+  const rightRevision = args.right.orderRevision ?? -1;
+  const primary =
+    rightRevision > leftRevision
+      ? args.right.formula.assetGroups
+      : leftRevision > rightRevision
+        ? args.left.formula.assetGroups
+        : args.newest.formula.assetGroups;
+  const secondary =
+    primary === args.left.formula.assetGroups
+      ? args.right.formula.assetGroups
+      : args.left.formula.assetGroups;
+
+  const out = new Map<string, FormulaAssetGroupInput>();
+  for (const group of secondary) {
+    out.set(group.assetGroupId, group);
+  }
+  for (const group of primary) {
+    out.set(group.assetGroupId, group);
+  }
+
+  return Array.from(out.values()).sort((left, right) => {
+    const orderDelta = left.orderIndex - right.orderIndex;
+    return orderDelta || left.assetGroupId.localeCompare(right.assetGroupId);
+  });
+}
+
+function mergeByKey<T>(
+  left: readonly T[] | undefined,
+  right: readonly T[] | undefined,
+  keyOf: (value: T) => string,
+): readonly T[] | undefined {
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+
+  const out = new Map<string, T>();
+  for (const value of left) {
+    out.set(keyOf(value), value);
+  }
+  for (const value of right) {
+    out.set(keyOf(value), value);
+  }
+  return Array.from(out.values()).sort((leftValue, rightValue) =>
+    keyOf(leftValue).localeCompare(keyOf(rightValue)),
+  );
+}
+
+function mergeNormalizedFormulaInputs(
+  left: NormalizedFormulaRecomputeInput | undefined,
+  right: NormalizedFormulaRecomputeInput | undefined,
+): NormalizedFormulaRecomputeInput | undefined {
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+
+  const preferRight = isRightNewerFormulaInput({left, right});
+  const newest = preferRight ? right : left;
+  const older = preferRight ? left : right;
+
+  return {
+    computedAtMs: Math.max(left.computedAtMs, right.computedAtMs),
+    formula: {
+      quoteCurrency: newest.formula.quoteCurrency,
+      wallets: mergeWalletInputs({
+        left: left.formula.wallets,
+        right: right.formula.wallets,
+        preferRight,
+      }),
+      assetGroups: mergeAssetGroupInputs({left, right, newest}),
+    },
+    total: newest.total ?? older.total,
+    populatedWalletIds: mergeOptionalIdentityList(
+      left.populatedWalletIds,
+      right.populatedWalletIds,
+    ),
+    invalidHistoryWalletIds: mergeOptionalIdentityList(
+      left.invalidHistoryWalletIds,
+      right.invalidHistoryWalletIds,
+    ),
+    retryScheduledWalletIds: mergeOptionalIdentityList(
+      left.retryScheduledWalletIds,
+      right.retryScheduledWalletIds,
+    ),
+    retryScheduledRateSourceKeys: mergeOptionalIdentityList(
+      left.retryScheduledRateSourceKeys,
+      right.retryScheduledRateSourceKeys,
+    ),
+    staleReasons: mergeOptionalIdentityList(left.staleReasons, right.staleReasons),
+    orderRevision: maxOptionalNumber(left.orderRevision, right.orderRevision),
+    scopes: mergeByKey(left.scopes, right.scopes, scope => scope.scopeKey),
+    scopedSlices: mergeByKey(
+      left.scopedSlices,
+      right.scopedSlices,
+      scopedSlice => scopedSlice.walletIdsKey,
+    ),
+    protectedScopedWalletIdsKeys: mergeOptionalIdentityList(
+      left.protectedScopedWalletIdsKeys,
+      right.protectedScopedWalletIdsKeys,
+    ),
+    evictScopedWalletIds: mergeOptionalIdentityList(
+      left.evictScopedWalletIds,
+      right.evictScopedWalletIds,
+    ),
+  };
+}
+
+function mergeRequests(
+  existing: RecomputeRequest,
+  incoming: RecomputeRequest,
+  scope: RecomputeScope,
+): RecomputeRequest {
+  return {
+    ...existing,
+    ...incoming,
+    startEpoch: Math.max(existing.startEpoch, incoming.startEpoch),
+    computedAtMs: maxOptionalNumber(existing.computedAtMs, incoming.computedAtMs),
+    normalizedFormulaInput: mergeNormalizedFormulaInputs(
+      existing.normalizedFormulaInput,
+      incoming.normalizedFormulaInput,
+    ),
+    scope,
+  };
 }
 
 function walletIdsForScope(scope: RecomputeScope): readonly string[] {
@@ -134,7 +329,7 @@ function coalesceLiveRateTouch(
       : undefined;
 
   return {
-    ...incoming,
+    ...mergeRequests(existing, incoming, {kind: 'liveRateTouch'}),
     scope:
       existingIds && incomingIds
         ? {
@@ -187,7 +382,8 @@ function mergeWalletRecompute(incoming: RecomputeRequest): boolean {
   }
 
   const existing = pendingRecomputes[existingIndex];
-  pendingRecomputes[existingIndex] = normalizeRequestScope(
+  pendingRecomputes[existingIndex] = mergeRequests(
+    existing,
     incoming,
     makeWalletScope([
       ...walletIdsForScope(existing.scope),
@@ -226,7 +422,8 @@ function mergeTouchRecompute(incoming: RecomputeRequest): boolean {
   }
 
   const existing = pendingRecomputes[existingIndex];
-  pendingRecomputes[existingIndex] = normalizeRequestScope(
+  pendingRecomputes[existingIndex] = mergeRequests(
+    existing,
     incoming,
     makeTouchScope([...walletIdsForScope(existing.scope), ...unsubsumedIds]),
   );
@@ -250,17 +447,42 @@ function nextPendingRecomputeIndex(): number {
 
 export function scheduleRecompute(request: RecomputeRequest): void {
   if (request.scope === 'full') {
+    let mergedRequest = request;
     for (let index = pendingRecomputes.length - 1; index >= 0; index -= 1) {
       if (isLiveRateTouchScope(pendingRecomputes[index].scope)) {
+        mergedRequest = mergeRequests(
+          pendingRecomputes[index],
+          mergedRequest,
+          'full',
+        );
         pendingRecomputes.splice(index, 1);
       }
     }
-    pendingRecomputes.push(request);
+    const existingFullIndex = pendingRecomputes.findIndex(
+      pending => pending.scope === 'full',
+    );
+    if (existingFullIndex >= 0) {
+      pendingRecomputes[existingFullIndex] = mergeRequests(
+        pendingRecomputes[existingFullIndex],
+        mergedRequest,
+        'full',
+      );
+    } else {
+      pendingRecomputes.push(mergedRequest);
+    }
     return;
   }
 
   if (isLiveRateTouchScope(request.scope)) {
-    if (pendingRecomputes.some(pending => pending.scope === 'full')) {
+    const pendingFullIndex = pendingRecomputes.findIndex(
+      pending => pending.scope === 'full',
+    );
+    if (pendingFullIndex >= 0) {
+      pendingRecomputes[pendingFullIndex] = mergeRequests(
+        pendingRecomputes[pendingFullIndex],
+        request,
+        'full',
+      );
       return;
     }
 
