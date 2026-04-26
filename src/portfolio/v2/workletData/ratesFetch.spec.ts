@@ -346,6 +346,7 @@ describe('portfolio v2 ensureFresh', () => {
     expect(getPortfolioRuntimeLogPayloadsForTesting()).toEqual([
       expect.objectContaining({
         tag: 'staleWorkEpoch',
+        reason: 'runtimeResultFailed',
         startEpoch: 1,
         currentEpoch: 2,
         runtimeKind: 'rateFetch',
@@ -407,6 +408,7 @@ describe('portfolio v2 ensureFresh', () => {
     expect(getPortfolioRuntimeLogPayloadsForTesting()).toEqual([
       expect.objectContaining({
         tag: 'staleWorkEpoch',
+        reason: 'runtimeResultSucceeded',
         startEpoch: 1,
         currentEpoch: 2,
         runtimeKind: 'rateFetch',

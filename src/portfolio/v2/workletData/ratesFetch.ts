@@ -407,6 +407,9 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
   if (startEpoch !== getCurrentPortfolioWorkEpoch()) {
     logPortfolioRuntimeError(new Error('stale rate fetch discarded'), {
       tag: 'staleWorkEpoch',
+      reason: results.some(result => !result.series?.points?.length)
+        ? 'runtimeResultFailed'
+        : 'runtimeResultSucceeded',
       startEpoch,
       currentEpoch: getCurrentPortfolioWorkEpoch(),
       runtimeKind: 'rateFetch',
