@@ -404,10 +404,7 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
     return;
   }
 
-  if (
-    typeof startEpoch === 'number' &&
-    startEpoch !== getCurrentPortfolioWorkEpoch()
-  ) {
+  if (startEpoch !== getCurrentPortfolioWorkEpoch()) {
     logPortfolioRuntimeError(new Error('stale rate fetch discarded'), {
       tag: 'staleWorkEpoch',
       startEpoch,
