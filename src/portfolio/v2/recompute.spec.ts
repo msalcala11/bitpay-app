@@ -233,6 +233,25 @@ describe('portfolio v2 recompute entrypoint', () => {
     ]);
   });
 
+  it('allows normalized input to explicitly clear previous invalid-history wallet ids', () => {
+    const current = makeCurrentState({
+      invalidHistoryWalletIdsKey: 'legacy-invalid-wallet',
+      invalidHistoryWalletIdsById: {'legacy-invalid-wallet': true},
+    });
+    const next = recomputePortfolioState(current, {
+      scope: 'full',
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({
+        invalidHistoryWalletIds: [],
+      }),
+    });
+
+    expect(next).not.toBe(current);
+    expect(next.invalidHistoryWalletIdsKey).toBe('');
+    expect(next.invalidHistoryWalletIdsById).toEqual({});
+    expect(next.status.invalidHistoryWalletIds).toEqual([]);
+  });
+
   it('surfaces formula invalid-history and missing-rate status through final state', () => {
     const invalidHistory = recomputePortfolioState(makeCurrentState(), {
       scope: 'full',
