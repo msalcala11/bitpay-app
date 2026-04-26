@@ -260,7 +260,10 @@ describe('fxRates', () => {
   });
 
   it('returns unavailable for non-positive BTC bridge rates', async () => {
-    const seriesByKey: Record<string, FiatRateSeries> = {
+    const makeSeriesByKey = (args: {
+      canonicalBridgeRateAtTs2: number;
+      targetBridgeRateAtTs2: number;
+    }): Record<string, FiatRateSeries> => ({
       [getFiatRateSeriesCacheKey(CANONICAL_FIAT_QUOTE, 'eth', '1D')]: {
         fetchedOn: 10,
         points: [
@@ -272,36 +275,47 @@ describe('fxRates', () => {
         fetchedOn: 10,
         points: [
           {ts: 1, rate: 40000},
-          {ts: 2, rate: 0},
+          {ts: 2, rate: args.canonicalBridgeRateAtTs2},
         ],
       },
       [getFiatRateSeriesCacheKey('EUR', 'btc', '1D')]: {
         fetchedOn: 10,
         points: [
           {ts: 1, rate: 36000},
-          {ts: 2, rate: 39600},
+          {ts: 2, rate: args.targetBridgeRateAtTs2},
         ],
       },
-    };
+    });
 
-    await expect(
-      getFiatRateSeriesWithFx({
-        getSeries: async args =>
-          seriesByKey[
-            getFiatRateSeriesCacheKey(
-              args.quoteCurrency,
-              args.coin,
-              args.interval,
-              {
-                chain: args.chain,
-                tokenAddress: args.tokenAddress,
-              },
-            )
-          ] || null,
-        quoteCurrency: 'EUR',
-        coin: 'eth',
-        interval: '1D',
+    for (const seriesByKey of [
+      makeSeriesByKey({
+        canonicalBridgeRateAtTs2: 0,
+        targetBridgeRateAtTs2: 39600,
       }),
-    ).resolves.toBeNull();
+      makeSeriesByKey({
+        canonicalBridgeRateAtTs2: 44000,
+        targetBridgeRateAtTs2: 0,
+      }),
+    ]) {
+      await expect(
+        getFiatRateSeriesWithFx({
+          getSeries: async args =>
+            seriesByKey[
+              getFiatRateSeriesCacheKey(
+                args.quoteCurrency,
+                args.coin,
+                args.interval,
+                {
+                  chain: args.chain,
+                  tokenAddress: args.tokenAddress,
+                },
+              )
+            ] || null,
+          quoteCurrency: 'EUR',
+          coin: 'eth',
+          interval: '1D',
+        }),
+      ).resolves.toBeNull();
+    }
   });
 });
