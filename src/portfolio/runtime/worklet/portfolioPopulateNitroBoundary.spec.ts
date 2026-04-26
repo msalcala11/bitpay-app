@@ -2,6 +2,7 @@ import {
   clearPortfolioTxHistorySigningDispatchContextOnRuntime,
   getPortfolioTxHistorySigningDispatchContextOnRuntime,
 } from '../../adapters/rn/txHistorySigning';
+import {DEFAULT_STORED_FIAT_RATE_INTERVALS} from '../../core/fiatRatesShared';
 import * as txHistoryPageFetcher from '../../adapters/rn/txHistoryPageFetcher';
 import * as txHistorySigning from '../../adapters/rn/txHistorySigning';
 import {
@@ -206,7 +207,9 @@ describe('populate worklet Nitro boundary', () => {
       expect(status?.state).toBe('completed');
       expect(status?.txRequestsMade).toBe(1);
       expect(status?.walletStatusById).toEqual({'btc-wallet': 'done'});
-      expect(requestSync).toHaveBeenCalled();
+      expect(requestSync).toHaveBeenCalledTimes(
+        DEFAULT_STORED_FIAT_RATE_INTERVALS.length + 1,
+      );
       expect(
         requestLog.some(request =>
           String(request.url).includes('/v4/fiatrates/USD?days=1'),
@@ -222,6 +225,7 @@ describe('populate worklet Nitro boundary', () => {
           request.headers?.some(header => header.key === 'x-signature'),
         ),
       ).toBe(true);
+      expect(context.signHandleHybrids[0].sign).toHaveBeenCalled();
       expect(fetchSpy).not.toHaveBeenCalled();
       expect(bitcoreSigningSpy).not.toHaveBeenCalled();
       expect(jsTxHistoryFetcherSpy).not.toHaveBeenCalled();
