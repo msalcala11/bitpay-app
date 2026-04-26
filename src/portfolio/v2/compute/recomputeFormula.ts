@@ -432,20 +432,30 @@ function buildQuoteBridgedLiveRate(args: {
     return undefined;
   }
 
-  for (const interval of args.wallet.intervals) {
-    const bridge =
-      args.bridgeRatePointsByStoredInterval[interval.sampledFromStoredInterval];
+  const bridgedRates: number[] = [];
+  for (const bridge of Object.values(args.bridgeRatePointsByStoredInterval)) {
     const bridgedRate = bridgePositiveRate({
       canonicalRate: args.wallet.liveRate,
       targetBtcRate: bridge?.targetBtcLiveRate,
       canonicalBtcRate: bridge?.canonicalBtcLiveRate,
     });
     if (typeof bridgedRate === 'number') {
-      return bridgedRate;
+      bridgedRates.push(bridgedRate);
     }
   }
 
-  return undefined;
+  if (!bridgedRates.length) {
+    return undefined;
+  }
+
+  const firstRate = bridgedRates[0];
+  for (const rate of bridgedRates) {
+    if (rate !== firstRate) {
+      return undefined;
+    }
+  }
+
+  return firstRate;
 }
 
 function buildQuoteBridgeIdentityKey(args: {
