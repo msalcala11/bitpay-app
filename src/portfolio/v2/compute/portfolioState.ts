@@ -585,6 +585,7 @@ function buildReadinessByScopeKey(args: {
   invalidHistoryWalletIds: readonly string[];
   previousReadinessByScopeKey?: Readonly<Record<string, ScopeReadiness>>;
   scopes?: readonly PortfolioScopeComputedStateInput[];
+  hasPublishedValidSeriesThisPass?: boolean;
 }): Readonly<Record<string, ScopeReadiness>> {
   'worklet';
 
@@ -595,7 +596,9 @@ function buildReadinessByScopeKey(args: {
           {
             scopeKey: 'home',
             walletIds: args.defaultWalletIds,
-            hasPublishedValidSeriesThisPass: hasAnySeriesPoints(args.total),
+            hasPublishedValidSeriesThisPass:
+              args.hasPublishedValidSeriesThisPass ??
+              hasAnySeriesPoints(args.total),
           },
         ];
   const out: Record<string, ScopeReadiness> = {};
@@ -857,6 +860,8 @@ export function buildPortfolioComputedState(
   }
 
   const total = args.total ?? {};
+  const hasPublishedValidSeriesThisPass =
+    hasAnySeriesPoints(total) || hasAnyAssetGroupSeriesPoints(byAssetGroup);
   const populatedWalletIds = uniqueSorted(args.populatedWalletIds ?? []);
   const invalidHistoryWalletIds = uniqueSorted(
     args.invalidHistoryWalletIds ?? [],
@@ -909,6 +914,7 @@ export function buildPortfolioComputedState(
         invalidHistoryWalletIds,
         previousReadinessByScopeKey: args.previousReadinessByScopeKey,
         scopes: args.scopes,
+        hasPublishedValidSeriesThisPass,
       }),
       orderedAssetGroupIdsForAssetList: rowShells.map(
         rowShell => rowShell.assetGroupId,

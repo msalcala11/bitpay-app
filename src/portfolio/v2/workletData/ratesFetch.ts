@@ -14,8 +14,12 @@ import {
   stringifyStoredFiatRateSeries,
 } from '../../core/pnl/storedFiatRateSeries';
 import {
+  clearPortfolioTxHistorySigningDispatchContextOnRuntime,
+  createPortfolioRateFetchDispatchContextOnRN,
   DEFAULT_PORTFOLIO_NITRO_FETCH_TIMEOUT_MS,
   getPortfolioNitroFetchClientOnRuntime,
+  setPortfolioTxHistorySigningDispatchContextOnRuntime,
+  type PortfolioTxHistorySigningDispatchContext,
 } from '../../adapters/rn/txHistorySigning';
 import {
   RATE_FETCH_RETRY_BASE_MS,
@@ -162,7 +166,7 @@ export function buildEnsureFreshDependencies(
 }
 
 function isFresh(series: FiatRateSeries | null, maxAgeMs?: number): boolean {
-  if (!series?.points?.length || !(series.fetchedOn > 0)) {
+  if (!hasUsableFetchedRateSeries(series) || !(series.fetchedOn > 0)) {
     return false;
   }
   if (typeof maxAgeMs !== 'number' || !Number.isFinite(maxAgeMs)) {
@@ -173,6 +177,38 @@ function isFresh(series: FiatRateSeries | null, maxAgeMs?: number): boolean {
 
 async function readStoredSeries(key: string): Promise<FiatRateSeries | null> {
   return parseStoredFiatRateSeriesRaw(await getPortfolioKvStore().getString(key));
+}
+
+function hasUsableFetchedRateSeries(
+  series: FiatRateSeries | null | undefined,
+): series is FiatRateSeries {
+  'worklet';
+
+  if (
+    !series?.points?.length ||
+    typeof series.fetchedOn !== 'number' ||
+    !Number.isFinite(series.fetchedOn) ||
+    series.fetchedOn <= 0
+  ) {
+    return false;
+  }
+
+  let previousTs = -Infinity;
+  for (const point of series.points) {
+    if (
+      typeof point.ts !== 'number' ||
+      !Number.isFinite(point.ts) ||
+      point.ts <= previousTs ||
+      typeof point.rate !== 'number' ||
+      !Number.isFinite(point.rate) ||
+      point.rate <= 0
+    ) {
+      return false;
+    }
+    previousTs = point.ts;
+  }
+
+  return true;
 }
 
 function computeRetryState(args: {
@@ -213,7 +249,8 @@ function extractSeries(
 
   const directPoints = normalizeStoredFiatRateSeriesPoints(raw);
   if (directPoints.length) {
-    return {fetchedOn: wallClockNowMs(), points: directPoints};
+    const series = {fetchedOn: wallClockNowMs(), points: directPoints};
+    return hasUsableFetchedRateSeries(series) ? series : null;
   }
 
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -226,13 +263,14 @@ function extractSeries(
   const points = normalizeStoredFiatRateSeriesPoints((candidate as any)?.points ?? candidate);
   if (points.length) {
     const fetchedOn = Number((candidate as any)?.fetchedOn);
-    return {
+    const series = {
       fetchedOn:
         Number.isFinite(fetchedOn) && fetchedOn > 0
           ? fetchedOn
           : wallClockNowMs(),
       points,
     };
+    return hasUsableFetchedRateSeries(series) ? series : null;
   }
 
   const values = Object.values(record);
@@ -258,12 +296,7 @@ function classifyFetchError(error: unknown): RateFetchErrorKind {
 function isFailedRuntimeResult(result: RateFetchRuntimeResult): boolean {
   'worklet';
 
-  return (
-    !!result.errorKind ||
-    !result.series ||
-    !Array.isArray(result.series.points) ||
-    result.series.points.length === 0
-  );
+  return !!result.errorKind || !hasUsableFetchedRateSeries(result.series);
 }
 
 function partitionRuntimeResults(args: {
@@ -357,25 +390,38 @@ async function fetchSingleRateOnRuntime(
 async function fetchRateSeriesOnRuntime(
   dependencies: readonly RateFetchDependency[],
   cfg: BwsConfig,
+  dispatchContext?: PortfolioTxHistorySigningDispatchContext,
 ): Promise<readonly RateFetchRuntimeResult[]> {
   'worklet';
 
-  const out: RateFetchRuntimeResult[] = [];
-  for (const dependency of dependencies) {
-    out.push(await fetchSingleRateOnRuntime(dependency, cfg));
+  if (dispatchContext) {
+    setPortfolioTxHistorySigningDispatchContextOnRuntime(dispatchContext);
   }
-  return out;
+
+  try {
+    const out: RateFetchRuntimeResult[] = [];
+    for (const dependency of dependencies) {
+      out.push(await fetchSingleRateOnRuntime(dependency, cfg));
+    }
+    return out;
+  } finally {
+    if (dispatchContext) {
+      clearPortfolioTxHistorySigningDispatchContextOnRuntime();
+    }
+  }
 }
 
 async function defaultRateFetchExecutor(
   dependencies: readonly RateFetchDependency[],
   cfg: BwsConfig,
 ): Promise<readonly RateFetchRuntimeResult[]> {
+  const dispatchContext = createPortfolioRateFetchDispatchContextOnRN();
   return runOnPortfolioRuntimeAsync(
     getPortfolioRateFetchRuntime(),
     fetchRateSeriesOnRuntime,
     dependencies,
     cfg,
+    dispatchContext,
   );
 }
 
@@ -474,7 +520,7 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
 
   for (const result of partition.acceptedResults) {
     const key = dependencyKey(result.dependency);
-    if (result.series?.points?.length) {
+    if (hasUsableFetchedRateSeries(result.series)) {
       retryByDependencyKey.delete(key);
       writePortfolioMmkvString({
         key,
@@ -489,7 +535,7 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
       computeRetryState({
         dependency: result.dependency,
         previous: retryByDependencyKey.get(key),
-        errorKind: result.errorKind ?? 'unknown',
+        errorKind: result.errorKind ?? 'parse',
       }),
     );
   }

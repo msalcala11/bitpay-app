@@ -650,6 +650,23 @@ describe('portfolio v2 computed state producer', () => {
     });
   });
 
+  it('marks home readiness published when asset-group series exists without total', () => {
+    const state = expectValid(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          total: {},
+        }),
+      ),
+    );
+
+    expect(state.byAssetGroup.usdc.series['1D']?.points.length).toBeGreaterThan(
+      0,
+    );
+    expect(
+      state.readinessByScopeKey.home.hasEverPublishedValidSeries,
+    ).toBe(true);
+  });
+
   it('changes total fingerprints when total series identity changes', () => {
     const base = expectValid(buildPortfolioComputedState(makeBaseArgs()));
     const changedSeries = expectValid(

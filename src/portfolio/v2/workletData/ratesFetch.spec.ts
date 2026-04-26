@@ -42,6 +42,28 @@ jest.mock('react-native-worklets', () => ({
   runOnRuntimeAsync: jest.fn(() => Promise.resolve([])),
 }));
 
+const mockNitroRequestSync = jest.fn();
+const mockNitroFetchClient = {
+  request: jest.fn(),
+  requestSync: mockNitroRequestSync,
+};
+const mockNitroFetchSingleton = {
+  createClient: jest.fn(() => mockNitroFetchClient),
+};
+const mockNitroModulesBox = jest.fn((obj: unknown) => ({unbox: () => obj}));
+const mockCreateHybridObject = jest.fn();
+
+jest.mock('react-native-nitro-modules', () => ({
+  NitroModules: {
+    box: (...args: unknown[]) => mockNitroModulesBox(...args),
+    createHybridObject: (...args: unknown[]) => mockCreateHybridObject(...args),
+  },
+}));
+
+jest.mock('react-native-nitro-fetch', () => ({
+  NitroFetch: mockNitroFetchSingleton,
+}));
+
 jest.mock('../../adapters/rn/workletMmkvBridge', () => ({
   __esModule: true,
   PORTFOLIO_WORKLET_MMKV_STORAGE_ID: 'bitpay.portfolio.engine',
@@ -87,6 +109,11 @@ import {
 beforeEach(() => {
   jest.restoreAllMocks();
   jest.clearAllMocks();
+  mockNitroRequestSync.mockReset();
+  mockNitroFetchClient.request.mockReset();
+  mockNitroFetchSingleton.createClient.mockClear();
+  mockNitroModulesBox.mockClear();
+  mockCreateHybridObject.mockClear();
   mockMmkv.data.clear();
   resetPortfolioKvStoreForTesting();
   resetPortfolioReduxAccessForTesting();
@@ -189,6 +216,41 @@ describe('portfolio v2 ensureFresh', () => {
         }),
       ]),
     );
+  });
+
+  it('treats non-positive fetched rates as parse failures instead of fresh data', async () => {
+    setRateFetchExecutorForTesting(async dependencies =>
+      dependencies.map(
+        dependency =>
+          ({
+            dependency,
+            series: {
+              fetchedOn: 123,
+              points: [
+                {ts: 1, rate: 100},
+                {ts: 2, rate: 0},
+              ],
+            },
+          } satisfies RateFetchRuntimeResult),
+      ),
+    );
+
+    await ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'btc'}],
+      intervals: ['ALL'],
+      force: true,
+    });
+
+    expect(mockMmkv.getString(btcAllKey)).toBeUndefined();
+    expect(getRateFetchRetryStatesForTesting()).toEqual([
+      expect.objectContaining({
+        quoteCurrency: 'USD',
+        storedInterval: 'ALL',
+        rateSourceKey: 'btc',
+        lastErrorKind: 'parse',
+      }),
+    ]);
   });
 
   it('skips fresh persisted rates without fetching', async () => {
@@ -492,6 +554,40 @@ describe('portfolio v2 ensureFresh', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(createSigningContextSpy).not.toHaveBeenCalled();
     expect(bitcoreSigningSpy).not.toHaveBeenCalled();
+  });
+
+  it('executes default rate fetch work with a fetch-only Nitro context', async () => {
+    (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
+      async (
+        _runtime: unknown,
+        workletFn: (...args: any[]) => unknown,
+        ...args: any[]
+      ) => workletFn(...args),
+    );
+    mockNitroRequestSync.mockReturnValueOnce({
+      ok: true,
+      status: 200,
+      bodyString: JSON.stringify({
+        btc: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
+      }),
+    });
+
+    await ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'btc'}],
+      intervals: ['ALL'],
+      force: true,
+      cfg: {baseUrl: 'https://bws.example'},
+    });
+
+    expect(mockNitroRequestSync).toHaveBeenCalledTimes(1);
+    expect(mockMmkv.getString(btcAllKey)).toBe('{"v":3,"f":123,"p":[[1,100]]}');
+    expect(
+      txHistorySigning.getPortfolioTxHistorySigningDispatchContextOnRuntime(),
+    ).toBeUndefined();
+    expect(() =>
+      txHistorySigning.takeNextPortfolioTransferredSignHandleOnRuntime(),
+    ).toThrow('No portfolio runtime request context is initialized');
   });
 
   it('drops fetched results when the work epoch changes before persist', async () => {

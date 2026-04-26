@@ -785,6 +785,19 @@ metrics?: PortfolioTxHistorySigningContextBuildMetrics,
   return context;
 }
 
+export function createPortfolioRateFetchDispatchContextOnRN():
+  PortfolioTxHistorySigningDispatchContext {
+  const boxedNitroModulesProxy = getSharedBoxedNitroModulesProxyOnJS();
+  const boxedNitroFetch = getSharedBoxedNitroFetchOnJS();
+
+  return {
+    requestCount: 1,
+    boxedNitroModulesProxy,
+    boxedNitroFetch,
+    nextSignHandleIndex: 0,
+  };
+}
+
 function ensurePortfolioTxHistorySigningDispatchContextHydratedOnRuntime(
   context: PortfolioTxHistorySigningDispatchContext | undefined,
 ): PortfolioTxHistorySigningDispatchContext | undefined {
