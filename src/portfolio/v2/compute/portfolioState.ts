@@ -44,6 +44,11 @@ export type ScopedPortfolioComputedStateInput = Readonly<{
   walletIds: readonly string[];
   walletIdsKey: string;
   total?: PerIntervalSeries;
+  /**
+   * Caller must include every scoped entry that should be refreshed in this
+   * recompute pass. Previous entries not present here are preserved by cache
+   * policy unless pruned or evicted.
+   */
   assetGroups: readonly AssetGroupComputedStateInput[];
   refreshing?: boolean;
   hasPublishedValidSeriesThisPass?: boolean;
@@ -520,6 +525,17 @@ function hasAnySeriesPoints(series: PerIntervalSeries): boolean {
   });
 }
 
+function hasAnyAssetGroupSeriesPoints(
+  byAssetGroup: Readonly<Record<string, AssetGroupSlice>>,
+): boolean {
+  'worklet';
+
+  return Object.keys(byAssetGroup).some(assetGroupId => {
+    const assetGroup = byAssetGroup[assetGroupId];
+    return assetGroup ? hasAnySeriesPoints(assetGroup.series) : false;
+  });
+}
+
 function buildScopeReadiness(args: {
   walletIds: readonly string[];
   populatedWalletIds: readonly string[];
@@ -674,7 +690,8 @@ function buildScopedPortfolioSlice(args: {
     previous: args.previous?.readiness,
     refreshing: args.input.refreshing,
     hasPublishedValidSeriesThisPass:
-      args.input.hasPublishedValidSeriesThisPass ?? hasAnySeriesPoints(total),
+      args.input.hasPublishedValidSeriesThisPass ??
+      (hasAnySeriesPoints(total) || hasAnyAssetGroupSeriesPoints(byAssetGroup)),
   });
   const sliceWithoutFingerprint = {
     walletIdsKey: args.input.walletIdsKey,

@@ -734,6 +734,29 @@ describe('portfolio v2 computed state producer', () => {
     expect(scoped?.lastAccessedAt).toBe(999);
   });
 
+  it('marks scoped readiness published when asset-group series exists without total', () => {
+    const walletIds = ['eth-usdc', 'pol-usdc'];
+    const walletIdsKey = stableWalletIdsKey(walletIds);
+    const state = expectValid(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          scopedSlices: [
+            {
+              walletIds,
+              walletIdsKey,
+              assetGroups: [makeUsdcAssetGroup()],
+            },
+          ],
+        }),
+      ),
+    );
+
+    expect(
+      state.scopedByWalletSet[walletIdsKey]?.readiness
+        .hasEverPublishedValidSeries,
+    ).toBe(true);
+  });
+
   it('prunes deleted scoped entries, refreshes before LRU eviction, and protects current scopes', () => {
     const previousScopedByWalletSet = Object.fromEntries(
       Array.from({length: 9}, (_, index) => {
@@ -775,6 +798,32 @@ describe('portfolio v2 computed state producer', () => {
     expect(state.scopedByWalletSet['scope-1']).toBeUndefined();
     expect(state.scopedByWalletSet['scope-2']).toBeUndefined();
     expect(state.scopedByWalletSet[walletIdsKey]?.lastAccessedAt).toBe(100);
+  });
+
+  it('allows protected scoped entries to exceed the soft cache cap', () => {
+    const previousScopedByWalletSet = Object.fromEntries(
+      Array.from({length: 9}, (_, index) => {
+        const key = `scope-${index}`;
+        return [
+          key,
+          makeCachedScope({
+            walletIdsKey: key,
+            walletIds: [`cached-wallet-${index}`],
+            lastAccessedAt: index,
+          }),
+        ];
+      }),
+    );
+    const state = expectValid(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          previousScopedByWalletSet,
+          protectedScopedWalletIdsKeys: Object.keys(previousScopedByWalletSet),
+        }),
+      ),
+    );
+
+    expect(Object.keys(state.scopedByWalletSet)).toHaveLength(9);
   });
 
   it('rejects malformed top-level, status, and scope inputs', () => {
