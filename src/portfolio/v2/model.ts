@@ -331,6 +331,16 @@ export type PopulateRetryState = Readonly<{
   lastErrorAtMs: number;
 }>;
 
+export type RateFetchRetryState = Readonly<{
+  quoteCurrency: string;
+  storedInterval: StoredRateInterval;
+  rateSourceKey: string;
+  attempt: number;
+  nextRetryAtMs: number;
+  lastErrorKind: 'network' | 'bws' | 'parse' | 'rateLimit' | 'unknown';
+  lastErrorAtMs: number;
+}>;
+
 export type PopulateQueueItem = Readonly<{
   itemId: string;
   runId: string;

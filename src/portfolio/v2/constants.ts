@@ -85,3 +85,10 @@ export const MAX_CHART_POINTS = 89;
  * source of truth and covered by the debounce/coalescing test.
  */
 export const PASSIVE_LIVE_RATE_RECOMPUTE_DEBOUNCE_MS = 150;
+
+/**
+ * Rate-fetch retry backoff. Background freshness work respects these windows;
+ * explicit user refreshes may pass `force: true` to bypass the retry gate.
+ */
+export const RATE_FETCH_RETRY_BASE_MS = 30_000;
+export const RATE_FETCH_RETRY_MAX_MS = 15 * 60_000;
