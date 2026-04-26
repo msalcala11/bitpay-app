@@ -11,8 +11,18 @@ export type RateLookupResult =
     }>
   | Readonly<{
       kind: 'missing';
-      reason: 'invalidTimestamp' | 'noSeries' | 'outOfRange' | 'nonFiniteRate';
+      reason:
+        | 'invalidTimestamp'
+        | 'noSeries'
+        | 'outOfRange'
+        | 'nonFiniteRate'
+        | 'nonPositiveRate';
     }>;
+
+export type PreparedRateReader = Readonly<{
+  read(ts: number): RateLookupResult;
+  hasPoints: boolean;
+}>;
 
 export type RateReader = Readonly<{
   readRateAt(args: {
@@ -71,6 +81,9 @@ function readLinearRate(
   const insertion = findInsertionIndex(points, ts);
   const exact = points[insertion];
   if (exact?.ts === ts) {
+    if (exact.rate <= 0) {
+      return {kind: 'missing', reason: 'nonPositiveRate'};
+    }
     return {kind: 'rate', rate: exact.rate, ts, source: 'exact'};
   }
 
@@ -78,6 +91,9 @@ function readLinearRate(
   const right = points[insertion];
   if (!left || !right || right.ts === left.ts) {
     return {kind: 'missing', reason: 'outOfRange'};
+  }
+  if (left.rate <= 0 || right.rate <= 0) {
+    return {kind: 'missing', reason: 'nonPositiveRate'};
   }
 
   const progress = (ts - left.ts) / (right.ts - left.ts);
@@ -101,9 +117,40 @@ function readNearestRate(
       ? right
       : left;
 
+  if (chosen && chosen.rate <= 0) {
+    return {kind: 'missing', reason: 'nonPositiveRate'};
+  }
   return chosen && Number.isFinite(chosen.rate)
     ? {kind: 'rate', rate: chosen.rate, ts, source: 'nearest'}
     : {kind: 'missing', reason: 'nonFiniteRate'};
+}
+
+export function createPreparedRateReader(args: {
+  series: FiatRateSeries | readonly FiatRatePoint[] | null | undefined;
+  policy: RateSamplingPolicy;
+}): PreparedRateReader {
+  'worklet';
+
+  const points = pointsFromSeries(args.series);
+
+  return {
+    hasPoints: points.length > 0,
+    read: (targetTs: number) => {
+      'worklet';
+
+      const ts = Number(targetTs);
+      if (!Number.isFinite(ts)) {
+        return {kind: 'missing', reason: 'invalidTimestamp'};
+      }
+      if (!points.length) {
+        return {kind: 'missing', reason: 'noSeries'};
+      }
+
+      return args.policy === 'nearestSnapshotIngest'
+        ? readNearestRate(points, ts)
+        : readLinearRate(points, ts);
+    },
+  };
 }
 
 export function readRateAt(args: {
@@ -113,19 +160,10 @@ export function readRateAt(args: {
 }): RateLookupResult {
   'worklet';
 
-  const ts = Number(args.ts);
-  if (!Number.isFinite(ts)) {
-    return {kind: 'missing', reason: 'invalidTimestamp'};
-  }
-
-  const points = pointsFromSeries(args.series);
-  if (!points.length) {
-    return {kind: 'missing', reason: 'noSeries'};
-  }
-
-  return args.policy === 'nearestSnapshotIngest'
-    ? readNearestRate(points, ts)
-    : readLinearRate(points, ts);
+  return createPreparedRateReader({
+    series: args.series,
+    policy: args.policy,
+  }).read(args.ts);
 }
 
 export function createRateReader(): RateReader {

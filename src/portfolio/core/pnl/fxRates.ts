@@ -11,7 +11,7 @@ import {
   getFiatRateSeriesCacheKey,
   resolveStoredFiatRateInterval,
 } from '../fiatRatesShared';
-import {normalizeRatePoints, readRateAt} from './rateReader';
+import {createPreparedRateReader, normalizeRatePoints} from './rateReader';
 import {normalizeFiatRateSeriesCoin} from './rates';
 
 type SeriesGetter = (args: {
@@ -67,25 +67,25 @@ function deriveTargetSeries(args: {
   }
 
   const basePoints = normalizePoints(args.baseCoinSeries.points);
-  const bridgeTargetPoints = normalizePoints(args.bridgeTargetSeries.points);
-  const bridgeCanonicalPoints = normalizePoints(args.bridgeCanonicalSeries.points);
-  if (!basePoints.length || !bridgeTargetPoints.length || !bridgeCanonicalPoints.length) return null;
+  const bridgeTargetReader = createPreparedRateReader({
+    series: args.bridgeTargetSeries,
+    policy: 'linearRender',
+  });
+  const bridgeCanonicalReader = createPreparedRateReader({
+    series: args.bridgeCanonicalSeries,
+    policy: 'linearRender',
+  });
+  if (!basePoints.length || !bridgeTargetReader.hasPoints || !bridgeCanonicalReader.hasPoints) return null;
 
   const derivedPoints: FiatRatePoint[] = [];
   for (const p of basePoints) {
-    const bridgeTargetRate = readRateAt({
-      series: bridgeTargetPoints,
-      ts: p.ts,
-      policy: 'linearRender',
-    });
-    const bridgeCanonicalRate = readRateAt({
-      series: bridgeCanonicalPoints,
-      ts: p.ts,
-      policy: 'linearRender',
-    });
+    const bridgeTargetRate = bridgeTargetReader.read(p.ts);
+    const bridgeCanonicalRate = bridgeCanonicalReader.read(p.ts);
     if (
       bridgeTargetRate.kind !== 'rate' ||
       bridgeCanonicalRate.kind !== 'rate' ||
+      p.rate <= 0 ||
+      bridgeTargetRate.rate <= 0 ||
       bridgeCanonicalRate.rate <= 0
     ) {
       return null;
