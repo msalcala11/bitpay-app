@@ -8,6 +8,7 @@ export type WalletPointInvalidReason =
   | 'nonPositiveRate'
   | 'nonFiniteRemainingCostBasis'
   | 'negativeRemainingCostBasis'
+  | 'zeroUnitsWithRemainingCostBasis'
   | 'nonFiniteFiatBalance'
   | 'nonFiniteUnrealizedPnl';
 
@@ -117,6 +118,12 @@ export function buildWalletPointFromMark(
   if (args.remainingCostBasisFiat < 0) {
     return {kind: 'invalidHistory', reason: 'negativeRemainingCostBasis'};
   }
+  if (args.units === 0 && args.remainingCostBasisFiat > 0) {
+    return {
+      kind: 'invalidHistory',
+      reason: 'zeroUnitsWithRemainingCostBasis',
+    };
+  }
 
   const fiatBalance = args.units * args.markRate;
   if (!isFiniteNumber(fiatBalance)) {
@@ -183,7 +190,10 @@ export function buildRowPayloadFromSeries(
 ): BuildRowPayloadFromSeriesResult {
   'worklet';
 
-  if (!args.assetGroupId.trim()) {
+  if (
+    !args.assetGroupId.trim() ||
+    args.assetGroupId !== args.assetGroupId.trim()
+  ) {
     return {kind: 'invalidHistory', reason: 'missingAssetGroupId'};
   }
 

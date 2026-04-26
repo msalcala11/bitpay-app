@@ -136,6 +136,17 @@ describe('portfolio v2 row payload compute adapter', () => {
       kind: 'invalidHistory',
       reason: 'nonFiniteRemainingCostBasis',
     });
+    expect(
+      buildWalletPointFromMark({
+        ts: 1,
+        units: 0,
+        markRate: 100,
+        remainingCostBasisFiat: 1,
+      }),
+    ).toEqual({
+      kind: 'invalidHistory',
+      reason: 'zeroUnitsWithRemainingCostBasis',
+    });
   });
 
   it('quarantines malformed row endpoints and non-positive row rates', () => {
@@ -151,6 +162,14 @@ describe('portfolio v2 row payload compute adapter', () => {
     expect(
       buildRowPayloadFromSeries({
         assetGroupId: '',
+        series: {interval: 'ALL', points: [validPoint]},
+        rateStart: 100,
+        rateEnd: 125,
+      }),
+    ).toEqual({kind: 'invalidHistory', reason: 'missingAssetGroupId'});
+    expect(
+      buildRowPayloadFromSeries({
+        assetGroupId: ' eth',
         series: {interval: 'ALL', points: [validPoint]},
         rateStart: 100,
         rateEnd: 125,
@@ -246,5 +265,32 @@ describe('portfolio v2 row payload compute adapter', () => {
     expect(base).toMatch(/^fnv1a:[0-9a-f]{8}$/);
     expect(changed).toMatch(/^fnv1a:[0-9a-f]{8}$/);
     expect(changed).not.toBe(base);
+  });
+
+  it('keeps close endpoint values distinct in row fingerprints', () => {
+    const first = buildRowFingerprint({
+      assetGroupId: 'btc',
+      interval: '1D',
+      fiatStart: 100.0000000000001,
+      fiatEnd: 110,
+      pnlChange: 10,
+      pnlPercent: 9.090909090909092,
+      rateStart: 1,
+      rateEnd: 1.1,
+      ratePercent: 10,
+    });
+    const second = buildRowFingerprint({
+      assetGroupId: 'btc',
+      interval: '1D',
+      fiatStart: 100.0000000000002,
+      fiatEnd: 110,
+      pnlChange: 10,
+      pnlPercent: 9.090909090909092,
+      rateStart: 1,
+      rateEnd: 1.1,
+      ratePercent: 10,
+    });
+
+    expect(first).not.toBe(second);
   });
 });
