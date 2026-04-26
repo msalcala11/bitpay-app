@@ -346,6 +346,282 @@ describe('portfolio v2 recompute entrypoint', () => {
     });
   });
 
+  it('does not run a live-rate touch when changed assets do not intersect the input wallets', () => {
+    const liveInput = normalizedInput({
+      formula: {
+        ...normalizedInput().formula,
+        wallets: [
+          {
+            ...normalizedInput().formula.wallets[0],
+            intervals: [oneDayInterval({finalPointSource: 'liveRate'})],
+          },
+        ],
+      },
+    });
+    const current = recomputePortfolioState(makeCurrentState(), {
+      scope: 'full',
+      startEpoch: 7,
+      normalizedFormulaInput: liveInput,
+    });
+    const next = recomputePortfolioState(current, {
+      scope: {kind: 'liveRateTouch', changedAssetIds: ['btc']},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({
+        computedAtMs: 225,
+        formula: {
+          ...liveInput.formula,
+          wallets: [
+            {
+              ...liveInput.formula.wallets[0],
+              liveRate: 130,
+              intervals: [
+                oneDayInterval({
+                  finalPointSource: 'liveRate',
+                  ratePoints: [
+                    {ts: ORACLE_TS.start, rate: 100},
+                    {ts: ORACLE_TS.end, rate: 130},
+                  ],
+                }),
+              ],
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(next).toBe(current);
+  });
+
+  it('treats empty changed assets as an uncertain broad live-rate refresh', () => {
+    const liveInput = normalizedInput({
+      formula: {
+        ...normalizedInput().formula,
+        wallets: [
+          {
+            ...normalizedInput().formula.wallets[0],
+            intervals: [oneDayInterval({finalPointSource: 'liveRate'})],
+          },
+        ],
+      },
+    });
+    const current = recomputePortfolioState(makeCurrentState(), {
+      scope: 'full',
+      startEpoch: 7,
+      normalizedFormulaInput: liveInput,
+    });
+    const next = recomputePortfolioState(current, {
+      scope: {kind: 'liveRateTouch', changedAssetIds: []},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({
+        computedAtMs: 225,
+        formula: {
+          ...liveInput.formula,
+          wallets: [
+            {
+              ...liveInput.formula.wallets[0],
+              liveRate: 130,
+              intervals: [
+                oneDayInterval({
+                  finalPointSource: 'liveRate',
+                  ratePoints: [
+                    {ts: ORACLE_TS.start, rate: 100},
+                    {ts: ORACLE_TS.end, rate: 130},
+                  ],
+                }),
+              ],
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(next).not.toBe(current);
+    expect(next.rowShells[0].currentFiatValue).toBe(260);
+    expect(next.byWallet['eth-wallet'].rowToday).toMatchObject({
+      fiatEnd: 260,
+      rateEnd: 130,
+    });
+  });
+
+  it('refreshes collapsed live-rate rows as a whole when any member source changes', () => {
+    const usdcInput = normalizedInput({
+      populatedWalletIds: ['eth-usdc', 'pol-usdc'],
+      formula: {
+        quoteCurrency: 'USD',
+        wallets: [
+          {
+            walletId: 'eth-usdc',
+            assetGroupId: 'usdc',
+            assetIdentityKey: 'usdc|eth',
+            rateSourceKey: 'usdc|eth',
+            displayUnitsAtomic: '1000000',
+            displayUnitDecimals: 6,
+            liveRate: 1.1,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [
+              oneDayInterval({
+                seriesIdentityKey: 'wallet:eth-usdc|quote:USD|rate:1',
+                finalPointSource: 'liveRate',
+                baselineUnits: 1,
+                ratePoints: [
+                  {ts: ORACLE_TS.start, rate: 1},
+                  {ts: ORACLE_TS.end, rate: 1.1},
+                ],
+              }),
+            ],
+          },
+          {
+            walletId: 'pol-usdc',
+            assetGroupId: 'usdc',
+            assetIdentityKey: 'usdc|pol',
+            rateSourceKey: 'usdc|pol',
+            displayUnitsAtomic: '1000000',
+            displayUnitDecimals: 6,
+            liveRate: 1.2,
+            lastWrittenAt: 11,
+            lastAccessedAt: 21,
+            intervals: [
+              oneDayInterval({
+                seriesIdentityKey: 'wallet:pol-usdc|quote:USD|rate:1',
+                finalPointSource: 'liveRate',
+                baselineUnits: 1,
+                ratePoints: [
+                  {ts: ORACLE_TS.start, rate: 1},
+                  {ts: ORACLE_TS.end, rate: 1.2},
+                ],
+              }),
+            ],
+          },
+        ],
+        assetGroups: [
+          {
+            assetGroupId: 'usdc',
+            displaySymbol: 'USDC',
+            orderIndex: 1,
+          },
+        ],
+      },
+    });
+    const current = recomputePortfolioState(makeCurrentState(), {
+      scope: 'full',
+      startEpoch: 7,
+      normalizedFormulaInput: usdcInput,
+    });
+    const originalFingerprint = current.byAssetGroup.usdc.fingerprint;
+    const next = recomputePortfolioState(current, {
+      scope: {kind: 'liveRateTouch', changedAssetIds: ['usdc|eth']},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({
+        computedAtMs: 225,
+        populatedWalletIds: ['eth-usdc', 'pol-usdc'],
+        formula: {
+          ...usdcInput.formula,
+          wallets: [
+            {
+              ...usdcInput.formula.wallets[0],
+              liveRate: 1.3,
+              intervals: [
+                oneDayInterval({
+                  seriesIdentityKey: 'wallet:eth-usdc|quote:USD|rate:2',
+                  finalPointSource: 'liveRate',
+                  baselineUnits: 1,
+                  ratePoints: [
+                    {ts: ORACLE_TS.start, rate: 1},
+                    {ts: ORACLE_TS.end, rate: 1.3},
+                  ],
+                }),
+              ],
+            },
+            {
+              ...usdcInput.formula.wallets[1],
+              liveRate: 1.4,
+              intervals: [
+                oneDayInterval({
+                  seriesIdentityKey: 'wallet:pol-usdc|quote:USD|rate:2',
+                  finalPointSource: 'liveRate',
+                  baselineUnits: 1,
+                  ratePoints: [
+                    {ts: ORACLE_TS.start, rate: 1},
+                    {ts: ORACLE_TS.end, rate: 1.4},
+                  ],
+                }),
+              ],
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(next).not.toBe(current);
+    expect(next.rowShells[0]).toMatchObject({
+      assetGroupId: 'usdc',
+      currentCryptoAmount: '2',
+      currentFiatValue: 2.7,
+    });
+    expect(next.byAssetGroup.usdc.rowToday).toEqual(next.rowShells[0].rowToday);
+    expect(next.byAssetGroup.usdc.fingerprint).not.toBe(originalFingerprint);
+    expect(
+      next.byAssetGroup.usdc.weightedGroupRateSeries?.['1D']?.availability,
+    ).toBe('valid');
+  });
+
+  it('does not leave live-backed scoped totals stale without refreshed scoped total input', () => {
+    const liveInput = normalizedInput({
+      formula: {
+        ...normalizedInput().formula,
+        wallets: [
+          {
+            ...normalizedInput().formula.wallets[0],
+            intervals: [oneDayInterval({finalPointSource: 'liveRate'})],
+          },
+        ],
+      },
+    });
+    const built = recomputePortfolioState(makeCurrentState(), {
+      scope: 'full',
+      startEpoch: 7,
+      normalizedFormulaInput: liveInput,
+    });
+    const current = {
+      ...built,
+      scopedByWalletSet: {
+        'eth-wallet': makePreviousScopedSlice({
+          rowShells: built.rowShells,
+          byAssetGroup: built.byAssetGroup,
+          total: built.byWallet['eth-wallet'].series,
+        }),
+      },
+    };
+    const next = recomputePortfolioState(current, {
+      scope: {kind: 'liveRateTouch'},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({
+        computedAtMs: 225,
+        formula: {
+          ...liveInput.formula,
+          wallets: [
+            {
+              ...liveInput.formula.wallets[0],
+              liveRate: 130,
+              intervals: [
+                oneDayInterval({
+                  finalPointSource: 'liveRate',
+                  ratePoints: [
+                    {ts: ORACLE_TS.start, rate: 100},
+                    {ts: ORACLE_TS.end, rate: 130},
+                  ],
+                }),
+              ],
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(next).toBe(current);
+  });
+
   it('returns the current state when final state assembly rejects the request', () => {
     const current = makeCurrentState();
     const next = recomputePortfolioState(current, {

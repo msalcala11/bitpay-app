@@ -182,7 +182,7 @@ function buildChangedAssetIdSet(
 ): ReadonlySet<string> | undefined | null {
   'worklet';
 
-  if (!changedAssetIds) {
+  if (!changedAssetIds || !changedAssetIds.length) {
     return undefined;
   }
 
