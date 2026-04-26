@@ -578,7 +578,7 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
 
   for (const result of partition.acceptedResults) {
     const key = dependencyKey(result.dependency);
-    if (result.fetched === true || result.persisted === true) {
+    if (result.persisted === true) {
       retryByDependencyKey.delete(key);
       continue;
     }

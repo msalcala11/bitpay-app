@@ -685,6 +685,35 @@ describe('portfolio v2 ensureFresh', () => {
     ]);
   });
 
+  it('records retry state for current-epoch fetched-only runtime results', async () => {
+    setRateFetchExecutorForTesting(async dependencies =>
+      dependencies.map(
+        dependency =>
+          ({
+            dependency,
+            fetched: true,
+          }) satisfies RateFetchRuntimeResult,
+      ),
+    );
+
+    await ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'btc'}],
+      intervals: ['ALL'],
+      force: true,
+    });
+
+    expect(mockMmkv.getString(btcAllKey)).toBeUndefined();
+    expect(getRateFetchRetryStatesForTesting()).toEqual([
+      expect.objectContaining({
+        quoteCurrency: 'USD',
+        storedInterval: 'ALL',
+        rateSourceKey: 'btc',
+        lastErrorKind: 'parse',
+      }),
+    ]);
+  });
+
   it('drops fetched results when the work epoch changes before persist', async () => {
     mockMmkv.set(PORTFOLIO_WORK_EPOCH_KEY, '1');
     setRateFetchExecutorForTesting(async dependencies => {

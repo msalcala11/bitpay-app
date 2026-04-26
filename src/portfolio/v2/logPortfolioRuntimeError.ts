@@ -94,7 +94,11 @@ function sanitizeExtra(
       if (sanitized) {
         out[key] = sanitized;
       }
-    } else if (typeof value === 'number' || typeof value === 'boolean') {
+    } else if (typeof value === 'number') {
+      if (Number.isFinite(value)) {
+        out[key] = value;
+      }
+    } else if (typeof value === 'boolean') {
       out[key] = value;
     }
   }

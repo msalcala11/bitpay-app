@@ -498,6 +498,8 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
       tag: 'wallet-123',
       reason: 'rate:v1:USD:wallet-123',
       errorCode: 'SAFE_CODE',
+      walletCount: Number.POSITIVE_INFINITY,
+      warning: true,
     });
 
     const unsafePayload = getPortfolioRuntimeLogPayloadsForTesting()[1];
@@ -510,6 +512,8 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
     );
     expect(unsafePayload).not.toHaveProperty('tag');
     expect(unsafePayload).not.toHaveProperty('reason');
+    expect(unsafePayload).not.toHaveProperty('walletCount');
+    expect(unsafePayload.warning).toBe(true);
     expect(JSON.stringify(unsafePayload)).not.toContain('wallet-123');
     expect(JSON.stringify(unsafePayload)).not.toContain('rate:v1');
   });

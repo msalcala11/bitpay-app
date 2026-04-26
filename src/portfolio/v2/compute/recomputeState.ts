@@ -135,6 +135,9 @@ function hasMultipleRateSources(
 ): boolean {
   'worklet';
 
+  // Weighted rows are derived from valid PnL-producing members only.
+  // Quarantined members stay visible in shell health but must not turn the
+  // remaining valid single-source row into an unavailable weighted route.
   return (
     uniqueSorted(
       members
