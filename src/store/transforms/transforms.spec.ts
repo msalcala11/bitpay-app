@@ -95,17 +95,6 @@ jest.mock('redux-persist', () => ({
   })),
 }));
 
-jest.mock('../../utils/portfolio/core/pnl/snapshotSeries', () => ({
-  packBalanceSnapshotsToSeries: jest.fn((opts: any) => ({
-    _packed: true,
-    snapshots: opts.snapshots,
-  })),
-  hydrateBalanceSnapshotsFromSeries: jest.fn(
-    (series: any) => series.snapshots || [],
-  ),
-  isBalanceSnapshotSeries: jest.fn((value: any) => value?._packed === true),
-}));
-
 // ─── Imports (after mocks) ────────────────────────────────────────────────────
 
 import {
@@ -114,7 +103,6 @@ import {
   bindWalletKeys,
   transformContacts,
   transformPortfolioPopulateStatus,
-  transformPortfolioSnapshotSeries,
   encryptSpecificFields,
 } from './transforms';
 
@@ -126,12 +114,6 @@ import {
   encryptShopStore,
   decryptShopStore,
 } from './encrypt';
-
-import {
-  packBalanceSnapshotsToSeries,
-  hydrateBalanceSnapshotsFromSeries,
-  isBalanceSnapshotSeries,
-} from '../../utils/portfolio/core/pnl/snapshotSeries';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -462,48 +444,6 @@ describe('transformPortfolioPopulateStatus', () => {
     const state: any = {};
     const result = getOutbound()(state);
     expect(result).toBe(state);
-  });
-});
-
-// ─── transformPortfolioSnapshotSeries ─────────────────────────────────────────
-
-describe('transformPortfolioSnapshotSeries', () => {
-  const getInbound = () => (transformPortfolioSnapshotSeries as any).in;
-  const getOutbound = () => (transformPortfolioSnapshotSeries as any).out;
-
-  beforeEach(() => jest.clearAllMocks());
-
-  it('inbound: is an identity compatibility transform and does not pack snapshots', () => {
-    const state: any = {
-      snapshotsByWalletId: {
-        'wallet-1': [{id: 'snap-1', timestamp: 1000}],
-      },
-    };
-
-    const result = getInbound()(state);
-
-    expect(result).toBe(state);
-    expect(packBalanceSnapshotsToSeries).not.toHaveBeenCalled();
-  });
-
-  it('outbound: is an identity compatibility transform and does not hydrate snapshots', () => {
-    const state: any = {
-      snapshotsByWalletId: {
-        'wallet-1': {_packed: true, snapshots: [{id: 'snap-1'}]},
-      },
-    };
-
-    const result = getOutbound()(state);
-
-    expect(result).toBe(state);
-    expect(isBalanceSnapshotSeries).not.toHaveBeenCalled();
-    expect(hydrateBalanceSnapshotsFromSeries).not.toHaveBeenCalled();
-  });
-
-  it('keeps the legacy PORTFOLIO transform registration shape', () => {
-    expect((transformPortfolioSnapshotSeries as any).config).toEqual({
-      whitelist: ['PORTFOLIO'],
-    });
   });
 });
 

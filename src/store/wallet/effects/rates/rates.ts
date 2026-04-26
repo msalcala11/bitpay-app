@@ -289,41 +289,6 @@ export const getTokenRates =
     });
   };
 
-export const refreshFiatRateSeries =
-  (_args: {
-    fiatCode: string;
-    currencyAbbreviation: string;
-    interval: string;
-    spotRate?: number;
-    series?: {fetchedOn: number; points: Array<{ts: number; rate: number}>};
-    chain?: string;
-    tokenAddress?: string;
-  }): Effect<Promise<boolean>> =>
-  async () => false;
-
-export const fetchFiatRateSeriesInterval =
-  (args: {
-    fiatCode: string;
-    currencyAbbreviation?: string;
-    coinForCacheCheck?: string;
-    coin?: string;
-    allowedCoins?: string[];
-    interval: string;
-    force?: boolean;
-    chain?: string;
-    tokenAddress?: string;
-  }): Effect<Promise<boolean>> =>
-  async () => false;
-
-export const fetchFiatRateSeriesAllIntervals =
-  (args: {
-    fiatCode: string;
-    currencyAbbreviation?: string;
-    allowedCoins?: string[];
-    force?: boolean;
-  }): Effect<Promise<boolean>> =>
-  async () => false;
-
 export const getHistoricFiatRate = (
   fiatCode: string,
   currencyAbbreviation: string,

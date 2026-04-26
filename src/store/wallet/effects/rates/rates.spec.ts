@@ -8,8 +8,6 @@
  * - We test the exported pure-ish helpers:
  *     getHistoricFiatRate   – wraps axios.get, no store needed
  *     startGetRates         – dispatches, uses cached vs. fresh path
- * - The old historical fiat-rate-series Redux helpers are compatibility no-ops;
- *   v2 historical freshness is owned by the portfolio rate-fetch runtime/MMKV path.
  * - We also exercise the rate.models helpers imported by rates.ts:
  *     getFiatRateSeriesCacheKey
  *     hasValidSeriesForCoin
@@ -20,9 +18,6 @@ import configureTestStore from '@test/store';
 import {
   getHistoricFiatRate,
   startGetRates,
-  refreshFiatRateSeries,
-  fetchFiatRateSeriesInterval,
-  fetchFiatRateSeriesAllIntervals,
   getContractAddresses,
   getTokenRates,
 } from './rates';
@@ -403,78 +398,6 @@ describe('startGetRates – force fetch path', () => {
     const result = await store.dispatch(startGetRates({force: true}));
     // Should gracefully fall back to cached rates
     expect(result).toEqual(cachedRates);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// legacy fiat rate series compatibility exports
-// ---------------------------------------------------------------------------
-describe('legacy fiat rate series compatibility exports', () => {
-  const mockedAxios = axios as jest.Mocked<typeof axios>;
-
-  beforeEach(() => jest.clearAllMocks());
-
-  it('refreshFiatRateSeries is an inert compatibility no-op', async () => {
-    const state = buildStateWithCache('btc', '1D', [
-      {ts: NOW - 60_000, rate: 30000},
-    ]);
-    const store = configureTestStore(state);
-    const before = store.getState().RATE;
-
-    const result = await store.dispatch(
-      refreshFiatRateSeries({
-        fiatCode: 'USD',
-        currencyAbbreviation: 'btc',
-        interval: '1D',
-        spotRate: 35000,
-      }),
-    );
-
-    expect(result).toBe(false);
-    expect(store.getState().RATE).toEqual(before);
-    expect(mockedAxios.get).not.toHaveBeenCalled();
-  });
-
-  it('fetchFiatRateSeriesInterval does not fetch or write Redux cache entries', async () => {
-    const state = {
-      RATE: {
-        rates: {},
-        lastDayRates: {},
-        ratesCacheKey: {},
-      },
-    };
-    const store = configureTestStore(state);
-
-    const result = await store.dispatch(
-      fetchFiatRateSeriesInterval({
-        fiatCode: 'USD',
-        interval: '1D',
-        coinForCacheCheck: 'btc',
-        coin: 'btc',
-        force: true,
-      }),
-    );
-
-    expect(result).toBe(false);
-    expect(mockedAxios.get).not.toHaveBeenCalled();
-    expect((store.getState().RATE as any)?.fiatRateSeriesCache).toBeUndefined();
-  });
-
-  it('fetchFiatRateSeriesAllIntervals does not orchestrate JS historical-rate fetching', async () => {
-    const store = configureTestStore({
-      RATE: {rates: {}, lastDayRates: {}, ratesCacheKey: {}},
-    });
-
-    const result = await store.dispatch(
-      fetchFiatRateSeriesAllIntervals({
-        fiatCode: 'USD',
-        currencyAbbreviation: 'eth',
-        force: true,
-      }),
-    );
-
-    expect(result).toBe(false);
-    expect(mockedAxios.get).not.toHaveBeenCalled();
   });
 });
 

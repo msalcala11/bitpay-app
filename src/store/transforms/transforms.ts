@@ -217,14 +217,6 @@ export const transformPortfolioPopulateStatus = createTransform<
   {whitelist: ['PORTFOLIO']},
 );
 
-// Compatibility export only. The refactor plan keeps large snapshot payloads
-// out of Redux persistence; runtime/MMKV snapshot storage owns compression.
-export const transformPortfolioSnapshotSeries = createTransform<any, any>(
-  inboundState => inboundState,
-  outboundState => outboundState,
-  {whitelist: ['PORTFOLIO']},
-);
-
 export const encryptSpecificFields = (secretKey: string) => {
   return createTransform(
     // Encrypt specified fields on inbound (saving to storage)

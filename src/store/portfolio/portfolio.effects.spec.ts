@@ -18,7 +18,6 @@ jest.mock('./portfolio.runtime.effects', () => ({
 import {
   maybePopulatePortfolioForWallets,
   populatePortfolio,
-  preparePortfolioFiatRateCachesForQuoteCurrencySwitch,
 } from './portfolio.effects';
 import {
   maybePopulatePortfolioForWalletsWithRuntime,
@@ -61,21 +60,4 @@ describe('portfolio.effects compatibility wrapper', () => {
       walletIds: ['wallet-1'],
       quoteCurrency: 'USD',
     });
-  });
-
-  it('keeps quote-switch rate-cache preparation as an inert compatibility export', async () => {
-    const dispatch = jest.fn();
-    const getState = jest.fn(() => ({
-      RATE: {rates: {}, lastDayRates: {}, ratesCacheKey: {}},
-    }));
-
-    await expect(
-      preparePortfolioFiatRateCachesForQuoteCurrencySwitch({
-        quoteCurrency: 'EUR',
-      })(dispatch, getState, undefined),
-    ).resolves.toBeUndefined();
-
-    expect(dispatch).not.toHaveBeenCalled();
-    expect(getState).not.toHaveBeenCalled();
-  });
-});
+  });});
