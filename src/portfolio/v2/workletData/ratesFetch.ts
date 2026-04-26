@@ -104,7 +104,7 @@ function normalizeQuoteCurrency(quoteCurrency: string): string {
 function normalizeStoredInterval(interval: StoredRateInterval): StoredRateInterval {
   'worklet';
 
-  return assertStoredFiatRateInterval(interval) as StoredRateInterval;
+  return assertStoredFiatRateInterval(interval);
 }
 
 function uniqueDependencies(

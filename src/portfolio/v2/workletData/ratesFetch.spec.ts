@@ -55,6 +55,7 @@ jest.mock('../../adapters/rn/workletMmkvBridge', () => ({
 
 import {runOnRuntimeAsync} from 'react-native-worklets';
 
+import * as txHistorySigning from '../../adapters/rn/txHistorySigning';
 import {PORTFOLIO_WORK_EPOCH_KEY} from '../constants';
 import {
   clearRecordedPortfolioV2MetricsForTesting,
@@ -454,10 +455,18 @@ describe('portfolio v2 ensureFresh', () => {
     ]);
   });
 
-  it('dispatches default rate fetch work to the rate-fetch runtime without JS fetch', async () => {
+  it('dispatches default rate fetch work to the rate-fetch runtime without JS trampolines', async () => {
     const mutableGlobal = globalThis as unknown as {fetch?: unknown};
     const originalFetch = mutableGlobal.fetch;
     const fetchSpy = jest.fn();
+    const createSigningContextSpy = jest.spyOn(
+      txHistorySigning,
+      'createPortfolioTxHistorySigningDispatchContextOnRN',
+    );
+    const bitcoreSigningSpy = jest.spyOn(
+      txHistorySigning,
+      'signBwsGetRequestWithBitcore',
+    );
     mutableGlobal.fetch = fetchSpy;
 
     try {
@@ -481,6 +490,8 @@ describe('portfolio v2 ensureFresh', () => {
       name: 'portfolio-rate-fetch',
     });
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(createSigningContextSpy).not.toHaveBeenCalled();
+    expect(bitcoreSigningSpy).not.toHaveBeenCalled();
   });
 
   it('drops fetched results when the work epoch changes before persist', async () => {

@@ -1,7 +1,8 @@
 import {CANONICAL_RATE_QUOTE} from './constants';
+import type {StoredFiatRateInterval} from '../core/fiatRatesShared';
 
 export type Interval = '1D' | '1W' | '1M' | '3M' | '1Y' | '5Y' | 'ALL';
-export type StoredRateInterval = '1D' | '1W' | '1M' | 'ALL';
+export type StoredRateInterval = StoredFiatRateInterval;
 
 export type JsonValue =
   | null
