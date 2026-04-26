@@ -104,7 +104,7 @@ import {
 } from './sharedState';
 import {emptyManifest, loadManifest, saveManifest} from './manifest';
 import {emptyQueue, loadQueue, saveQueue} from './populate/queue';
-import {startPopulate} from './populate/api';
+import {startPopulate, startPopulateForTesting} from './populate/api';
 import {
   getPortfolioComputeRuntime,
   getPortfolioPopulateRuntime,
@@ -342,7 +342,7 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
   });
 
   it('re-kicks existing populate work when duplicate requests insert no items', () => {
-    startPopulate({
+    startPopulateForTesting({
       walletIds: ['wallet-a'],
       reason: 'initial',
       isFirstPopulate: false,
@@ -351,7 +351,7 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
     populateCancelFlag.value = true;
     populateLoopRunning.value = false;
 
-    startPopulate({
+    startPopulateForTesting({
       walletIds: ['wallet-a'],
       reason: 'initial',
       isFirstPopulate: false,
@@ -385,7 +385,7 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
       ],
     });
 
-    startPopulate({
+    startPopulateForTesting({
       walletIds: ['wallet-a'],
       reason: 'send',
       isFirstPopulate: false,
@@ -396,6 +396,18 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
     expect(queue?.active).toEqual(active);
     expect(queue?.pending.map(item => `${item.runId}:${item.reason}`)).toEqual([
       'run-3:send',
+    ]);
+  });
+
+  it('logs an explicit Phase 1 gap for first-populate eligibility without wallet ids', () => {
+    startPopulate({reason: 'initial', isFirstPopulate: true});
+
+    expect(loadQueue()).toBeNull();
+    expect(getPortfolioRuntimeLogPayloadsForTesting()).toEqual([
+      expect.objectContaining({
+        tag: 'startPopulate',
+        reason: 'phase1FirstPopulateEligibilityNotImplemented',
+      }),
     ]);
   });
 
