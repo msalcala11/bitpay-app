@@ -45,8 +45,9 @@ export function normalizeExchangeRateRouteParams(
   };
 }
 
-export function serializeExchangeRateRoute(route: ExchangeRateRoute): {
-  route: ExchangeRateRoute;
-} {
-  return {route};
+export function serializeExchangeRateRoute(
+  route: ExchangeRateRoute,
+  initialInterval?: Interval,
+): SerializedExchangeRateRoute {
+  return initialInterval ? {route, initialInterval} : {route};
 }

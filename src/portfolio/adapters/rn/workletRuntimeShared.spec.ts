@@ -1,7 +1,9 @@
 import {
   clearPortfolioTxHistorySigningDispatchContextOnRuntime,
   getPortfolioTxHistorySigningDispatchContextOnRuntime,
+  requirePortfolioTxHistorySigningDispatchContextOnRuntime,
   setPortfolioTxHistorySigningDispatchContextOnRuntime,
+  takeNextPortfolioTransferredSignHandleOnRuntime,
 } from './txHistorySigning';
 import {
   initializePortfolioPopulateRuntimeGlobals as initializePopulateGlobals,
@@ -27,6 +29,12 @@ describe('portfolio worklet runtime shared initializers', () => {
     initializeRateFetchGlobals();
     expect(getPortfolioTxHistorySigningDispatchContextOnRuntime()).toBe(
       undefined,
+    );
+    expect(() =>
+      requirePortfolioTxHistorySigningDispatchContextOnRuntime(),
+    ).toThrow('No portfolio runtime request context is initialized');
+    expect(() => takeNextPortfolioTransferredSignHandleOnRuntime()).toThrow(
+      'No portfolio runtime request context is initialized',
     );
   });
 });

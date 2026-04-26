@@ -82,5 +82,7 @@ export function initializePortfolioRateFetchRuntimeGlobals(): void {
 export function initializePortfolioRuntimeGlobals(): void {
   'worklet';
 
+  // Legacy v1 entry point. Portfolio v2 must use the runtime-kind-specific
+  // initializers above so rate-fetch never inherits a wallet signing context.
   initializePortfolioPopulateRuntimeGlobals();
 }

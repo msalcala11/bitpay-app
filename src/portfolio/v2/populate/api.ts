@@ -7,6 +7,7 @@ import {
   saveQueue,
 } from './queue';
 import {kickPopulateLoopIfIdle} from './populateLoop';
+import {logPortfolioRuntimeError} from '../logPortfolioRuntimeError';
 import type {
   PopulateQueueItem,
   PopulateQueuePriority,
@@ -55,19 +56,35 @@ function supersedeOlderUnstartedSameWalletItems(args: {
 }
 
 export function startPopulate(args: {
-  walletIds: readonly string[];
   reason: PopulateQueueReason;
-  runId?: string;
-  isFirstPopulate?: boolean;
+  isFirstPopulate: boolean;
+  walletIds?: readonly string[];
   priority?: PopulateQueuePriority;
+  /**
+   * Phase 1 test seam only. Production trigger code should let startPopulate
+   * create run IDs so business-event identity stays owned by the queue helper.
+   */
+  testRunId?: string;
 }): void {
   const queue = args.isFirstPopulate
     ? emptyQueue()
     : loadQueue() ?? emptyQueue();
-  const runId = args.runId ?? createRunId(args.reason);
+  const walletIds = args.walletIds ?? [];
+  if (!walletIds.length) {
+    logPortfolioRuntimeError(new Error('No populate wallet IDs supplied'), {
+      tag: 'startPopulate',
+      reason: 'missingWalletIds',
+    });
+    if (queue.pending.length || queue.active) {
+      populateCancelFlag.value = false;
+      kickPopulateLoopIfIdle();
+    }
+    return;
+  }
+  const runId = args.testRunId ?? createRunId(args.reason);
   const priority = args.priority ?? priorityForPopulateReason(args.reason);
   const requestedAtMs = Date.now();
-  const incoming = args.walletIds.map(walletId => ({
+  const incoming = walletIds.map(walletId => ({
     itemId: `${runId}:${walletId}`,
     runId,
     walletId,
@@ -77,6 +94,10 @@ export function startPopulate(args: {
   }));
   const toInsert = incoming.filter(item => !hasItemInQueue(queue, item));
   if (!toInsert.length) {
+    if (queue.pending.length || queue.active) {
+      populateCancelFlag.value = false;
+      kickPopulateLoopIfIdle();
+    }
     return;
   }
   const pendingAfterSupersession = supersedeOlderUnstartedSameWalletItems({

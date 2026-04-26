@@ -118,7 +118,10 @@ import {
   isPortfolioReduxAccessInitialized,
   resetPortfolioReduxAccessForTesting,
 } from './reduxAccess';
-import {normalizeExchangeRateRouteParams} from './routes/exchangeRateRoute';
+import {
+  normalizeExchangeRateRouteParams,
+  serializeExchangeRateRoute,
+} from './routes/exchangeRateRoute';
 
 beforeEach(() => {
   mockMmkv.data.clear();
@@ -297,9 +300,21 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
   });
 
   it('keeps populate pending items sorted by priority lanes', () => {
-    startPopulate({walletIds: ['background-wallet'], reason: 'initial'});
-    startPopulate({walletIds: ['normal-wallet'], reason: 'manual'});
-    startPopulate({walletIds: ['urgent-wallet'], reason: 'send'});
+    startPopulate({
+      walletIds: ['background-wallet'],
+      reason: 'initial',
+      isFirstPopulate: false,
+    });
+    startPopulate({
+      walletIds: ['normal-wallet'],
+      reason: 'manual',
+      isFirstPopulate: false,
+    });
+    startPopulate({
+      walletIds: ['urgent-wallet'],
+      reason: 'send',
+      isFirstPopulate: false,
+    });
 
     expect(loadQueue()?.pending.map(item => item.walletId)).toEqual([
       'urgent-wallet',
@@ -310,12 +325,42 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
   });
 
   it('supersedes older unstarted same-wallet background work for urgent populate', () => {
-    startPopulate({walletIds: ['wallet-a'], reason: 'initial'});
-    startPopulate({walletIds: ['wallet-a'], reason: 'send'});
+    startPopulate({
+      walletIds: ['wallet-a'],
+      reason: 'initial',
+      isFirstPopulate: false,
+    });
+    startPopulate({
+      walletIds: ['wallet-a'],
+      reason: 'send',
+      isFirstPopulate: false,
+    });
 
     expect(
       loadQueue()?.pending.map(item => `${item.walletId}:${item.reason}`),
     ).toEqual(['wallet-a:send']);
+  });
+
+  it('re-kicks existing populate work when duplicate requests insert no items', () => {
+    startPopulate({
+      walletIds: ['wallet-a'],
+      reason: 'initial',
+      isFirstPopulate: false,
+      testRunId: 'run-1',
+    });
+    populateCancelFlag.value = true;
+    populateLoopRunning.value = false;
+
+    startPopulate({
+      walletIds: ['wallet-a'],
+      reason: 'initial',
+      isFirstPopulate: false,
+      testRunId: 'run-1',
+    });
+
+    expect(loadQueue()?.pending).toHaveLength(1);
+    expect(populateCancelFlag.value).toBe(false);
+    expect(populateLoopRunning.value).toBe(true);
   });
 
   it('preserves active same-wallet work when urgent populate is queued', () => {
@@ -340,7 +385,12 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
       ],
     });
 
-    startPopulate({walletIds: ['wallet-a'], reason: 'send', runId: 'run-3'});
+    startPopulate({
+      walletIds: ['wallet-a'],
+      reason: 'send',
+      isFirstPopulate: false,
+      testRunId: 'run-3',
+    });
 
     const queue = loadQueue();
     expect(queue?.active).toEqual(active);
@@ -453,18 +503,21 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
   });
 
   it('normalizes legacy exchange-rate params to marketAsset route shape', () => {
-    expect(
-      normalizeExchangeRateRouteParams({
-        currencyAbbreviation: 'BTC',
-        chain: 'btc',
-      }),
-    ).toEqual({
+    const route = normalizeExchangeRateRouteParams({
+      currencyAbbreviation: 'BTC',
+      chain: 'btc',
+    });
+    expect(route).toEqual({
       kind: 'marketAsset',
       fiatRateAssetRef: {
         coin: 'btc',
         chain: 'btc',
         tokenAddress: undefined,
       },
+    });
+    expect(serializeExchangeRateRoute(route, '1D')).toEqual({
+      route,
+      initialInterval: '1D',
     });
   });
 
