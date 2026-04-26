@@ -566,7 +566,7 @@ describe('portfolio v2 recompute entrypoint', () => {
     ).toBe('valid');
   });
 
-  it('preserves missing live-backed scoped totals while refreshing available row surfaces', () => {
+  it('rebuilds live-backed global and scoped totals during live-rate touch', () => {
     const liveInput = normalizedInput({
       formula: {
         ...normalizedInput().formula,
@@ -585,6 +585,7 @@ describe('portfolio v2 recompute entrypoint', () => {
     });
     const current = {
       ...built,
+      total: built.byWallet['eth-wallet'].series,
       scopedByWalletSet: {
         'eth-wallet': makePreviousScopedSlice({
           rowShells: built.rowShells,
@@ -624,9 +625,26 @@ describe('portfolio v2 recompute entrypoint', () => {
       fiatEnd: 260,
       rateEnd: 130,
     });
-    expect(next.scopedByWalletSet['eth-wallet'].total).toBe(
+    expect(next.total).not.toBe(current.total);
+    expect(next.total['1D']?.points.at(-1)).toEqual({
+      ts: ORACLE_TS.end,
+      fiatBalance: 260,
+      remainingUnrealizedPnlFiat: 60,
+      pnlChange: 60,
+      pnlPercent: 30,
+    });
+    expect(next.scopedByWalletSet['eth-wallet'].total).not.toBe(
       current.scopedByWalletSet['eth-wallet'].total,
     );
+    expect(
+      next.scopedByWalletSet['eth-wallet'].total['1D']?.points.at(-1),
+    ).toEqual({
+      ts: ORACLE_TS.end,
+      fiatBalance: 260,
+      remainingUnrealizedPnlFiat: 60,
+      pnlChange: 60,
+      pnlPercent: 30,
+    });
     expect(next.scopedByWalletSet['eth-wallet'].rowShells[0]).toMatchObject({
       currentFiatValue: 260,
     });
