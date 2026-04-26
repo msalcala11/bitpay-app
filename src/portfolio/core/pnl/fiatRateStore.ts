@@ -1,14 +1,14 @@
 import type {KvStore} from '../kv/types';
 import type {
   FiatRateAssetRef,
-  FiatRateInterval,
   FiatRateSeries,
   FiatRateSeriesResponse,
+  StoredFiatRateInterval,
 } from '../fiatRatesShared';
 import {
+  assertStoredFiatRateInterval,
   normalizeFiatRateSeriesChain,
   normalizeFiatRateSeriesTokenAddress,
-  resolveStoredFiatRateInterval,
 } from '../fiatRatesShared';
 import type {BwsConfig} from '../shared/bws';
 import {getFiatRateSeriesWithFx} from './fxRates';
@@ -23,13 +23,12 @@ import {
 function rateKey(args: {
   quoteCurrency: string;
   coin: string;
-  interval: FiatRateInterval;
+  interval: StoredFiatRateInterval;
   chain?: string;
   tokenAddress?: string;
 }): string {
-  const base = `rate:v1:${args.quoteCurrency.toUpperCase()}:${args.coin.toLowerCase()}:${resolveStoredFiatRateInterval(
-    args.interval,
-  )}`;
+  const interval = assertStoredFiatRateInterval(args.interval);
+  const base = `rate:v1:${args.quoteCurrency.toUpperCase()}:${args.coin.toLowerCase()}:${interval}`;
   const chain = normalizeFiatRateSeriesChain(args.chain);
   const tokenAddress = normalizeFiatRateSeriesTokenAddress(
     chain,
@@ -93,7 +92,7 @@ export interface FiatRateProvider {
   loadSeries(args: {
     cfg: BwsConfig;
     quoteCurrency: string;
-    interval: FiatRateInterval;
+    interval: StoredFiatRateInterval;
     coins: string[];
     asset?: FiatRateAssetRef;
   }): Promise<FiatRateSeriesResponse | unknown>;
@@ -122,7 +121,7 @@ export class FiatRateStore {
   private async getStoredSeries(args: {
     quoteCurrency: string;
     coin: string;
-    interval: FiatRateInterval;
+    interval: StoredFiatRateInterval;
     chain?: string;
     tokenAddress?: string;
   }): Promise<FiatRateSeries | null> {
@@ -140,7 +139,7 @@ export class FiatRateStore {
   async getSeries(args: {
     quoteCurrency: string;
     coin: string;
-    interval: FiatRateInterval;
+    interval: StoredFiatRateInterval;
     chain?: string;
     tokenAddress?: string;
   }): Promise<FiatRateSeries | null> {
@@ -150,7 +149,7 @@ export class FiatRateStore {
   async getSeriesWithFx(args: {
     quoteCurrency: string;
     coin: string;
-    interval: FiatRateInterval;
+    interval: StoredFiatRateInterval;
     chain?: string;
     tokenAddress?: string;
   }): Promise<FiatRateSeries | null> {
@@ -172,7 +171,7 @@ export class FiatRateStore {
   async setSeries(args: {
     quoteCurrency: string;
     coin: string;
-    interval: FiatRateInterval;
+    interval: StoredFiatRateInterval;
     series: FiatRateSeries;
     chain?: string;
     tokenAddress?: string;
@@ -190,7 +189,7 @@ export class FiatRateStore {
   async ensureRates(args: {
     cfg: BwsConfig;
     quoteCurrency: string;
-    interval: FiatRateInterval;
+    interval: StoredFiatRateInterval;
     coins: string[];
     assets?: FiatRateAssetRef[];
     maxAgeMs?: number;
@@ -216,7 +215,7 @@ export class FiatRateStore {
         }),
       ).values(),
     );
-    const interval = resolveStoredFiatRateInterval(args.interval);
+    const interval = assertStoredFiatRateInterval(args.interval);
 
     const missingDefaults: string[] = [];
     const missingExplicit: FiatRateAssetRef[] = [];

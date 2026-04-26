@@ -1,5 +1,6 @@
 import {
   DEFAULT_STORED_FIAT_RATE_INTERVALS,
+  assertStoredFiatRateInterval,
   getFiatRateSeriesCacheKey,
   getFiatRateSeriesUrl,
   normalizeFiatRateSeriesTokenAddress,
@@ -19,6 +20,22 @@ describe('fiatRatesShared interval storage policy', () => {
     expect(resolveStoredFiatRateInterval('1Y')).toBe('ALL');
     expect(resolveStoredFiatRateInterval('5Y')).toBe('ALL');
     expect(resolveStoredFiatRateInterval('ALL')).toBe('ALL');
+  });
+
+  it('rejects unresolved long-range intervals at provider and key boundaries', () => {
+    expect(() => assertStoredFiatRateInterval('3M')).toThrow(
+      /must be resolved/,
+    );
+    expect(() =>
+      getFiatRateSeriesUrl(
+        {baseUrl: 'https://bws.bitpay.com/bws/api'},
+        'USD',
+        '3M' as any,
+      ),
+    ).toThrow(/must be resolved/);
+    expect(() =>
+      getFiatRateSeriesCacheKey('USD', 'btc', '1Y' as any),
+    ).toThrow(/must be resolved/);
   });
 
   it('adds chain and tokenAddress for token rate URLs and cache keys', () => {

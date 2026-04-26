@@ -8,7 +8,10 @@ import {
   type WalletForAnalysisMeta,
   type WalletForStreamedAnalysis,
 } from '../../core/pnl/analysisStreaming';
-import type {FiatRatePoint} from '../../core/fiatRatesShared';
+import {
+  resolveStoredFiatRateInterval,
+  type FiatRatePoint,
+} from '../../core/fiatRatesShared';
 import type {
   ComputeAnalysisArgs,
   ComputeAnalysisSessionScopeArgs,
@@ -439,13 +442,14 @@ async function prepareWorkletAnalysisSessionData(
   });
 
   const ratePointsByAssetId: Record<string, FiatRatePoint[]> = {};
+  const storedTimeframe = resolveStoredFiatRateInterval(args.timeframe);
   for (const asset of baseAssets) {
     const series = await getWorkletRateSeriesWithFx({
       storage: config.storage,
       registryKey: config.registryKey,
       quoteCurrency: targetQuoteCurrency,
       coin: asset.coin,
-      interval: args.timeframe,
+      interval: storedTimeframe,
       chain: asset.chain,
       tokenAddress: asset.tokenAddress,
     });

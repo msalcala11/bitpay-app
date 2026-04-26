@@ -3,6 +3,7 @@ import {
   getFiatRateSeriesCacheKey,
   normalizeFiatRateSeriesChain,
   normalizeFiatRateSeriesTokenAddress,
+  resolveStoredFiatRateInterval,
 } from '../fiatRatesShared';
 import type {WalletCredentials} from '../types';
 
@@ -183,7 +184,8 @@ export const createFiatRateLookup = (args: {
   const getSeriesPoints = (interval: FiatRateInterval): FiatRatePoint[] | null => {
     'worklet';
 
-    const key = getFiatRateSeriesCacheKey(quoteCurrency, coin, interval, {chain, tokenAddress});
+    const storedInterval = resolveStoredFiatRateInterval(interval);
+    const key = getFiatRateSeriesCacheKey(quoteCurrency, coin, storedInterval, {chain, tokenAddress});
     const series = cache[key];
     const points = (series as any)?.points as FiatRatePoint[] | undefined;
     if (!Array.isArray(points) || points.length === 0) return null;
@@ -193,7 +195,8 @@ export const createFiatRateLookup = (args: {
   const getFinderForInterval = (interval: FiatRateInterval): Finder | null => {
     'worklet';
 
-    const key = getFiatRateSeriesCacheKey(quoteCurrency, coin, interval, {chain, tokenAddress});
+    const storedInterval = resolveStoredFiatRateInterval(interval);
+    const key = getFiatRateSeriesCacheKey(quoteCurrency, coin, storedInterval, {chain, tokenAddress});
     const existing = findersByKey.get(key);
     if (existing) return existing;
 

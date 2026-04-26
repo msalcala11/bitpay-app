@@ -6,6 +6,7 @@ import type {
   FiatRateInterval,
   FiatRatePoint,
   FiatRateSeriesCache,
+  StoredFiatRateInterval,
 } from '../fiatRatesShared';
 import {
   CANONICAL_FIAT_QUOTE,
@@ -227,7 +228,7 @@ export class PortfolioEngine {
     await this.rateStore.ensureRates({
       cfg: args.cfg,
       quoteCurrency: args.quoteCurrency,
-      interval: args.interval,
+      interval: resolveStoredFiatRateInterval(args.interval),
       coins: args.coins,
       assets: args.assets,
       maxAgeMs: args.maxAgeMs,
@@ -245,12 +246,12 @@ export class PortfolioEngine {
     const quoteCurrency = String(args.quoteCurrency || 'USD').toUpperCase();
     const requests = Array.isArray(args.requests) ? args.requests : [];
     const assetsByInterval = new Map<
-      FiatRateInterval,
+      StoredFiatRateInterval,
       {coins: Set<string>; assets: Map<string, FiatRateAssetRef>}
     >();
     const cacheReads: Array<{
       coin: string;
-      interval: FiatRateInterval;
+      interval: StoredFiatRateInterval;
       chain?: string;
       tokenAddress?: string;
     }> = [];
@@ -967,10 +968,11 @@ export class PortfolioEngine {
       });
     }
 
+    const storedTimeframe = resolveStoredFiatRateInterval(args.timeframe);
     await this.rateStore.ensureRates({
       cfg: args.cfg,
       quoteCurrency: CANONICAL_FIAT_QUOTE,
-      interval: args.timeframe,
+      interval: storedTimeframe,
       coins: defaultCoins,
       assets: explicitAssets,
     });
@@ -978,7 +980,7 @@ export class PortfolioEngine {
       await this.rateStore.ensureRates({
         cfg: args.cfg,
         quoteCurrency: targetQuoteCurrency,
-        interval: args.timeframe,
+        interval: storedTimeframe,
         coins: [FX_BRIDGE_COIN],
       });
     }
@@ -988,7 +990,7 @@ export class PortfolioEngine {
       const series = await this.rateStore.getSeriesWithFx({
         quoteCurrency: targetQuoteCurrency,
         coin: asset.coin,
-        interval: args.timeframe,
+        interval: storedTimeframe,
         chain: asset.chain,
         tokenAddress: asset.tokenAddress,
       });

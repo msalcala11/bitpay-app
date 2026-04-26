@@ -4,6 +4,7 @@ import type {BwsConfig} from './shared/bws';
 // IMPORTANT: Keep this module free of browser-only storage and UI dependencies.
 
 export type FiatRateInterval = '1D' | '1W' | '1M' | '3M' | '1Y' | '5Y' | 'ALL';
+export type StoredFiatRateInterval = '1D' | '1W' | '1M' | 'ALL';
 
 export type FiatRateAssetRef = {
   coin: string;
@@ -20,16 +21,42 @@ export const FX_BRIDGE_COIN = 'btc';
 
 // Persist only the intervals that add unique rate granularity.
 // Longer fixed windows read from ALL instead of storing duplicate daily histories.
-export const DEFAULT_STORED_FIAT_RATE_INTERVALS: readonly FiatRateInterval[] = [
+export const DEFAULT_STORED_FIAT_RATE_INTERVALS: readonly StoredFiatRateInterval[] = [
   '1D',
   '1W',
   '1M',
   'ALL',
 ];
 
+export const isStoredFiatRateInterval = (
+  interval: FiatRateInterval | string,
+): interval is StoredFiatRateInterval => {
+  'worklet';
+
+  return (
+    interval === '1D' ||
+    interval === '1W' ||
+    interval === '1M' ||
+    interval === 'ALL'
+  );
+};
+
+export const assertStoredFiatRateInterval = (
+  interval: FiatRateInterval | string,
+): StoredFiatRateInterval => {
+  'worklet';
+
+  if (isStoredFiatRateInterval(interval)) {
+    return interval;
+  }
+  throw new Error(
+    `Fiat rate interval "${String(interval)}" must be resolved to a stored interval before fetch or persist.`,
+  );
+};
+
 export const resolveStoredFiatRateInterval = (
   interval: FiatRateInterval,
-): FiatRateInterval => {
+): StoredFiatRateInterval => {
   'worklet';
 
   switch (interval) {
@@ -65,15 +92,12 @@ export type FiatRateSeriesResponse = {
 };
 
 const FIAT_RATE_SERIES_INTERVAL_DAYS: Record<
-  FiatRateInterval,
+  StoredFiatRateInterval,
   number | undefined
 > = {
   '1D': 1,
   '1W': 7,
   '1M': 30,
-  '3M': 90,
-  '1Y': 365,
-  '5Y': 1825,
   ALL: undefined,
 };
 
@@ -128,14 +152,15 @@ function normalizeAssetRef(asset: FiatRateAssetRef): FiatRateAssetRef {
 export const getFiatRateSeriesCacheKey = (
   fiatCode: string,
   coin: string,
-  interval: FiatRateInterval,
+  interval: StoredFiatRateInterval,
   asset?: Pick<FiatRateAssetRef, 'chain' | 'tokenAddress'>,
 ): string => {
   'worklet';
 
+  const storedInterval = assertStoredFiatRateInterval(interval);
   const base = `${(fiatCode || '').toUpperCase()}:${(
     coin || ''
-  ).toLowerCase()}:${interval}`;
+  ).toLowerCase()}:${storedInterval}`;
   const normalized = normalizeAssetRef({
     coin,
     chain: asset?.chain,
@@ -148,12 +173,13 @@ export const getFiatRateSeriesCacheKey = (
 export const getFiatRateSeriesUrl = (
   cfg: BwsConfig,
   fiatCode: string,
-  interval: FiatRateInterval,
+  interval: StoredFiatRateInterval,
   asset?: Pick<FiatRateAssetRef, 'chain' | 'tokenAddress'>,
 ): string => {
   'worklet';
 
-  const days = FIAT_RATE_SERIES_INTERVAL_DAYS[interval];
+  const days =
+    FIAT_RATE_SERIES_INTERVAL_DAYS[assertStoredFiatRateInterval(interval)];
   const codeUpper = (fiatCode || 'USD').toUpperCase();
   const params: string[] = [];
   if (days) params.push(`days=${encodeURIComponent(String(days))}`);

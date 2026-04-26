@@ -1,4 +1,5 @@
 import type {KvStore} from '../kv/types';
+import {resolveStoredFiatRateInterval} from '../fiatRatesShared';
 import {FiatRateStore, type FiatRateProvider} from './fiatRateStore';
 
 class MemoryKvStore implements KvStore {
@@ -62,7 +63,7 @@ describe('FiatRateStore.ensureRates', () => {
     ]);
   });
 
-  it('canonicalizes long-window storage to ALL', async () => {
+  it('rejects unresolved long-window intervals before provider fetch', async () => {
     const provider: FiatRateProvider = {
       loadSeries: jest.fn().mockResolvedValue({
         btc: [
@@ -73,17 +74,40 @@ describe('FiatRateStore.ensureRates', () => {
     };
     const store = new FiatRateStore(new MemoryKvStore(), {provider});
 
+    await expect(
+      store.ensureRates({
+        cfg: {baseUrl: '/bws/api'},
+        quoteCurrency: 'USD',
+        interval: '3M' as any,
+        coins: ['btc'],
+      }),
+    ).rejects.toThrow(/must be resolved/);
+    expect(provider.loadSeries).not.toHaveBeenCalled();
+  });
+
+  it('stores long-window chart requests under the resolved ALL interval', async () => {
+    const provider: FiatRateProvider = {
+      loadSeries: jest.fn().mockResolvedValue({
+        btc: [
+          {ts: 2, rate: 200},
+          {ts: 1, rate: 100},
+        ],
+      }),
+    };
+    const store = new FiatRateStore(new MemoryKvStore(), {provider});
+    const interval = resolveStoredFiatRateInterval('3M');
+
     await store.ensureRates({
       cfg: {baseUrl: '/bws/api'},
       quoteCurrency: 'USD',
-      interval: '3M',
+      interval,
       coins: ['btc'],
     });
 
     const series = await store.getSeries({
       quoteCurrency: 'USD',
       coin: 'btc',
-      interval: '3M',
+      interval,
     });
 
     expect(provider.loadSeries).toHaveBeenCalledWith({

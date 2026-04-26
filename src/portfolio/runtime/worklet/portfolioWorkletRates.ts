@@ -4,6 +4,7 @@ import {
   CANONICAL_FIAT_QUOTE,
   DEFAULT_STORED_FIAT_RATE_INTERVALS,
   FX_BRIDGE_COIN,
+  assertStoredFiatRateInterval,
   type FiatRateCacheRequest,
   getFiatRateSeriesCacheKey,
   getFiatRateSeriesUrl,
@@ -13,6 +14,7 @@ import {
   type FiatRateSeries,
   type FiatRateSeriesCache,
   type FiatRateSeriesResponse,
+  type StoredFiatRateInterval,
 } from '../../core/fiatRatesShared';
 import type {WalletSummary} from '../../core/types';
 import {getFiatRateSeriesWithFx} from '../../core/pnl/fxRates';
@@ -41,7 +43,7 @@ import {
 export const getWorkletRateStorageKey = (args: {
   quoteCurrency: string;
   coin: string;
-  interval: FiatRateInterval;
+  interval: StoredFiatRateInterval;
   chain?: string;
   tokenAddress?: string;
 }): string => {
@@ -134,7 +136,7 @@ function extractSeries(
 async function fetchFiatRatePayload(args: {
   cfg: BwsConfig;
   quoteCurrency: string;
-  interval: FiatRateInterval;
+  interval: StoredFiatRateInterval;
   asset?: Pick<FiatRateAssetRef, 'chain' | 'tokenAddress'>;
 }): Promise<unknown> {
   'worklet';
@@ -190,7 +192,7 @@ async function fetchFiatRatePayload(args: {
 async function fetchFiatRateSeries(args: {
   cfg: BwsConfig;
   quoteCurrency: string;
-  interval: FiatRateInterval;
+  interval: StoredFiatRateInterval;
   asset: FiatRateAssetRef;
 }): Promise<FiatRateSeries | null> {
   'worklet';
@@ -212,7 +214,7 @@ export function loadWorkletStoredRateSeries(
   args: PortfolioWorkletKvConfig & {
     quoteCurrency: string;
     coin: string;
-    interval: FiatRateInterval;
+    interval: StoredFiatRateInterval;
     chain?: string;
     tokenAddress?: string;
   },
@@ -234,7 +236,7 @@ async function loadOrFetchRateSeries(
   args: PortfolioWorkletKvConfig & {
     cfg: BwsConfig;
     quoteCurrency: string;
-    interval: FiatRateInterval;
+    interval: StoredFiatRateInterval;
     asset: FiatRateAssetRef;
   },
 ): Promise<FiatRateSeries | null> {
@@ -292,7 +294,7 @@ export async function ensureWorkletRates(
   args: PortfolioWorkletKvConfig & {
     cfg: BwsConfig;
     quoteCurrency: string;
-    interval: FiatRateInterval;
+    interval: StoredFiatRateInterval;
     coins: string[];
     assets?: FiatRateAssetRef[];
     maxAgeMs?: number;
@@ -302,7 +304,7 @@ export async function ensureWorkletRates(
   'worklet';
 
   const quoteCurrency = String(args.quoteCurrency || '').toUpperCase() || 'USD';
-  const interval = resolveStoredFiatRateInterval(args.interval);
+  const interval = assertStoredFiatRateInterval(args.interval);
   const assetsRaw: FiatRateAssetRef[] = [
     ...(Array.isArray(args.coins) ? args.coins : []).map(coin => ({coin})),
     ...(Array.isArray(args.assets) ? args.assets : []),
@@ -448,12 +450,12 @@ export async function getWorkletRateSeriesCache(
   ).toUpperCase();
   const requests = Array.isArray(args.requests) ? args.requests : [];
   const assetsByInterval = new Map<
-    FiatRateInterval,
+    StoredFiatRateInterval,
     {coins: Record<string, true>; assets: Record<string, FiatRateAssetRef>}
   >();
   const cacheReads: Array<{
     coin: string;
-    interval: FiatRateInterval;
+    interval: StoredFiatRateInterval;
     chain?: string;
     tokenAddress?: string;
   }> = [];
@@ -575,7 +577,7 @@ export async function getWorkletRateSeriesWithFx(
   args: PortfolioWorkletKvConfig & {
     quoteCurrency: string;
     coin: string;
-    interval: FiatRateInterval;
+    interval: StoredFiatRateInterval;
     chain?: string;
     tokenAddress?: string;
   },
@@ -614,7 +616,7 @@ export function listWorkletRates(
   key: string;
   quoteCurrency: string;
   coin: string;
-  interval: FiatRateInterval;
+  interval: StoredFiatRateInterval;
   fetchedOn: number;
   points: number;
   firstTs: number | null;
@@ -633,7 +635,7 @@ export function listWorkletRates(
     key: string;
     quoteCurrency: string;
     coin: string;
-    interval: FiatRateInterval;
+    interval: StoredFiatRateInterval;
     fetchedOn: number;
     points: number;
     firstTs: number | null;
@@ -650,7 +652,7 @@ export function listWorkletRates(
     const parts = key.split(':');
     const quoteCurrency = parts[2] ?? '';
     const coin = parts[3] ?? '';
-    const interval = String(parts[4] ?? '') as FiatRateInterval;
+    const interval = assertStoredFiatRateInterval(String(parts[4] ?? ''));
     const firstTs = Number(series.points[0]?.ts);
     const lastTs = Number(series.points[series.points.length - 1]?.ts);
 
@@ -771,13 +773,14 @@ export async function ensureWorkletCanonicalAndFxRates(
     ]),
   );
   const explicitAssets = args.assets.filter(asset => !!asset.tokenAddress);
+  const storedTimeframe = resolveStoredFiatRateInterval(args.timeframe);
 
   await ensureWorkletRates({
     storage: args.storage,
     registryKey: args.registryKey,
     cfg: args.cfg,
     quoteCurrency: CANONICAL_FIAT_QUOTE,
-    interval: args.timeframe,
+    interval: storedTimeframe,
     coins: defaultCoins,
     assets: explicitAssets,
   });
@@ -788,7 +791,7 @@ export async function ensureWorkletCanonicalAndFxRates(
       registryKey: args.registryKey,
       cfg: args.cfg,
       quoteCurrency: targetQuoteCurrency,
-      interval: args.timeframe,
+      interval: storedTimeframe,
       coins: [FX_BRIDGE_COIN],
     });
   }

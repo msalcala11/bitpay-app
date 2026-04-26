@@ -88,6 +88,8 @@ describe('SnapshotStore v2', () => {
 
     const idx = await store.loadIndex('w1');
     expect(idx?.v).toBe(2);
+    // New index save persists revision 1; appending the first chunk bumps it to 2.
+    expect(idx?.revision).toBe(2);
     expect(idx?.chunks).toHaveLength(1);
     expect(idx?.chunks[0]?.debugMode).toBe('none');
 
@@ -112,6 +114,82 @@ describe('SnapshotStore v2', () => {
     expect(hydrated?.cryptoBalance).toBe('2');
     expect(hydrated?.markRate).toBe(0);
     expect(hydrated?.remainingCostBasisFiat).toBe(0);
+  });
+
+  it('normalizes legacy snapshot indexes without revision to revision 1', async () => {
+    const kv = new MemoryKv();
+    await kv.setString(
+      'snap:index:v2:w-legacy-index',
+      JSON.stringify({
+        v: 2,
+        walletId: 'w-legacy-index',
+        compressionEnabled: true,
+        chunkRows: 500,
+        chunks: [],
+        checkpoint: {
+          nextSkip: 0,
+          balanceAtomic: '0',
+          remainingCostBasisFiat: 0,
+          lastMarkRate: 0,
+          lastTimestamp: 0,
+        },
+        updatedAt: 123,
+      }),
+    );
+
+    const store = new SnapshotStore(kv);
+    await expect(store.loadIndex('w-legacy-index')).resolves.toMatchObject({
+      revision: 1,
+    });
+  });
+
+  it('increments snapshot index revision on each index save', async () => {
+    const kv = new MemoryKv();
+    const store = new SnapshotStore(kv);
+    const meta = buildWalletMetaForStore({
+      wallet: {
+        walletId: 'w-revision',
+        walletName: 'Wallet Revision',
+        chain: 'eth',
+        network: 'livenet',
+        currencyAbbreviation: 'eth',
+        balanceAtomic: '0',
+        balanceFormatted: '0',
+      },
+      credentials: {
+        walletId: 'w-revision',
+        chain: 'eth',
+        network: 'livenet',
+        coin: 'eth',
+      } as any,
+      quoteCurrency: 'usd',
+      compressionEnabled: true,
+      chunkRows: 500,
+    });
+
+    const created = await store.ensureWalletIndex(meta);
+    expect(created.revision).toBe(1);
+
+    const checkpoint = {
+      nextSkip: 1,
+      balanceAtomic: '1',
+      remainingCostBasisFiat: 0,
+      lastMarkRate: 0,
+      lastTimestamp: 1000,
+    };
+
+    const checkpointOnly = await store.updateCheckpoint({
+      walletId: 'w-revision',
+      checkpoint,
+    });
+    expect(checkpointOnly.revision).toBe(2);
+
+    const withChunk = await store.appendChunk({
+      meta,
+      snapshots: [{timestamp: 1000, cryptoBalance: '1'}],
+      checkpoint,
+    });
+    expect(withChunk.revision).toBe(3);
   });
 
   it('defaults snapshot debug storage to none when callers omit the mode', async () => {

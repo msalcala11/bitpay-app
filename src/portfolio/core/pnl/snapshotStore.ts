@@ -108,6 +108,7 @@ export type SnapshotPopulateCheckpointV1 = {
 export type SnapshotIndexV2 = {
   v: 2;
   walletId: string;
+  revision: number;
   compressionEnabled: boolean;
   chunkRows: number;
   chunks: SnapshotChunkMetaV2[];
@@ -156,6 +157,21 @@ function chunkKey(walletId: string, chunkId: number): string {
 
 function invalidHistoryKey(walletId: string): string {
   return `snap:invalid-history:v1:${walletId}`;
+}
+
+function normalizeSnapshotIndexRevision(index: SnapshotIndexV2): SnapshotIndexV2 {
+  const revision = Math.trunc(Number(index.revision));
+  if (Number.isFinite(revision) && revision > 0) {
+    return {
+      ...index,
+      revision,
+    };
+  }
+
+  return {
+    ...index,
+    revision: 1,
+  };
 }
 
 function fallbackHydratedSnapshotId(walletId: string, timestamp: number, rowIndex: number): string {
@@ -415,8 +431,9 @@ export class SnapshotStore {
       return null;
     }
 
-    this.indexCache.set(walletId, idx);
-    return idx;
+    const normalized = normalizeSnapshotIndexRevision(idx);
+    this.indexCache.set(walletId, normalized);
+    return normalized;
   }
 
   async loadIndex(walletId: string): Promise<SnapshotIndexV2 | null> {
@@ -430,6 +447,11 @@ export class SnapshotStore {
   }
 
   private async saveIndex(idx: SnapshotIndexV2): Promise<void> {
+    const previousRevision = Math.trunc(Number(idx.revision));
+    idx.revision =
+      (Number.isFinite(previousRevision) && previousRevision > 0
+        ? previousRevision
+        : 0) + 1;
     idx.updatedAt = Date.now();
     await this.kv.setString(indexKey(idx.walletId), jsonStringifySafe(idx));
     this.indexCache.set(idx.walletId, cloneCachedValue(idx));
@@ -488,6 +510,7 @@ export class SnapshotStore {
     const idx: SnapshotIndexV2 = {
       v: 2,
       walletId: meta.walletId,
+      revision: 0,
       compressionEnabled: meta.compressionEnabled,
       chunkRows: meta.chunkRows,
       chunks: [],

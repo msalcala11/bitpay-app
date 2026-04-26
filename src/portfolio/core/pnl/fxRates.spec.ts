@@ -112,4 +112,104 @@ describe('fxRates', () => {
       {ts: 3, rate: 1980},
     ]);
   });
+
+  it('linearly samples bridge rates instead of dropping sparse bridge points', async () => {
+    const seriesByKey: Record<string, FiatRateSeries> = {
+      [getFiatRateSeriesCacheKey(CANONICAL_FIAT_QUOTE, 'eth', '1D')]: {
+        fetchedOn: 10,
+        points: [
+          {ts: 1, rate: 2000},
+          {ts: 2, rate: 2200},
+          {ts: 3, rate: 2400},
+        ],
+      },
+      [getFiatRateSeriesCacheKey(CANONICAL_FIAT_QUOTE, 'btc', '1D')]: {
+        fetchedOn: 10,
+        points: [
+          {ts: 1, rate: 40000},
+          {ts: 3, rate: 44000},
+        ],
+      },
+      [getFiatRateSeriesCacheKey('EUR', 'btc', '1D')]: {
+        fetchedOn: 10,
+        points: [
+          {ts: 1, rate: 36000},
+          {ts: 3, rate: 39600},
+        ],
+      },
+    };
+
+    await expect(
+      getFiatRateSeriesWithFx({
+        getSeries: async args =>
+          seriesByKey[
+            getFiatRateSeriesCacheKey(
+              args.quoteCurrency,
+              args.coin,
+              args.interval,
+              {
+                chain: args.chain,
+                tokenAddress: args.tokenAddress,
+              },
+            )
+          ] || null,
+        quoteCurrency: 'EUR',
+        coin: 'eth',
+        interval: '1D',
+      }),
+    ).resolves.toEqual({
+      fetchedOn: 10,
+      points: [
+        {ts: 1, rate: 1800},
+        {ts: 2, rate: 1980},
+        {ts: 3, rate: 2160},
+      ],
+    });
+  });
+
+  it('returns unavailable instead of silently dropping out-of-range bridge points', async () => {
+    const seriesByKey: Record<string, FiatRateSeries> = {
+      [getFiatRateSeriesCacheKey(CANONICAL_FIAT_QUOTE, 'eth', '1D')]: {
+        fetchedOn: 10,
+        points: [
+          {ts: 1, rate: 2000},
+          {ts: 4, rate: 2400},
+        ],
+      },
+      [getFiatRateSeriesCacheKey(CANONICAL_FIAT_QUOTE, 'btc', '1D')]: {
+        fetchedOn: 10,
+        points: [
+          {ts: 1, rate: 40000},
+          {ts: 3, rate: 44000},
+        ],
+      },
+      [getFiatRateSeriesCacheKey('EUR', 'btc', '1D')]: {
+        fetchedOn: 10,
+        points: [
+          {ts: 1, rate: 36000},
+          {ts: 3, rate: 39600},
+        ],
+      },
+    };
+
+    await expect(
+      getFiatRateSeriesWithFx({
+        getSeries: async args =>
+          seriesByKey[
+            getFiatRateSeriesCacheKey(
+              args.quoteCurrency,
+              args.coin,
+              args.interval,
+              {
+                chain: args.chain,
+                tokenAddress: args.tokenAddress,
+              },
+            )
+          ] || null,
+        quoteCurrency: 'EUR',
+        coin: 'eth',
+        interval: '1D',
+      }),
+    ).resolves.toBeNull();
+  });
 });

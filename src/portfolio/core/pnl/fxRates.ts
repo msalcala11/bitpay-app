@@ -1,16 +1,23 @@
-import type {FiatRateInterval, FiatRatePoint, FiatRateSeries, FiatRateSeriesCache} from '../fiatRatesShared';
+import type {
+  FiatRateInterval,
+  FiatRatePoint,
+  FiatRateSeries,
+  FiatRateSeriesCache,
+  StoredFiatRateInterval,
+} from '../fiatRatesShared';
 import {
   CANONICAL_FIAT_QUOTE,
   FX_BRIDGE_COIN,
   getFiatRateSeriesCacheKey,
   resolveStoredFiatRateInterval,
 } from '../fiatRatesShared';
+import {normalizeRatePoints, readRateAt} from './rateReader';
 import {normalizeFiatRateSeriesCoin} from './rates';
 
 type SeriesGetter = (args: {
   quoteCurrency: string;
   coin: string;
-  interval: FiatRateInterval;
+  interval: StoredFiatRateInterval;
   chain?: string;
   tokenAddress?: string;
 }) => Promise<FiatRateSeries | null>;
@@ -18,66 +25,14 @@ type SeriesGetter = (args: {
 function normalizePoints(pointsRaw: FiatRatePoint[] | undefined): FiatRatePoint[] {
   'worklet';
 
-  if (!Array.isArray(pointsRaw) || !pointsRaw.length) return [];
-  return pointsRaw
-    .map(p => ({ts: Number(p.ts), rate: Number(p.rate)}))
-    .filter(p => Number.isFinite(p.ts) && Number.isFinite(p.rate))
-    .sort((a, b) => a.ts - b.ts);
-}
-
-function makeNearestRateGetter(pointsRaw: FiatRatePoint[]): (ts: number) => number | undefined {
-  'worklet';
-
-  const points = normalizePoints(pointsRaw);
-  let idx = 0;
-  let lastTarget = -Infinity;
-
-  const clampIdx = (i: number) => {
-    'worklet';
-    return Math.max(0, Math.min(points.length - 1, i));
-  };
-
-  const binarySearchInsertion = (ts: number): number => {
-    'worklet';
-
-    let lo = 0;
-    let hi = points.length;
-    while (lo < hi) {
-      const mid = Math.floor((lo + hi) / 2);
-      if (points[mid].ts < ts) lo = mid + 1;
-      else hi = mid;
-    }
-    return lo;
-  };
-
-  return (targetTs: number) => {
-    'worklet';
-
-    if (!Number.isFinite(targetTs) || !points.length) return undefined;
-
-    if (targetTs >= lastTarget) {
-      while (idx + 1 < points.length && points[idx + 1].ts <= targetTs) idx++;
-    } else {
-      const ins = binarySearchInsertion(targetTs);
-      idx = clampIdx(ins === 0 ? 0 : ins - 1);
-    }
-    lastTarget = targetTs;
-
-    const left = points[idx];
-    const right = idx + 1 < points.length ? points[idx + 1] : null;
-    if (!right) return left.rate;
-
-    const dl = Math.abs(targetTs - left.ts);
-    const dr = Math.abs(right.ts - targetTs);
-    return dr < dl ? right.rate : left.rate;
-  };
+  return normalizeRatePoints(pointsRaw);
 }
 
 function getSeriesFromCache(args: {
   fiatRateSeriesCache: FiatRateSeriesCache;
   quoteCurrency: string;
   coin: string;
-  interval: FiatRateInterval;
+  interval: StoredFiatRateInterval;
   chain?: string;
   tokenAddress?: string;
 }): FiatRateSeries | null {
@@ -93,7 +48,7 @@ function getSeriesFromCache(args: {
 
 function deriveTargetSeries(args: {
   quoteCurrency: string;
-  interval: FiatRateInterval;
+  interval: StoredFiatRateInterval;
   canonicalQuote?: string;
   baseCoinSeries: FiatRateSeries;
   bridgeTargetSeries: FiatRateSeries;
@@ -116,23 +71,28 @@ function deriveTargetSeries(args: {
   const bridgeCanonicalPoints = normalizePoints(args.bridgeCanonicalSeries.points);
   if (!basePoints.length || !bridgeTargetPoints.length || !bridgeCanonicalPoints.length) return null;
 
-  const bridgeTargetRateAt = makeNearestRateGetter(bridgeTargetPoints);
-  const bridgeCanonicalRateAt = makeNearestRateGetter(bridgeCanonicalPoints);
-
   const derivedPoints: FiatRatePoint[] = [];
   for (const p of basePoints) {
-    const bridgeTargetRate = bridgeTargetRateAt(p.ts);
-    const bridgeCanonicalRate = bridgeCanonicalRateAt(p.ts);
+    const bridgeTargetRate = readRateAt({
+      series: bridgeTargetPoints,
+      ts: p.ts,
+      policy: 'linearRender',
+    });
+    const bridgeCanonicalRate = readRateAt({
+      series: bridgeCanonicalPoints,
+      ts: p.ts,
+      policy: 'linearRender',
+    });
     if (
-      !Number.isFinite(bridgeTargetRate) ||
-      !Number.isFinite(bridgeCanonicalRate) ||
-      (bridgeCanonicalRate as number) <= 0
+      bridgeTargetRate.kind !== 'rate' ||
+      bridgeCanonicalRate.kind !== 'rate' ||
+      bridgeCanonicalRate.rate <= 0
     ) {
-      continue;
+      return null;
     }
 
-    const rate = p.rate * (bridgeTargetRate as number) / (bridgeCanonicalRate as number);
-    if (!Number.isFinite(rate)) continue;
+    const rate = p.rate * bridgeTargetRate.rate / bridgeCanonicalRate.rate;
+    if (!Number.isFinite(rate)) return null;
     derivedPoints.push({ts: p.ts, rate});
   }
 

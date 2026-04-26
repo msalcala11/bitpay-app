@@ -233,6 +233,25 @@ function fallbackHydratedSnapshotId(
   return `snap:${walletId}:${timestamp}:${rowIndex}`;
 }
 
+function normalizeWorkletSnapshotIndexRevision(
+  index: SnapshotIndexV2,
+): SnapshotIndexV2 {
+  'worklet';
+
+  const revision = Math.trunc(Number(index.revision));
+  if (Number.isFinite(revision) && revision > 0) {
+    return {
+      ...index,
+      revision,
+    };
+  }
+
+  return {
+    ...index,
+    revision: 1,
+  };
+}
+
 function toPoint(row: [number, string]): SnapshotPointV2 {
   'worklet';
   return {
@@ -353,7 +372,7 @@ export async function loadWorkletSnapshotIndex(
   if (!index || index.v !== 2 || index.walletId !== walletId) {
     return null;
   }
-  return index;
+  return normalizeWorkletSnapshotIndexRevision(index);
 }
 
 export async function loadWorkletSnapshotMeta(
@@ -408,6 +427,11 @@ async function saveWorkletSnapshotIndex(
   index: SnapshotIndexV2,
 ): Promise<void> {
   'worklet';
+  const previousRevision = Math.trunc(Number(index.revision));
+  index.revision =
+    (Number.isFinite(previousRevision) && previousRevision > 0
+      ? previousRevision
+      : 0) + 1;
   index.updatedAt = Date.now();
   workletKvSetString(
     config,
@@ -467,6 +491,7 @@ export async function ensureWorkletWalletIndex(
   const index: SnapshotIndexV2 = {
     v: 2,
     walletId: meta.walletId,
+    revision: 0,
     compressionEnabled: meta.compressionEnabled,
     chunkRows: meta.chunkRows,
     chunks: [],

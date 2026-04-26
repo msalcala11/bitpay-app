@@ -151,6 +151,27 @@ describe('portfolioWorkletRates', () => {
     );
   });
 
+  it('rejects unresolved long intervals at the worklet ensure boundary', async () => {
+    const storage = createStorage();
+    const requestSyncMock = installNitroFetchMock(() => ({
+      ok: true,
+      status: 200,
+      bodyString: JSON.stringify({btc: [{ts: 1, rate: 100}]}),
+    }));
+
+    await expect(
+      ensureWorkletRates({
+        storage,
+        registryKey: '__registry__',
+        cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
+        quoteCurrency: 'USD',
+        interval: '3M' as any,
+        coins: ['btc'],
+      }),
+    ).rejects.toThrow(/must be resolved/);
+    expect(requestSyncMock).not.toHaveBeenCalled();
+  });
+
   it('builds a batched runtime cache and refreshes stale default-coin series once per interval', async () => {
     jest.spyOn(Date, 'now').mockReturnValue(10_000);
     const storage = createStorage();
@@ -185,6 +206,44 @@ describe('portfolioWorkletRates', () => {
       'USD:eth:1D': {
         fetchedOn: 10_000,
         points: [{ts: 1, rate: 202}],
+      },
+    });
+  });
+
+  it('resolves long chart intervals to ALL before worklet fetch and storage', async () => {
+    const storage = createStorage();
+    const requestSyncMock = installNitroFetchMock(() => ({
+      ok: true,
+      status: 200,
+      bodyString: JSON.stringify({
+        btc: [{ts: 1, rate: 101}],
+      }),
+    }));
+
+    const cache = await getWorkletRateSeriesCache({
+      storage,
+      registryKey: '__registry__',
+      cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
+      quoteCurrency: 'USD',
+      requests: [{coin: 'btc', intervals: ['3M']}],
+    });
+
+    expect(requestSyncMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://bws.bitpay.com/bws/api/v4/fiatrates/USD',
+      }),
+    );
+    expect(
+      requestSyncMock.mock.calls.some(call =>
+        String(call[0]?.url).includes('days=90'),
+      ),
+    ).toBe(false);
+    expect(storage.getString('rate:v1:USD:btc:ALL')).toBeTruthy();
+    expect(storage.getString('rate:v1:USD:btc:3M')).toBeUndefined();
+    expect(cache).toEqual({
+      'USD:btc:ALL': {
+        fetchedOn: expect.any(Number),
+        points: [{ts: 1, rate: 101}],
       },
     });
   });
