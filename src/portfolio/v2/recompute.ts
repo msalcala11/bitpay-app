@@ -1,4 +1,17 @@
-import type {PortfolioState} from './model';
+import {
+  buildPortfolioComputedState,
+  type PortfolioScopeComputedStateInput,
+  type ScopedPortfolioComputedStateInput,
+} from './compute/portfolioState';
+import {
+  buildFormulaComputedInputs,
+  type BuildFormulaComputedInputsArgs,
+} from './compute/recomputeFormula';
+import type {
+  PerIntervalSeries,
+  PortfolioStaleReason,
+  PortfolioState,
+} from './model';
 export {
   buildPortfolioComputedState,
   stableWalletIdsKey,
@@ -37,14 +50,72 @@ export type RecomputeScope =
   | {kind: 'touchWallets'; walletIds: readonly string[]}
   | {kind: 'liveRateTouch'; changedAssetIds?: readonly string[]};
 
+export type NormalizedFormulaRecomputeInput = Readonly<{
+  computedAtMs: number;
+  formula: BuildFormulaComputedInputsArgs;
+  total?: PerIntervalSeries;
+  populatedWalletIds?: readonly string[];
+  retryScheduledWalletIds?: readonly string[];
+  retryScheduledRateSourceKeys?: readonly string[];
+  staleReasons?: readonly PortfolioStaleReason[];
+  orderRevision?: number;
+  scopes?: readonly PortfolioScopeComputedStateInput[];
+  scopedSlices?: readonly ScopedPortfolioComputedStateInput[];
+  protectedScopedWalletIdsKeys?: readonly string[];
+  evictScopedWalletIds?: readonly string[];
+}>;
+
 export type RecomputeRequest = Readonly<{
   scope: RecomputeScope;
   startEpoch: number;
+  normalizedFormulaInput?: NormalizedFormulaRecomputeInput;
 }>;
+
+function idsFromRecord(
+  record: Readonly<Record<string, true>>,
+): readonly string[] {
+  'worklet';
+
+  return Object.keys(record).sort((a, b) => a.localeCompare(b));
+}
 
 export function recomputePortfolioState(
   current: PortfolioState,
-  _request: RecomputeRequest,
+  request: RecomputeRequest,
 ): PortfolioState {
-  return current;
+  const input = request.normalizedFormulaInput;
+  if (!input || request.startEpoch !== current.workEpoch) {
+    return current;
+  }
+
+  const formula = buildFormulaComputedInputs(input.formula);
+  if (formula.kind !== 'valid') {
+    return current;
+  }
+
+  const next = buildPortfolioComputedState({
+    workEpoch: request.startEpoch,
+    revision: current.revision + 1,
+    quoteCurrency: input.formula.quoteCurrency,
+    computedAtMs: input.computedAtMs,
+    orderRevision: input.orderRevision ?? current.orderRevision,
+    wallets: formula.wallets,
+    assetGroups: formula.assetGroups,
+    total: input.total,
+    populatedWalletIds:
+      input.populatedWalletIds ?? idsFromRecord(current.populatedWalletIdsById),
+    invalidHistoryWalletIds: formula.invalidHistoryWalletIds,
+    missingRateSourceKeys: formula.missingRateSourceKeys,
+    retryScheduledWalletIds: input.retryScheduledWalletIds,
+    retryScheduledRateSourceKeys: input.retryScheduledRateSourceKeys,
+    staleReasons: input.staleReasons,
+    previousReadinessByScopeKey: current.readinessByScopeKey,
+    scopes: input.scopes,
+    previousScopedByWalletSet: current.scopedByWalletSet,
+    scopedSlices: input.scopedSlices,
+    protectedScopedWalletIdsKeys: input.protectedScopedWalletIdsKeys,
+    evictScopedWalletIds: input.evictScopedWalletIds,
+  });
+
+  return next.kind === 'valid' ? next.state : current;
 }
