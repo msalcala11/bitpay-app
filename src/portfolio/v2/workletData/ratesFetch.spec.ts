@@ -354,6 +354,43 @@ describe('portfolio v2 ensureFresh', () => {
     ]);
   });
 
+  it('logs one failed stale result for mixed success and failure batches', async () => {
+    mockMmkv.set(PORTFOLIO_WORK_EPOCH_KEY, '1');
+    setRateFetchExecutorForTesting(async dependencies => {
+      mockMmkv.set(PORTFOLIO_WORK_EPOCH_KEY, '2');
+      return dependencies.map((dependency, index) =>
+        index === 0
+          ? ({
+              dependency,
+              series: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
+            } satisfies RateFetchRuntimeResult)
+          : ({
+              dependency,
+              errorKind: 'network' as const,
+            } satisfies RateFetchRuntimeResult),
+      );
+    });
+
+    await ensureFresh({
+      quoteCurrency: 'EUR',
+      assetRefs: [{coin: 'eth'}],
+      intervals: ['ALL'],
+      force: true,
+    });
+
+    expect(getRateFetchRetryStatesForTesting()).toEqual([]);
+    expect(getPortfolioRuntimeLogPayloadsForTesting()).toHaveLength(1);
+    expect(getPortfolioRuntimeLogPayloadsForTesting()).toEqual([
+      expect.objectContaining({
+        tag: 'staleWorkEpoch',
+        reason: 'runtimeResultFailed',
+        startEpoch: 1,
+        currentEpoch: 2,
+        runtimeKind: 'rateFetch',
+      }),
+    ]);
+  });
+
   it('dispatches default rate fetch work to the rate-fetch runtime without JS fetch', async () => {
     const mutableGlobal = globalThis as unknown as {fetch?: unknown};
     const originalFetch = mutableGlobal.fetch;

@@ -255,6 +255,17 @@ function classifyFetchError(error: unknown): RateFetchErrorKind {
   return 'unknown';
 }
 
+function isFailedRuntimeResult(result: RateFetchRuntimeResult): boolean {
+  'worklet';
+
+  return (
+    !!result.errorKind ||
+    !result.series ||
+    !Array.isArray(result.series.points) ||
+    result.series.points.length === 0
+  );
+}
+
 async function fetchSingleRateOnRuntime(
   dependency: RateFetchDependency,
   cfg: BwsConfig,
@@ -404,14 +415,15 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
     return;
   }
 
-  if (startEpoch !== getCurrentPortfolioWorkEpoch()) {
+  const currentEpoch = getCurrentPortfolioWorkEpoch();
+  if (startEpoch !== currentEpoch) {
     logPortfolioRuntimeError(new Error('stale rate fetch discarded'), {
       tag: 'staleWorkEpoch',
-      reason: results.some(result => !result.series?.points?.length)
+      reason: results.some(isFailedRuntimeResult)
         ? 'runtimeResultFailed'
         : 'runtimeResultSucceeded',
       startEpoch,
-      currentEpoch: getCurrentPortfolioWorkEpoch(),
+      currentEpoch,
       runtimeKind: 'rateFetch',
     });
     return;
