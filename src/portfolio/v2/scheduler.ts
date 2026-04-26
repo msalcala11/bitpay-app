@@ -18,8 +18,8 @@ import {
 import type {PortfolioPublishReason, PortfolioState} from './model';
 
 const pendingRecomputes: RecomputeRequest[] = [];
-let inFlightSchedulerRun:
-  | Promise<readonly ScheduledRecomputeRunResult[]>
+let inFlightRecomputeRun:
+  | Promise<ScheduledRecomputeRunResult>
   | undefined;
 
 export type ScheduledRecomputeRunResult =
@@ -27,13 +27,6 @@ export type ScheduledRecomputeRunResult =
   | Readonly<{kind: 'unchanged'}>
   | Readonly<{kind: 'published'; state: PortfolioState}>
   | Readonly<{kind: 'discarded'; state: PortfolioState}>;
-
-export type ScheduledRecomputeDrainResult =
-  | Readonly<{kind: 'idle'; results: readonly []}>
-  | Readonly<{
-      kind: 'drained';
-      results: readonly Exclude<ScheduledRecomputeRunResult, {kind: 'idle'}>[];
-    }>;
 
 function publishReasonForScope(scope: RecomputeScope): PortfolioPublishReason {
   'worklet';
@@ -634,57 +627,15 @@ async function runNextPendingRecomputeOnce(): Promise<ScheduledRecomputeRunResul
     : {kind: 'discarded', state: next};
 }
 
-async function drainPendingRecomputesOnce(): Promise<
-  readonly ScheduledRecomputeRunResult[]
-> {
-  const results: ScheduledRecomputeRunResult[] = [];
-
-  for (;;) {
-    const result = await runNextPendingRecomputeOnce();
-    if (result.kind === 'idle') {
-      return results;
-    }
-    results.push(result);
-  }
-}
-
-function startSchedulerRun(args: {
-  drain: boolean;
-}): Promise<readonly ScheduledRecomputeRunResult[]> {
-  if (inFlightSchedulerRun) {
-    return inFlightSchedulerRun;
-  }
-
-  inFlightSchedulerRun = (
-    args.drain
-      ? drainPendingRecomputesOnce()
-      : runNextPendingRecomputeOnce().then(result =>
-          result.kind === 'idle' ? [] : [result],
-        )
-  ).finally(() => {
-    inFlightSchedulerRun = undefined;
-  });
-  return inFlightSchedulerRun;
-}
-
 export function runNextPendingRecompute(): Promise<ScheduledRecomputeRunResult> {
-  return startSchedulerRun({drain: false}).then(
-    results => results[0] ?? {kind: 'idle'},
-  );
-}
+  if (inFlightRecomputeRun) {
+    return inFlightRecomputeRun;
+  }
 
-export function drainPendingRecomputes(): Promise<ScheduledRecomputeDrainResult> {
-  return startSchedulerRun({drain: true}).then(results =>
-    results.length
-      ? {
-          kind: 'drained',
-          results: results as readonly Exclude<
-            ScheduledRecomputeRunResult,
-            {kind: 'idle'}
-          >[],
-        }
-      : {kind: 'idle', results: []},
-  );
+  inFlightRecomputeRun = runNextPendingRecomputeOnce().finally(() => {
+    inFlightRecomputeRun = undefined;
+  });
+  return inFlightRecomputeRun;
 }
 
 export function getPendingRecomputesForTesting(): RecomputeRequest[] {
@@ -693,5 +644,5 @@ export function getPendingRecomputesForTesting(): RecomputeRequest[] {
 
 export function clearPendingRecomputesForTesting(): void {
   pendingRecomputes.length = 0;
-  inFlightSchedulerRun = undefined;
+  inFlightRecomputeRun = undefined;
 }

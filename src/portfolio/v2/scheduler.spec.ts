@@ -16,7 +16,6 @@ import {
 } from './model';
 import {
   clearPendingRecomputesForTesting,
-  drainPendingRecomputes,
   getPendingRecomputesForTesting,
   runNextPendingRecompute,
   scheduleRecompute,
@@ -869,14 +868,9 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
       normalizedFormulaInput: normalizedInput(),
     });
 
-    await expect(drainPendingRecomputes()).resolves.toMatchObject({
-      kind: 'drained',
-      results: [
-        {kind: 'unchanged'},
-        {kind: 'unchanged'},
-        {kind: 'unchanged'},
-      ],
-    });
+    await runNextPendingRecompute();
+    await runNextPendingRecompute();
+    await runNextPendingRecompute();
 
     expect(
       (runOnRuntimeAsync as jest.Mock).mock.calls.map(call => call[3].scope),
@@ -887,7 +881,7 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
     ]);
   });
 
-  it('serializes concurrent drain calls and keeps draining queued work', async () => {
+  it('serializes concurrent drain calls through one in-flight recompute', async () => {
     const current = makeCurrentState();
     sharedPortfolioState.value = current;
     let resolveRuntime: ((state: PortfolioState) => void) | undefined;
@@ -909,57 +903,17 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
       normalizedFormulaInput: normalizedInput({computedAtMs: 101}),
     });
 
-    const first = drainPendingRecomputes();
-    const second = drainPendingRecomputes();
+    const first = runNextPendingRecompute();
+    const second = runNextPendingRecompute();
     expect(runOnRuntimeAsync).toHaveBeenCalledTimes(1);
     expect(getPendingRecomputesForTesting()).toHaveLength(1);
 
     resolveRuntime?.(current);
-    await expect(first).resolves.toMatchObject({
-      kind: 'drained',
-      results: [{kind: 'unchanged'}, {kind: 'unchanged'}],
-    });
-    await expect(second).resolves.toMatchObject({
-      kind: 'drained',
-      results: [{kind: 'unchanged'}, {kind: 'unchanged'}],
-    });
-    expect(runOnRuntimeAsync).toHaveBeenCalledTimes(2);
-    expect(getPendingRecomputesForTesting()).toHaveLength(0);
-  });
-
-  it('picks up work scheduled while a drain is already in flight', async () => {
-    const current = makeCurrentState();
-    sharedPortfolioState.value = current;
-    let resolveRuntime: ((state: PortfolioState) => void) | undefined;
-    (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
-      () =>
-        new Promise(resolve => {
-          resolveRuntime = resolve as (state: PortfolioState) => void;
-        }),
-    );
-
-    scheduleRecompute({
-      scope: 'full',
-      startEpoch: 7,
-      normalizedFormulaInput: normalizedInput(),
-    });
-
-    const drain = drainPendingRecomputes();
+    await expect(first).resolves.toEqual({kind: 'unchanged'});
+    await expect(second).resolves.toEqual({kind: 'unchanged'});
     expect(runOnRuntimeAsync).toHaveBeenCalledTimes(1);
 
-    scheduleRecompute({
-      scope: {kind: 'wallet', walletId: 'eth-wallet'},
-      startEpoch: 7,
-      normalizedFormulaInput: normalizedInput({computedAtMs: 101}),
-    });
-    expect(getPendingRecomputesForTesting()).toHaveLength(1);
-
-    resolveRuntime?.(current);
-    await expect(drain).resolves.toMatchObject({
-      kind: 'drained',
-      results: [{kind: 'unchanged'}, {kind: 'unchanged'}],
-    });
+    await runNextPendingRecompute();
     expect(runOnRuntimeAsync).toHaveBeenCalledTimes(2);
-    expect(getPendingRecomputesForTesting()).toHaveLength(0);
   });
 });
