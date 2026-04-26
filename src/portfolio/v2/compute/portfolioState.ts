@@ -62,7 +62,9 @@ export type PortfolioComputedStateInvalidReason =
   | 'invalidQuoteCurrency'
   | 'invalidComputedAtMs'
   | 'invalidOrderRevision'
+  | 'invalidPopulatedWalletId'
   | 'invalidStatusIdentity'
+  | 'invalidStaleReason'
   | 'invalidScopeKey'
   | 'duplicateScopeKey'
   | 'invalidScopeWalletId'
@@ -162,6 +164,15 @@ function hasOnlyStrictIdentities(values: readonly string[] | undefined): boolean
   return !values || values.every(isStrictIdentity);
 }
 
+function isKnownStaleReason(value: unknown): value is PortfolioStaleReason {
+  'worklet';
+
+  return (
+    typeof value === 'string' &&
+    STALE_REASON_ORDER.includes(value as PortfolioStaleReason)
+  );
+}
+
 function validatePortfolioComputedStateArgs(
   args: BuildPortfolioComputedStateArgs,
 ): PortfolioComputedStateInvalidReason | undefined {
@@ -185,6 +196,9 @@ function validatePortfolioComputedStateArgs(
   ) {
     return 'invalidOrderRevision';
   }
+  if (!hasOnlyStrictIdentities(args.populatedWalletIds)) {
+    return 'invalidPopulatedWalletId';
+  }
   if (
     !hasOnlyStrictIdentities(args.invalidHistoryWalletIds) ||
     !hasOnlyStrictIdentities(args.missingRateSourceKeys) ||
@@ -192,6 +206,9 @@ function validatePortfolioComputedStateArgs(
     !hasOnlyStrictIdentities(args.retryScheduledRateSourceKeys)
   ) {
     return 'invalidStatusIdentity';
+  }
+  if (args.staleReasons && !args.staleReasons.every(isKnownStaleReason)) {
+    return 'invalidStaleReason';
   }
 
   const walletIdsById: Record<string, true> = {};

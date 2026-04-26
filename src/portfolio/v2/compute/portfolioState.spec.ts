@@ -686,9 +686,21 @@ describe('portfolio v2 computed state producer', () => {
     ).toEqual({kind: 'invalid', reason: 'invalidOrderRevision'});
     expect(
       buildPortfolioComputedState(
+        makeBaseArgs({populatedWalletIds: [' btc-wallet']}),
+      ),
+    ).toEqual({kind: 'invalid', reason: 'invalidPopulatedWalletId'});
+    expect(
+      buildPortfolioComputedState(
         makeBaseArgs({missingRateSourceKeys: [' btc']}),
       ),
     ).toEqual({kind: 'invalid', reason: 'invalidStatusIdentity'});
+    expect(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          staleReasons: ['unknownReason' as any],
+        }),
+      ),
+    ).toEqual({kind: 'invalid', reason: 'invalidStaleReason'});
     expect(
       buildPortfolioComputedState(
         makeBaseArgs({
