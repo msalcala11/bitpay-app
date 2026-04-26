@@ -10,6 +10,15 @@ export {
   type ScopedPortfolioComputedStateInput,
   type WalletComputedStateInput,
 } from './compute/portfolioState';
+export {
+  buildCappedSampleGrid,
+  buildWalletSeriesFromEvents,
+  type BalanceChangeEvent,
+  type BuildCappedSampleGridArgs,
+  type BuildWalletSeriesFromEventsArgs,
+  type BuildWalletSeriesFromEventsResult,
+  type WalletSeriesFormulaInvalidReason,
+} from './compute/seriesFormula';
 
 export type RecomputeScope =
   | 'full'
