@@ -75,14 +75,20 @@ export type BuildAssetGroupRowPayloadResult =
         | 'rateEndpointMismatch';
     }>;
 
-function isStrictIdentity(value: string): boolean {
+function isStrictIdentity(value: unknown): value is string {
   'worklet';
 
-  return !!value.trim() && value === value.trim();
+  return (
+    typeof value === 'string' && !!value.trim() && value === value.trim()
+  );
 }
 
-function normalizeDisplaySymbol(value: string): string | null {
+function normalizeDisplaySymbol(value: unknown): string | null {
   'worklet';
+
+  if (typeof value !== 'string') {
+    return null;
+  }
 
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
