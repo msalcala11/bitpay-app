@@ -252,6 +252,61 @@ describe('portfolio v2 recompute entrypoint', () => {
     expect(next.status.invalidHistoryWalletIds).toEqual([]);
   });
 
+  it('uses explicit invalid-history ids as the replacement seed and unions formula-invalid wallets', () => {
+    const current = makeCurrentState({
+      invalidHistoryWalletIdsKey: 'legacy-invalid-wallet',
+      invalidHistoryWalletIdsById: {'legacy-invalid-wallet': true},
+    });
+    const next = recomputePortfolioState(current, {
+      scope: 'full',
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({
+        invalidHistoryWalletIds: ['explicit-invalid-wallet'],
+        formula: {
+          quoteCurrency: 'USD',
+          wallets: [
+            {
+              walletId: 'eth-wallet',
+              assetGroupId: 'eth',
+              assetIdentityKey: 'eth',
+              rateSourceKey: 'eth',
+              displayUnitsAtomic: '2000000000000000000',
+              displayUnitDecimals: 18,
+              liveRate: 125,
+              lastWrittenAt: 10,
+              lastAccessedAt: 20,
+              intervals: [
+                oneDayInterval({
+                  baselineUnits: 1,
+                  balanceEvents: [
+                    {ts: ORACLE_TS.middle, unitsDelta: -2, order: 1},
+                  ],
+                }),
+              ],
+            },
+          ],
+          assetGroups: [
+            {
+              assetGroupId: 'eth',
+              displaySymbol: 'ETH',
+              orderIndex: 1,
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(next).not.toBe(current);
+    expect(next.status.invalidHistoryWalletIds).toEqual([
+      'eth-wallet',
+      'explicit-invalid-wallet',
+    ]);
+    expect(next.invalidHistoryWalletIdsById).toEqual({
+      'eth-wallet': true,
+      'explicit-invalid-wallet': true,
+    });
+  });
+
   it('surfaces formula invalid-history and missing-rate status through final state', () => {
     const invalidHistory = recomputePortfolioState(makeCurrentState(), {
       scope: 'full',
