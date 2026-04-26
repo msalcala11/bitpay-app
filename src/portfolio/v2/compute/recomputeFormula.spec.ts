@@ -543,6 +543,64 @@ describe('portfolio v2 formula recompute input builder', () => {
             lastAccessedAt: 20,
             intervals: [
               oneDayInterval({
+                sampledFromStoredInterval: '3M' as any,
+              }),
+            ],
+          },
+        ],
+        assetGroups: [
+          {
+            assetGroupId: 'eth',
+            displaySymbol: 'ETH',
+            orderIndex: 1,
+          },
+        ],
+      }),
+    ).toEqual({kind: 'invalid', reason: 'invalidWalletInterval'});
+    expect(
+      buildFormulaComputedInputs({
+        quoteCurrency: 'USD',
+        wallets: [
+          {
+            walletId: 'eth-wallet',
+            assetGroupId: 'eth',
+            assetIdentityKey: 'eth',
+            rateSourceKey: 'eth',
+            displayUnitsAtomic: '2000000000000000000',
+            displayUnitDecimals: 18,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [
+              oneDayInterval({
+                finalPointSource: 'bad' as any,
+              }),
+            ],
+          },
+        ],
+        assetGroups: [
+          {
+            assetGroupId: 'eth',
+            displaySymbol: 'ETH',
+            orderIndex: 1,
+          },
+        ],
+      }),
+    ).toEqual({kind: 'invalid', reason: 'invalidWalletInterval'});
+    expect(
+      buildFormulaComputedInputs({
+        quoteCurrency: 'USD',
+        wallets: [
+          {
+            walletId: 'eth-wallet',
+            assetGroupId: 'eth',
+            assetIdentityKey: 'eth',
+            rateSourceKey: 'eth',
+            displayUnitsAtomic: '2000000000000000000',
+            displayUnitDecimals: 18,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [
+              oneDayInterval({
                 seriesIdentityKey: ' bad',
               }),
             ],
