@@ -55,9 +55,22 @@ export type BuildPortfolioComputedStateArgs = Readonly<{
   scopes?: readonly PortfolioScopeComputedStateInput[];
 }>;
 
+export type PortfolioComputedStateInvalidReason =
+  | RecomputeStateSlicesInvalidReason
+  | 'invalidWorkEpoch'
+  | 'invalidRevision'
+  | 'invalidQuoteCurrency'
+  | 'invalidComputedAtMs'
+  | 'invalidOrderRevision'
+  | 'invalidStatusIdentity'
+  | 'invalidScopeKey'
+  | 'duplicateScopeKey'
+  | 'invalidScopeWalletId'
+  | 'unknownScopeWalletId';
+
 export type BuildPortfolioComputedStateResult =
   | Readonly<{kind: 'valid'; state: PortfolioState}>
-  | Readonly<{kind: 'invalid'; reason: RecomputeStateSlicesInvalidReason}>;
+  | Readonly<{kind: 'invalid'; reason: PortfolioComputedStateInvalidReason}>;
 
 const STALE_REASON_ORDER: readonly PortfolioStaleReason[] = [
   'missingSnapshotIndex',
@@ -111,6 +124,28 @@ function uniqueSorted(values: readonly string[]): readonly string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
 }
 
+function isStrictIdentity(value: unknown): value is string {
+  'worklet';
+
+  return (
+    typeof value === 'string' && !!value.trim() && value === value.trim()
+  );
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  'worklet';
+
+  return (
+    typeof value === 'number' && Number.isInteger(value) && value >= 0
+  );
+}
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  'worklet';
+
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
 function toIdRecord(values: readonly string[]): Readonly<Record<string, true>> {
   'worklet';
 
@@ -119,6 +154,73 @@ function toIdRecord(values: readonly string[]): Readonly<Record<string, true>> {
     out[value] = true;
   }
   return out;
+}
+
+function hasOnlyStrictIdentities(values: readonly string[] | undefined): boolean {
+  'worklet';
+
+  return !values || values.every(isStrictIdentity);
+}
+
+function validatePortfolioComputedStateArgs(
+  args: BuildPortfolioComputedStateArgs,
+): PortfolioComputedStateInvalidReason | undefined {
+  'worklet';
+
+  if (!isNonNegativeInteger(args.workEpoch)) {
+    return 'invalidWorkEpoch';
+  }
+  if (!isNonNegativeInteger(args.revision)) {
+    return 'invalidRevision';
+  }
+  if (!isStrictIdentity(args.quoteCurrency)) {
+    return 'invalidQuoteCurrency';
+  }
+  if (!isNonNegativeFiniteNumber(args.computedAtMs)) {
+    return 'invalidComputedAtMs';
+  }
+  if (
+    typeof args.orderRevision !== 'undefined' &&
+    !isNonNegativeInteger(args.orderRevision)
+  ) {
+    return 'invalidOrderRevision';
+  }
+  if (
+    !hasOnlyStrictIdentities(args.invalidHistoryWalletIds) ||
+    !hasOnlyStrictIdentities(args.missingRateSourceKeys) ||
+    !hasOnlyStrictIdentities(args.retryScheduledWalletIds) ||
+    !hasOnlyStrictIdentities(args.retryScheduledRateSourceKeys)
+  ) {
+    return 'invalidStatusIdentity';
+  }
+
+  const walletIdsById: Record<string, true> = {};
+  for (const wallet of args.wallets) {
+    if (isStrictIdentity(wallet.walletId)) {
+      walletIdsById[wallet.walletId] = true;
+    }
+  }
+  const seenScopeKeys = new Set<string>();
+  for (const scope of args.scopes ?? []) {
+    if (!isStrictIdentity(scope.scopeKey)) {
+      return 'invalidScopeKey';
+    }
+    if (seenScopeKeys.has(scope.scopeKey)) {
+      return 'duplicateScopeKey';
+    }
+    seenScopeKeys.add(scope.scopeKey);
+
+    for (const walletId of scope.walletIds) {
+      if (!isStrictIdentity(walletId)) {
+        return 'invalidScopeWalletId';
+      }
+      if (walletIdsById[walletId] !== true) {
+        return 'unknownScopeWalletId';
+      }
+    }
+  }
+
+  return undefined;
 }
 
 function seriesFingerprintValues(series: PerIntervalSeries): readonly string[] {
@@ -353,6 +455,11 @@ export function buildPortfolioComputedState(
 ): BuildPortfolioComputedStateResult {
   'worklet';
 
+  const validationError = validatePortfolioComputedStateArgs(args);
+  if (validationError) {
+    return {kind: 'invalid', reason: validationError};
+  }
+
   const walletInputs: WalletSliceAssemblyInput[] = args.wallets.map(
     wallet => ({
       ...wallet,
@@ -439,6 +546,8 @@ export function buildPortfolioComputedState(
       rowShells,
       total,
       totalFingerprint: buildTotalFingerprint(total),
+      // Phase 3c builds the global state only. Scoped-cache/LRU assembly lands
+      // in the scoped recompute integration step.
       scopedByWalletSet: {},
     },
   };

@@ -594,6 +594,134 @@ describe('portfolio v2 computed state producer', () => {
     );
   });
 
+  it('keeps partially invalid scopes ready without marking them fully blocked', () => {
+    const state = expectValid(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          populatedWalletIds: ['eth-usdc'],
+          invalidHistoryWalletIds: ['btc-wallet'],
+          scopes: [
+            {
+              scopeKey: 'mixed',
+              walletIds: ['btc-wallet', 'eth-usdc'],
+              hasPublishedValidSeriesThisPass: true,
+            },
+          ],
+        }),
+      ),
+    );
+
+    expect(state.readinessByScopeKey.mixed).toEqual({
+      empty: false,
+      hasEverPublishedValidSeries: true,
+      initialScopeReady: true,
+      refreshing: false,
+      invalidHistoryBlocked: false,
+    });
+  });
+
+  it('changes total fingerprints when total series identity changes', () => {
+    const base = expectValid(buildPortfolioComputedState(makeBaseArgs()));
+    const changedSeries = expectValid(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          total: {
+            '1D': makeSeries({
+              interval: '1D',
+              startTs: 1,
+              endTs: 2,
+              fiatStart: 300,
+              fiatEnd: 376,
+              pnlChange: 76,
+              pnlPercent: 25.333333333333336,
+              fingerprint: 'total:1d:changed',
+            }),
+          },
+        }),
+      ),
+    );
+    const addedInterval = expectValid(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          total: {
+            '1D': totalSeries,
+            ALL: makeSeries({
+              interval: 'ALL',
+              startTs: 10,
+              endTs: 20,
+              fiatStart: 100,
+              fiatEnd: 200,
+              pnlChange: 100,
+              pnlPercent: 100,
+              fingerprint: 'total:all',
+              sampledFromStoredInterval: 'ALL',
+            }),
+          },
+        }),
+      ),
+    );
+
+    expect(changedSeries.totalFingerprint).not.toBe(base.totalFingerprint);
+    expect(addedInterval.totalFingerprint).not.toBe(base.totalFingerprint);
+  });
+
+  it('rejects malformed top-level, status, and scope inputs', () => {
+    expect(
+      buildPortfolioComputedState(makeBaseArgs({workEpoch: Number.NaN})),
+    ).toEqual({kind: 'invalid', reason: 'invalidWorkEpoch'});
+    expect(buildPortfolioComputedState(makeBaseArgs({revision: -1}))).toEqual({
+      kind: 'invalid',
+      reason: 'invalidRevision',
+    });
+    expect(
+      buildPortfolioComputedState(makeBaseArgs({quoteCurrency: ' EUR'})),
+    ).toEqual({kind: 'invalid', reason: 'invalidQuoteCurrency'});
+    expect(
+      buildPortfolioComputedState(
+        makeBaseArgs({computedAtMs: Number.POSITIVE_INFINITY}),
+      ),
+    ).toEqual({kind: 'invalid', reason: 'invalidComputedAtMs'});
+    expect(
+      buildPortfolioComputedState(makeBaseArgs({orderRevision: -1})),
+    ).toEqual({kind: 'invalid', reason: 'invalidOrderRevision'});
+    expect(
+      buildPortfolioComputedState(
+        makeBaseArgs({missingRateSourceKeys: [' btc']}),
+      ),
+    ).toEqual({kind: 'invalid', reason: 'invalidStatusIdentity'});
+    expect(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          scopes: [{scopeKey: ' home', walletIds: ['btc-wallet']}],
+        }),
+      ),
+    ).toEqual({kind: 'invalid', reason: 'invalidScopeKey'});
+    expect(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          scopes: [
+            {scopeKey: 'home', walletIds: ['btc-wallet']},
+            {scopeKey: 'home', walletIds: ['eth-usdc']},
+          ],
+        }),
+      ),
+    ).toEqual({kind: 'invalid', reason: 'duplicateScopeKey'});
+    expect(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          scopes: [{scopeKey: 'home', walletIds: [' btc-wallet']}],
+        }),
+      ),
+    ).toEqual({kind: 'invalid', reason: 'invalidScopeWalletId'});
+    expect(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          scopes: [{scopeKey: 'home', walletIds: ['missing-wallet']}],
+        }),
+      ),
+    ).toEqual({kind: 'invalid', reason: 'unknownScopeWalletId'});
+  });
+
   it('propagates structural assembly failures without publishing state', () => {
     expect(
       buildPortfolioComputedState(
