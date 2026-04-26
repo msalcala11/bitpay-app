@@ -1017,7 +1017,7 @@ export const isFiatLoadingForWallets = (args: {
   quoteCurrency: string;
   wallets: Wallet[] | undefined;
   snapshotsByWalletId: Record<string, any[] | undefined> | undefined;
-  fiatRateSeriesCache: unknown;
+  fiatRateSeriesCache?: unknown;
 }): boolean => {
   const quoteCurrency = String(args.quoteCurrency || '').toUpperCase();
   if (!quoteCurrency || !(args.wallets || []).length) {

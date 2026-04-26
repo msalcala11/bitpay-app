@@ -1,5 +1,7 @@
 import type {BalanceSnapshotStored} from './types';
 
+// Legacy spec compatibility only. Production snapshot compression/storage is
+// owned by portfolio runtime/MMKV stores, not Redux persist transforms.
 export type BalanceSnapshotSeries = {
   version: 1;
   snapshots: BalanceSnapshotStored[];

@@ -24,11 +24,6 @@ import {
   decryptWalletStore,
 } from './encrypt';
 import {logManager} from '../../managers/LogManager';
-import {
-  hydrateBalanceSnapshotsFromSeries,
-  isBalanceSnapshotSeries,
-  packBalanceSnapshotsToSeries,
-} from '../../utils/portfolio/core/pnl/snapshotSeries';
 
 const BWCProvider = BwcProvider.getInstance();
 
@@ -222,97 +217,11 @@ export const transformPortfolioPopulateStatus = createTransform<
   {whitelist: ['PORTFOLIO']},
 );
 
-const toFiniteNumber = (value: unknown): number => {
-  const n = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(n) ? n : 0;
-};
-
-const normalizeHydratedSnapshot = (snapshot: any): any => {
-  const units = toFiniteNumber(snapshot?.cryptoBalance);
-  const markRate = toFiniteNumber(snapshot?.markRate);
-  const remainingCostBasisFiat = toFiniteNumber(
-    snapshot?.remainingCostBasisFiat,
-  );
-  const txIds = Array.isArray(snapshot?.txIds) ? snapshot.txIds : undefined;
-
-  return {
-    ...snapshot,
-    txIds: txIds && txIds.length > 1 ? txIds : undefined,
-    dayStartMs:
-      snapshot?.eventType === 'daily'
-        ? new Date(toFiniteNumber(snapshot.timestamp)).setHours(0, 0, 0, 0)
-        : undefined,
-    fiatBalance: units * markRate,
-    costBasisRateFiat:
-      units > 0 && remainingCostBasisFiat > 0
-        ? remainingCostBasisFiat / units
-        : markRate,
-    avgCostFiatPerUnit: units > 0 ? remainingCostBasisFiat / units : 0,
-    unrealizedPnlFiat: units * markRate - remainingCostBasisFiat,
-  };
-};
-
+// Compatibility export only. The refactor plan keeps large snapshot payloads
+// out of Redux persistence; runtime/MMKV snapshot storage owns compression.
 export const transformPortfolioSnapshotSeries = createTransform<any, any>(
-  inboundState => {
-    try {
-      const snapshotsByWalletId = inboundState.snapshotsByWalletId || {};
-      const nextSnapshotsByWalletId: Record<string, unknown> = {};
-
-      for (const [walletId, snapshots] of Object.entries(
-        snapshotsByWalletId,
-      )) {
-        if (!Array.isArray(snapshots) || snapshots.length === 0) {
-          continue;
-        }
-
-        const sortedSnapshots = snapshots
-          .slice()
-          .sort(
-            (left: any, right: any) =>
-              toFiniteNumber(left?.timestamp) - toFiniteNumber(right?.timestamp),
-          );
-        const packed = packBalanceSnapshotsToSeries({
-          snapshots: sortedSnapshots as any,
-          compressionEnabled: !sortedSnapshots.some(
-            (snapshot: any) => snapshot?.eventType === 'tx',
-          ),
-        });
-        if (packed) {
-          nextSnapshotsByWalletId[walletId] = packed;
-        }
-      }
-
-      return {
-        ...inboundState,
-        snapshotsByWalletId: nextSnapshotsByWalletId,
-      };
-    } catch {
-      return inboundState;
-    }
-  },
-  outboundState => {
-    try {
-      const snapshotsByWalletId = outboundState.snapshotsByWalletId || {};
-      const nextSnapshotsByWalletId: Record<string, unknown> = {};
-
-      for (const [walletId, value] of Object.entries(snapshotsByWalletId)) {
-        if (!isBalanceSnapshotSeries(value)) {
-          nextSnapshotsByWalletId[walletId] = value;
-          continue;
-        }
-
-        nextSnapshotsByWalletId[walletId] =
-          hydrateBalanceSnapshotsFromSeries(value).map(normalizeHydratedSnapshot);
-      }
-
-      return {
-        ...outboundState,
-        snapshotsByWalletId: nextSnapshotsByWalletId,
-      };
-    } catch {
-      return outboundState;
-    }
-  },
+  inboundState => inboundState,
+  outboundState => outboundState,
   {whitelist: ['PORTFOLIO']},
 );
 
