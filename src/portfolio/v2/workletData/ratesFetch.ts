@@ -3,6 +3,7 @@ import type {NitroResponse as NitroFetchResponse} from 'react-native-nitro-fetch
 import {
   CANONICAL_FIAT_QUOTE,
   FX_BRIDGE_COIN,
+  assertStoredFiatRateInterval,
   getFiatRateSeriesUrl,
   type FiatRateSeries,
   type FiatRateSeriesResponse,
@@ -73,14 +74,15 @@ type RateFetchExecutor = (
   cfg: BwsConfig,
 ) => Promise<readonly RateFetchRuntimeResult[]>;
 
+// Phase 2 keeps rate-fetch retry backoff in memory. App restart intentionally
+// clears the backoff and may try each stale dependency once after launch.
 const retryByDependencyKey = new Map<string, RateFetchRetryState>();
 let rateFetchExecutorForTesting: RateFetchExecutor | undefined;
 
-function nowMs(): number {
+function wallClockNowMs(): number {
   'worklet';
 
-  const candidate = globalThis?.performance?.now?.();
-  return Number.isFinite(candidate) ? Number(candidate) : Date.now();
+  return Date.now();
 }
 
 function dependencyKey(dependency: RateFetchDependency): string {
@@ -99,6 +101,12 @@ function normalizeQuoteCurrency(quoteCurrency: string): string {
   return String(quoteCurrency || CANONICAL_FIAT_QUOTE).toUpperCase();
 }
 
+function normalizeStoredInterval(interval: StoredRateInterval): StoredRateInterval {
+  'worklet';
+
+  return assertStoredFiatRateInterval(interval) as StoredRateInterval;
+}
+
 function uniqueDependencies(
   dependencies: readonly RateFetchDependency[],
 ): readonly RateFetchDependency[] {
@@ -107,7 +115,7 @@ function uniqueDependencies(
     const normalized: RateFetchDependency = {
       quoteCurrency: normalizeQuoteCurrency(dependency.quoteCurrency),
       asset: normalizeRateAssetRef(dependency.asset),
-      storedInterval: dependency.storedInterval,
+      storedInterval: normalizeStoredInterval(dependency.storedInterval),
     };
     if (!normalized.asset.coin) continue;
     byKey.set(dependencyKey(normalized), normalized);
@@ -120,14 +128,16 @@ function uniqueDependencies(
 export function buildEnsureFreshDependencies(
   args: EnsureFreshArgs,
 ): readonly RateFetchDependency[] {
-  const quoteCurrency = normalizeQuoteCurrency(args.quoteCurrency);
-  const intervals = Array.from(new Set(args.intervals || []));
+  const targetQuoteCurrency = normalizeQuoteCurrency(args.quoteCurrency);
+  const intervals = Array.from(
+    new Set((args.intervals || []).map(normalizeStoredInterval)),
+  );
   const dependencies: RateFetchDependency[] = [];
 
   for (const interval of intervals) {
     for (const assetRef of args.assetRefs || []) {
       dependencies.push({
-        quoteCurrency,
+        quoteCurrency: CANONICAL_FIAT_QUOTE,
         asset: assetRef,
         storedInterval: interval,
       });
@@ -139,9 +149,9 @@ export function buildEnsureFreshDependencies(
       storedInterval: interval,
     });
 
-    if (quoteCurrency !== CANONICAL_FIAT_QUOTE) {
+    if (targetQuoteCurrency !== CANONICAL_FIAT_QUOTE) {
       dependencies.push({
-        quoteCurrency,
+        quoteCurrency: targetQuoteCurrency,
         asset: {coin: FX_BRIDGE_COIN},
         storedInterval: interval,
       });
@@ -158,7 +168,7 @@ function isFresh(series: FiatRateSeries | null, maxAgeMs?: number): boolean {
   if (typeof maxAgeMs !== 'number' || !Number.isFinite(maxAgeMs)) {
     return true;
   }
-  return nowMs() - Number(series.fetchedOn) <= Math.max(0, maxAgeMs);
+  return wallClockNowMs() - Number(series.fetchedOn) <= Math.max(0, maxAgeMs);
 }
 
 async function readStoredSeries(key: string): Promise<FiatRateSeries | null> {
@@ -182,16 +192,16 @@ function computeRetryState(args: {
     storedInterval: args.dependency.storedInterval,
     rateSourceKey: getRateSourceKey(args.dependency.asset),
     attempt,
-    nextRetryAtMs: nowMs() + backoffMs + jitterMs,
+    nextRetryAtMs: wallClockNowMs() + backoffMs + jitterMs,
     lastErrorKind: args.errorKind,
-    lastErrorAtMs: nowMs(),
+    lastErrorAtMs: wallClockNowMs(),
   };
 }
 
 function shouldSkipForRetry(dependency: RateFetchDependency, force?: boolean): boolean {
   if (force) return false;
   const retry = retryByDependencyKey.get(dependencyKey(dependency));
-  return !!retry && retry.nextRetryAtMs > nowMs();
+  return !!retry && retry.nextRetryAtMs > wallClockNowMs();
 }
 
 function extractSeries(
@@ -202,7 +212,7 @@ function extractSeries(
 
   const directPoints = normalizeStoredFiatRateSeriesPoints(raw);
   if (directPoints.length) {
-    return {fetchedOn: nowMs(), points: directPoints};
+    return {fetchedOn: wallClockNowMs(), points: directPoints};
   }
 
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -216,7 +226,10 @@ function extractSeries(
   if (points.length) {
     const fetchedOn = Number((candidate as any)?.fetchedOn);
     return {
-      fetchedOn: Number.isFinite(fetchedOn) && fetchedOn > 0 ? fetchedOn : nowMs(),
+      fetchedOn:
+        Number.isFinite(fetchedOn) && fetchedOn > 0
+          ? fetchedOn
+          : wallClockNowMs(),
       points,
     };
   }
@@ -252,7 +265,7 @@ async function fetchSingleRateOnRuntime(
   const url = getFiatRateSeriesUrl(
     {baseUrl: String(cfg.baseUrl || '')},
     quoteCurrency,
-    dependency.storedInterval as any,
+    normalizeStoredInterval(dependency.storedInterval),
     {
       chain: asset.chain,
       tokenAddress: asset.tokenAddress,
@@ -352,7 +365,29 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
   }
 
   const executor = rateFetchExecutorForTesting ?? defaultRateFetchExecutor;
-  const results = await executor(toFetch, args.cfg ?? {});
+  let results: readonly RateFetchRuntimeResult[];
+  try {
+    results = await executor(toFetch, args.cfg ?? {});
+  } catch (error: unknown) {
+    const errorKind = classifyFetchError(error);
+    logPortfolioRuntimeError(error, {
+      tag: 'ensureFresh',
+      reason: 'executorFailed',
+      runtimeKind: 'rateFetch',
+    });
+    for (const dependency of toFetch) {
+      const key = dependencyKey(dependency);
+      retryByDependencyKey.set(
+        key,
+        computeRetryState({
+          dependency,
+          previous: retryByDependencyKey.get(key),
+          errorKind,
+        }),
+      );
+    }
+    return;
+  }
 
   if (
     typeof startEpoch === 'number' &&

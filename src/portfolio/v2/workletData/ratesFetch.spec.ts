@@ -53,6 +53,8 @@ jest.mock('../../adapters/rn/workletMmkvBridge', () => ({
   getPortfolioMmkvNativeStorageOnRN: () => mockMmkv,
 }));
 
+import {runOnRuntimeAsync} from 'react-native-worklets';
+
 import {PORTFOLIO_WORK_EPOCH_KEY} from '../constants';
 import {
   clearRecordedPortfolioV2MetricsForTesting,
@@ -63,6 +65,7 @@ import {
   getPortfolioRuntimeLogPayloadsForTesting,
 } from '../logPortfolioRuntimeError';
 import {resetPortfolioKvStoreForTesting} from '../kvStore';
+import {resetPortfolioV2RuntimesForTesting} from '../runtimes';
 import {
   buildEnsureFreshArgsForPopulateEligibleAssetGroups,
   buildEnsureFreshArgsForVisibleAssetGroups,
@@ -82,9 +85,11 @@ import {
 
 beforeEach(() => {
   jest.restoreAllMocks();
+  jest.clearAllMocks();
   mockMmkv.data.clear();
   resetPortfolioKvStoreForTesting();
   resetPortfolioReduxAccessForTesting();
+  resetPortfolioV2RuntimesForTesting();
   clearRecordedPortfolioV2MetricsForTesting();
   clearPortfolioRuntimeLogPayloadsForTesting();
   clearRateFetchRetryStateForTesting();
@@ -116,26 +121,36 @@ describe('portfolio v2 ensureFresh', () => {
         storedInterval: 'ALL',
       },
       {
-        quoteCurrency: 'EUR',
-        asset: {coin: 'eth', chain: undefined, tokenAddress: undefined},
+        quoteCurrency: 'USD',
+        asset: {coin: 'btc', chain: undefined, tokenAddress: undefined},
         storedInterval: '1D',
       },
       {
-        quoteCurrency: 'EUR',
-        asset: {coin: 'eth', chain: undefined, tokenAddress: undefined},
+        quoteCurrency: 'USD',
+        asset: {coin: 'btc', chain: undefined, tokenAddress: undefined},
         storedInterval: 'ALL',
       },
       {
         quoteCurrency: 'USD',
-        asset: {coin: 'btc', chain: undefined, tokenAddress: undefined},
+        asset: {coin: 'eth', chain: undefined, tokenAddress: undefined},
         storedInterval: '1D',
       },
       {
         quoteCurrency: 'USD',
-        asset: {coin: 'btc', chain: undefined, tokenAddress: undefined},
+        asset: {coin: 'eth', chain: undefined, tokenAddress: undefined},
         storedInterval: 'ALL',
       },
     ]);
+  });
+
+  it('rejects display-only intervals at the fetch/persist boundary', () => {
+    expect(() =>
+      buildEnsureFreshDependencies({
+        quoteCurrency: 'USD',
+        assetRefs: [{coin: 'btc'}],
+        intervals: ['3M' as any],
+      }),
+    ).toThrow(/must be resolved to a stored interval/);
   });
 
   it('persists fetched rates through the v2 MMKV mutation helper', async () => {
@@ -185,6 +200,7 @@ describe('portfolio v2 ensureFresh', () => {
   });
 
   it('records retry state and prevents background fetch spin until forced', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(10_000);
     const failingExecutor = jest.fn(
       async (dependencies: readonly RateFetchDependency[]) =>
       dependencies.map(
@@ -210,6 +226,8 @@ describe('portfolio v2 ensureFresh', () => {
         rateSourceKey: 'btc',
         attempt: 1,
         lastErrorKind: 'network',
+        lastErrorAtMs: 10_000,
+        nextRetryAtMs: 42_500,
       }),
     ]);
 
@@ -241,6 +259,70 @@ describe('portfolio v2 ensureFresh', () => {
 
     expect(successExecutor).toHaveBeenCalledTimes(1);
     expect(getRateFetchRetryStatesForTesting()).toEqual([]);
+  });
+
+  it('records retry state when the rate-fetch executor rejects', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(50_000);
+    const executor = jest.fn(async () => {
+      throw new Error('runtime unavailable');
+    });
+    setRateFetchExecutorForTesting(executor);
+
+    await expect(
+      ensureFresh({
+        quoteCurrency: 'USD',
+        assetRefs: [{coin: 'btc'}],
+        intervals: ['ALL'],
+        force: true,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(getRateFetchRetryStatesForTesting()).toEqual([
+      expect.objectContaining({
+        quoteCurrency: 'USD',
+        storedInterval: 'ALL',
+        rateSourceKey: 'btc',
+        attempt: 1,
+        lastErrorKind: 'unknown',
+        lastErrorAtMs: 50_000,
+      }),
+    ]);
+    expect(getPortfolioRuntimeLogPayloadsForTesting()).toEqual([
+      expect.objectContaining({
+        tag: 'ensureFresh',
+        reason: 'executorFailed',
+        runtimeKind: 'rateFetch',
+      }),
+    ]);
+  });
+
+  it('dispatches default rate fetch work to the rate-fetch runtime without JS fetch', async () => {
+    const mutableGlobal = globalThis as unknown as {fetch?: unknown};
+    const originalFetch = mutableGlobal.fetch;
+    const fetchSpy = jest.fn();
+    mutableGlobal.fetch = fetchSpy;
+
+    try {
+      await ensureFresh({
+        quoteCurrency: 'USD',
+        assetRefs: [{coin: 'btc'}],
+        intervals: ['ALL'],
+        force: true,
+        cfg: {baseUrl: 'https://bws.example'},
+      });
+    } finally {
+      if (typeof originalFetch === 'undefined') {
+        delete mutableGlobal.fetch;
+      } else {
+        mutableGlobal.fetch = originalFetch;
+      }
+    }
+
+    expect(runOnRuntimeAsync).toHaveBeenCalledTimes(1);
+    expect((runOnRuntimeAsync as jest.Mock).mock.calls[0][0]).toEqual({
+      name: 'portfolio-rate-fetch',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('drops fetched results when the work epoch changes before persist', async () => {
