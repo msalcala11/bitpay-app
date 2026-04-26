@@ -152,6 +152,8 @@ const variableBridgeRates = {
     {ts: ORACLE_TS.middle, rate: 1},
     {ts: ORACLE_TS.end, rate: 1},
   ],
+  targetBtcLiveRate: 0.95,
+  canonicalBtcLiveRate: 1,
 };
 
 describe('portfolio v2 formula recompute input builder', () => {
@@ -434,6 +436,7 @@ describe('portfolio v2 formula recompute input builder', () => {
     };
     const targetWallet = {
       ...canonicalWallet,
+      liveRate: 105.3,
       intervals: canonicalWallet.intervals.map(interval => ({
         ...interval,
         seriesIdentityKey: 'wallet:eth|asset:eth|quote:EUR|snap:1|rate:1',
@@ -467,6 +470,8 @@ describe('portfolio v2 formula recompute input builder', () => {
               {ts: ORACLE_TS.middle, rate: 1},
               {ts: ORACLE_TS.end, rate: 1},
             ],
+            targetBtcLiveRate: 0.9,
+            canonicalBtcLiveRate: 1,
           },
         },
       }),
@@ -497,6 +502,8 @@ describe('portfolio v2 formula recompute input builder', () => {
     expect(state.byAssetGroup.eth.rowToday).toEqual(
       state.rowShells[0].rowToday,
     );
+    expect(bridged.assetGroups[0].members[0].liveRate).toBeCloseTo(105.3, 10);
+    expect(state.rowShells[0].currentFiatValue).toBeCloseTo(210.6, 10);
     expect(state.byAssetGroup.eth.rowToday?.rateStart).toBe(90);
     expect(state.byAssetGroup.eth.rowToday?.rateEnd).toBe(117);
   });
@@ -513,7 +520,7 @@ describe('portfolio v2 formula recompute input builder', () => {
             rateSourceKey: 'usdc|eth',
             displayUnitsAtomic: '1000000',
             displayUnitDecimals: 6,
-            liveRate: 1.14,
+            liveRate: 1.2,
             lastWrittenAt: 10,
             lastAccessedAt: 20,
             intervals: [
@@ -536,7 +543,7 @@ describe('portfolio v2 formula recompute input builder', () => {
             rateSourceKey: 'usdc|pol',
             displayUnitsAtomic: '1000000',
             displayUnitDecimals: 6,
-            liveRate: 1.14,
+            liveRate: 1.2,
             lastWrittenAt: 11,
             lastAccessedAt: 21,
             intervals: [
@@ -594,12 +601,140 @@ describe('portfolio v2 formula recompute input builder', () => {
     expect(state.byAssetGroup.usdc.rowToday).toEqual(
       state.rowShells[0].rowToday,
     );
+    expect(state.rowShells[0].currentFiatValue).toBeCloseTo(2.28, 10);
     expect(state.byAssetGroup.usdc.rowToday?.rateStart).toBe(0.9);
     expect(state.byAssetGroup.usdc.rowToday?.rateEnd).toBe(1.14);
     expect(state.byAssetGroup.usdc.rowToday?.ratePercent).toBeCloseTo(
       ((1.14 - 0.9) / 0.9) * 100,
       10,
     );
+  });
+
+  it('uses sampled ALL bridge coverage for long display intervals', () => {
+    const formula = expectValidFormula(
+      buildQuoteBridgedFormulaComputedInputs({
+        targetQuoteCurrency: 'EUR',
+        wallets: [
+          {
+            walletId: 'eth-wallet',
+            assetGroupId: 'eth',
+            assetIdentityKey: 'eth',
+            rateSourceKey: 'eth',
+            displayUnitsAtomic: '2000000000000000000',
+            displayUnitDecimals: 18,
+            liveRate: 125,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [
+              oneDayInterval({
+                interval: '3M',
+                sampledFromStoredInterval: 'ALL',
+                seriesIdentityKey:
+                  'wallet:eth|asset:eth|quote:USD|snap:1|rate:all',
+              }),
+            ],
+          },
+        ],
+        assetGroups: [
+          {
+            assetGroupId: 'eth',
+            displaySymbol: 'ETH',
+            orderIndex: 1,
+          },
+        ],
+        bridgeRatePointsByStoredInterval: {
+          ALL: {
+            targetBtcRatePoints: [
+              {ts: ORACLE_TS.start, rate: 0.8},
+              {ts: ORACLE_TS.end, rate: 0.8},
+            ],
+            canonicalBtcRatePoints: [
+              {ts: ORACLE_TS.start, rate: 1},
+              {ts: ORACLE_TS.end, rate: 1},
+            ],
+            targetBtcLiveRate: 0.8,
+            canonicalBtcLiveRate: 1,
+          },
+        },
+      }),
+    );
+
+    expect(formula.missingRateSourceKeys).toEqual([]);
+    expect(formula.wallets[0].series['3M']?.points).toEqual([
+      {
+        ts: ORACLE_TS.start,
+        fiatBalance: 160,
+        remainingUnrealizedPnlFiat: 0,
+        pnlChange: 0,
+        pnlPercent: 0,
+      },
+      {
+        ts: ORACLE_TS.end,
+        fiatBalance: 200,
+        remainingUnrealizedPnlFiat: 40,
+        pnlChange: 40,
+        pnlPercent: 25,
+      },
+    ]);
+    expect(formula.assetGroups[0].members[0].liveRate).toBe(100);
+  });
+
+  it('does not leak canonical live rates when live bridge coverage is unavailable', () => {
+    const formula = expectValidFormula(
+      buildQuoteBridgedFormulaComputedInputs({
+        targetQuoteCurrency: 'EUR',
+        wallets: [
+          {
+            walletId: 'eth-wallet',
+            assetGroupId: 'eth',
+            assetIdentityKey: 'eth',
+            rateSourceKey: 'eth',
+            displayUnitsAtomic: '2000000000000000000',
+            displayUnitDecimals: 18,
+            liveRate: 125,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [oneDayInterval()],
+          },
+        ],
+        assetGroups: [
+          {
+            assetGroupId: 'eth',
+            displaySymbol: 'ETH',
+            orderIndex: 1,
+          },
+        ],
+        bridgeRatePointsByStoredInterval: {
+          '1D': {
+            targetBtcRatePoints: [
+              {ts: ORACLE_TS.start, rate: 0.9},
+              {ts: ORACLE_TS.end, rate: 0.9},
+            ],
+            canonicalBtcRatePoints: [
+              {ts: ORACLE_TS.start, rate: 1},
+              {ts: ORACLE_TS.end, rate: 1},
+            ],
+          },
+        },
+      }),
+    );
+    const state = expectValidState(
+      buildPortfolioComputedState({
+        workEpoch: 1,
+        revision: 1,
+        quoteCurrency: 'EUR',
+        computedAtMs: 100,
+        wallets: formula.wallets,
+        assetGroups: formula.assetGroups,
+        populatedWalletIds: ['eth-wallet'],
+      }),
+    );
+
+    expect(state.byWallet['eth-wallet'].series['1D']).toBeDefined();
+    expect(state.rowShells[0].currentFiatValue).toBeUndefined();
+    expect(
+      state.rowShells[0].groupHealth.nonzeroMissingLiveRateMemberWalletIds,
+    ).toEqual(['eth-wallet']);
   });
 
   it('reports missing rate sources when quote bridge coverage is unavailable', () => {
@@ -634,6 +769,26 @@ describe('portfolio v2 formula recompute input builder', () => {
     expect(formula.wallets[0].series).toEqual({});
     expect(formula.wallets[0].rowToday).toBeUndefined();
     expect(formula.missingRateSourceKeys).toEqual(['eth']);
+  });
+
+  it('rejects malformed quote bridge quote identities', () => {
+    expect(
+      buildQuoteBridgedFormulaComputedInputs({
+        targetQuoteCurrency: ' EUR',
+        wallets: [],
+        assetGroups: [],
+        bridgeRatePointsByStoredInterval: {},
+      }),
+    ).toEqual({kind: 'invalid', reason: 'invalidQuoteCurrency'});
+    expect(
+      buildQuoteBridgedFormulaComputedInputs({
+        targetQuoteCurrency: 'EUR',
+        canonicalQuoteCurrency: '',
+        wallets: [],
+        assetGroups: [],
+        bridgeRatePointsByStoredInterval: {},
+      }),
+    ).toEqual({kind: 'invalid', reason: 'invalidQuoteCurrency'});
   });
 
   it('rejects malformed formula bridge inputs before state assembly', () => {

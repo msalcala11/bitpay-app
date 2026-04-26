@@ -65,6 +65,8 @@ export type BuildFormulaComputedInputsArgs = Readonly<{
 export type FormulaQuoteBridgeRatePoints = Readonly<{
   targetBtcRatePoints: readonly FiatRatePoint[];
   canonicalBtcRatePoints: readonly FiatRatePoint[];
+  targetBtcLiveRate?: number;
+  canonicalBtcLiveRate?: number;
 }>;
 
 export type BuildQuoteBridgedFormulaComputedInputsArgs = Readonly<{
@@ -310,6 +312,40 @@ function bridgeHashValues(
   return points.flatMap(point => [point.ts, point.rate]);
 }
 
+function normalizeQuoteCurrency(value: unknown): string | null {
+  'worklet';
+
+  if (typeof value !== 'string' || !value.trim() || value !== value.trim()) {
+    return null;
+  }
+
+  return value.toUpperCase();
+}
+
+function bridgePositiveRate(args: {
+  canonicalRate: number | undefined;
+  targetBtcRate: number | undefined;
+  canonicalBtcRate: number | undefined;
+}): number | undefined {
+  'worklet';
+
+  if (
+    !isFiniteNumber(args.canonicalRate) ||
+    !isFiniteNumber(args.targetBtcRate) ||
+    !isFiniteNumber(args.canonicalBtcRate) ||
+    args.canonicalRate <= 0 ||
+    args.targetBtcRate <= 0 ||
+    args.canonicalBtcRate <= 0
+  ) {
+    return undefined;
+  }
+
+  const bridgedRate =
+    (args.canonicalRate * args.targetBtcRate) / args.canonicalBtcRate;
+
+  return Number.isFinite(bridgedRate) ? bridgedRate : undefined;
+}
+
 function buildFormulaRateReadTimestamps(
   interval: FormulaWalletIntervalInput,
 ): readonly number[] {
@@ -362,26 +398,54 @@ function buildQuoteBridgedRatePoints(args: {
     const canonicalAssetRate = canonicalAssetReader.read(ts);
     const targetBtcRate = targetBtcReader.read(ts);
     const canonicalBtcRate = canonicalBtcReader.read(ts);
-    if (
-      canonicalAssetRate.kind !== 'rate' ||
-      targetBtcRate.kind !== 'rate' ||
-      canonicalBtcRate.kind !== 'rate' ||
-      canonicalAssetRate.rate <= 0 ||
-      targetBtcRate.rate <= 0 ||
-      canonicalBtcRate.rate <= 0
-    ) {
+    const bridgedRate =
+      canonicalAssetRate.kind === 'rate' &&
+      targetBtcRate.kind === 'rate' &&
+      canonicalBtcRate.kind === 'rate'
+        ? bridgePositiveRate({
+            canonicalRate: canonicalAssetRate.rate,
+            targetBtcRate: targetBtcRate.rate,
+            canonicalBtcRate: canonicalBtcRate.rate,
+          })
+        : undefined;
+
+    if (typeof bridgedRate !== 'number') {
       return undefined;
     }
 
     points.push({
       ts,
-      rate:
-        (canonicalAssetRate.rate * targetBtcRate.rate) /
-        canonicalBtcRate.rate,
+      rate: bridgedRate,
     });
   }
 
   return points;
+}
+
+function buildQuoteBridgedLiveRate(args: {
+  wallet: FormulaWalletInput;
+  bridgeRatePointsByStoredInterval: BuildQuoteBridgedFormulaComputedInputsArgs['bridgeRatePointsByStoredInterval'];
+}): number | undefined {
+  'worklet';
+
+  if (typeof args.wallet.liveRate !== 'number') {
+    return undefined;
+  }
+
+  for (const interval of args.wallet.intervals) {
+    const bridge =
+      args.bridgeRatePointsByStoredInterval[interval.sampledFromStoredInterval];
+    const bridgedRate = bridgePositiveRate({
+      canonicalRate: args.wallet.liveRate,
+      targetBtcRate: bridge?.targetBtcLiveRate,
+      canonicalBtcRate: bridge?.canonicalBtcLiveRate,
+    });
+    if (typeof bridgedRate === 'number') {
+      return bridgedRate;
+    }
+  }
+
+  return undefined;
 }
 
 function buildQuoteBridgeIdentityKey(args: {
@@ -882,12 +946,14 @@ export function buildQuoteBridgedFormulaComputedInputs(
 ): BuildFormulaComputedInputsResult {
   'worklet';
 
-  const targetQuoteCurrency = String(
-    args.targetQuoteCurrency || '',
-  ).toUpperCase();
-  const canonicalQuoteCurrency = String(
-    args.canonicalQuoteCurrency || CANONICAL_RATE_QUOTE,
-  ).toUpperCase();
+  const targetQuoteCurrency = normalizeQuoteCurrency(args.targetQuoteCurrency);
+  const canonicalQuoteCurrency = normalizeQuoteCurrency(
+    args.canonicalQuoteCurrency ?? CANONICAL_RATE_QUOTE,
+  );
+
+  if (!targetQuoteCurrency || !canonicalQuoteCurrency) {
+    return {kind: 'invalid', reason: 'invalidQuoteCurrency'};
+  }
 
   if (targetQuoteCurrency === canonicalQuoteCurrency) {
     return buildFormulaComputedInputs({
@@ -902,6 +968,10 @@ export function buildQuoteBridgedFormulaComputedInputs(
     assetGroups: args.assetGroups,
     wallets: args.wallets.map(wallet => ({
       ...wallet,
+      liveRate: buildQuoteBridgedLiveRate({
+        wallet,
+        bridgeRatePointsByStoredInterval: args.bridgeRatePointsByStoredInterval,
+      }),
       intervals: wallet.intervals.map(interval =>
         buildQuoteBridgedInterval({
           interval,
