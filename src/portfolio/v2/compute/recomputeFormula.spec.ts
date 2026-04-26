@@ -818,6 +818,76 @@ describe('portfolio v2 formula recompute input builder', () => {
     ).toEqual(['eth-wallet']);
   });
 
+  it('does not let unrelated bridge buckets block wallet live-rate bridging', () => {
+    const formula = expectValidFormula(
+      buildQuoteBridgedFormulaComputedInputs({
+        targetQuoteCurrency: 'EUR',
+        wallets: [
+          {
+            walletId: 'eth-wallet',
+            assetGroupId: 'eth',
+            assetIdentityKey: 'eth',
+            rateSourceKey: 'eth',
+            displayUnitsAtomic: '2000000000000000000',
+            displayUnitDecimals: 18,
+            liveRate: 125,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [oneDayInterval()],
+          },
+        ],
+        assetGroups: [
+          {
+            assetGroupId: 'eth',
+            displaySymbol: 'ETH',
+            orderIndex: 1,
+          },
+        ],
+        bridgeRatePointsByStoredInterval: {
+          '1D': {
+            targetBtcRatePoints: [
+              {ts: ORACLE_TS.start, rate: 0.9},
+              {ts: ORACLE_TS.end, rate: 0.9},
+            ],
+            canonicalBtcRatePoints: [
+              {ts: ORACLE_TS.start, rate: 1},
+              {ts: ORACLE_TS.end, rate: 1},
+            ],
+            targetBtcLiveRate: 0.9,
+            canonicalBtcLiveRate: 1,
+          },
+          ALL: {
+            targetBtcRatePoints: [
+              {ts: ORACLE_TS.start, rate: 0.8},
+              {ts: ORACLE_TS.end, rate: 0.8},
+            ],
+            canonicalBtcRatePoints: [
+              {ts: ORACLE_TS.start, rate: 1},
+              {ts: ORACLE_TS.end, rate: 1},
+            ],
+            targetBtcLiveRate: 0.8,
+            canonicalBtcLiveRate: 1,
+          },
+        },
+      }),
+    );
+    const state = expectValidState(
+      buildPortfolioComputedState({
+        workEpoch: 1,
+        revision: 1,
+        quoteCurrency: 'EUR',
+        computedAtMs: 100,
+        wallets: formula.wallets,
+        assetGroups: formula.assetGroups,
+        populatedWalletIds: ['eth-wallet'],
+      }),
+    );
+
+    expect(state.byWallet['eth-wallet'].series['1D']).toBeDefined();
+    expect(formula.assetGroups[0].members[0].liveRate).toBeCloseTo(112.5, 10);
+    expect(state.rowShells[0].currentFiatValue).toBeCloseTo(225, 10);
+  });
+
   it('reports missing rate sources when quote bridge coverage is unavailable', () => {
     const formula = expectValidFormula(
       buildQuoteBridgedFormulaComputedInputs({

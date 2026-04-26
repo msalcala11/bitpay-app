@@ -433,7 +433,13 @@ function buildQuoteBridgedLiveRate(args: {
   }
 
   const bridgedRates: number[] = [];
-  for (const bridge of Object.values(args.bridgeRatePointsByStoredInterval)) {
+  const storedIntervals = Array.from(
+    new Set(
+      args.wallet.intervals.map(interval => interval.sampledFromStoredInterval),
+    ),
+  );
+  for (const storedInterval of storedIntervals) {
+    const bridge = args.bridgeRatePointsByStoredInterval[storedInterval];
     const bridgedRate = bridgePositiveRate({
       canonicalRate: args.wallet.liveRate,
       targetBtcRate: bridge?.targetBtcLiveRate,
