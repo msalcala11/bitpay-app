@@ -184,15 +184,21 @@ describe('portfolio v2 recompute entrypoint', () => {
     ).toBe(current);
   });
 
-  it('does not treat non-full scopes as full formula recompute in Phase 3g', () => {
+  it('leaves wallet historical recompute scopes to the scheduler integration path', () => {
     const current = makeCurrentState();
-    const next = recomputePortfolioState(current, {
+    const wallet = recomputePortfolioState(current, {
       scope: {kind: 'wallet', walletId: 'eth-wallet'},
       startEpoch: 7,
       normalizedFormulaInput: normalizedInput(),
     });
+    const wallets = recomputePortfolioState(current, {
+      scope: {kind: 'wallets', walletIds: ['eth-wallet']},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput(),
+    });
 
-    expect(next).toBe(current);
+    expect(wallet).toBe(current);
+    expect(wallets).toBe(current);
   });
 
   it('touches wallet access metadata without rebuilding computed series', () => {

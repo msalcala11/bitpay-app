@@ -1,4 +1,5 @@
 import type {FiatRatePoint} from '../../../core/fiatRatesShared';
+import type {PopulateCheckpoint} from '../../model';
 import type {WeightedGroupRateConstituentInput} from '../../compute/weightedGroupRates';
 
 export const ORACLE_TS = {
@@ -169,4 +170,42 @@ export const TRANSFER_NON_NETTING_FIXTURES = {
       aggregateRemainingCostBasisFiatEnd: 100.192,
     },
   },
+} as const;
+
+export const CHECKPOINT_VALIDITY_FIXTURE = {
+  valid: {
+    schemaVersion: 1,
+    itemId: 'run-1:wallet-a',
+    runId: 'run-1',
+    walletId: 'wallet-a',
+    stagingKeyPrefix: 'snap:staging:v2:wallet-a:run-1',
+    stagingKeys: ['snap:staging:v2:wallet-a:run-1:0'],
+    snapshotIndexRevision: 7,
+    cursor: {nextSkip: 1000},
+    cursorSchemaVersion: 1,
+    lastProcessedBlockId: 'block-1',
+    lastProcessedBlockHeight: 123,
+    lastProcessedTxId: 'tx-1',
+    pageSize: 1000,
+    ingestFingerprint: 'ingest:wallet-a:v1',
+    failed: false,
+    closed: false,
+    corrupt: false,
+    invalidHistoryBlocked: false,
+    updatedAtMs: ORACLE_TS.middle,
+  } satisfies PopulateCheckpoint,
+  invalidityReasons: [
+    'schemaVersionMismatch',
+    'walletIdMismatch',
+    'runIdMismatch',
+    'itemIdMismatch',
+    'stagingKeyPrefixMismatch',
+    'snapshotIndexRevisionTooNew',
+    'cursorSchemaVersionMismatch',
+    'failed',
+    'closed',
+    'corrupt',
+    'invalidHistoryBlocked',
+    'nonJsonCursor',
+  ],
 } as const;

@@ -618,6 +618,10 @@ export function recomputePortfolioState(
       return recomputeLiveRateTouch(current, request, input);
     }
 
+    // Historical wallet/wallets recompute needs scheduler-owned normalized
+    // inputs that include affected global totals, asset groups, and scoped
+    // cache refreshes. Until that Phase 6 scheduler path is wired, only
+    // access-only touch scopes are safe to handle here.
     return recomputeTouchAccess(
       current,
       request,
