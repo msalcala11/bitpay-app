@@ -53,6 +53,7 @@ These decisions are binding for implementation. They are listed up front so an i
 37. **Read-only UI interactions cause zero MMKV mutations.** Timeframe switches, chart scrubbing, and passive live-rate touches are read/current-value-only paths. They must not call any of the v2 MMKV mutation helpers (`writePortfolioMmkvString(...)`, `deletePortfolioMmkvKey(...)`, `clearPortfolioMmkvKeysForReset(...)`), must not write/delete `snap:*`, `rate:v1:*`, or `portfolio:v2:*` keys, must not mutate generated render cache, must not enqueue populate, and must not refresh snapshots/rates. This is enforced with spy-target tests against the named helper family and against the low-level mutation exports the helpers wrap.
 
 ---
+
 ## 1. Non-negotiable product requirements
 
 The design must satisfy these requirements.
@@ -117,7 +118,9 @@ Use `react-native-worklets` as the portfolio-owned runtime substrate. Reanimated
 ```ts
 export type PortfolioRuntimeKind = 'compute' | 'populate' | 'rateFetch';
 
-export function initializePortfolioRuntimeGlobals(kind: PortfolioRuntimeKind): void {
+export function initializePortfolioRuntimeGlobals(
+  kind: PortfolioRuntimeKind,
+): void {
   'worklet';
 
   switch (kind) {
@@ -256,7 +259,9 @@ export type PortfolioWorkEpochReason =
   | 'debugClear';
 
 export function getCurrentPortfolioWorkEpoch(): number;
-export function bumpPortfolioWorkEpoch(reason: PortfolioWorkEpochReason): number;
+export function bumpPortfolioWorkEpoch(
+  reason: PortfolioWorkEpochReason,
+): number;
 ```
 
 `publishPortfolioState(...)` is the only legal write path for `sharedPortfolioState.value`. It re-checks `workEpoch`, records publish duration and approximate payload size through `recordPortfolioV2Metric(...)`, warns when the payload exceeds `PORTFOLIO_PUBLISH_WARN_BYTES`, calls `projectPortfolioStateForUi(...)`, and then performs the `sharedPortfolioState.value` write. In Phase 1, `PortfolioPublishedState` is a type alias of `PortfolioState` and `projectPortfolioStateForUi(...)` returns the canonical state unchanged. A smaller typed `PortfolioPublishedState` projection is allowed only after metrics show the shared-value payload or invalidation cost is material on target devices. Coordination SharedValues such as progress/retry/cancel/running ticks are intentionally outside this helper.
@@ -357,7 +362,9 @@ export type Interval = '1D' | '1W' | '1M' | '3M' | '1Y' | '5Y' | 'ALL';
 export type StoredRateInterval = '1D' | '1W' | '1M' | 'ALL';
 export const MAX_CHART_POINTS = 89;
 
-export function resolveStoredRateInterval(interval: Interval): StoredRateInterval {
+export function resolveStoredRateInterval(
+  interval: Interval,
+): StoredRateInterval {
   switch (interval) {
     case '3M':
     case '1Y':
@@ -486,8 +493,9 @@ export type WeightedGroupRateSeries =
       }
     >;
 
-export type PerIntervalWeightedGroupRateSeries =
-  Readonly<Partial<Record<Interval, WeightedGroupRateSeries>>>;
+export type PerIntervalWeightedGroupRateSeries = Readonly<
+  Partial<Record<Interval, WeightedGroupRateSeries>>
+>;
 
 export type PortfolioRouteScope =
   | {kind: 'home'}
@@ -538,9 +546,15 @@ export function normalizeExchangeRateRouteParams(
   params: LegacyExchangeRateParams | {route: ExchangeRateRoute},
 ): ExchangeRateRoute;
 
+export type SerializedExchangeRateRoute = Readonly<{
+  route: ExchangeRateRoute;
+  initialInterval?: Interval;
+}>;
+
 export function serializeExchangeRateRoute(
   route: ExchangeRateRoute,
-): {route: ExchangeRateRoute};
+  initialInterval?: Interval,
+): SerializedExchangeRateRoute;
 ```
 
 Legacy flat params always normalize to `marketAsset`. Only portfolio-owned v2 navigation may create `portfolioWeightedAssetGroup`. This protects restored navigation state, deep-link-like paths, and standalone Exchange Rate call sites during migration.
@@ -621,16 +635,19 @@ if (visibleMemberWallets.length === 0) {
   return undefined;
 }
 
-const nonzeroMembers = visibleMemberWallets.filter(wallet =>
-  currentUnits(wallet) !== 0
+const nonzeroMembers = visibleMemberWallets.filter(
+  wallet => currentUnits(wallet) !== 0,
 );
 
-currentFiatValue = nonzeroMembers.length === 0
-  ? 0
-  : nonzeroMembers.every(wallet => hasLiveRate(wallet.fiatRateAssetRef))
-    ? sum(nonzeroMembers.map(wallet =>
-        currentUnits(wallet) * liveRateFor(wallet.fiatRateAssetRef)
-      ))
+currentFiatValue =
+  nonzeroMembers.length === 0
+    ? 0
+    : nonzeroMembers.every(wallet => hasLiveRate(wallet.fiatRateAssetRef))
+    ? sum(
+        nonzeroMembers.map(
+          wallet => currentUnits(wallet) * liveRateFor(wallet.fiatRateAssetRef),
+        ),
+      )
     : undefined;
 ```
 
@@ -904,9 +921,9 @@ export type PopulateQueueReason =
   | 'manual';
 
 export type PopulateQueuePriority =
-  | 'urgentUserVisible'   // send, pull-to-refresh changed-wallet refresh
-  | 'normalUserVisible'   // key import, explicit manual refresh
-  | 'background';         // initial remainder, app-launch incremental remainder
+  | 'urgentUserVisible' // send, pull-to-refresh changed-wallet refresh
+  | 'normalUserVisible' // key import, explicit manual refresh
+  | 'background'; // initial remainder, app-launch incremental remainder
 
 export type JsonValue =
   | null
@@ -965,7 +982,7 @@ export type PopulateRetryState = Readonly<{
 }>;
 
 export type PopulateQueueItem = Readonly<{
-  itemId: string;        // `${runId}:${walletId}`
+  itemId: string; // `${runId}:${walletId}`
   runId: string;
   walletId: string;
   reason: PopulateQueueReason;
@@ -1016,7 +1033,10 @@ Queue writes happen when:
 Dedupe is run-scoped. A wallet can be deduped inside one run, but a new business event creates a new `runId` and may enqueue the same wallet again even when valid data already exists in the manifest.
 
 ```ts
-function hasItemInQueue(queue: PopulateQueueV1, item: PopulateQueueItem): boolean {
+function hasItemInQueue(
+  queue: PopulateQueueV1,
+  item: PopulateQueueItem,
+): boolean {
   return (
     queue.pending.some(p => p.itemId === item.itemId) ||
     queue.active?.itemId === item.itemId ||
@@ -1052,7 +1072,9 @@ If `A` was already pending as `A(initial-1)` and the user sends from `A`, the in
 Priority mapping:
 
 ```ts
-function priorityForPopulateReason(reason: PopulateQueueReason): PopulateQueuePriority {
+function priorityForPopulateReason(
+  reason: PopulateQueueReason,
+): PopulateQueuePriority {
   switch (reason) {
     case 'send':
     case 'pullToRefresh':
@@ -1111,12 +1133,22 @@ function insertPendingItemsByPriority(
     incoming,
   });
 
-  const existingUrgent = prunedExisting.filter(i => i.priority === 'urgentUserVisible');
-  const existingNormal = prunedExisting.filter(i => i.priority === 'normalUserVisible');
-  const existingBackground = prunedExisting.filter(i => i.priority === 'background');
+  const existingUrgent = prunedExisting.filter(
+    i => i.priority === 'urgentUserVisible',
+  );
+  const existingNormal = prunedExisting.filter(
+    i => i.priority === 'normalUserVisible',
+  );
+  const existingBackground = prunedExisting.filter(
+    i => i.priority === 'background',
+  );
 
-  const incomingUrgent = incoming.filter(i => i.priority === 'urgentUserVisible');
-  const incomingNormal = incoming.filter(i => i.priority === 'normalUserVisible');
+  const incomingUrgent = incoming.filter(
+    i => i.priority === 'urgentUserVisible',
+  );
+  const incomingNormal = incoming.filter(
+    i => i.priority === 'normalUserVisible',
+  );
   const incomingBackground = incoming.filter(i => i.priority === 'background');
 
   return [
@@ -1213,7 +1245,9 @@ export function reconcileManifestAndQueueAgainstPopulateEligible(
 Resume normalizes persisted `active` state before the loop starts:
 
 ```ts
-export function normalizeQueueOnResume(queue: PopulateQueueV1): PopulateQueueV1 {
+export function normalizeQueueOnResume(
+  queue: PopulateQueueV1,
+): PopulateQueueV1 {
   if (!queue.active) return queue;
   return {
     ...queue,
@@ -1290,17 +1324,24 @@ export type PopulateRuntimeContext = Readonly<{
   cfg: BwsConfig;
   ingest: SnapshotIngestConfig;
   pageSize: number;
-  walletsById: Readonly<Record<string, {
-    walletId: string;
-    assetGroupId: string;
-    fiatRateAssetRef: FiatRateAssetRef;
-    summary: WalletSummary;
-    credentials: WalletCredentials;
-    network: string;
-    keyId?: string;
-    accountId?: string;
-  }>>;
-  signingContextsByWalletId: Readonly<Record<string, PortfolioTxHistorySigningDispatchContext>>;
+  walletsById: Readonly<
+    Record<
+      string,
+      {
+        walletId: string;
+        assetGroupId: string;
+        fiatRateAssetRef: FiatRateAssetRef;
+        summary: WalletSummary;
+        credentials: WalletCredentials;
+        network: string;
+        keyId?: string;
+        accountId?: string;
+      }
+    >
+  >;
+  signingContextsByWalletId: Readonly<
+    Record<string, PortfolioTxHistorySigningDispatchContext>
+  >;
   queueSchemaVersion: 1;
   manifestSchemaVersion: 1;
 }>;
@@ -1351,7 +1392,9 @@ export function getSeriesIdlePoint(series: Series): Point | undefined {
 Use one helper for deduping string arrays in triggers and queue code:
 
 ```ts
-export function uniqueStrings(values: readonly string[] | undefined | null): string[] {
+export function uniqueStrings(
+  values: readonly string[] | undefined | null,
+): string[] {
   return Array.from(new Set(values ?? []));
 }
 ```
@@ -1418,8 +1461,10 @@ function isWalletUsableForInitialChart(
   walletId: string,
   manifest: PortfolioManifestV1,
 ): boolean {
-  return manifest.populatedWalletIds.includes(walletId) ||
-         manifest.invalidHistoryWalletIds.includes(walletId);
+  return (
+    manifest.populatedWalletIds.includes(walletId) ||
+    manifest.invalidHistoryWalletIds.includes(walletId)
+  );
 }
 
 function computeInitialScopeReadiness(args: {
@@ -1638,7 +1683,7 @@ The first point has `pnlChange === 0` exactly.
 For a **single-rate-source asset or asset group**, if no balance-change events occur in the selected window:
 
 ```ts
-pnlPercent === ((rateEnd - rateStart) / rateStart) * 100
+pnlPercent === ((rateEnd - rateStart) / rateStart) * 100;
 ```
 
 within numeric tolerance, because the only change is mark-rate movement over the same interval window used by Exchange Rate charts.
@@ -1769,15 +1814,17 @@ Row values are endpoint extractions from the same scoped series used by Asset De
 ```ts
 assetSummary.pnlChange = pnlEnd - pnlStart;
 
-assetSummary.pnlPercent = remainingCostBasisFiatEnd > 0
-  ? (pnlEnd / remainingCostBasisFiatEnd) * 100
-  : 0;
+assetSummary.pnlPercent =
+  remainingCostBasisFiatEnd > 0
+    ? (pnlEnd / remainingCostBasisFiatEnd) * 100
+    : 0;
 
 collapsedRow.pnlChange = sum(memberAssetSummaries.map(s => s.pnlChange));
 
-collapsedRow.pnlPercent = sumRemainingCostBasisFiatEnd > 0
-  ? (sumPnlEnd / sumRemainingCostBasisFiatEnd) * 100
-  : 0;
+collapsedRow.pnlPercent =
+  sumRemainingCostBasisFiatEnd > 0
+    ? (sumPnlEnd / sumRemainingCostBasisFiatEnd) * 100
+    : 0;
 
 rowToday = endpointExtraction(assetGroupSeries['1D']);
 rowAllTime = endpointExtraction(assetGroupSeries['ALL']);
@@ -1955,8 +2002,8 @@ This is required even when the user owns no BTC, because all future quote switch
 Hidden livenet wallets remain populate-eligible so their data is warm when unhidden. That only works if rates are warmed for hidden wallets too. Therefore there are two rate-dependency helpers with intentionally different membership rules:
 
 ```ts
-buildEnsureFreshArgsForPopulateEligibleAssetGroups(args) // visibility-ignored
-buildEnsureFreshArgsForVisibleAssetGroups(args)          // visibility-respecting
+buildEnsureFreshArgsForPopulateEligibleAssetGroups(args); // visibility-ignored
+buildEnsureFreshArgsForVisibleAssetGroups(args); // visibility-respecting
 ```
 
 Use `buildEnsureFreshArgsForPopulateEligibleAssetGroups(...)` for initial populate, app-launch background freshen, and any populate-side historical rate coverage. It reads `getPopulateEligibleWalletsFromStore()` and includes hidden livenet/not-deleted wallets. This guarantees a hidden-only asset that was populated while hidden has canonical `USD` historical rates available on unhide.
@@ -1985,7 +2032,7 @@ The rate lookup formula at every timestamp `τ` is:
 
 ```ts
 rate(τ, targetQuote) =
-  assetRate(τ, 'USD') * btcRate(τ, targetQuote) / btcRate(τ, 'USD');
+  (assetRate(τ, 'USD') * btcRate(τ, targetQuote)) / btcRate(τ, 'USD');
 ```
 
 Apply this at:
@@ -2000,19 +2047,27 @@ Weighted group exchange-rate series follow the same rule. For quote switches, br
 
 ```ts
 function buildBridgedWeightedGroupRateSeries(args): WeightedGroupRateSeries {
-  const sortedRateSourceKeys = Object.keys(args.baselineUnitsByRateSourceKey).sort();
+  const sortedRateSourceKeys = Object.keys(
+    args.baselineUnitsByRateSourceKey,
+  ).sort();
   const baselineUnits = sum(
-    sortedRateSourceKeys.map(key => args.baselineUnitsByRateSourceKey[key] ?? 0),
+    sortedRateSourceKeys.map(
+      key => args.baselineUnitsByRateSourceKey[key] ?? 0,
+    ),
   );
 
   const bridgedRateAt = (key: string, t: number): number | undefined => {
     const assetRate = rate_i(key, t, 'USD');
     const targetBtc = btcRate(t, args.targetQuote);
     const canonicalBtc = btcRate(t, 'USD');
-    if (!isFinitePositive(assetRate) || !isFinitePositive(targetBtc) || !isFinitePositive(canonicalBtc)) {
+    if (
+      !isFinitePositive(assetRate) ||
+      !isFinitePositive(targetBtc) ||
+      !isFinitePositive(canonicalBtc)
+    ) {
       return undefined;
     }
-    return assetRate * targetBtc / canonicalBtc;
+    return (assetRate * targetBtc) / canonicalBtc;
   };
 
   const groupIndexAt = (t: number): number | undefined => {
@@ -2032,7 +2087,9 @@ function buildBridgedWeightedGroupRateSeries(args): WeightedGroupRateSeries {
   if (baselineUnits <= 0 || !Number.isFinite(groupIndex0) || groupIndex0 <= 0) {
     return {
       availability: 'unavailable',
-      unavailableReason: !Number.isFinite(groupIndex0) ? 'missingConstituentRate' : 'zeroBaseline',
+      unavailableReason: !Number.isFinite(groupIndex0)
+        ? 'missingConstituentRate'
+        : 'zeroBaseline',
       points: [],
       // plus fingerprint/window/member/weight metadata
     };
@@ -2080,7 +2137,6 @@ Do not compute a USD weighted group series and then multiply it by one scalar. D
 
 The unavailable guard is interval-local. A `portfolioWeightedAssetGroup` route remains valid overall even when a specific interval publishes `availability: 'unavailable'` for `zeroBaseline` or `missingConstituentRate`; the UI renders that interval's weighted-rate chart as unavailable while allowing timeframe switches to intervals with valid weighted series. It must not auto-navigate to a representative `marketAsset` fallback.
 
-
 ### V4 fiat-rates endpoint and classifier contract
 
 The rate path must preserve the repo-specific V4 behavior; otherwise quote switching and ticker grouping will look correct in abstract tests but fail on real token portfolios.
@@ -2106,7 +2162,7 @@ Rules:
 Use the existing canonical classifier, not a new duplicate:
 
 ```ts
-getFiatRateAssetRef({currencyAbbreviation, chain, tokenAddress, credentials})
+getFiatRateAssetRef({currencyAbbreviation, chain, tokenAddress, credentials});
 ```
 
 Preserve these rules:
@@ -2257,18 +2313,15 @@ to satisfy the helper-family requirement.
 Default wipe prefixes:
 
 ```ts
-const PORTFOLIO_WIPE_PREFIXES = [
-  'portfolio:v2:',
-  'snap:',
-];
+const PORTFOLIO_WIPE_PREFIXES = ['portfolio:v2:', 'snap:'];
 ```
 
 Exclude:
 
 ```ts
-PORTFOLIO_V2_FLAG_KEY
-PORTFOLIO_CACHE_INVALID_KEY
-PORTFOLIO_WORK_EPOCH_KEY
+PORTFOLIO_V2_FLAG_KEY;
+PORTFOLIO_CACHE_INVALID_KEY;
+PORTFOLIO_WORK_EPOCH_KEY;
 ```
 
 `PORTFOLIO_WORK_EPOCH_KEY` is excluded so a reset-created epoch bump remains durable while stale async work drains.
@@ -2551,24 +2604,24 @@ Populate may finish the currently active wallet after cancellation, but it must 
 
 Scheduler merge rules are explicit:
 
-| Existing pending work | Incoming work | Result |
-|---|---|---|
-| none | full | full |
-| none | liveRateTouch(A) | liveRateTouch(A) |
-| liveRateTouch(A) | liveRateTouch(B) | one coalesced liveRateTouch with `changedAssetIds = A ∪ B`; if either side has no `changedAssetIds`, result is liveRateTouch over all current-value surfaces |
-| full | liveRateTouch | full; full subsumes liveRateTouch |
-| liveRateTouch | full | full; full subsumes liveRateTouch |
-| full | wallet/wallets | full + wallet/wallets; full does not subsume wallet builds |
-| wallet(A) | liveRateTouch | both retained; wallet rebuild runs first, then liveRateTouch updates current-value surfaces not covered by the wallet rebuild |
-| liveRateTouch | wallet(A) | both retained; wallet rebuild runs first, then liveRateTouch |
-| wallet(A) | wallet(A) | wallet(A), deduped |
-| wallet(A) | wallet(B) | wallets(A,B), merged |
-| wallet(A) | touch(A) | wallet(A), touch dropped as subsumed |
-| touch(A) | wallet(A) | wallet(A), prior touch dropped |
-| full | touch(A) | full + touch(A); full does not subsume touch bookkeeping |
-| touch(A) | liveRateTouch | both retained; liveRateTouch updates values, touch preserves access metadata |
-| liveRateTouch | touch(A) | both retained |
-| touch(A) | touch(B) | touches(A,B), merged |
+| Existing pending work | Incoming work    | Result                                                                                                                                                       |
+| --------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| none                  | full             | full                                                                                                                                                         |
+| none                  | liveRateTouch(A) | liveRateTouch(A)                                                                                                                                             |
+| liveRateTouch(A)      | liveRateTouch(B) | one coalesced liveRateTouch with `changedAssetIds = A ∪ B`; if either side has no `changedAssetIds`, result is liveRateTouch over all current-value surfaces |
+| full                  | liveRateTouch    | full; full subsumes liveRateTouch                                                                                                                            |
+| liveRateTouch         | full             | full; full subsumes liveRateTouch                                                                                                                            |
+| full                  | wallet/wallets   | full + wallet/wallets; full does not subsume wallet builds                                                                                                   |
+| wallet(A)             | liveRateTouch    | both retained; wallet rebuild runs first, then liveRateTouch updates current-value surfaces not covered by the wallet rebuild                                |
+| liveRateTouch         | wallet(A)        | both retained; wallet rebuild runs first, then liveRateTouch                                                                                                 |
+| wallet(A)             | wallet(A)        | wallet(A), deduped                                                                                                                                           |
+| wallet(A)             | wallet(B)        | wallets(A,B), merged                                                                                                                                         |
+| wallet(A)             | touch(A)         | wallet(A), touch dropped as subsumed                                                                                                                         |
+| touch(A)              | wallet(A)        | wallet(A), prior touch dropped                                                                                                                               |
+| full                  | touch(A)         | full + touch(A); full does not subsume touch bookkeeping                                                                                                     |
+| touch(A)              | liveRateTouch    | both retained; liveRateTouch updates values, touch preserves access metadata                                                                                 |
+| liveRateTouch         | touch(A)         | both retained                                                                                                                                                |
+| touch(A)              | touch(B)         | touches(A,B), merged                                                                                                                                         |
 
 Base inputs merge by taking the newest quote/live-rate fields, unioning populated/invalid-history IDs and evict sets, and taking the order/display-order pair with the higher `orderRevision`. `protectedScopedWalletIdsKeys` are unioned. `liveRateTouch` inputs coalesce so passive live-rate churn cannot accumulate unbounded pending work.
 
@@ -2602,20 +2655,20 @@ Selectors are pure worklet functions of `PortfolioPublishedState` and primitive 
 Core selectors:
 
 ```ts
-selectTotalSeries(state, interval)
-selectWalletSeries(state, walletId, interval)
-selectAssetGroupSeries(state, assetGroupId, interval)
-selectAssetGroupRowShells(state, mode)
-selectAssetGroupRow(state, assetGroupId, mode)
-selectOrderedAssetGroupIds(state)
-selectAllocationRows(state)
-selectScopeReadiness(state, scopeKey)
-selectPortfolioStatus(state)
-selectScopedSeries(state, walletIdsKey, interval)
-selectScopedAssetGroupSeries(state, walletIdsKey, assetGroupId, interval)
-selectScopedAssetGroupRows(state, walletIdsKey, mode)
-selectScopedOrderedAssetGroupIds(state, walletIdsKey)
-stableWalletIdsKey(walletIds)
+selectTotalSeries(state, interval);
+selectWalletSeries(state, walletId, interval);
+selectAssetGroupSeries(state, assetGroupId, interval);
+selectAssetGroupRowShells(state, mode);
+selectAssetGroupRow(state, assetGroupId, mode);
+selectOrderedAssetGroupIds(state);
+selectAllocationRows(state);
+selectScopeReadiness(state, scopeKey);
+selectPortfolioStatus(state);
+selectScopedSeries(state, walletIdsKey, interval);
+selectScopedAssetGroupSeries(state, walletIdsKey, assetGroupId, interval);
+selectScopedAssetGroupRows(state, walletIdsKey, mode);
+selectScopedOrderedAssetGroupIds(state, walletIdsKey);
+stableWalletIdsKey(walletIds);
 ```
 
 ### `usePortfolioStatus`
@@ -2735,7 +2788,7 @@ It must not call `ensureFresh`, fetch historical rates, refresh snapshots, enque
 
 `liveRateTouch` updates current-value surfaces only. If it updates a live-rate-backed final chart point, every row payload derived from that endpoint must update in the same published revision so row/detail endpoint equality remains true. Cached scoped slices update their current-value surfaces by the same rules as global slices; scoped historical chart points are not rebuilt.
 
-### Historical rates persisted notification 
+### Historical rates persisted notification
 
 Phase 0 inventory found that the Exchange Rate screen can persist shared historical `rate:v1:*` data outside v2-owned triggers, so this notification is required.
 
@@ -2768,7 +2821,9 @@ If Show Portfolio is enabled, requeue all livenet wallets in the imported key. H
 Deletion uses a triple-guard contract because this path races with reset, populate, and shared-state publishing. The first executable statement must be the guard.
 
 ```ts
-export async function onWalletsDeleted(args: {walletIds: readonly string[]}): Promise<void> {
+export async function onWalletsDeleted(args: {
+  walletIds: readonly string[];
+}): Promise<void> {
   if (!canRunPortfolioV2Work()) return; // GUARD #1, before arg normalization
 
   const walletIds = unique(args.walletIds);
@@ -2812,8 +2867,9 @@ export function kickPopulateLoopIfIdle(): void {
 
   populateCancelFlag.value = false;
   const ctx = buildPopulateRuntimeContextFromStore();
-  runOnRuntimeAsync(getPopulateRuntime(), runPopulate, ctx)
-    .catch(err => logPortfolioRuntimeError(err, {tag: 'kickPopulateLoopIfIdle'}));
+  runOnRuntimeAsync(getPopulateRuntime(), runPopulate, ctx).catch(err =>
+    logPortfolioRuntimeError(err, {tag: 'kickPopulateLoopIfIdle'}),
+  );
 }
 ```
 
@@ -2836,18 +2892,18 @@ The snapshot clear is delete-only and idempotent. It does not need to join the r
 
 Each trigger has a distinct product intent. Do not “consistency-ize” these into one generic ordering rule.
 
-| Trigger | Order | Why |
-|---|---|---|
-| `onAppLaunchPostAuth` | repair invalid bit if needed → warm publish from persisted data → await recompute drain → resume populate → background freshen → follow-up recompute | Completed PnL should appear immediately after auth without waiting on network. |
-| `onPullToRefresh` | `ensureFresh(force: true)` → `populateWallets(changedWalletIds, {reason: 'pullToRefresh', priority: 'urgentUserVisible'})` → `scheduleRecompute` | User explicitly asked for fresh rates/snapshots. |
-| `onSendCompleted` | `populateWallet(walletId, {reason: 'send', priority: 'urgentUserVisible'})` | Sent-from wallet should refresh promptly; recompute publishes from progress tick. |
-| `onQuoteCurrencyChanged` | `ensureQuoteCurrencyFxBridge` → `recomputeQuoteBridgeFromExistingData` | Bridge data must exist before target-quote publish. No per-asset target-quote fetch. |
-| `onLiveRatesUpdated` | debounce/coalesce → fire-time guards → `scheduleRecompute({scope: {kind: 'liveRateTouch'}})` | Passive live-rate churn updates current-value surfaces only and never initiates historical freshness. |
-| `onKeyImported` | `populateWallets(livenetWalletIds, {reason: 'keyImport', priority: 'normalUserVisible'})` | New livenet wallets need snapshots before PnL exists. |
-| `onWalletsDeleted` | guard → cancel/wait populate → guard → reconcile → clear snapshots → guard → full recompute with `evictScopedWalletIds` → `kickPopulateLoopIfIdle()` | Prevents populate/write races and stale scoped entries. |
-| `onWalletsVisibilityChanged` | optional populate for newly visible never-populated wallets → full recompute | Visibility changes display eligibility, not snapshot persistence. |
-| `onShowPortfolioVisibilityChanged(false)` | latch wipe obligation → `performResetSequence` | OFF means clear portfolio data and hide portfolio surfaces. |
-| `onShowPortfolioVisibilityChanged(true)` | discharge latched wipe → repair invalid bit if needed → start fresh populate | ON must never populate from stale pre-wipe data. |
+| Trigger                                   | Order                                                                                                                                                | Why                                                                                                   |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `onAppLaunchPostAuth`                     | repair invalid bit if needed → warm publish from persisted data → await recompute drain → resume populate → background freshen → follow-up recompute | Completed PnL should appear immediately after auth without waiting on network.                        |
+| `onPullToRefresh`                         | `ensureFresh(force: true)` → `populateWallets(changedWalletIds, {reason: 'pullToRefresh', priority: 'urgentUserVisible'})` → `scheduleRecompute`     | User explicitly asked for fresh rates/snapshots.                                                      |
+| `onSendCompleted`                         | `populateWallet(walletId, {reason: 'send', priority: 'urgentUserVisible'})`                                                                          | Sent-from wallet should refresh promptly; recompute publishes from progress tick.                     |
+| `onQuoteCurrencyChanged`                  | `ensureQuoteCurrencyFxBridge` → `recomputeQuoteBridgeFromExistingData`                                                                               | Bridge data must exist before target-quote publish. No per-asset target-quote fetch.                  |
+| `onLiveRatesUpdated`                      | debounce/coalesce → fire-time guards → `scheduleRecompute({scope: {kind: 'liveRateTouch'}})`                                                         | Passive live-rate churn updates current-value surfaces only and never initiates historical freshness. |
+| `onKeyImported`                           | `populateWallets(livenetWalletIds, {reason: 'keyImport', priority: 'normalUserVisible'})`                                                            | New livenet wallets need snapshots before PnL exists.                                                 |
+| `onWalletsDeleted`                        | guard → cancel/wait populate → guard → reconcile → clear snapshots → guard → full recompute with `evictScopedWalletIds` → `kickPopulateLoopIfIdle()` | Prevents populate/write races and stale scoped entries.                                               |
+| `onWalletsVisibilityChanged`              | optional populate for newly visible never-populated wallets → full recompute                                                                         | Visibility changes display eligibility, not snapshot persistence.                                     |
+| `onShowPortfolioVisibilityChanged(false)` | latch wipe obligation → `performResetSequence`                                                                                                       | OFF means clear portfolio data and hide portfolio surfaces.                                           |
+| `onShowPortfolioVisibilityChanged(true)`  | discharge latched wipe → repair invalid bit if needed → start fresh populate                                                                         | ON must never populate from stale pre-wipe data.                                                      |
 
 Default for future explicit historical freshness triggers: `ensureFresh` first, then publish. Use warm-publish-first only when product explicitly requires “show what we already have before network.” Passive live-rate notifications are not historical freshness triggers; they must use `liveRateTouch`.
 
@@ -2876,28 +2932,30 @@ function onShowPortfolioVisibilityChanged(enabled: boolean): void {
     visibilityWipeRequired = true;
   }
 
-  visibilityToggleSerial = visibilityToggleSerial.then(async () => {
-    if (!enabled) {
-      await performResetSequence();
-      visibilityWipeRequired = false;
-      return;
-    }
+  visibilityToggleSerial = visibilityToggleSerial
+    .then(async () => {
+      if (!enabled) {
+        await performResetSequence();
+        visibilityWipeRequired = false;
+        return;
+      }
 
-    if (visibilityWipeRequired) {
-      await performResetSequence();
-      visibilityWipeRequired = false;
-    }
+      if (visibilityWipeRequired) {
+        await performResetSequence();
+        visibilityWipeRequired = false;
+      }
 
-    if (isPortfolioCacheInvalid()) {
-      await performResetSequence();
-    }
+      if (isPortfolioCacheInvalid()) {
+        await performResetSequence();
+      }
 
-    if (epoch !== visibilityToggleEpoch) return;
-    if (!getShowPortfolioEnabledFromStore()) return;
-    if (!canRunPortfolioV2Work()) return;
+      if (epoch !== visibilityToggleEpoch) return;
+      if (!getShowPortfolioEnabledFromStore()) return;
+      if (!canRunPortfolioV2Work()) return;
 
-    startPopulate({reason: 'showPortfolioToggleOn', isFirstPopulate: true});
-  }).catch(err => logPortfolioRuntimeError(err, {tag: 'showPortfolioToggle'}));
+      startPopulate({reason: 'showPortfolioToggleOn', isFirstPopulate: true});
+    })
+    .catch(err => logPortfolioRuntimeError(err, {tag: 'showPortfolioToggle'}));
 }
 ```
 
@@ -3332,29 +3390,29 @@ Acceptance:
 1. Large portfolio chart/rate/snapshot data is absent from persisted Redux.
 2. Portfolio MMKV instance is used for all v2 keys.
 3. Wipe uses registry-aware delete and leaves no wipe-target keys in the
-registry or real-key list after explicit exclusions/default-retained keys are
-filtered out.
+   registry or real-key list after explicit exclusions/default-retained keys are
+   filtered out.
 4. Show Portfolio off wipe excludes shared `rate:v1:*` by default; Exchange Rate surfaces remain visible.
 5. Cache invalid bit blocks ordinary work after mid-wipe failure and repair clears it.
 6. Reset waits for populate, recompute, and ensureFresh.
 7. Snapshot/rate/generated-cache MMKV writes are sharded by the required key
-granularity, record approximate value size with redacted key metadata, and warn
-or split when exceeding `PORTFOLIO_MMKV_VALUE_WARN_BYTES`. Snapshot chunk tests
-must prove byte-size splitting takes precedence over the
-`PORTFOLIO_SNAPSHOT_CHUNK_ROW_BUDGET` target when a row-budget-sized chunk is
-too large.
+   granularity, record approximate value size with redacted key metadata, and warn
+   or split when exceeding `PORTFOLIO_MMKV_VALUE_WARN_BYTES`. Snapshot chunk tests
+   must prove byte-size splitting takes precedence over the
+   `PORTFOLIO_SNAPSHOT_CHUNK_ROW_BUDGET` target when a row-budget-sized chunk is
+   too large.
 8. Daily snapshot compression preserves the existing 90-day UTC-day behavior:
-older tx events compress to one daily snapshot per UTC day, recent tx events
-remain tx-level, and app-kill resume does not duplicate/drop an in-progress
-daily snapshot. Tests compare compressed and uncompressed fixtures on
-product-supported sample grids or explicitly pin any acceptable old intra-day
-divergence.
+   older tx events compress to one daily snapshot per UTC day, recent tx events
+   remain tx-level, and app-kill resume does not duplicate/drop an in-progress
+   daily snapshot. Tests compare compressed and uncompressed fixtures on
+   product-supported sample grids or explicitly pin any acceptable old intra-day
+   divergence.
 9. Timeframe switch, chart scrub, and passive live-rate touch spy tests assert
-zero calls to the v2 MMKV mutation helper family
-(`writePortfolioMmkvString(...)`, `deletePortfolioMmkvKey(...)`,
-`clearPortfolioMmkvKeysForReset(...)`) and zero direct calls to the low-level
-mutation exports the helpers wrap, including the explicitly forbidden
-`workletKvClearAll(...)` and raw MMKV `.set`/`.delete` paths.
+   zero calls to the v2 MMKV mutation helper family
+   (`writePortfolioMmkvString(...)`, `deletePortfolioMmkvKey(...)`,
+   `clearPortfolioMmkvKeysForReset(...)`) and zero direct calls to the low-level
+   mutation exports the helpers wrap, including the explicitly forbidden
+   `workletKvClearAll(...)` and raw MMKV `.set`/`.delete` paths.
 
 ### Manifest and queue
 
@@ -3471,34 +3529,35 @@ These tests must exist before the plan is treated as implementation-complete. Fo
 97. **Manifest schema validation test:** invalid/missing schema or malformed JSON returns `null` and logs once; no business-logic silent migration.
 98. **Logger/telemetry allowlist test:** `logPortfolioRuntimeError` never throws, never returns a Promise, includes `subsystem: 'portfolio-v2'`, preserves safe scalar allowlisted fields such as `extra.tag`, and drops/rejects non-allowlisted fields. Feed it an `Error` and `extra` containing `wallet-123`, `0xAbC123`, `txid`, `rate:v1:USD:usdc:1D:eth:0xAbC123`, `snap:chunk:v2:wallet-123:1`, a request URL, a manifest/queue fragment, and a raw checkpoint; assert the Sentry/log/metric sinks receive none of those raw values and no raw `Error.message`. Debug copy/export payloads remain user-local and are never auto-attached to runtime errors.
 99. **Hide Crypto Balances orthogonality test:** dispatch `toggleHideAllBalances()` twenty times and assert zero runtime calls, zero MMKV mutations (no calls to the v2 helper family or its wrapped low-level mutation exports), zero trigger invocations, zero `sharedPortfolioState` writes, and only UI re-renders.
-100. **Per-trigger ordering test:** table order is enforced; post-auth is the only warm-publish-first trigger, pull/send/quote/delete/show-toggle follow their explicit orders, and passive live-rate updates use only `liveRateTouch`.
-101. **Passive live-rate update no-fetch test:** trigger `onLiveRatesUpdated` from passive/background live-rate churn and assert: (1) entry calls debounce/coalesce through `PASSIVE_LIVE_RATE_RECOMPUTE_DEBOUNCE_MS`; (2) the debounced callback re-checks `canRunPortfolioV2Work()` and `getShowPortfolioEnabledFromStore()` at fire time and no-ops if either flipped; (3) it schedules `scope: {kind: 'liveRateTouch'}`, never `scope: 'full'`; (4) it makes zero `ensureFresh` calls, zero historical rate fetches, zero snapshot refreshes, zero MMKV mutations of any kind (no calls to the v2 mutation helper family or its wrapped low-level exports against historical or current-value keys), and zero populate queue mutations; (5) historical chart point values `points[0..last-1]` are unchanged; historical-rate-backed series fingerprints are unchanged; live-rate-backed series fingerprints change only if their final point changes; (6) only series with `finalPointSource === 'liveRate'` update their final point; (7) every `RowPayload` derived from updated final points updates in the same published revision; (8) cached `scopedByWalletSet` entries update current-value surfaces by the same rules as global slices, without rebuilding scoped historical points; (9) quote metadata mismatch no-ops per the Phase 0 decision; (10) uncertain `changedAssetIds` mapping falls back to all-current-value `liveRateTouch`. Anti-regression variant: stub the implementation to call `scope: 'full'` from `onLiveRatesUpdated` and assert historical point mutation causes the test to fail.
-102. **Historical rates persisted test:** assert `onHistoricalRatesPersisted(...)` recomputes from already-persisted rates without fetching, refreshing snapshots, enqueueing populate, or double-scheduling v2-owned pull/send flows. Anti-regression variant: stub the notification path to call `ensureFresh(...)`; the test must fail.
-103. **Helper contract tests:** `resetSharedPortfolioStateForDebugClear` publishes an epoch-correct empty render state through `publishPortfolioState(...)` and resets coordination ticks, `startPopulate` builds/appends through the pinned API, `getSeriesIdlePoint(series)` returns the final point, and `lastAccessedAt` changes only through scoped/wallet touch semantics.
-104. **All-zero shell fiat test:** visible member wallets exist, every current unit amount is zero, and one or more zero-unit rates may be missing; runtime still publishes a row shell with `currentFiatValue: 0`. A no-visible-members fixture publishes no shell.
-105. **Weighted route per-interval zero-baseline test:** a collapsed route remains `kind: 'portfolioWeightedAssetGroup'` when one interval is unavailable due to zero baseline, that interval renders the weighted-rate empty state without crashing, and switching to another valid interval renders normally without opening a representative market route.
-106. **Weighted missing-constituent-rate test:** seed a collapsed weighted route where one nonzero-baseline constituent has no canonical rate, no required BTC bridge rate, failed interpolation, or a non-finite bridged value at a required sample. The selected interval must publish `availability: 'unavailable'`, `unavailableReason: 'missingConstituentRate'`, and `points: []`; the UI keeps the timeframe selector enabled, does not render a partial chart, and does not navigate to `marketAsset`.
-107. **Expired invalid-history ownership test:** seed a wallet in manifest invalid-history state with an expired persisted marker, unhide it, and assert the trigger enqueues a retry but does not directly remove manifest invalid-history. If the retry fails before successful finish, invalid-history context remains or is replaced by a new marker. Only successful populate through `markManifestPopulated` clears manifest invalid-history and marks the wallet populated.
-108. **Phase-local acceptance placement test:** assert the missing-constituent-rate fixture is part of Phase 3, checkpoint JSON/non-optional boolean checks are part of Phase 5, invalid-history unhide ownership is part of Phase 6, and passive live-rate no-fetch behavior is part of Phase 6 so these contracts cannot drift until the final pre-Phase-8 suite.
+100.  **Per-trigger ordering test:** table order is enforced; post-auth is the only warm-publish-first trigger, pull/send/quote/delete/show-toggle follow their explicit orders, and passive live-rate updates use only `liveRateTouch`.
+101.  **Passive live-rate update no-fetch test:** trigger `onLiveRatesUpdated` from passive/background live-rate churn and assert: (1) entry calls debounce/coalesce through `PASSIVE_LIVE_RATE_RECOMPUTE_DEBOUNCE_MS`; (2) the debounced callback re-checks `canRunPortfolioV2Work()` and `getShowPortfolioEnabledFromStore()` at fire time and no-ops if either flipped; (3) it schedules `scope: {kind: 'liveRateTouch'}`, never `scope: 'full'`; (4) it makes zero `ensureFresh` calls, zero historical rate fetches, zero snapshot refreshes, zero MMKV mutations of any kind (no calls to the v2 mutation helper family or its wrapped low-level exports against historical or current-value keys), and zero populate queue mutations; (5) historical chart point values `points[0..last-1]` are unchanged; historical-rate-backed series fingerprints are unchanged; live-rate-backed series fingerprints change only if their final point changes; (6) only series with `finalPointSource === 'liveRate'` update their final point; (7) every `RowPayload` derived from updated final points updates in the same published revision; (8) cached `scopedByWalletSet` entries update current-value surfaces by the same rules as global slices, without rebuilding scoped historical points; (9) quote metadata mismatch no-ops per the Phase 0 decision; (10) uncertain `changedAssetIds` mapping falls back to all-current-value `liveRateTouch`. Anti-regression variant: stub the implementation to call `scope: 'full'` from `onLiveRatesUpdated` and assert historical point mutation causes the test to fail.
+102.  **Historical rates persisted test:** assert `onHistoricalRatesPersisted(...)` recomputes from already-persisted rates without fetching, refreshing snapshots, enqueueing populate, or double-scheduling v2-owned pull/send flows. Anti-regression variant: stub the notification path to call `ensureFresh(...)`; the test must fail.
+103.  **Helper contract tests:** `resetSharedPortfolioStateForDebugClear` publishes an epoch-correct empty render state through `publishPortfolioState(...)` and resets coordination ticks, `startPopulate` builds/appends through the pinned API, `getSeriesIdlePoint(series)` returns the final point, and `lastAccessedAt` changes only through scoped/wallet touch semantics.
+104.  **All-zero shell fiat test:** visible member wallets exist, every current unit amount is zero, and one or more zero-unit rates may be missing; runtime still publishes a row shell with `currentFiatValue: 0`. A no-visible-members fixture publishes no shell.
+105.  **Weighted route per-interval zero-baseline test:** a collapsed route remains `kind: 'portfolioWeightedAssetGroup'` when one interval is unavailable due to zero baseline, that interval renders the weighted-rate empty state without crashing, and switching to another valid interval renders normally without opening a representative market route.
+106.  **Weighted missing-constituent-rate test:** seed a collapsed weighted route where one nonzero-baseline constituent has no canonical rate, no required BTC bridge rate, failed interpolation, or a non-finite bridged value at a required sample. The selected interval must publish `availability: 'unavailable'`, `unavailableReason: 'missingConstituentRate'`, and `points: []`; the UI keeps the timeframe selector enabled, does not render a partial chart, and does not navigate to `marketAsset`.
+107.  **Expired invalid-history ownership test:** seed a wallet in manifest invalid-history state with an expired persisted marker, unhide it, and assert the trigger enqueues a retry but does not directly remove manifest invalid-history. If the retry fails before successful finish, invalid-history context remains or is replaced by a new marker. Only successful populate through `markManifestPopulated` clears manifest invalid-history and marks the wallet populated.
+108.  **Phase-local acceptance placement test:** assert the missing-constituent-rate fixture is part of Phase 3, checkpoint JSON/non-optional boolean checks are part of Phase 5, invalid-history unhide ownership is part of Phase 6, and passive live-rate no-fetch behavior is part of Phase 6 so these contracts cannot drift until the final pre-Phase-8 suite.
 
-109. **Publish helper and stale epoch test:** all writes to `sharedPortfolioState.value` go through `publishPortfolioState(...)`; start a long recompute/rate-fetch/populate operation, bump `PORTFOLIO_WORK_EPOCH_KEY` through Show Portfolio OFF, quote change, or wallet deletion, then let the old operation complete. Assert it does not write manifest, queue, MMKV rate/snapshot data, or published render state. Coordination SharedValues may still be written by their owning loops/helpers.
-110. **Runtime substrate and initializer test:** portfolio runtimes are created through `react-native-worklets`; compute initializes no wallet signing context, populate initializes tx-history signing/Nitro globals, and rate-fetch initializes BWS/Nitro fetch globals without wallet credentials.
-111. **Stored-rate helper type/URL test:** provider, URL, MMKV key, and persist helpers accept only `StoredRateInterval`; direct `3M`, `1Y`, or `5Y` calls fail type/runtime assertions and never produce `days=90/365/1825` URLs.
-112. **Canonical RateReader sampling test:** render and quote-bridge paths use `linearRender`; nearest lookup is confined to explicitly named snapshot-ingest behavior; missing bridge/constituent rates produce deterministic missing/unavailable results with no point dropping.
-113. **Invalid basis quarantine anti-regression:** non-finite or negative remaining cost basis, missing required basis rates, impossible disposal math, and negative running units quarantine the wallet. Stub v1-style clamping to zero and assert the fixture fails.
-114. **Collapsed display-unit amount and health test:** collapsed row crypto amount sums per-member display units, not raw atomics through one representative decimals value; decimal conflicts and missing live-rate member IDs publish through `groupHealth`.
-115. **Retry/backoff tests:** repeated populate and rate-fetch failures do not spin; background work respects `nextRetryAtMs`; send/pull/manual refresh can force retry; successful completion or urgent supersession clears retry state.
-116. **Legacy Exchange Rate route compatibility test:** existing flat `currencyAbbreviation`/`chain`/`tokenAddress` params normalize to `marketAsset`; restored navigation state and standalone Exchange Rates do not create weighted routes accidentally.
-117. **Portfolio status hook test:** `usePortfolioStatus` exposes invalid-history, missing-rate, stale, and retry-pending status from published runtime state only; UI code does not inspect manifest, queue, MMKV, or Redux.
-118. **Home chart collapsed preference migration test:** `homeChartCollapsed` survives Phase 7.75 migration and app restart; deleting `src/store/portfolio-charts/**` does not delete that user-visible preference.
-119. **Retained-kernel classification test:** every kept/adapted v1 kernel has a checked-in classification and v2-contract adapter tests before import; retained kernels cannot reintroduce legacy chart caps, nearest/drop FX behavior, invalid clamping, raw atomic row sums, persisted Redux arrays, or manifest/queue bypasses.
-120. **Nitro boundary tests:** using the Phase 0-inventoried JS helper module/export list, instrument JS-tagged tx-history signing/request helpers and BWS fiat-rate signing/request/fetch helpers. Run populate and assert tx-history signing, request fetching, pagination, and response processing occur through the worklet/Nitro hybrid-object path with zero JS-thread tx-history request/signing calls during the loop body; the JS-side context creator may be called once at kick time only. Run `ensureFresh` and assert BWS rate-fetch signing/request/response processing occurs through the rate-fetch runtime's worklet/Nitro path with zero JS-thread rate request/signing calls. Anti-regression variants stub populate to call a JS-thread signing helper from the loop body and stub `ensureFresh` to call a JS-thread BWS fetch/signing helper; both variants must fail.
-121. **Reset publish-helper test:** debug clear and reset paths call `publishPortfolioState({reason: 'debugClear' | 'reset'})`, record publish metrics, check the epoch, and never assign `sharedPortfolioState.value` directly. Coordination ticks may be reset directly.
-122. **Epoch-correct empty-state test:** after `bumpPortfolioWorkEpoch('resetStart')`, `emptyPortfolioStateForEpoch(...)` produces an empty state with the current epoch/quote/computed timestamp, and publishing it through `publishPortfolioState(...)` succeeds instead of failing the stale-epoch guard.
-123. **Txhistory duplicate-row test:** seed duplicate BWS txhistory rows within one page, overlapping duplicate rows across adjacent pages, rows whose only difference is BWS internal `id`, and rows missing tx hash fields that require composite identity fallback. Assert populate/snapshot ingest processes each economic transaction once, generated snapshots/PnL do not double-count balances, and cursor/page advancement uses logical unique transaction count. Anti-regression variant: stub dedupe to use raw row count or BWS internal `id`; the fixture must fail.
-124. **Txhistory tie-group reorder test:** seed same timestamp/block transactions returned spend-first where deterministic block/txIndex/nonce/original order would underflow, but processing the matching receive first avoids underflow. Assert snapshot ingest reorders within the tie group, does not mark invalid-history, and emits the expected balances. Also seed an unrecoverable underflow group and assert it still quarantines. Anti-regression variant: stub ingest to quarantine immediately on deterministic-order underflow; the recoverable fixture must fail.
+109.  **Publish helper and stale epoch test:** all writes to `sharedPortfolioState.value` go through `publishPortfolioState(...)`; start a long recompute/rate-fetch/populate operation, bump `PORTFOLIO_WORK_EPOCH_KEY` through Show Portfolio OFF, quote change, or wallet deletion, then let the old operation complete. Assert it does not write manifest, queue, MMKV rate/snapshot data, or published render state. Coordination SharedValues may still be written by their owning loops/helpers.
+110.  **Runtime substrate and initializer test:** portfolio runtimes are created through `react-native-worklets`; compute initializes no wallet signing context, populate initializes tx-history signing/Nitro globals, and rate-fetch initializes BWS/Nitro fetch globals without wallet credentials.
+111.  **Stored-rate helper type/URL test:** provider, URL, MMKV key, and persist helpers accept only `StoredRateInterval`; direct `3M`, `1Y`, or `5Y` calls fail type/runtime assertions and never produce `days=90/365/1825` URLs.
+112.  **Canonical RateReader sampling test:** render and quote-bridge paths use `linearRender`; nearest lookup is confined to explicitly named snapshot-ingest behavior; missing bridge/constituent rates produce deterministic missing/unavailable results with no point dropping.
+113.  **Invalid basis quarantine anti-regression:** non-finite or negative remaining cost basis, missing required basis rates, impossible disposal math, and negative running units quarantine the wallet. Stub v1-style clamping to zero and assert the fixture fails.
+114.  **Collapsed display-unit amount and health test:** collapsed row crypto amount sums per-member display units, not raw atomics through one representative decimals value; decimal conflicts and missing live-rate member IDs publish through `groupHealth`.
+115.  **Retry/backoff tests:** repeated populate and rate-fetch failures do not spin; background work respects `nextRetryAtMs`; send/pull/manual refresh can force retry; successful completion or urgent supersession clears retry state.
+116.  **Legacy Exchange Rate route compatibility test:** existing flat `currencyAbbreviation`/`chain`/`tokenAddress` params normalize to `marketAsset`; restored navigation state and standalone Exchange Rates do not create weighted routes accidentally.
+117.  **Portfolio status hook test:** `usePortfolioStatus` exposes invalid-history, missing-rate, stale, and retry-pending status from published runtime state only; UI code does not inspect manifest, queue, MMKV, or Redux.
+118.  **Home chart collapsed preference migration test:** `homeChartCollapsed` survives Phase 7.75 migration and app restart; deleting `src/store/portfolio-charts/**` does not delete that user-visible preference.
+119.  **Retained-kernel classification test:** every kept/adapted v1 kernel has a checked-in classification and v2-contract adapter tests before import; retained kernels cannot reintroduce legacy chart caps, nearest/drop FX behavior, invalid clamping, raw atomic row sums, persisted Redux arrays, or manifest/queue bypasses.
+120.  **Nitro boundary tests:** using the Phase 0-inventoried JS helper module/export list, instrument JS-tagged tx-history signing/request helpers and BWS fiat-rate signing/request/fetch helpers. Run populate and assert tx-history signing, request fetching, pagination, and response processing occur through the worklet/Nitro hybrid-object path with zero JS-thread tx-history request/signing calls during the loop body; the JS-side context creator may be called once at kick time only. Run `ensureFresh` and assert BWS rate-fetch signing/request/response processing occurs through the rate-fetch runtime's worklet/Nitro path with zero JS-thread rate request/signing calls. Anti-regression variants stub populate to call a JS-thread signing helper from the loop body and stub `ensureFresh` to call a JS-thread BWS fetch/signing helper; both variants must fail.
+121.  **Reset publish-helper test:** debug clear and reset paths call `publishPortfolioState({reason: 'debugClear' | 'reset'})`, record publish metrics, check the epoch, and never assign `sharedPortfolioState.value` directly. Coordination ticks may be reset directly.
+122.  **Epoch-correct empty-state test:** after `bumpPortfolioWorkEpoch('resetStart')`, `emptyPortfolioStateForEpoch(...)` produces an empty state with the current epoch/quote/computed timestamp, and publishing it through `publishPortfolioState(...)` succeeds instead of failing the stale-epoch guard.
+123.  **Txhistory duplicate-row test:** seed duplicate BWS txhistory rows within one page, overlapping duplicate rows across adjacent pages, rows whose only difference is BWS internal `id`, and rows missing tx hash fields that require composite identity fallback. Assert populate/snapshot ingest processes each economic transaction once, generated snapshots/PnL do not double-count balances, and cursor/page advancement uses logical unique transaction count. Anti-regression variant: stub dedupe to use raw row count or BWS internal `id`; the fixture must fail.
+124.  **Txhistory tie-group reorder test:** seed same timestamp/block transactions returned spend-first where deterministic block/txIndex/nonce/original order would underflow, but processing the matching receive first avoids underflow. Assert snapshot ingest reorders within the tie group, does not mark invalid-history, and emits the expected balances. Also seed an unrecoverable underflow group and assert it still quarantines. Anti-regression variant: stub ingest to quarantine immediately on deterministic-order underflow; the recoverable fixture must fail.
 
 ---
+
 ## 17. Plan lock status
 
 **This is the implementation-locking plan.** Future feedback during implementation should be handled as inline corrections in the relevant phase/PR unless it identifies a new violation of the original product requirements. Do not create another design iteration for wording-only clarifications.
