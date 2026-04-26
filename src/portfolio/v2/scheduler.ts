@@ -264,6 +264,10 @@ function mergeRequests(
     ...incoming,
     startEpoch: existing.startEpoch,
     computedAtMs: maxOptionalNumber(existing.computedAtMs, incoming.computedAtMs),
+    accessTouchWalletIds: mergeOptionalIdentityList(
+      existing.accessTouchWalletIds,
+      incoming.accessTouchWalletIds,
+    ),
     normalizedFormulaInput: mergeNormalizedFormulaInputs(
       existing.normalizedFormulaInput,
       incoming.normalizedFormulaInput,
@@ -329,6 +333,19 @@ function normalizeRequestScope(
   return {...request, scope};
 }
 
+function withAccessTouchWalletIds(
+  request: RecomputeRequest,
+  walletIds: readonly string[],
+): RecomputeRequest {
+  return {
+    ...request,
+    accessTouchWalletIds: mergeOptionalIdentityList(
+      request.accessTouchWalletIds,
+      uniqueSorted(walletIds),
+    ),
+  };
+}
+
 function prunePendingRecomputesForEpoch(startEpoch: number): void {
   for (let index = pendingRecomputes.length - 1; index >= 0; index -= 1) {
     if (pendingRecomputes[index].startEpoch !== startEpoch) {
@@ -379,8 +396,15 @@ function removeTouchWalletIds(
     }
 
     const pendingWalletIds = walletIdsForScope(pending.scope);
-    if (pendingWalletIds.some(walletId => remove.has(walletId))) {
-      mergedRequest = mergeRequests(pending, mergedRequest, mergedRequest.scope);
+    const foldedWalletIds = pendingWalletIds.filter(walletId =>
+      remove.has(walletId),
+    );
+    if (foldedWalletIds.length) {
+      mergedRequest = mergeRequests(
+        withAccessTouchWalletIds(pending, foldedWalletIds),
+        mergedRequest,
+        mergedRequest.scope,
+      );
     }
 
     const remaining = pendingWalletIds.filter(walletId => !remove.has(walletId));
@@ -442,10 +466,13 @@ function mergeTouchRecompute(incoming: RecomputeRequest): boolean {
     }
 
     const buildIds = walletIdsForScope(pending.scope);
-    if (buildIds.some(walletId => incomingWalletIds.includes(walletId))) {
+    const foldedWalletIds = buildIds.filter(walletId =>
+      incomingWalletIds.includes(walletId),
+    );
+    if (foldedWalletIds.length) {
       pendingRecomputes[index] = mergeRequests(
         pending,
-        incoming,
+        withAccessTouchWalletIds(incoming, foldedWalletIds),
         pending.scope,
       );
     }

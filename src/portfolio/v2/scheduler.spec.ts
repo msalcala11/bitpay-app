@@ -678,6 +678,7 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
     expect(pending[0]).toMatchObject({
       scope: {kind: 'wallet', walletId: 'eth-wallet'},
       computedAtMs: 300,
+      accessTouchWalletIds: ['eth-wallet'],
     });
 
     clearPendingRecomputesForTesting();
@@ -697,6 +698,7 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
     expect(pending[0]).toMatchObject({
       scope: {kind: 'wallet', walletId: 'eth-wallet'},
       computedAtMs: 320,
+      accessTouchWalletIds: ['eth-wallet'],
     });
   });
 
@@ -738,6 +740,100 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
     expect(sharedPortfolioState.value.byWallet['eth-wallet'].series).toBe(
       originalWallet.series,
     );
+  });
+
+  it('only touches folded wallet ids inside merged wallet recompute scopes', async () => {
+    (runOnRuntimeAsync as jest.Mock).mockImplementation(
+      async (
+        _runtime: unknown,
+        workletFn: (...args: any[]) => unknown,
+        ...args: any[]
+      ) => workletFn(...args),
+    );
+    const twoWalletInput = normalizedInput({
+      populatedWalletIds: ['eth-wallet', 'btc-wallet'],
+      formula: {
+        quoteCurrency: 'USD',
+        wallets: [
+          formulaWalletInput(),
+          formulaWalletInput({
+            walletId: 'btc-wallet',
+            assetGroupId: 'btc',
+            assetIdentityKey: 'btc',
+            rateSourceKey: 'btc',
+            displayUnitsAtomic: '100000000',
+            displayUnitDecimals: 8,
+            intervals: [
+              oneDayInterval({
+                seriesIdentityKey:
+                  'wallet:btc|asset:btc|quote:USD|snap:1|rate:1',
+              }),
+            ],
+          }),
+        ],
+        assetGroups: [
+          formulaAssetGroupInput(),
+          formulaAssetGroupInput({
+            assetGroupId: 'btc',
+            displaySymbol: 'BTC',
+            orderIndex: 2,
+          }),
+        ],
+      },
+    });
+    const built = recomputePortfolioState(makeCurrentState(), {
+      scope: 'full',
+      startEpoch: 7,
+      normalizedFormulaInput: twoWalletInput,
+    });
+    const runScenario = async (order: 'touch-first' | 'wallets-first') => {
+      clearPendingRecomputesForTesting();
+      sharedPortfolioState.value = built;
+
+      const touchRequest = {
+        scope: {kind: 'touchWallet' as const, walletId: 'eth-wallet'},
+        startEpoch: 7,
+        computedAtMs: 333,
+      };
+      const walletsRequest = {
+        scope: {
+          kind: 'wallets' as const,
+          walletIds: ['btc-wallet', 'eth-wallet'],
+        },
+        startEpoch: 7,
+        normalizedFormulaInput: twoWalletInput,
+      };
+
+      if (order === 'touch-first') {
+        scheduleRecompute(touchRequest);
+        scheduleRecompute(walletsRequest);
+      } else {
+        scheduleRecompute(walletsRequest);
+        scheduleRecompute(touchRequest);
+      }
+
+      expect(getPendingRecomputesForTesting()[0]).toMatchObject({
+        scope: {
+          kind: 'wallets',
+          walletIds: ['btc-wallet', 'eth-wallet'],
+        },
+        computedAtMs: 333,
+        accessTouchWalletIds: ['eth-wallet'],
+      });
+
+      await expect(runNextPendingRecompute()).resolves.toEqual(
+        expect.objectContaining({kind: 'published'}),
+      );
+      expect(
+        sharedPortfolioState.value.byWallet['eth-wallet'].lastAccessedAt,
+      ).toBe(333);
+      expect(
+        sharedPortfolioState.value.byWallet['btc-wallet'].lastAccessedAt,
+      ).toBe(built.byWallet['btc-wallet'].lastAccessedAt);
+    };
+
+    await runScenario('touch-first');
+    await runScenario('wallets-first');
   });
 
   it('drains by plan priority instead of FIFO while preserving FIFO inside a class', async () => {
