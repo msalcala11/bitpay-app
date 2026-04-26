@@ -795,7 +795,10 @@ export function createPortfolioRateFetchDispatchContextOnRN(args?: {
 }): PortfolioNitroFetchDispatchContext {
   const boxedNitroModulesProxy = getSharedBoxedNitroModulesProxyOnJS();
   const boxedNitroFetch = getSharedBoxedNitroFetchOnJS();
-  const requestCount = Math.max(1, Math.floor(args?.requestCount ?? 1));
+  const rawRequestCount = Math.floor(args?.requestCount ?? 1);
+  const requestCount = Number.isFinite(rawRequestCount)
+    ? Math.max(1, rawRequestCount)
+    : 1;
 
   return {
     requestCount,

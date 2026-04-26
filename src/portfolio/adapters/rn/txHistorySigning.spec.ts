@@ -81,6 +81,7 @@ jest.mock('react-native-quick-crypto', () => ({
 
 import {
   clearPortfolioTxHistorySigningDispatchContextOnRuntime,
+  createPortfolioRateFetchDispatchContextOnRN,
   createPortfolioTxHistorySigningDispatchContextOnRN,
   getPortfolioNitroFetchClientOnRuntime,
   PORTFOLIO_REQUEST_KEY_DEBUG_PROBE_PRIVATE_KEY_HEX,
@@ -146,6 +147,13 @@ describe('signBwsGetRequestWithBitcore', () => {
     expect(secondHandle).not.toBeNull();
     expect(context.nextSignHandleIndex).toBe(2);
     expect(mockCreateHybridObject).toHaveBeenCalledTimes(4);
+  });
+
+  it('normalizes malformed fetch-only request counts to one', () => {
+    expect(
+      createPortfolioRateFetchDispatchContextOnRN({requestCount: Number.NaN})
+        .requestCount,
+    ).toBe(1);
   });
 
   it('exports a Quick Crypto public key probe result for the fixed test vector', () => {
