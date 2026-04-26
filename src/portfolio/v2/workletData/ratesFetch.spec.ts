@@ -296,6 +296,32 @@ describe('portfolio v2 ensureFresh', () => {
     ]);
   });
 
+  it('does not record retry state when executor failure is stale', async () => {
+    mockMmkv.set(PORTFOLIO_WORK_EPOCH_KEY, '1');
+    setRateFetchExecutorForTesting(async () => {
+      mockMmkv.set(PORTFOLIO_WORK_EPOCH_KEY, '2');
+      throw new Error('runtime unavailable after reset');
+    });
+
+    await ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'btc'}],
+      intervals: ['ALL'],
+      force: true,
+    });
+
+    expect(getRateFetchRetryStatesForTesting()).toEqual([]);
+    expect(getPortfolioRuntimeLogPayloadsForTesting()).toEqual([
+      expect.objectContaining({
+        tag: 'staleWorkEpoch',
+        reason: 'executorFailed',
+        startEpoch: 1,
+        currentEpoch: 2,
+        runtimeKind: 'rateFetch',
+      }),
+    ]);
+  });
+
   it('dispatches default rate fetch work to the rate-fetch runtime without JS fetch', async () => {
     const mutableGlobal = globalThis as unknown as {fetch?: unknown};
     const originalFetch = mutableGlobal.fetch;

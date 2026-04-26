@@ -181,6 +181,7 @@ function computeRetryState(args: {
   errorKind: RateFetchErrorKind;
 }): RateFetchRetryState {
   const attempt = (args.previous?.attempt ?? 0) + 1;
+  const now = wallClockNowMs();
   const backoffMs = Math.min(
     RATE_FETCH_RETRY_MAX_MS,
     RATE_FETCH_RETRY_BASE_MS * 2 ** Math.max(0, attempt - 1),
@@ -192,9 +193,9 @@ function computeRetryState(args: {
     storedInterval: args.dependency.storedInterval,
     rateSourceKey: getRateSourceKey(args.dependency.asset),
     attempt,
-    nextRetryAtMs: wallClockNowMs() + backoffMs + jitterMs,
+    nextRetryAtMs: now + backoffMs + jitterMs,
     lastErrorKind: args.errorKind,
-    lastErrorAtMs: wallClockNowMs(),
+    lastErrorAtMs: now,
   };
 }
 
@@ -344,7 +345,10 @@ export function getRateFetchRetryStatesForTesting(): readonly RateFetchRetryStat
 }
 
 export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
-  const startEpoch = args.startEpoch;
+  const startEpoch =
+    typeof args.startEpoch === 'number'
+      ? args.startEpoch
+      : getCurrentPortfolioWorkEpoch();
   const dependencies = buildEnsureFreshDependencies(args);
   const toFetch: RateFetchDependency[] = [];
 
@@ -370,6 +374,17 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
     results = await executor(toFetch, args.cfg ?? {});
   } catch (error: unknown) {
     const errorKind = classifyFetchError(error);
+    const currentEpoch = getCurrentPortfolioWorkEpoch();
+    if (startEpoch !== currentEpoch) {
+      logPortfolioRuntimeError(error, {
+        tag: 'staleWorkEpoch',
+        reason: 'executorFailed',
+        startEpoch,
+        currentEpoch,
+        runtimeKind: 'rateFetch',
+      });
+      return;
+    }
     logPortfolioRuntimeError(error, {
       tag: 'ensureFresh',
       reason: 'executorFailed',
