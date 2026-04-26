@@ -218,10 +218,6 @@ function buildScopedInputsForLiveRateTouch(args: {
   );
 
   for (const scopedSlice of Object.values(args.current.scopedByWalletSet)) {
-    if (hasLiveRateSeries(scopedSlice.total)) {
-      return null;
-    }
-
     const scopedWallets: FormulaWalletInput[] = [];
     const assetGroupIds = new Set<string>();
     for (const walletId of scopedSlice.walletIds) {
@@ -259,7 +255,6 @@ function buildScopedInputsForLiveRateTouch(args: {
       total: scopedSlice.total,
       assetGroups: formula.assetGroups,
       refreshing: scopedSlice.readiness.refreshing,
-      hasPublishedValidSeriesThisPass: true,
       lastAccessedAt: scopedSlice.lastAccessedAt,
     });
   }
@@ -295,10 +290,6 @@ function recomputeLiveRateTouch(
     input.formula.quoteCurrency !== current.quoteCurrency ||
     !isValidTimestamp(input.computedAtMs)
   ) {
-    return current;
-  }
-
-  if (hasLiveRateSeries(current.total) && !input.total) {
     return current;
   }
 

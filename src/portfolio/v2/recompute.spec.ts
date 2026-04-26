@@ -566,7 +566,7 @@ describe('portfolio v2 recompute entrypoint', () => {
     ).toBe('valid');
   });
 
-  it('does not leave live-backed scoped totals stale without refreshed scoped total input', () => {
+  it('preserves missing live-backed scoped totals while refreshing available row surfaces', () => {
     const liveInput = normalizedInput({
       formula: {
         ...normalizedInput().formula,
@@ -619,7 +619,83 @@ describe('portfolio v2 recompute entrypoint', () => {
       }),
     });
 
-    expect(next).toBe(current);
+    expect(next).not.toBe(current);
+    expect(next.byWallet['eth-wallet'].rowToday).toMatchObject({
+      fiatEnd: 260,
+      rateEnd: 130,
+    });
+    expect(next.scopedByWalletSet['eth-wallet'].total).toBe(
+      current.scopedByWalletSet['eth-wallet'].total,
+    );
+    expect(next.scopedByWalletSet['eth-wallet'].rowShells[0]).toMatchObject({
+      currentFiatValue: 260,
+    });
+    expect(
+      next.scopedByWalletSet['eth-wallet'].readiness
+        .hasEverPublishedValidSeries,
+    ).toBe(true);
+  });
+
+  it('does not mark empty cached scoped slices as published during live-rate touch', () => {
+    const currentValueOnlyInput = normalizedInput({
+      formula: {
+        ...normalizedInput().formula,
+        wallets: [
+          {
+            ...normalizedInput().formula.wallets[0],
+            intervals: [],
+          },
+        ],
+      },
+    });
+    const built = recomputePortfolioState(makeCurrentState(), {
+      scope: 'full',
+      startEpoch: 7,
+      normalizedFormulaInput: currentValueOnlyInput,
+    });
+    const neverPublished: ScopeReadiness = {
+      empty: false,
+      hasEverPublishedValidSeries: false,
+      initialScopeReady: true,
+      refreshing: false,
+      invalidHistoryBlocked: false,
+    };
+    const current = {
+      ...built,
+      scopedByWalletSet: {
+        'eth-wallet': makePreviousScopedSlice({
+          rowShells: [],
+          byAssetGroup: {},
+          readiness: neverPublished,
+          total: {},
+        }),
+      },
+    };
+    const next = recomputePortfolioState(current, {
+      scope: {kind: 'liveRateTouch'},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({
+        computedAtMs: 225,
+        formula: {
+          ...currentValueOnlyInput.formula,
+          wallets: [
+            {
+              ...currentValueOnlyInput.formula.wallets[0],
+              liveRate: 130,
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(next).not.toBe(current);
+    expect(next.scopedByWalletSet['eth-wallet'].rowShells[0]).toMatchObject({
+      currentFiatValue: 260,
+    });
+    expect(
+      next.scopedByWalletSet['eth-wallet'].readiness
+        .hasEverPublishedValidSeries,
+    ).toBe(false);
   });
 
   it('returns the current state when final state assembly rejects the request', () => {
