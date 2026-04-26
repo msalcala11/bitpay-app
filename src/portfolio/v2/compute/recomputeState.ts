@@ -23,6 +23,10 @@ import {
 export type WalletSliceAssemblyInput = Readonly<{
   walletId: string;
   assetGroupId: string;
+  /**
+   * Caller-owned final wallet slice fingerprint for the supplied series/rows.
+   * This adapter validates structure but does not recompute slice identity.
+   */
   fingerprint: string;
   series: PerIntervalSeries;
   rowToday?: RowPayload;
@@ -33,10 +37,19 @@ export type WalletSliceAssemblyInput = Readonly<{
 
 export type AssetGroupSliceAssemblyInput = Readonly<{
   assetGroupId: string;
+  /**
+   * Caller-owned final asset-group slice fingerprint. The upstream recompute
+   * builder must include series, weighted rates, rows, membership identity, and
+   * shell-relevant state before passing it here.
+   */
   fingerprint: string;
   displaySymbol: string;
   orderIndex: number;
   series: PerIntervalSeries;
+  /**
+   * Each member rateSourceKey must be the canonical FiatRateAssetRef key used
+   * for market-rate lookup and weighted collapsed-group identity.
+   */
   members: readonly AssetGroupRowShellMemberInput[];
   marketRatePointsByInterval?: Readonly<
     Partial<Record<Interval, readonly MarketRatePoint[]>>
@@ -59,7 +72,10 @@ export type BuildRecomputeStateSlicesArgs = Readonly<{
 export type RecomputeStateSlicesInvalidReason =
   | 'duplicateWalletId'
   | 'duplicateAssetGroupId'
+  | 'invalidWalletIdentity'
+  | 'invalidAssetGroupIdentity'
   | 'missingAssetGroupMember'
+  | 'assetGroupMemberMismatch'
   | 'invalidRowShell';
 
 export type BuildRecomputeStateSlicesResult =
@@ -85,6 +101,12 @@ function uniqueSorted(values: readonly string[]): readonly string[] {
   'worklet';
 
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
+}
+
+function isStrictIdentity(value: string): boolean {
+  'worklet';
+
+  return !!value.trim() && value === value.trim();
 }
 
 function getSeriesIntervals(series: PerIntervalSeries): readonly Interval[] {
@@ -204,6 +226,12 @@ export function buildRecomputeStateSlices(
 
   const byWallet: Record<string, WalletSlice> = {};
   for (const wallet of args.wallets) {
+    if (
+      !isStrictIdentity(wallet.walletId) ||
+      !isStrictIdentity(wallet.assetGroupId)
+    ) {
+      return {kind: 'invalid', reason: 'invalidWalletIdentity'};
+    }
     if (byWallet[wallet.walletId]) {
       return {kind: 'invalid', reason: 'duplicateWalletId'};
     }
@@ -223,13 +251,23 @@ export function buildRecomputeStateSlices(
   const rowShells: AssetGroupRowShell[] = [];
 
   for (const assetGroup of args.assetGroups) {
+    if (
+      !isStrictIdentity(assetGroup.assetGroupId) ||
+      !isStrictIdentity(assetGroup.displaySymbol)
+    ) {
+      return {kind: 'invalid', reason: 'invalidAssetGroupIdentity'};
+    }
     if (byAssetGroup[assetGroup.assetGroupId]) {
       return {kind: 'invalid', reason: 'duplicateAssetGroupId'};
     }
 
     for (const member of assetGroup.members) {
-      if (!byWallet[member.walletId]) {
+      const memberWallet = byWallet[member.walletId];
+      if (!memberWallet) {
         return {kind: 'invalid', reason: 'missingAssetGroupMember'};
+      }
+      if (memberWallet.assetGroupId !== assetGroup.assetGroupId) {
+        return {kind: 'invalid', reason: 'assetGroupMemberMismatch'};
       }
     }
 
@@ -276,7 +314,12 @@ export function buildRecomputeStateSlices(
     };
   }
 
-  rowShells.sort((a, b) => a.orderIndex - b.orderIndex);
+  rowShells.sort((a, b) => {
+    const orderDelta = a.orderIndex - b.orderIndex;
+    return orderDelta !== 0
+      ? orderDelta
+      : a.assetGroupId.localeCompare(b.assetGroupId);
+  });
 
   return {kind: 'valid', byWallet, byAssetGroup, rowShells};
 }

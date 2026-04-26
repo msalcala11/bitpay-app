@@ -319,6 +319,40 @@ describe('portfolio v2 recompute state assembly adapter', () => {
     });
   });
 
+  it('ignores accidental weighted inputs for single-source groups', () => {
+    const result = expectValid(
+      buildRecomputeStateSlices({
+        quoteCurrency: 'USD',
+        wallets: [
+          makeWallet({
+            walletId: 'btc-wallet',
+            assetGroupId: 'btc',
+            series: {'1D': oneDaySeries},
+          }),
+        ],
+        assetGroups: [
+          makeSingleSourceAssetGroup({
+            weightedConstituentsByInterval: {
+              '1D': [
+                makeConstituent({
+                  rateSourceKey: 'btc',
+                  baselineUnits: 1,
+                  startTs: 1,
+                  endTs: 2,
+                  rateStart: 10,
+                  rateEnd: 12,
+                }),
+              ],
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(result.byAssetGroup.btc.weightedGroupRateSeries).toBeUndefined();
+    expect(result.byAssetGroup.btc.rowToday?.ratePercent).toBe(49.5);
+  });
+
   it('assembles collapsed rows from weighted group rates and sorts row shells', () => {
     const result = expectValid(
       buildRecomputeStateSlices({
@@ -370,6 +404,30 @@ describe('portfolio v2 recompute state assembly adapter', () => {
     expect(usdc.rowToday?.ratePercent).toBeCloseTo(20);
     expect(usdc.rowToday?.ratePercent).not.toBe(999);
     expect(usdc.rowAllTime?.ratePercent).toBe(100);
+    expect(result.rowShells[0].rowToday).toEqual(usdc.rowToday);
+    expect(result.rowShells[0].rowAllTime).toEqual(usdc.rowAllTime);
+  });
+
+  it('uses asset group id as a deterministic row-shell tie breaker', () => {
+    const result = expectValid(
+      buildRecomputeStateSlices({
+        quoteCurrency: 'USD',
+        wallets: [
+          makeWallet({walletId: 'btc-wallet', assetGroupId: 'btc'}),
+          makeWallet({walletId: 'eth-usdc', assetGroupId: 'usdc'}),
+          makeWallet({walletId: 'pol-usdc', assetGroupId: 'usdc'}),
+        ],
+        assetGroups: [
+          makeCollapsedAssetGroup({orderIndex: 1}),
+          makeSingleSourceAssetGroup({orderIndex: 1}),
+        ],
+      }),
+    );
+
+    expect(result.rowShells.map(row => row.assetGroupId)).toEqual([
+      'btc',
+      'usdc',
+    ]);
   });
 
   it('does not fall back to market rows for collapsed groups without weighted constituents', () => {
@@ -397,8 +455,63 @@ describe('portfolio v2 recompute state assembly adapter', () => {
     });
   });
 
-  it('rejects duplicate identities, missing members, and invalid row shells', () => {
+  it('publishes unavailable weighted series without row payloads', () => {
+    const result = expectValid(
+      buildRecomputeStateSlices({
+        quoteCurrency: 'USD',
+        wallets: [
+          makeWallet({walletId: 'eth-usdc', assetGroupId: 'usdc'}),
+          makeWallet({walletId: 'pol-usdc', assetGroupId: 'usdc'}),
+        ],
+        assetGroups: [
+          makeCollapsedAssetGroup({
+            weightedConstituentsByInterval: {
+              '1D': [
+                makeConstituent({
+                  rateSourceKey: 'usdc|eth',
+                  baselineUnits: 1,
+                  startTs: 1,
+                  endTs: 2,
+                  rateStart: 1,
+                  rateEnd: 1.2,
+                }),
+                makeConstituent({
+                  rateSourceKey: 'usdc|pol',
+                  baselineUnits: 1,
+                  startTs: 1,
+                  endTs: 2,
+                  rateStart: 1,
+                  rateEnd: 0,
+                }),
+              ],
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(result.byAssetGroup.usdc.weightedGroupRateSeries?.['1D']).toMatchObject({
+      availability: 'unavailable',
+      unavailableReason: 'missingConstituentRate',
+      points: [],
+    });
+    expect(result.byAssetGroup.usdc.rowToday).toBeUndefined();
+    expect(result.rowShells[0]).toMatchObject({
+      assetGroupId: 'usdc',
+      readyToday: false,
+    });
+  });
+
+  it('rejects duplicate identities, missing members, mismatches, and invalid row shells', () => {
     const wallet = makeWallet({walletId: 'btc-wallet', assetGroupId: 'btc'});
+    expect(
+      buildRecomputeStateSlices({
+        quoteCurrency: 'USD',
+        wallets: [makeWallet({walletId: ' btc-wallet', assetGroupId: 'btc'})],
+        assetGroups: [],
+      }),
+    ).toEqual({kind: 'invalid', reason: 'invalidWalletIdentity'});
+
     expect(
       buildRecomputeStateSlices({
         quoteCurrency: 'USD',
@@ -420,6 +533,14 @@ describe('portfolio v2 recompute state assembly adapter', () => {
       buildRecomputeStateSlices({
         quoteCurrency: 'USD',
         wallets: [wallet],
+        assetGroups: [makeSingleSourceAssetGroup({assetGroupId: ' btc'})],
+      }),
+    ).toEqual({kind: 'invalid', reason: 'invalidAssetGroupIdentity'});
+
+    expect(
+      buildRecomputeStateSlices({
+        quoteCurrency: 'USD',
+        wallets: [wallet],
         assetGroups: [
           makeSingleSourceAssetGroup({
             members: [makeMember({walletId: 'missing', rateSourceKey: 'btc'})],
@@ -427,6 +548,23 @@ describe('portfolio v2 recompute state assembly adapter', () => {
         ],
       }),
     ).toEqual({kind: 'invalid', reason: 'missingAssetGroupMember'});
+
+    expect(
+      buildRecomputeStateSlices({
+        quoteCurrency: 'USD',
+        wallets: [makeWallet({walletId: 'btc-wallet', assetGroupId: 'btc'})],
+        assetGroups: [
+          makeCollapsedAssetGroup({
+            members: [
+              makeMember({
+                walletId: 'btc-wallet',
+                rateSourceKey: 'usdc|eth',
+              }),
+            ],
+          }),
+        ],
+      }),
+    ).toEqual({kind: 'invalid', reason: 'assetGroupMemberMismatch'});
 
     expect(
       buildRecomputeStateSlices({
