@@ -599,16 +599,20 @@ describe('portfolio v2 ensureFresh', () => {
   });
 
   it('records retry state for duplicate current-epoch runtime results', async () => {
-    setRateFetchExecutorForTesting(async dependencies => [
-      {
-        dependency: dependencies[0],
-        series: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
-      },
-      {
-        dependency: dependencies[0],
-        series: {fetchedOn: 124, points: [{ts: 2, rate: 101}]},
-      },
-    ]);
+    let duplicatedKey: string | undefined;
+    setRateFetchExecutorForTesting(async dependencies => {
+      duplicatedKey = getRateKey(dependencies[0]);
+      return [
+        {
+          dependency: dependencies[0],
+          series: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
+        },
+        {
+          dependency: dependencies[0],
+          series: {fetchedOn: 124, points: [{ts: 2, rate: 101}]},
+        },
+      ];
+    });
 
     await ensureFresh({
       quoteCurrency: 'USD',
@@ -617,6 +621,9 @@ describe('portfolio v2 ensureFresh', () => {
       force: true,
     });
 
+    expect(mockMmkv.getString(duplicatedKey!)).toBe(
+      '{"v":3,"f":123,"p":[[1,100]]}',
+    );
     expect(getRateFetchRetryStatesForTesting()).toEqual([
       expect.objectContaining({
         quoteCurrency: 'USD',
