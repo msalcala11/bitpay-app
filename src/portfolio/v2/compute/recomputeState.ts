@@ -111,6 +111,17 @@ function isStrictIdentity(value: unknown): value is string {
   );
 }
 
+function normalizeDisplaySymbol(value: unknown): string | null {
+  'worklet';
+
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
 function getSeriesIntervals(series: PerIntervalSeries): readonly Interval[] {
   'worklet';
 
@@ -253,10 +264,8 @@ export function buildRecomputeStateSlices(
   const rowShells: AssetGroupRowShell[] = [];
 
   for (const assetGroup of args.assetGroups) {
-    if (
-      !isStrictIdentity(assetGroup.assetGroupId) ||
-      !isStrictIdentity(assetGroup.displaySymbol)
-    ) {
+    const displaySymbol = normalizeDisplaySymbol(assetGroup.displaySymbol);
+    if (!isStrictIdentity(assetGroup.assetGroupId) || !displaySymbol) {
       return {kind: 'invalid', reason: 'invalidAssetGroupIdentity'};
     }
     if (byAssetGroup[assetGroup.assetGroupId]) {
@@ -287,7 +296,7 @@ export function buildRecomputeStateSlices(
     });
     const shell = buildAssetGroupRowShell({
       assetGroupId: assetGroup.assetGroupId,
-      displaySymbol: assetGroup.displaySymbol,
+      displaySymbol,
       orderIndex: assetGroup.orderIndex,
       members: assetGroup.members,
       rowToday: rows.rowToday,

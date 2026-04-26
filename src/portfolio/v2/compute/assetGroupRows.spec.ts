@@ -327,6 +327,43 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
     expect(mixedScale.currentCryptoAmount).toBe('0.000001000000000001');
   });
 
+  it('trims display symbols while keeping identity fields strict', () => {
+    const rowShell = expectVisibleShell(
+      buildAssetGroupRowShell({
+        assetGroupId: 'btc',
+        displaySymbol: '  Bitcoin Cash  ',
+        orderIndex: 0,
+        members: [
+          {
+            walletId: 'btc-wallet',
+            assetIdentityKey: 'btc',
+            rateSourceKey: 'btc',
+            displayUnitsAtomic: '100000000',
+            displayUnitDecimals: 8,
+          },
+        ],
+      }),
+    );
+
+    expect(rowShell.displaySymbol).toBe('Bitcoin Cash');
+    expect(
+      buildAssetGroupRowShell({
+        assetGroupId: 'btc',
+        displaySymbol: '   ',
+        orderIndex: 0,
+        members: [
+          {
+            walletId: 'btc-wallet',
+            assetIdentityKey: 'btc',
+            rateSourceKey: 'btc',
+            displayUnitsAtomic: '100000000',
+            displayUnitDecimals: 8,
+          },
+        ],
+      }),
+    ).toEqual({kind: 'invalid', reason: 'missingDisplaySymbol'});
+  });
+
   it('returns empty or invalid instead of publishing malformed row shells', () => {
     expect(
       buildAssetGroupRowShell({

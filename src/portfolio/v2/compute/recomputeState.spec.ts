@@ -430,6 +430,45 @@ describe('portfolio v2 recompute state assembly adapter', () => {
     ]);
   });
 
+  it('normalizes display symbols without loosening asset-group identity', () => {
+    const result = expectValid(
+      buildRecomputeStateSlices({
+        quoteCurrency: 'USD',
+        wallets: [makeWallet({walletId: 'btc-wallet', assetGroupId: 'btc'})],
+        assetGroups: [
+          makeSingleSourceAssetGroup({
+            displaySymbol: '  Bitcoin Cash  ',
+          }),
+        ],
+      }),
+    );
+
+    expect(result.rowShells[0].displaySymbol).toBe('Bitcoin Cash');
+    expect(
+      buildRecomputeStateSlices({
+        quoteCurrency: 'USD',
+        wallets: [makeWallet({walletId: 'btc-wallet', assetGroupId: 'btc'})],
+        assetGroups: [
+          makeSingleSourceAssetGroup({
+            assetGroupId: ' btc',
+            displaySymbol: '  Bitcoin Cash  ',
+          }),
+        ],
+      }),
+    ).toEqual({kind: 'invalid', reason: 'invalidAssetGroupIdentity'});
+    expect(
+      buildRecomputeStateSlices({
+        quoteCurrency: 'USD',
+        wallets: [makeWallet({walletId: 'btc-wallet', assetGroupId: 'btc'})],
+        assetGroups: [
+          makeSingleSourceAssetGroup({
+            displaySymbol: '   ',
+          }),
+        ],
+      }),
+    ).toEqual({kind: 'invalid', reason: 'invalidAssetGroupIdentity'});
+  });
+
   it('does not fall back to market rows for collapsed groups without weighted constituents', () => {
     const result = expectValid(
       buildRecomputeStateSlices({

@@ -81,6 +81,13 @@ function isStrictIdentity(value: string): boolean {
   return !!value.trim() && value === value.trim();
 }
 
+function normalizeDisplaySymbol(value: string): string | null {
+  'worklet';
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
 function isFiniteNumber(value: number): boolean {
   'worklet';
 
@@ -375,7 +382,8 @@ export function buildAssetGroupRowShell(
   if (!isStrictIdentity(args.assetGroupId)) {
     return {kind: 'invalid', reason: 'missingAssetGroupId'};
   }
-  if (!isStrictIdentity(args.displaySymbol)) {
+  const displaySymbol = normalizeDisplaySymbol(args.displaySymbol);
+  if (!displaySymbol) {
     return {kind: 'invalid', reason: 'missingDisplaySymbol'};
   }
   if (!isFiniteNumber(args.orderIndex)) {
@@ -476,7 +484,7 @@ export function buildAssetGroupRowShell(
     : 0;
   const rowShell: AssetGroupRowShell = {
     assetGroupId: args.assetGroupId,
-    displaySymbol: args.displaySymbol,
+    displaySymbol,
     currentCryptoAmount: formatScaledAtomicUnits(
       currentCryptoAtomicScaled,
       maxDisplayUnitDecimals,
