@@ -268,4 +268,136 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
     await expect(runNextPendingRecompute()).resolves.toEqual({kind: 'idle'});
     expect(runOnRuntimeAsync).not.toHaveBeenCalled();
   });
+
+  it('coalesces and subsumes pending work using the scheduler merge table', () => {
+    scheduleRecompute({
+      scope: {kind: 'liveRateTouch', changedAssetIds: ['eth']},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput(),
+    });
+    scheduleRecompute({
+      scope: {kind: 'liveRateTouch', changedAssetIds: ['btc']},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput(),
+    });
+    expect(getPendingRecomputesForTesting().map(request => request.scope)).toEqual(
+      [{kind: 'liveRateTouch', changedAssetIds: ['btc', 'eth']}],
+    );
+
+    scheduleRecompute({
+      scope: 'full',
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput(),
+    });
+    expect(getPendingRecomputesForTesting().map(request => request.scope)).toEqual([
+      'full',
+    ]);
+
+    scheduleRecompute({
+      scope: {kind: 'wallet', walletId: 'eth-wallet'},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput(),
+    });
+    scheduleRecompute({
+      scope: {kind: 'touchWallet', walletId: 'eth-wallet'},
+      startEpoch: 7,
+      computedAtMs: 200,
+    });
+    scheduleRecompute({
+      scope: {kind: 'touchWallet', walletId: 'btc-wallet'},
+      startEpoch: 7,
+      computedAtMs: 201,
+    });
+    scheduleRecompute({
+      scope: {kind: 'wallet', walletId: 'btc-wallet'},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput(),
+    });
+
+    expect(getPendingRecomputesForTesting().map(request => request.scope)).toEqual([
+      'full',
+      {kind: 'wallets', walletIds: ['btc-wallet', 'eth-wallet']},
+    ]);
+  });
+
+  it('drains by plan priority instead of FIFO while preserving FIFO inside a class', async () => {
+    const current = makeCurrentState();
+    sharedPortfolioState.value = current;
+    (runOnRuntimeAsync as jest.Mock).mockImplementation(
+      async (
+        _runtime: unknown,
+        _workletFn: unknown,
+        passedCurrent: PortfolioState,
+      ) => passedCurrent,
+    );
+
+    scheduleRecompute({
+      scope: {kind: 'touchWallet', walletId: 'sol-wallet'},
+      startEpoch: 7,
+      computedAtMs: 200,
+    });
+    scheduleRecompute({
+      scope: {kind: 'liveRateTouch', changedAssetIds: ['eth']},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput(),
+    });
+    scheduleRecompute({
+      scope: {kind: 'wallet', walletId: 'btc-wallet'},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput(),
+    });
+    scheduleRecompute({
+      scope: {kind: 'wallet', walletId: 'eth-wallet'},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput(),
+    });
+
+    await runNextPendingRecompute();
+    await runNextPendingRecompute();
+    await runNextPendingRecompute();
+
+    expect(
+      (runOnRuntimeAsync as jest.Mock).mock.calls.map(call => call[3].scope),
+    ).toEqual([
+      {kind: 'wallets', walletIds: ['btc-wallet', 'eth-wallet']},
+      {kind: 'liveRateTouch', changedAssetIds: ['eth']},
+      {kind: 'touchWallet', walletId: 'sol-wallet'},
+    ]);
+  });
+
+  it('serializes concurrent drain calls through one in-flight recompute', async () => {
+    const current = makeCurrentState();
+    sharedPortfolioState.value = current;
+    let resolveRuntime: ((state: PortfolioState) => void) | undefined;
+    (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveRuntime = resolve as (state: PortfolioState) => void;
+        }),
+    );
+
+    scheduleRecompute({
+      scope: 'full',
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput(),
+    });
+    scheduleRecompute({
+      scope: 'full',
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({computedAtMs: 101}),
+    });
+
+    const first = runNextPendingRecompute();
+    const second = runNextPendingRecompute();
+    expect(runOnRuntimeAsync).toHaveBeenCalledTimes(1);
+    expect(getPendingRecomputesForTesting()).toHaveLength(1);
+
+    resolveRuntime?.(current);
+    await expect(first).resolves.toEqual({kind: 'unchanged'});
+    await expect(second).resolves.toEqual({kind: 'unchanged'});
+    expect(runOnRuntimeAsync).toHaveBeenCalledTimes(1);
+
+    await runNextPendingRecompute();
+    expect(runOnRuntimeAsync).toHaveBeenCalledTimes(2);
+  });
 });
