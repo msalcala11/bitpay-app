@@ -1,4 +1,12 @@
 import type {PortfolioState} from './model';
+export {
+  buildPortfolioComputedState,
+  type AssetGroupComputedStateInput,
+  type BuildPortfolioComputedStateArgs,
+  type BuildPortfolioComputedStateResult,
+  type PortfolioScopeComputedStateInput,
+  type WalletComputedStateInput,
+} from './compute/portfolioState';
 
 export type RecomputeScope =
   | 'full'
