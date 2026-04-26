@@ -266,39 +266,6 @@ function isFailedRuntimeResult(result: RateFetchRuntimeResult): boolean {
   );
 }
 
-function hasResultDependencyMismatch(
-  dependencies: readonly RateFetchDependency[],
-  results: readonly RateFetchRuntimeResult[],
-): boolean {
-  'worklet';
-
-  if (results.length !== dependencies.length) {
-    return true;
-  }
-
-  const expected = new Set<string>();
-  for (const dependency of dependencies) {
-    expected.add(dependencyKey(dependency));
-  }
-
-  const actual = new Set<string>();
-  for (const result of results) {
-    actual.add(dependencyKey(result.dependency));
-  }
-
-  if (expected.size !== actual.size) {
-    return true;
-  }
-
-  for (const key of expected) {
-    if (!actual.has(key)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
 function partitionRuntimeResults(args: {
   dependencies: readonly RateFetchDependency[];
   results: readonly RateFetchRuntimeResult[];

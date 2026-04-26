@@ -598,6 +598,42 @@ describe('portfolio v2 ensureFresh', () => {
     ]);
   });
 
+  it('records retry state for duplicate current-epoch runtime results', async () => {
+    setRateFetchExecutorForTesting(async dependencies => [
+      {
+        dependency: dependencies[0],
+        series: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
+      },
+      {
+        dependency: dependencies[0],
+        series: {fetchedOn: 124, points: [{ts: 2, rate: 101}]},
+      },
+    ]);
+
+    await ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'eth'}],
+      intervals: ['ALL'],
+      force: true,
+    });
+
+    expect(getRateFetchRetryStatesForTesting()).toEqual([
+      expect.objectContaining({
+        quoteCurrency: 'USD',
+        storedInterval: 'ALL',
+        rateSourceKey: 'eth',
+        lastErrorKind: 'unknown',
+      }),
+    ]);
+    expect(getPortfolioRuntimeLogPayloadsForTesting()).toEqual([
+      expect.objectContaining({
+        tag: 'ensureFresh',
+        reason: 'runtimeResultMismatch',
+        runtimeKind: 'rateFetch',
+      }),
+    ]);
+  });
+
   it('builds populate dependencies from hidden eligible wallets but visible dependencies from visible wallets', () => {
     initPortfolioReduxAccess({
       getState: () =>
