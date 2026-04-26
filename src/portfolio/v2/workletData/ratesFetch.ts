@@ -266,6 +266,39 @@ function isFailedRuntimeResult(result: RateFetchRuntimeResult): boolean {
   );
 }
 
+function hasResultDependencyMismatch(
+  dependencies: readonly RateFetchDependency[],
+  results: readonly RateFetchRuntimeResult[],
+): boolean {
+  'worklet';
+
+  if (results.length !== dependencies.length) {
+    return true;
+  }
+
+  const expected = new Set<string>();
+  for (const dependency of dependencies) {
+    expected.add(dependencyKey(dependency));
+  }
+
+  const actual = new Set<string>();
+  for (const result of results) {
+    actual.add(dependencyKey(result.dependency));
+  }
+
+  if (expected.size !== actual.size) {
+    return true;
+  }
+
+  for (const key of expected) {
+    if (!actual.has(key)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 async function fetchSingleRateOnRuntime(
   dependency: RateFetchDependency,
   cfg: BwsConfig,
@@ -418,7 +451,8 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
   const currentEpoch = getCurrentPortfolioWorkEpoch();
   if (startEpoch !== currentEpoch) {
     const hasFailedResult =
-      results.length !== toFetch.length || results.some(isFailedRuntimeResult);
+      hasResultDependencyMismatch(toFetch, results) ||
+      results.some(isFailedRuntimeResult);
     logPortfolioRuntimeError(new Error('stale rate fetch discarded'), {
       tag: 'staleWorkEpoch',
       reason: hasFailedResult
@@ -431,8 +465,10 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
     return;
   }
 
+  const missingResultKeys = new Set(toFetch.map(dependencyKey));
   for (const result of results) {
     const key = dependencyKey(result.dependency);
+    missingResultKeys.delete(key);
     if (result.series?.points?.length) {
       retryByDependencyKey.delete(key);
       writePortfolioMmkvString({
@@ -451,5 +487,28 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
         errorKind: result.errorKind ?? 'unknown',
       }),
     );
+  }
+
+  if (missingResultKeys.size) {
+    logPortfolioRuntimeError(new Error('rate fetch result dependency mismatch'), {
+      tag: 'ensureFresh',
+      reason: 'runtimeResultMismatch',
+      runtimeKind: 'rateFetch',
+    });
+    const dependencyByKey = new Map(
+      toFetch.map(dependency => [dependencyKey(dependency), dependency]),
+    );
+    for (const key of missingResultKeys) {
+      const dependency = dependencyByKey.get(key);
+      if (!dependency) continue;
+      retryByDependencyKey.set(
+        key,
+        computeRetryState({
+          dependency,
+          previous: retryByDependencyKey.get(key),
+          errorKind: 'unknown',
+        }),
+      );
+    }
   }
 }

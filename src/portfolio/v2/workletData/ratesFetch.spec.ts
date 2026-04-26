@@ -417,6 +417,38 @@ describe('portfolio v2 ensureFresh', () => {
     ]);
   });
 
+  it('classifies wrong-dependency stale runtime results as failed', async () => {
+    mockMmkv.set(PORTFOLIO_WORK_EPOCH_KEY, '1');
+    setRateFetchExecutorForTesting(async dependencies => {
+      mockMmkv.set(PORTFOLIO_WORK_EPOCH_KEY, '2');
+      return dependencies.map(
+        dependency =>
+          ({
+            dependency: dependencies[0] ?? dependency,
+            series: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
+          }) satisfies RateFetchRuntimeResult,
+      );
+    });
+
+    await ensureFresh({
+      quoteCurrency: 'EUR',
+      assetRefs: [{coin: 'eth'}],
+      intervals: ['ALL'],
+      force: true,
+    });
+
+    expect(getRateFetchRetryStatesForTesting()).toEqual([]);
+    expect(getPortfolioRuntimeLogPayloadsForTesting()).toEqual([
+      expect.objectContaining({
+        tag: 'staleWorkEpoch',
+        reason: 'runtimeResultFailed',
+        startEpoch: 1,
+        currentEpoch: 2,
+        runtimeKind: 'rateFetch',
+      }),
+    ]);
+  });
+
   it('dispatches default rate fetch work to the rate-fetch runtime without JS fetch', async () => {
     const mutableGlobal = globalThis as unknown as {fetch?: unknown};
     const originalFetch = mutableGlobal.fetch;
@@ -474,6 +506,45 @@ describe('portfolio v2 ensureFresh', () => {
         reason: 'runtimeResultSucceeded',
         startEpoch: 1,
         currentEpoch: 2,
+        runtimeKind: 'rateFetch',
+      }),
+    ]);
+  });
+
+  it('records retry state for current-epoch dropped runtime results', async () => {
+    setRateFetchExecutorForTesting(async dependencies => dependencies.slice(0, 1).map(
+      dependency =>
+        ({
+          dependency,
+          series: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
+        }) satisfies RateFetchRuntimeResult,
+    ));
+
+    await ensureFresh({
+      quoteCurrency: 'EUR',
+      assetRefs: [{coin: 'eth'}],
+      intervals: ['ALL'],
+      force: true,
+    });
+
+    expect(getRateFetchRetryStatesForTesting()).toEqual([
+      expect.objectContaining({
+        quoteCurrency: 'USD',
+        storedInterval: 'ALL',
+        rateSourceKey: 'btc',
+        lastErrorKind: 'unknown',
+      }),
+      expect.objectContaining({
+        quoteCurrency: 'USD',
+        storedInterval: 'ALL',
+        rateSourceKey: 'eth',
+        lastErrorKind: 'unknown',
+      }),
+    ]);
+    expect(getPortfolioRuntimeLogPayloadsForTesting()).toEqual([
+      expect.objectContaining({
+        tag: 'ensureFresh',
+        reason: 'runtimeResultMismatch',
         runtimeKind: 'rateFetch',
       }),
     ]);
