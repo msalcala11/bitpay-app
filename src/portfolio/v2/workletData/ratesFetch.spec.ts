@@ -133,6 +133,11 @@ const ltcAllKey = getRateKey({
   asset: {coin: 'ltc'},
   storedInterval: 'ALL',
 });
+const ethAllKey = getRateKey({
+  quoteCurrency: 'USD',
+  asset: {coin: 'eth'},
+  storedInterval: 'ALL',
+});
 
 describe('portfolio v2 ensureFresh', () => {
   it('builds dependencies with canonical and target BTC bridge coverage', () => {
@@ -588,6 +593,46 @@ describe('portfolio v2 ensureFresh', () => {
     expect(() =>
       txHistorySigning.takeNextPortfolioTransferredSignHandleOnRuntime(),
     ).toThrow('No portfolio runtime request context is initialized');
+  });
+
+  it('keeps the fetch-only Nitro context active for the whole dependency batch', async () => {
+    (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
+      async (
+        _runtime: unknown,
+        workletFn: (...args: any[]) => unknown,
+        ...args: any[]
+      ) => workletFn(...args),
+    );
+    mockNitroRequestSync.mockReturnValue({
+      ok: true,
+      status: 200,
+      bodyString: JSON.stringify({
+        btc: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
+        eth: {fetchedOn: 124, points: [{ts: 1, rate: 2000}]},
+      }),
+    });
+
+    await ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'eth'}],
+      intervals: ['ALL'],
+      force: true,
+      cfg: {baseUrl: 'https://bws.example'},
+    });
+
+    expect(mockNitroRequestSync).toHaveBeenCalledTimes(2);
+    const dispatchContext = (runOnRuntimeAsync as jest.Mock).mock.calls[0][4];
+    expect(dispatchContext).toEqual(expect.objectContaining({requestCount: 2}));
+    expect(dispatchContext).not.toHaveProperty('requestPrivKey');
+    expect(dispatchContext).not.toHaveProperty('requestPubKey');
+    expect(dispatchContext).not.toHaveProperty('signHandleHybrids');
+    expect(mockMmkv.getString(btcAllKey)).toBe('{"v":3,"f":123,"p":[[1,100]]}');
+    expect(mockMmkv.getString(ethAllKey)).toBe(
+      '{"v":3,"f":124,"p":[[1,2000]]}',
+    );
+    expect(
+      txHistorySigning.getPortfolioTxHistorySigningDispatchContextOnRuntime(),
+    ).toBeUndefined();
   });
 
   it('drops fetched results when the work epoch changes before persist', async () => {

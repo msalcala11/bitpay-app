@@ -415,7 +415,9 @@ async function defaultRateFetchExecutor(
   dependencies: readonly RateFetchDependency[],
   cfg: BwsConfig,
 ): Promise<readonly RateFetchRuntimeResult[]> {
-  const dispatchContext = createPortfolioRateFetchDispatchContextOnRN();
+  const dispatchContext = createPortfolioRateFetchDispatchContextOnRN({
+    requestCount: dependencies.length,
+  });
   return runOnPortfolioRuntimeAsync(
     getPortfolioRateFetchRuntime(),
     fetchRateSeriesOnRuntime,

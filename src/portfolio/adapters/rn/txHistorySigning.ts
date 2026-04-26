@@ -110,6 +110,11 @@ export type PortfolioTxHistorySigningDispatchContext = {
   nextSignHandleIndex?: number;
 };
 
+// Rate fetches share the Nitro transport handles but intentionally do not carry
+// wallet signing material or transferred Quick Crypto sign handles.
+export type PortfolioNitroFetchDispatchContext =
+  PortfolioTxHistorySigningDispatchContext;
+
 type GlobalWithPortfolioSigningContext = typeof globalThis & {
   __bitpayPortfolioTxHistorySigningContextV1__?:
     | PortfolioTxHistorySigningDispatchContext
@@ -785,13 +790,15 @@ metrics?: PortfolioTxHistorySigningContextBuildMetrics,
   return context;
 }
 
-export function createPortfolioRateFetchDispatchContextOnRN():
-  PortfolioTxHistorySigningDispatchContext {
+export function createPortfolioRateFetchDispatchContextOnRN(args?: {
+  requestCount?: number;
+}): PortfolioNitroFetchDispatchContext {
   const boxedNitroModulesProxy = getSharedBoxedNitroModulesProxyOnJS();
   const boxedNitroFetch = getSharedBoxedNitroFetchOnJS();
+  const requestCount = Math.max(1, Math.floor(args?.requestCount ?? 1));
 
   return {
-    requestCount: 1,
+    requestCount,
     boxedNitroModulesProxy,
     boxedNitroFetch,
     nextSignHandleIndex: 0,
