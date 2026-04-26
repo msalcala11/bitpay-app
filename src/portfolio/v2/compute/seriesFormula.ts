@@ -204,6 +204,7 @@ function normalizeBalanceEvents(
       !isFiniteNumber(event.ts) ||
       !isFiniteNumber(event.unitsDelta) ||
       !Number.isInteger(event.order) ||
+      event.order < 0 ||
       event.ts <= windowStartTs ||
       event.ts > windowEndTs
     ) {

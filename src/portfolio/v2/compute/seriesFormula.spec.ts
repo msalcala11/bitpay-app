@@ -177,6 +177,17 @@ describe('portfolio v2 wallet series formula adapter', () => {
         ...BASE_FORMULA_ARGS,
         baselineUnits: 0,
         balanceEvents: [
+          {ts: ORACLE_TS.middle, unitsDelta: 1, order: -1},
+        ],
+        ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
+        maxPoints: 2,
+      }),
+    ).toEqual({kind: 'invalidHistory', reason: 'malformedBalanceEvent'});
+    expect(
+      buildWalletSeriesFromEvents({
+        ...BASE_FORMULA_ARGS,
+        baselineUnits: 0,
+        balanceEvents: [
           {ts: ORACLE_TS.middle, unitsDelta: 1, order: 1},
           {ts: ORACLE_TS.middle, unitsDelta: -1, order: 1},
         ],
