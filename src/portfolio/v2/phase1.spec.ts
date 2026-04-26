@@ -527,10 +527,12 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
         tokenAddress: undefined,
       },
     });
-    expect(serializeExchangeRateRoute(route, '1D')).toEqual({
+    const serialized = serializeExchangeRateRoute(route, '1D');
+    expect(serialized).toEqual({
       route,
       initialInterval: '1D',
     });
+    expect(normalizeExchangeRateRouteParams(serialized)).toEqual(route);
   });
 
   it('uses react-native-worklets runtimes and scoped initializers', () => {
