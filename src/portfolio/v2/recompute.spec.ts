@@ -235,11 +235,22 @@ describe('portfolio v2 recompute entrypoint', () => {
     });
   });
 
-  it('updates live-rate row-shell surfaces without rebuilding historical state', () => {
+  it('updates live-rate final points, rows, shells, and fingerprints together', () => {
+    const liveInput = normalizedInput({
+      formula: {
+        ...normalizedInput().formula,
+        wallets: [
+          {
+            ...normalizedInput().formula.wallets[0],
+            intervals: [oneDayInterval({finalPointSource: 'liveRate'})],
+          },
+        ],
+      },
+    });
     const built = recomputePortfolioState(makeCurrentState(), {
       scope: 'full',
       startEpoch: 7,
-      normalizedFormulaInput: normalizedInput(),
+      normalizedFormulaInput: liveInput,
     });
     const previousScoped = makePreviousScopedSlice({
       rowShells: built.rowShells,
@@ -247,26 +258,41 @@ describe('portfolio v2 recompute entrypoint', () => {
       lastAccessedAt: 25,
       computedAtMs: 25,
     });
+    const touchedWallet = {
+      ...built.byWallet['eth-wallet'],
+      lastAccessedAt: 333,
+    };
     const current = {
       ...built,
+      byWallet: {
+        ...built.byWallet,
+        'eth-wallet': touchedWallet,
+      },
       scopedByWalletSet: {'eth-wallet': previousScoped},
     };
     const originalWallet = current.byWallet['eth-wallet'];
     const originalAssetGroup = current.byAssetGroup.eth;
-    const originalRowToday = current.rowShells[0].rowToday;
-    const baseInput = normalizedInput();
+    const originalScoped = current.scopedByWalletSet['eth-wallet'];
     const next = recomputePortfolioState(current, {
       scope: {kind: 'liveRateTouch', changedAssetIds: ['eth']},
       startEpoch: 7,
       normalizedFormulaInput: normalizedInput({
         computedAtMs: 225,
         formula: {
-          ...baseInput.formula,
+          ...liveInput.formula,
           wallets: [
             {
-              ...baseInput.formula.wallets[0],
-              displayUnitsAtomic: '3000000000000000000',
+              ...liveInput.formula.wallets[0],
               liveRate: 130,
+              intervals: [
+                oneDayInterval({
+                  finalPointSource: 'liveRate',
+                  ratePoints: [
+                    {ts: ORACLE_TS.start, rate: 100},
+                    {ts: ORACLE_TS.end, rate: 130},
+                  ],
+                }),
+              ],
             },
           ],
         },
@@ -276,22 +302,47 @@ describe('portfolio v2 recompute entrypoint', () => {
     expect(next).not.toBe(current);
     expect(next.revision).toBe(current.revision + 1);
     expect(next.computedAtMs).toBe(225);
-    expect(next.byWallet['eth-wallet']).toBe(originalWallet);
-    expect(next.byAssetGroup.eth).toBe(originalAssetGroup);
+    expect(next.byWallet['eth-wallet'].fingerprint).not.toBe(
+      originalWallet.fingerprint,
+    );
+    expect(next.byWallet['eth-wallet'].lastAccessedAt).toBe(333);
+    expect(next.byWallet['eth-wallet'].rowToday).toMatchObject({
+      fiatEnd: 260,
+      pnlChange: 60,
+      pnlPercent: 30,
+      rateEnd: 130,
+      ratePercent: 30,
+    });
+    expect(next.byWallet['eth-wallet'].series['1D']?.points.at(-1)).toEqual({
+      ts: ORACLE_TS.end,
+      fiatBalance: 260,
+      remainingUnrealizedPnlFiat: 60,
+      pnlChange: 60,
+      pnlPercent: 30,
+    });
+    expect(next.byAssetGroup.eth.fingerprint).not.toBe(
+      originalAssetGroup.fingerprint,
+    );
+    expect(next.byAssetGroup.eth.rowToday).toEqual(next.rowShells[0].rowToday);
     expect(next.totalFingerprint).toBe(current.totalFingerprint);
     expect(next.rowShells[0]).toMatchObject({
       assetGroupId: 'eth',
-      currentCryptoAmount: '3',
-      currentFiatValue: 390,
+      currentCryptoAmount: '2',
+      currentFiatValue: 260,
     });
-    expect(next.rowShells[0].rowToday).toBe(originalRowToday);
     expect(next.scopedByWalletSet['eth-wallet']).toMatchObject({
       lastAccessedAt: 25,
-      computedAtMs: 25,
+      computedAtMs: 225,
     });
+    expect(next.scopedByWalletSet['eth-wallet'].fingerprint).not.toBe(
+      originalScoped.fingerprint,
+    );
+    expect(
+      next.scopedByWalletSet['eth-wallet'].byAssetGroup.eth.fingerprint,
+    ).not.toBe(originalScoped.byAssetGroup.eth.fingerprint);
     expect(next.scopedByWalletSet['eth-wallet'].rowShells[0]).toMatchObject({
-      currentCryptoAmount: '3',
-      currentFiatValue: 390,
+      currentCryptoAmount: '2',
+      currentFiatValue: 260,
     });
   });
 
