@@ -4,14 +4,14 @@ import type {
   PortfolioPopulateStatus,
   WalletPopulateState,
 } from '../../store/portfolio/portfolio.models';
-import type {FiatRateInterval, Rates} from '../../store/rate/rate.models';
+import {
+  hasValidSeriesForCoin,
+  type FiatRateInterval,
+  type Rates,
+} from '../../store/rate/rate.models';
 import type {Key, Wallet} from '../../store/wallet/wallet.models';
 import {IsSVMChain} from '../../store/wallet/utils/currency';
 import type {SupportedCurrencyOption} from '../../constants/SupportedCurrencyOptions';
-import {
-  getWalletStableDeduplicationId,
-  isWalletVisibleForKey,
-} from '../../store/wallet/utils/wallet';
 import {
   BitpaySupportedCoins,
   BitpaySupportedTokens,
@@ -23,6 +23,7 @@ import {
   formatFiatAmount,
   getCurrencyAbbreviation,
   calculatePercentageDifference,
+  atomicToUnitString,
   unitStringToAtomicBigInt,
 } from '../helper-methods';
 import {
@@ -317,6 +318,10 @@ export const canNavigateToExchangeRateForAssetRowItem = (args: {
   item: AssetRowItem;
   options: SupportedCurrencyOption[];
 }): boolean => {
+  if (!args.item.hasRate) {
+    return false;
+  }
+
   return canNavigateToExchangeRateForAssetRowItemWithSupportInfo({
     item: args.item,
     supportInfo: getAssetRowItemSupportInfo(args),
@@ -372,6 +377,57 @@ const toNumber = (v: unknown): number => {
 const toOptionalString = (value: unknown): string | undefined => {
   const normalized = toStringOrEmpty(value);
   return normalized === '' ? undefined : normalized;
+};
+
+const getWalletAccountVisibilityKey = (wallet: Wallet | undefined): string => {
+  let accountKey = toStringOrEmpty(wallet?.receiveAddress);
+  const isComplete =
+    typeof wallet?.credentials?.isComplete === 'function'
+      ? wallet.credentials.isComplete()
+      : true;
+
+  if (!accountKey && (!isComplete || wallet?.pendingTssSession)) {
+    accountKey = toStringOrEmpty(wallet?.credentials?.walletId);
+  }
+
+  return accountKey;
+};
+
+const getWalletStableDeduplicationId = (
+  wallet: Wallet | undefined,
+): string | undefined => {
+  const walletId = toStringOrEmpty(wallet?.id);
+  if (walletId) {
+    return walletId;
+  }
+
+  const credentialsWalletId = toStringOrEmpty(wallet?.credentials?.walletId);
+  return credentialsWalletId || undefined;
+};
+
+const isWalletVisibleForKey = (
+  key: Key | undefined,
+  wallet: Wallet | undefined,
+): boolean => {
+  if (!wallet || wallet.hideWallet || wallet.hideWalletByAccount) {
+    return false;
+  }
+
+  const isComplete =
+    typeof wallet?.credentials?.isComplete === 'function'
+      ? wallet.credentials.isComplete()
+      : true;
+
+  if (isComplete && !wallet.pendingTssSession) {
+    return true;
+  }
+
+  const accountKey = getWalletAccountVisibilityKey(wallet);
+  if (accountKey && key?.evmAccountsInfo?.[accountKey]?.hideAccount) {
+    return false;
+  }
+
+  return true;
 };
 
 type WalletWithTokenCredentials = Wallet & {
@@ -453,7 +509,10 @@ export const getQuoteCurrency = (args: {
   defaultAltCurrencyIsoCode?: string;
 }): string => {
   return resolveActivePortfolioDisplayQuoteCurrency({
-    quoteCurrency: args.quoteCurrency,
+    quoteCurrency:
+      args.quoteCurrency ||
+      args.defaultAltCurrencyIsoCode ||
+      args.portfolioQuoteCurrency,
     defaultAltCurrencyIsoCode: args.defaultAltCurrencyIsoCode,
   });
 };
@@ -889,6 +948,338 @@ export const walletHasNonZeroLiveBalance = (wallet: Wallet): boolean => {
     unitDecimals,
   });
   return liveAtomicBalance > 0n;
+};
+
+export const getLatestSnapshot = <T>(snapshots: T[] | undefined): T | undefined => {
+  return Array.isArray(snapshots) && snapshots.length
+    ? snapshots[snapshots.length - 1]
+    : undefined;
+};
+
+export const hasSnapshotsForWallets = (args: {
+  snapshotsByWalletId: Record<string, unknown[] | undefined> | undefined;
+  wallets: Wallet[] | undefined;
+}): boolean => {
+  return (args.wallets || []).some(wallet => {
+    const snapshots = args.snapshotsByWalletId?.[wallet.id];
+    return Array.isArray(snapshots) && snapshots.length > 0;
+  });
+};
+
+export const hasSnapshotsBeforeMsForWallets = (args: {
+  snapshotsByWalletId:
+    | Record<string, Array<{createdAt?: number; timestamp?: number}> | undefined>
+    | undefined;
+  wallets: Wallet[] | undefined;
+  cutoffMs: number;
+}): boolean => {
+  return (args.wallets || []).some(wallet => {
+    const snapshots = args.snapshotsByWalletId?.[wallet.id] || [];
+    return snapshots.some(snapshot => {
+      if (!snapshot || typeof snapshot.createdAt !== 'number') {
+        return true;
+      }
+
+      return (
+        Number.isFinite(snapshot.createdAt) && snapshot.createdAt < args.cutoffMs
+      );
+    });
+  });
+};
+
+export const getSnapshotAtomicBalanceFromCryptoBalance = (args: {
+  wallet?: Wallet;
+  snapshot?: {cryptoBalance?: string};
+  cryptoBalance?: string;
+  unitDecimals?: number;
+}): bigint => {
+  const unitDecimals =
+    typeof args.unitDecimals === 'number'
+      ? args.unitDecimals
+      : args.wallet
+      ? getWalletUnitInfo(args.wallet).unitDecimals
+      : 0;
+  return unitStringToAtomicBigInt(
+    String(args.cryptoBalance ?? args.snapshot?.cryptoBalance ?? '0').replace(
+      /,/g,
+      '',
+    ),
+    unitDecimals,
+  );
+};
+
+const getSnapshotTimestamp = (snapshot: any): number => {
+  const timestamp = Number(snapshot?.timestamp);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+export const isFiatLoadingForWallets = (args: {
+  quoteCurrency: string;
+  wallets: Wallet[] | undefined;
+  snapshotsByWalletId: Record<string, any[] | undefined> | undefined;
+  fiatRateSeriesCache: unknown;
+}): boolean => {
+  const quoteCurrency = String(args.quoteCurrency || '').toUpperCase();
+  if (!quoteCurrency || !(args.wallets || []).length) {
+    return false;
+  }
+
+  return (args.wallets || []).some(wallet => {
+    if (!isPortfolioWalletOnMainnet(wallet)) {
+      return false;
+    }
+
+    const snapshots = (args.snapshotsByWalletId?.[wallet.id] || [])
+      .filter(Boolean)
+      .sort((left, right) => getSnapshotTimestamp(left) - getSnapshotTimestamp(right));
+    const latestSnapshot = getLatestSnapshot(snapshots);
+    const snapshotQuoteCurrency = String(
+      latestSnapshot?.quoteCurrency || '',
+    ).toUpperCase();
+    if (!snapshotQuoteCurrency || snapshotQuoteCurrency === quoteCurrency) {
+      return false;
+    }
+
+    return !hasValidSeriesForCoin({
+      cache: args.fiatRateSeriesCache as any,
+      fiatCodeUpper: quoteCurrency,
+      normalizedCoin: getPortfolioWalletCurrencyAbbreviationLower(wallet),
+      intervals: ['1D', '1W', '1M', 'ALL'],
+      chain: getPortfolioWalletChain(wallet),
+      tokenAddress: getPortfolioWalletTokenAddress(wallet),
+    });
+  });
+};
+
+export const getWalletIdsToPopulateFromSnapshots = (args: {
+  wallets: Wallet[] | undefined;
+  snapshotsByWalletId: Record<string, any[] | undefined> | undefined;
+  previousSnapshotBalanceMismatchesByWalletId?: Record<string, any>;
+}): {
+  walletIdsToPopulate: string[];
+  snapshotBalanceMismatchUpdates: Record<string, any | undefined>;
+} => {
+  const walletIdsToPopulate: string[] = [];
+  const snapshotBalanceMismatchUpdates: Record<string, any | undefined> = {};
+
+  for (const wallet of args.wallets || []) {
+    const walletId = getPortfolioWalletId(wallet);
+    if (!walletId || !isPortfolioWalletOnMainnet(wallet)) {
+      continue;
+    }
+
+    const snapshots = args.snapshotsByWalletId?.[walletId] || [];
+    const latestSnapshot = getLatestSnapshot(snapshots);
+    if (!latestSnapshot) {
+      if (walletHasNonZeroLiveBalance(wallet)) {
+        walletIdsToPopulate.push(walletId);
+      }
+      continue;
+    }
+
+    const {unitDecimals} = getWalletUnitInfo(wallet);
+    const liveAtomic = getWalletLiveAtomicBalance({wallet, unitDecimals});
+    const snapshotAtomic = getSnapshotAtomicBalanceFromCryptoBalance({
+      wallet,
+      cryptoBalance: latestSnapshot.cryptoBalance,
+    });
+
+    if (liveAtomic === snapshotAtomic) {
+      if (args.previousSnapshotBalanceMismatchesByWalletId?.[walletId]) {
+        snapshotBalanceMismatchUpdates[walletId] = undefined;
+      }
+      continue;
+    }
+
+    const mismatch = {
+      walletId,
+      computedUnitsHeld: atomicToUnitString(snapshotAtomic, unitDecimals),
+      currentWalletBalance: atomicToUnitString(liveAtomic, unitDecimals),
+      delta: atomicToUnitString(liveAtomic - snapshotAtomic, unitDecimals),
+    };
+    const previous = args.previousSnapshotBalanceMismatchesByWalletId?.[walletId];
+    if (JSON.stringify(previous) !== JSON.stringify(mismatch)) {
+      walletIdsToPopulate.push(walletId);
+      snapshotBalanceMismatchUpdates[walletId] = mismatch;
+    }
+  }
+
+  return {walletIdsToPopulate, snapshotBalanceMismatchUpdates};
+};
+
+export const getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots = (args: {
+  snapshotsByWalletId: Record<string, any[] | undefined> | undefined;
+  wallets: Wallet[] | undefined;
+  quoteCurrency?: string;
+  timeframe: GainLossMode;
+  fiatRateSeriesCache?: unknown;
+  nowMs?: number;
+}): {
+  available: boolean;
+  deltaFiat: number;
+  percentRatio: number;
+  timeframe: GainLossMode;
+  quoteCurrency: string;
+  baselineTimestampMs: number;
+  error?: string;
+} => {
+  const quoteCurrency = String(args.quoteCurrency || 'USD').toUpperCase();
+  const nowMs = typeof args.nowMs === 'number' ? args.nowMs : Date.now();
+  if (!args.fiatRateSeriesCache) {
+    return {
+      available: false,
+      deltaFiat: 0,
+      percentRatio: 0,
+      timeframe: args.timeframe,
+      quoteCurrency,
+      baselineTimestampMs: nowMs,
+      error: 'fiatRateSeriesCache unavailable',
+    };
+  }
+
+  const mainnetWalletsWithSnapshots = (args.wallets || []).filter(
+    wallet =>
+      isPortfolioWalletOnMainnet(wallet) &&
+      (args.snapshotsByWalletId?.[wallet.id] || []).length > 0,
+  );
+
+  if (!mainnetWalletsWithSnapshots.length) {
+    return {
+      available: true,
+      deltaFiat: 0,
+      percentRatio: 0,
+      timeframe: args.timeframe,
+      quoteCurrency,
+      baselineTimestampMs: nowMs,
+    };
+  }
+
+  return {
+    available: false,
+    deltaFiat: 0,
+    percentRatio: 0,
+    timeframe: args.timeframe,
+    quoteCurrency,
+    baselineTimestampMs: nowMs,
+    error: 'no points',
+  };
+};
+
+export const buildPortfolioGainLossSummaryFromPortfolioSnapshots = (args: {
+  snapshotsByWalletId: Record<string, any[] | undefined> | undefined;
+  wallets: Wallet[] | undefined;
+  quoteCurrency?: string;
+  fiatRateSeriesCache?: unknown;
+  nowMs?: number;
+}): PortfolioGainLossSummary => {
+  const today = getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots({
+    ...args,
+    timeframe: '1D',
+  });
+  const total = getPortfolioPnlChangeForTimeframeFromPortfolioSnapshots({
+    ...args,
+    timeframe: 'ALL',
+  });
+
+  return {
+    quoteCurrency: String(args.quoteCurrency || 'USD').toUpperCase(),
+    today: {
+      deltaFiat: today.deltaFiat,
+      percentRatio: today.percentRatio,
+      available: today.available,
+      error: today.error,
+    },
+    total: {
+      deltaFiat: total.deltaFiat,
+      percentRatio: total.percentRatio,
+      available: total.available,
+      error: total.error,
+    },
+  };
+};
+
+export const buildAssetRowItemsFromPortfolioSnapshots = (args: {
+  snapshotsByWalletId: Record<string, any[] | undefined> | undefined;
+  wallets: Wallet[] | undefined;
+  quoteCurrency?: string;
+  gainLossMode: GainLossMode;
+  fiatRateSeriesCache?: unknown;
+  collapseAcrossChains?: boolean;
+}): AssetRowItem[] => {
+  const quoteCurrency = resolveActivePortfolioDisplayQuoteCurrency({
+    quoteCurrency: args.quoteCurrency,
+  });
+  const groups = new Map<
+    string,
+    {
+      key: string;
+      currencyAbbreviation: string;
+      chain: string;
+      tokenAddress?: string;
+      totalAtomic: bigint;
+      unitDecimals: number;
+      firstIndex: number;
+    }
+  >();
+
+  for (const [index, wallet] of (args.wallets || []).entries()) {
+    if (!isPortfolioWalletOnMainnet(wallet) || !walletHasNonZeroLiveBalance(wallet)) {
+      continue;
+    }
+    const {unitDecimals} = getWalletUnitInfo(wallet);
+    const totalAtomic = getWalletLiveAtomicBalance({wallet, unitDecimals});
+    const key = args.collapseAcrossChains
+      ? getPortfolioWalletCurrencyAbbreviationLower(wallet)
+      : `${getPortfolioWalletCurrencyAbbreviationLower(wallet)}:${getPortfolioWalletChainLower(wallet)}`;
+    if (!key) {
+      continue;
+    }
+
+    const existing = groups.get(key);
+    if (existing) {
+      existing.totalAtomic += totalAtomic;
+      existing.firstIndex = Math.min(existing.firstIndex, index);
+      continue;
+    }
+
+    groups.set(key, {
+      key: args.collapseAcrossChains
+        ? getPortfolioWalletCurrencyAbbreviationLower(wallet)
+        : getPortfolioWalletCurrencyAbbreviationLower(wallet),
+      currencyAbbreviation: getPortfolioWalletCurrencyAbbreviationLower(wallet),
+      chain: getPortfolioWalletChainLower(wallet),
+      tokenAddress: getPortfolioWalletTokenAddress(wallet),
+      totalAtomic,
+      unitDecimals,
+      firstIndex: index,
+    });
+  }
+
+  return Array.from(groups.values())
+    .sort((left, right) => left.firstIndex - right.firstIndex)
+    .map(group => ({
+      key: group.key,
+      currencyAbbreviation: group.currencyAbbreviation,
+      chain: group.chain,
+      tokenAddress: group.tokenAddress,
+      name: formatCurrencyAbbreviation(group.currencyAbbreviation),
+      cryptoAmount: formatBigIntDecimal(
+        group.totalAtomic,
+        group.unitDecimals,
+        Math.min(group.unitDecimals, 8),
+      ),
+      fiatAmount: formatFiatAmount(0, quoteCurrency, {
+        customPrecision: 'minimal',
+      }),
+      deltaFiat: formatFiatAmount(0, quoteCurrency, {
+        customPrecision: 'minimal',
+      }),
+      deltaPercent: '0%',
+      isPositive: true,
+      hasRate: false,
+      hasPnl: false,
+      showPnlPlaceholder: true,
+    }));
 };
 
 export const getWalletsMatchingExchangeRateAsset = (args: {

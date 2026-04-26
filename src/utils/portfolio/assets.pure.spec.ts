@@ -42,6 +42,7 @@ jest.mock('./core/format', () => ({
 }));
 
 jest.mock('../../store/rate/rate.models', () => ({
+  DateRanges: {Day: 1},
   hasValidSeriesForCoin: jest.fn(() => false),
 }));
 

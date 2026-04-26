@@ -6,7 +6,7 @@ import {logManager} from '../../../../managers/LogManager';
 import {formatUnknownError} from '../../../../utils/errors/formatUnknownError';
 import {updatePortfolioBalance} from '../../wallet.actions';
 import {findWalletById} from '../../utils/wallet';
-import type {Recipient, Status, Wallet} from '../../wallet.models';
+import type {Key, Recipient, Status, Wallet} from '../../wallet.models';
 import {startUpdateWalletStatus} from './status';
 
 const POLL_INTERVAL_MS = 5000;

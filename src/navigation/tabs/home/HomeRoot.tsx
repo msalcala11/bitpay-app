@@ -77,6 +77,7 @@ import {
 } from '../../../utils/portfolio/assets';
 import {sortNewestFirst} from '../../../utils/braze';
 import buildHomeExchangeRateItems from './homeExchangeRates';
+import {getCoinAndChainFromCurrencyCode} from '../../bitpay-id/utils/bitpay-id-utils';
 
 export type HomeScreenProps = NativeStackScreenProps<
   TabsStackParamList,
