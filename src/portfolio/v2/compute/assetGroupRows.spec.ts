@@ -253,6 +253,80 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
     expect(rowShell.currentFiatValue).toBeCloseTo(3e-18);
   });
 
+  it('formats whole numbers, trailing decimals, zero, and mixed-scale sums', () => {
+    const whole = expectVisibleShell(
+      buildAssetGroupRowShell({
+        assetGroupId: 'whole',
+        displaySymbol: 'WHOLE',
+        orderIndex: 0,
+        members: [
+          {
+            walletId: 'whole-a',
+            assetIdentityKey: 'whole',
+            rateSourceKey: 'whole',
+            displayUnitsAtomic: '123000000',
+            displayUnitDecimals: 6,
+            liveRate: 1,
+          },
+          {
+            walletId: 'whole-b',
+            assetIdentityKey: 'whole',
+            rateSourceKey: 'whole',
+            displayUnitsAtomic: '450000',
+            displayUnitDecimals: 6,
+            liveRate: 1,
+          },
+        ],
+      }),
+    );
+    const zero = expectVisibleShell(
+      buildAssetGroupRowShell({
+        assetGroupId: 'zero',
+        displaySymbol: 'ZERO',
+        orderIndex: 0,
+        members: [
+          {
+            walletId: 'zero-a',
+            assetIdentityKey: 'zero',
+            rateSourceKey: 'zero',
+            displayUnitsAtomic: '0',
+            displayUnitDecimals: 18,
+          },
+        ],
+      }),
+    );
+    const mixedScale = expectVisibleShell(
+      buildAssetGroupRowShell({
+        assetGroupId: 'mixed',
+        displaySymbol: 'MIXED',
+        orderIndex: 0,
+        members: [
+          {
+            walletId: 'mixed-six',
+            assetIdentityKey: 'mixed-six',
+            rateSourceKey: 'mixed-six',
+            displayUnitsAtomic: '1',
+            displayUnitDecimals: 6,
+            liveRate: 1,
+          },
+          {
+            walletId: 'mixed-eighteen',
+            assetIdentityKey: 'mixed-eighteen',
+            rateSourceKey: 'mixed-eighteen',
+            displayUnitsAtomic: '1',
+            displayUnitDecimals: 18,
+            liveRate: 1,
+          },
+        ],
+      }),
+    );
+
+    expect(whole.currentCryptoAmount).toBe('123.45');
+    expect(zero.currentCryptoAmount).toBe('0');
+    expect(zero.currentFiatValue).toBe(0);
+    expect(mixedScale.currentCryptoAmount).toBe('0.000001000000000001');
+  });
+
   it('returns empty or invalid instead of publishing malformed row shells', () => {
     expect(
       buildAssetGroupRowShell({
@@ -317,6 +391,23 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
         ],
       }),
     ).toEqual({kind: 'invalid', reason: 'duplicateWalletId'});
+    expect(
+      buildAssetGroupRowShell({
+        assetGroupId: 'huge',
+        displaySymbol: 'HUGE',
+        orderIndex: 0,
+        members: [
+          {
+            walletId: 'huge-wallet',
+            assetIdentityKey: 'huge',
+            rateSourceKey: 'huge',
+            displayUnitsAtomic: `1${'0'.repeat(400)}`,
+            displayUnitDecimals: 0,
+            liveRate: 1,
+          },
+        ],
+      }),
+    ).toEqual({kind: 'invalid', reason: 'nonFiniteDisplayUnits'});
   });
 
   it('uses market rate endpoints for single-source row payloads', () => {

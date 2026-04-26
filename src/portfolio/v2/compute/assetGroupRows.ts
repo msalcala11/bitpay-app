@@ -122,9 +122,14 @@ function pow10(value: number): bigint {
 function atomicToDisplayNumber(atomic: bigint, decimals: number): number {
   'worklet';
 
+  const atomicNumber = Number(atomic);
   const divisor = Number(pow10(decimals));
-  const units = Number(atomic) / divisor;
-  return Number.isFinite(units) ? units : Number.POSITIVE_INFINITY;
+  const units = atomicNumber / divisor;
+  return Number.isFinite(atomicNumber) &&
+    Number.isFinite(divisor) &&
+    Number.isFinite(units)
+    ? units
+    : Number.POSITIVE_INFINITY;
 }
 
 function formatScaledAtomicUnits(atomic: bigint, decimals: number): string {
