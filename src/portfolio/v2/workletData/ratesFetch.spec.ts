@@ -947,7 +947,7 @@ describe('portfolio v2 ensureFresh', () => {
     ]);
   });
 
-  it('builds populate dependencies from hidden eligible wallets but visible dependencies from visible wallets', () => {
+  it('builds populate and visible dependencies with canonical BTC intervals', () => {
     initPortfolioReduxAccess({
       getState: () =>
         ({
@@ -988,10 +988,20 @@ describe('portfolio v2 ensureFresh', () => {
     expect(
       buildEnsureFreshArgsForPopulateEligibleAssetGroups({
         intervals: ['ALL'],
-      }).assetRefs,
-    ).toEqual([{coin: 'btc'}, {coin: 'eth'}]);
+      }),
+    ).toEqual({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'btc'}, {coin: 'eth'}],
+      intervals: ['1D', '1W', '1M', 'ALL'],
+      force: undefined,
+    });
     expect(
-      buildEnsureFreshArgsForVisibleAssetGroups({intervals: ['ALL']}).assetRefs,
-    ).toEqual([{coin: 'btc'}]);
+      buildEnsureFreshArgsForVisibleAssetGroups({intervals: ['ALL']}),
+    ).toEqual({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'btc'}],
+      intervals: ['1D', '1W', '1M', 'ALL'],
+      force: undefined,
+    });
   });
 });

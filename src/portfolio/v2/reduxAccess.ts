@@ -99,6 +99,17 @@ const DEFAULT_STORED_RATE_INTERVALS: readonly StoredRateInterval[] = [
   'ALL',
 ];
 
+function withCanonicalStoredRateIntervals(
+  intervals?: readonly StoredRateInterval[],
+): StoredRateInterval[] {
+  return Array.from(
+    new Set<StoredRateInterval>([
+      ...DEFAULT_STORED_RATE_INTERVALS,
+      ...(intervals || []),
+    ]),
+  );
+}
+
 function getWalletId(wallet: WalletLike): string {
   return String(wallet.id || wallet.walletId || wallet.credentials?.walletId || '').trim();
 }
@@ -178,9 +189,7 @@ function buildEnsureFreshArgsFromWallets(
   const quoteCurrency = String(
     args?.quoteCurrency || getQuoteCurrencyFromStore() || CANONICAL_RATE_QUOTE,
   ).toUpperCase();
-  const intervals = Array.from(
-    new Set(args?.intervals?.length ? args.intervals : DEFAULT_STORED_RATE_INTERVALS),
-  );
+  const intervals = withCanonicalStoredRateIntervals(args?.intervals);
   const assetsByKey = new Map<string, FiatRateAssetRef>();
 
   for (const wallet of wallets) {
