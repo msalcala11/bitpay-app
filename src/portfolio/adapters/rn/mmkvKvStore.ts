@@ -182,7 +182,7 @@ export class MmkvKvStore implements KvStore {
     return value == null ? null : value;
   }
 
-  setString(key: string, value: string): Promise<void> {
+  async setString(key: string, value: string): Promise<void> {
     if (key === this.registry.getKey()) {
       throw new Error(
         `${this.registry.getKey()} is reserved for the portfolio MMKV key registry.`,
@@ -191,13 +191,11 @@ export class MmkvKvStore implements KvStore {
 
     this.storage.set(key, value);
     this.registry.trackKey(key);
-    return Promise.resolve();
   }
 
-  delete(key: string): Promise<void> {
+  async delete(key: string): Promise<void> {
     this.storage.delete(key);
     this.registry.untrackKey(key);
-    return Promise.resolve();
   }
 
   async listKeys(prefix?: string): Promise<string[]> {

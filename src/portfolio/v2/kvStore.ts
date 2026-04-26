@@ -18,6 +18,7 @@ import {
   PORTFOLIO_V2_FLAG_KEY,
   PORTFOLIO_WORK_EPOCH_KEY,
 } from './constants';
+import {logPortfolioRuntimeError} from './logPortfolioRuntimeError';
 import {
   approximateStringBytes,
   nowMs,
@@ -124,7 +125,14 @@ export function writePortfolioMmkvString(args: {
     args.allowOversize !== true;
   const startedAt = nowMs();
 
-  void getPortfolioKvStore().setString(key, value);
+  void getPortfolioKvStore()
+    .setString(key, value)
+    .catch(err => {
+      logPortfolioRuntimeError(err, {
+        tag: 'writePortfolioMmkvString',
+        reason: args.reason,
+      });
+    });
 
   recordMmkvMutationMetric({
     key,
@@ -143,7 +151,14 @@ export function deletePortfolioMmkvKey(args: {
   const key = normalizeKey(args.key);
   const startedAt = nowMs();
 
-  void getPortfolioKvStore().delete(key);
+  void getPortfolioKvStore()
+    .delete(key)
+    .catch(err => {
+      logPortfolioRuntimeError(err, {
+        tag: 'deletePortfolioMmkvKey',
+        reason: args.reason,
+      });
+    });
 
   recordMmkvMutationMetric({
     key,

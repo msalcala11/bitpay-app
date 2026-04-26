@@ -93,6 +93,8 @@ import {
   bumpPortfolioWorkEpoch,
   emptyPortfolioStateForEpoch,
   getCurrentPortfolioWorkEpoch,
+  populateCancelFlag,
+  populateLoopRunning,
   populateProgressTick,
   populateRetryTick,
   publishPortfolioState,
@@ -129,6 +131,8 @@ beforeEach(() => {
   clearRecordedPortfolioV2MetricsForTesting();
   clearPortfolioRuntimeLogPayloadsForTesting();
   sharedPortfolioState.value = EMPTY_PORTFOLIO_STATE;
+  populateCancelFlag.value = false;
+  populateLoopRunning.value = false;
   populateProgressTick.value = 0;
   populateRetryTick.value = 0;
 });
@@ -301,6 +305,47 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
       'urgent-wallet',
       'normal-wallet',
       'background-wallet',
+    ]);
+    expect(populateLoopRunning.value).toBe(true);
+  });
+
+  it('supersedes older unstarted same-wallet background work for urgent populate', () => {
+    startPopulate({walletIds: ['wallet-a'], reason: 'initial'});
+    startPopulate({walletIds: ['wallet-a'], reason: 'send'});
+
+    expect(
+      loadQueue()?.pending.map(item => `${item.walletId}:${item.reason}`),
+    ).toEqual(['wallet-a:send']);
+  });
+
+  it('preserves active same-wallet work when urgent populate is queued', () => {
+    const active = {
+      itemId: 'run-1:wallet-a',
+      runId: 'run-1',
+      walletId: 'wallet-a',
+      reason: 'initial' as const,
+      priority: 'background' as const,
+      requestedAtMs: 1,
+    };
+    saveQueue({
+      ...emptyQueue(1),
+      active,
+      pending: [
+        {
+          ...active,
+          itemId: 'run-2:wallet-a',
+          runId: 'run-2',
+          requestedAtMs: 2,
+        },
+      ],
+    });
+
+    startPopulate({walletIds: ['wallet-a'], reason: 'send', runId: 'run-3'});
+
+    const queue = loadQueue();
+    expect(queue?.active).toEqual(active);
+    expect(queue?.pending.map(item => `${item.runId}:${item.reason}`)).toEqual([
+      'run-3:send',
     ]);
   });
 

@@ -114,24 +114,23 @@ type WeightedGroupRateSeriesBase = Readonly<{
   windowStartTs: number;
   windowEndTs: number;
   sampledFromStoredInterval: StoredRateInterval;
-  baselineUnitsByRateSourceKey: Readonly<Record<string, string>>;
+  memberRateSourceKeys: readonly string[];
+  baselineUnitsByRateSourceKey: Readonly<Record<string, number>>;
+  weighting: 'baselineUnitWeightedCollapsedGroup';
 }>;
 
 export type WeightedGroupRateSeries =
   | Readonly<
       WeightedGroupRateSeriesBase & {
         availability: 'valid';
+        unavailableReason?: never;
         points: readonly WeightedGroupRatePoint[];
       }
     >
   | Readonly<
       WeightedGroupRateSeriesBase & {
         availability: 'unavailable';
-        unavailableReason:
-          | 'zeroBaseline'
-          | 'missingConstituentRate'
-          | 'missingBridgeRate'
-          | 'insufficientData';
+        unavailableReason: 'zeroBaseline' | 'missingConstituentRate';
         points: readonly [];
       }
     >;
