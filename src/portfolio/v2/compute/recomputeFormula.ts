@@ -1,4 +1,5 @@
 import type {FiatRatePoint} from '../../core/fiatRatesShared';
+import {isStoredFiatRateInterval} from '../../core/fiatRatesShared';
 import {createPreparedRateReader} from '../../core/pnl/rateReader';
 import type {
   AssetGroupComputedStateInput,
@@ -66,6 +67,9 @@ export type FormulaComputedInputsInvalidReason =
   | 'invalidDisplayUnitsAtomic'
   | 'invalidDisplayUnitDecimals'
   | 'invalidWalletTimestamp'
+  | 'invalidWalletInterval'
+  | 'invalidWalletIntervalWindow'
+  | 'invalidWalletIntervalIdentity'
   | 'duplicateWalletId'
   | 'duplicateAssetGroupId'
   | 'duplicateWalletInterval'
@@ -174,6 +178,56 @@ function isValidDisplayUnitDecimals(value: unknown): value is number {
   );
 }
 
+function isInterval(value: unknown): value is Interval {
+  'worklet';
+
+  return (
+    value === '1D' ||
+    value === '1W' ||
+    value === '1M' ||
+    value === '3M' ||
+    value === '1Y' ||
+    value === '5Y' ||
+    value === 'ALL'
+  );
+}
+
+function isFinalPointSource(
+  value: unknown,
+): value is Series['finalPointSource'] {
+  'worklet';
+
+  return value === 'historicalRate' || value === 'liveRate';
+}
+
+function validateFormulaWalletInterval(
+  interval: FormulaWalletIntervalInput,
+): FormulaComputedInputsInvalidReason | undefined {
+  'worklet';
+
+  if (
+    !isInterval(interval.interval) ||
+    !isStoredFiatRateInterval(interval.sampledFromStoredInterval) ||
+    !isFinalPointSource(interval.finalPointSource)
+  ) {
+    return 'invalidWalletInterval';
+  }
+  if (
+    !isStrictIdentity(interval.seriesIdentityKey)
+  ) {
+    return 'invalidWalletIntervalIdentity';
+  }
+  if (
+    !isFiniteNumber(interval.windowStartTs) ||
+    !isFiniteNumber(interval.windowEndTs) ||
+    interval.windowEndTs <= interval.windowStartTs
+  ) {
+    return 'invalidWalletIntervalWindow';
+  }
+
+  return undefined;
+}
+
 function validateFormulaAssetGroup(
   group: FormulaAssetGroupInput,
 ): FormulaComputedInputsInvalidReason | undefined {
@@ -218,6 +272,10 @@ function validateFormulaWallet(
 
   const seenIntervals = new Set<Interval>();
   for (const interval of wallet.intervals) {
+    const invalidIntervalReason = validateFormulaWalletInterval(interval);
+    if (invalidIntervalReason) {
+      return invalidIntervalReason;
+    }
     if (seenIntervals.has(interval.interval)) {
       return 'duplicateWalletInterval';
     }
