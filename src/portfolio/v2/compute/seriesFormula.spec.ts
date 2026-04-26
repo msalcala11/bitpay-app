@@ -1,5 +1,6 @@
 import {
   IN_WINDOW_BUY_FIXTURE,
+  MID_SERIES_MUTATION_FIXTURE,
   NO_TRANSACTION_PARITY_FIXTURE,
   ORACLE_TS,
 } from '../__tests__/fixtures/productOracles';
@@ -122,9 +123,7 @@ describe('portfolio v2 wallet series formula adapter', () => {
       buildWalletSeriesFromEvents({
         ...BASE_FORMULA_ARGS,
         baselineUnits: 1,
-        balanceEvents: [
-          {ts: ORACLE_TS.start, unitsDelta: 1, order: 1},
-        ],
+        balanceEvents: [{ts: ORACLE_TS.start, unitsDelta: 1, order: 1}],
         ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
         maxPoints: 2,
       }),
@@ -165,9 +164,7 @@ describe('portfolio v2 wallet series formula adapter', () => {
       buildWalletSeriesFromEvents({
         ...BASE_FORMULA_ARGS,
         baselineUnits: 0,
-        balanceEvents: [
-          {ts: ORACLE_TS.middle, unitsDelta: 1, order: 1.5},
-        ],
+        balanceEvents: [{ts: ORACLE_TS.middle, unitsDelta: 1, order: 1.5}],
         ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
         maxPoints: 2,
       }),
@@ -176,9 +173,7 @@ describe('portfolio v2 wallet series formula adapter', () => {
       buildWalletSeriesFromEvents({
         ...BASE_FORMULA_ARGS,
         baselineUnits: 0,
-        balanceEvents: [
-          {ts: ORACLE_TS.middle, unitsDelta: 1, order: -1},
-        ],
+        balanceEvents: [{ts: ORACLE_TS.middle, unitsDelta: 1, order: -1}],
         ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
         maxPoints: 2,
       }),
@@ -202,9 +197,7 @@ describe('portfolio v2 wallet series formula adapter', () => {
       buildWalletSeriesFromEvents({
         ...BASE_FORMULA_ARGS,
         baselineUnits: 10,
-        balanceEvents: [
-          {ts: ORACLE_TS.middle, unitsDelta: -4, order: 1},
-        ],
+        balanceEvents: [{ts: ORACLE_TS.middle, unitsDelta: -4, order: 1}],
         ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
         maxPoints: 2,
       }),
@@ -212,8 +205,7 @@ describe('portfolio v2 wallet series formula adapter', () => {
     const partialSellLast = partialSell.points[partialSell.points.length - 1];
     expect(partialSellLast.fiatBalance).toBe(780);
     expect(
-      partialSellLast.fiatBalance -
-        partialSellLast.remainingUnrealizedPnlFiat,
+      partialSellLast.fiatBalance - partialSellLast.remainingUnrealizedPnlFiat,
     ).toBe(600);
 
     const fullDisposalThenRebuy = expectValidSeries(
@@ -267,24 +259,16 @@ describe('portfolio v2 wallet series formula adapter', () => {
     const base = expectValidSeries(
       buildWalletSeriesFromEvents({
         ...BASE_FORMULA_ARGS,
-        baselineUnits: 1,
-        ratePoints: [
-          {ts: ORACLE_TS.start, rate: 100},
-          {ts: ORACLE_TS.middle, rate: 110},
-          {ts: ORACLE_TS.end, rate: 120},
-        ],
+        baselineUnits: MID_SERIES_MUTATION_FIXTURE.baselineUnits,
+        ratePoints: MID_SERIES_MUTATION_FIXTURE.ratePoints.base,
         maxPoints: 3,
       }),
     );
     const middleChanged = expectValidSeries(
       buildWalletSeriesFromEvents({
         ...BASE_FORMULA_ARGS,
-        baselineUnits: 1,
-        ratePoints: [
-          {ts: ORACLE_TS.start, rate: 100},
-          {ts: ORACLE_TS.middle, rate: 115},
-          {ts: ORACLE_TS.end, rate: 120},
-        ],
+        baselineUnits: MID_SERIES_MUTATION_FIXTURE.baselineUnits,
+        ratePoints: MID_SERIES_MUTATION_FIXTURE.ratePoints.middleChanged,
         maxPoints: 3,
       }),
     );

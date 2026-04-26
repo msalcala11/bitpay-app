@@ -2,6 +2,11 @@ import {
   buildWeightedGroupRateSeries,
   type WeightedGroupRateConstituentInput,
 } from './weightedGroupRates';
+import {
+  WEIGHTED_GROUP_FIXTURE,
+  WEIGHTED_MISSING_CONSTITUENT_FIXTURE,
+  WEIGHTED_ZERO_BASELINE_FIXTURE,
+} from '../__tests__/fixtures/productOracles';
 
 function constituent(
   rateSourceKey: string,
@@ -37,57 +42,66 @@ function buildSeries(
   });
 }
 
+function buildOracleWeightedSeries(
+  constituents: readonly WeightedGroupRateConstituentInput[] = WEIGHTED_GROUP_FIXTURE.constituents,
+) {
+  return buildWeightedGroupRateSeries({
+    quoteCurrency: WEIGHTED_GROUP_FIXTURE.quoteCurrency,
+    assetGroupId: WEIGHTED_GROUP_FIXTURE.assetGroupId,
+    walletIdsKey: WEIGHTED_GROUP_FIXTURE.walletIdsKey,
+    interval: WEIGHTED_GROUP_FIXTURE.interval,
+    windowStartTs: WEIGHTED_GROUP_FIXTURE.windowStartTs,
+    windowEndTs: WEIGHTED_GROUP_FIXTURE.windowEndTs,
+    sampledFromStoredInterval: WEIGHTED_GROUP_FIXTURE.sampledFromStoredInterval,
+    constituents,
+  });
+}
+
 describe('portfolio v2 weighted group rate series compute adapter', () => {
   it('builds the pinned baseline-unit weighted group fixture', () => {
-    const series = buildSeries([
-      constituent('eth-usdc', 100, [1, 1.002]),
-      constituent('pol-usdc', 40, [1.005, 1.006]),
-      constituent('sol-usdc', 40, [1.0048, 1.0038]),
-    ]);
+    const series = buildOracleWeightedSeries();
 
     expect(series.availability).toBe('valid');
     if (series.availability !== 'valid') {
       throw new Error(series.unavailableReason);
     }
-    expect(series.memberRateSourceKeys).toEqual([
-      'eth-usdc',
-      'pol-usdc',
-      'sol-usdc',
-    ]);
-    expect(series.baselineUnitsByRateSourceKey).toEqual({
-      'eth-usdc': 100,
-      'pol-usdc': 40,
-      'sol-usdc': 40,
-    });
+    expect(series.memberRateSourceKeys).toEqual(
+      WEIGHTED_GROUP_FIXTURE.expected.memberRateSourceKeys,
+    );
+    expect(series.baselineUnitsByRateSourceKey).toEqual(
+      WEIGHTED_GROUP_FIXTURE.expected.baselineUnitsByRateSourceKey,
+    );
     expect(series.points).toHaveLength(2);
-    expect(series.points[0].weightedRate).toBeCloseTo(180.392 / 180, 12);
+    expect(series.points[0].weightedRate).toBeCloseTo(
+      WEIGHTED_GROUP_FIXTURE.expected.weightedRateStart,
+      12,
+    );
     expect(series.points[0].weightedPercent).toBe(0);
     expect(series.points[1].weightedRate).toBeCloseTo(
-      180.592 / 180,
+      WEIGHTED_GROUP_FIXTURE.expected.weightedRateEnd,
       12,
     );
     expect(series.points[1].weightedPercent).toBeCloseTo(
-      ((180.592 - 180.392) / 180.392) * 100,
+      WEIGHTED_GROUP_FIXTURE.expected.weightedPercentEnd,
       10,
     );
     expect(series.fingerprint).toMatch(/^fnv1a:[0-9a-f]{8}$/);
   });
 
   it('publishes zeroBaseline unavailable when no constituent has baseline weight', () => {
-    const series = buildSeries([
-      constituent('eth-usdc', 0, []),
-      constituent('pol-usdc', 0, []),
-    ]);
+    const series = buildOracleWeightedSeries(
+      WEIGHTED_ZERO_BASELINE_FIXTURE.constituents,
+    );
 
     expect(series).toMatchObject({
       availability: 'unavailable',
-      unavailableReason: 'zeroBaseline',
+      unavailableReason:
+        WEIGHTED_ZERO_BASELINE_FIXTURE.expected.unavailableReason,
       points: [],
-      memberRateSourceKeys: ['eth-usdc', 'pol-usdc'],
-      baselineUnitsByRateSourceKey: {
-        'eth-usdc': 0,
-        'pol-usdc': 0,
-      },
+      memberRateSourceKeys:
+        WEIGHTED_ZERO_BASELINE_FIXTURE.expected.memberRateSourceKeys,
+      baselineUnitsByRateSourceKey:
+        WEIGHTED_ZERO_BASELINE_FIXTURE.expected.baselineUnitsByRateSourceKey,
     });
     expect(series.fingerprint).toMatch(/^fnv1a:[0-9a-f]{8}$/);
   });
@@ -114,10 +128,9 @@ describe('portfolio v2 weighted group rate series compute adapter', () => {
   });
 
   it('returns missingConstituentRate instead of publishing partial charts', () => {
-    const missing = buildSeries([
-      constituent('eth-usdc', 2, [1, 1.2]),
-      constituent('pol-usdc', 1, []),
-    ]);
+    const missing = buildOracleWeightedSeries(
+      WEIGHTED_MISSING_CONSTITUENT_FIXTURE.constituents,
+    );
     const mismatchedGrid = buildSeries(
       [
         constituent('eth-usdc', 2, [1, 1.2], [1, 2]),
@@ -134,7 +147,8 @@ describe('portfolio v2 weighted group rate series compute adapter', () => {
     for (const series of [missing, mismatchedGrid, malformed]) {
       expect(series).toMatchObject({
         availability: 'unavailable',
-        unavailableReason: 'missingConstituentRate',
+        unavailableReason:
+          WEIGHTED_MISSING_CONSTITUENT_FIXTURE.expected.unavailableReason,
         points: [],
       });
     }
@@ -247,9 +261,7 @@ describe('portfolio v2 weighted group rate series compute adapter', () => {
       constituent('eth-usdc', 2, [1, 1.1]),
     ]);
     const blank = buildSeries([constituent(' ', 1, [1, 1.1])]);
-    const negativeUnits = buildSeries([
-      constituent('eth-usdc', -1, [1, 1.1]),
-    ]);
+    const negativeUnits = buildSeries([constituent('eth-usdc', -1, [1, 1.1])]);
 
     for (const series of [duplicate, blank, negativeUnits]) {
       expect(series).toMatchObject({
