@@ -438,6 +438,9 @@ function buildQuoteBridgedLiveRate(args: {
       args.wallet.intervals.map(interval => interval.sampledFromStoredInterval),
     ),
   );
+  // Live bridge rates are current-value metadata, not historical interval data.
+  // Use any valid live bridge value from this wallet's stored intervals, but
+  // treat current fiat as unavailable if multiple valid values disagree.
   for (const storedInterval of storedIntervals) {
     const bridge = args.bridgeRatePointsByStoredInterval[storedInterval];
     const bridgedRate = bridgePositiveRate({
