@@ -32,6 +32,7 @@ import type {
   FormulaWalletIntervalInput,
   NormalizedFormulaRecomputeInput,
 } from './recompute';
+import {recomputePortfolioState} from './recompute';
 import {
   NO_TRANSACTION_PARITY_FIXTURE,
   ORACLE_TS,
@@ -697,6 +698,46 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
       scope: {kind: 'wallet', walletId: 'eth-wallet'},
       computedAtMs: 320,
     });
+  });
+
+  it('publishes folded touch access metadata when the wallet recompute drains', async () => {
+    (runOnRuntimeAsync as jest.Mock).mockImplementation(
+      async (
+        _runtime: unknown,
+        workletFn: (...args: any[]) => unknown,
+        ...args: any[]
+      ) => workletFn(...args),
+    );
+    const built = recomputePortfolioState(makeCurrentState(), {
+      scope: 'full',
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput(),
+    });
+    sharedPortfolioState.value = built;
+    const originalWallet = built.byWallet['eth-wallet'];
+
+    scheduleRecompute({
+      scope: {kind: 'touchWallet', walletId: 'eth-wallet'},
+      startEpoch: 7,
+      computedAtMs: 300,
+    });
+    scheduleRecompute({
+      scope: {kind: 'wallet', walletId: 'eth-wallet'},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({computedAtMs: 100}),
+    });
+
+    await expect(runNextPendingRecompute()).resolves.toEqual(
+      expect.objectContaining({kind: 'published'}),
+    );
+    expect(sharedPortfolioState.value.revision).toBe(built.revision + 1);
+    expect(sharedPortfolioState.value.computedAtMs).toBe(built.computedAtMs);
+    expect(
+      sharedPortfolioState.value.byWallet['eth-wallet'].lastAccessedAt,
+    ).toBe(300);
+    expect(sharedPortfolioState.value.byWallet['eth-wallet'].series).toBe(
+      originalWallet.series,
+    );
   });
 
   it('drains by plan priority instead of FIFO while preserving FIFO inside a class', async () => {

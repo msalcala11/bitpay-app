@@ -110,6 +110,7 @@ function isValidTimestamp(value: number): boolean {
 
 function getTouchWalletIds(
   scope: RecomputeScope,
+  args?: {includeWalletScopes?: boolean},
 ): readonly string[] | undefined {
   'worklet';
 
@@ -125,7 +126,26 @@ function getTouchWalletIds(
     return scope.walletIds;
   }
 
+  if (args?.includeWalletScopes) {
+    if (scope.kind === 'wallet') {
+      return [scope.walletId];
+    }
+
+    if (scope.kind === 'wallets') {
+      return scope.walletIds;
+    }
+  }
+
   return undefined;
+}
+
+function isWalletRecomputeScope(scope: RecomputeScope): boolean {
+  'worklet';
+
+  return (
+    typeof scope !== 'string' &&
+    (scope.kind === 'wallet' || scope.kind === 'wallets')
+  );
 }
 
 function buildFormulaWalletById(
@@ -439,6 +459,7 @@ function recomputeTouchAccess(
   current: PortfolioState,
   request: RecomputeRequest,
   computedAtMs: number | undefined,
+  args?: {includeWalletScopes?: boolean},
 ): PortfolioState {
   'worklet';
 
@@ -449,7 +470,7 @@ function recomputeTouchAccess(
     return current;
   }
 
-  const touchWalletIds = getTouchWalletIds(request.scope);
+  const touchWalletIds = getTouchWalletIds(request.scope, args);
   if (!touchWalletIds || !touchWalletIds.length) {
     return current;
   }
@@ -524,7 +545,10 @@ export function recomputePortfolioState(
     return recomputeTouchAccess(
       current,
       request,
-      request.computedAtMs ?? input?.computedAtMs,
+      isWalletRecomputeScope(request.scope)
+        ? request.computedAtMs
+        : request.computedAtMs ?? input?.computedAtMs,
+      {includeWalletScopes: isWalletRecomputeScope(request.scope)},
     );
   }
 
