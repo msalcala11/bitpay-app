@@ -542,14 +542,14 @@ export type LegacyExchangeRateParams = Readonly<{
   keyId?: string;
 }>;
 
-export function normalizeExchangeRateRouteParams(
-  params: LegacyExchangeRateParams | {route: ExchangeRateRoute},
-): ExchangeRateRoute;
-
 export type SerializedExchangeRateRoute = Readonly<{
   route: ExchangeRateRoute;
   initialInterval?: Interval;
 }>;
+
+export function normalizeExchangeRateRouteParams(
+  params: LegacyExchangeRateParams | SerializedExchangeRateRoute,
+): ExchangeRateRoute;
 
 export function serializeExchangeRateRoute(
   route: ExchangeRateRoute,

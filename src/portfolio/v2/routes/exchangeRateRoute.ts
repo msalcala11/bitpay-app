@@ -29,7 +29,7 @@ export type LegacyExchangeRateParams = Readonly<{
 }>;
 
 export function normalizeExchangeRateRouteParams(
-  params: LegacyExchangeRateParams | {route: ExchangeRateRoute},
+  params: LegacyExchangeRateParams | SerializedExchangeRateRoute,
 ): ExchangeRateRoute {
   if ('route' in params) {
     return params.route;
