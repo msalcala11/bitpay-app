@@ -231,12 +231,12 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
   it('rejects stale compute output at publish time without writing shared state directly', async () => {
     const current = makeCurrentState();
     sharedPortfolioState.value = current;
-    mockMmkv.set(PORTFOLIO_WORK_EPOCH_KEY, '8');
     scheduleRecompute({
       scope: 'full',
       startEpoch: 7,
       normalizedFormulaInput: normalizedInput(),
     });
+    mockMmkv.set(PORTFOLIO_WORK_EPOCH_KEY, '8');
 
     const result = await runNextPendingRecompute();
 
@@ -509,6 +509,194 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
     expect(pending.normalizedFormulaInput?.evictScopedWalletIds).toEqual([
       'deleted-wallet',
     ]);
+  });
+
+  it('does not promote stale pending payloads across work epochs', () => {
+    scheduleRecompute({
+      scope: 'full',
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({
+        computedAtMs: 100,
+        protectedScopedWalletIdsKeys: ['old-scope'],
+        formula: {
+          quoteCurrency: 'USD',
+          wallets: [formulaWalletInput({liveRate: 100})],
+          assetGroups: [formulaAssetGroupInput()],
+        },
+      }),
+    });
+
+    mockMmkv.set(PORTFOLIO_WORK_EPOCH_KEY, '8');
+    sharedPortfolioState.value = makeCurrentState({workEpoch: 8});
+
+    scheduleRecompute({
+      scope: {kind: 'liveRateTouch', changedAssetIds: ['eth']},
+      startEpoch: 8,
+      normalizedFormulaInput: normalizedInput({
+        computedAtMs: 130,
+        protectedScopedWalletIdsKeys: ['new-scope'],
+        formula: {
+          quoteCurrency: 'USD',
+          wallets: [formulaWalletInput({liveRate: 150})],
+          assetGroups: [formulaAssetGroupInput()],
+        },
+      }),
+    });
+
+    const [pending] = getPendingRecomputesForTesting();
+    expect(getPendingRecomputesForTesting()).toHaveLength(1);
+    expect(pending.startEpoch).toBe(8);
+    expect(pending.scope).toEqual({
+      kind: 'liveRateTouch',
+      changedAssetIds: ['eth'],
+    });
+    expect(pending.normalizedFormulaInput?.computedAtMs).toBe(130);
+    expect(pending.normalizedFormulaInput?.formula.wallets[0].liveRate).toBe(
+      150,
+    );
+    expect(pending.normalizedFormulaInput?.protectedScopedWalletIdsKeys).toEqual(
+      ['new-scope'],
+    );
+
+    scheduleRecompute({
+      scope: 'full',
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({computedAtMs: 200}),
+    });
+    expect(getPendingRecomputesForTesting()).toEqual([pending]);
+  });
+
+  it('keeps the newest duplicate keyed scoped payload when an older request arrives later', () => {
+    scheduleRecompute({
+      scope: {kind: 'wallet', walletId: 'eth-wallet'},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({
+        computedAtMs: 200,
+        scopes: [
+          {
+            scopeKey: 'shared-scope',
+            walletIds: ['eth-wallet'],
+            refreshing: true,
+          },
+        ],
+        scopedSlices: [
+          {
+            walletIds: ['eth-wallet'],
+            walletIdsKey: 'shared-scope',
+            assetGroups: [],
+            refreshing: true,
+            lastAccessedAt: 200,
+          },
+        ],
+        formula: {
+          quoteCurrency: 'USD',
+          wallets: [formulaWalletInput({liveRate: 200})],
+          assetGroups: [formulaAssetGroupInput()],
+        },
+      }),
+    });
+
+    scheduleRecompute({
+      scope: {kind: 'wallet', walletId: 'btc-wallet'},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({
+        computedAtMs: 100,
+        scopes: [
+          {
+            scopeKey: 'shared-scope',
+            walletIds: ['btc-wallet'],
+            refreshing: false,
+          },
+        ],
+        scopedSlices: [
+          {
+            walletIds: ['btc-wallet'],
+            walletIdsKey: 'shared-scope',
+            assetGroups: [],
+            refreshing: false,
+            lastAccessedAt: 100,
+          },
+        ],
+        formula: {
+          quoteCurrency: 'USD',
+          wallets: [
+            formulaWalletInput({
+              walletId: 'btc-wallet',
+              assetGroupId: 'btc',
+              assetIdentityKey: 'btc',
+              rateSourceKey: 'btc',
+              displayUnitsAtomic: '100000000',
+              displayUnitDecimals: 8,
+              liveRate: 100,
+            }),
+          ],
+          assetGroups: [
+            formulaAssetGroupInput({
+              assetGroupId: 'btc',
+              displaySymbol: 'BTC',
+              orderIndex: 2,
+            }),
+          ],
+        },
+      }),
+    });
+
+    const [pending] = getPendingRecomputesForTesting();
+    expect(pending.normalizedFormulaInput?.computedAtMs).toBe(200);
+    expect(pending.normalizedFormulaInput?.scopes).toEqual([
+      {
+        scopeKey: 'shared-scope',
+        walletIds: ['eth-wallet'],
+        refreshing: true,
+      },
+    ]);
+    expect(pending.normalizedFormulaInput?.scopedSlices).toEqual([
+      expect.objectContaining({
+        walletIds: ['eth-wallet'],
+        walletIdsKey: 'shared-scope',
+        refreshing: true,
+        lastAccessedAt: 200,
+      }),
+    ]);
+  });
+
+  it('folds touch metadata into the wallet recompute that subsumes it', () => {
+    scheduleRecompute({
+      scope: {kind: 'touchWallet', walletId: 'eth-wallet'},
+      startEpoch: 7,
+      computedAtMs: 300,
+    });
+    scheduleRecompute({
+      scope: {kind: 'wallet', walletId: 'eth-wallet'},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({computedAtMs: 100}),
+    });
+
+    let pending = getPendingRecomputesForTesting();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      scope: {kind: 'wallet', walletId: 'eth-wallet'},
+      computedAtMs: 300,
+    });
+
+    clearPendingRecomputesForTesting();
+    scheduleRecompute({
+      scope: {kind: 'wallet', walletId: 'eth-wallet'},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput({computedAtMs: 100}),
+    });
+    scheduleRecompute({
+      scope: {kind: 'touchWallet', walletId: 'eth-wallet'},
+      startEpoch: 7,
+      computedAtMs: 320,
+    });
+
+    pending = getPendingRecomputesForTesting();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      scope: {kind: 'wallet', walletId: 'eth-wallet'},
+      computedAtMs: 320,
+    });
   });
 
   it('drains by plan priority instead of FIFO while preserving FIFO inside a class', async () => {

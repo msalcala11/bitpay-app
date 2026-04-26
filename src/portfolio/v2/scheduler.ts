@@ -11,6 +11,7 @@ import {
   runOnPortfolioRuntimeAsync,
 } from './runtimes';
 import {
+  getCurrentPortfolioWorkEpoch,
   publishPortfolioState,
   sharedPortfolioState,
 } from './sharedState';
@@ -158,6 +159,7 @@ function mergeByKey<T>(
   left: readonly T[] | undefined,
   right: readonly T[] | undefined,
   keyOf: (value: T) => string,
+  preferRight: boolean,
 ): readonly T[] | undefined {
   if (!left) {
     return right;
@@ -167,10 +169,12 @@ function mergeByKey<T>(
   }
 
   const out = new Map<string, T>();
-  for (const value of left) {
+  const primary = preferRight ? right : left;
+  const secondary = preferRight ? left : right;
+  for (const value of secondary) {
     out.set(keyOf(value), value);
   }
-  for (const value of right) {
+  for (const value of primary) {
     out.set(keyOf(value), value);
   }
   return Array.from(out.values()).sort((leftValue, rightValue) =>
@@ -223,11 +227,17 @@ function mergeNormalizedFormulaInputs(
     ),
     staleReasons: mergeOptionalIdentityList(left.staleReasons, right.staleReasons),
     orderRevision: maxOptionalNumber(left.orderRevision, right.orderRevision),
-    scopes: mergeByKey(left.scopes, right.scopes, scope => scope.scopeKey),
+    scopes: mergeByKey(
+      left.scopes,
+      right.scopes,
+      scope => scope.scopeKey,
+      preferRight,
+    ),
     scopedSlices: mergeByKey(
       left.scopedSlices,
       right.scopedSlices,
       scopedSlice => scopedSlice.walletIdsKey,
+      preferRight,
     ),
     protectedScopedWalletIdsKeys: mergeOptionalIdentityList(
       left.protectedScopedWalletIdsKeys,
@@ -245,10 +255,14 @@ function mergeRequests(
   incoming: RecomputeRequest,
   scope: RecomputeScope,
 ): RecomputeRequest {
+  if (existing.startEpoch !== incoming.startEpoch) {
+    return {...incoming, scope};
+  }
+
   return {
     ...existing,
     ...incoming,
-    startEpoch: Math.max(existing.startEpoch, incoming.startEpoch),
+    startEpoch: existing.startEpoch,
     computedAtMs: maxOptionalNumber(existing.computedAtMs, incoming.computedAtMs),
     normalizedFormulaInput: mergeNormalizedFormulaInputs(
       existing.normalizedFormulaInput,
@@ -315,6 +329,14 @@ function normalizeRequestScope(
   return {...request, scope};
 }
 
+function prunePendingRecomputesForEpoch(startEpoch: number): void {
+  for (let index = pendingRecomputes.length - 1; index >= 0; index -= 1) {
+    if (pendingRecomputes[index].startEpoch !== startEpoch) {
+      pendingRecomputes.splice(index, 1);
+    }
+  }
+}
+
 function coalesceLiveRateTouch(
   existing: RecomputeRequest,
   incoming: RecomputeRequest,
@@ -340,11 +362,15 @@ function coalesceLiveRateTouch(
   };
 }
 
-function removeTouchWalletIds(walletIds: readonly string[]): void {
+function removeTouchWalletIds(
+  walletIds: readonly string[],
+  request: RecomputeRequest,
+): RecomputeRequest {
   if (!walletIds.length) {
-    return;
+    return request;
   }
 
+  let mergedRequest = request;
   const remove = new Set(walletIds);
   for (let index = pendingRecomputes.length - 1; index >= 0; index -= 1) {
     const pending = pendingRecomputes[index];
@@ -352,9 +378,12 @@ function removeTouchWalletIds(walletIds: readonly string[]): void {
       continue;
     }
 
-    const remaining = walletIdsForScope(pending.scope).filter(
-      walletId => !remove.has(walletId),
-    );
+    const pendingWalletIds = walletIdsForScope(pending.scope);
+    if (pendingWalletIds.some(walletId => remove.has(walletId))) {
+      mergedRequest = mergeRequests(pending, mergedRequest, mergedRequest.scope);
+    }
+
+    const remaining = pendingWalletIds.filter(walletId => !remove.has(walletId));
     if (!remaining.length) {
       pendingRecomputes.splice(index, 1);
     } else {
@@ -364,6 +393,8 @@ function removeTouchWalletIds(walletIds: readonly string[]): void {
       );
     }
   }
+
+  return mergedRequest;
 }
 
 function mergeWalletRecompute(incoming: RecomputeRequest): boolean {
@@ -372,19 +403,23 @@ function mergeWalletRecompute(incoming: RecomputeRequest): boolean {
     return false;
   }
 
-  removeTouchWalletIds(incomingWalletIds);
+  const mergedIncoming = removeTouchWalletIds(incomingWalletIds, incoming);
 
   const existingIndex = pendingRecomputes.findIndex(pending =>
     isWalletScope(pending.scope),
   );
   if (existingIndex < 0) {
+    if (mergedIncoming !== incoming) {
+      pendingRecomputes.push(mergedIncoming);
+      return true;
+    }
     return false;
   }
 
   const existing = pendingRecomputes[existingIndex];
   pendingRecomputes[existingIndex] = mergeRequests(
     existing,
-    incoming,
+    mergedIncoming,
     makeWalletScope([
       ...walletIdsForScope(existing.scope),
       ...incomingWalletIds,
@@ -399,11 +434,25 @@ function mergeTouchRecompute(incoming: RecomputeRequest): boolean {
     return false;
   }
 
-  const walletBuildIds = new Set(
-    pendingRecomputes
-      .filter(pending => isWalletScope(pending.scope))
-      .flatMap(pending => walletIdsForScope(pending.scope)),
-  );
+  const walletBuildIds = new Set<string>();
+  for (let index = 0; index < pendingRecomputes.length; index += 1) {
+    const pending = pendingRecomputes[index];
+    if (!isWalletScope(pending.scope)) {
+      continue;
+    }
+
+    const buildIds = walletIdsForScope(pending.scope);
+    if (buildIds.some(walletId => incomingWalletIds.includes(walletId))) {
+      pendingRecomputes[index] = mergeRequests(
+        pending,
+        incoming,
+        pending.scope,
+      );
+    }
+    for (const walletId of buildIds) {
+      walletBuildIds.add(walletId);
+    }
+  }
   const unsubsumedIds = incomingWalletIds.filter(
     walletId => !walletBuildIds.has(walletId),
   );
@@ -446,6 +495,12 @@ function nextPendingRecomputeIndex(): number {
 }
 
 export function scheduleRecompute(request: RecomputeRequest): void {
+  if (request.startEpoch !== getCurrentPortfolioWorkEpoch()) {
+    return;
+  }
+
+  prunePendingRecomputesForEpoch(request.startEpoch);
+
   if (request.scope === 'full') {
     let mergedRequest = request;
     for (let index = pendingRecomputes.length - 1; index >= 0; index -= 1) {
