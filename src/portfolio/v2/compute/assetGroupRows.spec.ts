@@ -8,6 +8,11 @@ import {
   buildAssetGroupRowShell,
 } from './assetGroupRows';
 
+type ValidWeightedGroupRateSeries = Extract<
+  WeightedGroupRateSeries,
+  {availability: 'valid'}
+>;
+
 function expectVisibleShell(
   result: ReturnType<typeof buildAssetGroupRowShell>,
 ) {
@@ -63,7 +68,7 @@ const portfolioSeries: Pick<Series, 'interval' | 'points'> = {
 function makeWeightedSeries(
   weightedRateStart: number,
   weightedRateEnd: number,
-): WeightedGroupRateSeries {
+): ValidWeightedGroupRateSeries {
   return {
     availability: 'valid',
     fingerprint: 'weighted',
@@ -97,7 +102,7 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
             walletId: 'eth-usdc',
             assetIdentityKey: 'usdc|eth|0x1',
             rateSourceKey: 'usdc|eth|0x1',
-            displayUnits: 1.5,
+            displayUnitsAtomic: '1500000',
             displayUnitDecimals: 6,
             liveRate: 1.01,
           },
@@ -105,14 +110,14 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
             walletId: 'pol-usdc',
             assetIdentityKey: 'usdc|pol|0x2',
             rateSourceKey: 'usdc|pol|0x2',
-            displayUnits: 2,
+            displayUnitsAtomic: '2000000000000000000',
             displayUnitDecimals: 18,
           },
           {
             walletId: 'sol-usdc',
             assetIdentityKey: 'usdc|sol|mint',
             rateSourceKey: 'usdc|sol|mint',
-            displayUnits: 0,
+            displayUnitsAtomic: '0',
             displayUnitDecimals: 6,
             invalidHistoryBlocked: true,
           },
@@ -158,14 +163,14 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
             walletId: 'doge-a',
             assetIdentityKey: 'doge',
             rateSourceKey: 'doge',
-            displayUnits: 0,
+            displayUnitsAtomic: '0',
             displayUnitDecimals: 8,
           },
           {
             walletId: 'doge-b',
             assetIdentityKey: 'doge',
             rateSourceKey: 'doge',
-            displayUnits: 0,
+            displayUnitsAtomic: '0',
             displayUnitDecimals: 8,
           },
         ],
@@ -191,20 +196,20 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
         orderIndex: 1,
         members: [
           {
-            walletId: 'eth-usdc',
-            assetIdentityKey: 'usdc|eth|0x1',
-            rateSourceKey: 'usdc|eth|0x1',
-            displayUnits: 1.5,
-            displayUnitDecimals: 6,
-            liveRate: 1.01,
-          },
-          {
             walletId: 'pol-usdc',
             assetIdentityKey: 'usdc|pol|0x2',
             rateSourceKey: 'usdc|pol|0x2',
-            displayUnits: 2,
+            displayUnitsAtomic: '2000000',
             displayUnitDecimals: 6,
             liveRate: 1.02,
+          },
+          {
+            walletId: 'eth-usdc',
+            assetIdentityKey: 'usdc|eth|0x1',
+            rateSourceKey: 'usdc|eth|0x1',
+            displayUnitsAtomic: '1500000',
+            displayUnitDecimals: 6,
+            liveRate: 1.01,
           },
         ],
       }),
@@ -212,7 +217,40 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
 
     expect(rowShell.currentCryptoAmount).toBe('3.5');
     expect(rowShell.currentFiatValue).toBeCloseTo(3.555);
+    expect(rowShell.memberWalletIds).toEqual(['pol-usdc', 'eth-usdc']);
+    expect(rowShell.memberWalletIdsKey).toBe('eth-usdc|pol-usdc');
     expect(rowShell.canonicalUnitDecimals).toBe(6);
+  });
+
+  it('keeps high-precision display-unit sums exact in the row shell', () => {
+    const rowShell = expectVisibleShell(
+      buildAssetGroupRowShell({
+        assetGroupId: 'dust',
+        displaySymbol: 'DUST',
+        orderIndex: 0,
+        members: [
+          {
+            walletId: 'dust-a',
+            assetIdentityKey: 'dust',
+            rateSourceKey: 'dust',
+            displayUnitsAtomic: '1',
+            displayUnitDecimals: 18,
+            liveRate: 1,
+          },
+          {
+            walletId: 'dust-b',
+            assetIdentityKey: 'dust',
+            rateSourceKey: 'dust',
+            displayUnitsAtomic: '2',
+            displayUnitDecimals: 18,
+            liveRate: 1,
+          },
+        ],
+      }),
+    );
+
+    expect(rowShell.currentCryptoAmount).toBe('0.000000000000000003');
+    expect(rowShell.currentFiatValue).toBeCloseTo(3e-18);
   });
 
   it('returns empty or invalid instead of publishing malformed row shells', () => {
@@ -234,7 +272,7 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
             walletId: 'btc-wallet',
             assetIdentityKey: 'btc',
             rateSourceKey: 'btc',
-            displayUnits: 1,
+            displayUnitsAtomic: '100000000',
             displayUnitDecimals: 8,
           },
         ],
@@ -250,12 +288,35 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
             walletId: 'btc-wallet',
             assetIdentityKey: 'btc',
             rateSourceKey: 'btc',
-            displayUnits: -1,
+            displayUnitsAtomic: '-1',
             displayUnitDecimals: 8,
           },
         ],
       }),
-    ).toEqual({kind: 'invalid', reason: 'negativeDisplayUnits'});
+    ).toEqual({kind: 'invalid', reason: 'negativeDisplayUnitsAtomic'});
+    expect(
+      buildAssetGroupRowShell({
+        assetGroupId: 'btc',
+        displaySymbol: 'BTC',
+        orderIndex: 0,
+        members: [
+          {
+            walletId: 'btc-wallet',
+            assetIdentityKey: 'btc',
+            rateSourceKey: 'btc',
+            displayUnitsAtomic: '100000000',
+            displayUnitDecimals: 8,
+          },
+          {
+            walletId: 'btc-wallet',
+            assetIdentityKey: 'btc',
+            rateSourceKey: 'btc',
+            displayUnitsAtomic: '200000000',
+            displayUnitDecimals: 8,
+          },
+        ],
+      }),
+    ).toEqual({kind: 'invalid', reason: 'duplicateWalletId'});
   });
 
   it('uses market rate endpoints for single-source row payloads', () => {
@@ -267,7 +328,7 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
           kind: 'marketRateSeries',
           points: [
             {ts: 1, rate: 10, percentChange: 0},
-            {ts: 2, rate: 15, percentChange: 50},
+            {ts: 2, rate: 15, percentChange: 49.5},
           ],
         },
       }),
@@ -275,7 +336,7 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
 
     expect(row.rateStart).toBe(10);
     expect(row.rateEnd).toBe(15);
-    expect(row.ratePercent).toBe(50);
+    expect(row.ratePercent).toBe(49.5);
   });
 
   it('uses weighted group endpoints for collapsed row payloads', () => {
@@ -285,14 +346,88 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
         series: portfolioSeries,
         rateSource: {
           kind: 'weightedGroupRateSeries',
-          series: makeWeightedSeries(1, 1.2),
+          series: makeWeightedSeries(1, 1.19),
         },
       }),
     );
 
     expect(row.rateStart).toBe(1);
-    expect(row.rateEnd).toBe(1.2);
+    expect(row.rateEnd).toBe(1.19);
     expect(row.ratePercent).toBeCloseTo(20);
+  });
+
+  it('rejects rate endpoints that do not align with portfolio series endpoints', () => {
+    expect(
+      buildAssetGroupRowPayload({
+        assetGroupId: 'btc',
+        series: portfolioSeries,
+        rateSource: {
+          kind: 'marketRateSeries',
+          points: [
+            {ts: 0, rate: 10, percentChange: 0},
+            {ts: 2, rate: 15, percentChange: 50},
+          ],
+        },
+      }),
+    ).toEqual({kind: 'missingRateSource', reason: 'rateEndpointMismatch'});
+    expect(
+      buildAssetGroupRowPayload({
+        assetGroupId: 'usdc',
+        series: portfolioSeries,
+        rateSource: {
+          kind: 'weightedGroupRateSeries',
+          series: {
+            ...makeWeightedSeries(1, 1.2),
+            points: [
+              {ts: 1, weightedRate: 1, weightedPercent: 0},
+              {ts: 3, weightedRate: 1.2, weightedPercent: 20},
+            ],
+          },
+        },
+      }),
+    ).toEqual({kind: 'missingRateSource', reason: 'rateEndpointMismatch'});
+  });
+
+  it('rejects malformed market and weighted rate timelines', () => {
+    expect(
+      buildAssetGroupRowPayload({
+        assetGroupId: 'btc',
+        series: portfolioSeries,
+        rateSource: {
+          kind: 'marketRateSeries',
+          points: [
+            {ts: 1, rate: 10, percentChange: 0},
+            {ts: 1, rate: 15, percentChange: 50},
+          ],
+        },
+      }),
+    ).toEqual({
+      kind: 'missingRateSource',
+      reason: 'malformedMarketRateSeries',
+    });
+    expect(
+      buildAssetGroupRowPayload({
+        assetGroupId: 'usdc',
+        series: portfolioSeries,
+        rateSource: {
+          kind: 'weightedGroupRateSeries',
+          series: {
+            ...makeWeightedSeries(1, 1.2),
+            points: [
+              {ts: 1, weightedRate: 1, weightedPercent: 0},
+              {
+                ts: 2,
+                weightedRate: 1.2,
+                weightedPercent: Number.POSITIVE_INFINITY,
+              },
+            ],
+          },
+        },
+      }),
+    ).toEqual({
+      kind: 'missingRateSource',
+      reason: 'malformedWeightedRateSeries',
+    });
   });
 
   it('does not build collapsed row payloads from unavailable weighted rates', () => {

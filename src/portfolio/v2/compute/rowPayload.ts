@@ -18,6 +18,7 @@ export type RowPayloadInvalidReason =
   | 'invalidSeriesEndpoint'
   | 'malformedSeriesTimeline'
   | 'nonFiniteRate'
+  | 'nonFiniteRatePercent'
   | 'nonPositiveRate';
 
 export type BuildWalletPointFromMarkArgs = Readonly<{
@@ -37,6 +38,7 @@ export type BuildRowPayloadFromSeriesArgs = Readonly<{
   series: Pick<Series, 'interval' | 'points'>;
   rateStart: number;
   rateEnd: number;
+  ratePercent?: number;
 }>;
 
 export type BuildRowPayloadFromSeriesResult =
@@ -219,10 +221,19 @@ export function buildRowPayloadFromSeries(
   if (args.rateStart <= 0 || args.rateEnd <= 0) {
     return {kind: 'invalidHistory', reason: 'nonPositiveRate'};
   }
+  if (
+    typeof args.ratePercent === 'number' &&
+    !isFiniteNumber(args.ratePercent)
+  ) {
+    return {kind: 'invalidHistory', reason: 'nonFiniteRatePercent'};
+  }
 
   const first = points[0];
   const last = points[points.length - 1];
-  const ratePercent = ((args.rateEnd - args.rateStart) / args.rateStart) * 100;
+  const ratePercent =
+    typeof args.ratePercent === 'number'
+      ? args.ratePercent
+      : ((args.rateEnd - args.rateStart) / args.rateStart) * 100;
 
   const row: RowPayload = {
     assetGroupId: args.assetGroupId,
