@@ -230,6 +230,10 @@ describe('PortfolioPopulateService', () => {
   it('cancels the active runtime populate job when requested', async () => {
     let service: PortfolioPopulateService;
     let resolveStart: ((value: any) => void) | undefined;
+    let resolveStatusRequested: (() => void) | undefined;
+    const statusRequested = new Promise<void>(resolve => {
+      resolveStatusRequested = resolve;
+    });
     const client = {
       startPopulateJob: jest.fn().mockImplementation(
         async (params: {jobId: string}) => ({
@@ -250,11 +254,12 @@ describe('PortfolioPopulateService', () => {
           },
         }),
       ),
-      getPopulateJobStatus: jest.fn().mockImplementation(async ({jobId}: {jobId: string}) =>
-        new Promise(resolve => {
+      getPopulateJobStatus: jest.fn().mockImplementation(async ({jobId}: {jobId: string}) => {
+        resolveStatusRequested?.();
+        return new Promise(resolve => {
           resolveStart = resolve;
-        }),
-      ),
+        });
+      }),
       cancelPopulateJob: jest.fn().mockImplementation(
         async ({jobId}: {jobId: string}) => {
           resolveStart?.({
@@ -299,7 +304,7 @@ describe('PortfolioPopulateService', () => {
 
     service = new PortfolioPopulateService({client, statusPollMs: 0});
     const resultPromise = service.populateWallets({wallets: [storedWallet]});
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await statusRequested;
     service.cancel();
     const result = await resultPromise;
     const requestedJobId =

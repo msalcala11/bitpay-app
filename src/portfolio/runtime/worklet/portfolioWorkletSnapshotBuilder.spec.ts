@@ -93,7 +93,7 @@ describe('portfolioWorkletSnapshotBuilder return-struct flush state', () => {
         makeSentTx({
           txid: 'spend',
           timeSeconds: Math.floor(Date.parse('2024-01-01T00:00:00Z') / 1000),
-          blockheight: 900001,
+          blockheight: 0,
           amountAtomic: '400',
         }),
       ]),
@@ -297,7 +297,7 @@ describe('portfolioWorkletSnapshotBuilder return-struct flush state', () => {
           timeSeconds: Math.floor(
             Date.parse('2024-01-01T00:00:00Z') / 1000,
           ),
-          blockheight: 900001,
+          blockheight: 0,
           amountAtomic: '1000',
         }),
         makeSentTx({
@@ -372,7 +372,7 @@ describe('portfolioWorkletSnapshotBuilder return-struct flush state', () => {
           timeSeconds: Math.floor(
             Date.parse('2024-01-01T00:00:00Z') / 1000,
           ),
-          blockheight: 900001,
+          blockheight: 0,
           amountAtomic: '1000',
         }),
       ],
@@ -416,7 +416,7 @@ describe('portfolioWorkletSnapshotBuilder return-struct flush state', () => {
           timeSeconds: Math.floor(
             Date.parse('2024-01-01T01:00:00Z') / 1000,
           ),
-          blockheight: 900002,
+          blockheight: 0,
           amountAtomic: '400',
         }),
       ],

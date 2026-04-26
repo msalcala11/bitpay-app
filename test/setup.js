@@ -22,6 +22,41 @@ jest.mock('react-native/Libraries/Utilities/Platform', () => {
   return {...Platform, default: Platform};
 });
 
+jest.mock('react-native-worklets', () => {
+  const runImmediately =
+    fn =>
+    (...args) =>
+      typeof fn === 'function' ? fn(...args) : undefined;
+
+  return {
+    __esModule: true,
+    RuntimeKind: {
+      UI: 'ui',
+      ReactNative: 'react-native',
+    },
+    WorkletsModule: {},
+    callMicrotasks: jest.fn(),
+    createSerializable: jest.fn(value => value),
+    createWorkletRuntime: jest.fn(config => ({
+      name: typeof config === 'string' ? config : config?.name,
+    })),
+    executeOnUIRuntimeSync: jest.fn(fn => runImmediately(fn)),
+    isWorkletFunction: jest.fn(() => false),
+    makeShareable: jest.fn(value => value),
+    runOnJS: jest.fn(fn => runImmediately(fn)),
+    runOnRuntimeAsync: jest.fn((_runtime, fn, args) =>
+      Promise.resolve(typeof fn === 'function' ? fn(args) : undefined),
+    ),
+    runOnUI: jest.fn(fn => runImmediately(fn)),
+    scheduleOnRN: jest.fn(fn => {
+      if (typeof fn === 'function') {
+        fn();
+      }
+    }),
+    serializableMappingCache: new WeakMap(),
+  };
+});
+
 jest.mock('react-native-reanimated', () =>
   require('react-native-reanimated/mock'),
 );
