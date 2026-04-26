@@ -514,7 +514,7 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
     });
   });
 
-  it('normalizes legacy exchange-rate params to marketAsset route shape', () => {
+  it('normalizes legacy exchange-rate params and serialized route wrappers', () => {
     const route = normalizeExchangeRateRouteParams({
       currencyAbbreviation: 'BTC',
       chain: 'btc',
