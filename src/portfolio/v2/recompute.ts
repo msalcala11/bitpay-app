@@ -55,6 +55,7 @@ export type NormalizedFormulaRecomputeInput = Readonly<{
   formula: BuildFormulaComputedInputsArgs;
   total?: PerIntervalSeries;
   populatedWalletIds?: readonly string[];
+  invalidHistoryWalletIds?: readonly string[];
   retryScheduledWalletIds?: readonly string[];
   retryScheduledRateSourceKeys?: readonly string[];
   staleReasons?: readonly PortfolioStaleReason[];
@@ -79,12 +80,22 @@ function idsFromRecord(
   return Object.keys(record).sort((a, b) => a.localeCompare(b));
 }
 
+function uniqueSorted(values: readonly string[]): readonly string[] {
+  'worklet';
+
+  return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
+}
+
 export function recomputePortfolioState(
   current: PortfolioState,
   request: RecomputeRequest,
 ): PortfolioState {
   const input = request.normalizedFormulaInput;
-  if (!input || request.startEpoch !== current.workEpoch) {
+  if (
+    !input ||
+    request.scope !== 'full' ||
+    request.startEpoch !== current.workEpoch
+  ) {
     return current;
   }
 
@@ -104,7 +115,11 @@ export function recomputePortfolioState(
     total: input.total,
     populatedWalletIds:
       input.populatedWalletIds ?? idsFromRecord(current.populatedWalletIdsById),
-    invalidHistoryWalletIds: formula.invalidHistoryWalletIds,
+    invalidHistoryWalletIds: uniqueSorted([
+      ...(input.invalidHistoryWalletIds ??
+        idsFromRecord(current.invalidHistoryWalletIdsById)),
+      ...formula.invalidHistoryWalletIds,
+    ]),
     missingRateSourceKeys: formula.missingRateSourceKeys,
     retryScheduledWalletIds: input.retryScheduledWalletIds,
     retryScheduledRateSourceKeys: input.retryScheduledRateSourceKeys,

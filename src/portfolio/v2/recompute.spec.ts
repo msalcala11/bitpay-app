@@ -186,6 +186,17 @@ describe('portfolio v2 recompute entrypoint', () => {
     ).toBe(current);
   });
 
+  it('does not treat non-full scopes as full formula recompute in Phase 3g', () => {
+    const current = makeCurrentState();
+    const next = recomputePortfolioState(current, {
+      scope: {kind: 'wallet', walletId: 'eth-wallet'},
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput(),
+    });
+
+    expect(next).toBe(current);
+  });
+
   it('returns the current state when final state assembly rejects the request', () => {
     const current = makeCurrentState();
     const next = recomputePortfolioState(current, {
@@ -202,6 +213,24 @@ describe('portfolio v2 recompute entrypoint', () => {
     });
 
     expect(next).toBe(current);
+  });
+
+  it('preserves existing invalid-history wallet ids when formula adds none', () => {
+    const current = makeCurrentState({
+      invalidHistoryWalletIdsKey: 'legacy-invalid-wallet',
+      invalidHistoryWalletIdsById: {'legacy-invalid-wallet': true},
+    });
+    const next = recomputePortfolioState(current, {
+      scope: 'full',
+      startEpoch: 7,
+      normalizedFormulaInput: normalizedInput(),
+    });
+
+    expect(next).not.toBe(current);
+    expect(next.invalidHistoryWalletIdsKey).toBe('legacy-invalid-wallet');
+    expect(next.status.invalidHistoryWalletIds).toEqual([
+      'legacy-invalid-wallet',
+    ]);
   });
 
   it('surfaces formula invalid-history and missing-rate status through final state', () => {
