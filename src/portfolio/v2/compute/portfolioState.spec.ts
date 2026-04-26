@@ -2,12 +2,14 @@ import type {
   Interval,
   MarketRatePoint,
   Series,
+  ScopedPortfolioSlice,
   StoredRateInterval,
 } from '../model';
 import type {AssetGroupRowShellMemberInput} from './assetGroupRows';
 import type {WeightedGroupRateConstituentInput} from './weightedGroupRates';
 import {
   buildPortfolioComputedState,
+  stableWalletIdsKey,
   type AssetGroupComputedStateInput,
   type BuildPortfolioComputedStateArgs,
   type WalletComputedStateInput,
@@ -289,6 +291,34 @@ function makeBaseArgs(
     total: {'1D': totalSeries},
     populatedWalletIds: ['pol-usdc', 'btc-wallet', 'eth-usdc'],
     ...overrides,
+  };
+}
+
+function makeCachedScope(args: {
+  walletIdsKey: string;
+  walletIds: readonly string[];
+  lastAccessedAt: number;
+}): ScopedPortfolioSlice {
+  return {
+    walletIdsKey: args.walletIdsKey,
+    walletIds: args.walletIds,
+    fingerprint: `cached:${args.walletIdsKey}`,
+    computedAtMs: 1,
+    readiness: {
+      empty: false,
+      hasEverPublishedValidSeries: true,
+      initialScopeReady: true,
+      refreshing: false,
+      invalidHistoryBlocked: false,
+    },
+    total: {},
+    totalFingerprint: '',
+    byAssetGroup: {},
+    rowShells: [],
+    orderedAssetGroupIdsForAssetList: [],
+    invalidHistoryWalletIdsById: {},
+    invalidHistoryAssetGroupIdsById: {},
+    lastAccessedAt: args.lastAccessedAt,
   };
 }
 
@@ -665,6 +695,88 @@ describe('portfolio v2 computed state producer', () => {
     expect(addedInterval.totalFingerprint).not.toBe(base.totalFingerprint);
   });
 
+  it('builds scoped slices for arbitrary resolved wallet sets', () => {
+    const walletIds = ['pol-usdc', 'eth-usdc'];
+    const walletIdsKey = stableWalletIdsKey(walletIds);
+    const state = expectValid(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          scopedSlices: [
+            {
+              walletIds,
+              walletIdsKey,
+              total: {'1D': totalSeries},
+              assetGroups: [makeUsdcAssetGroup()],
+              lastAccessedAt: 999,
+            },
+          ],
+        }),
+      ),
+    );
+
+    const scoped = state.scopedByWalletSet[walletIdsKey];
+    expect(scoped).toBeDefined();
+    expect(scoped?.walletIds).toEqual(['eth-usdc', 'pol-usdc']);
+    expect(scoped?.rowShells.map(row => row.assetGroupId)).toEqual(['usdc']);
+    expect(scoped?.orderedAssetGroupIdsForAssetList).toEqual(['usdc']);
+    expect(scoped?.readiness).toEqual({
+      empty: false,
+      hasEverPublishedValidSeries: true,
+      initialScopeReady: true,
+      refreshing: false,
+      invalidHistoryBlocked: false,
+    });
+    expect(scoped?.byAssetGroup.usdc.rowToday).toEqual(
+      scoped?.rowShells[0].rowToday,
+    );
+    expect(scoped?.totalFingerprint).toMatch(/^fnv1a:[0-9a-f]{8}$/);
+    expect(scoped?.fingerprint).toMatch(/^fnv1a:[0-9a-f]{8}$/);
+    expect(scoped?.lastAccessedAt).toBe(999);
+  });
+
+  it('prunes deleted scoped entries, refreshes before LRU eviction, and protects current scopes', () => {
+    const previousScopedByWalletSet = Object.fromEntries(
+      Array.from({length: 9}, (_, index) => {
+        const key = `scope-${index}`;
+        return [
+          key,
+          makeCachedScope({
+            walletIdsKey: key,
+            walletIds:
+              index === 1 ? ['deleted-wallet'] : [`cached-wallet-${index}`],
+            lastAccessedAt: index,
+          }),
+        ];
+      }),
+    );
+    const walletIds = ['eth-usdc', 'pol-usdc'];
+    const walletIdsKey = stableWalletIdsKey(walletIds);
+    const state = expectValid(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          previousScopedByWalletSet,
+          protectedScopedWalletIdsKeys: ['scope-0'],
+          evictScopedWalletIds: ['deleted-wallet'],
+          scopedSlices: [
+            {
+              walletIds,
+              walletIdsKey,
+              total: {'1D': totalSeries},
+              assetGroups: [makeUsdcAssetGroup()],
+              lastAccessedAt: 100,
+            },
+          ],
+        }),
+      ),
+    );
+
+    expect(Object.keys(state.scopedByWalletSet)).toHaveLength(8);
+    expect(state.scopedByWalletSet['scope-0']).toBeDefined();
+    expect(state.scopedByWalletSet['scope-1']).toBeUndefined();
+    expect(state.scopedByWalletSet['scope-2']).toBeUndefined();
+    expect(state.scopedByWalletSet[walletIdsKey]?.lastAccessedAt).toBe(100);
+  });
+
   it('rejects malformed top-level, status, and scope inputs', () => {
     expect(
       buildPortfolioComputedState(makeBaseArgs({workEpoch: Number.NaN})),
@@ -732,6 +844,77 @@ describe('portfolio v2 computed state producer', () => {
         }),
       ),
     ).toEqual({kind: 'invalid', reason: 'unknownScopeWalletId'});
+    expect(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          scopedSlices: [
+            {
+              walletIds: ['pol-usdc', 'eth-usdc'],
+              walletIdsKey: 'pol-usdc|eth-usdc',
+              assetGroups: [makeUsdcAssetGroup()],
+            },
+          ],
+        }),
+      ),
+    ).toEqual({kind: 'invalid', reason: 'invalidScopedWalletIdsKey'});
+    expect(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          scopedSlices: [
+            {
+              walletIds: ['eth-usdc'],
+              walletIdsKey: 'eth-usdc',
+              assetGroups: [makeUsdcAssetGroup()],
+            },
+            {
+              walletIds: ['eth-usdc'],
+              walletIdsKey: 'eth-usdc',
+              assetGroups: [makeUsdcAssetGroup()],
+            },
+          ],
+        }),
+      ),
+    ).toEqual({kind: 'invalid', reason: 'duplicateScopedWalletIdsKey'});
+    expect(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          scopedSlices: [
+            {
+              walletIds: [' eth-usdc'],
+              walletIdsKey: 'eth-usdc',
+              assetGroups: [makeUsdcAssetGroup()],
+            },
+          ],
+        }),
+      ),
+    ).toEqual({kind: 'invalid', reason: 'invalidScopedWalletIdsKey'});
+    expect(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          scopedSlices: [
+            {
+              walletIds: ['missing-wallet'],
+              walletIdsKey: 'missing-wallet',
+              assetGroups: [makeUsdcAssetGroup()],
+            },
+          ],
+        }),
+      ),
+    ).toEqual({kind: 'invalid', reason: 'unknownScopedWalletId'});
+    expect(
+      buildPortfolioComputedState(
+        makeBaseArgs({
+          scopedSlices: [
+            {
+              walletIds: ['eth-usdc'],
+              walletIdsKey: 'eth-usdc',
+              assetGroups: [makeUsdcAssetGroup()],
+              lastAccessedAt: Number.NaN,
+            },
+          ],
+        }),
+      ),
+    ).toEqual({kind: 'invalid', reason: 'invalidScopedLastAccessedAt'});
   });
 
   it('propagates structural assembly failures without publishing state', () => {

@@ -1,4 +1,7 @@
-import {CANONICAL_RATE_QUOTE} from '../constants';
+import {
+  CANONICAL_RATE_QUOTE,
+  MAX_SCOPED_CACHE_ENTRIES,
+} from '../constants';
 import type {
   AssetGroupRowShell,
   AssetGroupSlice,
@@ -9,6 +12,7 @@ import type {
   PortfolioStatus,
   RowPayload,
   ScopeReadiness,
+  ScopedPortfolioSlice,
   Series,
   WeightedGroupRateSeries,
 } from '../model';
@@ -36,6 +40,16 @@ export type PortfolioScopeComputedStateInput = Readonly<{
   hasPublishedValidSeriesThisPass?: boolean;
 }>;
 
+export type ScopedPortfolioComputedStateInput = Readonly<{
+  walletIds: readonly string[];
+  walletIdsKey: string;
+  total?: PerIntervalSeries;
+  assetGroups: readonly AssetGroupComputedStateInput[];
+  refreshing?: boolean;
+  hasPublishedValidSeriesThisPass?: boolean;
+  lastAccessedAt?: number;
+}>;
+
 export type BuildPortfolioComputedStateArgs = Readonly<{
   workEpoch: number;
   revision: number;
@@ -53,6 +67,10 @@ export type BuildPortfolioComputedStateArgs = Readonly<{
   staleReasons?: readonly PortfolioStaleReason[];
   previousReadinessByScopeKey?: Readonly<Record<string, ScopeReadiness>>;
   scopes?: readonly PortfolioScopeComputedStateInput[];
+  previousScopedByWalletSet?: Readonly<Record<string, ScopedPortfolioSlice>>;
+  scopedSlices?: readonly ScopedPortfolioComputedStateInput[];
+  protectedScopedWalletIdsKeys?: readonly string[];
+  evictScopedWalletIds?: readonly string[];
 }>;
 
 export type PortfolioComputedStateInvalidReason =
@@ -68,7 +86,12 @@ export type PortfolioComputedStateInvalidReason =
   | 'invalidScopeKey'
   | 'duplicateScopeKey'
   | 'invalidScopeWalletId'
-  | 'unknownScopeWalletId';
+  | 'unknownScopeWalletId'
+  | 'invalidScopedWalletIdsKey'
+  | 'duplicateScopedWalletIdsKey'
+  | 'invalidScopedWalletId'
+  | 'unknownScopedWalletId'
+  | 'invalidScopedLastAccessedAt';
 
 export type BuildPortfolioComputedStateResult =
   | Readonly<{kind: 'valid'; state: PortfolioState}>
@@ -126,6 +149,12 @@ function uniqueSorted(values: readonly string[]): readonly string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
 }
 
+export function stableWalletIdsKey(walletIds: readonly string[]): string {
+  'worklet';
+
+  return uniqueSorted(walletIds).join('|');
+}
+
 function isStrictIdentity(value: unknown): value is string {
   'worklet';
 
@@ -158,7 +187,18 @@ function toIdRecord(values: readonly string[]): Readonly<Record<string, true>> {
   return out;
 }
 
-function hasOnlyStrictIdentities(values: readonly string[] | undefined): boolean {
+function intersects(
+  first: readonly string[],
+  secondById: Readonly<Record<string, true>>,
+): boolean {
+  'worklet';
+
+  return first.some(value => secondById[value] === true);
+}
+
+function hasOnlyStrictIdentities(
+  values: readonly string[] | undefined,
+): boolean {
   'worklet';
 
   return !values || values.every(isStrictIdentity);
@@ -235,6 +275,48 @@ function validatePortfolioComputedStateArgs(
         return 'unknownScopeWalletId';
       }
     }
+  }
+
+  const seenScopedWalletIdsKeys = new Set<string>();
+  for (const scoped of args.scopedSlices ?? []) {
+    if (
+      !isStrictIdentity(scoped.walletIdsKey) ||
+      scoped.walletIdsKey !== stableWalletIdsKey(scoped.walletIds)
+    ) {
+      return 'invalidScopedWalletIdsKey';
+    }
+    if (seenScopedWalletIdsKeys.has(scoped.walletIdsKey)) {
+      return 'duplicateScopedWalletIdsKey';
+    }
+    seenScopedWalletIdsKeys.add(scoped.walletIdsKey);
+    if (
+      typeof scoped.lastAccessedAt !== 'undefined' &&
+      !isNonNegativeFiniteNumber(scoped.lastAccessedAt)
+    ) {
+      return 'invalidScopedLastAccessedAt';
+    }
+
+    for (const walletId of scoped.walletIds) {
+      if (!isStrictIdentity(walletId)) {
+        return 'invalidScopedWalletId';
+      }
+      if (walletIdsById[walletId] !== true) {
+        return 'unknownScopedWalletId';
+      }
+    }
+  }
+
+  if (
+    args.protectedScopedWalletIdsKeys &&
+    !hasOnlyStrictIdentities(args.protectedScopedWalletIdsKeys)
+  ) {
+    return 'invalidScopedWalletIdsKey';
+  }
+  if (
+    args.evictScopedWalletIds &&
+    !hasOnlyStrictIdentities(args.evictScopedWalletIds)
+  ) {
+    return 'invalidScopedWalletId';
   }
 
   return undefined;
@@ -360,6 +442,37 @@ function buildTotalFingerprint(total: PerIntervalSeries): string {
   return stableHash(['total', ...seriesFingerprintValues(total)]);
 }
 
+function buildScopedSliceFingerprint(args: {
+  walletIdsKey: string;
+  walletIds: readonly string[];
+  totalFingerprint: string;
+  byAssetGroup: Readonly<Record<string, AssetGroupSlice>>;
+  rowShells: readonly AssetGroupRowShell[];
+  readiness: ScopeReadiness;
+}): string {
+  'worklet';
+
+  const assetGroupFingerprintValues = Object.keys(args.byAssetGroup)
+    .sort((a, b) => a.localeCompare(b))
+    .flatMap(assetGroupId => {
+      const assetGroup = args.byAssetGroup[assetGroupId];
+      return assetGroup ? [assetGroupId, assetGroup.fingerprint] : [];
+    });
+
+  return stableHash([
+    args.walletIdsKey,
+    ...args.walletIds,
+    args.totalFingerprint,
+    ...assetGroupFingerprintValues,
+    ...args.rowShells.flatMap(shellFingerprintValues),
+    args.readiness.empty,
+    args.readiness.hasEverPublishedValidSeries,
+    args.readiness.initialScopeReady,
+    args.readiness.refreshing,
+    args.readiness.invalidHistoryBlocked,
+  ]);
+}
+
 function buildStatus(args: {
   invalidHistoryWalletIds: readonly string[];
   missingRateSourceKeys: readonly string[];
@@ -407,6 +520,48 @@ function hasAnySeriesPoints(series: PerIntervalSeries): boolean {
   });
 }
 
+function buildScopeReadiness(args: {
+  walletIds: readonly string[];
+  populatedWalletIds: readonly string[];
+  invalidHistoryWalletIds: readonly string[];
+  previous?: ScopeReadiness;
+  refreshing?: boolean;
+  hasPublishedValidSeriesThisPass?: boolean;
+}): ScopeReadiness {
+  'worklet';
+
+  const walletIds = uniqueSorted(args.walletIds);
+  if (!walletIds.length) {
+    return {
+      empty: true,
+      hasEverPublishedValidSeries: false,
+      initialScopeReady: false,
+      refreshing: args.refreshing === true,
+      invalidHistoryBlocked: false,
+    };
+  }
+
+  const populatedById = toIdRecord(args.populatedWalletIds);
+  const invalidById = toIdRecord(args.invalidHistoryWalletIds);
+  const initialScopeReady = walletIds.every(
+    walletId =>
+      populatedById[walletId] === true || invalidById[walletId] === true,
+  );
+  const invalidHistoryBlocked = walletIds.every(
+    walletId => invalidById[walletId] === true,
+  );
+
+  return {
+    empty: false,
+    hasEverPublishedValidSeries:
+      args.previous?.hasEverPublishedValidSeries === true ||
+      args.hasPublishedValidSeriesThisPass === true,
+    initialScopeReady,
+    refreshing: args.refreshing === true,
+    invalidHistoryBlocked,
+  };
+}
+
 function buildReadinessByScopeKey(args: {
   defaultWalletIds: readonly string[];
   total: PerIntervalSeries;
@@ -427,44 +582,210 @@ function buildReadinessByScopeKey(args: {
             hasPublishedValidSeriesThisPass: hasAnySeriesPoints(args.total),
           },
         ];
-  const populatedById = toIdRecord(args.populatedWalletIds);
-  const invalidById = toIdRecord(args.invalidHistoryWalletIds);
   const out: Record<string, ScopeReadiness> = {};
 
   for (const scope of scopes) {
-    const walletIds = uniqueSorted(scope.walletIds);
-    if (!walletIds.length) {
-      out[scope.scopeKey] = {
-        empty: true,
-        hasEverPublishedValidSeries: false,
-        initialScopeReady: false,
-        refreshing: scope.refreshing === true,
-        invalidHistoryBlocked: false,
-      };
-      continue;
-    }
-
-    const initialScopeReady = walletIds.every(
-      walletId =>
-        populatedById[walletId] === true || invalidById[walletId] === true,
-    );
-    const invalidHistoryBlocked = walletIds.every(
-      walletId => invalidById[walletId] === true,
-    );
-    const previous = args.previousReadinessByScopeKey?.[scope.scopeKey];
-
-    out[scope.scopeKey] = {
-      empty: false,
-      hasEverPublishedValidSeries:
-        previous?.hasEverPublishedValidSeries === true ||
-        scope.hasPublishedValidSeriesThisPass === true,
-      initialScopeReady,
-      refreshing: scope.refreshing === true,
-      invalidHistoryBlocked,
-    };
+    out[scope.scopeKey] = buildScopeReadiness({
+      walletIds: scope.walletIds,
+      populatedWalletIds: args.populatedWalletIds,
+      invalidHistoryWalletIds: args.invalidHistoryWalletIds,
+      previous: args.previousReadinessByScopeKey?.[scope.scopeKey],
+      refreshing: scope.refreshing,
+      hasPublishedValidSeriesThisPass:
+        scope.hasPublishedValidSeriesThisPass,
+    });
   }
 
   return out;
+}
+
+function buildScopedPortfolioSlice(args: {
+  input: ScopedPortfolioComputedStateInput;
+  quoteCurrency: string;
+  walletInputsById: Readonly<Record<string, WalletSliceAssemblyInput>>;
+  invalidHistoryWalletIds: readonly string[];
+  populatedWalletIds: readonly string[];
+  previous?: ScopedPortfolioSlice;
+  computedAtMs: number;
+}):
+  | Readonly<{kind: 'valid'; slice: ScopedPortfolioSlice}>
+  | Readonly<{kind: 'invalid'; reason: RecomputeStateSlicesInvalidReason}> {
+  'worklet';
+
+  const walletIds = uniqueSorted(args.input.walletIds);
+  const wallets = walletIds.flatMap(walletId => {
+    const wallet = args.walletInputsById[walletId];
+    return wallet ? [wallet] : [];
+  });
+  const scopedSlices = buildRecomputeStateSlices({
+    quoteCurrency: args.quoteCurrency,
+    wallets,
+    assetGroups: args.input.assetGroups.map(assetGroup => ({
+      ...assetGroup,
+      fingerprint: '',
+    })),
+  });
+  if (scopedSlices.kind !== 'valid') {
+    return scopedSlices;
+  }
+
+  const byAssetGroup: Record<string, AssetGroupSlice> = {};
+  const shellByAssetGroupId: Record<string, AssetGroupRowShell> = {};
+  for (const shell of scopedSlices.rowShells) {
+    shellByAssetGroupId[shell.assetGroupId] = shell;
+  }
+
+  for (const assetGroupId of Object.keys(scopedSlices.byAssetGroup)) {
+    const slice = scopedSlices.byAssetGroup[assetGroupId];
+    if (!slice) {
+      continue;
+    }
+    byAssetGroup[assetGroupId] = {
+      ...slice,
+      fingerprint: buildAssetGroupSliceFingerprint({
+        slice,
+        shell: shellByAssetGroupId[assetGroupId],
+      }),
+    };
+  }
+
+  const total = args.input.total ?? {};
+  const totalFingerprint = buildTotalFingerprint(total);
+  const invalidHistoryWalletIdsById = toIdRecord(
+    walletIds.filter(walletId =>
+      args.invalidHistoryWalletIds.includes(walletId),
+    ),
+  );
+  const invalidHistoryAssetGroupIdsById: Record<string, true> = {};
+  for (const assetGroupId of Object.keys(byAssetGroup)) {
+    const assetGroup = byAssetGroup[assetGroupId];
+    if (
+      assetGroup?.memberWalletIds.some(
+        walletId => invalidHistoryWalletIdsById[walletId] === true,
+      )
+    ) {
+      invalidHistoryAssetGroupIdsById[assetGroupId] = true;
+    }
+  }
+  const readiness = buildScopeReadiness({
+    walletIds,
+    populatedWalletIds: args.populatedWalletIds,
+    invalidHistoryWalletIds: args.invalidHistoryWalletIds,
+    previous: args.previous?.readiness,
+    refreshing: args.input.refreshing,
+    hasPublishedValidSeriesThisPass:
+      args.input.hasPublishedValidSeriesThisPass ?? hasAnySeriesPoints(total),
+  });
+  const sliceWithoutFingerprint = {
+    walletIdsKey: args.input.walletIdsKey,
+    walletIds,
+    computedAtMs: args.computedAtMs,
+    readiness,
+    total,
+    totalFingerprint,
+    byAssetGroup,
+    rowShells: scopedSlices.rowShells,
+    orderedAssetGroupIdsForAssetList: scopedSlices.rowShells.map(
+      rowShell => rowShell.assetGroupId,
+    ),
+    invalidHistoryWalletIdsById,
+    invalidHistoryAssetGroupIdsById,
+    lastAccessedAt: args.input.lastAccessedAt ?? args.computedAtMs,
+  };
+
+  return {
+    kind: 'valid',
+    slice: {
+      ...sliceWithoutFingerprint,
+      fingerprint: buildScopedSliceFingerprint(sliceWithoutFingerprint),
+    },
+  };
+}
+
+function evictScopedCacheToCap(args: {
+  cache: Record<string, ScopedPortfolioSlice>;
+  protectedKeys: Readonly<Record<string, true>>;
+}): Readonly<Record<string, ScopedPortfolioSlice>> {
+  'worklet';
+
+  const cache = {...args.cache};
+  const keys = Object.keys(cache);
+  if (keys.length <= MAX_SCOPED_CACHE_ENTRIES) {
+    return cache;
+  }
+
+  const evictionCandidates = keys
+    .filter(key => args.protectedKeys[key] !== true)
+    .sort((a, b) => {
+      const aSlice = cache[a];
+      const bSlice = cache[b];
+      const accessDelta =
+        (aSlice?.lastAccessedAt ?? 0) - (bSlice?.lastAccessedAt ?? 0);
+      return accessDelta !== 0 ? accessDelta : a.localeCompare(b);
+    });
+
+  for (const key of evictionCandidates) {
+    if (Object.keys(cache).length <= MAX_SCOPED_CACHE_ENTRIES) {
+      break;
+    }
+    delete cache[key];
+  }
+
+  return cache;
+}
+
+function buildScopedByWalletSet(args: {
+  previous?: Readonly<Record<string, ScopedPortfolioSlice>>;
+  scopedInputs?: readonly ScopedPortfolioComputedStateInput[];
+  protectedScopedWalletIdsKeys?: readonly string[];
+  evictScopedWalletIds?: readonly string[];
+  quoteCurrency: string;
+  walletInputsById: Readonly<Record<string, WalletSliceAssemblyInput>>;
+  invalidHistoryWalletIds: readonly string[];
+  populatedWalletIds: readonly string[];
+  computedAtMs: number;
+}):
+  | Readonly<{
+      kind: 'valid';
+      scopedByWalletSet: Readonly<Record<string, ScopedPortfolioSlice>>;
+    }>
+  | Readonly<{kind: 'invalid'; reason: RecomputeStateSlicesInvalidReason}> {
+  'worklet';
+
+  const evictById = toIdRecord(args.evictScopedWalletIds ?? []);
+  const cache: Record<string, ScopedPortfolioSlice> = {};
+  for (const [key, entry] of Object.entries(args.previous ?? {})) {
+    if (!intersects(entry.walletIds, evictById)) {
+      cache[key] = entry;
+    }
+  }
+
+  for (const scopedInput of args.scopedInputs ?? []) {
+    const previous = cache[scopedInput.walletIdsKey];
+    const scoped = buildScopedPortfolioSlice({
+      input: scopedInput,
+      quoteCurrency: args.quoteCurrency,
+      walletInputsById: args.walletInputsById,
+      invalidHistoryWalletIds: args.invalidHistoryWalletIds,
+      populatedWalletIds: args.populatedWalletIds,
+      previous,
+      computedAtMs: args.computedAtMs,
+    });
+    if (scoped.kind !== 'valid') {
+      return scoped;
+    }
+    cache[scopedInput.walletIdsKey] = scoped.slice;
+  }
+
+  const protectedKeys = toIdRecord([
+    ...(args.protectedScopedWalletIdsKeys ?? []),
+    ...(args.scopedInputs ?? []).map(scoped => scoped.walletIdsKey),
+  ]);
+
+  return {
+    kind: 'valid',
+    scopedByWalletSet: evictScopedCacheToCap({cache, protectedKeys}),
+  };
 }
 
 export function buildPortfolioComputedState(
@@ -524,6 +845,24 @@ export function buildPortfolioComputedState(
     args.invalidHistoryWalletIds ?? [],
   );
   const rowShells = slices.rowShells;
+  const walletInputsById: Record<string, WalletSliceAssemblyInput> = {};
+  for (const wallet of walletInputs) {
+    walletInputsById[wallet.walletId] = wallet;
+  }
+  const scopedCache = buildScopedByWalletSet({
+    previous: args.previousScopedByWalletSet,
+    scopedInputs: args.scopedSlices,
+    protectedScopedWalletIdsKeys: args.protectedScopedWalletIdsKeys,
+    evictScopedWalletIds: args.evictScopedWalletIds,
+    quoteCurrency: args.quoteCurrency,
+    walletInputsById,
+    invalidHistoryWalletIds,
+    populatedWalletIds,
+    computedAtMs: args.computedAtMs,
+  });
+  if (scopedCache.kind !== 'valid') {
+    return scopedCache;
+  }
 
   return {
     kind: 'valid',
@@ -563,9 +902,7 @@ export function buildPortfolioComputedState(
       rowShells,
       total,
       totalFingerprint: buildTotalFingerprint(total),
-      // Phase 3c builds the global state only. Scoped-cache/LRU assembly lands
-      // in the scoped recompute integration step.
-      scopedByWalletSet: {},
+      scopedByWalletSet: scopedCache.scopedByWalletSet,
     },
   };
 }

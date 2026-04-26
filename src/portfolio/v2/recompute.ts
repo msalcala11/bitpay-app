@@ -1,10 +1,13 @@
 import type {PortfolioState} from './model';
 export {
   buildPortfolioComputedState,
+  stableWalletIdsKey,
   type AssetGroupComputedStateInput,
   type BuildPortfolioComputedStateArgs,
   type BuildPortfolioComputedStateResult,
+  type PortfolioComputedStateInvalidReason,
   type PortfolioScopeComputedStateInput,
+  type ScopedPortfolioComputedStateInput,
   type WalletComputedStateInput,
 } from './compute/portfolioState';
 
