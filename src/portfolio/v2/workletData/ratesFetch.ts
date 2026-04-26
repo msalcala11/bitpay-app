@@ -299,6 +299,45 @@ function hasResultDependencyMismatch(
   return false;
 }
 
+function partitionRuntimeResults(args: {
+  dependencies: readonly RateFetchDependency[];
+  results: readonly RateFetchRuntimeResult[];
+}): {
+  acceptedResults: readonly RateFetchRuntimeResult[];
+  missingKeys: readonly string[];
+  mismatch: boolean;
+} {
+  const expectedByKey = new Map<string, RateFetchDependency>();
+  for (const dependency of args.dependencies) {
+    expectedByKey.set(dependencyKey(dependency), dependency);
+  }
+
+  const seen = new Set<string>();
+  const acceptedResults: RateFetchRuntimeResult[] = [];
+  let mismatch = args.results.length !== args.dependencies.length;
+
+  for (const result of args.results) {
+    const key = dependencyKey(result.dependency);
+    if (!expectedByKey.has(key) || seen.has(key)) {
+      mismatch = true;
+      continue;
+    }
+
+    seen.add(key);
+    acceptedResults.push(result);
+  }
+
+  const missingKeys: string[] = [];
+  for (const key of expectedByKey.keys()) {
+    if (!seen.has(key)) {
+      missingKeys.push(key);
+      mismatch = true;
+    }
+  }
+
+  return {acceptedResults, missingKeys, mismatch};
+}
+
 async function fetchSingleRateOnRuntime(
   dependency: RateFetchDependency,
   cfg: BwsConfig,
@@ -449,10 +488,11 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
   }
 
   const currentEpoch = getCurrentPortfolioWorkEpoch();
+  const partition = partitionRuntimeResults({dependencies: toFetch, results});
   if (startEpoch !== currentEpoch) {
     const hasFailedResult =
-      hasResultDependencyMismatch(toFetch, results) ||
-      results.some(isFailedRuntimeResult);
+      partition.mismatch ||
+      partition.acceptedResults.some(isFailedRuntimeResult);
     logPortfolioRuntimeError(new Error('stale rate fetch discarded'), {
       tag: 'staleWorkEpoch',
       reason: hasFailedResult
@@ -465,10 +505,8 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
     return;
   }
 
-  const missingResultKeys = new Set(toFetch.map(dependencyKey));
-  for (const result of results) {
+  for (const result of partition.acceptedResults) {
     const key = dependencyKey(result.dependency);
-    missingResultKeys.delete(key);
     if (result.series?.points?.length) {
       retryByDependencyKey.delete(key);
       writePortfolioMmkvString({
@@ -489,7 +527,7 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
     );
   }
 
-  if (missingResultKeys.size) {
+  if (partition.mismatch) {
     logPortfolioRuntimeError(new Error('rate fetch result dependency mismatch'), {
       tag: 'ensureFresh',
       reason: 'runtimeResultMismatch',
@@ -498,7 +536,7 @@ export async function ensureFresh(args: EnsureFreshArgs): Promise<void> {
     const dependencyByKey = new Map(
       toFetch.map(dependency => [dependencyKey(dependency), dependency]),
     );
-    for (const key of missingResultKeys) {
+    for (const key of partition.missingKeys) {
       const dependency = dependencyByKey.get(key);
       if (!dependency) continue;
       retryByDependencyKey.set(

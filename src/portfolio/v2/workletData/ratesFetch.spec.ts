@@ -100,6 +100,11 @@ const btcAllKey = getRateKey({
   asset: {coin: 'btc'},
   storedInterval: 'ALL',
 });
+const ltcAllKey = getRateKey({
+  quoteCurrency: 'USD',
+  asset: {coin: 'ltc'},
+  storedInterval: 'ALL',
+});
 
 describe('portfolio v2 ensureFresh', () => {
   it('builds dependencies with canonical and target BTC bridge coverage', () => {
@@ -527,6 +532,49 @@ describe('portfolio v2 ensureFresh', () => {
       force: true,
     });
 
+    expect(getRateFetchRetryStatesForTesting()).toEqual([
+      expect.objectContaining({
+        quoteCurrency: 'USD',
+        storedInterval: 'ALL',
+        rateSourceKey: 'btc',
+        lastErrorKind: 'unknown',
+      }),
+      expect.objectContaining({
+        quoteCurrency: 'USD',
+        storedInterval: 'ALL',
+        rateSourceKey: 'eth',
+        lastErrorKind: 'unknown',
+      }),
+    ]);
+    expect(getPortfolioRuntimeLogPayloadsForTesting()).toEqual([
+      expect.objectContaining({
+        tag: 'ensureFresh',
+        reason: 'runtimeResultMismatch',
+        runtimeKind: 'rateFetch',
+      }),
+    ]);
+  });
+
+  it('does not persist unexpected current-epoch runtime results', async () => {
+    setRateFetchExecutorForTesting(async () => [
+      {
+        dependency: {
+          quoteCurrency: 'USD',
+          asset: {coin: 'ltc'},
+          storedInterval: 'ALL',
+        },
+        series: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
+      },
+    ]);
+
+    await ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'eth'}],
+      intervals: ['ALL'],
+      force: true,
+    });
+
+    expect(mockMmkv.getString(ltcAllKey)).toBeUndefined();
     expect(getRateFetchRetryStatesForTesting()).toEqual([
       expect.objectContaining({
         quoteCurrency: 'USD',
