@@ -6,6 +6,8 @@ import type {
   WeightedGroupRateSeries,
 } from '../model';
 
+const STORED_RATE_INTERVALS: readonly string[] = ['1D', '1W', '1M', 'ALL'];
+
 export type WeightedGroupRateConstituentInput = Readonly<{
   rateSourceKey: string;
   baselineUnits: number;
@@ -81,7 +83,8 @@ function hasValidTopLevelInputs(args: BuildWeightedGroupRateSeriesArgs): boolean
     Number.isFinite(args.windowStartTs) &&
     typeof args.windowEndTs === 'number' &&
     Number.isFinite(args.windowEndTs) &&
-    args.windowEndTs > args.windowStartTs
+    args.windowEndTs > args.windowStartTs &&
+    STORED_RATE_INTERVALS.includes(args.sampledFromStoredInterval)
   );
 }
 
