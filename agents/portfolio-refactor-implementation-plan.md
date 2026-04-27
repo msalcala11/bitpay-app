@@ -210,6 +210,7 @@ export type PortfolioMmkvWriteReason =
   | 'rate'
   | 'workEpoch'
   | 'cacheInvalid'
+  | 'wipeRequired'
   | 'flag'
   | 'reset'
   | 'wipe'
@@ -2714,7 +2715,7 @@ Wait timeouts are part of the contract: `waitForPopulateLoopToStop()` defaults t
 
 Post-auth startup must check both durable repair bits before warm publish. If `PORTFOLIO_WIPE_REQUIRED_KEY` is set, run or join `performResetSequence()` before warm-publishing so stale pre-OFF portfolio data cannot reappear after an app kill. If only the cache-invalid bit is set, run `performResetSequence()` as a repair before any ordinary populate/recompute/rate work. If repair fails, do not resume ordinary work.
 
-`markPortfolioWipeRequired()` and `clearPortfolioWipeRequired()` are the only helpers that mutate `PORTFOLIO_WIPE_REQUIRED_KEY`; they must use the MMKV mutation helper family so registry and metrics stay consistent. `markPortfolioWipeRequired()` writes a small durable true value before any Show Portfolio OFF await. `clearPortfolioWipeRequired()` deletes the key after reset success; missing key is a no-op.
+`markPortfolioWipeRequired()` and `clearPortfolioWipeRequired()` are the only helpers that mutate `PORTFOLIO_WIPE_REQUIRED_KEY`; they must use the MMKV mutation helper family with `reason: 'wipeRequired'` so registry, metrics, and spy tests can distinguish the durable obligation from the bulk wipe operation. `markPortfolioWipeRequired()` writes a small durable true value and bumps `workEpoch` with `showPortfolioOff` before any Show Portfolio OFF await. This makes already-running ordinary recompute/populate/rate-fetch work stale immediately, before the serialized reset task reaches `performResetSequence()`. `clearPortfolioWipeRequired()` deletes the key after reset success; missing key is a no-op.
 
 `deleteManifestAndQueueMetadata({reason})` is an idempotent reset helper that deletes `MANIFEST_KEY` and `POPULATE_QUEUE_KEY` through `deletePortfolioMmkvKey(...)` if they still exist after the wipe. `reason` must be an existing `PortfolioMmkvWriteReason` such as `'reset'` or `'wipe'`; do not introduce a new MMKV delete reason literal unless `PortfolioMmkvWriteReason` is updated at the same time. The helper must not write an empty manifest or empty queue. Missing manifest/queue keys are the post-reset empty state; the next Show Portfolio ON / first-populate path creates fresh metadata. This keeps the wipe contract and the registry assertion consistent: after reset, no non-excluded `portfolio:v2:*` wipe-target keys should be present merely to represent emptiness.
 
@@ -2837,7 +2838,7 @@ Every async portfolio operation captures `workEpoch` at start. The epoch is pers
 
 Epoch bumps happen when:
 
-- Show Portfolio OFF latches a wipe obligation;
+- Show Portfolio OFF durably marks a wipe obligation with `markPortfolioWipeRequired()`;
 - `performResetSequence()` begins;
 - wallet/key/account deletion reconciliation starts;
 - quote currency changes;
@@ -3260,11 +3261,13 @@ Contract:
 
 ```ts
 let visibilityToggleEpoch = 0;
-let visibilityWipeRequired = isPortfolioWipeRequired();
+let visibilityWipeRequired = false;
 let visibilityToggleSerial: Promise<void> = Promise.resolve();
 
 function onShowPortfolioVisibilityChanged(enabled: boolean): void {
   const epoch = ++visibilityToggleEpoch;
+  visibilityWipeRequired =
+    visibilityWipeRequired || isPortfolioWipeRequired();
 
   if (!enabled) {
     markPortfolioWipeRequired();
@@ -3275,17 +3278,18 @@ function onShowPortfolioVisibilityChanged(enabled: boolean): void {
     .then(async () => {
       if (!enabled) {
         await performResetSequence();
-        visibilityWipeRequired = false;
+        visibilityWipeRequired = isPortfolioWipeRequired();
         return;
       }
 
       if (visibilityWipeRequired || isPortfolioWipeRequired()) {
         await performResetSequence();
-        visibilityWipeRequired = false;
+        visibilityWipeRequired = isPortfolioWipeRequired();
       }
 
       if (isPortfolioCacheInvalid()) {
         await performResetSequence();
+        visibilityWipeRequired = isPortfolioWipeRequired();
       }
 
       if (epoch !== visibilityToggleEpoch) return;
@@ -3300,9 +3304,11 @@ function onShowPortfolioVisibilityChanged(enabled: boolean): void {
 
 Additional invariants:
 
-- `markPortfolioWipeRequired()` writes `PORTFOLIO_WIPE_REQUIRED_KEY = true` before any await and before relying on the in-memory latch;
+- `markPortfolioWipeRequired()` writes `PORTFOLIO_WIPE_REQUIRED_KEY = true` and bumps `workEpoch` with `showPortfolioOff` before any await and before relying on the in-memory latch;
 - `visibilityWipeRequired` is an in-memory serialization mirror of the durable key, not the source of truth;
+- the mirror is initialized lazily from `isPortfolioWipeRequired()` inside Show Portfolio handling, not by a module-top-level MMKV read;
 - `visibilityWipeRequired` and `PORTFOLIO_WIPE_REQUIRED_KEY` are cleared only after `performResetSequence()` succeeds;
+- any successful `performResetSequence()` that clears `PORTFOLIO_WIPE_REQUIRED_KEY` refreshes the in-memory mirror from `isPortfolioWipeRequired()` before later Show Portfolio ON handling;
 - if reset throws, the durable wipe obligation remains latched and the next post-auth startup or ON attempt must retry/await reset before warm publish or populate;
 - no populate may start while `visibilityWipeRequired`, `isPortfolioWipeRequired()`, `populateResetInFlight`, or `portfolioCacheInvalid` is true;
 - stale toggle completions re-check `epoch`, the current Redux setting, and `canRunPortfolioV2Work()` before side effects.
@@ -3913,7 +3919,7 @@ These tests must exist before the plan is treated as implementation-complete. Fo
 93. **Manifest/queue reconciliation test:** the helper prunes deleted/non-livenet wallets from manifest and queue, does not prune hidden livenet wallets, clears stale checkpoints/staging, and bumps orderRevision iff canonical order changes.
 94. **Publish-driven readiness test:** a scope that is metadata-ready but has not actually published a non-empty valid series keeps `hasEverPublishedValidSeries === false`; a valid published series flips it true.
 95. **Wallet/delete triple-guard race tests:** guard #2 flips during populate wait; guard #3 flips during snapshot clear; both return before later side effects.
-96. **MMKV registry test:** seed one registered wipe-target key, one unregistered real wipe-target key, explicit exclusions (`PORTFOLIO_V2_FLAG_KEY`, `PORTFOLIO_CACHE_INVALID_KEY`, `PORTFOLIO_WIPE_REQUIRED_KEY`, `PORTFOLIO_WORK_EPOCH_KEY`), default-retained shared `rate:v1:*` keys, and existing manifest/queue metadata. Wipe deletes the target keys plus manifest/queue metadata through registry-aware delete while preserving `PORTFOLIO_WIPE_REQUIRED_KEY` during the wipe loop; reset success then clears `PORTFOLIO_WIPE_REQUIRED_KEY` explicitly. Assert the durable flag/cache/epoch exclusions and default-retained keys remain present as expected, assert `PORTFOLIO_WIPE_REQUIRED_KEY` is absent after reset success, and assert no wipe-target keys remain in either list merely to represent an empty manifest or queue.
+96. **MMKV registry test:** seed one registered wipe-target key, one unregistered real wipe-target key, explicit exclusions (`PORTFOLIO_V2_FLAG_KEY`, `PORTFOLIO_CACHE_INVALID_KEY`, `PORTFOLIO_WIPE_REQUIRED_KEY`, `PORTFOLIO_WORK_EPOCH_KEY`), default-retained shared `rate:v1:*` keys, and existing manifest/queue metadata. During `clearPortfolioMmkvKeysForReset(...)`, assert `PORTFOLIO_V2_FLAG_KEY`, `PORTFOLIO_CACHE_INVALID_KEY`, `PORTFOLIO_WIPE_REQUIRED_KEY`, and `PORTFOLIO_WORK_EPOCH_KEY` are not deleted by the bulk wipe loop, and default-retained shared keys remain. After successful `performResetSequence()`, assert `PORTFOLIO_V2_FLAG_KEY` remains, `PORTFOLIO_WORK_EPOCH_KEY` remains, `PORTFOLIO_CACHE_INVALID_KEY` is cleared, `PORTFOLIO_WIPE_REQUIRED_KEY` is cleared, and no non-excluded wipe-target manifest/queue/snapshot/generated keys remain merely to represent emptiness.
 97. **Manifest schema validation test:** invalid/missing schema or malformed JSON returns `null` and logs once; no business-logic silent migration.
 98. **Logger/telemetry allowlist test:** `logPortfolioRuntimeError` never throws, never returns a Promise, includes `subsystem: 'portfolio-v2'`, preserves safe scalar allowlisted fields such as `extra.tag`, and drops/rejects non-allowlisted fields. Feed it an `Error` and `extra` containing `wallet-123`, `0xAbC123`, `txid`, `rate:v1:USD:usdc:1D:eth:0xAbC123`, `snap:chunk:v2:wallet-123:1`, a request URL, a manifest/queue fragment, and a raw checkpoint; assert the Sentry/log/metric sinks receive none of those raw values and no raw `Error.message`. Debug copy/export payloads remain user-local and are never auto-attached to runtime errors.
 99. **Hide Crypto Balances orthogonality test:** dispatch `toggleHideAllBalances()` twenty times and assert zero runtime calls, zero MMKV mutations (no calls to the v2 helper family or its wrapped low-level mutation exports), zero trigger invocations, zero `sharedPortfolioState` writes, and only UI re-renders.
