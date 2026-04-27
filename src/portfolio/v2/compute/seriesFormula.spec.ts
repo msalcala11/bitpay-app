@@ -124,6 +124,95 @@ describe('portfolio v2 wallet series formula adapter', () => {
     );
   });
 
+  it('scales atomic baselines and deltas before wallet-series fiat math', () => {
+    const series = expectValidSeries(
+      buildWalletSeriesFromEvents({
+        ...BASE_FORMULA_ARGS,
+        displayUnitDecimals: 18,
+        baselineUnits: Number.MAX_SAFE_INTEGER,
+        baselineUnitsAtomic: '2000000000000000000',
+        balanceEvents: [
+          {
+            ts: ORACLE_TS.middle,
+            unitsDelta: Number.MAX_SAFE_INTEGER,
+            unitsDeltaAtomic: '1000000000000000000',
+            order: 1,
+          },
+        ],
+        ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
+      }),
+    );
+
+    const last = series.points.at(-1);
+    expect(last?.fiatBalance).toBe(390);
+    expect(last?.pnlChange).toBe(80);
+    expect(last?.pnlPercent).toBeCloseTo((80 / 310) * 100, 10);
+  });
+
+  it('rejects malformed and unsafe atomic series inputs without rounding', () => {
+    expect(
+      buildWalletSeriesFromEvents({
+        ...BASE_FORMULA_ARGS,
+        displayUnitDecimals: 18,
+        baselineUnits: 0,
+        baselineUnitsAtomic: 'not-atomic',
+        ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
+      }),
+    ).toEqual({kind: 'invalidHistory', reason: 'invalidBaselineUnitsAtomic'});
+
+    expect(
+      buildWalletSeriesFromEvents({
+        ...BASE_FORMULA_ARGS,
+        displayUnitDecimals: 0,
+        baselineUnits: 0,
+        baselineUnitsAtomic: String(BigInt(Number.MAX_SAFE_INTEGER) + 1n),
+        ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
+      }),
+    ).toEqual({kind: 'invalidHistory', reason: 'unsafeBaselineUnits'});
+
+    expect(
+      buildWalletSeriesFromEvents({
+        ...BASE_FORMULA_ARGS,
+        displayUnitDecimals: 0,
+        baselineUnits: 1,
+        balanceEvents: [
+          {
+            ts: ORACLE_TS.middle,
+            unitsDelta: 0,
+            unitsDeltaAtomic: 'nope',
+            order: 1,
+          },
+        ],
+        ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
+      }),
+    ).toEqual({kind: 'invalidHistory', reason: 'invalidBalanceEventAtomic'});
+  });
+
+  it('rejects unsafe numeric unit inputs as invalid history', () => {
+    expect(
+      buildWalletSeriesFromEvents({
+        ...BASE_FORMULA_ARGS,
+        baselineUnits: Number.MAX_SAFE_INTEGER + 1,
+        ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
+      }),
+    ).toEqual({kind: 'invalidHistory', reason: 'unsafeBaselineUnits'});
+
+    expect(
+      buildWalletSeriesFromEvents({
+        ...BASE_FORMULA_ARGS,
+        baselineUnits: 1,
+        balanceEvents: [
+          {
+            ts: ORACLE_TS.middle,
+            unitsDelta: Number.MAX_SAFE_INTEGER + 1,
+            order: 1,
+          },
+        ],
+        ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
+      }),
+    ).toEqual({kind: 'invalidHistory', reason: 'unsafeBalanceEventUnits'});
+  });
+
   it('rejects exact-window-start events because baselineUnits is already post-start state', () => {
     expect(
       buildWalletSeriesFromEvents({

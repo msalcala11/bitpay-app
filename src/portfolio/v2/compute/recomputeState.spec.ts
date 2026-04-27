@@ -288,7 +288,7 @@ describe('portfolio v2 recompute state assembly adapter', () => {
     const btc = result.byAssetGroup.btc;
     expect(btc.weightedGroupRateSeries).toBeUndefined();
     expect(btc.memberWalletIds).toEqual(['btc-wallet']);
-    expect(btc.memberWalletIdsKey).toMatch(/^walletIds:v1:1:fnv1a:/);
+    expect(btc.memberWalletIdsKey).toMatch(/^walletIds:v2:1:fnv1a128:/);
     expect(btc.rowToday).toMatchObject({
       assetGroupId: 'btc',
       fiatStart: 100,
@@ -383,7 +383,7 @@ describe('portfolio v2 recompute state assembly adapter', () => {
       'btc',
     ]);
     expect(usdc.memberWalletIds).toEqual(['eth-usdc', 'pol-usdc']);
-    expect(usdc.memberWalletIdsKey).toMatch(/^walletIds:v1:2:fnv1a:/);
+    expect(usdc.memberWalletIdsKey).toMatch(/^walletIds:v2:2:fnv1a128:/);
     expect(usdc.weightedGroupRateSeries?.['1D']).toMatchObject({
       availability: 'valid',
       memberRateSourceKeys: ['usdc|eth', 'usdc|pol'],

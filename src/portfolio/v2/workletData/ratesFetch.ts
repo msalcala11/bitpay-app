@@ -109,6 +109,8 @@ const inFlightByDependencyKey = new Map<
     resolve: () => void;
     force: boolean;
     started: boolean;
+    startEpoch: number;
+    followUpPromise?: Promise<void>;
   }
 >();
 
@@ -126,6 +128,13 @@ function dependencyKey(dependency: RateFetchDependency): string {
     asset: dependency.asset,
     storedInterval: dependency.storedInterval,
   });
+}
+
+function inFlightKey(
+  dependency: RateFetchDependency,
+  startEpoch: number,
+): string {
+  return `${startEpoch}:${dependencyKey(dependency)}`;
 }
 
 function isNativeRateDependency(dependency: RateFetchDependency): boolean {
@@ -565,6 +574,10 @@ function buildRuntimeFetchBatches(
 async function fetchTokenBatchesWithLimitOnRuntime(
   batches: readonly (readonly RateFetchDependency[])[],
   cfg: BwsConfig,
+  fetcher: (
+    dependency: RateFetchDependency,
+    cfg: BwsConfig,
+  ) => Promise<RateFetchRuntimeResult> = fetchSingleRateOnRuntime,
 ): Promise<readonly RateFetchRuntimeResult[]> {
   'worklet';
 
@@ -583,12 +596,23 @@ async function fetchTokenBatchesWithLimitOnRuntime(
         if (!dependency) {
           continue;
         }
-        out.push(await fetchSingleRateOnRuntime(dependency, cfg));
+        out.push(await fetcher(dependency, cfg));
       }
     }),
   );
 
   return out;
+}
+
+export async function fetchTokenBatchesWithLimitForTesting(
+  batches: readonly (readonly RateFetchDependency[])[],
+  cfg: BwsConfig,
+  fetcher: (
+    dependency: RateFetchDependency,
+    cfg: BwsConfig,
+  ) => Promise<RateFetchRuntimeResult>,
+): Promise<readonly RateFetchRuntimeResult[]> {
+  return fetchTokenBatchesWithLimitOnRuntime(batches, cfg, fetcher);
 }
 
 function persistRuntimeFetchResultOnRuntime(
@@ -857,30 +881,34 @@ async function ensureFreshDependencies(args: {
       resolve: () => void;
       force: boolean;
       started: boolean;
+      startEpoch: number;
+      followUpPromise?: Promise<void>;
     };
   }> = [];
   const waitFor: Promise<void>[] = [];
 
   for (const dependency of args.dependencies) {
-    const key = dependencyKey(dependency);
+    const dependencyStorageKey = dependencyKey(dependency);
+    const key = inFlightKey(dependency, startEpoch);
     const inFlight = inFlightByDependencyKey.get(key);
     if (inFlight) {
-      if (args.force && !inFlight.force) {
+      if (args.force && inFlight.started && !inFlight.followUpPromise) {
         inFlight.force = true;
-        if (inFlight.started) {
-          waitFor.push(
-            inFlight.promise.then(() =>
-              ensureFreshDependencies({
-                dependencies: [dependency],
-                cfg: args.cfg,
-                force: true,
-                maxAgeMs: args.maxAgeMs,
-                startEpoch,
-              }),
-            ),
-          );
-          continue;
-        }
+        inFlight.followUpPromise = inFlight.promise.then(() =>
+          ensureFreshDependencies({
+            dependencies: [dependency],
+            cfg: args.cfg,
+            force: true,
+            maxAgeMs: args.maxAgeMs,
+            startEpoch,
+          }),
+        );
+      } else if (args.force && !inFlight.started) {
+        inFlight.force = true;
+      }
+      if (args.force && inFlight.followUpPromise) {
+        waitFor.push(inFlight.followUpPromise);
+        continue;
       }
       waitFor.push(inFlight.promise);
       continue;
@@ -894,6 +922,7 @@ async function ensureFreshDependencies(args: {
       resolve: resolveEntry,
       force: args.force === true,
       started: false,
+      startEpoch,
     };
     inFlightByDependencyKey.set(key, entry);
 
@@ -904,7 +933,7 @@ async function ensureFreshDependencies(args: {
       entry.resolve();
       continue;
     }
-    const existing = await readStoredSeries(key);
+    const existing = await readStoredSeries(dependencyStorageKey);
     if (!entry.force && isFresh(existing, args.maxAgeMs)) {
       if (inFlightByDependencyKey.get(key) === entry) {
         inFlightByDependencyKey.delete(key);
@@ -931,9 +960,12 @@ async function ensureFreshDependencies(args: {
       )
       .finally(() => {
         for (const reservation of reservations) {
-          const key = dependencyKey(reservation.dependency);
-          if (inFlightByDependencyKey.get(key) === reservation.entry) {
-            inFlightByDependencyKey.delete(key);
+          const registryKey = inFlightKey(
+            reservation.dependency,
+            reservation.entry.startEpoch,
+          );
+          if (inFlightByDependencyKey.get(registryKey) === reservation.entry) {
+            inFlightByDependencyKey.delete(registryKey);
           }
           reservation.entry.resolve();
         }

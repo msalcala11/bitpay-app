@@ -647,6 +647,17 @@ describe('portfolio v2 computed state producer', () => {
       retryPendingCount: 2,
       refreshing: true,
     });
+    expect(state.dataQualityByScopeKey.empty).toMatchObject({
+      scopeKey: 'empty',
+      visibleWalletCount: 0,
+      populatedVisibleWalletCount: 0,
+      invalidHistoryVisibleWalletCount: 0,
+      // Rate-source retries and missing-rate status are global in Phase 0-3;
+      // only wallet-derived counts are scope-local.
+      missingRateSourceCount: 2,
+      retryPendingCount: 1,
+      staleReasons: state.status.staleReasons,
+    });
   });
 
   it('keeps partially invalid scopes ready without marking them fully blocked', () => {
@@ -783,8 +794,9 @@ describe('portfolio v2 computed state producer', () => {
     const delimiterContaining = stableWalletIdsKey(['a|b', 'c']);
 
     expect(first).toBe(reordered);
-    expect(first).toMatch(/^walletIds:v1:2:fnv1a:[0-9a-f]{8}$/);
-    expect(ambiguousJoin).toMatch(/^walletIds:v1:2:fnv1a:[0-9a-f]{8}$/);
+    expect(first).toMatch(/^walletIds:v2:2:fnv1a128:[0-9a-f]{32}$/);
+    expect(ambiguousJoin).toMatch(/^walletIds:v2:2:fnv1a128:[0-9a-f]{32}$/);
+    expect(first).not.toContain('ab');
     expect(first).not.toBe(ambiguousJoin);
     expect(delimiterContaining).not.toBe(stableWalletIdsKey(['a', 'b|c']));
   });

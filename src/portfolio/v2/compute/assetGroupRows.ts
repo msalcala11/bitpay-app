@@ -11,6 +11,19 @@ import {
   buildRowPayloadFromSeries,
   type RowPayloadInvalidReason,
 } from './rowPayload';
+import {
+  atomicToDisplayUnitAmount,
+  formatDisplayUnitAmountString,
+  isValidDisplayUnitDecimals,
+  parseAtomicUnits,
+  pow10,
+  type AtomicDisplayUnitAmount,
+} from './amountBoundary';
+
+export {
+  atomicToDisplayUnitAmount,
+  type AtomicDisplayUnitAmount as DisplayUnitAmount,
+};
 
 export type AssetGroupRowShellMemberInput = Readonly<{
   walletId: string;
@@ -109,104 +122,6 @@ function hasUsableLiveRate(value: number | undefined): value is number {
   'worklet';
 
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
-}
-
-function isValidDisplayUnitDecimals(value: number): boolean {
-  'worklet';
-
-  return Number.isInteger(value) && value >= 0 && value <= 30;
-}
-
-function parseAtomicUnits(value: string): bigint | null {
-  'worklet';
-
-  if (typeof value !== 'string' || !/^-?\d+$/.test(value)) {
-    return null;
-  }
-
-  try {
-    return BigInt(value);
-  } catch {
-    return null;
-  }
-}
-
-function pow10(value: number): bigint {
-  'worklet';
-
-  return 10n ** BigInt(value);
-}
-
-export type DisplayUnitAmount = Readonly<{
-  decimalString: string;
-  approximateNumber: number;
-}>;
-
-type InvalidDisplayUnitAmount = Readonly<{
-  kind: 'invalidAmount';
-  reason:
-    | 'invalidDisplayUnitsAtomic'
-    | 'negativeDisplayUnitsAtomic'
-    | 'invalidDisplayUnitDecimals'
-    | 'nonFiniteDisplayUnits'
-    | 'unsafeDisplayUnits';
-}>;
-
-function formatDisplayUnitAmountString(
-  atomic: bigint,
-  decimals: number,
-): string {
-  'worklet';
-
-  if (atomic === 0n) {
-    return '0';
-  }
-
-  const sign = atomic < 0n ? '-' : '';
-  const abs = atomic < 0n ? -atomic : atomic;
-  if (decimals === 0) {
-    return `${sign}${abs.toString()}`;
-  }
-
-  const base = pow10(decimals);
-  const whole = abs / base;
-  const fraction = (abs % base).toString().padStart(decimals, '0');
-  const trimmedFraction = fraction.replace(/0+$/, '');
-
-  return trimmedFraction
-    ? `${sign}${whole.toString()}.${trimmedFraction}`
-    : `${sign}${whole.toString()}`;
-}
-
-export function atomicToDisplayUnitAmount(args: {
-  atomic: string;
-  decimals: number;
-  assetGroupId: string;
-  walletId: string;
-}): DisplayUnitAmount | InvalidDisplayUnitAmount {
-  'worklet';
-
-  const atomic = parseAtomicUnits(args.atomic);
-  if (atomic === null) {
-    return {kind: 'invalidAmount', reason: 'invalidDisplayUnitsAtomic'};
-  }
-  if (atomic < 0n) {
-    return {kind: 'invalidAmount', reason: 'negativeDisplayUnitsAtomic'};
-  }
-  if (!isValidDisplayUnitDecimals(args.decimals)) {
-    return {kind: 'invalidAmount', reason: 'invalidDisplayUnitDecimals'};
-  }
-
-  const decimalString = formatDisplayUnitAmountString(atomic, args.decimals);
-  const approximateNumber = Number(decimalString);
-  if (!Number.isFinite(approximateNumber)) {
-    return {kind: 'invalidAmount', reason: 'nonFiniteDisplayUnits'};
-  }
-  if (Math.abs(approximateNumber) > Number.MAX_SAFE_INTEGER) {
-    return {kind: 'invalidAmount', reason: 'unsafeDisplayUnits'};
-  }
-
-  return {decimalString, approximateNumber};
 }
 
 function formatScaledAtomicUnits(atomic: bigint, decimals: number): string {
@@ -586,8 +501,6 @@ export function buildAssetGroupRowShell(
     const displayAmount = atomicToDisplayUnitAmount({
       atomic: member.displayUnitsAtomic,
       decimals: member.displayUnitDecimals,
-      assetGroupId: args.assetGroupId,
-      walletId: member.walletId,
     });
     if ('kind' in displayAmount) {
       return {kind: 'invalid', reason: displayAmount.reason};

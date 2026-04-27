@@ -7,7 +7,6 @@ import {
 import {
   initializePortfolioPopulateRuntimeGlobals,
   initializePortfolioRateFetchRuntimeGlobals,
-  teardownPortfolioRuntimeGlobals,
 } from '../adapters/rn/workletRuntimeShared';
 import {logPortfolioRuntimeError} from './logPortfolioRuntimeError';
 import type {PortfolioRuntimeKind} from './model';
@@ -19,7 +18,6 @@ export const PORTFOLIO_RATE_FETCH_RUNTIME_NAME = 'portfolio-rate-fetch';
 let computeRuntime: WorkletRuntime | undefined;
 let populateRuntime: WorkletRuntime | undefined;
 let rateFetchRuntime: WorkletRuntime | undefined;
-const runtimeKinds = new WeakMap<object, PortfolioRuntimeKind>();
 
 export function initializePortfolioRuntimeGlobals(
   kind: PortfolioRuntimeKind,
@@ -57,7 +55,6 @@ function createPortfolioRuntime(args: {
     },
     enableEventLoop: true,
   });
-  runtimeKinds.set(runtime as object, args.kind);
   return runtime;
 }
 
@@ -91,27 +88,6 @@ export function getPortfolioRateFetchRuntime(): WorkletRuntime {
   return rateFetchRuntime;
 }
 
-function getPortfolioRuntimeKind(
-  runtime: WorkletRuntime,
-): PortfolioRuntimeKind | undefined {
-  const trackedKind = runtimeKinds.get(runtime as object);
-  if (trackedKind) {
-    return trackedKind;
-  }
-
-  const name = String((runtime as {name?: unknown}).name || '');
-  switch (name) {
-    case PORTFOLIO_COMPUTE_RUNTIME_NAME:
-      return 'compute';
-    case PORTFOLIO_POPULATE_RUNTIME_NAME:
-      return 'populate';
-    case PORTFOLIO_RATE_FETCH_RUNTIME_NAME:
-      return 'rateFetch';
-    default:
-      return undefined;
-  }
-}
-
 export function runOnPortfolioRuntimeAsync<
   TArgs extends readonly unknown[],
   TResult,
@@ -120,31 +96,7 @@ export function runOnPortfolioRuntimeAsync<
   workletFn: (...args: TArgs) => TResult,
   ...args: TArgs
 ): Promise<TResult> {
-  const runtimeKind = getPortfolioRuntimeKind(runtime);
-  if (!runtimeKind) {
-    return runOnRuntimeAsync(runtime, workletFn, ...args) as Promise<TResult>;
-  }
-
-  return runOnRuntimeAsync(
-    runtime,
-    async (
-      kind: PortfolioRuntimeKind,
-      fn: (...fnArgs: TArgs) => TResult,
-      fnArgs: TArgs,
-    ): Promise<TResult> => {
-      'worklet';
-
-      initializePortfolioRuntimeGlobals(kind);
-      try {
-        return await fn(...fnArgs);
-      } finally {
-        teardownPortfolioRuntimeGlobals(kind);
-      }
-    },
-    runtimeKind,
-    workletFn,
-    args,
-  ) as Promise<TResult>;
+  return runOnRuntimeAsync(runtime, workletFn, ...args) as Promise<TResult>;
 }
 
 export function logFireAndForgetRuntimeError(

@@ -35,7 +35,6 @@ class FakeMmkv {
 const mockMmkv = new FakeMmkv();
 const mockInitializePopulateRuntimeGlobals = jest.fn();
 const mockInitializeRateFetchRuntimeGlobals = jest.fn();
-const mockTeardownRuntimeGlobals = jest.fn();
 
 jest.mock('react-native-reanimated', () => ({
   makeMutable: (initial: unknown) => ({
@@ -60,8 +59,6 @@ jest.mock('../adapters/rn/workletRuntimeShared', () => ({
     mockInitializePopulateRuntimeGlobals(),
   initializePortfolioRateFetchRuntimeGlobals: () =>
     mockInitializeRateFetchRuntimeGlobals(),
-  teardownPortfolioRuntimeGlobals: (kind: string) =>
-    mockTeardownRuntimeGlobals(kind),
 }));
 
 jest.mock('../adapters/rn/workletMmkvBridge', () => ({
@@ -132,7 +129,6 @@ beforeEach(() => {
   mockMmkv.data.clear();
   mockInitializePopulateRuntimeGlobals.mockClear();
   mockInitializeRateFetchRuntimeGlobals.mockClear();
-  mockTeardownRuntimeGlobals.mockClear();
   (createWorkletRuntime as jest.Mock).mockClear();
   (runOnRuntimeAsync as jest.Mock).mockClear();
   resetPortfolioKvStoreForTesting();
@@ -613,41 +609,24 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
     expect(mockInitializeRateFetchRuntimeGlobals).toHaveBeenCalledTimes(1);
   });
 
-  it('wraps runtime work in kind-scoped init and teardown', async () => {
+  it('passes runtime work directly to react-native-worklets', async () => {
+    const workletFn = jest.fn((value: number) => value + 1);
     (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
       async (
         _runtime: unknown,
-        workletFn: (...args: any[]) => unknown,
+        fn: (...args: any[]) => unknown,
         ...args: any[]
-      ) => workletFn(...args),
+      ) => fn(...args),
     );
 
     await expect(
-      runOnPortfolioRuntimeAsync(
-        getPortfolioPopulateRuntime(),
-        (value: number) => value + 1,
-        4,
-      ),
+      runOnPortfolioRuntimeAsync(getPortfolioPopulateRuntime(), workletFn, 4),
     ).resolves.toBe(5);
 
-    expect(mockInitializePopulateRuntimeGlobals).toHaveBeenCalledTimes(1);
-    expect(mockTeardownRuntimeGlobals).toHaveBeenCalledWith('populate');
-
-    (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
-      async (
-        _runtime: unknown,
-        workletFn: (...args: any[]) => unknown,
-        ...args: any[]
-      ) => workletFn(...args),
+    expect(runOnRuntimeAsync).toHaveBeenCalledWith(
+      {name: 'portfolio-populate'},
+      workletFn,
+      4,
     );
-
-    await expect(
-      runOnPortfolioRuntimeAsync(getPortfolioRateFetchRuntime(), () => {
-        throw new Error('boom');
-      }),
-    ).rejects.toThrow('boom');
-
-    expect(mockInitializeRateFetchRuntimeGlobals).toHaveBeenCalledTimes(1);
-    expect(mockTeardownRuntimeGlobals).toHaveBeenCalledWith('rateFetch');
   });
 });

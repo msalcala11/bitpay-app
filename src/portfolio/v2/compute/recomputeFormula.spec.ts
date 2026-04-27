@@ -16,6 +16,9 @@ import {
 } from '../__tests__/fixtures/productOracles';
 import {MAX_CHART_POINTS} from '../constants';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const THREE_MONTH_WINDOW_START_TS = ORACLE_1D_WINDOW.windowEndTs - 90 * DAY_MS;
+
 function expectValidFormula(result: BuildFormulaComputedInputsResult) {
   expect(result.kind).toBe('valid');
   if (result.kind !== 'valid') {
@@ -82,6 +85,42 @@ function oneDayInterval(
     maxPoints: 2,
     ...overrides,
   };
+}
+
+function longAllInterval(
+  overrides: Partial<FormulaWalletIntervalInput> = {},
+): FormulaWalletIntervalInput {
+  return oneDayInterval({
+    interval: 'ALL',
+    seriesIdentityKey: 'wallet:eth|asset:eth|quote:USD|snap:all',
+    windowStartTs: THREE_MONTH_WINDOW_START_TS,
+    windowEndTs: ORACLE_1D_WINDOW.windowEndTs,
+    windowAnchorTs: ORACLE_1D_WINDOW.windowEndTs,
+    sampledFromStoredInterval: 'ALL',
+    ratePoints: [
+      {ts: THREE_MONTH_WINDOW_START_TS, rate: 100},
+      {ts: ORACLE_1D_WINDOW.windowEndTs, rate: 125},
+    ],
+    ...overrides,
+  });
+}
+
+function threeMonthInterval(
+  overrides: Partial<FormulaWalletIntervalInput> = {},
+): FormulaWalletIntervalInput {
+  return oneDayInterval({
+    interval: '3M',
+    seriesIdentityKey: 'wallet:eth|asset:eth|quote:USD|snap:1|rate:all',
+    windowStartTs: THREE_MONTH_WINDOW_START_TS,
+    windowEndTs: ORACLE_1D_WINDOW.windowEndTs,
+    windowAnchorTs: ORACLE_1D_WINDOW.windowEndTs,
+    sampledFromStoredInterval: 'ALL',
+    ratePoints: [
+      {ts: THREE_MONTH_WINDOW_START_TS, rate: 100},
+      {ts: ORACLE_1D_WINDOW.windowEndTs, rate: 125},
+    ],
+    ...overrides,
+  });
 }
 
 function buildSingleEthFormula(
@@ -326,6 +365,96 @@ describe('portfolio v2 formula recompute input builder', () => {
     });
   });
 
+  it('rejects interval windows that do not match the shared anchor helper', () => {
+    expect(
+      buildSingleEthFormula({
+        windowStartTs: ORACLE_1D_WINDOW.windowStartTs + 1,
+      }),
+    ).toEqual({kind: 'invalid', reason: 'invalidWalletIntervalWindow'});
+    expect(
+      buildSingleEthFormula({
+        windowAnchorTs: ORACLE_1D_WINDOW.windowEndTs + 1,
+      }),
+    ).toEqual({kind: 'invalid', reason: 'invalidWalletIntervalWindow'});
+    expect(
+      buildSingleEthFormula({
+        sampledFromStoredInterval: 'ALL',
+      }),
+    ).toEqual({kind: 'invalid', reason: 'invalidWalletIntervalWindow'});
+  });
+
+  it('constructs fixed and ALL interval identity from the same anchor contract', () => {
+    const formula = expectValidFormula(
+      buildFormulaComputedInputs({
+        quoteCurrency: 'USD',
+        wallets: [
+          {
+            walletId: 'eth-wallet',
+            assetGroupId: 'eth',
+            assetIdentityKey: 'eth',
+            rateSourceKey: 'eth',
+            displayUnitsAtomic: '2000000000000000000',
+            displayUnitDecimals: 18,
+            liveRate: 125,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [oneDayInterval(), longAllInterval()],
+          },
+        ],
+        assetGroups: [
+          {
+            assetGroupId: 'eth',
+            displaySymbol: 'ETH',
+            orderIndex: 1,
+          },
+        ],
+      }),
+    );
+
+    expect(formula.wallets[0].series['1D']).toMatchObject({
+      windowAnchorTs: ORACLE_1D_WINDOW.windowEndTs,
+      windowEndTs: ORACLE_1D_WINDOW.windowEndTs,
+      sampledFromStoredInterval: '1D',
+    });
+    expect(formula.wallets[0].series.ALL).toMatchObject({
+      windowStartTs: THREE_MONTH_WINDOW_START_TS,
+      windowAnchorTs: ORACLE_1D_WINDOW.windowEndTs,
+      windowEndTs: ORACLE_1D_WINDOW.windowEndTs,
+      sampledFromStoredInterval: 'ALL',
+    });
+  });
+
+  it('quarantines unsafe atomic formula inputs for the affected wallet', () => {
+    const formula = expectValidFormula(
+      buildSingleEthFormula({
+        baselineUnitsAtomic: String(
+          (BigInt(Number.MAX_SAFE_INTEGER) + 1n) * 10n ** 18n,
+        ),
+        baselineUnits: 0,
+        ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
+      }),
+    );
+    const malformedEvent = expectValidFormula(
+      buildSingleEthFormula({
+        baselineUnits: 1,
+        balanceEvents: [
+          {
+            ts: ORACLE_TS.middle,
+            unitsDelta: 0,
+            unitsDeltaAtomic: 'malformed',
+            order: 1,
+          },
+        ],
+        ratePoints: IN_WINDOW_BUY_FIXTURE.ratePoints,
+      }),
+    );
+
+    expect(formula.invalidHistoryWalletIds).toEqual(['eth-wallet']);
+    expect(formula.wallets[0].series).toEqual({});
+    expect(malformedEvent.invalidHistoryWalletIds).toEqual(['eth-wallet']);
+    expect(malformedEvent.wallets[0].series).toEqual({});
+  });
+
   it('treats invalid-history as wallet-wide across intervals', () => {
     const formula = expectValidFormula(
       buildFormulaComputedInputs({
@@ -345,7 +474,7 @@ describe('portfolio v2 formula recompute input builder', () => {
               oneDayInterval(),
               oneDayInterval({
                 interval: 'ALL',
-                sampledFromStoredInterval: 'ALL',
+                sampledFromStoredInterval: '1D',
                 seriesIdentityKey: 'wallet:eth|asset:eth|quote:USD|snap:all',
                 baselineUnits: 1,
                 balanceEvents: [
@@ -1176,14 +1305,7 @@ describe('portfolio v2 formula recompute input builder', () => {
             liveRate: 125,
             lastWrittenAt: 10,
             lastAccessedAt: 20,
-            intervals: [
-              oneDayInterval({
-                interval: '3M',
-                sampledFromStoredInterval: 'ALL',
-                seriesIdentityKey:
-                  'wallet:eth|asset:eth|quote:USD|snap:1|rate:all',
-              }),
-            ],
+            intervals: [threeMonthInterval()],
           },
         ],
         assetGroups: [
@@ -1196,11 +1318,11 @@ describe('portfolio v2 formula recompute input builder', () => {
         bridgeRatePointsByStoredInterval: {
           ALL: {
             targetBtcRatePoints: [
-              {ts: ORACLE_TS.start, rate: 0.8},
+              {ts: THREE_MONTH_WINDOW_START_TS, rate: 0.8},
               {ts: ORACLE_TS.end, rate: 0.8},
             ],
             canonicalBtcRatePoints: [
-              {ts: ORACLE_TS.start, rate: 1},
+              {ts: THREE_MONTH_WINDOW_START_TS, rate: 1},
               {ts: ORACLE_TS.end, rate: 1},
             ],
             targetBtcLiveRate: 0.8,
@@ -1214,7 +1336,7 @@ describe('portfolio v2 formula recompute input builder', () => {
     const points = formula.wallets[0].series['3M']?.points ?? [];
     expect(points).toHaveLength(MAX_CHART_POINTS);
     expectPointClose(points[0], {
-      ts: ORACLE_TS.start,
+      ts: THREE_MONTH_WINDOW_START_TS,
       fiatBalance: 160,
       remainingUnrealizedPnlFiat: 0,
       pnlChange: 0,
@@ -1303,15 +1425,7 @@ describe('portfolio v2 formula recompute input builder', () => {
             liveRate: 125,
             lastWrittenAt: 10,
             lastAccessedAt: 20,
-            intervals: [
-              oneDayInterval(),
-              oneDayInterval({
-                interval: 'ALL',
-                sampledFromStoredInterval: 'ALL',
-                seriesIdentityKey:
-                  'wallet:eth|asset:eth|quote:USD|snap:1|rate:all',
-              }),
-            ],
+            intervals: [oneDayInterval(), longAllInterval()],
           },
         ],
         assetGroups: [
@@ -1336,11 +1450,11 @@ describe('portfolio v2 formula recompute input builder', () => {
           },
           ALL: {
             targetBtcRatePoints: [
-              {ts: ORACLE_TS.start, rate: 0.8},
+              {ts: THREE_MONTH_WINDOW_START_TS, rate: 0.8},
               {ts: ORACLE_TS.end, rate: 0.8},
             ],
             canonicalBtcRatePoints: [
-              {ts: ORACLE_TS.start, rate: 1},
+              {ts: THREE_MONTH_WINDOW_START_TS, rate: 1},
               {ts: ORACLE_TS.end, rate: 1},
             ],
             targetBtcLiveRate: 0.8,
@@ -1454,15 +1568,7 @@ describe('portfolio v2 formula recompute input builder', () => {
             liveRate: 125,
             lastWrittenAt: 10,
             lastAccessedAt: 20,
-            intervals: [
-              oneDayInterval(),
-              oneDayInterval({
-                interval: 'ALL',
-                sampledFromStoredInterval: 'ALL',
-                seriesIdentityKey:
-                  'wallet:eth|asset:eth|quote:USD|snap:1|rate:all',
-              }),
-            ],
+            intervals: [oneDayInterval(), longAllInterval()],
           },
         ],
         assetGroups: [
@@ -1475,11 +1581,11 @@ describe('portfolio v2 formula recompute input builder', () => {
         bridgeRatePointsByStoredInterval: {
           '1D': {
             targetBtcRatePoints: [
-              {ts: ORACLE_TS.start, rate: 0.9},
+              {ts: THREE_MONTH_WINDOW_START_TS, rate: 0.9},
               {ts: ORACLE_TS.end, rate: 0.9},
             ],
             canonicalBtcRatePoints: [
-              {ts: ORACLE_TS.start, rate: 1},
+              {ts: THREE_MONTH_WINDOW_START_TS, rate: 1},
               {ts: ORACLE_TS.end, rate: 1},
             ],
             targetBtcLiveRate: 0.9,
@@ -1487,11 +1593,11 @@ describe('portfolio v2 formula recompute input builder', () => {
           },
           ALL: {
             targetBtcRatePoints: [
-              {ts: ORACLE_TS.start, rate: 0.9},
+              {ts: THREE_MONTH_WINDOW_START_TS, rate: 0.9},
               {ts: ORACLE_TS.end, rate: 0.9},
             ],
             canonicalBtcRatePoints: [
-              {ts: ORACLE_TS.start, rate: 1},
+              {ts: THREE_MONTH_WINDOW_START_TS, rate: 1},
               {ts: ORACLE_TS.end, rate: 1},
             ],
           },

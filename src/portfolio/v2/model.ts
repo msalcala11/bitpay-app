@@ -263,6 +263,11 @@ export type PortfolioDataQuality = Readonly<{
   visibleWalletCount: number;
   populatedVisibleWalletCount: number;
   invalidHistoryVisibleWalletCount: number;
+  /**
+   * Rate-source and stale-reason fields mirror global portfolio status because
+   * Phase 0-3 state does not retain a wallet-to-rate-source ownership map for
+   * every missing/retry key. Wallet-count fields remain scope-local.
+   */
   missingRateSourceCount: number;
   retryPendingCount: number;
   refreshing: boolean;

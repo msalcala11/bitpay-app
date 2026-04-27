@@ -130,7 +130,7 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
       'pol-usdc',
       'sol-usdc',
     ]);
-    expect(rowShell.memberWalletIdsKey).toMatch(/^walletIds:v1:3:fnv1a:/);
+    expect(rowShell.memberWalletIdsKey).toMatch(/^walletIds:v2:3:fnv1a128:/);
     expect(rowShell.memberRateSourceKeys).toEqual([
       'usdc|eth|0x1',
       'usdc|pol|0x2',
@@ -214,7 +214,7 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
     expect(rowShell.currentCryptoAmount).toBe('3.5');
     expect(rowShell.currentFiatValue).toBeCloseTo(3.555);
     expect(rowShell.memberWalletIds).toEqual(['pol-usdc', 'eth-usdc']);
-    expect(rowShell.memberWalletIdsKey).toMatch(/^walletIds:v1:2:fnv1a:/);
+    expect(rowShell.memberWalletIdsKey).toMatch(/^walletIds:v2:2:fnv1a128:/);
     expect(rowShell.canonicalUnitDecimals).toBe(6);
   });
 
@@ -254,8 +254,6 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
       atomicToDisplayUnitAmount({
         atomic: '1000000000000000001',
         decimals: 18,
-        assetGroupId: 'eth',
-        walletId: 'eth-wallet',
       }),
     ).toEqual({
       decimalString: '1.000000000000000001',

@@ -11,14 +11,19 @@ export function dedupeStringArray(
 function stableHash(input: string): string {
   'worklet';
 
-  let hash = 0x811c9dc5;
+  const hashes = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35];
 
   for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
+    const code = input.charCodeAt(i);
+    for (let hashIndex = 0; hashIndex < hashes.length; hashIndex++) {
+      hashes[hashIndex] ^= code + hashIndex * 0x9e37 + i;
+      hashes[hashIndex] = Math.imul(hashes[hashIndex], 0x01000193);
+    }
   }
 
-  return `fnv1a:${(hash >>> 0).toString(16).padStart(8, '0')}`;
+  return `fnv1a128:${hashes
+    .map(hash => (hash >>> 0).toString(16).padStart(8, '0'))
+    .join('')}`;
 }
 
 function lengthFrame(value: string): string {
@@ -38,5 +43,5 @@ export function stableWalletIdsKey(walletIds: readonly string[]): string {
     ...uniqueSorted.map(lengthFrame),
   ].join('|');
 
-  return `walletIds:v1:${uniqueSorted.length}:${stableHash(framedPayload)}`;
+  return `walletIds:v2:${uniqueSorted.length}:${stableHash(framedPayload)}`;
 }

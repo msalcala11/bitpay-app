@@ -4,10 +4,16 @@ import {createPreparedRateReader} from '../../core/pnl/rateReader';
 import {MAX_CHART_POINTS} from '../constants';
 import type {Interval, Point, Series, StoredRateInterval} from '../model';
 import {buildWalletPointFromMark} from './rowPayload';
+import {
+  atomicToDisplayUnitAmount,
+  isValidDisplayUnitDecimals,
+  type AtomicDisplayUnitAmountInvalidReason,
+} from './amountBoundary';
 
 export type BalanceChangeEvent = Readonly<{
   ts: number;
   unitsDelta: number;
+  unitsDeltaAtomic?: string;
   order: number;
 }>;
 
@@ -28,9 +34,14 @@ export type WalletSeriesFormulaInvalidReason =
   | 'invalidFinalPointSource'
   | 'invalidSampleGrid'
   | 'missingSeriesIdentityKey'
+  | 'invalidDisplayUnitDecimals'
   | 'nonFiniteBaselineUnits'
   | 'negativeBaselineUnits'
+  | 'unsafeBaselineUnits'
+  | 'invalidBaselineUnitsAtomic'
   | 'malformedBalanceEvent'
+  | 'invalidBalanceEventAtomic'
+  | 'unsafeBalanceEventUnits'
   | 'negativeUnits'
   | 'invalidWalletPoint';
 
@@ -48,6 +59,7 @@ export type BuildWalletSeriesFromEventsArgs = Readonly<{
   windowAnchorTs: number;
   sampledFromStoredInterval: StoredRateInterval;
   finalPointSource: Series['finalPointSource'];
+  displayUnitDecimals?: number;
   /**
    * Post-state after every event with `ts <= windowStartTs`. Runtime callers
    * must pass only strictly in-window balance changes
@@ -55,6 +67,7 @@ export type BuildWalletSeriesFromEventsArgs = Readonly<{
    * This avoids double-counting exact-start transactions.
    */
   baselineUnits: number;
+  baselineUnitsAtomic?: string;
   balanceEvents?: readonly BalanceChangeEvent[];
   ratePoints: readonly FiatRatePoint[];
   maxPoints?: number;
@@ -105,6 +118,12 @@ function isFiniteNumber(value: unknown): value is number {
   'worklet';
 
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isSafeDisplayUnitsNumber(value: number): boolean {
+  'worklet';
+
+  return Math.abs(value) <= Number.MAX_SAFE_INTEGER;
 }
 
 function hasValidWindow(windowStartTs: number, windowEndTs: number): boolean {
@@ -170,11 +189,121 @@ export function buildCappedSampleGrid(
   return out;
 }
 
+function mapBaselineAmountError(
+  reason: AtomicDisplayUnitAmountInvalidReason,
+): WalletSeriesFormulaInvalidReason {
+  'worklet';
+
+  switch (reason) {
+    case 'invalidDisplayUnitDecimals':
+      return 'invalidDisplayUnitDecimals';
+    case 'negativeDisplayUnitsAtomic':
+      return 'negativeBaselineUnits';
+    case 'invalidDisplayUnitsAtomic':
+      return 'invalidBaselineUnitsAtomic';
+    case 'nonFiniteDisplayUnits':
+    case 'unsafeDisplayUnits':
+    default:
+      return 'unsafeBaselineUnits';
+  }
+}
+
+function mapBalanceEventAmountError(
+  reason: AtomicDisplayUnitAmountInvalidReason,
+): WalletSeriesFormulaInvalidReason {
+  'worklet';
+
+  switch (reason) {
+    case 'invalidDisplayUnitDecimals':
+      return 'invalidDisplayUnitDecimals';
+    case 'invalidDisplayUnitsAtomic':
+    case 'negativeDisplayUnitsAtomic':
+      return 'invalidBalanceEventAtomic';
+    case 'nonFiniteDisplayUnits':
+    case 'unsafeDisplayUnits':
+    default:
+      return 'unsafeBalanceEventUnits';
+  }
+}
+
+function resolveBaselineUnits(args: {
+  baselineUnits: number;
+  baselineUnitsAtomic?: string;
+  displayUnitDecimals?: number;
+}):
+  | Readonly<{kind: 'valid'; units: number}>
+  | Readonly<{kind: 'invalid'; reason: WalletSeriesFormulaInvalidReason}> {
+  'worklet';
+
+  if (typeof args.baselineUnitsAtomic === 'string') {
+    if (!isValidDisplayUnitDecimals(args.displayUnitDecimals)) {
+      return {kind: 'invalid', reason: 'invalidDisplayUnitDecimals'};
+    }
+    const amount = atomicToDisplayUnitAmount({
+      atomic: args.baselineUnitsAtomic,
+      decimals: args.displayUnitDecimals,
+    });
+    return 'kind' in amount
+      ? {kind: 'invalid', reason: mapBaselineAmountError(amount.reason)}
+      : {kind: 'valid', units: amount.approximateNumber};
+  }
+
+  if (!isFiniteNumber(args.baselineUnits)) {
+    return {kind: 'invalid', reason: 'nonFiniteBaselineUnits'};
+  }
+
+  if (args.baselineUnits < 0) {
+    return {kind: 'invalid', reason: 'negativeBaselineUnits'};
+  }
+
+  if (!isSafeDisplayUnitsNumber(args.baselineUnits)) {
+    return {kind: 'invalid', reason: 'unsafeBaselineUnits'};
+  }
+
+  return {kind: 'valid', units: args.baselineUnits};
+}
+
+function resolveBalanceEventUnitsDelta(args: {
+  event: BalanceChangeEvent;
+  displayUnitDecimals?: number;
+}):
+  | Readonly<{kind: 'valid'; unitsDelta: number}>
+  | Readonly<{kind: 'invalid'; reason: WalletSeriesFormulaInvalidReason}> {
+  'worklet';
+
+  if (typeof args.event.unitsDeltaAtomic === 'string') {
+    if (!isValidDisplayUnitDecimals(args.displayUnitDecimals)) {
+      return {kind: 'invalid', reason: 'invalidDisplayUnitDecimals'};
+    }
+    const amount = atomicToDisplayUnitAmount({
+      atomic: args.event.unitsDeltaAtomic,
+      decimals: args.displayUnitDecimals,
+      allowNegative: true,
+    });
+    return 'kind' in amount
+      ? {kind: 'invalid', reason: mapBalanceEventAmountError(amount.reason)}
+      : {kind: 'valid', unitsDelta: amount.approximateNumber};
+  }
+
+  if (!isFiniteNumber(args.event.unitsDelta)) {
+    return {kind: 'invalid', reason: 'malformedBalanceEvent'};
+  }
+
+  if (!isSafeDisplayUnitsNumber(args.event.unitsDelta)) {
+    return {kind: 'invalid', reason: 'unsafeBalanceEventUnits'};
+  }
+
+  return {kind: 'valid', unitsDelta: args.event.unitsDelta};
+}
+
 function normalizeBalanceEvents(
   eventsRaw: readonly BalanceChangeEvent[] | undefined,
   windowStartTs: number,
   windowEndTs: number,
-): readonly BalanceChangeEvent[] | null {
+  displayUnitDecimals?: number,
+):
+  | Readonly<{kind: 'valid'; events: readonly BalanceChangeEvent[]}>
+  | Readonly<{kind: 'invalid'; reason: WalletSeriesFormulaInvalidReason}> {
   'worklet';
 
   const events = eventsRaw ?? [];
@@ -185,34 +314,47 @@ function normalizeBalanceEvents(
     if (
       !event ||
       !isFiniteNumber(event.ts) ||
-      !isFiniteNumber(event.unitsDelta) ||
       !Number.isInteger(event.order) ||
       event.order < 0 ||
       event.ts <= windowStartTs ||
       event.ts > windowEndTs
     ) {
-      return null;
+      return {kind: 'invalid', reason: 'malformedBalanceEvent'};
     }
 
     const orderKey = `${event.ts}:${event.order}`;
     if (seenEventOrderKeys.has(orderKey)) {
-      return null;
+      return {kind: 'invalid', reason: 'malformedBalanceEvent'};
     }
     seenEventOrderKeys.add(orderKey);
 
-    if (event.unitsDelta !== 0) {
+    const unitsDelta = resolveBalanceEventUnitsDelta({
+      event,
+      displayUnitDecimals,
+    });
+    if (unitsDelta.kind !== 'valid') {
+      return unitsDelta;
+    }
+
+    if (unitsDelta.unitsDelta !== 0) {
       out.push({
         ts: event.ts,
-        unitsDelta: event.unitsDelta,
+        unitsDelta: unitsDelta.unitsDelta,
+        ...(typeof event.unitsDeltaAtomic === 'string'
+          ? {unitsDeltaAtomic: event.unitsDeltaAtomic}
+          : {}),
         order: event.order,
       });
     }
   }
 
-  return out.sort((left, right) => {
-    const tsDelta = left.ts - right.ts;
-    return tsDelta !== 0 ? tsDelta : left.order - right.order;
-  });
+  return {
+    kind: 'valid',
+    events: out.sort((left, right) => {
+      const tsDelta = left.ts - right.ts;
+      return tsDelta !== 0 ? tsDelta : left.order - right.order;
+    }),
+  };
 }
 
 function buildSeriesFingerprint(args: {
@@ -275,12 +417,13 @@ export function buildWalletSeriesFromEvents(
     return {kind: 'invalidHistory', reason: 'invalidFinalPointSource'};
   }
 
-  if (!isFiniteNumber(args.baselineUnits)) {
-    return {kind: 'invalidHistory', reason: 'nonFiniteBaselineUnits'};
-  }
-
-  if (args.baselineUnits < 0) {
-    return {kind: 'invalidHistory', reason: 'negativeBaselineUnits'};
+  const baselineUnits = resolveBaselineUnits({
+    baselineUnits: args.baselineUnits,
+    baselineUnitsAtomic: args.baselineUnitsAtomic,
+    displayUnitDecimals: args.displayUnitDecimals,
+  });
+  if (baselineUnits.kind !== 'valid') {
+    return {kind: 'invalidHistory', reason: baselineUnits.reason};
   }
 
   const sampleGrid = buildCappedSampleGrid({
@@ -296,9 +439,10 @@ export function buildWalletSeriesFromEvents(
     args.balanceEvents,
     args.windowStartTs,
     args.windowEndTs,
+    args.displayUnitDecimals,
   );
-  if (!balanceEvents) {
-    return {kind: 'invalidHistory', reason: 'malformedBalanceEvent'};
+  if (balanceEvents.kind !== 'valid') {
+    return {kind: 'invalidHistory', reason: balanceEvents.reason};
   }
 
   const rateReader = createPreparedRateReader({
@@ -310,7 +454,7 @@ export function buildWalletSeriesFromEvents(
     return {kind: 'missingRate', reason: 'missingHistoricalRate'};
   }
 
-  let units = args.baselineUnits;
+  let units = baselineUnits.units;
   let remainingCostBasisFiat = units * baselineRate.rate;
   let eventIndex = 0;
   let firstRemainingUnrealizedPnlFiat: number | undefined;
@@ -318,10 +462,10 @@ export function buildWalletSeriesFromEvents(
 
   for (const sampleTs of sampleGrid) {
     while (
-      eventIndex < balanceEvents.length &&
-      balanceEvents[eventIndex].ts <= sampleTs
+      eventIndex < balanceEvents.events.length &&
+      balanceEvents.events[eventIndex].ts <= sampleTs
     ) {
-      const event = balanceEvents[eventIndex];
+      const event = balanceEvents.events[eventIndex];
       if (event.unitsDelta > 0) {
         const eventRate = rateReader.read(event.ts);
         if (eventRate.kind !== 'rate') {

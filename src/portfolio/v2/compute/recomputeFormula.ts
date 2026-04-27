@@ -24,6 +24,14 @@ import {aggregateAlignedSeries, stableHash} from './seriesAggregation';
 import {buildRowPayloadFromSeries} from './rowPayload';
 import type {WeightedGroupRateConstituentInput} from './weightedGroupRates';
 import type {WeightedGroupRateWindowInput} from './recomputeState';
+import {
+  resolvePortfolioIntervalWindow,
+  resolveStoredRateIntervalForChartWindow,
+} from '../intervalWindow';
+import {
+  atomicToDisplayUnitAmount,
+  isValidDisplayUnitDecimals,
+} from './amountBoundary';
 
 export type FormulaWalletIntervalInput = Readonly<{
   interval: Interval;
@@ -34,6 +42,7 @@ export type FormulaWalletIntervalInput = Readonly<{
   sampledFromStoredInterval: StoredRateInterval;
   finalPointSource: Series['finalPointSource'];
   baselineUnits: number;
+  baselineUnitsAtomic?: string;
   balanceEvents?: readonly BalanceChangeEvent[];
   ratePoints: readonly FiatRatePoint[];
   maxPoints?: number;
@@ -157,17 +166,6 @@ function isValidAtomicString(value: unknown): value is string {
   return typeof value === 'string' && /^\d+$/.test(value);
 }
 
-function isValidDisplayUnitDecimals(value: unknown): value is number {
-  'worklet';
-
-  return (
-    typeof value === 'number' &&
-    Number.isInteger(value) &&
-    value >= 0 &&
-    value <= 30
-  );
-}
-
 function isInterval(value: unknown): value is Interval {
   'worklet';
 
@@ -210,6 +208,33 @@ function validateFormulaWalletInterval(
     !isFiniteNumber(interval.windowEndTs) ||
     !isFiniteNumber(interval.windowAnchorTs) ||
     interval.windowEndTs <= interval.windowStartTs
+  ) {
+    return 'invalidWalletIntervalWindow';
+  }
+  const resolvedStoredInterval = resolveStoredRateIntervalForChartWindow({
+    interval: interval.interval,
+    windowStartTs: interval.windowStartTs,
+    windowEndTs: interval.windowEndTs,
+  });
+  if (
+    !resolvedStoredInterval ||
+    resolvedStoredInterval !== interval.sampledFromStoredInterval
+  ) {
+    return 'invalidWalletIntervalWindow';
+  }
+  const resolvedWindow = resolvePortfolioIntervalWindow({
+    interval: interval.interval,
+    windowAnchorTs: interval.windowAnchorTs,
+    firstPortfolioEventTs:
+      interval.interval === 'ALL' ? interval.windowStartTs : undefined,
+  });
+  if (
+    !resolvedWindow ||
+    resolvedWindow.windowStartTs !== interval.windowStartTs ||
+    resolvedWindow.windowEndTs !== interval.windowEndTs ||
+    resolvedWindow.windowAnchorTs !== interval.windowAnchorTs ||
+    resolvedWindow.sampledFromStoredInterval !==
+      interval.sampledFromStoredInterval
   ) {
     return 'invalidWalletIntervalWindow';
   }
@@ -574,6 +599,104 @@ function buildWalletRows(args: {
   return rows;
 }
 
+function isSafeDisplayUnitsNumber(value: number): boolean {
+  'worklet';
+
+  return Number.isFinite(value) && Math.abs(value) <= Number.MAX_SAFE_INTEGER;
+}
+
+function resolveSafeBaselineUnits(args: {
+  interval: FormulaWalletIntervalInput;
+  displayUnitDecimals: number;
+}): number | null {
+  'worklet';
+
+  if (typeof args.interval.baselineUnitsAtomic === 'string') {
+    if (!isValidDisplayUnitDecimals(args.displayUnitDecimals)) {
+      return null;
+    }
+    const amount = atomicToDisplayUnitAmount({
+      atomic: args.interval.baselineUnitsAtomic,
+      decimals: args.displayUnitDecimals,
+    });
+    return 'kind' in amount ? null : amount.approximateNumber;
+  }
+
+  return isSafeDisplayUnitsNumber(args.interval.baselineUnits) &&
+    args.interval.baselineUnits >= 0
+    ? args.interval.baselineUnits
+    : null;
+}
+
+function normalizeSafeBalanceEvents(args: {
+  events: readonly BalanceChangeEvent[] | undefined;
+  displayUnitDecimals: number;
+}): readonly BalanceChangeEvent[] | null | undefined {
+  'worklet';
+
+  if (!args.events) {
+    return undefined;
+  }
+
+  const out: BalanceChangeEvent[] = [];
+  for (const event of args.events) {
+    if (typeof event.unitsDeltaAtomic === 'string') {
+      if (!isValidDisplayUnitDecimals(args.displayUnitDecimals)) {
+        return null;
+      }
+      const amount = atomicToDisplayUnitAmount({
+        atomic: event.unitsDeltaAtomic,
+        decimals: args.displayUnitDecimals,
+        allowNegative: true,
+      });
+      if ('kind' in amount) {
+        return null;
+      }
+      out.push({
+        ...event,
+        unitsDelta: amount.approximateNumber,
+      });
+      continue;
+    }
+
+    if (!isSafeDisplayUnitsNumber(event.unitsDelta)) {
+      return null;
+    }
+    out.push(event);
+  }
+
+  return out;
+}
+
+function normalizeFormulaWalletIntervalAmounts(args: {
+  wallet: FormulaWalletInput;
+  interval: FormulaWalletIntervalInput;
+}): FormulaWalletIntervalInput | null {
+  'worklet';
+
+  const baselineUnits = resolveSafeBaselineUnits({
+    interval: args.interval,
+    displayUnitDecimals: args.wallet.displayUnitDecimals,
+  });
+  if (baselineUnits === null) {
+    return null;
+  }
+
+  const balanceEvents = normalizeSafeBalanceEvents({
+    events: args.interval.balanceEvents,
+    displayUnitDecimals: args.wallet.displayUnitDecimals,
+  });
+  if (balanceEvents === null) {
+    return null;
+  }
+
+  return {
+    ...args.interval,
+    baselineUnits,
+    ...(balanceEvents ? {balanceEvents} : {}),
+  };
+}
+
 function buildWalletState(wallet: FormulaWalletInput): {
   state: WalletBuildState;
   invalidHistory: boolean;
@@ -588,11 +711,22 @@ function buildWalletState(wallet: FormulaWalletInput): {
   const validIntervals: Partial<Record<Interval, true>> = {};
   const missingRateIntervals: Partial<Record<Interval, true>> = {};
   const missingRateSourceKeys: string[] = [];
+  const normalizedIntervals: FormulaWalletIntervalInput[] = [];
   let invalidHistory = false;
 
   for (const interval of wallet.intervals) {
+    const normalizedInterval = normalizeFormulaWalletIntervalAmounts({
+      wallet,
+      interval,
+    });
+    if (!normalizedInterval) {
+      invalidHistory = true;
+      continue;
+    }
+    normalizedIntervals.push(normalizedInterval);
     const formulaArgs: BuildWalletSeriesFromEventsArgs = {
-      ...interval,
+      ...normalizedInterval,
+      displayUnitDecimals: wallet.displayUnitDecimals,
     };
     const built = buildWalletSeriesFromEvents(formulaArgs);
     if (built.kind === 'valid') {
@@ -631,7 +765,7 @@ function buildWalletState(wallet: FormulaWalletInput): {
 
   return {
     state: {
-      input: wallet,
+      input: {...wallet, intervals: normalizedIntervals},
       marketRatePointsByInterval: effectiveMarketRatePointsByInterval,
       validIntervals: invalidHistory ? {} : validIntervals,
       missingRateIntervals: invalidHistory ? {} : missingRateIntervals,

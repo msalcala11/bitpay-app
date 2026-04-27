@@ -842,10 +842,8 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
       async (
         _runtime: unknown,
         _workletFn: unknown,
-        _kind: string,
-        _runtimeWorkletFn: unknown,
-        fnArgs: readonly [PortfolioState],
-      ) => fnArgs[0],
+        passedCurrent: PortfolioState,
+      ) => passedCurrent,
     );
 
     scheduleRecompute({
@@ -874,7 +872,7 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
     await runNextPendingRecompute();
 
     expect(
-      (runOnRuntimeAsync as jest.Mock).mock.calls.map(call => call[4][1].scope),
+      (runOnRuntimeAsync as jest.Mock).mock.calls.map(call => call[3].scope),
     ).toEqual([
       {kind: 'wallets', walletIds: ['btc-wallet', 'eth-wallet']},
       {kind: 'liveRateTouch', changedAssetIds: ['eth']},
