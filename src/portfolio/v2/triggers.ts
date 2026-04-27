@@ -3,7 +3,6 @@ import {isPortfolioV2EnabledOnJS} from './featureFlag';
 import type {FiatRateAssetRef, StoredRateInterval} from './model';
 import type {NormalizedFormulaRecomputeInput} from './recompute';
 import {
-  buildBaseRecomputeInputsAtFireTime,
   getQuoteCurrencyFromStore,
   getShowPortfolioEnabledFromStore,
   isPortfolioReduxAccessInitialized,
@@ -34,6 +33,7 @@ export type HistoricalRatesPersistedTriggerArgs = Readonly<{
   assetRefs: readonly FiatRateAssetRef[];
   intervals: readonly StoredRateInterval[];
   source: 'exchangeRateScreen' | 'manualRefresh' | 'externalEffect';
+  normalizedFormulaInput: NormalizedFormulaRecomputeInput;
 }>;
 
 type PendingLiveRateTrigger = Readonly<{
@@ -207,30 +207,14 @@ export function onLiveRatesUpdated(args?: LiveRatesUpdatedTriggerArgs): void {
 export function onHistoricalRatesPersisted(
   args: HistoricalRatesPersistedTriggerArgs,
 ): void {
-  if (!args || !passesTriggerGuards(args)) {
-    return;
-  }
-
-  let normalizedFormulaInput: NormalizedFormulaRecomputeInput | undefined;
-  try {
-    normalizedFormulaInput = buildBaseRecomputeInputsAtFireTime();
-  } catch {
-    normalizedFormulaInput = undefined;
-  }
-  if (
-    !normalizedFormulaInput ||
-    !passesTriggerGuards({
-      quoteCurrency: args.quoteCurrency,
-      normalizedFormulaInput,
-    })
-  ) {
+  if (!args?.normalizedFormulaInput || !passesTriggerGuards(args)) {
     return;
   }
 
   scheduleRecompute({
     scope: 'full',
     startEpoch: getCurrentPortfolioWorkEpoch(),
-    normalizedFormulaInput,
+    normalizedFormulaInput: args.normalizedFormulaInput,
   });
 }
 

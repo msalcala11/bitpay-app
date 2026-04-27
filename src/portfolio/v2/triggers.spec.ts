@@ -1,5 +1,4 @@
 const mockScheduleRecompute = jest.fn();
-const mockBuildBaseRecomputeInputsAtFireTime = jest.fn();
 let mockFeatureEnabled = true;
 let mockReduxInitialized = true;
 let mockShowPortfolioEnabled = true;
@@ -15,8 +14,6 @@ jest.mock('./featureFlag', () => ({
 }));
 
 jest.mock('./reduxAccess', () => ({
-  buildBaseRecomputeInputsAtFireTime: () =>
-    mockBuildBaseRecomputeInputsAtFireTime(),
   getQuoteCurrencyFromStore: () => mockQuoteCurrency,
   getShowPortfolioEnabledFromStore: () => mockShowPortfolioEnabled,
   isPortfolioReduxAccessInitialized: () => mockReduxInitialized,
@@ -51,7 +48,6 @@ function normalizedInput(
 beforeEach(() => {
   jest.useFakeTimers();
   mockScheduleRecompute.mockClear();
-  mockBuildBaseRecomputeInputsAtFireTime.mockReset();
   mockFeatureEnabled = true;
   mockReduxInitialized = true;
   mockShowPortfolioEnabled = true;
@@ -279,62 +275,38 @@ describe('portfolio v2 triggers', () => {
     expect(mockScheduleRecompute).not.toHaveBeenCalled();
   });
 
-  it('schedules historical-rate notifications as full recomputes with production fire-time inputs', () => {
-    const fireTimeInput = {...normalizedInput(), computedAtMs: 150};
-    mockBuildBaseRecomputeInputsAtFireTime.mockReturnValueOnce(fireTimeInput);
+  it('schedules historical-rate notifications as full recomputes with inputs only', () => {
+    const input = normalizedInput();
 
     onHistoricalRatesPersisted({
       quoteCurrency: 'USD',
       assetRefs: [{coin: 'eth'}],
       intervals: ['ALL'],
-      source: 'externalEffect',
+      source: 'exchangeRateScreen',
+      normalizedFormulaInput: input,
     });
 
-    expect(mockBuildBaseRecomputeInputsAtFireTime).toHaveBeenCalledTimes(1);
     expect(mockScheduleRecompute).toHaveBeenCalledWith({
       scope: 'full',
       startEpoch: 7,
-      normalizedFormulaInput: fireTimeInput,
+      normalizedFormulaInput: input,
     });
 
     mockScheduleRecompute.mockClear();
-    mockBuildBaseRecomputeInputsAtFireTime.mockClear();
+    onHistoricalRatesPersisted({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'eth'}],
+      intervals: ['ALL'],
+      source: 'externalEffect',
+    } as any);
     onHistoricalRatesPersisted({
       quoteCurrency: 'EUR',
       assetRefs: [{coin: 'eth'}],
       intervals: ['ALL'],
       source: 'externalEffect',
+      normalizedFormulaInput: input,
     });
 
-    expect(mockBuildBaseRecomputeInputsAtFireTime).not.toHaveBeenCalled();
-    expect(mockScheduleRecompute).not.toHaveBeenCalled();
-  });
-
-  it('does not schedule historical-rate notifications when fire-time input building fails', () => {
-    mockBuildBaseRecomputeInputsAtFireTime.mockReturnValueOnce(undefined);
-
-    onHistoricalRatesPersisted({
-      quoteCurrency: 'USD',
-      assetRefs: [{coin: 'btc'}],
-      intervals: ['1D'],
-      source: 'exchangeRateScreen',
-    });
-
-    expect(mockBuildBaseRecomputeInputsAtFireTime).toHaveBeenCalledTimes(1);
-    expect(mockScheduleRecompute).not.toHaveBeenCalled();
-
-    mockScheduleRecompute.mockClear();
-    mockBuildBaseRecomputeInputsAtFireTime.mockClear();
-    mockShowPortfolioEnabled = false;
-
-    onHistoricalRatesPersisted({
-      quoteCurrency: 'USD',
-      assetRefs: [{coin: 'btc'}],
-      intervals: ['1D'],
-      source: 'exchangeRateScreen',
-    });
-
-    expect(mockBuildBaseRecomputeInputsAtFireTime).not.toHaveBeenCalled();
     expect(mockScheduleRecompute).not.toHaveBeenCalled();
   });
 });
