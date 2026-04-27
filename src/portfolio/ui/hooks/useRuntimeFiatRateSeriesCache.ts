@@ -42,6 +42,13 @@ function hasCacheEntries(cache: FiatRateSeriesCache): boolean {
   return Object.values(cache).some(Boolean);
 }
 
+const STORED_INTERVAL_ORDER: readonly StoredFiatRateInterval[] = [
+  '1D',
+  '1W',
+  '1M',
+  'ALL',
+];
+
 function buildHistoricalRatesPersistedMetadata(args: {
   quoteCurrency: string;
   requests: readonly FiatRateCacheRequest[];
@@ -79,8 +86,8 @@ function buildHistoricalRatesPersistedMetadata(args: {
     }
   }
 
-  const intervals = Array.from(intervalSet).sort((left, right) =>
-    left.localeCompare(right),
+  const intervals = STORED_INTERVAL_ORDER.filter(interval =>
+    intervalSet.has(interval),
   );
   return assetRefs.length && intervals.length
     ? {quoteCurrency, assetRefs, intervals}
@@ -177,6 +184,10 @@ export function useRuntimeFiatRateSeriesCache(args: {
               requests,
             });
             if (metadata) {
+              // This hook is only the Exchange Rate cache-persist notification
+              // seam. Until a safe fire-time normalized recompute-input builder
+              // exists for this path, the trigger guard keeps production
+              // scheduling disabled when no input is supplied.
               onHistoricalRatesPersisted({
                 ...metadata,
                 source: 'exchangeRateScreen',

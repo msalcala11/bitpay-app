@@ -164,7 +164,7 @@ describe('useRuntimeFiatRateSeriesCache', () => {
     expect(mockOnHistoricalRatesPersisted).not.toHaveBeenCalled();
   });
 
-  it('notifies historical-rate persistence for opted-in non-empty cache loads', async () => {
+  it('notifies historical-rate persistence for opted-in non-empty cache loads without scheduling inputs yet', async () => {
     mockLoadRuntimeFiatRateSeriesCache.mockResolvedValue(nonEmptyCache());
 
     await act(async () => {
@@ -176,7 +176,7 @@ describe('useRuntimeFiatRateSeriesCache', () => {
               coin: ' BTC ',
               chain: 'livenet',
               tokenAddress: 'Token',
-              intervals: ['1D', '3M', '1Y'],
+              intervals: ['ALL', '1D', '1M', '3M', '1Y'],
             },
           ]}
         />,
@@ -193,8 +193,10 @@ describe('useRuntimeFiatRateSeriesCache', () => {
           tokenAddress: 'Token',
         },
       ],
-      intervals: ['1D', 'ALL'],
+      intervals: ['1D', '1M', 'ALL'],
       source: 'exchangeRateScreen',
+      // Production scheduling remains deferred until this Exchange Rate path
+      // can provide a safe fire-time normalized recompute input.
       normalizedFormulaInput: undefined,
     });
   });
