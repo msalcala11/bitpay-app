@@ -8,7 +8,6 @@ import {
 } from './queue';
 import {kickPopulateLoopIfIdle} from './populateLoop';
 import {logPortfolioRuntimeError} from '../logPortfolioRuntimeError';
-import {getPopulateEligibleWalletIdsFromStore} from '../reduxAccess';
 import type {
   PopulateQueueItem,
   PopulateQueuePriority,
@@ -75,24 +74,14 @@ function startPopulateInternal(args: StartPopulateInternalArgs): void {
   const queue = args.isFirstPopulate
     ? emptyQueue()
     : loadQueue() ?? emptyQueue();
-  let walletIds: readonly string[] = [];
-  try {
-    walletIds = args.walletIds?.length
-      ? args.walletIds
-      : args.isFirstPopulate
-        ? getPopulateEligibleWalletIdsFromStore()
-        : [];
-  } catch (error: unknown) {
-    logPortfolioRuntimeError(error, {
-      tag: 'startPopulate',
-      reason: 'populateEligibilityUnavailable',
-    });
-    walletIds = [];
-  }
+  const walletIds = args.walletIds ?? [];
   if (!walletIds.length) {
+    const reason = args.isFirstPopulate
+      ? 'phase1FirstPopulateEligibilityNotImplemented'
+      : 'missingWalletIds';
     logPortfolioRuntimeError(new Error('No populate wallet IDs supplied'), {
       tag: 'startPopulate',
-      reason: 'missingWalletIds',
+      reason,
     });
     if (queue.pending.length || queue.active) {
       populateCancelFlag.value = false;
