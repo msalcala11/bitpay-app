@@ -113,6 +113,7 @@ import {
   resetPortfolioV2RuntimesForTesting,
 } from './runtimes';
 import {
+  buildBaseRecomputeInputsAtFireTime,
   getReduxStateForPortfolioV2,
   initPortfolioReduxAccess,
   isPortfolioReduxAccessInitialized,
@@ -494,13 +495,16 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
     expect(JSON.stringify(payload)).not.toContain('raw secret');
     expect(JSON.stringify(payload)).not.toContain('rate:v1');
 
-    logPortfolioRuntimeError({name: 'https://bws.example/wallet-123'}, {
-      tag: 'wallet-123',
-      reason: 'rate:v1:USD:wallet-123',
-      errorCode: 'SAFE_CODE',
-      walletCount: Number.POSITIVE_INFINITY,
-      warning: true,
-    });
+    logPortfolioRuntimeError(
+      {name: 'https://bws.example/wallet-123'},
+      {
+        tag: 'wallet-123',
+        reason: 'rate:v1:USD:wallet-123',
+        errorCode: 'SAFE_CODE',
+        walletCount: Number.POSITIVE_INFINITY,
+        warning: true,
+      },
+    );
 
     const unsafePayload = getPortfolioRuntimeLogPayloadsForTesting()[1];
     expect(unsafePayload).toEqual(
@@ -535,6 +539,495 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
     expect(getReduxStateForPortfolioV2()).toEqual({
       APP: {defaultAltCurrencyIsoCode: 'USD'},
     });
+  });
+
+  it('builds base recompute inputs from fire-time Redux and MMKV data', () => {
+    const now = Date.parse('2026-01-01T00:00:00Z');
+    const first = now - 6 * 365 * 24 * 60 * 60 * 1000;
+    const dateNowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
+
+    mockMmkv.set(
+      MANIFEST_KEY,
+      JSON.stringify({
+        ...emptyManifest(now),
+        populatedWalletIds: ['w1'],
+        populateOrderWalletIds: ['w1'],
+        populateOrderAssetGroupIds: ['btc'],
+        orderRevision: 3,
+      }),
+    );
+    mockMmkv.set(
+      'snap:index:v2:w1',
+      JSON.stringify({
+        v: 2,
+        walletId: 'w1',
+        revision: 4,
+        compressionEnabled: false,
+        chunkRows: 128,
+        chunks: [
+          {
+            id: 0,
+            fromTs: first,
+            toTs: now,
+            rows: 2,
+            debugMode: 'none',
+          },
+        ],
+        checkpoint: {
+          nextSkip: 0,
+          balanceAtomic: '100000000',
+          remainingCostBasisFiat: 0,
+          lastMarkRate: 0,
+          lastTimestamp: now,
+          firstNonZeroTs: first,
+        },
+        updatedAt: now,
+      }),
+    );
+    mockMmkv.set(
+      'snap:chunk:v2:w1:0',
+      JSON.stringify({
+        v: 2,
+        rows: [
+          [first, '100000000'],
+          [now, '100000000'],
+        ],
+      }),
+    );
+    for (const interval of ['1D', '1W', '1M', 'ALL']) {
+      mockMmkv.set(
+        `rate:v1:USD:btc:${interval}`,
+        JSON.stringify({
+          v: 3,
+          f: now,
+          p: [
+            [first, 100],
+            [now, 110],
+          ],
+        }),
+      );
+    }
+
+    initPortfolioReduxAccess({
+      getState: () =>
+        ({
+          APP: {
+            defaultAltCurrencyIsoCode: 'USD',
+            showPortfolioValue: true,
+          },
+          RATE: {
+            rates: {
+              btc: [{code: 'USD', rate: 110}],
+            },
+          },
+          WALLET: {
+            keys: {
+              key1: {
+                id: 'key1',
+                show: true,
+                wallets: [
+                  {
+                    id: 'w1',
+                    chain: 'btc',
+                    network: 'livenet',
+                    currencyAbbreviation: 'btc',
+                    balance: {
+                      crypto: '1',
+                      sat: 100000000,
+                    },
+                    credentials: {
+                      walletId: 'w1',
+                      coin: 'btc',
+                      network: 'livenet',
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        } as any),
+      dispatch: jest.fn(),
+      subscribe: jest.fn(),
+      replaceReducer: jest.fn(),
+    } as any);
+
+    const input = buildBaseRecomputeInputsAtFireTime();
+    dateNowSpy.mockRestore();
+
+    expect(input).toMatchObject({
+      computedAtMs: now,
+      populatedWalletIds: ['w1'],
+      orderRevision: 3,
+      formula: {
+        quoteCurrency: 'USD',
+        assetGroups: [{assetGroupId: 'btc', displaySymbol: 'BTC'}],
+      },
+    });
+    expect(input?.formula.wallets).toHaveLength(1);
+    expect(input?.formula.wallets[0]).toMatchObject({
+      walletId: 'w1',
+      assetGroupId: 'btc',
+      displayUnitsAtomic: '100000000',
+      displayUnitDecimals: 8,
+      liveRate: 110,
+    });
+    expect(
+      input?.formula.wallets[0].intervals.map(item => item.interval),
+    ).toEqual(['1D', '1W', '1M', '3M', '1Y', '5Y', 'ALL']);
+    expect(input?.formula.wallets[0].intervals[0].ratePoints).toHaveLength(2);
+  });
+
+  it('uses authoritative unit decimals when current wallet balances are zero', () => {
+    const now = Date.parse('2026-01-01T00:00:00Z');
+    const first = now - 6 * 365 * 24 * 60 * 60 * 1000;
+    const usdcAddress = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
+    const dateNowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
+
+    mockMmkv.set(
+      MANIFEST_KEY,
+      JSON.stringify({
+        ...emptyManifest(now),
+        populatedWalletIds: ['btc-zero', 'usdc-zero'],
+        populateOrderWalletIds: ['btc-zero', 'usdc-zero'],
+        populateOrderAssetGroupIds: ['btc', 'usdc'],
+        orderRevision: 4,
+      }),
+    );
+
+    for (const [walletId, atomic] of [
+      ['btc-zero', '100000000'],
+      ['usdc-zero', '1000000'],
+    ] as const) {
+      mockMmkv.set(
+        `snap:index:v2:${walletId}`,
+        JSON.stringify({
+          v: 2,
+          walletId,
+          revision: 4,
+          compressionEnabled: false,
+          chunkRows: 128,
+          chunks: [
+            {
+              id: 0,
+              fromTs: first,
+              toTs: now,
+              rows: 2,
+              debugMode: 'none',
+            },
+          ],
+          checkpoint: {
+            nextSkip: 0,
+            balanceAtomic: atomic,
+            remainingCostBasisFiat: 0,
+            lastMarkRate: 0,
+            lastTimestamp: now,
+            firstNonZeroTs: first,
+          },
+          updatedAt: now,
+        }),
+      );
+      mockMmkv.set(
+        `snap:chunk:v2:${walletId}:0`,
+        JSON.stringify({
+          v: 2,
+          rows: [
+            [first, atomic],
+            [now, atomic],
+          ],
+        }),
+      );
+    }
+
+    for (const interval of ['1D', '1W', '1M', 'ALL']) {
+      mockMmkv.set(
+        `rate:v1:USD:btc:${interval}`,
+        JSON.stringify({
+          v: 3,
+          f: now,
+          p: [
+            [first, 100],
+            [now, 110],
+          ],
+        }),
+      );
+      mockMmkv.set(
+        `rate:v1:USD:usdc:${interval}:eth:${usdcAddress}`,
+        JSON.stringify({
+          v: 3,
+          f: now,
+          p: [
+            [first, 1],
+            [now, 1],
+          ],
+        }),
+      );
+    }
+
+    initPortfolioReduxAccess({
+      getState: () =>
+        ({
+          APP: {
+            defaultAltCurrencyIsoCode: 'USD',
+            showPortfolioValue: true,
+          },
+          RATE: {
+            rates: {
+              btc: [{code: 'USD', rate: 110}],
+              usdc: [{code: 'USD', rate: 1}],
+            },
+          },
+          WALLET: {
+            customTokenDataByAddress: {},
+            keys: {
+              key1: {
+                id: 'key1',
+                show: true,
+                wallets: [
+                  {
+                    id: 'btc-zero',
+                    chain: 'btc',
+                    network: 'livenet',
+                    currencyAbbreviation: 'btc',
+                    balance: {
+                      crypto: '0',
+                      sat: 0,
+                    },
+                    credentials: {
+                      walletId: 'btc-zero',
+                      coin: 'btc',
+                      network: 'livenet',
+                    },
+                  },
+                  {
+                    id: 'usdc-zero',
+                    chain: 'eth',
+                    network: 'livenet',
+                    currencyAbbreviation: 'usdc',
+                    tokenAddress: usdcAddress,
+                    balance: {
+                      crypto: '0',
+                      sat: 0,
+                    },
+                    credentials: {
+                      walletId: 'usdc-zero',
+                      coin: 'eth',
+                      chain: 'eth',
+                      network: 'livenet',
+                      token: {
+                        address: usdcAddress,
+                        decimals: 6,
+                        symbol: 'usdc',
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        } as any),
+      dispatch: jest.fn(),
+      subscribe: jest.fn(),
+      replaceReducer: jest.fn(),
+    } as any);
+
+    const input = buildBaseRecomputeInputsAtFireTime();
+    dateNowSpy.mockRestore();
+
+    const wallets = new Map(
+      (input?.formula.wallets || []).map(wallet => [wallet.walletId, wallet]),
+    );
+    const btcAll = wallets
+      .get('btc-zero')
+      ?.intervals.find(interval => interval.interval === 'ALL');
+    const usdcAll = wallets
+      .get('usdc-zero')
+      ?.intervals.find(interval => interval.interval === 'ALL');
+
+    expect(wallets.get('btc-zero')).toMatchObject({
+      displayUnitDecimals: 8,
+      displayUnitsAtomic: '100000000',
+    });
+    expect(btcAll?.baselineUnits).toBe(1);
+    expect(wallets.get('usdc-zero')).toMatchObject({
+      displayUnitDecimals: 6,
+      displayUnitsAtomic: '1000000',
+    });
+    expect(usdcAll?.baselineUnits).toBe(1);
+  });
+
+  it('uses token-specific live-rate keys before coarse ticker fallbacks', () => {
+    const now = Date.parse('2026-01-01T00:00:00Z');
+    const first = now - 6 * 365 * 24 * 60 * 60 * 1000;
+    const daiAddress = '0x6b175474e89094c44da98b954eedeac495271d0f';
+    const usdcEthAddress = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
+    const usdcPolygonAddress = '0x2791bca1f2de4661ed88a30c99a7a9449aa84174';
+    const dateNowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
+
+    const wallets = [
+      {
+        id: 'dai-eth',
+        coin: 'dai',
+        chain: 'eth',
+        tokenAddress: daiAddress,
+        decimals: 18,
+        atomic: '3000000000000000000',
+      },
+      {
+        id: 'usdc-eth',
+        coin: 'usdc',
+        chain: 'eth',
+        tokenAddress: usdcEthAddress,
+        decimals: 6,
+        atomic: '1000000',
+      },
+      {
+        id: 'usdc-polygon',
+        coin: 'usdc',
+        chain: 'matic',
+        tokenAddress: usdcPolygonAddress,
+        decimals: 6,
+        atomic: '2000000',
+      },
+    ] as const;
+
+    mockMmkv.set(
+      MANIFEST_KEY,
+      JSON.stringify({
+        ...emptyManifest(now),
+        populatedWalletIds: wallets.map(wallet => wallet.id),
+        populateOrderWalletIds: wallets.map(wallet => wallet.id),
+        populateOrderAssetGroupIds: ['dai', 'usdc'],
+        orderRevision: 5,
+      }),
+    );
+
+    for (const wallet of wallets) {
+      mockMmkv.set(
+        `snap:index:v2:${wallet.id}`,
+        JSON.stringify({
+          v: 2,
+          walletId: wallet.id,
+          revision: 5,
+          compressionEnabled: false,
+          chunkRows: 128,
+          chunks: [
+            {
+              id: 0,
+              fromTs: first,
+              toTs: now,
+              rows: 2,
+              debugMode: 'none',
+            },
+          ],
+          checkpoint: {
+            nextSkip: 0,
+            balanceAtomic: wallet.atomic,
+            remainingCostBasisFiat: 0,
+            lastMarkRate: 0,
+            lastTimestamp: now,
+            firstNonZeroTs: first,
+          },
+          updatedAt: now,
+        }),
+      );
+      mockMmkv.set(
+        `snap:chunk:v2:${wallet.id}:0`,
+        JSON.stringify({
+          v: 2,
+          rows: [
+            [first, wallet.atomic],
+            [now, wallet.atomic],
+          ],
+        }),
+      );
+
+      for (const interval of ['1D', '1W', '1M', 'ALL']) {
+        mockMmkv.set(
+          `rate:v1:USD:${wallet.coin}:${interval}:${
+            wallet.chain
+          }:${wallet.tokenAddress.toLowerCase()}`,
+          JSON.stringify({
+            v: 3,
+            f: now,
+            p: [
+              [first, 1],
+              [now, 1],
+            ],
+          }),
+        );
+      }
+    }
+
+    initPortfolioReduxAccess({
+      getState: () =>
+        ({
+          APP: {
+            defaultAltCurrencyIsoCode: 'USD',
+            showPortfolioValue: true,
+          },
+          RATE: {
+            rates: {
+              [`${daiAddress}_e`]: [{code: 'USD', rate: 1.02}],
+              [`${usdcEthAddress}_e`]: [{code: 'USD', rate: 1.01}],
+              usdc: [{code: 'USD', rate: 99}],
+            },
+          },
+          WALLET: {
+            customTokenDataByAddress: {},
+            keys: {
+              key1: {
+                id: 'key1',
+                show: true,
+                wallets: wallets.map(wallet => ({
+                  id: wallet.id,
+                  chain: wallet.chain,
+                  network: 'livenet',
+                  currencyAbbreviation: wallet.coin,
+                  tokenAddress: wallet.tokenAddress,
+                  balance: {
+                    crypto: '1',
+                    sat: 0,
+                  },
+                  credentials: {
+                    walletId: wallet.id,
+                    coin: wallet.chain,
+                    chain: wallet.chain,
+                    network: 'livenet',
+                    token: {
+                      address: wallet.tokenAddress,
+                      decimals: wallet.decimals,
+                      symbol: wallet.coin,
+                    },
+                  },
+                })),
+              },
+            },
+          },
+        } as any),
+      dispatch: jest.fn(),
+      subscribe: jest.fn(),
+      replaceReducer: jest.fn(),
+    } as any);
+
+    const input = buildBaseRecomputeInputsAtFireTime();
+    dateNowSpy.mockRestore();
+
+    const formulaWallets = new Map(
+      (input?.formula.wallets || []).map(wallet => [wallet.walletId, wallet]),
+    );
+
+    expect(formulaWallets.get('dai-eth')?.liveRate).toBe(1.02);
+    expect(formulaWallets.get('usdc-eth')).toMatchObject({
+      assetGroupId: 'usdc',
+      liveRate: 1.01,
+    });
+    expect(formulaWallets.get('usdc-polygon')).toMatchObject({
+      assetGroupId: 'usdc',
+    });
+    expect(formulaWallets.get('usdc-polygon')).not.toHaveProperty('liveRate');
+    expect(formulaWallets.get('usdc-polygon')?.assetIdentityKey).not.toBe(
+      formulaWallets.get('usdc-eth')?.assetIdentityKey,
+    );
   });
 
   it('normalizes legacy exchange-rate params and serialized route wrappers', () => {

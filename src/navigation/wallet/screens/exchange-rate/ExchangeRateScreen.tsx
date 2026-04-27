@@ -23,9 +23,7 @@ import {
   FIAT_RATE_SERIES_CACHED_INTERVALS,
   getFiatRateSeriesCacheKey,
 } from '../../../../store/rate/rate.models';
-import {
-  formatFiatAmount,
-} from '../../../../utils/helper-methods';
+import {formatFiatAmount} from '../../../../utils/helper-methods';
 import {shouldUseCompactFiatAmountText} from '../../../../utils/fiatAmountText';
 import {
   calculatePercentageDifferenceRaw,
@@ -121,6 +119,8 @@ const ExchangeRateScreen = ({shared}: ExchangeRateScreenProps) => {
     maxAgeMs: HISTORIC_RATES_CACHE_DURATION * 1000,
     enabled: !!shared.resolvedQuoteCurrency && shared.hasValidNormalizedCoin,
     clearOnRequestChange: true,
+    notifyHistoricalRatesPersisted: true,
+    historicalRatesPersistedSource: 'exchangeRateScreen',
   });
 
   const selectedSeriesKey = useMemo(() => {
@@ -176,12 +176,7 @@ const ExchangeRateScreen = ({shared}: ExchangeRateScreenProps) => {
       selectedDate: selectedPoint?.date,
       displayedRangeMs,
     });
-  }, [
-    displayedRangeMs,
-    rangeLabel,
-    selectedPoint?.date,
-    selectedTimeframe,
-  ]);
+  }, [displayedRangeMs, rangeLabel, selectedPoint?.date, selectedTimeframe]);
 
   const fallbackHistoricalPrice = useMemo(() => {
     if (displayData.data.length) {

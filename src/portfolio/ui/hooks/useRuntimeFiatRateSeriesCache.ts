@@ -1,11 +1,25 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import type {FiatRateCacheRequest} from '../../core/fiatRatesShared';
+import {
+  isStoredFiatRateInterval,
+  normalizeFiatRateSeriesChain,
+  normalizeFiatRateSeriesTokenAddress,
+  resolveStoredFiatRateInterval,
+  type FiatRateCacheRequest,
+  type FiatRateInterval,
+} from '../../core/fiatRatesShared';
 import type {FiatRateSeriesCache} from '../../../store/rate/rate.models';
+import {
+  onHistoricalRatesPersisted,
+  type HistoricalRatesPersistedTriggerArgs,
+} from '../../v2/triggers';
 import {
   buildRuntimeFiatRateCacheRequestKey,
   loadRuntimeFiatRateSeriesCache,
   normalizeRuntimeFiatRateCacheRequests,
 } from '../fiatRateSeries';
+
+type HistoricalRatesPersistedSource =
+  HistoricalRatesPersistedTriggerArgs['source'];
 
 export type RuntimeFiatRateSeriesCacheState = {
   cache: FiatRateSeriesCache;
@@ -14,6 +28,86 @@ export type RuntimeFiatRateSeriesCacheState = {
   reload: (opts?: {force?: boolean}) => Promise<FiatRateSeriesCache>;
 };
 
+const STORED_INTERVAL_SORT_ORDER = new Map([
+  ['1D', 0],
+  ['1W', 1],
+  ['1M', 2],
+  ['ALL', 3],
+]);
+
+function hasCacheEntries(cache: FiatRateSeriesCache): boolean {
+  return Object.values(cache).some(Boolean);
+}
+
+function notifyHistoricalRatesPersisted(args: {
+  quoteCurrency: string;
+  requests: readonly FiatRateCacheRequest[];
+  cache: FiatRateSeriesCache;
+  source: HistoricalRatesPersistedSource;
+}): void {
+  const quoteCurrency = String(args.quoteCurrency || '')
+    .trim()
+    .toUpperCase();
+  if (!quoteCurrency || !args.requests.length || !hasCacheEntries(args.cache)) {
+    return;
+  }
+
+  const assetRefsByKey = new Map<
+    string,
+    {coin: string; chain?: string; tokenAddress?: string}
+  >();
+  const storedIntervals = new Set<
+    HistoricalRatesPersistedTriggerArgs['intervals'][number]
+  >();
+
+  for (const request of args.requests) {
+    const coin = String(request.coin || '')
+      .trim()
+      .toLowerCase();
+    if (!coin) {
+      continue;
+    }
+
+    const chain = normalizeFiatRateSeriesChain(request.chain);
+    const tokenAddress = normalizeFiatRateSeriesTokenAddress(
+      chain,
+      request.tokenAddress,
+    );
+    const assetRef = {
+      coin,
+      ...(chain && tokenAddress ? {chain} : {}),
+      ...(tokenAddress ? {tokenAddress} : {}),
+    };
+    assetRefsByKey.set(JSON.stringify(assetRef), assetRef);
+
+    for (const interval of request.intervals || []) {
+      const storedInterval = resolveStoredFiatRateInterval(
+        interval as FiatRateInterval,
+      );
+      if (isStoredFiatRateInterval(storedInterval)) {
+        storedIntervals.add(storedInterval);
+      }
+    }
+  }
+
+  if (!assetRefsByKey.size || !storedIntervals.size) {
+    return;
+  }
+
+  onHistoricalRatesPersisted({
+    quoteCurrency,
+    assetRefs: Array.from(assetRefsByKey.values()).sort((left, right) =>
+      JSON.stringify(left).localeCompare(JSON.stringify(right)),
+    ),
+    intervals: Array.from(storedIntervals).sort(
+      (left, right) =>
+        (STORED_INTERVAL_SORT_ORDER.get(left) ?? 99) -
+        (STORED_INTERVAL_SORT_ORDER.get(right) ?? 99),
+    ),
+    source: args.source,
+  });
+}
+
 export function useRuntimeFiatRateSeriesCache(args: {
   quoteCurrency: string;
   requests: FiatRateCacheRequest[];
@@ -21,8 +115,21 @@ export function useRuntimeFiatRateSeriesCache(args: {
   enabled?: boolean;
   refreshToken?: string | number;
   clearOnRequestChange?: boolean;
+  notifyHistoricalRatesPersisted?: boolean;
+  historicalRatesPersistedSource?: HistoricalRatesPersistedSource;
 }): RuntimeFiatRateSeriesCacheState {
   const enabled = args.enabled !== false;
+  const historicalRatesPersistedNotificationRef = useRef<{
+    enabled: boolean;
+    source: HistoricalRatesPersistedSource;
+  }>({
+    enabled: args.notifyHistoricalRatesPersisted === true,
+    source: args.historicalRatesPersistedSource || 'externalEffect',
+  });
+  historicalRatesPersistedNotificationRef.current = {
+    enabled: args.notifyHistoricalRatesPersisted === true,
+    source: args.historicalRatesPersistedSource || 'externalEffect',
+  };
   const rawRequestsRef = useRef(args.requests);
   rawRequestsRef.current = args.requests;
   const normalizedRequestsKey = useMemo(
@@ -61,7 +168,9 @@ export function useRuntimeFiatRateSeriesCache(args: {
     [args.maxAgeMs, args.quoteCurrency, normalizedRequestsKey],
   );
   const emptyCacheRef = useRef<FiatRateSeriesCache>({});
-  const [cache, setCache] = useState<FiatRateSeriesCache>(emptyCacheRef.current);
+  const [cache, setCache] = useState<FiatRateSeriesCache>(
+    emptyCacheRef.current,
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | undefined>(undefined);
   const activeRequestIdRef = useRef(0);
@@ -93,6 +202,16 @@ export function useRuntimeFiatRateSeriesCache(args: {
         if (activeRequestIdRef.current === requestId) {
           setCache(nextCache);
           setLoading(false);
+        }
+
+        const notification = historicalRatesPersistedNotificationRef.current;
+        if (notification.enabled) {
+          notifyHistoricalRatesPersisted({
+            quoteCurrency: args.quoteCurrency,
+            requests,
+            cache: nextCache,
+            source: notification.source,
+          });
         }
 
         return nextCache;
