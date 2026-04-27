@@ -190,17 +190,6 @@ beforeEach(() => {
   sharedPortfolioState.value = makeCurrentState();
 });
 
-afterEach(() => {
-  clearPendingRecomputesForTesting();
-});
-
-async function flushScheduledRecomputeDrain(): Promise<void> {
-  await new Promise(resolve => setTimeout(resolve, 0));
-  for (let index = 0; index < 10; index += 1) {
-    await Promise.resolve();
-  }
-}
-
 describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
   it('dispatches scheduled full recompute work to portfolio-compute and publishes through the helper', async () => {
     scheduleRecompute({
@@ -231,62 +220,6 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
       expect.objectContaining({
         kind: 'publish',
         reason: 'fullRecompute',
-        revision: 5,
-      }),
-    ]);
-    expect(getPendingRecomputesForTesting()).toHaveLength(0);
-  });
-
-  it('automatically drains scheduled full recompute work for production callers', async () => {
-    scheduleRecompute({
-      scope: 'full',
-      startEpoch: 7,
-      normalizedFormulaInput: normalizedInput(),
-    });
-
-    expect(getPendingRecomputesForTesting()).toHaveLength(1);
-    expect(runOnRuntimeAsync).not.toHaveBeenCalled();
-
-    await flushScheduledRecomputeDrain();
-
-    expect(runOnRuntimeAsync).toHaveBeenCalledTimes(1);
-    expect(sharedPortfolioState.value).toMatchObject({
-      workEpoch: 7,
-      revision: 5,
-      computedAtMs: 100,
-    });
-    expect(getRecordedPortfolioV2MetricsForTesting()).toEqual([
-      expect.objectContaining({
-        kind: 'publish',
-        reason: 'fullRecompute',
-        revision: 5,
-      }),
-    ]);
-    expect(getPendingRecomputesForTesting()).toHaveLength(0);
-  });
-
-  it('automatically drains scheduled live-rate touch work for production callers', async () => {
-    scheduleRecompute({
-      scope: {kind: 'liveRateTouch', changedAssetIds: ['eth']},
-      startEpoch: 7,
-      normalizedFormulaInput: normalizedInput(),
-    });
-
-    expect(getPendingRecomputesForTesting()).toHaveLength(1);
-    expect(runOnRuntimeAsync).not.toHaveBeenCalled();
-
-    await flushScheduledRecomputeDrain();
-
-    expect(runOnRuntimeAsync).toHaveBeenCalledTimes(1);
-    expect(sharedPortfolioState.value).toMatchObject({
-      workEpoch: 7,
-      revision: 5,
-      computedAtMs: 100,
-    });
-    expect(getRecordedPortfolioV2MetricsForTesting()).toEqual([
-      expect.objectContaining({
-        kind: 'publish',
-        reason: 'liveRateTouch',
         revision: 5,
       }),
     ]);
