@@ -19,10 +19,14 @@ export type PortfolioIntervalWindow = Readonly<{
   sampledFromStoredInterval: StoredRateInterval;
 }>;
 
-function isFiniteTimestamp(value: unknown): value is number {
+function isExternalWindowTimestamp(value: unknown): value is number {
   'worklet';
 
-  return typeof value === 'number' && Number.isFinite(value);
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    Number.isInteger(value)
+  );
 }
 
 function durationForInterval(interval: Interval): number | undefined {
@@ -62,8 +66,8 @@ export function resolveStoredRateIntervalForChartWindow(args: {
   'worklet';
 
   if (
-    !isFiniteTimestamp(args.windowStartTs) ||
-    !isFiniteTimestamp(args.windowEndTs) ||
+    !isExternalWindowTimestamp(args.windowStartTs) ||
+    !isExternalWindowTimestamp(args.windowEndTs) ||
     args.windowEndTs <= args.windowStartTs
   ) {
     return undefined;
@@ -93,7 +97,7 @@ export function resolvePortfolioIntervalWindow(args: {
 }): PortfolioIntervalWindow | undefined {
   'worklet';
 
-  if (!isFiniteTimestamp(args.windowAnchorTs)) {
+  if (!isExternalWindowTimestamp(args.windowAnchorTs)) {
     return undefined;
   }
 
@@ -104,7 +108,10 @@ export function resolvePortfolioIntervalWindow(args: {
       ? windowEndTs - durationMs
       : args.firstPortfolioEventTs;
 
-  if (!isFiniteTimestamp(windowStartTs) || windowEndTs <= windowStartTs) {
+  if (
+    !isExternalWindowTimestamp(windowStartTs) ||
+    windowEndTs <= windowStartTs
+  ) {
     return undefined;
   }
 

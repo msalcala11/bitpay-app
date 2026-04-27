@@ -735,6 +735,34 @@ describe('portfolio v2 ensureFresh', () => {
     ).toThrow('No portfolio runtime request context is initialized');
   });
 
+  it('tears down default rate-fetch runtime globals after runtime failure', async () => {
+    (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
+      async (
+        _runtime: unknown,
+        workletFn: (...args: any[]) => unknown,
+        ...args: any[]
+      ) => workletFn(...args),
+    );
+    mockNitroRequestSync.mockImplementationOnce(() => {
+      throw new Error('runtime request failed');
+    });
+
+    await ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'btc'}],
+      intervals: ['ALL'],
+      force: true,
+      cfg: {baseUrl: 'https://bws.example'},
+    });
+
+    expect(
+      txHistorySigning.getPortfolioTxHistorySigningDispatchContextOnRuntime(),
+    ).toBeUndefined();
+    expect(() =>
+      txHistorySigning.takeNextPortfolioTransferredSignHandleOnRuntime(),
+    ).toThrow('No portfolio runtime request context is initialized');
+  });
+
   it('batches mixed native assets into one V4 request per interval', async () => {
     (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
       async (
@@ -1515,6 +1543,45 @@ describe('portfolio v2 ensureFresh', () => {
     releaseCalls[1]?.();
     await Promise.all([background, forcedA, forcedB]);
     expect(executor).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not schedule forced follow-up for already-forced in-flight work', async () => {
+    const releaseCalls: Array<() => void> = [];
+    const executor = jest.fn(
+      async (dependencies: readonly RateFetchDependency[]) => {
+        await new Promise<void>(resolve => releaseCalls.push(resolve));
+        return dependencies.map(
+          dependency =>
+            ({
+              dependency,
+              series: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
+            } satisfies RateFetchRuntimeResult),
+        );
+      },
+    );
+    setRateFetchExecutorForTesting(executor);
+
+    const forcedA = ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'btc'}],
+      intervals: ['ALL'],
+      force: true,
+    });
+    await flushRateFetchMicrotasks();
+    expect(executor).toHaveBeenCalledTimes(1);
+
+    const forcedB = ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'btc'}],
+      intervals: ['ALL'],
+      force: true,
+    });
+    await flushRateFetchMicrotasks();
+    expect(executor).toHaveBeenCalledTimes(1);
+
+    releaseCalls[0]?.();
+    await Promise.all([forcedA, forcedB]);
+    expect(executor).toHaveBeenCalledTimes(1);
   });
 
   it('does not let a new epoch wait on stale in-flight work', async () => {

@@ -95,4 +95,34 @@ describe('portfolio v2 interval window helpers', () => {
       }),
     ).toBeUndefined();
   });
+
+  it('rejects fractional external window identity timestamps', () => {
+    expect(
+      resolveStoredRateIntervalForChartWindow({
+        interval: '1D',
+        windowStartTs: 100.5,
+        windowEndTs: 100 + DAY_MS,
+      }),
+    ).toBeUndefined();
+    expect(
+      resolveStoredRateIntervalForChartWindow({
+        interval: 'ALL',
+        windowStartTs: 100,
+        windowEndTs: 100 + DAY_MS + 0.5,
+      }),
+    ).toBeUndefined();
+    expect(
+      resolvePortfolioIntervalWindow({
+        interval: '1D',
+        windowAnchorTs: 100.5,
+      }),
+    ).toBeUndefined();
+    expect(
+      resolvePortfolioIntervalWindow({
+        interval: 'ALL',
+        firstPortfolioEventTs: 1.5,
+        windowAnchorTs: 100,
+      }),
+    ).toBeUndefined();
+  });
 });

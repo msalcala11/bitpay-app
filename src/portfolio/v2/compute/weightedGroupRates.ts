@@ -84,10 +84,13 @@ function hasValidTopLevelInputs(
     isStrictIdentity(args.walletIdsKey) &&
     typeof args.windowStartTs === 'number' &&
     Number.isFinite(args.windowStartTs) &&
+    Number.isInteger(args.windowStartTs) &&
     typeof args.windowEndTs === 'number' &&
     Number.isFinite(args.windowEndTs) &&
+    Number.isInteger(args.windowEndTs) &&
     typeof args.windowAnchorTs === 'number' &&
     Number.isFinite(args.windowAnchorTs) &&
+    Number.isInteger(args.windowAnchorTs) &&
     args.windowEndTs > args.windowStartTs &&
     isStoredFiatRateInterval(args.sampledFromStoredInterval)
   );

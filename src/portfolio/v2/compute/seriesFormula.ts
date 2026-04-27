@@ -132,6 +132,8 @@ function hasValidWindow(windowStartTs: number, windowEndTs: number): boolean {
   return (
     isFiniteNumber(windowStartTs) &&
     isFiniteNumber(windowEndTs) &&
+    Number.isInteger(windowStartTs) &&
+    Number.isInteger(windowEndTs) &&
     windowEndTs > windowStartTs
   );
 }
@@ -405,7 +407,10 @@ export function buildWalletSeriesFromEvents(
     return {kind: 'invalidHistory', reason: 'invalidWindow'};
   }
 
-  if (!isFiniteNumber(args.windowAnchorTs)) {
+  if (
+    !isFiniteNumber(args.windowAnchorTs) ||
+    !Number.isInteger(args.windowAnchorTs)
+  ) {
     return {kind: 'invalidHistory', reason: 'invalidWindow'};
   }
 

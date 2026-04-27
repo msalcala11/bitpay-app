@@ -160,6 +160,12 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function isExternalWindowTimestamp(value: unknown): value is number {
+  'worklet';
+
+  return isFiniteNumber(value) && Number.isInteger(value);
+}
+
 function isValidAtomicString(value: unknown): value is string {
   'worklet';
 
@@ -204,9 +210,9 @@ function validateFormulaWalletInterval(
     return 'invalidWalletIntervalIdentity';
   }
   if (
-    !isFiniteNumber(interval.windowStartTs) ||
-    !isFiniteNumber(interval.windowEndTs) ||
-    !isFiniteNumber(interval.windowAnchorTs) ||
+    !isExternalWindowTimestamp(interval.windowStartTs) ||
+    !isExternalWindowTimestamp(interval.windowEndTs) ||
+    !isExternalWindowTimestamp(interval.windowAnchorTs) ||
     interval.windowEndTs <= interval.windowStartTs
   ) {
     return 'invalidWalletIntervalWindow';
@@ -341,9 +347,35 @@ function bridgePositiveRate(args: {
   return Number.isFinite(bridgedRate) ? bridgedRate : undefined;
 }
 
+function balanceEventAddsCostBasis(args: {
+  event: BalanceChangeEvent;
+  displayUnitDecimals: number;
+}): boolean | undefined {
+  'worklet';
+
+  if (typeof args.event.unitsDeltaAtomic === 'string') {
+    if (!isValidDisplayUnitDecimals(args.displayUnitDecimals)) {
+      return undefined;
+    }
+    const amount = atomicToDisplayUnitAmount({
+      atomic: args.event.unitsDeltaAtomic,
+      decimals: args.displayUnitDecimals,
+      allowNegative: true,
+    });
+    return 'kind' in amount ? undefined : amount.approximateNumber > 0;
+  }
+
+  if (!isFiniteNumber(args.event.unitsDelta)) {
+    return undefined;
+  }
+
+  return args.event.unitsDelta > 0;
+}
+
 function buildFormulaRateReadTimestamps(
   interval: FormulaWalletIntervalInput,
-): readonly number[] {
+  displayUnitDecimals: number,
+): readonly number[] | undefined {
   'worklet';
 
   const timestamps = new Set<number>();
@@ -357,7 +389,14 @@ function buildFormulaRateReadTimestamps(
     timestamps.add(ts);
   }
   for (const event of interval.balanceEvents ?? []) {
-    if (event.unitsDelta > 0) {
+    const addsCostBasis = balanceEventAddsCostBasis({
+      event,
+      displayUnitDecimals,
+    });
+    if (typeof addsCostBasis === 'undefined') {
+      return undefined;
+    }
+    if (addsCostBasis) {
       timestamps.add(event.ts);
     }
   }
@@ -368,6 +407,7 @@ function buildFormulaRateReadTimestamps(
 function buildQuoteBridgedRatePoints(args: {
   interval: FormulaWalletIntervalInput;
   bridge: FormulaQuoteBridgeRatePoints | undefined;
+  displayUnitDecimals: number;
 }): readonly FiatRatePoint[] | undefined {
   'worklet';
 
@@ -389,7 +429,15 @@ function buildQuoteBridgedRatePoints(args: {
   });
   const points: FiatRatePoint[] = [];
 
-  for (const ts of buildFormulaRateReadTimestamps(args.interval)) {
+  const readTimestamps = buildFormulaRateReadTimestamps(
+    args.interval,
+    args.displayUnitDecimals,
+  );
+  if (!readTimestamps) {
+    return undefined;
+  }
+
+  for (const ts of readTimestamps) {
     const canonicalAssetRate = canonicalAssetReader.read(ts);
     const targetBtcRate = targetBtcReader.read(ts);
     const canonicalBtcRate = canonicalBtcReader.read(ts);
@@ -490,12 +538,14 @@ function buildQuoteBridgedInterval(args: {
   bridge: FormulaQuoteBridgeRatePoints | undefined;
   targetQuoteCurrency: string;
   canonicalQuoteCurrency: string;
+  displayUnitDecimals: number;
 }): FormulaWalletIntervalInput {
   'worklet';
 
   const ratePoints = buildQuoteBridgedRatePoints({
     interval: args.interval,
     bridge: args.bridge,
+    displayUnitDecimals: args.displayUnitDecimals,
   });
 
   if (!ratePoints || !args.bridge) {
@@ -1078,6 +1128,7 @@ export function buildQuoteBridgedFormulaComputedInputs(
             ],
           targetQuoteCurrency,
           canonicalQuoteCurrency,
+          displayUnitDecimals: wallet.displayUnitDecimals,
         }),
       ),
     })),

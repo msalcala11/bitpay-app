@@ -44,7 +44,7 @@ describe('portfolio v2 wallet series formula adapter', () => {
     expect(grid[grid.length - 1]).toBe(ORACLE_1D_WINDOW.windowEndTs);
   });
 
-  it('emits exact 89 points even for short valid windows', () => {
+  it('emits exact 89 points even for short valid integer windows', () => {
     const grid = buildCappedSampleGrid({
       windowStartTs: 1,
       windowEndTs: 2,
@@ -54,13 +54,33 @@ describe('portfolio v2 wallet series formula adapter', () => {
     expect(grid).toHaveLength(MAX_CHART_POINTS);
     expect(grid[0]).toBe(1);
     expect(grid[grid.length - 1]).toBe(2);
+    expect(grid.slice(1, -1).some(ts => !Number.isInteger(ts))).toBe(true);
     expect(
       buildCappedSampleGrid({
         windowStartTs: 1.1,
-        windowEndTs: 1.2,
+        windowEndTs: 2,
         maxPoints: 5,
       }),
-    ).toHaveLength(MAX_CHART_POINTS);
+    ).toEqual([]);
+  });
+
+  it('rejects fractional external wallet-series window identity', () => {
+    expect(
+      buildWalletSeriesFromEvents({
+        ...BASE_FORMULA_ARGS,
+        windowStartTs: ORACLE_1D_WINDOW.windowStartTs + 0.5,
+        baselineUnits: 1,
+        ratePoints: NO_TRANSACTION_PARITY_FIXTURE.ratePoints,
+      }),
+    ).toEqual({kind: 'invalidHistory', reason: 'invalidWindow'});
+    expect(
+      buildWalletSeriesFromEvents({
+        ...BASE_FORMULA_ARGS,
+        windowAnchorTs: ORACLE_1D_WINDOW.windowEndTs + 0.5,
+        baselineUnits: 1,
+        ratePoints: NO_TRANSACTION_PARITY_FIXTURE.ratePoints,
+      }),
+    ).toEqual({kind: 'invalidHistory', reason: 'invalidWindow'});
   });
 
   it('makes no-transaction pnl percent match the exchange-rate percent', () => {

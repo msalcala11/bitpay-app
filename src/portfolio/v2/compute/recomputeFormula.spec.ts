@@ -15,6 +15,7 @@ import {
   ORACLE_TS,
 } from '../__tests__/fixtures/productOracles';
 import {MAX_CHART_POINTS} from '../constants';
+import {resolvePortfolioIntervalWindow} from '../intervalWindow';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const THREE_MONTH_WINDOW_START_TS = ORACLE_1D_WINDOW.windowEndTs - 90 * DAY_MS;
@@ -378,6 +379,11 @@ describe('portfolio v2 formula recompute input builder', () => {
     ).toEqual({kind: 'invalid', reason: 'invalidWalletIntervalWindow'});
     expect(
       buildSingleEthFormula({
+        windowEndTs: ORACLE_1D_WINDOW.windowEndTs + 0.5,
+      }),
+    ).toEqual({kind: 'invalid', reason: 'invalidWalletIntervalWindow'});
+    expect(
+      buildSingleEthFormula({
         sampledFromStoredInterval: 'ALL',
       }),
     ).toEqual({kind: 'invalid', reason: 'invalidWalletIntervalWindow'});
@@ -424,6 +430,37 @@ describe('portfolio v2 formula recompute input builder', () => {
     });
   });
 
+  it('accepts short ALL windows only when constructed by the shared helper', () => {
+    const shortAllWindow = resolvePortfolioIntervalWindow({
+      interval: 'ALL',
+      firstPortfolioEventTs: ORACLE_TS.start,
+      windowAnchorTs: ORACLE_TS.start + Math.trunc(DAY_MS / 2),
+    });
+    expect(shortAllWindow).toMatchObject({
+      windowStartTs: ORACLE_TS.start,
+      sampledFromStoredInterval: '1D',
+    });
+
+    const valid = expectValidFormula(
+      buildSingleEthFormula({
+        ...shortAllWindow!,
+        seriesIdentityKey: 'wallet:eth|asset:eth|quote:USD|short-all',
+        ratePoints: [
+          {ts: shortAllWindow!.windowStartTs, rate: 100},
+          {ts: shortAllWindow!.windowEndTs, rate: 110},
+        ],
+      }),
+    );
+    expect(valid.wallets[0].series.ALL).toBeDefined();
+
+    expect(
+      buildSingleEthFormula({
+        ...shortAllWindow!,
+        sampledFromStoredInterval: 'ALL',
+      }),
+    ).toEqual({kind: 'invalid', reason: 'invalidWalletIntervalWindow'});
+  });
+
   it('quarantines unsafe atomic formula inputs for the affected wallet', () => {
     const formula = expectValidFormula(
       buildSingleEthFormula({
@@ -453,6 +490,69 @@ describe('portfolio v2 formula recompute input builder', () => {
     expect(formula.wallets[0].series).toEqual({});
     expect(malformedEvent.invalidHistoryWalletIds).toEqual(['eth-wallet']);
     expect(malformedEvent.wallets[0].series).toEqual({});
+  });
+
+  it('scales mixed-decimal atomic inputs and quarantines only affected wallets', () => {
+    const formula = expectValidFormula(
+      buildFormulaComputedInputs({
+        quoteCurrency: 'USD',
+        wallets: [
+          {
+            walletId: 'eth-wallet',
+            assetGroupId: 'eth',
+            assetIdentityKey: 'eth',
+            rateSourceKey: 'eth',
+            displayUnitsAtomic: '1000000000000000000',
+            displayUnitDecimals: 18,
+            liveRate: 125,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [
+              oneDayInterval({
+                baselineUnits: Number.MAX_SAFE_INTEGER,
+                baselineUnitsAtomic: '1000000000000000000',
+              }),
+            ],
+          },
+          {
+            walletId: 'usdc-wallet',
+            assetGroupId: 'usdc',
+            assetIdentityKey: 'usdc',
+            rateSourceKey: 'usdc',
+            displayUnitsAtomic: '1000000',
+            displayUnitDecimals: 6,
+            liveRate: 1,
+            lastWrittenAt: 11,
+            lastAccessedAt: 21,
+            intervals: [
+              oneDayInterval({
+                seriesIdentityKey: 'wallet:usdc|asset:usdc|quote:USD|snap:1',
+                baselineUnits: 0,
+                baselineUnitsAtomic: 'malformed',
+                ratePoints: [
+                  {ts: ORACLE_TS.start, rate: 1},
+                  {ts: ORACLE_TS.end, rate: 1},
+                ],
+              }),
+            ],
+          },
+        ],
+        assetGroups: [
+          {assetGroupId: 'eth', displaySymbol: 'ETH', orderIndex: 1},
+          {assetGroupId: 'usdc', displaySymbol: 'USDC', orderIndex: 2},
+        ],
+      }),
+    );
+
+    expect(formula.invalidHistoryWalletIds).toEqual(['usdc-wallet']);
+    expect(
+      formula.wallets.find(wallet => wallet.walletId === 'eth-wallet')?.series[
+        '1D'
+      ],
+    ).toBeDefined();
+    expect(
+      formula.wallets.find(wallet => wallet.walletId === 'usdc-wallet')?.series,
+    ).toEqual({});
   });
 
   it('treats invalid-history as wallet-wide across intervals', () => {
@@ -1013,6 +1113,134 @@ describe('portfolio v2 formula recompute input builder', () => {
     expect(state.rowShells[0].currentFiatValue).toBeCloseTo(210.6, 10);
     expect(state.byAssetGroup.eth.rowToday?.rateStart).toBe(90);
     expect(state.byAssetGroup.eth.rowToday?.rateEnd).toBe(117);
+  });
+
+  it('quote-bridges positive atomic buys at the exact event timestamp', () => {
+    const buyTs = ORACLE_TS.start + Math.trunc(DAY_MS / 3);
+    const canonicalWallet = {
+      walletId: 'eth-wallet',
+      assetGroupId: 'eth',
+      assetIdentityKey: 'eth',
+      rateSourceKey: 'eth',
+      displayUnitsAtomic: '1000000000000000000',
+      displayUnitDecimals: 18,
+      liveRate: 100,
+      lastWrittenAt: 10,
+      lastAccessedAt: 20,
+      intervals: [
+        oneDayInterval({
+          seriesIdentityKey: 'wallet:eth|asset:eth|quote:USD|atomic-buy',
+          baselineUnits: 0,
+          baselineUnitsAtomic: '0',
+          balanceEvents: [
+            {
+              ts: buyTs,
+              unitsDelta: 0,
+              unitsDeltaAtomic: '1000000000000000000',
+              order: 1,
+            },
+          ],
+          ratePoints: [
+            {ts: ORACLE_TS.start, rate: 100},
+            {ts: buyTs, rate: 100},
+            {ts: ORACLE_TS.end, rate: 100},
+          ],
+        }),
+      ],
+    };
+    const bridged = expectValidFormula(
+      buildQuoteBridgedFormulaComputedInputs({
+        targetQuoteCurrency: 'EUR',
+        wallets: [canonicalWallet],
+        assetGroups: [
+          {
+            assetGroupId: 'eth',
+            displaySymbol: 'ETH',
+            orderIndex: 1,
+          },
+        ],
+        bridgeRatePointsByStoredInterval: {
+          '1D': {
+            targetBtcRatePoints: [
+              {ts: ORACLE_TS.start, rate: 1},
+              {ts: buyTs, rate: 2},
+              {ts: ORACLE_TS.end, rate: 1},
+            ],
+            canonicalBtcRatePoints: [
+              {ts: ORACLE_TS.start, rate: 1},
+              {ts: buyTs, rate: 1},
+              {ts: ORACLE_TS.end, rate: 1},
+            ],
+            targetBtcLiveRate: 1,
+            canonicalBtcLiveRate: 1,
+          },
+        },
+      }),
+    );
+
+    const points = bridged.wallets[0].series['1D']?.points ?? [];
+    expect(points).toHaveLength(MAX_CHART_POINTS);
+    expect(points.some(point => point.ts === buyTs)).toBe(false);
+    expect(points.at(-1)?.fiatBalance).toBeCloseTo(100, 10);
+    expect(points.at(-1)?.remainingUnrealizedPnlFiat).toBeCloseTo(-100, 10);
+    expect(points.at(-1)?.pnlChange).toBeCloseTo(-100, 10);
+    expect(points.at(-1)?.pnlPercent).toBeCloseTo(-50, 10);
+  });
+
+  it('quarantines malformed atomic quote-bridged balance events', () => {
+    const formula = expectValidFormula(
+      buildQuoteBridgedFormulaComputedInputs({
+        targetQuoteCurrency: 'EUR',
+        wallets: [
+          {
+            walletId: 'eth-wallet',
+            assetGroupId: 'eth',
+            assetIdentityKey: 'eth',
+            rateSourceKey: 'eth',
+            displayUnitsAtomic: '1000000000000000000',
+            displayUnitDecimals: 18,
+            liveRate: 100,
+            lastWrittenAt: 10,
+            lastAccessedAt: 20,
+            intervals: [
+              oneDayInterval({
+                baselineUnits: 0,
+                balanceEvents: [
+                  {
+                    ts: ORACLE_TS.middle,
+                    unitsDelta: 0,
+                    unitsDeltaAtomic: 'malformed',
+                    order: 1,
+                  },
+                ],
+              }),
+            ],
+          },
+        ],
+        assetGroups: [
+          {
+            assetGroupId: 'eth',
+            displaySymbol: 'ETH',
+            orderIndex: 1,
+          },
+        ],
+        bridgeRatePointsByStoredInterval: {
+          '1D': {
+            targetBtcRatePoints: [
+              {ts: ORACLE_TS.start, rate: 1},
+              {ts: ORACLE_TS.end, rate: 1},
+            ],
+            canonicalBtcRatePoints: [
+              {ts: ORACLE_TS.start, rate: 1},
+              {ts: ORACLE_TS.end, rate: 1},
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(formula.invalidHistoryWalletIds).toEqual(['eth-wallet']);
+    expect(formula.wallets[0].series).toEqual({});
   });
 
   it('quote-bridges GBP from canonical USD rates instead of chaining through display EUR', () => {

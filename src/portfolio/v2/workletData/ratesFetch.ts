@@ -892,7 +892,12 @@ async function ensureFreshDependencies(args: {
     const key = inFlightKey(dependency, startEpoch);
     const inFlight = inFlightByDependencyKey.get(key);
     if (inFlight) {
-      if (args.force && inFlight.started && !inFlight.followUpPromise) {
+      if (
+        args.force &&
+        inFlight.started &&
+        !inFlight.force &&
+        !inFlight.followUpPromise
+      ) {
         inFlight.force = true;
         inFlight.followUpPromise = inFlight.promise.then(() =>
           ensureFreshDependencies({
