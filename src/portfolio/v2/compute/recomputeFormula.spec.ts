@@ -847,6 +847,112 @@ describe('portfolio v2 formula recompute input builder', () => {
     expect(state.byAssetGroup.eth.rowToday?.rateEnd).toBe(117);
   });
 
+  it('quote-bridges GBP from canonical USD rates instead of chaining through display EUR', () => {
+    const canonicalWallet = {
+      walletId: 'eth-wallet',
+      assetGroupId: 'eth',
+      assetIdentityKey: 'eth',
+      rateSourceKey: 'eth',
+      displayUnitsAtomic: '2000000000000000000',
+      displayUnitDecimals: 18,
+      liveRate: 130,
+      lastWrittenAt: 10,
+      lastAccessedAt: 20,
+      intervals: [
+        oneDayInterval({
+          seriesIdentityKey: 'wallet:eth|asset:eth|quote:USD|snap:1|rate:1',
+          baselineUnits: 2,
+          ratePoints: [
+            {ts: ORACLE_TS.start, rate: 100},
+            {ts: ORACLE_TS.end, rate: 120},
+          ],
+          maxPoints: 2,
+        }),
+      ],
+    };
+    const assetGroups = [
+      {
+        assetGroupId: 'eth',
+        displaySymbol: 'ETH',
+        orderIndex: 1,
+      },
+    ];
+
+    const bridged = expectValidFormula(
+      buildQuoteBridgedFormulaComputedInputs({
+        targetQuoteCurrency: 'GBP',
+        wallets: [canonicalWallet],
+        assetGroups,
+        bridgeRatePointsByStoredInterval: {
+          '1D': {
+            targetBtcRatePoints: [
+              {ts: ORACLE_TS.start, rate: 8},
+              {ts: ORACLE_TS.end, rate: 9},
+            ],
+            canonicalBtcRatePoints: [
+              {ts: ORACLE_TS.start, rate: 10},
+              {ts: ORACLE_TS.end, rate: 12},
+            ],
+            targetBtcLiveRate: 10,
+            canonicalBtcLiveRate: 13,
+          },
+        },
+      }),
+    );
+    const state = expectValidState(
+      buildPortfolioComputedState({
+        workEpoch: 1,
+        revision: 1,
+        quoteCurrency: 'GBP',
+        computedAtMs: 100,
+        wallets: bridged.wallets,
+        assetGroups: bridged.assetGroups,
+        populatedWalletIds: ['eth-wallet'],
+      }),
+    );
+
+    const marketRates =
+      bridged.assetGroups[0].marketRatePointsByInterval?.['1D'];
+    expect(state.quoteCurrency).toBe('GBP');
+    expect(marketRates?.map(point => point.rate)).toEqual([80, 90]);
+    expect(bridged.wallets[0].series['1D']?.points).toEqual([
+      {
+        ts: ORACLE_TS.start,
+        fiatBalance: 160,
+        remainingUnrealizedPnlFiat: 0,
+        pnlChange: 0,
+        pnlPercent: 0,
+      },
+      {
+        ts: ORACLE_TS.end,
+        fiatBalance: 180,
+        remainingUnrealizedPnlFiat: 20,
+        pnlChange: 20,
+        pnlPercent: 12.5,
+      },
+    ]);
+    expect(bridged.assetGroups[0].members[0].liveRate).toBe(100);
+    expect(state.rowShells[0].currentFiatValue).toBe(200);
+    expect(state.byAssetGroup.eth.rowToday).toMatchObject({
+      rateStart: 80,
+      rateEnd: 90,
+      ratePercent: 12.5,
+      fiatStart: 160,
+      fiatEnd: 180,
+    });
+
+    const wrongEurDerivedRates = [72, 87.75];
+    expect(marketRates?.map(point => point.rate)).not.toEqual(
+      wrongEurDerivedRates,
+    );
+    expect(state.byAssetGroup.eth.rowToday?.rateStart).not.toBe(
+      wrongEurDerivedRates[0],
+    );
+    expect(state.byAssetGroup.eth.rowToday?.rateEnd).not.toBe(
+      wrongEurDerivedRates[1],
+    );
+  });
+
   it('quote-bridges collapsed weighted groups per timestamp', () => {
     const bridged = expectValidFormula(
       buildQuoteBridgedFormulaComputedInputs({

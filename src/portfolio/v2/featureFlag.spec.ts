@@ -1,5 +1,10 @@
 import {type WorkletMmkvStorageBridge} from '../adapters/rn/mmkvKvStore';
 import {PORTFOLIO_V2_FLAG_KEY} from './constants';
+import {
+  clearRecordedPortfolioV2MetricsForTesting,
+  getRecordedPortfolioV2MetricsForTesting,
+} from './metrics';
+import {resetPortfolioKvStoreForTesting} from './kvStore';
 
 class FakeMmkv {
   readonly data = new Map<string, string>();
@@ -63,6 +68,8 @@ class FakeMmkvStorageBridge implements WorkletMmkvStorageBridge {
 
 beforeEach(() => {
   mockMmkv.data.clear();
+  clearRecordedPortfolioV2MetricsForTesting();
+  resetPortfolioKvStoreForTesting();
 });
 
 describe('PORTFOLIO_V2 feature flag (worklet path)', () => {
@@ -134,6 +141,14 @@ describe('setPortfolioV2EnabledForTesting', () => {
     setPortfolioV2EnabledForTesting(true);
     expect(mockMmkv.getString(PORTFOLIO_V2_FLAG_KEY)).toBe('1');
     expect(isPortfolioV2EnabledOnJS()).toBe(true);
+    expect(getRecordedPortfolioV2MetricsForTesting()).toEqual([
+      expect.objectContaining({
+        kind: 'mmkvWrite',
+        reason: 'flag',
+        keyPrefixFamily: 'portfolio:v2',
+        approximateBytes: 1,
+      }),
+    ]);
   });
 
   it('deletes the flag key when disabled (rather than writing a falsy value)', () => {
@@ -141,6 +156,14 @@ describe('setPortfolioV2EnabledForTesting', () => {
     setPortfolioV2EnabledForTesting(false);
     expect(mockMmkv.contains(PORTFOLIO_V2_FLAG_KEY)).toBe(false);
     expect(isPortfolioV2EnabledOnJS()).toBe(false);
+    expect(getRecordedPortfolioV2MetricsForTesting()).toEqual([
+      expect.objectContaining({
+        kind: 'mmkvWrite',
+        reason: 'flag',
+        keyPrefixFamily: 'portfolio:v2',
+        approximateBytes: 0,
+      }),
+    ]);
   });
 
   it('round-trips through enable/disable cycles', () => {

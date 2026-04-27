@@ -24,6 +24,7 @@
 import {getPortfolioMmkvStorageOnRN} from '../adapters/rn/workletMmkvBridge';
 import type {WorkletMmkvStorageBridge} from '../adapters/rn/mmkvKvStore';
 import {PORTFOLIO_V2_FLAG_KEY} from './constants';
+import {deletePortfolioMmkvKey, writePortfolioMmkvString} from './kvStore';
 
 const FLAG_TRUE_VALUE = '1';
 
@@ -55,10 +56,16 @@ export function isPortfolioV2EnabledOnWorklet(
  * kill-switch path.
  */
 export function setPortfolioV2EnabledForTesting(enabled: boolean): void {
-  const storage = getPortfolioMmkvStorageOnRN();
   if (enabled) {
-    storage.set(PORTFOLIO_V2_FLAG_KEY, FLAG_TRUE_VALUE);
+    writePortfolioMmkvString({
+      key: PORTFOLIO_V2_FLAG_KEY,
+      value: FLAG_TRUE_VALUE,
+      reason: 'flag',
+    });
   } else {
-    storage.delete(PORTFOLIO_V2_FLAG_KEY);
+    deletePortfolioMmkvKey({
+      key: PORTFOLIO_V2_FLAG_KEY,
+      reason: 'flag',
+    });
   }
 }
