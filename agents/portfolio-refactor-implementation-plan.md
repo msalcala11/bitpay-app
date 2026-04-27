@@ -2931,7 +2931,8 @@ export type PullRefreshChangedWalletResult = Readonly<{
 export function deriveChangedWalletIdsFromPullRefresh(args: {
   before: readonly PortfolioRefreshWalletFingerprint[];
   after: readonly PortfolioRefreshWalletFingerprint[];
-  // The intended wallet scope refreshed by the caller, captured before refresh
+  // The fallback wallet scope refreshed by the caller: the intended pre-refresh
+  // scope, unioned with any after-only wallet IDs discovered by the refresh,
   // and adjusted only for removals owned by stronger triggers.
   refreshedScopeWalletIds: readonly string[];
   // Wallets that disappeared because a stronger trigger already owns the side
@@ -2949,7 +2950,7 @@ Trigger order:
 1. Run the existing wallet/rate refresh work and derive changed wallets from before/after fingerprints.
 2. Force `ensureFresh` from the post-refresh store via `buildEnsureFreshArgsForVisibleAssetGroups(...)`, which always unions canonical `BTC/USD` and includes newly visible asset groups.
 3. Requeue `changedWalletIds` with `{reason: 'pullToRefresh', priority: 'urgentUserVisible'}`, including already-populated wallets.
-4. If exact derivation is impossible because pre/post fingerprints are missing, refresh failed, wallet shape is unsupported, any both-sides wallet lacks a stable history cursor, any after-only wallet lacks a stable history cursor, or a before-only wallet lacks an external owner, fall back to all livenet/mainnet wallets in the refreshed scope and record `derivation: 'scopeFallback'`; never silently pass an empty changed-wallet list just because the refresh outcome could not be diffed.
+4. If exact derivation is impossible because pre/post fingerprints are missing, refresh failed, wallet shape is unsupported, any both-sides wallet lacks a stable history cursor, any after-only wallet lacks a stable history cursor, or a before-only wallet lacks an external owner, fall back to all livenet/mainnet wallets in the fallback refreshed scope: intended pre-refresh scope plus after-only wallet IDs discovered by the refresh, minus externally owned removals. Record `derivation: 'scopeFallback'`; never silently pass an empty changed-wallet list just because the refresh outcome could not be diffed.
 5. Schedule recompute for the affected wallet set or full scope.
 
 ### Quote currency changed
