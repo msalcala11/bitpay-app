@@ -7,6 +7,7 @@ import type {
 } from '../model';
 import type {AssetGroupRowShellMemberInput} from './assetGroupRows';
 import type {WeightedGroupRateConstituentInput} from './weightedGroupRates';
+import {buildIntervalWindow} from '../__tests__/fixtures/intervalWindows';
 import {
   buildPortfolioComputedState,
   stableWalletIdsKey,
@@ -15,12 +16,12 @@ import {
   type WalletComputedStateInput,
 } from './portfolioState';
 
-function expectValid(
-  result: ReturnType<typeof buildPortfolioComputedState>,
-) {
+function expectValid(result: ReturnType<typeof buildPortfolioComputedState>) {
   expect(result.kind).toBe('valid');
   if (result.kind !== 'valid') {
-    throw new Error(`Expected valid portfolio state, received ${result.reason}`);
+    throw new Error(
+      `Expected valid portfolio state, received ${result.reason}`,
+    );
   }
   return result.state;
 }
@@ -106,8 +107,7 @@ function makeConstituent(args: {
       {
         ts: args.endTs,
         rate: args.rateEnd,
-        percentChange:
-          ((args.rateEnd - args.rateStart) / args.rateStart) * 100,
+        percentChange: ((args.rateEnd - args.rateStart) / args.rateStart) * 100,
       },
     ],
   };
@@ -146,10 +146,13 @@ function makeWallet(args: {
   };
 }
 
+const oneDayWindow = buildIntervalWindow({startTs: 1, endTs: 2});
+const allTimeWindow = buildIntervalWindow({startTs: 10, endTs: 20});
+
 const oneDaySeries = makeSeries({
   interval: '1D',
-  startTs: 1,
-  endTs: 2,
+  startTs: oneDayWindow.startTs,
+  endTs: oneDayWindow.endTs,
   fiatStart: 100,
   fiatEnd: 125,
   pnlChange: 25,
@@ -158,8 +161,8 @@ const oneDaySeries = makeSeries({
 
 const allTimeSeries = makeSeries({
   interval: 'ALL',
-  startTs: 10,
-  endTs: 20,
+  startTs: allTimeWindow.startTs,
+  endTs: allTimeWindow.endTs,
   fiatStart: 50,
   fiatEnd: 150,
   pnlChange: 100,
@@ -169,8 +172,8 @@ const allTimeSeries = makeSeries({
 
 const totalSeries = makeSeries({
   interval: '1D',
-  startTs: 1,
-  endTs: 2,
+  startTs: oneDayWindow.startTs,
+  endTs: oneDayWindow.endTs,
   fiatStart: 300,
   fiatEnd: 375,
   pnlChange: 75,
@@ -189,15 +192,15 @@ function makeBtcAssetGroup(
     members: [makeMember({walletId: 'btc-wallet', rateSourceKey: 'btc'})],
     marketRatePointsByInterval: {
       '1D': makeMarketPoints({
-        startTs: 1,
-        endTs: 2,
+        startTs: oneDayWindow.startTs,
+        endTs: oneDayWindow.endTs,
         rateStart: 10,
         rateEnd: 15,
         percentChange: 49.5,
       }),
       ALL: makeMarketPoints({
-        startTs: 10,
-        endTs: 20,
+        startTs: allTimeWindow.startTs,
+        endTs: allTimeWindow.endTs,
         rateStart: 5,
         rateEnd: 20,
         percentChange: 250,
@@ -224,16 +227,16 @@ function makeUsdcAssetGroup(
         makeConstituent({
           rateSourceKey: 'usdc|eth',
           baselineUnits: 1,
-          startTs: 1,
-          endTs: 2,
+          startTs: oneDayWindow.startTs,
+          endTs: oneDayWindow.endTs,
           rateStart: 1,
           rateEnd: 1.2,
         }),
         makeConstituent({
           rateSourceKey: 'usdc|pol',
           baselineUnits: 1,
-          startTs: 1,
-          endTs: 2,
+          startTs: oneDayWindow.startTs,
+          endTs: oneDayWindow.endTs,
           rateStart: 1,
           rateEnd: 1.2,
         }),
@@ -242,16 +245,16 @@ function makeUsdcAssetGroup(
         makeConstituent({
           rateSourceKey: 'usdc|eth',
           baselineUnits: 1,
-          startTs: 10,
-          endTs: 20,
+          startTs: allTimeWindow.startTs,
+          endTs: allTimeWindow.endTs,
           rateStart: 1,
           rateEnd: 2,
         }),
         makeConstituent({
           rateSourceKey: 'usdc|pol',
           baselineUnits: 1,
-          startTs: 10,
-          endTs: 20,
+          startTs: allTimeWindow.startTs,
+          endTs: allTimeWindow.endTs,
           rateStart: 1,
           rateEnd: 2,
         }),
@@ -360,9 +363,7 @@ describe('portfolio v2 computed state producer', () => {
     expect(state.byWallet['btc-wallet']?.fingerprint).toMatch(
       /^fnv1a:[0-9a-f]{8}$/,
     );
-    expect(state.byAssetGroup.usdc.fingerprint).toMatch(
-      /^fnv1a:[0-9a-f]{8}$/,
-    );
+    expect(state.byAssetGroup.usdc.fingerprint).toMatch(/^fnv1a:[0-9a-f]{8}$/);
     expect(state.totalFingerprint).toMatch(/^fnv1a:[0-9a-f]{8}$/);
     expect(state.scopedByWalletSet).toEqual({});
   });
@@ -619,9 +620,9 @@ describe('portfolio v2 computed state producer', () => {
       refreshing: false,
       invalidHistoryBlocked: false,
     });
-    expect(state.readinessByScopeKey.persisted.hasEverPublishedValidSeries).toBe(
-      true,
-    );
+    expect(
+      state.readinessByScopeKey.persisted.hasEverPublishedValidSeries,
+    ).toBe(true);
   });
 
   it('keeps partially invalid scopes ready without marking them fully blocked', () => {
@@ -662,9 +663,9 @@ describe('portfolio v2 computed state producer', () => {
     expect(state.byAssetGroup.usdc.series['1D']?.points.length).toBeGreaterThan(
       0,
     );
-    expect(
-      state.readinessByScopeKey.home.hasEverPublishedValidSeries,
-    ).toBe(true);
+    expect(state.readinessByScopeKey.home.hasEverPublishedValidSeries).toBe(
+      true,
+    );
   });
 
   it('changes total fingerprints when total series identity changes', () => {

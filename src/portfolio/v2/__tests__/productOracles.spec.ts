@@ -1,5 +1,6 @@
 import {
   CHECKPOINT_VALIDITY_FIXTURE,
+  ORACLE_1D_WINDOW,
   ORACLE_TS,
   TRANSFER_NON_NETTING_FIXTURES,
   WEIGHTED_GROUP_FIXTURE,
@@ -10,8 +11,8 @@ import type {Point, Series} from '../model';
 
 const TRANSFER_FORMULA_ARGS = {
   interval: '1D' as const,
-  windowStartTs: ORACLE_TS.start,
-  windowEndTs: ORACLE_TS.end,
+  windowStartTs: ORACLE_1D_WINDOW.windowStartTs,
+  windowEndTs: ORACLE_1D_WINDOW.windowEndTs,
   sampledFromStoredInterval: '1D' as const,
   finalPointSource: 'historicalRate' as const,
   maxPoints: 2,
@@ -21,7 +22,9 @@ function expectValidSeries(
   result: ReturnType<typeof buildWalletSeriesFromEvents>,
 ): Series {
   if (result.kind !== 'valid') {
-    throw new Error(`Expected valid transfer oracle series, got ${result.reason}`);
+    throw new Error(
+      `Expected valid transfer oracle series, got ${result.reason}`,
+    );
   }
 
   return result.series;
@@ -169,11 +172,11 @@ describe('portfolio v2 shared product oracle fixtures', () => {
   });
 
   it('keeps the checkpoint oracle JSON-serializable for the Phase 5 validator', () => {
-    expect(JSON.parse(JSON.stringify(CHECKPOINT_VALIDITY_FIXTURE.valid))).toEqual(
-      CHECKPOINT_VALIDITY_FIXTURE.valid,
-    );
     expect(
-      new Set(CHECKPOINT_VALIDITY_FIXTURE.invalidityReasons).size,
-    ).toBe(CHECKPOINT_VALIDITY_FIXTURE.invalidityReasons.length);
+      JSON.parse(JSON.stringify(CHECKPOINT_VALIDITY_FIXTURE.valid)),
+    ).toEqual(CHECKPOINT_VALIDITY_FIXTURE.valid);
+    expect(new Set(CHECKPOINT_VALIDITY_FIXTURE.invalidityReasons).size).toBe(
+      CHECKPOINT_VALIDITY_FIXTURE.invalidityReasons.length,
+    );
   });
 });

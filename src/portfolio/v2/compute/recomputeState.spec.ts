@@ -6,15 +6,14 @@ import type {
 } from '../model';
 import type {AssetGroupRowShellMemberInput} from './assetGroupRows';
 import type {WeightedGroupRateConstituentInput} from './weightedGroupRates';
+import {buildIntervalWindow} from '../__tests__/fixtures/intervalWindows';
 import {
   buildRecomputeStateSlices,
   type AssetGroupSliceAssemblyInput,
   type WalletSliceAssemblyInput,
 } from './recomputeState';
 
-function expectValid(
-  result: ReturnType<typeof buildRecomputeStateSlices>,
-) {
+function expectValid(result: ReturnType<typeof buildRecomputeStateSlices>) {
   expect(result.kind).toBe('valid');
   if (result.kind !== 'valid') {
     throw new Error(
@@ -104,8 +103,7 @@ function makeConstituent(args: {
       {
         ts: args.endTs,
         rate: args.rateEnd,
-        percentChange:
-          ((args.rateEnd - args.rateStart) / args.rateStart) * 100,
+        percentChange: ((args.rateEnd - args.rateStart) / args.rateStart) * 100,
       },
     ],
   };
@@ -142,10 +140,13 @@ function makeWallet(args: {
   };
 }
 
+const oneDayWindow = buildIntervalWindow({startTs: 1, endTs: 2});
+const allTimeWindow = buildIntervalWindow({startTs: 10, endTs: 20});
+
 const oneDaySeries = makeSeries({
   interval: '1D',
-  startTs: 1,
-  endTs: 2,
+  startTs: oneDayWindow.startTs,
+  endTs: oneDayWindow.endTs,
   fiatStart: 100,
   fiatEnd: 125,
   pnlChange: 25,
@@ -154,8 +155,8 @@ const oneDaySeries = makeSeries({
 
 const allTimeSeries = makeSeries({
   interval: 'ALL',
-  startTs: 10,
-  endTs: 20,
+  startTs: allTimeWindow.startTs,
+  endTs: allTimeWindow.endTs,
   fiatStart: 50,
   fiatEnd: 150,
   pnlChange: 100,
@@ -178,15 +179,15 @@ function makeSingleSourceAssetGroup(
     members: [makeMember({walletId: 'btc-wallet', rateSourceKey: 'btc'})],
     marketRatePointsByInterval: {
       '1D': makeMarketPoints({
-        startTs: 1,
-        endTs: 2,
+        startTs: oneDayWindow.startTs,
+        endTs: oneDayWindow.endTs,
         rateStart: 10,
         rateEnd: 15,
         percentChange: 49.5,
       }),
       ALL: makeMarketPoints({
-        startTs: 10,
-        endTs: 20,
+        startTs: allTimeWindow.startTs,
+        endTs: allTimeWindow.endTs,
         rateStart: 5,
         rateEnd: 20,
         percentChange: 250,
@@ -214,15 +215,15 @@ function makeCollapsedAssetGroup(
     ],
     marketRatePointsByInterval: {
       '1D': makeMarketPoints({
-        startTs: 1,
-        endTs: 2,
+        startTs: oneDayWindow.startTs,
+        endTs: oneDayWindow.endTs,
         rateStart: 1,
         rateEnd: 9,
         percentChange: 999,
       }),
       ALL: makeMarketPoints({
-        startTs: 10,
-        endTs: 20,
+        startTs: allTimeWindow.startTs,
+        endTs: allTimeWindow.endTs,
         rateStart: 1,
         rateEnd: 9,
         percentChange: 999,
@@ -233,16 +234,16 @@ function makeCollapsedAssetGroup(
         makeConstituent({
           rateSourceKey: 'usdc|eth',
           baselineUnits: 1,
-          startTs: 1,
-          endTs: 2,
+          startTs: oneDayWindow.startTs,
+          endTs: oneDayWindow.endTs,
           rateStart: 1,
           rateEnd: 1.2,
         }),
         makeConstituent({
           rateSourceKey: 'usdc|pol',
           baselineUnits: 1,
-          startTs: 1,
-          endTs: 2,
+          startTs: oneDayWindow.startTs,
+          endTs: oneDayWindow.endTs,
           rateStart: 1,
           rateEnd: 1.2,
         }),
@@ -251,16 +252,16 @@ function makeCollapsedAssetGroup(
         makeConstituent({
           rateSourceKey: 'usdc|eth',
           baselineUnits: 1,
-          startTs: 10,
-          endTs: 20,
+          startTs: allTimeWindow.startTs,
+          endTs: allTimeWindow.endTs,
           rateStart: 1,
           rateEnd: 2,
         }),
         makeConstituent({
           rateSourceKey: 'usdc|pol',
           baselineUnits: 1,
-          startTs: 10,
-          endTs: 20,
+          startTs: allTimeWindow.startTs,
+          endTs: allTimeWindow.endTs,
           rateStart: 1,
           rateEnd: 2,
         }),
@@ -374,10 +375,7 @@ describe('portfolio v2 recompute state assembly adapter', () => {
             series: {'1D': oneDaySeries},
           }),
         ],
-        assetGroups: [
-          makeSingleSourceAssetGroup(),
-          makeCollapsedAssetGroup(),
-        ],
+        assetGroups: [makeSingleSourceAssetGroup(), makeCollapsedAssetGroup()],
       }),
     );
 
@@ -529,7 +527,9 @@ describe('portfolio v2 recompute state assembly adapter', () => {
       }),
     );
 
-    expect(result.byAssetGroup.usdc.weightedGroupRateSeries?.['1D']).toMatchObject({
+    expect(
+      result.byAssetGroup.usdc.weightedGroupRateSeries?.['1D'],
+    ).toMatchObject({
       availability: 'unavailable',
       unavailableReason: 'missingConstituentRate',
       points: [],

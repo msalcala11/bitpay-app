@@ -20,12 +20,8 @@ import {
   runNextPendingRecompute,
   scheduleRecompute,
 } from './scheduler';
-import {
-  resetPortfolioV2RuntimesForTesting,
-} from './runtimes';
-import {
-  sharedPortfolioState,
-} from './sharedState';
+import {resetPortfolioV2RuntimesForTesting} from './runtimes';
+import {sharedPortfolioState} from './sharedState';
 import type {
   FormulaAssetGroupInput,
   FormulaWalletInput,
@@ -35,6 +31,7 @@ import type {
 import {recomputePortfolioState} from './recompute';
 import {
   NO_TRANSACTION_PARITY_FIXTURE,
+  ORACLE_1D_WINDOW,
   ORACLE_TS,
 } from './__tests__/fixtures/productOracles';
 
@@ -127,8 +124,8 @@ function oneDayInterval(
   return {
     interval: '1D',
     seriesIdentityKey: 'wallet:eth|asset:eth|quote:USD|snap:1|rate:1',
-    windowStartTs: ORACLE_TS.start,
-    windowEndTs: ORACLE_TS.end,
+    windowStartTs: ORACLE_1D_WINDOW.windowStartTs,
+    windowEndTs: ORACLE_1D_WINDOW.windowEndTs,
     sampledFromStoredInterval: '1D',
     finalPointSource: 'historicalRate',
     baselineUnits: NO_TRANSACTION_PARITY_FIXTURE.baselineUnits,
@@ -293,18 +290,18 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
       startEpoch: 7,
       normalizedFormulaInput: normalizedInput(),
     });
-    expect(getPendingRecomputesForTesting().map(request => request.scope)).toEqual(
-      [{kind: 'liveRateTouch', changedAssetIds: ['btc', 'eth']}],
-    );
+    expect(
+      getPendingRecomputesForTesting().map(request => request.scope),
+    ).toEqual([{kind: 'liveRateTouch', changedAssetIds: ['btc', 'eth']}]);
 
     scheduleRecompute({
       scope: 'full',
       startEpoch: 7,
       normalizedFormulaInput: normalizedInput(),
     });
-    expect(getPendingRecomputesForTesting().map(request => request.scope)).toEqual([
-      'full',
-    ]);
+    expect(
+      getPendingRecomputesForTesting().map(request => request.scope),
+    ).toEqual(['full']);
 
     scheduleRecompute({
       scope: {kind: 'wallet', walletId: 'eth-wallet'},
@@ -327,7 +324,9 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
       normalizedFormulaInput: normalizedInput(),
     });
 
-    expect(getPendingRecomputesForTesting().map(request => request.scope)).toEqual([
+    expect(
+      getPendingRecomputesForTesting().map(request => request.scope),
+    ).toEqual([
       'full',
       {kind: 'wallets', walletIds: ['btc-wallet', 'eth-wallet']},
     ]);
@@ -431,10 +430,9 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
       input?.formula.wallets.find(wallet => wallet.walletId === 'eth-wallet')
         ?.liveRate,
     ).toBe(111);
-    expect(input?.formula.assetGroups.map(group => group.assetGroupId)).toEqual([
-      'btc',
-      'eth',
-    ]);
+    expect(input?.formula.assetGroups.map(group => group.assetGroupId)).toEqual(
+      ['btc', 'eth'],
+    );
     expect(input?.populatedWalletIds).toEqual(['btc-wallet', 'eth-wallet']);
     expect(input?.invalidHistoryWalletIds).toEqual([
       'legacy-invalid',
@@ -504,9 +502,9 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
     expect(pending.normalizedFormulaInput?.formula.wallets[0].liveRate).toBe(
       150,
     );
-    expect(pending.normalizedFormulaInput?.protectedScopedWalletIdsKeys).toEqual(
-      ['new-scope', 'old-scope'],
-    );
+    expect(
+      pending.normalizedFormulaInput?.protectedScopedWalletIdsKeys,
+    ).toEqual(['new-scope', 'old-scope']);
     expect(pending.normalizedFormulaInput?.evictScopedWalletIds).toEqual([
       'deleted-wallet',
     ]);
@@ -555,9 +553,9 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
     expect(pending.normalizedFormulaInput?.formula.wallets[0].liveRate).toBe(
       150,
     );
-    expect(pending.normalizedFormulaInput?.protectedScopedWalletIdsKeys).toEqual(
-      ['new-scope'],
-    );
+    expect(
+      pending.normalizedFormulaInput?.protectedScopedWalletIdsKeys,
+    ).toEqual(['new-scope']);
 
     scheduleRecompute({
       scope: 'full',

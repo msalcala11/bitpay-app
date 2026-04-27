@@ -3,29 +3,35 @@ import {
   getDisplayedExchangeRateRangeMs,
   prepareExchangeRateChartPoints,
 } from './useExchangeRateChartData';
+import {
+  buildIntervalWindow,
+  ONE_DAY_MS,
+  ONE_HOUR_MS,
+} from '../../../portfolio/v2/__tests__/fixtures/intervalWindows';
 
 describe('prepareExchangeRateChartPoints', () => {
   it('uses the explicit nowMs when clipping an ALL-series window for display', () => {
-    const nowMs = Date.UTC(2026, 3, 20, 15, 0, 0);
-    const dayMs = 24 * 60 * 60 * 1000;
-    const dateNowSpy = jest.spyOn(Date, 'now').mockReturnValue(nowMs + dayMs * 7);
+    const intervalWindow = buildIntervalWindow();
+    const dateNowSpy = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(intervalWindow.endTs + ONE_DAY_MS * 7);
 
     try {
       const result = prepareExchangeRateChartPoints({
         selectedSeriesPoints: [
-          {ts: nowMs - dayMs - 1, rate: 99},
-          {ts: nowMs - dayMs, rate: 100},
-          {ts: nowMs, rate: 101},
+          {ts: intervalWindow.startTs - 1, rate: 99},
+          {ts: intervalWindow.startTs, rate: 100},
+          {ts: intervalWindow.endTs, rate: 101},
         ],
         selectedTimeframe: '1D',
         seriesDataInterval: 'ALL',
         currentFiatRate: 101,
-        nowMs,
+        nowMs: intervalWindow.endTs,
       });
 
       expect(result).toEqual([
-        {ts: nowMs - dayMs, rate: 100},
-        {ts: nowMs, rate: 101},
+        {ts: intervalWindow.startTs, rate: 100},
+        {ts: intervalWindow.endTs, rate: 101},
       ]);
     } finally {
       dateNowSpy.mockRestore();
@@ -33,89 +39,87 @@ describe('prepareExchangeRateChartPoints', () => {
   });
 
   it('appends a live terminal point at nowMs when the live point is newer than history', () => {
-    const startMs = Date.UTC(2026, 3, 19, 15, 0, 0);
-    const historicalEndMs = Date.UTC(2026, 3, 20, 14, 0, 0);
-    const asOfMs = Date.UTC(2026, 3, 20, 15, 0, 0);
+    const intervalWindow = buildIntervalWindow();
+    const historicalEndMs = intervalWindow.endTs - ONE_HOUR_MS;
 
     const result = prepareExchangeRateChartPoints({
       selectedSeriesPoints: [
-        {ts: startMs, rate: 100},
+        {ts: intervalWindow.startTs, rate: 100},
         {ts: historicalEndMs, rate: 101},
       ],
       selectedTimeframe: '1D',
       seriesDataInterval: '1D',
       currentFiatRate: 102,
-      nowMs: asOfMs,
+      nowMs: intervalWindow.endTs,
     });
 
     expect(result).toEqual([
-      {ts: startMs, rate: 100},
+      {ts: intervalWindow.startTs, rate: 100},
       {ts: historicalEndMs, rate: 101},
-      {ts: asOfMs, rate: 102},
+      {ts: intervalWindow.endTs, rate: 102},
     ]);
   });
 
   it('appends a live terminal point even when the live rate matches the last historical rate', () => {
-    const startMs = Date.UTC(2026, 3, 19, 15, 0, 0);
-    const historicalEndMs = Date.UTC(2026, 3, 20, 14, 0, 0);
-    const asOfMs = Date.UTC(2026, 3, 20, 15, 0, 0);
+    const intervalWindow = buildIntervalWindow();
+    const historicalEndMs = intervalWindow.endTs - ONE_HOUR_MS;
 
     const result = prepareExchangeRateChartPoints({
       selectedSeriesPoints: [
-        {ts: startMs, rate: 100},
+        {ts: intervalWindow.startTs, rate: 100},
         {ts: historicalEndMs, rate: 101},
       ],
       selectedTimeframe: '1D',
       seriesDataInterval: '1D',
       currentFiatRate: 101,
-      nowMs: asOfMs,
+      nowMs: intervalWindow.endTs,
     });
 
     expect(result).toEqual([
-      {ts: startMs, rate: 100},
+      {ts: intervalWindow.startTs, rate: 100},
       {ts: historicalEndMs, rate: 101},
-      {ts: asOfMs, rate: 101},
+      {ts: intervalWindow.endTs, rate: 101},
     ]);
   });
 
   it('replaces the last point rate when the live terminal timestamp matches the historical terminal timestamp', () => {
-    const startMs = Date.UTC(2026, 3, 19, 15, 0, 0);
-    const asOfMs = Date.UTC(2026, 3, 20, 15, 0, 0);
+    const intervalWindow = buildIntervalWindow();
 
     const result = prepareExchangeRateChartPoints({
       selectedSeriesPoints: [
-        {ts: startMs, rate: 100},
-        {ts: asOfMs, rate: 101},
+        {ts: intervalWindow.startTs, rate: 100},
+        {ts: intervalWindow.endTs, rate: 101},
       ],
       selectedTimeframe: '1D',
       seriesDataInterval: '1D',
       currentFiatRate: 102,
-      nowMs: asOfMs,
+      nowMs: intervalWindow.endTs,
     });
 
     expect(result).toEqual([
-      {ts: startMs, rate: 100},
-      {ts: asOfMs, rate: 102},
+      {ts: intervalWindow.startTs, rate: 100},
+      {ts: intervalWindow.endTs, rate: 102},
     ]);
   });
 
   it('computes displayed range metadata from the prepared points including an appended live terminal point', () => {
-    const startMs = Date.UTC(2026, 3, 19, 15, 0, 0);
-    const historicalEndMs = Date.UTC(2026, 3, 20, 14, 0, 0);
-    const asOfMs = Date.UTC(2026, 3, 20, 15, 0, 0);
+    const intervalWindow = buildIntervalWindow();
+    const historicalEndMs = intervalWindow.endTs - ONE_HOUR_MS;
 
     const prepared = prepareExchangeRateChartPoints({
       selectedSeriesPoints: [
-        {ts: startMs, rate: 100},
+        {ts: intervalWindow.startTs, rate: 100},
         {ts: historicalEndMs, rate: 101},
       ],
       selectedTimeframe: '1D',
       seriesDataInterval: '1D',
       currentFiatRate: 102,
-      nowMs: asOfMs,
+      nowMs: intervalWindow.endTs,
     });
 
-    expect(getDisplayedExchangeRateRangeMs(prepared)).toBe(asOfMs - startMs);
+    expect(getDisplayedExchangeRateRangeMs(prepared)).toBe(
+      intervalWindow.durationMs,
+    );
   });
 });
 

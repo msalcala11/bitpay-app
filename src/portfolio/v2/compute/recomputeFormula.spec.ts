@@ -8,6 +8,7 @@ import {
 import {
   IN_WINDOW_BUY_FIXTURE,
   NO_TRANSACTION_PARITY_FIXTURE,
+  ORACLE_1D_WINDOW,
   ORACLE_TS,
 } from '../__tests__/fixtures/productOracles';
 
@@ -35,8 +36,8 @@ function oneDayInterval(
   return {
     interval: '1D',
     seriesIdentityKey: 'wallet:eth|asset:eth|quote:USD|snap:1|rate:1',
-    windowStartTs: ORACLE_TS.start,
-    windowEndTs: ORACLE_TS.end,
+    windowStartTs: ORACLE_1D_WINDOW.windowStartTs,
+    windowEndTs: ORACLE_1D_WINDOW.windowEndTs,
     sampledFromStoredInterval: '1D',
     finalPointSource: 'historicalRate',
     baselineUnits: NO_TRANSACTION_PARITY_FIXTURE.baselineUnits,
