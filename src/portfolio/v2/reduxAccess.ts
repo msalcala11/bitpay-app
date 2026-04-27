@@ -1,7 +1,13 @@
 import type {Store} from 'redux';
 
 import type {RootState} from '../../store';
+import type {StoredWallet, WalletCredentials, WalletSummary} from '../core/types';
 import {getFiatRateAssetRef} from '../core/pnl/rates';
+import {DEFAULT_BWS_CONFIG, type BwsConfig} from '../core/shared/bws';
+import {
+  createPortfolioTxHistorySigningDispatchContextOnRN,
+  type PortfolioTxHistorySigningDispatchContext,
+} from '../adapters/rn/txHistorySigning';
 import {CANONICAL_RATE_QUOTE} from './constants';
 import type {FiatRateAssetRef, StoredRateInterval} from './model';
 import {normalizeRateAssetRef} from './workletData/ratesKv';
@@ -64,19 +70,30 @@ export function getShowPortfolioEnabledFromStore(): boolean {
 type WalletLike = {
   id?: string;
   walletId?: string;
+  walletName?: string;
   chain?: string;
   network?: string;
   currencyAbbreviation?: string;
   tokenAddress?: string;
+  balanceAtomic?: string;
+  balanceFormatted?: string;
+  balance?: {
+    crypto?: string;
+    sat?: number;
+  };
   hideWallet?: boolean;
   hideWalletByAccount?: boolean;
   pendingTssSession?: boolean;
   credentials?: {
+    toObj?: () => Record<string, unknown>;
     walletId?: string;
+    walletName?: string;
     chain?: string;
     network?: string;
     coin?: string;
-    token?: {address?: string; symbol?: string};
+    requestPrivKey?: string;
+    requestPubKey?: string;
+    token?: {address?: string; symbol?: string; decimals?: number};
   };
 };
 
@@ -90,6 +107,23 @@ export type EnsureFreshDependencyArgs = Readonly<{
   quoteCurrency?: string;
   intervals?: readonly StoredRateInterval[];
   force?: boolean;
+}>;
+
+export type PopulateRuntimeWalletContext = StoredWallet &
+  Readonly<{
+    fiatRateAssetRef: FiatRateAssetRef;
+    network: string;
+  }>;
+
+export type PopulateRuntimeContext = Readonly<{
+  cfg: BwsConfig;
+  quoteCurrency: string;
+  walletsById: Readonly<Record<string, PopulateRuntimeWalletContext>>;
+  signingContextsByWalletId: Readonly<
+    Record<string, PortfolioTxHistorySigningDispatchContext>
+  >;
+  queueSchemaVersion: 1;
+  manifestSchemaVersion: 1;
 }>;
 
 const DEFAULT_STORED_RATE_INTERVALS: readonly StoredRateInterval[] = [
@@ -177,6 +211,176 @@ function assetRefForWallet(wallet: WalletLike): FiatRateAssetRef | null {
   return normalized.coin ? normalized : null;
 }
 
+function sanitizeString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  return normalized ? normalized : undefined;
+}
+
+function serializeWalletCredentials(wallet: WalletLike): WalletCredentials {
+  const credentials = wallet.credentials;
+  try {
+    if (typeof credentials?.toObj === 'function') {
+      return credentials.toObj();
+    }
+    return JSON.parse(JSON.stringify(credentials || {}));
+  } catch {
+    return {};
+  }
+}
+
+function defaultUnitDecimals(wallet: WalletLike): number {
+  const tokenDecimals = Number(wallet.credentials?.token?.decimals);
+  if (Number.isFinite(tokenDecimals) && tokenDecimals >= 0) {
+    return Math.trunc(tokenDecimals);
+  }
+
+  const chain = String(wallet.chain || wallet.credentials?.chain || '')
+    .trim()
+    .toLowerCase();
+  switch (chain) {
+    case 'eth':
+    case 'matic':
+    case 'pol':
+    case 'arb':
+    case 'base':
+    case 'op':
+      return 18;
+    case 'sol':
+      return 9;
+    case 'xrp':
+      return 6;
+    case 'btc':
+    case 'bch':
+    case 'doge':
+    case 'ltc':
+    default:
+      return 8;
+  }
+}
+
+function decimalUnitStringToAtomicString(value: unknown, decimals: number): string {
+  const normalized = String(value || '0')
+    .replace(/,/g, '')
+    .trim();
+  if (!/^\d+(?:\.\d+)?$/.test(normalized)) {
+    return '0';
+  }
+
+  const [whole = '0', fraction = ''] = normalized.split('.');
+  const scale = Math.max(0, Math.trunc(decimals));
+  const paddedFraction = fraction.slice(0, scale).padEnd(scale, '0');
+  const atomic = `${whole}${paddedFraction}`.replace(/^0+(?=\d)/, '');
+  return atomic || '0';
+}
+
+function walletBalanceAtomic(wallet: WalletLike): string {
+  const explicit = String(wallet.balanceAtomic || '').trim();
+  if (/^\d+$/.test(explicit)) {
+    return explicit;
+  }
+
+  const sat = Number(wallet.balance?.sat);
+  if (Number.isFinite(sat) && sat >= 0 && Math.trunc(sat) === sat) {
+    return String(sat);
+  }
+
+  return decimalUnitStringToAtomicString(
+    wallet.balance?.crypto || wallet.balanceFormatted || '0',
+    defaultUnitDecimals(wallet),
+  );
+}
+
+function storedWalletForPopulate(wallet: WalletLike): PopulateRuntimeWalletContext | null {
+  const walletId = getWalletId(wallet);
+  const asset = assetRefForWallet(wallet);
+  if (!walletId || !asset) {
+    return null;
+  }
+
+  const credentials = {
+    ...serializeWalletCredentials(wallet),
+    walletId,
+    walletName:
+      sanitizeString(wallet.walletName) ||
+      sanitizeString(wallet.credentials?.walletName),
+    chain: sanitizeString(wallet.chain) || sanitizeString(wallet.credentials?.chain),
+    network:
+      sanitizeString(wallet.network) || sanitizeString(wallet.credentials?.network),
+    coin:
+      sanitizeString(wallet.currencyAbbreviation) ||
+      sanitizeString(wallet.credentials?.token?.symbol) ||
+      sanitizeString(wallet.credentials?.coin),
+    requestPrivKey: sanitizeString(wallet.credentials?.requestPrivKey),
+    requestPubKey: sanitizeString(wallet.credentials?.requestPubKey),
+    token:
+      wallet.tokenAddress || wallet.credentials?.token?.address
+        ? {
+            ...(wallet.credentials?.token || {}),
+            address:
+              sanitizeString(wallet.tokenAddress) ||
+              sanitizeString(wallet.credentials?.token?.address),
+            symbol:
+              sanitizeString(wallet.currencyAbbreviation) ||
+              sanitizeString(wallet.credentials?.token?.symbol),
+          }
+        : wallet.credentials?.token,
+  } as WalletCredentials;
+
+  const chain = String(credentials.chain || '').trim().toLowerCase();
+  const network = String(credentials.network || '').trim().toLowerCase();
+  const currencyAbbreviation = String(credentials.coin || chain)
+    .trim()
+    .toLowerCase();
+  const tokenAddress =
+    sanitizeString(wallet.tokenAddress) ||
+    sanitizeString((credentials.token as {address?: string} | undefined)?.address);
+  const balanceFormatted = String(
+    wallet.balanceFormatted || wallet.balance?.crypto || '0',
+  ).replace(/,/g, '');
+  const summary: WalletSummary = {
+    walletId,
+    walletName:
+      sanitizeString(wallet.walletName) ||
+      sanitizeString(credentials.walletName) ||
+      walletId,
+    chain,
+    network,
+    currencyAbbreviation,
+    tokenAddress,
+    balanceAtomic: walletBalanceAtomic(wallet),
+    balanceFormatted,
+  };
+
+  return {
+    walletId,
+    credentials,
+    summary,
+    addedAt: Date.now(),
+    fiatRateAssetRef: asset,
+    network,
+  };
+}
+
+function buildSigningContextForWallet(
+  wallet: PopulateRuntimeWalletContext,
+): PortfolioTxHistorySigningDispatchContext | undefined {
+  try {
+    return createPortfolioTxHistorySigningDispatchContextOnRN({
+      requestPrivKey:
+        sanitizeString((wallet.credentials as {requestPrivKey?: string}).requestPrivKey),
+      requestPubKey:
+        sanitizeString((wallet.credentials as {requestPubKey?: string}).requestPubKey),
+      requestCount: 4,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 function buildEnsureFreshArgsFromWallets(
   wallets: readonly WalletLike[],
   args?: EnsureFreshDependencyArgs,
@@ -221,6 +425,42 @@ export function getEligibleStoredWalletsFromStore(): readonly WalletLike[] {
 
 export function getPopulateEligibleWalletIdSetFromStore(): ReadonlySet<string> {
   return new Set(getEligibleStoredWalletsFromStore().map(getWalletId));
+}
+
+export function getPopulateEligibleWalletIdsFromStore(): readonly string[] {
+  return Array.from(getPopulateEligibleWalletIdSetFromStore()).sort(
+    (left, right) => left.localeCompare(right),
+  );
+}
+
+export function buildPopulateRuntimeContextFromStore(): PopulateRuntimeContext {
+  const walletsById: Record<string, PopulateRuntimeWalletContext> = {};
+  const signingContextsByWalletId: Record<
+    string,
+    PortfolioTxHistorySigningDispatchContext
+  > = {};
+
+  for (const wallet of getEligibleStoredWalletsFromStore()) {
+    const storedWallet = storedWalletForPopulate(wallet);
+    if (!storedWallet) {
+      continue;
+    }
+
+    walletsById[storedWallet.walletId] = storedWallet;
+    const signingContext = buildSigningContextForWallet(storedWallet);
+    if (signingContext) {
+      signingContextsByWalletId[storedWallet.walletId] = signingContext;
+    }
+  }
+
+  return {
+    cfg: DEFAULT_BWS_CONFIG,
+    quoteCurrency: getQuoteCurrencyFromStore(),
+    walletsById,
+    signingContextsByWalletId,
+    queueSchemaVersion: 1,
+    manifestSchemaVersion: 1,
+  };
 }
 
 export function getVisibleEligibleWalletsFromStore(): readonly WalletLike[] {

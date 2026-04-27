@@ -1,4 +1,4 @@
-import {createWorkletRuntime} from 'react-native-worklets';
+import {createWorkletRuntime, runOnRuntimeAsync} from 'react-native-worklets';
 
 import {
   MANIFEST_KEY,
@@ -139,6 +139,41 @@ beforeEach(() => {
   populateProgressTick.value = 0;
   populateRetryTick.value = 0;
 });
+
+function initReduxAccessWithEligibleWallets(walletIds: readonly string[]): void {
+  initPortfolioReduxAccess({
+    getState: () =>
+      ({
+        APP: {defaultAltCurrencyIsoCode: 'USD'},
+        WALLET: {
+          keys: {
+            'test-key': {
+              id: 'test-key',
+              show: true,
+              wallets: walletIds.map(walletId => ({
+                id: walletId,
+                walletName: walletId,
+                chain: 'eth',
+                network: 'livenet',
+                currencyAbbreviation: 'eth',
+                balance: {crypto: '1'},
+                credentials: {
+                  walletId,
+                  walletName: walletId,
+                  chain: 'eth',
+                  network: 'livenet',
+                  coin: 'eth',
+                },
+              })),
+            },
+          },
+        },
+      }) as any,
+    dispatch: jest.fn(),
+    subscribe: jest.fn(),
+    replaceReducer: jest.fn(),
+  } as any);
+}
 
 describe('portfolio v2 Phase 1 scaffolding', () => {
   it('creates epoch-correct empty states and publishes only with a matching epoch', () => {
@@ -300,6 +335,12 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
   });
 
   it('keeps populate pending items sorted by priority lanes', () => {
+    initReduxAccessWithEligibleWallets([
+      'background-wallet',
+      'normal-wallet',
+      'urgent-wallet',
+    ]);
+
     startPopulate({
       walletIds: ['background-wallet'],
       reason: 'initial',
@@ -342,6 +383,8 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
   });
 
   it('re-kicks existing populate work when duplicate requests insert no items', () => {
+    initReduxAccessWithEligibleWallets(['wallet-a']);
+
     startPopulateForTesting({
       walletIds: ['wallet-a'],
       reason: 'initial',
@@ -399,16 +442,73 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
     ]);
   });
 
-  it('logs an explicit Phase 1 gap for first-populate eligibility without wallet ids', () => {
+  it('first populate uses visibility-ignored eligible wallets and kicks the populate worklet', () => {
+    initPortfolioReduxAccess({
+      getState: () =>
+        ({
+          APP: {defaultAltCurrencyIsoCode: 'USD'},
+          WALLET: {
+            keys: {
+              'hidden-key': {
+                id: 'hidden-key',
+                show: false,
+                wallets: [
+                  {
+                    id: 'hidden-wallet',
+                    walletName: 'Hidden Wallet',
+                    chain: 'eth',
+                    network: 'livenet',
+                    currencyAbbreviation: 'eth',
+                    hideWallet: true,
+                    balance: {crypto: '1'},
+                    credentials: {
+                      walletId: 'hidden-wallet',
+                      walletName: 'Hidden Wallet',
+                      chain: 'eth',
+                      network: 'livenet',
+                      coin: 'eth',
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        }) as any,
+      dispatch: jest.fn(),
+      subscribe: jest.fn(),
+      replaceReducer: jest.fn(),
+    } as any);
+
     startPopulate({reason: 'initial', isFirstPopulate: true});
 
-    expect(loadQueue()).toBeNull();
-    expect(getPortfolioRuntimeLogPayloadsForTesting()).toEqual([
-      expect.objectContaining({
-        tag: 'startPopulate',
-        reason: 'phase1FirstPopulateEligibilityNotImplemented',
-      }),
+    expect(loadQueue()?.pending.map(item => item.walletId)).toEqual([
+      'hidden-wallet',
     ]);
+    expect(populateLoopRunning.value).toBe(true);
+    expect(runOnRuntimeAsync).toHaveBeenCalledWith(
+      {name: 'portfolio-populate'},
+      expect.any(Function),
+      expect.objectContaining({storageId: 'bitpay.portfolio.engine'}),
+      expect.objectContaining({
+        wallets: [
+          expect.objectContaining({
+            walletId: 'hidden-wallet',
+            summary: expect.objectContaining({
+              walletId: 'hidden-wallet',
+            }),
+          }),
+        ],
+      }),
+      expect.any(Object),
+    );
+    expect(getPortfolioRuntimeLogPayloadsForTesting()).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tag: 'startPopulate',
+          reason: 'phase1FirstPopulateEligibilityNotImplemented',
+        }),
+      ]),
+    );
   });
 
   it('routes all MMKV mutations through helpers with redacted metrics and reset exclusions', async () => {
