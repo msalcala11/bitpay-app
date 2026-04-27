@@ -11,7 +11,7 @@ import {
 
 export type SnapshotKvKeyParts = Readonly<{
   walletId: string;
-  chunkId?: number | string;
+  chunkId: number | string;
 }>;
 
 export type PortfolioV2SnapshotKvReaderStore = Pick<KvStore, 'getString'>;
@@ -37,7 +37,11 @@ export function getSnapshotIndexKey(walletId: string): string {
 export function getSnapshotChunkKey(args: SnapshotKvKeyParts): string {
   'worklet';
 
-  return `snap:chunk:v2:${args.walletId}:${args.chunkId ?? '0'}`;
+  const chunkId = String(args.chunkId ?? '').trim();
+  if (!chunkId) {
+    throw new Error('Snapshot chunkId is required.');
+  }
+  return `snap:chunk:v2:${args.walletId}:${chunkId}`;
 }
 
 function parseJson<T>(raw: string | null | undefined): T | null {
@@ -201,7 +205,7 @@ export function createPortfolioV2SnapshotReader(
       readPortfolioV2SnapshotChunk({
         store,
         walletId: args.walletId,
-        chunkId: args.chunkId ?? 0,
+        chunkId: args.chunkId,
       }),
   };
 }

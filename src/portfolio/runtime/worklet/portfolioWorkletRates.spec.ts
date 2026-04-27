@@ -1,3 +1,4 @@
+import {getFiatRateSeriesCacheKey} from '../../core/fiatRatesShared';
 import {
   clearPortfolioTxHistorySigningDispatchContextOnRuntime,
   setPortfolioTxHistorySigningDispatchContextOnRuntime,
@@ -6,6 +7,7 @@ import {
   ensureWorkletRates,
   ensureWorkletSnapshotRateSeriesCache,
   getWorkletRateSeriesCache,
+  getWorkletRateStorageKey,
   parseWorkletStoredFiatRateSeries,
 } from './portfolioWorkletRates';
 
@@ -66,6 +68,44 @@ describe('portfolioWorkletRates', () => {
   afterEach(() => {
     clearPortfolioTxHistorySigningDispatchContextOnRuntime();
     jest.restoreAllMocks();
+  });
+
+  it('keeps retained worklet rate keys compatible with legacy cache keys', () => {
+    const cases = [
+      {
+        quoteCurrency: 'usd',
+        coin: 'BCH',
+        interval: '1D' as const,
+      },
+      {
+        quoteCurrency: 'eur',
+        coin: 'USDC',
+        interval: 'ALL' as const,
+        chain: 'ETH',
+        tokenAddress: '0xABC',
+      },
+      {
+        quoteCurrency: 'usd',
+        coin: 'USDC',
+        interval: '1W' as const,
+        chain: 'sol',
+        tokenAddress: 'SoLCaseSensitiveToken',
+      },
+    ];
+
+    for (const testCase of cases) {
+      expect(getWorkletRateStorageKey(testCase)).toBe(
+        `rate:v1:${getFiatRateSeriesCacheKey(
+          testCase.quoteCurrency,
+          testCase.coin,
+          testCase.interval,
+          {
+            chain: testCase.chain,
+            tokenAddress: testCase.tokenAddress,
+          },
+        )}`,
+      );
+    }
   });
 
   it('stores compact persisted series with fetchedOn metadata and reloads them', async () => {
@@ -357,20 +397,22 @@ describe('portfolioWorkletRates', () => {
 
   it('continues fetching later intervals for a token when earlier rate requests fail', async () => {
     const tokenAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-    const requestSyncMock = installNitroFetchMock((request: FakeNitroRequest) => {
-      if (request.url.includes('days=1') || request.url.includes('days=7')) {
-        throw new Error('token rate unavailable');
-      }
+    const requestSyncMock = installNitroFetchMock(
+      (request: FakeNitroRequest) => {
+        if (request.url.includes('days=1') || request.url.includes('days=7')) {
+          throw new Error('token rate unavailable');
+        }
 
-      return {
-        ok: true,
-        status: 200,
-        bodyString: JSON.stringify([
-          {ts: 1, rate: 1},
-          {ts: 2, rate: 1.01},
-        ]),
-      };
-    });
+        return {
+          ok: true,
+          status: 200,
+          bodyString: JSON.stringify([
+            {ts: 1, rate: 1},
+            {ts: 2, rate: 1.01},
+          ]),
+        };
+      },
+    );
 
     const cache = await ensureWorkletSnapshotRateSeriesCache({
       storage: createStorage(),

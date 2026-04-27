@@ -98,6 +98,12 @@ describe('portfolio v2 snapshot kv readers', () => {
     );
   });
 
+  it('requires explicit chunk ids for snapshot chunk keys', () => {
+    expect(() => getSnapshotChunkKey({walletId: 'wallet-1'} as any)).toThrow(
+      /chunkId is required/,
+    );
+  });
+
   it('reads meta, index, and chunks through the v2-owned async reader', async () => {
     const store = new MemoryStringStore();
     store.data.set(getSnapshotMetaKey('wallet-1'), JSON.stringify(meta));

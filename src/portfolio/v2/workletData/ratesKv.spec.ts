@@ -67,6 +67,16 @@ describe('portfolio v2 rate kv readers', () => {
     ).toBe('usdc:eth:0xabc');
   });
 
+  it('rejects display intervals before they can become persisted rate keys', () => {
+    expect(() =>
+      getRateKey({
+        quoteCurrency: 'USD',
+        asset: {coin: 'btc'},
+        storedInterval: '1Y' as any,
+      }),
+    ).toThrow(/must be resolved to a stored interval/);
+  });
+
   it('reads stored rate series through the v2-owned async reader', async () => {
     const store = new MemoryStringStore();
     const key = getRateKey(ethAllRequest);

@@ -1,5 +1,8 @@
 import type {KvStore} from '../../core/kv/types';
-import type {FiatRateSeries} from '../../core/fiatRatesShared';
+import {
+  assertStoredFiatRateInterval,
+  type FiatRateSeries,
+} from '../../core/fiatRatesShared';
 import {parseStoredFiatRateSeriesRaw} from '../../core/pnl/storedFiatRateSeries';
 import {
   workletKvGetString,
@@ -61,9 +64,10 @@ export function getRateKey(args: {
   'worklet';
 
   const asset = normalizeRateAssetRef(args.asset);
+  const storedInterval = assertStoredFiatRateInterval(args.storedInterval);
   const base = `rate:v1:${String(args.quoteCurrency || 'USD').toUpperCase()}:${
     asset.coin
-  }:${args.storedInterval}`;
+  }:${storedInterval}`;
   if (asset.chain || asset.tokenAddress) {
     return `${base}:${asset.chain ?? ''}:${asset.tokenAddress ?? ''}`;
   }
