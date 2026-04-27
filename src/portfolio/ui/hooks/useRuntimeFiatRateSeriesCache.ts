@@ -1,11 +1,18 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import type {FiatRateCacheRequest} from '../../core/fiatRatesShared';
+import {
+  isStoredFiatRateInterval,
+  type FiatRateAssetRef,
+  type FiatRateCacheRequest,
+  type StoredFiatRateInterval,
+} from '../../core/fiatRatesShared';
 import type {FiatRateSeriesCache} from '../../../store/rate/rate.models';
 import {
   buildRuntimeFiatRateCacheRequestKey,
   loadRuntimeFiatRateSeriesCache,
   normalizeRuntimeFiatRateCacheRequests,
 } from '../fiatRateSeries';
+import {onHistoricalRatesPersisted} from '../../v2/triggers';
+import type {NormalizedFormulaRecomputeInput} from '../../v2/recompute';
 
 export type RuntimeFiatRateSeriesCacheState = {
   cache: FiatRateSeriesCache;
@@ -14,6 +21,72 @@ export type RuntimeFiatRateSeriesCacheState = {
   reload: (opts?: {force?: boolean}) => Promise<FiatRateSeriesCache>;
 };
 
+function normalizeQuoteCurrency(value: unknown): string | undefined {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
+  return normalized || undefined;
+}
+
+function resolveStoredInterval(
+  interval: unknown,
+): StoredFiatRateInterval | undefined {
+  const value = String(interval || '').trim();
+  if (value === '3M' || value === '1Y' || value === '5Y') {
+    return 'ALL';
+  }
+  return isStoredFiatRateInterval(value) ? value : undefined;
+}
+
+function hasCacheEntries(cache: FiatRateSeriesCache): boolean {
+  return Object.values(cache).some(Boolean);
+}
+
+function buildHistoricalRatesPersistedMetadata(args: {
+  quoteCurrency: string;
+  requests: readonly FiatRateCacheRequest[];
+}):
+  | Readonly<{
+      quoteCurrency: string;
+      assetRefs: readonly FiatRateAssetRef[];
+      intervals: readonly StoredFiatRateInterval[];
+    }>
+  | undefined {
+  const quoteCurrency = normalizeQuoteCurrency(args.quoteCurrency);
+  if (!quoteCurrency || !args.requests.length) {
+    return undefined;
+  }
+
+  const assetRefs: FiatRateAssetRef[] = [];
+  const intervalSet = new Set<StoredFiatRateInterval>();
+  for (const request of args.requests) {
+    const coin = String(request.coin || '').trim();
+    if (!coin) {
+      continue;
+    }
+
+    assetRefs.push({
+      coin,
+      ...(request.chain ? {chain: request.chain} : {}),
+      ...(request.tokenAddress ? {tokenAddress: request.tokenAddress} : {}),
+    });
+
+    for (const interval of request.intervals) {
+      const storedInterval = resolveStoredInterval(interval);
+      if (storedInterval) {
+        intervalSet.add(storedInterval);
+      }
+    }
+  }
+
+  const intervals = Array.from(intervalSet).sort((left, right) =>
+    left.localeCompare(right),
+  );
+  return assetRefs.length && intervals.length
+    ? {quoteCurrency, assetRefs, intervals}
+    : undefined;
+}
+
 export function useRuntimeFiatRateSeriesCache(args: {
   quoteCurrency: string;
   requests: FiatRateCacheRequest[];
@@ -21,6 +94,8 @@ export function useRuntimeFiatRateSeriesCache(args: {
   enabled?: boolean;
   refreshToken?: string | number;
   clearOnRequestChange?: boolean;
+  notifyHistoricalRatesPersisted?: boolean;
+  historicalRatesPersistedNormalizedFormulaInput?: NormalizedFormulaRecomputeInput;
 }): RuntimeFiatRateSeriesCacheState {
   const enabled = args.enabled !== false;
   const rawRequestsRef = useRef(args.requests);
@@ -93,6 +168,23 @@ export function useRuntimeFiatRateSeriesCache(args: {
         if (activeRequestIdRef.current === requestId) {
           setCache(nextCache);
           setLoading(false);
+          if (
+            args.notifyHistoricalRatesPersisted &&
+            hasCacheEntries(nextCache)
+          ) {
+            const metadata = buildHistoricalRatesPersistedMetadata({
+              quoteCurrency: args.quoteCurrency,
+              requests,
+            });
+            if (metadata) {
+              onHistoricalRatesPersisted({
+                ...metadata,
+                source: 'exchangeRateScreen',
+                normalizedFormulaInput:
+                  args.historicalRatesPersistedNormalizedFormulaInput,
+              });
+            }
+          }
         }
 
         return nextCache;
@@ -106,7 +198,14 @@ export function useRuntimeFiatRateSeriesCache(args: {
         throw runtimeError;
       }
     },
-    [args.maxAgeMs, args.quoteCurrency, enabled, requests],
+    [
+      args.historicalRatesPersistedNormalizedFormulaInput,
+      args.maxAgeMs,
+      args.notifyHistoricalRatesPersisted,
+      args.quoteCurrency,
+      enabled,
+      requests,
+    ],
   );
 
   useEffect(() => {

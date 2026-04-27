@@ -33,7 +33,7 @@ export type HistoricalRatesPersistedTriggerArgs = Readonly<{
   assetRefs: readonly FiatRateAssetRef[];
   intervals: readonly StoredRateInterval[];
   source: 'exchangeRateScreen' | 'manualRefresh' | 'externalEffect';
-  normalizedFormulaInput: NormalizedFormulaRecomputeInput;
+  normalizedFormulaInput?: NormalizedFormulaRecomputeInput;
 }>;
 
 type PendingLiveRateTrigger = Readonly<{
@@ -102,6 +102,21 @@ function buildPendingLiveRateInput(
   } catch {
     return undefined;
   }
+}
+
+function hasHistoricalRatesPersistedMetadata(
+  args: HistoricalRatesPersistedTriggerArgs | undefined,
+): boolean {
+  if (!args) {
+    return false;
+  }
+
+  const quoteCurrency = normalizeQuoteCurrency(args.quoteCurrency);
+  if (!quoteCurrency || !args.assetRefs.length || !args.intervals.length) {
+    return false;
+  }
+
+  return args.assetRefs.every(assetRef => !!String(assetRef.coin || '').trim());
 }
 
 export function canRunPortfolioV2Work(): boolean {
@@ -207,7 +222,11 @@ export function onLiveRatesUpdated(args?: LiveRatesUpdatedTriggerArgs): void {
 export function onHistoricalRatesPersisted(
   args: HistoricalRatesPersistedTriggerArgs,
 ): void {
-  if (!args?.normalizedFormulaInput || !passesTriggerGuards(args)) {
+  if (
+    !hasHistoricalRatesPersistedMetadata(args) ||
+    !args.normalizedFormulaInput ||
+    !passesTriggerGuards(args)
+  ) {
     return;
   }
 

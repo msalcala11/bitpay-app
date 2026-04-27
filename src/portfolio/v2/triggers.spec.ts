@@ -300,6 +300,20 @@ describe('portfolio v2 triggers', () => {
       source: 'externalEffect',
     } as any);
     onHistoricalRatesPersisted({
+      quoteCurrency: 'USD',
+      assetRefs: [],
+      intervals: ['ALL'],
+      source: 'externalEffect',
+      normalizedFormulaInput: input,
+    });
+    onHistoricalRatesPersisted({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'eth'}],
+      intervals: [],
+      source: 'externalEffect',
+      normalizedFormulaInput: input,
+    });
+    onHistoricalRatesPersisted({
       quoteCurrency: 'EUR',
       assetRefs: [{coin: 'eth'}],
       intervals: ['ALL'],

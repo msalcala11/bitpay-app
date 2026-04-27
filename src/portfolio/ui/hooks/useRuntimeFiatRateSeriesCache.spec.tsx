@@ -5,6 +5,12 @@ import {useRuntimeFiatRateSeriesCache} from './useRuntimeFiatRateSeriesCache';
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mockLoadRuntimeFiatRateSeriesCache = jest.fn();
+const mockOnHistoricalRatesPersisted = jest.fn();
+
+jest.mock('../../v2/triggers', () => ({
+  onHistoricalRatesPersisted: (...args: unknown[]) =>
+    mockOnHistoricalRatesPersisted(...args),
+}));
 
 jest.mock('../fiatRateSeries', () => {
   return {
@@ -64,26 +70,54 @@ jest.mock('../fiatRateSeries', () => {
 
 const HookHarness = ({
   refreshToken,
+  notifyHistoricalRatesPersisted,
+  requests = [
+    {
+      coin: 'btc',
+      intervals: ['1D'],
+    },
+  ],
 }: {
   refreshToken?: string | number;
+  notifyHistoricalRatesPersisted?: boolean;
+  requests?: Array<{
+    coin: string;
+    chain?: string;
+    tokenAddress?: string;
+    intervals: string[];
+  }>;
 }) => {
   useRuntimeFiatRateSeriesCache({
     quoteCurrency: 'USD',
-    requests: [
-      {
-        coin: 'btc',
-        intervals: ['1D'],
-      },
-    ],
+    requests,
     refreshToken,
+    notifyHistoricalRatesPersisted,
   });
 
   return null;
 };
 
+function nonEmptyCache() {
+  return {
+    'USD:btc:1D': {
+      fetchedOn: 1,
+      points: [{ts: 1, rate: 100}],
+    },
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(innerResolve => {
+    resolve = innerResolve;
+  });
+  return {promise, resolve};
+}
+
 describe('useRuntimeFiatRateSeriesCache', () => {
   beforeEach(() => {
     mockLoadRuntimeFiatRateSeriesCache.mockReset();
+    mockOnHistoricalRatesPersisted.mockReset();
     mockLoadRuntimeFiatRateSeriesCache.mockResolvedValue({});
   });
 
@@ -117,5 +151,106 @@ describe('useRuntimeFiatRateSeriesCache', () => {
     });
 
     expect(mockLoadRuntimeFiatRateSeriesCache).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not notify historical-rate persistence for default consumers', async () => {
+    mockLoadRuntimeFiatRateSeriesCache.mockResolvedValue(nonEmptyCache());
+
+    await act(async () => {
+      TestRenderer.create(<HookHarness />);
+    });
+
+    expect(mockLoadRuntimeFiatRateSeriesCache).toHaveBeenCalledTimes(1);
+    expect(mockOnHistoricalRatesPersisted).not.toHaveBeenCalled();
+  });
+
+  it('notifies historical-rate persistence for opted-in non-empty cache loads', async () => {
+    mockLoadRuntimeFiatRateSeriesCache.mockResolvedValue(nonEmptyCache());
+
+    await act(async () => {
+      TestRenderer.create(
+        <HookHarness
+          notifyHistoricalRatesPersisted
+          requests={[
+            {
+              coin: ' BTC ',
+              chain: 'livenet',
+              tokenAddress: 'Token',
+              intervals: ['1D', '3M', '1Y'],
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(mockOnHistoricalRatesPersisted).toHaveBeenCalledTimes(1);
+    expect(mockOnHistoricalRatesPersisted).toHaveBeenCalledWith({
+      quoteCurrency: 'USD',
+      assetRefs: [
+        {
+          coin: 'btc',
+          chain: 'livenet',
+          tokenAddress: 'Token',
+        },
+      ],
+      intervals: ['1D', 'ALL'],
+      source: 'exchangeRateScreen',
+      normalizedFormulaInput: undefined,
+    });
+  });
+
+  it('does not notify historical-rate persistence for empty cache loads or empty normalized request metadata', async () => {
+    mockLoadRuntimeFiatRateSeriesCache.mockResolvedValueOnce({});
+
+    await act(async () => {
+      TestRenderer.create(<HookHarness notifyHistoricalRatesPersisted />);
+    });
+
+    expect(mockOnHistoricalRatesPersisted).not.toHaveBeenCalled();
+
+    await act(async () => {
+      TestRenderer.create(
+        <HookHarness
+          notifyHistoricalRatesPersisted
+          requests={[{coin: '', intervals: ['1D']}]}
+        />,
+      );
+    });
+
+    expect(mockOnHistoricalRatesPersisted).not.toHaveBeenCalled();
+  });
+
+  it('does not notify historical-rate persistence for stale out-of-order loads', async () => {
+    const first = deferred<ReturnType<typeof nonEmptyCache>>();
+    const second = deferred<ReturnType<typeof nonEmptyCache>>();
+    mockLoadRuntimeFiatRateSeriesCache
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+
+    let view: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      view = TestRenderer.create(
+        <HookHarness notifyHistoricalRatesPersisted refreshToken="a" />,
+      );
+    });
+    await act(async () => {
+      view!.update(
+        <HookHarness notifyHistoricalRatesPersisted refreshToken="b" />,
+      );
+    });
+
+    await act(async () => {
+      second.resolve(nonEmptyCache());
+      await second.promise;
+    });
+
+    expect(mockOnHistoricalRatesPersisted).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      first.resolve(nonEmptyCache());
+      await first.promise;
+    });
+
+    expect(mockOnHistoricalRatesPersisted).toHaveBeenCalledTimes(1);
   });
 });

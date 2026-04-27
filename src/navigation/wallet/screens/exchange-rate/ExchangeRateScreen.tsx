@@ -121,6 +121,7 @@ const ExchangeRateScreen = ({shared}: ExchangeRateScreenProps) => {
     maxAgeMs: HISTORIC_RATES_CACHE_DURATION * 1000,
     enabled: !!shared.resolvedQuoteCurrency && shared.hasValidNormalizedCoin,
     clearOnRequestChange: true,
+    notifyHistoricalRatesPersisted: true,
   });
 
   const selectedSeriesKey = useMemo(() => {
