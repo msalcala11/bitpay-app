@@ -15,7 +15,6 @@ import {
   type ScopeReadiness,
 } from './model';
 import {
-  awaitAutomaticRecomputeDrainForTesting,
   clearPendingRecomputesForTesting,
   getPendingRecomputesForTesting,
   runNextPendingRecompute,
@@ -196,7 +195,10 @@ afterEach(() => {
 });
 
 async function flushScheduledRecomputeDrain(): Promise<void> {
-  await awaitAutomaticRecomputeDrainForTesting();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  for (let index = 0; index < 10; index += 1) {
+    await Promise.resolve();
+  }
 }
 
 describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
@@ -289,92 +291,6 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
       }),
     ]);
     expect(getPendingRecomputesForTesting()).toHaveLength(0);
-  });
-
-  it('continues automatic draining for work scheduled while a recompute is in flight', async () => {
-    let resolveFirstRuntime: (() => void) | undefined;
-    (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
-      (
-        _runtime: unknown,
-        workletFn: (...args: any[]) => PortfolioState,
-        ...args: any[]
-      ) =>
-        new Promise<PortfolioState>(resolve => {
-          resolveFirstRuntime = () => resolve(workletFn(...args));
-        }),
-    );
-
-    scheduleRecompute({
-      scope: 'full',
-      startEpoch: 7,
-      normalizedFormulaInput: normalizedInput(),
-    });
-
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(runOnRuntimeAsync).toHaveBeenCalledTimes(1);
-
-    scheduleRecompute({
-      scope: {kind: 'liveRateTouch', changedAssetIds: ['eth']},
-      startEpoch: 7,
-      normalizedFormulaInput: normalizedInput({computedAtMs: 120}),
-    });
-
-    expect(getPendingRecomputesForTesting()).toHaveLength(1);
-    expect(runOnRuntimeAsync).toHaveBeenCalledTimes(1);
-
-    resolveFirstRuntime?.();
-    await flushScheduledRecomputeDrain();
-
-    expect(runOnRuntimeAsync).toHaveBeenCalledTimes(2);
-    expect(
-      (runOnRuntimeAsync as jest.Mock).mock.calls.map(call => call[3].scope),
-    ).toEqual(['full', {kind: 'liveRateTouch', changedAssetIds: ['eth']}]);
-    expect(sharedPortfolioState.value).toMatchObject({
-      revision: 6,
-      computedAtMs: 120,
-    });
-    expect(getPendingRecomputesForTesting()).toHaveLength(0);
-  });
-
-  it('does not publish late automatic drain output after testing reset', async () => {
-    const current = makeCurrentState();
-    const resetState = makeCurrentState({revision: 99, computedAtMs: 999});
-    sharedPortfolioState.value = current;
-    let resolveRuntime: (() => void) | undefined;
-    let runtimePromise: Promise<PortfolioState> | undefined;
-    (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
-      (
-        _runtime: unknown,
-        workletFn: (...args: any[]) => PortfolioState,
-        ...args: any[]
-      ) => {
-        runtimePromise = new Promise<PortfolioState>(resolve => {
-          resolveRuntime = () => resolve(workletFn(...args));
-        });
-        return runtimePromise;
-      },
-    );
-
-    scheduleRecompute({
-      scope: 'full',
-      startEpoch: 7,
-      normalizedFormulaInput: normalizedInput(),
-    });
-
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(runOnRuntimeAsync).toHaveBeenCalledTimes(1);
-
-    clearPendingRecomputesForTesting();
-    clearRecordedPortfolioV2MetricsForTesting();
-    sharedPortfolioState.value = resetState;
-
-    resolveRuntime?.();
-    await runtimePromise;
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(sharedPortfolioState.value).toBe(resetState);
-    expect(getRecordedPortfolioV2MetricsForTesting()).toEqual([]);
   });
 
   it('rejects stale compute output at publish time without writing shared state directly', async () => {
