@@ -1,6 +1,9 @@
 import {getAssetIdFromWallet} from '../../core/pnl/assetId';
 import type {WalletCredentials, WalletSummary} from '../../core/types';
-import type {BalanceSnapshotEventType, BalanceSnapshotStored} from '../../core/pnl/types';
+import type {
+  BalanceSnapshotEventType,
+  BalanceSnapshotStored,
+} from '../../core/pnl/types';
 import type {SnapshotInvalidHistoryMarkerV1} from '../../core/pnl/invalidHistory';
 import {SNAPSHOT_INVALID_HISTORY_VERSION} from '../../core/pnl/invalidHistory';
 import type {PortfolioPopulateEmittedSnapshotDebugRow} from '../../core/engine/populateDebug';
@@ -21,15 +24,23 @@ import {
   workletKvSetString,
   type PortfolioWorkletKvConfig,
 } from './portfolioWorkletKv';
+import {
+  getSnapshotChunkKey,
+  getSnapshotIndexKey,
+  getSnapshotMetaKey,
+  readPortfolioV2SnapshotChunkOnWorklet,
+  readPortfolioV2SnapshotIndexOnWorklet,
+  readPortfolioV2SnapshotMetaOnWorklet,
+} from '../../v2/workletData/snapshotsKv';
 
 export function getWorkletSnapshotMetaStorageKey(walletId: string): string {
   'worklet';
-  return `snap:meta:v2:${walletId}`;
+  return getSnapshotMetaKey(walletId);
 }
 
 export function getWorkletSnapshotIndexStorageKey(walletId: string): string {
   'worklet';
-  return `snap:index:v2:${walletId}`;
+  return getSnapshotIndexKey(walletId);
 }
 
 export function getWorkletSnapshotChunkStorageKey(
@@ -37,7 +48,7 @@ export function getWorkletSnapshotChunkStorageKey(
   chunkId: number,
 ): string {
   'worklet';
-  return `snap:chunk:v2:${walletId}:${chunkId}`;
+  return getSnapshotChunkKey({walletId, chunkId});
 }
 
 export function getWorkletInvalidHistoryStorageKey(walletId: string): string {
@@ -64,7 +75,9 @@ function stringifyJson(value: unknown): string {
   }
 }
 
-function normalizeStoredMeta(meta: SnapshotStoreWalletMeta): SnapshotWalletMetaV2 {
+function normalizeStoredMeta(
+  meta: SnapshotStoreWalletMeta,
+): SnapshotWalletMetaV2 {
   'worklet';
 
   return {
@@ -141,7 +154,8 @@ function encodeDebug(
     eventTypeByRow,
     txIdsByRow,
     markRateByRow: snapshots.map(snapshot =>
-      typeof snapshot.markRate === 'number' && Number.isFinite(snapshot.markRate)
+      typeof snapshot.markRate === 'number' &&
+      Number.isFinite(snapshot.markRate)
         ? snapshot.markRate
         : null,
     ),
@@ -152,7 +166,8 @@ function encodeDebug(
         : null,
     ),
     createdAtByRow: snapshots.map(snapshot =>
-      typeof snapshot.createdAt === 'number' && Number.isFinite(snapshot.createdAt)
+      typeof snapshot.createdAt === 'number' &&
+      Number.isFinite(snapshot.createdAt)
         ? snapshot.createdAt
         : null,
     ),
@@ -231,25 +246,6 @@ function fallbackHydratedSnapshotId(
 ): string {
   'worklet';
   return `snap:${walletId}:${timestamp}:${rowIndex}`;
-}
-
-function normalizeWorkletSnapshotIndexRevision(
-  index: SnapshotIndexV2,
-): SnapshotIndexV2 {
-  'worklet';
-
-  const revision = Math.trunc(Number(index.revision));
-  if (Number.isFinite(revision) && revision > 0) {
-    return {
-      ...index,
-      revision,
-    };
-  }
-
-  return {
-    ...index,
-    revision: 1,
-  };
 }
 
 function toPoint(row: [number, string]): SnapshotPointV2 {
@@ -365,14 +361,7 @@ export async function loadWorkletSnapshotIndex(
 ): Promise<SnapshotIndexV2 | null> {
   'worklet';
 
-  const index = parseJson<SnapshotIndexV2 | null>(
-    workletKvGetString(config, getWorkletSnapshotIndexStorageKey(walletId)),
-    null,
-  );
-  if (!index || index.v !== 2 || index.walletId !== walletId) {
-    return null;
-  }
-  return normalizeWorkletSnapshotIndexRevision(index);
+  return readPortfolioV2SnapshotIndexOnWorklet(config, walletId);
 }
 
 export async function loadWorkletSnapshotMeta(
@@ -381,33 +370,21 @@ export async function loadWorkletSnapshotMeta(
 ): Promise<SnapshotWalletMetaV2 | null> {
   'worklet';
 
-  const meta = parseJson<SnapshotWalletMetaV2 | null>(
-    workletKvGetString(config, getWorkletSnapshotMetaStorageKey(walletId)),
-    null,
-  );
-  if (!meta || meta.walletId !== walletId) {
-    return null;
-  }
-  return meta;
+  return readPortfolioV2SnapshotMetaOnWorklet(config, walletId);
 }
 
-export async function loadWorkletSnapshotChunk(args: PortfolioWorkletKvConfig & {
-  walletId: string;
-  chunkId: number;
-}): Promise<SnapshotChunkV2 | null> {
+export async function loadWorkletSnapshotChunk(
+  args: PortfolioWorkletKvConfig & {
+    walletId: string;
+    chunkId: number;
+  },
+): Promise<SnapshotChunkV2 | null> {
   'worklet';
 
-  const chunk = parseJson<SnapshotChunkV2 | null>(
-    workletKvGetString(
-      args,
-      getWorkletSnapshotChunkStorageKey(args.walletId, args.chunkId),
-    ),
-    null,
-  );
-  if (!chunk || chunk.v !== 2 || !Array.isArray(chunk.rows)) {
-    return null;
-  }
-  return chunk;
+  return readPortfolioV2SnapshotChunkOnWorklet(args, {
+    walletId: args.walletId,
+    chunkId: args.chunkId,
+  });
 }
 
 async function saveWorkletSnapshotMeta(
@@ -449,7 +426,10 @@ export async function clearWorkletWalletSnapshots(
 
   const index = await loadWorkletSnapshotIndex(config, walletId);
   for (const chunk of index?.chunks ?? []) {
-    workletKvDelete(config, getWorkletSnapshotChunkStorageKey(walletId, chunk.id));
+    workletKvDelete(
+      config,
+      getWorkletSnapshotChunkStorageKey(walletId, chunk.id),
+    );
   }
 
   workletKvDelete(config, `snap:index:v1:${walletId}`);
@@ -587,10 +567,12 @@ export async function clearWorkletInvalidHistoryMarker(
   workletKvDelete(config, getWorkletInvalidHistoryStorageKey(walletId));
 }
 
-export async function updateWorkletSnapshotCheckpoint(args: PortfolioWorkletKvConfig & {
-  walletId: string;
-  checkpoint: SnapshotPopulateCheckpointV1;
-}): Promise<SnapshotIndexV2> {
+export async function updateWorkletSnapshotCheckpoint(
+  args: PortfolioWorkletKvConfig & {
+    walletId: string;
+    checkpoint: SnapshotPopulateCheckpointV1;
+  },
+): Promise<SnapshotIndexV2> {
   'worklet';
 
   const index = await loadWorkletSnapshotIndex(args, args.walletId);
@@ -603,11 +585,13 @@ export async function updateWorkletSnapshotCheckpoint(args: PortfolioWorkletKvCo
   return index;
 }
 
-export async function appendWorkletSnapshotChunk(args: PortfolioWorkletKvConfig & {
-  meta: SnapshotStoreWalletMeta;
-  snapshots: SnapshotPersistInputV2[];
-  checkpoint: SnapshotPopulateCheckpointV1;
-}): Promise<SnapshotIndexV2> {
+export async function appendWorkletSnapshotChunk(
+  args: PortfolioWorkletKvConfig & {
+    meta: SnapshotStoreWalletMeta;
+    snapshots: SnapshotPersistInputV2[];
+    checkpoint: SnapshotPopulateCheckpointV1;
+  },
+): Promise<SnapshotIndexV2> {
   'worklet';
 
   const {meta, snapshots, checkpoint} = args;
@@ -668,7 +652,8 @@ export async function getWorkletLatestSnapshot(
 
   const idx = await loadWorkletSnapshotIndex(config, walletId);
   if (!idx || !idx.chunks.length) return null;
-  const meta = (await loadWorkletSnapshotMeta(config, walletId)) ?? fallbackMeta(walletId);
+  const meta =
+    (await loadWorkletSnapshotMeta(config, walletId)) ?? fallbackMeta(walletId);
   const last = idx.chunks[idx.chunks.length - 1];
   const chunk = await loadWorkletSnapshotChunk({
     storage: config.storage,
@@ -691,7 +676,8 @@ export async function listWorkletSnapshots(
   const idx = await loadWorkletSnapshotIndex(config, walletId);
   if (!idx || !idx.chunks.length) return [];
 
-  const meta = (await loadWorkletSnapshotMeta(config, walletId)) ?? fallbackMeta(walletId);
+  const meta =
+    (await loadWorkletSnapshotMeta(config, walletId)) ?? fallbackMeta(walletId);
   const out: BalanceSnapshotStored[] = [];
   for (const chunkMeta of idx.chunks) {
     const chunk = await loadWorkletSnapshotChunk({
@@ -715,10 +701,12 @@ export async function listWorkletSnapshots(
   return out;
 }
 
-export async function findWorkletLastPointAtOrBefore(args: PortfolioWorkletKvConfig & {
-  walletId: string;
-  tsMs: number;
-}): Promise<SnapshotPointV2 | null> {
+export async function findWorkletLastPointAtOrBefore(
+  args: PortfolioWorkletKvConfig & {
+    walletId: string;
+    tsMs: number;
+  },
+): Promise<SnapshotPointV2 | null> {
   'worklet';
 
   const idx = await loadWorkletSnapshotIndex(args, args.walletId);
@@ -772,11 +760,13 @@ export async function findWorkletLastPointAtOrBefore(args: PortfolioWorkletKvCon
   return null;
 }
 
-export function iterateWorkletPoints(args: PortfolioWorkletKvConfig & {
-  walletId: string;
-  fromExclusive: number;
-  toInclusive: number;
-}): AsyncIterator<SnapshotPointV2, void, void> {
+export function iterateWorkletPoints(
+  args: PortfolioWorkletKvConfig & {
+    walletId: string;
+    fromExclusive: number;
+    toInclusive: number;
+  },
+): AsyncIterator<SnapshotPointV2, void, void> {
   'worklet';
 
   const {walletId, fromExclusive, toInclusive} = args;
@@ -797,7 +787,10 @@ export function iterateWorkletPoints(args: PortfolioWorkletKvConfig & {
       return;
     }
 
-    while (chunkCursor < idx.chunks.length && idx.chunks[chunkCursor].toTs <= fromExclusive) {
+    while (
+      chunkCursor < idx.chunks.length &&
+      idx.chunks[chunkCursor].toTs <= fromExclusive
+    ) {
       chunkCursor += 1;
     }
 

@@ -10,7 +10,6 @@ import {
 } from '../../core/fiatRatesShared';
 import {
   normalizeStoredFiatRateSeriesPoints,
-  parseStoredFiatRateSeriesRaw,
   stringifyStoredFiatRateSeries,
 } from '../../core/pnl/storedFiatRateSeries';
 import {
@@ -45,6 +44,7 @@ import {
   getRateKey,
   getRateSourceKey,
   normalizeRateAssetRef,
+  readPortfolioV2RateSeriesByKey,
 } from './ratesKv';
 import {
   getPortfolioRateFetchRuntime,
@@ -124,7 +124,9 @@ function normalizeQuoteCurrency(quoteCurrency: string): string {
   return String(quoteCurrency || CANONICAL_FIAT_QUOTE).toUpperCase();
 }
 
-function normalizeStoredInterval(interval: StoredRateInterval): StoredRateInterval {
+function normalizeStoredInterval(
+  interval: StoredRateInterval,
+): StoredRateInterval {
   'worklet';
 
   return assertStoredFiatRateInterval(interval);
@@ -214,7 +216,10 @@ function isFresh(series: FiatRateSeries | null, maxAgeMs?: number): boolean {
 }
 
 async function readStoredSeries(key: string): Promise<FiatRateSeries | null> {
-  return parseStoredFiatRateSeriesRaw(await getPortfolioKvStore().getString(key));
+  return readPortfolioV2RateSeriesByKey({
+    store: getPortfolioKvStore(),
+    key,
+  });
 }
 
 function hasUsableFetchedRateSeries(
@@ -283,7 +288,10 @@ function getCurrentPortfolioWorkEpochOnWorklet(
   return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : 0;
 }
 
-function shouldSkipForRetry(dependency: RateFetchDependency, force?: boolean): boolean {
+function shouldSkipForRetry(
+  dependency: RateFetchDependency,
+  force?: boolean,
+): boolean {
   if (force) return false;
   const retry = retryByDependencyKey.get(dependencyKey(dependency));
   return !!retry && retry.nextRetryAtMs > wallClockNowMs();
@@ -308,7 +316,9 @@ function extractSeries(
   const record = raw as Record<string, unknown>;
   const candidate =
     record[coin] ?? record[coin.toLowerCase()] ?? record[coin.toUpperCase()];
-  const points = normalizeStoredFiatRateSeriesPoints((candidate as any)?.points ?? candidate);
+  const points = normalizeStoredFiatRateSeriesPoints(
+    (candidate as any)?.points ?? candidate,
+  );
   if (points.length) {
     const fetchedOn = Number((candidate as any)?.fetchedOn);
     const series = {
@@ -421,7 +431,8 @@ async function fetchSingleRateOnRuntime(
       followRedirects: true,
     });
 
-    const rawText = typeof response.bodyString === 'string' ? response.bodyString : '';
+    const rawText =
+      typeof response.bodyString === 'string' ? response.bodyString : '';
     if (!response.ok) {
       return {
         dependency,
@@ -643,11 +654,14 @@ async function ensureFreshDependencies(args: {
   }
 
   if (partition.mismatch) {
-    logPortfolioRuntimeError(new Error('rate fetch result dependency mismatch'), {
-      tag: 'ensureFresh',
-      reason: 'runtimeResultMismatch',
-      runtimeKind: 'rateFetch',
-    });
+    logPortfolioRuntimeError(
+      new Error('rate fetch result dependency mismatch'),
+      {
+        tag: 'ensureFresh',
+        reason: 'runtimeResultMismatch',
+        runtimeKind: 'rateFetch',
+      },
+    );
     const dependencyByKey = new Map(
       toFetch.map(dependency => [dependencyKey(dependency), dependency]),
     );

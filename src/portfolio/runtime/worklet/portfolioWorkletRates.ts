@@ -39,6 +39,7 @@ import {
   DEFAULT_PORTFOLIO_NITRO_FETCH_TIMEOUT_MS,
   getPortfolioNitroFetchClientOnRuntime,
 } from '../../adapters/rn/txHistorySigning';
+import {getRateKey} from '../../v2/workletData/ratesKv';
 
 export const getWorkletRateStorageKey = (args: {
   quoteCurrency: string;
@@ -49,15 +50,15 @@ export const getWorkletRateStorageKey = (args: {
 }): string => {
   'worklet';
 
-  return `rate:v1:${getFiatRateSeriesCacheKey(
-    args.quoteCurrency,
-    args.coin,
-    args.interval,
-    {
+  return getRateKey({
+    quoteCurrency: args.quoteCurrency,
+    asset: {
+      coin: args.coin,
       chain: args.chain,
       tokenAddress: args.tokenAddress,
     },
-  )}`;
+    storedInterval: args.interval,
+  });
 };
 
 export function parseWorkletStoredFiatRateSeries(

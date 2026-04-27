@@ -55,8 +55,8 @@ const mockCreateHybridObject = jest.fn();
 
 jest.mock('react-native-nitro-modules', () => ({
   NitroModules: {
-    box: (...args: unknown[]) => mockNitroModulesBox(...args),
-    createHybridObject: (...args: unknown[]) => mockCreateHybridObject(...args),
+    box: (obj: unknown) => mockNitroModulesBox(obj),
+    createHybridObject: (name: string) => mockCreateHybridObject(name),
   },
 }));
 
