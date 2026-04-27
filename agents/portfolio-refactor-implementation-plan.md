@@ -277,6 +277,7 @@ Create the v2 module tree up front. Paths are normative unless repo inventory re
 ```txt
 src/portfolio/v2/model.ts
 src/portfolio/v2/constants.ts
+src/portfolio/v2/featureFlag.ts
 src/portfolio/v2/runtimes.ts
 src/portfolio/v2/sharedState.ts
 src/portfolio/v2/reduxAccess.ts
@@ -335,6 +336,8 @@ export const MAX_SCOPED_CACHE_ENTRIES = 8;
 export const PASSIVE_LIVE_RATE_RECOMPUTE_DEBOUNCE_MS = 150;
 export const PORTFOLIO_PUBLISH_WARN_BYTES = 750_000;
 export const PORTFOLIO_PUBLISH_WARN_MS = 16;
+export const PORTFOLIO_PUBLISH_BENCHMARK_WARMUP_RUNS = 5;
+export const PORTFOLIO_PUBLISH_BENCHMARK_MEASURED_RUNS = 30;
 export const PORTFOLIO_MMKV_VALUE_WARN_BYTES = 500_000;
 export const PORTFOLIO_RECOMPUTE_CHUNK_WALLET_COUNT = 25;
 export const PORTFOLIO_DAILY_SNAPSHOT_COMPRESSION_ENABLED = true;
@@ -342,7 +345,7 @@ export const PORTFOLIO_DAILY_SNAPSHOT_COMPRESSION_AGE_DAYS = 90;
 export const PORTFOLIO_SNAPSHOT_CHUNK_ROW_BUDGET = 128;
 ```
 
-The publish benchmark fixture lives at `src/portfolio/v2/__tests__/fixtures/largePortfolioPublishSeed.ts` and must exercise enough wallets, asset groups, scoped cache entries, and 89-point chart series to make `PORTFOLIO_PUBLISH_WARN_BYTES` and release-build p95 `PORTFOLIO_PUBLISH_WARN_MS` meaningful default-on gates on target devices. Publish duration is measured only in release/profile builds, with enough repeated runs to report p95 so the gate does not depend on debug-build noise.
+The publish benchmark fixture lives at `src/portfolio/v2/__tests__/fixtures/largePortfolioPublishSeed.ts` and must exercise enough wallets, asset groups, scoped cache entries, and 89-point chart series to make `PORTFOLIO_PUBLISH_WARN_BYTES` and release/profile-build p95 `PORTFOLIO_PUBLISH_WARN_MS` meaningful default-on gates. The benchmark harness checks in the target device class/profile used for the gate, runs only in a release/profile build rather than a debug build, performs `PORTFOLIO_PUBLISH_BENCHMARK_WARMUP_RUNS` unrecorded publishes, then records `PORTFOLIO_PUBLISH_BENCHMARK_MEASURED_RUNS` warm publishes and gates on p95 duration. Cold-start hydration is measured separately and must not be mixed with warm publish duration.
 
 No module should inline these strings. Reset and wipe code must import them from the constants module.
 
@@ -2053,7 +2056,11 @@ export type RateSeriesUnavailable = Readonly<{
   quoteCurrency: string;
   assetKey: string;
   storedInterval: StoredRateInterval;
-  reason: 'parseFailure' | 'allPointsDropped';
+  reason:
+    | 'parseFailure'
+    | 'emptyProviderPayload'
+    | 'unsupportedProviderShape'
+    | 'allPointsDropped';
   fetchedOn?: number;
 }>;
 
@@ -2071,7 +2078,7 @@ Normalization rules:
 - provider adapters declare the upstream timestamp unit and convert it once at the adapter boundary; v2 must not guess seconds-vs-milliseconds from magnitude. After conversion, all v2 timestamps are milliseconds since epoch;
 - preserve each raw point's upstream response index before sorting;
 - sort points ascending by `ts`;
-- drop malformed, missing, non-finite, or non-positive rates before storage/reader use and record a parse/missing-rate status; if every point is dropped, return `RateSeriesUnavailable` with `reason: 'allPointsDropped'`; do not return a valid empty `NormalizedRateSeries`;
+- drop malformed, missing, non-finite, or non-positive rates before storage/reader use and record a parse/missing-rate status. If the provider response cannot be parsed, return `reason: 'parseFailure'`; if it has a recognized shape but no points, return `reason: 'emptyProviderPayload'`; if the provider shape is not supported by the adapter, return `reason: 'unsupportedProviderShape'`; if raw points existed but every point is dropped, return `reason: 'allPointsDropped'`. Do not return a valid empty `NormalizedRateSeries`;
 - collapse duplicate timestamps deterministically. Identical duplicate rates collapse to one point; conflicting duplicate rates keep the value with the greatest preserved upstream response index and record a warning metric, so the same payload always normalizes to the same series;
 - `linearRender` returns an exact rate for an exact timestamp, otherwise linearly interpolates between the nearest lower and upper normalized points;
 - `linearRender` never extrapolates outside the normalized series window. Boundary misses return lookup-level `outsideSeriesWindow` or `interpolationFailure`, which makes the affected balance series/weighted interval unavailable rather than producing a partial chart. `outsideSeriesWindow` is a render lookup result, not a normalization result.
@@ -2912,26 +2919,35 @@ export type PortfolioRefreshWalletFingerprint = Readonly<{
 export type PullRefreshChangedWalletResult = Readonly<{
   changedWalletIds: readonly string[];
   derivation: 'exact' | 'scopeFallback';
-  fallbackReason?: 'missingBefore' | 'missingAfter' | 'missingHistoryCursor' | 'refreshError' | 'unsupportedWalletShape';
+  fallbackReason?:
+    | 'missingBefore'
+    | 'missingAfter'
+    | 'missingHistoryCursor'
+    | 'beforeOnlyWithoutExternalOwner'
+    | 'refreshError'
+    | 'unsupportedWalletShape';
 }>;
 
 export function deriveChangedWalletIdsFromPullRefresh(args: {
   before: readonly PortfolioRefreshWalletFingerprint[];
   after: readonly PortfolioRefreshWalletFingerprint[];
   refreshedScopeWalletIds: readonly string[];
+  // Wallets that disappeared because a stronger trigger already owns the side
+  // effect, e.g. `onWalletsDeleted` or a visibility/scope-change trigger.
+  externallyOwnedRemovedWalletIds?: readonly string[];
 }): PullRefreshChangedWalletResult;
 ```
 
-Each migrated pull-to-refresh site captures fingerprints for the refreshed wallet scope before the existing status/history refresh, captures them again after the refresh resolves or partially fails, and then calls the v2 trigger with the derivation result. The fingerprint uses stable economic fields only: wallet ID, asset group ID, current confirmed/spendable balance in atomic units, token-balance atomic key where applicable, and a stable tx-history cursor/last-tx key from the refreshed data. Exact changed-wallet derivation is allowed only when every refreshed wallet has a before/after history cursor. If any wallet in scope lacks a stable history cursor, return `scopeFallback` with `fallbackReason: 'missingHistoryCursor'` rather than claiming an exact diff from balances alone. It must not include volatile fields such as `updatedAt` that can change without an economic balance/history change.
+Each migrated pull-to-refresh site captures fingerprints for the refreshed wallet scope before the existing status/history refresh, captures them again after the refresh resolves or partially fails, and then calls the v2 trigger with the derivation result. The fingerprint uses stable economic fields only: wallet ID, asset group ID, current confirmed/spendable balance in atomic units, token-balance atomic key where applicable, and a stable tx-history cursor/last-tx key from the refreshed data. Exact changed-wallet derivation is allowed only when every wallet present in both snapshots has both before and after history cursors. An after-only wallet may still be included in an exact result if its after fingerprint has a stable history cursor. If any wallet that is present in both snapshots lacks a stable history cursor, return `scopeFallback` with `fallbackReason: 'missingHistoryCursor'` rather than claiming an exact diff from balances alone. It must not include volatile fields such as `updatedAt` that can change without an economic balance/history change.
 
-One-sided fingerprints are explicit. A wallet present only in `after` is changed and may be included in an exact result when the `after` fingerprint has a stable history cursor. A wallet present only in `before` is changed unless the caller has already routed that disappearance through `onWalletsDeleted` or a visibility/scope change trigger; if the caller cannot prove that ownership, fall back with `fallbackReason: 'missingAfter'` rather than returning an unsafe exact empty list.
+One-sided fingerprints are explicit. A wallet present only in `after` is changed and may be included in an exact result when the `after` fingerprint has a stable history cursor. A wallet present only in `before` is not silently ignored: if its wallet ID appears in `externallyOwnedRemovedWalletIds`, the pull-refresh helper excludes it because the stronger delete/visibility/scope trigger owns the side effect; otherwise derivation must fall back with `fallbackReason: 'beforeOnlyWithoutExternalOwner'` rather than returning an unsafe exact empty list.
 
 Trigger order:
 
 1. Run the existing wallet/rate refresh work and derive changed wallets from before/after fingerprints.
 2. Force `ensureFresh` from the post-refresh store via `buildEnsureFreshArgsForVisibleAssetGroups(...)`, which always unions canonical `BTC/USD` and includes newly visible asset groups.
 3. Requeue `changedWalletIds` with `{reason: 'pullToRefresh', priority: 'urgentUserVisible'}`, including already-populated wallets.
-4. If exact derivation is impossible because pre/post fingerprints are missing, refresh failed, wallet shape is unsupported, or any refreshed wallet lacks a stable history cursor, fall back to all livenet/mainnet wallets in the refreshed scope and record `derivation: 'scopeFallback'`; never silently pass an empty changed-wallet list just because the refresh outcome could not be diffed.
+4. If exact derivation is impossible because pre/post fingerprints are missing, refresh failed, wallet shape is unsupported, any both-sides wallet lacks a stable history cursor, or a before-only wallet lacks an external owner, fall back to all livenet/mainnet wallets in the refreshed scope and record `derivation: 'scopeFallback'`; never silently pass an empty changed-wallet list just because the refresh outcome could not be diffed.
 5. Schedule recompute for the affected wallet set or full scope.
 
 ### Quote currency changed
@@ -3328,6 +3344,7 @@ Create:
 ```txt
 src/portfolio/v2/model.ts
 src/portfolio/v2/constants.ts
+src/portfolio/v2/featureFlag.ts
 src/portfolio/v2/runtimes.ts
 src/portfolio/v2/sharedState.ts
 src/portfolio/v2/reduxAccess.ts
@@ -3509,7 +3526,7 @@ Acceptance:
 - Effective-visibility diff tests pass: `hideKeyBalance`, `hideAccount`, cascaded `hideWalletByAccount`, and direct `hideWallet` changes produce the correct became-visible/became-hidden wallet sets; wallet/key deletion actions are suppressed so only `onWalletsDeleted` runs; Hide Crypto Balances produces no v2 trigger.
 - Invalid-history unhide ownership tests pass in this phase: unhide may enqueue a retry for expired markers, but trigger code does not clear manifest invalid-history; only successful populate through `markManifestPopulated` clears it.
 - Send requeues already-populated wallet.
-- Pull-to-refresh derives changed wallets from stable pre/post refresh fingerprints with required history cursors, falls back to all refreshed-scope livenet wallets when derivation is unsafe or history cursors are unavailable, requeues already-populated changed wallets, and refreshes rates from the post-refresh visible asset set.
+- Pull-to-refresh derives changed wallets from stable pre/post refresh fingerprints with required history cursors, uses `externallyOwnedRemovedWalletIds` for before-only removals owned by stronger delete/visibility/scope triggers, falls back to all refreshed-scope livenet wallets when derivation is unsafe or history cursors are unavailable, requeues already-populated changed wallets, and refreshes rates from the post-refresh visible asset set.
 - Quote switch fetches only BTC bridge rates, except target `USD`/canonical quote which performs no target BTC fetch.
 - Passive `onLiveRatesUpdated` schedules only `liveRateTouch`, never `full`, never `ensureFresh`, and obeys debounce/fire-time guards.
 - Show Portfolio rapid toggle serializes, final state wins, and an OFF-created wipe obligation completes before any ON starts populate.
@@ -3574,7 +3591,7 @@ Acceptance:
 Acceptance:
 
 - Full test suite, typecheck, and lint green.
-- The checked-in seeded large-portfolio publish benchmark fixture at `src/portfolio/v2/__tests__/fixtures/largePortfolioPublishSeed.ts` is run in a release/profile build before default-on. If Phase-1 canonical projection exceeds `PORTFOLIO_PUBLISH_WARN_BYTES` or p95 `PORTFOLIO_PUBLISH_WARN_MS` on target devices across repeated runs, implement a smaller typed `PortfolioPublishedState` projection before defaulting v2 on.
+- The checked-in seeded large-portfolio publish benchmark fixture at `src/portfolio/v2/__tests__/fixtures/largePortfolioPublishSeed.ts` is run before default-on using the checked-in target device class/profile. In a release/profile build, after `PORTFOLIO_PUBLISH_BENCHMARK_WARMUP_RUNS` warm-up publishes and `PORTFOLIO_PUBLISH_BENCHMARK_MEASURED_RUNS` measured warm publishes, if Phase-1 canonical projection exceeds `PORTFOLIO_PUBLISH_WARN_BYTES` or p95 `PORTFOLIO_PUBLISH_WARN_MS`, implement a smaller typed `PortfolioPublishedState` projection before defaulting v2 on. Cold-start hydration is measured separately and is not part of this warm publish-duration gate.
 - Flag-on path uses v2; flag-off path still works through retained v1.
 - No persisted Redux arrays are written by v2 while the flag is on.
 - Rollback drill: toggle flag off on a populated development device and verify portfolio surfaces use the retained v1 path without corrupting v2 MMKV state.
@@ -3605,7 +3622,7 @@ Acceptance:
   - passive live-rate touch: no historical point rebuild and bounded publish payload;
   - quote switch: BTC bridge fetch only and no queue mutation;
   - post-auth warm publish: publish from persisted data before network freshen;
-  - published UI state warns when approximate payload size exceeds `PORTFOLIO_PUBLISH_WARN_BYTES` or release-build p95 publish duration exceeds `PORTFOLIO_PUBLISH_WARN_MS`.
+  - published UI state warns when approximate payload size exceeds `PORTFOLIO_PUBLISH_WARN_BYTES` or release/profile-build p95 warm publish duration exceeds `PORTFOLIO_PUBLISH_WARN_MS`.
 - Tune or simplify the typed UI projection if Phase 8a benchmarks required one. If Phase 8a benchmarks proved canonical projection safe on target devices, keep `projectPortfolioStateForUi(...)` as the no-op alias and re-check after any new published fields are added.
 - Add persisted derived render-state hydration only if measured cold-start latency requires it. This is optional and should not be added preemptively.
 
@@ -3721,7 +3738,7 @@ Acceptance:
 
 67. Post-auth warm publish lands before any initial/app-launch populate kick and before network freshen resolves; then first populate, existing-queue resume, or no-queue `appLaunchIncremental` work starts only after the auth gate.
 68. Send-triggered refresh propagates to Home, All Assets, Asset Detail, WalletDetails, KeyOverview, and scoped rows.
-69. Pull-to-refresh balance and rate changes propagate to all affected screens; changed-wallet derivation uses stable pre/post economic fingerprints with history cursors and never returns an unsafe empty list on missing cursor or partial refresh failure.
+69. Pull-to-refresh balance and rate changes propagate to all affected screens; changed-wallet derivation uses stable pre/post economic fingerprints with history cursors, models after-only wallets as changed, requires `externallyOwnedRemovedWalletIds` for before-only removals owned by stronger triggers, and never returns an unsafe empty list on missing cursor, unowned before-only removal, or partial refresh failure.
 70. Key import populates only livenet wallets.
 71. Key delete clears wallet snapshots and updates all affected screens.
 72. Hide/unhide preserves snapshots and updates visible totals/charts; the middleware derives changes from effective visibility before/after reducer execution, including cascaded account/key visibility, suppressing delete actions, and excluding Hide Crypto Balances.
@@ -3768,10 +3785,10 @@ These tests must exist before the plan is treated as implementation-complete. Fo
 108.  **Phase-local acceptance placement test:** assert the missing-constituent-rate fixture is part of Phase 3, checkpoint JSON/non-optional boolean checks are part of Phase 5, invalid-history unhide ownership is part of Phase 6, and passive live-rate no-fetch behavior is part of Phase 6 so these contracts cannot drift until the final pre-Phase-8 suite.
 
 109.  **Publish helper and stale epoch test:** all writes to `sharedPortfolioState.value` go through `publishPortfolioState(...)`; start a long recompute/rate-fetch/populate operation, bump `PORTFOLIO_WORK_EPOCH_KEY` through Show Portfolio OFF, quote change, or wallet deletion, then let the old operation complete. Assert it does not write manifest, queue, MMKV rate/snapshot data, or published render state. Coordination SharedValues may still be written by their owning loops/helpers.
-110.  **Publish projection benchmark gate test:** the checked-in seeded large-portfolio fixture at `src/portfolio/v2/__tests__/fixtures/largePortfolioPublishSeed.ts` records approximate payload bytes and release-build publish duration on target devices. Repeated runs report p95 duration. Metrics either stay under `PORTFOLIO_PUBLISH_WARN_BYTES` and p95 `PORTFOLIO_PUBLISH_WARN_MS`, or Phase 8a is blocked until a smaller typed `PortfolioPublishedState` projection is implemented and benchmarked under both budgets. This benchmark gate is separate from stale-epoch correctness so failures identify performance projection vs stale-write bugs.
+110.  **Publish projection benchmark gate test:** the checked-in seeded large-portfolio fixture at `src/portfolio/v2/__tests__/fixtures/largePortfolioPublishSeed.ts` records approximate payload bytes and warm publish duration on the checked-in target device class/profile. The test/harness runs in a release/profile build, performs `PORTFOLIO_PUBLISH_BENCHMARK_WARMUP_RUNS` unrecorded warm-up publishes, records `PORTFOLIO_PUBLISH_BENCHMARK_MEASURED_RUNS` measured warm publishes, and gates on p95 duration. Metrics either stay under `PORTFOLIO_PUBLISH_WARN_BYTES` and p95 `PORTFOLIO_PUBLISH_WARN_MS`, or Phase 8a is blocked until a smaller typed `PortfolioPublishedState` projection is implemented and benchmarked under both budgets. Cold-start hydration is measured separately. This benchmark gate is separate from stale-epoch correctness so failures identify performance projection vs stale-write bugs.
 111.  **Runtime substrate and initializer test:** portfolio runtimes are created through `react-native-worklets`; compute initializes no wallet signing context, populate initializes tx-history signing/Nitro globals, and rate-fetch initializes BWS/Nitro fetch globals without wallet credentials.
 112.  **Stored-rate helper type/URL test:** provider, URL, MMKV key, and persist helpers accept only `StoredRateInterval`; direct `3M`, `1Y`, or `5Y` calls fail type/runtime assertions and never produce `days=90/365/1825` URLs.
-113.  **Canonical RateReader sampling test:** normalization uses provider-declared timestamp units, converts timestamps to milliseconds, preserves upstream indexes before sorting, drops malformed/non-finite/non-positive rates, treats all-dropped series as unavailable/missing, handles duplicate timestamps deterministically with last-upstream-index wins, and render/quote-bridge paths use `linearRender` with interpolation but no extrapolation. Nearest lookup is confined to explicitly named snapshot-ingest behavior; missing bridge/constituent rates produce deterministic missing/unavailable results with no point dropping.
+113.  **Canonical RateReader sampling test:** normalization uses provider-declared timestamp units, converts timestamps to milliseconds, preserves upstream indexes before sorting, drops malformed/non-finite/non-positive rates, differentiates `parseFailure`, `emptyProviderPayload`, `unsupportedProviderShape`, and `allPointsDropped`, treats all unavailable series as missing for render, handles duplicate timestamps deterministically with last-upstream-index wins, and render/quote-bridge paths use `linearRender` with interpolation but no extrapolation. Nearest lookup is confined to explicitly named snapshot-ingest behavior; missing bridge/constituent rates produce deterministic missing/unavailable results with no point dropping.
 114.  **Invalid basis quarantine anti-regression:** non-finite or negative remaining cost basis, missing required basis rates, impossible disposal math, and negative running units quarantine the wallet. Stub v1-style clamping to zero and assert the fixture fails.
 115.  **Collapsed display-unit amount and health test:** collapsed row crypto amount sums per-member display units, not raw atomics through one representative decimals value; decimal conflicts and missing live-rate member IDs publish through `groupHealth`.
 116.  **Retry/backoff tests:** repeated populate, rate-fetch, and transient populate item rate-preflight failures do not spin; background work respects `nextRetryAtMs`; send/pull/manual refresh can force retry; successful completion or urgent supersession clears retry state. A transient rate-preflight fetch failure leaves the wallet queued/deferred with retry metadata and does not write invalid-history or invalid-basis markers; provider-missing required basis rates after successful fetch enter missing-rate/invalid-basis handling; malformed txhistory enters invalid-history.
