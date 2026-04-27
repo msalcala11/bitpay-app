@@ -24,6 +24,7 @@ let inFlightRecomputeRun:
   | undefined;
 let scheduledRecomputeDrain: ReturnType<typeof setTimeout> | undefined;
 let automaticRecomputeDrain: Promise<void> | undefined;
+let schedulerGeneration = 0;
 
 export type ScheduledRecomputeRunResult =
   | Readonly<{kind: 'idle'}>
@@ -533,8 +534,8 @@ function clearScheduledRecomputeDrain(): void {
   scheduledRecomputeDrain = undefined;
 }
 
-async function drainPendingRecomputes(): Promise<void> {
-  while (pendingRecomputes.length) {
+async function drainPendingRecomputes(generation: number): Promise<void> {
+  while (generation === schedulerGeneration && pendingRecomputes.length) {
     const result = await runNextPendingRecompute();
     if (result.kind === 'idle') {
       return;
@@ -547,18 +548,25 @@ function startScheduledRecomputeDrain(): void {
     return;
   }
 
-  automaticRecomputeDrain = drainPendingRecomputes()
+  const drainGeneration = schedulerGeneration;
+  const drain = drainPendingRecomputes(drainGeneration)
     .catch(error => {
-      logPortfolioRuntimeError(error, {
-        tag: 'scheduledRecomputeDrain',
-      });
+      if (drainGeneration === schedulerGeneration) {
+        logPortfolioRuntimeError(error, {
+          tag: 'scheduledRecomputeDrain',
+        });
+      }
     })
     .finally(() => {
+      if (automaticRecomputeDrain !== drain) {
+        return;
+      }
       automaticRecomputeDrain = undefined;
-      if (pendingRecomputes.length) {
+      if (drainGeneration === schedulerGeneration && pendingRecomputes.length) {
         queueScheduledRecomputeDrain();
       }
     });
+  automaticRecomputeDrain = drain;
 }
 
 function queueScheduledRecomputeDrain(): void {
@@ -650,7 +658,9 @@ export function scheduleRecompute(request: RecomputeRequest): void {
   queueScheduledRecomputeDrain();
 }
 
-async function runNextPendingRecomputeOnce(): Promise<ScheduledRecomputeRunResult> {
+async function runNextPendingRecomputeOnce(
+  generation: number,
+): Promise<ScheduledRecomputeRunResult> {
   const index = nextPendingRecomputeIndex();
   if (index < 0) {
     return {kind: 'idle'};
@@ -668,6 +678,10 @@ async function runNextPendingRecomputeOnce(): Promise<ScheduledRecomputeRunResul
     current,
     request,
   );
+
+  if (generation !== schedulerGeneration) {
+    return {kind: 'discarded', state: next};
+  }
 
   if (next === current) {
     return {kind: 'unchanged'};
@@ -689,13 +703,30 @@ export function runNextPendingRecompute(): Promise<ScheduledRecomputeRunResult> 
     return inFlightRecomputeRun;
   }
 
-  inFlightRecomputeRun = runNextPendingRecomputeOnce().finally(() => {
-    inFlightRecomputeRun = undefined;
-    if (!pendingRecomputes.length) {
+  const runGeneration = schedulerGeneration;
+  const run = runNextPendingRecomputeOnce(runGeneration).finally(() => {
+    if (inFlightRecomputeRun === run) {
+      inFlightRecomputeRun = undefined;
+    }
+    if (runGeneration === schedulerGeneration && !pendingRecomputes.length) {
       clearScheduledRecomputeDrain();
     }
   });
-  return inFlightRecomputeRun;
+  inFlightRecomputeRun = run;
+  return run;
+}
+
+export async function awaitAutomaticRecomputeDrainForTesting(): Promise<void> {
+  while (scheduledRecomputeDrain !== undefined || automaticRecomputeDrain) {
+    if (scheduledRecomputeDrain !== undefined) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    const drain = automaticRecomputeDrain;
+    if (drain) {
+      await drain;
+    }
+  }
 }
 
 export function getPendingRecomputesForTesting(): RecomputeRequest[] {
@@ -703,6 +734,7 @@ export function getPendingRecomputesForTesting(): RecomputeRequest[] {
 }
 
 export function clearPendingRecomputesForTesting(): void {
+  schedulerGeneration += 1;
   pendingRecomputes.length = 0;
   inFlightRecomputeRun = undefined;
   automaticRecomputeDrain = undefined;
