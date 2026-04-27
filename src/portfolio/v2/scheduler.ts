@@ -16,11 +16,14 @@ import {
   sharedPortfolioState,
 } from './sharedState';
 import type {PortfolioPublishReason, PortfolioState} from './model';
+import {logPortfolioRuntimeError} from './logPortfolioRuntimeError';
 
 const pendingRecomputes: RecomputeRequest[] = [];
 let inFlightRecomputeRun:
   | Promise<ScheduledRecomputeRunResult>
   | undefined;
+let scheduledRecomputeDrain: ReturnType<typeof setTimeout> | undefined;
+let automaticRecomputeDrain: Promise<void> | undefined;
 
 export type ScheduledRecomputeRunResult =
   | Readonly<{kind: 'idle'}>
@@ -521,6 +524,54 @@ function nextPendingRecomputeIndex(): number {
   return selectedIndex;
 }
 
+function clearScheduledRecomputeDrain(): void {
+  if (scheduledRecomputeDrain === undefined) {
+    return;
+  }
+
+  clearTimeout(scheduledRecomputeDrain);
+  scheduledRecomputeDrain = undefined;
+}
+
+async function drainPendingRecomputes(): Promise<void> {
+  while (pendingRecomputes.length) {
+    const result = await runNextPendingRecompute();
+    if (result.kind === 'idle') {
+      return;
+    }
+  }
+}
+
+function startScheduledRecomputeDrain(): void {
+  if (automaticRecomputeDrain) {
+    return;
+  }
+
+  automaticRecomputeDrain = drainPendingRecomputes()
+    .catch(error => {
+      logPortfolioRuntimeError(error, {
+        tag: 'scheduledRecomputeDrain',
+      });
+    })
+    .finally(() => {
+      automaticRecomputeDrain = undefined;
+      if (pendingRecomputes.length) {
+        queueScheduledRecomputeDrain();
+      }
+    });
+}
+
+function queueScheduledRecomputeDrain(): void {
+  if (scheduledRecomputeDrain !== undefined || automaticRecomputeDrain) {
+    return;
+  }
+
+  scheduledRecomputeDrain = setTimeout(() => {
+    scheduledRecomputeDrain = undefined;
+    startScheduledRecomputeDrain();
+  }, 0);
+}
+
 export function scheduleRecompute(request: RecomputeRequest): void {
   if (request.startEpoch !== getCurrentPortfolioWorkEpoch()) {
     return;
@@ -552,6 +603,7 @@ export function scheduleRecompute(request: RecomputeRequest): void {
     } else {
       pendingRecomputes.push(mergedRequest);
     }
+    queueScheduledRecomputeDrain();
     return;
   }
 
@@ -565,6 +617,7 @@ export function scheduleRecompute(request: RecomputeRequest): void {
         request,
         'full',
       );
+      queueScheduledRecomputeDrain();
       return;
     }
 
@@ -579,18 +632,22 @@ export function scheduleRecompute(request: RecomputeRequest): void {
     } else {
       pendingRecomputes.push(request);
     }
+    queueScheduledRecomputeDrain();
     return;
   }
 
   if (isWalletScope(request.scope) && mergeWalletRecompute(request)) {
+    queueScheduledRecomputeDrain();
     return;
   }
 
   if (isTouchScope(request.scope) && mergeTouchRecompute(request)) {
+    queueScheduledRecomputeDrain();
     return;
   }
 
   pendingRecomputes.push(request);
+  queueScheduledRecomputeDrain();
 }
 
 async function runNextPendingRecomputeOnce(): Promise<ScheduledRecomputeRunResult> {
@@ -634,6 +691,9 @@ export function runNextPendingRecompute(): Promise<ScheduledRecomputeRunResult> 
 
   inFlightRecomputeRun = runNextPendingRecomputeOnce().finally(() => {
     inFlightRecomputeRun = undefined;
+    if (!pendingRecomputes.length) {
+      clearScheduledRecomputeDrain();
+    }
   });
   return inFlightRecomputeRun;
 }
@@ -645,4 +705,6 @@ export function getPendingRecomputesForTesting(): RecomputeRequest[] {
 export function clearPendingRecomputesForTesting(): void {
   pendingRecomputes.length = 0;
   inFlightRecomputeRun = undefined;
+  automaticRecomputeDrain = undefined;
+  clearScheduledRecomputeDrain();
 }
