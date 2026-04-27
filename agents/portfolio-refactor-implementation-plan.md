@@ -2715,7 +2715,7 @@ Wait timeouts are part of the contract: `waitForPopulateLoopToStop()` defaults t
 
 Post-auth startup must check both durable repair bits before warm publish. If `PORTFOLIO_WIPE_REQUIRED_KEY` is set, run or join `performResetSequence()` before warm-publishing so stale pre-OFF portfolio data cannot reappear after an app kill. If only the cache-invalid bit is set, run `performResetSequence()` as a repair before any ordinary populate/recompute/rate work. If repair fails, do not resume ordinary work.
 
-`markPortfolioWipeRequired()` and `clearPortfolioWipeRequired()` are the only helpers that mutate `PORTFOLIO_WIPE_REQUIRED_KEY`; they must use the MMKV mutation helper family with `reason: 'wipeRequired'` so registry, metrics, and spy tests can distinguish the durable obligation from the bulk wipe operation. `markPortfolioWipeRequired()` writes a small durable true value and bumps `workEpoch` with `showPortfolioOff` before any Show Portfolio OFF await. This makes already-running ordinary recompute/populate/rate-fetch work stale immediately, before the serialized reset task reaches `performResetSequence()`. `clearPortfolioWipeRequired()` deletes the key after reset success; missing key is a no-op.
+`markPortfolioWipeRequired()` and `clearPortfolioWipeRequired()` are the only helpers that mutate `PORTFOLIO_WIPE_REQUIRED_KEY`; they must use the MMKV mutation helper family with `reason: 'wipeRequired'` so registry, metrics, and spy tests can distinguish the durable obligation from the bulk wipe operation. `markPortfolioWipeRequired()` first writes `PORTFOLIO_WIPE_REQUIRED_KEY = true` with `reason: 'wipeRequired'`, then bumps `workEpoch` with `showPortfolioOff`, all before any Show Portfolio OFF await. This makes already-running ordinary recompute/populate/rate-fetch work stale immediately, before the serialized reset task reaches `performResetSequence()`, while making the safest crash state "wipe still owed." `clearPortfolioWipeRequired()` deletes the key after reset success; missing key is a no-op.
 
 `deleteManifestAndQueueMetadata({reason})` is an idempotent reset helper that deletes `MANIFEST_KEY` and `POPULATE_QUEUE_KEY` through `deletePortfolioMmkvKey(...)` if they still exist after the wipe. `reason` must be an existing `PortfolioMmkvWriteReason` such as `'reset'` or `'wipe'`; do not introduce a new MMKV delete reason literal unless `PortfolioMmkvWriteReason` is updated at the same time. The helper must not write an empty manifest or empty queue. Missing manifest/queue keys are the post-reset empty state; the next Show Portfolio ON / first-populate path creates fresh metadata. This keeps the wipe contract and the registry assertion consistent: after reset, no non-excluded `portfolio:v2:*` wipe-target keys should be present merely to represent emptiness.
 
@@ -3266,8 +3266,7 @@ let visibilityToggleSerial: Promise<void> = Promise.resolve();
 
 function onShowPortfolioVisibilityChanged(enabled: boolean): void {
   const epoch = ++visibilityToggleEpoch;
-  visibilityWipeRequired =
-    visibilityWipeRequired || isPortfolioWipeRequired();
+  visibilityWipeRequired = isPortfolioWipeRequired();
 
   if (!enabled) {
     markPortfolioWipeRequired();
@@ -3304,9 +3303,9 @@ function onShowPortfolioVisibilityChanged(enabled: boolean): void {
 
 Additional invariants:
 
-- `markPortfolioWipeRequired()` writes `PORTFOLIO_WIPE_REQUIRED_KEY = true` and bumps `workEpoch` with `showPortfolioOff` before any await and before relying on the in-memory latch;
+- `markPortfolioWipeRequired()` first writes `PORTFOLIO_WIPE_REQUIRED_KEY = true` with `reason: 'wipeRequired'`, then bumps `workEpoch` with `showPortfolioOff`, before any await and before relying on the in-memory latch;
 - `visibilityWipeRequired` is an in-memory serialization mirror of the durable key, not the source of truth;
-- the mirror is initialized lazily from `isPortfolioWipeRequired()` inside Show Portfolio handling, not by a module-top-level MMKV read;
+- the mirror is assigned from `isPortfolioWipeRequired()` at Show Portfolio handler entry, not ORed with stale local truth and not initialized by a module-top-level MMKV read;
 - `visibilityWipeRequired` and `PORTFOLIO_WIPE_REQUIRED_KEY` are cleared only after `performResetSequence()` succeeds;
 - any successful `performResetSequence()` that clears `PORTFOLIO_WIPE_REQUIRED_KEY` refreshes the in-memory mirror from `isPortfolioWipeRequired()` before later Show Portfolio ON handling;
 - if reset throws, the durable wipe obligation remains latched and the next post-auth startup or ON attempt must retry/await reset before warm publish or populate;
