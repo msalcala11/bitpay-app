@@ -877,26 +877,78 @@ describe('portfolio v2 formula recompute input builder', () => {
         orderIndex: 1,
       },
     ];
+    const eurBridge = {
+      '1D': {
+        targetBtcRatePoints: [
+          {ts: ORACLE_TS.start, rate: 9},
+          {ts: ORACLE_TS.end, rate: 11.7},
+        ],
+        canonicalBtcRatePoints: [
+          {ts: ORACLE_TS.start, rate: 10},
+          {ts: ORACLE_TS.end, rate: 12},
+        ],
+        targetBtcLiveRate: 10.53,
+        canonicalBtcLiveRate: 13,
+      },
+    };
+    const gbpBridge = {
+      '1D': {
+        targetBtcRatePoints: [
+          {ts: ORACLE_TS.start, rate: 8},
+          {ts: ORACLE_TS.end, rate: 9},
+        ],
+        canonicalBtcRatePoints: [
+          {ts: ORACLE_TS.start, rate: 10},
+          {ts: ORACLE_TS.end, rate: 12},
+        ],
+        targetBtcLiveRate: 10,
+        canonicalBtcLiveRate: 13,
+      },
+    };
+
+    const intermediateEur = expectValidFormula(
+      buildQuoteBridgedFormulaComputedInputs({
+        targetQuoteCurrency: 'EUR',
+        wallets: [canonicalWallet],
+        assetGroups,
+        bridgeRatePointsByStoredInterval: eurBridge,
+      }),
+    );
+    const eurMarketRates =
+      intermediateEur.assetGroups[0].marketRatePointsByInterval?.['1D'];
+    const eurLiveRate = intermediateEur.assetGroups[0].members[0].liveRate;
+    if (!eurMarketRates || eurLiveRate == null) {
+      throw new Error('Expected intermediate EUR bridge output');
+    }
 
     const bridged = expectValidFormula(
       buildQuoteBridgedFormulaComputedInputs({
         targetQuoteCurrency: 'GBP',
         wallets: [canonicalWallet],
         assetGroups,
-        bridgeRatePointsByStoredInterval: {
-          '1D': {
-            targetBtcRatePoints: [
-              {ts: ORACLE_TS.start, rate: 8},
-              {ts: ORACLE_TS.end, rate: 9},
-            ],
-            canonicalBtcRatePoints: [
-              {ts: ORACLE_TS.start, rate: 10},
-              {ts: ORACLE_TS.end, rate: 12},
-            ],
-            targetBtcLiveRate: 10,
-            canonicalBtcLiveRate: 13,
+        bridgeRatePointsByStoredInterval: gbpBridge,
+      }),
+    );
+    const wrongChainedFromEur = expectValidFormula(
+      buildQuoteBridgedFormulaComputedInputs({
+        targetQuoteCurrency: 'GBP',
+        wallets: [
+          {
+            ...canonicalWallet,
+            liveRate: eurLiveRate,
+            intervals: canonicalWallet.intervals.map(interval => ({
+              ...interval,
+              seriesIdentityKey:
+                'wallet:eth|asset:eth|quote:EUR|snap:1|rate:1',
+              ratePoints: eurMarketRates.map(point => ({
+                ts: point.ts,
+                rate: point.rate,
+              })),
+            })),
           },
-        },
+        ],
+        assetGroups,
+        bridgeRatePointsByStoredInterval: gbpBridge,
       }),
     );
     const state = expectValidState(
@@ -913,7 +965,14 @@ describe('portfolio v2 formula recompute input builder', () => {
 
     const marketRates =
       bridged.assetGroups[0].marketRatePointsByInterval?.['1D'];
+    const wrongChainedRates =
+      wrongChainedFromEur.assetGroups[0].marketRatePointsByInterval?.[
+        '1D'
+      ]?.map(point => point.rate);
+    const wrongChainedLiveRate =
+      wrongChainedFromEur.assetGroups[0].members[0].liveRate;
     expect(state.quoteCurrency).toBe('GBP');
+    expect(eurMarketRates.map(point => point.rate)).toEqual([90, 117]);
     expect(marketRates?.map(point => point.rate)).toEqual([80, 90]);
     expect(bridged.wallets[0].series['1D']?.points).toEqual([
       {
@@ -941,15 +1000,18 @@ describe('portfolio v2 formula recompute input builder', () => {
       fiatEnd: 180,
     });
 
-    const wrongEurDerivedRates = [72, 87.75];
-    expect(marketRates?.map(point => point.rate)).not.toEqual(
-      wrongEurDerivedRates,
+    expect(wrongChainedRates).toEqual([72, 87.75]);
+    expect(wrongChainedLiveRate).toBeCloseTo(81, 10);
+    expect(marketRates?.map(point => point.rate)).not.toEqual(wrongChainedRates);
+    expect(bridged.assetGroups[0].members[0].liveRate).not.toBeCloseTo(
+      wrongChainedLiveRate ?? 0,
+      10,
     );
     expect(state.byAssetGroup.eth.rowToday?.rateStart).not.toBe(
-      wrongEurDerivedRates[0],
+      wrongChainedRates?.[0],
     );
     expect(state.byAssetGroup.eth.rowToday?.rateEnd).not.toBe(
-      wrongEurDerivedRates[1],
+      wrongChainedRates?.[1],
     );
   });
 
