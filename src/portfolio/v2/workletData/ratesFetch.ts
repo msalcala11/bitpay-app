@@ -118,6 +118,13 @@ function dependencyKey(dependency: RateFetchDependency): string {
   });
 }
 
+function isNativeRateDependency(dependency: RateFetchDependency): boolean {
+  'worklet';
+
+  const asset = normalizeRateAssetRef(dependency.asset);
+  return !!asset.coin && !asset.chain && !asset.tokenAddress;
+}
+
 function normalizeQuoteCurrency(quoteCurrency: string): string {
   'worklet';
 
@@ -130,6 +137,14 @@ function normalizeStoredInterval(
   'worklet';
 
   return assertStoredFiatRateInterval(interval);
+}
+
+function nativeRateBatchKey(dependency: RateFetchDependency): string {
+  'worklet';
+
+  return `${normalizeQuoteCurrency(
+    dependency.quoteCurrency,
+  )}:${normalizeStoredInterval(dependency.storedInterval)}`;
 }
 
 function uniqueDependencies(
@@ -300,13 +315,16 @@ function shouldSkipForRetry(
 function extractSeries(
   raw: FiatRateSeriesResponse | Record<string, unknown> | unknown,
   coin: string,
+  allowDirectSeries = true,
 ): FiatRateSeries | null {
   'worklet';
 
-  const directPoints = normalizeStoredFiatRateSeriesPoints(raw);
-  if (directPoints.length) {
-    const series = {fetchedOn: wallClockNowMs(), points: directPoints};
-    return hasUsableFetchedRateSeries(series) ? series : null;
+  if (allowDirectSeries) {
+    const directPoints = normalizeStoredFiatRateSeriesPoints(raw);
+    if (directPoints.length) {
+      const series = {fetchedOn: wallClockNowMs(), points: directPoints};
+      return hasUsableFetchedRateSeries(series) ? series : null;
+    }
   }
 
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -332,8 +350,8 @@ function extractSeries(
   }
 
   const values = Object.values(record);
-  if (values.length === 1) {
-    return extractSeries(values[0], coin);
+  if (allowDirectSeries && values.length === 1) {
+    return extractSeries(values[0], coin, allowDirectSeries);
   }
 
   return null;
@@ -400,23 +418,28 @@ function partitionRuntimeResults(args: {
   return {acceptedResults, missingKeys, mismatch};
 }
 
-async function fetchSingleRateOnRuntime(
+function buildRateFetchUrlOnRuntime(
   dependency: RateFetchDependency,
   cfg: BwsConfig,
-): Promise<RateFetchRuntimeResult> {
+): string {
   'worklet';
 
   const asset = normalizeRateAssetRef(dependency.asset);
-  const quoteCurrency = normalizeQuoteCurrency(dependency.quoteCurrency);
-  const url = getFiatRateSeriesUrl(
+  return getFiatRateSeriesUrl(
     {baseUrl: String(cfg.baseUrl || '')},
-    quoteCurrency,
+    normalizeQuoteCurrency(dependency.quoteCurrency),
     normalizeStoredInterval(dependency.storedInterval),
     {
       chain: asset.chain,
       tokenAddress: asset.tokenAddress,
     },
   );
+}
+
+function requestRatePayloadOnRuntime(
+  url: string,
+): {payload?: unknown; errorKind?: RateFetchErrorKind} {
+  'worklet';
 
   try {
     const nitroFetchClient = getPortfolioNitroFetchClientOnRuntime();
@@ -434,20 +457,129 @@ async function fetchSingleRateOnRuntime(
     const rawText =
       typeof response.bodyString === 'string' ? response.bodyString : '';
     if (!response.ok) {
-      return {
-        dependency,
-        errorKind: response.status === 429 ? 'rateLimit' : 'bws',
-      };
+      return {errorKind: response.status === 429 ? 'rateLimit' : 'bws'};
     }
 
-    const payload = rawText ? JSON.parse(rawText) : {};
-    const series = extractSeries(payload, asset.coin);
+    return {payload: rawText ? JSON.parse(rawText) : {}};
+  } catch (error: unknown) {
+    return {errorKind: classifyFetchError(error)};
+  }
+}
+
+async function fetchSingleRateOnRuntime(
+  dependency: RateFetchDependency,
+  cfg: BwsConfig,
+): Promise<RateFetchRuntimeResult> {
+  'worklet';
+
+  const asset = normalizeRateAssetRef(dependency.asset);
+  const response = requestRatePayloadOnRuntime(
+    buildRateFetchUrlOnRuntime(dependency, cfg),
+  );
+  const errorKind = response.errorKind;
+  if (errorKind) {
+    return {dependency, errorKind};
+  }
+
+  const series = extractSeries(response.payload, asset.coin);
+  return series?.points?.length
+    ? {dependency, series}
+    : {dependency, errorKind: 'parse'};
+}
+
+async function fetchNativeRateBatchOnRuntime(
+  dependencies: readonly RateFetchDependency[],
+  cfg: BwsConfig,
+): Promise<readonly RateFetchRuntimeResult[]> {
+  'worklet';
+
+  const firstDependency = dependencies[0];
+  if (!firstDependency) return [];
+
+  const nativeUrl = getFiatRateSeriesUrl(
+    {baseUrl: String(cfg.baseUrl || '')},
+    normalizeQuoteCurrency(firstDependency.quoteCurrency),
+    normalizeStoredInterval(firstDependency.storedInterval),
+  );
+  const response = requestRatePayloadOnRuntime(nativeUrl);
+  const errorKind = response.errorKind;
+  if (errorKind) {
+    return dependencies.map(dependency => ({
+      dependency,
+      errorKind,
+    }));
+  }
+
+  const allowDirectSeries = dependencies.length === 1;
+  return dependencies.map(dependency => {
+    const asset = normalizeRateAssetRef(dependency.asset);
+    const series = extractSeries(
+      response.payload,
+      asset.coin,
+      allowDirectSeries,
+    );
     return series?.points?.length
       ? {dependency, series}
       : {dependency, errorKind: 'parse'};
-  } catch (error: unknown) {
-    return {dependency, errorKind: classifyFetchError(error)};
+  });
+}
+
+function buildRuntimeFetchBatches(
+  dependencies: readonly RateFetchDependency[],
+): readonly (readonly RateFetchDependency[])[] {
+  'worklet';
+
+  const batches: RateFetchDependency[][] = [];
+  const nativeGroups = new Map<string, RateFetchDependency[]>();
+
+  for (const dependency of dependencies) {
+    if (!isNativeRateDependency(dependency)) {
+      batches.push([dependency]);
+      continue;
+    }
+
+    const key = nativeRateBatchKey(dependency);
+    let group = nativeGroups.get(key);
+    if (!group) {
+      group = [];
+      nativeGroups.set(key, group);
+      batches.push(group);
+    }
+    group.push(dependency);
   }
+
+  return batches;
+}
+
+function persistRuntimeFetchResultOnRuntime(
+  result: RateFetchRuntimeResult,
+  kvConfig?: PortfolioWorkletKvConfig,
+  startEpoch?: number,
+): RateFetchRuntimeResult {
+  'worklet';
+
+  if (!hasUsableFetchedRateSeries(result.series)) {
+    return result;
+  }
+
+  if (
+    kvConfig &&
+    typeof startEpoch === 'number' &&
+    getCurrentPortfolioWorkEpochOnWorklet(kvConfig) === startEpoch
+  ) {
+    writePortfolioMmkvStringOnWorklet(kvConfig, {
+      key: dependencyKey(result.dependency),
+      value: stringifyStoredFiatRateSeries(result.series),
+      reason: 'rate',
+    });
+    return {
+      dependency: result.dependency,
+      fetched: true,
+      persisted: true,
+    };
+  }
+
+  return {dependency: result.dependency, fetched: true};
 }
 
 async function fetchRateSeriesOnRuntime(
@@ -465,32 +597,19 @@ async function fetchRateSeriesOnRuntime(
 
   try {
     const out: RateFetchRuntimeResult[] = [];
-    for (const dependency of dependencies) {
-      const result = await fetchSingleRateOnRuntime(dependency, cfg);
-      if (!hasUsableFetchedRateSeries(result.series)) {
-        out.push(result);
-        continue;
-      }
+    for (const batch of buildRuntimeFetchBatches(dependencies)) {
+      const firstDependency = batch[0];
+      if (!firstDependency) continue;
 
-      if (
-        kvConfig &&
-        typeof startEpoch === 'number' &&
-        getCurrentPortfolioWorkEpochOnWorklet(kvConfig) === startEpoch
-      ) {
-        writePortfolioMmkvStringOnWorklet(kvConfig, {
-          key: dependencyKey(result.dependency),
-          value: stringifyStoredFiatRateSeries(result.series),
-          reason: 'rate',
-        });
-        out.push({
-          dependency: result.dependency,
-          fetched: true,
-          persisted: true,
-        });
-        continue;
-      }
+      const results = isNativeRateDependency(firstDependency)
+        ? await fetchNativeRateBatchOnRuntime(batch, cfg)
+        : [await fetchSingleRateOnRuntime(firstDependency, cfg)];
 
-      out.push({dependency: result.dependency, fetched: true});
+      for (const result of results) {
+        out.push(
+          persistRuntimeFetchResultOnRuntime(result, kvConfig, startEpoch),
+        );
+      }
     }
     return out;
   } finally {
@@ -506,7 +625,7 @@ async function defaultRateFetchExecutor(
   startEpoch: number,
 ): Promise<readonly RateFetchRuntimeResult[]> {
   const dispatchContext = createPortfolioRateFetchDispatchContextOnRN({
-    requestCount: dependencies.length,
+    requestCount: buildRuntimeFetchBatches(dependencies).length,
   });
   const kvConfig = createWorkletPortfolioKvConfig(
     getPortfolioMmkvNativeStorageOnRN(),

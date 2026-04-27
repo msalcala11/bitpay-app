@@ -678,6 +678,138 @@ describe('portfolio v2 ensureFresh', () => {
     ).toThrow('No portfolio runtime request context is initialized');
   });
 
+  it('batches mixed native assets into one V4 request per interval', async () => {
+    (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
+      async (
+        _runtime: unknown,
+        workletFn: (...args: any[]) => unknown,
+        ...args: any[]
+      ) => workletFn(...args),
+    );
+    mockNitroRequestSync.mockReturnValue({
+      ok: true,
+      status: 200,
+      bodyString: JSON.stringify({
+        btc: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
+        eth: {fetchedOn: 124, points: [{ts: 1, rate: 2000}]},
+        sol: {fetchedOn: 125, points: [{ts: 1, rate: 150}]},
+      }),
+    });
+
+    await ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'eth'}, {coin: 'sol'}],
+      intervals: ['1D'],
+      force: true,
+      cfg: {baseUrl: 'https://bws.example'},
+    });
+
+    expect(mockNitroRequestSync).toHaveBeenCalledTimes(1);
+    expect(mockNitroRequestSync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://bws.example/v4/fiatrates/USD?days=1',
+      }),
+    );
+    expect(
+      mockMmkv.getString(
+        getRateKey({
+          quoteCurrency: 'USD',
+          asset: {coin: 'btc'},
+          storedInterval: '1D',
+        }),
+      ),
+    ).toBe('{"v":3,"f":123,"p":[[1,100]]}');
+    expect(
+      mockMmkv.getString(
+        getRateKey({
+          quoteCurrency: 'USD',
+          asset: {coin: 'eth'},
+          storedInterval: '1D',
+        }),
+      ),
+    ).toBe('{"v":3,"f":124,"p":[[1,2000]]}');
+    expect(
+      mockMmkv.getString(
+        getRateKey({
+          quoteCurrency: 'USD',
+          asset: {coin: 'sol'},
+          storedInterval: '1D',
+        }),
+      ),
+    ).toBe('{"v":3,"f":125,"p":[[1,150]]}');
+  });
+
+  it('keeps token V4 requests separate from the native interval batch', async () => {
+    (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
+      async (
+        _runtime: unknown,
+        workletFn: (...args: any[]) => unknown,
+        ...args: any[]
+      ) => workletFn(...args),
+    );
+    const tokenAddress = '0xaf88d065e77c8cc2239327c5edb3a432268e5831';
+    mockNitroRequestSync.mockImplementation(request => {
+      const url = String(request.url);
+      return {
+        ok: true,
+        status: 200,
+        bodyString: JSON.stringify(
+          url.includes('tokenAddress=')
+            ? {usdc: {fetchedOn: 225, points: [{ts: 1, rate: 1.01}]}}
+            : {
+                btc: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
+                eth: {fetchedOn: 124, points: [{ts: 1, rate: 2000}]},
+              },
+        ),
+      };
+    });
+
+    await ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [
+        {coin: 'eth'},
+        {
+          coin: 'usdc',
+          chain: 'arb',
+          tokenAddress,
+        },
+      ],
+      intervals: ['1D'],
+      force: true,
+      cfg: {baseUrl: 'https://bws.example'},
+    });
+
+    expect(mockNitroRequestSync).toHaveBeenCalledTimes(2);
+    expect(mockNitroRequestSync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://bws.example/v4/fiatrates/USD?days=1',
+      }),
+    );
+    expect(mockNitroRequestSync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: `https://bws.example/v4/fiatrates/USD?days=1&chain=arb&tokenAddress=${tokenAddress}`,
+      }),
+    );
+    expect(
+      mockMmkv.getString(
+        getRateKey({
+          quoteCurrency: 'USD',
+          asset: {coin: 'eth'},
+          storedInterval: '1D',
+        }),
+      ),
+    ).toBe('{"v":3,"f":124,"p":[[1,2000]]}');
+    expect(
+      mockMmkv.getString(
+        getRateKey({
+          quoteCurrency: 'USD',
+          asset: {coin: 'usdc', chain: 'arb', tokenAddress},
+          storedInterval: '1D',
+        }),
+      ),
+    ).toBe('{"v":3,"f":225,"p":[[1,1.01]]}');
+  });
+
   it('keeps the fetch-only Nitro context active for the whole dependency batch', async () => {
     (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
       async (
@@ -703,9 +835,9 @@ describe('portfolio v2 ensureFresh', () => {
       cfg: {baseUrl: 'https://bws.example'},
     });
 
-    expect(mockNitroRequestSync).toHaveBeenCalledTimes(2);
+    expect(mockNitroRequestSync).toHaveBeenCalledTimes(1);
     const dispatchContext = (runOnRuntimeAsync as jest.Mock).mock.calls[0][4];
-    expect(dispatchContext).toEqual(expect.objectContaining({requestCount: 2}));
+    expect(dispatchContext).toEqual(expect.objectContaining({requestCount: 1}));
     expect(dispatchContext).not.toHaveProperty('requestPrivKey');
     expect(dispatchContext).not.toHaveProperty('requestPubKey');
     expect(dispatchContext).not.toHaveProperty('signHandleHybrids');
