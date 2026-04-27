@@ -1,4 +1,7 @@
-import {buildPortfolioComputedState} from './portfolioState';
+import {
+  buildPortfolioComputedState,
+  stableWalletIdsKey,
+} from './portfolioState';
 import {
   buildFormulaComputedInputs,
   buildQuoteBridgedFormulaComputedInputs,
@@ -186,6 +189,49 @@ describe('portfolio v2 formula recompute input builder', () => {
     expect(state.status).toMatchObject({
       invalidHistoryWalletIds: [],
       missingRateSourceKeys: [],
+    });
+  });
+
+  it('preserves row/detail equality for a key-scoped wallet set', () => {
+    const formula = expectValidFormula(buildSingleEthFormula());
+    const scopedWalletIds = ['eth-wallet'];
+    const scopedWalletIdsKey = stableWalletIdsKey(scopedWalletIds);
+    const state = expectValidState(
+      buildPortfolioComputedState({
+        workEpoch: 1,
+        revision: 1,
+        quoteCurrency: 'USD',
+        computedAtMs: 100,
+        wallets: formula.wallets,
+        assetGroups: formula.assetGroups,
+        populatedWalletIds: ['eth-wallet'],
+        scopedSlices: [
+          {
+            walletIds: scopedWalletIds,
+            walletIdsKey: scopedWalletIdsKey,
+            assetGroups: formula.assetGroups,
+            lastAccessedAt: 100,
+          },
+        ],
+      }),
+    );
+
+    const wallet = state.byWallet['eth-wallet'];
+    const scoped = state.scopedByWalletSet[scopedWalletIdsKey];
+    const scopedEth = scoped?.byAssetGroup.eth;
+    const scopedRowShell = scoped?.rowShells[0];
+
+    expect(scoped).toBeDefined();
+    expect(scoped?.walletIds).toEqual(['eth-wallet']);
+    expect(scopedRowShell?.assetGroupId).toBe('eth');
+    expect(scopedEth?.rowToday).toEqual(scopedRowShell?.rowToday);
+    expect(scopedEth?.rowToday).toEqual(wallet.rowToday);
+    expect(scopedEth?.rowToday).toMatchObject({
+      fiatStart: 200,
+      fiatEnd: 250,
+      pnlChange: 50,
+      pnlPercent: 25,
+      ratePercent: 25,
     });
   });
 
