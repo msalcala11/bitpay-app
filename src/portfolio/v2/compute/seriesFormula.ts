@@ -14,6 +14,10 @@ export type BalanceChangeEvent = Readonly<{
 export type BuildCappedSampleGridArgs = Readonly<{
   windowStartTs: number;
   windowEndTs: number;
+  /**
+   * Deprecated Phase 0-2 fixture escape hatch. Production balance series now
+   * emit the pinned MAX_CHART_POINTS grid for every valid non-empty window.
+   */
   maxPoints?: number;
 }>;
 
@@ -41,6 +45,7 @@ export type BuildWalletSeriesFromEventsArgs = Readonly<{
   seriesIdentityKey: string;
   windowStartTs: number;
   windowEndTs: number;
+  windowAnchorTs: number;
   sampledFromStoredInterval: StoredRateInterval;
   finalPointSource: Series['finalPointSource'];
   /**
@@ -137,9 +142,7 @@ function isFinalPointSource(
 function isStrictIdentity(value: unknown): value is string {
   'worklet';
 
-  return (
-    typeof value === 'string' && !!value.trim() && value === value.trim()
-  );
+  return typeof value === 'string' && !!value.trim() && value === value.trim();
 }
 
 export function buildCappedSampleGrid(
@@ -151,40 +154,20 @@ export function buildCappedSampleGrid(
     return [];
   }
 
-  const maxPoints = Math.floor(args.maxPoints ?? MAX_CHART_POINTS);
-  if (!Number.isFinite(maxPoints) || maxPoints < 2) {
-    return [];
-  }
-
-  const pointCount = Math.max(2, Math.min(MAX_CHART_POINTS, maxPoints));
-  const start = Math.round(args.windowStartTs);
-  const end = Math.round(args.windowEndTs);
+  const pointCount = MAX_CHART_POINTS;
+  const start = args.windowStartTs;
+  const end = args.windowEndTs;
   const span = end - start;
   const out = new Array<number>(pointCount);
-  const seen = new Set<number>();
-  const deduped: number[] = [];
 
   for (let i = 0; i < pointCount; i++) {
-    out[i] = Math.round(start + (span * i) / (pointCount - 1));
+    out[i] = start + (span * i) / (pointCount - 1);
   }
 
   out[0] = start;
   out[pointCount - 1] = end;
 
-  // Portfolio windows are millisecond timestamps. If fractional/corrupt inputs
-  // collapse to one rounded millisecond, the grid is not usable by row helpers.
-  for (const ts of out) {
-    if (!seen.has(ts)) {
-      seen.add(ts);
-      deduped.push(ts);
-    }
-  }
-
-  if (deduped.length < 2 && start !== end) {
-    return [start, end];
-  }
-
-  return deduped.length >= 2 ? deduped : [];
+  return out;
 }
 
 function normalizeBalanceEvents(
@@ -237,6 +220,7 @@ function buildSeriesFingerprint(args: {
   seriesIdentityKey: string;
   windowStartTs: number;
   windowEndTs: number;
+  windowAnchorTs: number;
   sampledFromStoredInterval: StoredRateInterval;
   finalPointSource: Series['finalPointSource'];
   points: readonly Point[];
@@ -248,8 +232,10 @@ function buildSeriesFingerprint(args: {
     args.interval,
     args.windowStartTs,
     args.windowEndTs,
+    args.windowAnchorTs,
     args.sampledFromStoredInterval,
     args.finalPointSource,
+    args.points.length,
     ...args.points.flatMap(point => [
       point.ts,
       point.fiatBalance,
@@ -274,6 +260,10 @@ export function buildWalletSeriesFromEvents(
   }
 
   if (!hasValidWindow(args.windowStartTs, args.windowEndTs)) {
+    return {kind: 'invalidHistory', reason: 'invalidWindow'};
+  }
+
+  if (!isFiniteNumber(args.windowAnchorTs)) {
     return {kind: 'invalidHistory', reason: 'invalidWindow'};
   }
 
@@ -374,8 +364,7 @@ export function buildWalletSeriesFromEvents(
     }
 
     if (typeof firstRemainingUnrealizedPnlFiat !== 'number') {
-      firstRemainingUnrealizedPnlFiat =
-        point.point.remainingUnrealizedPnlFiat;
+      firstRemainingUnrealizedPnlFiat = point.point.remainingUnrealizedPnlFiat;
     }
     points.push(point.point);
   }
@@ -388,6 +377,7 @@ export function buildWalletSeriesFromEvents(
         seriesIdentityKey: args.seriesIdentityKey,
         windowStartTs: args.windowStartTs,
         windowEndTs: args.windowEndTs,
+        windowAnchorTs: args.windowAnchorTs,
         sampledFromStoredInterval: args.sampledFromStoredInterval,
         finalPointSource: args.finalPointSource,
         points,
@@ -395,6 +385,7 @@ export function buildWalletSeriesFromEvents(
       interval: args.interval,
       windowStartTs: args.windowStartTs,
       windowEndTs: args.windowEndTs,
+      windowAnchorTs: args.windowAnchorTs,
       sampledFromStoredInterval: args.sampledFromStoredInterval,
       finalPointSource: args.finalPointSource,
       points,

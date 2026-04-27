@@ -8,6 +8,7 @@ import type {
 import type {AssetGroupRowShellMemberInput} from './assetGroupRows';
 import type {WeightedGroupRateConstituentInput} from './weightedGroupRates';
 import {buildIntervalWindow} from '../__tests__/fixtures/intervalWindows';
+import {MAX_CHART_POINTS} from '../constants';
 import {
   buildPortfolioComputedState,
   stableWalletIdsKey,
@@ -53,24 +54,20 @@ function makeSeries(args: {
     interval: args.interval,
     windowStartTs: args.startTs,
     windowEndTs: args.endTs,
+    windowAnchorTs: args.endTs,
     sampledFromStoredInterval: args.sampledFromStoredInterval ?? '1D',
     finalPointSource: 'historicalRate',
-    points: [
-      {
-        ts: args.startTs,
-        fiatBalance: args.fiatStart,
-        remainingUnrealizedPnlFiat: 0,
-        pnlChange: 0,
-        pnlPercent: 0,
-      },
-      {
-        ts: args.endTs,
-        fiatBalance: args.fiatEnd,
-        remainingUnrealizedPnlFiat: args.pnlChange,
-        pnlChange: args.pnlChange,
-        pnlPercent: args.pnlPercent,
-      },
-    ],
+    points: Array.from({length: MAX_CHART_POINTS}, (_, index) => {
+      const progress = index / (MAX_CHART_POINTS - 1);
+      return {
+        ts: args.startTs + (args.endTs - args.startTs) * progress,
+        fiatBalance:
+          args.fiatStart + (args.fiatEnd - args.fiatStart) * progress,
+        remainingUnrealizedPnlFiat: args.pnlChange * progress,
+        pnlChange: args.pnlChange * progress,
+        pnlPercent: args.pnlPercent * progress,
+      };
+    }),
   };
 }
 
@@ -102,14 +99,15 @@ function makeConstituent(args: {
   return {
     rateSourceKey: args.rateSourceKey,
     baselineUnits: args.baselineUnits,
-    points: [
-      {ts: args.startTs, rate: args.rateStart, percentChange: 0},
-      {
-        ts: args.endTs,
-        rate: args.rateEnd,
-        percentChange: ((args.rateEnd - args.rateStart) / args.rateStart) * 100,
-      },
-    ],
+    points: Array.from({length: MAX_CHART_POINTS}, (_, index) => {
+      const progress = index / (MAX_CHART_POINTS - 1);
+      const rate = args.rateStart + (args.rateEnd - args.rateStart) * progress;
+      return {
+        ts: args.startTs + (args.endTs - args.startTs) * progress,
+        rate,
+        percentChange: ((rate - args.rateStart) / args.rateStart) * 100,
+      };
+    }),
   };
 }
 
@@ -353,6 +351,23 @@ describe('portfolio v2 computed state producer', () => {
       refreshing: false,
       invalidHistoryBlocked: false,
     });
+    expect(state.dataQualityByScopeKey.home).toEqual({
+      scopeKey: 'home',
+      computedAtMs: 1234,
+      visibleWalletCount: 3,
+      populatedVisibleWalletCount: 3,
+      invalidHistoryVisibleWalletCount: 0,
+      missingRateSourceCount: 0,
+      retryPendingCount: 0,
+      refreshing: false,
+      staleReasons: [],
+    });
+    expect(state.rowShells[0].memberDescriptors).toEqual([
+      {displaySymbol: 'USDC', walletCount: 2},
+    ]);
+    expect(state.byAssetGroup.usdc.memberDescriptors).toEqual(
+      state.rowShells[0].memberDescriptors,
+    );
     expect(state.status).toEqual({
       invalidHistoryWalletIds: [],
       missingRateSourceKeys: [],
@@ -623,6 +638,15 @@ describe('portfolio v2 computed state producer', () => {
     expect(
       state.readinessByScopeKey.persisted.hasEverPublishedValidSeries,
     ).toBe(true);
+    expect(state.dataQualityByScopeKey.home).toMatchObject({
+      scopeKey: 'home',
+      visibleWalletCount: 1,
+      populatedVisibleWalletCount: 0,
+      invalidHistoryVisibleWalletCount: 1,
+      missingRateSourceCount: 2,
+      retryPendingCount: 2,
+      refreshing: true,
+    });
   });
 
   it('keeps partially invalid scopes ready without marking them fully blocked', () => {
@@ -750,6 +774,19 @@ describe('portfolio v2 computed state producer', () => {
     expect(scoped?.totalFingerprint).toMatch(/^fnv1a:[0-9a-f]{8}$/);
     expect(scoped?.fingerprint).toMatch(/^fnv1a:[0-9a-f]{8}$/);
     expect(scoped?.lastAccessedAt).toBe(999);
+  });
+
+  it('builds collision-safe scoped wallet-id keys', () => {
+    const first = stableWalletIdsKey(['ab', 'c', 'ab']);
+    const reordered = stableWalletIdsKey(['c', 'ab']);
+    const ambiguousJoin = stableWalletIdsKey(['a', 'bc']);
+    const delimiterContaining = stableWalletIdsKey(['a|b', 'c']);
+
+    expect(first).toBe(reordered);
+    expect(first).toMatch(/^walletIds:v1:2:fnv1a:[0-9a-f]{8}$/);
+    expect(ambiguousJoin).toMatch(/^walletIds:v1:2:fnv1a:[0-9a-f]{8}$/);
+    expect(first).not.toBe(ambiguousJoin);
+    expect(delimiterContaining).not.toBe(stableWalletIdsKey(['a', 'b|c']));
   });
 
   it('marks scoped readiness published when asset-group series exists without total', () => {
@@ -930,12 +967,12 @@ describe('portfolio v2 computed state producer', () => {
           scopedSlices: [
             {
               walletIds: ['eth-usdc'],
-              walletIdsKey: 'eth-usdc',
+              walletIdsKey: stableWalletIdsKey(['eth-usdc']),
               assetGroups: [makeUsdcAssetGroup()],
             },
             {
               walletIds: ['eth-usdc'],
-              walletIdsKey: 'eth-usdc',
+              walletIdsKey: stableWalletIdsKey(['eth-usdc']),
               assetGroups: [makeUsdcAssetGroup()],
             },
           ],
@@ -948,20 +985,20 @@ describe('portfolio v2 computed state producer', () => {
           scopedSlices: [
             {
               walletIds: [' eth-usdc'],
-              walletIdsKey: 'eth-usdc',
+              walletIdsKey: stableWalletIdsKey([' eth-usdc']),
               assetGroups: [makeUsdcAssetGroup()],
             },
           ],
         }),
       ),
-    ).toEqual({kind: 'invalid', reason: 'invalidScopedWalletIdsKey'});
+    ).toEqual({kind: 'invalid', reason: 'invalidScopedWalletId'});
     expect(
       buildPortfolioComputedState(
         makeBaseArgs({
           scopedSlices: [
             {
               walletIds: ['missing-wallet'],
-              walletIdsKey: 'missing-wallet',
+              walletIdsKey: stableWalletIdsKey(['missing-wallet']),
               assetGroups: [makeUsdcAssetGroup()],
             },
           ],
@@ -974,7 +1011,7 @@ describe('portfolio v2 computed state producer', () => {
           scopedSlices: [
             {
               walletIds: ['eth-usdc'],
-              walletIdsKey: 'eth-usdc',
+              walletIdsKey: stableWalletIdsKey(['eth-usdc']),
               assetGroups: [makeUsdcAssetGroup()],
               lastAccessedAt: Number.NaN,
             },

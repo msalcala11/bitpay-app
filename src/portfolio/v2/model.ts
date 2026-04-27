@@ -33,6 +33,7 @@ export type PortfolioMmkvWriteReason =
   | 'rate'
   | 'workEpoch'
   | 'cacheInvalid'
+  | 'wipeRequired'
   | 'flag'
   | 'reset'
   | 'wipe'
@@ -90,6 +91,7 @@ export type Series = Readonly<{
   interval: Interval;
   windowStartTs: number;
   windowEndTs: number;
+  windowAnchorTs: number;
   sampledFromStoredInterval: StoredRateInterval;
   finalPointSource: 'historicalRate' | 'liveRate';
   points: readonly Point[];
@@ -114,6 +116,7 @@ type WeightedGroupRateSeriesBase = Readonly<{
   interval: Interval;
   windowStartTs: number;
   windowEndTs: number;
+  windowAnchorTs: number;
   sampledFromStoredInterval: StoredRateInterval;
   memberRateSourceKeys: readonly string[];
   baselineUnitsByRateSourceKey: Readonly<Record<string, number>>;
@@ -148,6 +151,16 @@ export type AssetGroupHealth = Readonly<{
   nonzeroMissingLiveRateMemberWalletIds: readonly string[];
 }>;
 
+export type AssetGroupMemberDescriptor = Readonly<{
+  displaySymbol: string;
+  currencyName?: string;
+  chainLabel?: string;
+  networkLabel?: string;
+  sourceLabel?: string;
+  tokenAddressLabel?: string;
+  walletCount: number;
+}>;
+
 export type AssetGroupRowShell = Readonly<{
   assetGroupId: string;
   displaySymbol: string;
@@ -156,6 +169,7 @@ export type AssetGroupRowShell = Readonly<{
   memberWalletIds: readonly string[];
   memberWalletIdsKey: string;
   memberRateSourceKeys: readonly string[];
+  memberDescriptors: readonly AssetGroupMemberDescriptor[];
   canonicalUnitDecimals?: number;
   groupHealth: AssetGroupHealth;
   orderIndex: number;
@@ -194,6 +208,7 @@ export type AssetGroupSlice = Readonly<{
   fingerprint: string;
   memberWalletIds: readonly string[];
   memberWalletIdsKey: string;
+  memberDescriptors: readonly AssetGroupMemberDescriptor[];
   series: PerIntervalSeries;
   weightedGroupRateSeries?: PerIntervalWeightedGroupRateSeries;
   rowToday?: RowPayload;
@@ -242,6 +257,18 @@ export type PortfolioStatus = Readonly<{
   retryScheduledRateSourceKeys: readonly string[];
 }>;
 
+export type PortfolioDataQuality = Readonly<{
+  scopeKey: string;
+  computedAtMs: number;
+  visibleWalletCount: number;
+  populatedVisibleWalletCount: number;
+  invalidHistoryVisibleWalletCount: number;
+  missingRateSourceCount: number;
+  retryPendingCount: number;
+  refreshing: boolean;
+  staleReasons: readonly PortfolioStaleReason[];
+}>;
+
 export type PortfolioState = Readonly<{
   schemaVersion: 1;
   workEpoch: number;
@@ -255,6 +282,7 @@ export type PortfolioState = Readonly<{
   invalidHistoryWalletIdsKey: string;
   invalidHistoryWalletIdsById: Readonly<Record<string, true>>;
   readinessByScopeKey: Readonly<Record<string, ScopeReadiness>>;
+  dataQualityByScopeKey: Readonly<Record<string, PortfolioDataQuality>>;
   orderedAssetGroupIdsForAssetList: readonly string[];
   orderRevision: number;
   byWallet: Readonly<Record<string, WalletSlice>>;
@@ -399,6 +427,7 @@ export const EMPTY_PORTFOLIO_STATE: PortfolioState = {
   invalidHistoryWalletIdsKey: '',
   invalidHistoryWalletIdsById: {},
   readinessByScopeKey: {},
+  dataQualityByScopeKey: {},
   orderedAssetGroupIdsForAssetList: [],
   orderRevision: 0,
   byWallet: {},

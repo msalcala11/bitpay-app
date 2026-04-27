@@ -9,6 +9,7 @@ import {
   buildCappedSampleGrid,
   buildWalletSeriesFromEvents,
 } from './seriesFormula';
+import {MAX_CHART_POINTS} from '../constants';
 
 function expectValidSeries(
   result: ReturnType<typeof buildWalletSeriesFromEvents>,
@@ -25,6 +26,7 @@ const BASE_FORMULA_ARGS = {
   seriesIdentityKey: 'wallet:eth|asset:eth|quote:USD|snap:1|rate:1',
   windowStartTs: ORACLE_1D_WINDOW.windowStartTs,
   windowEndTs: ORACLE_1D_WINDOW.windowEndTs,
+  windowAnchorTs: ORACLE_1D_WINDOW.windowEndTs,
   sampledFromStoredInterval: '1D' as const,
   finalPointSource: 'historicalRate' as const,
 };
@@ -37,26 +39,28 @@ describe('portfolio v2 wallet series formula adapter', () => {
       maxPoints: 5,
     });
 
-    expect(grid).toHaveLength(5);
+    expect(grid).toHaveLength(MAX_CHART_POINTS);
     expect(grid[0]).toBe(ORACLE_1D_WINDOW.windowStartTs);
     expect(grid[grid.length - 1]).toBe(ORACLE_1D_WINDOW.windowEndTs);
   });
 
-  it('dedupes rounded sample timestamps while preserving endpoints', () => {
-    expect(
-      buildCappedSampleGrid({
-        windowStartTs: 1,
-        windowEndTs: 2,
-        maxPoints: 5,
-      }),
-    ).toEqual([1, 2]);
+  it('emits exact 89 points even for short valid windows', () => {
+    const grid = buildCappedSampleGrid({
+      windowStartTs: 1,
+      windowEndTs: 2,
+      maxPoints: 5,
+    });
+
+    expect(grid).toHaveLength(MAX_CHART_POINTS);
+    expect(grid[0]).toBe(1);
+    expect(grid[grid.length - 1]).toBe(2);
     expect(
       buildCappedSampleGrid({
         windowStartTs: 1.1,
         windowEndTs: 1.2,
         maxPoints: 5,
       }),
-    ).toEqual([]);
+    ).toHaveLength(MAX_CHART_POINTS);
   });
 
   it('makes no-transaction pnl percent match the exchange-rate percent', () => {
@@ -72,6 +76,8 @@ describe('portfolio v2 wallet series formula adapter', () => {
     const first = series.points[0];
     const last = series.points[series.points.length - 1];
 
+    expect(series.points).toHaveLength(MAX_CHART_POINTS);
+    expect(series.windowAnchorTs).toBe(ORACLE_1D_WINDOW.windowEndTs);
     expect(first.fiatBalance).toBe(
       NO_TRANSACTION_PARITY_FIXTURE.expected.fiatStart,
     );
@@ -100,10 +106,9 @@ describe('portfolio v2 wallet series formula adapter', () => {
       }),
     );
 
-    expect(series.points.map(point => point.ts)).toEqual([
-      ORACLE_TS.start,
-      ORACLE_TS.end,
-    ]);
+    expect(series.points).toHaveLength(MAX_CHART_POINTS);
+    expect(series.points[0].ts).toBe(ORACLE_TS.start);
+    expect(series.points[series.points.length - 1].ts).toBe(ORACLE_TS.end);
     const last = series.points[series.points.length - 1];
     expect(last.fiatBalance).toBe(IN_WINDOW_BUY_FIXTURE.expected.fiatEnd);
     expect(last.fiatBalance - last.remainingUnrealizedPnlFiat).toBe(
@@ -275,8 +280,31 @@ describe('portfolio v2 wallet series formula adapter', () => {
     );
 
     expect(middleChanged.points[0]).toEqual(base.points[0]);
-    expect(middleChanged.points[2]).toEqual(base.points[2]);
+    expect(middleChanged.points[middleChanged.points.length - 1]).toEqual(
+      base.points[base.points.length - 1],
+    );
     expect(middleChanged.fingerprint).not.toBe(base.fingerprint);
+  });
+
+  it('fingerprints window anchors even when emitted points are identical', () => {
+    const first = expectValidSeries(
+      buildWalletSeriesFromEvents({
+        ...BASE_FORMULA_ARGS,
+        baselineUnits: 1,
+        ratePoints: NO_TRANSACTION_PARITY_FIXTURE.ratePoints,
+      }),
+    );
+    const second = expectValidSeries(
+      buildWalletSeriesFromEvents({
+        ...BASE_FORMULA_ARGS,
+        windowAnchorTs: ORACLE_1D_WINDOW.windowEndTs + 1,
+        baselineUnits: 1,
+        ratePoints: NO_TRANSACTION_PARITY_FIXTURE.ratePoints,
+      }),
+    );
+
+    expect(second.points).toEqual(first.points);
+    expect(second.fingerprint).not.toBe(first.fingerprint);
   });
 
   it('fingerprints input identity even when emitted points are identical', () => {

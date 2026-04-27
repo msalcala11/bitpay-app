@@ -1,8 +1,6 @@
-import {
-  CANONICAL_RATE_QUOTE,
-  MAX_SCOPED_CACHE_ENTRIES,
-} from '../constants';
+import {CANONICAL_RATE_QUOTE, MAX_SCOPED_CACHE_ENTRIES} from '../constants';
 import type {
+  AssetGroupMemberDescriptor,
   AssetGroupRowShell,
   AssetGroupSlice,
   PerIntervalSeries,
@@ -10,18 +8,22 @@ import type {
   PortfolioStaleReason,
   PortfolioState,
   PortfolioStatus,
+  PortfolioDataQuality,
   RowPayload,
   ScopeReadiness,
   ScopedPortfolioSlice,
   Series,
   WeightedGroupRateSeries,
 } from '../model';
+import {stableWalletIdsKey} from '../ordering';
 import {
   buildRecomputeStateSlices,
   type AssetGroupSliceAssemblyInput,
   type RecomputeStateSlicesInvalidReason,
   type WalletSliceAssemblyInput,
 } from './recomputeState';
+
+export {stableWalletIdsKey};
 
 export type WalletComputedStateInput = Omit<
   WalletSliceAssemblyInput,
@@ -154,26 +156,16 @@ function uniqueSorted(values: readonly string[]): readonly string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
 }
 
-export function stableWalletIdsKey(walletIds: readonly string[]): string {
-  'worklet';
-
-  return uniqueSorted(walletIds).join('|');
-}
-
 function isStrictIdentity(value: unknown): value is string {
   'worklet';
 
-  return (
-    typeof value === 'string' && !!value.trim() && value === value.trim()
-  );
+  return typeof value === 'string' && !!value.trim() && value === value.trim();
 }
 
 function isNonNegativeInteger(value: unknown): value is number {
   'worklet';
 
-  return (
-    typeof value === 'number' && Number.isInteger(value) && value >= 0
-  );
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
 function isNonNegativeFiniteNumber(value: unknown): value is number {
@@ -340,9 +332,7 @@ function seriesFingerprintValues(series: PerIntervalSeries): readonly string[] {
     });
 }
 
-function rowFingerprintValues(
-  row: RowPayload | undefined,
-): readonly string[] {
+function rowFingerprintValues(row: RowPayload | undefined): readonly string[] {
   'worklet';
 
   return row ? [row.assetGroupId, row.rowFingerprint] : [];
@@ -368,17 +358,29 @@ function weightedSeriesFingerprintValues(
             interval,
             entry.fingerprint,
             entry.availability,
-            entry.availability === 'unavailable'
-              ? entry.unavailableReason
-              : '',
+            entry.availability === 'unavailable' ? entry.unavailableReason : '',
           ]
         : [];
     });
 }
 
-function buildWalletSliceFingerprint(
-  wallet: WalletComputedStateInput,
-): string {
+function descriptorFingerprintValues(
+  descriptors: readonly AssetGroupMemberDescriptor[] | undefined,
+): readonly (number | string)[] {
+  'worklet';
+
+  return (descriptors ?? []).flatMap(descriptor => [
+    descriptor.displaySymbol,
+    descriptor.currencyName ?? '',
+    descriptor.chainLabel ?? '',
+    descriptor.networkLabel ?? '',
+    descriptor.sourceLabel ?? '',
+    descriptor.tokenAddressLabel ?? '',
+    descriptor.walletCount,
+  ]);
+}
+
+function buildWalletSliceFingerprint(wallet: WalletComputedStateInput): string {
   'worklet';
 
   return stableHash([
@@ -408,6 +410,7 @@ function shellFingerprintValues(
     shell.memberWalletIdsKey,
     ...shell.memberWalletIds,
     ...shell.memberRateSourceKeys,
+    ...descriptorFingerprintValues(shell.memberDescriptors),
     typeof shell.canonicalUnitDecimals === 'number'
       ? shell.canonicalUnitDecimals
       : '',
@@ -433,6 +436,7 @@ function buildAssetGroupSliceFingerprint(args: {
     args.slice.assetGroupId,
     args.slice.memberWalletIdsKey,
     ...args.slice.memberWalletIds,
+    ...descriptorFingerprintValues(args.slice.memberDescriptors),
     ...seriesFingerprintValues(args.slice.series),
     ...weightedSeriesFingerprintValues(args.slice.weightedGroupRateSeries),
     ...rowFingerprintValues(args.slice.rowToday),
@@ -610,9 +614,65 @@ function buildReadinessByScopeKey(args: {
       invalidHistoryWalletIds: args.invalidHistoryWalletIds,
       previous: args.previousReadinessByScopeKey?.[scope.scopeKey],
       refreshing: scope.refreshing,
-      hasPublishedValidSeriesThisPass:
-        scope.hasPublishedValidSeriesThisPass,
+      hasPublishedValidSeriesThisPass: scope.hasPublishedValidSeriesThisPass,
     });
+  }
+
+  return out;
+}
+
+function buildDataQualityByScopeKey(args: {
+  defaultWalletIds: readonly string[];
+  computedAtMs: number;
+  populatedWalletIds: readonly string[];
+  invalidHistoryWalletIds: readonly string[];
+  missingRateSourceKeys: readonly string[];
+  retryScheduledWalletIds: readonly string[];
+  retryScheduledRateSourceKeys: readonly string[];
+  staleReasons: readonly PortfolioStaleReason[];
+  readinessByScopeKey: Readonly<Record<string, ScopeReadiness>>;
+  scopes?: readonly PortfolioScopeComputedStateInput[];
+}): Readonly<Record<string, PortfolioDataQuality>> {
+  'worklet';
+
+  const populatedById = toIdRecord(args.populatedWalletIds);
+  const invalidById = toIdRecord(args.invalidHistoryWalletIds);
+  const retryWalletById = toIdRecord(args.retryScheduledWalletIds);
+  const scopes =
+    args.scopes && args.scopes.length
+      ? args.scopes
+      : [{scopeKey: 'home', walletIds: args.defaultWalletIds}];
+  const out: Record<string, PortfolioDataQuality> = {};
+
+  for (const scope of scopes) {
+    const walletIds = uniqueSorted(scope.walletIds);
+    const retryWalletCount = walletIds.filter(
+      walletId => retryWalletById[walletId] === true,
+    ).length;
+    const retryPendingCount =
+      retryWalletCount + uniqueSorted(args.retryScheduledRateSourceKeys).length;
+
+    out[scope.scopeKey] = {
+      scopeKey: scope.scopeKey,
+      computedAtMs: args.computedAtMs,
+      visibleWalletCount: walletIds.length,
+      populatedVisibleWalletCount: walletIds.filter(
+        walletId => populatedById[walletId] === true,
+      ).length,
+      invalidHistoryVisibleWalletCount: walletIds.filter(
+        walletId => invalidById[walletId] === true,
+      ).length,
+      missingRateSourceCount: uniqueSorted(args.missingRateSourceKeys).length,
+      retryPendingCount,
+      refreshing: args.readinessByScopeKey[scope.scopeKey]?.refreshing === true,
+      staleReasons: buildStatus({
+        invalidHistoryWalletIds: args.invalidHistoryWalletIds,
+        missingRateSourceKeys: args.missingRateSourceKeys,
+        retryScheduledWalletIds: args.retryScheduledWalletIds,
+        retryScheduledRateSourceKeys: args.retryScheduledRateSourceKeys,
+        staleReasons: args.staleReasons,
+      }).staleReasons,
+    };
   }
 
   return out;
@@ -818,12 +878,10 @@ export function buildPortfolioComputedState(
     return {kind: 'invalid', reason: validationError};
   }
 
-  const walletInputs: WalletSliceAssemblyInput[] = args.wallets.map(
-    wallet => ({
-      ...wallet,
-      fingerprint: buildWalletSliceFingerprint(wallet),
-    }),
-  );
+  const walletInputs: WalletSliceAssemblyInput[] = args.wallets.map(wallet => ({
+    ...wallet,
+    fingerprint: buildWalletSliceFingerprint(wallet),
+  }));
   const assetGroupInputs: AssetGroupSliceAssemblyInput[] = args.assetGroups.map(
     assetGroup => ({
       ...assetGroup,
@@ -886,6 +944,28 @@ export function buildPortfolioComputedState(
     return scopedCache;
   }
 
+  const readinessByScopeKey = buildReadinessByScopeKey({
+    defaultWalletIds: args.wallets.map(wallet => wallet.walletId),
+    total,
+    populatedWalletIds,
+    invalidHistoryWalletIds,
+    previousReadinessByScopeKey: args.previousReadinessByScopeKey,
+    scopes: args.scopes,
+    hasPublishedValidSeriesThisPass,
+  });
+  const dataQualityByScopeKey = buildDataQualityByScopeKey({
+    defaultWalletIds: args.wallets.map(wallet => wallet.walletId),
+    computedAtMs: args.computedAtMs,
+    populatedWalletIds,
+    invalidHistoryWalletIds,
+    missingRateSourceKeys: args.missingRateSourceKeys ?? [],
+    retryScheduledWalletIds: args.retryScheduledWalletIds ?? [],
+    retryScheduledRateSourceKeys: args.retryScheduledRateSourceKeys ?? [],
+    staleReasons: args.staleReasons ?? [],
+    readinessByScopeKey,
+    scopes: args.scopes,
+  });
+
   return {
     kind: 'valid',
     state: {
@@ -899,23 +979,15 @@ export function buildPortfolioComputedState(
         invalidHistoryWalletIds,
         missingRateSourceKeys: args.missingRateSourceKeys ?? [],
         retryScheduledWalletIds: args.retryScheduledWalletIds ?? [],
-        retryScheduledRateSourceKeys:
-          args.retryScheduledRateSourceKeys ?? [],
+        retryScheduledRateSourceKeys: args.retryScheduledRateSourceKeys ?? [],
         staleReasons: args.staleReasons ?? [],
       }),
       populatedWalletIdsKey: populatedWalletIds.join('|'),
       populatedWalletIdsById: toIdRecord(populatedWalletIds),
       invalidHistoryWalletIdsKey: invalidHistoryWalletIds.join('|'),
       invalidHistoryWalletIdsById: toIdRecord(invalidHistoryWalletIds),
-      readinessByScopeKey: buildReadinessByScopeKey({
-        defaultWalletIds: args.wallets.map(wallet => wallet.walletId),
-        total,
-        populatedWalletIds,
-        invalidHistoryWalletIds,
-        previousReadinessByScopeKey: args.previousReadinessByScopeKey,
-        scopes: args.scopes,
-        hasPublishedValidSeriesThisPass,
-      }),
+      readinessByScopeKey,
+      dataQualityByScopeKey,
       orderedAssetGroupIdsForAssetList: rowShells.map(
         rowShell => rowShell.assetGroupId,
       ),

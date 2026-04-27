@@ -38,10 +38,23 @@ export function normalizeRatePoints(
   'worklet';
 
   if (!Array.isArray(pointsRaw) || !pointsRaw.length) return [];
-  return pointsRaw
-    .map(point => ({ts: Number(point.ts), rate: Number(point.rate)}))
-    .filter(point => Number.isFinite(point.ts) && Number.isFinite(point.rate))
-    .sort((left, right) => left.ts - right.ts);
+  const firstByTimestamp = new Map<number, FiatRatePoint>();
+  for (const pointRaw of pointsRaw) {
+    const point = {
+      ts: Number(pointRaw.ts),
+      rate: Number(pointRaw.rate),
+    };
+    if (!Number.isFinite(point.ts) || !Number.isFinite(point.rate)) {
+      continue;
+    }
+    if (!firstByTimestamp.has(point.ts)) {
+      firstByTimestamp.set(point.ts, point);
+    }
+  }
+
+  return Array.from(firstByTimestamp.values()).sort(
+    (left, right) => left.ts - right.ts,
+  );
 }
 
 function pointsFromSeries(
@@ -52,10 +65,15 @@ function pointsFromSeries(
   if (Array.isArray(series)) {
     return normalizeRatePoints(series as readonly FiatRatePoint[]);
   }
-  return normalizeRatePoints((series as FiatRateSeries | null | undefined)?.points);
+  return normalizeRatePoints(
+    (series as FiatRateSeries | null | undefined)?.points,
+  );
 }
 
-function findInsertionIndex(points: readonly FiatRatePoint[], ts: number): number {
+function findInsertionIndex(
+  points: readonly FiatRatePoint[],
+  ts: number,
+): number {
   'worklet';
 
   let lo = 0;

@@ -1,5 +1,6 @@
 import {
   recomputePortfolioState,
+  stableWalletIdsKey,
   type FormulaWalletIntervalInput,
   type NormalizedFormulaRecomputeInput,
 } from './recompute';
@@ -15,6 +16,8 @@ import {
   ORACLE_1D_WINDOW,
   ORACLE_TS,
 } from './__tests__/fixtures/productOracles';
+
+const ETH_WALLET_IDS_KEY = stableWalletIdsKey(['eth-wallet']);
 
 const READY_SCOPE: ScopeReadiness = {
   empty: false,
@@ -44,7 +47,7 @@ function makePreviousScopedSlice(
   overrides: Partial<ScopedPortfolioSlice> = {},
 ): ScopedPortfolioSlice {
   return {
-    walletIdsKey: 'eth-wallet',
+    walletIdsKey: ETH_WALLET_IDS_KEY,
     walletIds: ['eth-wallet'],
     fingerprint: 'scoped:previous',
     computedAtMs: 25,
@@ -69,6 +72,7 @@ function oneDayInterval(
     seriesIdentityKey: 'wallet:eth|asset:eth|quote:USD|snap:1|rate:1',
     windowStartTs: ORACLE_1D_WINDOW.windowStartTs,
     windowEndTs: ORACLE_1D_WINDOW.windowEndTs,
+    windowAnchorTs: ORACLE_1D_WINDOW.windowEndTs,
     sampledFromStoredInterval: '1D',
     finalPointSource: 'historicalRate',
     baselineUnits: NO_TRANSACTION_PARITY_FIXTURE.baselineUnits,
@@ -146,7 +150,7 @@ describe('portfolio v2 recompute entrypoint', () => {
   it('preserves previous readiness and scoped cache context across pure recompute', () => {
     const previousScoped = makePreviousScopedSlice();
     const current = makeCurrentState({
-      scopedByWalletSet: {'eth-wallet': previousScoped},
+      scopedByWalletSet: {[ETH_WALLET_IDS_KEY]: previousScoped},
     });
     const next = recomputePortfolioState(current, {
       scope: 'full',
@@ -157,7 +161,7 @@ describe('portfolio v2 recompute entrypoint', () => {
     expect(next.readinessByScopeKey.home.hasEverPublishedValidSeries).toBe(
       true,
     );
-    expect(next.scopedByWalletSet['eth-wallet']).toBe(previousScoped);
+    expect(next.scopedByWalletSet[ETH_WALLET_IDS_KEY]).toBe(previousScoped);
   });
 
   it('returns the current state for stale epochs or invalid normalized inputs', () => {
@@ -216,7 +220,7 @@ describe('portfolio v2 recompute entrypoint', () => {
     });
     const current = {
       ...built,
-      scopedByWalletSet: {'eth-wallet': previousScoped},
+      scopedByWalletSet: {[ETH_WALLET_IDS_KEY]: previousScoped},
     };
     const originalWallet = current.byWallet['eth-wallet'];
     const next = recomputePortfolioState(current, {
@@ -235,7 +239,7 @@ describe('portfolio v2 recompute entrypoint', () => {
       fingerprint: originalWallet.fingerprint,
     });
     expect(next.byWallet['eth-wallet'].series).toBe(originalWallet.series);
-    expect(next.scopedByWalletSet['eth-wallet']).toMatchObject({
+    expect(next.scopedByWalletSet[ETH_WALLET_IDS_KEY]).toMatchObject({
       lastAccessedAt: 200,
       computedAtMs: 25,
       fingerprint: 'scoped:previous',
@@ -275,11 +279,11 @@ describe('portfolio v2 recompute entrypoint', () => {
         ...built.byWallet,
         'eth-wallet': touchedWallet,
       },
-      scopedByWalletSet: {'eth-wallet': previousScoped},
+      scopedByWalletSet: {[ETH_WALLET_IDS_KEY]: previousScoped},
     };
     const originalWallet = current.byWallet['eth-wallet'];
     const originalAssetGroup = current.byAssetGroup.eth;
-    const originalScoped = current.scopedByWalletSet['eth-wallet'];
+    const originalScoped = current.scopedByWalletSet[ETH_WALLET_IDS_KEY];
     const next = recomputePortfolioState(current, {
       scope: {kind: 'liveRateTouch', changedAssetIds: ['eth']},
       startEpoch: 7,
@@ -337,17 +341,19 @@ describe('portfolio v2 recompute entrypoint', () => {
       currentCryptoAmount: '2',
       currentFiatValue: 260,
     });
-    expect(next.scopedByWalletSet['eth-wallet']).toMatchObject({
+    expect(next.scopedByWalletSet[ETH_WALLET_IDS_KEY]).toMatchObject({
       lastAccessedAt: 25,
       computedAtMs: 225,
     });
-    expect(next.scopedByWalletSet['eth-wallet'].fingerprint).not.toBe(
+    expect(next.scopedByWalletSet[ETH_WALLET_IDS_KEY].fingerprint).not.toBe(
       originalScoped.fingerprint,
     );
     expect(
-      next.scopedByWalletSet['eth-wallet'].byAssetGroup.eth.fingerprint,
+      next.scopedByWalletSet[ETH_WALLET_IDS_KEY].byAssetGroup.eth.fingerprint,
     ).not.toBe(originalScoped.byAssetGroup.eth.fingerprint);
-    expect(next.scopedByWalletSet['eth-wallet'].rowShells[0]).toMatchObject({
+    expect(
+      next.scopedByWalletSet[ETH_WALLET_IDS_KEY].rowShells[0],
+    ).toMatchObject({
       currentCryptoAmount: '2',
       currentFiatValue: 260,
     });
@@ -594,7 +600,7 @@ describe('portfolio v2 recompute entrypoint', () => {
       ...built,
       total: built.byWallet['eth-wallet'].series,
       scopedByWalletSet: {
-        'eth-wallet': makePreviousScopedSlice({
+        [ETH_WALLET_IDS_KEY]: makePreviousScopedSlice({
           rowShells: built.rowShells,
           byAssetGroup: built.byAssetGroup,
           total: built.byWallet['eth-wallet'].series,
@@ -640,11 +646,11 @@ describe('portfolio v2 recompute entrypoint', () => {
       pnlChange: 60,
       pnlPercent: 30,
     });
-    expect(next.scopedByWalletSet['eth-wallet'].total).not.toBe(
-      current.scopedByWalletSet['eth-wallet'].total,
+    expect(next.scopedByWalletSet[ETH_WALLET_IDS_KEY].total).not.toBe(
+      current.scopedByWalletSet[ETH_WALLET_IDS_KEY].total,
     );
     expect(
-      next.scopedByWalletSet['eth-wallet'].total['1D']?.points.at(-1),
+      next.scopedByWalletSet[ETH_WALLET_IDS_KEY].total['1D']?.points.at(-1),
     ).toEqual({
       ts: ORACLE_TS.end,
       fiatBalance: 260,
@@ -652,11 +658,13 @@ describe('portfolio v2 recompute entrypoint', () => {
       pnlChange: 60,
       pnlPercent: 30,
     });
-    expect(next.scopedByWalletSet['eth-wallet'].rowShells[0]).toMatchObject({
+    expect(
+      next.scopedByWalletSet[ETH_WALLET_IDS_KEY].rowShells[0],
+    ).toMatchObject({
       currentFiatValue: 260,
     });
     expect(
-      next.scopedByWalletSet['eth-wallet'].readiness
+      next.scopedByWalletSet[ETH_WALLET_IDS_KEY].readiness
         .hasEverPublishedValidSeries,
     ).toBe(true);
   });
@@ -688,7 +696,7 @@ describe('portfolio v2 recompute entrypoint', () => {
     const current = {
       ...built,
       scopedByWalletSet: {
-        'eth-wallet': makePreviousScopedSlice({
+        [ETH_WALLET_IDS_KEY]: makePreviousScopedSlice({
           rowShells: [],
           byAssetGroup: {},
           readiness: neverPublished,
@@ -714,11 +722,13 @@ describe('portfolio v2 recompute entrypoint', () => {
     });
 
     expect(next).not.toBe(current);
-    expect(next.scopedByWalletSet['eth-wallet'].rowShells[0]).toMatchObject({
+    expect(
+      next.scopedByWalletSet[ETH_WALLET_IDS_KEY].rowShells[0],
+    ).toMatchObject({
       currentFiatValue: 260,
     });
     expect(
-      next.scopedByWalletSet['eth-wallet'].readiness
+      next.scopedByWalletSet[ETH_WALLET_IDS_KEY].readiness
         .hasEverPublishedValidSeries,
     ).toBe(false);
   });

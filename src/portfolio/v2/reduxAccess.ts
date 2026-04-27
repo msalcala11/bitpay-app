@@ -1,6 +1,8 @@
 import type {Store} from 'redux';
 
 import type {RootState} from '../../store';
+import type {Wallet} from '../../store/wallet/wallet.models';
+import {isPortfolioRuntimeEligibleWallet} from '../adapters/rn/walletEligibility';
 import {getFiatRateAssetRef} from '../core/pnl/rates';
 import {CANONICAL_RATE_QUOTE} from './constants';
 import type {FiatRateAssetRef, StoredRateInterval} from './model';
@@ -71,11 +73,17 @@ type WalletLike = {
   hideWallet?: boolean;
   hideWalletByAccount?: boolean;
   pendingTssSession?: boolean;
+  deleted?: boolean;
+  isDeleted?: boolean;
+  status?: string;
   credentials?: {
     walletId?: string;
     chain?: string;
     network?: string;
     coin?: string;
+    copayerId?: string;
+    requestPrivKey?: string;
+    isComplete?: () => boolean;
     token?: {address?: string; symbol?: string};
   };
 };
@@ -111,41 +119,53 @@ function withCanonicalStoredRateIntervals(
 }
 
 function getWalletId(wallet: WalletLike): string {
-  return String(wallet.id || wallet.walletId || wallet.credentials?.walletId || '').trim();
-}
-
-function isLivenetWallet(wallet: WalletLike): boolean {
-  const network = String(wallet.network || wallet.credentials?.network || '')
-    .trim()
-    .toLowerCase();
-  return network === 'livenet' || network === 'mainnet';
+  return String(
+    wallet.id || wallet.walletId || wallet.credentials?.walletId || '',
+  ).trim();
 }
 
 function isRuntimeEligibleWallet(wallet: WalletLike): boolean {
-  if (!getWalletId(wallet)) return false;
-  if (!isLivenetWallet(wallet)) return false;
-  if (wallet.pendingTssSession) return false;
-  return !!String(
-    wallet.currencyAbbreviation ||
-      wallet.credentials?.token?.symbol ||
-      wallet.credentials?.coin ||
-      '',
-  ).trim();
+  if (
+    wallet.deleted === true ||
+    wallet.isDeleted === true ||
+    String(wallet.status || '')
+      .trim()
+      .toLowerCase() === 'deleted'
+  ) {
+    return false;
+  }
+  if (
+    !String(
+      wallet.currencyAbbreviation ||
+        wallet.credentials?.token?.symbol ||
+        wallet.credentials?.coin ||
+        '',
+    ).trim()
+  ) {
+    return false;
+  }
+  return isPortfolioRuntimeEligibleWallet(wallet as unknown as Wallet);
 }
 
 function getKeysFromState(state: RootState): Record<string, KeyLike> {
   return (((state as unknown as {WALLET?: {keys?: Record<string, KeyLike>}})
-    .WALLET?.keys ?? {}) || {}) as Record<string, KeyLike>;
+    .WALLET?.keys ??
+    {}) ||
+    {}) as Record<string, KeyLike>;
 }
 
 function getHiddenKeyIdsFromHomeCarouselConfig(
   state: RootState,
 ): ReadonlySet<string> {
-  const homeCarouselConfig = (state as unknown as {
-    APP?: {homeCarouselConfig?: Array<{id?: string; show?: boolean}>};
-  }).APP?.homeCarouselConfig;
+  const homeCarouselConfig = (
+    state as unknown as {
+      APP?: {homeCarouselConfig?: Array<{id?: string; show?: boolean}>};
+    }
+  ).APP?.homeCarouselConfig;
   const hidden = new Set<string>();
-  for (const item of Array.isArray(homeCarouselConfig) ? homeCarouselConfig : []) {
+  for (const item of Array.isArray(homeCarouselConfig)
+    ? homeCarouselConfig
+    : []) {
     const id = String(item?.id || '');
     if (id && id !== 'coinbaseBalanceCard' && item?.show === false) {
       hidden.add(id);
@@ -239,11 +259,17 @@ export function getVisibleEligibleWalletsFromStore(): readonly WalletLike[] {
 export function buildEnsureFreshArgsForPopulateEligibleAssetGroups(
   args?: EnsureFreshDependencyArgs,
 ) {
-  return buildEnsureFreshArgsFromWallets(getEligibleStoredWalletsFromStore(), args);
+  return buildEnsureFreshArgsFromWallets(
+    getEligibleStoredWalletsFromStore(),
+    args,
+  );
 }
 
 export function buildEnsureFreshArgsForVisibleAssetGroups(
   args?: EnsureFreshDependencyArgs,
 ) {
-  return buildEnsureFreshArgsFromWallets(getVisibleEligibleWalletsFromStore(), args);
+  return buildEnsureFreshArgsFromWallets(
+    getVisibleEligibleWalletsFromStore(),
+    args,
+  );
 }

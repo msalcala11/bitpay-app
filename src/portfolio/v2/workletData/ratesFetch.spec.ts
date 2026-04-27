@@ -78,7 +78,10 @@ jest.mock('../../adapters/rn/workletMmkvBridge', () => ({
 import {runOnRuntimeAsync} from 'react-native-worklets';
 
 import * as txHistorySigning from '../../adapters/rn/txHistorySigning';
-import {PORTFOLIO_WORK_EPOCH_KEY} from '../constants';
+import {
+  PORTFOLIO_RATE_FETCH_MAX_PARALLEL_TOKEN_REQUESTS,
+  PORTFOLIO_WORK_EPOCH_KEY,
+} from '../constants';
 import {
   clearRecordedPortfolioV2MetricsForTesting,
   getRecordedPortfolioV2MetricsForTesting,
@@ -140,6 +143,24 @@ const ethAllKey = getRateKey({
   asset: {coin: 'eth'},
   storedInterval: 'ALL',
 });
+
+function completeCredentials(overrides: Record<string, unknown> = {}) {
+  return {
+    walletId: 'wallet-id',
+    network: 'livenet',
+    coin: 'btc',
+    copayerId: 'copayer-1',
+    requestPrivKey: 'request-priv-key',
+    isComplete: () => true,
+    ...overrides,
+  };
+}
+
+async function flushRateFetchMicrotasks(): Promise<void> {
+  for (let index = 0; index < 10; index++) {
+    await Promise.resolve();
+  }
+}
 
 describe('portfolio v2 ensureFresh', () => {
   it('builds dependencies with canonical and target BTC bridge coverage', () => {
@@ -343,6 +364,38 @@ describe('portfolio v2 ensureFresh', () => {
     });
 
     expect(executor).not.toHaveBeenCalled();
+  });
+
+  it('honors forced in-flight upgrades before a freshness skip', async () => {
+    mockMmkv.set(btcAllKey, '{"v":3,"f":1000,"p":[[1,100]]}');
+    const executor = jest.fn(
+      async (dependencies: readonly RateFetchDependency[]) =>
+        dependencies.map(
+          dependency =>
+            ({
+              dependency,
+              series: {fetchedOn: 123, points: [{ts: 1, rate: 101}]},
+            } satisfies RateFetchRuntimeResult),
+        ),
+    );
+    setRateFetchExecutorForTesting(executor);
+
+    const background = ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'btc'}],
+      intervals: ['ALL'],
+    });
+    const forced = ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'btc'}],
+      intervals: ['ALL'],
+      force: true,
+    });
+
+    await Promise.all([background, forced]);
+
+    expect(executor).toHaveBeenCalledTimes(1);
+    expect(mockMmkv.getString(btcAllKey)).toBe('{"v":3,"f":123,"p":[[1,101]]}');
   });
 
   it('records retry state and prevents background fetch spin until forced', async () => {
@@ -895,7 +948,9 @@ describe('portfolio v2 ensureFresh', () => {
     });
 
     expect(mockNitroRequestSync).toHaveBeenCalledTimes(1);
-    const dispatchContext = (runOnRuntimeAsync as jest.Mock).mock.calls[0][4];
+    const runtimeCall = (runOnRuntimeAsync as jest.Mock).mock.calls[0];
+    expect(runtimeCall[2]).toBe('rateFetch');
+    const dispatchContext = runtimeCall[4][2];
     expect(dispatchContext).toEqual(expect.objectContaining({requestCount: 1}));
     expect(dispatchContext).not.toHaveProperty('requestPrivKey');
     expect(dispatchContext).not.toHaveProperty('requestPubKey');
@@ -1155,6 +1210,11 @@ describe('portfolio v2 ensureFresh', () => {
                     chain: 'btc',
                     network: 'livenet',
                     currencyAbbreviation: 'btc',
+                    credentials: completeCredentials({
+                      walletId: 'visible-btc',
+                      chain: 'btc',
+                      coin: 'btc',
+                    }),
                   },
                   {
                     id: 'hidden-eth',
@@ -1162,12 +1222,23 @@ describe('portfolio v2 ensureFresh', () => {
                     network: 'livenet',
                     currencyAbbreviation: 'eth',
                     hideWallet: true,
+                    credentials: completeCredentials({
+                      walletId: 'hidden-eth',
+                      chain: 'eth',
+                      coin: 'eth',
+                    }),
                   },
                   {
                     id: 'testnet-doge',
                     chain: 'doge',
                     network: 'testnet',
                     currencyAbbreviation: 'doge',
+                    credentials: completeCredentials({
+                      walletId: 'testnet-doge',
+                      chain: 'doge',
+                      coin: 'doge',
+                      network: 'testnet',
+                    }),
                   },
                 ],
               },
@@ -1194,5 +1265,177 @@ describe('portfolio v2 ensureFresh', () => {
       intervals: ['1D', '1W', '1M', 'ALL'],
       force: undefined,
     });
+  });
+
+  it('filters populate/background wallets through complete runtime eligibility', () => {
+    initPortfolioReduxAccess({
+      getState: () =>
+        ({
+          APP: {
+            defaultAltCurrencyIsoCode: 'USD',
+            homeCarouselConfig: [],
+          },
+          WALLET: {
+            keys: {
+              key1: {
+                wallets: [
+                  {
+                    id: 'valid-hidden-eth',
+                    chain: 'eth',
+                    network: 'livenet',
+                    currencyAbbreviation: 'eth',
+                    hideWallet: true,
+                    credentials: completeCredentials({
+                      walletId: 'valid-hidden-eth',
+                      chain: 'eth',
+                      coin: 'eth',
+                    }),
+                  },
+                  {
+                    id: 'missing-copayer',
+                    chain: 'btc',
+                    network: 'livenet',
+                    currencyAbbreviation: 'btc',
+                    credentials: completeCredentials({
+                      walletId: 'missing-copayer',
+                      copayerId: '',
+                    }),
+                  },
+                  {
+                    id: 'missing-priv',
+                    chain: 'ltc',
+                    network: 'livenet',
+                    currencyAbbreviation: 'ltc',
+                    credentials: completeCredentials({
+                      walletId: 'missing-priv',
+                      coin: 'ltc',
+                      requestPrivKey: '',
+                    }),
+                  },
+                  {
+                    id: 'incomplete',
+                    chain: 'doge',
+                    network: 'livenet',
+                    currencyAbbreviation: 'doge',
+                    credentials: completeCredentials({
+                      walletId: 'incomplete',
+                      coin: 'doge',
+                      isComplete: () => false,
+                    }),
+                  },
+                  {
+                    id: 'pending-tss',
+                    chain: 'xrp',
+                    network: 'livenet',
+                    currencyAbbreviation: 'xrp',
+                    pendingTssSession: true,
+                    credentials: completeCredentials({
+                      walletId: 'pending-tss',
+                      coin: 'xrp',
+                    }),
+                  },
+                  {
+                    id: 'deleted-wallet',
+                    chain: 'sol',
+                    network: 'livenet',
+                    currencyAbbreviation: 'sol',
+                    deleted: true,
+                    credentials: completeCredentials({
+                      walletId: 'deleted-wallet',
+                      coin: 'sol',
+                    }),
+                  },
+                ],
+              },
+            },
+          },
+        } as any),
+    } as any);
+
+    expect(
+      buildEnsureFreshArgsForPopulateEligibleAssetGroups({intervals: ['ALL']})
+        .assetRefs,
+    ).toEqual([{coin: 'btc'}, {coin: 'eth'}]);
+    expect(
+      buildEnsureFreshArgsForVisibleAssetGroups({intervals: ['ALL']}).assetRefs,
+    ).toEqual([{coin: 'btc'}]);
+  });
+
+  it('coalesces overlapping dependency fetches and schedules forced follow-up after start', async () => {
+    let releaseFirstFetch: (() => void) | undefined;
+    const executor = jest.fn(
+      async (dependencies: readonly RateFetchDependency[]) => {
+        await new Promise<void>(resolve => {
+          releaseFirstFetch = resolve;
+        });
+        return dependencies.map(
+          dependency =>
+            ({
+              dependency,
+              series: {fetchedOn: 123, points: [{ts: 1, rate: 100}]},
+            } satisfies RateFetchRuntimeResult),
+        );
+      },
+    );
+    setRateFetchExecutorForTesting(executor);
+
+    const first = ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'btc'}],
+      intervals: ['ALL'],
+      force: true,
+    });
+    const second = ensureFresh({
+      quoteCurrency: 'USD',
+      assetRefs: [{coin: 'btc'}],
+      intervals: ['ALL'],
+      force: true,
+    });
+
+    await flushRateFetchMicrotasks();
+    expect(executor).toHaveBeenCalledTimes(1);
+    releaseFirstFetch?.();
+    await Promise.all([first, second]);
+    expect(executor).toHaveBeenCalledTimes(1);
+
+    const releaseCalls: Array<() => void> = [];
+    const followUpExecutor = jest.fn(
+      async (dependencies: readonly RateFetchDependency[]) => {
+        await new Promise<void>(resolve => releaseCalls.push(resolve));
+        return dependencies.map(
+          dependency =>
+            ({
+              dependency,
+              series: {fetchedOn: 124, points: [{ts: 1, rate: 101}]},
+            } satisfies RateFetchRuntimeResult),
+        );
+      },
+    );
+    setRateFetchExecutorForTesting(followUpExecutor);
+
+    const background = ensureQuoteCurrencyFxBridge({
+      quoteCurrency: 'CAD',
+      intervals: ['ALL'],
+    });
+    await flushRateFetchMicrotasks();
+    const forced = ensureQuoteCurrencyFxBridge({
+      quoteCurrency: 'CAD',
+      intervals: ['ALL'],
+      force: true,
+    });
+    await flushRateFetchMicrotasks();
+    expect(followUpExecutor).toHaveBeenCalledTimes(1);
+    releaseCalls[0]?.();
+    await flushRateFetchMicrotasks();
+    expect(followUpExecutor).toHaveBeenCalledTimes(2);
+    releaseCalls[1]?.();
+    await Promise.all([background, forced]);
+  });
+
+  it('exposes the bounded token parallelism cap', () => {
+    expect(PORTFOLIO_RATE_FETCH_MAX_PARALLEL_TOKEN_REQUESTS).toBeGreaterThan(0);
+    expect(
+      Number.isInteger(PORTFOLIO_RATE_FETCH_MAX_PARALLEL_TOKEN_REQUESTS),
+    ).toBe(true);
   });
 });

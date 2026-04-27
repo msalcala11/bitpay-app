@@ -2,6 +2,7 @@ import type {FiatRatePoint} from '../../../core/fiatRatesShared';
 import type {PopulateCheckpoint} from '../../model';
 import type {WeightedGroupRateConstituentInput} from '../../compute/weightedGroupRates';
 import {buildIntervalWindow} from './intervalWindows';
+import {MAX_CHART_POINTS} from '../../constants';
 
 export const ORACLE_1D_WINDOW = buildIntervalWindow();
 
@@ -11,7 +12,24 @@ export const ORACLE_TS = {
   end: ORACLE_1D_WINDOW.endTs,
 } as const;
 
-const WEIGHTED_GROUP_WINDOW = buildIntervalWindow({startTs: 1, endTs: 2});
+const WEIGHTED_GROUP_WINDOW = buildIntervalWindow({startTs: 1, endTs: 89});
+
+function buildWeightedRatePoints(
+  startRate: number,
+  endRate: number,
+): WeightedGroupRateConstituentInput['points'] {
+  return Array.from({length: MAX_CHART_POINTS}, (_, index) => {
+    const progress = index / (MAX_CHART_POINTS - 1);
+    const rate = startRate + (endRate - startRate) * progress;
+    return {
+      ts:
+        WEIGHTED_GROUP_WINDOW.startTs +
+        (WEIGHTED_GROUP_WINDOW.durationMs * index) / (MAX_CHART_POINTS - 1),
+      rate,
+      percentChange: ((rate - startRate) / startRate) * 100,
+    };
+  });
+}
 
 export const NO_TRANSACTION_PARITY_FIXTURE = {
   interval: '1D',
@@ -69,43 +87,23 @@ export const WEIGHTED_GROUP_FIXTURE = {
   interval: '1D',
   windowStartTs: WEIGHTED_GROUP_WINDOW.windowStartTs,
   windowEndTs: WEIGHTED_GROUP_WINDOW.windowEndTs,
+  windowAnchorTs: WEIGHTED_GROUP_WINDOW.windowEndTs,
   sampledFromStoredInterval: '1D',
   constituents: [
     {
       rateSourceKey: 'eth-usdc',
       baselineUnits: 100,
-      points: [
-        {ts: WEIGHTED_GROUP_WINDOW.startTs, rate: 1, percentChange: 0},
-        {
-          ts: WEIGHTED_GROUP_WINDOW.endTs,
-          rate: 1.002,
-          percentChange: 0.19999999999997797,
-        },
-      ],
+      points: buildWeightedRatePoints(1, 1.002),
     },
     {
       rateSourceKey: 'pol-usdc',
       baselineUnits: 40,
-      points: [
-        {ts: WEIGHTED_GROUP_WINDOW.startTs, rate: 1.005, percentChange: 0},
-        {
-          ts: WEIGHTED_GROUP_WINDOW.endTs,
-          rate: 1.006,
-          percentChange: 0.09950248756219348,
-        },
-      ],
+      points: buildWeightedRatePoints(1.005, 1.006),
     },
     {
       rateSourceKey: 'sol-usdc',
       baselineUnits: 40,
-      points: [
-        {ts: WEIGHTED_GROUP_WINDOW.startTs, rate: 1.0048, percentChange: 0},
-        {
-          ts: WEIGHTED_GROUP_WINDOW.endTs,
-          rate: 1.0038,
-          percentChange: -0.0995222929936251,
-        },
-      ],
+      points: buildWeightedRatePoints(1.0048, 1.0038),
     },
   ] satisfies readonly WeightedGroupRateConstituentInput[],
   expected: {
@@ -144,14 +142,7 @@ export const WEIGHTED_MISSING_CONSTITUENT_FIXTURE = {
     {
       rateSourceKey: 'eth-usdc',
       baselineUnits: 2,
-      points: [
-        {ts: WEIGHTED_GROUP_WINDOW.startTs, rate: 1, percentChange: 0},
-        {
-          ts: WEIGHTED_GROUP_WINDOW.endTs,
-          rate: 1.2,
-          percentChange: 19.999999999999996,
-        },
-      ],
+      points: buildWeightedRatePoints(1, 1.2),
     },
     {rateSourceKey: 'pol-usdc', baselineUnits: 1, points: []},
   ] satisfies readonly WeightedGroupRateConstituentInput[],

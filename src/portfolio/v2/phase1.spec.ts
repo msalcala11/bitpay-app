@@ -1,4 +1,4 @@
-import {createWorkletRuntime} from 'react-native-worklets';
+import {createWorkletRuntime, runOnRuntimeAsync} from 'react-native-worklets';
 
 import {
   MANIFEST_KEY,
@@ -35,6 +35,7 @@ class FakeMmkv {
 const mockMmkv = new FakeMmkv();
 const mockInitializePopulateRuntimeGlobals = jest.fn();
 const mockInitializeRateFetchRuntimeGlobals = jest.fn();
+const mockTeardownRuntimeGlobals = jest.fn();
 
 jest.mock('react-native-reanimated', () => ({
   makeMutable: (initial: unknown) => ({
@@ -59,6 +60,8 @@ jest.mock('../adapters/rn/workletRuntimeShared', () => ({
     mockInitializePopulateRuntimeGlobals(),
   initializePortfolioRateFetchRuntimeGlobals: () =>
     mockInitializeRateFetchRuntimeGlobals(),
+  teardownPortfolioRuntimeGlobals: (kind: string) =>
+    mockTeardownRuntimeGlobals(kind),
 }));
 
 jest.mock('../adapters/rn/workletMmkvBridge', () => ({
@@ -111,6 +114,7 @@ import {
   getPortfolioRateFetchRuntime,
   initializePortfolioRuntimeGlobals,
   resetPortfolioV2RuntimesForTesting,
+  runOnPortfolioRuntimeAsync,
 } from './runtimes';
 import {
   getReduxStateForPortfolioV2,
@@ -122,12 +126,15 @@ import {
   normalizeExchangeRateRouteParams,
   serializeExchangeRateRoute,
 } from './routes/exchangeRateRoute';
+import {usePortfolioChartAccessibility} from './hooks/usePortfolioChartAccessibility';
 
 beforeEach(() => {
   mockMmkv.data.clear();
   mockInitializePopulateRuntimeGlobals.mockClear();
   mockInitializeRateFetchRuntimeGlobals.mockClear();
+  mockTeardownRuntimeGlobals.mockClear();
   (createWorkletRuntime as jest.Mock).mockClear();
+  (runOnRuntimeAsync as jest.Mock).mockClear();
   resetPortfolioKvStoreForTesting();
   resetPortfolioV2RuntimesForTesting();
   resetPortfolioReduxAccessForTesting();
@@ -141,6 +148,14 @@ beforeEach(() => {
 });
 
 describe('portfolio v2 Phase 1 scaffolding', () => {
+  it('publishes the pinned empty model surface', () => {
+    expect(EMPTY_PORTFOLIO_STATE.dataQualityByScopeKey).toEqual({});
+    const mmkvReason: import('./model').PortfolioMmkvWriteReason =
+      'wipeRequired';
+    expect(mmkvReason).toBe('wipeRequired');
+    expect(typeof usePortfolioChartAccessibility).toBe('function');
+  });
+
   it('creates epoch-correct empty states and publishes only with a matching epoch', () => {
     mockMmkv.set(PORTFOLIO_WORK_EPOCH_KEY, '3');
     const state = emptyPortfolioStateForEpoch({
@@ -494,13 +509,16 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
     expect(JSON.stringify(payload)).not.toContain('raw secret');
     expect(JSON.stringify(payload)).not.toContain('rate:v1');
 
-    logPortfolioRuntimeError({name: 'https://bws.example/wallet-123'}, {
-      tag: 'wallet-123',
-      reason: 'rate:v1:USD:wallet-123',
-      errorCode: 'SAFE_CODE',
-      walletCount: Number.POSITIVE_INFINITY,
-      warning: true,
-    });
+    logPortfolioRuntimeError(
+      {name: 'https://bws.example/wallet-123'},
+      {
+        tag: 'wallet-123',
+        reason: 'rate:v1:USD:wallet-123',
+        errorCode: 'SAFE_CODE',
+        walletCount: Number.POSITIVE_INFINITY,
+        warning: true,
+      },
+    );
 
     const unsafePayload = getPortfolioRuntimeLogPayloadsForTesting()[1];
     expect(unsafePayload).toEqual(
@@ -593,5 +611,43 @@ describe('portfolio v2 Phase 1 scaffolding', () => {
     initializePortfolioRuntimeGlobals('rateFetch');
     expect(mockInitializePopulateRuntimeGlobals).toHaveBeenCalledTimes(1);
     expect(mockInitializeRateFetchRuntimeGlobals).toHaveBeenCalledTimes(1);
+  });
+
+  it('wraps runtime work in kind-scoped init and teardown', async () => {
+    (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
+      async (
+        _runtime: unknown,
+        workletFn: (...args: any[]) => unknown,
+        ...args: any[]
+      ) => workletFn(...args),
+    );
+
+    await expect(
+      runOnPortfolioRuntimeAsync(
+        getPortfolioPopulateRuntime(),
+        (value: number) => value + 1,
+        4,
+      ),
+    ).resolves.toBe(5);
+
+    expect(mockInitializePopulateRuntimeGlobals).toHaveBeenCalledTimes(1);
+    expect(mockTeardownRuntimeGlobals).toHaveBeenCalledWith('populate');
+
+    (runOnRuntimeAsync as jest.Mock).mockImplementationOnce(
+      async (
+        _runtime: unknown,
+        workletFn: (...args: any[]) => unknown,
+        ...args: any[]
+      ) => workletFn(...args),
+    );
+
+    await expect(
+      runOnPortfolioRuntimeAsync(getPortfolioRateFetchRuntime(), () => {
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+
+    expect(mockInitializeRateFetchRuntimeGlobals).toHaveBeenCalledTimes(1);
+    expect(mockTeardownRuntimeGlobals).toHaveBeenCalledWith('rateFetch');
   });
 });

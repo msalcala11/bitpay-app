@@ -6,6 +6,7 @@ import type {
   WeightedGroupRateSeries,
 } from '../model';
 import {isStoredFiatRateInterval} from '../../core/fiatRatesShared';
+import {MAX_CHART_POINTS} from '../constants';
 
 export type WeightedGroupRateConstituentInput = Readonly<{
   rateSourceKey: string;
@@ -20,6 +21,7 @@ export type BuildWeightedGroupRateSeriesArgs = Readonly<{
   interval: Interval;
   windowStartTs: number;
   windowEndTs: number;
+  windowAnchorTs: number;
   sampledFromStoredInterval: StoredRateInterval;
   constituents: readonly WeightedGroupRateConstituentInput[];
 }>;
@@ -68,12 +70,12 @@ function stableHash(values: readonly (number | string)[]): string {
 function isStrictIdentity(value: unknown): value is string {
   'worklet';
 
-  return (
-    typeof value === 'string' && !!value.trim() && value === value.trim()
-  );
+  return typeof value === 'string' && !!value.trim() && value === value.trim();
 }
 
-function hasValidTopLevelInputs(args: BuildWeightedGroupRateSeriesArgs): boolean {
+function hasValidTopLevelInputs(
+  args: BuildWeightedGroupRateSeriesArgs,
+): boolean {
   'worklet';
 
   return (
@@ -84,6 +86,8 @@ function hasValidTopLevelInputs(args: BuildWeightedGroupRateSeriesArgs): boolean
     Number.isFinite(args.windowStartTs) &&
     typeof args.windowEndTs === 'number' &&
     Number.isFinite(args.windowEndTs) &&
+    typeof args.windowAnchorTs === 'number' &&
+    Number.isFinite(args.windowAnchorTs) &&
     args.windowEndTs > args.windowStartTs &&
     isStoredFiatRateInterval(args.sampledFromStoredInterval)
   );
@@ -151,6 +155,7 @@ function buildWeightedGroupRateFingerprint(args: {
   interval: Interval;
   windowStartTs: number;
   windowEndTs: number;
+  windowAnchorTs: number;
   sampledFromStoredInterval: StoredRateInterval;
   baselineUnitsByRateSourceKey: Readonly<Record<string, number>>;
   availability: WeightedGroupRateSeries['availability'];
@@ -170,6 +175,7 @@ function buildWeightedGroupRateFingerprint(args: {
     args.interval,
     args.windowStartTs,
     args.windowEndTs,
+    args.windowAnchorTs,
     args.sampledFromStoredInterval,
     args.availability,
     args.unavailableReason ?? '',
@@ -209,9 +215,11 @@ function buildWeightedAvailability(args: {
   const nonzeroConstituents = args.constituents.filter(
     constituent => constituent.baselineUnits > 0,
   );
-  const sampleGrid = nonzeroConstituents[0]?.points.map(point => point.ts) ?? [];
+  const sampleGrid =
+    nonzeroConstituents[0]?.points.map(point => point.ts) ?? [];
   if (
     sampleGrid.length === 0 ||
+    sampleGrid.length !== MAX_CHART_POINTS ||
     sampleGrid[0] !== args.windowStartTs ||
     sampleGrid[sampleGrid.length - 1] !== args.windowEndTs
   ) {
@@ -304,10 +312,9 @@ export function buildWeightedGroupRateSeries(
   )
     ? args.sampledFromStoredInterval
     : 'ALL';
-  const validatedBaselineUnitsByRateSourceKey =
-    topLevelInputsAreValid
-      ? buildBaselineUnitsByRateSourceKey(args.constituents)
-      : null;
+  const validatedBaselineUnitsByRateSourceKey = topLevelInputsAreValid
+    ? buildBaselineUnitsByRateSourceKey(args.constituents)
+    : null;
   const baselineUnitsByRateSourceKey =
     validatedBaselineUnitsByRateSourceKey ?? {};
   const memberRateSourceKeys = Object.keys(baselineUnitsByRateSourceKey).sort(
@@ -332,6 +339,7 @@ export function buildWeightedGroupRateSeries(
     interval: args.interval,
     windowStartTs: args.windowStartTs,
     windowEndTs: args.windowEndTs,
+    windowAnchorTs: args.windowAnchorTs,
     sampledFromStoredInterval,
     baselineUnitsByRateSourceKey,
     availability: availability.availability,
@@ -346,6 +354,7 @@ export function buildWeightedGroupRateSeries(
     interval: args.interval,
     windowStartTs: args.windowStartTs,
     windowEndTs: args.windowEndTs,
+    windowAnchorTs: args.windowAnchorTs,
     sampledFromStoredInterval,
     memberRateSourceKeys,
     baselineUnitsByRateSourceKey,

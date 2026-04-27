@@ -7,6 +7,7 @@ function makeSeries(interval: Interval = '1D'): Series {
     interval,
     windowStartTs: 1,
     windowEndTs: 2,
+    windowAnchorTs: 2,
     sampledFromStoredInterval: interval === 'ALL' ? 'ALL' : '1D',
     finalPointSource: 'historicalRate',
     points: [

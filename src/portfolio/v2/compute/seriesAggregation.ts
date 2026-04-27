@@ -63,6 +63,7 @@ export function aggregateAlignedSeries(args: {
         series.interval !== firstSeries.interval ||
         series.windowStartTs !== firstSeries.windowStartTs ||
         series.windowEndTs !== firstSeries.windowEndTs ||
+        series.windowAnchorTs !== firstSeries.windowAnchorTs ||
         series.sampledFromStoredInterval !==
           firstSeries.sampledFromStoredInterval ||
         series.finalPointSource !== firstSeries.finalPointSource ||
@@ -101,6 +102,7 @@ export function aggregateAlignedSeries(args: {
       args.interval,
       firstSeries.windowStartTs,
       firstSeries.windowEndTs,
+      firstSeries.windowAnchorTs,
       firstSeries.sampledFromStoredInterval,
       firstSeries.finalPointSource,
       ...args.memberSeries.map(series => series.fingerprint).sort(),
@@ -115,6 +117,7 @@ export function aggregateAlignedSeries(args: {
     interval: args.interval,
     windowStartTs: firstSeries.windowStartTs,
     windowEndTs: firstSeries.windowEndTs,
+    windowAnchorTs: firstSeries.windowAnchorTs,
     sampledFromStoredInterval: firstSeries.sampledFromStoredInterval,
     finalPointSource: firstSeries.finalPointSource,
     points: validPoints,

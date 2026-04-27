@@ -8,6 +8,7 @@ import {
 import {
   initializePortfolioPopulateRuntimeGlobals as initializePopulateGlobals,
   initializePortfolioRateFetchRuntimeGlobals as initializeRateFetchGlobals,
+  teardownPortfolioRuntimeGlobals,
 } from './workletRuntimeShared';
 
 describe('portfolio worklet runtime shared initializers', () => {
@@ -36,5 +37,31 @@ describe('portfolio worklet runtime shared initializers', () => {
     expect(() => takeNextPortfolioTransferredSignHandleOnRuntime()).toThrow(
       'No portfolio runtime request context is initialized',
     );
+  });
+
+  it('tears down populate and rate-fetch signing globals without touching compute', () => {
+    setPortfolioTxHistorySigningDispatchContextOnRuntime({
+      requestPrivKey: 'populate-secret',
+      requestPubKey: 'populate-public',
+    });
+
+    teardownPortfolioRuntimeGlobals('compute');
+    expect(getPortfolioTxHistorySigningDispatchContextOnRuntime()).toEqual(
+      expect.objectContaining({requestPrivKey: 'populate-secret'}),
+    );
+
+    teardownPortfolioRuntimeGlobals('populate');
+    expect(
+      getPortfolioTxHistorySigningDispatchContextOnRuntime(),
+    ).toBeUndefined();
+
+    setPortfolioTxHistorySigningDispatchContextOnRuntime({
+      requestPrivKey: 'rate-secret',
+      requestPubKey: 'rate-public',
+    });
+    teardownPortfolioRuntimeGlobals('rateFetch');
+    expect(
+      getPortfolioTxHistorySigningDispatchContextOnRuntime(),
+    ).toBeUndefined();
   });
 });

@@ -126,6 +126,7 @@ function oneDayInterval(
     seriesIdentityKey: 'wallet:eth|asset:eth|quote:USD|snap:1|rate:1',
     windowStartTs: ORACLE_1D_WINDOW.windowStartTs,
     windowEndTs: ORACLE_1D_WINDOW.windowEndTs,
+    windowAnchorTs: ORACLE_1D_WINDOW.windowEndTs,
     sampledFromStoredInterval: '1D',
     finalPointSource: 'historicalRate',
     baselineUnits: NO_TRANSACTION_PARITY_FIXTURE.baselineUnits,
@@ -841,8 +842,10 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
       async (
         _runtime: unknown,
         _workletFn: unknown,
-        passedCurrent: PortfolioState,
-      ) => passedCurrent,
+        _kind: string,
+        _runtimeWorkletFn: unknown,
+        fnArgs: readonly [PortfolioState],
+      ) => fnArgs[0],
     );
 
     scheduleRecompute({
@@ -871,7 +874,7 @@ describe('portfolio v2 scheduler compute-runtime publish bridge', () => {
     await runNextPendingRecompute();
 
     expect(
-      (runOnRuntimeAsync as jest.Mock).mock.calls.map(call => call[3].scope),
+      (runOnRuntimeAsync as jest.Mock).mock.calls.map(call => call[4][1].scope),
     ).toEqual([
       {kind: 'wallets', walletIds: ['btc-wallet', 'eth-wallet']},
       {kind: 'liveRateTouch', changedAssetIds: ['eth']},

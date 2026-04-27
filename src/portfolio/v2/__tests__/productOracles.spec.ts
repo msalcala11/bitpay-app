@@ -13,6 +13,7 @@ const TRANSFER_FORMULA_ARGS = {
   interval: '1D' as const,
   windowStartTs: ORACLE_1D_WINDOW.windowStartTs,
   windowEndTs: ORACLE_1D_WINDOW.windowEndTs,
+  windowAnchorTs: ORACLE_1D_WINDOW.windowEndTs,
   sampledFromStoredInterval: '1D' as const,
   finalPointSource: 'historicalRate' as const,
   maxPoints: 2,
@@ -148,6 +149,7 @@ describe('portfolio v2 shared product oracle fixtures', () => {
       interval: WEIGHTED_GROUP_FIXTURE.interval,
       windowStartTs: WEIGHTED_GROUP_FIXTURE.windowStartTs,
       windowEndTs: WEIGHTED_GROUP_FIXTURE.windowEndTs,
+      windowAnchorTs: WEIGHTED_GROUP_FIXTURE.windowAnchorTs,
       sampledFromStoredInterval:
         WEIGHTED_GROUP_FIXTURE.sampledFromStoredInterval,
       constituents: WEIGHTED_GROUP_FIXTURE.constituents,
@@ -161,11 +163,11 @@ describe('portfolio v2 shared product oracle fixtures', () => {
       WEIGHTED_GROUP_FIXTURE.expected.weightedRateStart,
       12,
     );
-    expect(series.points[1].weightedRate).toBeCloseTo(
+    expect(series.points[series.points.length - 1].weightedRate).toBeCloseTo(
       WEIGHTED_GROUP_FIXTURE.expected.weightedRateEnd,
       12,
     );
-    expect(series.points[1].weightedPercent).toBeCloseTo(
+    expect(series.points[series.points.length - 1].weightedPercent).toBeCloseTo(
       WEIGHTED_GROUP_FIXTURE.expected.weightedPercentEnd,
       10,
     );

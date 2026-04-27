@@ -3,6 +3,8 @@ import {
   ensurePortfolioRuntimeSigningGlobals,
 } from './txHistorySigning';
 
+type PortfolioRuntimeKind = 'compute' | 'populate' | 'rateFetch';
+
 export type RuntimeErrorDetails = {
   message: string;
   stack?: string;
@@ -77,6 +79,43 @@ export function initializePortfolioRateFetchRuntimeGlobals(): void {
 
   initializePortfolioRuntimeBaseGlobals();
   clearPortfolioTxHistorySigningDispatchContextOnRuntime();
+}
+
+export function teardownPortfolioPopulateRuntimeGlobals(): void {
+  'worklet';
+
+  clearPortfolioTxHistorySigningDispatchContextOnRuntime();
+}
+
+export function teardownPortfolioRateFetchRuntimeGlobals(): void {
+  'worklet';
+
+  clearPortfolioTxHistorySigningDispatchContextOnRuntime();
+}
+
+export function teardownPortfolioRuntimeGlobals(
+  kind: PortfolioRuntimeKind,
+): void {
+  'worklet';
+
+  switch (kind) {
+    case 'populate':
+      teardownPortfolioPopulateRuntimeGlobals();
+      break;
+    case 'rateFetch':
+      teardownPortfolioRateFetchRuntimeGlobals();
+      break;
+    case 'compute':
+    default:
+      break;
+  }
+
+  const globalRef = globalThis as typeof globalThis & {
+    __bitpayPortfolioV2RuntimeKind__?: PortfolioRuntimeKind;
+  };
+  if (globalRef.__bitpayPortfolioV2RuntimeKind__ === kind) {
+    delete globalRef.__bitpayPortfolioV2RuntimeKind__;
+  }
 }
 
 export function initializePortfolioRuntimeGlobals(): void {

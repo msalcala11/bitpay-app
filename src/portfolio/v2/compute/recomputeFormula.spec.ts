@@ -14,6 +14,7 @@ import {
   ORACLE_1D_WINDOW,
   ORACLE_TS,
 } from '../__tests__/fixtures/productOracles';
+import {MAX_CHART_POINTS} from '../constants';
 
 function expectValidFormula(result: BuildFormulaComputedInputsResult) {
   expect(result.kind).toBe('valid');
@@ -33,6 +34,38 @@ function expectValidState(
   return result.state;
 }
 
+function midpointIndex(): number {
+  return Math.floor(MAX_CHART_POINTS / 2);
+}
+
+function expectPointClose(
+  actual:
+    | {
+        ts: number;
+        fiatBalance: number;
+        remainingUnrealizedPnlFiat: number;
+        pnlChange: number;
+        pnlPercent: number;
+      }
+    | undefined,
+  expected: {
+    ts: number;
+    fiatBalance: number;
+    remainingUnrealizedPnlFiat: number;
+    pnlChange: number;
+    pnlPercent: number;
+  },
+) {
+  expect(actual?.ts).toBe(expected.ts);
+  expect(actual?.fiatBalance).toBeCloseTo(expected.fiatBalance, 10);
+  expect(actual?.remainingUnrealizedPnlFiat).toBeCloseTo(
+    expected.remainingUnrealizedPnlFiat,
+    10,
+  );
+  expect(actual?.pnlChange).toBeCloseTo(expected.pnlChange, 10);
+  expect(actual?.pnlPercent).toBeCloseTo(expected.pnlPercent, 10);
+}
+
 function oneDayInterval(
   overrides: Partial<FormulaWalletIntervalInput> = {},
 ): FormulaWalletIntervalInput {
@@ -41,6 +74,7 @@ function oneDayInterval(
     seriesIdentityKey: 'wallet:eth|asset:eth|quote:USD|snap:1|rate:1',
     windowStartTs: ORACLE_1D_WINDOW.windowStartTs,
     windowEndTs: ORACLE_1D_WINDOW.windowEndTs,
+    windowAnchorTs: ORACLE_1D_WINDOW.windowEndTs,
     sampledFromStoredInterval: '1D',
     finalPointSource: 'historicalRate',
     baselineUnits: NO_TRANSACTION_PARITY_FIXTURE.baselineUnits,
@@ -444,14 +478,12 @@ describe('portfolio v2 formula recompute input builder', () => {
     const changedWeighted =
       changedMiddleState.byAssetGroup.usdc.weightedGroupRateSeries?.['1D'];
     expect(weighted?.availability).toBe('valid');
-    expect(weighted?.points).toHaveLength(3);
-    expect(weighted?.points.map(point => point.ts)).toEqual([
-      ORACLE_TS.start,
-      ORACLE_TS.middle,
-      ORACLE_TS.end,
-    ]);
+    expect(weighted?.points).toHaveLength(MAX_CHART_POINTS);
+    expect(weighted?.points[0]?.ts).toBe(ORACLE_TS.start);
+    expect(weighted?.points[midpointIndex()]?.ts).toBe(ORACLE_TS.middle);
+    expect(weighted?.points.at(-1)?.ts).toBe(ORACLE_TS.end);
     expect(changedWeighted?.points[0]).toEqual(weighted?.points[0]);
-    expect(changedWeighted?.points[2]).toEqual(weighted?.points[2]);
+    expect(changedWeighted?.points.at(-1)).toEqual(weighted?.points.at(-1));
     expect(changedWeighted?.fingerprint).not.toBe(weighted?.fingerprint);
     expect(state.byAssetGroup.usdc.rowToday).toEqual(
       state.rowShells[0].rowToday,
@@ -823,9 +855,16 @@ describe('portfolio v2 formula recompute input builder', () => {
       }),
     );
 
-    expect(bridged.wallets[0].series['1D']?.points).toEqual(
-      fromScratch.wallets[0].series['1D']?.points,
+    const bridgedPoints = bridged.wallets[0].series['1D']?.points ?? [];
+    const fromScratchPoints = fromScratch.wallets[0].series['1D']?.points ?? [];
+    expect(bridgedPoints).toHaveLength(MAX_CHART_POINTS);
+    expect(fromScratchPoints).toHaveLength(MAX_CHART_POINTS);
+    expectPointClose(bridgedPoints[0], fromScratchPoints[0]);
+    expectPointClose(
+      bridgedPoints[midpointIndex()],
+      fromScratchPoints[midpointIndex()],
     );
+    expectPointClose(bridgedPoints.at(-1), fromScratchPoints.at(-1)!);
     const state = expectValidState(
       buildPortfolioComputedState({
         workEpoch: 1,
@@ -938,8 +977,7 @@ describe('portfolio v2 formula recompute input builder', () => {
             liveRate: eurLiveRate,
             intervals: canonicalWallet.intervals.map(interval => ({
               ...interval,
-              seriesIdentityKey:
-                'wallet:eth|asset:eth|quote:EUR|snap:1|rate:1',
+              seriesIdentityKey: 'wallet:eth|asset:eth|quote:EUR|snap:1|rate:1',
               ratePoints: eurMarketRates.map(point => ({
                 ts: point.ts,
                 rate: point.rate,
@@ -971,25 +1009,29 @@ describe('portfolio v2 formula recompute input builder', () => {
       ]?.map(point => point.rate);
     const wrongChainedLiveRate =
       wrongChainedFromEur.assetGroups[0].members[0].liveRate;
+    const bridgedPoints = bridged.wallets[0].series['1D']?.points ?? [];
     expect(state.quoteCurrency).toBe('GBP');
-    expect(eurMarketRates.map(point => point.rate)).toEqual([90, 117]);
-    expect(marketRates?.map(point => point.rate)).toEqual([80, 90]);
-    expect(bridged.wallets[0].series['1D']?.points).toEqual([
-      {
-        ts: ORACLE_TS.start,
-        fiatBalance: 160,
-        remainingUnrealizedPnlFiat: 0,
-        pnlChange: 0,
-        pnlPercent: 0,
-      },
-      {
-        ts: ORACLE_TS.end,
-        fiatBalance: 180,
-        remainingUnrealizedPnlFiat: 20,
-        pnlChange: 20,
-        pnlPercent: 12.5,
-      },
-    ]);
+    expect(eurMarketRates).toHaveLength(MAX_CHART_POINTS);
+    expect(eurMarketRates[0].rate).toBe(90);
+    expect(eurMarketRates.at(-1)?.rate).toBe(117);
+    expect(marketRates).toHaveLength(MAX_CHART_POINTS);
+    expect(marketRates?.[0]?.rate).toBe(80);
+    expect(marketRates?.at(-1)?.rate).toBe(90);
+    expect(bridgedPoints).toHaveLength(MAX_CHART_POINTS);
+    expectPointClose(bridgedPoints[0], {
+      ts: ORACLE_TS.start,
+      fiatBalance: 160,
+      remainingUnrealizedPnlFiat: 0,
+      pnlChange: 0,
+      pnlPercent: 0,
+    });
+    expectPointClose(bridgedPoints.at(-1), {
+      ts: ORACLE_TS.end,
+      fiatBalance: 180,
+      remainingUnrealizedPnlFiat: 20,
+      pnlChange: 20,
+      pnlPercent: 12.5,
+    });
     expect(bridged.assetGroups[0].members[0].liveRate).toBe(100);
     expect(state.rowShells[0].currentFiatValue).toBe(200);
     expect(state.byAssetGroup.eth.rowToday).toMatchObject({
@@ -1000,9 +1042,12 @@ describe('portfolio v2 formula recompute input builder', () => {
       fiatEnd: 180,
     });
 
-    expect(wrongChainedRates).toEqual([72, 87.75]);
+    expect(wrongChainedRates).toHaveLength(MAX_CHART_POINTS);
+    expect(wrongChainedRates?.[0]).toBe(72);
+    expect(wrongChainedRates?.at(-1)).toBe(87.75);
     expect(wrongChainedLiveRate).toBeCloseTo(81, 10);
-    expect(marketRates?.map(point => point.rate)).not.toEqual(wrongChainedRates);
+    expect(marketRates?.[0]?.rate).not.toBe(wrongChainedRates?.[0]);
+    expect(marketRates?.at(-1)?.rate).not.toBe(wrongChainedRates?.at(-1));
     expect(bridged.assetGroups[0].members[0].liveRate).not.toBeCloseTo(
       wrongChainedLiveRate ?? 0,
       10,
@@ -1011,7 +1056,7 @@ describe('portfolio v2 formula recompute input builder', () => {
       wrongChainedRates?.[0],
     );
     expect(state.byAssetGroup.eth.rowToday?.rateEnd).not.toBe(
-      wrongChainedRates?.[1],
+      wrongChainedRates?.at(-1),
     );
   });
 
@@ -1096,10 +1141,11 @@ describe('portfolio v2 formula recompute input builder', () => {
     if (weighted?.availability !== 'valid') {
       throw new Error('Expected valid weighted quote bridge series');
     }
-    expect(weighted.points.map(point => point.weightedRate)).toEqual([
-      0.9, 1.075, 1.14,
-    ]);
-    expect(weighted.points[2].weightedPercent).toBeCloseTo(
+    expect(weighted.points).toHaveLength(MAX_CHART_POINTS);
+    expect(weighted.points[0].weightedRate).toBe(0.9);
+    expect(weighted.points[midpointIndex()].weightedRate).toBe(1.075);
+    expect(weighted.points.at(-1)?.weightedRate).toBe(1.14);
+    expect(weighted.points.at(-1)?.weightedPercent).toBeCloseTo(
       ((1.14 - 0.9) / 0.9) * 100,
       10,
     );
@@ -1165,22 +1211,22 @@ describe('portfolio v2 formula recompute input builder', () => {
     );
 
     expect(formula.missingRateSourceKeys).toEqual([]);
-    expect(formula.wallets[0].series['3M']?.points).toEqual([
-      {
-        ts: ORACLE_TS.start,
-        fiatBalance: 160,
-        remainingUnrealizedPnlFiat: 0,
-        pnlChange: 0,
-        pnlPercent: 0,
-      },
-      {
-        ts: ORACLE_TS.end,
-        fiatBalance: 200,
-        remainingUnrealizedPnlFiat: 40,
-        pnlChange: 40,
-        pnlPercent: 25,
-      },
-    ]);
+    const points = formula.wallets[0].series['3M']?.points ?? [];
+    expect(points).toHaveLength(MAX_CHART_POINTS);
+    expectPointClose(points[0], {
+      ts: ORACLE_TS.start,
+      fiatBalance: 160,
+      remainingUnrealizedPnlFiat: 0,
+      pnlChange: 0,
+      pnlPercent: 0,
+    });
+    expectPointClose(points.at(-1), {
+      ts: ORACLE_TS.end,
+      fiatBalance: 200,
+      remainingUnrealizedPnlFiat: 40,
+      pnlChange: 40,
+      pnlPercent: 25,
+    });
     expect(formula.assetGroups[0].members[0].liveRate).toBe(100);
   });
 

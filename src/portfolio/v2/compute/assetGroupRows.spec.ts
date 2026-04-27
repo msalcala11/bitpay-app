@@ -1,9 +1,6 @@
-import type {
-  RowPayload,
-  Series,
-  WeightedGroupRateSeries,
-} from '../model';
+import type {RowPayload, Series, WeightedGroupRateSeries} from '../model';
 import {
+  atomicToDisplayUnitAmount,
   buildAssetGroupRowPayload,
   buildAssetGroupRowShell,
 } from './assetGroupRows';
@@ -75,6 +72,7 @@ function makeWeightedSeries(
     interval: '1D',
     windowStartTs: 1,
     windowEndTs: 2,
+    windowAnchorTs: 2,
     sampledFromStoredInterval: '1D',
     memberRateSourceKeys: ['usdc|eth', 'usdc|pol'],
     baselineUnitsByRateSourceKey: {
@@ -132,9 +130,7 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
       'pol-usdc',
       'sol-usdc',
     ]);
-    expect(rowShell.memberWalletIdsKey).toBe(
-      'eth-usdc|pol-usdc|sol-usdc',
-    );
+    expect(rowShell.memberWalletIdsKey).toMatch(/^walletIds:v1:3:fnv1a:/);
     expect(rowShell.memberRateSourceKeys).toEqual([
       'usdc|eth|0x1',
       'usdc|pol|0x2',
@@ -218,7 +214,7 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
     expect(rowShell.currentCryptoAmount).toBe('3.5');
     expect(rowShell.currentFiatValue).toBeCloseTo(3.555);
     expect(rowShell.memberWalletIds).toEqual(['pol-usdc', 'eth-usdc']);
-    expect(rowShell.memberWalletIdsKey).toBe('eth-usdc|pol-usdc');
+    expect(rowShell.memberWalletIdsKey).toMatch(/^walletIds:v1:2:fnv1a:/);
     expect(rowShell.canonicalUnitDecimals).toBe(6);
   });
 
@@ -251,6 +247,78 @@ describe('portfolio v2 asset-group row shell compute adapter', () => {
 
     expect(rowShell.currentCryptoAmount).toBe('0.000000000000000003');
     expect(rowShell.currentFiatValue).toBeCloseTo(3e-18);
+  });
+
+  it('scales atomics before numeric fiat math and rejects unsafe display amounts', () => {
+    expect(
+      atomicToDisplayUnitAmount({
+        atomic: '1000000000000000001',
+        decimals: 18,
+        assetGroupId: 'eth',
+        walletId: 'eth-wallet',
+      }),
+    ).toEqual({
+      decimalString: '1.000000000000000001',
+      approximateNumber: 1,
+    });
+
+    expect(
+      buildAssetGroupRowShell({
+        assetGroupId: 'unsafe',
+        displaySymbol: 'UNSAFE',
+        orderIndex: 0,
+        members: [
+          {
+            walletId: 'unsafe-wallet',
+            assetIdentityKey: 'unsafe',
+            rateSourceKey: 'unsafe',
+            displayUnitsAtomic: String(Number.MAX_SAFE_INTEGER + 1),
+            displayUnitDecimals: 0,
+            liveRate: 1,
+          },
+        ],
+      }),
+    ).toEqual({kind: 'invalid', reason: 'unsafeDisplayUnits'});
+  });
+
+  it('publishes UI-safe member descriptors without raw identifiers', () => {
+    const rowShell = expectVisibleShell(
+      buildAssetGroupRowShell({
+        assetGroupId: 'usdc',
+        displaySymbol: 'USDC',
+        orderIndex: 1,
+        symbolCollisionSuspected: true,
+        members: [
+          {
+            walletId: 'wallet-raw-id',
+            assetIdentityKey: 'usdc|eth|0xabc',
+            rateSourceKey: 'rate:v1:USD:usdc',
+            displayUnitsAtomic: '1000000',
+            displayUnitDecimals: 6,
+            liveRate: 1,
+            descriptor: {
+              displaySymbol: 'USDC',
+              chainLabel: 'Ethereum',
+              tokenAddressLabel: '0x1234567890abcdef1234',
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(rowShell.memberDescriptors).toEqual([
+      {
+        displaySymbol: 'USDC',
+        chainLabel: 'Ethereum',
+        walletCount: 1,
+      },
+    ]);
+    expect(rowShell.groupHealth.symbolCollisionSuspected).toBe(true);
+    expect(JSON.stringify(rowShell.memberDescriptors)).not.toContain(
+      'wallet-raw-id',
+    );
+    expect(JSON.stringify(rowShell.memberDescriptors)).not.toContain('rate:v1');
+    expect(JSON.stringify(rowShell.memberDescriptors)).not.toContain('0x1234');
   });
 
   it('formats whole numbers, trailing decimals, zero, and mixed-scale sums', () => {

@@ -1,5 +1,6 @@
 import {
   buildPortfolioComputedState,
+  stableWalletIdsKey,
   type PortfolioScopeComputedStateInput,
   type ScopedPortfolioComputedStateInput,
   type WalletComputedStateInput,
@@ -109,7 +110,9 @@ function isValidTimestamp(value: number): boolean {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
-function getTouchWalletIds(scope: RecomputeScope): readonly string[] | undefined {
+function getTouchWalletIds(
+  scope: RecomputeScope,
+): readonly string[] | undefined {
   'worklet';
 
   if (typeof scope === 'string') {
@@ -335,7 +338,7 @@ function buildScopedInputsForLiveRateTouch(args: {
 
     scopedInputs.push({
       walletIds: scopedSlice.walletIds,
-      walletIdsKey: scopedSlice.walletIdsKey,
+      walletIdsKey: stableWalletIdsKey(scopedSlice.walletIds),
       total,
       assetGroups: formula.assetGroups,
       refreshing: scopedSlice.readiness.refreshing,
@@ -497,7 +500,7 @@ function recomputeTouchAccess(
     }
   }
 
-  const scopedKey = uniqueSorted(Array.from(touchedWalletIds)).join('|');
+  const scopedKey = stableWalletIdsKey(Array.from(touchedWalletIds));
   let scopedByWalletSet = current.scopedByWalletSet;
   const scopedSlice = current.scopedByWalletSet[scopedKey];
   if (scopedSlice && scopedSlice.lastAccessedAt !== computedAtMs) {

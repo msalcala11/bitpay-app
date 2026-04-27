@@ -15,6 +15,7 @@ import {
   buildAssetGroupRowShell,
   type AssetGroupRowShellMemberInput,
 } from './assetGroupRows';
+import {stableWalletIdsKey} from '../ordering';
 import {
   buildWeightedGroupRateSeries,
   type WeightedGroupRateConstituentInput,
@@ -23,6 +24,7 @@ import {
 export type WeightedGroupRateWindowInput = Readonly<{
   windowStartTs: number;
   windowEndTs: number;
+  windowAnchorTs: number;
   sampledFromStoredInterval: StoredRateInterval;
 }>;
 
@@ -158,6 +160,7 @@ function getWeightedRateWindow(args: {
     return {
       windowStartTs: args.series.windowStartTs,
       windowEndTs: args.series.windowEndTs,
+      windowAnchorTs: args.series.windowAnchorTs,
       sampledFromStoredInterval:
         args.assetGroup.sampledFromStoredIntervalByInterval?.[args.interval] ??
         args.series.sampledFromStoredInterval,
@@ -222,6 +225,7 @@ function assembleWeightedGroupRateSeries(args: {
       interval,
       windowStartTs: window.windowStartTs,
       windowEndTs: window.windowEndTs,
+      windowAnchorTs: window.windowAnchorTs,
       sampledFromStoredInterval: window.sampledFromStoredInterval,
       constituents,
     });
@@ -336,9 +340,9 @@ export function buildRecomputeStateSlices(
       }
     }
 
-    const memberWalletIdsKey = uniqueSorted(
+    const memberWalletIdsKey = stableWalletIdsKey(
       assetGroup.members.map(member => member.walletId),
-    ).join('|');
+    );
     const weightedGroupRateSeries = assembleWeightedGroupRateSeries({
       quoteCurrency: args.quoteCurrency,
       assetGroup,
@@ -373,6 +377,8 @@ export function buildRecomputeStateSlices(
         shell.kind === 'visible' ? shell.rowShell.memberWalletIds : [],
       memberWalletIdsKey:
         shell.kind === 'visible' ? shell.rowShell.memberWalletIdsKey : '',
+      memberDescriptors:
+        shell.kind === 'visible' ? shell.rowShell.memberDescriptors : [],
       series: assetGroup.series,
       ...(weightedGroupRateSeries ? {weightedGroupRateSeries} : {}),
       ...rows,

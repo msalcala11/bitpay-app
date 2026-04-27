@@ -82,6 +82,12 @@ export const MAX_SCOPED_CACHE_ENTRIES = 8;
 export const MAX_CHART_POINTS = 89;
 
 /**
+ * Maximum number of token-specific fiat-rate requests that may be active in
+ * the rate-fetch runtime at once. Native coins still batch by quote+interval.
+ */
+export const PORTFOLIO_RATE_FETCH_MAX_PARALLEL_TOKEN_REQUESTS = 2;
+
+/**
  * Debounce window for passive `onLiveRatesUpdated` triggers before scheduling
  * a `liveRateTouch` recompute. Phase 0 may adjust based on the existing
  * live-rate effect's update frequency, but this single constant must be the

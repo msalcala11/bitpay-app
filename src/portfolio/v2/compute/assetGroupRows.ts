@@ -1,10 +1,12 @@
 import type {
+  AssetGroupMemberDescriptor,
   AssetGroupRowShell,
   MarketRatePoint,
   RowPayload,
   Series,
   WeightedGroupRateSeries,
 } from '../model';
+import {stableWalletIdsKey} from '../ordering';
 import {
   buildRowPayloadFromSeries,
   type RowPayloadInvalidReason,
@@ -18,6 +20,7 @@ export type AssetGroupRowShellMemberInput = Readonly<{
   displayUnitDecimals: number;
   liveRate?: number;
   invalidHistoryBlocked?: boolean;
+  descriptor?: Partial<Omit<AssetGroupMemberDescriptor, 'walletCount'>>;
 }>;
 
 export type BuildAssetGroupRowShellArgs = Readonly<{
@@ -41,6 +44,7 @@ export type AssetGroupRowShellInvalidReason =
   | 'negativeDisplayUnitsAtomic'
   | 'invalidDisplayUnitDecimals'
   | 'nonFiniteDisplayUnits'
+  | 'unsafeDisplayUnits'
   | 'nonFiniteOrderIndex';
 
 export type BuildAssetGroupRowShellResult =
@@ -50,7 +54,10 @@ export type BuildAssetGroupRowShellResult =
 
 export type AssetGroupRowRateSource =
   | Readonly<{kind: 'marketRateSeries'; points: readonly MarketRatePoint[]}>
-  | Readonly<{kind: 'weightedGroupRateSeries'; series: WeightedGroupRateSeries}>;
+  | Readonly<{
+      kind: 'weightedGroupRateSeries';
+      series: WeightedGroupRateSeries;
+    }>;
 
 export type BuildAssetGroupRowPayloadArgs = Readonly<{
   assetGroupId: string;
@@ -78,9 +85,7 @@ export type BuildAssetGroupRowPayloadResult =
 function isStrictIdentity(value: unknown): value is string {
   'worklet';
 
-  return (
-    typeof value === 'string' && !!value.trim() && value === value.trim()
-  );
+  return typeof value === 'string' && !!value.trim() && value === value.trim();
 }
 
 function normalizeDisplaySymbol(value: unknown): string | null {
@@ -132,20 +137,25 @@ function pow10(value: number): bigint {
   return 10n ** BigInt(value);
 }
 
-function atomicToDisplayNumber(atomic: bigint, decimals: number): number {
-  'worklet';
+export type DisplayUnitAmount = Readonly<{
+  decimalString: string;
+  approximateNumber: number;
+}>;
 
-  const atomicNumber = Number(atomic);
-  const divisor = Number(pow10(decimals));
-  const units = atomicNumber / divisor;
-  return Number.isFinite(atomicNumber) &&
-    Number.isFinite(divisor) &&
-    Number.isFinite(units)
-    ? units
-    : Number.POSITIVE_INFINITY;
-}
+type InvalidDisplayUnitAmount = Readonly<{
+  kind: 'invalidAmount';
+  reason:
+    | 'invalidDisplayUnitsAtomic'
+    | 'negativeDisplayUnitsAtomic'
+    | 'invalidDisplayUnitDecimals'
+    | 'nonFiniteDisplayUnits'
+    | 'unsafeDisplayUnits';
+}>;
 
-function formatScaledAtomicUnits(atomic: bigint, decimals: number): string {
+function formatDisplayUnitAmountString(
+  atomic: bigint,
+  decimals: number,
+): string {
   'worklet';
 
   if (atomic === 0n) {
@@ -168,10 +178,125 @@ function formatScaledAtomicUnits(atomic: bigint, decimals: number): string {
     : `${sign}${whole.toString()}`;
 }
 
+export function atomicToDisplayUnitAmount(args: {
+  atomic: string;
+  decimals: number;
+  assetGroupId: string;
+  walletId: string;
+}): DisplayUnitAmount | InvalidDisplayUnitAmount {
+  'worklet';
+
+  const atomic = parseAtomicUnits(args.atomic);
+  if (atomic === null) {
+    return {kind: 'invalidAmount', reason: 'invalidDisplayUnitsAtomic'};
+  }
+  if (atomic < 0n) {
+    return {kind: 'invalidAmount', reason: 'negativeDisplayUnitsAtomic'};
+  }
+  if (!isValidDisplayUnitDecimals(args.decimals)) {
+    return {kind: 'invalidAmount', reason: 'invalidDisplayUnitDecimals'};
+  }
+
+  const decimalString = formatDisplayUnitAmountString(atomic, args.decimals);
+  const approximateNumber = Number(decimalString);
+  if (!Number.isFinite(approximateNumber)) {
+    return {kind: 'invalidAmount', reason: 'nonFiniteDisplayUnits'};
+  }
+  if (Math.abs(approximateNumber) > Number.MAX_SAFE_INTEGER) {
+    return {kind: 'invalidAmount', reason: 'unsafeDisplayUnits'};
+  }
+
+  return {decimalString, approximateNumber};
+}
+
+function formatScaledAtomicUnits(atomic: bigint, decimals: number): string {
+  'worklet';
+
+  return formatDisplayUnitAmountString(atomic, decimals);
+}
+
 function uniqueSorted(values: readonly string[]): readonly string[] {
   'worklet';
 
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
+}
+
+function sanitizeDescriptorText(value: unknown): string | undefined {
+  'worklet';
+
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  // Descriptors are UI labels only. Do not let raw-looking token addresses or
+  // provider/rate keys leak into the published row shell.
+  if (
+    /0x[a-fA-F0-9]{12,}/.test(trimmed) ||
+    /rate:v\d|portfolio:v\d|snap:/.test(trimmed)
+  ) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function buildMemberDescriptors(args: {
+  displaySymbol: string;
+  members: readonly AssetGroupRowShellMemberInput[];
+}): readonly AssetGroupMemberDescriptor[] {
+  'worklet';
+
+  const byDescriptor = new Map<string, AssetGroupMemberDescriptor>();
+  for (const member of args.members) {
+    const displaySymbol =
+      sanitizeDescriptorText(member.descriptor?.displaySymbol) ??
+      args.displaySymbol;
+    const currencyName = sanitizeDescriptorText(
+      member.descriptor?.currencyName,
+    );
+    const chainLabel = sanitizeDescriptorText(member.descriptor?.chainLabel);
+    const networkLabel = sanitizeDescriptorText(
+      member.descriptor?.networkLabel,
+    );
+    const sourceLabel = sanitizeDescriptorText(member.descriptor?.sourceLabel);
+    const tokenAddressLabel = sanitizeDescriptorText(
+      member.descriptor?.tokenAddressLabel,
+    );
+    const descriptor: AssetGroupMemberDescriptor = {
+      displaySymbol,
+      ...(currencyName ? {currencyName} : {}),
+      ...(chainLabel ? {chainLabel} : {}),
+      ...(networkLabel ? {networkLabel} : {}),
+      ...(sourceLabel ? {sourceLabel} : {}),
+      ...(tokenAddressLabel ? {tokenAddressLabel} : {}),
+      walletCount: 1,
+    };
+    const key = JSON.stringify({
+      displaySymbol: descriptor.displaySymbol,
+      currencyName: descriptor.currencyName ?? '',
+      chainLabel: descriptor.chainLabel ?? '',
+      networkLabel: descriptor.networkLabel ?? '',
+      sourceLabel: descriptor.sourceLabel ?? '',
+      tokenAddressLabel: descriptor.tokenAddressLabel ?? '',
+    });
+    const existing = byDescriptor.get(key);
+    byDescriptor.set(
+      key,
+      existing
+        ? {...existing, walletCount: existing.walletCount + 1}
+        : descriptor,
+    );
+  }
+
+  return Array.from(byDescriptor.values()).sort((left, right) => {
+    const symbolDelta = left.displaySymbol.localeCompare(right.displaySymbol);
+    if (symbolDelta !== 0) {
+      return symbolDelta;
+    }
+    return JSON.stringify(left).localeCompare(JSON.stringify(right));
+  });
 }
 
 function getPortfolioSeriesEndpointTimestamps(
@@ -185,7 +310,12 @@ function getPortfolioSeriesEndpointTimestamps(
 
   const first = series.points[0];
   const last = series.points[series.points.length - 1];
-  if (!first || !last || !isFiniteNumber(first.ts) || !isFiniteNumber(last.ts)) {
+  if (
+    !first ||
+    !last ||
+    !isFiniteNumber(first.ts) ||
+    !isFiniteNumber(last.ts)
+  ) {
     return null;
   }
 
@@ -427,7 +557,7 @@ export function buildAssetGroupRowShell(
   }
 
   const memberWalletIds = args.members.map(member => member.walletId);
-  const memberWalletIdsKey = uniqueSorted(memberWalletIds).join('|');
+  const memberWalletIdsKey = stableWalletIdsKey(memberWalletIds);
   const memberRateSourceKeys = uniqueSorted(
     args.members.map(member => member.rateSourceKey),
   );
@@ -453,12 +583,14 @@ export function buildAssetGroupRowShell(
     if (memberAtomic === null) {
       return {kind: 'invalid', reason: 'invalidDisplayUnitsAtomic'};
     }
-    const memberDisplayUnits = atomicToDisplayNumber(
-      memberAtomic,
-      member.displayUnitDecimals,
-    );
-    if (!Number.isFinite(memberDisplayUnits)) {
-      return {kind: 'invalid', reason: 'nonFiniteDisplayUnits'};
+    const displayAmount = atomicToDisplayUnitAmount({
+      atomic: member.displayUnitsAtomic,
+      decimals: member.displayUnitDecimals,
+      assetGroupId: args.assetGroupId,
+      walletId: member.walletId,
+    });
+    if ('kind' in displayAmount) {
+      return {kind: 'invalid', reason: displayAmount.reason};
     }
     const scale = pow10(maxDisplayUnitDecimals - member.displayUnitDecimals);
     currentCryptoAtomicScaled += memberAtomic * scale;
@@ -477,7 +609,7 @@ export function buildAssetGroupRowShell(
     }
 
     if (memberAtomic !== 0n) {
-      currentFiatValue += memberDisplayUnits * member.liveRate;
+      currentFiatValue += displayAmount.approximateNumber * member.liveRate;
     }
   }
 
@@ -498,6 +630,10 @@ export function buildAssetGroupRowShell(
     memberWalletIds,
     memberWalletIdsKey,
     memberRateSourceKeys,
+    memberDescriptors: buildMemberDescriptors({
+      displaySymbol,
+      members: args.members,
+    }),
     groupHealth: {
       collapsedAcrossDistinctAssets: assetIdentityKeys.length > 1,
       decimalConflict: unitDecimals.length > 1,

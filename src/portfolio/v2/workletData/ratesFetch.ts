@@ -13,7 +13,6 @@ import {
   stringifyStoredFiatRateSeries,
 } from '../../core/pnl/storedFiatRateSeries';
 import {
-  clearPortfolioTxHistorySigningDispatchContextOnRuntime,
   createPortfolioRateFetchDispatchContextOnRN,
   DEFAULT_PORTFOLIO_NITRO_FETCH_TIMEOUT_MS,
   getPortfolioNitroFetchClientOnRuntime,
@@ -24,6 +23,7 @@ import {getPortfolioMmkvNativeStorageOnRN} from '../../adapters/rn/workletMmkvBr
 import type {PortfolioWorkletKvConfig} from '../../runtime/worklet/portfolioWorkletKv';
 import {
   PORTFOLIO_WORK_EPOCH_KEY,
+  PORTFOLIO_RATE_FETCH_MAX_PARALLEL_TOKEN_REQUESTS,
   RATE_FETCH_RETRY_BASE_MS,
   RATE_FETCH_RETRY_MAX_MS,
 } from '../constants';
@@ -50,6 +50,7 @@ import {
   getPortfolioRateFetchRuntime,
   runOnPortfolioRuntimeAsync,
 } from '../runtimes';
+import {teardownPortfolioRuntimeGlobals} from '../../adapters/rn/workletRuntimeShared';
 
 export type RateFetchErrorKind =
   | 'network'
@@ -101,6 +102,15 @@ type RateFetchExecutor = (
 // clears the backoff and may try each stale dependency once after launch.
 const retryByDependencyKey = new Map<string, RateFetchRetryState>();
 let rateFetchExecutorForTesting: RateFetchExecutor | undefined;
+const inFlightByDependencyKey = new Map<
+  string,
+  {
+    promise: Promise<void>;
+    resolve: () => void;
+    force: boolean;
+    started: boolean;
+  }
+>();
 
 function wallClockNowMs(): number {
   'worklet';
@@ -436,9 +446,10 @@ function buildRateFetchUrlOnRuntime(
   );
 }
 
-function requestRatePayloadOnRuntime(
-  url: string,
-): {payload?: unknown; errorKind?: RateFetchErrorKind} {
+function requestRatePayloadOnRuntime(url: string): {
+  payload?: unknown;
+  errorKind?: RateFetchErrorKind;
+} {
   'worklet';
 
   try {
@@ -551,6 +562,35 @@ function buildRuntimeFetchBatches(
   return batches;
 }
 
+async function fetchTokenBatchesWithLimitOnRuntime(
+  batches: readonly (readonly RateFetchDependency[])[],
+  cfg: BwsConfig,
+): Promise<readonly RateFetchRuntimeResult[]> {
+  'worklet';
+
+  const out: RateFetchRuntimeResult[] = [];
+  let nextBatchIndex = 0;
+  const workerCount = Math.max(
+    1,
+    Math.min(PORTFOLIO_RATE_FETCH_MAX_PARALLEL_TOKEN_REQUESTS, batches.length),
+  );
+
+  await Promise.all(
+    Array.from({length: workerCount}, async () => {
+      while (nextBatchIndex < batches.length) {
+        const batch = batches[nextBatchIndex++];
+        const dependency = batch?.[0];
+        if (!dependency) {
+          continue;
+        }
+        out.push(await fetchSingleRateOnRuntime(dependency, cfg));
+      }
+    }),
+  );
+
+  return out;
+}
+
 function persistRuntimeFetchResultOnRuntime(
   result: RateFetchRuntimeResult,
   kvConfig?: PortfolioWorkletKvConfig,
@@ -597,25 +637,34 @@ async function fetchRateSeriesOnRuntime(
 
   try {
     const out: RateFetchRuntimeResult[] = [];
+    const tokenBatches: (readonly RateFetchDependency[])[] = [];
     for (const batch of buildRuntimeFetchBatches(dependencies)) {
       const firstDependency = batch[0];
       if (!firstDependency) continue;
 
-      const results = isNativeRateDependency(firstDependency)
-        ? await fetchNativeRateBatchOnRuntime(batch, cfg)
-        : [await fetchSingleRateOnRuntime(firstDependency, cfg)];
+      if (!isNativeRateDependency(firstDependency)) {
+        tokenBatches.push(batch);
+        continue;
+      }
 
-      for (const result of results) {
+      for (const result of await fetchNativeRateBatchOnRuntime(batch, cfg)) {
         out.push(
           persistRuntimeFetchResultOnRuntime(result, kvConfig, startEpoch),
         );
       }
     }
+
+    for (const result of await fetchTokenBatchesWithLimitOnRuntime(
+      tokenBatches,
+      cfg,
+    )) {
+      out.push(
+        persistRuntimeFetchResultOnRuntime(result, kvConfig, startEpoch),
+      );
+    }
     return out;
   } finally {
-    if (dispatchContext) {
-      clearPortfolioTxHistorySigningDispatchContextOnRuntime();
-    }
+    teardownPortfolioRuntimeGlobals('rateFetch');
   }
 }
 
@@ -649,6 +698,7 @@ export function setRateFetchExecutorForTesting(
 
 export function clearRateFetchRetryStateForTesting(): void {
   retryByDependencyKey.clear();
+  inFlightByDependencyKey.clear();
   rateFetchExecutorForTesting = undefined;
 }
 
@@ -656,47 +706,31 @@ export function getRateFetchRetryStatesForTesting(): readonly RateFetchRetryStat
   return Array.from(retryByDependencyKey.values());
 }
 
-async function ensureFreshDependencies(args: {
+async function executeRateFetchOperation(args: {
   dependencies: readonly RateFetchDependency[];
   cfg?: BwsConfig;
-  force?: boolean;
-  maxAgeMs?: number;
-  startEpoch?: number;
+  startEpoch: number;
+  entries: readonly {started: boolean}[];
 }): Promise<void> {
-  const startEpoch =
-    typeof args.startEpoch === 'number'
-      ? args.startEpoch
-      : getCurrentPortfolioWorkEpoch();
-  const toFetch: RateFetchDependency[] = [];
-
-  for (const dependency of args.dependencies) {
-    if (shouldSkipForRetry(dependency, args.force)) {
-      continue;
-    }
-    const key = dependencyKey(dependency);
-    const existing = await readStoredSeries(key);
-    if (!args.force && isFresh(existing, args.maxAgeMs)) {
-      continue;
-    }
-    toFetch.push(dependency);
-  }
-
-  if (!toFetch.length) {
-    return;
-  }
-
   const executor = rateFetchExecutorForTesting ?? defaultRateFetchExecutor;
   let results: readonly RateFetchRuntimeResult[];
   try {
-    results = await executor(toFetch, args.cfg ?? {}, startEpoch);
+    for (const entry of args.entries) {
+      entry.started = true;
+    }
+    results = await executor(
+      args.dependencies,
+      args.cfg ?? {},
+      args.startEpoch,
+    );
   } catch (error: unknown) {
     const errorKind = classifyFetchError(error);
     const currentEpoch = getCurrentPortfolioWorkEpoch();
-    if (startEpoch !== currentEpoch) {
+    if (args.startEpoch !== currentEpoch) {
       logPortfolioRuntimeError(error, {
         tag: 'staleWorkEpoch',
         reason: 'executorFailed',
-        startEpoch,
+        startEpoch: args.startEpoch,
         currentEpoch,
         runtimeKind: 'rateFetch',
       });
@@ -707,7 +741,7 @@ async function ensureFreshDependencies(args: {
       reason: 'executorFailed',
       runtimeKind: 'rateFetch',
     });
-    for (const dependency of toFetch) {
+    for (const dependency of args.dependencies) {
       const key = dependencyKey(dependency);
       retryByDependencyKey.set(
         key,
@@ -722,8 +756,11 @@ async function ensureFreshDependencies(args: {
   }
 
   const currentEpoch = getCurrentPortfolioWorkEpoch();
-  const partition = partitionRuntimeResults({dependencies: toFetch, results});
-  if (startEpoch !== currentEpoch) {
+  const partition = partitionRuntimeResults({
+    dependencies: args.dependencies,
+    results,
+  });
+  if (args.startEpoch !== currentEpoch) {
     const hasFailedResult =
       partition.mismatch ||
       partition.acceptedResults.some(isFailedRuntimeResult);
@@ -732,7 +769,7 @@ async function ensureFreshDependencies(args: {
       reason: hasFailedResult
         ? 'runtimeResultFailed'
         : 'runtimeResultSucceeded',
-      startEpoch,
+      startEpoch: args.startEpoch,
       currentEpoch,
       runtimeKind: 'rateFetch',
     });
@@ -782,7 +819,10 @@ async function ensureFreshDependencies(args: {
       },
     );
     const dependencyByKey = new Map(
-      toFetch.map(dependency => [dependencyKey(dependency), dependency]),
+      args.dependencies.map(dependency => [
+        dependencyKey(dependency),
+        dependency,
+      ]),
     );
     for (const key of partition.missingKeys) {
       const dependency = dependencyByKey.get(key);
@@ -796,6 +836,116 @@ async function ensureFreshDependencies(args: {
         }),
       );
     }
+  }
+}
+
+async function ensureFreshDependencies(args: {
+  dependencies: readonly RateFetchDependency[];
+  cfg?: BwsConfig;
+  force?: boolean;
+  maxAgeMs?: number;
+  startEpoch?: number;
+}): Promise<void> {
+  const startEpoch =
+    typeof args.startEpoch === 'number'
+      ? args.startEpoch
+      : getCurrentPortfolioWorkEpoch();
+  const reservations: Array<{
+    dependency: RateFetchDependency;
+    entry: {
+      promise: Promise<void>;
+      resolve: () => void;
+      force: boolean;
+      started: boolean;
+    };
+  }> = [];
+  const waitFor: Promise<void>[] = [];
+
+  for (const dependency of args.dependencies) {
+    const key = dependencyKey(dependency);
+    const inFlight = inFlightByDependencyKey.get(key);
+    if (inFlight) {
+      if (args.force && !inFlight.force) {
+        inFlight.force = true;
+        if (inFlight.started) {
+          waitFor.push(
+            inFlight.promise.then(() =>
+              ensureFreshDependencies({
+                dependencies: [dependency],
+                cfg: args.cfg,
+                force: true,
+                maxAgeMs: args.maxAgeMs,
+                startEpoch,
+              }),
+            ),
+          );
+          continue;
+        }
+      }
+      waitFor.push(inFlight.promise);
+      continue;
+    }
+
+    let resolveEntry: () => void = () => {};
+    const entry = {
+      promise: new Promise<void>(resolve => {
+        resolveEntry = resolve;
+      }),
+      resolve: resolveEntry,
+      force: args.force === true,
+      started: false,
+    };
+    inFlightByDependencyKey.set(key, entry);
+
+    if (shouldSkipForRetry(dependency, entry.force)) {
+      if (inFlightByDependencyKey.get(key) === entry) {
+        inFlightByDependencyKey.delete(key);
+      }
+      entry.resolve();
+      continue;
+    }
+    const existing = await readStoredSeries(key);
+    if (!entry.force && isFresh(existing, args.maxAgeMs)) {
+      if (inFlightByDependencyKey.get(key) === entry) {
+        inFlightByDependencyKey.delete(key);
+      }
+      entry.resolve();
+      continue;
+    }
+    reservations.push({dependency, entry});
+  }
+
+  if (reservations.length) {
+    const dependenciesToStart = reservations.map(
+      reservation => reservation.dependency,
+    );
+    const entries = reservations.map(reservation => reservation.entry);
+    const operation = Promise.resolve()
+      .then(() =>
+        executeRateFetchOperation({
+          dependencies: dependenciesToStart,
+          cfg: args.cfg,
+          startEpoch,
+          entries,
+        }),
+      )
+      .finally(() => {
+        for (const reservation of reservations) {
+          const key = dependencyKey(reservation.dependency);
+          if (inFlightByDependencyKey.get(key) === reservation.entry) {
+            inFlightByDependencyKey.delete(key);
+          }
+          reservation.entry.resolve();
+        }
+      });
+    for (const reservation of reservations) {
+      reservation.entry.promise = operation;
+    }
+    waitFor.push(operation);
+  }
+
+  if (waitFor.length) {
+    await Promise.all(waitFor);
   }
 }
 

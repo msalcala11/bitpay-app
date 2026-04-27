@@ -30,6 +30,7 @@ export type FormulaWalletIntervalInput = Readonly<{
   seriesIdentityKey: string;
   windowStartTs: number;
   windowEndTs: number;
+  windowAnchorTs: number;
   sampledFromStoredInterval: StoredRateInterval;
   finalPointSource: Series['finalPointSource'];
   baselineUnits: number;
@@ -207,6 +208,7 @@ function validateFormulaWalletInterval(
   if (
     !isFiniteNumber(interval.windowStartTs) ||
     !isFiniteNumber(interval.windowEndTs) ||
+    !isFiniteNumber(interval.windowAnchorTs) ||
     interval.windowEndTs <= interval.windowStartTs
   ) {
     return 'invalidWalletIntervalWindow';
@@ -690,6 +692,7 @@ function getWeightedRateWindowForInterval(args: {
     const candidate: WeightedGroupRateWindowInput = {
       windowStartTs: walletInterval.windowStartTs,
       windowEndTs: walletInterval.windowEndTs,
+      windowAnchorTs: walletInterval.windowAnchorTs,
       sampledFromStoredInterval: walletInterval.sampledFromStoredInterval,
     };
 
@@ -701,6 +704,7 @@ function getWeightedRateWindowForInterval(args: {
     if (
       candidate.windowStartTs !== window.windowStartTs ||
       candidate.windowEndTs !== window.windowEndTs ||
+      candidate.windowAnchorTs !== window.windowAnchorTs ||
       candidate.sampledFromStoredInterval !== window.sampledFromStoredInterval
     ) {
       return null;

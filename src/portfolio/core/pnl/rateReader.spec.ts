@@ -151,7 +151,7 @@ describe('rateReader', () => {
     });
   });
 
-  it('uses the first exact duplicate timestamp deterministically', () => {
+  it('dedupes duplicate timestamps with first-upstream point winning', () => {
     expect(
       readRateAt({
         series: {
@@ -170,6 +170,29 @@ describe('rateReader', () => {
       rate: 10,
       ts: 1000,
       source: 'exact',
+    });
+  });
+
+  it('interpolates across the deduped duplicate boundary', () => {
+    expect(
+      readRateAt({
+        series: {
+          fetchedOn: 1,
+          points: [
+            {ts: 1000, rate: 10},
+            {ts: 2000, rate: 999},
+            {ts: 2000, rate: 20},
+            {ts: 3000, rate: 30},
+          ],
+        },
+        ts: 2500,
+        policy: 'linearRender',
+      }),
+    ).toEqual({
+      kind: 'rate',
+      rate: 514.5,
+      ts: 2500,
+      source: 'interpolated',
     });
   });
 

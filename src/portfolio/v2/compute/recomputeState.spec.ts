@@ -7,6 +7,7 @@ import type {
 import type {AssetGroupRowShellMemberInput} from './assetGroupRows';
 import type {WeightedGroupRateConstituentInput} from './weightedGroupRates';
 import {buildIntervalWindow} from '../__tests__/fixtures/intervalWindows';
+import {MAX_CHART_POINTS} from '../constants';
 import {
   buildRecomputeStateSlices,
   type AssetGroupSliceAssemblyInput,
@@ -45,24 +46,20 @@ function makeSeries(args: {
     interval: args.interval,
     windowStartTs: args.startTs,
     windowEndTs: args.endTs,
+    windowAnchorTs: args.endTs,
     sampledFromStoredInterval: args.sampledFromStoredInterval ?? '1D',
     finalPointSource: 'historicalRate',
-    points: [
-      {
-        ts: args.startTs,
-        fiatBalance: args.fiatStart,
-        remainingUnrealizedPnlFiat: 0,
-        pnlChange: 0,
-        pnlPercent: 0,
-      },
-      {
-        ts: args.endTs,
-        fiatBalance: args.fiatEnd,
-        remainingUnrealizedPnlFiat: args.pnlChange,
-        pnlChange: args.pnlChange,
-        pnlPercent: args.pnlPercent,
-      },
-    ],
+    points: Array.from({length: MAX_CHART_POINTS}, (_, index) => {
+      const progress = index / (MAX_CHART_POINTS - 1);
+      return {
+        ts: args.startTs + (args.endTs - args.startTs) * progress,
+        fiatBalance:
+          args.fiatStart + (args.fiatEnd - args.fiatStart) * progress,
+        remainingUnrealizedPnlFiat: args.pnlChange * progress,
+        pnlChange: args.pnlChange * progress,
+        pnlPercent: args.pnlPercent * progress,
+      };
+    }),
   };
 }
 
@@ -98,14 +95,15 @@ function makeConstituent(args: {
   return {
     rateSourceKey: args.rateSourceKey,
     baselineUnits: args.baselineUnits,
-    points: [
-      {ts: args.startTs, rate: args.rateStart, percentChange: 0},
-      {
-        ts: args.endTs,
-        rate: args.rateEnd,
-        percentChange: ((args.rateEnd - args.rateStart) / args.rateStart) * 100,
-      },
-    ],
+    points: Array.from({length: MAX_CHART_POINTS}, (_, index) => {
+      const progress = index / (MAX_CHART_POINTS - 1);
+      const rate = args.rateStart + (args.rateEnd - args.rateStart) * progress;
+      return {
+        ts: args.startTs + (args.endTs - args.startTs) * progress,
+        rate,
+        percentChange: ((rate - args.rateStart) / args.rateStart) * 100,
+      };
+    }),
   };
 }
 
@@ -290,7 +288,7 @@ describe('portfolio v2 recompute state assembly adapter', () => {
     const btc = result.byAssetGroup.btc;
     expect(btc.weightedGroupRateSeries).toBeUndefined();
     expect(btc.memberWalletIds).toEqual(['btc-wallet']);
-    expect(btc.memberWalletIdsKey).toBe('btc-wallet');
+    expect(btc.memberWalletIdsKey).toMatch(/^walletIds:v1:1:fnv1a:/);
     expect(btc.rowToday).toMatchObject({
       assetGroupId: 'btc',
       fiatStart: 100,
@@ -385,7 +383,7 @@ describe('portfolio v2 recompute state assembly adapter', () => {
       'btc',
     ]);
     expect(usdc.memberWalletIds).toEqual(['eth-usdc', 'pol-usdc']);
-    expect(usdc.memberWalletIdsKey).toBe('eth-usdc|pol-usdc');
+    expect(usdc.memberWalletIdsKey).toMatch(/^walletIds:v1:2:fnv1a:/);
     expect(usdc.weightedGroupRateSeries?.['1D']).toMatchObject({
       availability: 'valid',
       memberRateSourceKeys: ['usdc|eth', 'usdc|pol'],
