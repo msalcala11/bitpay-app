@@ -3,6 +3,7 @@ import {CANONICAL_FIAT_QUOTE} from '../core/fiatRatesShared';
 import type {BwsConfig} from '../core/shared/bws';
 import type {StoredWallet} from '../core/types';
 import type {SnapshotIngestConfig} from '../core/engine/portfolioEngine';
+import {DEFAULT_SNAPSHOT_COMPRESSION_AGE_DAYS} from '../core/pnl/snapshotCompression';
 import {
   type PortfolioPopulateJobStatus,
   type PortfolioPopulateRunResult,
@@ -48,6 +49,7 @@ function createDefaultIngestConfig(): SnapshotIngestConfig {
   return {
     quoteCurrency: CANONICAL_FIAT_QUOTE,
     compressionEnabled: true,
+    compressionAgeDays: DEFAULT_SNAPSHOT_COMPRESSION_AGE_DAYS,
     chunkRows: 128,
     snapshotDebugMode: 'none',
   };

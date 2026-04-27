@@ -66,6 +66,7 @@ import {
 export type SnapshotIngestConfig = {
   quoteCurrency: string;
   compressionEnabled: boolean;
+  compressionAgeDays?: number;
   chunkRows: number;
   snapshotDebugMode?: SnapshotPersistDebugMode;
 };
@@ -572,6 +573,7 @@ export class PortfolioEngine {
       credentials: args.credentials as any,
       quoteCurrency: args.ingest.quoteCurrency,
       compressionEnabled: args.ingest.compressionEnabled,
+      compressionAgeDays: args.ingest.compressionAgeDays,
       chunkRows: args.ingest.chunkRows,
       snapshotDebugMode: args.ingest.snapshotDebugMode ?? 'none',
     });
@@ -597,6 +599,7 @@ export class PortfolioEngine {
       quoteCurrency: args.ingest.quoteCurrency,
       fiatRateSeriesCache,
       compressionEnabled: args.ingest.compressionEnabled,
+      compressionAgeDays: args.ingest.compressionAgeDays,
       snapshotDebugMode: meta.snapshotDebugMode ?? 'none',
       checkpoint:
         args.checkpoint === undefined ? index.checkpoint : args.checkpoint,

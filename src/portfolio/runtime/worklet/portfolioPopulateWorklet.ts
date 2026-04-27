@@ -1021,6 +1021,7 @@ export async function handlePrepareWalletOnPopulateWorklet(
     credentials: params.credentials as any,
     quoteCurrency: params.ingest.quoteCurrency,
     compressionEnabled: params.ingest.compressionEnabled,
+    compressionAgeDays: params.ingest.compressionAgeDays,
     chunkRows: params.ingest.chunkRows,
     snapshotDebugMode: params.ingest.snapshotDebugMode ?? 'none',
   });
@@ -1062,6 +1063,7 @@ export async function handlePrepareWalletOnPopulateWorklet(
     quoteCurrency: params.ingest.quoteCurrency,
     fiatRateSeriesCache,
     compressionEnabled: params.ingest.compressionEnabled,
+    compressionAgeDays: params.ingest.compressionAgeDays,
     snapshotDebugMode: meta.snapshotDebugMode ?? 'none',
     debugTrace,
     checkpoint: index.checkpoint,

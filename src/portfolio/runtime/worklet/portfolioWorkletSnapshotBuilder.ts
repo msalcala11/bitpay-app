@@ -13,6 +13,10 @@ import type {
   SnapshotPersistDebugMode,
   SnapshotPersistInputV2,
 } from '../../core/pnl/snapshotStore';
+import {
+  getSnapshotCompressionAgeMs,
+  SNAPSHOT_COMPRESSION_DAY_MS,
+} from '../../core/pnl/snapshotCompression';
 import type {BalanceSnapshotEventType} from '../../core/pnl/types';
 import type {
   PortfolioPopulateCarryoverDecisionDebugRow,
@@ -28,8 +32,7 @@ import type {
   PortfolioPopulateWalletDebugTrace,
 } from '../../core/engine/populateDebug';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const COMPRESSION_AGE_MS = 90 * DAY_MS;
+const DAY_MS = SNAPSHOT_COMPRESSION_DAY_MS;
 
 // Keep worklet-only numeric helpers local to this file when bundle mode is off.
 function normalizeNonNegativeInteger(value: number): number {
@@ -627,6 +630,7 @@ export type PortfolioSnapshotBuilderState = {
   rateLookup: ReturnType<typeof createFiatRateLookup>;
   nowMs: number;
   compressionEnabled: boolean;
+  compressionAgeMs: number;
   atomicToUnitNumber: (atomic: bigint) => number;
   balanceAtomic: bigint;
   remainingCostBasisFiat: number;
@@ -649,6 +653,7 @@ export function createPortfolioSnapshotBuilderState(args: {
   fiatRateSeriesCache: FiatRateSeriesCache;
   nowMs?: number;
   compressionEnabled?: boolean;
+  compressionAgeDays?: number;
   snapshotDebugMode?: SnapshotPersistDebugMode;
   debugTrace?: PortfolioPopulateWalletDebugTrace;
   checkpoint?: SnapshotStreamCheckpoint | null;
@@ -677,6 +682,7 @@ export function createPortfolioSnapshotBuilderState(args: {
     }),
     nowMs: args.nowMs ?? Date.now(),
     compressionEnabled: !!args.compressionEnabled,
+    compressionAgeMs: getSnapshotCompressionAgeMs(args.compressionAgeDays),
     atomicToUnitNumber: makeAtomicToUnitNumberConverter(
       getAtomicDecimals(args.credentials),
     ),
@@ -1237,7 +1243,7 @@ function processTx(
     });
   }
 
-  const compressBefore = state.nowMs - COMPRESSION_AGE_MS;
+  const compressBefore = state.nowMs - state.compressionAgeMs;
   const shouldCompress = state.compressionEnabled && tx.tsMs < compressBefore;
 
   if (shouldCompress) {

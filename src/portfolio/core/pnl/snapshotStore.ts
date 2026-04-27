@@ -5,6 +5,7 @@ import type {BalanceSnapshotEventType, BalanceSnapshotStored} from './types';
 import {getAssetIdFromWallet} from './assetId';
 import type {SnapshotInvalidHistoryMarkerV1} from './invalidHistory';
 import {SNAPSHOT_INVALID_HISTORY_VERSION} from './invalidHistory';
+import {normalizeSnapshotCompressionAgeDays} from './snapshotCompression';
 
 /**
  * Storage layout (v2)
@@ -110,6 +111,7 @@ export type SnapshotIndexV2 = {
   walletId: string;
   revision: number;
   compressionEnabled: boolean;
+  compressionAgeDays?: number;
   chunkRows: number;
   chunks: SnapshotChunkMetaV2[];
   checkpoint: SnapshotPopulateCheckpointV1;
@@ -137,6 +139,7 @@ export type SnapshotStoreWalletMeta = {
   tokenAddress?: string;
   quoteCurrency: string;
   compressionEnabled: boolean;
+  compressionAgeDays?: number;
   chunkRows: number;
   snapshotDebugMode?: SnapshotPersistDebugMode;
 };
@@ -493,6 +496,9 @@ export class SnapshotStore {
       existing &&
       (!existingMeta || sameStoredMeta(existingMeta, storedMeta)) &&
       existing.compressionEnabled === meta.compressionEnabled &&
+      (!meta.compressionEnabled ||
+        normalizeSnapshotCompressionAgeDays(existing.compressionAgeDays) ===
+          normalizeSnapshotCompressionAgeDays(meta.compressionAgeDays)) &&
       existing.chunkRows === meta.chunkRows
     ) {
       if (!existingMeta) {
@@ -512,6 +518,9 @@ export class SnapshotStore {
       walletId: meta.walletId,
       revision: 0,
       compressionEnabled: meta.compressionEnabled,
+      compressionAgeDays: normalizeSnapshotCompressionAgeDays(
+        meta.compressionAgeDays,
+      ),
       chunkRows: meta.chunkRows,
       chunks: [],
       checkpoint: {
@@ -1003,10 +1012,19 @@ export function buildWalletMetaForStore(args: {
   credentials: Pick<WalletCredentials, 'walletId' | 'chain' | 'network' | 'coin' | 'token'>;
   quoteCurrency: string;
   compressionEnabled: boolean;
+  compressionAgeDays?: number;
   chunkRows: number;
   snapshotDebugMode?: SnapshotPersistDebugMode;
 }): SnapshotStoreWalletMeta {
-  const {wallet, credentials, quoteCurrency, compressionEnabled, chunkRows, snapshotDebugMode = 'none'} = args;
+  const {
+    wallet,
+    credentials,
+    quoteCurrency,
+    compressionEnabled,
+    compressionAgeDays,
+    chunkRows,
+    snapshotDebugMode = 'none',
+  } = args;
   return {
     walletId: wallet.walletId,
     chain: String(wallet.chain || credentials.chain || ''),
@@ -1015,6 +1033,7 @@ export function buildWalletMetaForStore(args: {
     tokenAddress: wallet.tokenAddress,
     quoteCurrency,
     compressionEnabled,
+    compressionAgeDays,
     chunkRows,
     snapshotDebugMode,
   };

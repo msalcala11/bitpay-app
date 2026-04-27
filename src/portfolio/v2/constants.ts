@@ -9,6 +9,8 @@
  * "Constants and key names" section.
  */
 
+import {DEFAULT_SNAPSHOT_COMPRESSION_AGE_DAYS} from '../core/pnl/snapshotCompression';
+
 export const PORTFOLIO_V2_FLAG_KEY = 'portfolio:v2:flag';
 export const PORTFOLIO_CACHE_INVALID_KEY = 'portfolio:v2:cacheInvalid';
 export const MANIFEST_KEY = 'portfolio:v2:manifest:v1';
@@ -49,7 +51,8 @@ export const PORTFOLIO_RECOMPUTE_CHUNK_WALLET_COUNT = 25;
  * tx events are compacted into one authoritative UTC-day snapshot.
  */
 export const PORTFOLIO_DAILY_SNAPSHOT_COMPRESSION_ENABLED = true;
-export const PORTFOLIO_DAILY_SNAPSHOT_COMPRESSION_AGE_DAYS = 90;
+export const PORTFOLIO_DAILY_SNAPSHOT_COMPRESSION_AGE_DAYS =
+  DEFAULT_SNAPSHOT_COMPRESSION_AGE_DAYS;
 
 /**
  * Maximum snapshot rows emitted into a single wallet snapshot chunk write.

@@ -329,6 +329,73 @@ describe('portfolioWorkletSnapshotBuilder return-struct flush state', () => {
     expect(ingestResult.snapshots).toEqual([]);
   });
 
+  it('uses the configured compression age cutoff for retained worklet snapshots', () => {
+    const walletId = 'wallet-compression-age';
+    const oldTxTs = Date.parse('2024-01-01T00:00:00Z');
+    const recentTxTs = Date.parse('2024-01-08T00:00:00Z');
+    const state = createPortfolioSnapshotBuilderState({
+      wallet: {
+        walletId,
+        walletName: 'Wallet Compression Age',
+        chain: 'btc',
+        network: 'livenet',
+        currencyAbbreviation: 'btc',
+        balanceAtomic: '0',
+        balanceFormatted: '0',
+      } as any,
+      credentials: {
+        walletId,
+        chain: 'btc',
+        network: 'livenet',
+        coin: 'btc',
+      } as any,
+      quoteCurrency: 'USD',
+      fiatRateSeriesCache: {
+        'USD:btc:ALL': {
+          fetchedOn: Date.now(),
+          points: [
+            {ts: oldTxTs, rate: 1},
+            {ts: recentTxTs, rate: 1},
+          ],
+        },
+      } as any,
+      nowMs: Date.parse('2024-01-11T00:00:00Z'),
+      compressionEnabled: true,
+      compressionAgeDays: 5,
+      snapshotDebugMode: 'full',
+    });
+
+    const ingestResult = portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
+      state,
+      [
+        makeReceivedTx({
+          txid: 'old-fund',
+          timeSeconds: Math.floor(oldTxTs / 1000),
+          blockheight: 0,
+          amountAtomic: '1000',
+        }),
+        makeReceivedTx({
+          txid: 'recent-fund',
+          timeSeconds: Math.floor(recentTxTs / 1000),
+          blockheight: 0,
+          amountAtomic: '500',
+        }),
+      ],
+    );
+
+    expect(ingestResult.snapshots).toMatchObject([
+      {
+        eventType: 'daily',
+        cryptoBalance: '1000',
+        txIds: ['old-fund'],
+      },
+      {
+        eventType: 'tx',
+        cryptoBalance: '1500',
+      },
+    ]);
+  });
+
   it('preserves compressed daily state across a checkpoint resume', () => {
     const walletId = 'wallet-2b';
     const cache = {

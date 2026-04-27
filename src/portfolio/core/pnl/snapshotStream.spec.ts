@@ -507,6 +507,73 @@ describe('BalanceSnapshotStreamBuilder', () => {
     ]);
   });
 
+  it('uses the configured compression age cutoff for retained stream snapshots', () => {
+    const wallet = mkWallet();
+    const credentials: Pick<
+      WalletCredentials,
+      'walletId' | 'chain' | 'network' | 'coin' | 'token'
+    > = {
+      walletId: 'w1',
+      chain: 'btc',
+      network: 'livenet',
+      coin: 'btc',
+      token: undefined,
+    };
+
+    const oldTxTs = Date.parse('2024-01-01T00:00:00Z');
+    const recentTxTs = Date.parse('2024-01-08T00:00:00Z');
+    const nowMs = Date.parse('2024-01-11T00:00:00Z');
+    const cache = mkCache([
+      {
+        key: 'USD:btc:ALL',
+        points: [
+          {ts: oldTxTs, rate: 1},
+          {ts: recentTxTs, rate: 1},
+        ],
+      },
+    ]);
+
+    const builder = new BalanceSnapshotStreamBuilder({
+      wallet,
+      credentials,
+      quoteCurrency: 'USD',
+      fiatRateSeriesCache: cache,
+      snapshotDebugMode: 'full',
+      compressionEnabled: true,
+      compressionAgeDays: 5,
+      nowMs,
+    });
+
+    const snapshots = builder.ingestPage([
+      {
+        txid: 'old-fund',
+        time: Math.floor(oldTxTs / 1000),
+        action: 'received',
+        amount: '1000',
+        fees: '0',
+      },
+      {
+        txid: 'recent-fund',
+        time: Math.floor(recentTxTs / 1000),
+        action: 'received',
+        amount: '500',
+        fees: '0',
+      },
+    ]);
+
+    expect(snapshots).toMatchObject([
+      {
+        eventType: 'daily',
+        cryptoBalance: '1000',
+        txIds: ['old-fund'],
+      },
+      {
+        eventType: 'tx',
+        cryptoBalance: '1500',
+      },
+    ]);
+  });
+
   it('persists daily tx ids across checkpoint resume for compressed history', () => {
     const wallet = mkWallet();
     const credentials: Pick<

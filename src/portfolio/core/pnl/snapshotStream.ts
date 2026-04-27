@@ -4,11 +4,14 @@ import type {FiatRateSeriesCache} from '../fiatRatesShared';
 import {getTxHistoryEntryId, getTxHistoryLogicalPageSize} from '../txHistoryPaging';
 import {createNegativeBalanceInvalidHistoryError} from './invalidHistory';
 import {createFiatRateLookup, normalizeFiatRateSeriesCoin} from './rates';
+import {
+  getSnapshotCompressionAgeMs,
+  SNAPSHOT_COMPRESSION_DAY_MS,
+} from './snapshotCompression';
 import type {SnapshotPersistDebugMode, SnapshotPersistInputV2} from './snapshotStore';
 import type {BalanceSnapshotEventType} from './types';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const COMPRESSION_AGE_MS = 90 * DAY_MS;
+const DAY_MS = SNAPSHOT_COMPRESSION_DAY_MS;
 
 const utcDayIndex = (tsMs: number): number => Math.floor(tsMs / DAY_MS);
 const utcDayKeyFromIndex = (dayIdx: number): string => new Date(dayIdx * DAY_MS).toISOString().slice(0, 10);
@@ -378,6 +381,7 @@ export class BalanceSnapshotStreamBuilder {
   private rateLookup: ReturnType<typeof createFiatRateLookup>;
   private nowMs: number;
   private compressionEnabled: boolean;
+  private compressionAgeMs: number;
   private atomicToUnitNumber: (atomic: bigint) => number;
 
   private balanceAtomic: bigint;
@@ -398,6 +402,7 @@ export class BalanceSnapshotStreamBuilder {
     fiatRateSeriesCache: FiatRateSeriesCache;
     nowMs?: number;
     compressionEnabled?: boolean;
+    compressionAgeDays?: number;
     snapshotDebugMode?: SnapshotPersistDebugMode;
     checkpoint?: SnapshotStreamCheckpoint | null;
   }) {
@@ -406,6 +411,7 @@ export class BalanceSnapshotStreamBuilder {
     this.applyFeesToBalance = !args.wallet.tokenAddress;
     this.nowMs = args.nowMs ?? Date.now();
     this.compressionEnabled = !!args.compressionEnabled;
+    this.compressionAgeMs = getSnapshotCompressionAgeMs(args.compressionAgeDays);
     this.atomicToUnitNumber = makeAtomicToUnitNumberConverter(getAtomicDecimals(args.credentials));
 
     const normalizedCoin = normalizeFiatRateSeriesCoin(args.wallet.currencyAbbreviation);
@@ -677,7 +683,7 @@ export class BalanceSnapshotStreamBuilder {
       });
     }
 
-    const compressBefore = this.nowMs - COMPRESSION_AGE_MS;
+    const compressBefore = this.nowMs - this.compressionAgeMs;
     const shouldCompress = this.compressionEnabled && tx.tsMs < compressBefore;
 
     if (shouldCompress) {

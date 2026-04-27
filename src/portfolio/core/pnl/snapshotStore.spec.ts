@@ -540,6 +540,62 @@ describe('SnapshotStore v2', () => {
     });
   });
 
+  it('rebuilds wallet snapshots when compression age changes', async () => {
+    const kv = new MemoryKv();
+    const store = new SnapshotStore(kv);
+    const baseArgs = {
+      wallet: {
+        walletId: 'w-compression-age',
+        walletName: 'Age Wallet',
+        chain: 'eth',
+        network: 'livenet',
+        currencyAbbreviation: 'eth',
+        balanceAtomic: '0',
+        balanceFormatted: '0',
+      },
+      credentials: {
+        walletId: 'w-compression-age',
+        chain: 'eth',
+        network: 'livenet',
+        coin: 'eth',
+      } as any,
+      quoteCurrency: 'usd',
+      compressionEnabled: true,
+      chunkRows: 500,
+      snapshotDebugMode: 'none' as const,
+    };
+
+    const meta90 = buildWalletMetaForStore({
+      ...baseArgs,
+      compressionAgeDays: 90,
+    });
+    await store.appendChunk({
+      meta: meta90,
+      snapshots: [{timestamp: 1000, cryptoBalance: '1'}],
+      checkpoint: {
+        nextSkip: 1,
+        balanceAtomic: '1',
+        remainingCostBasisFiat: 0,
+        lastMarkRate: 0,
+        lastTimestamp: 1000,
+      },
+    });
+
+    const sameAgeIndex = await store.ensureWalletIndex(meta90);
+    expect(sameAgeIndex.chunks).toHaveLength(1);
+
+    const meta5 = buildWalletMetaForStore({
+      ...baseArgs,
+      compressionAgeDays: 5,
+    });
+    const rebuiltIndex = await store.ensureWalletIndex(meta5);
+
+    expect(rebuiltIndex.compressionAgeDays).toBe(5);
+    expect(rebuiltIndex.chunks).toEqual([]);
+    expect(rebuiltIndex.checkpoint.nextSkip).toBe(0);
+    await expect(store.listPoints('w-compression-age')).resolves.toEqual([]);
+  });
+
   it('clears indexed wallet chunks without scanning storage keys', async () => {
     const kv = new NoListKeysKv();
     const store = new SnapshotStore(kv);

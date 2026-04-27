@@ -18,6 +18,7 @@ import type {
   SnapshotStoreWalletMeta,
   SnapshotWalletMetaV2,
 } from '../../core/pnl/snapshotStore';
+import {normalizeSnapshotCompressionAgeDays} from '../../core/pnl/snapshotCompression';
 import {
   workletKvDelete,
   workletKvGetString,
@@ -335,6 +336,7 @@ export function buildWorkletWalletMetaForStore(args: {
   >;
   quoteCurrency: string;
   compressionEnabled: boolean;
+  compressionAgeDays?: number;
   chunkRows: number;
   snapshotDebugMode?: SnapshotPersistDebugMode;
 }): SnapshotStoreWalletMeta {
@@ -350,6 +352,7 @@ export function buildWorkletWalletMetaForStore(args: {
     tokenAddress: args.wallet.tokenAddress,
     quoteCurrency: args.quoteCurrency,
     compressionEnabled: args.compressionEnabled,
+    compressionAgeDays: args.compressionAgeDays,
     chunkRows: args.chunkRows,
     snapshotDebugMode: args.snapshotDebugMode ?? 'none',
   };
@@ -454,6 +457,9 @@ export async function ensureWorkletWalletIndex(
     existingIndex &&
     (!existingMeta || sameStoredMeta(existingMeta, storedMeta)) &&
     existingIndex.compressionEnabled === meta.compressionEnabled &&
+    (!meta.compressionEnabled ||
+      normalizeSnapshotCompressionAgeDays(existingIndex.compressionAgeDays) ===
+        normalizeSnapshotCompressionAgeDays(meta.compressionAgeDays)) &&
     existingIndex.chunkRows === meta.chunkRows
   ) {
     if (!existingMeta) {
@@ -473,6 +479,9 @@ export async function ensureWorkletWalletIndex(
     walletId: meta.walletId,
     revision: 0,
     compressionEnabled: meta.compressionEnabled,
+    compressionAgeDays: normalizeSnapshotCompressionAgeDays(
+      meta.compressionAgeDays,
+    ),
     chunkRows: meta.chunkRows,
     chunks: [],
     checkpoint: {
