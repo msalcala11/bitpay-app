@@ -5,8 +5,8 @@ import {
 import type {AssetRowItem, GainLossMode} from '../../../utils/portfolio/assets';
 import {
   formatBigIntDecimal,
-  getAtomicDecimals,
   parseAtomicToBigint,
+  resolveWalletAtomicDecimals,
 } from '../../core/format';
 import {getAssetIdFromWallet} from '../../core/pnl/assetId';
 import type {
@@ -159,7 +159,10 @@ export function buildAssetRowMetricsFromAnalysis(args: {
       const assetId = getAssetIdFromWallet(wallet.summary);
       uniqueAssetIds.add(assetId);
 
-      const decimals = getAtomicDecimals(wallet.credentials);
+      const decimals = resolveWalletAtomicDecimals({
+        unitDecimals: wallet.summary.unitDecimals,
+        credentials: wallet.credentials,
+      });
       const atomic = parseAtomicToBigint(wallet.summary.balanceAtomic || '0');
       totalAtomic += atomic;
       const currentRate = args.currentRatesByAssetId?.[assetId];
@@ -183,7 +186,10 @@ export function buildAssetRowMetricsFromAnalysis(args: {
       .map(assetId => assetSummaryByAssetId.get(assetId))
       .filter((summary): summary is AssetPnlSummary => !!summary);
     const aggregatedSummary = aggregateAssetSummaries(summaries);
-    const repDecimals = getAtomicDecimals(repWallet.credentials);
+    const repDecimals = resolveWalletAtomicDecimals({
+      unitDecimals: repWallet.summary.unitDecimals,
+      credentials: repWallet.credentials,
+    });
     const cryptoAmount = formatBigIntDecimal(
       totalAtomic,
       repDecimals,

@@ -24,6 +24,7 @@ export const getPortfolioWalletsInputSignature = (
         wallet?.chain,
         wallet?.currencyAbbreviation,
         wallet?.tokenAddress,
+        (wallet as any)?.credentials?.token?.decimals,
         wallet?.network,
         wallet?.balance?.crypto,
         wallet?.balance?.sat,

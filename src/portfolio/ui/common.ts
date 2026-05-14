@@ -5,6 +5,7 @@ import type {AppDispatch} from '../../utils/hooks';
 import type {Rates} from '../../store/rate/rate.models';
 import {
   isPortfolioRuntimeEligibleWallet,
+  resolvePortfolioWalletUnitDecimalsFromPrecision,
   toPortfolioStoredWallet,
 } from '../adapters/rn/walletMappers';
 import {getAssetIdFromWallet} from '../core/pnl/assetId';
@@ -66,8 +67,12 @@ export const resolvePortfolioQuoteCurrency =
   resolveCommittedPortfolioQuoteCurrency;
 export {buildCommittedPortfolioHoldingsRevisionToken};
 export {resolveActivePortfolioDisplayQuoteCurrency};
+export {getAssetPnlStoredWalletRequestSignature as getStoredWalletRequestSignature} from './assetPnlSummaryCache';
 
-function getWalletUnitDecimals(dispatch: AppDispatch, wallet: Wallet): number {
+function resolveWalletUnitDecimalsForAnalysis(
+  dispatch: AppDispatch,
+  wallet: Wallet,
+): number | undefined {
   const precision =
     dispatch(
       GetPrecision(
@@ -77,7 +82,10 @@ function getWalletUnitDecimals(dispatch: AppDispatch, wallet: Wallet): number {
       ) as any,
     ) || undefined;
 
-  return precision?.unitDecimals || 0;
+  return resolvePortfolioWalletUnitDecimalsFromPrecision({
+    wallet,
+    precisionUnitDecimals: precision?.unitDecimals,
+  });
 }
 
 export function mapWalletsToStoredWallets(args: {
@@ -91,34 +99,28 @@ export function mapWalletsToStoredWallets(args: {
     Array.isArray(args.wallets) ? args.wallets : []
   ).filter(isPortfolioRuntimeEligibleWallet);
 
+  const resolvedWallets: Array<{wallet: Wallet; unitDecimals: number}> = [];
+  for (const wallet of eligibleWallets) {
+    const unitDecimals = resolveWalletUnitDecimalsForAnalysis(
+      args.dispatch,
+      wallet,
+    );
+    if (typeof unitDecimals !== 'number') {
+      continue;
+    }
+    resolvedWallets.push({wallet, unitDecimals});
+  }
+
   return {
-    eligibleWallets,
-    storedWallets: eligibleWallets.map(wallet =>
+    eligibleWallets: resolvedWallets.map(entry => entry.wallet),
+    storedWallets: resolvedWallets.map(entry =>
       toPortfolioStoredWallet({
-        wallet,
-        unitDecimals: getWalletUnitDecimals(args.dispatch, wallet),
+        wallet: entry.wallet,
+        unitDecimals: entry.unitDecimals,
         addedAt: 0,
       }),
     ),
   };
-}
-
-export function getStoredWalletRequestSignature(
-  storedWallets: StoredWallet[],
-): string {
-  return storedWallets
-    .map(wallet => {
-      const summary = wallet.summary;
-      return [
-        summary.walletId,
-        summary.chain,
-        summary.currencyAbbreviation,
-        summary.tokenAddress || '',
-        summary.balanceAtomic || '',
-      ].join(':');
-    })
-    .sort()
-    .join('|');
 }
 
 export function buildCurrentRatesByAssetId(args: {

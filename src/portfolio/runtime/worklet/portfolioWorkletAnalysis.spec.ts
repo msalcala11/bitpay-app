@@ -364,6 +364,167 @@ describe('portfolioWorkletAnalysis', () => {
     });
   });
 
+  it('uses stored wallet unit decimals for token balance chart values when token credentials omit decimals', async () => {
+    const storage = createFakeWorkletStorage();
+    const config = {storage, registryKey: '__registry__'};
+    const wallet = createStoredTokenWallet();
+    const tokenAddress = 'soltokenmint111111111111111111111111111111';
+    wallet.walletId = 'sol-token-wallet';
+    wallet.summary = {
+      walletId: 'sol-token-wallet',
+      walletName: 'SOL Token Wallet',
+      chain: 'sol',
+      network: 'livenet',
+      currencyAbbreviation: 'weird',
+      tokenAddress,
+      unitDecimals: 12,
+      balanceAtomic: '1000000000000',
+      balanceFormatted: '1',
+    };
+    wallet.credentials = {
+      walletId: 'sol-token-wallet',
+      chain: 'sol',
+      network: 'livenet',
+      coin: 'sol',
+      token: {
+        address: tokenAddress,
+        symbol: 'WEIRD',
+      },
+    };
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-02T00:00:00Z');
+
+    const meta = buildWorkletWalletMetaForStore({
+      wallet: wallet.summary,
+      credentials: wallet.credentials,
+      quoteCurrency: 'USD',
+      compressionEnabled: false,
+      chunkRows: 128,
+    });
+    await appendWorkletSnapshotChunk({
+      ...config,
+      meta,
+      snapshots: [
+        {timestamp: t0, cryptoBalance: '1000000000000'},
+        {timestamp: t1, cryptoBalance: '1000000000000'},
+      ],
+      checkpoint: {
+        nextSkip: 2,
+        balanceAtomic: '1000000000000',
+        remainingCostBasisFiat: 2,
+        lastMarkRate: 2,
+        lastTimestamp: t1,
+        firstNonZeroTs: t0,
+      },
+    });
+
+    installNitroFetchMock((request: FakeNitroRequest) => {
+      const url = String(request.url);
+      if (url.includes('tokenAddress=')) {
+        return makeJsonResponse({
+          weird: [
+            {ts: t0, rate: 2},
+            {ts: t1, rate: 2},
+          ],
+        });
+      }
+      return makeJsonResponse({
+        btc: [
+          {ts: t0, rate: 10000},
+          {ts: t1, rate: 10000},
+        ],
+      });
+    });
+
+    const chart = await computeWorkletAnalysisChart(config, {
+      cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
+      wallets: [wallet],
+      quoteCurrency: 'USD',
+      timeframe: '1D',
+      nowMs: t1,
+      maxPoints: 2,
+    });
+
+    expect(chart.totalFiatBalance).toEqual([2, 2]);
+    expect(chart.totalCryptoBalanceFormatted).toEqual(['1', '1']);
+  });
+
+  it('excludes stored token wallets from chart analysis when decimals are unresolved', async () => {
+    const storage = createFakeWorkletStorage();
+    const config = {storage, registryKey: '__registry__'};
+    const wallet = createStoredTokenWallet();
+    const tokenAddress = 'soltokenmint111111111111111111111111111111';
+    wallet.walletId = 'sol-token-wallet';
+    wallet.summary = {
+      walletId: 'sol-token-wallet',
+      walletName: 'SOL Token Wallet',
+      chain: 'sol',
+      network: 'livenet',
+      currencyAbbreviation: 'weird',
+      tokenAddress,
+      balanceAtomic: '1000000000000',
+      balanceFormatted: '1',
+    };
+    wallet.credentials = {
+      walletId: 'sol-token-wallet',
+      chain: 'sol',
+      network: 'livenet',
+      coin: 'sol',
+      token: {
+        address: tokenAddress,
+        symbol: 'WEIRD',
+      },
+    };
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const t1 = Date.parse('2024-01-02T00:00:00Z');
+
+    const meta = buildWorkletWalletMetaForStore({
+      wallet: wallet.summary,
+      credentials: wallet.credentials,
+      quoteCurrency: 'USD',
+      compressionEnabled: false,
+      chunkRows: 128,
+    });
+    await appendWorkletSnapshotChunk({
+      ...config,
+      meta,
+      snapshots: [
+        {timestamp: t0, cryptoBalance: '1000000000000'},
+        {timestamp: t1, cryptoBalance: '1000000000000'},
+      ],
+      checkpoint: {
+        nextSkip: 2,
+        balanceAtomic: '1000000000000',
+        remainingCostBasisFiat: 2,
+        lastMarkRate: 2,
+        lastTimestamp: t1,
+        firstNonZeroTs: t0,
+      },
+    });
+
+    const requestSyncMock = installNitroFetchMock(() =>
+      makeJsonResponse({
+        weird: [
+          {ts: t0, rate: 2},
+          {ts: t1, rate: 2},
+        ],
+      }),
+    );
+
+    const chart = await computeWorkletAnalysisChart(config, {
+      cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
+      wallets: [wallet],
+      quoteCurrency: 'USD',
+      timeframe: '1D',
+      nowMs: t1,
+      maxPoints: 2,
+    });
+
+    expect(chart.timestamps).toEqual([]);
+    expect(chart.totalFiatBalance).toEqual([]);
+    expect(requestSyncMock).not.toHaveBeenCalled();
+  });
+
   it('computes a serializable balance chart view model from chart output', async () => {
     const storage = createFakeWorkletStorage();
     const config = {storage, registryKey: '__registry__'};

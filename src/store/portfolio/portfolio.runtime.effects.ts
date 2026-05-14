@@ -10,8 +10,10 @@ import {
 import {
   PortfolioPopulateService,
   getPortfolioPopulateDecisionsForWallets,
+  getPortfolioInvalidDecimalsMessage,
   type PortfolioPopulateDecision,
   type PortfolioSnapshotBalanceMismatch,
+  type PortfolioUnitDecimalsResolution,
 } from '../../portfolio/service';
 import type {PortfolioPopulateJobStatus} from '../../portfolio/core/engine/populateJob';
 import type {StoredWallet} from '../../portfolio/core/types';
@@ -20,6 +22,7 @@ import {getPortfolioRuntimeClient} from '../../portfolio/runtime/portfolioRuntim
 import {waitForStartupWalletStoreInitForPortfolio} from '../wallet/effects/init/init';
 import {
   isPortfolioRuntimeEligibleWallet,
+  resolvePortfolioWalletUnitDecimalsFromPrecision,
   toPortfolioStoredWallet,
 } from '../../portfolio/adapters/rn/walletMappers';
 import {logManager} from '../../managers/LogManager';
@@ -30,10 +33,12 @@ import {
   failPopulatePortfolio,
   finishPopulatePortfolio,
   markInitialBaselineComplete,
+  setInvalidDecimalsByWalletIdUpdates,
   setSnapshotBalanceMismatchesByWalletIdUpdates,
   startPopulatePortfolio,
   updatePopulateProgress,
 } from './portfolio.actions';
+import type {InvalidDecimalsMarker} from './portfolio.models';
 
 let activeRuntimePopulateService: PortfolioPopulateService | undefined;
 let deferredPortfolioUnlockSubscription: {remove: () => void} | undefined;
@@ -458,9 +463,22 @@ const hasCompletedInitialPortfolioBaseline = (state: RootState): boolean =>
 
 const isSettledInitialBaselineNoopDecision = (
   decision: PortfolioPopulateDecision,
-): boolean => decision.shouldPopulate === false;
+): boolean =>
+  decision.reason === 'up_to_date' ||
+  decision.reason === 'unchanged_balance_mismatch' ||
+  decision.reason === 'invalid_history' ||
+  decision.reason === 'invalid_decimals';
 
-const canMarkInitialBaselineCompleteFromLaunchDecisions = (args: {
+const dispatchInvalidDecimalsUpdates = (
+  dispatch: any,
+  updates?: {[walletId: string]: InvalidDecimalsMarker | undefined},
+): void => {
+  if (updates && Object.keys(updates).length) {
+    dispatch(setInvalidDecimalsByWalletIdUpdates(updates));
+  }
+};
+
+const canMarkInitialBaselineCompleteFromDecisions = (args: {
   decisions: PortfolioPopulateDecision[];
   eligibleWalletCount: number;
   walletIdsToPopulate: string[];
@@ -585,7 +603,10 @@ const resolvePopulateWallets = (args: {
     .filter(isMainnetLikeWallet);
 };
 
-const toUnitDecimals = (dispatch: any, wallet: Wallet): number => {
+const resolveWalletUnitDecimalsForPortfolio = (
+  dispatch: any,
+  wallet: Wallet,
+): PortfolioUnitDecimalsResolution => {
   const precision =
     dispatch(
       GetPrecision(
@@ -594,7 +615,20 @@ const toUnitDecimals = (dispatch: any, wallet: Wallet): number => {
         wallet.tokenAddress,
       ),
     ) || undefined;
-  return precision?.unitDecimals || 0;
+  const unitDecimals = resolvePortfolioWalletUnitDecimalsFromPrecision({
+    wallet,
+    precisionUnitDecimals: precision?.unitDecimals,
+  });
+  if (typeof unitDecimals === 'number') {
+    return {ok: true, unitDecimals};
+  }
+
+  const walletId = String(wallet?.id || '').trim();
+  return {
+    ok: false,
+    reason: 'invalid_decimals',
+    message: getPortfolioInvalidDecimalsMessage(walletId),
+  };
 };
 
 const getCompletedWalletIdsFromPopulateResult = (args: {
@@ -672,7 +706,8 @@ const buildSnapshotMismatchUpdatesAfterPopulate = async (args: {
   const decisions = await getPortfolioPopulateDecisionsForWallets({
     client: args.client,
     wallets: completedWallets,
-    getUnitDecimals: wallet => toUnitDecimals(args.dispatch, wallet),
+    getUnitDecimals: wallet =>
+      resolveWalletUnitDecimalsForPortfolio(args.dispatch, wallet),
     previousMismatchByWalletId: args.previousMismatchByWalletId,
   });
 
@@ -715,11 +750,20 @@ const hasNoRemainingInitialPopulateWork = async (args: {
     const decisions = await getPortfolioPopulateDecisionsForWallets({
       client: args.client,
       wallets,
-      getUnitDecimals: wallet => toUnitDecimals(args.dispatch, wallet),
+      getUnitDecimals: wallet =>
+        resolveWalletUnitDecimalsForPortfolio(args.dispatch, wallet),
       previousMismatchByWalletId:
         args.state.PORTFOLIO?.snapshotBalanceMismatchesByWalletId,
     });
-    return !decisions.walletIdsToPopulate.length;
+    dispatchInvalidDecimalsUpdates(
+      args.dispatch,
+      decisions.invalidDecimalsByWalletId,
+    );
+    return canMarkInitialBaselineCompleteFromDecisions({
+      decisions: decisions.decisions,
+      eligibleWalletCount: wallets.length,
+      walletIdsToPopulate: decisions.walletIdsToPopulate,
+    });
   } catch (error: unknown) {
     logManager.warn(
       `[portfolio] Could not verify initial populate completion after scoped populate: ${toErrorMessage(
@@ -923,7 +967,8 @@ export const maybePopulatePortfolioForWalletsWithRuntime =
     const decisions = await getPortfolioPopulateDecisionsForWallets({
       client,
       wallets: runtimeEligibleWallets,
-      getUnitDecimals: wallet => toUnitDecimals(dispatch, wallet),
+      getUnitDecimals: wallet =>
+        resolveWalletUnitDecimalsForPortfolio(dispatch, wallet),
       previousMismatchByWalletId:
         state.PORTFOLIO?.snapshotBalanceMismatchesByWalletId,
     });
@@ -932,6 +977,10 @@ export const maybePopulatePortfolioForWalletsWithRuntime =
       setSnapshotBalanceMismatchesByWalletIdUpdates(
         decisions.mismatchByWalletId,
       ),
+    );
+    dispatchInvalidDecimalsUpdates(
+      dispatch,
+      decisions.invalidDecimalsByWalletId,
     );
 
     if (!decisions.walletIdsToPopulate.length) {
@@ -1013,7 +1062,8 @@ export const maybePopulatePortfolioOnAppLaunchWithRuntime =
     const decisions = await getPortfolioPopulateDecisionsForWallets({
       client,
       wallets: runtimeEligibleWallets,
-      getUnitDecimals: wallet => toUnitDecimals(dispatch, wallet),
+      getUnitDecimals: wallet =>
+        resolveWalletUnitDecimalsForPortfolio(dispatch, wallet),
       previousMismatchByWalletId:
         state.PORTFOLIO?.snapshotBalanceMismatchesByWalletId,
     });
@@ -1023,9 +1073,13 @@ export const maybePopulatePortfolioOnAppLaunchWithRuntime =
         decisions.mismatchByWalletId,
       ),
     );
+    dispatchInvalidDecimalsUpdates(
+      dispatch,
+      decisions.invalidDecimalsByWalletId,
+    );
 
     if (
-      canMarkInitialBaselineCompleteFromLaunchDecisions({
+      canMarkInitialBaselineCompleteFromDecisions({
         decisions: decisions.decisions,
         eligibleWalletCount: runtimeEligibleWallets.length,
         walletIdsToPopulate: decisions.walletIdsToPopulate,
@@ -1094,25 +1148,67 @@ export const populatePortfolioWithRuntime =
       sortWalletsByAssetFiatPriority(walletsToPopulate);
 
     const storedWallets: StoredWallet[] = [];
+    const invalidDecimalsErrors: Array<{walletId: string; message: string}> =
+      [];
+    const invalidDecimalsUpdates: {
+      [walletId: string]: InvalidDecimalsMarker | undefined;
+    } = {};
 
     for (const wallet of prioritizedWalletsToPopulate) {
       if (!isPortfolioRuntimeEligibleWallet(wallet)) {
         continue;
       }
 
-      const unitDecimals = toUnitDecimals(dispatch, wallet);
+      const walletId = String(wallet?.id || '').trim();
+      const decimalsResolution = resolveWalletUnitDecimalsForPortfolio(
+        dispatch,
+        wallet,
+      );
+      if (!decimalsResolution.ok) {
+        if (walletId) {
+          invalidDecimalsUpdates[walletId] = {
+            walletId,
+            reason: 'invalid_decimals',
+            message: decimalsResolution.message,
+          };
+        }
+        invalidDecimalsErrors.push({
+          walletId,
+          message: decimalsResolution.message,
+        });
+        logManager.warn(`[portfolio] ${decimalsResolution.message}`);
+        continue;
+      }
+
+      if (walletId) {
+        invalidDecimalsUpdates[walletId] = undefined;
+      }
       const storedWallet = toPortfolioStoredWallet({
         wallet,
-        unitDecimals,
+        unitDecimals: decimalsResolution.unitDecimals,
       });
       storedWallets.push(storedWallet);
     }
+
+    dispatchInvalidDecimalsUpdates(dispatch, invalidDecimalsUpdates);
 
     if (!storedWallets.length) {
       return;
     }
 
     dispatch(startPopulatePortfolio({quoteCurrency}));
+    if (invalidDecimalsErrors.length) {
+      dispatch(
+        updatePopulateProgress({
+          errorsToAdd: invalidDecimalsErrors,
+          walletStatusByIdUpdates: Object.fromEntries(
+            invalidDecimalsErrors
+              .filter(error => error.walletId)
+              .map(error => [error.walletId, 'error' as const]),
+          ),
+        }),
+      );
+    }
     const reportedErrorKeys = new Set<string>();
 
     const runtimeClient = getPortfolioRuntimeClient();

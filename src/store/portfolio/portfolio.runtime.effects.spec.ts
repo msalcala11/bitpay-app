@@ -9,6 +9,7 @@ jest.mock('../../constants/device-emitter-events', () => ({
 }));
 
 jest.mock('../../utils/portfolio/assets', () => ({
+  getPortfolioWalletTokenAddress: jest.fn((wallet: any) => wallet.tokenAddress),
   getVisibleWalletsFromKeys: jest.fn(() => []),
   sortWalletsByAssetFiatPriority: jest.fn((wallets: any[]) => wallets),
 }));
@@ -23,6 +24,8 @@ jest.mock('../../portfolio/service', () => ({
     cancel: mockCancel,
     populateWallets: mockPopulateWallets,
   })),
+  getPortfolioInvalidDecimalsMessage: (walletId: string) =>
+    `Wallet ${walletId || 'unknown'} has unresolved token decimals.`,
   getPortfolioPopulateDecisionsForWallets: (...args: any[]) =>
     mockGetPortfolioPopulateDecisionsForWallets(...args),
 }));
@@ -43,6 +46,27 @@ jest.mock('../../portfolio/runtime/portfolioRuntime', () => ({
 
 jest.mock('../../portfolio/adapters/rn/walletMappers', () => ({
   isPortfolioRuntimeEligibleWallet: jest.fn(() => true),
+  resolvePortfolioWalletUnitDecimalsFromPrecision: jest.fn(
+    ({
+      wallet,
+      precisionUnitDecimals,
+    }: {
+      wallet: any;
+      precisionUnitDecimals?: number;
+    }) => {
+      if (typeof precisionUnitDecimals === 'number') {
+        return precisionUnitDecimals;
+      }
+      if (
+        wallet?.tokenAddress ||
+        wallet?.credentials?.token?.address ||
+        wallet?.credentials?.tokenAddress
+      ) {
+        return undefined;
+      }
+      return 8;
+    },
+  ),
   toPortfolioStoredWallet: jest.fn(({wallet}: {wallet: any}) => ({
     walletId: wallet.id,
     summary: {walletId: wallet.id},
@@ -93,6 +117,10 @@ jest.mock('./portfolio.actions', () => ({
     payload,
     type: 'SET_MISMATCHES',
   })),
+  setInvalidDecimalsByWalletIdUpdates: jest.fn((payload: any) => ({
+    payload,
+    type: 'SET_INVALID_DECIMALS',
+  })),
   startPopulatePortfolio: jest.fn((payload: any) => ({
     payload,
     type: 'START_POPULATE',
@@ -115,6 +143,8 @@ import {
 const mockGetVisibleWalletsFromKeys = jest.requireMock(
   '../../utils/portfolio/assets',
 ).getVisibleWalletsFromKeys as jest.Mock;
+const mockGetPrecision = jest.requireMock('../wallet/utils/currency')
+  .GetPrecision as jest.Mock;
 const mockPortfolioService = jest.requireMock('../../portfolio/service')
   .PortfolioPopulateService as jest.Mock;
 const mockStartPopulatePortfolio = jest.requireMock('./portfolio.actions')
@@ -128,7 +158,7 @@ const mockLogManager = jest.requireMock('../../managers/LogManager')
 
 type State = Record<string, any>;
 
-const walletFactory = (overrides: Record<string, any> = {}) => ({
+const walletFactory = (overrides: Record<string, any> = {}): any => ({
   chain: 'btc',
   currencyAbbreviation: 'btc',
   id: 'wallet-1',
@@ -169,6 +199,7 @@ const makeState = (overrides: State = {}) => {
     PORTFOLIO: {
       lastPopulatedAt: undefined,
       populateStatus: {inProgress: false},
+      invalidDecimalsByWalletId: {},
       ...portfolioOverrides,
     },
     WALLET: {
@@ -230,6 +261,7 @@ describe('portfolio runtime effects lock deferral', () => {
         },
       ],
       mismatchByWalletId: {'wallet-1': undefined},
+      invalidDecimalsByWalletId: {},
       walletIdsToPopulate: ['wallet-1'],
     });
     mockPopulateWallets.mockResolvedValue({
@@ -316,6 +348,54 @@ describe('portfolio runtime effects lock deferral', () => {
       quoteCurrency: 'USD',
     });
     expect(mockPortfolioService).toHaveBeenCalledTimes(1);
+  });
+
+  it('quarantines token wallets with unresolved decimals before runtime populate', async () => {
+    mockGetPrecision.mockReturnValueOnce(undefined);
+    const state = makeState();
+    const {dispatch, dispatched} = makeStore(state);
+
+    await dispatch(
+      populatePortfolioWithRuntime({
+        quoteCurrency: 'USD',
+        wallets: [
+          walletFactory({
+            id: 'token-wallet',
+            chain: 'sol',
+            currencyAbbreviation: 'weird',
+            tokenAddress: 'soltokenmint111111111111111111111111111111',
+            credentials: {
+              chain: 'sol',
+              coin: 'sol',
+              token: {
+                address: 'soltokenmint111111111111111111111111111111',
+                symbol: 'WEIRD',
+              },
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(mockStartPopulatePortfolio).not.toHaveBeenCalled();
+    expect(mockPortfolioService).not.toHaveBeenCalled();
+    expect(dispatched).toEqual(
+      expect.arrayContaining([
+        {
+          type: 'SET_INVALID_DECIMALS',
+          payload: {
+            'token-wallet': {
+              walletId: 'token-wallet',
+              reason: 'invalid_decimals',
+              message: 'Wallet token-wallet has unresolved token decimals.',
+            },
+          },
+        },
+      ]),
+    );
+    expect(mockLogManager.warn).toHaveBeenCalledWith(
+      expect.stringContaining('unresolved token decimals'),
+    );
   });
 
   it('marks a completed full populate as completing the initial baseline', async () => {
@@ -577,6 +657,41 @@ describe('portfolio runtime effects lock deferral', () => {
     const wallet = walletFactory();
     const state = makeState();
     const {dispatch} = makeStore(state);
+
+    await dispatch(
+      populatePortfolioWithRuntime({
+        quoteCurrency: 'USD',
+        wallets: [wallet as any],
+      }),
+    );
+
+    const payload = mockFinishPopulatePortfolio.mock.calls[0]?.[0];
+    expect(payload).toMatchObject({
+      finishedAt: 1234,
+      quoteCurrency: 'USD',
+      reason: 'completed',
+    });
+    expect(payload).not.toHaveProperty('lastFullPopulateCompletedAt');
+  });
+
+  it('does not complete the initial baseline from scoped non-terminal no-op decisions', async () => {
+    const wallet = walletFactory();
+    const state = makeState();
+    const {dispatch} = makeStore(state);
+    mockGetPortfolioPopulateDecisionsForWallets.mockResolvedValueOnce({
+      decisions: [
+        {
+          index: null,
+          latestSnapshot: null,
+          reason: 'missing_snapshot',
+          shouldPopulate: false,
+          walletId: 'wallet-1',
+        },
+      ],
+      invalidDecimalsByWalletId: {},
+      mismatchByWalletId: {'wallet-1': undefined},
+      walletIdsToPopulate: [],
+    });
 
     await dispatch(
       populatePortfolioWithRuntime({
@@ -1125,6 +1240,87 @@ describe('portfolio runtime effects lock deferral', () => {
           payload: expect.objectContaining({quoteCurrency: 'USD'}),
           type: 'MARK_INITIAL_BASELINE_COMPLETE',
         },
+      ]),
+    );
+    expect(mockStartPopulatePortfolio).not.toHaveBeenCalled();
+  });
+
+  it('app launch marks the initial baseline complete and reports invalid-decimals no-op decisions', async () => {
+    const state = makeState({
+      PORTFOLIO: {
+        lastFullPopulateCompletedAt: null,
+      },
+    });
+    const {dispatch, dispatched} = makeStore(state);
+    const invalidDecimals = {
+      walletId: 'wallet-1',
+      reason: 'invalid_decimals',
+      message: 'Wallet wallet-1 has unresolved token decimals.',
+    };
+    mockGetPortfolioPopulateDecisionsForWallets.mockResolvedValueOnce({
+      decisions: [
+        {
+          index: null,
+          invalidDecimals,
+          latestSnapshot: null,
+          reason: 'invalid_decimals',
+          shouldPopulate: false,
+          walletId: 'wallet-1',
+        },
+      ],
+      invalidDecimalsByWalletId: {'wallet-1': invalidDecimals},
+      mismatchByWalletId: {'wallet-1': undefined},
+      walletIdsToPopulate: [],
+    });
+
+    await dispatch(
+      maybePopulatePortfolioOnAppLaunchWithRuntime({quoteCurrency: 'USD'}),
+    );
+
+    expect(dispatched).toEqual(
+      expect.arrayContaining([
+        {
+          payload: {'wallet-1': invalidDecimals},
+          type: 'SET_INVALID_DECIMALS',
+        },
+        {
+          payload: expect.objectContaining({quoteCurrency: 'USD'}),
+          type: 'MARK_INITIAL_BASELINE_COMPLETE',
+        },
+      ]),
+    );
+    expect(mockStartPopulatePortfolio).not.toHaveBeenCalled();
+  });
+
+  it('app launch does not mark the initial baseline complete for non-terminal no-op decisions', async () => {
+    const state = makeState({
+      PORTFOLIO: {
+        lastFullPopulateCompletedAt: null,
+      },
+    });
+    const {dispatch, dispatched} = makeStore(state);
+    mockGetPortfolioPopulateDecisionsForWallets.mockResolvedValueOnce({
+      decisions: [
+        {
+          index: null,
+          latestSnapshot: null,
+          reason: 'missing_snapshot',
+          shouldPopulate: false,
+          walletId: 'wallet-1',
+        },
+      ],
+      invalidDecimalsByWalletId: {},
+      mismatchByWalletId: {'wallet-1': undefined},
+      walletIdsToPopulate: [],
+    });
+
+    await dispatch(
+      maybePopulatePortfolioOnAppLaunchWithRuntime({quoteCurrency: 'USD'}),
+    );
+
+    expect(dispatched).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({type: 'MARK_INITIAL_BASELINE_COMPLETE'}),
       ]),
     );
     expect(mockStartPopulatePortfolio).not.toHaveBeenCalled();

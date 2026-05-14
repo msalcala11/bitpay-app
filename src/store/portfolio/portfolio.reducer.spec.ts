@@ -2,9 +2,11 @@ import {portfolioReducer} from './portfolio.reducer';
 import type {PortfolioState} from './portfolio.models';
 import {
   cancelPopulatePortfolio,
+  clearWalletPortfolioState,
   failPopulatePortfolio,
   finishPopulatePortfolio,
   markInitialBaselineComplete,
+  setInvalidDecimalsByWalletIdUpdates,
   setSnapshotBalanceMismatchesByWalletIdUpdates,
 } from './portfolio.actions';
 import {selectCanRenderPortfolioBalanceCharts} from './portfolio.selectors';
@@ -30,6 +32,7 @@ const makeState = (
     walletStatusById: {'wallet-1': 'in_progress'},
   },
   snapshotBalanceMismatchesByWalletId: {},
+  invalidDecimalsByWalletId: {},
   ...overrides,
 });
 
@@ -173,6 +176,59 @@ describe('portfolioReducer', () => {
     expect(
       cleared.snapshotBalanceMismatchesByWalletId?.['wallet-1'],
     ).toBeUndefined();
+  });
+
+  it('stores and clears invalid-decimals markers by wallet id', () => {
+    const marker = {
+      walletId: 'wallet-1',
+      reason: 'invalid_decimals' as const,
+      message: 'Wallet wallet-1 has unresolved token decimals.',
+    };
+    const withMarker = portfolioReducer(
+      makeState(),
+      setInvalidDecimalsByWalletIdUpdates({
+        'wallet-1': marker,
+      }),
+    );
+
+    expect(withMarker.invalidDecimalsByWalletId?.['wallet-1']).toBe(marker);
+
+    const cleared = portfolioReducer(
+      withMarker,
+      setInvalidDecimalsByWalletIdUpdates({
+        'wallet-1': undefined,
+      }),
+    );
+
+    expect(cleared.invalidDecimalsByWalletId?.['wallet-1']).toBeUndefined();
+  });
+
+  it('clears invalid-decimals markers with wallet portfolio state', () => {
+    const marker = {
+      walletId: 'wallet-1',
+      reason: 'invalid_decimals' as const,
+      message: 'Wallet wallet-1 has unresolved token decimals.',
+    };
+    const withMarker = makeState({
+      invalidDecimalsByWalletId: {
+        'wallet-1': marker,
+        'wallet-2': {
+          ...marker,
+          walletId: 'wallet-2',
+        },
+      },
+    });
+
+    const cleared = portfolioReducer(
+      withMarker,
+      clearWalletPortfolioState({walletIds: ['wallet-1']}),
+    );
+
+    expect(cleared.invalidDecimalsByWalletId?.['wallet-1']).toBeUndefined();
+    expect(cleared.invalidDecimalsByWalletId?.['wallet-2']).toEqual({
+      ...marker,
+      walletId: 'wallet-2',
+    });
   });
 
   it('marks the initial baseline complete and unblocks last-populated render paths', () => {

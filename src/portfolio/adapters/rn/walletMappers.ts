@@ -4,7 +4,14 @@ import type {
   WalletSummary,
 } from '../../core/types';
 import type {Wallet} from '../../../store/wallet/wallet.models';
-import {getWalletLiveAtomicBalance} from '../../../utils/portfolio/assets';
+import {
+  getPortfolioWalletTokenAddress,
+  getWalletLiveAtomicBalance,
+} from '../../../utils/portfolio/assets';
+import {
+  getAtomicDecimals,
+  normalizeWalletUnitDecimals,
+} from '../../core/format';
 
 export {
   isPortfolioRuntimeEligibleWallet,
@@ -109,7 +116,7 @@ export const extractPortfolioWalletCredentialsSnapshot = (
 
 export const toPortfolioWalletSummary = (args: {
   wallet: Wallet;
-  unitDecimals: number;
+  unitDecimals?: number;
 }): WalletSummary => {
   const {wallet, unitDecimals} = args;
   const credentials = extractPortfolioWalletCredentialsSnapshot(wallet);
@@ -137,15 +144,23 @@ export const toPortfolioWalletSummary = (args: {
   )
     .trim()
     .toLowerCase();
+  const normalizedUnitDecimals = normalizeWalletUnitDecimals(unitDecimals);
+  const liveBalanceUnitDecimals =
+    normalizedUnitDecimals ??
+    getAtomicDecimals({
+      ...credentials,
+      chain,
+      coin: currencyAbbreviation,
+    });
   const balanceAtomic = getWalletLiveAtomicBalance({
     wallet,
-    unitDecimals,
+    unitDecimals: liveBalanceUnitDecimals,
   }).toString();
   const balanceFormatted = String(
     (wallet as any)?.balance?.crypto || '0',
   ).replace(/,/g, '');
 
-  return {
+  const summary: WalletSummary = {
     walletId,
     walletName,
     chain,
@@ -155,11 +170,53 @@ export const toPortfolioWalletSummary = (args: {
     balanceAtomic,
     balanceFormatted,
   };
+
+  if (typeof normalizedUnitDecimals === 'number') {
+    summary.unitDecimals = normalizedUnitDecimals;
+  }
+
+  return summary;
+};
+
+export const getPortfolioWalletTokenAddressForDecimals = (
+  wallet: Wallet,
+): string | undefined => {
+  return (
+    getPortfolioWalletTokenAddress(wallet) ||
+    sanitizeString((wallet as any)?.credentials?.token?.address) ||
+    sanitizeString((wallet as any)?.credentials?.tokenAddress)
+  );
+};
+
+export const getPortfolioWalletCredentialTokenDecimals = (
+  wallet: Wallet,
+): number | undefined =>
+  normalizeWalletUnitDecimals((wallet as any)?.credentials?.token?.decimals);
+
+export const resolvePortfolioWalletUnitDecimalsFromPrecision = (args: {
+  wallet: Wallet;
+  precisionUnitDecimals?: unknown;
+}): number | undefined => {
+  const unitDecimals =
+    normalizeWalletUnitDecimals(args.precisionUnitDecimals) ??
+    getPortfolioWalletCredentialTokenDecimals(args.wallet);
+  if (typeof unitDecimals === 'number') {
+    return unitDecimals;
+  }
+
+  if (getPortfolioWalletTokenAddressForDecimals(args.wallet)) {
+    return undefined;
+  }
+
+  return getAtomicDecimals({
+    chain: args.wallet?.chain,
+    coin: args.wallet?.currencyAbbreviation,
+  });
 };
 
 export const toPortfolioStoredWallet = (args: {
   wallet: Wallet;
-  unitDecimals: number;
+  unitDecimals?: number;
   addedAt?: number;
 }): StoredWallet => {
   return {

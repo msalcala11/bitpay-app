@@ -94,6 +94,9 @@ export function getAssetPnlStoredWalletRequestSignature(
         summary.chain,
         summary.currencyAbbreviation,
         summary.tokenAddress || '',
+        typeof summary.unitDecimals === 'number'
+          ? String(summary.unitDecimals)
+          : '',
         summary.balanceAtomic || '',
       ].join(':');
     })

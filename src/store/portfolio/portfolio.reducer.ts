@@ -24,10 +24,50 @@ const initialState: PortfolioState = {
     walletStatusById: {},
   },
   snapshotBalanceMismatchesByWalletId: {},
+  invalidDecimalsByWalletId: {},
 };
 
 const isFiniteTimestamp = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
+
+type WalletIdMap<T> = {[walletId: string]: T | undefined};
+
+const clearWalletIdsFromMap = <T>(
+  current: WalletIdMap<T> | undefined,
+  walletIds: string[],
+): WalletIdMap<T> | undefined => {
+  if (!current) {
+    return undefined;
+  }
+
+  const next = {...current};
+  for (const id of walletIds) {
+    if (typeof id === 'string' && id) {
+      delete next[id];
+    }
+  }
+  return next;
+};
+
+const applyWalletIdMapUpdates = <T>(
+  current: WalletIdMap<T> | undefined,
+  updates: WalletIdMap<T> | undefined,
+): WalletIdMap<T> => {
+  const next = {...(current || {})};
+
+  for (const [walletId, value] of Object.entries(updates || {})) {
+    if (!walletId) {
+      continue;
+    }
+    if (value) {
+      next[walletId] = value;
+    } else {
+      delete next[walletId];
+    }
+  }
+
+  return next;
+};
 
 export const portfolioReducer = (
   state: PortfolioState = initialState,
@@ -38,6 +78,7 @@ export const portfolioReducer = (
       return {
         ...initialState,
         snapshotBalanceMismatchesByWalletId: {},
+        invalidDecimalsByWalletId: {},
       };
     }
 
@@ -122,25 +163,18 @@ export const portfolioReducer = (
         return state;
       }
 
-      const nextSnapshotBalanceMismatchesByWalletId = {
-        ...(state.snapshotBalanceMismatchesByWalletId || {}),
-      };
-      for (const id of walletIds) {
-        if (typeof id === 'string' && id) {
-          delete nextSnapshotBalanceMismatchesByWalletId[id];
-        }
-      }
-
-      const nextWalletStatusById = state.populateStatus.walletStatusById
-        ? {...state.populateStatus.walletStatusById}
-        : undefined;
-      if (nextWalletStatusById) {
-        for (const id of walletIds) {
-          if (typeof id === 'string' && id) {
-            delete nextWalletStatusById[id];
-          }
-        }
-      }
+      const nextSnapshotBalanceMismatchesByWalletId = clearWalletIdsFromMap(
+        state.snapshotBalanceMismatchesByWalletId || {},
+        walletIds,
+      );
+      const nextInvalidDecimalsByWalletId = clearWalletIdsFromMap(
+        state.invalidDecimalsByWalletId || {},
+        walletIds,
+      );
+      const nextWalletStatusById = clearWalletIdsFromMap(
+        state.populateStatus.walletStatusById,
+        walletIds,
+      );
 
       const currentWalletId =
         state.populateStatus.currentWalletId &&
@@ -157,30 +191,27 @@ export const portfolioReducer = (
         },
         snapshotBalanceMismatchesByWalletId:
           nextSnapshotBalanceMismatchesByWalletId,
+        invalidDecimalsByWalletId: nextInvalidDecimalsByWalletId,
       };
     }
 
     case PortfolioActionTypes.SET_SNAPSHOT_BALANCE_MISMATCHES_BY_WALLET_ID_UPDATES: {
-      const updates = action.payload || {};
-      const nextSnapshotBalanceMismatchesByWalletId = {
-        ...(state.snapshotBalanceMismatchesByWalletId || {}),
-      };
-
-      for (const [walletId, mismatch] of Object.entries(updates)) {
-        if (!walletId) {
-          continue;
-        }
-        if (mismatch) {
-          nextSnapshotBalanceMismatchesByWalletId[walletId] = mismatch;
-        } else {
-          delete nextSnapshotBalanceMismatchesByWalletId[walletId];
-        }
-      }
-
       return {
         ...state,
-        snapshotBalanceMismatchesByWalletId:
-          nextSnapshotBalanceMismatchesByWalletId,
+        snapshotBalanceMismatchesByWalletId: applyWalletIdMapUpdates(
+          state.snapshotBalanceMismatchesByWalletId,
+          action.payload,
+        ),
+      };
+    }
+
+    case PortfolioActionTypes.SET_INVALID_DECIMALS_BY_WALLET_ID_UPDATES: {
+      return {
+        ...state,
+        invalidDecimalsByWalletId: applyWalletIdMapUpdates(
+          state.invalidDecimalsByWalletId,
+          action.payload,
+        ),
       };
     }
 

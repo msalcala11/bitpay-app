@@ -15,6 +15,12 @@ export interface SnapshotBalanceMismatch {
   delta: string;
 }
 
+export interface InvalidDecimalsMarker {
+  walletId: string;
+  reason: 'invalid_decimals';
+  message: string;
+}
+
 export interface PortfolioPopulateStatus {
   inProgress: boolean;
   startedAt?: number;
@@ -37,5 +43,8 @@ export interface PortfolioState {
   populateStatus: PortfolioPopulateStatus;
   snapshotBalanceMismatchesByWalletId?: {
     [walletId: string]: SnapshotBalanceMismatch | undefined;
+  };
+  invalidDecimalsByWalletId?: {
+    [walletId: string]: InvalidDecimalsMarker | undefined;
   };
 }

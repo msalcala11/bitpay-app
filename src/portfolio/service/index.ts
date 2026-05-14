@@ -8,9 +8,11 @@ export {
 } from './portfolioPopulateService';
 
 export {
+  getPortfolioInvalidDecimalsMessage,
   getPortfolioPopulateDecisionForWallet,
   getPortfolioPopulateDecisionsForWallets,
   type PortfolioPopulateDecision,
   type PortfolioPopulateDecisionReason,
   type PortfolioSnapshotBalanceMismatch,
+  type PortfolioUnitDecimalsResolution,
 } from './portfolioStaleness';

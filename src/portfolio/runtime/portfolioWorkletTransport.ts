@@ -18,6 +18,7 @@ import type {
 import type {WalletCredentials} from '../core/types';
 import type {WalletSummary} from '../core/types';
 import {toPortfolioRuntimeWalletCredentials} from '../core/runtimeWalletCredentials';
+import {normalizeWalletUnitDecimals} from '../core/format';
 import type {PortfolioClientTransport} from './portfolioClient';
 import type {PortfolioRuntimeHostBootstrapConfig} from './portfolioRuntimeHostConfig';
 import {shouldDispatchPortfolioRequestOnRuntimeWorklet} from './portfolioRequestRouting';
@@ -74,7 +75,7 @@ function sanitizeWalletSummaryForRuntime(
     return undefined;
   }
 
-  return {
+  const sanitized: WalletSummary = {
     walletId: String(summary.walletId || ''),
     walletName: String(summary.walletName || ''),
     chain: String(summary.chain || ''),
@@ -87,6 +88,13 @@ function sanitizeWalletSummaryForRuntime(
     balanceAtomic: String(summary.balanceAtomic || ''),
     balanceFormatted: String(summary.balanceFormatted || ''),
   };
+
+  const unitDecimals = normalizeWalletUnitDecimals(summary.unitDecimals);
+  if (typeof unitDecimals === 'number') {
+    sanitized.unitDecimals = unitDecimals;
+  }
+
+  return sanitized;
 }
 
 function sanitizeStoredWalletForRuntime(wallet: any): any {

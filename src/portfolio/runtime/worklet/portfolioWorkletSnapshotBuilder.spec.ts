@@ -4,6 +4,7 @@ import {
   portfolioSnapshotBuilderFinish,
   portfolioSnapshotBuilderIngestPageWithSnapshotLimit,
 } from './portfolioWorkletSnapshotBuilder';
+import {getFiatRateSeriesCacheKey} from '../../core/fiatRatesShared';
 
 const makeReceivedTx = (args: {
   txid: string;
@@ -37,6 +38,98 @@ const makeSentTx = (args: {
   } as any);
 
 describe('portfolioWorkletSnapshotBuilder return-struct flush state', () => {
+  it('uses wallet unit decimals for token cost basis when token credentials omit decimals', () => {
+    const walletId = 'wallet-token-decimals';
+    const tokenAddress = 'soltokenmint111111111111111111111111111111';
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const state = createPortfolioSnapshotBuilderState({
+      wallet: {
+        walletId,
+        walletName: 'Token Decimals Wallet',
+        chain: 'sol',
+        network: 'livenet',
+        currencyAbbreviation: 'weird',
+        tokenAddress,
+        unitDecimals: 12,
+        balanceAtomic: '0',
+        balanceFormatted: '0',
+      } as any,
+      credentials: {
+        walletId,
+        chain: 'sol',
+        network: 'livenet',
+        coin: 'sol',
+        token: {
+          address: tokenAddress,
+          symbol: 'WEIRD',
+        },
+      } as any,
+      quoteCurrency: 'USD',
+      fiatRateSeriesCache: {
+        [getFiatRateSeriesCacheKey('USD', 'weird', 'ALL', {
+          chain: 'sol',
+          tokenAddress,
+        })]: {
+          fetchedOn: Date.now(),
+          points: [{ts: t0, rate: 2}],
+        },
+      },
+      nowMs: Date.parse('2024-05-01T00:00:00Z'),
+      compressionEnabled: false,
+    });
+
+    const ingestResult = portfolioSnapshotBuilderIngestPageWithSnapshotLimit(
+      state,
+      [
+        makeReceivedTx({
+          txid: 'fund',
+          timeSeconds: Math.floor(t0 / 1000),
+          blockheight: 0,
+          amountAtomic: '1000000000000',
+        }),
+      ],
+    );
+
+    expect(ingestResult.snapshots).toHaveLength(1);
+    expect(
+      getPortfolioSnapshotBuilderCheckpoint(state).remainingCostBasisFiat,
+    ).toBe(2);
+  });
+
+  it('rejects token snapshot builders when token decimals are unresolved', () => {
+    const walletId = 'wallet-token-missing-decimals';
+    const tokenAddress = 'soltokenmint111111111111111111111111111111';
+
+    expect(() =>
+      createPortfolioSnapshotBuilderState({
+        wallet: {
+          walletId,
+          walletName: 'Token Missing Decimals Wallet',
+          chain: 'sol',
+          network: 'livenet',
+          currencyAbbreviation: 'weird',
+          tokenAddress,
+          balanceAtomic: '0',
+          balanceFormatted: '0',
+        } as any,
+        credentials: {
+          walletId,
+          chain: 'sol',
+          network: 'livenet',
+          coin: 'sol',
+          token: {
+            address: tokenAddress,
+            symbol: 'WEIRD',
+          },
+        } as any,
+        quoteCurrency: 'USD',
+        fiatRateSeriesCache: {},
+        nowMs: Date.parse('2024-05-01T00:00:00Z'),
+        compressionEnabled: false,
+      }),
+    ).toThrow('has unresolved token decimals');
+  });
+
   it('throws an invalid-history error when a tx drives the running balance negative', () => {
     const walletId = 'wallet-negative';
     const state = createPortfolioSnapshotBuilderState({
@@ -71,6 +164,51 @@ describe('portfolioWorkletSnapshotBuilder return-struct flush state', () => {
         }),
       ]),
     ).toThrow('Invalid tx history: negative balance after tx spend (-400).');
+  });
+
+  it('uses resolved wallet unit decimals for snapshot cost basis math', () => {
+    const walletId = 'wallet-custom-decimals';
+    const t0 = Date.parse('2024-01-01T00:00:00Z');
+    const state = createPortfolioSnapshotBuilderState({
+      wallet: {
+        walletId,
+        walletName: 'Wallet Custom Decimals',
+        chain: 'sol',
+        network: 'livenet',
+        currencyAbbreviation: 'sol',
+        unitDecimals: 12,
+        balanceAtomic: '0',
+        balanceFormatted: '0',
+      } as any,
+      credentials: {
+        walletId,
+        chain: 'sol',
+        network: 'livenet',
+        coin: 'sol',
+      } as any,
+      quoteCurrency: 'USD',
+      fiatRateSeriesCache: {
+        'USD:sol:ALL': {
+          fetchedOn: Date.now(),
+          points: [{ts: t0, rate: 2}],
+        },
+      } as any,
+      nowMs: Date.UTC(2026, 0, 1),
+      compressionEnabled: false,
+    });
+
+    portfolioSnapshotBuilderIngestPageWithSnapshotLimit(state, [
+      makeReceivedTx({
+        txid: 'fund',
+        timeSeconds: Math.floor(t0 / 1000),
+        blockheight: 0,
+        amountAtomic: '1000000000000',
+      }),
+    ]);
+
+    expect(
+      getPortfolioSnapshotBuilderCheckpoint(state).remainingCostBasisFiat,
+    ).toBe(2);
   });
 
   it('emits the prior compressed day balance before a newer day mutates builder state', () => {

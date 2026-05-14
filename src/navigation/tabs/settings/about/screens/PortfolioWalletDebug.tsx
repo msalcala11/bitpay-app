@@ -408,6 +408,9 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
   const mismatch = useAppSelector(
     ({PORTFOLIO}) => PORTFOLIO.snapshotBalanceMismatchesByWalletId?.[walletId],
   );
+  const invalidDecimals = useAppSelector(
+    ({PORTFOLIO}) => PORTFOLIO.invalidDecimalsByWalletId?.[walletId],
+  );
 
   const [index, setIndex] = useState<SnapshotIndexV2 | null>(null);
   const [latestSnapshot, setLatestSnapshot] =
@@ -732,6 +735,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
           }
         : null,
       mismatch: mismatch || null,
+      invalidDecimals: invalidDecimals || null,
       index,
       latestSnapshot,
       bwsSummary,
@@ -749,6 +753,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
     balanceDiagnostic,
     bwsSummary,
     index,
+    invalidDecimals,
     lastDebugPopulate,
     latestSnapshot,
     mismatch,
@@ -762,6 +767,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
         {
           wallet,
           mismatch,
+          invalidDecimals,
           index,
           latestSnapshot,
           bwsSummary,
@@ -779,6 +785,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
     balanceDiagnostic,
     bwsSummary,
     index,
+    invalidDecimals,
     lastDebugPopulate,
     latestSnapshot,
     mismatch,
@@ -1091,6 +1098,16 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
                 `computedAtomic: ${mismatch.computedAtomic}`,
               ].join('\n')
             : 'No recorded mismatch from the last populate decision'}
+        </SectionText>
+
+        <SectionTitle>{t('Cached invalid decimals')}</SectionTitle>
+        <SectionText>
+          {invalidDecimals
+            ? [
+                `reason: ${invalidDecimals.reason}`,
+                `message: ${invalidDecimals.message}`,
+              ].join('\n')
+            : 'No recorded invalid decimals marker from the last populate decision'}
         </SectionText>
 
         <SectionTitle>{t('Live recomputed mismatch')}</SectionTitle>

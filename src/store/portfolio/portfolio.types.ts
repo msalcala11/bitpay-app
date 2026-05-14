@@ -1,4 +1,5 @@
 import type {
+  InvalidDecimalsMarker,
   SnapshotBalanceMismatch,
   WalletPopulateState,
 } from './portfolio.models';
@@ -13,6 +14,7 @@ export enum PortfolioActionTypes {
   FAIL_POPULATE_PORTFOLIO = 'PORTFOLIO/FAIL_POPULATE_PORTFOLIO',
   MARK_INITIAL_BASELINE_COMPLETE = 'PORTFOLIO/MARK_INITIAL_BASELINE_COMPLETE',
   SET_SNAPSHOT_BALANCE_MISMATCHES_BY_WALLET_ID_UPDATES = 'PORTFOLIO/SET_SNAPSHOT_BALANCE_MISMATCHES_BY_WALLET_ID_UPDATES',
+  SET_INVALID_DECIMALS_BY_WALLET_ID_UPDATES = 'PORTFOLIO/SET_INVALID_DECIMALS_BY_WALLET_ID_UPDATES',
 }
 
 export interface ClearPortfolioAction {
@@ -84,6 +86,13 @@ export interface SetSnapshotBalanceMismatchesByWalletIdUpdatesAction {
   };
 }
 
+export interface SetInvalidDecimalsByWalletIdUpdatesAction {
+  type: typeof PortfolioActionTypes.SET_INVALID_DECIMALS_BY_WALLET_ID_UPDATES;
+  payload: {
+    [walletId: string]: InvalidDecimalsMarker | undefined;
+  };
+}
+
 export type PortfolioActionType =
   | ClearPortfolioAction
   | CancelPopulatePortfolioAction
@@ -93,4 +102,5 @@ export type PortfolioActionType =
   | FinishPopulatePortfolioAction
   | FailPopulatePortfolioAction
   | MarkInitialBaselineCompleteAction
-  | SetSnapshotBalanceMismatchesByWalletIdUpdatesAction;
+  | SetSnapshotBalanceMismatchesByWalletIdUpdatesAction
+  | SetInvalidDecimalsByWalletIdUpdatesAction;

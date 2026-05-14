@@ -339,6 +339,43 @@ describe('portfolioStaleness', () => {
     expect(decisions.mismatchByWalletId['wallet-2']).toBeUndefined();
   });
 
+  it('quarantines wallets whose unit decimals cannot be resolved', async () => {
+    const client = {
+      getInvalidHistory: jest.fn(),
+      getSnapshotIndex: jest.fn(),
+      getLatestSnapshot: jest.fn(),
+    } as any;
+
+    const decisions = await getPortfolioPopulateDecisionsForWallets({
+      client,
+      wallets: [wallet],
+      getUnitDecimals: () => ({
+        ok: false,
+        reason: 'invalid_decimals',
+        message: 'Wallet wallet-1 has unresolved token decimals.',
+      }),
+    });
+
+    expect(decisions.walletIdsToPopulate).toEqual([]);
+    expect(decisions.decisions[0]).toMatchObject({
+      walletId: 'wallet-1',
+      shouldPopulate: false,
+      reason: 'invalid_decimals',
+      invalidDecimals: {
+        walletId: 'wallet-1',
+        reason: 'invalid_decimals',
+        message: 'Wallet wallet-1 has unresolved token decimals.',
+      },
+    });
+    expect(decisions.invalidDecimalsByWalletId['wallet-1']).toMatchObject({
+      reason: 'invalid_decimals',
+    });
+    expect(decisions.mismatchByWalletId['wallet-1']).toBeUndefined();
+    expect(client.getInvalidHistory).not.toHaveBeenCalled();
+    expect(client.getSnapshotIndex).not.toHaveBeenCalled();
+    expect(client.getLatestSnapshot).not.toHaveBeenCalled();
+  });
+
   it('returns an undefined mismatch update when a previous mismatch is fixed', async () => {
     const client = {
       getInvalidHistory: jest.fn().mockResolvedValue(null),
@@ -374,5 +411,7 @@ describe('portfolioStaleness', () => {
     });
     expect('wallet-1' in decisions.mismatchByWalletId).toBe(true);
     expect(decisions.mismatchByWalletId['wallet-1']).toBeUndefined();
+    expect('wallet-1' in decisions.invalidDecimalsByWalletId).toBe(true);
+    expect(decisions.invalidDecimalsByWalletId['wallet-1']).toBeUndefined();
   });
 });

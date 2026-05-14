@@ -1,4 +1,7 @@
-import type {SnapshotBalanceMismatch} from './portfolio.models';
+import type {
+  InvalidDecimalsMarker,
+  SnapshotBalanceMismatch,
+} from './portfolio.models';
 import {PortfolioActionType, PortfolioActionTypes} from './portfolio.types';
 
 export const clearPortfolio = (): PortfolioActionType => ({
@@ -67,5 +70,12 @@ export const setSnapshotBalanceMismatchesByWalletIdUpdates = (payload: {
   [walletId: string]: SnapshotBalanceMismatch | undefined;
 }): PortfolioActionType => ({
   type: PortfolioActionTypes.SET_SNAPSHOT_BALANCE_MISMATCHES_BY_WALLET_ID_UPDATES,
+  payload,
+});
+
+export const setInvalidDecimalsByWalletIdUpdates = (payload: {
+  [walletId: string]: InvalidDecimalsMarker | undefined;
+}): PortfolioActionType => ({
+  type: PortfolioActionTypes.SET_INVALID_DECIMALS_BY_WALLET_ID_UPDATES,
   payload,
 });

@@ -12,6 +12,7 @@ import type {
   SnapshotStoreWalletMeta,
   SnapshotWalletMetaV2,
 } from '../../core/pnl/snapshotStore';
+import {normalizeWalletUnitDecimals} from '../../core/format';
 import {
   workletKvDelete,
   workletKvGetString,
@@ -66,6 +67,8 @@ function normalizeStoredMeta(
 ): SnapshotWalletMetaV2 {
   'worklet';
 
+  const unitDecimals = normalizeWalletUnitDecimals(meta.unitDecimals);
+
   return {
     walletId: meta.walletId,
     chain: String(meta.chain || '').toLowerCase(),
@@ -77,6 +80,7 @@ function normalizeStoredMeta(
       tokenAddress: meta.tokenAddress,
     } as WalletSummary),
     quoteCurrency: String(meta.quoteCurrency || '').toUpperCase(),
+    unitDecimals,
   };
 }
 
@@ -93,7 +97,8 @@ function sameStoredMeta(
     left.network === right.network &&
     left.coin === right.coin &&
     left.assetId === right.assetId &&
-    left.quoteCurrency === right.quoteCurrency
+    left.quoteCurrency === right.quoteCurrency &&
+    left.unitDecimals === right.unitDecimals
   );
 }
 
@@ -198,6 +203,7 @@ function fallbackMeta(walletId: string): SnapshotWalletMetaV2 {
     coin: '',
     assetId: '',
     quoteCurrency: '',
+    unitDecimals: undefined,
   };
 }
 
@@ -221,6 +227,7 @@ export function buildWorkletWalletMetaForStore(args: {
       args.wallet.currencyAbbreviation || args.credentials.coin || '',
     ),
     tokenAddress: args.wallet.tokenAddress,
+    unitDecimals: normalizeWalletUnitDecimals(args.wallet.unitDecimals),
     quoteCurrency: args.quoteCurrency,
     compressionEnabled: args.compressionEnabled,
     chunkRows: args.chunkRows,
