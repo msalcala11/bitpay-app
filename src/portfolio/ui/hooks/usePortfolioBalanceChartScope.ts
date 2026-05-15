@@ -11,6 +11,7 @@ import {
   getCurrentSpotRatesByRateKeySignature,
 } from '../../../utils/portfolio/balanceChartData';
 import {usePortfolioStoredWalletAnalysisScope} from './usePortfolioStoredWalletAnalysisScope';
+import usePortfolioChartableWallets from './usePortfolioChartableWallets';
 
 export type PortfolioBalanceChartScope = {
   asOfMs: number;
@@ -39,6 +40,9 @@ export function usePortfolioBalanceChartScope(args: {
     Number.isFinite(args.balanceOffset)
       ? args.balanceOffset
       : 0;
+  const chartableWallets = usePortfolioChartableWallets({
+    wallets: args.wallets,
+  });
   const {
     asOfMs,
     committedRevisionToken,
@@ -52,7 +56,7 @@ export function usePortfolioBalanceChartScope(args: {
   } = usePortfolioStoredWalletAnalysisScope({
     quoteCurrencyOverride: args.quoteCurrency,
     ratesOverride: args.rates,
-    wallets: args.wallets,
+    wallets: chartableWallets,
   });
 
   const sortedWalletIds = useMemo(

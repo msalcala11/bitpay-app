@@ -1,11 +1,13 @@
 import {portfolioReducer} from './portfolio.reducer';
-import type {PortfolioState} from './portfolio.models';
+import type {PortfolioState, WalletIdMap} from './portfolio.models';
+import type {PortfolioActionType} from './portfolio.types';
 import {
   cancelPopulatePortfolio,
   clearWalletPortfolioState,
   failPopulatePortfolio,
   finishPopulatePortfolio,
   markInitialBaselineComplete,
+  setExcessiveBalanceMismatchesByWalletIdUpdates,
   setInvalidDecimalsByWalletIdUpdates,
   setSnapshotBalanceMismatchesByWalletIdUpdates,
 } from './portfolio.actions';
@@ -33,8 +35,29 @@ const makeState = (
   },
   snapshotBalanceMismatchesByWalletId: {},
   invalidDecimalsByWalletId: {},
+  excessiveBalanceMismatchesByWalletId: {},
   ...overrides,
 });
+
+const expectStoresAndClearsWalletMapValue = <T>(args: {
+  actionCreator: (payload: WalletIdMap<T>) => PortfolioActionType;
+  selectMap: (state: PortfolioState) => WalletIdMap<T> | undefined;
+  value: T;
+}) => {
+  const withValue = portfolioReducer(
+    makeState(),
+    args.actionCreator({'wallet-1': args.value}),
+  );
+
+  expect(args.selectMap(withValue)?.['wallet-1']).toBe(args.value);
+
+  const cleared = portfolioReducer(
+    withValue,
+    args.actionCreator({'wallet-1': undefined}),
+  );
+
+  expect(args.selectMap(cleared)?.['wallet-1']).toBeUndefined();
+};
 
 describe('portfolioReducer', () => {
   it('preserves state identity for unrelated and rehydrate actions', () => {
@@ -155,27 +178,11 @@ describe('portfolioReducer', () => {
       currentWalletBalance: '1.5',
       delta: '-0.5',
     };
-    const withMismatch = portfolioReducer(
-      makeState(),
-      setSnapshotBalanceMismatchesByWalletIdUpdates({
-        'wallet-1': mismatch,
-      }),
-    );
-
-    expect(withMismatch.snapshotBalanceMismatchesByWalletId?.['wallet-1']).toBe(
-      mismatch,
-    );
-
-    const cleared = portfolioReducer(
-      withMismatch,
-      setSnapshotBalanceMismatchesByWalletIdUpdates({
-        'wallet-1': undefined,
-      }),
-    );
-
-    expect(
-      cleared.snapshotBalanceMismatchesByWalletId?.['wallet-1'],
-    ).toBeUndefined();
+    expectStoresAndClearsWalletMapValue({
+      actionCreator: setSnapshotBalanceMismatchesByWalletIdUpdates,
+      selectMap: state => state.snapshotBalanceMismatchesByWalletId,
+      value: mismatch,
+    });
   });
 
   it('stores and clears invalid-decimals markers by wallet id', () => {
@@ -184,23 +191,31 @@ describe('portfolioReducer', () => {
       reason: 'invalid_decimals' as const,
       message: 'Wallet wallet-1 has unresolved token decimals.',
     };
-    const withMarker = portfolioReducer(
-      makeState(),
-      setInvalidDecimalsByWalletIdUpdates({
-        'wallet-1': marker,
-      }),
-    );
+    expectStoresAndClearsWalletMapValue({
+      actionCreator: setInvalidDecimalsByWalletIdUpdates,
+      selectMap: state => state.invalidDecimalsByWalletId,
+      value: marker,
+    });
+  });
 
-    expect(withMarker.invalidDecimalsByWalletId?.['wallet-1']).toBe(marker);
-
-    const cleared = portfolioReducer(
-      withMarker,
-      setInvalidDecimalsByWalletIdUpdates({
-        'wallet-1': undefined,
-      }),
-    );
-
-    expect(cleared.invalidDecimalsByWalletId?.['wallet-1']).toBeUndefined();
+  it('stores and clears excessive balance mismatch markers by wallet id', () => {
+    const marker = {
+      walletId: 'wallet-1',
+      reason: 'excessive_balance_mismatch' as const,
+      computedAtomic: '200000000',
+      liveAtomic: '100000000',
+      deltaAtomic: '100000000',
+      ratio: '2',
+      threshold: 0.1,
+      detectedAt: 1234,
+      message:
+        'Wallet wallet-1 snapshot balance exceeds live balance by 2x (threshold 10%).',
+    };
+    expectStoresAndClearsWalletMapValue({
+      actionCreator: setExcessiveBalanceMismatchesByWalletIdUpdates,
+      selectMap: state => state.excessiveBalanceMismatchesByWalletId,
+      value: marker,
+    });
   });
 
   it('clears invalid-decimals markers with wallet portfolio state', () => {
@@ -226,6 +241,43 @@ describe('portfolioReducer', () => {
 
     expect(cleared.invalidDecimalsByWalletId?.['wallet-1']).toBeUndefined();
     expect(cleared.invalidDecimalsByWalletId?.['wallet-2']).toEqual({
+      ...marker,
+      walletId: 'wallet-2',
+    });
+  });
+
+  it('clears excessive balance mismatch markers with wallet portfolio state', () => {
+    const marker = {
+      walletId: 'wallet-1',
+      reason: 'excessive_balance_mismatch' as const,
+      computedAtomic: '200000000',
+      liveAtomic: '100000000',
+      deltaAtomic: '100000000',
+      ratio: '2',
+      threshold: 0.1,
+      detectedAt: 1234,
+      message:
+        'Wallet wallet-1 snapshot balance exceeds live balance by 2x (threshold 10%).',
+    };
+    const withMarker = makeState({
+      excessiveBalanceMismatchesByWalletId: {
+        'wallet-1': marker,
+        'wallet-2': {
+          ...marker,
+          walletId: 'wallet-2',
+        },
+      },
+    });
+
+    const cleared = portfolioReducer(
+      withMarker,
+      clearWalletPortfolioState({walletIds: ['wallet-1']}),
+    );
+
+    expect(
+      cleared.excessiveBalanceMismatchesByWalletId?.['wallet-1'],
+    ).toBeUndefined();
+    expect(cleared.excessiveBalanceMismatchesByWalletId?.['wallet-2']).toEqual({
       ...marker,
       walletId: 'wallet-2',
     });

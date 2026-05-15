@@ -20,6 +20,7 @@ jest.mock('../../utils/portfolio/assets', () => ({
 }));
 
 import {
+  buildPortfolioExcessiveBalanceMismatchMarker,
   getPortfolioPopulateDecisionForWallet,
   getPortfolioPopulateDecisionsForWallets,
 } from './portfolioStaleness';
@@ -374,6 +375,104 @@ describe('portfolioStaleness', () => {
     expect(client.getInvalidHistory).not.toHaveBeenCalled();
     expect(client.getSnapshotIndex).not.toHaveBeenCalled();
     expect(client.getLatestSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('suppresses auto-populate for existing excessive balance mismatch quarantines', async () => {
+    const client = {
+      getInvalidHistory: jest.fn(),
+      getSnapshotIndex: jest.fn(),
+      getLatestSnapshot: jest.fn(),
+    } as any;
+    const excessiveBalanceMismatch = {
+      walletId: 'wallet-1',
+      reason: 'excessive_balance_mismatch' as const,
+      computedAtomic: '200000000',
+      liveAtomic: '100000000',
+      deltaAtomic: '100000000',
+      ratio: '2',
+      threshold: 0.1,
+      detectedAt: 1234,
+      message:
+        'Wallet wallet-1 snapshot balance exceeds live balance by 2x (threshold 10%).',
+    };
+
+    const decisions = await getPortfolioPopulateDecisionsForWallets({
+      client,
+      wallets: [wallet],
+      getUnitDecimals: () => 8,
+      excessiveBalanceMismatchByWalletId: {
+        'wallet-1': excessiveBalanceMismatch,
+      },
+    });
+
+    expect(decisions.walletIdsToPopulate).toEqual([]);
+    expect(decisions.decisions[0]).toMatchObject({
+      walletId: 'wallet-1',
+      shouldPopulate: false,
+      reason: 'excessive_balance_mismatch',
+      excessiveBalanceMismatch,
+    });
+    expect(decisions.excessiveBalanceMismatchByWalletId['wallet-1']).toBe(
+      excessiveBalanceMismatch,
+    );
+    expect(decisions.mismatchByWalletId['wallet-1']).toBeUndefined();
+    expect(client.getInvalidHistory).not.toHaveBeenCalled();
+    expect(client.getSnapshotIndex).not.toHaveBeenCalled();
+    expect(client.getLatestSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('builds excessive balance mismatch markers only when computed balance is high by the threshold', () => {
+    const marker = buildPortfolioExcessiveBalanceMismatchMarker({
+      detectedAt: 1234,
+      mismatch: {
+        walletId: 'wallet-1',
+        computedAtomic: '110000000',
+        currentAtomic: '100000000',
+        deltaAtomic: '10000000',
+        computedUnitsHeld: '1.1',
+        currentWalletBalance: '1',
+        delta: '0.1',
+      },
+    });
+
+    expect(marker).toMatchObject({
+      walletId: 'wallet-1',
+      reason: 'excessive_balance_mismatch',
+      computedAtomic: '110000000',
+      liveAtomic: '100000000',
+      deltaAtomic: '10000000',
+      ratio: '1.1',
+      threshold: 0.1,
+      detectedAt: 1234,
+    });
+
+    expect(
+      buildPortfolioExcessiveBalanceMismatchMarker({
+        mismatch: {
+          walletId: 'wallet-1',
+          computedAtomic: '109999999',
+          currentAtomic: '100000000',
+          deltaAtomic: '9999999',
+          computedUnitsHeld: '1.09999999',
+          currentWalletBalance: '1',
+          delta: '0.09999999',
+        },
+      }),
+    ).toBeUndefined();
+
+    expect(
+      buildPortfolioExcessiveBalanceMismatchMarker({
+        mismatch: {
+          walletId: 'wallet-1',
+          computedAtomic: '100000000',
+          currentAtomic: '110000000',
+          deltaAtomic: '-10000000',
+          computedUnitsHeld: '1',
+          currentWalletBalance: '1.1',
+          delta: '-0.1',
+        },
+      }),
+    ).toBeUndefined();
   });
 
   it('returns an undefined mismatch update when a previous mismatch is fixed', async () => {

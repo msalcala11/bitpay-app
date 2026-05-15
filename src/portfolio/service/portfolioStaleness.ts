@@ -23,6 +23,7 @@ export type PortfolioPopulateDecisionReason =
   | 'invalid_snapshot_balance'
   | 'balance_mismatch'
   | 'unchanged_balance_mismatch'
+  | 'excessive_balance_mismatch'
   | 'invalid_decimals'
   | 'invalid_history'
   | 'up_to_date';
@@ -30,6 +31,18 @@ export type PortfolioPopulateDecisionReason =
 export type PortfolioInvalidDecimalsMarker = {
   walletId: string;
   reason: 'invalid_decimals';
+  message: string;
+};
+
+export type PortfolioExcessiveBalanceMismatchMarker = {
+  walletId: string;
+  reason: 'excessive_balance_mismatch';
+  computedAtomic: string;
+  liveAtomic: string;
+  deltaAtomic: string;
+  ratio: string;
+  threshold: number;
+  detectedAt: number;
   message: string;
 };
 
@@ -45,10 +58,119 @@ export type PortfolioPopulateDecision = {
   latestSnapshot: BalanceSnapshotStored | null;
   mismatch?: PortfolioSnapshotBalanceMismatch;
   invalidDecimals?: PortfolioInvalidDecimalsMarker;
+  excessiveBalanceMismatch?: PortfolioExcessiveBalanceMismatchMarker;
 };
+
+type WalletIdUpdateMap<T> = {[walletId: string]: T | undefined};
 
 export const getPortfolioInvalidDecimalsMessage = (walletId: string): string =>
   `Wallet ${walletId || 'unknown'} has unresolved token decimals.`;
+
+export const PORTFOLIO_EXCESSIVE_BALANCE_MISMATCH_THRESHOLD = 0.1;
+
+const PERCENT_BASIS_POINTS = 10_000;
+
+const toThresholdBasisPoints = (threshold: number): bigint => {
+  if (!Number.isFinite(threshold) || threshold <= 0) {
+    return 0n;
+  }
+
+  return BigInt(Math.round(threshold * PERCENT_BASIS_POINTS));
+};
+
+const formatBigIntRatio = (numerator: bigint, denominator: bigint): string => {
+  if (denominator === 0n) {
+    return numerator > 0n ? 'Infinity' : '0';
+  }
+
+  const scale = 1_000_000n;
+  const scaled = (numerator * scale) / denominator;
+  const whole = scaled / scale;
+  const fraction = (scaled % scale).toString().padStart(6, '0');
+  const trimmedFraction = fraction.replace(/0+$/, '');
+  return trimmedFraction ? `${whole}.${trimmedFraction}` : whole.toString();
+};
+
+const parseAtomicString = (
+  value: unknown,
+  allowNegative = true,
+): bigint | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim();
+  const integerPattern = allowNegative ? /^-?\d+$/ : /^\d+$/;
+  if (!integerPattern.test(normalized)) {
+    return null;
+  }
+
+  return BigInt(normalized);
+};
+
+export const getPortfolioExcessiveBalanceMismatchMessage = (args: {
+  walletId: string;
+  ratio: string;
+  threshold: number;
+}): string => {
+  const thresholdPercent = Math.round(args.threshold * 10000) / 100;
+  return `Wallet ${
+    args.walletId || 'unknown'
+  } snapshot balance exceeds live balance by ${
+    args.ratio
+  }x (threshold ${thresholdPercent}%).`;
+};
+
+export function buildPortfolioExcessiveBalanceMismatchMarker(args: {
+  mismatch: PortfolioSnapshotBalanceMismatch;
+  threshold?: number;
+  detectedAt?: number;
+}): PortfolioExcessiveBalanceMismatchMarker | undefined {
+  const threshold =
+    typeof args.threshold === 'number' && Number.isFinite(args.threshold)
+      ? args.threshold
+      : PORTFOLIO_EXCESSIVE_BALANCE_MISMATCH_THRESHOLD;
+  const computedAtomic = parseAtomicString(args.mismatch.computedAtomic);
+  const liveAtomic = parseAtomicString(args.mismatch.currentAtomic);
+  if (computedAtomic === null || liveAtomic === null) {
+    return undefined;
+  }
+
+  const deltaAtomic = computedAtomic - liveAtomic;
+  if (deltaAtomic <= 0n) {
+    return undefined;
+  }
+
+  const thresholdBasisPoints = toThresholdBasisPoints(threshold);
+  const isExcessive =
+    liveAtomic === 0n
+      ? computedAtomic > 0n
+      : deltaAtomic * BigInt(PERCENT_BASIS_POINTS) >=
+        liveAtomic * thresholdBasisPoints;
+  if (!isExcessive) {
+    return undefined;
+  }
+
+  const ratio = formatBigIntRatio(computedAtomic, liveAtomic);
+  return {
+    walletId: args.mismatch.walletId,
+    reason: 'excessive_balance_mismatch',
+    computedAtomic: computedAtomic.toString(),
+    liveAtomic: liveAtomic.toString(),
+    deltaAtomic: deltaAtomic.toString(),
+    ratio,
+    threshold,
+    detectedAt:
+      typeof args.detectedAt === 'number' && Number.isFinite(args.detectedAt)
+        ? args.detectedAt
+        : Date.now(),
+    message: getPortfolioExcessiveBalanceMismatchMessage({
+      walletId: args.mismatch.walletId,
+      ratio,
+      threshold,
+    }),
+  };
+}
 
 function buildBalanceMismatch(args: {
   walletId: string;
@@ -81,16 +203,7 @@ function buildBalanceMismatch(args: {
 }
 
 function parseStoredAtomicBalance(value: unknown): bigint | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const normalized = value.trim();
-  if (!/^\d+$/.test(normalized)) {
-    return null;
-  }
-
-  return BigInt(normalized);
+  return parseAtomicString(value, false);
 }
 
 function normalizeUnitDecimalsResolution(
@@ -227,27 +340,33 @@ export async function getPortfolioPopulateDecisionsForWallets(args: {
     | PortfolioUnitDecimalsResolution
     | number
     | undefined;
-  previousMismatchByWalletId?: {
-    [walletId: string]: PortfolioSnapshotBalanceMismatch | undefined;
-  };
+  previousMismatchByWalletId?: WalletIdUpdateMap<PortfolioSnapshotBalanceMismatch>;
+  excessiveBalanceMismatchByWalletId?: WalletIdUpdateMap<PortfolioExcessiveBalanceMismatchMarker>;
 }): Promise<{
   decisions: PortfolioPopulateDecision[];
   walletIdsToPopulate: string[];
-  mismatchByWalletId: {
-    [walletId: string]: PortfolioSnapshotBalanceMismatch | undefined;
-  };
-  invalidDecimalsByWalletId: {
-    [walletId: string]: PortfolioInvalidDecimalsMarker | undefined;
-  };
+  mismatchByWalletId: WalletIdUpdateMap<PortfolioSnapshotBalanceMismatch>;
+  invalidDecimalsByWalletId: WalletIdUpdateMap<PortfolioInvalidDecimalsMarker>;
+  excessiveBalanceMismatchByWalletId: WalletIdUpdateMap<PortfolioExcessiveBalanceMismatchMarker>;
 }> {
   const decisions: PortfolioPopulateDecision[] = [];
   const walletIdsToPopulate: string[] = [];
-  const mismatchByWalletId: {
-    [walletId: string]: PortfolioSnapshotBalanceMismatch | undefined;
-  } = {};
-  const invalidDecimalsByWalletId: {
-    [walletId: string]: PortfolioInvalidDecimalsMarker | undefined;
-  } = {};
+  const mismatchByWalletId: WalletIdUpdateMap<PortfolioSnapshotBalanceMismatch> =
+    {};
+  const invalidDecimalsByWalletId: WalletIdUpdateMap<PortfolioInvalidDecimalsMarker> =
+    {};
+  const excessiveBalanceMismatchByWalletId: WalletIdUpdateMap<PortfolioExcessiveBalanceMismatchMarker> =
+    {};
+  const recordDecision = (decision: PortfolioPopulateDecision) => {
+    decisions.push(decision);
+    mismatchByWalletId[decision.walletId] = decision.mismatch;
+    invalidDecimalsByWalletId[decision.walletId] = decision.invalidDecimals;
+    excessiveBalanceMismatchByWalletId[decision.walletId] =
+      decision.excessiveBalanceMismatch;
+    if (decision.shouldPopulate) {
+      walletIdsToPopulate.push(decision.walletId);
+    }
+  };
 
   for (const wallet of args.wallets || []) {
     const walletId = String(wallet?.id || '').trim();
@@ -269,9 +388,21 @@ export async function getPortfolioPopulateDecisionsForWallets(args: {
         latestSnapshot: null,
         invalidDecimals,
       };
-      decisions.push(decision);
-      mismatchByWalletId[walletId] = undefined;
-      invalidDecimalsByWalletId[walletId] = invalidDecimals;
+      recordDecision(decision);
+      continue;
+    }
+
+    const excessiveBalanceMismatch =
+      args.excessiveBalanceMismatchByWalletId?.[walletId];
+    if (excessiveBalanceMismatch) {
+      recordDecision({
+        walletId,
+        shouldPopulate: false,
+        reason: 'excessive_balance_mismatch',
+        index: null,
+        latestSnapshot: null,
+        excessiveBalanceMismatch,
+      });
       continue;
     }
 
@@ -281,12 +412,7 @@ export async function getPortfolioPopulateDecisionsForWallets(args: {
       unitDecimals: decimalsResolution.unitDecimals,
       previousMismatch: args.previousMismatchByWalletId?.[walletId],
     });
-    decisions.push(decision);
-    mismatchByWalletId[decision.walletId] = decision.mismatch;
-    invalidDecimalsByWalletId[decision.walletId] = undefined;
-    if (decision.shouldPopulate) {
-      walletIdsToPopulate.push(decision.walletId);
-    }
+    recordDecision(decision);
   }
 
   return {
@@ -294,5 +420,6 @@ export async function getPortfolioPopulateDecisionsForWallets(args: {
     walletIdsToPopulate,
     mismatchByWalletId,
     invalidDecimalsByWalletId,
+    excessiveBalanceMismatchByWalletId,
   };
 }

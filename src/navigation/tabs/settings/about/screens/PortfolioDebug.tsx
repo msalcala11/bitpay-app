@@ -26,6 +26,7 @@ import type {
 } from '../../../../../portfolio/core/pnl/snapshotStore';
 import type {Wallet} from '../../../../../store/wallet/wallet.models';
 import type {
+  ExcessiveBalanceMismatchMarker,
   InvalidDecimalsMarker,
   SnapshotBalanceMismatch,
 } from '../../../../../store/portfolio/portfolio.models';
@@ -60,7 +61,16 @@ type RuntimeWalletRow = {
   chunkCount: number;
   mismatch?: SnapshotBalanceMismatch;
   invalidDecimals?: InvalidDecimalsMarker;
+  excessiveBalanceMismatch?: ExcessiveBalanceMismatchMarker;
 };
+
+function useLatestRef<T>(value: T) {
+  const ref = useRef(value);
+  useEffect(() => {
+    ref.current = value;
+  }, [value]);
+  return ref;
+}
 
 const WalletRow = styled(Pressable)`
   padding: 14px 12px;
@@ -252,12 +262,15 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
   const wallets = useMemo(() => getAllMainnetWallets(walletKeys), [walletKeys]);
   const deferredQuery = useDeferredValue(query);
   const loadRequestIdRef = useRef(0);
-  const walletsRef = useRef<Wallet[]>(wallets);
-  const mismatchByWalletIdRef = useRef(
+  const walletsRef = useLatestRef(wallets);
+  const mismatchByWalletIdRef = useLatestRef(
     portfolio.snapshotBalanceMismatchesByWalletId,
   );
-  const invalidDecimalsByWalletIdRef = useRef(
+  const invalidDecimalsByWalletIdRef = useLatestRef(
     portfolio.invalidDecimalsByWalletId,
+  );
+  const excessiveBalanceMismatchByWalletIdRef = useLatestRef(
+    portfolio.excessiveBalanceMismatchesByWalletId,
   );
   const populateStartProbeRef = useRef<
     | {
@@ -272,19 +285,6 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
     !!portfolio.populateStatus?.inProgress,
   );
 
-  useEffect(() => {
-    walletsRef.current = wallets;
-  }, [wallets]);
-
-  useEffect(() => {
-    mismatchByWalletIdRef.current =
-      portfolio.snapshotBalanceMismatchesByWalletId;
-  }, [portfolio.snapshotBalanceMismatchesByWalletId]);
-
-  useEffect(() => {
-    invalidDecimalsByWalletIdRef.current = portfolio.invalidDecimalsByWalletId;
-  }, [portfolio.invalidDecimalsByWalletId]);
-
   const invalidDecimalsRefreshKey = useMemo(() => {
     const invalidDecimalsByWalletId: {
       [walletId: string]: InvalidDecimalsMarker | undefined;
@@ -296,15 +296,33 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
       .join('|');
   }, [portfolio.invalidDecimalsByWalletId]);
 
+  const excessiveBalanceMismatchRefreshKey = useMemo(() => {
+    const excessiveBalanceMismatchesByWalletId: {
+      [walletId: string]: ExcessiveBalanceMismatchMarker | undefined;
+    } = portfolio.excessiveBalanceMismatchesByWalletId || {};
+
+    return Object.entries(excessiveBalanceMismatchesByWalletId)
+      .map(
+        ([walletId, marker]) =>
+          `${walletId}:${marker?.detectedAt || ''}:${
+            marker?.computedAtomic || ''
+          }:${marker?.liveAtomic || ''}`,
+      )
+      .sort()
+      .join('|');
+  }, [portfolio.excessiveBalanceMismatchesByWalletId]);
+
   const refreshToken = useMemo(() => {
     return [
       portfolio.lastPopulatedAt || 0,
       portfolio.populateStatus?.inProgress ? 1 : 0,
       portfolio.populateStatus?.errors?.length || 0,
       invalidDecimalsRefreshKey,
+      excessiveBalanceMismatchRefreshKey,
       wallets.length,
     ].join(':');
   }, [
+    excessiveBalanceMismatchRefreshKey,
     invalidDecimalsRefreshKey,
     portfolio.lastPopulatedAt,
     portfolio.populateStatus,
@@ -351,17 +369,21 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
             chunkCount: snapshotIndex?.chunks?.length || 0,
             mismatch: mismatchByWalletIdRef.current?.[wallet.id],
             invalidDecimals: invalidDecimalsByWalletIdRef.current?.[wallet.id],
+            excessiveBalanceMismatch:
+              excessiveBalanceMismatchByWalletIdRef.current?.[wallet.id],
           };
         })
         .sort((a, b) => {
           const scoreA =
             (a.index ? 1 : 0) +
             (a.mismatch ? 1 : 0) +
-            (a.invalidDecimals ? 1 : 0);
+            (a.invalidDecimals ? 1 : 0) +
+            (a.excessiveBalanceMismatch ? 1 : 0);
           const scoreB =
             (b.index ? 1 : 0) +
             (b.mismatch ? 1 : 0) +
-            (b.invalidDecimals ? 1 : 0);
+            (b.invalidDecimals ? 1 : 0) +
+            (b.excessiveBalanceMismatch ? 1 : 0);
           if (scoreA !== scoreB) {
             return scoreB - scoreA;
           }
@@ -442,6 +464,9 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
     const invalidDecimalsCount = walletRows.filter(
       row => !!row.invalidDecimals,
     ).length;
+    const excessiveBalanceMismatchCount = walletRows.filter(
+      row => !!row.excessiveBalanceMismatch,
+    ).length;
 
     return {
       walletsTotal: wallets.length,
@@ -450,6 +475,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
       totalChunks,
       mismatchCount,
       invalidDecimalsCount,
+      excessiveBalanceMismatchCount,
       rateEntries: rateEntries.length,
       kvStats,
       populateStatus: portfolio.populateStatus,
@@ -498,6 +524,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
         updatedAt: row.index?.updatedAt,
         mismatch: row.mismatch || null,
         invalidDecimals: row.invalidDecimals || null,
+        excessiveBalanceMismatch: row.excessiveBalanceMismatch || null,
       })),
       rates: rateEntries,
     };
@@ -772,6 +799,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
           {`Stop reason: ${summary.populateStatus?.stopReason || '—'}\n`}
           {`Mismatches: ${summary.mismatchCount}\n`}
           {`Invalid decimals: ${summary.invalidDecimalsCount}\n`}
+          {`Excessive mismatches: ${summary.excessiveBalanceMismatchCount}\n`}
           {`Last populated: ${toIso(summary.lastPopulatedAt)}\n`}
           {`Last refreshed: ${toIso(summary.lastRefreshedAt)}`}
         </SectionText>
@@ -840,6 +868,11 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
               {row.invalidDecimals ? (
                 <WalletRowMismatchText>
                   {`invalid decimals • ${row.invalidDecimals.message}`}
+                </WalletRowMismatchText>
+              ) : null}
+              {row.excessiveBalanceMismatch ? (
+                <WalletRowMismatchText>
+                  {`excessive mismatch • ${row.excessiveBalanceMismatch.message}`}
                 </WalletRowMismatchText>
               ) : null}
             </WalletRow>

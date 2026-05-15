@@ -5,6 +5,8 @@ export interface PortfolioPopulateError {
 
 export type WalletPopulateState = 'in_progress' | 'done' | 'error';
 
+export type WalletIdMap<T> = {[walletId: string]: T | undefined};
+
 export interface SnapshotBalanceMismatch {
   walletId: string;
   computedAtomic: string;
@@ -21,6 +23,18 @@ export interface InvalidDecimalsMarker {
   message: string;
 }
 
+export interface ExcessiveBalanceMismatchMarker {
+  walletId: string;
+  reason: 'excessive_balance_mismatch';
+  computedAtomic: string;
+  liveAtomic: string;
+  deltaAtomic: string;
+  ratio: string;
+  threshold: number;
+  detectedAt: number;
+  message: string;
+}
+
 export interface PortfolioPopulateStatus {
   inProgress: boolean;
   startedAt?: number;
@@ -33,7 +47,7 @@ export interface PortfolioPopulateStatus {
   txRequestsMade: number;
   txsProcessed: number;
   errors: PortfolioPopulateError[];
-  walletStatusById?: {[walletId: string]: WalletPopulateState | undefined};
+  walletStatusById?: WalletIdMap<WalletPopulateState>;
 }
 
 export interface PortfolioState {
@@ -41,10 +55,7 @@ export interface PortfolioState {
   lastFullPopulateCompletedAt?: number | null;
   quoteCurrency?: string;
   populateStatus: PortfolioPopulateStatus;
-  snapshotBalanceMismatchesByWalletId?: {
-    [walletId: string]: SnapshotBalanceMismatch | undefined;
-  };
-  invalidDecimalsByWalletId?: {
-    [walletId: string]: InvalidDecimalsMarker | undefined;
-  };
+  snapshotBalanceMismatchesByWalletId?: WalletIdMap<SnapshotBalanceMismatch>;
+  invalidDecimalsByWalletId?: WalletIdMap<InvalidDecimalsMarker>;
+  excessiveBalanceMismatchesByWalletId?: WalletIdMap<ExcessiveBalanceMismatchMarker>;
 }

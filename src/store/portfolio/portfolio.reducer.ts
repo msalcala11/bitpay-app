@@ -1,5 +1,5 @@
 import {PortfolioActionType, PortfolioActionTypes} from './portfolio.types';
-import type {PortfolioState} from './portfolio.models';
+import type {PortfolioState, WalletIdMap} from './portfolio.models';
 
 type PortfolioReduxPersistBlackList = string[];
 export const portfolioReduxPersistBlackList: PortfolioReduxPersistBlackList =
@@ -25,12 +25,18 @@ const initialState: PortfolioState = {
   },
   snapshotBalanceMismatchesByWalletId: {},
   invalidDecimalsByWalletId: {},
+  excessiveBalanceMismatchesByWalletId: {},
 };
 
 const isFiniteTimestamp = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 
-type WalletIdMap<T> = {[walletId: string]: T | undefined};
+const pickDefinedUpdate = <T, K extends keyof T>(
+  updates: Partial<T>,
+  current: T,
+  key: K,
+): T[K] =>
+  typeof updates[key] !== 'undefined' ? (updates[key] as T[K]) : current[key];
 
 const clearWalletIdsFromMap = <T>(
   current: WalletIdMap<T> | undefined,
@@ -79,6 +85,7 @@ export const portfolioReducer = (
         ...initialState,
         snapshotBalanceMismatchesByWalletId: {},
         invalidDecimalsByWalletId: {},
+        excessiveBalanceMismatchesByWalletId: {},
       };
     }
 
@@ -125,30 +132,18 @@ export const portfolioReducer = (
             ...action.payload.walletStatusByIdUpdates,
           }
         : state.populateStatus.walletStatusById;
+      const nextProgressValue = <K extends keyof typeof state.populateStatus>(
+        key: K,
+      ) => pickDefinedUpdate(action.payload, state.populateStatus, key);
       return {
         ...state,
         populateStatus: {
           ...state.populateStatus,
-          currentWalletId:
-            typeof action.payload.currentWalletId !== 'undefined'
-              ? action.payload.currentWalletId
-              : state.populateStatus.currentWalletId,
-          walletsTotal:
-            typeof action.payload.walletsTotal !== 'undefined'
-              ? action.payload.walletsTotal
-              : state.populateStatus.walletsTotal,
-          walletsCompleted:
-            typeof action.payload.walletsCompleted !== 'undefined'
-              ? action.payload.walletsCompleted
-              : state.populateStatus.walletsCompleted,
-          txRequestsMade:
-            typeof action.payload.txRequestsMade !== 'undefined'
-              ? action.payload.txRequestsMade
-              : state.populateStatus.txRequestsMade,
-          txsProcessed:
-            typeof action.payload.txsProcessed !== 'undefined'
-              ? action.payload.txsProcessed
-              : state.populateStatus.txsProcessed,
+          currentWalletId: nextProgressValue('currentWalletId'),
+          walletsTotal: nextProgressValue('walletsTotal'),
+          walletsCompleted: nextProgressValue('walletsCompleted'),
+          txRequestsMade: nextProgressValue('txRequestsMade'),
+          txsProcessed: nextProgressValue('txsProcessed'),
           errors: nextErrors,
           walletStatusById: nextWalletStatusById,
         },
@@ -169,6 +164,10 @@ export const portfolioReducer = (
       );
       const nextInvalidDecimalsByWalletId = clearWalletIdsFromMap(
         state.invalidDecimalsByWalletId || {},
+        walletIds,
+      );
+      const nextExcessiveBalanceMismatchesByWalletId = clearWalletIdsFromMap(
+        state.excessiveBalanceMismatchesByWalletId || {},
         walletIds,
       );
       const nextWalletStatusById = clearWalletIdsFromMap(
@@ -192,6 +191,8 @@ export const portfolioReducer = (
         snapshotBalanceMismatchesByWalletId:
           nextSnapshotBalanceMismatchesByWalletId,
         invalidDecimalsByWalletId: nextInvalidDecimalsByWalletId,
+        excessiveBalanceMismatchesByWalletId:
+          nextExcessiveBalanceMismatchesByWalletId,
       };
     }
 
@@ -210,6 +211,16 @@ export const portfolioReducer = (
         ...state,
         invalidDecimalsByWalletId: applyWalletIdMapUpdates(
           state.invalidDecimalsByWalletId,
+          action.payload,
+        ),
+      };
+    }
+
+    case PortfolioActionTypes.SET_EXCESSIVE_BALANCE_MISMATCHES_BY_WALLET_ID_UPDATES: {
+      return {
+        ...state,
+        excessiveBalanceMismatchesByWalletId: applyWalletIdMapUpdates(
+          state.excessiveBalanceMismatchesByWalletId,
           action.payload,
         ),
       };

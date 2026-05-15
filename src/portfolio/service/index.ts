@@ -8,9 +8,13 @@ export {
 } from './portfolioPopulateService';
 
 export {
+  PORTFOLIO_EXCESSIVE_BALANCE_MISMATCH_THRESHOLD,
+  buildPortfolioExcessiveBalanceMismatchMarker,
+  getPortfolioExcessiveBalanceMismatchMessage,
   getPortfolioInvalidDecimalsMessage,
   getPortfolioPopulateDecisionForWallet,
   getPortfolioPopulateDecisionsForWallets,
+  type PortfolioExcessiveBalanceMismatchMarker,
   type PortfolioPopulateDecision,
   type PortfolioPopulateDecisionReason,
   type PortfolioSnapshotBalanceMismatch,

@@ -411,6 +411,9 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
   const invalidDecimals = useAppSelector(
     ({PORTFOLIO}) => PORTFOLIO.invalidDecimalsByWalletId?.[walletId],
   );
+  const excessiveBalanceMismatch = useAppSelector(
+    ({PORTFOLIO}) => PORTFOLIO.excessiveBalanceMismatchesByWalletId?.[walletId],
+  );
 
   const [index, setIndex] = useState<SnapshotIndexV2 | null>(null);
   const [latestSnapshot, setLatestSnapshot] =
@@ -736,6 +739,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
         : null,
       mismatch: mismatch || null,
       invalidDecimals: invalidDecimals || null,
+      excessiveBalanceMismatch: excessiveBalanceMismatch || null,
       index,
       latestSnapshot,
       bwsSummary,
@@ -752,6 +756,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
   }, [
     balanceDiagnostic,
     bwsSummary,
+    excessiveBalanceMismatch,
     index,
     invalidDecimals,
     lastDebugPopulate,
@@ -768,6 +773,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
           wallet,
           mismatch,
           invalidDecimals,
+          excessiveBalanceMismatch,
           index,
           latestSnapshot,
           bwsSummary,
@@ -784,6 +790,7 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
   }, [
     balanceDiagnostic,
     bwsSummary,
+    excessiveBalanceMismatch,
     index,
     invalidDecimals,
     lastDebugPopulate,
@@ -1108,6 +1115,22 @@ const PortfolioWalletDebug = ({route}: PortfolioWalletDebugScreenProps) => {
                 `message: ${invalidDecimals.message}`,
               ].join('\n')
             : 'No recorded invalid decimals marker from the last populate decision'}
+        </SectionText>
+
+        <SectionTitle>{t('Cached excessive balance mismatch')}</SectionTitle>
+        <SectionText>
+          {excessiveBalanceMismatch
+            ? [
+                `reason: ${excessiveBalanceMismatch.reason}`,
+                `computedAtomic: ${excessiveBalanceMismatch.computedAtomic}`,
+                `liveAtomic: ${excessiveBalanceMismatch.liveAtomic}`,
+                `deltaAtomic: ${excessiveBalanceMismatch.deltaAtomic}`,
+                `ratio: ${excessiveBalanceMismatch.ratio}`,
+                `threshold: ${excessiveBalanceMismatch.threshold}`,
+                `detectedAt: ${excessiveBalanceMismatch.detectedAt}`,
+                `message: ${excessiveBalanceMismatch.message}`,
+              ].join('\n')
+            : 'No recorded excessive balance mismatch marker from the last populate decision'}
         </SectionText>
 
         <SectionTitle>{t('Live recomputed mismatch')}</SectionTitle>

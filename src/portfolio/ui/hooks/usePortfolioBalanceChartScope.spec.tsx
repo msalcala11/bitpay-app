@@ -180,6 +180,8 @@ describe('usePortfolioBalanceChartScope', () => {
         defaultAltCurrency: {isoCode: 'USD'},
       },
       PORTFOLIO: {
+        excessiveBalanceMismatchesByWalletId: {},
+        invalidDecimalsByWalletId: {},
         lastPopulatedAt: 111,
       },
       RATE: {
@@ -251,6 +253,36 @@ describe('usePortfolioBalanceChartScope', () => {
     expect(latestResult?.chartDataRevisionSig).toBe(
       '111|wallet-1:btc:btc::700',
     );
+  });
+
+  it('excludes excessive balance mismatch quarantines from chart scope inputs', async () => {
+    mockState = {
+      ...mockState,
+      PORTFOLIO: {
+        ...mockState.PORTFOLIO,
+        excessiveBalanceMismatchesByWalletId: {
+          'wallet-1': {
+            walletId: 'wallet-1',
+            reason: 'excessive_balance_mismatch',
+            computedAtomic: '1100',
+            liveAtomic: '1000',
+            deltaAtomic: '100',
+            ratio: '1.1',
+            threshold: 0.1,
+            detectedAt: 1234,
+            message: 'Computed snapshot balance exceeds live balance.',
+          },
+        },
+      },
+    };
+
+    await act(async () => {
+      TestRenderer.create(<HookHarness wallets={[walletFactory()]} />);
+    });
+
+    expect(latestResult?.storedWallets).toEqual([]);
+    expect(latestResult?.eligibleWallets).toEqual([]);
+    expect(latestResult?.sortedWalletIds).toEqual([]);
   });
 
   it('refreshes the chart data revision when an existing wallet object balance is mutated', async () => {

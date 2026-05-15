@@ -24,6 +24,30 @@ jest.mock('../../portfolio/service', () => ({
     cancel: mockCancel,
     populateWallets: mockPopulateWallets,
   })),
+  buildPortfolioExcessiveBalanceMismatchMarker: jest.fn(
+    ({mismatch, detectedAt}: any) => {
+      const computedAtomic = BigInt(mismatch.computedAtomic);
+      const liveAtomic = BigInt(mismatch.currentAtomic);
+      const deltaAtomic = computedAtomic - liveAtomic;
+      const isExcessive =
+        deltaAtomic > 0n &&
+        (liveAtomic === 0n || deltaAtomic * 10000n >= liveAtomic * 1000n);
+      if (!isExcessive) {
+        return undefined;
+      }
+      return {
+        walletId: mismatch.walletId,
+        reason: 'excessive_balance_mismatch',
+        computedAtomic: computedAtomic.toString(),
+        liveAtomic: liveAtomic.toString(),
+        deltaAtomic: deltaAtomic.toString(),
+        ratio: liveAtomic === 0n ? 'Infinity' : '1.1',
+        threshold: 0.1,
+        detectedAt,
+        message: `Wallet ${mismatch.walletId} snapshot balance exceeds live balance by 1.1x (threshold 10%).`,
+      };
+    },
+  ),
   getPortfolioInvalidDecimalsMessage: (walletId: string) =>
     `Wallet ${walletId || 'unknown'} has unresolved token decimals.`,
   getPortfolioPopulateDecisionsForWallets: (...args: any[]) =>
@@ -121,6 +145,10 @@ jest.mock('./portfolio.actions', () => ({
     payload,
     type: 'SET_INVALID_DECIMALS',
   })),
+  setExcessiveBalanceMismatchesByWalletIdUpdates: jest.fn((payload: any) => ({
+    payload,
+    type: 'SET_EXCESSIVE_BALANCE_MISMATCHES',
+  })),
   startPopulatePortfolio: jest.fn((payload: any) => ({
     payload,
     type: 'START_POPULATE',
@@ -200,6 +228,7 @@ const makeState = (overrides: State = {}) => {
       lastPopulatedAt: undefined,
       populateStatus: {inProgress: false},
       invalidDecimalsByWalletId: {},
+      excessiveBalanceMismatchesByWalletId: {},
       ...portfolioOverrides,
     },
     WALLET: {
@@ -262,6 +291,7 @@ describe('portfolio runtime effects lock deferral', () => {
       ],
       mismatchByWalletId: {'wallet-1': undefined},
       invalidDecimalsByWalletId: {},
+      excessiveBalanceMismatchByWalletId: {},
       walletIdsToPopulate: ['wallet-1'],
     });
     mockPopulateWallets.mockResolvedValue({
@@ -611,6 +641,56 @@ describe('portfolio runtime effects lock deferral', () => {
     const dispatchedTypes = dispatched.map(action => action.type);
     expect(dispatchedTypes.indexOf('FINISH_POPULATE')).toBeLessThan(
       dispatchedTypes.indexOf('SET_MISMATCHES'),
+    );
+  });
+
+  it('quarantines excessive balance mismatches after a completed populate', async () => {
+    const excessiveMismatch = {
+      walletId: 'wallet-1',
+      computedAtomic: '200000000',
+      currentAtomic: '100000000',
+      deltaAtomic: '100000000',
+      computedUnitsHeld: '2',
+      currentWalletBalance: '1',
+      delta: '1',
+    };
+    const state = makeState();
+    const {dispatch, dispatched} = makeStore(state);
+    mockGetPortfolioPopulateDecisionsForWallets.mockResolvedValueOnce({
+      decisions: [
+        {
+          index: {walletId: 'wallet-1'},
+          latestSnapshot: {walletId: 'wallet-1', cryptoBalance: '200000000'},
+          mismatch: excessiveMismatch,
+          reason: 'balance_mismatch',
+          shouldPopulate: true,
+          walletId: 'wallet-1',
+        },
+      ],
+      excessiveBalanceMismatchByWalletId: {},
+      invalidDecimalsByWalletId: {},
+      mismatchByWalletId: {'wallet-1': excessiveMismatch},
+      walletIdsToPopulate: ['wallet-1'],
+    });
+
+    await dispatch(populatePortfolioWithRuntime({quoteCurrency: 'USD'}));
+
+    expect(dispatched).toEqual(
+      expect.arrayContaining([
+        {
+          payload: {
+            'wallet-1': expect.objectContaining({
+              walletId: 'wallet-1',
+              reason: 'excessive_balance_mismatch',
+              computedAtomic: '200000000',
+              liveAtomic: '100000000',
+              deltaAtomic: '100000000',
+              threshold: 0.1,
+            }),
+          },
+          type: 'SET_EXCESSIVE_BALANCE_MISMATCHES',
+        },
+      ]),
     );
   });
 
@@ -1282,6 +1362,63 @@ describe('portfolio runtime effects lock deferral', () => {
         {
           payload: {'wallet-1': invalidDecimals},
           type: 'SET_INVALID_DECIMALS',
+        },
+        {
+          payload: expect.objectContaining({quoteCurrency: 'USD'}),
+          type: 'MARK_INITIAL_BASELINE_COMPLETE',
+        },
+      ]),
+    );
+    expect(mockStartPopulatePortfolio).not.toHaveBeenCalled();
+  });
+
+  it('app launch marks the initial baseline complete and reports excessive-mismatch no-op decisions', async () => {
+    const state = makeState({
+      PORTFOLIO: {
+        lastFullPopulateCompletedAt: null,
+      },
+    });
+    const {dispatch, dispatched} = makeStore(state);
+    const excessiveBalanceMismatch = {
+      walletId: 'wallet-1',
+      reason: 'excessive_balance_mismatch',
+      computedAtomic: '200000000',
+      liveAtomic: '100000000',
+      deltaAtomic: '100000000',
+      ratio: '2',
+      threshold: 0.1,
+      detectedAt: 1234,
+      message:
+        'Wallet wallet-1 snapshot balance exceeds live balance by 2x (threshold 10%).',
+    };
+    mockGetPortfolioPopulateDecisionsForWallets.mockResolvedValueOnce({
+      decisions: [
+        {
+          excessiveBalanceMismatch,
+          index: null,
+          latestSnapshot: null,
+          reason: 'excessive_balance_mismatch',
+          shouldPopulate: false,
+          walletId: 'wallet-1',
+        },
+      ],
+      excessiveBalanceMismatchByWalletId: {
+        'wallet-1': excessiveBalanceMismatch,
+      },
+      invalidDecimalsByWalletId: {},
+      mismatchByWalletId: {'wallet-1': undefined},
+      walletIdsToPopulate: [],
+    });
+
+    await dispatch(
+      maybePopulatePortfolioOnAppLaunchWithRuntime({quoteCurrency: 'USD'}),
+    );
+
+    expect(dispatched).toEqual(
+      expect.arrayContaining([
+        {
+          payload: {'wallet-1': excessiveBalanceMismatch},
+          type: 'SET_EXCESSIVE_BALANCE_MISMATCHES',
         },
         {
           payload: expect.objectContaining({quoteCurrency: 'USD'}),
