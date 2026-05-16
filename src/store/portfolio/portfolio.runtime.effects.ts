@@ -44,7 +44,6 @@ import type {
   ExcessiveBalanceMismatchMarker,
   InvalidDecimalsMarker,
   WalletIdMap,
-  WalletPopulateState,
 } from './portfolio.models';
 
 let activeRuntimePopulateService: PortfolioPopulateService | undefined;
@@ -698,45 +697,6 @@ const resolveWalletUnitDecimalsForPortfolio = (
   };
 };
 
-const getCompletedWalletIdsFromPopulateResult = (args: {
-  status?: {
-    walletStatusById?: WalletIdMap<WalletPopulateState>;
-  };
-  runResults?: Array<{
-    walletId: string;
-    cancelled?: boolean;
-  }>;
-}): string[] => {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const add = (walletId: string) => {
-    if (!walletId || seen.has(walletId)) {
-      return;
-    }
-    seen.add(walletId);
-    out.push(walletId);
-  };
-
-  Object.entries(args.status?.walletStatusById || {}).forEach(
-    ([walletId, walletStatus]) => {
-      if (walletStatus !== 'done' || !walletId) {
-        return;
-      }
-      add(walletId);
-    },
-  );
-
-  (args.runResults || []).forEach(runResult => {
-    const walletId = String(runResult?.walletId || '').trim();
-    if (!walletId || runResult?.cancelled) {
-      return;
-    }
-    add(walletId);
-  });
-
-  return out;
-};
-
 type SnapshotBalanceHealthUpdates = {
   mismatchByWalletId: WalletIdMap<PortfolioSnapshotBalanceMismatch>;
   excessiveBalanceMismatchByWalletId: WalletIdMap<ExcessiveBalanceMismatchMarker>;
@@ -810,10 +770,6 @@ const buildSnapshotBalanceHealthUpdatesAfterPopulate = async (args: {
 
   return updates;
 };
-
-const didPopulateReachCompletedState = (
-  status: PortfolioPopulateJobStatus,
-): boolean => status.state === 'completed' && !status.inProgress;
 
 const hasNoRemainingInitialPopulateWork = async (args: {
   client: ReturnType<typeof getPortfolioRuntimeClient>;
@@ -1325,10 +1281,17 @@ export const populatePortfolioWithRuntime =
       }
 
       const finalStatus = result.status;
-      const completedWalletIds = getCompletedWalletIdsFromPopulateResult({
-        status: finalStatus,
-        runResults: result.results,
-      });
+      const completedWalletIds = normalizeWalletIds([
+        ...Object.entries(finalStatus.walletStatusById || {}).flatMap(
+          ([walletId, walletStatus]) =>
+            walletStatus === 'done' ? [walletId] : [],
+        ),
+        ...(result.results || []).flatMap(runResult =>
+          runResult?.cancelled
+            ? []
+            : [String(runResult?.walletId || '').trim()],
+        ),
+      ]);
 
       dispatchPopulateProgressStatus({
         dispatch,
@@ -1352,38 +1315,22 @@ export const populatePortfolioWithRuntime =
       if (!isCurrentPopulateService()) {
         return;
       }
-      let lastFullPopulateCompletedAt: number | undefined;
-      if (didPopulateReachCompletedState(finalStatus)) {
-        const hasCompletedFullPopulate = args?.completesInitialBaseline
-          ? true
-          : hasScopedPopulateArgs
-          ? await hasNoRemainingInitialPopulateWork({
-              client: runtimeClient,
-              dispatch,
-              state: getState(),
-            })
-          : true;
-        lastFullPopulateCompletedAt = hasCompletedFullPopulate
-          ? result.finishedAt
-          : undefined;
-      }
+      const hasCompletedFullPopulate =
+        finalStatus.state === 'completed' &&
+        !finalStatus.inProgress &&
+        (args?.completesInitialBaseline === true ||
+          !hasScopedPopulateArgs ||
+          (await hasNoRemainingInitialPopulateWork({
+            client: runtimeClient,
+            dispatch,
+            state: getState(),
+          })));
+      const lastFullPopulateCompletedAt = hasCompletedFullPopulate
+        ? result.finishedAt
+        : undefined;
       if (!isCurrentPopulateService()) {
         return;
       }
-      dispatch(
-        finishPopulatePortfolio({
-          finishedAt: result.finishedAt,
-          ...(typeof lastFullPopulateCompletedAt === 'number'
-            ? {lastFullPopulateCompletedAt}
-            : {}),
-          reason: buildPopulateStopReason({
-            errors: finalStatus.errors,
-            requestedWalletCount: storedWallets.length,
-            completedWalletCount: finalStatus.walletsCompleted,
-          }),
-          quoteCurrency,
-        }),
-      );
 
       if (completedWalletIds.length) {
         let balanceHealthUpdates = createEmptySnapshotBalanceHealthUpdates();
@@ -1414,19 +1361,32 @@ export const populatePortfolioWithRuntime =
         if (!isCurrentPopulateService()) {
           return;
         }
-        if (Object.keys(balanceHealthUpdates.mismatchByWalletId).length) {
-          dispatch(
-            setSnapshotBalanceMismatchesByWalletIdUpdates(
-              balanceHealthUpdates.mismatchByWalletId,
-            ),
-          );
-        }
+        dispatchWalletIdMapUpdates(
+          dispatch,
+          balanceHealthUpdates.mismatchByWalletId,
+          setSnapshotBalanceMismatchesByWalletIdUpdates,
+        );
         dispatchWalletIdMapUpdates(
           dispatch,
           balanceHealthUpdates.excessiveBalanceMismatchByWalletId,
           setExcessiveBalanceMismatchesByWalletIdUpdates,
         );
       }
+
+      dispatch(
+        finishPopulatePortfolio({
+          finishedAt: result.finishedAt,
+          ...(typeof lastFullPopulateCompletedAt === 'number'
+            ? {lastFullPopulateCompletedAt}
+            : {}),
+          reason: buildPopulateStopReason({
+            errors: finalStatus.errors,
+            requestedWalletCount: storedWallets.length,
+            completedWalletCount: finalStatus.walletsCompleted,
+          }),
+          quoteCurrency,
+        }),
+      );
     } catch (error: unknown) {
       if (!isCurrentPopulateService()) {
         return;

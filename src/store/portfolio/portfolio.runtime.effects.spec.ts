@@ -629,9 +629,6 @@ describe('portfolio runtime effects lock deferral', () => {
       computedAtomic: '100000000',
       currentAtomic: '150000000',
       deltaAtomic: '-50000000',
-      computedUnitsHeld: '1',
-      currentWalletBalance: '1.5',
-      delta: '-0.5',
     };
     const state = makeState({
       PORTFOLIO: {
@@ -647,16 +644,10 @@ describe('portfolio runtime effects lock deferral', () => {
     mockGetPortfolioPopulateDecisionsForWallets.mockResolvedValueOnce({
       decisions: [
         {
-          index: {walletId: 'wallet-1'},
-          latestSnapshot: {walletId: 'wallet-1', cryptoBalance: '100000000'},
           mismatch: refreshedMismatch,
-          reason: 'balance_mismatch',
-          shouldPopulate: true,
           walletId: 'wallet-1',
         },
       ],
-      mismatchByWalletId: {'wallet-1': refreshedMismatch},
-      walletIdsToPopulate: ['wallet-1'],
     });
 
     await dispatch(populatePortfolioWithRuntime({quoteCurrency: 'USD'}));
@@ -666,8 +657,8 @@ describe('portfolio runtime effects lock deferral', () => {
       type: 'SET_MISMATCHES',
     });
     const dispatchedTypes = dispatched.map(action => action.type);
-    expect(dispatchedTypes.indexOf('FINISH_POPULATE')).toBeLessThan(
-      dispatchedTypes.indexOf('SET_MISMATCHES'),
+    expect(dispatchedTypes.indexOf('SET_MISMATCHES')).toBeLessThan(
+      dispatchedTypes.indexOf('FINISH_POPULATE'),
     );
   });
 
@@ -676,28 +667,16 @@ describe('portfolio runtime effects lock deferral', () => {
       walletId: 'wallet-1',
       computedAtomic: '200000000',
       currentAtomic: '100000000',
-      deltaAtomic: '100000000',
-      computedUnitsHeld: '2',
-      currentWalletBalance: '1',
-      delta: '1',
     };
     const state = makeState();
     const {dispatch, dispatched} = makeStore(state);
     mockGetPortfolioPopulateDecisionsForWallets.mockResolvedValueOnce({
       decisions: [
         {
-          index: {walletId: 'wallet-1'},
-          latestSnapshot: {walletId: 'wallet-1', cryptoBalance: '200000000'},
           mismatch: excessiveMismatch,
-          reason: 'balance_mismatch',
-          shouldPopulate: true,
           walletId: 'wallet-1',
         },
       ],
-      excessiveBalanceMismatchByWalletId: {},
-      invalidDecimalsByWalletId: {},
-      mismatchByWalletId: {'wallet-1': excessiveMismatch},
-      walletIdsToPopulate: ['wallet-1'],
     });
 
     await dispatch(populatePortfolioWithRuntime({quoteCurrency: 'USD'}));
@@ -719,6 +698,10 @@ describe('portfolio runtime effects lock deferral', () => {
         },
       ]),
     );
+    const dispatchedTypes = dispatched.map(action => action.type);
+    expect(
+      dispatchedTypes.indexOf('SET_EXCESSIVE_BALANCE_MISMATCHES'),
+    ).toBeLessThan(dispatchedTypes.indexOf('FINISH_POPULATE'));
   });
 
   it('marks a completed full populate with wallet errors as completing the initial baseline', async () => {
