@@ -20,10 +20,12 @@ jest.mock('../../utils/portfolio/assets', () => ({
 }));
 
 import {
+  PORTFOLIO_EXCESSIVE_BALANCE_MISMATCH_RETRY_INTERVAL_MS,
   buildPortfolioExcessiveBalanceMismatchMarker,
   getPortfolioPopulateDecisionForWallet,
   getPortfolioPopulateDecisionsForWallets,
 } from './portfolioStaleness';
+import {SNAPSHOT_INVALID_HISTORY_RETRY_INTERVAL_MS} from '../core/pnl/invalidHistory';
 
 describe('portfolioStaleness', () => {
   const wallet = {
@@ -297,7 +299,7 @@ describe('portfolioStaleness', () => {
         walletId: 'wallet-1',
         reason: 'negative_balance',
         detectedAt: Date.now() - 1000,
-        retryAfter: Date.now() + 60_000,
+        lastAttemptedAt: Date.now() - 1000,
         message: 'Invalid tx history',
       }),
       getSnapshotIndex: jest.fn(),
@@ -311,6 +313,33 @@ describe('portfolioStaleness', () => {
     });
 
     expect(decision.shouldPopulate).toBe(false);
+    expect(decision.reason).toBe('invalid_history');
+    expect(client.getSnapshotIndex).not.toHaveBeenCalled();
+    expect(client.getLatestSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('allows a repair populate when invalid history retry is due', async () => {
+    const client = {
+      getInvalidHistory: jest.fn().mockResolvedValue({
+        v: 1,
+        walletId: 'wallet-1',
+        reason: 'negative_balance',
+        detectedAt: Date.now() - 1000,
+        lastAttemptedAt:
+          Date.now() - SNAPSHOT_INVALID_HISTORY_RETRY_INTERVAL_MS - 1,
+        message: 'Invalid tx history',
+      }),
+      getSnapshotIndex: jest.fn().mockResolvedValue(null),
+      getLatestSnapshot: jest.fn(),
+    } as any;
+
+    const decision = await getPortfolioPopulateDecisionForWallet({
+      client,
+      wallet,
+      unitDecimals: 8,
+    });
+
+    expect(decision.shouldPopulate).toBe(true);
     expect(decision.reason).toBe('invalid_history');
     expect(client.getSnapshotIndex).not.toHaveBeenCalled();
     expect(client.getLatestSnapshot).not.toHaveBeenCalled();
@@ -392,6 +421,7 @@ describe('portfolioStaleness', () => {
       ratio: '2',
       threshold: 0.1,
       detectedAt: 1234,
+      lastAttemptedAt: Date.now() - 1000,
       message:
         'Wallet wallet-1 snapshot balance exceeds live balance by 2x (threshold 10%).',
     };
@@ -421,6 +451,63 @@ describe('portfolioStaleness', () => {
     expect(client.getLatestSnapshot).not.toHaveBeenCalled();
   });
 
+  it('allows a repair populate for excessive balance mismatch quarantines after the retry interval', async () => {
+    const nowMs = 50_000;
+    const dateNowSpy = jest.spyOn(Date, 'now').mockReturnValue(nowMs);
+    const client = {
+      getInvalidHistory: jest.fn(),
+      getSnapshotIndex: jest.fn(),
+      getLatestSnapshot: jest.fn(),
+    } as any;
+    const excessiveBalanceMismatch = {
+      walletId: 'wallet-1',
+      reason: 'excessive_balance_mismatch' as const,
+      computedAtomic: '200000000',
+      liveAtomic: '100000000',
+      deltaAtomic: '100000000',
+      ratio: '2',
+      threshold: 0.1,
+      detectedAt: 1234,
+      lastAttemptedAt:
+        nowMs - PORTFOLIO_EXCESSIVE_BALANCE_MISMATCH_RETRY_INTERVAL_MS - 1,
+      message:
+        'Wallet wallet-1 snapshot balance exceeds live balance by 2x (threshold 10%).',
+    };
+
+    try {
+      const decisions = await getPortfolioPopulateDecisionsForWallets({
+        client,
+        wallets: [wallet],
+        getUnitDecimals: () => 8,
+        excessiveBalanceMismatchByWalletId: {
+          'wallet-1': excessiveBalanceMismatch,
+        },
+      });
+
+      expect(decisions.walletIdsToPopulate).toEqual(['wallet-1']);
+      expect(decisions.decisions[0]).toMatchObject({
+        walletId: 'wallet-1',
+        shouldPopulate: true,
+        reason: 'excessive_balance_mismatch',
+        excessiveBalanceMismatch: {
+          detectedAt: 1234,
+          lastAttemptedAt: nowMs,
+        },
+      });
+      expect(
+        decisions.excessiveBalanceMismatchByWalletId['wallet-1'],
+      ).toMatchObject({
+        detectedAt: 1234,
+        lastAttemptedAt: nowMs,
+      });
+      expect(client.getInvalidHistory).not.toHaveBeenCalled();
+      expect(client.getSnapshotIndex).not.toHaveBeenCalled();
+      expect(client.getLatestSnapshot).not.toHaveBeenCalled();
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+  });
+
   it('builds excessive balance mismatch markers only when computed balance is high by the threshold', () => {
     const marker = buildPortfolioExcessiveBalanceMismatchMarker({
       detectedAt: 1234,
@@ -444,6 +531,7 @@ describe('portfolioStaleness', () => {
       ratio: '1.1',
       threshold: 0.1,
       detectedAt: 1234,
+      lastAttemptedAt: 1234,
     });
 
     expect(

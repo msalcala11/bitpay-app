@@ -32,6 +32,7 @@ export interface ExcessiveBalanceMismatchMarker {
   ratio: string;
   threshold: number;
   detectedAt: number;
+  lastAttemptedAt?: number;
   message: string;
 }
 

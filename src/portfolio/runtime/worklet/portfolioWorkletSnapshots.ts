@@ -395,28 +395,26 @@ export async function loadWorkletInvalidHistoryMarker(
     getWorkletInvalidHistoryStorageKey(walletId),
   );
   const parsed = parseJson<SnapshotInvalidHistoryMarkerV1 | null>(raw, null);
-  if (!parsed || parsed.v !== SNAPSHOT_INVALID_HISTORY_VERSION) {
-    return null;
-  }
-  if (String(parsed.walletId || '') !== String(walletId || '')) {
-    return null;
-  }
-  if (parsed.reason !== 'negative_balance') {
-    return null;
-  }
   if (
-    !Number.isFinite(Number(parsed.detectedAt)) ||
-    !Number.isFinite(Number(parsed.retryAfter))
+    !parsed ||
+    parsed.v !== SNAPSHOT_INVALID_HISTORY_VERSION ||
+    String(parsed.walletId || '') !== String(walletId || '') ||
+    parsed.reason !== 'negative_balance' ||
+    !Number.isFinite(Number(parsed.detectedAt))
   ) {
     return null;
   }
 
+  const lastAttemptedAt = Number(parsed.lastAttemptedAt);
+
   return {
-    ...parsed,
+    v: SNAPSHOT_INVALID_HISTORY_VERSION,
     walletId: String(parsed.walletId || ''),
     reason: 'negative_balance',
     detectedAt: Number(parsed.detectedAt),
-    retryAfter: Number(parsed.retryAfter),
+    lastAttemptedAt: Number.isFinite(lastAttemptedAt)
+      ? lastAttemptedAt
+      : undefined,
     message: String(parsed.message || ''),
     source: parsed.source ? String(parsed.source) : undefined,
     txId: parsed.txId ? String(parsed.txId) : undefined,
@@ -432,16 +430,24 @@ export async function saveWorkletInvalidHistoryMarker(
 ): Promise<void> {
   'worklet';
 
+  const detectedAt = Number(marker.detectedAt);
+  const normalizedDetectedAt = Number.isFinite(detectedAt)
+    ? detectedAt
+    : Date.now();
+  const lastAttemptedAt = Number(marker.lastAttemptedAt);
+  const normalizedLastAttemptedAt = Number.isFinite(lastAttemptedAt)
+    ? lastAttemptedAt
+    : normalizedDetectedAt;
+
   workletKvSetString(
     config,
     getWorkletInvalidHistoryStorageKey(marker.walletId),
     stringifyJson({
-      ...marker,
       v: SNAPSHOT_INVALID_HISTORY_VERSION,
       walletId: String(marker.walletId || ''),
       reason: 'negative_balance',
-      detectedAt: Number(marker.detectedAt || Date.now()),
-      retryAfter: Number(marker.retryAfter || Date.now()),
+      detectedAt: normalizedDetectedAt,
+      lastAttemptedAt: normalizedLastAttemptedAt,
       message: String(marker.message || ''),
       source: marker.source ? String(marker.source) : undefined,
       txId: marker.txId ? String(marker.txId) : undefined,

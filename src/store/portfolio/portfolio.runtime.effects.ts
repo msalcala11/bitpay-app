@@ -191,6 +191,52 @@ const normalizeWalletIds = (walletIds?: string[]): string[] => {
   return result;
 };
 
+const getWalletsToPopulateAfterExcessiveBalanceRepair = async (args: {
+  client: ReturnType<typeof getPortfolioRuntimeClient>;
+  decisions: PortfolioPopulateDecision[];
+  walletIdsToPopulate: string[];
+  wallets: Wallet[];
+}): Promise<Wallet[]> => {
+  if (!args.walletIdsToPopulate.length) {
+    return [];
+  }
+
+  const repairWalletIds = normalizeWalletIds(
+    args.decisions.flatMap(decision =>
+      decision.reason === 'excessive_balance_mismatch' &&
+      decision.shouldPopulate
+        ? [decision.walletId]
+        : [],
+    ),
+  );
+  const failedRepairWalletIds = new Set<string>();
+  if (repairWalletIds.length) {
+    const results = await Promise.allSettled(
+      repairWalletIds.map(walletId => args.client.clearWallet({walletId})),
+    );
+
+    results.forEach((result, index) => {
+      if (result.status !== 'rejected') {
+        return;
+      }
+
+      const walletId = repairWalletIds[index];
+      failedRepairWalletIds.add(walletId);
+      logManager.warn(
+        `[portfolio] Failed clearing runtime wallet snapshots before excessive balance mismatch repair for ${walletId}: ${toErrorMessage(
+          result.reason,
+        )}`,
+      );
+    });
+  }
+
+  return args.wallets.filter(
+    wallet =>
+      args.walletIdsToPopulate.includes(wallet.id) &&
+      !failedRepairWalletIds.has(wallet.id),
+  );
+};
+
 const getScopedPopulateWalletIdsFromArgs = (
   args?: PopulatePortfolioWithRuntimeArgs,
 ): string[] => {
@@ -477,21 +523,13 @@ const isSettledInitialBaselineNoopDecision = (
   decision.reason === 'invalid_decimals' ||
   decision.reason === 'excessive_balance_mismatch';
 
-const dispatchInvalidDecimalsUpdates = (
+const dispatchWalletIdMapUpdates = <T>(
   dispatch: any,
-  updates?: WalletIdMap<InvalidDecimalsMarker>,
+  updates: WalletIdMap<T> | undefined,
+  actionCreator: (updates: WalletIdMap<T>) => unknown,
 ): void => {
   if (updates && Object.keys(updates).length) {
-    dispatch(setInvalidDecimalsByWalletIdUpdates(updates));
-  }
-};
-
-const dispatchExcessiveBalanceMismatchUpdates = (
-  dispatch: any,
-  updates?: WalletIdMap<ExcessiveBalanceMismatchMarker>,
-): void => {
-  if (updates && Object.keys(updates).length) {
-    dispatch(setExcessiveBalanceMismatchesByWalletIdUpdates(updates));
+    dispatch(actionCreator(updates));
   }
 };
 
@@ -504,10 +542,15 @@ const dispatchPortfolioMarkerUpdates = (
   dispatch: any,
   updates: PortfolioMarkerUpdates,
 ): void => {
-  dispatchInvalidDecimalsUpdates(dispatch, updates.invalidDecimalsByWalletId);
-  dispatchExcessiveBalanceMismatchUpdates(
+  dispatchWalletIdMapUpdates(
+    dispatch,
+    updates.invalidDecimalsByWalletId,
+    setInvalidDecimalsByWalletIdUpdates,
+  );
+  dispatchWalletIdMapUpdates(
     dispatch,
     updates.excessiveBalanceMismatchByWalletId,
+    setExcessiveBalanceMismatchesByWalletIdUpdates,
   );
 };
 
@@ -515,20 +558,11 @@ const canMarkInitialBaselineCompleteFromDecisions = (args: {
   decisions: PortfolioPopulateDecision[];
   eligibleWalletCount: number;
   walletIdsToPopulate: string[];
-}): boolean => {
-  if (args.walletIdsToPopulate.length) {
-    return false;
-  }
-
-  if (!args.eligibleWalletCount) {
-    return true;
-  }
-
-  return (
-    args.decisions.length === args.eligibleWalletCount &&
-    args.decisions.every(isSettledInitialBaselineNoopDecision)
-  );
-};
+}): boolean =>
+  !args.walletIdsToPopulate.length &&
+  (!args.eligibleWalletCount ||
+    (args.decisions.length === args.eligibleWalletCount &&
+      args.decisions.every(isSettledInitialBaselineNoopDecision)));
 
 const isMainnetLikeWallet = (wallet: Wallet): boolean => {
   const network = String(wallet?.network || '')
@@ -718,6 +752,7 @@ const buildSnapshotBalanceHealthUpdatesAfterPopulate = async (args: {
   client: ReturnType<typeof getPortfolioRuntimeClient>;
   dispatch: any;
   previousMismatchByWalletId?: WalletIdMap<PortfolioSnapshotBalanceMismatch>;
+  previousExcessiveBalanceMismatchByWalletId?: WalletIdMap<ExcessiveBalanceMismatchMarker>;
   walletIds: string[];
   wallets: Wallet[];
 }): Promise<SnapshotBalanceHealthUpdates> => {
@@ -759,6 +794,10 @@ const buildSnapshotBalanceHealthUpdatesAfterPopulate = async (args: {
         buildPortfolioExcessiveBalanceMismatchMarker({
           mismatch: decision.mismatch,
           detectedAt,
+          previousMarker:
+            args.previousExcessiveBalanceMismatchByWalletId?.[
+              decision.walletId
+            ],
         });
       return;
     }
@@ -1024,13 +1063,16 @@ export const maybePopulatePortfolioForWalletsWithRuntime =
     );
     dispatchPortfolioMarkerUpdates(dispatch, decisions);
 
-    if (!decisions.walletIdsToPopulate.length) {
+    const walletsToPopulate =
+      await getWalletsToPopulateAfterExcessiveBalanceRepair({
+        client,
+        decisions: decisions.decisions,
+        wallets: runtimeEligibleWallets,
+        walletIdsToPopulate: decisions.walletIdsToPopulate,
+      });
+    if (!walletsToPopulate.length) {
       return;
     }
-
-    const walletsToPopulate = runtimeEligibleWallets.filter(wallet =>
-      decisions.walletIdsToPopulate.includes(wallet.id),
-    );
 
     await dispatch(
       populatePortfolioWithRuntime({
@@ -1123,25 +1165,27 @@ export const maybePopulatePortfolioOnAppLaunchWithRuntime =
         decisions: decisions.decisions,
         eligibleWalletCount: runtimeEligibleWallets.length,
         walletIdsToPopulate: decisions.walletIdsToPopulate,
-      })
+      }) &&
+      !hasCompletedInitialPortfolioBaseline(getState())
     ) {
-      if (!hasCompletedInitialPortfolioBaseline(getState())) {
-        dispatch(
-          markInitialBaselineComplete({
-            completedAt: Date.now(),
-            quoteCurrency,
-          }),
-        );
-      }
+      dispatch(
+        markInitialBaselineComplete({
+          completedAt: Date.now(),
+          quoteCurrency,
+        }),
+      );
     }
 
-    if (!decisions.walletIdsToPopulate.length) {
+    const walletsToPopulate =
+      await getWalletsToPopulateAfterExcessiveBalanceRepair({
+        client,
+        decisions: decisions.decisions,
+        wallets: runtimeEligibleWallets,
+        walletIdsToPopulate: decisions.walletIdsToPopulate,
+      });
+    if (!walletsToPopulate.length) {
       return;
     }
-
-    const walletsToPopulate = runtimeEligibleWallets.filter(wallet =>
-      decisions.walletIdsToPopulate.includes(wallet.id),
-    );
 
     await dispatch(
       populatePortfolioWithRuntime({
@@ -1352,6 +1396,8 @@ export const populatePortfolioWithRuntime =
               dispatch,
               previousMismatchByWalletId:
                 currentState.PORTFOLIO?.snapshotBalanceMismatchesByWalletId,
+              previousExcessiveBalanceMismatchByWalletId:
+                currentState.PORTFOLIO?.excessiveBalanceMismatchesByWalletId,
               walletIds: completedWalletIds,
               wallets: currentWallets.length
                 ? currentWallets
@@ -1375,9 +1421,10 @@ export const populatePortfolioWithRuntime =
             ),
           );
         }
-        dispatchExcessiveBalanceMismatchUpdates(
+        dispatchWalletIdMapUpdates(
           dispatch,
           balanceHealthUpdates.excessiveBalanceMismatchByWalletId,
+          setExcessiveBalanceMismatchesByWalletIdUpdates,
         );
       }
     } catch (error: unknown) {

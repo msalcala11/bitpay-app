@@ -1,6 +1,9 @@
 import type {BalanceSnapshotStored} from '../core/pnl/types';
 import type {SnapshotIndexV2} from '../core/pnl/snapshotStore';
-import {isSnapshotInvalidHistoryMarkerActive} from '../core/pnl/invalidHistory';
+import {
+  isSnapshotInvalidHistoryRetryDue,
+  isSnapshotMarkerRetryDue,
+} from '../core/pnl/invalidHistory';
 import type {PortfolioRuntimeClient} from '../runtime/portfolioClient';
 import type {Wallet} from '../../store/wallet/wallet.models';
 import {atomicToUnitString} from '../../utils/helper-methods';
@@ -43,6 +46,7 @@ export type PortfolioExcessiveBalanceMismatchMarker = {
   ratio: string;
   threshold: number;
   detectedAt: number;
+  lastAttemptedAt?: number;
   message: string;
 };
 
@@ -67,8 +71,40 @@ export const getPortfolioInvalidDecimalsMessage = (walletId: string): string =>
   `Wallet ${walletId || 'unknown'} has unresolved token decimals.`;
 
 export const PORTFOLIO_EXCESSIVE_BALANCE_MISMATCH_THRESHOLD = 0.1;
+export const PORTFOLIO_EXCESSIVE_BALANCE_MISMATCH_RETRY_INTERVAL_MS =
+  24 * 60 * 60 * 1000;
 
 const PERCENT_BASIS_POINTS = 10_000;
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+export const isPortfolioExcessiveBalanceMismatchRetryDue = (
+  marker: PortfolioExcessiveBalanceMismatchMarker | null | undefined,
+  nowMs: number = Date.now(),
+  retryIntervalMs?: number,
+): boolean =>
+  isSnapshotMarkerRetryDue(
+    marker,
+    nowMs,
+    retryIntervalMs,
+    PORTFOLIO_EXCESSIVE_BALANCE_MISMATCH_RETRY_INTERVAL_MS,
+  );
+
+export const markPortfolioExcessiveBalanceMismatchAttempted = (
+  marker: PortfolioExcessiveBalanceMismatchMarker,
+  lastAttemptedAt: number = Date.now(),
+): PortfolioExcessiveBalanceMismatchMarker => {
+  const detectedAt = Number.isFinite(Number(marker.detectedAt))
+    ? Number(marker.detectedAt)
+    : lastAttemptedAt;
+
+  return {
+    ...marker,
+    detectedAt,
+    lastAttemptedAt,
+  };
+};
 
 const toThresholdBasisPoints = (threshold: number): bigint => {
   if (!Number.isFinite(threshold) || threshold <= 0) {
@@ -125,11 +161,12 @@ export function buildPortfolioExcessiveBalanceMismatchMarker(args: {
   mismatch: PortfolioSnapshotBalanceMismatch;
   threshold?: number;
   detectedAt?: number;
+  lastAttemptedAt?: number;
+  previousMarker?: PortfolioExcessiveBalanceMismatchMarker;
 }): PortfolioExcessiveBalanceMismatchMarker | undefined {
-  const threshold =
-    typeof args.threshold === 'number' && Number.isFinite(args.threshold)
-      ? args.threshold
-      : PORTFOLIO_EXCESSIVE_BALANCE_MISMATCH_THRESHOLD;
+  const threshold = isFiniteNumber(args.threshold)
+    ? args.threshold
+    : PORTFOLIO_EXCESSIVE_BALANCE_MISMATCH_THRESHOLD;
   const computedAtomic = parseAtomicString(args.mismatch.computedAtomic);
   const liveAtomic = parseAtomicString(args.mismatch.currentAtomic);
   if (computedAtomic === null || liveAtomic === null) {
@@ -152,6 +189,17 @@ export function buildPortfolioExcessiveBalanceMismatchMarker(args: {
   }
 
   const ratio = formatBigIntRatio(computedAtomic, liveAtomic);
+  const markerDetectedAt = isFiniteNumber(args.detectedAt)
+    ? args.detectedAt
+    : Date.now();
+  const previousDetectedAt = Number(args.previousMarker?.detectedAt);
+  const detectedAt = Number.isFinite(previousDetectedAt)
+    ? previousDetectedAt
+    : markerDetectedAt;
+  const lastAttemptedAt = isFiniteNumber(args.lastAttemptedAt)
+    ? args.lastAttemptedAt
+    : markerDetectedAt;
+
   return {
     walletId: args.mismatch.walletId,
     reason: 'excessive_balance_mismatch',
@@ -160,10 +208,8 @@ export function buildPortfolioExcessiveBalanceMismatchMarker(args: {
     deltaAtomic: deltaAtomic.toString(),
     ratio,
     threshold,
-    detectedAt:
-      typeof args.detectedAt === 'number' && Number.isFinite(args.detectedAt)
-        ? args.detectedAt
-        : Date.now(),
+    detectedAt,
+    lastAttemptedAt,
     message: getPortfolioExcessiveBalanceMismatchMessage({
       walletId: args.mismatch.walletId,
       ratio,
@@ -178,7 +224,8 @@ function buildBalanceMismatch(args: {
   actualAtomic: bigint;
   unitDecimals: number;
 }): PortfolioSnapshotBalanceMismatch | undefined {
-  if (args.computedAtomic === args.actualAtomic) {
+  const deltaAtomic = args.computedAtomic - args.actualAtomic;
+  if (deltaAtomic === 0n) {
     return undefined;
   }
 
@@ -186,7 +233,7 @@ function buildBalanceMismatch(args: {
     walletId: args.walletId,
     computedAtomic: args.computedAtomic.toString(),
     currentAtomic: args.actualAtomic.toString(),
-    deltaAtomic: (args.computedAtomic - args.actualAtomic).toString(),
+    deltaAtomic: deltaAtomic.toString(),
     computedUnitsHeld: atomicToUnitString(
       args.computedAtomic,
       args.unitDecimals,
@@ -195,15 +242,8 @@ function buildBalanceMismatch(args: {
       args.actualAtomic,
       args.unitDecimals,
     ),
-    delta: atomicToUnitString(
-      args.computedAtomic - args.actualAtomic,
-      args.unitDecimals,
-    ),
+    delta: atomicToUnitString(deltaAtomic, args.unitDecimals),
   };
-}
-
-function parseStoredAtomicBalance(value: unknown): bigint | null {
-  return parseAtomicString(value, false);
 }
 
 function normalizeUnitDecimalsResolution(
@@ -245,10 +285,10 @@ export async function getPortfolioPopulateDecisionForWallet(args: {
 }): Promise<PortfolioPopulateDecision> {
   const walletId = String(args.wallet?.id || '').trim();
   const invalidHistory = await args.client.getInvalidHistory({walletId});
-  if (isSnapshotInvalidHistoryMarkerActive(invalidHistory)) {
+  if (invalidHistory) {
     return {
       walletId,
-      shouldPopulate: false,
+      shouldPopulate: isSnapshotInvalidHistoryRetryDue(invalidHistory),
       reason: 'invalid_history',
       index: null,
       latestSnapshot: null,
@@ -277,7 +317,7 @@ export async function getPortfolioPopulateDecisionForWallet(args: {
     };
   }
 
-  const snapshotAtomic = parseStoredAtomicBalance(latestSnapshot.cryptoBalance);
+  const snapshotAtomic = parseAtomicString(latestSnapshot.cryptoBalance, false);
   if (snapshotAtomic === null) {
     return {
       walletId,
@@ -351,6 +391,7 @@ export async function getPortfolioPopulateDecisionsForWallets(args: {
 }> {
   const decisions: PortfolioPopulateDecision[] = [];
   const walletIdsToPopulate: string[] = [];
+  const nowMs = Date.now();
   const mismatchByWalletId: WalletIdUpdateMap<PortfolioSnapshotBalanceMismatch> =
     {};
   const invalidDecimalsByWalletId: WalletIdUpdateMap<PortfolioInvalidDecimalsMarker> =
@@ -380,28 +421,37 @@ export async function getPortfolioPopulateDecisionsForWallets(args: {
         reason: 'invalid_decimals',
         message: decimalsResolution.message,
       };
-      const decision: PortfolioPopulateDecision = {
+      recordDecision({
         walletId,
         shouldPopulate: false,
         reason: 'invalid_decimals',
         index: null,
         latestSnapshot: null,
         invalidDecimals,
-      };
-      recordDecision(decision);
+      });
       continue;
     }
 
     const excessiveBalanceMismatch =
       args.excessiveBalanceMismatchByWalletId?.[walletId];
     if (excessiveBalanceMismatch) {
+      const retryDue = isPortfolioExcessiveBalanceMismatchRetryDue(
+        excessiveBalanceMismatch,
+        nowMs,
+      );
+
       recordDecision({
         walletId,
-        shouldPopulate: false,
+        shouldPopulate: retryDue,
         reason: 'excessive_balance_mismatch',
         index: null,
         latestSnapshot: null,
-        excessiveBalanceMismatch,
+        excessiveBalanceMismatch: retryDue
+          ? markPortfolioExcessiveBalanceMismatchAttempted(
+              excessiveBalanceMismatch,
+              nowMs,
+            )
+          : excessiveBalanceMismatch,
       });
       continue;
     }

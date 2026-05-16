@@ -24,6 +24,7 @@ import type {
   SnapshotIndexV2,
   SnapshotPersistDebugMode,
 } from '../../../../../portfolio/core/pnl/snapshotStore';
+import type {SnapshotInvalidHistoryMarkerV1} from '../../../../../portfolio/core/pnl/invalidHistory';
 import type {Wallet} from '../../../../../store/wallet/wallet.models';
 import type {
   ExcessiveBalanceMismatchMarker,
@@ -60,6 +61,7 @@ type RuntimeWalletRow = {
   rowCount: number;
   chunkCount: number;
   mismatch?: SnapshotBalanceMismatch;
+  invalidHistory?: SnapshotInvalidHistoryMarkerV1;
   invalidDecimals?: InvalidDecimalsMarker;
   excessiveBalanceMismatch?: ExcessiveBalanceMismatchMarker;
 };
@@ -305,8 +307,8 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
       .map(
         ([walletId, marker]) =>
           `${walletId}:${marker?.detectedAt || ''}:${
-            marker?.computedAtomic || ''
-          }:${marker?.liveAtomic || ''}`,
+            marker?.lastAttemptedAt || ''
+          }:${marker?.computedAtomic || ''}:${marker?.liveAtomic || ''}`,
       )
       .sort()
       .join('|');
@@ -341,19 +343,29 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
     try {
       const client = getPortfolioRuntimeClient();
       const activeWallets = walletsRef.current;
-      const [nextKvStats, nextRateEntries, indexes] = await Promise.all([
-        client.kvStats(),
-        client.listRates({}),
-        Promise.all(
-          activeWallets.map(async wallet => {
-            try {
-              return await client.getSnapshotIndex({walletId: wallet.id});
-            } catch {
-              return null;
-            }
-          }),
-        ),
-      ]);
+      const [nextKvStats, nextRateEntries, indexes, invalidHistoryMarkers] =
+        await Promise.all([
+          client.kvStats(),
+          client.listRates({}),
+          Promise.all(
+            activeWallets.map(async wallet => {
+              try {
+                return await client.getSnapshotIndex({walletId: wallet.id});
+              } catch {
+                return null;
+              }
+            }),
+          ),
+          Promise.all(
+            activeWallets.map(async wallet => {
+              try {
+                return await client.getInvalidHistory({walletId: wallet.id});
+              } catch {
+                return null;
+              }
+            }),
+          ),
+        ]);
 
       if (loadRequestIdRef.current !== requestId) {
         return;
@@ -368,22 +380,27 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
             rowCount: getRowCount(snapshotIndex),
             chunkCount: snapshotIndex?.chunks?.length || 0,
             mismatch: mismatchByWalletIdRef.current?.[wallet.id],
+            invalidHistory: invalidHistoryMarkers[index] || undefined,
             invalidDecimals: invalidDecimalsByWalletIdRef.current?.[wallet.id],
             excessiveBalanceMismatch:
               excessiveBalanceMismatchByWalletIdRef.current?.[wallet.id],
           };
         })
         .sort((a, b) => {
-          const scoreA =
-            (a.index ? 1 : 0) +
-            (a.mismatch ? 1 : 0) +
+          const quarantineScoreA =
+            (a.invalidHistory ? 1 : 0) +
             (a.invalidDecimals ? 1 : 0) +
             (a.excessiveBalanceMismatch ? 1 : 0);
-          const scoreB =
-            (b.index ? 1 : 0) +
-            (b.mismatch ? 1 : 0) +
+          const quarantineScoreB =
+            (b.invalidHistory ? 1 : 0) +
             (b.invalidDecimals ? 1 : 0) +
             (b.excessiveBalanceMismatch ? 1 : 0);
+          if (quarantineScoreA !== quarantineScoreB) {
+            return quarantineScoreB - quarantineScoreA;
+          }
+
+          const scoreA = (a.index ? 1 : 0) + (a.mismatch ? 1 : 0);
+          const scoreB = (b.index ? 1 : 0) + (b.mismatch ? 1 : 0);
           if (scoreA !== scoreB) {
             return scoreB - scoreA;
           }
@@ -461,6 +478,9 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
       0,
     );
     const mismatchCount = walletRows.filter(row => !!row.mismatch).length;
+    const invalidHistoryCount = walletRows.filter(
+      row => !!row.invalidHistory,
+    ).length;
     const invalidDecimalsCount = walletRows.filter(
       row => !!row.invalidDecimals,
     ).length;
@@ -474,6 +494,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
       totalRows,
       totalChunks,
       mismatchCount,
+      invalidHistoryCount,
       invalidDecimalsCount,
       excessiveBalanceMismatchCount,
       rateEntries: rateEntries.length,
@@ -523,6 +544,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
         chunkCount: row.chunkCount,
         updatedAt: row.index?.updatedAt,
         mismatch: row.mismatch || null,
+        invalidHistory: row.invalidHistory || null,
         invalidDecimals: row.invalidDecimals || null,
         excessiveBalanceMismatch: row.excessiveBalanceMismatch || null,
       })),
@@ -798,6 +820,7 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
           {`Errors: ${summary.populateStatus?.errors?.length || 0}\n`}
           {`Stop reason: ${summary.populateStatus?.stopReason || '—'}\n`}
           {`Mismatches: ${summary.mismatchCount}\n`}
+          {`Invalid history: ${summary.invalidHistoryCount}\n`}
           {`Invalid decimals: ${summary.invalidDecimalsCount}\n`}
           {`Excessive mismatches: ${summary.excessiveBalanceMismatchCount}\n`}
           {`Last populated: ${toIso(summary.lastPopulatedAt)}\n`}
@@ -863,6 +886,11 @@ const PortfolioDebug = ({navigation}: PortfolioDebugScreenProps) => {
               {row.mismatch ? (
                 <WalletRowMismatchText>
                   {`mismatch Δ ${row.mismatch.delta} • live ${row.mismatch.currentWalletBalance} • stored ${row.mismatch.computedUnitsHeld}`}
+                </WalletRowMismatchText>
+              ) : null}
+              {row.invalidHistory ? (
+                <WalletRowMismatchText>
+                  {`invalid history • ${row.invalidHistory.reason} • ${row.invalidHistory.message}`}
                 </WalletRowMismatchText>
               ) : null}
               {row.invalidDecimals ? (

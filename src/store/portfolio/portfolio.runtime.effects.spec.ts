@@ -25,7 +25,7 @@ jest.mock('../../portfolio/service', () => ({
     populateWallets: mockPopulateWallets,
   })),
   buildPortfolioExcessiveBalanceMismatchMarker: jest.fn(
-    ({mismatch, detectedAt}: any) => {
+    ({mismatch, detectedAt, lastAttemptedAt, previousMarker}: any) => {
       const computedAtomic = BigInt(mismatch.computedAtomic);
       const liveAtomic = BigInt(mismatch.currentAtomic);
       const deltaAtomic = computedAtomic - liveAtomic;
@@ -43,7 +43,8 @@ jest.mock('../../portfolio/service', () => ({
         deltaAtomic: deltaAtomic.toString(),
         ratio: liveAtomic === 0n ? 'Infinity' : '1.1',
         threshold: 0.1,
-        detectedAt,
+        detectedAt: previousMarker?.detectedAt ?? detectedAt,
+        lastAttemptedAt: lastAttemptedAt ?? detectedAt,
         message: `Wallet ${mismatch.walletId} snapshot balance exceeds live balance by 1.1x (threshold 10%).`,
       };
     },
@@ -194,6 +195,32 @@ const walletFactory = (overrides: Record<string, any> = {}): any => ({
   network: 'livenet',
   ...overrides,
 });
+
+const excessiveMismatchDecisionResult = ({
+  shouldPopulate = true,
+}: {shouldPopulate?: boolean} = {}) => {
+  const walletId = 'wallet-1';
+  const excessiveBalanceMismatch = {
+    reason: 'excessive_balance_mismatch',
+    walletId,
+  };
+
+  return {
+    decisions: [
+      {
+        excessiveBalanceMismatch,
+        reason: 'excessive_balance_mismatch',
+        shouldPopulate,
+        walletId,
+      },
+    ],
+    excessiveBalanceMismatchByWalletId: {
+      [walletId]: excessiveBalanceMismatch,
+    },
+    mismatchByWalletId: {[walletId]: undefined},
+    walletIdsToPopulate: shouldPopulate ? [walletId] : [],
+  };
+};
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -1379,36 +1406,12 @@ describe('portfolio runtime effects lock deferral', () => {
       },
     });
     const {dispatch, dispatched} = makeStore(state);
-    const excessiveBalanceMismatch = {
-      walletId: 'wallet-1',
-      reason: 'excessive_balance_mismatch',
-      computedAtomic: '200000000',
-      liveAtomic: '100000000',
-      deltaAtomic: '100000000',
-      ratio: '2',
-      threshold: 0.1,
-      detectedAt: 1234,
-      message:
-        'Wallet wallet-1 snapshot balance exceeds live balance by 2x (threshold 10%).',
-    };
-    mockGetPortfolioPopulateDecisionsForWallets.mockResolvedValueOnce({
-      decisions: [
-        {
-          excessiveBalanceMismatch,
-          index: null,
-          latestSnapshot: null,
-          reason: 'excessive_balance_mismatch',
-          shouldPopulate: false,
-          walletId: 'wallet-1',
-        },
-      ],
-      excessiveBalanceMismatchByWalletId: {
-        'wallet-1': excessiveBalanceMismatch,
-      },
-      invalidDecimalsByWalletId: {},
-      mismatchByWalletId: {'wallet-1': undefined},
-      walletIdsToPopulate: [],
+    const excessiveMismatchDecision = excessiveMismatchDecisionResult({
+      shouldPopulate: false,
     });
+    mockGetPortfolioPopulateDecisionsForWallets.mockResolvedValueOnce(
+      excessiveMismatchDecision,
+    );
 
     await dispatch(
       maybePopulatePortfolioOnAppLaunchWithRuntime({quoteCurrency: 'USD'}),
@@ -1417,7 +1420,7 @@ describe('portfolio runtime effects lock deferral', () => {
     expect(dispatched).toEqual(
       expect.arrayContaining([
         {
-          payload: {'wallet-1': excessiveBalanceMismatch},
+          payload: excessiveMismatchDecision.excessiveBalanceMismatchByWalletId,
           type: 'SET_EXCESSIVE_BALANCE_MISMATCHES',
         },
         {
@@ -1427,6 +1430,54 @@ describe('portfolio runtime effects lock deferral', () => {
       ]),
     );
     expect(mockStartPopulatePortfolio).not.toHaveBeenCalled();
+  });
+
+  it('app launch clears existing excessive-mismatch snapshots before repair populate', async () => {
+    const state = makeState();
+    const {dispatch} = makeStore(state);
+    mockGetPortfolioPopulateDecisionsForWallets
+      .mockResolvedValueOnce(excessiveMismatchDecisionResult())
+      .mockResolvedValueOnce({decisions: []});
+
+    await dispatch(
+      maybePopulatePortfolioOnAppLaunchWithRuntime({quoteCurrency: 'USD'}),
+    );
+
+    expect(mockRuntimeClient.clearWallet).toHaveBeenCalledWith({
+      walletId: 'wallet-1',
+    });
+    expect(mockStartPopulatePortfolio).toHaveBeenCalledWith({
+      quoteCurrency: 'USD',
+    });
+    expect(
+      mockRuntimeClient.clearWallet.mock.invocationCallOrder[0],
+    ).toBeLessThan(mockPopulateWallets.mock.invocationCallOrder[0]);
+  });
+
+  it('app launch skips excessive-mismatch repair populate when snapshot clearing fails', async () => {
+    const state = makeState();
+    const {dispatch} = makeStore(state);
+    mockRuntimeClient.clearWallet.mockRejectedValueOnce(
+      new Error('clear failed'),
+    );
+    mockGetPortfolioPopulateDecisionsForWallets.mockResolvedValueOnce(
+      excessiveMismatchDecisionResult(),
+    );
+
+    await dispatch(
+      maybePopulatePortfolioOnAppLaunchWithRuntime({quoteCurrency: 'USD'}),
+    );
+
+    expect(mockRuntimeClient.clearWallet).toHaveBeenCalledWith({
+      walletId: 'wallet-1',
+    });
+    expect(mockLogManager.warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Failed clearing runtime wallet snapshots before excessive balance mismatch repair for wallet-1',
+      ),
+    );
+    expect(mockStartPopulatePortfolio).not.toHaveBeenCalled();
+    expect(mockPopulateWallets).not.toHaveBeenCalled();
   });
 
   it('app launch does not mark the initial baseline complete for non-terminal no-op decisions', async () => {
