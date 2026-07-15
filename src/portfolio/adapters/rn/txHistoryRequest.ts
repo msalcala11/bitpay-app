@@ -16,6 +16,7 @@ import {
   getPortfolioNitroFetchClientOnRuntime,
   signBwsGetRequestWithTransferredNitro,
   takeNextPortfolioTransferredSignHandleOnRuntime,
+  type PortfolioTxHistorySigningDispatchContext,
 } from './txHistorySigning';
 
 export const PORTFOLIO_BWS_CLIENT_VERSION_HEADER = `bwc-${bitcoreWalletClientVersion}`;
@@ -122,15 +123,19 @@ function getWalletCopayerId(
   return copayerId;
 }
 
-function buildSignedHeaders(args: {
-  credentials: PortfolioRuntimeWalletCredentials;
-  requestPath: string;
-}): Array<{key: string; value: string}> {
+function buildSignedHeaders(
+  args: {
+    credentials: PortfolioRuntimeWalletCredentials;
+    requestPath: string;
+  },
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
+): Array<{key: string; value: string}> {
   'worklet';
 
   const copayerId = getWalletCopayerId(args.credentials);
 
-  const transferredNitro = takeNextPortfolioTransferredSignHandleOnRuntime();
+  const transferredNitro =
+    takeNextPortfolioTransferredSignHandleOnRuntime(requestContext);
   if (!transferredNitro) {
     throw new Error(
       'No transferred Nitro SignHandle is available on the portfolio runtime for txhistory signing.',
@@ -198,13 +203,16 @@ function resolveTxHistoryTimeoutMs(cfg: BwsConfig): number {
   return DEFAULT_PORTFOLIO_NITRO_FETCH_TIMEOUT_MS;
 }
 
-export async function fetchPortfolioTxHistoryPageByRequest(args: {
-  credentials: PortfolioRuntimeWalletCredentials;
-  cfg: BwsConfig;
-  skip: number;
-  limit: number;
-  reverse?: boolean;
-}): Promise<Tx[]> {
+export async function fetchPortfolioTxHistoryPageByRequest(
+  args: {
+    credentials: PortfolioRuntimeWalletCredentials;
+    cfg: BwsConfig;
+    skip: number;
+    limit: number;
+    reverse?: boolean;
+  },
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
+): Promise<Tx[]> {
   'worklet';
 
   const requestPath = buildPortfolioTxHistoryRequestPath({
@@ -222,12 +230,16 @@ export async function fetchPortfolioTxHistoryPageByRequest(args: {
     );
   }
 
-  const headers = buildSignedHeaders({
-    credentials: args.credentials,
-    requestPath: signedRequestPath,
-  });
+  const headers = buildSignedHeaders(
+    {
+      credentials: args.credentials,
+      requestPath: signedRequestPath,
+    },
+    requestContext,
+  );
 
-  const nitroFetchClient = getPortfolioNitroFetchClientOnRuntime();
+  const nitroFetchClient =
+    getPortfolioNitroFetchClientOnRuntime(requestContext);
   const url = `${baseUrl}${signedRequestPath}`;
   let response: NitroFetchResponse;
   try {

@@ -306,6 +306,79 @@ describe('createWorkletPortfolioTransport', () => {
     expectNoBroadSigningSecrets(dispatchContextRef);
   });
 
+  it('retains a dispatch context until the runtime delivers its terminal callback', async () => {
+    let runtimeOnResponse: ((response: any) => void) | undefined;
+    mockedRunOnRuntimeAsync.mockImplementation(async (...args: any[]) => {
+      captureRuntimeDispatchArgs(args);
+      runtimeOnResponse = args[5];
+    });
+
+    const transport = createWorkletPortfolioTransport({
+      runtime: {} as any,
+      host: {} as any,
+    });
+    const onResponse = jest.fn();
+    const onFatalError = jest.fn();
+
+    await transport.dispatch(
+      {id: 20, method: 'rates.ensure', params: {}} as any,
+      onResponse,
+      onFatalError,
+    );
+
+    const capture = lastRuntimeDispatchCapture();
+    expect(capture.dispatchContextRef.singleRequestSigningContext).toBe(
+      capture.singleRequestSigningContextRef,
+    );
+    expect(mockedDisposeSigningContext).not.toHaveBeenCalled();
+
+    runtimeOnResponse?.({id: 20, ok: true, result: undefined});
+    runtimeOnResponse?.({id: 20, ok: true, result: undefined});
+
+    expect(onResponse).toHaveBeenCalledTimes(1);
+    expect(onFatalError).not.toHaveBeenCalled();
+    expect(mockedDisposeSigningContext).toHaveBeenCalledTimes(1);
+    expect(mockedDisposeSigningContext).toHaveBeenCalledWith(
+      capture.singleRequestSigningContextRef,
+    );
+    expect(
+      capture.dispatchContextRef.singleRequestSigningContext,
+    ).toBeUndefined();
+  });
+
+  it('releases in-flight dispatch contexts when the transport is destroyed', async () => {
+    mockedRunOnRuntimeAsync.mockImplementation(async (...args: any[]) => {
+      captureRuntimeDispatchArgs(args);
+    });
+
+    const transport = createWorkletPortfolioTransport({
+      runtime: {} as any,
+      host: {} as any,
+    });
+
+    await transport.dispatch(
+      {id: 21, method: 'analysis.computeChart', params: {}} as any,
+      jest.fn(),
+      jest.fn(),
+    );
+
+    const capture = lastRuntimeDispatchCapture();
+    expect(
+      capture.dispatchContextRef.singleRequestSigningContext,
+    ).toBeDefined();
+
+    transport.destroy?.();
+    transport.destroy?.();
+
+    expect(mockedDisposeSigningContext).toHaveBeenCalledTimes(1);
+    expect(mockedDisposeSigningContext).toHaveBeenCalledWith(
+      capture.singleRequestSigningContextRef,
+    );
+    expect(
+      capture.dispatchContextRef.singleRequestSigningContext,
+    ).toBeUndefined();
+  });
+
   it('sanitizes prepare requests and passes only derived signing authority to txhistory page requests', async () => {
     const transport = createWorkletPortfolioTransport({
       runtime: {} as any,

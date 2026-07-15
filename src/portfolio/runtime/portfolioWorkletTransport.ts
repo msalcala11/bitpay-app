@@ -360,6 +360,17 @@ export function createWorkletPortfolioTransport(
     string,
     PortfolioTxHistorySigningAuthority
   >();
+  const activeDispatchContexts = new Set<PortfolioRuntimeDispatchContext>();
+
+  const releaseDispatchContext = (
+    dispatchContext: PortfolioRuntimeDispatchContext | undefined,
+  ): void => {
+    if (!dispatchContext) {
+      return;
+    }
+    activeDispatchContexts.delete(dispatchContext);
+    clearTransportDispatchContextOnJS(dispatchContext);
+  };
 
   return {
     dispatch: async (
@@ -370,6 +381,16 @@ export function createWorkletPortfolioTransport(
       const walletId = getWalletIdFromRequest(request);
       let runtimeRequest = request;
       let dispatchContext: PortfolioRuntimeDispatchContext | undefined;
+      let terminalCallbackDelivered = false;
+
+      const finishDispatch = (): boolean => {
+        if (terminalCallbackDelivered) {
+          return false;
+        }
+        terminalCallbackDelivered = true;
+        releaseDispatchContext(dispatchContext);
+        return true;
+      };
 
       try {
         if (request.method === 'snapshots.prepareWallet' && walletId) {
@@ -400,15 +421,15 @@ export function createWorkletPortfolioTransport(
         }
 
         runtimeRequest = buildRuntimeRequestForWorklet(request);
-        dispatchContext = {
-          singleRequestSigningContext:
-            buildSingleRequestSigningContextForRequest({
-              request: runtimeRequest,
-              sessionSigningAuthorityByWalletId,
-            }),
-          populateJobSigningContextsByWalletId:
-            buildPopulateJobSigningContextsForRequest(request),
-        };
+        dispatchContext = {};
+        dispatchContext.singleRequestSigningContext =
+          buildSingleRequestSigningContextForRequest({
+            request: runtimeRequest,
+            sessionSigningAuthorityByWalletId,
+          });
+        dispatchContext.populateJobSigningContextsByWalletId =
+          buildPopulateJobSigningContextsForRequest(request);
+        activeDispatchContexts.add(dispatchContext);
 
         const dispatchOnRuntime = shouldAwaitPopulateTerminalResponse(
           runtimeRequest,
@@ -423,6 +444,9 @@ export function createWorkletPortfolioTransport(
           runtimeRequest,
           dispatchContext,
           (response: WorkerResponse) => {
+            if (!finishDispatch()) {
+              return;
+            }
             reconcileSessionCredentialsAfterResponse({
               request: runtimeRequest,
               response,
@@ -432,6 +456,9 @@ export function createWorkletPortfolioTransport(
             onResponse(response);
           },
           (message: string, stack?: string) => {
+            if (!finishDispatch()) {
+              return;
+            }
             reconcileSessionCredentialsAfterFatalError({
               request: runtimeRequest,
               walletId,
@@ -441,18 +468,22 @@ export function createWorkletPortfolioTransport(
           },
         );
       } catch (error: unknown) {
-        clearTransportDispatchContextOnJS(dispatchContext);
+        if (!finishDispatch()) {
+          return;
+        }
         reconcileSessionCredentialsAfterFatalError({
           request: runtimeRequest,
           walletId,
           sessionSigningAuthorityByWalletId,
         });
         onFatalError(toRuntimeError(error));
-      } finally {
-        clearTransportDispatchContextOnJS(dispatchContext);
       }
     },
     destroy: () => {
+      for (const dispatchContext of activeDispatchContexts) {
+        clearTransportDispatchContextOnJS(dispatchContext);
+      }
+      activeDispatchContexts.clear();
       sessionSigningAuthorityByWalletId.clear();
     },
   };

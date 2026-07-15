@@ -21,6 +21,7 @@ import type {BwsConfig} from '../../core/shared/bws';
 import {DEFAULT_PORTFOLIO_MMKV_REGISTRY_KEY} from '../../adapters/rn/mmkvKvStore';
 import type {WorkletMmkvStorageBridge} from '../../adapters/rn/mmkvKvStore';
 import {fetchPortfolioTxHistoryPageByRequest} from '../../adapters/rn/txHistoryRequest';
+import type {PortfolioTxHistorySigningDispatchContext} from '../../adapters/rn/txHistorySigning';
 import {
   appendWorkletSnapshotChunk,
   clearWorkletInvalidHistoryMarker,
@@ -177,6 +178,7 @@ export async function handlePrepareWalletOnPopulateWorklet(
     pageSize: number;
     emitRows?: number;
   },
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
 ): Promise<PrepareWalletSessionResult> {
   'worklet';
 
@@ -191,12 +193,15 @@ export async function handlePrepareWalletOnPopulateWorklet(
 
   const kvConfig = getKvConfig(config);
   const index = await ensureWorkletWalletIndex(kvConfig, meta);
-  const fiatRateSeriesCache = await ensureWorkletSnapshotRateSeriesCache({
-    ...kvConfig,
-    cfg: params.cfg,
-    quoteCurrency: params.ingest.quoteCurrency,
-    wallet: params.wallet,
-  });
+  const fiatRateSeriesCache = await ensureWorkletSnapshotRateSeriesCache(
+    {
+      ...kvConfig,
+      cfg: params.cfg,
+      quoteCurrency: params.ingest.quoteCurrency,
+      wallet: params.wallet,
+    },
+    requestContext,
+  );
 
   const builder = createPortfolioSnapshotBuilderState({
     wallet: params.wallet,
@@ -274,6 +279,7 @@ export async function handleProcessNextPageOnPopulateWorklet(
   config: PortfolioPopulateWorkletConfig,
   state: PortfolioPopulateWorkletState,
   walletId: string,
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
 ): Promise<ProcessNextPageSessionResult> {
   'worklet';
 
@@ -290,13 +296,16 @@ export async function handleProcessNextPageOnPopulateWorklet(
 
       if (!txs.length) {
         const fetchStartedAt = Date.now();
-        txs = await fetchPortfolioTxHistoryPageByRequest({
-          credentials: session.credentials,
-          cfg: session.fetch.cfg,
-          skip,
-          limit: session.fetch.pageSize,
-          reverse: true,
-        });
+        txs = await fetchPortfolioTxHistoryPageByRequest(
+          {
+            credentials: session.credentials,
+            cfg: session.fetch.cfg,
+            skip,
+            limit: session.fetch.pageSize,
+            reverse: true,
+          },
+          requestContext,
+        );
         fetchMs = Math.max(0, Date.now() - fetchStartedAt);
         fetchedTxs = txs.length;
         session.fetch.pendingTxs = dedupeTxHistoryPage(txs);

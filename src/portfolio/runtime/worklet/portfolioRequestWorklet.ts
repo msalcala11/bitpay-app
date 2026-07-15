@@ -5,6 +5,7 @@ import type {
 } from '../../core/engine/workerProtocol';
 import {DEFAULT_PORTFOLIO_MMKV_REGISTRY_KEY} from '../../adapters/rn/mmkvKvStore';
 import type {WorkletMmkvStorageBridge} from '../../adapters/rn/mmkvKvStore';
+import type {PortfolioTxHistorySigningDispatchContext} from '../../adapters/rn/txHistorySigning';
 import {
   handleCloseWalletSessionOnPopulateWorklet,
   handleFinishWalletOnPopulateWorklet,
@@ -212,6 +213,7 @@ export function canHandlePortfolioRequestOnRuntime(
 export async function handlePortfolioRequestOnRuntime(
   config: PortfolioWorkletRequestConfig,
   request: WorkerRequest,
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
   populateJobSigningContextsByWalletId?: PortfolioPopulateJobSigningContextMap,
 ): Promise<WorkerResponse> {
   'worklet';
@@ -233,10 +235,13 @@ export async function handlePortfolioRequestOnRuntime(
 
       switch (request.method) {
         case 'rates.ensure': {
-          await ensureWorkletRates({
-            ...kvConfig,
-            ...(request.params as any),
-          });
+          await ensureWorkletRates(
+            {
+              ...kvConfig,
+              ...(request.params as any),
+            },
+            requestContext,
+          );
           return {
             id: request.id,
             ok: true,
@@ -245,10 +250,13 @@ export async function handlePortfolioRequestOnRuntime(
         }
 
         case 'rates.getCache': {
-          const result = await getWorkletRateSeriesCache({
-            ...kvConfig,
-            ...(request.params as any),
-          });
+          const result = await getWorkletRateSeriesCache(
+            {
+              ...kvConfig,
+              ...(request.params as any),
+            },
+            requestContext,
+          );
           return {
             id: request.id,
             ok: true,
@@ -284,6 +292,7 @@ export async function handlePortfolioRequestOnRuntime(
             config,
             state,
             request.params as any,
+            requestContext,
           );
           return {
             id: request.id,
@@ -309,6 +318,7 @@ export async function handlePortfolioRequestOnRuntime(
             config,
             state,
             String((request.params as any)?.walletId || ''),
+            requestContext,
           );
           return {
             id: request.id,
@@ -370,6 +380,7 @@ export async function handlePortfolioRequestOnRuntime(
           const rawResult = await computeWorkletAnalysis(
             kvConfig,
             request.params as any,
+            requestContext,
           );
           const result = clonePortableForRnBridge(rawResult);
           return {
@@ -383,6 +394,7 @@ export async function handlePortfolioRequestOnRuntime(
           const result = await prepareWorkletAnalysisSession(
             kvConfig,
             request.params as any,
+            requestContext,
           );
           return {
             id: request.id,
@@ -417,6 +429,7 @@ export async function handlePortfolioRequestOnRuntime(
           const rawResult = await computeWorkletAnalysisChart(
             kvConfig,
             request.params as any,
+            requestContext,
           );
           const result = clonePortableForRnBridge(rawResult);
           return {
@@ -430,6 +443,7 @@ export async function handlePortfolioRequestOnRuntime(
           const rawResult = await computeWorkletBalanceChartViewModel(
             kvConfig,
             request.params as any,
+            requestContext,
           );
           const result = clonePortableForRnBridge(rawResult);
           return {

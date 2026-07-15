@@ -16,10 +16,8 @@ import type {
 import {isPortfolioRemoteRequestError} from '../../core/remoteRequestError';
 import {toPortfolioRuntimeWalletCredentials} from '../../core/runtimeWalletCredentials';
 import {
-  clearPortfolioTxHistorySigningDispatchContextOnRuntime,
   disposePortfolioTxHistorySigningDispatchContext,
   portfolioTxHistorySigningDispatchContextHasSigningAuthority,
-  setPortfolioTxHistorySigningDispatchContextOnRuntime,
   type PortfolioTxHistorySigningDispatchContext,
 } from '../../adapters/rn/txHistorySigning';
 import {
@@ -419,7 +417,6 @@ export function resetPortfolioPopulateJobWorkletState(
 
   const state = getOrCreatePortfolioPopulateJobWorkletState(config);
   clearAllJobSigningContexts(state.activeJob);
-  clearPortfolioTxHistorySigningDispatchContextOnRuntime();
   const populateState = getOrCreatePortfolioPopulateWorkletState(config);
   for (const walletId of Object.keys(populateState.sessionsByWalletId)) {
     delete populateState.sessionsByWalletId[walletId];
@@ -455,11 +452,13 @@ function ensureActiveJobMatches(
   return job.jobId === jobId ? job : null;
 }
 
-function withWalletSigningContext<T>(
+async function withWalletRequestContext<T>(
   job: WorkletPopulateJob,
   walletId: string,
   options: {requiresSigning: boolean},
-  task: () => Promise<T>,
+  task: (
+    requestContext: PortfolioTxHistorySigningDispatchContext,
+  ) => Promise<T>,
 ): Promise<T> {
   'worklet';
 
@@ -475,18 +474,22 @@ function withWalletSigningContext<T>(
     throw new Error('Portfolio txhistory signing context is unavailable.');
   }
 
-  const signingContext = options.requiresSigning
+  const requestContext = options.requiresSigning
     ? storedContext
     : buildFetchOnlySigningContext(storedContext);
+  if (!requestContext) {
+    throw new Error('Portfolio runtime request context is unavailable.');
+  }
 
-  return (async () => {
-    setPortfolioTxHistorySigningDispatchContextOnRuntime(signingContext);
-    try {
-      return await task();
-    } finally {
-      clearPortfolioTxHistorySigningDispatchContextOnRuntime();
+  try {
+    return await task(requestContext);
+  } finally {
+    // A fetch-only view is a temporary shallow object. Releasing it does not
+    // modify the signing-capable context owned by the background job.
+    if (requestContext !== storedContext) {
+      disposePortfolioTxHistorySigningDispatchContext(requestContext);
     }
-  })();
+  }
 }
 
 async function runSingleWalletPopulateOnWorklet(args: {
@@ -520,19 +523,24 @@ async function runSingleWalletPopulateOnWorklet(args: {
   }
 
   try {
-    walletRun.prepared = await withWalletSigningContext(
+    walletRun.prepared = await withWalletRequestContext(
       job,
       walletId,
       {requiresSigning: false},
-      () =>
-        handlePrepareWalletOnPopulateWorklet(config, populateState, {
-          cfg: params.cfg,
-          wallet: wallet.summary,
-          credentials: wallet.credentials,
-          ingest: params.ingest,
-          pageSize: params.pageSize,
-          emitRows: params.emitRows,
-        }),
+      requestContext =>
+        handlePrepareWalletOnPopulateWorklet(
+          config,
+          populateState,
+          {
+            cfg: params.cfg,
+            wallet: wallet.summary,
+            credentials: wallet.credentials,
+            ingest: params.ingest,
+            pageSize: params.pageSize,
+            emitRows: params.emitRows,
+          },
+          requestContext,
+        ),
     );
   } catch (error: unknown) {
     try {
@@ -545,15 +553,16 @@ async function runSingleWalletPopulateOnWorklet(args: {
 
   try {
     while (!job.cancelRequested) {
-      const result = await withWalletSigningContext(
+      const result = await withWalletRequestContext(
         job,
         walletId,
         {requiresSigning: true},
-        () =>
+        requestContext =>
           handleProcessNextPageOnPopulateWorklet(
             config,
             populateState,
             walletId,
+            requestContext,
           ),
       );
 
@@ -718,7 +727,6 @@ async function runPortfolioPopulateJobLoop(args: {
     job.finishedAt = nowMs();
     touchJob(job);
     state.activeJob = job;
-    clearPortfolioTxHistorySigningDispatchContextOnRuntime();
   }
 }
 
@@ -764,7 +772,6 @@ export async function handleStartPopulateJobOnWorklet(
     params: runtimeParams,
   }).catch((error: unknown) => {
     clearAllJobSigningContexts(job);
-    clearPortfolioTxHistorySigningDispatchContextOnRuntime();
     job.state = 'failed';
     job.inProgress = false;
     job.finishedAt = nowMs();
@@ -804,19 +811,10 @@ export async function handleCancelPopulateJobOnWorklet(
   }
 
   if (job.inProgress) {
+    // Keep the current wallet context alive until its in-flight step returns.
+    // The job loop observes this flag, closes the session, and disposes every
+    // job-owned context on its terminal path.
     job.cancelRequested = true;
-    clearAllJobSigningContexts(job);
-    clearPortfolioTxHistorySigningDispatchContextOnRuntime();
-    if (job.currentWalletId) {
-      try {
-        await handleCloseWalletSessionOnPopulateWorklet(
-          getOrCreatePortfolioPopulateWorkletState(config),
-          job.currentWalletId,
-        );
-      } catch {
-        // Ignore cancellation cleanup failures.
-      }
-    }
     touchJob(job);
   }
 

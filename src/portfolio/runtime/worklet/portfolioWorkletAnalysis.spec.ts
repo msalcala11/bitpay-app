@@ -1,20 +1,20 @@
 import {
   clearWorkletAnalysisSessions,
-  computeWorkletBalanceChartViewModel,
-  computeWorkletAnalysis,
-  computeWorkletAnalysisChart,
+  computeWorkletBalanceChartViewModel as computeWorkletBalanceChartViewModelOnRuntime,
+  computeWorkletAnalysis as computeWorkletAnalysisOnRuntime,
+  computeWorkletAnalysisChart as computeWorkletAnalysisChartOnRuntime,
   computeWorkletAnalysisSessionScope,
   disposeWorkletAnalysisSession,
-  prepareWorkletAnalysisSession,
+  prepareWorkletAnalysisSession as prepareWorkletAnalysisSessionOnRuntime,
 } from './portfolioWorkletAnalysis';
 import {
   compactPnlAnalysisResultForChart,
   setPnlAnalysisDebugHooksForTests,
 } from '../../core/pnl/analysisStreaming';
-import {clearPortfolioTxHistorySigningDispatchContextOnRuntime} from '../../adapters/rn/txHistorySigning';
+import type {PortfolioTxHistorySigningDispatchContext} from '../../adapters/rn/txHistorySigning';
 import {
   createFakeWorkletStorage,
-  installNitroFetchMock,
+  installNitroFetchMock as installNitroFetchMockWithContext,
   type FakeNitroRequest,
   type FakeNitroResponse,
 } from './__tests__/workletTestUtils';
@@ -23,6 +23,36 @@ import {
   buildWorkletWalletMetaForStore,
 } from './portfolioWorkletSnapshots';
 import {workletKvListKeys} from './portfolioWorkletKv';
+
+let requestContext: PortfolioTxHistorySigningDispatchContext | undefined;
+
+const installNitroFetchMock = (
+  handler: Parameters<typeof installNitroFetchMockWithContext>[0],
+) => {
+  const installed = installNitroFetchMockWithContext(handler);
+  requestContext = installed.requestContext;
+  return installed;
+};
+
+const computeWorkletAnalysis = (
+  config: Parameters<typeof computeWorkletAnalysisOnRuntime>[0],
+  args: Parameters<typeof computeWorkletAnalysisOnRuntime>[1],
+) => computeWorkletAnalysisOnRuntime(config, args, requestContext);
+
+const computeWorkletAnalysisChart = (
+  config: Parameters<typeof computeWorkletAnalysisChartOnRuntime>[0],
+  args: Parameters<typeof computeWorkletAnalysisChartOnRuntime>[1],
+) => computeWorkletAnalysisChartOnRuntime(config, args, requestContext);
+
+const computeWorkletBalanceChartViewModel = (
+  config: Parameters<typeof computeWorkletBalanceChartViewModelOnRuntime>[0],
+  args: Parameters<typeof computeWorkletBalanceChartViewModelOnRuntime>[1],
+) => computeWorkletBalanceChartViewModelOnRuntime(config, args, requestContext);
+
+const prepareWorkletAnalysisSession = (
+  config: Parameters<typeof prepareWorkletAnalysisSessionOnRuntime>[0],
+  args: Parameters<typeof prepareWorkletAnalysisSessionOnRuntime>[1],
+) => prepareWorkletAnalysisSessionOnRuntime(config, args, requestContext);
 
 const createStoredWallet = () =>
   ({
@@ -163,7 +193,7 @@ const createDebugCounters = () => {
 describe('portfolioWorkletAnalysis', () => {
   afterEach(() => {
     clearWorkletAnalysisSessions();
-    clearPortfolioTxHistorySigningDispatchContextOnRuntime();
+    requestContext = undefined;
     jest.restoreAllMocks();
     setPnlAnalysisDebugHooksForTests(undefined);
   });
@@ -667,7 +697,11 @@ describe('portfolioWorkletAnalysis', () => {
 
     const reloadedModule =
       require('./portfolioWorkletAnalysis') as typeof import('./portfolioWorkletAnalysis');
-    const direct = await reloadedModule.computeWorkletAnalysis(config, args);
+    const direct = await reloadedModule.computeWorkletAnalysis(
+      config,
+      args,
+      requestContext,
+    );
     const scoped = await reloadedModule.computeWorkletAnalysisSessionScope(
       config,
       {

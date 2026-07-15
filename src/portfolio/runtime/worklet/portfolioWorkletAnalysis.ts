@@ -37,6 +37,7 @@ import {
   loadWorkletSnapshotIndex,
 } from './portfolioWorkletSnapshots';
 import {resolveKnownWalletAtomicDecimals} from '../../core/format';
+import type {PortfolioTxHistorySigningDispatchContext} from '../../adapters/rn/txHistorySigning';
 
 function getAssetIdFromWallet(wallet: {
   chain?: string;
@@ -208,6 +209,7 @@ function isStoredWalletDecimalsResolvedForAnalysis(wallet: any): boolean {
 async function prepareWorkletAnalysisSessionData(
   config: PortfolioWorkletKvConfig,
   args: ComputeAnalysisArgs,
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
 ): Promise<PreparedWorkletAnalysisSessionData> {
   'worklet';
 
@@ -301,14 +303,17 @@ async function prepareWorkletAnalysisSessionData(
   const rateIntervals = getRateIntervalsForAnalysis(args.timeframe);
 
   for (const interval of rateIntervals) {
-    await ensureWorkletCanonicalAndFxRates({
-      storage: config.storage,
-      registryKey: config.registryKey,
-      cfg: args.cfg,
-      quoteCurrency: targetQuoteCurrency,
-      timeframe: interval,
-      assets: baseAssets,
-    });
+    await ensureWorkletCanonicalAndFxRates(
+      {
+        storage: config.storage,
+        registryKey: config.registryKey,
+        cfg: args.cfg,
+        quoteCurrency: targetQuoteCurrency,
+        timeframe: interval,
+        assets: baseAssets,
+      },
+      requestContext,
+    );
   }
 
   const ratePointsByAssetId: Record<string, FiatRatePoint[]> = {};
@@ -507,19 +512,29 @@ async function computeWorkletAnalysisFromPreparedSessionData(
 export async function computeWorkletAnalysis(
   config: PortfolioWorkletKvConfig,
   args: ComputeAnalysisArgs,
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
 ): Promise<PnlAnalysisResult> {
   'worklet';
-  const prepared = await prepareWorkletAnalysisSessionData(config, args);
+  const prepared = await prepareWorkletAnalysisSessionData(
+    config,
+    args,
+    requestContext,
+  );
   return computeWorkletAnalysisFromPreparedSessionData(config, prepared);
 }
 
 export async function prepareWorkletAnalysisSession(
   config: PortfolioWorkletKvConfig,
   args: ComputeAnalysisArgs,
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
 ): Promise<PrepareAnalysisSessionResult> {
   'worklet';
 
-  const prepared = await prepareWorkletAnalysisSessionData(config, args);
+  const prepared = await prepareWorkletAnalysisSessionData(
+    config,
+    args,
+    requestContext,
+  );
   const state = getOrCreatePortfolioWorkletAnalysisState();
   const sessionId = `analysis-session:${state.nextPreparedWorkletAnalysisSessionId++}`;
   state.preparedSessionsById[sessionId] = prepared;
@@ -568,9 +583,14 @@ export function clearWorkletAnalysisSessions(): void {
 export async function computeWorkletAnalysisChart(
   config: PortfolioWorkletKvConfig,
   args: ComputeAnalysisArgs,
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
 ): Promise<PnlAnalysisChartResult> {
   'worklet';
-  const prepared = await prepareWorkletAnalysisSessionData(config, args);
+  const prepared = await prepareWorkletAnalysisSessionData(
+    config,
+    args,
+    requestContext,
+  );
   const streamedArgs =
     await buildWorkletStreamedAnalysisArgsFromPreparedSessionData(
       config,
@@ -582,10 +602,11 @@ export async function computeWorkletAnalysisChart(
 export async function computeWorkletBalanceChartViewModel(
   config: PortfolioWorkletKvConfig,
   args: ComputeBalanceChartViewModelArgs,
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
 ): Promise<BalanceChartViewModel> {
   'worklet';
 
-  const chart = await computeWorkletAnalysisChart(config, args);
+  const chart = await computeWorkletAnalysisChart(config, args, requestContext);
   return buildBalanceChartViewModelFromAnalysisChart({
     chart,
     walletIds: args.walletIds,

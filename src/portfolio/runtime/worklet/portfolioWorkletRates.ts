@@ -42,6 +42,7 @@ import {
 import {
   DEFAULT_PORTFOLIO_NITRO_FETCH_TIMEOUT_MS,
   getPortfolioNitroFetchClientOnRuntime,
+  type PortfolioTxHistorySigningDispatchContext,
 } from '../../adapters/rn/txHistorySigning';
 
 export const getWorkletRateStorageKey = (args: {
@@ -129,12 +130,15 @@ function extractSeries(
   return null;
 }
 
-async function fetchFiatRatePayload(args: {
-  cfg: BwsConfig;
-  quoteCurrency: string;
-  interval: FiatRateInterval;
-  asset?: Pick<FiatRateAssetRef, 'chain' | 'tokenAddress'>;
-}): Promise<unknown> {
+async function fetchFiatRatePayload(
+  args: {
+    cfg: BwsConfig;
+    quoteCurrency: string;
+    interval: FiatRateInterval;
+    asset?: Pick<FiatRateAssetRef, 'chain' | 'tokenAddress'>;
+  },
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
+): Promise<unknown> {
   'worklet';
 
   const url = getFiatRateSeriesUrl(
@@ -147,7 +151,8 @@ async function fetchFiatRatePayload(args: {
     },
   );
 
-  const nitroFetchClient = getPortfolioNitroFetchClientOnRuntime();
+  const nitroFetchClient =
+    getPortfolioNitroFetchClientOnRuntime(requestContext);
   let response: NitroFetchResponse;
   try {
     response = nitroFetchClient.requestSync({
@@ -190,23 +195,29 @@ async function fetchFiatRatePayload(args: {
   }
 }
 
-async function fetchFiatRateSeries(args: {
-  cfg: BwsConfig;
-  quoteCurrency: string;
-  interval: FiatRateInterval;
-  asset: FiatRateAssetRef;
-}): Promise<FiatRateSeries | null> {
+async function fetchFiatRateSeries(
+  args: {
+    cfg: BwsConfig;
+    quoteCurrency: string;
+    interval: FiatRateInterval;
+    asset: FiatRateAssetRef;
+  },
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
+): Promise<FiatRateSeries | null> {
   'worklet';
 
-  const payload = await fetchFiatRatePayload({
-    cfg: args.cfg,
-    quoteCurrency: args.quoteCurrency,
-    interval: args.interval,
-    asset: {
-      chain: args.asset.chain,
-      tokenAddress: args.asset.tokenAddress,
+  const payload = await fetchFiatRatePayload(
+    {
+      cfg: args.cfg,
+      quoteCurrency: args.quoteCurrency,
+      interval: args.interval,
+      asset: {
+        chain: args.asset.chain,
+        tokenAddress: args.asset.tokenAddress,
+      },
     },
-  });
+    requestContext,
+  );
 
   return extractSeries(payload, args.asset.coin);
 }
@@ -240,6 +251,7 @@ async function loadOrFetchRateSeries(
     interval: FiatRateInterval;
     asset: FiatRateAssetRef;
   },
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
 ): Promise<FiatRateSeries | null> {
   'worklet';
 
@@ -261,12 +273,15 @@ async function loadOrFetchRateSeries(
 
   let fetched: FiatRateSeries | null;
   try {
-    fetched = await fetchFiatRateSeries({
-      cfg: args.cfg,
-      quoteCurrency: args.quoteCurrency,
-      interval: args.interval,
-      asset: args.asset,
-    });
+    fetched = await fetchFiatRateSeries(
+      {
+        cfg: args.cfg,
+        quoteCurrency: args.quoteCurrency,
+        interval: args.interval,
+        asset: args.asset,
+      },
+      requestContext,
+    );
   } catch (error: unknown) {
     if (stored?.points?.length) {
       return stored;
@@ -301,6 +316,7 @@ export async function ensureWorkletRates(
     maxAgeMs?: number;
     force?: boolean;
   },
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
 ): Promise<void> {
   'worklet';
 
@@ -373,11 +389,14 @@ export async function ensureWorkletRates(
   if (missingDefaults.length) {
     let payload: unknown;
     try {
-      payload = await fetchFiatRatePayload({
-        cfg: args.cfg,
-        quoteCurrency,
-        interval,
-      });
+      payload = await fetchFiatRatePayload(
+        {
+          cfg: args.cfg,
+          quoteCurrency,
+          interval,
+        },
+        requestContext,
+      );
     } catch (error: unknown) {
       const missingWithoutFallback = missingDefaults.filter(
         coin => !fallbackDefaultCoins.has(coin),
@@ -408,12 +427,15 @@ export async function ensureWorkletRates(
 
   for (const asset of missingExplicit) {
     try {
-      const series = await fetchFiatRateSeries({
-        cfg: args.cfg,
-        quoteCurrency,
-        interval,
-        asset,
-      });
+      const series = await fetchFiatRateSeries(
+        {
+          cfg: args.cfg,
+          quoteCurrency,
+          interval,
+          asset,
+        },
+        requestContext,
+      );
       if (series?.points?.length) {
         workletKvSetString(
           args,
@@ -441,6 +463,7 @@ export async function getWorkletRateSeriesCache(
     maxAgeMs?: number;
     force?: boolean;
   },
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
 ): Promise<FiatRateSeriesCache> {
   'worklet';
 
@@ -514,21 +537,24 @@ export async function getWorkletRateSeriesCache(
   }
 
   for (const [interval, bucket] of assetsByInterval.entries()) {
-    await ensureWorkletRates({
-      storage: args.storage,
-      registryKey: args.registryKey,
-      cfg: args.cfg,
-      quoteCurrency,
-      interval,
-      coins: Object.keys(bucket.coins).sort((a, b) => a.localeCompare(b)),
-      assets: Object.values(bucket.assets).sort((a, b) =>
-        `${a.coin}|${a.chain || ''}|${a.tokenAddress || ''}`.localeCompare(
-          `${b.coin}|${b.chain || ''}|${b.tokenAddress || ''}`,
+    await ensureWorkletRates(
+      {
+        storage: args.storage,
+        registryKey: args.registryKey,
+        cfg: args.cfg,
+        quoteCurrency,
+        interval,
+        coins: Object.keys(bucket.coins).sort((a, b) => a.localeCompare(b)),
+        assets: Object.values(bucket.assets).sort((a, b) =>
+          `${a.coin}|${a.chain || ''}|${a.tokenAddress || ''}`.localeCompare(
+            `${b.coin}|${b.chain || ''}|${b.tokenAddress || ''}`,
+          ),
         ),
-      ),
-      maxAgeMs: args.maxAgeMs,
-      force: args.force,
-    });
+        maxAgeMs: args.maxAgeMs,
+        force: args.force,
+      },
+      requestContext,
+    );
   }
 
   const cache: FiatRateSeriesCache = {};
@@ -691,6 +717,7 @@ export async function ensureWorkletSnapshotRateSeriesCache(
     quoteCurrency: string;
     wallet: WalletSummary;
   },
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
 ): Promise<FiatRateSeriesCache> {
   'worklet';
 
@@ -714,14 +741,17 @@ export async function ensureWorkletSnapshotRateSeriesCache(
 
   for (const interval of intervals) {
     try {
-      const series = await loadOrFetchRateSeries({
-        storage: args.storage,
-        registryKey: args.registryKey,
-        cfg: args.cfg,
-        quoteCurrency,
-        interval,
-        asset,
-      });
+      const series = await loadOrFetchRateSeries(
+        {
+          storage: args.storage,
+          registryKey: args.registryKey,
+          cfg: args.cfg,
+          quoteCurrency,
+          interval,
+          asset,
+        },
+        requestContext,
+      );
       if (!series?.points?.length) {
         continue;
       }
@@ -755,6 +785,7 @@ export async function ensureWorkletCanonicalAndFxRates(
       tokenAddress?: string;
     }>;
   },
+  requestContext: PortfolioTxHistorySigningDispatchContext | undefined,
 ): Promise<void> {
   'worklet';
 
@@ -771,24 +802,30 @@ export async function ensureWorkletCanonicalAndFxRates(
   );
   const explicitAssets = args.assets.filter(asset => !!asset.tokenAddress);
 
-  await ensureWorkletRates({
-    storage: args.storage,
-    registryKey: args.registryKey,
-    cfg: args.cfg,
-    quoteCurrency: CANONICAL_FIAT_QUOTE,
-    interval: args.timeframe,
-    coins: defaultCoins,
-    assets: explicitAssets,
-  });
-
-  if (targetQuoteCurrency !== CANONICAL_FIAT_QUOTE) {
-    await ensureWorkletRates({
+  await ensureWorkletRates(
+    {
       storage: args.storage,
       registryKey: args.registryKey,
       cfg: args.cfg,
-      quoteCurrency: targetQuoteCurrency,
+      quoteCurrency: CANONICAL_FIAT_QUOTE,
       interval: args.timeframe,
-      coins: [FX_BRIDGE_COIN],
-    });
+      coins: defaultCoins,
+      assets: explicitAssets,
+    },
+    requestContext,
+  );
+
+  if (targetQuoteCurrency !== CANONICAL_FIAT_QUOTE) {
+    await ensureWorkletRates(
+      {
+        storage: args.storage,
+        registryKey: args.registryKey,
+        cfg: args.cfg,
+        quoteCurrency: targetQuoteCurrency,
+        interval: args.timeframe,
+        coins: [FX_BRIDGE_COIN],
+      },
+      requestContext,
+    );
   }
 }

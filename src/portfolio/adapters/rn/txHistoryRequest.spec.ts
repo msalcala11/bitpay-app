@@ -1,20 +1,41 @@
 const mockRequestSync = jest.fn();
-const mockSignBwsGetRequestWithTransferredNitro = jest.fn(() => 'signature');
-const mockTakeNextPortfolioTransferredSignHandleOnRuntime = jest.fn(() => ({
-  firstHashHybrid: {},
-  signHandleHybrid: {},
-  privateKeyHandle: {},
-}));
+const mockGetPortfolioNitroFetchClientOnRuntime = jest.fn();
+const mockSignBwsGetRequestWithTransferredNitro = jest.fn(
+  (
+    _requestPath?: unknown,
+    _firstHashHybrid?: unknown,
+    _signHandleHybrid?: unknown,
+    _privateKeyHandle?: unknown,
+  ) => 'signature',
+);
+const mockTakeNextPortfolioTransferredSignHandleOnRuntime = jest.fn(
+  (_context?: unknown) => ({
+    firstHashHybrid: {},
+    signHandleHybrid: {},
+    privateKeyHandle: {},
+  }),
+);
 
 jest.mock('./txHistorySigning', () => ({
   DEFAULT_PORTFOLIO_NITRO_FETCH_TIMEOUT_MS: 100000,
-  getPortfolioNitroFetchClientOnRuntime: () => ({
-    requestSync: mockRequestSync,
-  }),
-  signBwsGetRequestWithTransferredNitro: (...args: unknown[]) =>
-    mockSignBwsGetRequestWithTransferredNitro(...args),
-  takeNextPortfolioTransferredSignHandleOnRuntime: () =>
-    mockTakeNextPortfolioTransferredSignHandleOnRuntime(),
+  getPortfolioNitroFetchClientOnRuntime: (context: unknown) => {
+    mockGetPortfolioNitroFetchClientOnRuntime(context);
+    return {requestSync: mockRequestSync};
+  },
+  signBwsGetRequestWithTransferredNitro: (
+    requestPath: unknown,
+    firstHashHybrid: unknown,
+    signHandleHybrid: unknown,
+    privateKeyHandle: unknown,
+  ) =>
+    mockSignBwsGetRequestWithTransferredNitro(
+      requestPath,
+      firstHashHybrid,
+      signHandleHybrid,
+      privateKeyHandle,
+    ),
+  takeNextPortfolioTransferredSignHandleOnRuntime: (context: unknown) =>
+    mockTakeNextPortfolioTransferredSignHandleOnRuntime(context),
 }));
 
 import {
@@ -28,6 +49,8 @@ import {
   isPortfolioRemoteRequestError,
 } from '../../core/remoteRequestError';
 import {version as bitcoreWalletClientVersion} from '@bitpay-labs/bitcore-wallet-client/package.json';
+
+const requestContext = {kind: 'request-context'} as any;
 
 const fetchTxHistoryArgs = {
   credentials: {
@@ -56,13 +79,16 @@ describe('fetchPortfolioTxHistoryPageByRequest', () => {
     });
 
     await expect(
-      fetchPortfolioTxHistoryPageByRequest({
-        ...fetchTxHistoryArgs,
-        cfg: {
-          ...fetchTxHistoryArgs.cfg,
-          timeoutMs: 100000,
+      fetchPortfolioTxHistoryPageByRequest(
+        {
+          ...fetchTxHistoryArgs,
+          cfg: {
+            ...fetchTxHistoryArgs.cfg,
+            timeoutMs: 100000,
+          },
         },
-      }),
+        requestContext,
+      ),
     ).resolves.toEqual([]);
 
     expect(mockRequestSync).toHaveBeenCalledWith(
@@ -70,6 +96,12 @@ describe('fetchPortfolioTxHistoryPageByRequest', () => {
         timeoutMs: 100000,
       }),
     );
+    expect(mockGetPortfolioNitroFetchClientOnRuntime).toHaveBeenCalledWith(
+      requestContext,
+    );
+    expect(
+      mockTakeNextPortfolioTransferredSignHandleOnRuntime,
+    ).toHaveBeenCalledWith(requestContext);
   });
 
   it('falls back to the default 100 second Nitro Fetch timeout', async () => {
@@ -81,7 +113,7 @@ describe('fetchPortfolioTxHistoryPageByRequest', () => {
     });
 
     await expect(
-      fetchPortfolioTxHistoryPageByRequest(fetchTxHistoryArgs),
+      fetchPortfolioTxHistoryPageByRequest(fetchTxHistoryArgs, requestContext),
     ).resolves.toEqual([]);
 
     expect(mockRequestSync).toHaveBeenCalledWith(
@@ -98,7 +130,10 @@ describe('fetchPortfolioTxHistoryPageByRequest', () => {
       throw error;
     });
 
-    const promise = fetchPortfolioTxHistoryPageByRequest(fetchTxHistoryArgs);
+    const promise = fetchPortfolioTxHistoryPageByRequest(
+      fetchTxHistoryArgs,
+      requestContext,
+    );
 
     await expect(promise).rejects.toThrow(
       'Portfolio Nitro Fetch txhistory request failed: TimeoutError: socket timed out',
@@ -121,7 +156,10 @@ describe('fetchPortfolioTxHistoryPageByRequest', () => {
       bodyString: 'NSURLErrorDomain(-1001): The request timed out.',
     });
 
-    const promise = fetchPortfolioTxHistoryPageByRequest(fetchTxHistoryArgs);
+    const promise = fetchPortfolioTxHistoryPageByRequest(
+      fetchTxHistoryArgs,
+      requestContext,
+    );
 
     await expect(promise).rejects.toThrow(
       'BWS txhistory request failed with status 0. NSURLErrorDomain(-1001): The request timed out.',

@@ -1,23 +1,45 @@
-import {clearPortfolioTxHistorySigningDispatchContextOnRuntime} from '../../adapters/rn/txHistorySigning';
+import type {PortfolioTxHistorySigningDispatchContext} from '../../adapters/rn/txHistorySigning';
 import {
   PORTFOLIO_REMOTE_REQUEST_ERROR_CODE,
   isPortfolioRemoteRequestError,
 } from '../../core/remoteRequestError';
 import {
   createFakeWorkletStorage,
-  installNitroFetchMock,
+  installNitroFetchMock as installNitroFetchMockWithContext,
   type FakeNitroRequest,
 } from './__tests__/workletTestUtils';
 import {
-  ensureWorkletRates,
-  ensureWorkletSnapshotRateSeriesCache,
-  getWorkletRateSeriesCache,
+  ensureWorkletRates as ensureWorkletRatesOnRuntime,
+  ensureWorkletSnapshotRateSeriesCache as ensureWorkletSnapshotRateSeriesCacheOnRuntime,
+  getWorkletRateSeriesCache as getWorkletRateSeriesCacheOnRuntime,
   parseWorkletStoredFiatRateSeries,
 } from './portfolioWorkletRates';
 
+let requestContext: PortfolioTxHistorySigningDispatchContext | undefined;
+
+const installNitroFetchMock = (
+  handler: Parameters<typeof installNitroFetchMockWithContext>[0],
+) => {
+  const installed = installNitroFetchMockWithContext(handler);
+  requestContext = installed.requestContext;
+  return installed;
+};
+
+const ensureWorkletRates = (
+  args: Parameters<typeof ensureWorkletRatesOnRuntime>[0],
+) => ensureWorkletRatesOnRuntime(args, requestContext);
+
+const ensureWorkletSnapshotRateSeriesCache = (
+  args: Parameters<typeof ensureWorkletSnapshotRateSeriesCacheOnRuntime>[0],
+) => ensureWorkletSnapshotRateSeriesCacheOnRuntime(args, requestContext);
+
+const getWorkletRateSeriesCache = (
+  args: Parameters<typeof getWorkletRateSeriesCacheOnRuntime>[0],
+) => getWorkletRateSeriesCacheOnRuntime(args, requestContext);
+
 describe('portfolioWorkletRates', () => {
   afterEach(() => {
-    clearPortfolioTxHistorySigningDispatchContextOnRuntime();
+    requestContext = undefined;
     jest.restoreAllMocks();
   });
 

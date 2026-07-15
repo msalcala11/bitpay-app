@@ -59,7 +59,7 @@ type BoxedHybridObjectLike<T> = {
   unbox(): T;
 };
 
-type NitroFetchClientHybrid = {
+export type NitroFetchClientHybrid = {
   request(req: NitroFetchRequest): Promise<NitroFetchResponse>;
   requestSync(req: NitroFetchRequest): NitroFetchResponse;
 };
@@ -87,14 +87,10 @@ export type PortfolioTxHistorySigningDispatchContext = {
   nextSignHandleIndex?: number;
 };
 
-type GlobalWithPortfolioSigningContext = typeof globalThis & {
-  __bitpayPortfolioTxHistorySigningContextV1__?: PortfolioTxHistorySigningDispatchContext | null;
+type GlobalWithPortfolioSigningSupport = typeof globalThis & {
   __bitpayPortfolioBitcoreLibV1__?: any;
   NitroModulesProxy?: NitroModulesLike;
 };
-
-const PORTFOLIO_TX_HISTORY_SIGNING_CONTEXT_GLOBAL_KEY =
-  '__bitpayPortfolioTxHistorySigningContextV1__';
 const SECP256K1_CURVE_ORDER_HEX =
   'fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141';
 const SECP256K1_CURVE_HALF_ORDER_HEX =
@@ -119,7 +115,7 @@ let sharedBoxedNitroModulesProxyOnJS:
   | undefined;
 
 function getBitcoreLibOnJS(): any {
-  const globalRef = globalThis as GlobalWithPortfolioSigningContext;
+  const globalRef = globalThis as GlobalWithPortfolioSigningSupport;
   const cacheMiss = !globalRef.__bitpayPortfolioBitcoreLibV1__;
   if (cacheMiss) {
     const importedBitcoreLib = require('@bitpay-labs/bitcore-lib') as any;
@@ -153,7 +149,7 @@ function getNitroModulesOnJS(): NitroModulesLike {
 function getNitroModulesForRN(): NitroModulesLike {
   'worklet';
 
-  const nitroModules = (globalThis as GlobalWithPortfolioSigningContext)
+  const nitroModules = (globalThis as GlobalWithPortfolioSigningSupport)
     .NitroModulesProxy;
   if (typeof nitroModules?.createHybridObject === 'function') {
     return nitroModules as NitroModulesLike;
@@ -213,7 +209,7 @@ function getSharedBoxedNitroFetchOnJS(): BoxedHybridObjectLike<NitroFetchHybrid>
     sharedBoxedNitroFetchOnJS = nitroModules.box(nitroFetchSingleton);
   }
 
-  return sharedBoxedNitroFetchOnJS;
+  return sharedBoxedNitroFetchOnJS as BoxedHybridObjectLike<NitroFetchHybrid>;
 }
 
 function getSharedBoxedNitroModulesProxyOnJS(): BoxedHybridObjectLike<NitroModulesLike> {
@@ -229,7 +225,7 @@ function getSharedBoxedNitroModulesProxyOnJS(): BoxedHybridObjectLike<NitroModul
     sharedBoxedNitroModulesProxyOnJS = nitroModules.box(nitroModules);
   }
 
-  return sharedBoxedNitroModulesProxyOnJS;
+  return sharedBoxedNitroModulesProxyOnJS as BoxedHybridObjectLike<NitroModulesLike>;
 }
 
 function installPortfolioNitroModulesProxyOnRuntime(
@@ -241,7 +237,7 @@ function installPortfolioNitroModulesProxyOnRuntime(
     return;
   }
 
-  const globalRef = globalThis as GlobalWithPortfolioSigningContext;
+  const globalRef = globalThis as GlobalWithPortfolioSigningSupport;
   if (typeof globalRef.NitroModulesProxy?.createHybridObject === 'function') {
     return;
   }
@@ -289,7 +285,9 @@ export function ensurePortfolioRuntimeSigningGlobals(): void {
     globalRef.process = processPolyfill;
   }
 
-  const processRef = globalRef.process as typeof processPolyfill;
+  const processRef = globalRef.process as typeof processPolyfill & {
+    browser?: boolean;
+  };
   if (typeof processRef.browser === 'undefined') {
     processRef.browser = true;
   }
@@ -720,47 +718,16 @@ export function signBwsGetRequestWithTransferredNitro(
   return normalizeSecp256k1LowSSignatureHex(rawNitroSignatureHex);
 }
 
-export function setPortfolioTxHistorySigningDispatchContextOnRuntime(
+function requirePortfolioTxHistorySigningDispatchContext(
   context: PortfolioTxHistorySigningDispatchContext | null | undefined,
-): void {
+): PortfolioTxHistorySigningDispatchContext {
   'worklet';
 
-  // The runtime global is a borrowed pointer. Its owner is the request
-  // dispatch context or populate job wallet context, which disposes it.
-  installPortfolioNitroModulesProxyOnRuntime(context?.boxedNitroModulesProxy);
-  (globalThis as GlobalWithPortfolioSigningContext)[
-    PORTFOLIO_TX_HISTORY_SIGNING_CONTEXT_GLOBAL_KEY
-  ] = context || undefined;
-}
-
-export function clearPortfolioTxHistorySigningDispatchContextOnRuntime(): void {
-  'worklet';
-
-  delete (globalThis as GlobalWithPortfolioSigningContext)[
-    PORTFOLIO_TX_HISTORY_SIGNING_CONTEXT_GLOBAL_KEY
-  ];
-}
-
-export function getPortfolioTxHistorySigningDispatchContextOnRuntime():
-  | PortfolioTxHistorySigningDispatchContext
-  | undefined {
-  'worklet';
-
-  return (globalThis as GlobalWithPortfolioSigningContext)[
-    PORTFOLIO_TX_HISTORY_SIGNING_CONTEXT_GLOBAL_KEY
-  ] as PortfolioTxHistorySigningDispatchContext | undefined;
-}
-
-export function requirePortfolioTxHistorySigningDispatchContextOnRuntime(): PortfolioTxHistorySigningDispatchContext {
-  'worklet';
-
-  const context = getPortfolioTxHistorySigningDispatchContextOnRuntime();
   if (!context) {
-    throw new Error(
-      'No portfolio runtime request context is initialized on the worklet runtime.',
-    );
+    throw new Error('Portfolio runtime request context is unavailable.');
   }
 
+  installPortfolioNitroModulesProxyOnRuntime(context.boxedNitroModulesProxy);
   context.nextSignHandleIndex = Math.max(
     0,
     Math.floor(context.nextSignHandleIndex ?? 0),
@@ -769,10 +736,13 @@ export function requirePortfolioTxHistorySigningDispatchContextOnRuntime(): Port
   return context;
 }
 
-export function getPortfolioNitroFetchClientOnRuntime(): NitroFetchClientHybrid {
+export function getPortfolioNitroFetchClientOnRuntime(
+  requestContext: PortfolioTxHistorySigningDispatchContext | null | undefined,
+): NitroFetchClientHybrid {
   'worklet';
 
-  const context = requirePortfolioTxHistorySigningDispatchContextOnRuntime();
+  const context =
+    requirePortfolioTxHistorySigningDispatchContext(requestContext);
   if (context.nitroFetchClient) {
     return context.nitroFetchClient;
   }
@@ -789,7 +759,9 @@ export function getPortfolioNitroFetchClientOnRuntime(): NitroFetchClientHybrid 
   return client;
 }
 
-export function takeNextPortfolioTransferredSignHandleOnRuntime(): {
+export function takeNextPortfolioTransferredSignHandleOnRuntime(
+  requestContext: PortfolioTxHistorySigningDispatchContext | null | undefined,
+): {
   firstHashHybrid: QuickCryptoHashHybrid;
   signHandleHybrid: QuickCryptoSignHybrid;
   privateKeyHandle: QuickCryptoKeyObjectHybrid;
@@ -797,7 +769,7 @@ export function takeNextPortfolioTransferredSignHandleOnRuntime(): {
   'worklet';
 
   const context = ensurePortfolioTxHistorySigningHandlesHydratedOnRuntime(
-    requirePortfolioTxHistorySigningDispatchContextOnRuntime(),
+    requirePortfolioTxHistorySigningDispatchContext(requestContext),
   );
   if (
     !context.firstHashHybrid ||

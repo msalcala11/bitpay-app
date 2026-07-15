@@ -33,7 +33,9 @@ import {createNegativeBalanceInvalidHistoryError} from '../../core/pnl/invalidHi
 import {createPortfolioRemoteRequestError} from '../../core/remoteRequestError';
 import {
   disposePortfolioTxHistorySigningDispatchContext,
+  portfolioTxHistorySigningDispatchContextHasSigningAuthority,
   takeNextPortfolioTransferredSignHandleOnRuntime,
+  type PortfolioTxHistorySigningDispatchContext,
 } from '../../adapters/rn/txHistorySigning';
 
 const config = {
@@ -279,20 +281,45 @@ describe('portfolioPopulateJobWorklet', () => {
     });
     expect(activeJobState()?.signingContextsByWalletId).toEqual({});
     expectNoSerializedSecrets(activeJobState());
-    expect(() => takeNextPortfolioTransferredSignHandleOnRuntime()).toThrow(
-      'No portfolio runtime request context is initialized',
-    );
     expect(mockHandleFinishWalletOnPopulateWorklet).toHaveBeenCalledTimes(1);
     expect(mockClearWorkletWalletSnapshots).not.toHaveBeenCalled();
   });
 
   it('lets a populate job sign after the original dispatch context is disposed', async () => {
-    mockHandlePrepareWalletOnPopulateWorklet.mockResolvedValue({
-      checkpoint: {nextSkip: 0},
-    });
+    let prepareContext: PortfolioTxHistorySigningDispatchContext | undefined;
+    let processContext: PortfolioTxHistorySigningDispatchContext | undefined;
+
+    mockHandlePrepareWalletOnPopulateWorklet.mockImplementation(
+      async (
+        _config: unknown,
+        _state: unknown,
+        _params: unknown,
+        requestContext: PortfolioTxHistorySigningDispatchContext,
+      ) => {
+        prepareContext = requestContext;
+        expect(
+          portfolioTxHistorySigningDispatchContextHasSigningAuthority(
+            requestContext,
+          ),
+        ).toBe(false);
+        return {checkpoint: {nextSkip: 0}};
+      },
+    );
     mockHandleProcessNextPageOnPopulateWorklet.mockImplementationOnce(
-      async () => {
-        const transferred = takeNextPortfolioTransferredSignHandleOnRuntime();
+      async (
+        _config: unknown,
+        _state: unknown,
+        _walletId: unknown,
+        requestContext: PortfolioTxHistorySigningDispatchContext,
+      ) => {
+        processContext = requestContext;
+        expect(
+          portfolioTxHistorySigningDispatchContextHasSigningAuthority(
+            requestContext,
+          ),
+        ).toBe(true);
+        const transferred =
+          takeNextPortfolioTransferredSignHandleOnRuntime(requestContext);
         expect(transferred).not.toBeNull();
         expect(
           activeJobState()?.signingContextsByWalletId?.w1?.signingAuthority,
@@ -324,9 +351,136 @@ describe('portfolioPopulateJobWorklet', () => {
 
     expect(status?.state).toBe('completed');
     expectNoSerializedSecrets(status);
+    expect(prepareContext).toBeDefined();
+    expect(processContext).toBeDefined();
+    expect(prepareContext).not.toBe(processContext);
+    expect(processContext).not.toBe(originalDispatchContext);
     expect(originalDispatchContext.signingAuthority).toBeUndefined();
+    expect(
+      portfolioTxHistorySigningDispatchContextHasSigningAuthority(
+        processContext,
+      ),
+    ).toBe(false);
+    expect(processContext?.boxedNitroFetch).toBeUndefined();
     expect(activeJobState()?.signingContextsByWalletId).toEqual({});
     expectNoSerializedSecrets(activeJobState());
+  });
+
+  it('keeps wallet-owned request contexts isolated during a multi-wallet job', async () => {
+    const paramsWithTwoWallets = {
+      ...params,
+      wallets: [
+        params.wallets[0],
+        {
+          walletId: 'w2',
+          credentials: {
+            walletId: 'w2',
+            requestPrivKey: 'priv-key-2',
+          },
+          summary: {
+            walletId: 'w2',
+            walletName: 'Wallet 2',
+            chain: 'btc',
+            network: 'livenet',
+            currencyAbbreviation: 'btc',
+            balanceAtomic: '200000000',
+            balanceFormatted: '2',
+          },
+        },
+      ],
+    } as any;
+    const prepareContextsByWalletId: Record<
+      string,
+      PortfolioTxHistorySigningDispatchContext
+    > = {};
+    const processRecords: Array<{
+      walletId: string;
+      requestContext: PortfolioTxHistorySigningDispatchContext;
+      cursorAfterTake: number;
+      privateKeyHandle: unknown;
+    }> = [];
+
+    mockHandlePrepareWalletOnPopulateWorklet.mockImplementation(
+      async (
+        _config: unknown,
+        _state: unknown,
+        requestParams: {wallet: {walletId: string}},
+        requestContext: PortfolioTxHistorySigningDispatchContext,
+      ) => {
+        prepareContextsByWalletId[requestParams.wallet.walletId] =
+          requestContext;
+        expect(
+          portfolioTxHistorySigningDispatchContextHasSigningAuthority(
+            requestContext,
+          ),
+        ).toBe(false);
+        return {checkpoint: {nextSkip: 0}};
+      },
+    );
+    mockHandleProcessNextPageOnPopulateWorklet.mockImplementation(
+      async (
+        _config: unknown,
+        _state: unknown,
+        walletId: string,
+        requestContext: PortfolioTxHistorySigningDispatchContext,
+      ) => {
+        const transferred =
+          takeNextPortfolioTransferredSignHandleOnRuntime(requestContext);
+        expect(transferred).not.toBeNull();
+        processRecords.push({
+          walletId,
+          requestContext,
+          cursorAfterTake: requestContext.nextSignHandleIndex ?? -1,
+          privateKeyHandle: transferred?.privateKeyHandle,
+        });
+        return {
+          checkpoint: {nextSkip: 0},
+          appendedSnapshots: 0,
+          fetchedTxs: 0,
+          logicalPageSize: 0,
+          done: true,
+          fetchMs: 1,
+          computeMs: 0,
+        };
+      },
+    );
+    mockHandleFinishWalletOnPopulateWorklet.mockResolvedValue({
+      checkpoint: {nextSkip: 0},
+      appendedSnapshots: 0,
+    });
+
+    const originalW1Context = signingContext('der-w1');
+    const originalW2Context = signingContext('der-w2');
+    const started = await handleStartPopulateJobOnWorklet(
+      config,
+      paramsWithTwoWallets,
+      {
+        w1: originalW1Context,
+        w2: originalW2Context,
+      },
+    );
+    disposePortfolioTxHistorySigningDispatchContext(originalW1Context);
+    disposePortfolioTxHistorySigningDispatchContext(originalW2Context);
+
+    const status = await waitForTerminalStatus(started.jobId);
+
+    expect(status?.state).toBe('completed');
+    expect(processRecords.map(record => record.walletId)).toEqual(['w1', 'w2']);
+    expect(processRecords[0].requestContext).not.toBe(
+      processRecords[1].requestContext,
+    );
+    expect(processRecords[0].cursorAfterTake).toBe(1);
+    expect(processRecords[1].cursorAfterTake).toBe(1);
+    expect(processRecords[0].privateKeyHandle).not.toBe(
+      processRecords[1].privateKeyHandle,
+    );
+    expect(prepareContextsByWalletId.w1).not.toBe(
+      processRecords[0].requestContext,
+    );
+    expect(prepareContextsByWalletId.w2).not.toBe(
+      processRecords[1].requestContext,
+    );
+    expect(activeJobState()?.signingContextsByWalletId).toEqual({});
   });
 
   it('skips a wallet fiat-rate prepare failure without clearing snapshots and continues populating the remaining wallets', async () => {
@@ -590,7 +744,7 @@ describe('portfolioPopulateJobWorklet', () => {
     );
   });
 
-  it('clears signing contexts immediately on cancel and rejects late signing', async () => {
+  it('keeps an in-flight wallet context alive until cancellation reaches a terminal state', async () => {
     let resolvePage:
       | ((value: {
           checkpoint: {nextSkip: number};
@@ -602,15 +756,23 @@ describe('portfolioPopulateJobWorklet', () => {
           computeMs: number;
         }) => void)
       | undefined;
+    let inFlightContext: PortfolioTxHistorySigningDispatchContext | undefined;
 
     mockHandlePrepareWalletOnPopulateWorklet.mockResolvedValue({
       checkpoint: {nextSkip: 0},
     });
     mockHandleProcessNextPageOnPopulateWorklet.mockImplementation(
-      () =>
-        new Promise(resolve => {
+      (
+        _config: unknown,
+        _state: unknown,
+        _walletId: unknown,
+        requestContext: PortfolioTxHistorySigningDispatchContext,
+      ) => {
+        inFlightContext = requestContext;
+        return new Promise(resolve => {
           resolvePage = resolve;
-        }),
+        });
+      },
     );
 
     const started = await handleStartPopulateJobOnWorklet(config, params, {
@@ -626,13 +788,18 @@ describe('portfolioPopulateJobWorklet', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     }
 
-    expect(activeJobState()?.signingContextsByWalletId?.w1).toBeDefined();
+    expect(inFlightContext).toBeDefined();
+    expect(activeJobState()?.signingContextsByWalletId?.w1).toBe(
+      inFlightContext,
+    );
     await handleCancelPopulateJobOnWorklet(config, started.jobId);
 
-    expect(activeJobState()?.signingContextsByWalletId).toEqual({});
-    expect(() => takeNextPortfolioTransferredSignHandleOnRuntime()).toThrow(
-      'No portfolio runtime request context is initialized',
+    expect(activeJobState()?.signingContextsByWalletId?.w1).toBe(
+      inFlightContext,
     );
+    expect(
+      takeNextPortfolioTransferredSignHandleOnRuntime(inFlightContext),
+    ).not.toBeNull();
 
     resolvePage?.({
       checkpoint: {nextSkip: 0},
@@ -646,13 +813,20 @@ describe('portfolioPopulateJobWorklet', () => {
     const status = await waitForTerminalStatus(started.jobId);
     expect(status?.state).toBe('cancelled');
     expect(activeJobState()?.signingContextsByWalletId).toEqual({});
+    expect(
+      portfolioTxHistorySigningDispatchContextHasSigningAuthority(
+        inFlightContext,
+      ),
+    ).toBe(false);
+    expect(inFlightContext?.boxedNitroFetch).toBeUndefined();
   });
 
   it('clears signing contexts and sessions on reset', async () => {
+    const requestContext = signingContext('der-w1');
     (globalThis as any).__bitpayPortfolioPopulateJobWorkletStateV1__ = {
       activeJob: {
         signingContextsByWalletId: {
-          w1: signingContext('der-w1'),
+          w1: requestContext,
         },
       },
       storageId: config.storageId,
@@ -668,8 +842,12 @@ describe('portfolioPopulateJobWorklet', () => {
 
     expect(activeJobState()).toBeUndefined();
     expect(populateState.sessionsByWalletId).toEqual({});
-    expect(() => takeNextPortfolioTransferredSignHandleOnRuntime()).toThrow(
-      'No portfolio runtime request context is initialized',
-    );
+    expect(
+      portfolioTxHistorySigningDispatchContextHasSigningAuthority(
+        requestContext,
+      ),
+    ).toBe(false);
+    expect(requestContext.boxedNitroFetch).toBeUndefined();
+    expect(requestContext.boxedNitroModulesProxy).toBeUndefined();
   });
 });

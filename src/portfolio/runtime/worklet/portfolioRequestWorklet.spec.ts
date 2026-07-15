@@ -1,5 +1,4 @@
 import {handlePortfolioRequestOnRuntime} from './portfolioRequestWorklet';
-import {clearPortfolioTxHistorySigningDispatchContextOnRuntime} from '../../adapters/rn/txHistorySigning';
 import {
   createFakeWorkletStorage,
   installNitroFetchMock,
@@ -11,9 +10,11 @@ import {
   listWorkletSnapshots,
 } from './portfolioWorkletSnapshots';
 
+const handleRequest = (config: any, request: any, requestContext?: any) =>
+  handlePortfolioRequestOnRuntime(config, request, requestContext);
+
 describe('portfolioRequestWorklet', () => {
   afterEach(() => {
-    clearPortfolioTxHistorySigningDispatchContextOnRuntime();
     jest.restoreAllMocks();
   });
 
@@ -65,7 +66,7 @@ describe('portfolioRequestWorklet', () => {
       },
     });
 
-    const indexResponse = await handlePortfolioRequestOnRuntime(config, {
+    const indexResponse = await handleRequest(config, {
       id: 1,
       method: 'snapshots.getIndex',
       params: {walletId: 'w1'},
@@ -77,14 +78,14 @@ describe('portfolioRequestWorklet', () => {
     }
     expect((indexResponse.result as any)?.walletId).toBe('w1');
 
-    const clearResponse = await handlePortfolioRequestOnRuntime(config, {
+    const clearResponse = await handleRequest(config, {
       id: 2,
       method: 'debug.clearAll',
       params: {},
     });
     expect(clearResponse.ok).toBe(true);
 
-    const statsResponse = await handlePortfolioRequestOnRuntime(config, {
+    const statsResponse = await handleRequest(config, {
       id: 3,
       method: 'debug.kvStats',
       params: {},
@@ -104,7 +105,7 @@ describe('portfolioRequestWorklet', () => {
       registryKey: '__registry__',
     };
 
-    const response = await handlePortfolioRequestOnRuntime(config, {
+    const response = await handleRequest(config, {
       id: 4,
       method: 'debug.getPopulateWalletTrace',
       params: {walletId: 'missing-wallet'},
@@ -134,7 +135,7 @@ describe('portfolioRequestWorklet', () => {
       balanceFormatted: '0',
     };
 
-    installNitroFetchMock(() => ({
+    const {requestContext} = installNitroFetchMock(() => ({
       ok: true,
       status: 200,
       bodyString: JSON.stringify({
@@ -142,34 +143,42 @@ describe('portfolioRequestWorklet', () => {
       }),
     }));
 
-    const prepareResponse = await handlePortfolioRequestOnRuntime(config, {
-      id: 5,
-      method: 'snapshots.prepareWallet',
-      params: {
-        cfg: {baseUrl: 'https://bws.example'},
-        wallet,
-        credentials: {
-          walletId: 'w-late',
-          copayerId: 'copayer-late',
-          chain: 'btc',
-          network: 'livenet',
-          coin: 'btc',
+    const prepareResponse = await handleRequest(
+      config,
+      {
+        id: 5,
+        method: 'snapshots.prepareWallet',
+        params: {
+          cfg: {baseUrl: 'https://bws.example'},
+          wallet,
+          credentials: {
+            walletId: 'w-late',
+            copayerId: 'copayer-late',
+            chain: 'btc',
+            network: 'livenet',
+            coin: 'btc',
+          },
+          ingest: {
+            quoteCurrency: 'USD',
+            compressionEnabled: true,
+            chunkRows: 100,
+          },
+          pageSize: 1000,
         },
-        ingest: {
-          quoteCurrency: 'USD',
-          compressionEnabled: true,
-          chunkRows: 100,
-        },
-        pageSize: 1000,
-      },
-    } as any);
+      } as any,
+      requestContext,
+    );
     expect(prepareResponse.ok).toBe(true);
 
-    const pageResponse = await handlePortfolioRequestOnRuntime(config, {
-      id: 6,
-      method: 'snapshots.processNextPage',
-      params: {walletId: 'w-late'},
-    });
+    const pageResponse = await handleRequest(
+      config,
+      {
+        id: 6,
+        method: 'snapshots.processNextPage',
+        params: {walletId: 'w-late'},
+      },
+      requestContext,
+    );
 
     expect(pageResponse.ok).toBe(false);
     expect(pageResponse).toMatchObject({
@@ -332,16 +341,18 @@ describe('portfolioRequestWorklet', () => {
       },
     });
 
-    installNitroFetchMock(() => ({
-      ok: true,
-      status: 200,
-      bodyString: JSON.stringify({
-        btc: [
-          {ts: t0, rate: 10000},
-          {ts: t1, rate: 11000},
-        ],
+    const {requestContext: analysisRequestContext} = installNitroFetchMock(
+      () => ({
+        ok: true,
+        status: 200,
+        bodyString: JSON.stringify({
+          btc: [
+            {ts: t0, rate: 10000},
+            {ts: t1, rate: 11000},
+          ],
+        }),
       }),
-    }));
+    );
 
     const wallet = {
       walletId: 'w3',
@@ -363,25 +374,29 @@ describe('portfolioRequestWorklet', () => {
       },
     };
 
-    const prepareResponse = await handlePortfolioRequestOnRuntime(config, {
-      id: 10,
-      method: 'analysis.prepareSession',
-      params: {
-        cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
-        wallets: [wallet],
-        quoteCurrency: 'USD',
-        timeframe: '1D',
-        nowMs: t1,
-        maxPoints: 5,
+    const prepareResponse = await handleRequest(
+      config,
+      {
+        id: 10,
+        method: 'analysis.prepareSession',
+        params: {
+          cfg: {baseUrl: 'https://bws.bitpay.com/bws/api'},
+          wallets: [wallet],
+          quoteCurrency: 'USD',
+          timeframe: '1D',
+          nowMs: t1,
+          maxPoints: 5,
+        },
       },
-    });
+      analysisRequestContext,
+    );
 
     expect(prepareResponse.ok).toBe(true);
     if (!prepareResponse.ok) {
       return;
     }
 
-    const computeResponse = await handlePortfolioRequestOnRuntime(config, {
+    const computeResponse = await handleRequest(config, {
       id: 11,
       method: 'analysis.computeSessionScope',
       params: {
@@ -396,7 +411,7 @@ describe('portfolioRequestWorklet', () => {
     }
     expect((computeResponse.result as any)?.assetIds).toEqual(['btc:btc']);
 
-    const disposeResponse = await handlePortfolioRequestOnRuntime(config, {
+    const disposeResponse = await handleRequest(config, {
       id: 12,
       method: 'analysis.disposeSession',
       params: {

@@ -1,4 +1,4 @@
-import {setPortfolioTxHistorySigningDispatchContextOnRuntime} from '../../../adapters/rn/txHistorySigning';
+import type {PortfolioTxHistorySigningDispatchContext} from '../../../adapters/rn/txHistorySigning';
 
 export type FakeWorkletStorage = {
   contains: (key: string) => boolean;
@@ -22,6 +22,12 @@ export type FakeNitroResponse = {
   bodyString?: string;
 };
 
+export type InstalledNitroFetchMock = jest.Mock & {
+  request: jest.Mock;
+  requestSync: jest.Mock;
+  requestContext: PortfolioTxHistorySigningDispatchContext;
+};
+
 export const createFakeWorkletStorage = (): FakeWorkletStorage => {
   const map = new Map<string, string>();
   return {
@@ -39,18 +45,21 @@ export const createFakeWorkletStorage = (): FakeWorkletStorage => {
 
 export function installNitroFetchMock(
   handler: (request: FakeNitroRequest) => FakeNitroResponse,
-) {
+): InstalledNitroFetchMock {
   const requestSync = jest.fn((request: FakeNitroRequest) => handler(request));
   const request = jest.fn(async (requestArgs: FakeNitroRequest) =>
     handler(requestArgs),
   );
-
-  setPortfolioTxHistorySigningDispatchContextOnRuntime({
+  const requestContext = {
     nitroFetchClient: {
       request,
       requestSync,
     },
-  } as any);
+  } as PortfolioTxHistorySigningDispatchContext;
 
-  return requestSync;
+  const installed = requestSync as InstalledNitroFetchMock;
+  installed.request = request;
+  installed.requestSync = requestSync;
+  installed.requestContext = requestContext;
+  return installed;
 }

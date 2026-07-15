@@ -14,8 +14,6 @@ import type {PortfolioRuntimeHostBootstrapConfig} from './portfolioRuntimeHostCo
 import {createWorkletPortfolioTransport} from './portfolioWorkletTransport';
 
 let portfolioWorkletRuntime: WorkletRuntime | undefined;
-let portfolioRateWorkletRuntime: WorkletRuntime | undefined;
-let portfolioAnalysisWorkletRuntime: WorkletRuntime | undefined;
 let portfolioRuntimeClient: PortfolioRuntimeClient | undefined;
 let portfolioRateRuntimeClient: PortfolioRuntimeClient | undefined;
 let portfolioAnalysisRuntimeClient: PortfolioRuntimeClient | undefined;
@@ -49,21 +47,11 @@ export function getPortfolioWorkletRuntime(): WorkletRuntime {
 }
 
 export function getPortfolioRateWorkletRuntime(): WorkletRuntime {
-  if (!portfolioRateWorkletRuntime) {
-    portfolioRateWorkletRuntime = createPortfolioWorkletRuntime(
-      `${PORTFOLIO_WORKLET_RUNTIME_NAME}:rates`,
-    );
-  }
-  return portfolioRateWorkletRuntime;
+  return getPortfolioWorkletRuntime();
 }
 
 export function getPortfolioAnalysisWorkletRuntime(): WorkletRuntime {
-  if (!portfolioAnalysisWorkletRuntime) {
-    portfolioAnalysisWorkletRuntime = createPortfolioWorkletRuntime(
-      `${PORTFOLIO_WORKLET_RUNTIME_NAME}:analysis`,
-    );
-  }
-  return portfolioAnalysisWorkletRuntime;
+  return getPortfolioWorkletRuntime();
 }
 
 export function createPortfolioRuntimeClient(): PortfolioRuntimeClient {
@@ -132,6 +120,4 @@ export function resetPortfolioRuntimeClient(): void {
     portfolioAnalysisRuntimeClient.terminate();
     portfolioAnalysisRuntimeClient = undefined;
   }
-  portfolioRateWorkletRuntime = undefined;
-  portfolioAnalysisWorkletRuntime = undefined;
 }

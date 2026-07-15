@@ -1,9 +1,7 @@
 import {scheduleOnRN} from 'react-native-worklets';
 
 import {
-  clearPortfolioTxHistorySigningDispatchContextOnRuntime,
   disposePortfolioTxHistorySigningDispatchContext,
-  setPortfolioTxHistorySigningDispatchContextOnRuntime,
   type PortfolioTxHistorySigningDispatchContext,
 } from '../adapters/rn/txHistorySigning';
 import {getRuntimeErrorDetails} from '../adapters/rn/workletRuntimeShared';
@@ -11,6 +9,7 @@ import type {
   WorkerRequest,
   WorkerResponse,
 } from '../core/engine/workerProtocol';
+import type {PortfolioPopulateJobStartResult} from '../core/engine/populateJob';
 import type {PortfolioRuntimeHostBootstrapConfig} from './portfolioRuntimeHostConfig';
 import {
   canHandlePortfolioRequestOnRuntime,
@@ -20,7 +19,6 @@ import {
   handleGetPopulateJobStatusOnWorklet,
   type PortfolioPopulateJobSigningContextMap,
 } from './worklet/portfolioPopulateJobWorklet';
-import type {PortfolioPopulateJobStartResult} from '../core/engine/populateJob';
 
 export type PortfolioRuntimeDispatchContext = {
   singleRequestSigningContext?: PortfolioTxHistorySigningDispatchContext | null;
@@ -53,9 +51,9 @@ function clearRuntimeDispatchContext(
     return;
   }
 
-  // Dispatch contexts are request-owned. After a request completes or a
-  // populate start hands off cloned job-owned contexts, nothing here should
-  // retain signing authority or handles.
+  // The queued request closes over its own context object. It remains valid
+  // until the request reaches a terminal response; only then is it disposed.
+  // Populate jobs clone their wallet-owned contexts before start returns.
   disposePortfolioTxHistorySigningDispatchContext(
     dispatchContext.singleRequestSigningContext,
   );
@@ -84,20 +82,7 @@ export function dispatchPortfolioRequestOnRuntime(
   'worklet';
 
   void (async () => {
-    const isPopulateJobControlRequest =
-      req.method === 'populate.startJob' ||
-      req.method === 'populate.getJobStatus' ||
-      req.method === 'populate.cancelJob';
-
     try {
-      // Populate job-control requests are metadata/control-plane only; wallet
-      // work owns the runtime context via withWalletSigningContext(...).
-      if (!isPopulateJobControlRequest) {
-        setPortfolioTxHistorySigningDispatchContextOnRuntime(
-          dispatchContext?.singleRequestSigningContext,
-        );
-      }
-
       if (!canHandlePortfolioRequestOnRuntime(req.method)) {
         throw new Error(
           `Portfolio runtime worklet dispatch does not support ${String(
@@ -109,20 +94,12 @@ export function dispatchPortfolioRequestOnRuntime(
       const response = await handlePortfolioRequestOnRuntime(
         config,
         req,
+        dispatchContext?.singleRequestSigningContext || undefined,
         dispatchContext?.populateJobSigningContextsByWalletId,
       );
-      if (isPopulateJobControlRequest) {
-        clearRuntimeDispatchContext(dispatchContext);
-      }
-      if (!isPopulateJobControlRequest) {
-        clearPortfolioTxHistorySigningDispatchContextOnRuntime();
-        clearRuntimeDispatchContext(dispatchContext);
-      }
+      clearRuntimeDispatchContext(dispatchContext);
       scheduleOnRN(resolveOnRN, response);
     } catch (error: unknown) {
-      if (!isPopulateJobControlRequest) {
-        clearPortfolioTxHistorySigningDispatchContextOnRuntime();
-      }
       clearRuntimeDispatchContext(dispatchContext);
       const details = getRuntimeErrorDetails(error);
       scheduleOnRN(rejectOnRN, details.message, details.stack);
@@ -144,6 +121,7 @@ export function dispatchPortfolioPopulateStartAndWaitOnRuntime(
       const initialResponse = await handlePortfolioRequestOnRuntime(
         config,
         req,
+        dispatchContext?.singleRequestSigningContext || undefined,
         dispatchContext?.populateJobSigningContextsByWalletId,
       );
       clearRuntimeDispatchContext(dispatchContext);
