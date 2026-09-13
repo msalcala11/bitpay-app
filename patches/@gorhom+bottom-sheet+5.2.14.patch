@@ -1,0 +1,52 @@
+diff --git a/node_modules/@gorhom/bottom-sheet/lib/commonjs/components/bottomSheetModal/BottomSheetModal.js b/node_modules/@gorhom/bottom-sheet/lib/commonjs/components/bottomSheetModal/BottomSheetModal.js
+index ee51e76..60b9f75 100644
+--- a/node_modules/@gorhom/bottom-sheet/lib/commonjs/components/bottomSheetModal/BottomSheetModal.js
++++ b/node_modules/@gorhom/bottom-sheet/lib/commonjs/components/bottomSheetModal/BottomSheetModal.js
+@@ -315,7 +315,11 @@ function BottomSheetModalComponent(props, ref) {
+     }
+     currentIndexRef.current = _index;
+     nextIndexRef.current = null;
+-    statusRef.current = _index === -1 ? _constants.MODAL_STATUS.MINIMIZED : _constants.MODAL_STATUS.PRESENTED;
++    // onClose follows onChange(-1) and must consume the original close intent.
++    // In particular, minimizing for a stacked sheet must not become dismissal.
++    if (_index !== -1) {
++      statusRef.current = _constants.MODAL_STATUS.PRESENTED;
++    }
+     if (_providedOnChange) {
+       _providedOnChange(_index, _position, _type);
+     }
+diff --git a/node_modules/@gorhom/bottom-sheet/lib/module/components/bottomSheetModal/BottomSheetModal.js b/node_modules/@gorhom/bottom-sheet/lib/module/components/bottomSheetModal/BottomSheetModal.js
+index 94fabdb..a0fc5a6 100644
+--- a/node_modules/@gorhom/bottom-sheet/lib/module/components/bottomSheetModal/BottomSheetModal.js
++++ b/node_modules/@gorhom/bottom-sheet/lib/module/components/bottomSheetModal/BottomSheetModal.js
+@@ -308,7 +308,11 @@ function BottomSheetModalComponent(props, ref) {
+     }
+     currentIndexRef.current = _index;
+     nextIndexRef.current = null;
+-    statusRef.current = _index === -1 ? MODAL_STATUS.MINIMIZED : MODAL_STATUS.PRESENTED;
++    // onClose follows onChange(-1) and must consume the original close intent.
++    // In particular, minimizing for a stacked sheet must not become dismissal.
++    if (_index !== -1) {
++      statusRef.current = MODAL_STATUS.PRESENTED;
++    }
+     if (_providedOnChange) {
+       _providedOnChange(_index, _position, _type);
+     }
+diff --git a/node_modules/@gorhom/bottom-sheet/src/components/bottomSheetModal/BottomSheetModal.tsx b/node_modules/@gorhom/bottom-sheet/src/components/bottomSheetModal/BottomSheetModal.tsx
+index 2954b3f..50a1709 100644
+--- a/node_modules/@gorhom/bottom-sheet/src/components/bottomSheetModal/BottomSheetModal.tsx
++++ b/node_modules/@gorhom/bottom-sheet/src/components/bottomSheetModal/BottomSheetModal.tsx
+@@ -432,8 +432,11 @@ function BottomSheetModalComponent<T = never>(
+       currentIndexRef.current = _index;
+       nextIndexRef.current = null;
+
+-      statusRef.current =
+-        _index === -1 ? MODAL_STATUS.MINIMIZED : MODAL_STATUS.PRESENTED;
++      // onClose follows onChange(-1) and must consume the original close intent.
++      // In particular, minimizing for a stacked sheet must not become dismissal.
++      if (_index !== -1) {
++        statusRef.current = MODAL_STATUS.PRESENTED;
++      }
+
+       if (_providedOnChange) {
+         _providedOnChange(_index, _position, _type);

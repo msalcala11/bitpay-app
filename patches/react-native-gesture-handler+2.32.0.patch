@@ -1,0 +1,35 @@
+diff --git a/node_modules/react-native-gesture-handler/apple/RNGestureHandlerManager.mm b/node_modules/react-native-gesture-handler/apple/RNGestureHandlerManager.mm
+index d9799b3..79c9842 100644
+--- a/node_modules/react-native-gesture-handler/apple/RNGestureHandlerManager.mm
++++ b/node_modules/react-native-gesture-handler/apple/RNGestureHandlerManager.mm
+@@ -7,2 +6,0 @@
+-#import <React/RCTRootContentView.h>
+-#import <React/RCTRootView.h>
+diff --git a/node_modules/react-native-gesture-handler/apple/RNGestureHandlerModule.mm b/node_modules/react-native-gesture-handler/apple/RNGestureHandlerModule.mm
+index 59e761f..0846b4c 100644
+--- a/node_modules/react-native-gesture-handler/apple/RNGestureHandlerModule.mm
++++ b/node_modules/react-native-gesture-handler/apple/RNGestureHandlerModule.mm
+@@ -15,0 +16 @@
++#import <ReactCommon/RCTTurboModuleWithJSIBindings.h>
+@@ -38 +39 @@ using namespace react;
+-@interface RNGestureHandlerModule () <RNGestureHandlerStateManager, RCTTurboModule>
++@interface RNGestureHandlerModule () <RNGestureHandlerStateManager, RCTTurboModule, RCTTurboModuleWithJSIBindings>
+@@ -125,0 +127,6 @@ void decorateRuntime(jsi::Runtime &runtime)
++
++- (void)installJSIBindingsWithRuntime:(jsi::Runtime &)runtime
++                          callInvoker:(const std::shared_ptr<facebook::react::CallInvoker> &)callInvoker
++{
++  decorateRuntime(runtime);
++}
+@@ -150,11 +157,0 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(install)
+-  dispatch_block_t block = ^{
+-    RCTCxxBridge *cxxBridge = (RCTCxxBridge *)self.bridge;
+-    auto runtime = (jsi::Runtime *)cxxBridge.runtime;
+-    decorateRuntime(*runtime);
+-  };
+-  if (_dispatchToJSThread) {
+-    _dispatchToJSThread(block);
+-  } else {
+-    [self.bridge dispatchBlock:block queue:RCTJSThread];
+-  }
+-
