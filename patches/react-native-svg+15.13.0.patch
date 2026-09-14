@@ -1,0 +1,10 @@
+diff --git a/node_modules/react-native-svg/apple/Elements/RNSVGImage.mm b/node_modules/react-native-svg/apple/Elements/RNSVGImage.mm
+index 243c24c..f24dd5e 100644
+--- a/node_modules/react-native-svg/apple/Elements/RNSVGImage.mm
++++ b/node_modules/react-native-svg/apple/Elements/RNSVGImage.mm
+@@ -48 +48 @@ @implementation RNSVGImage {
+-  RCTImageResponseObserverProxy _imageResponseObserverProxy;
++  std::shared_ptr<RCTImageResponseObserverProxy> _imageResponseObserverProxy;
+@@ -65 +65 @@ - (instancetype)initWithFrame:(CGRect)frame
+-    _imageResponseObserverProxy = RCTImageResponseObserverProxy(self);
++    _imageResponseObserverProxy = std::make_shared<RCTImageResponseObserverProxy>(self);

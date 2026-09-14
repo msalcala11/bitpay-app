@@ -1,0 +1,17 @@
+diff --git a/node_modules/react-native-nitro-modules/ios/turbomodule/NativeNitroModules+NewArch.mm b/node_modules/react-native-nitro-modules/ios/turbomodule/NativeNitroModules+NewArch.mm
+index 2086ac3..5d29fb3 100644
+--- a/node_modules/react-native-nitro-modules/ios/turbomodule/NativeNitroModules+NewArch.mm
++++ b/node_modules/react-native-nitro-modules/ios/turbomodule/NativeNitroModules+NewArch.mm
+@@ -37,2 +37,11 @@ RCT_EXPORT_MODULE(NitroModules)
+-- (void)installJSIBindingsWithRuntime:(jsi::Runtime&)runtime {
++- (void)installJSIBindingsWithRuntime:(jsi::Runtime&)runtime callInvoker:(const std::shared_ptr<react::CallInvoker>&)callInvoker {
++  _callInvoker = callInvoker;
++  [self installNitroInRuntime:runtime];
++}
++
++- (void)installJSIBindingsWithRuntime:(jsi::Runtime&)runtime {
++  [self installNitroInRuntime:runtime];
++}
++
++- (void)installNitroInRuntime:(jsi::Runtime&)runtime {
+   // 1. Get CallInvoker we cached statically
