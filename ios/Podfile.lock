@@ -34,7 +34,7 @@ PODS:
     - BrazeKit (= 14.0.4)
   - BrazeUI (14.0.4):
     - BrazeKit (= 14.0.4)
-  - BVLinearGradient (2.6.2):
+  - BVLinearGradient (2.8.3):
     - React-Core
   - CookieManager (6.3.0):
     - hermes-engine
@@ -119,7 +119,7 @@ PODS:
     - Mixpanel-swift (= 5.2.0)
     - React-Core
   - MultiplatformBleAdapter (0.2.0)
-  - NitroFetch (1.0.3):
+  - NitroFetch (1.6.3):
     - hermes-engine
     - NitroModules
     - RCTRequired
@@ -143,7 +143,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - NitroModules (0.35.1):
+  - NitroModules (0.36.5):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -1556,7 +1556,7 @@ PODS:
     - React-Core
   - react-native-netinfo (11.4.1):
     - React-Core
-  - react-native-pager-view (6.7.1):
+  - react-native-pager-view (6.9.1):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -2256,7 +2256,7 @@ PODS:
     - SDWebImageWebPCoder (~> 0.8.4)
   - RNFS (2.20.0):
     - React-Core
-  - RNGestureHandler (2.32.0):
+  - RNGestureHandler (2.33.0):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -2526,7 +2526,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - RNSVG (15.13.0):
+  - RNSVG (15.15.5):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -2547,9 +2547,9 @@ PODS:
     - ReactCodegen
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
-    - RNSVG/common (= 15.13.0)
+    - RNSVG/common (= 15.15.5)
     - Yoga
-  - RNSVG/common (15.13.0):
+  - RNSVG/common (15.15.5):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -3129,7 +3129,7 @@ SPEC CHECKSUMS:
   BrazeKit: ba951d2299c1d16b541cf35cdd7250d03e28a0fb
   BrazeLocation: d6938a737f123bb9e6632246d1abea40eeb12768
   BrazeUI: 1d733e1dea4d81f95f261b52cc6e4b91a0eccca8
-  BVLinearGradient: 34a999fda29036898a09c6a6b728b0b4189e1a44
+  BVLinearGradient: 880f91a7854faff2df62518f0281afb1c60d49a3
   CookieManager: 74f8e3b1b3a52d8a073ee30d1696bfe78a41c5b1
   DoubleConversion: e85e4faac763226bfd1cc4c6a98d8355149b27a5
   fast_float: 908e5ee35999f3d91af4b962ac951acac591866c
@@ -3144,8 +3144,8 @@ SPEC CHECKSUMS:
   Mixpanel-swift: de454db5987bf6f601106520a44663fc556e8cfa
   MixpanelReactNative: e6b7c6c37e88263744c9a5d46a1f05d209b68348
   MultiplatformBleAdapter: b1fddd0d499b96b607e00f0faa8e60648343dc1d
-  NitroFetch: 0265da74f2dea9e41fab6495298f1ebac4319216
-  NitroModules: cca37f933e1673728d108fa84b4bfda0e8462361
+  NitroFetch: 34521b31e9ded769233f492795eaa8abdfdf5420
+  NitroModules: 2f128db01817d491b7cf8c0b60c3816c50566f9b
   QuickCrypto: 95698a771ecfc395453178dfa181c4d6101855e0
   RCT-Folly: d173e541eeb78cad5c81011c1bbf62d5b86b9778
   RCTDeprecation: 1dce662386078170e119b89c1600db1b6e3d42f6
@@ -3202,7 +3202,7 @@ SPEC CHECKSUMS:
   react-native-mmkv: 3ba6906104d86971924fd8eca3e4605b78a94f66
   react-native-mobilesdk-module: 4de0a4d2082038296c46dced4d0b37dc769d4db7
   react-native-netinfo: f0a9899081c185db1de5bb2fdc1c88c202a059ac
-  react-native-pager-view: 4b9fddf49e2da5fed800ad4e7f80e8e8506ec4fd
+  react-native-pager-view: c8ffae3debd51708dd4b6784b27589497788ecd6
   react-native-passkey: 40725d52ed44c03d2d43ebe3be1de78bcfeed908
   react-native-print: f704aef52d931bfce6d1d84351dbb5232d7ecb89
   react-native-randombytes: 421f1c7d48c0af8dbcd471b0324393ebf8fe7846
@@ -3260,7 +3260,7 @@ SPEC CHECKSUMS:
   RNDeviceInfo: b32d24c84e40d54b736e62a7d2abd15e1225258d
   RNFastImage: 5c9c9fed9c076e521b3f509fe79e790418a544e8
   RNFS: 4ac0f0ea233904cb798630b3c077808c06931688
-  RNGestureHandler: f81b53c4931a0843df3ba61387b8132357a23e2c
+  RNGestureHandler: 43a73ba8eef578f3cc557536dd71a5b227aceade
   RNInAppBrowser: e36d6935517101ccba0e875bac8ad7b0cb655364
   RNKeychain: c21223f99385f30e3353355f1a130c150f23c96d
   RNLocalize: 0df7970cfc60389f00eb62fd7c097dc75af3fb4f
@@ -3273,7 +3273,7 @@ SPEC CHECKSUMS:
   RNScreens: 2b9596ab195e431f33241a94b71cfed0fcd63073
   RNSentry: b1c527a870d8bff8a756dd5f87b4f247755da5c2
   RNShare: 73a75192bfbae7d68a100699487efd43c8edad23
-  RNSVG: 76731756e11d400098c37d2f90f9adeb306024f9
+  RNSVG: df7b2c0679ac7b9a668af6c6b40e2c6cb4df88f5
   RNWorklets: 0f21cfc67d4ac5dcd085805b89236cc626a038f6
   SDWebImage: a7f831e1a65eb5e285e3fb046a23fcfbf08e696d
   SDWebImageWebPCoder: 908b83b6adda48effe7667cd2b7f78c897e5111d
