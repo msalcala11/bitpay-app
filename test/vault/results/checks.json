@@ -1,0 +1,152 @@
+{
+  "startingCommit": "04486e844a90c4268e31cc2873c3392112a79c55",
+  "evidenceArchiveSha256": "6740d6538b6ce984bb66df16b4829ad167dffa04ea3e2d73c1fb190c3f8fa53c",
+  "initialJestBeforePinnedInstall": {
+    "command": "COREPACK_ENABLE_AUTO_PIN=0 yarn test:ci",
+    "exit": 1,
+    "error": "React Native package lacked jest-preset.js; installed RN 0.87.1 / Worklets 0.12.1 differed from pinned 0.82.0 / 0.8.1"
+  },
+  "frozenInstall": {
+    "command": "COREPACK_ENABLE_AUTO_PIN=0 yarn install --frozen-lockfile",
+    "exit": 0,
+    "lockfilesChanged": false
+  },
+  "jest": {
+    "command": "COREPACK_ENABLE_AUTO_PIN=0 yarn test:ci",
+    "baseline": {
+      "exit": 0,
+      "suites": 139,
+      "passed": 2479,
+      "skipped": 2
+    },
+    "after": {
+      "exit": 0,
+      "suites": 141,
+      "passed": 2575,
+      "skipped": 2
+    }
+  },
+  "focused": {
+    "command": "node node_modules/.bin/jest src/store/vault-migration.spec.ts src/store/vault-scrub.spec.ts src/store/vault-diagnostics.spec.ts src/store/encryption-key.spec.ts src/store/transforms/transforms.spec.ts src/store/persistence-guard.spec.ts --runInBand --forceExit",
+    "exit": 0,
+    "passed": 237
+  },
+  "typescript": {
+    "command": "npx tsc --noEmit",
+    "baselineExit": 2,
+    "afterExit": 2,
+    "baselineDiagnostics": 2026,
+    "afterDiagnostics": 2024,
+    "introduced": [],
+    "noLongerEmitted": [
+      "node_modules/@types/react-native/index.d.ts(line,col): error TS2403: Subsequent variable declarations must have the same type.  Variable 'require' must be of type 'Require', but here has type 'NodeRequire'.",
+      "node_modules/react-native/src/types/globals.d.ts(line,col): error TS2403: Subsequent variable declarations must have the same type.  Variable 'require' must be of type 'Require', but here has type 'NodeRequire'."
+    ]
+  },
+  "eslint": {
+    "command": "npx eslint . --ext .js,.jsx,.ts,.tsx",
+    "baselineExit": 1,
+    "afterExit": 1,
+    "baselineErrors": 632,
+    "afterErrors": 632,
+    "baselineWarnings": 697,
+    "afterWarnings": 697
+  },
+  "prettier": {
+    "command": "COREPACK_ENABLE_AUTO_PIN=0 yarn prettier:check",
+    "baselineExit": 0,
+    "afterExit": 0
+  },
+  "nodeScriptsLint": {
+    "command": "npx eslint test/vault/*.cjs --env node --parser-options '{\"ecmaVersion\":2022,\"sourceType\":\"script\"}' ",
+    "exit": 0
+  },
+  "androidBuild": {
+    "command": "JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home SENTRY_DISABLE_AUTO_UPLOAD=true NODE_ENV=development ./gradlew :app:assembleDebug --no-daemon --max-workers=2 --console=plain --project-cache-dir /private/tmp/bip02-final-repair-yl0ueiig/gradle-cache -PreactNativeArchitectures=arm64-v8a",
+    "cwd": "android",
+    "exit": 0
+  },
+  "iosDependencyGate": {
+    "command": "BUNDLE_FROZEN=true NODE_ENV=development SENTRY_DISABLE_AUTO_UPLOAD=true bundle exec pod install --deployment",
+    "cwd": "ios",
+    "initialExit": 1,
+    "cleanRetryExit": 1,
+    "error": "Starting Podfile checksum differs from committed lock: current 2d77c0721b56ccd64df7fa2dc8069d67a1a6059d vs locked 4c22e1a9ab9a161b45190306ef176800a1072619",
+    "lockChanged": false,
+    "preexistingPodsRestored": true,
+    "nativeIosBuild": "blocked/not run"
+  },
+  "bundles": {
+    "ios": {
+      "command": "NODE_ENV=development SENTRY_DISABLE_AUTO_UPLOAD=true node node_modules/react-native/cli.js bundle --platform ios --dev false --minify false --entry-file index.js --bundle-output /private/tmp/bip02-final-repair-yl0ueiig/ios-main.jsbundle --assets-dest /private/tmp/bip02-final-repair-yl0ueiig/ios-assets --max-workers 2",
+      "exit": 0
+    },
+    "android": {
+      "command": "NODE_ENV=development SENTRY_DISABLE_AUTO_UPLOAD=true node node_modules/react-native/cli.js bundle --platform android --dev false --minify false --entry-file index.js --bundle-output /private/tmp/bip02-final-repair-yl0ueiig/android-main.jsbundle --assets-dest /private/tmp/bip02-final-repair-yl0ueiig/android-assets --max-workers 2",
+      "exit": 0
+    }
+  },
+  "native": {
+    "macPage": 16384,
+    "androidPage": 4096,
+    "macCases": 13,
+    "androidCases": 13,
+    "macExit": 0,
+    "androidExit": 0,
+    "killCases": 96,
+    "killExit": 0,
+    "baselineExit": 1,
+    "baselineAssertion": "rejected scrub lost primary",
+    "killPasses": 2,
+    "killRepeatExit": 0
+  },
+  "physicalPhones": "not run",
+  "fullMobileAppMigration": "not run",
+  "nativeResidualAcceptance": "not obtained",
+  "guardOrderingFollowUp": {
+    "date": "2026-10-02",
+    "baseCommit": "3debd640c7bd617babed09d2dfc6fbc462982381",
+    "regressionControl": {
+      "command": "node node_modules/.bin/jest src/store/vault-scrub.spec.ts src/store/vault-migration.spec.ts --runInBand --forceExit --testNamePattern='backup-check ordering'",
+      "production": "unchanged base commit",
+      "exit": 1,
+      "failed": 8,
+      "passed": 7,
+      "skipped": 177,
+      "failures": {
+        "migrationUnsafeResolution": 4,
+        "scrubUnsafeDeferral": 2,
+        "missingPostBackupGuard": 2
+      }
+    },
+    "focused": {
+      "command": "node node_modules/.bin/jest src/store/vault-migration.spec.ts src/store/vault-scrub.spec.ts src/store/vault-diagnostics.spec.ts src/store/encryption-key.spec.ts src/store/transforms/transforms.spec.ts src/store/persistence-guard.spec.ts --runInBand --forceExit",
+      "exit": 0,
+      "suites": 6,
+      "passed": 252,
+      "newCases": 15
+    },
+    "eslint": {
+      "command": "node node_modules/.bin/eslint src/store/vault-scrub.ts src/store/vault-scrub.spec.ts src/store/vault-migration.spec.ts",
+      "exit": 0,
+      "errors": 0,
+      "warnings": 0
+    },
+    "prettier": {
+      "scope": "five changed files",
+      "exit": 0
+    },
+    "diffCheck": {
+      "command": "git diff --check",
+      "exit": 0
+    },
+    "notRerun": [
+      "full repository Jest suite",
+      "TypeScript",
+      "native-core scans and kill tests",
+      "native app builds",
+      "JavaScript bundles"
+    ],
+    "releaseGates": "Full mobile-app/device verification and explicit native-residual acceptance remain outstanding."
+  }
+}

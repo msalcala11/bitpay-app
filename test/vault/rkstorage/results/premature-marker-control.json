@@ -1,0 +1,7 @@
+{
+  "mutation": "premature-marker",
+  "testExit": 1,
+  "caught": true,
+  "originalSha256": "5f5474919c3f6f1a5df299f9076ada58e3dee17bd1af0d8b0041275a5a826933",
+  "mutantSha256": "2b9f342cd18ff35aa763c4b271b0039ff6f4f576ed83236761bbb7cddb0aae8f"
+}

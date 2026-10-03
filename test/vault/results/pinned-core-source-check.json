@@ -1,0 +1,32 @@
+[
+  {
+    "file": "MMKV_IO.cpp",
+    "matchesPinnedCommit": true,
+    "sha256": "a3f1fe71d64262a42937db043a54cff40b81d665b2b20c548a0296f21df823ad"
+  },
+  {
+    "file": "MemoryFile.cpp",
+    "matchesPinnedCommit": true,
+    "sha256": "6769b4b35aed0aa1d20273cb3dfa59e8ac49f44699107bd6483c9ea10435293f"
+  },
+  {
+    "file": "MiniPBCoder.cpp",
+    "matchesPinnedCommit": true,
+    "sha256": "6eed566496dbef55330c5bca181936c3b4248c6108a189b1bdac79a20da18b35"
+  },
+  {
+    "file": "CodedOutputData.cpp",
+    "matchesPinnedCommit": true,
+    "sha256": "500984522b26721a1d63f2b40b04d70614c4c56380624df131d5041be04242c2"
+  },
+  {
+    "file": "MMKV.cpp",
+    "matchesPinnedCommit": true,
+    "sha256": "5f81bde476b9d69c1ca75e08bc7f578517d880be8b2b3a0581cf5122284f91f4"
+  },
+  {
+    "file": "MMKV.h",
+    "matchesPinnedCommit": true,
+    "sha256": "6ac91e1726ba00897c9cb4576952e5c4f482684da8c99034b5109331f1dd8594"
+  }
+]

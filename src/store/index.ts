@@ -1,5 +1,4 @@
 import {DISABLE_DEVELOPMENT_LOGGING} from '@env';
-import crypto from 'crypto';
 import {
   Action,
   AnyAction,
@@ -11,29 +10,25 @@ import {
 } from 'redux';
 import {composeWithDevTools} from 'redux-devtools-extension';
 import {createLogger} from 'redux-logger'; // https://github.com/LogRocket/redux-logger
-import {getUniqueId} from 'react-native-device-info';
-import * as Keychain from 'react-native-keychain';
 import {createTransform, persistStore, persistReducer} from 'redux-persist'; // https://github.com/rt2zz/redux-persist
 import autoMergeLevel2 from 'redux-persist/lib/stateReconciler/autoMergeLevel2';
 import thunkMiddleware, {ThunkAction} from 'redux-thunk'; // https://github.com/reduxjs/redux-thunk
 import {Selector} from 'reselect';
 import {
   backupFileExists,
-  backupFileExistsStrict,
   backupPersistRoot,
   readBackupPersistRoot,
 } from './backup/fs-backup';
-import {selectNewEncryptionKey, storeEncryptionKey} from './encryption-key';
+import {prepareVault} from './vault-rkstorage';
+import {recordVaultInitializationSave} from './vault-migration';
+import {safeVaultError} from './vault-diagnostics';
 import {
   bindWalletKeys,
   transformContacts,
   transformPortfolioPopulateStatus,
   encryptSpecificFields,
 } from './transforms/transforms';
-import {
-  deserializePersistValue,
-  encryptPersistValue,
-} from './transforms/encrypt';
+import {persistEncryptionTransform} from './transforms/persist-encryption';
 import {createRehydrationFailureMiddleware} from './persistence-guard';
 import {appReducer, appReduxPersistBlackList} from './app/app.reducer';
 import {
@@ -110,16 +105,6 @@ import {logManager} from '../managers/LogManager';
 import * as Sentry from '@sentry/react-native';
 
 export const storage = new MMKV();
-
-const unencryptedPersistStores = new Set([
-  'APP',
-  'MARKET_STATS',
-  'PORTFOLIO',
-  'RATE',
-  'SHOP',
-  'SHOP_CATALOG',
-  'WALLET',
-]);
 
 const FS_BACKUP_TRIGGER_ACTIONS = new Set<string>([
   WalletActionTypes.SUCCESS_CREATE_KEY,
@@ -215,6 +200,7 @@ export const reduxStorage: Storage = {
 
     try {
       storage.set(key, valueToStore);
+      recordVaultInitializationSave(storage, key, valueToStore);
     } catch (err) {
       addLog(
         LogActions.persistLog(
@@ -514,43 +500,13 @@ const getStore = async () => {
         return inboundState;
       }),
       encryptSpecificFields(secretKey),
-      createTransform<any, any, RootState>(
-        (inboundState, key) => {
-          if (typeof key === 'string' && unencryptedPersistStores.has(key)) {
-            return JSON.stringify(inboundState);
-          }
-
-          return encryptPersistValue(
-            inboundState,
-            secretKey,
-            `persist:${String(key)}`,
-          );
-        },
-        (outboundState, key) => {
-          try {
-            return deserializePersistValue(
-              outboundState,
-              secretKey,
-              String(key),
-              typeof key === 'string' && unencryptedPersistStores.has(key),
-            );
-          } catch (err) {
-            const errStr =
-              err instanceof Error ? err.message : JSON.stringify(err);
-            store.dispatch(
-              LogActions.persistLog(
-                LogActions.error(
-                  `Decrypt persist transform failed - ${errStr}`,
-                ),
-              ),
-            );
-            Sentry.captureException(err, {
-              level: 'error',
-            });
-            throw err;
-          }
-        },
-      ),
+      persistEncryptionTransform(secretKey, err => {
+        rehydrationFailure ??= safeVaultError(
+          err,
+          'PRESERVATION_FAILURE',
+          'startup',
+        );
+      }),
     ],
   };
 
@@ -628,8 +584,7 @@ const getStore = async () => {
   await bootstrapped;
   if (rehydrationFailure) {
     persistor.pause();
-    Sentry.captureException(rehydrationFailure, {level: 'error'});
-    throw rehydrationFailure;
+    throw safeVaultError(rehydrationFailure, 'PRESERVATION_FAILURE', 'startup');
   }
 
   if (__DEV__) {
@@ -668,80 +623,7 @@ export function configureTestStore(initialState: any) {
 }
 
 export async function getEncryptionKey(): Promise<string> {
-  const encryptionKeyId = 'bitpay-app-encryption-key';
-
-  try {
-    logManager.info('getEncryptionKey: attempting to retrieve from Keychain');
-    const existingKey = await Keychain.getGenericPassword({
-      service: encryptionKeyId,
-    });
-
-    if (existingKey && existingKey.password) {
-      logManager.info('getEncryptionKey: found existing key in Keychain');
-      return existingKey.password;
-    }
-  } catch (err) {
-    initLogs.add(
-      LogActions.persistLog(
-        LogActions.error(
-          `getEncryptionKey: Keychain get failed - ${getErrorString(err)}`,
-        ),
-      ),
-    );
-    Sentry.captureException(err, {
-      level: 'error',
-    });
-    throw err;
-  }
-
-  let selectedKey: {key: string; legacyCompatible: boolean};
-  try {
-    selectedKey = await selectNewEncryptionKey({
-      hasPersistedRoot: () => storage.contains('persist:root'),
-      hasBackup: backupFileExistsStrict,
-      getLegacyKey: getUniqueId,
-      getRandomKey: () => crypto.randomBytes(32).toString('base64'),
-    });
-  } catch (err) {
-    initLogs.add(
-      LogActions.persistLog(
-        LogActions.error(
-          `getEncryptionKey: key selection failed - ${getErrorString(err)}`,
-        ),
-      ),
-    );
-    Sentry.captureException(err, {
-      level: 'error',
-    });
-    throw err;
-  }
-
-  logManager.warn(
-    `getEncryptionKey: generating ${
-      selectedKey.legacyCompatible ? 'legacy-compatible' : 'random'
-    } key (no existing key)`,
+  return prepareVault(storage, message =>
+    initLogs.add(LogActions.persistLog(LogActions.info(message))),
   );
-
-  try {
-    await storeEncryptionKey(
-      encryptionKeyId,
-      selectedKey.key,
-      Keychain.setGenericPassword,
-    );
-    logManager.info('getEncryptionKey: stored new key in Keychain');
-  } catch (err) {
-    initLogs.add(
-      LogActions.persistLog(
-        LogActions.error(
-          `getEncryptionKey: Keychain set failed - ${getErrorString(err)}`,
-        ),
-      ),
-    );
-    Sentry.captureException(err, {
-      level: 'error',
-    });
-    throw err;
-  }
-
-  return selectedKey.key;
 }

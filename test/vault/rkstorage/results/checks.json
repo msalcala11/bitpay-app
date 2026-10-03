@@ -1,0 +1,130 @@
+{
+  "base": "f307e0aec2c95d71905d8188bddf37b6cc5c5c3e",
+  "baseline": {
+    "jest": {
+      "exit": 0,
+      "suites": 141,
+      "passed": 2590,
+      "skipped": 2
+    },
+    "typescript": {
+      "exit": 2,
+      "diagnostics": 2024
+    },
+    "eslint": {
+      "exit": 1,
+      "errors": 632,
+      "warnings": 697
+    },
+    "prettier": {
+      "exit": 0
+    }
+  },
+  "final": {
+    "jest": {
+      "command": "COREPACK_ENABLE_AUTO_PIN=0 yarn test:ci",
+      "exit": 0,
+      "suites": 141,
+      "passed": 2625,
+      "skipped": 2
+    },
+    "focused": {
+      "command": "node node_modules/.bin/jest src/store/vault-migration.spec.ts src/store/vault-scrub.spec.ts src/store/vault-diagnostics.spec.ts src/store/encryption-key.spec.ts src/store/transforms/transforms.spec.ts src/store/persistence-guard.spec.ts --runInBand --forceExit",
+      "exit": 0,
+      "suites": 6,
+      "passed": 287
+    },
+    "typescript": {
+      "command": "node node_modules/.bin/tsc --noEmit",
+      "exit": 2,
+      "diagnostics": 2024,
+      "introducedNormalizedDiagnostics": []
+    },
+    "eslint": {
+      "command": "node node_modules/.bin/eslint . --ext .js,.jsx,.ts,.tsx",
+      "exit": 1,
+      "errors": 632,
+      "warnings": 697
+    },
+    "prettier": {
+      "command": "COREPACK_ENABLE_AUTO_PIN=0 yarn prettier:check",
+      "exit": 0
+    },
+    "androidBuild": {
+      "command": "JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home SENTRY_DISABLE_AUTO_UPLOAD=true NODE_ENV=development ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --max-workers=2 --console=plain --project-cache-dir <scratch>/gradle-cache -PreactNativeArchitectures=arm64-v8a -PrkStorageTestAssets=<scratch>/react-assets",
+      "cwd": "android",
+      "exit": 0
+    },
+    "iosBundle": {
+      "command": "NODE_ENV=development SENTRY_DISABLE_AUTO_UPLOAD=true node node_modules/react-native/cli.js bundle --platform ios --dev false --minify false --entry-file index.js --bundle-output <scratch>/ios.bundle --assets-dest <scratch>/ios-assets --max-workers 2",
+      "exit": 0
+    },
+    "native": {
+      "command": "node test/vault/rkstorage/run-android.cjs <disposable-serial> <scratch>/native all",
+      "api32": {
+        "exit": 0,
+        "cases": 44,
+        "sqlite": "3.32.2",
+        "osPageSize": 4096,
+        "sqlitePageSizes": [4096, 16384]
+      },
+      "api34": {
+        "exit": 0,
+        "cases": 44,
+        "sqlite": "3.39.2",
+        "osPageSize": 4096,
+        "sqlitePageSizes": [4096, 16384]
+      }
+    },
+    "hermes": {
+      "command": "node test/vault/rkstorage/run-react.cjs <disposable-serial> <scratch>/react",
+      "api32": {
+        "exit": 0,
+        "scenarios": 4,
+        "launches": 12
+      },
+      "api34": {
+        "exit": 0,
+        "scenarios": 4,
+        "launches": 12
+      }
+    },
+    "syscallFaults": {
+      "command": "node test/vault/rkstorage/run-syscalls.cjs emulator-5586 <scratch>/syscalls",
+      "exit": 0,
+      "cases": 4,
+      "realEioInjected": true,
+      "freshProcessRecoveryAndRetry": true,
+      "productionNote": "Opt-in debug interposer only; absent from final normal APK."
+    },
+    "negativeControls": {
+      "nativeMutationsCaught": ["skip-vacuum", "skip-sidecar", "delete-live"],
+      "prematureMarkerCaught": true,
+      "sourceRestored": true,
+      "sourceHashes": "See each control result; native controls were run during development before the final non-mutating unsupported-state guard."
+    },
+    "focusedLint": {
+      "exit": 0,
+      "errors": 0,
+      "warnings": 0
+    },
+    "patchApplication": {
+      "exit": 0,
+      "sourceMatchesInstalled": true
+    }
+  },
+  "notRun": [
+    "physical phones",
+    "16 KiB OS-page Android",
+    "hardware power-cut tests",
+    "new iOS native device/build certification"
+  ],
+  "notAccepted": "Existing MMKV native-compaction residual risks still need owner acceptance.",
+  "fullLogs": "/private/tmp/bip02-rkstorage-up13n4jr",
+  "developmentCorrections": [
+    "Pinned provider truncates embedded NUL on input; exact existing SQLite NUL fixture seeded through SQL.",
+    "Synthetic real-runtime fixtures corrected for nested CBC and encrypted _persist.",
+    "Raw sidecar oracle moved before ordinary writes after a skipped-sidecar mutant escaped the earlier oracle.",
+    "Fresh-process instrumentation now waits for Application/SoLoader initialization."
+  ]
+}

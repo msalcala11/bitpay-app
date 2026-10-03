@@ -1,0 +1,17 @@
+cmake_minimum_required(VERSION 3.10)
+# Establish the target platform BEFORE including the bundled core CMake file.
+# Otherwise its pre-project APPLE check sees the macOS host during cross builds.
+project(bip02_native LANGUAGES C CXX ASM)
+if(NOT MMKV_CORE_DIR)
+  message(FATAL_ERROR "Pass -DMMKV_CORE_DIR=<pinned react-native-mmkv/MMKV/Core>")
+endif()
+add_subdirectory("${MMKV_CORE_DIR}" "${CMAKE_BINARY_DIR}/core")
+add_executable(bip02-native-api native-api.cpp)
+target_compile_features(bip02-native-api PRIVATE cxx_std_20)
+target_link_libraries(bip02-native-api PRIVATE core ${CMAKE_DL_LIBS})
+if(APPLE)
+  target_compile_definitions(bip02-native-api PRIVATE FORCE_POSIX)
+endif()
+if(ANDROID)
+  target_link_libraries(bip02-native-api PRIVATE log)
+endif()

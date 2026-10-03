@@ -19,6 +19,7 @@ import {
 } from 'react-native-exception-handler';
 import {name as appName} from './app.json';
 import getStore from './src/store';
+import {reportVaultStartupFailure} from './src/store/vault-diagnostics';
 import {Provider} from 'react-redux';
 import {PersistGate} from 'redux-persist/integration/react';
 import 'react-native-url-polyfill/auto'; // https://github.com/facebook/react-native/issues/23922#issuecomment-648096619
@@ -180,10 +181,10 @@ const ReduxProvider = () => {
         if (cancelled) {
           return;
         }
-        Sentry.captureException(error, {level: 'error'});
+        reportVaultStartupFailure(error);
         Alert.alert(
           'Wallet data could not be opened',
-          'Your local data was preserved. Please try again.',
+          'Please try again.',
           [
             {
               text: 'Retry',

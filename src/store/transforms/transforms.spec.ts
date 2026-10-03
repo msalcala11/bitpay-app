@@ -588,7 +588,7 @@ describe('encryptSpecificFields', () => {
     });
     const {inFn} = getTransform();
     const state: any = {keys: {}};
-    expect(() => inFn(state, 'WALLET')).toThrow('encrypt failed');
+    expect(() => inFn(state, 'WALLET')).toThrow('PRESERVATION_FAILURE');
   });
 
   it('outbound: reports and rethrows decryption errors', () => {
@@ -597,6 +597,6 @@ describe('encryptSpecificFields', () => {
     });
     const {outFn} = getTransform();
     const state: any = {keys: {}};
-    expect(() => outFn(state, 'WALLET')).toThrow('decrypt failed');
+    expect(() => outFn(state, 'WALLET')).toThrow('PRESERVATION_FAILURE');
   });
 });

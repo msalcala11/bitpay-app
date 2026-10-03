@@ -1,0 +1,48 @@
+[
+  {
+    "rootBytes": 512,
+    "mode": "current",
+    "seed": "seeded file=16384 markers=54",
+    "exit": 0,
+    "phaseOutput": "",
+    "reopened": "root=intact logs=1 filler=0 keys=2 file=1048576 markers=0"
+  },
+  {
+    "rootBytes": 512,
+    "mode": "inplace0",
+    "seed": "seeded file=16384 markers=54",
+    "exit": 0,
+    "phaseOutput": "trimmed=16384 peak=65536 final=16384",
+    "reopened": "root=intact logs=1 filler=0 keys=2 file=16384 markers=0"
+  },
+  {
+    "rootBytes": 2097152,
+    "mode": "current",
+    "seed": "seeded file=16777216 markers=209718",
+    "exit": 0,
+    "phaseOutput": "",
+    "reopened": "root=intact logs=1 filler=0 keys=2 file=16777216 markers=0"
+  },
+  {
+    "rootBytes": 2097152,
+    "mode": "inplace0",
+    "seed": "seeded file=16777216 markers=209718",
+    "exit": 0,
+    "phaseOutput": "uncovered-tail=1 trimmed=4194304 peak=16777216 final=4194304",
+    "reopened": "root=intact logs=1 filler=0 keys=2 file=4194304 markers=0"
+  },
+  {
+    "rootBytes": 512,
+    "mode": "current",
+    "growthCapBytes": 16384,
+    "exit": 11,
+    "reopened": "root=MISSING logs=0 filler=0 keys=0 file=16384 markers=54"
+  },
+  {
+    "rootBytes": 512,
+    "mode": "inplace0",
+    "growthCapBytes": 16384,
+    "exit": 11,
+    "reopened": "root=intact logs=1 filler=0 keys=2 file=16384 markers=54"
+  }
+]

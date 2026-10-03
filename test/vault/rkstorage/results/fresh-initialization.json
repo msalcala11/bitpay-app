@@ -1,0 +1,190 @@
+{
+  "base": "c4cfb008974e8c91726b6e4830f3c560e8dadf67",
+  "scope": "Fresh-initialization provenance and first-save retirement; no native production or dependency changes.",
+  "before": {
+    "command": "node node_modules/.bin/jest src/store/vault-migration.spec.ts --runInBand --forceExit -t 'fresh initialization survives repeated'",
+    "production": "unchanged at base",
+    "exit": 1,
+    "failed": 2,
+    "outcomes": [
+      "same-process retry: PRESERVATION_FAILURE",
+      "fresh-module retry: PRESERVATION_FAILURE"
+    ],
+    "log": "/tmp/bip02-fresh-before.log"
+  },
+  "after": {
+    "fullJest": {
+      "command": "node node_modules/.bin/jest --ci --testMatch='**/*.spec.{js,tsx,ts}' --config=jest.config.js --runInBand --forceExit",
+      "exit": 0,
+      "suites": 141,
+      "passed": 2642,
+      "skipped": 2
+    },
+    "focused": {
+      "command": "node node_modules/.bin/jest src/store/vault-migration.spec.ts src/store/vault-scrub.spec.ts src/store/vault-diagnostics.spec.ts src/store/encryption-key.spec.ts src/store/transforms/transforms.spec.ts src/store/persistence-guard.spec.ts --runInBand --forceExit",
+      "exit": 0,
+      "suites": 6,
+      "passed": 304
+    },
+    "typescript": {
+      "command": "node node_modules/.bin/tsc --noEmit",
+      "exit": 2,
+      "baselineCount": 2024,
+      "currentCount": 2024,
+      "introduced": [],
+      "removed": [],
+      "comparison": "Previous RKStorage final-tsc.log, normalized only line/column locations."
+    },
+    "lint": {
+      "command": "node node_modules/.bin/eslint src/store/vault-migration.ts src/store/vault-rkstorage.ts src/store/vault-migration.spec.ts test/vault/rkstorage/react-entry.js test/vault/rkstorage/run-react.cjs --parser-options '{\"ecmaVersion\":2020}'",
+      "exit": 0
+    },
+    "prettier": {
+      "command": "node node_modules/.bin/prettier --check src/store/index.ts src/store/vault-migration.ts src/store/vault-rkstorage.ts src/store/vault-migration.spec.ts test/vault/rkstorage/react-entry.js test/vault/rkstorage/run-react.cjs",
+      "exit": 0
+    },
+    "androidBundle": {
+      "command": "NODE_ENV=development SENTRY_DISABLE_AUTO_UPLOAD=true node node_modules/react-native/cli.js bundle --platform android --dev true --minify false --entry-file test/vault/rkstorage/react-entry.js --bundle-output <assets>/rkstorage-test.bundle --assets-dest <assets> --max-workers 2",
+      "exit": 0
+    },
+    "androidBuild": {
+      "cwd": "android",
+      "command": "JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home SENTRY_DISABLE_AUTO_UPLOAD=true NODE_ENV=development ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --max-workers=2 --console=plain --project-cache-dir <scratch>/gradle-cache -PreactNativeArchitectures=arm64-v8a -PrkStorageTestAssets=<assets>",
+      "exit": 0
+    },
+    "hermes": {
+      "command": "node test/vault/rkstorage/run-react.cjs emulator-5586 <scratch>/react-api34",
+      "exit": 0,
+      "api": 34,
+      "sqlite": "3.39.2",
+      "scenarios": 5,
+      "launches": 18,
+      "cases": [
+        {
+          "seed": "react-seed",
+          "launches": 3,
+          "completed": true,
+          "finalNativeCalls": 0,
+          "walletRestoredExactly": true
+        },
+        {
+          "seed": "react-base-only",
+          "launches": 3,
+          "completed": true,
+          "finalNativeCalls": 0,
+          "walletRestoredExactly": true
+        },
+        {
+          "seed": "react-async-only",
+          "launches": 3,
+          "completed": true,
+          "finalNativeCalls": 0,
+          "walletRestoredExactly": true
+        },
+        {
+          "seed": "react-empty-import",
+          "launches": 3,
+          "completed": true,
+          "finalNativeCalls": 0,
+          "walletRestoredExactly": true
+        },
+        {
+          "seed": "react-fresh-start",
+          "launches": 6,
+          "completed": true,
+          "finalNativeCalls": 0,
+          "walletRestoredExactly": true
+        }
+      ],
+      "freshRows": [
+        {
+          "operation": "react-fresh-start",
+          "newArchitectureBridge": true,
+          "initializationRetries": 3,
+          "nativeCleanCalls": 0,
+          "decryptable": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        },
+        {
+          "operation": "react-fresh-retry",
+          "newArchitectureBridge": true,
+          "initializationRetries": 3,
+          "nativeCleanCalls": 0,
+          "decryptable": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        },
+        {
+          "operation": "react-fresh-retry",
+          "newArchitectureBridge": true,
+          "initializationRetries": 3,
+          "nativeCleanCalls": 0,
+          "decryptable": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        },
+        {
+          "operation": "react-fresh-save",
+          "newArchitectureBridge": true,
+          "initializationRetries": 3,
+          "nativeCleanCalls": 0,
+          "firstOrdinarySave": true,
+          "decryptable": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        },
+        {
+          "operation": "react-clean",
+          "newArchitectureBridge": true,
+          "nativeCalls": 2,
+          "walletRestoredExactly": true,
+          "completed": true,
+          "decryptable": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        },
+        {
+          "operation": "react-clean",
+          "newArchitectureBridge": true,
+          "nativeCalls": 0,
+          "walletRestoredExactly": true,
+          "completed": true,
+          "decryptable": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        }
+      ]
+    }
+  },
+  "notRerun": [
+    "API 32 emulator",
+    "native SQL matrix and syscall fault injection",
+    "iOS native build/full-app checks"
+  ],
+  "outstanding": [
+    "Physical phones and 16 KiB OS-page Android",
+    "Explicit owner acceptance of documented MMKV native-compaction residuals"
+  ],
+  "fullLogs": "/private/tmp/bip02-fresh-repair-lP3oWS",
+  "sha256": {
+    "src/store/index.ts": "becc9e34e787ae6983b3f776984bfbd14a70cdeaa3f6c6badbee36ba1d53b903",
+    "src/store/vault-migration.ts": "8ad27ee58d2a06ca928c08a8b35f292475a2fa2d2d20ae8db29696c5eb4cc9cc",
+    "src/store/vault-rkstorage.ts": "564658bb463a2a3461864650ffb774e319546e0d25707bd459f53c416d80dbf0",
+    "src/store/vault-migration.spec.ts": "0194d40338380583fd2bcc2231d4c6e650722aa58c34b579ae95b4edc4d8d165",
+    "test/vault/rkstorage/react-entry.js": "8c61f11467c9b84cbb8e6e40c3f8f8811bc00d23951907972fb36d267741e3de",
+    "test/vault/rkstorage/run-react.cjs": "fb4f54abe8b2911c6510549dd32a8a1d23d682867b955046d093f1bed56d8b23"
+  }
+}
