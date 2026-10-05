@@ -1,0 +1,522 @@
+{
+  "stage": "A only; expected reds, no production implementation",
+  "clientDate": "2026-10-05",
+  "timezone": "America/New_York",
+  "reference": "4e9c7e96c54d87520da7c3f16bf37084ec7c8789",
+  "workspace": "/Users/marty/open-source/bitpay-app",
+  "validationWorktree": "/Users/marty/.codex/worktrees/bip02-stage-a-baseline/bitpay-app",
+  "scratch": "/private/tmp/bip02-stage-a-HLqhrF",
+  "baseline": {
+    "install": "clean frozen install including full postinstall; no substitutions",
+    "jestCommand": "node node_modules/.bin/jest --ci --testMatch='**/*.spec.{js,tsx,ts}' --config=jest.config.js --runInBand --forceExit --json --outputFile=<scratch>/clean-baseline-jest.json",
+    "exit": 0,
+    "suites": 138,
+    "passed": 2696,
+    "skipped": 2,
+    "referenceSpecsOnly": true
+  },
+  "stageA": {
+    "command": "node node_modules/.bin/jest src/store/vault-migration.spec.ts src/store/vault-scrub.spec.ts src/store/vault-diagnostics.spec.ts src/store/encryption-key.spec.ts src/store/transforms/transforms.spec.ts src/store/persistence-guard.spec.ts --runInBand --forceExit --json --outputFile=<scratch>/clean-final-focused.json",
+    "exit": 1,
+    "existingFocusedPassed": 368,
+    "newExpectedFailures": 23,
+    "newPassingControls": 11,
+    "totalPassed": 379,
+    "totalFailed": 23,
+    "missingApiOrCompilationFailures": false,
+    "cases": [
+      {
+        "name": "Stage A B lifecycle: main after delete-key",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A B lifecycle: main after password-set",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A B lifecycle: main after password-change",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A B lifecycle: main after password-remove",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A B lifecycle: main after remove-gift",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A B lifecycle: async after delete-key",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A B lifecycle: async after password-set",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A B lifecycle: async after password-change",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A B lifecycle: async after password-remove",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A B lifecycle: async after remove-gift",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A A lifecycle: obsolete bak temp after two ordinary backup rotations",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A F historical flag qualification: true",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A F historical flag qualification: false",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A F historical flag qualification: undefined",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A F historical flag qualification: true",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A F successful absence before unreadability: same-attempt",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A F successful absence before unreadability: fresh-modules",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A F consumed original source before unreadable next launch",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A F modern flag without historical evidence remains strict",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A G undecodable discard stays strict after the last protected field is removed",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A J candidate UI seed is externally clearable with same-process preparation retry",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A C lifecycle: independent bak and original AsyncStorage obligations",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A C changed original source cannot inherit disposal after a deferred attempt",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A F historical eligibility retained across successful reads then inventory rejection",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A F historical eligibility retained across successful reads then pre-delete rejection",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A F historical eligibility retained across successful reads then verification rejection",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A E pending failed-load empty view: data-open",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A E pending failed-load empty view: checksum-open",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A H completed records ignore new-extension leftovers on ios",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A H completed records ignore new-extension leftovers on android",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A K pending launches have bounded reads and one deduplicated aggregate report",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A E persistent zero-key zero-size loss remains inconclusive across modeled processes",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A E demonstrably loaded absence must stop before source promotion or restoration",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A E unreadable versioned key stops before any pending-state mutation",
+        "status": "passed"
+      }
+    ],
+    "safeObservations": [
+      {
+        "label": "B:main:delete-key",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 2,
+        "applicationMutations": 0
+      },
+      {
+        "label": "B:main:password-set",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 3,
+        "applicationMutations": 0
+      },
+      {
+        "label": "B:main:password-change",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 3,
+        "applicationMutations": 0
+      },
+      {
+        "label": "B:main:password-remove",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 11,
+        "applicationMutations": 0
+      },
+      {
+        "label": "B:main:remove-gift",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 3,
+        "applicationMutations": 0
+      },
+      {
+        "label": "B:async:delete-key",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 4,
+        "applicationMutations": 0
+      },
+      {
+        "label": "B:async:password-set",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 5,
+        "applicationMutations": 0
+      },
+      {
+        "label": "B:async:password-change",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 4,
+        "applicationMutations": 0
+      },
+      {
+        "label": "B:async:password-remove",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 4,
+        "applicationMutations": 0
+      },
+      {
+        "label": "B:async:remove-gift",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 4,
+        "applicationMutations": 0
+      },
+      {
+        "label": "A:bak:rotated",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 3,
+        "applicationMutations": 0
+      },
+      {
+        "label": "F:historical:boolean:true",
+        "code": "REQUIRED_COPY_FAILURE",
+        "phase": "inventory",
+        "elapsedMs": 1,
+        "applicationMutations": 0
+      },
+      {
+        "label": "F:historical:boolean:false",
+        "code": "REQUIRED_COPY_FAILURE",
+        "phase": "inventory",
+        "elapsedMs": 0,
+        "applicationMutations": 0
+      },
+      {
+        "label": "F:historical:undefined:undefined",
+        "code": "REQUIRED_COPY_FAILURE",
+        "phase": "inventory",
+        "elapsedMs": 0,
+        "applicationMutations": 0
+      },
+      {
+        "label": "F:historical:string:true",
+        "code": "REQUIRED_COPY_FAILURE",
+        "phase": "inventory",
+        "elapsedMs": 0,
+        "applicationMutations": 0
+      },
+      {
+        "label": "F:absence:same-attempt",
+        "code": "REQUIRED_COPY_FAILURE",
+        "phase": "cleanup",
+        "elapsedMs": 2,
+        "applicationMutations": 13
+      },
+      {
+        "label": "F:absence:fresh-modules",
+        "code": "REQUIRED_COPY_FAILURE",
+        "phase": "inventory",
+        "elapsedMs": 13,
+        "applicationMutations": 0
+      },
+      {
+        "label": "F:consumed:unreadable",
+        "code": "REQUIRED_COPY_FAILURE",
+        "phase": "inventory",
+        "elapsedMs": 2,
+        "applicationMutations": 0
+      },
+      {
+        "label": "F:modern-flag:strict",
+        "code": "REQUIRED_COPY_FAILURE",
+        "phase": "inventory",
+        "elapsedMs": 0,
+        "applicationMutations": 0
+      },
+      {
+        "label": "G:discard:empty-after-use",
+        "code": "INVALID_LEGACY_INPUT",
+        "phase": "classify",
+        "elapsedMs": 9,
+        "applicationMutations": 0
+      },
+      {
+        "label": "J:candidate-seed",
+        "code": "INVALID_LEGACY_INPUT",
+        "phase": "classify",
+        "elapsedMs": 0,
+        "applicationMutations": 0
+      },
+      {
+        "label": "J:candidate-cleared",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 0,
+        "applicationMutations": 8
+      },
+      {
+        "label": "C:independent-bak-async",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 5,
+        "applicationMutations": 0
+      },
+      {
+        "label": "C:changed-source:strict",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 5,
+        "applicationMutations": 0
+      },
+      {
+        "label": "F:historical-later:inventory",
+        "code": "REQUIRED_COPY_FAILURE",
+        "phase": "inventory",
+        "elapsedMs": 0,
+        "applicationMutations": 0
+      },
+      {
+        "label": "F:historical-later:pre-delete",
+        "code": "REQUIRED_COPY_FAILURE",
+        "phase": "cleanup",
+        "elapsedMs": 2,
+        "applicationMutations": 6
+      },
+      {
+        "label": "F:historical-later:verification",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 2,
+        "applicationMutations": 6
+      },
+      {
+        "label": "E:data-open:attempt-0",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 0,
+        "applicationMutations": 2
+      },
+      {
+        "label": "E:data-open:attempt-1",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 1,
+        "applicationMutations": 1
+      },
+      {
+        "label": "E:checksum-open:attempt-0",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 0,
+        "applicationMutations": 3
+      },
+      {
+        "label": "E:checksum-open:attempt-1",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 1,
+        "applicationMutations": 2
+      },
+      {
+        "label": "K:retry:0",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 2,
+        "applicationMutations": 6
+      },
+      {
+        "label": "K:retry:1",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 1,
+        "applicationMutations": 0
+      },
+      {
+        "label": "K:retry:2",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 1,
+        "applicationMutations": 0
+      },
+      {
+        "label": "E:permanent-empty:process-0",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 4,
+        "applicationMutations": 9
+      },
+      {
+        "label": "E:permanent-empty:process-1",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 2,
+        "applicationMutations": 0
+      },
+      {
+        "label": "E:loaded-absence",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 1,
+        "applicationMutations": 8
+      },
+      {
+        "label": "E:key-unavailable",
+        "code": "MODERN_KEY_FAILURE",
+        "phase": "key",
+        "elapsedMs": 0,
+        "applicationMutations": 0
+      }
+    ],
+    "pendingMetrics": [
+      {
+        "launch": 0,
+        "platformModel": "android",
+        "hostTiming": "Node",
+        "asyncReads": 3,
+        "fieldDecryptCalls": 50,
+        "reducerDecryptCalls": 10,
+        "mmkvStringReads": 53,
+        "mmkvKeyLists": 1,
+        "mmkvSizeReads": 0,
+        "reportsThisAttempt": 2,
+        "recordWrites": 2
+      },
+      {
+        "launch": 1,
+        "platformModel": "android",
+        "hostTiming": "Node",
+        "asyncReads": 3,
+        "fieldDecryptCalls": 30,
+        "reducerDecryptCalls": 6,
+        "mmkvStringReads": 35,
+        "mmkvKeyLists": 1,
+        "mmkvSizeReads": 0,
+        "reportsThisAttempt": 2,
+        "recordWrites": 0
+      },
+      {
+        "launch": 2,
+        "platformModel": "android",
+        "hostTiming": "Node",
+        "asyncReads": 3,
+        "fieldDecryptCalls": 30,
+        "reducerDecryptCalls": 6,
+        "mmkvStringReads": 35,
+        "mmkvKeyLists": 1,
+        "mmkvSizeReads": 0,
+        "reportsThisAttempt": 2,
+        "recordWrites": 0
+      }
+    ]
+  },
+  "typescript": {
+    "command": "node node_modules/.bin/tsc --noEmit",
+    "baselineExit": 2,
+    "stageAExit": 2,
+    "baseline": 2024,
+    "stageA": 2024,
+    "introduced": [],
+    "removed": []
+  },
+  "checks": {
+    "eslint": {
+      "command": "node node_modules/.bin/eslint src/store/vault-migration.spec.ts",
+      "exit": 0
+    },
+    "prettier": {
+      "command": "node node_modules/.bin/prettier --check src/store/vault-migration.spec.ts",
+      "exit": 0
+    },
+    "diffCheck": {
+      "command": "git diff --check",
+      "exit": 0
+    }
+  },
+  "specSha256": "826a6d172fb66023b1015337bb4e9f69b80bbba59818470a4d685fd8038c36b0",
+  "productionUnchanged": true,
+  "githubWrites": false,
+  "nativeProbeRerun": false,
+  "actualUiSmoke": false,
+  "developmentQualification": "Initial scratch iterations exposed module-local diagnostic identity and mock cleanup issues; they were corrected before the final clean-install run. Only the final functional outcomes above are counted as red controls.",
+  "evidenceLimits": [
+    "Platform boundaries are modeled; JS module isolation is not a native process restart.",
+    "The new-native-process recovery assertion is conditional on zero forbidden mutations and is not reached by the red reference. No recovery after an accepted checksum-failure write is claimed.",
+    "Native supplied probe files/output were not found in accessible locations; Downloads search was permission-restricted.",
+    "No forced-flush, power-loss, mobile-device, full UI, or silent-rollback guarantee is established.",
+    "Hidden metadata and failed revocation persistence can make earlier history unobservable; see report limits."
+  ],
+  "unrelatedUntrackedPreserved": [
+    "deliverables/",
+    "docs/",
+    "index.worklets-stress.js",
+    "scripts/run-retaining-serializable-stress-android.js",
+    "src-master.zip",
+    "src-uncompressed-s.zip",
+    "src/portfolio/runtime/testing/"
+  ],
+  "localCommitsDuringValidation": false,
+  "subsequentCommitAuthorization": "User explicitly requested a local commit of Stage A artifacts after validation; this does not approve Stage B."
+}

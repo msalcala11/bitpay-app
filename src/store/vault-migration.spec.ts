@@ -3099,3 +3099,727 @@ it('E: optional promotion remains deferrable after an actual additive EDDSA upgr
   expect(root.getString('persist:root') === enriched!).toBe(true);
   expect(mockFiles.has(migrationTemp(VAULT_BACKUP))).toBe(false);
 });
+
+// Stage A design gate: these tests specify requested lifecycle behavior through
+// existing production entry points. Production is intentionally unchanged.
+// Output is limited to fixed labels, classifications, booleans and counts.
+describe('Stage A', () => {
+  const freshDiagnostics = new WeakMap<object, {code: string; phase: string}>();
+  const outcome = async (label: string, operation: () => Promise<unknown>) => {
+    const started = Date.now();
+    const writes = mockWrites.length;
+    let code = 'RESOLVED',
+      phase = 'none';
+    try {
+      await operation();
+    } catch (error) {
+      const diagnostic =
+        freshDiagnostics.get(error as object) ??
+        getVaultDiagnostic(error as Error);
+      code = diagnostic?.code ?? 'UNCLASSIFIED';
+      phase = diagnostic?.phase ?? 'unknown';
+    }
+    console.info(
+      'STAGE_A_RESULT ' +
+        JSON.stringify({
+          label,
+          code,
+          phase,
+          elapsedMs: Date.now() - started,
+          applicationMutations: mockWrites.length - writes,
+        }),
+    );
+    return code;
+  };
+  const ordinarySave = async (state: any, key: string, rotate = true) => {
+    // AppInitialization invokes this guarded importer before ordinary UI use.
+    // Exercise the real flag update; a modern flag is not historical evidence.
+    await (startMigrationMMKVStorage() as any)(
+      (action: any) => {
+        state.APP = require('./app/app.reducer').appReducer(state.APP, action);
+      },
+      () => state,
+    );
+    const backup = require('./backup/fs-backup');
+    const exists = jest
+      .spyOn(backup, 'backupFileExists')
+      .mockResolvedValue(!rotate);
+    const write = jest.spyOn(backup, 'backupPersistRoot');
+    const raw = await save(state, key, 'modern');
+    try {
+      await reduxStorage.setItem('persist:root', raw);
+      // Await the actual queued backup work triggered by the adapter, so the
+      // next modeled launch observes completed ordinary rotation, not a mock.
+      for (const call of write.mock.results)
+        if (call.type === 'return') await call.value;
+    } finally {
+      exists.mockRestore();
+      write.mockRestore();
+    }
+    expect(root.getString('persist:root') === raw).toBe(true);
+    return raw;
+  };
+  const stateWithSdkKey = (encrypted = false) => {
+    const state: any = payload();
+    const sdk = BwcProvider.getInstance().createKey({seedType: 'new'});
+    if (encrypted) sdk.encrypt('synthetic-password-a');
+    state.WALLET.keys.readonly.properties = sdk.toObj();
+    state.WALLET.keys.readonly.totalBalance = 0;
+    state.WALLET.portfolioBalance = {current: 0, lastDay: 0, previous: 0};
+    state.SHOP.giftCards.livenet[0].status = 'UNREDEEMED';
+    return state;
+  };
+  const edit = (state: any, kind: string) => {
+    if (kind === 'delete-key') {
+      state.WALLET = require('./wallet/wallet.reducer').walletReducer(
+        state.WALLET,
+        require('./wallet/wallet.actions').deleteKey({keyId: 'readonly'}),
+      );
+    } else if (kind === 'remove-gift') {
+      state.SHOP = require('./shop/shop.reducer').shopReducer(
+        state.SHOP,
+        require('./shop/shop.actions').deletedUnsoldGiftCards({
+          network: 'livenet',
+        }),
+      );
+    } else {
+      const item = state.WALLET.keys.readonly;
+      const sdk = BwcProvider.getInstance().createKey({
+        seedType: 'object',
+        seedData: item.properties,
+      });
+      if (kind !== 'password-set') sdk.decrypt('synthetic-password-a');
+      if (kind !== 'password-remove') sdk.encrypt('synthetic-password-b');
+      state.WALLET = require('./wallet/wallet.reducer').walletReducer(
+        state.WALLET,
+        require('./wallet/wallet.actions').successImport({
+          key: {...item, properties: sdk.toObj()},
+        }),
+      );
+    }
+  };
+  const pending = async (source: 'main' | 'async', state: any) => {
+    const raw = await save(state);
+    root.set('persist:root', raw);
+    seedKey(LEGACY_KEY_SERVICE, legacyKey);
+    if (source === 'async') mockAsync.set('persist:root', raw);
+    const operation = (
+      source === 'main' ? RNFS.moveFile : AsyncStorage.removeItem
+    ) as jest.Mock;
+    const original = operation.getMockImplementation()!;
+    operation.mockImplementation(async (...args) => {
+      if (
+        (source === 'main' ? args[1] : args[0]) ===
+        (source === 'main' ? VAULT_BACKUP : 'persist:root')
+      )
+        throw new Error('synthetic pending cleanup');
+      return original(...args);
+    });
+    let key: string;
+    try {
+      key = await prepareVault(root);
+    } finally {
+      operation.mockImplementation(original);
+    }
+    expect(complete()).toBe(false);
+    expect(
+      source === 'main'
+        ? mockFiles.has(migrationTemp(VAULT_BACKUP))
+        : mockAsync.has('persist:root'),
+    ).toBe(true);
+    return key!;
+  };
+  const freshModules = (configure?: (asyncStorage: any) => void) => {
+    let run: () => Promise<string> = () => prepareVault(root);
+    let restoreRead = () => {};
+    jest.isolateModules(() => {
+      const native = require('react-native');
+      native.Platform.OS = 'android';
+      native.NativeModules.BitPayRKStorage = rkBridge();
+      const asyncModule = require('@react-native-async-storage/async-storage');
+      const asyncStorage = asyncModule.default ?? asyncModule;
+      const reading = asyncStorage.getItem.getMockImplementation();
+      configure?.(asyncStorage);
+      restoreRead = () => asyncStorage.getItem.mockImplementation(reading);
+      const fresh = require('./vault-rkstorage').prepareVault;
+      const diagnostic = require('./vault-diagnostics').vaultDiagnostic;
+      run = () =>
+        fresh(root).catch((error: Error) => {
+          const safe = diagnostic(error);
+          if (safe) freshDiagnostics.set(error, safe);
+          throw error;
+        });
+    });
+    return run().finally(restoreRead); // JS reload only: the boundary maps/native view are preserved.
+  };
+
+  it.each(
+    ['main', 'async'].flatMap(source =>
+      [
+        'delete-key',
+        'password-set',
+        'password-change',
+        'password-remove',
+        'remove-gift',
+      ].map(change => ({source, change})),
+    ),
+  )('B lifecycle: $source after $change', async ({source, change}) => {
+    const state = stateWithSdkKey(
+      ['password-change', 'password-remove'].includes(change),
+    );
+    const key = await pending(source as 'main' | 'async', state);
+    edit(state, change);
+    const latest = await ordinarySave(state, key);
+    restart();
+    const code = await outcome(`B:${source}:${change}`, () => freshModules());
+    expect(root.getString('persist:root') === latest).toBe(true);
+    expect(code === 'RESOLVED').toBe(true);
+    expect(complete()).toBe(true);
+    expect(
+      source === 'main'
+        ? !mockFiles.has(migrationTemp(VAULT_BACKUP))
+        : !mockAsync.has('persist:root'),
+    ).toBe(true);
+  });
+
+  it('A lifecycle: obsolete bak temp after two ordinary backup rotations', async () => {
+    const state = stateWithSdkKey();
+    root.set('persist:root', await save(state));
+    seedFile(
+      VAULT_BACKUP,
+      await save({...state, BITPAY_ID: {apiToken: 'older test state'}}),
+    );
+    seedKey(LEGACY_KEY_SERVICE, legacyKey);
+    const move = RNFS.moveFile as jest.Mock;
+    const original = move.getMockImplementation()!;
+    move.mockImplementation(async (from, to) => {
+      if (to === VAULT_OLDER_BACKUP)
+        throw new Error('synthetic bak promotion failure');
+      return original(from, to);
+    });
+    let key: string;
+    try {
+      key = await prepareVault(root);
+    } finally {
+      move.mockImplementation(original);
+    }
+    expect(complete()).toBe(false);
+    expect(mockFiles.has(migrationTemp(VAULT_OLDER_BACKUP))).toBe(true);
+    state.BITPAY_ID.apiToken = 'first ordinary test save';
+    await ordinarySave(state, key!);
+    state.BITPAY_ID.apiToken = 'second ordinary test save';
+    const latest = await ordinarySave(state, key!);
+    const backup = mockFiles.get(VAULT_OLDER_BACKUP);
+    move.mockClear();
+    restart();
+    const code = await outcome('A:bak:rotated', () => freshModules());
+    expect(root.getString('persist:root') === latest).toBe(true);
+    expect(mockFiles.get(VAULT_OLDER_BACKUP) === backup).toBe(true);
+    expect(code === 'RESOLVED').toBe(true);
+    expect(complete()).toBe(true);
+    expect(mockFiles.has(migrationTemp(VAULT_OLDER_BACKUP))).toBe(false);
+  });
+
+  it.each([true, false, undefined, 'true'])(
+    'F historical flag qualification: %s',
+    async flag => {
+      const state = stateWithSdkKey();
+      if (flag === undefined) delete state.APP.migrationMMKVStorageComplete;
+      else state.APP.migrationMMKVStorageComplete = flag;
+      root.set('persist:root', await save(state));
+      seedKey(LEGACY_KEY_SERVICE, legacyKey);
+      const get = AsyncStorage.getItem as jest.Mock;
+      const original = get.getMockImplementation()!;
+      get.mockRejectedValue(new Error('synthetic unreadable AsyncStorage'));
+      restart();
+      let code: string;
+      try {
+        code = await outcome(
+          `F:historical:${typeof flag}:${String(flag)}`,
+          () => prepareVault(root),
+        );
+      } finally {
+        get.mockImplementation(original);
+      }
+      expect(get.mock.calls.length).toBe(1);
+      if (flag === true) {
+        expect(code === 'RESOLVED').toBe(true);
+        expect(complete()).toBe(false);
+        expect(mockCredentials.has(LEGACY_KEY_SERVICE)).toBe(true);
+      } else {
+        expect(code !== 'RESOLVED').toBe(true);
+        noWrites();
+      }
+    },
+  );
+
+  it.each(['same-attempt', 'fresh-modules'])(
+    'F successful absence before unreadability: %s',
+    async mode => {
+      const state = stateWithSdkKey();
+      root.set('persist:root', await save(state));
+      seedKey(LEGACY_KEY_SERVICE, legacyKey);
+      if (mode === 'same-attempt') {
+        const get = AsyncStorage.getItem as jest.Mock;
+        const original = get.getMockImplementation()!;
+        get
+          .mockResolvedValueOnce(null)
+          .mockRejectedValue(new Error('synthetic later read failure'));
+        try {
+          const code = await outcome('F:absence:same-attempt', () =>
+            prepareVault(root),
+          );
+          expect(code === 'RESOLVED').toBe(true);
+          expect(get.mock.calls.length).toBe(2);
+          expect(complete()).toBe(false);
+        } finally {
+          get.mockImplementation(original);
+        }
+      } else {
+        await pending('main', state); // Its initial null read is real successful absence.
+        const code = await outcome('F:absence:fresh-modules', () =>
+          freshModules(asyncStorage =>
+            asyncStorage.getItem.mockRejectedValue(
+              new Error('synthetic later read failure'),
+            ),
+          ),
+        );
+        expect(code === 'RESOLVED').toBe(true);
+        expect(complete()).toBe(false);
+      }
+    },
+  );
+
+  it('F consumed original source before unreadable next launch', async () => {
+    const state = stateWithSdkKey();
+    const key = await pending('async', state);
+    edit(state, 'delete-key');
+    const latest = await ordinarySave(state, key);
+    const code = await outcome('F:consumed:unreadable', () =>
+      freshModules(asyncStorage =>
+        asyncStorage.getItem.mockRejectedValue(
+          new Error('synthetic read failure'),
+        ),
+      ),
+    );
+    expect(root.getString('persist:root') === latest).toBe(true);
+    expect(code === 'RESOLVED').toBe(true);
+    expect(complete()).toBe(false);
+    expect(mockAsync.has('persist:root')).toBe(true);
+    expect(mockCredentials.has(LEGACY_KEY_SERVICE)).toBe(true);
+  });
+
+  it('F modern flag without historical evidence remains strict', async () => {
+    const state = stateWithSdkKey();
+    state.APP.migrationMMKVStorageComplete = true;
+    const key = crypto.randomBytes(32).toString('base64');
+    seedKey(VAULT_KEY_SERVICE, key);
+    root.set('persist:root', await save(state, key, 'modern'));
+    const get = AsyncStorage.getItem as jest.Mock;
+    const original = get.getMockImplementation()!;
+    get.mockRejectedValue(new Error('synthetic unreadable source'));
+    restart();
+    try {
+      const code = await outcome('F:modern-flag:strict', () =>
+        prepareVault(root),
+      );
+      expect(code !== 'RESOLVED').toBe(true);
+      noWrites();
+    } finally {
+      get.mockImplementation(original);
+    }
+  });
+
+  it('G undecodable discard stays strict after the last protected field is removed', async () => {
+    const state = stateWithSdkKey();
+    delete state.APP.identity;
+    state.SHOP.giftCards.livenet = [];
+    const key = crypto.randomBytes(32).toString('base64');
+    seedKey(VAULT_KEY_SERVICE, key);
+    root.set('persist:root', await save(state, key, 'modern'));
+    mockAsync.set('persist:root', 'synthetic undecodable bytes');
+    (AsyncStorage.removeItem as jest.Mock).mockRejectedValueOnce(
+      new Error('synthetic delete failure'),
+    );
+    await prepareVault(root);
+    expect(complete()).toBe(false);
+    edit(state, 'delete-key');
+    const latest = await ordinarySave(state, key);
+    restart();
+    const code = await outcome('G:discard:empty-after-use', () =>
+      freshModules(),
+    );
+    expect(code !== 'RESOLVED').toBe(true);
+    expect(root.getString('persist:root') === latest).toBe(true);
+    expect(mockAsync.has('persist:root')).toBe(true);
+    noWrites();
+  });
+
+  it('J candidate UI seed is externally clearable with same-process preparation retry', async () => {
+    seedFile(VAULT_BACKUP, JSON.stringify({bad: 'data'}));
+    restart();
+    const code = await outcome('J:candidate-seed', () => prepareVault(root));
+    expect(code === 'INVALID_LEGACY_INPUT').toBe(true);
+    noWrites();
+    expect(mockCredentials.size).toBe(0);
+    expect(record.contains(VAULT_RECORD_KEY)).toBe(false);
+    mockFiles.delete(VAULT_BACKUP); // External fixture removal, not a production recovery action.
+    expect(await outcome('J:candidate-cleared', () => prepareVault(root))).toBe(
+      'RESOLVED',
+    );
+  });
+
+  it('C lifecycle: independent bak and original AsyncStorage obligations', async () => {
+    const state = stateWithSdkKey();
+    const raw = await save(state);
+    root.set('persist:root', raw);
+    mockAsync.set('persist:root', raw);
+    seedFile(
+      VAULT_BACKUP,
+      await save({...state, BITPAY_ID: {apiToken: 'prior backup test state'}}),
+    );
+    seedKey(LEGACY_KEY_SERVICE, legacyKey);
+    const move = RNFS.moveFile as jest.Mock,
+      remove = AsyncStorage.removeItem as jest.Mock;
+    const moving = move.getMockImplementation()!,
+      removing = remove.getMockImplementation()!;
+    move.mockImplementation(async (from, to) => {
+      if (to === VAULT_OLDER_BACKUP) throw new Error('synthetic pending bak');
+      return moving(from, to);
+    });
+    remove.mockRejectedValue(new Error('synthetic pending source'));
+    let key: string;
+    try {
+      key = await prepareVault(root);
+    } finally {
+      move.mockImplementation(moving);
+      remove.mockImplementation(removing);
+    }
+    expect(
+      mockFiles.has(migrationTemp(VAULT_OLDER_BACKUP)) &&
+        mockAsync.has('persist:root'),
+    ).toBe(true);
+    edit(state, 'delete-key');
+    await ordinarySave(state, key!);
+    state.BITPAY_ID.apiToken = 'second normal test save';
+    const latest = await ordinarySave(state, key!);
+    restart();
+    const code = await outcome('C:independent-bak-async', () => freshModules());
+    expect(root.getString('persist:root') === latest).toBe(true);
+    expect(code === 'RESOLVED').toBe(true);
+    expect(complete()).toBe(true);
+    expect(
+      mockFiles.has(migrationTemp(VAULT_OLDER_BACKUP)) ||
+        mockAsync.has('persist:root'),
+    ).toBe(false);
+  });
+
+  it('C changed original source cannot inherit disposal after a deferred attempt', async () => {
+    const state = stateWithSdkKey();
+    const key = await pending('async', state);
+    const changed = stateWithSdkKey();
+    const replacement = await save(changed);
+    mockAsync.set('persist:root', replacement);
+    const primary = root.getString('persist:root');
+    restart();
+    const code = await outcome('C:changed-source:strict', () => freshModules());
+    expect(code === 'SOURCE_CONFLICT').toBe(true);
+    expect(
+      mockAsync.get('persist:root') === replacement &&
+        root.getString('persist:root') === primary,
+    ).toBe(true);
+    expect(complete()).toBe(false);
+    expect(Buffer.from(key, 'base64').length).toBe(32);
+    noWrites();
+  });
+
+  it.each(['inventory', 'pre-delete', 'verification'])(
+    'F historical eligibility retained across successful reads then %s rejection',
+    async boundary => {
+      const state = stateWithSdkKey();
+      state.APP.migrationMMKVStorageComplete = true;
+      await pending('main', state); // Historical CBC flag was available on a successful null read.
+      const get = AsyncStorage.getItem as jest.Mock;
+      const original = get.getMockImplementation()!;
+      const failAt = {inventory: 1, 'pre-delete': 2, verification: 3}[
+        boundary
+      ]!;
+      let reads = 0;
+      get.mockImplementation(async name => {
+        reads++;
+        if (reads >= failAt) throw new Error('synthetic later read failure');
+        return original(name);
+      });
+      restart();
+      try {
+        const code = await outcome(`F:historical-later:${boundary}`, () =>
+          prepareVault(root),
+        );
+        expect(code === 'RESOLVED').toBe(true);
+        expect(reads).toBe(failAt);
+        expect(complete()).toBe(false);
+        expect(mockCredentials.has(LEGACY_KEY_SERVICE)).toBe(true);
+      } finally {
+        get.mockImplementation(original);
+      }
+    },
+  );
+
+  it.each(['data-open', 'checksum-open'])(
+    'E pending failed-load empty view: %s',
+    async model => {
+      const state = stateWithSdkKey();
+      await pending('main', state);
+      let failedView = true,
+        externalCausePresent = true;
+      const originalGet = MMKV.prototype.getString,
+        originalKeys = MMKV.prototype.getAllKeys,
+        originalContains = MMKV.prototype.contains;
+      const originalSet = MMKV.prototype.set;
+      const getter = jest
+        .spyOn(MMKV.prototype, 'getString')
+        .mockImplementation(function (this: any, name) {
+          return this.id === 'default' && failedView
+            ? undefined
+            : originalGet.call(this, name);
+        });
+      const keys = jest
+        .spyOn(MMKV.prototype, 'getAllKeys')
+        .mockImplementation(function (this: any) {
+          return this.id === 'default' && failedView
+            ? []
+            : originalKeys.call(this);
+        });
+      const contains = jest
+        .spyOn(MMKV.prototype, 'contains')
+        .mockImplementation(function (this: any, name) {
+          return this.id === 'default' && failedView
+            ? false
+            : originalContains.call(this, name);
+        });
+      const size = jest
+        .spyOn(MMKV.prototype, 'size', 'get')
+        .mockImplementation(function (this: any) {
+          return this.id === 'default' && failedView ? 0 : this.model.actual;
+        });
+      const set = jest
+        .spyOn(MMKV.prototype, 'set')
+        .mockImplementation(function (this: any, name, value) {
+          if (this.id === 'default' && failedView && model === 'data-open')
+            throw new Error('synthetic rejected failed-load write');
+          return originalSet.call(this, name, value); // Checksum model WOULD accept a write.
+        });
+      try {
+        const codes: string[] = [],
+          counts: number[] = [];
+        for (let attempt = 0; attempt < 2; attempt++) {
+          restart();
+          codes.push(
+            await outcome(`E:${model}:attempt-${attempt}`, () =>
+              prepareVault(attempt === 0 ? root : new MMKV()),
+            ),
+          );
+          counts.push(mockWrites.length);
+          externalCausePresent = false; // Does not clear this native process's cached view.
+        }
+        expect(externalCausePresent).toBe(false);
+        expect(failedView).toBe(true);
+        expect(codes.every(code => code !== 'RESOLVED')).toBe(true);
+        expect(counts.every(count => count === 0)).toBe(true);
+        // A separate modeled native process may reload. This is not an ordinary
+        // Retry/module reload and is not evidence of actual native recovery.
+        // Only assert recovery if no forbidden mutation occurred above. The red
+        // reference cannot claim recovery after an accepted checksum-failure write.
+        failedView = false;
+        expect(
+          await outcome(`E:${model}:modeled-new-process`, () =>
+            prepareVault(root),
+          ),
+        ).toBe('RESOLVED');
+      } finally {
+        getter.mockRestore();
+        keys.mockRestore();
+        contains.mockRestore();
+        size.mockRestore();
+        set.mockRestore();
+      }
+    },
+  );
+
+  it.each(['ios', 'android'])(
+    'H completed records ignore new-extension leftovers on %s',
+    async platform => {
+      const key = await rkCompletedVault();
+      const raw = root.getString('persist:root')!;
+      root.delete('persist:root');
+      const bridge = rkBridge();
+      Platform.OS = platform as 'ios' | 'android';
+      const size = jest
+        .spyOn(MMKV.prototype, 'size', 'get')
+        .mockImplementation(() => {
+          throw new Error('new observation must not run');
+        });
+      try {
+        for (const extension of [
+          undefined,
+          null,
+          false,
+          'invalid',
+          [],
+          {v: 999},
+          {v: 1, unexpected: true},
+        ]) {
+          record.set(
+            VAULT_RECORD_KEY,
+            JSON.stringify({
+              status: 'complete',
+              wipeDone: true,
+              repair: extension,
+            }),
+          );
+          record.delete(RKSTORAGE_RECORD_KEY);
+          restart();
+          expect((await prepareVault(root)) === key).toBe(true);
+          expect(
+            mockWrites.every(
+              w => w === `mmkv:${VAULT_RECORD_ID}:set:${RKSTORAGE_RECORD_KEY}`,
+            ),
+          ).toBe(true);
+          expect((await reduxStorage.getItem('persist:root')) === raw).toBe(
+            false,
+          ); // Backup excludes redownloadable fields.
+          expect(root.contains('persist:root')).toBe(true);
+          root.delete('persist:root');
+        }
+        if (platform === 'android') expect(bridge.inspect).toHaveBeenCalled();
+      } finally {
+        size.mockRestore();
+      }
+    },
+  );
+
+  it('K pending launches have bounded reads and one deduplicated aggregate report', async () => {
+    const state = stateWithSdkKey();
+    state.APP.migrationMMKVStorageComplete = true;
+    root.set('persist:root', await save(state));
+    seedKey(LEGACY_KEY_SERVICE, legacyKey);
+    const get = AsyncStorage.getItem as jest.Mock,
+      move = RNFS.moveFile as jest.Mock;
+    const getting = get.getMockImplementation()!,
+      moving = move.getMockImplementation()!;
+    let reads = 0;
+    get.mockImplementation(async name => {
+      reads++;
+      if (reads === 3) throw new Error('synthetic verify failure');
+      return getting(name);
+    });
+    move.mockImplementation(async (from, to) => {
+      if (to === VAULT_BACKUP) throw new Error('synthetic optional failure');
+      return moving(from, to);
+    });
+    const decrypt = jest.spyOn(require('./transforms/encrypt'), 'decryptValue');
+    const outer = jest.spyOn(
+      require('./transforms/encrypt'),
+      'decryptPersistValue',
+    );
+    const strings = jest.spyOn(MMKV.prototype, 'getString');
+    const keys = jest.spyOn(MMKV.prototype, 'getAllKeys');
+    const sizes = jest.spyOn(MMKV.prototype, 'size', 'get');
+    const log = jest.fn();
+    const results: {reads: number; code: string; reports: number}[] = [];
+    try {
+      for (let launch = 0; launch < 3; launch++) {
+        reads = 0;
+        restart();
+        jest.clearAllMocks(); // Counters only; neither native view nor stored data is reset.
+        const code = await outcome(`K:retry:${launch}`, () =>
+          prepareVault(root, log),
+        );
+        results.push({reads, code, reports: log.mock.calls.length});
+        console.info(
+          'STAGE_A_METRIC ' +
+            JSON.stringify({
+              launch,
+              platformModel: 'android',
+              hostTiming: 'Node',
+              asyncReads: reads,
+              fieldDecryptCalls: decrypt.mock.calls.length,
+              reducerDecryptCalls: outer.mock.calls.length,
+              mmkvStringReads: strings.mock.calls.length,
+              mmkvKeyLists: keys.mock.calls.length,
+              mmkvSizeReads: sizes.mock.calls.length,
+              reportsThisAttempt: log.mock.calls.length,
+              recordWrites: mockWrites.filter(w =>
+                w.startsWith(`mmkv:${VAULT_RECORD_ID}:`),
+              ).length,
+            }),
+        );
+        expect(complete()).toBe(false);
+      }
+      expect(results.every(r => r.code === 'RESOLVED' && r.reads <= 3)).toBe(
+        true,
+      );
+      expect(results.every(r => r.reports <= 1)).toBe(true);
+      expect(results.reduce((sum, r) => sum + r.reports, 0) <= 2).toBe(true);
+    } finally {
+      get.mockImplementation(getting);
+      move.mockImplementation(moving);
+      decrypt.mockRestore();
+      outer.mockRestore();
+      strings.mockRestore();
+      keys.mockRestore();
+      sizes.mockRestore();
+    }
+  });
+
+  it('E persistent zero-key zero-size loss remains inconclusive across modeled processes', async () => {
+    const state = stateWithSdkKey();
+    await pending('main', state);
+    // Boundary model of a genuinely lost primary file. The metadata and verified
+    // recovery temp survive. No production reset/clear operation creates this.
+    mockStores.set('default', new Map());
+    mockModels.delete('default');
+    expect(root.getAllKeys().length === 0 && root.size === 0).toBe(true);
+    const codes: string[] = [],
+      mutations: number[] = [];
+    for (let process = 0; process < 2; process++) {
+      restart();
+      codes.push(
+        await outcome(`E:permanent-empty:process-${process}`, () =>
+          freshModules(),
+        ),
+      );
+      mutations.push(mockWrites.length);
+    }
+    expect(codes.every(code => code !== 'RESOLVED')).toBe(true);
+    expect(mutations.every(count => count === 0)).toBe(true);
+    expect(complete()).toBe(false);
+  });
+
+  it('E demonstrably loaded absence must stop before source promotion or restoration', async () => {
+    await pending('main', stateWithSdkKey());
+    root.delete('persist:root');
+    expect(root.getAllKeys().length === 0 && root.size > 0).toBe(true);
+    restart();
+    const code = await outcome('E:loaded-absence', () => prepareVault(root));
+    expect(code !== 'RESOLVED').toBe(true);
+    // Stage B may add the one authorized revocation-record mutation. No future
+    // schema is asserted here; snapshot/file/credential changes are forbidden.
+    expect(
+      mockWrites.every(w => w.startsWith(`mmkv:${VAULT_RECORD_ID}:`)),
+    ).toBe(true);
+    expect(mockFiles.has(migrationTemp(VAULT_BACKUP))).toBe(true);
+  });
+
+  it('E unreadable versioned key stops before any pending-state mutation', async () => {
+    await pending('main', stateWithSdkKey());
+    (Keychain.getGenericPassword as jest.Mock).mockRejectedValueOnce(
+      new Error('synthetic locked key'),
+    );
+    restart();
+    const code = await outcome('E:key-unavailable', () => prepareVault(root));
+    expect(code === 'MODERN_KEY_FAILURE').toBe(true);
+    noWrites();
+    expect(mockFiles.has(migrationTemp(VAULT_BACKUP))).toBe(true);
+  });
+});

@@ -1,0 +1,323 @@
+{
+  "reference": "4e9c7e96c54d87520da7c3f16bf37084ec7c8789",
+  "actualStartingHead": "4e9c7e96c54d87520da7c3f16bf37084ec7c8789",
+  "sourceFiles": [
+    {
+      "file": "index.js",
+      "sha256": "c3ceb4abecd99011290a76d23974e874c329e1da2891142b9ef8e5aec7de2563",
+      "matchesReference": true
+    },
+    {
+      "file": "i18n.js",
+      "sha256": "b017ee3bfa359944230cb1ca07b36a5691087b57953aaa323f7b98ca45c0bd22",
+      "matchesReference": true
+    },
+    {
+      "file": "src/constants/index.ts",
+      "sha256": "f373cc68e1d6c897dbedb85a88b4f64b521b50d77e173e7c5ba13b7ede3acc5f",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/index.ts",
+      "sha256": "becc9e34e787ae6983b3f776984bfbd14a70cdeaa3f6c6badbee36ba1d53b903",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/encryption-key.ts",
+      "sha256": "5368e2abb715a74828c51bd785eda3a90fc6ff359a5da9cd6da4c5272e0dd16a",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/persistence-guard.ts",
+      "sha256": "8ba5aabbc8c401b9a612099492a9dea516ed07b8fb517eb2aff4a7e2bbedc08e",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/vault-migration.ts",
+      "sha256": "6e2afe66ee7422cff152fdbf78b82780f108fce6b0e520093c9564b2df8ac4ee",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/vault-rkstorage.ts",
+      "sha256": "564658bb463a2a3461864650ffb774e319546e0d25707bd459f53c416d80dbf0",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/vault-diagnostics.ts",
+      "sha256": "d22a3186fb8f564d9648ef405a736846982608a0d0e5d19163bdf5ebdee2b722",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/vault-scrub.ts",
+      "sha256": "eedc82813b8898a903d2cb43fa347cd0ed8578875acff53d064d8e45c532b833",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/backup/vault-files.ts",
+      "sha256": "25123344f3f103a8b30c18536a43aaa6e2f2a2d999d4eeadafc1b8005ae56de4",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/backup/fs-backup.ts",
+      "sha256": "fc8744594ef0b546ad63de5e9003b30babc64b2c779831b3822e12640868a5b0",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/transforms/encrypt.ts",
+      "sha256": "f9448ebf1aa539a7777b70727799b2ea2a9e0c4cc75779bcc661f9684f3e9358",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/transforms/persist-encryption.ts",
+      "sha256": "64e18846000ea46087e81a3ef68979e371a530f2b7805f1c1724ead3c7fda88e",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/transforms/transforms.ts",
+      "sha256": "310e241f5f23400e8072f2550a42e7ec679ed4cab5c936b415948a4ee03b6c91",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/wallet/effects/import/import.ts",
+      "sha256": "f06fc4038036fbb54209b9a25d0cb826f390c91201b10cca5de82ab54a219ce1",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/wallet/wallet.reducer.ts",
+      "sha256": "52330169918267cc2cb15b5eb2feab9a21fcf4244a76dc80c1716a073a9670ae",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/shop/shop.reducer.ts",
+      "sha256": "5de70c75ad13e4c63cf25d07ca504e384bd7c56bdd1673c7c534011aa721c7d1",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/app/app.reducer.ts",
+      "sha256": "70d6480a03d10f88066acaeb4cf0a2904d0b9d4f07f6fa022db47b988c99b001",
+      "matchesReference": true
+    },
+    {
+      "file": "src/AppInitialization.tsx",
+      "sha256": "bee4c79a4a4efe655a2051f608a16677215ecafce6b4f54fcdf3c96fadf3ab4d",
+      "matchesReference": true
+    },
+    {
+      "file": "src/Root.tsx",
+      "sha256": "4ef498ded4f0ca617d975d10506c97fd6ae95dd6ea6d84c6bb24bd3ba6ff901f",
+      "matchesReference": true
+    },
+    {
+      "file": "src/store/app/app.effects.ts",
+      "sha256": "b1dae782329f59623854989a1560fae76cbff08561fa3abf3fced2d88b9e6153",
+      "matchesReference": true
+    },
+    {
+      "file": "BIP-02-REPAIR-REPORT.md",
+      "sha256": "e3cba78b67eaf559701bd543b7db7ccd8ec8cf258ff4561c205c86308475ebd6",
+      "matchesReference": true
+    },
+    {
+      "file": "BIP-02-RKSTORAGE-REPORT.md",
+      "sha256": "7a51968d60f4bd5b7810b8dc439c287973d0c70a5f59f98a90077f8bedff3ac1",
+      "matchesReference": true
+    },
+    {
+      "file": "test/vault/README.md",
+      "sha256": "9f2be711db7e95f117f3c43ea5b2754baa6768a98618356022a0fbeb11b86a65",
+      "matchesReference": true
+    },
+    {
+      "file": "test/vault/rkstorage/README.md",
+      "sha256": "f6b51d29b8b2c1debe5522f2bc28215163d6ae612c06561d59e122ee2da1edbd",
+      "matchesReference": true
+    },
+    {
+      "file": "package.json",
+      "sha256": "5078ab0403e94499449c2ffc45992022614a2fe24940af4df25f5cdb3d0188d8",
+      "matchesReference": true
+    },
+    {
+      "file": "yarn.lock",
+      "sha256": "99a9ac1f28264e59b6cd5c0da8fa220ff02c3fc2e0f53e6c84d98b0d942c0441",
+      "matchesReference": true
+    },
+    {
+      "file": "jest.config.js",
+      "sha256": "02ed31cffe52c6ba727987f44883e3f6e0ca0df4d1a17596fda223b0faf770de",
+      "matchesReference": true
+    },
+    {
+      "file": "scripts/postinstall.sh",
+      "sha256": "ea99010e33dd00cd43280f32a1a1fee22fe886529b3088ba2b42eb3fdb883b97",
+      "matchesReference": true
+    },
+    {
+      "file": "scripts/git-commit-hash.js",
+      "sha256": "ddac67cc8c75211e5a06fca041ac1e434ece3bf8ff9523745182cf0b329ad4db",
+      "matchesReference": true
+    },
+    {
+      "file": "scripts/generate-dkls-vendor.js",
+      "sha256": "8b7ade512aa36f97b2a14b53a2b4068953ee5178ff0c04b834e76fda7b6a5975",
+      "matchesReference": true
+    },
+    {
+      "file": "scripts/check-abi-filters.js",
+      "sha256": "366ee8a866172ed57eb6706993e40f26e0667ec6ea88b219809ba9e3ca877a15",
+      "matchesReference": true
+    },
+    {
+      "file": "scripts/mute-require-cycle-warnings.js",
+      "sha256": "379ed3c214b4de8fdd663edd9f9f64a509a7c5f6bce6014000509b37c3f7f3c4",
+      "matchesReference": true
+    },
+    {
+      "file": "scripts/multi-modal-patch.js",
+      "sha256": "d73c6713e26b9e8791f3d3ff5d12545da3a7500bc5ffce05d4b7b4ea3ef3039f",
+      "matchesReference": true
+    }
+  ],
+  "mmkv": {
+    "package": "react-native-mmkv@3.3.1",
+    "reportedGitHead": "1d86ae5b7f553d2de2ddf9f32a4d0d59c6035e70",
+    "archiveIntegrityVerified": true,
+    "installedFilesCompared": 183,
+    "mismatches": ["lib/commonjs/package.json", "lib/module/package.json"],
+    "wrapperTreeSha": "1d86ae5b7f553d2de2ddf9f32a4d0d59c6035e70",
+    "rootChildren": [
+      {
+        "path": "package",
+        "type": "tree",
+        "sha": "999dbcde71bbd6b186df714fc86956845a195533"
+      }
+    ],
+    "declaredPostinstallDifferences": [
+      {
+        "file": "lib/commonjs/package.json",
+        "addedFields": ["browser", "react-native"],
+        "originalFieldsEqual": true,
+        "matchesFrozenPostinstall": true
+      },
+      {
+        "file": "lib/module/package.json",
+        "addedFields": ["browser", "react-native"],
+        "originalFieldsEqual": true,
+        "matchesFrozenPostinstall": true
+      }
+    ]
+  },
+  "core": {
+    "pin": "f77545297d3e034066607954288a3710c80e5b4f",
+    "gitlinkVerified": true,
+    "files": [
+      {
+        "file": "MMKV.cpp",
+        "pinnedMatch": true,
+        "sha256": "5f81bde476b9d69c1ca75e08bc7f578517d880be8b2b3a0581cf5122284f91f4"
+      },
+      {
+        "file": "MMKV_IO.cpp",
+        "pinnedMatch": true,
+        "sha256": "a3f1fe71d64262a42937db043a54cff40b81d665b2b20c548a0296f21df823ad"
+      },
+      {
+        "file": "MemoryFile.cpp",
+        "pinnedMatch": true,
+        "sha256": "6769b4b35aed0aa1d20273cb3dfa59e8ac49f44699107bd6483c9ea10435293f"
+      },
+      {
+        "file": "MMKV_Android.cpp",
+        "pinnedMatch": true,
+        "sha256": "755ef680bd8fd38421f9ebec9c7ae39e5fa737c9528edbfc0bd76c1752fee5e2"
+      },
+      {
+        "file": "MMKV_OSX.cpp",
+        "pinnedMatch": true,
+        "sha256": "b5ee1f3c78b5a2db7808420e9ed7a865ebd2aa4e884b61c067a52c588f7af398"
+      },
+      {
+        "file": "MMKV.h",
+        "pinnedMatch": true,
+        "sha256": "6ac91e1726ba00897c9cb4576952e5c4f482684da8c99034b5109331f1dd8594"
+      }
+    ]
+  },
+  "historicalTags": {
+    "refs/tags/v.14.14.0": "7f5e457cbab65b142db56fbbf7ccddaabb01f355",
+    "refs/tags/v14.46.3": "5dcdef9281db5d86d25a04e7af034781280d065a"
+  },
+  "historicalFiles": [
+    {
+      "pin": "7f5e457cbab65b142db56fbbf7ccddaabb01f355",
+      "file": "src/AppInitialization.tsx",
+      "sha256": "bee4c79a4a4efe655a2051f608a16677215ecafce6b4f54fcdf3c96fadf3ab4d"
+    },
+    {
+      "pin": "7f5e457cbab65b142db56fbbf7ccddaabb01f355",
+      "file": "src/store/wallet/effects/import/import.ts",
+      "sha256": "4d57d13c53f78b7698a312df6c7043510a9e559e29d6b9e935b34bcf3b1465ce"
+    },
+    {
+      "pin": "7f5e457cbab65b142db56fbbf7ccddaabb01f355",
+      "file": "src/store/app/app.reducer.ts",
+      "sha256": "cff82865f7b5e7ce4f68a1f25f45f2b0b1751b4421841adf0243b3bf2a0deeee"
+    },
+    {
+      "pin": "7f5e457cbab65b142db56fbbf7ccddaabb01f355",
+      "file": "src/store/index.ts",
+      "sha256": "f0f5f22f7883c185da2c63d65fab601451046e71ac84d37bd317f9264b858e86"
+    },
+    {
+      "pin": "5dcdef9281db5d86d25a04e7af034781280d065a",
+      "file": "src/AppInitialization.tsx",
+      "sha256": "bee4c79a4a4efe655a2051f608a16677215ecafce6b4f54fcdf3c96fadf3ab4d"
+    },
+    {
+      "pin": "5dcdef9281db5d86d25a04e7af034781280d065a",
+      "file": "src/store/wallet/effects/import/import.ts",
+      "sha256": "332df6e82fa2fade11ce5e49a6bd54b8c63f966bde60faf46d1c27c4f2f6e7bc"
+    },
+    {
+      "pin": "5dcdef9281db5d86d25a04e7af034781280d065a",
+      "file": "src/store/app/app.reducer.ts",
+      "sha256": "70d6480a03d10f88066acaeb4cf0a2904d0b9d4f07f6fa022db47b988c99b001"
+    },
+    {
+      "pin": "5dcdef9281db5d86d25a04e7af034781280d065a",
+      "file": "src/store/index.ts",
+      "sha256": "6f32851722e81f2374afd78f18b81c7b22deb9493c954908724cf5609a5feb63"
+    }
+  ],
+  "probeAvailability": {
+    "accessibleSearch": "attachments, workspace and /private/tmp, including ignored files; dependency/git directories excluded",
+    "found": false,
+    "downloads": "Operation not permitted",
+    "nativeRerun": false,
+    "replacementNativePlatform": false
+  },
+  "install": {
+    "workspace": "/Users/marty/.codex/worktrees/bip02-stage-a-baseline/bitpay-app",
+    "command": "COREPACK_ENABLE_AUTO_PIN=0 yarn install --frozen-lockfile --non-interactive",
+    "exit": 0,
+    "postinstallSkipped": false,
+    "substitutions": false,
+    "trackedDifferencesAfterInstall": [],
+    "ignoredGeneratedDirectories": ["src/dkls/vendor/"],
+    "appliedPatches": 23,
+    "existingVersionWarnings": [
+      "@bitpay-labs/bitcore-tss",
+      "@bitpay-labs/bitcore-wallet-client",
+      "@bitpay-labs/crypto-wallet-core"
+    ],
+    "node": "22.16.0",
+    "nodePin": "major 22 (.node-version)",
+    "yarn": "1.22.22",
+    "compressjs": {
+      "files": 69,
+      "mainBytes": 1301,
+      "emptySubstitute": false
+    },
+    "corepackAutoPinIncident": "A version query generated a packageManager entry in the main checkout; that exact addition was removed and package.json equals reference. Further commands disable auto-pinning."
+  }
+}
