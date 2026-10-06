@@ -235,15 +235,33 @@ export const captureVaultCleanupState = async (storage: MMKV, key: string) => {
     };
     const live = primary();
     if (live) return live;
+    let failure: Error | undefined;
     for (const path of [VAULT_BACKUP, VAULT_OLDER_BACKUP]) {
-      const raw = await readVaultFile(path);
+      let raw: string | null = null;
+      try {
+        raw = await readVaultFile(path);
+      } catch (error) {
+        failure ??= safeVaultError(
+          error,
+          'REQUIRED_COPY_FAILURE',
+          'recovery',
+          'SOURCE_READ',
+          path === VAULT_BACKUP ? 'main' : 'bak',
+        );
+      }
       const changed = primary();
       if (changed) return changed;
       if (raw !== null) {
-        validate(raw);
-        return {source: path, raw};
+        if (inspect(raw, [key]).snapshot?.format === 'gcm')
+          return {source: path, raw};
+        failure ??= vaultError(
+          'PRESERVATION_FAILURE',
+          'recovery',
+          'RECOVERY_UNAVAILABLE',
+        );
       }
     }
+    if (failure) throw failure;
   };
   let initial: Awaited<ReturnType<typeof read>>;
   try {
@@ -796,18 +814,20 @@ export const recoverConvertedVault = async (
     );
   let selected: Snapshot | undefined;
   let copyPresent = false;
+  let readFailure: Error | undefined;
   for (const path of [VAULT_BACKUP, VAULT_OLDER_BACKUP]) {
     let raw: string | null;
     try {
       raw = await readVaultFile(path);
     } catch (error) {
-      throw safeVaultError(
+      readFailure ??= safeVaultError(
         error,
         'REQUIRED_COPY_FAILURE',
         'recovery',
         'SOURCE_READ',
         path === VAULT_BACKUP ? 'main' : 'bak',
       );
+      continue; // A failed main read does not disqualify a valid modern bak.
     }
     if (raw !== null) {
       copyPresent = true;
@@ -819,6 +839,8 @@ export const recoverConvertedVault = async (
     }
   }
   if (!selected) {
+    // Unknown/unreadable is never evidence of a never-persisted empty install.
+    if (readFailure) throw readFailure;
     if (allowFreshEmpty && !copyPresent && record.initializing === true)
       return null;
     throw vaultError(
@@ -1620,6 +1642,14 @@ const migrate = async (
       continue;
     }
     if (temp.raw !== null) {
+      const otherPath =
+        f.path === VAULT_BACKUP ? VAULT_OLDER_BACKUP : VAULT_BACKUP;
+      // Do not revisit a path whose inventory already failed, or dispose of
+      // unresolved copies while that recovery slot cannot be examined.
+      if (rawFiles.find(raw => raw.path === otherPath)?.unreadable) {
+        refreshBlocked = true;
+        continue;
+      }
       if (!canRemove(slot, temp)) {
         defer(
           'CLEANUP_DEFERRED',
@@ -1630,12 +1660,25 @@ const migrate = async (
         refreshBlocked = true;
         continue;
       }
-      const other = await readVaultFile(
-        f.path === VAULT_BACKUP ? VAULT_OLDER_BACKUP : VAULT_BACKUP,
-        checkPrimary,
-      );
-      const otherValid =
-        other !== null && inspect(other, [vaultKey]).snapshot?.format === 'gcm';
+      let otherValid = false;
+      if (!target.snapshot) {
+        try {
+          const other = await readVaultFile(otherPath, checkPrimary);
+          otherValid =
+            other !== null &&
+            inspect(other, [vaultKey]).snapshot?.format === 'gcm';
+        } catch (error) {
+          rethrowPreservation(error);
+          defer(
+            'OPTIONAL_REFRESH_DEFERRED',
+            'refresh',
+            'SOURCE_READ',
+            pathSlot(otherPath),
+          );
+          refreshBlocked = true;
+          continue;
+        }
+      }
       if (
         !target.snapshot &&
         !otherValid &&
@@ -1677,7 +1720,21 @@ const migrate = async (
           await removeVaultFile(migrationTemp(f.path), checkPrimary);
         }, `${slot}-temp`);
       }
-      if ((await readVaultFile(migrationTemp(f.path), checkPrimary)) !== null) {
+      try {
+        if (
+          (await readVaultFile(migrationTemp(f.path), checkPrimary)) !== null
+        ) {
+          refreshBlocked = true;
+          continue;
+        }
+      } catch (error) {
+        rethrowPreservation(error);
+        defer(
+          'OPTIONAL_REFRESH_DEFERRED',
+          'refresh',
+          'SOURCE_READ',
+          `${slot}-temp`,
+        );
         refreshBlocked = true;
         continue;
       }

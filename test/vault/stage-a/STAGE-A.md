@@ -236,7 +236,7 @@ Final validation results and remaining gates are populated from completed runs i
 **Stage B is not release approval.** No commits, pushes, hosted changes, releases, rollout changes or full-repository archives are produced.
 
 
-### Completed final-source checks
+### Stage B checks recorded at e386a91bd
 
 | Check | Actual result |
 | --- | --- |
@@ -263,3 +263,18 @@ The rendered check caught a Support-return race during development. The final co
 The test worktree and frozen-source native runners have byte-matching storage inputs. UI-only follow-up changed the Alert controller, not the verified storage/native dependency set. All dependency manifests, lockfiles, native production files, provider patches, encryption transforms, ordinary backup writer and scrub module match their starting hashes. Bundler's generated local configuration change was restored to its byte-verified starting contents.
 
 Remaining release gaps are real: iOS native/raw-file and physical-device checks, packaged released-app upgrade, Home/onboarding rendering and explicit acceptance of native residuals. Stage B implementation completion and the passing checks above do not clear those gates.
+
+
+### Review repair after e386a91bd
+
+The three review findings are addressed without changing conversion authority, receipts, encryption or scrub policy. Recovery now retains a safe classification of a failed main read and tries the fixed older modern backup. The Android cleanup-preservation reader follows the same fallback, so it cannot block the adapter before recovery. If no candidate validates, an unreadable file remains a required failure, including with `initializing`; it never proves absence. Pending-base recovery still strips the receipt in its single verified primary write.
+
+Pending-temp cleanup respects an inventory-unreadable other backup, preserves unresolved copies and skips that operation. A valid target does not require another other-backup read. Necessary later reads and post-operation temp verification defer only independent cleanup failures, with the existing primary/history failure propagation intact. Regressions create the owned temp through actual conversion and failed optional refresh, exercise three preparations, and verify unchanged live data, retained copies, incomplete cleanup and later completion.
+
+The Alert observes Android blur/focus as well as foreground changes. A focus event from dismissing the old Alert alone does not establish browser return. After a successful URL request with no observed departure it permits **one** guarded presentation after 1 second, keeping the support-request lifecycle active. The delay is an access fallback, not proof that a browser will never depart: a later background event invalidates that dialog's callbacks, cancels pending presentation, and requires a fresh presentation after return. Retry remains user-driven and single-shot. All timers/listeners are disposed; no storage timeout, automatic bootstrap or new production screen is added. A return immediately followed by background before the queued presentation also remains resumable.
+
+`stage-b-results.json.reviewRepair` records this incremental validation separately from the historical Stage B runs. The new `alert-entry.js` is a test-only rendered harness, never imported by production `index.js`: native Alert/AppState and the production controller remain real, while `no-events`, `reject` and `delayed` model only the URL boundary. The `native` mode uses the real URL handler. `run-alert.py` verifies rendered Retry, one retry, one launch and same-process behavior on an explicitly named disposable AVD. These are distinct from full-app bootstrap and physical-device evidence.
+
+Reproduce the rendered harness using the installed pinned toolchain: bundle `test/vault/stage-a/alert-entry.js` for Android into a scratch `index.android.bundle`; package it with the existing debug APK using scratch Gradle `sourceSets.main.assets` and resource directories (no native source edit); install only on a disposable `BIP02_` AVD; run `python3 test/vault/stage-a/run-alert.py SERIAL AVD_NAME /tmp/alert-results`. The native/browser cases leave Chrome first-run terms unaccepted. Exact executed commands, source/build hashes and outcomes are recorded in the incremental evidence. Release approval and the previously documented native/iOS/physical-device gaps remain separate.
+
+Repair validation: **513 focused tests pass**; the normal full suite reports **143 suites, 2,851 passes and 2 existing skips**. The added storage regressions produced 13 failures and 4 passing controls against unchanged production; the initial Alert regression run produced 3 failures and 9 passing controls. Final changed-file/harness ESLint and targeted Prettier/diff checks pass. TypeScript retains the same 2,024 baseline diagnostic identities. The final production-entry native Alert/real Support return passes; all four rendered-controller modes pass with one launch and one Retry in the same process. The no-departure mode has no AppState change (native dialog focus events may still occur). Android APK/bundle identities are in the incremental evidence. The full Hermes migration and native erasure/kill suites were not rerun for this bounded follow-up; their earlier results remain historical. No physical-device, iOS-native, packaged released-app upgrade or Home-rendering clearance is claimed.

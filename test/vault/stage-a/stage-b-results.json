@@ -131,7 +131,11 @@
     },
     {
       "check": "tsc-final",
-      "command": ["node", "node_modules/.bin/tsc", "--noEmit"],
+      "command": [
+        "node",
+        "node_modules/.bin/tsc",
+        "--noEmit"
+      ],
       "exit": 2
     },
     {
@@ -2288,5 +2292,193 @@
     "base": "captured corrected Stage A working tree, not HEAD alone",
     "includesNewSourceFiles": true,
     "verification": "git apply --check and reconstructed changed-file byte comparison"
+  },
+  "reviewRepair": {
+    "startingCommit": "e386a91bda8af3a3a2cb467ef67baa0dda7ea45b",
+    "currentHead": "e386a91bda8af3a3a2cb467ef67baa0dda7ea45b",
+    "updatedUtc": "2026-10-06T06:08:32.290443+00:00",
+    "scratch": "/private/tmp/bip02-review-repair-0r4fn4qs",
+    "beforeHashes": {
+      "src/store/vault-migration.ts": "84362a364aacfefe8e45d5391af5292f46963b7580e3cd8bf3494fe068a852f4",
+      "src/store/vault-migration.spec.ts": "bd9adb25ef9d1997679c5670b8adb22391f00f4aedd68897660ff794c8837248",
+      "src/store/vault-startup-alert.ts": "c0af6d5c98c981ae290dc12812f09d7052fd285476441e384d56fa0828280713",
+      "src/store/vault-startup-alert.spec.ts": "681e835aed8b43b89c0dbcbc28e877fc6b6fcc0b22824e45e226a19865ad8290",
+      "test/vault/stage-a/STAGE-A.md": "70b2f6268fba3a9182abacdf3df56002e333c74345387f8ee0fe6a08679483c6",
+      "test/vault/stage-a/stage-b-results.json": "dc24603a49f24b27f629d48782e65200c14c039d879cb17f20f38da750ce3bbb"
+    },
+    "sourceHashes": {
+      "src/store/vault-migration.ts": "5e499316a3bc1878e22a3d730cb559be174bc8aadf3fe4a814542a655f710365",
+      "src/store/vault-migration.spec.ts": "8556ddbe9095df9fbcd4bf045834a3eddcddc1972bca9fd967b7133983270b25",
+      "src/store/vault-startup-alert.ts": "d40bb361c71d081edc93da1b5c32459908b6d0f1aa395683b06407f27001ef26",
+      "src/store/vault-startup-alert.spec.ts": "b37a1fd568706a05e4ebd0099fe1588725f8df5aebbde2b32ed028ea49398596",
+      "test/vault/stage-a/alert-entry.js": "c5457a1a2c32fa6d93ab9fbcc98ed0ead137a32f84512a853321f4b9b9312176",
+      "test/vault/stage-a/run-alert.py": "bd45c5701d3f8d1e418dd664a89edb6226644c5e1de53d4489a9dfeac25ad5d7"
+    },
+    "reproductions": {
+      "storage": {
+        "passed": 4,
+        "failed": 13,
+        "skipped": 353,
+        "suitesPassed": 0,
+        "failedCases": [
+          "Stage B review backup-read regressions recovers a pending wallet from bak after main exists rejection (missing primary)",
+          "Stage B review backup-read regressions recovers a pending wallet from bak after main exists rejection (invalid primary)",
+          "Stage B review backup-read regressions recovers a pending wallet from bak after main readFile rejection (missing primary)",
+          "Stage B review backup-read regressions recovers a pending wallet from bak after main readFile rejection (invalid primary)",
+          "Stage B review backup-read regressions recovers a complete wallet from bak after main exists rejection (missing primary)",
+          "Stage B review backup-read regressions recovers a complete wallet from bak after main exists rejection (invalid primary)",
+          "Stage B review backup-read regressions recovers a complete wallet from bak after main readFile rejection (missing primary)",
+          "Stage B review backup-read regressions recovers a complete wallet from bak after main readFile rejection (invalid primary)",
+          "Stage B review backup-read regressions defers owned temp across repeated other-backup exists failures (valid target=false)",
+          "Stage B review backup-read regressions defers owned temp across repeated other-backup exists failures (valid target=true)",
+          "Stage B review backup-read regressions defers owned temp across repeated other-backup readFile failures (valid target=false)",
+          "Stage B review backup-read regressions defers owned temp across repeated other-backup readFile failures (valid target=true)",
+          "Stage B review backup-read regressions handles the post-operation temp read failure with a usable primary"
+        ]
+      },
+      "alert": {
+        "passed": 9,
+        "failed": 3,
+        "skipped": 0,
+        "suitesPassed": 0,
+        "failedCases": [
+          "review: restores reachable Retry after successful Support with no lifecycle events",
+          "review: handles Android focus return without any AppState departure",
+          "review: invalidates a fallback dialog if the browser departs later, then restores Retry"
+        ]
+      },
+      "note": "New regressions executed against unchanged e386a91bd production; tests replace only platform boundaries. Filtered existing storage cases are skipped, not failures."
+    },
+    "focused": {
+      "passed": 513,
+      "failed": 0,
+      "skipped": 0,
+      "suitesPassed": 8,
+      "failedCases": []
+    },
+    "full": {
+      "passed": 2851,
+      "failed": 0,
+      "skipped": 2,
+      "suitesPassed": 143,
+      "failedCases": []
+    },
+    "fullSuiteNote": "Normal repository command; includes the same three pre-existing untracked suites. They remain untouched.",
+    "typescript": {
+      "baseline": 2024,
+      "current": 2024,
+      "introduced": [],
+      "removed": []
+    },
+    "lint": {
+      "files": 5,
+      "errors": 0,
+      "warnings": 0,
+      "harnessErrors": 0,
+      "harnessWarnings": 0
+    },
+    "formatAndDiff": "Targeted Prettier and git diff --check pass; Python runner AST parses.",
+    "productionUi": {
+      "productionEntry": true,
+      "nativeAlertRendered": true,
+      "realSupportLaunchAndReturn": true,
+      "sameProcess": true,
+      "termsAccepted": false,
+      "retryReachableAfterSupport": true
+    },
+    "renderedController": {
+      "cases": [
+        {
+          "mode": "no-events",
+          "nativeAlertAndRetry": true,
+          "sameProcess": true,
+          "launches": 1,
+          "retries": 1,
+          "changes": 0,
+          "blur": 2,
+          "focus": 3
+        },
+        {
+          "mode": "reject",
+          "nativeAlertAndRetry": true,
+          "sameProcess": true,
+          "launches": 1,
+          "retries": 1,
+          "changes": 0,
+          "blur": 2,
+          "focus": 3
+        },
+        {
+          "mode": "delayed",
+          "nativeAlertAndRetry": true,
+          "sameProcess": true,
+          "launches": 1,
+          "retries": 1,
+          "changes": 2,
+          "blur": 3,
+          "focus": 4
+        },
+        {
+          "mode": "native",
+          "nativeAlertAndRetry": true,
+          "sameProcess": true,
+          "launches": 1,
+          "retries": 1,
+          "changes": 2,
+          "blur": 3,
+          "focus": 4
+        }
+      ]
+    },
+    "renderedInterpretation": "Real native Alert, AppState, production controller and emulator process. no-events/reject/delayed model only Linking; native uses the real browser. Delayed mode fulfills first, launches the real browser after 2500 ms (after the 1000 ms fallback), and verifies return and one Retry. No native/physical-device durability inference.",
+    "buildHashes": {
+      "production-ui.apk": "67d456060043679c306165defe65ad0f21ec5a35791739712ed9d51b98a89d9b",
+      "alert-harness.apk": "875e6aa0fe0004b8c06e7e40eb6ff0bb9e214e907955f6ff19d0ab3b74c6049d",
+      "ui-assets/index.android.bundle": "ff104e766b64631c778f0db629eaf77b8383ed4d11e99f5fb90882074d95fef3",
+      "alert-assets/index.android.bundle": "2fe5285c1875455430c2228c93cf2d98c9bbb7b65aa5c9904f56b42e0d4a7bcd"
+    },
+    "packagedBundleEquality": "Each APK assets/index.android.bundle compared byte-for-byte to its final generated bundle.",
+    "builds": "Production and rendered-harness Android debug APK builds passed with the installed pinned dependencies; no native source or lockfile change.",
+    "commands": {
+      "focused": "node node_modules/.bin/jest src/store/vault-migration.spec.ts src/store/vault-repair-state.spec.ts src/store/vault-startup-alert.spec.ts src/store/vault-scrub.spec.ts src/store/vault-diagnostics.spec.ts src/store/encryption-key.spec.ts src/store/transforms/transforms.spec.ts src/store/persistence-guard.spec.ts --runInBand --watchman=false --forceExit --json --outputFile=/private/tmp/bip02-review-repair-0r4fn4qs/focused-final.json",
+      "full": "COREPACK_ENABLE_AUTO_PIN=0 yarn test:ci --runInBand --watchman=false --json --outputFile=/private/tmp/bip02-review-repair-0r4fn4qs/full-final.json",
+      "typescript": "node node_modules/.bin/tsc --noEmit",
+      "rendered": "python3 test/vault/stage-a/run-alert.py emulator-5584 BIP02_StageB_33e9nnyc /private/tmp/bip02-review-repair-0r4fn4qs/rendered-final",
+      "bundleTemplate": "NODE_ENV=development SENTRY_DISABLE_AUTO_UPLOAD=true node node_modules/react-native/cli.js bundle --platform android --dev true --entry-file ENTRY --bundle-output ASSETS/index.android.bundle --assets-dest RES --max-workers 2",
+      "bundleEntries": [
+        "index.js",
+        "test/vault/stage-a/alert-entry.js"
+      ],
+      "buildTemplate": "cd android && JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home SENTRY_DISABLE_AUTO_UPLOAD=true NODE_ENV=development ./gradlew :app:assembleDebug --no-daemon --max-workers=2 --console=plain --project-cache-dir /private/tmp/bip02-stage-b-33e9nnyc/gradle-cache -PreactNativeArchitectures=arm64-v8a -I SCRATCH_ASSETS_GRADLE",
+      "gradleInitScripts": {
+        "ui-assets.gradle": "allprojects { project ->\n    project.plugins.withId('com.android.application') {\n        project.android.sourceSets.main.assets.srcDir('/private/tmp/bip02-review-repair-0r4fn4qs/ui-assets')\n        project.android.sourceSets.main.res.srcDir('/private/tmp/bip02-review-repair-0r4fn4qs/ui-res')\n    }\n}\n",
+        "alert-assets.gradle": "allprojects { project ->\n    project.plugins.withId('com.android.application') {\n        project.android.sourceSets.main.assets.srcDir('/private/tmp/bip02-review-repair-0r4fn4qs/alert-assets')\n        project.android.sourceSets.main.res.srcDir('/private/tmp/bip02-review-repair-0r4fn4qs/ui-res')\n    }\n}\n"
+      }
+    },
+    "boundedBehavior": {
+      "backupCandidates": 2,
+      "knownUnreadableOtherPathReadsPerAttempt": 1,
+      "retryPreparationsInStorageRegression": 3,
+      "supportFallbackMs": 1000,
+      "fallbacksPerSettledSupportRequest": 1,
+      "automaticBootstrapRetries": 0,
+      "nativeOwnershipTimeouts": 0
+    },
+    "unrunForThisRepair": [
+      "Raw MMKV erasure and timed native kill harnesses (scrub/native code unchanged; earlier results remain historical)",
+      "Full Hermes wallet-migration process suite",
+      "Android multi-window focus-only physical scenario (focus-only branch is unit modeled)",
+      "iOS native/rendered checks",
+      "Physical-device checks",
+      "Packaged released-app upgrade",
+      "Full Home/onboarding rendering"
+    ],
+    "releaseStatus": "Not release approved. Existing iOS build blocker and native/physical-device residual gates remain.",
+    "commits": 0,
+    "pushes": 0,
+    "harnessBringupCorrections": [
+      "First test-only entry left its Retry confirmation behind the native splash; hid that splash only in the test entry.",
+      "The delayed/native URL wrapper initially detached Linking.openURL from its receiver; restored the receiver before the final successful four-case run."
+    ]
   }
 }

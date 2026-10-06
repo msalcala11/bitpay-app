@@ -1938,6 +1938,188 @@ it('Stage A / E: verification errors in optional refresh preserve the primary ac
   await migrateVault(root);
   expect(complete()).toBe(true);
 });
+describe('Stage B review backup-read regressions', () => {
+  it.each(
+    ['pending', 'complete'].flatMap(status =>
+      ['exists', 'readFile'].flatMap(boundary =>
+        ['missing', 'invalid'].map(primary => ({status, boundary, primary})),
+      ),
+    ),
+  )(
+    'recovers a $status wallet from bak after main $boundary rejection ($primary primary)',
+    async ({status, boundary, primary}) => {
+      const state = payload();
+      const key = await convertedPending(state);
+      if (status === 'complete') {
+        await migrateVault(root);
+        expect(complete()).toBe(true);
+      }
+      const backup = mockFiles.get(VAULT_BACKUP)!;
+      seedFile(VAULT_OLDER_BACKUP, backup);
+      if (primary === 'missing') root.delete('persist:root');
+      else root.set('persist:root', 'synthetic damaged primary');
+      const operation = RNFS[boundary as 'exists' | 'readFile'] as jest.Mock;
+      const original = operation.getMockImplementation()!;
+      operation.mockImplementation(async (path, ...args) => {
+        if (path === VAULT_BACKUP) throw new Error('PRIVATE_MAIN_READ');
+        return original(path, ...args);
+      });
+      restart();
+      try {
+        expect((await prepareVault(root)) === key).toBe(true);
+        const recovered = await reduxStorage.getItem('persist:root');
+        const expected: any = {...state, APP: {...state.APP}};
+        if (status === 'pending') delete expected.APP.bip02CleanupReceipt;
+        for (const reducer of [
+          'MARKET_STATS',
+          'PORTFOLIO',
+          'PORTFOLIO_CHARTS',
+          'RATE',
+          'SHOP_CATALOG',
+        ])
+          delete expected[reducer];
+        same(await restore(recovered!, key), expected);
+        expect(root.getString('persist:root') === recovered).toBe(true);
+        expect(mockFiles.get(VAULT_BACKUP) === backup).toBe(true);
+        expect(mockFiles.get(VAULT_OLDER_BACKUP) === backup).toBe(true);
+        expect(
+          mockWrites.filter(w => w === 'mmkv:default:set:persist:root').length,
+        ).toBe(1);
+      } finally {
+        operation.mockImplementation(original);
+      }
+    },
+  );
+
+  it.each(['exists', 'readFile'])(
+    'does not interpret a failed %s as empty initialization when no backup is usable',
+    async boundary => {
+      await migrateVault(root); // Genuine initializing record, no first save.
+      seedFile(VAULT_BACKUP, 'unreadable synthetic content');
+      const operation = RNFS[boundary as 'exists' | 'readFile'] as jest.Mock;
+      const original = operation.getMockImplementation()!;
+      operation.mockImplementation(async (path, ...args) => {
+        if (path === VAULT_BACKUP) throw new Error('PRIVATE_MAIN_READ');
+        return original(path, ...args);
+      });
+      restart();
+      try {
+        await expect(reduxStorage.getItem('persist:root')).rejects.toThrow(
+          'REQUIRED_COPY_FAILURE',
+        );
+        expect(root.contains('persist:root')).toBe(false);
+        noWrites();
+      } finally {
+        operation.mockImplementation(original);
+      }
+    },
+  );
+
+  // Produce an owned temp through the real conversion/optional-refresh path.
+  const pendingRefresh = async () => {
+    const key = await optionalRefreshPrimary();
+    const move = RNFS.moveFile as jest.Mock;
+    const original = move.getMockImplementation()!;
+    move.mockImplementation(async (from, to) => {
+      if (to === VAULT_BACKUP) throw new Error('synthetic promotion failure');
+      return original(from, to);
+    });
+    try {
+      expect((await prepareVault(root)) === key).toBe(true);
+    } finally {
+      move.mockImplementation(original);
+    }
+    expect(mockFiles.has(migrationTemp(VAULT_BACKUP))).toBe(true);
+    expect(complete()).toBe(false);
+    return key;
+  };
+
+  it.each(
+    ['exists', 'readFile'].flatMap(boundary =>
+      [false, true].map(validTarget => ({boundary, validTarget})),
+    ),
+  )(
+    'defers owned temp across repeated other-backup $boundary failures (valid target=$validTarget)',
+    async ({boundary, validTarget}) => {
+      const key = await pendingRefresh();
+      if (validTarget)
+        seedFile(VAULT_BACKUP, mockFiles.get(VAULT_OLDER_BACKUP)!);
+      const primary = root.getString('persist:root')!;
+      const files = new Map(mockFiles);
+      const operation = RNFS[boundary as 'exists' | 'readFile'] as jest.Mock;
+      const original = operation.getMockImplementation()!;
+      let failures = 0;
+      operation.mockImplementation(async (path, ...args) => {
+        if (path === VAULT_OLDER_BACKUP) {
+          failures++;
+          throw new Error('PRIVATE_BAK_READ');
+        }
+        return original(path, ...args);
+      });
+      try {
+        for (let launch = 1; launch <= 3; launch++) {
+          restart(); // Completed-call retry, not a native-process restart.
+          expect((await prepareVault(root)) === key).toBe(true);
+          expect(root.getString('persist:root') === primary).toBe(true);
+          expect((await reduxStorage.getItem('persist:root')) === primary).toBe(
+            true,
+          );
+          expect(isEqual(mockFiles, files)).toBe(true);
+          expect(complete()).toBe(false);
+          expect(failures).toBe(launch); // No re-read of a known unreadable path.
+          noWrites();
+        }
+      } finally {
+        operation.mockImplementation(original);
+      }
+      restart();
+      expect((await prepareVault(root)) === key).toBe(true);
+      expect(root.getString('persist:root') === primary).toBe(true);
+      expect(complete()).toBe(true);
+    },
+  );
+
+  it.each(['usable', 'missing', 'invalid'])(
+    'handles the post-operation temp read failure with a %s primary',
+    async primaryState => {
+      const key = await pendingRefresh();
+      const primary = root.getString('persist:root')!;
+      const exists = RNFS.exists as jest.Mock;
+      const original = exists.getMockImplementation()!;
+      let failed = false;
+      exists.mockImplementation(async path => {
+        if (path === migrationTemp(VAULT_BACKUP) && !mockFiles.has(path)) {
+          failed = true;
+          if (primaryState === 'missing') root.delete('persist:root');
+          if (primaryState === 'invalid') root.set('persist:root', 'invalid');
+          throw new Error('PRIVATE_POST_OPERATION_READ');
+        }
+        return original(path);
+      });
+      restart();
+      try {
+        if (primaryState === 'usable') {
+          expect((await prepareVault(root)) === key).toBe(true);
+          expect(root.getString('persist:root') === primary).toBe(true);
+          expect(complete()).toBe(false);
+        } else {
+          await expect(prepareVault(root)).rejects.toThrow(
+            'PRESERVATION_FAILURE',
+          );
+        }
+        expect(failed).toBe(true);
+      } finally {
+        exists.mockImplementation(original);
+      }
+      if (primaryState === 'usable') {
+        restart();
+        expect((await prepareVault(root)) === key).toBe(true);
+        expect(complete()).toBe(true);
+      }
+    },
+  );
+});
+
 it('D/F: a modern field hidden inside CBC is detected without trying identifier-based GCM decryption', async () => {
   const encryption = require('./transforms/encrypt');
   const spy = jest.spyOn(encryption, 'decryptValue');
