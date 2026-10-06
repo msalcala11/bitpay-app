@@ -58,7 +58,8 @@ const assert = (condition, code) => {
     assert(result.newArchitectureBridge, 'BRIDGE_MISSING');
     stage = 'seed';
     if (operation.startsWith('react-receipt-')) {
-      const older = operation.includes('-older-');
+      const fromTemp = operation.includes('-temp-');
+      const older = operation.includes('-older-') || fromTemp;
       const phase = operation.split('-').pop();
       const {
         VAULT_BACKUP,
@@ -134,11 +135,17 @@ const assert = (condition, code) => {
           if (name === 'persist:root') throw Error('synthetic rejection');
           return remove(name);
         };
+        const stat = RNFS.stat;
+        if (fromTemp)
+          RNFS.stat = async () => {
+            throw Error('synthetic scrub deferral');
+          };
         let key;
         try {
           key = await prepareVault(storage);
         } finally {
           AsyncStorage.removeItem = remove;
+          RNFS.stat = stat;
         }
         const converted = await decode(storage.getString('persist:root'), key);
         const r = JSON.parse(records.getString(VAULT_RECORD_KEY));
@@ -175,6 +182,39 @@ const assert = (condition, code) => {
           await encode(converted, key),
           'utf8',
         );
+        if (fromTemp) {
+          // A real persisted edit before its ordinary backup: retain the old AS
+          // row while production refresh leaves its current replacement temp.
+          storage.set('persist:root', await encode(converted, key));
+          const move = RNFS.moveFile;
+          RNFS.moveFile = async (from, to) => {
+            if (to === VAULT_BACKUP)
+              throw Error('synthetic promotion rejection');
+            return move(from, to);
+          };
+          AsyncStorage.removeItem = async name => {
+            if (name === 'persist:root')
+              throw Error('synthetic retained source');
+            return remove(name);
+          };
+          try {
+            await prepareVault(storage);
+          } finally {
+            RNFS.moveFile = move;
+            AsyncStorage.removeItem = remove;
+          }
+          assert(!(await RNFS.exists(VAULT_BACKUP)), 'TARGET_NOT_MISSING');
+          assert(
+            await RNFS.exists(VAULT_BACKUP + '.vault-migration'),
+            'REPLACEMENT_MISSING',
+          );
+          assert(
+            JSON.parse(records.getString(VAULT_RECORD_KEY)).cleanup.main
+              .writePhase === 'verified',
+            'WRITE_PHASE_NOT_VERIFIED',
+          );
+          result.recordedReplacement = true;
+        }
         result.retainedLegacySource = true;
         result.cleanupPending = true;
         result.receiptAgreement = true;
@@ -187,7 +227,7 @@ const assert = (condition, code) => {
           const previousRecord = records.getString(VAULT_RECORD_KEY);
           const previousSource = await AsyncStorage.getItem('persist:root');
           storage.delete('persist:root');
-          if (older) await RNFS.unlink(VAULT_BACKUP);
+          if (older && !fromTemp) await RNFS.unlink(VAULT_BACKUP);
           const set = MMKV.prototype.set;
           let denied = 0,
             rootWrites = 0;
@@ -426,9 +466,24 @@ const assert = (condition, code) => {
       }
       result.nativeCalls = nativeCalls;
     } else if (operation.startsWith('react-fresh-')) {
-      if (operation === 'react-fresh-start') {
+      let survivingKey;
+      if (
+        [
+          'react-fresh-start',
+          'react-fresh-old-start',
+          'react-fresh-both-start',
+        ].includes(operation)
+      ) {
         assert(!records.contains(VAULT_RECORD_KEY), 'NOT_FRESH');
         await AsyncStorage.setItem('react-library', '🧭 unrelated live data');
+        if (operation !== 'react-fresh-start') {
+          await Keychain.setGenericPassword(LEGACY_KEY_SERVICE, legacy, {
+            service: LEGACY_KEY_SERVICE,
+          });
+          if (operation === 'react-fresh-both-start')
+            survivingKey =
+              await require('../../../src/store/encryption-key').createVaultKey();
+        }
       }
       assert(!storage.contains('persist:root'), 'PREMATURE_ROOT');
       let cleanCalls = 0;
@@ -449,8 +504,16 @@ const assert = (condition, code) => {
       assert(!records.contains(RKSTORAGE_RECORD_KEY), 'FRESH_MARKER_PREMATURE');
       assert(!storage.contains('persist:root'), 'FABRICATED_ROOT');
       assert(cleanCalls === 0, 'FRESH_ERASURE');
+      if (survivingKey !== undefined)
+        assert(key === survivingKey, 'SURVIVING_KEY_REPLACED');
+      assert(
+        !(await Keychain.getGenericPassword({service: LEGACY_KEY_SERVICE})),
+        'LEGACY_KEY_NOT_RETIRED',
+      );
       result.initializationRetries = 3;
       result.nativeCleanCalls = cleanCalls;
+      result.survivingKeyReused =
+        survivingKey === undefined || key === survivingKey;
       if (operation === 'react-fresh-save') {
         stage = 'first-save';
         const {reduxStorage} = require('../../../src/store');

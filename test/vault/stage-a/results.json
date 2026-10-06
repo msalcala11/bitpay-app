@@ -4,9 +4,9 @@
   "timezone": "America/New_York",
   "reference": "4e9c7e96c54d87520da7c3f16bf37084ec7c8789",
   "amendmentStartingHead": "0b0f12c1f12f595930394e953d1c4c3b742eb0f9",
-  "workspace": "/Users/marty/open-source/bitpay-app",
-  "validationWorktree": "/Users/marty/.codex/worktrees/bip02-stage-a-baseline/bitpay-app",
-  "scratch": "/private/tmp/bip02-stage-a-correction-RoVnVV",
+  "workspace": "$DEVELOPER_CHECKOUT",
+  "validationWorktree": "$STAGE_A_WORKTREE",
+  "scratch": "$SCRATCH",
   "previousStageA": {
     "commit": "0b0f12c1f12f595930394e953d1c4c3b742eb0f9",
     "cases": 34,
@@ -1134,7 +1134,7 @@
     "passingControls": 16,
     "unchangedFocusedPassed": 362,
     "total": 424,
-    "scratch": "/private/tmp/bip02-stage-a-amend-vNhayS"
+    "scratch": "$SCRATCH"
   },
   "focusedCorrection": {
     "startingHead": "0b0f12c1f12f595930394e953d1c4c3b742eb0f9",
@@ -1147,7 +1147,7 @@
     ],
     "startingSpecSha256": "21df95c54c6161d5a594a0b122a085c571a61eaedce9c2707ebf66e1e427bd97",
     "newInstall": false,
-    "finalRunWorkspace": "/Users/marty/.codex/worktrees/bip02-stage-a-baseline/bitpay-app",
+    "finalRunWorkspace": "$STAGE_A_WORKTREE",
     "minimumAdditionalDesignScope": "APP cleanup witness plus stripping in the same pending-recovery root write; proposal only, subject to Stage A review",
     "productionFilesReverified": 35
   }

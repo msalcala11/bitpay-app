@@ -24,9 +24,12 @@ for (const seed of [
   'react-async-only',
   'react-empty-import',
   'react-fresh-start',
+  'react-fresh-old-start',
+  'react-fresh-both-start',
   'react-eddsa-seed',
   'react-receipt-older-seed',
   'react-receipt-current-seed',
+  'react-receipt-temp-seed',
 ]) {
   run(['shell', 'pm', 'clear', 'com.bitpay.wallet']); // disposable app only
   const rows = [];
@@ -38,7 +41,7 @@ for (const seed of [
         seed.replace('-seed', '-verify'),
         seed.replace('-seed', '-verify'),
       ]
-    : seed === 'react-fresh-start'
+    : seed.startsWith('react-fresh-')
     ? [
         seed,
         'react-fresh-retry',

@@ -12,6 +12,7 @@ export type CleanupSlot = 'async' | 'main' | 'bak';
 export type CleanupBinding = {
   origin: 'converted-source' | 'optional-refresh' | 'current-coverage';
   digest: string;
+  writePhase?: 'writing' | 'verified';
 };
 export type CleanupState = {
   v: 1;
@@ -27,6 +28,11 @@ export type ConversionPlan = {
   sourceDigest: string;
   mainDigest: string;
   primaryReceipt: string;
+  output?: {
+    path: 'main' | 'bak';
+    digest: string;
+    phase: 'writing' | 'verified';
+  };
 };
 export type VaultRecord = {
   status: 'started' | 'complete';
@@ -65,7 +71,13 @@ export const parseCleanup = (v: unknown): CleanupState | undefined => {
     if (b === undefined) continue;
     if (
       !object(b) ||
-      Object.keys(b).some(k => !['origin', 'digest'].includes(k)) ||
+      Object.keys(b).some(
+        k => !['origin', 'digest', 'writePhase'].includes(k),
+      ) ||
+      (b.writePhase !== undefined &&
+        (slot === 'async' ||
+          !['writing', 'verified'].includes(b.writePhase) ||
+          (b.origin !== 'optional-refresh' && b.writePhase !== 'verified'))) ||
       !hash(b.digest) ||
       ![
         'current-coverage',
@@ -119,6 +131,7 @@ export const parseVaultRecord = (
             'sourceDigest',
             'mainDigest',
             'primaryReceipt',
+            'output',
           ].includes(k),
       ) ||
       !['mmkv', 'async', 'main', 'bak', 'main-temp', 'bak-temp'].includes(
@@ -126,7 +139,15 @@ export const parseVaultRecord = (
       ) ||
       !hash(p.sourceDigest) ||
       !hash(p.mainDigest) ||
-      !validReceipt(p.primaryReceipt)
+      !validReceipt(p.primaryReceipt) ||
+      (p.output !== undefined &&
+        (!object(p.output) ||
+          Object.keys(p.output).some(
+            k => !['path', 'digest', 'phase'].includes(k),
+          ) ||
+          !['main', 'bak'].includes(p.output.path) ||
+          !hash(p.output.digest) ||
+          !['writing', 'verified'].includes(p.output.phase)))
     )
       return invalid();
   }

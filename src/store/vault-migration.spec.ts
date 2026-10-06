@@ -2720,8 +2720,11 @@ it.each([false, 'true', 1, null])(
 it('RK: legacy credentials alone cannot establish fresh provenance', async () => {
   seedKey(LEGACY_KEY_SERVICE, legacyKey);
   const bridge = rkBridge();
-  await expect(prepareVault(root)).rejects.toThrow('PRESERVATION_FAILURE');
-  expect(rkInitializing()).toBe(false);
+  // Owner ruling, 6 October: empty successful inventory is fresh on Android.
+  await expect(
+    prepareVault(root).then(() => undefined),
+  ).resolves.toBeUndefined();
+  expect(rkInitializing()).toBe(true);
   expect(bridge.clean).not.toHaveBeenCalled();
 });
 
@@ -3774,13 +3777,18 @@ describe('Stage A', () => {
     );
     expect(code === 'RESOLVED').toBe(true);
     expect(root.getString('persist:root') === latest).toBe(true);
-    expect(mockAsync.has('persist:root')).toBe(true);
+    expect(mockAsync.has('persist:root')).toBe(false);
     expect(Object.keys((await restore(latest, key)).WALLET.keys).length).toBe(
       0,
     );
-    expect(complete()).toBe(false);
+    // Owner ruling, 6 October: deleting the last key does not retain a damaged row.
+    expect(complete()).toBe(true);
     expect(
-      mockWrites.every(w => w.startsWith(`mmkv:${VAULT_RECORD_ID}:set:`)),
+      mockWrites.every(
+        w =>
+          w.startsWith(`mmkv:${VAULT_RECORD_ID}:set:`) ||
+          w === 'async:delete:persist:root',
+      ),
     ).toBe(true);
   });
 
@@ -5520,5 +5528,1444 @@ describe('Stage A', () => {
         expect(conversionRecorded()).toBe(true);
       },
     );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Consolidated acceptance list for the two Stage B reviews. Written against
+  // a09199e with production unchanged; see the disposition table that ships
+  // with this diff for the rule behind each expectation.
+  //
+  // Each case states a starting state, an injected failure, what must stay
+  // safe while the failure lasts, and what must happen once it clears. A case
+  // marked "(control)" passes on a09199e and pins behaviour a repair must keep.
+  // Assertions compare booleans, fixed outcome codes and the ids of synthetic
+  // keys; they never print wallet contents.
+  // The numbering follows the findings in the review of e386a91; finding 3 is
+  // closed by a09199e's own tests and finding 10 is an accepted limit.
+  // Every expectation here is settled: by an owner ruling of 6 October, or by
+  // governing text that both reviewers read the same way.
+  describe('Consolidated repair implementation', () => {
+    const captureRefreshCut = async (state: any, key: string) => {
+      await ordinarySave(state, key, false);
+      const unlink = RNFS.unlink as jest.Mock;
+      const original = unlink.getMockImplementation()!;
+      let cut = false;
+      unlink.mockImplementation(async path => {
+        const result = await original(path);
+        if (path === VAULT_BACKUP && mockFiles.has(migrationTemp(path))) {
+          cut = true;
+          mockDead = true;
+          throw new Error('synthetic completed-call interruption');
+        }
+        return result;
+      });
+      try {
+        await prepareVault(root).catch(() => undefined);
+      } finally {
+        unlink.mockImplementation(original);
+        restart();
+      }
+      expect(cut).toBe(true);
+    };
+
+    it.each([false, true])(
+      'section 4: replacement-temp recovery cannot revive a stale source grant (cut=%s)',
+      async cut => {
+        const state = stateWithSdkKey();
+        state.WALLET.keys.extra = {
+          id: 'extra',
+          properties: {xPrivKey: 'synthetic extra key'},
+          wallets: [],
+        };
+        const key = await convertedPending(state, true);
+        const source = mockAsync.get('persist:root')!;
+        delete state.WALLET.keys.extra; // Ordinary intentional deletion before the recovery.
+        await captureRefreshCut(state, key);
+        const beforeRecord = record.getString(VAULT_RECORD_KEY);
+        root.delete('persist:root');
+        const original = MMKV.prototype.set;
+        let rootWrites = 0;
+        const spy = jest
+          .spyOn(MMKV.prototype, 'set')
+          .mockImplementation(function (this: any, name, value) {
+            if (this.id === VAULT_RECORD_ID)
+              throw new Error('synthetic suspension rejection');
+            const result = original.call(this, name, value);
+            if (this.id === 'default' && name === 'persist:root') {
+              rootWrites++;
+              if (cut) {
+                mockDead = true;
+                throw new Error('synthetic post-restore cut');
+              }
+            }
+            return result;
+          });
+        try {
+          if (cut)
+            await expect(
+              prepareVault(root).then(() => undefined),
+            ).rejects.toThrow();
+          else expect((await prepareVault(root)) === key).toBe(true);
+        } finally {
+          spy.mockRestore();
+          restart();
+        }
+        expect(rootWrites).toBe(1);
+        expect(record.getString(VAULT_RECORD_KEY) === beforeRecord).toBe(true);
+        const recovered = await restore(root.getString('persist:root')!, key);
+        expect(recovered.APP.bip02CleanupReceipt === undefined).toBe(true);
+        expect(Object.keys(recovered.WALLET.keys)).toEqual(['readonly']);
+        // Successful source reads after fresh JS modules, ordinary persistence,
+        // then another reload. This is not a native-process-restart claim.
+        await freshModules();
+        await ordinarySave(recovered, key);
+        for (let attempt = 0; attempt < 2; attempt++) {
+          restart();
+          expect((await freshModules()) === key).toBe(true);
+          expect(mockAsync.get('persist:root') === source).toBe(true);
+          expect(
+            (await restore(root.getString('persist:root')!, key)).APP
+              .bip02CleanupReceipt === undefined,
+          ).toBe(true);
+          expect(complete()).toBe(false);
+          expect(mockWrites.some(w => w.startsWith('async:delete:'))).toBe(
+            false,
+          );
+        }
+      },
+    );
+
+    it.each(['damaged', 'readable-uncovered'])(
+      'section 4: a damaged row replaced before deletion is retained (%s)',
+      async kind => {
+        const state = stateWithSdkKey();
+        const key = await convertedPending(state);
+        mockAsync.set('persist:root', 'synthetic first damaged row');
+        const larger = {
+          ...state,
+          WALLET: {
+            ...state.WALLET,
+            keys: {
+              ...state.WALLET.keys,
+              extra: {
+                id: 'extra',
+                properties: {xPrivKey: 'synthetic independent key'},
+                wallets: [],
+              },
+            },
+          },
+        };
+        const changed =
+          kind === 'damaged'
+            ? 'synthetic different damaged row'
+            : await save(larger);
+        const read = AsyncStorage.getItem as jest.Mock;
+        const original = read.getMockImplementation()!;
+        let reads = 0;
+        read.mockImplementation(async name => {
+          if (++reads === 2) mockAsync.set(name, changed);
+          return original(name);
+        });
+        const primary = root.getString('persist:root');
+        restart();
+        try {
+          expect((await prepareVault(root)) === key).toBe(true);
+          expect(reads).toBe(2);
+          expect(mockAsync.get('persist:root') === changed).toBe(true);
+          expect(root.getString('persist:root') === primary).toBe(true);
+          expect(mockWrites.some(w => w.startsWith('async:delete:'))).toBe(
+            false,
+          );
+          expect(complete()).toBe(false);
+        } finally {
+          read.mockImplementation(original);
+        }
+      },
+    );
+
+    it.each(
+      (['ios', 'android'] as const).flatMap(os =>
+        ['old', 'modern', 'both'].flatMap(keys =>
+          [false, true].map(completed => ({os, keys, completed})),
+        ),
+      ),
+    )(
+      'section 4: total loss stays a stop with established conversion ($os/$keys/complete=$completed)',
+      async ({os, keys, completed}) => {
+        Platform.OS = os;
+        const key = await convertedPending(stateWithSdkKey());
+        if (completed) await migrateVault(root);
+        root.delete('persist:root');
+        mockFiles.clear();
+        if (keys === 'old') mockCredentials.delete(VAULT_KEY_SERVICE);
+        if (keys !== 'modern') seedKey(LEGACY_KEY_SERVICE, legacyKey);
+        else mockCredentials.delete(LEGACY_KEY_SERVICE);
+        const before = record.getString(VAULT_RECORD_KEY);
+        const credentials = new Map(mockCredentials);
+        for (let attempt = 0; attempt < 2; attempt++) {
+          restart();
+          const result = await outcome(
+            'consolidated:lost-converted',
+            async () => {
+              await prepareVault(root);
+              await reduxStorage.getItem('persist:root');
+            },
+          );
+          expect(result === 'RESOLVED').toBe(false);
+          expect(record.getString(VAULT_RECORD_KEY) === before).toBe(true);
+          expect(isEqual(mockCredentials, credentials)).toBe(true);
+          expect(root.contains('persist:root')).toBe(false);
+          noWrites();
+        }
+        expect(typeof key === 'string').toBe(true);
+      },
+    );
+
+    it.each(
+      ['required', 'optional'].flatMap(kind =>
+        ['write', 'read-back'].map(failure => ({kind, failure})),
+      ),
+    )(
+      'retires the partial-output permission before promotion ($kind/$failure)',
+      async ({kind, failure}) => {
+        const state = stateWithSdkKey();
+        let key: string | undefined;
+        if (kind === 'optional') {
+          key = await convertedPending(state);
+          state.BITPAY_ID.apiToken = 'synthetic optional change';
+          await ordinarySave(state, key, false);
+        } else {
+          root.set('persist:root', await save(state));
+          seedKey(LEGACY_KEY_SERVICE, legacyKey);
+        }
+        const primary = root.getString('persist:root');
+        const main = mockFiles.get(VAULT_BACKUP),
+          bak = mockFiles.get(VAULT_OLDER_BACKUP);
+        const originalSet = MMKV.prototype.set,
+          originalGet = MMKV.prototype.getString;
+        let hit = false,
+          rejectRead = false;
+        const set = jest
+          .spyOn(MMKV.prototype, 'set')
+          .mockImplementation(function (this: any, name, value) {
+            if (this.id === VAULT_RECORD_ID) {
+              const next = JSON.parse(value as string);
+              const verified =
+                kind === 'required'
+                  ? next.conversionPlan?.output?.phase === 'verified'
+                  : Object.values(next.cleanup ?? {}).some(
+                      (slot: any) => slot?.writePhase === 'verified',
+                    );
+              if (verified) {
+                hit = true;
+                if (failure === 'write')
+                  throw new Error('synthetic phase write failure');
+                rejectRead = true;
+              }
+            }
+            return originalSet.call(this, name, value);
+          });
+        const get = jest
+          .spyOn(MMKV.prototype, 'getString')
+          .mockImplementation(function (this: any, name) {
+            if (this.id === VAULT_RECORD_ID && rejectRead) {
+              rejectRead = false;
+              throw new Error('synthetic phase read failure');
+            }
+            return originalGet.call(this, name);
+          });
+        restart();
+        try {
+          if (kind === 'required')
+            await expect(
+              prepareVault(root).then(() => undefined),
+            ).rejects.toThrow();
+          else expect((await prepareVault(root)) === key).toBe(true);
+          expect(hit).toBe(true);
+          expect(root.getString('persist:root') === primary).toBe(true);
+          expect(mockFiles.get(VAULT_BACKUP) === main).toBe(true);
+          expect(mockFiles.get(VAULT_OLDER_BACKUP) === bak).toBe(true);
+          expect(
+            mockFiles.has(
+              migrationTemp(
+                kind === 'required' ? VAULT_BACKUP : VAULT_OLDER_BACKUP,
+              ),
+            ),
+          ).toBe(true);
+          expect(
+            mockWrites.some(
+              w => w.startsWith('unlink:') || w.startsWith('move:'),
+            ),
+          ).toBe(false);
+          expect(complete()).toBe(false);
+        } finally {
+          set.mockRestore();
+          get.mockRestore();
+        }
+        for (let attempt = 0; attempt < 2 && !complete(); attempt++) {
+          restart();
+          await prepareVault(root);
+        }
+        expect(complete()).toBe(true);
+      },
+    );
+
+    it.each(['main', 'bak'] as const)(
+      'a plan without a write at %s cannot claim an undecodable temp',
+      async slot => {
+        const state = stateWithSdkKey();
+        root.set('persist:root', await save(state));
+        seedKey(LEGACY_KEY_SERVICE, legacyKey);
+        const write = RNFS.writeFile as jest.Mock,
+          original = write.getMockImplementation()!;
+        write.mockRejectedValue(new Error('synthetic preparation rejection'));
+        try {
+          await expect(
+            prepareVault(root).then(() => undefined),
+          ).rejects.toThrow();
+        } finally {
+          write.mockImplementation(original);
+        }
+        // Retain the valid selected-source plan, but remove its operation-specific
+        // observation, modeling a reference plan rather than a newly armed write.
+        const old = JSON.parse(record.getString(VAULT_RECORD_KEY)!);
+        delete old.conversionPlan.output;
+        record.set(VAULT_RECORD_KEY, JSON.stringify(old));
+        const path = migrationTemp(
+          slot === 'main' ? VAULT_BACKUP : VAULT_OLDER_BACKUP,
+        );
+        seedFile(path, 'synthetic unowned partial');
+        const primary = root.getString('persist:root');
+        restart();
+        await expect(prepareVault(root).then(() => undefined)).rejects.toThrow(
+          'SOURCE_CONFLICT',
+        );
+        expect(mockFiles.get(path) === 'synthetic unowned partial').toBe(true);
+        expect(root.getString('persist:root') === primary).toBe(true);
+        expect(conversionRecorded()).toBe(false);
+      },
+    );
+
+    it.each(['main', 'bak'] as const)(
+      'finished %s refresh cannot claim new garbage after target rotation',
+      async slot => {
+        const state = stateWithSdkKey();
+        const key = await convertedPending(state);
+        state.BITPAY_ID.apiToken = 'synthetic refresh edit';
+        await ordinarySave(state, key, false);
+        const stat = RNFS.stat as jest.Mock,
+          original = stat.getMockImplementation()!;
+        stat.mockRejectedValue(new Error('synthetic scrub deferral'));
+        try {
+          expect((await prepareVault(root)) === key).toBe(true);
+        } finally {
+          stat.mockImplementation(original);
+        }
+        const metadata = JSON.parse(record.getString(VAULT_RECORD_KEY)!);
+        expect(metadata.cleanup[slot].writePhase).toBe('verified');
+        // Two real ordinary backup rotations remove target/digest equality as an
+        // accidental safeguard. The verified phase must still deny partial deletion.
+        state.BITPAY_ID.apiToken = 'synthetic later edit one';
+        await ordinarySave(state, key);
+        state.BITPAY_ID.apiToken = 'synthetic later edit two';
+        const primary = await ordinarySave(state, key);
+        const path = migrationTemp(
+          slot === 'main' ? VAULT_BACKUP : VAULT_OLDER_BACKUP,
+        );
+        seedFile(path, 'synthetic unknown after finished write');
+        for (let attempt = 0; attempt < 2; attempt++) {
+          restart();
+          expect((await prepareVault(root)) === key).toBe(true);
+          expect(root.getString('persist:root') === primary).toBe(true);
+          expect(
+            mockFiles.get(path) === 'synthetic unknown after finished write',
+          ).toBe(true);
+          expect(complete()).toBe(false);
+        }
+      },
+    );
+  });
+
+  describe('Stage B acceptance', () => {
+    const ROOT_KEY = 'persist:root';
+    const attempt = async (operation: () => Promise<unknown>) => {
+      try {
+        await operation();
+        return 'RESOLVED';
+      } catch (error) {
+        const safe = getVaultDiagnostic(error as Error) as any;
+        return `${safe?.code ?? 'UNCLASSIFIED'}/${safe?.phase ?? 'unknown'}`;
+      }
+    };
+    // One launch as the app performs it: startup preparation, then the
+    // store's first read of the persisted root (which may restore a backup).
+    const open = async () => {
+      restart();
+      let key: string | undefined;
+      let raw: string | null | undefined;
+      const result = await attempt(async () => {
+        key = await prepareVault(root);
+        raw = (await reduxStorage.getItem(ROOT_KEY)) as string | null;
+      });
+      return {outcome: result, key, raw};
+    };
+    // Launch until `done`, at most `max` times. Every launch must open. No
+    // rule fixes how many launches cleanup may take, so one budget is used.
+    const openUntil = async (done: () => boolean, max = 4) => {
+      for (let n = 0; n < max && !done(); n++)
+        expect((await open()).outcome).toBe('RESOLVED');
+    };
+    const walletIds = async (raw: string | null | undefined, key: string) => {
+      if (raw === undefined || raw === null) return 'absent';
+      try {
+        return Object.keys((await restore(raw, key)).WALLET.keys)
+          .sort()
+          .join(',');
+      } catch {
+        return 'undecodable';
+      }
+    };
+    const withoutReceipt = (state: any) => {
+      const next = {...state, APP: {...state.APP}};
+      delete next.APP.bip02CleanupReceipt;
+      return next;
+    };
+    const recordNow = () =>
+      JSON.parse(record.getString(VAULT_RECORD_KEY) ?? 'null');
+    // The store's first ordinary save, awaiting the backup it queues.
+    const firstSave = async (state: any, key: string) => {
+      const raw = await save(state, key, 'modern');
+      const write = jest.spyOn(
+        require('./backup/fs-backup'),
+        'backupPersistRoot',
+      );
+      try {
+        await reduxStorage.setItem(ROOT_KEY, raw);
+        for (const call of write.mock.results)
+          if (call.type === 'return') await call.value;
+      } finally {
+        write.mockRestore();
+      }
+      return raw;
+    };
+    // A file write that fails every time while armed. 'half' and 'empty' model
+    // a full disk or a killed process on a non-atomic write: the target is
+    // left truncated. 'nothing' rejects without touching the target.
+    const failingWrite = (
+      target: string,
+      leave: 'half' | 'empty' | 'nothing',
+    ) => {
+      const write = RNFS.writeFile as jest.Mock;
+      const original = write.getMockImplementation()!;
+      let hits = 0;
+      write.mockImplementation(
+        async (path: string, data: string, ...rest: any[]) => {
+          const dir = path.slice(0, path.lastIndexOf('/'));
+          if (path !== target || !mockDirs.has(dir))
+            return original(path, data, ...rest);
+          hits++;
+          if (leave !== 'nothing')
+            mockFiles.set(
+              path,
+              leave === 'empty'
+                ? ''
+                : data.slice(0, Math.floor(data.length / 2)),
+            );
+          throw new Error('ENOSPC: synthetic write failure');
+        },
+      );
+      return {
+        hits: () => hits,
+        clear: () => write.mockImplementation(original),
+      };
+    };
+    const failing = (mock: unknown, message: string) => {
+      const fn = mock as jest.Mock;
+      const original = fn.getMockImplementation()!;
+      fn.mockImplementation(async () => {
+        throw new Error(message);
+      });
+      return () => fn.mockImplementation(original);
+    };
+
+    // -------------------------------------------------------------------------
+    // 1. Reinstall. Owner ruling: deleting and reinstalling never stops the
+    //    app; it is a fresh install on both platforms. iOS keeps Keychain
+    //    entries across an uninstall, so the old entry, the new entry or both
+    //    can be present with no persisted data at all. Android removes them
+    //    with the app, so a real Android reinstall is the "no keys" control.
+    //    The Android old-key cases are the same state reached some other way
+    //    (for example a released build stopped before its first save, or data
+    //    that was lost or failed to load). The owner was told that opening
+    //    there lets a first save overwrite data hidden by a failed load, and
+    //    ruled that it opens as a fresh install. That reverses the existing
+    //    test "RK: legacy credentials alone cannot establish fresh provenance".
+    describe('1. A reinstall is a fresh install', () => {
+      it.each(
+        (['ios', 'android'] as const).flatMap(os =>
+          [
+            {keys: 'old key only', old: true, modern: false},
+            {keys: 'old and new key', old: true, modern: true},
+            {keys: 'new key only (control)', old: false, modern: true},
+            {keys: 'no keys (control)', old: false, modern: false},
+          ].map(state => ({os, ...state})),
+        ),
+      )(
+        '$os, $keys, no persisted data: opens empty, takes a first save and reopens it',
+        async ({os, old, modern}) => {
+          Platform.OS = os;
+          const bridge = os === 'android' ? rkBridge() : undefined;
+          const surviving = crypto.randomBytes(32).toString('base64');
+          if (old) seedKey(LEGACY_KEY_SERVICE, legacyKey);
+          if (modern) seedKey(VAULT_KEY_SERVICE, surviving);
+          let key = '';
+          for (let n = 0; n < 2; n++) {
+            const launch = await open();
+            expect(launch.outcome).toBe('RESOLVED');
+            expect(launch.raw === null).toBe(true);
+            expect(root.contains(ROOT_KEY)).toBe(false);
+            key = launch.key!;
+          }
+          // A surviving new key is reused, never replaced.
+          if (modern) expect(key === surviving).toBe(true);
+          expect(mockCredentials.has(LEGACY_KEY_SERVICE)).toBe(false);
+          // No wallet exists yet, so the Android cleaner has nothing to act on.
+          if (bridge) expect(bridge.clean).not.toHaveBeenCalled();
+          const state = stateWithSdkKey();
+          const raw = await firstSave(state, key);
+          const again = await open();
+          expect(again.outcome).toBe('RESOLVED');
+          expect(again.raw === raw).toBe(true);
+          same((await restore(again.raw!, again.key!)).WALLET, state.WALLET);
+        },
+      );
+
+      it.each(['ios', 'android'] as const)(
+        '%s, old key only: an unreadable AsyncStorage is not an empty one; once readable the app opens fresh',
+        async os => {
+          Platform.OS = os;
+          seedKey(LEGACY_KEY_SERVICE, legacyKey);
+          const clear = failing(AsyncStorage.getItem, 'synthetic read failure');
+          try {
+            for (let n = 0; n < 2; n++) {
+              expect((await open()).outcome).not.toBe('RESOLVED');
+              noWrites();
+              expect(recordNow() === null).toBe(true);
+              expect(mockCredentials.has(VAULT_KEY_SERVICE)).toBe(false);
+            }
+          } finally {
+            clear();
+          }
+          const launch = await open();
+          expect(launch.outcome).toBe('RESOLVED');
+          expect(launch.raw === null).toBe(true);
+        },
+      );
+    });
+
+    // -------------------------------------------------------------------------
+    // 2. The first conversion writes a backup temp and the write fails
+    //    part-way. Stopping while the backup cannot be written is correct.
+    //    Staying stopped after the write works again is the defect.
+    describe('2. A partly written backup temp on the converting launch', () => {
+      it.each([
+        {
+          slot: 'main',
+          leave: 'half',
+          title:
+            'main temp left half written: stops safely while the write fails, converts and completes once it works',
+        },
+        {
+          slot: 'main',
+          leave: 'empty',
+          title:
+            'main temp left empty: stops safely while the write fails, converts and completes once it works',
+        },
+        {
+          slot: 'bak',
+          leave: 'half',
+          title:
+            '.bak temp left half written: stops safely while the write fails, converts and completes once it works',
+        },
+        {
+          slot: 'main',
+          leave: 'nothing',
+          title:
+            'main temp write rejected with nothing left behind: stops, then converts and completes (control)',
+        },
+        {
+          slot: 'main',
+          leave: 'none',
+          title:
+            'no failure, no earlier backup: converts and completes (control)',
+        },
+        {
+          slot: 'bak',
+          leave: 'none',
+          title:
+            'no failure, an earlier backup: converts and completes (control)',
+        },
+      ] as const)('$title', async ({slot, leave}) => {
+        const state = stateWithSdkKey();
+        state.APP.migrationMMKVStorageComplete = true;
+        const legacyRaw = await save(state);
+        root.set(ROOT_KEY, legacyRaw);
+        seedKey(LEGACY_KEY_SERVICE, legacyKey);
+        // With an earlier backup, the first temp written is its rotation
+        // into .bak, which the conversion plan does not name.
+        const earlier =
+          slot === 'bak'
+            ? await save({...state, BITPAY_ID: {apiToken: 'earlier backup'}})
+            : undefined;
+        if (earlier) seedFile(VAULT_BACKUP, earlier);
+        const target = migrationTemp(
+          slot === 'bak' ? VAULT_OLDER_BACKUP : VAULT_BACKUP,
+        );
+        if (leave !== 'none') {
+          const failure = failingWrite(target, leave);
+          try {
+            for (let n = 0; n < 2; n++) {
+              expect((await open()).outcome).not.toBe('RESOLVED');
+              expect(root.getString(ROOT_KEY) === legacyRaw).toBe(true);
+              expect(conversionRecorded()).toBe(false);
+              if (earlier)
+                expect(mockFiles.get(VAULT_BACKUP) === earlier).toBe(true);
+            }
+          } finally {
+            failure.clear();
+          }
+          expect(failure.hits()).toBeGreaterThan(0);
+        }
+        // The write works again. Allow one launch to retire the migration's
+        // own partial output and one to convert; the legacy primary must
+        // stay untouched until conversion succeeds.
+        let opened = await open();
+        if (opened.outcome !== 'RESOLVED') {
+          expect(root.getString(ROOT_KEY) === legacyRaw).toBe(true);
+          opened = await open();
+        }
+        expect(opened.outcome).toBe('RESOLVED');
+        const key = opened.key!;
+        expect(conversionRecorded()).toBe(true);
+        same(
+          (await restore(root.getString(ROOT_KEY)!, key)).WALLET,
+          state.WALLET,
+        );
+        same(
+          (await restore(mockFiles.get(VAULT_BACKUP)!, key)).WALLET,
+          state.WALLET,
+        );
+        await openUntil(complete);
+        expect(complete()).toBe(true);
+        expect(mockFiles.has(target)).toBe(false);
+        expect(mockCredentials.has(LEGACY_KEY_SERVICE)).toBe(false);
+      });
+
+      it.each(
+        (['main', 'bak'] as const).flatMap(slot =>
+          (['bytes', 'empty'] as const).map(kind => ({slot, kind})),
+        ),
+      )(
+        'a $slot temp ($kind) that was there before any plan was recorded is not the migration’s own output: preserved (control)',
+        async ({slot, kind}) => {
+          const legacyRaw = await save(stateWithSdkKey());
+          root.set(ROOT_KEY, legacyRaw);
+          seedKey(LEGACY_KEY_SERVICE, legacyKey);
+          const path = migrationTemp(
+            slot === 'bak' ? VAULT_OLDER_BACKUP : VAULT_BACKUP,
+          );
+          const unknown = kind === 'empty' ? '' : 'synthetic unknown copy';
+          seedFile(path, unknown);
+          for (let n = 0; n < 2; n++) {
+            expect((await open()).outcome).not.toBe('RESOLVED');
+            expect(mockFiles.get(path) === unknown).toBe(true);
+            expect(root.getString(ROOT_KEY) === legacyRaw).toBe(true);
+            noWrites();
+          }
+        },
+      );
+    });
+
+    // -------------------------------------------------------------------------
+    // 4. AsyncStorage cannot be read on the converting launch (the import is
+    //    already done, so conversion may proceed without it). Once it can be
+    //    read, fresh coverage by the converted wallet must be able to create
+    //    the deletion permission that could not be recorded at conversion.
+    describe('4. AsyncStorage unreadable on the converting launch', () => {
+      it.each([
+        {
+          title:
+            'later readable and holding the same wallet: the row is removed and cleanup completes',
+          later: 'same',
+          removed: true,
+          unreadable: true,
+        },
+        {
+          title:
+            'later readable but undecodable: the row is removed and cleanup completes (the ruling covers a damaged row whenever it is found)',
+          later: 'undecodable',
+          removed: true,
+          unreadable: true,
+        },
+        {
+          title:
+            'later readable and holding a key the wallet lacks: the row is kept and nothing is imported (control)',
+          later: 'larger',
+          removed: false,
+          unreadable: true,
+        },
+        {
+          title: 'later gone: cleanup completes (control)',
+          later: 'gone',
+          removed: true,
+          unreadable: true,
+        },
+        {
+          title:
+            'readable from the start and holding the same wallet: removed, cleanup completes (control)',
+          later: 'same',
+          removed: true,
+          unreadable: false,
+        },
+      ])('$title', async ({later, removed, unreadable}) => {
+        const state = stateWithSdkKey();
+        state.APP.migrationMMKVStorageComplete = true;
+        const raw = await save(state);
+        root.set(ROOT_KEY, raw);
+        seedKey(LEGACY_KEY_SERVICE, legacyKey);
+        const larger = JSON.parse(JSON.stringify(state));
+        larger.WALLET.keys.extra = {
+          id: 'extra',
+          properties: {xPrivKey: 'synthetic key only in the old row'},
+          wallets: [],
+        };
+        const row =
+          later === 'same' || later === 'gone'
+            ? raw
+            : later === 'undecodable'
+            ? 'synthetic undecodable bytes'
+            : await save(larger);
+        mockAsync.set(ROOT_KEY, row);
+        if (unreadable) {
+          const clear = failing(AsyncStorage.getItem, 'synthetic read failure');
+          let first;
+          try {
+            first = await open();
+          } finally {
+            clear();
+          }
+          expect(first.outcome).toBe('RESOLVED');
+          expect(conversionRecorded()).toBe(true);
+          expect(complete()).toBe(false);
+          expect(mockAsync.get(ROOT_KEY) === row).toBe(true);
+          same((await restore(first.raw!, first.key!)).WALLET, state.WALLET);
+        }
+        if (later === 'gone') mockAsync.delete(ROOT_KEY);
+        const settled = () => complete() && !mockAsync.has(ROOT_KEY);
+        await openUntil(removed ? settled : () => false);
+        const key = (await open()).key!;
+        // The converted wallet is never replaced by, or merged with, the row.
+        expect(await walletIds(root.getString(ROOT_KEY), key)).toBe('readonly');
+        if (removed) {
+          expect(mockAsync.has(ROOT_KEY)).toBe(false);
+          expect(complete()).toBe(true);
+          expect(mockCredentials.has(LEGACY_KEY_SERVICE)).toBe(false);
+        } else {
+          expect(mockAsync.get(ROOT_KEY) === row).toBe(true);
+          expect(complete()).toBe(false);
+        }
+      });
+    });
+
+    // -------------------------------------------------------------------------
+    // 5. A damaged old copy in AsyncStorage beside a wallet that holds keys.
+    //    Owner ruling: always delete it once the wallet is safely converted
+    //    and backed up, on the first attempt and on any retry. On a09199e the
+    //    uninterrupted attempt deletes it and any interruption keeps it for good.
+    describe('5. An undecodable AsyncStorage row beside a wallet with keys', () => {
+      // A legacy snapshot of the same wallet in which one reducer other than
+      // WALLET is damaged. The migration cannot decode the row as a whole.
+      const damagedReducerRow = async (state: any) => {
+        const outer = JSON.parse(await save(state));
+        outer.APP = JSON.stringify('synthetic damaged reducer');
+        return JSON.stringify(outer);
+      };
+      // Protected wallet fields in a row that still decrypt, with the
+      // device-derived old key, to exactly the wallet's own values. Only the
+      // two counts leave this function.
+      const fieldsReadableWithOldKey = (row: string, state: any) => {
+        const Utf8 = require('crypto-js/enc-utf8.js');
+        let total = 0;
+        let exact = 0;
+        try {
+          const wallet = JSON.parse(JSON.parse(JSON.parse(row).WALLET));
+          for (const [id, item] of Object.entries(wallet.keys ?? {}) as any[])
+            for (const [field, value] of Object.entries(item.properties ?? {}))
+              if (typeof value === 'string' && value.startsWith('encrypted:')) {
+                total++;
+                try {
+                  if (
+                    Aes.decrypt(
+                      value.slice('encrypted:'.length),
+                      legacyKey,
+                    ).toString(Utf8) === state.WALLET.keys[id].properties[field]
+                  )
+                    exact++;
+                } catch {}
+              }
+        } catch {}
+        return {total, exact};
+      };
+
+      it.each(
+        (['arbitrary bytes', 'one damaged reducer'] as const).flatMap(row =>
+          (
+            [
+              'no interruption (control)',
+              'the removal fails on two launches',
+              'the first attempt stops on a rejected backup write',
+            ] as const
+          ).map(interruption => ({row, interruption})),
+        ),
+      )(
+        '$row, $interruption: the wallet opens whenever it safely can and the row is removed once the failure clears',
+        async ({row, interruption}) => {
+          const state = stateWithSdkKey();
+          const legacyRaw = await save(state);
+          root.set(ROOT_KEY, legacyRaw);
+          seedKey(LEGACY_KEY_SERVICE, legacyKey);
+          const damaged =
+            row === 'arbitrary bytes'
+              ? 'synthetic undecodable bytes'
+              : await damagedReducerRow(state);
+          mockAsync.set(ROOT_KEY, damaged);
+          if (row === 'one damaged reducer') {
+            // The damaged row is still an old-key copy of wallet secrets.
+            const readable = fieldsReadableWithOldKey(damaged, state);
+            expect(readable.total).toBeGreaterThan(0);
+            expect(readable.exact).toBe(readable.total);
+          }
+          if (interruption.startsWith('the removal fails')) {
+            const clear = failing(
+              AsyncStorage.removeItem,
+              'synthetic removal failure',
+            );
+            try {
+              for (let n = 0; n < 2; n++) {
+                const launch = await open();
+                // A cleanup failure never locks out the converted wallet.
+                expect(launch.outcome).toBe('RESOLVED');
+                same(
+                  (await restore(launch.raw!, launch.key!)).WALLET,
+                  state.WALLET,
+                );
+                expect(mockAsync.get(ROOT_KEY) === damaged).toBe(true);
+                expect(complete()).toBe(false);
+              }
+            } finally {
+              clear();
+            }
+          }
+          if (interruption.startsWith('the first attempt stops')) {
+            const failure = failingWrite(
+              migrationTemp(VAULT_BACKUP),
+              'nothing',
+            );
+            try {
+              // The required backup could not be written: stop, change nothing.
+              expect((await open()).outcome).not.toBe('RESOLVED');
+            } finally {
+              failure.clear();
+            }
+            expect(failure.hits()).toBeGreaterThan(0);
+            expect(root.getString(ROOT_KEY) === legacyRaw).toBe(true);
+            expect(mockAsync.get(ROOT_KEY) === damaged).toBe(true);
+            expect(conversionRecorded()).toBe(false);
+          }
+          const settled = () => complete() && !mockAsync.has(ROOT_KEY);
+          await openUntil(settled);
+          expect(mockAsync.has(ROOT_KEY)).toBe(false);
+          expect(complete()).toBe(true);
+          expect(mockCredentials.has(LEGACY_KEY_SERVICE)).toBe(false);
+          const last = await open();
+          expect(last.outcome).toBe('RESOLVED');
+          same((await restore(last.raw!, last.key!)).WALLET, state.WALLET);
+        },
+      );
+
+      // The ruling says "always". The row was classified when the wallet held
+      // keys; a later deletion of the last key does not make it worth keeping,
+      // and what it still holds is an old-key copy of the deleted keys.
+      it('the removal fails and the user then deletes the last key: the row is still removed', async () => {
+        const state = stateWithSdkKey();
+        root.set(ROOT_KEY, await save(state));
+        seedKey(LEGACY_KEY_SERVICE, legacyKey);
+        const damaged = await damagedReducerRow(state);
+        mockAsync.set(ROOT_KEY, damaged);
+        const clear = failing(
+          AsyncStorage.removeItem,
+          'synthetic removal failure',
+        );
+        let first;
+        try {
+          first = await open();
+        } finally {
+          clear();
+        }
+        expect(first.outcome).toBe('RESOLVED');
+        expect(mockAsync.get(ROOT_KEY) === damaged).toBe(true);
+        expect(complete()).toBe(false);
+        edit(state, 'delete-key');
+        const latest = await ordinarySave(state, first.key!);
+        const settled = () => complete() && !mockAsync.has(ROOT_KEY);
+        await openUntil(settled);
+        expect(mockAsync.has(ROOT_KEY)).toBe(false);
+        expect(complete()).toBe(true);
+        expect(root.getString(ROOT_KEY) === latest).toBe(true);
+        expect(await walletIds(latest, first.key!)).toBe('');
+      });
+
+      // The rule is applied to the row's current bytes on each launch. No
+      // permission is carried over from the row an earlier launch saw.
+      it.each([
+        {
+          title:
+            'the damaged row is replaced by different damaged bytes between attempts: the new row is removed',
+          becomes: 'damaged',
+        },
+        {
+          title:
+            'the damaged row is replaced by a readable row holding a key the wallet lacks: the new row is kept and nothing is imported (control)',
+          becomes: 'larger',
+        },
+      ])('$title', async ({becomes}) => {
+        const state = stateWithSdkKey();
+        root.set(ROOT_KEY, await save(state));
+        seedKey(LEGACY_KEY_SERVICE, legacyKey);
+        mockAsync.set(ROOT_KEY, await damagedReducerRow(state));
+        const clear = failing(
+          AsyncStorage.removeItem,
+          'synthetic removal failure',
+        );
+        let first;
+        try {
+          first = await open();
+        } finally {
+          clear();
+        }
+        expect(first.outcome).toBe('RESOLVED');
+        expect(conversionRecorded()).toBe(true);
+        expect(complete()).toBe(false);
+        const larger = JSON.parse(JSON.stringify(state));
+        larger.WALLET.keys.extra = {
+          id: 'extra',
+          properties: {xPrivKey: 'synthetic key only in the old row'},
+          wallets: [],
+        };
+        const next =
+          becomes === 'damaged'
+            ? 'other synthetic undecodable bytes'
+            : await save(larger);
+        mockAsync.set(ROOT_KEY, next);
+        const settled = () => complete() && !mockAsync.has(ROOT_KEY);
+        await openUntil(becomes === 'damaged' ? settled : () => false);
+        const last = await open();
+        expect(last.outcome).toBe('RESOLVED');
+        expect(await walletIds(last.raw, last.key!)).toBe('readonly');
+        if (becomes === 'damaged') {
+          expect(mockAsync.has(ROOT_KEY)).toBe(false);
+          expect(complete()).toBe(true);
+        } else {
+          expect(mockAsync.get(ROOT_KEY) === next).toBe(true);
+          expect(complete()).toBe(false);
+        }
+      });
+
+      // Authorization section 5: after a restore from a backup, a source that
+      // cannot be decoded is preserved and cleanup stays pending. The ruling
+      // does not reach past a restore; this keeps a repair from widening it.
+      it('after the primary is lost and restored from the backup, the undecodable row is kept (control)', async () => {
+        const state = stateWithSdkKey();
+        root.set(ROOT_KEY, await save(state));
+        seedKey(LEGACY_KEY_SERVICE, legacyKey);
+        const damaged = await damagedReducerRow(state);
+        mockAsync.set(ROOT_KEY, damaged);
+        const clear = failing(
+          AsyncStorage.removeItem,
+          'synthetic removal failure',
+        );
+        let first;
+        try {
+          first = await open();
+        } finally {
+          clear();
+        }
+        expect(first.outcome).toBe('RESOLVED');
+        expect(conversionRecorded()).toBe(true);
+        root.delete(ROOT_KEY);
+        for (let n = 0; n < 4; n++) {
+          const launch = await open();
+          expect(launch.outcome).toBe('RESOLVED');
+          expect(await walletIds(launch.raw, first.key!)).toBe('readonly');
+          expect(mockAsync.get(ROOT_KEY) === damaged).toBe(true);
+          expect(complete()).toBe(false);
+        }
+      });
+
+      it('when the undecodable row is the only possible source the migration stops and keeps it (control)', async () => {
+        const damaged = 'synthetic undecodable bytes';
+        mockAsync.set(ROOT_KEY, damaged);
+        seedKey(LEGACY_KEY_SERVICE, legacyKey);
+        for (let n = 0; n < 2; n++) {
+          expect((await open()).outcome).not.toBe('RESOLVED');
+          expect(mockAsync.get(ROOT_KEY) === damaged).toBe(true);
+          expect(mockCredentials.has(VAULT_KEY_SERVICE)).toBe(false);
+          expect(recordNow() === null).toBe(true);
+          noWrites();
+        }
+      });
+    });
+
+    // -------------------------------------------------------------------------
+    // 6. After conversion, an optional backup refresh writes a temp and the
+    //    write fails part-way. The wallet must open, and once the write works
+    //    the migration must retire its own partial output and finish.
+    describe('6. A partly written optional-refresh temp after conversion', () => {
+      it.each([
+        {slot: 'main', leave: 'half', title: 'main temp left half written'},
+        {slot: 'bak', leave: 'half', title: '.bak temp left half written'},
+        {slot: 'main', leave: 'none', title: 'no failure (control)'},
+      ] as const)(
+        '$title: the wallet opens and cleanup completes once the write works',
+        async ({slot, leave}) => {
+          const state = stateWithSdkKey();
+          const key = await convertedPending(state);
+          // An ordinary save whose backup has not been written yet.
+          state.BITPAY_ID = {apiToken: 'saved after conversion'};
+          const primary = await save(state, key, 'modern');
+          root.set(ROOT_KEY, primary);
+          const target = migrationTemp(
+            slot === 'bak' ? VAULT_OLDER_BACKUP : VAULT_BACKUP,
+          );
+          if (leave !== 'none') {
+            const failure = failingWrite(target, leave);
+            try {
+              const launch = await open();
+              expect(launch.outcome).toBe('RESOLVED');
+              expect(launch.raw === primary).toBe(true);
+            } finally {
+              failure.clear();
+            }
+            expect(failure.hits()).toBeGreaterThan(0);
+            expect(complete()).toBe(false);
+          }
+          await openUntil(complete);
+          expect(complete()).toBe(true);
+          expect(mockFiles.has(target)).toBe(false);
+          expect(root.getString(ROOT_KEY) === primary).toBe(true);
+          same(
+            (await restore(mockFiles.get(VAULT_BACKUP)!, key)).BITPAY_ID,
+            state.BITPAY_ID,
+          );
+          expect(mockCredentials.has(LEGACY_KEY_SERVICE)).toBe(false);
+        },
+      );
+
+      // The refresh for this slot finished: its target already holds what the
+      // recorded intent describes. A temp that then appears at the same path
+      // cannot be that refresh's partial output.
+      it('an undecodable main temp that appears after its recorded refresh already finished is preserved (control)', async () => {
+        const state = stateWithSdkKey();
+        const key = await convertedPending(state);
+        state.BITPAY_ID = {apiToken: 'saved after conversion'};
+        const primary = await save(state, key, 'modern');
+        root.set(ROOT_KEY, primary);
+        // The refresh completes; only the scrub is deferred.
+        const clear = failing(RNFS.stat, 'synthetic scrub metadata failure');
+        try {
+          expect((await open()).outcome).toBe('RESOLVED');
+        } finally {
+          clear();
+        }
+        const path = migrationTemp(VAULT_BACKUP);
+        expect(complete()).toBe(false);
+        expect(mockFiles.has(path)).toBe(false);
+        same(
+          (await restore(mockFiles.get(VAULT_BACKUP)!, key)).BITPAY_ID,
+          state.BITPAY_ID,
+        );
+        const unknown = 'synthetic unknown copy';
+        seedFile(path, unknown);
+        for (let n = 0; n < 3; n++) {
+          const launch = await open();
+          expect(launch.outcome).toBe('RESOLVED');
+          expect(mockFiles.get(path) === unknown).toBe(true);
+          expect(root.getString(ROOT_KEY) === primary).toBe(true);
+          expect(complete()).toBe(false);
+        }
+      });
+
+      it.each(['main', 'bak'] as const)(
+        'an undecodable %s temp that no recorded refresh wrote is not the migration’s own output: preserved, wallet opens (control)',
+        async slot => {
+          const state = stateWithSdkKey();
+          const key = await convertedPending(state);
+          const primary = root.getString(ROOT_KEY);
+          const path = migrationTemp(
+            slot === 'bak' ? VAULT_OLDER_BACKUP : VAULT_BACKUP,
+          );
+          const unknown = 'synthetic unknown copy';
+          seedFile(path, unknown);
+          for (let n = 0; n < 3; n++) {
+            const launch = await open();
+            expect(launch.outcome).toBe('RESOLVED');
+            expect(launch.key === key).toBe(true);
+            expect(mockFiles.get(path) === unknown).toBe(true);
+            expect(root.getString(ROOT_KEY) === primary).toBe(true);
+            expect(complete()).toBe(false);
+          }
+        },
+      );
+    });
+
+    // -------------------------------------------------------------------------
+    // 7. After conversion the primary is present but this build cannot decode
+    //    it. Corruption is repaired from the backup (owner decisions 2 and 10).
+    //    A root that decodes as released-format data was written by another
+    //    build, for example after a downgrade, and may hold keys no backup
+    //    has. Both reviewers recommend keeping it and the owner had no
+    //    preference, so it is kept. The cases require only that the root and
+    //    the backups are left unchanged; they do not say whether startup
+    //    stops or hands the root to the store. No support for downgraded data
+    //    is added.
+    describe('7. A present primary this build cannot decode', () => {
+      const newerLegacyRoot = async (state: any) => {
+        const next = JSON.parse(JSON.stringify(state));
+        next.WALLET.keys.newer = {
+          id: 'newer',
+          properties: {xPrivKey: 'synthetic key written by another build'},
+          wallets: [],
+        };
+        return save(next);
+      };
+      it.each(
+        (['cleanup pending', 'Android follow-up pending'] as const).flatMap(
+          stage =>
+            [
+              {
+                stops: false,
+                title:
+                  'bytes that do not parse are repaired from the backup (control)',
+              },
+              {
+                stops: true,
+                title:
+                  'a released-format root holding a newer key is not replaced from the backup',
+              },
+            ].map(kind => ({stage, ...kind})),
+        ),
+      )('$stage: $title', async ({stage, stops}) => {
+        let key: string;
+        const state: any =
+          stage === 'cleanup pending' ? stateWithSdkKey() : payload();
+        if (stage === 'cleanup pending') {
+          key = await convertedPending(state);
+        } else {
+          Platform.OS = 'android';
+          key = await rkCompletedVault();
+          // Conversion left a current modern backup.
+          expect(mockFiles.has(VAULT_BACKUP)).toBe(true);
+          expect(complete()).toBe(true);
+          rkBridge();
+        }
+        const bad = stops ? await newerLegacyRoot(state) : '{"APP":';
+        root.set(ROOT_KEY, bad);
+        const files = new Map(mockFiles);
+        const launch = await open();
+        if (stops) {
+          expect(root.getString(ROOT_KEY) === bad).toBe(true);
+          expect(isEqual(mockFiles, files)).toBe(true);
+        } else {
+          expect(launch.outcome).toBe('RESOLVED');
+          expect(await walletIds(root.getString(ROOT_KEY), key)).toBe(
+            'readonly',
+          );
+        }
+      });
+    });
+
+    // -------------------------------------------------------------------------
+    // 8. An optional refresh is cut after it removed the main backup and
+    //    before it moved its verified temp into place; then the primary is
+    //    lost. The temp is the newest copy of the current wallet and belongs
+    //    to a recorded refresh, so recovery must use it.
+    describe('8. Recovery when the newest backup is a replacement temp', () => {
+      // Reach the cut through the production refresh path: a key is added by
+      // an ordinary save, and the next launch's refresh stops after removing
+      // the main backup and before moving its verified temp into place.
+      const cutRefresh = async () => {
+        const state = stateWithSdkKey();
+        const key = await convertedPending(state);
+        state.WALLET.keys.added = {
+          id: 'added',
+          properties: {xPrivKey: 'synthetic key added after conversion'},
+          wallets: [],
+        };
+        await ordinarySave(state, key, false);
+        const unlink = RNFS.unlink as jest.Mock;
+        const original = unlink.getMockImplementation()!;
+        let cut = false;
+        unlink.mockImplementation(async (path: string) => {
+          const result = await original(path);
+          if (
+            path === VAULT_BACKUP &&
+            mockFiles.has(migrationTemp(VAULT_BACKUP)) &&
+            !cut
+          ) {
+            cut = true;
+            mockDead = true;
+            throw new Error('process stopped');
+          }
+          return result;
+        });
+        try {
+          await open();
+        } finally {
+          unlink.mockImplementation(original);
+        }
+        restart();
+        const temp = mockFiles.get(migrationTemp(VAULT_BACKUP));
+        const current = await restore(root.getString(ROOT_KEY)!, key);
+        // The state the cut leaves: no main backup, a temp holding the
+        // current wallet, and an older .bak without the added key.
+        expect(cut).toBe(true);
+        expect(mockFiles.has(VAULT_BACKUP)).toBe(false);
+        expect(await walletIds(temp, key)).toBe('added,readonly');
+        same(await restore(temp!, key), retainedPayload(current));
+        expect(await walletIds(mockFiles.get(VAULT_OLDER_BACKUP), key)).toBe(
+          'readonly',
+        );
+        return {key, current};
+      };
+
+      it.each(['an older .bak also exists', 'no other backup exists'])(
+        'the refresh was cut between removing the main backup and promoting its temp, %s: the current wallet is recovered',
+        async kind => {
+          const {key, current} = await cutRefresh();
+          if (kind.startsWith('no other')) mockFiles.delete(VAULT_OLDER_BACKUP);
+          root.delete(ROOT_KEY);
+          const launch = await open();
+          expect(launch.outcome).toBe('RESOLVED');
+          expect(await walletIds(launch.raw, key)).toBe('added,readonly');
+          const restored = await restore(launch.raw!, key);
+          // Authorization section 5: a restore made while cleanup is pending
+          // writes the root without the cleanup receipt.
+          expect(restored.APP.bip02CleanupReceipt === undefined).toBe(true);
+          same(restored, withoutReceipt(retainedPayload(current)));
+        },
+      );
+
+      // Authorization section 5, steps 3 to 5: the receipt is removed before
+      // the one root write, never by a second write. A final-state check
+      // cannot see the difference, so capture the write and stop right after.
+      it('the restore from the replacement temp is a single receipt-free root write and survives a stop right after it', async () => {
+        const {key, current} = await cutRefresh();
+        root.delete(ROOT_KEY);
+        const originalSet = MMKV.prototype.set;
+        const written: string[] = [];
+        const spy = jest
+          .spyOn(MMKV.prototype, 'set')
+          .mockImplementation(function (this: any, name: any, value: any) {
+            const result = originalSet.call(this, name, value);
+            if (this.id === 'default' && name === ROOT_KEY) {
+              written.push(value);
+              mockDead = true;
+              throw new Error('process stopped');
+            }
+            return result;
+          });
+        try {
+          await open();
+        } finally {
+          spy.mockRestore();
+        }
+        restart();
+        expect(written.length).toBe(1);
+        const first = await restore(written[0], key);
+        expect(first.APP.bip02CleanupReceipt === undefined).toBe(true);
+        same(first, withoutReceipt(retainedPayload(current)));
+        const launch = await open();
+        expect(launch.outcome).toBe('RESOLVED');
+        expect(launch.raw === written[0]).toBe(true);
+        expect(await walletIds(launch.raw, key)).toBe('added,readonly');
+      });
+
+      it('a different valid temp at the path of a recorded refresh is not adopted over the older backup (control)', async () => {
+        const {key, current} = await cutRefresh();
+        const other = await save(
+          {...retainedPayload(current), BITPAY_ID: {apiToken: 'another temp'}},
+          key,
+          'modern',
+        );
+        seedFile(migrationTemp(VAULT_BACKUP), other);
+        const bak = mockFiles.get(VAULT_OLDER_BACKUP);
+        root.delete(ROOT_KEY);
+        const launch = await open();
+        expect(launch.outcome).toBe('RESOLVED');
+        expect(await walletIds(launch.raw, key)).toBe('readonly');
+        expect(mockFiles.get(migrationTemp(VAULT_BACKUP)) === other).toBe(true);
+        expect(mockFiles.get(VAULT_OLDER_BACKUP) === bak).toBe(true);
+      });
+
+      it('a temp that no recorded refresh wrote is not adopted over a valid older backup (control)', async () => {
+        const state = stateWithSdkKey();
+        const key = await convertedPending(state);
+        const current = retainedPayload(
+          await restore(root.getString(ROOT_KEY)!, key),
+        );
+        const tempRaw = await save(
+          {...current, BITPAY_ID: {apiToken: 'unrecorded temp'}},
+          key,
+          'modern',
+        );
+        const bakRaw = await save(
+          {...current, BITPAY_ID: {apiToken: 'older backup'}},
+          key,
+          'modern',
+        );
+        mockFiles.delete(VAULT_BACKUP);
+        seedFile(migrationTemp(VAULT_BACKUP), tempRaw);
+        seedFile(VAULT_OLDER_BACKUP, bakRaw);
+        root.delete(ROOT_KEY);
+        const launch = await open();
+        expect(launch.outcome).toBe('RESOLVED');
+        expect(
+          (await restore(launch.raw!, key)).BITPAY_ID.apiToken ===
+            'older backup',
+        ).toBe(true);
+        expect(mockFiles.get(migrationTemp(VAULT_BACKUP)) === tempRaw).toBe(
+          true,
+        );
+        expect(mockFiles.get(VAULT_OLDER_BACKUP) === bakRaw).toBe(true);
+      });
+    });
+
+    // -------------------------------------------------------------------------
+    // 9. The converted root was written but recording conversion failed, and
+    //    the backup directory is then emptied (it lives under Caches). The
+    //    plan records its receipt before the root write and the root carries
+    //    the same value, so the surviving root is identifiably this plan's
+    //    output: rebuild the backup from it and finish recording conversion.
+    //    The receipt only ties the root to the pending plan. It does not choose
+    //    between wallets: there is one plan, one key and one validated root.
+    describe('9. Interrupted conversion followed by a cleared cache', () => {
+      const interruptedThenCleared = async () => {
+        await seed();
+        const originalSet = MMKV.prototype.set;
+        const spy = jest
+          .spyOn(MMKV.prototype, 'set')
+          .mockImplementation(function (this: any, name: any, value: any) {
+            if (
+              this.id === VAULT_RECORD_ID &&
+              String(value).includes('"conversionComplete":true')
+            )
+              throw new Error('synthetic record failure');
+            return originalSet.call(this, name, value);
+          });
+        let stopped: string;
+        try {
+          stopped = (await open()).outcome;
+        } finally {
+          spy.mockRestore();
+        }
+        restart();
+        const key = mockCredentials.get(VAULT_KEY_SERVICE).password as string;
+        const converted = await restore(root.getString(ROOT_KEY)!, key);
+        const plan = recordNow()?.conversionPlan;
+        // The interrupted state: stopped, not recorded, root already modern
+        // and carrying the receipt its plan recorded.
+        expect(stopped).not.toBe('RESOLVED');
+        expect(conversionRecorded()).toBe(false);
+        expect(
+          typeof plan?.primaryReceipt === 'string' &&
+            converted.APP.bip02CleanupReceipt === plan.primaryReceipt,
+        ).toBe(true);
+        mockFiles.clear();
+        return {key, converted};
+      };
+
+      it('the surviving root carries the plan’s receipt: the backup is rebuilt and conversion is recorded', async () => {
+        const {key, converted} = await interruptedThenCleared();
+        let launch = await open();
+        if (launch.outcome !== 'RESOLVED') launch = await open();
+        expect(launch.outcome).toBe('RESOLVED');
+        expect(launch.key === key).toBe(true);
+        expect(conversionRecorded()).toBe(true);
+        same((await restore(launch.raw!, key)).WALLET, payload().WALLET);
+        same(
+          await restore(mockFiles.get(VAULT_BACKUP)!, key),
+          retainedPayload(converted),
+        );
+        await openUntil(complete);
+        expect(complete()).toBe(true);
+      });
+
+      // Owner decisions 12 to 14: the verified current backup comes before
+      // admission. A final-state check cannot see a repair that records
+      // conversion first and rebuilds the backup afterwards.
+      it('the backup is rebuilt before conversion is recorded: while no backup can be written the launch stops and nothing is recorded', async () => {
+        const {key, converted} = await interruptedThenCleared();
+        const primary = root.getString(ROOT_KEY);
+        const write = RNFS.writeFile as jest.Mock;
+        const original = write.getMockImplementation()!;
+        let attempts = 0;
+        write.mockImplementation(async () => {
+          attempts++;
+          throw new Error('ENOSPC: synthetic write failure');
+        });
+        try {
+          for (let n = 0; n < 2; n++) {
+            expect((await open()).outcome).not.toBe('RESOLVED');
+            expect(conversionRecorded()).toBe(false);
+            expect(root.getString(ROOT_KEY) === primary).toBe(true);
+            expect(mockFiles.size).toBe(0);
+          }
+        } finally {
+          write.mockImplementation(original);
+        }
+        // The stops above were the rebuild failing, not the plan being refused.
+        expect(attempts).toBeGreaterThan(0);
+        let launch = await open();
+        if (launch.outcome !== 'RESOLVED') launch = await open();
+        expect(launch.outcome).toBe('RESOLVED');
+        expect(conversionRecorded()).toBe(true);
+        same(
+          await restore(mockFiles.get(VAULT_BACKUP)!, key),
+          retainedPayload(converted),
+        );
+      });
+
+      it.each(['a different receipt', 'no receipt', 'bytes that do not parse'])(
+        'a surviving root with %s does not prove it is the plan’s output: still stops, nothing changes (control)',
+        async kind => {
+          const {key, converted} = await interruptedThenCleared();
+          const other = {...converted, APP: {...converted.APP}};
+          if (kind === 'a different receipt')
+            other.APP.bip02CleanupReceipt = 'f'.repeat(32);
+          else delete other.APP.bip02CleanupReceipt;
+          const raw =
+            kind === 'bytes that do not parse'
+              ? '{"APP":'
+              : await save(other, key, 'modern');
+          root.set(ROOT_KEY, raw);
+          for (let n = 0; n < 2; n++) {
+            expect((await open()).outcome).not.toBe('RESOLVED');
+            expect(root.getString(ROOT_KEY) === raw).toBe(true);
+            expect(conversionRecorded()).toBe(false);
+            expect(mockFiles.size).toBe(0);
+          }
+        },
+      );
+    });
   });
 });

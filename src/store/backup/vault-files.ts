@@ -65,18 +65,22 @@ export const replaceVaultFile = async (
   raw: string,
   verify: (raw: string | null) => void,
   check: PreservationCheck = unchecked,
+  writePhase?: (phase: 'writing' | 'verified') => void,
 ): Promise<void> => {
   if (!(await checkedIO(() => RNFS.exists(VAULT_BACKUP_DIR), check))) {
     await checkedIO(() => RNFS.mkdir(VAULT_BACKUP_DIR), check);
   }
   const pending = await readVaultFile(migrationTemp(path), check);
-  if (pending !== null && pending !== raw)
+  if (pending !== null && (pending !== raw || writePhase))
     throw new Error('Vault temp path occupied');
+  // A write intent is issued only after a successful absent-path observation.
+  writePhase?.('writing');
   await checkedIO(
     () => RNFS.writeFile(migrationTemp(path), raw, 'utf8'),
     check,
   );
   verify(await readVaultFile(migrationTemp(path), check));
+  writePhase?.('verified');
   // RNFS on iOS cannot overwrite a target. A verified temp survives this gap.
   await promoteVaultFile(path, verify, check, raw);
 };

@@ -88,3 +88,81 @@ it.each([
 });
 it('accepts exactly 128 bits in lower-case hex', () =>
   expect(validReceipt(receipt)).toBe(true));
+
+// Bounded operation/path provenance is distinct from the conversion plan itself.
+it.each(['main', 'bak'] as const)(
+  'parses both write phases for the fixed %s output',
+  path => {
+    for (const phase of ['writing', 'verified']) {
+      const conversionPlan = {
+        v: 1,
+        source: 'mmkv',
+        sourceDigest: '1'.repeat(64),
+        mainDigest: '2'.repeat(64),
+        primaryReceipt: receipt,
+        output: {path, digest: '3'.repeat(64), phase},
+      };
+      const parsed = parseVaultRecord(
+        JSON.stringify({status: 'started', wipeDone: false, conversionPlan}),
+      );
+      expect(
+        parsed.conversionPlan?.output?.path === path &&
+          parsed.conversionPlan?.output?.phase === phase,
+      ).toBe(true);
+    }
+  },
+);
+it.each([
+  'missing-digest',
+  'unknown-path',
+  'unknown-phase',
+  'unknown-field',
+  'null',
+])('rejects malformed mandatory output provenance: %s', kind => {
+  const output: any = {path: 'main', digest: '3'.repeat(64), phase: 'writing'};
+  if (kind === 'missing-digest') delete output.digest;
+  if (kind === 'unknown-path') output.path = 'other';
+  if (kind === 'unknown-phase') output.phase = 'complete';
+  if (kind === 'unknown-field') output.extra = true;
+  expect(() =>
+    parseVaultRecord(
+      JSON.stringify({
+        status: 'started',
+        wipeDone: false,
+        conversionPlan: {
+          v: 1,
+          source: 'mmkv',
+          sourceDigest: '1'.repeat(64),
+          mainDigest: '2'.repeat(64),
+          primaryReceipt: receipt,
+          output: kind === 'null' ? null : output,
+        },
+      }),
+    ),
+  ).toThrow('PRESERVATION_FAILURE');
+});
+it('keeps verified write provenance through a fresh coverage intent, without granting an unverified write', () => {
+  const base = {
+    v: 1,
+    main: {
+      origin: 'current-coverage',
+      digest: '4'.repeat(64),
+      writePhase: 'verified',
+    },
+  };
+  expect(parseCleanup(base)?.main?.writePhase === 'verified').toBe(true);
+  expect(
+    parseCleanup({...base, main: {...base.main, writePhase: 'writing'}}) ===
+      undefined,
+  ).toBe(true);
+  expect(
+    parseCleanup({
+      v: 1,
+      async: {
+        origin: 'current-coverage',
+        digest: '4'.repeat(64),
+        writePhase: 'verified',
+      },
+    }) === undefined,
+  ).toBe(true);
+});

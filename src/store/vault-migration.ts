@@ -214,6 +214,20 @@ export const recordVaultInitializationSave = (
 
 // Narrow read-only reuse of the serialized-snapshot validator. No source import,
 // key fallback, normalization or ordinary restore write is performed here.
+const readRecoveryCopy = async (path: string, record: RecordState) => {
+  const raw = await readVaultFile(path);
+  if (raw !== null || record.status === 'complete') return raw;
+  const slot = path === VAULT_BACKUP ? 'main' : 'bak';
+  const binding = record.cleanup?.[slot];
+  if (
+    !binding ||
+    (binding.origin !== 'optional-refresh' && binding.writePhase !== 'verified')
+  )
+    return null;
+  const temp = await readVaultFile(migrationTemp(path));
+  return temp !== null && digest(temp) === binding.digest ? temp : null;
+};
+
 export const captureVaultCleanupState = async (storage: MMKV, key: string) => {
   const validate = (raw: string) => {
     try {
@@ -239,7 +253,15 @@ export const captureVaultCleanupState = async (storage: MMKV, key: string) => {
     for (const path of [VAULT_BACKUP, VAULT_OLDER_BACKUP]) {
       let raw: string | null = null;
       try {
-        raw = await readVaultFile(path);
+        const history = readRecord('recovery');
+        if (!history || !conversionEstablished(history))
+          throw vaultError(
+            'PRESERVATION_FAILURE',
+            'recovery',
+            'RECORD_INVALID',
+            'record',
+          );
+        raw = await readRecoveryCopy(path, history);
       } catch (error) {
         failure ??= safeVaultError(
           error,
@@ -812,13 +834,21 @@ export const recoverConvertedVault = async (
       'RECORD_INVALID',
       'record',
     );
+  const primary = storage.getString(ROOT) ?? null;
+  if (hasLegacyProtection(primary) || unsupportedBranchFormat(primary))
+    throw vaultError(
+      'UNSUPPORTED_FORMAT',
+      'recovery',
+      'PRIMARY_INVALID',
+      'mmkv',
+    );
   let selected: Snapshot | undefined;
   let copyPresent = false;
   let readFailure: Error | undefined;
   for (const path of [VAULT_BACKUP, VAULT_OLDER_BACKUP]) {
     let raw: string | null;
     try {
-      raw = await readVaultFile(path);
+      raw = await readRecoveryCopy(path, record);
     } catch (error) {
       readFailure ??= safeVaultError(
         error,
@@ -1104,7 +1134,6 @@ const migrate = async (
   if (!secret && observedModern)
     throw vaultError('MODERN_KEY_FAILURE', 'key', 'KEY_UNAVAILABLE', 'key');
   run.phase = 'classify';
-  let discardUndecodable = false;
   const pathSlot = (path: string): 'main' | 'bak' =>
     path === VAULT_BACKUP ? 'main' : 'bak';
   const duplicatedTemp = (f: FileCopy) =>
@@ -1166,7 +1195,6 @@ const migrate = async (
         if (!asyncCopy.snapshot) {
           if (active.fields.size === 0)
             fail('invalid AsyncStorage migration source');
-          discardUndecodable = true;
         } else if (
           !preservesProtected(selected.payload, asyncCopy.snapshot.payload)
         ) {
@@ -1238,10 +1266,7 @@ const migrate = async (
       record = {
         status: 'started',
         wipeDone: false,
-        ...(!legacy &&
-        !legacyUnreadable &&
-        raws.every(raw => raw === null) &&
-        !asyncUnreadable
+        ...(raws.every(raw => raw === null) && !asyncUnreadable
           ? {initializing: true as const}
           : {}),
       };
@@ -1278,6 +1303,11 @@ const migrate = async (
             'PRIMARY_CHANGED',
             'mmkv',
           );
+      } else if (
+        root.snapshot?.format === 'gcm' &&
+        root.snapshot.payload.APP?.[CLEANUP_RECEIPT] === plan.primaryReceipt
+      ) {
+        selected = root.snapshot;
       } else {
         if (!boundSource)
           throw vaultError(
@@ -1312,6 +1342,7 @@ const migrate = async (
         sourceDigest: plan?.sourceDigest ?? digest(selected.raw),
         mainDigest: digest(plannedRaw),
         primaryReceipt: receipt,
+        ...(plan?.output ? {output: plan.output} : {}),
       };
       record = {...record, conversionPlan: descriptor};
       writeRecord(record);
@@ -1325,6 +1356,23 @@ const migrate = async (
             'mmkv',
           );
       };
+      const verifiedOutput = (path: string, raw: string) => {
+        const output = record!.conversionPlan?.output;
+        if (
+          output?.phase === 'writing' &&
+          output.path === pathSlot(path) &&
+          output.digest === digest(raw)
+        ) {
+          record = {
+            ...record!,
+            conversionPlan: {
+              ...record!.conversionPlan!,
+              output: {...output, phase: 'verified'},
+            },
+          };
+          writeRecord(record, 'required-copy');
+        }
+      };
       // Resolve only proven duplicate or legacy-marked temps. Never overwrite an
       // independent occupied path merely because a new plan needs that path.
       for (const f of files) {
@@ -1334,6 +1382,29 @@ const migrate = async (
             digest(f.temp.raw) === descriptor.mainDigest)
         )
           continue;
+        const output = plan?.output;
+        if (
+          output?.phase === 'writing' &&
+          output.path === pathSlot(f.path) &&
+          !f.temp.snapshot &&
+          digest(f.temp.raw) !== output.digest &&
+          (f.target.raw === null || digest(f.target.raw) !== output.digest)
+        ) {
+          // This path was proved absent before this specific write was armed.
+          // selected is independently validated above; never claim an old temp
+          // from a plan without this per-operation observation.
+          if (
+            (await readVaultFile(migrationTemp(f.path), guard)) !== f.temp.raw
+          )
+            throw vaultError(
+              'SOURCE_CONFLICT',
+              'required-copy',
+              'SOURCE_CHANGED',
+            );
+          await removeVaultFile(migrationTemp(f.path), guard);
+          f.temp = {raw: null, parseable: false};
+          continue;
+        }
         const oldMarked =
           record.refresh?.path === pathSlot(f.path) &&
           record.refresh.digest === digest(f.temp.raw);
@@ -1360,6 +1431,7 @@ const migrate = async (
             'SOURCE_UNRESOLVED',
             `${pathSlot(f.path)}-temp`,
           );
+        if (f.temp.snapshot) verifiedOutput(f.path, f.temp.raw);
         if (!f.target.snapshot && f.temp.snapshot) {
           await promoteVaultFile(
             f.path,
@@ -1371,6 +1443,24 @@ const migrate = async (
         } else await removeVaultFile(migrationTemp(f.path), guard);
         f.temp = {raw: null, parseable: false};
       }
+      const requiredWrite = (path: string, raw: string, expected: Payload) =>
+        replaceVaultFile(
+          path,
+          raw,
+          value => verify(value, secret!, expected),
+          guard,
+          phase => {
+            guard();
+            record = {
+              ...record!,
+              conversionPlan: {
+                ...descriptor,
+                output: {path: pathSlot(path), digest: digest(raw), phase},
+              },
+            };
+            writeRecord(record, 'required-copy');
+          },
+        );
       if (existing && existing.raw === main.target.raw) {
         verify(
           await readVaultFile(VAULT_BACKUP, guard),
@@ -1381,6 +1471,8 @@ const migrate = async (
         main.temp.raw !== null &&
         digest(main.temp.raw) === descriptor.mainDigest
       ) {
+        verify(main.temp.raw, secret, expectedBackup);
+        verifiedOutput(VAULT_BACKUP, main.temp.raw);
         await promoteVaultFile(
           VAULT_BACKUP,
           raw => verify(raw, secret!, expectedBackup),
@@ -1395,21 +1487,15 @@ const migrate = async (
           !isEqual(main.target.snapshot.payload, expectedBackup)
         ) {
           const previous = main.target.snapshot;
-          await replaceVaultFile(
+          await requiredWrite(
             VAULT_OLDER_BACKUP,
             previous.format === 'gcm'
               ? previous.raw
               : encode(previous.payload, secret),
-            raw => verify(raw, secret!, previous.payload),
-            guard,
+            previous.payload,
           );
         }
-        await replaceVaultFile(
-          VAULT_BACKUP,
-          plannedRaw,
-          raw => verify(raw, secret!, expectedBackup),
-          guard,
-        );
+        await requiredWrite(VAULT_BACKUP, plannedRaw, expectedBackup);
       }
       // Final-path verification is mandatory even after a successful promotion.
       verify(await readVaultFile(VAULT_BACKUP, guard), secret, expectedBackup);
@@ -1514,7 +1600,15 @@ const migrate = async (
         cleanup: {
           ...record!.cleanup,
           v: 1,
-          [slot]: {origin: 'current-coverage', digest: digest(raw)},
+          [slot]: {
+            origin: 'current-coverage',
+            digest: digest(raw),
+            ...(slot !== 'async' &&
+            record!.cleanup?.[slot]?.digest === digest(raw) &&
+            record!.cleanup?.[slot]?.writePhase
+              ? {writePhase: 'verified' as const}
+              : {}),
+          },
         },
       },
       slot === 'async' ? 'async' : `${slot}-temp`,
@@ -1527,8 +1621,10 @@ const migrate = async (
     checkPrimary();
     if (item.raw === null) return true;
     const binding = record!.cleanup?.[slot];
-    if (!binding || binding.digest !== digest(item.raw)) return false;
-    if (binding.origin !== 'current-coverage' && receiptMatches()) return true;
+    const bound = !!binding && binding.digest === digest(item.raw);
+    if (slot !== 'async' && !bound) return false;
+    if (bound && binding!.origin !== 'current-coverage' && receiptMatches())
+      return true;
     if (
       !item.snapshot ||
       !verifiedLive ||
@@ -1539,8 +1635,13 @@ const migrate = async (
     // permission write. A newly needed coverage intent waits for the next try.
     return issueCoverage
       ? bindCoverage(slot, item.raw)
-      : binding.origin === 'current-coverage';
+      : bound && binding!.origin === 'current-coverage';
   };
+  const damagedAsync = (item: Inspected) =>
+    conversionEstablished(record) &&
+    item.raw !== null &&
+    !item.snapshot &&
+    receiptMatches();
   const deferDeletion = async (
     operation: () => Promise<void>,
     source?: VaultSource,
@@ -1578,32 +1679,39 @@ const migrate = async (
         `${slot}-temp`,
       );
     }
-    if (
-      !persistOptional(
-        {
-          ...record!,
-          cleanup: {
-            ...record!.cleanup,
-            v: 1,
-            [slot]: {origin: 'optional-refresh', digest: digest(raw)},
-          },
-        },
-        `${slot}-temp`,
-      )
-    )
-      throw vaultError(
-        'OPTIONAL_REFRESH_DEFERRED',
-        'refresh',
-        'PERMISSION_WRITE',
-        'record',
-      );
     await replaceVaultFile(
       path,
       raw,
       value => verify(value, vaultKey, payload, 'refresh'),
       checkPrimary,
+      phase => {
+        if (
+          !persistOptional(
+            {
+              ...record!,
+              cleanup: {
+                ...record!.cleanup,
+                v: 1,
+                [slot]: {
+                  origin: 'optional-refresh',
+                  digest: digest(raw),
+                  writePhase: phase,
+                },
+              },
+            },
+            `${slot}-temp`,
+          )
+        )
+          throw vaultError(
+            'OPTIONAL_REFRESH_DEFERRED',
+            'refresh',
+            'PERMISSION_WRITE',
+            'record',
+          );
+      },
     );
   };
+
   // Old refresh fields prove only that specific temp's origin. New conversion
   // does not turn unrelated modern temps into owned disposable data.
   if (record.refresh && !record.cleanup?.[record.refresh.path]) {
@@ -1621,8 +1729,13 @@ const migrate = async (
   }
   if (
     asyncRaw !== null &&
-    !discardUndecodable &&
-    (!record.cleanup?.async || record.cleanup.async.digest !== digest(asyncRaw))
+    !canRemove('async', asyncCopy, false) &&
+    !(
+      asyncCopy.snapshot &&
+      verifiedLive &&
+      preservesProtected(verifiedLive.payload, asyncCopy.snapshot.payload)
+    ) &&
+    !damagedAsync(asyncCopy)
   )
     defer('CLEANUP_DEFERRED', 'cleanup', 'SOURCE_UNRESOLVED', 'async');
   run.phase = 'refresh';
@@ -1650,7 +1763,14 @@ const migrate = async (
         refreshBlocked = true;
         continue;
       }
-      if (!canRemove(slot, temp)) {
+      const binding = record.cleanup?.[slot];
+      const incompleteOutput =
+        binding?.origin === 'optional-refresh' &&
+        binding.writePhase === 'writing' &&
+        !temp.snapshot &&
+        digest(temp.raw) !== binding.digest &&
+        (target.raw === null || digest(target.raw) !== binding.digest);
+      if (!incompleteOutput && !canRemove(slot, temp)) {
         defer(
           'CLEANUP_DEFERRED',
           'cleanup',
@@ -1659,6 +1779,31 @@ const migrate = async (
         );
         refreshBlocked = true;
         continue;
+      }
+      // A completed write recovered before promotion must retire the partial
+      // output grant too. Otherwise later ordinary rotations could hide that
+      // the recorded refresh already finished.
+      if (
+        temp.snapshot &&
+        binding?.writePhase === 'writing' &&
+        digest(temp.raw) === binding.digest
+      ) {
+        if (
+          !persistOptional(
+            {
+              ...record,
+              cleanup: {
+                ...record.cleanup,
+                v: 1,
+                [slot]: {...record.cleanup![slot]!, writePhase: 'verified'},
+              },
+            },
+            `${slot}-temp`,
+          )
+        ) {
+          refreshBlocked = true;
+          continue;
+        }
       }
       let otherValid = false;
       if (!target.snapshot) {
@@ -1709,7 +1854,7 @@ const migrate = async (
           if (
             (await readVaultFile(migrationTemp(f.path), checkPrimary)) !==
               temp.raw ||
-            !canRemove(slot, temp, false)
+            (!incompleteOutput && !canRemove(slot, temp, false))
           )
             throw vaultError(
               'CLEANUP_DEFERRED',
@@ -1943,9 +2088,7 @@ const migrate = async (
     const qualified =
       asyncRaw === null ||
       canRemove('async', asyncCopy) ||
-      (discardUndecodable &&
-        !!verifiedLive &&
-        protectedProjection(verifiedLive.payload).fields.size > 0);
+      damagedAsync(asyncCopy);
     let latest: string | null;
     try {
       latest = await report.readAsync(() => AsyncStorage.getItem(ROOT));
@@ -1970,11 +2113,7 @@ const migrate = async (
               checkPrimary();
               if (
                 !canRemove('async', asyncCopy, false) &&
-                !(
-                  discardUndecodable &&
-                  !!verifiedLive &&
-                  protectedProjection(verifiedLive.payload).fields.size > 0
-                )
+                !damagedAsync(classify(latest!))
               )
                 throw vaultError(
                   'CLEANUP_DEFERRED',

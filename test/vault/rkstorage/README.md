@@ -154,3 +154,24 @@ markers after cleanup.
 With the previous five scenarios, the driver performs six scenarios and 22
 launches. `../results/preservation-repair.json` records this repair's actual run;
 previous fault-injection and physical-device coverage is not inferred from it.
+
+
+## Consolidated fresh-start ruling
+
+The existing real-Hermes driver also seeds an empty persistence installation
+with the legacy Keychain item, and with both legacy and independently generated
+versioned items. Each runs repeated preparations before the first ordinary save,
+asserts no native cleaning before that save, checks legacy-entry retirement and
+versioned-key reuse, and reopens in later instrumented processes. This constructs
+the surviving-Keychain state; it does not claim to perform a real Android reinstall
+or certify hidden failed-load behavior. Source/record/partial-write acceptance
+cases remain separately labeled JavaScript boundary models.
+
+The receipt driver also includes `react-receipt-temp-*`: a real production refresh
+leaves its verified temp after an injected promotion rejection; the next process
+loses the primary and recovers from that exact temp with suspension persistence
+rejected. Later processes read the retained older source successfully and must
+keep its uncovered key, retain conversion and never replenish the receipt. The
+file/key/record libraries and process boundaries are real; the promotion and
+suspension errors are deliberate test-boundary injections, not inside-native
+failures. Together the driver runs 11 scenarios and 54 launches.

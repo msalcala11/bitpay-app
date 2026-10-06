@@ -1,4 +1,7 @@
 {
+  "historical": true,
+  "historicalScope": "Stage A reference inspection and amendment; hashes are intentionally retained, not current production identities.",
+  "currentIdentities": "stage-b-results.json.consolidatedRepair.sourceHashes",
   "reference": "4e9c7e96c54d87520da7c3f16bf37084ec7c8789",
   "actualStartingHead": "4e9c7e96c54d87520da7c3f16bf37084ec7c8789",
   "sourceFiles": [
@@ -297,7 +300,7 @@
     "replacementNativePlatform": false
   },
   "install": {
-    "workspace": "/Users/marty/.codex/worktrees/bip02-stage-a-baseline/bitpay-app",
+    "workspace": "$STAGE_A_WORKTREE",
     "command": "COREPACK_ENABLE_AUTO_PIN=0 yarn install --frozen-lockfile --non-interactive",
     "exit": 0,
     "postinstallSkipped": false,
@@ -340,7 +343,7 @@
     ],
     "startingSpecSha256": "21df95c54c6161d5a594a0b122a085c571a61eaedce9c2707ebf66e1e427bd97",
     "newInstall": false,
-    "finalRunWorkspace": "/Users/marty/.codex/worktrees/bip02-stage-a-baseline/bitpay-app",
+    "finalRunWorkspace": "$STAGE_A_WORKTREE",
     "minimumAdditionalDesignScope": "APP cleanup witness plus stripping in the same pending-recovery root write; proposal only, subject to Stage A review",
     "productionFilesReverified": 35,
     "testedSpecSha256": "2d06fa6572f849ae3f925a726b17da13298aa9433dc0aa4423d3f91f21ae5ae6",
