@@ -1,12 +1,24 @@
 import crypto from 'crypto';
 import {Platform} from 'react-native';
 import * as Keychain from 'react-native-keychain';
+import {vaultError, safeVaultError} from './vault-diagnostics';
 
 export const LEGACY_KEY_SERVICE = 'bitpay-app-encryption-key';
 export const VAULT_KEY_SERVICE = 'bitpay-app-vault-key-v1';
 
-export const readVaultKey = () =>
-  Keychain.getGenericPassword({service: VAULT_KEY_SERVICE});
+export const readVaultKey = async () => {
+  try {
+    return await Keychain.getGenericPassword({service: VAULT_KEY_SERVICE});
+  } catch (error) {
+    throw safeVaultError(
+      error,
+      'MODERN_KEY_FAILURE',
+      'key',
+      'KEY_UNAVAILABLE',
+      'key',
+    );
+  }
+};
 
 export const hasRequiredBackend = (
   entry: Pick<Keychain.UserCredentials, 'storage'>,
@@ -18,7 +30,7 @@ export const validatedVaultKey = (
   entry: false | Keychain.UserCredentials,
 ): string => {
   if (!entry || !hasRequiredBackend(entry)) {
-    throw new Error('Vault key unavailable or stored under the wrong backend');
+    throw vaultError('MODERN_KEY_FAILURE', 'key', 'KEY_UNAVAILABLE', 'key');
   }
   const key = entry.password;
   if (
@@ -27,7 +39,7 @@ export const validatedVaultKey = (
     Buffer.from(key, 'base64').length !== 32 ||
     Buffer.from(key, 'base64').toString('base64') !== key
   ) {
-    throw new Error('Invalid versioned vault key');
+    throw vaultError('MODERN_KEY_FAILURE', 'key', 'KEY_INVALID', 'key');
   }
   return key;
 };
@@ -49,12 +61,12 @@ export const createVaultKey = async (): Promise<string> => {
     options,
   );
   if (!result || !hasRequiredBackend(result)) {
-    throw new Error(
-      'Keychain did not store the vault key in the required backend',
-    );
+    throw vaultError('NEW_KEY_VERIFICATION', 'key', 'KEY_STORAGE', 'key');
   }
-  if (validatedVaultKey(await readVaultKey()) !== key) {
-    throw new Error('Vault key read-back failed');
+  try {
+    if (validatedVaultKey(await readVaultKey()) !== key) throw new Error();
+  } catch {
+    throw vaultError('NEW_KEY_VERIFICATION', 'key', 'COPY_VERIFICATION', 'key');
   }
   return key;
 };

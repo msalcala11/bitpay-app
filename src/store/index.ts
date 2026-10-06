@@ -20,7 +20,10 @@ import {
   readBackupPersistRoot,
 } from './backup/fs-backup';
 import {prepareVault} from './vault-rkstorage';
-import {recordVaultInitializationSave} from './vault-migration';
+import {
+  recordVaultInitializationSave,
+  recoverVaultForRead,
+} from './vault-migration';
 import {safeVaultError} from './vault-diagnostics';
 import {
   bindWalletKeys,
@@ -136,7 +139,9 @@ let storeDispatch: ((action: AnyAction) => void) | null = null;
 // same storage that just failed
 const addLog = (log: AddLog) => initLogs.add(log);
 
-const restoreFromBackup = (reason: string): Promise<string | null> => {
+const restoreFromBackup = async (reason: string): Promise<string | null> => {
+  const pending = await recoverVaultForRead(storage, reason === 'missing');
+  if (pending !== undefined) return pending;
   const startTs = Date.now();
   return readBackupPersistRoot()
     .then(restored => {

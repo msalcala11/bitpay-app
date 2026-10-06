@@ -425,3 +425,32 @@ Tracked diff (new files are accounted for separately):
 New production helpers: 304 lines. New dedicated regression suites: 474 lines. Additional model/native/generator sources, fixture data, isolated lock input, results and report are individually listed above. These are facts for review, not a correctness budget.
 
 Re-read areas: rejected-write preservation, asynchronous races/current-backup checks, source conflicts and deletion guards, temp provenance across retries, single-candidate legacy decoding, modern-key priority, completed fast path, native encoding/coverage bounds, and logging/reporting privacy. No unresolved rejected-write or source-selection defect is claimed repaired merely by a green exploratory test. The implemented assertions and the explicitly unrun gates above define the evidence limits.
+
+## Stage B follow-up — approved conversion and cleanup separation
+
+The approved Stage B work is left uncommitted on top of `0b0f12c1f`, including the
+reviewed uncommitted Stage A correction. The implementation prepares and verifies
+the selected current backup before the primary conversion write, records a one-way
+conversion milestone, and separates that milestone from optional cleanup.
+
+A one-time non-secret APP cleanup receipt permits exact bound obsolete-copy
+cleanup through normal wallet edits. Pending-base restoration removes the receipt
+in the same verified root write; failed suspension persistence cannot revive the
+old deletion shortcut. Fresh per-copy coverage is re-proved on retry, and its
+intent is persisted before the final source identity read. Unknown/changed sources
+remain preserved without being imported over the converted wallet. Required
+history/primary failures remain strict even when an optional operation also fails.
+
+The native Alert provides Retry, fixed Help & Support, data-preservation guidance
+and a safe diagnostic identifier. Actual emulator testing informed its guarded
+support-return handling. No native production code, MMKV scrub, provider patch,
+cryptographic format, key option, dependency or lockfile is changed.
+
+The final state/operation details, test expectation refinements and actual checks
+are in [the existing design record](test/vault/stage-a/STAGE-A.md#7-stage-b-implementation-and-final-validation)
+and [Stage B evidence](test/vault/stage-a/stage-b-results.json). Earlier results in
+this report remain historical; they are not relabeled as final-source validation.
+No commit, push, hosted change or release is made. Physical-device, packaged
+released-app upgrade and iOS-native gates remain distinct from modeled, native-core
+and emulator checks. Native ambiguity, rollback and power-loss limitations still
+require separate release-owner acceptance.

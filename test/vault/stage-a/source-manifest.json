@@ -319,5 +319,31 @@
       "emptySubstitute": false
     },
     "corepackAutoPinIncident": "A version query generated a packageManager entry in the main checkout; that exact addition was removed and package.json equals reference. Further commands disable auto-pinning."
+  },
+  "amendment": {
+    "startingHead": "0b0f12c1f12f595930394e953d1c4c3b742eb0f9",
+    "startingTrackedStatus": "clean",
+    "productionReference": "4e9c7e96c54d87520da7c3f16bf37084ec7c8789",
+    "verifiedProductionAndReferenceFilesUnchanged": true,
+    "newInstallOrSourceFetch": false,
+    "testedSpecSha256": "2d06fa6572f849ae3f925a726b17da13298aa9433dc0aa4423d3f91f21ae5ae6",
+    "ownerPolicyAmendment": "Conversion/access and cleanup separated; current backup first; existing recovery retained. Stage B not authorized."
+  },
+  "focusedCorrection": {
+    "startingHead": "0b0f12c1f12f595930394e953d1c4c3b742eb0f9",
+    "startingTrackedFiles": [
+      "src/store/vault-migration.spec.ts",
+      "test/vault/stage-a/STAGE-A.md",
+      "test/vault/stage-a/results.json",
+      "test/vault/stage-a/source-manifest.json",
+      "test/vault/stage-a/suite-manifest.json"
+    ],
+    "startingSpecSha256": "21df95c54c6161d5a594a0b122a085c571a61eaedce9c2707ebf66e1e427bd97",
+    "newInstall": false,
+    "finalRunWorkspace": "/Users/marty/.codex/worktrees/bip02-stage-a-baseline/bitpay-app",
+    "minimumAdditionalDesignScope": "APP cleanup witness plus stripping in the same pending-recovery root write; proposal only, subject to Stage A review",
+    "productionFilesReverified": 35,
+    "testedSpecSha256": "2d06fa6572f849ae3f925a726b17da13298aa9433dc0aa4423d3f91f21ae5ae6",
+    "productionReferenceUnchanged": true
   }
 }

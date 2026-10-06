@@ -25,22 +25,37 @@ for (const seed of [
   'react-empty-import',
   'react-fresh-start',
   'react-eddsa-seed',
+  'react-receipt-older-seed',
+  'react-receipt-current-seed',
 ]) {
   run(['shell', 'pm', 'clear', 'com.bitpay.wallet']); // disposable app only
   const rows = [];
-  const operations =
-    seed === 'react-fresh-start'
-      ? [
-          seed,
-          'react-fresh-retry',
-          'react-fresh-retry',
-          'react-fresh-save',
-          'react-clean',
-          'react-clean',
-        ]
-      : seed === 'react-eddsa-seed'
-      ? [seed, 'react-eddsa-upgrade', 'react-eddsa-retry', 'react-eddsa-verify']
-      : [seed, 'react-clean', 'react-clean'];
+  const operations = seed.startsWith('react-receipt-')
+    ? [
+        seed,
+        seed.replace('-seed', '-recover'),
+        seed.replace('-seed', '-retry'),
+        seed.replace('-seed', '-verify'),
+        seed.replace('-seed', '-verify'),
+      ]
+    : seed === 'react-fresh-start'
+    ? [
+        seed,
+        'react-fresh-retry',
+        'react-fresh-retry',
+        'react-fresh-save',
+        'react-clean',
+        'react-clean',
+      ]
+    : seed === 'react-eddsa-seed'
+    ? [
+        seed,
+        'react-eddsa-upgrade',
+        'react-eddsa-retry',
+        'react-eddsa-verify',
+        'react-eddsa-verify',
+      ]
+    : [seed, 'react-clean', 'react-clean', 'react-clean'];
   for (const operation of operations) {
     const text = run([
       'shell',

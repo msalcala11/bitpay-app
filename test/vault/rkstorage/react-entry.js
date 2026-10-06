@@ -57,7 +57,193 @@ const assert = (condition, code) => {
     };
     assert(result.newArchitectureBridge, 'BRIDGE_MISSING');
     stage = 'seed';
-    if (operation.startsWith('react-eddsa-')) {
+    if (operation.startsWith('react-receipt-')) {
+      const older = operation.includes('-older-');
+      const phase = operation.split('-').pop();
+      const {
+        VAULT_BACKUP,
+        VAULT_OLDER_BACKUP,
+        VAULT_BACKUP_DIR,
+      } = require('../../../src/store/backup/vault-files');
+      const getStoredState =
+        require('redux-persist/lib/getStoredState').default;
+      const createPersistoid =
+        require('redux-persist/lib/createPersistoid').default;
+      const {
+        encryptSpecificFields,
+      } = require('../../../src/store/transforms/transforms');
+      const {
+        persistEncryptionTransform,
+      } = require('../../../src/store/transforms/persist-encryption');
+      const transforms = key => [
+        encryptSpecificFields(key),
+        persistEncryptionTransform(key),
+      ];
+      const decode = (raw, key) =>
+        getStoredState({
+          key: 'root',
+          storage: {getItem: async () => raw},
+          transforms: transforms(key),
+        });
+      const encode = async (state, key) => {
+        let raw;
+        const writer = createPersistoid({
+          key: 'root',
+          storage: {
+            setItem: async (_name, value) => {
+              raw = value;
+            },
+          },
+          transforms: transforms(key),
+        });
+        writer.update(state);
+        await writer.flush();
+        return raw;
+      };
+      let nativeCalls = 0;
+      for (const name of ['inspect', 'clean']) {
+        const original = NativeModules.BitPayRKStorage[name];
+        NativeModules.BitPayRKStorage[name] = () => {
+          nativeCalls++;
+          return original();
+        };
+      }
+      if (phase === 'seed') {
+        const state = JSON.parse(JSON.stringify(fixture.cases.whole.state));
+        state.WALLET.keys.second = {
+          ...fixture.cases.plain.state.WALLET.keys.fixture,
+          id: 'second',
+        };
+        const raw = JSON.stringify(
+          Object.fromEntries(
+            Object.entries(state).map(([name, value]) => [
+              name,
+              JSON.stringify(
+                C.AES.encrypt(JSON.stringify(value), legacy).toString(),
+              ),
+            ]),
+          ),
+        );
+        await Keychain.setGenericPassword(LEGACY_KEY_SERVICE, legacy, {
+          service: LEGACY_KEY_SERVICE,
+        });
+        storage.set('persist:root', raw);
+        await AsyncStorage.setItem('persist:root', raw);
+        const remove = AsyncStorage.removeItem;
+        AsyncStorage.removeItem = async name => {
+          if (name === 'persist:root') throw Error('synthetic rejection');
+          return remove(name);
+        };
+        let key;
+        try {
+          key = await prepareVault(storage);
+        } finally {
+          AsyncStorage.removeItem = remove;
+        }
+        const converted = await decode(storage.getString('persist:root'), key);
+        const r = JSON.parse(records.getString(VAULT_RECORD_KEY));
+        assert(
+          r.conversionComplete === true && r.status === 'started',
+          'CONVERSION_NOT_SEPARATE',
+        );
+        assert(
+          /^[a-f0-9]{32}$/.test(converted.APP.bip02CleanupReceipt) &&
+            converted.APP.bip02CleanupReceipt === r.cleanup.primaryReceipt,
+          'RECEIPT_NOT_ISSUED',
+        );
+        const currentBackup = await decode(
+          await RNFS.readFile(VAULT_BACKUP, 'utf8'),
+          key,
+        );
+        assert(
+          currentBackup.APP.bip02CleanupReceipt === r.cleanup.primaryReceipt &&
+            Object.keys(currentBackup.WALLET.keys).length === 2,
+          'BACKUP_NOT_CURRENT',
+        );
+        delete converted.WALLET.keys.second;
+        for (const name of [
+          'MARKET_STATS',
+          'PORTFOLIO',
+          'PORTFOLIO_CHARTS',
+          'RATE',
+          'SHOP_CATALOG',
+        ])
+          delete converted[name];
+        await RNFS.mkdir(VAULT_BACKUP_DIR);
+        await RNFS.writeFile(
+          VAULT_OLDER_BACKUP,
+          await encode(converted, key),
+          'utf8',
+        );
+        result.retainedLegacySource = true;
+        result.cleanupPending = true;
+        result.receiptAgreement = true;
+      } else {
+        const entry = await Keychain.getGenericPassword({
+          service: VAULT_KEY_SERVICE,
+        });
+        assert(!!entry, 'MODERN_KEY_MISSING');
+        if (phase === 'recover') {
+          const previousRecord = records.getString(VAULT_RECORD_KEY);
+          const previousSource = await AsyncStorage.getItem('persist:root');
+          storage.delete('persist:root');
+          if (older) await RNFS.unlink(VAULT_BACKUP);
+          const set = MMKV.prototype.set;
+          let denied = 0,
+            rootWrites = 0;
+          MMKV.prototype.set = function (name, value) {
+            if (name === VAULT_RECORD_KEY) {
+              denied++;
+              throw Error('synthetic suspension rejection');
+            }
+            if (name === 'persist:root') rootWrites++;
+            return set.call(this, name, value);
+          };
+          try {
+            await prepareVault(storage);
+          } finally {
+            MMKV.prototype.set = set;
+          }
+          assert(denied === 1 && rootWrites === 1, 'RECOVERY_WRITE_COUNT');
+          assert(
+            records.getString(VAULT_RECORD_KEY) === previousRecord,
+            'FAILED_SUSPENSION_CHANGED_RECORD',
+          );
+          assert(
+            (await AsyncStorage.getItem('persist:root')) === previousSource,
+            'RECOVERY_DELETED_SOURCE',
+          );
+          result.failedSuspensionPreserved = true;
+        } else await prepareVault(storage);
+        const state = await decode(
+          storage.getString('persist:root'),
+          entry.password,
+        );
+        assert(state.APP.bip02CleanupReceipt === undefined, 'RECEIPT_REVIVED');
+        assert(
+          Object.keys(state.WALLET.keys).length === (older ? 1 : 2),
+          'RECOVERY_CONTENTS_CHANGED',
+        );
+        assert(
+          JSON.parse(records.getString(VAULT_RECORD_KEY)).conversionComplete ===
+            true,
+          'CONVERSION_REVERSED',
+        );
+        const source = await AsyncStorage.getItem('persist:root');
+        if (older || phase === 'recover')
+          assert(source !== null, 'UNCOVERED_SOURCE_DELETED');
+        else assert(source === null, 'COVERED_SOURCE_REMAINS');
+        result.retainedLegacySource = source !== null;
+        result.cleanupPending =
+          records.getString(RKSTORAGE_RECORD_KEY) !== 'complete-v1';
+        if (older) assert(result.cleanupPending, 'FALSE_CLEANUP_COMPLETION');
+        if (!older && phase === 'verify')
+          assert(!result.cleanupPending, 'RK_INCOMPLETE');
+        result.receiptAbsent = true;
+        result.recoveredKeys = Object.keys(state.WALLET.keys).length;
+      }
+      result.nativeCalls = nativeCalls;
+    } else if (operation.startsWith('react-eddsa-')) {
       const {BwcProvider} = require('../../../src/lib/bwc');
       const provider = BwcProvider.getInstance();
       const equal = require('lodash.isequal');
@@ -207,7 +393,11 @@ const assert = (condition, code) => {
             'RETRY_ALREADY_COMPLETE',
           );
         } else assert(source === null, 'SOURCE_REAPPEARED');
+        const alreadyClean =
+          records.getString(RKSTORAGE_RECORD_KEY) === 'complete-v1';
         await prepareVault(storage);
+        result.cleanupPending =
+          records.getString(RKSTORAGE_RECORD_KEY) !== 'complete-v1';
         assert(
           storage.getString('persist:root') === before,
           'ENRICHED_PRIMARY_REWRITTEN',
@@ -217,7 +407,8 @@ const assert = (condition, code) => {
           'SOURCE_NOT_RETIRED',
         );
         assert(
-          records.getString(RKSTORAGE_RECORD_KEY) === 'complete-v1',
+          operation === 'react-eddsa-retry' ||
+            records.getString(RKSTORAGE_RECORD_KEY) === 'complete-v1',
           'RK_INCOMPLETE',
         );
         assert(
@@ -228,7 +419,7 @@ const assert = (condition, code) => {
           !(await Keychain.getGenericPassword({service: LEGACY_KEY_SERVICE})),
           'LEGACY_NOT_RETIRED',
         );
-        if (operation === 'react-eddsa-verify')
+        if (operation === 'react-eddsa-verify' && alreadyClean)
           assert(nativeCalls === 0, 'REPEATED_CLEANUP');
         result.enrichedPrimaryPreserved = true;
         result.completed = true;
@@ -358,6 +549,9 @@ const assert = (condition, code) => {
       }
     } else {
       const rootBefore = storage.getString('persist:root');
+      const wasBaseComplete =
+        JSON.parse(records.getString(VAULT_RECORD_KEY) ?? 'null')?.status ===
+        'complete';
       const oldKey = await Keychain.getGenericPassword({
         service: VAULT_KEY_SERVICE,
       });
@@ -376,7 +570,7 @@ const assert = (condition, code) => {
       stage = 'prepare';
       await prepareVault(storage);
       if (alreadyClean) assert(nativeCalls === 0, 'REPEATED_CLEANUP');
-      if (oldKey)
+      if (wasBaseComplete && oldKey)
         assert(
           storage.getString('persist:root') === rootBefore,
           'OLD_COMPLETE_REWROTE_PRIMARY',
@@ -387,10 +581,9 @@ const assert = (condition, code) => {
         JSON.parse(records.getString(VAULT_RECORD_KEY)).status === 'complete',
         'BASE_INCOMPLETE',
       );
-      assert(
-        records.getString(RKSTORAGE_RECORD_KEY) === 'complete-v1',
-        'RK_INCOMPLETE',
-      );
+      result.cleanupPending =
+        records.getString(RKSTORAGE_RECORD_KEY) !== 'complete-v1';
+      assert(!wasBaseComplete || !result.cleanupPending, 'RK_INCOMPLETE');
       assert(
         (await AsyncStorage.getItem('react-library')) ===
           '🧭 unrelated live data',
@@ -444,9 +637,15 @@ const assert = (condition, code) => {
       fixture.cases.constructorPassword.state.WALLET.keys.fixture.properties
         .xPrivKeyEDDSAEncrypted,
     ).ct;
-    for (const suffix of ['', '-wal', '-journal', '-shm']) {
-      const path =
-        RNFS.DocumentDirectoryPath + '/../databases/RKStorage' + suffix;
+    const scanPaths = [
+      ...['', '-wal', '-journal', '-shm'].map(
+        suffix =>
+          RNFS.DocumentDirectoryPath + '/../databases/RKStorage' + suffix,
+      ),
+      RNFS.DocumentDirectoryPath + '/mmkv/mmkv.default',
+      RNFS.DocumentDirectoryPath + '/mmkv/mmkv.default.crc',
+    ];
+    for (const path of scanPaths) {
       if (!(await RNFS.exists(path))) continue;
       const bytes = Buffer.from(await RNFS.readFile(path, 'base64'), 'base64')
         .toString('latin1')
@@ -471,7 +670,10 @@ const assert = (condition, code) => {
       ['react-eddsa-seed', 'react-eddsa-upgrade'].includes(operation)
     )
       assert(decryptable > 0, 'NO_VULNERABLE_CONTROL');
-    else assert(!decryptable && !bareEddsa && !opaqueEddsa, 'RESIDUE_REMAINS');
+    else if (result.retainedLegacySource)
+      assert(decryptable > 0, 'NO_RETAINED_SOURCE_CONTROL');
+    else if (!result.cleanupPending)
+      assert(!decryptable && !bareEddsa && !opaqueEddsa, 'RESIDUE_REMAINS');
     await RNFS.writeFile(output, JSON.stringify(result), 'utf8');
   } catch (error) {
     const {vaultDiagnostic} = require('../../../src/store/vault-diagnostics');

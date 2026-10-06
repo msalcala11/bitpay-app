@@ -79,6 +79,8 @@ export type AppFirstOpenData = {
 };
 
 export interface AppState {
+  /** Non-secret migration cleanup witness; never default or replenish it. */
+  bip02CleanupReceipt?: string;
   identity: {
     [key in Network]: AppIdentity;
   };

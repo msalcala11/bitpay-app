@@ -12,7 +12,8 @@ import {
 import {
   safeVaultError,
   VaultCode,
-  vaultDeferredMessage,
+  vaultReporter,
+  VaultReporter,
   vaultError,
 } from './vault-diagnostics';
 
@@ -36,23 +37,42 @@ type Bridge = {
 };
 let inFlight: Promise<string> | undefined;
 
-const prepare = async (storage: MMKV, log: (message: string) => void) => {
+const prepare = async (
+  storage: MMKV,
+  log: (message: string) => void,
+  reporter: VaultReporter,
+) => {
   // iOS keeps its original startup path, without touching a cleanup marker/module.
-  if (Platform.OS !== 'android') return migrateVault(storage, log);
-  const key = await migrateVault(storage, log);
+  if (Platform.OS !== 'android') return migrateVault(storage, log, reporter);
+  const key = await migrateVault(storage, log, reporter);
   if (!hasCompletedVaultMigration()) return key;
   const records = new MMKV({id: VAULT_RECORD_ID});
-  const marker = records.getString(RKSTORAGE_RECORD_KEY);
+  let marker: string | undefined;
+  let markerUnavailable = false;
+  try {
+    marker = records.getString(RKSTORAGE_RECORD_KEY);
+    markerUnavailable =
+      marker !== COMPLETE &&
+      (marker !== undefined || records.contains(RKSTORAGE_RECORD_KEY));
+  } catch {
+    markerUnavailable = true;
+  }
   if (marker === COMPLETE) return key;
-  if (marker !== undefined || records.contains(RKSTORAGE_RECORD_KEY))
-    throw vaultError('PRESERVATION_FAILURE', 'rkstorage');
+  if (markerUnavailable) {
+    // This marker records cleanup, not conversion. Its failure cannot mask
+    // loss of the independently required wallet/recovery source.
+    const active = await captureVaultCleanupState(storage, key);
+    if (!active.present && !hasPendingVaultInitialization())
+      throw vaultError('PRESERVATION_FAILURE', 'rkstorage');
+    reporter.defer('RKSTORAGE_DEFERRED', 'rkstorage');
+    return key;
+  }
   const state = await captureVaultCleanupState(storage, key);
   const initializing = hasPendingVaultInitialization();
   // Retire before any native await, including a failed/deferred inventory. Old
   // records without provenance are never retroactively labeled fresh.
   if (state.present && initializing) finishVaultInitialization();
-  const defer = (code: VaultCode) =>
-    log(vaultDeferredMessage(code, 'rkstorage'));
+  const defer = (code: VaultCode) => reporter.defer(code, 'rkstorage');
   const guard = async () => {
     const current = await state.verifyCurrent();
     if (!current) defer('RKSTORAGE_STATE_CHANGED');
@@ -79,10 +99,16 @@ const prepare = async (storage: MMKV, log: (message: string) => void) => {
     }
     // No failed native/metadata result may short-circuit active-state validation.
     const current = await guard();
-    if (result === 'PRESERVATION_FAILURE' || result === 'LIFECYCLE_FAILURE')
-      throw vaultError('PRESERVATION_FAILURE', 'rkstorage');
-    if (result === 'LIVE_SOURCE')
-      throw vaultError('SOURCE_CONFLICT', 'rkstorage');
+    if (
+      ['PRESERVATION_FAILURE', 'LIFECYCLE_FAILURE', 'LIVE_SOURCE'].includes(
+        result,
+      )
+    ) {
+      if (!state.present && !initializing)
+        throw vaultError('PRESERVATION_FAILURE', 'rkstorage');
+      defer('RKSTORAGE_DEFERRED');
+      return;
+    }
     if (
       ![
         'CLEANED',
@@ -94,8 +120,12 @@ const prepare = async (storage: MMKV, log: (message: string) => void) => {
         'CORRUPT',
         'SIDECARS',
       ].includes(result)
-    )
-      throw vaultError('PRESERVATION_FAILURE', 'rkstorage');
+    ) {
+      if (!state.present && !initializing)
+        throw vaultError('PRESERVATION_FAILURE', 'rkstorage');
+      defer('RKSTORAGE_DEFERRED');
+      return;
+    }
     if (!current) return;
     const codes: Partial<Record<NativeResult, VaultCode>> = {
       BUSY: 'RKSTORAGE_BUSY',
@@ -127,14 +157,35 @@ const prepare = async (storage: MMKV, log: (message: string) => void) => {
       defer('RKSTORAGE_ACTIVE_PENDING');
       return key;
     }
+    // Base cleanup may have spent the three permitted AsyncStorage reads.
+    // Leave native maintenance for the next launch rather than dropping its
+    // required post-clean live-row check or adding an unbounded extra read.
+    if (!reporter.canReadAsync) {
+      defer('RKSTORAGE_DEFERRED');
+      return key;
+    }
     result = await call(() => native.clean());
     if (!result) return key;
-    if (result !== 'CLEANED')
-      throw vaultError('PRESERVATION_FAILURE', 'rkstorage');
+    if (result !== 'CLEANED') {
+      defer('RKSTORAGE_DEFERRED');
+      return key;
+    }
     // Catch a queued provider write after ownership was released, before the marker.
-    const live = await AsyncStorage.getItem('persist:root');
+    let live: string | null;
+    try {
+      live = await reporter.readAsync(() =>
+        AsyncStorage.getItem('persist:root'),
+      );
+    } catch {
+      await guard();
+      defer('RKSTORAGE_DEFERRED');
+      return key;
+    }
     const current = await guard();
-    if (live !== null) throw vaultError('SOURCE_CONFLICT', 'rkstorage');
+    if (live !== null) {
+      defer('RKSTORAGE_ACTIVE_PENDING');
+      return key;
+    }
     if (!current) return key;
   }
   try {
@@ -152,11 +203,13 @@ export const prepareVault = (
   log: (message: string) => void = () => {},
 ): Promise<string> => {
   if (!inFlight) {
-    inFlight = prepare(storage, log)
+    const reporter = vaultReporter(storage, log);
+    inFlight = prepare(storage, log, reporter)
       .catch(error => {
         throw safeVaultError(error, 'PRESERVATION_FAILURE', 'rkstorage');
       })
       .finally(() => {
+        reporter.finish();
         inFlight = undefined;
       });
   }

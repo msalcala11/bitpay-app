@@ -1,11 +1,19 @@
 {
-  "stage": "A only; expected reds, no production implementation",
+  "stage": "Stage A focused correction of owner-policy amendment; production unchanged",
   "clientDate": "2026-10-05",
   "timezone": "America/New_York",
   "reference": "4e9c7e96c54d87520da7c3f16bf37084ec7c8789",
+  "amendmentStartingHead": "0b0f12c1f12f595930394e953d1c4c3b742eb0f9",
   "workspace": "/Users/marty/open-source/bitpay-app",
   "validationWorktree": "/Users/marty/.codex/worktrees/bip02-stage-a-baseline/bitpay-app",
-  "scratch": "/private/tmp/bip02-stage-a-HLqhrF",
+  "scratch": "/private/tmp/bip02-stage-a-correction-RoVnVV",
+  "previousStageA": {
+    "commit": "0b0f12c1f12f595930394e953d1c4c3b742eb0f9",
+    "cases": 34,
+    "expectedFailures": 23,
+    "passingControls": 11,
+    "note": "Historical results, superseded where owner policy changed."
+  },
   "baseline": {
     "install": "clean frozen install including full postinstall; no substitutions",
     "jestCommand": "node node_modules/.bin/jest --ci --testMatch='**/*.spec.{js,tsx,ts}' --config=jest.config.js --runInBand --forceExit --json --outputFile=<scratch>/clean-baseline-jest.json",
@@ -13,18 +21,191 @@
     "suites": 138,
     "passed": 2696,
     "skipped": 2,
-    "referenceSpecsOnly": true
+    "referenceSpecsOnly": true,
+    "rerunDuringAmendment": false
   },
-  "stageA": {
-    "command": "node node_modules/.bin/jest src/store/vault-migration.spec.ts src/store/vault-scrub.spec.ts src/store/vault-diagnostics.spec.ts src/store/encryption-key.spec.ts src/store/transforms/transforms.spec.ts src/store/persistence-guard.spec.ts --runInBand --forceExit --json --outputFile=<scratch>/clean-final-focused.json",
+  "amendment": {
+    "command": "node node_modules/.bin/jest src/store/vault-migration.spec.ts src/store/vault-scrub.spec.ts src/store/vault-diagnostics.spec.ts src/store/encryption-key.spec.ts src/store/transforms/transforms.spec.ts src/store/persistence-guard.spec.ts --runInBand --forceExit --cacheDirectory=<scratch>/jest-cache --json --outputFile=<scratch>/final-focused.json",
     "exit": 1,
-    "existingFocusedPassed": 368,
-    "newExpectedFailures": 23,
-    "newPassingControls": 11,
+    "policyCases": 104,
+    "expectedFailures": 54,
+    "passingControls": 50,
+    "unchangedReferenceFocusedPassed": 327,
+    "existingReferenceCasesAmended": 41,
+    "extraNativeOutcomeCase": 1,
     "totalPassed": 379,
-    "totalFailed": 23,
-    "missingApiOrCompilationFailures": false,
+    "totalFailed": 54,
+    "unrelatedBaselineFailures": 0,
+    "missingNewApiOrCompilationFailures": false,
     "cases": [
+      {
+        "name": "Stage A / T7: required first backup failure stops conversion and retains the original primary",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A / E: optional promotion defers three launches then succeeds (primary changes=false)",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: optional promotion defers three launches then succeeds (primary changes=true)",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / A1: backup-first closes earlier-write missing-current-copy gap: current",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / A1: backup-first closes earlier-write missing-current-copy gap: older",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A / A1: backup-first closes earlier-write missing-current-copy gap: none",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A / A1: backup-first closes earlier-write missing-current-copy gap: async",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A / E: optional Android partial-target promotion and deletion failure stays deferrable across retries",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: verification errors in optional refresh preserve the primary across three launches",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: unconverted old started record stops on required equivalent-temp promotion failure",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A / RK: recover a converted wallet even when the cleanup bridge is unavailable",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A / RK: usable converted wallet survives native CLEANED without rollback",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / RK: usable converted wallet survives native IO_DEFERRED without rollback",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / RK: usable converted wallet survives native LIFECYCLE_FAILURE without rollback",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A / RK: usable converted wallet survives native PRESERVATION_FAILURE without rollback",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A / RK: late live source at LIVE_SOURCE keeps cleanup pending without blocking access",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A / RK: late live source at CLEANED keeps cleanup pending without blocking access",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional write with unchanged primary on ios",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional write with changed primary on ios",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional write with missing primary on ios",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional write with invalid primary on ios",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional promotion with unchanged primary on ios",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional promotion with changed primary on ios",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional promotion with missing primary on ios",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional promotion with invalid primary on ios",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional verification with unchanged primary on ios",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional verification with changed primary on ios",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional verification with missing primary on ios",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional verification with invalid primary on ios",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional write with unchanged primary on android",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional write with changed primary on android",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional write with missing primary on android",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional write with invalid primary on android",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional promotion with unchanged primary on android",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional promotion with changed primary on android",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional promotion with missing primary on android",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional promotion with invalid primary on android",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional verification with unchanged primary on android",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional verification with changed primary on android",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional verification with missing primary on android",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: preservation across optional verification with invalid primary on android",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A / E: optional promotion remains deferrable after an actual additive EDDSA upgrade",
+        "status": "passed"
+      },
       {
         "name": "Stage A B lifecycle: main after delete-key",
         "status": "failed"
@@ -70,19 +251,19 @@
         "status": "failed"
       },
       {
-        "name": "Stage A F historical flag qualification: true",
+        "name": "Stage A F pre-conversion source-selection qualification (legacy flag=true)",
         "status": "failed"
       },
       {
-        "name": "Stage A F historical flag qualification: false",
+        "name": "Stage A F pre-conversion source-selection qualification (legacy flag=false)",
         "status": "passed"
       },
       {
-        "name": "Stage A F historical flag qualification: undefined",
+        "name": "Stage A F pre-conversion source-selection qualification (legacy flag=undefined)",
         "status": "passed"
       },
       {
-        "name": "Stage A F historical flag qualification: true",
+        "name": "Stage A F pre-conversion source-selection qualification (legacy flag=true)",
         "status": "passed"
       },
       {
@@ -102,8 +283,8 @@
         "status": "passed"
       },
       {
-        "name": "Stage A G undecodable discard stays strict after the last protected field is removed",
-        "status": "passed"
+        "name": "Stage A G converted wallet opens with undecodable leftovers after its last key is removed",
+        "status": "failed"
       },
       {
         "name": "Stage A J candidate UI seed is externally clearable with same-process preparation retry",
@@ -114,28 +295,24 @@
         "status": "failed"
       },
       {
-        "name": "Stage A C changed original source cannot inherit disposal after a deferred attempt",
+        "name": "Stage A C changed independent source preserves converted-wallet access (last key removed=false)",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A C changed independent source preserves converted-wallet access (last key removed=true)",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A F recorded conversion survives a later inventory cleanup read rejection",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A F recorded conversion survives a later pre-delete cleanup read rejection",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A F recorded conversion survives a later verification cleanup read rejection",
         "status": "passed"
-      },
-      {
-        "name": "Stage A F historical eligibility retained across successful reads then inventory rejection",
-        "status": "failed"
-      },
-      {
-        "name": "Stage A F historical eligibility retained across successful reads then pre-delete rejection",
-        "status": "failed"
-      },
-      {
-        "name": "Stage A F historical eligibility retained across successful reads then verification rejection",
-        "status": "passed"
-      },
-      {
-        "name": "Stage A E pending failed-load empty view: data-open",
-        "status": "failed"
-      },
-      {
-        "name": "Stage A E pending failed-load empty view: checksum-open",
-        "status": "failed"
       },
       {
         "name": "Stage A H completed records ignore new-extension leftovers on ios",
@@ -150,15 +327,131 @@
         "status": "failed"
       },
       {
-        "name": "Stage A E persistent zero-key zero-size loss remains inconclusive across modeled processes",
+        "name": "Stage A E existing backup recovery remains available with pending cleanup: lost-empty",
         "status": "failed"
       },
       {
-        "name": "Stage A E demonstrably loaded absence must stop before source promotion or restoration",
+        "name": "Stage A E existing backup recovery remains available with pending cleanup: deleted-loaded",
         "status": "failed"
       },
       {
-        "name": "Stage A E unreadable versioned key stops before any pending-state mutation",
+        "name": "Stage A E existing backup recovery remains available with pending cleanup: corrupt",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A E existing backup recovery remains available with pending cleanup: suspension-record-fails",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A E readable cleanup retry after failed suspension: older-bak / recovery-call",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A E readable cleanup retry after failed suspension: older-bak / completed-restore-cut",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A E readable cleanup retry after failed suspension: current-main / recovery-call",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A E readable cleanup retry after failed suspension: current-main / completed-restore-cut",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A M optional post-conversion write failure remains nonblocking and retries",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A E missing modern key stops before any pending-state mutation",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A E invalid modern key stops before any pending-state mutation",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A E unreadable modern key stops before any pending-state mutation",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A L converted wallet preserves an unexpected main temp from deletion and overwrite",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A L converted wallet preserves an unexpected bak temp from deletion and overwrite",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A L failed independent cleanup-intent write withholds work, not the converted wallet",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A M retained-payload oracle rejects stale non-wallet data with identical wallet keys",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A M final-verification control detects omission after successful promotion",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A M current backup is read and verified before the first conversion write: root",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A M current backup is read and verified before the first conversion write: root-with-older-backup",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A M current backup is read and verified before the first conversion write: async",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A M required current-backup write failure preserves the original primary",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A M required current-backup promotion failure preserves the original primary",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A M required current-backup temp-read-error failure preserves the original primary",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A M required current-backup temp-wrong-retained failure preserves the original primary",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A M required current-backup final-read-error failure preserves the original primary",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A M required current-backup final-wrong-retained failure preserves the original primary",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A N interrupted conversion resumes from its prepared backup: before-root-write",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A N interrupted conversion resumes from its prepared backup: native-write-loss",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A N interrupted conversion resumes from its prepared backup: before-marker",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A N failure to record conversion blocks admission, then retries without legacy re-import",
+        "status": "failed"
+      },
+      {
+        "name": "Stage A P genuinely unresolved pre-conversion wallets remain read-only: legacy",
+        "status": "passed"
+      },
+      {
+        "name": "Stage A P genuinely unresolved pre-conversion wallets remain read-only: modern-unrecorded",
         "status": "passed"
       }
     ],
@@ -167,7 +460,7 @@
         "label": "B:main:delete-key",
         "code": "SOURCE_CONFLICT",
         "phase": "classify",
-        "elapsedMs": 2,
+        "elapsedMs": 3,
         "applicationMutations": 0
       },
       {
@@ -181,14 +474,14 @@
         "label": "B:main:password-change",
         "code": "SOURCE_CONFLICT",
         "phase": "classify",
-        "elapsedMs": 3,
+        "elapsedMs": 4,
         "applicationMutations": 0
       },
       {
         "label": "B:main:password-remove",
         "code": "SOURCE_CONFLICT",
         "phase": "classify",
-        "elapsedMs": 11,
+        "elapsedMs": 3,
         "applicationMutations": 0
       },
       {
@@ -209,28 +502,28 @@
         "label": "B:async:password-set",
         "code": "SOURCE_CONFLICT",
         "phase": "classify",
-        "elapsedMs": 5,
+        "elapsedMs": 4,
         "applicationMutations": 0
       },
       {
         "label": "B:async:password-change",
         "code": "SOURCE_CONFLICT",
         "phase": "classify",
-        "elapsedMs": 4,
+        "elapsedMs": 5,
         "applicationMutations": 0
       },
       {
         "label": "B:async:password-remove",
         "code": "SOURCE_CONFLICT",
         "phase": "classify",
-        "elapsedMs": 4,
+        "elapsedMs": 5,
         "applicationMutations": 0
       },
       {
         "label": "B:async:remove-gift",
         "code": "SOURCE_CONFLICT",
         "phase": "classify",
-        "elapsedMs": 4,
+        "elapsedMs": 5,
         "applicationMutations": 0
       },
       {
@@ -244,7 +537,7 @@
         "label": "F:historical:boolean:true",
         "code": "REQUIRED_COPY_FAILURE",
         "phase": "inventory",
-        "elapsedMs": 1,
+        "elapsedMs": 0,
         "applicationMutations": 0
       },
       {
@@ -258,7 +551,7 @@
         "label": "F:historical:undefined:undefined",
         "code": "REQUIRED_COPY_FAILURE",
         "phase": "inventory",
-        "elapsedMs": 0,
+        "elapsedMs": 1,
         "applicationMutations": 0
       },
       {
@@ -279,7 +572,7 @@
         "label": "F:absence:fresh-modules",
         "code": "REQUIRED_COPY_FAILURE",
         "phase": "inventory",
-        "elapsedMs": 13,
+        "elapsedMs": 2,
         "applicationMutations": 0
       },
       {
@@ -300,7 +593,7 @@
         "label": "G:discard:empty-after-use",
         "code": "INVALID_LEGACY_INPUT",
         "phase": "classify",
-        "elapsedMs": 9,
+        "elapsedMs": 3,
         "applicationMutations": 0
       },
       {
@@ -321,7 +614,14 @@
         "label": "C:independent-bak-async",
         "code": "SOURCE_CONFLICT",
         "phase": "classify",
-        "elapsedMs": 5,
+        "elapsedMs": 4,
+        "applicationMutations": 0
+      },
+      {
+        "label": "C:changed-source:strict",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 4,
         "applicationMutations": 0
       },
       {
@@ -335,7 +635,7 @@
         "label": "F:historical-later:inventory",
         "code": "REQUIRED_COPY_FAILURE",
         "phase": "inventory",
-        "elapsedMs": 0,
+        "elapsedMs": 1,
         "applicationMutations": 0
       },
       {
@@ -349,43 +649,15 @@
         "label": "F:historical-later:verification",
         "code": "RESOLVED",
         "phase": "none",
-        "elapsedMs": 2,
+        "elapsedMs": 1,
         "applicationMutations": 6
-      },
-      {
-        "label": "E:data-open:attempt-0",
-        "code": "RESOLVED",
-        "phase": "none",
-        "elapsedMs": 0,
-        "applicationMutations": 2
-      },
-      {
-        "label": "E:data-open:attempt-1",
-        "code": "RESOLVED",
-        "phase": "none",
-        "elapsedMs": 1,
-        "applicationMutations": 1
-      },
-      {
-        "label": "E:checksum-open:attempt-0",
-        "code": "RESOLVED",
-        "phase": "none",
-        "elapsedMs": 0,
-        "applicationMutations": 3
-      },
-      {
-        "label": "E:checksum-open:attempt-1",
-        "code": "RESOLVED",
-        "phase": "none",
-        "elapsedMs": 1,
-        "applicationMutations": 2
       },
       {
         "label": "K:retry:0",
         "code": "RESOLVED",
         "phase": "none",
-        "elapsedMs": 2,
-        "applicationMutations": 6
+        "elapsedMs": 11,
+        "applicationMutations": 7
       },
       {
         "label": "K:retry:1",
@@ -402,31 +674,248 @@
         "applicationMutations": 0
       },
       {
-        "label": "E:permanent-empty:process-0",
-        "code": "RESOLVED",
-        "phase": "none",
-        "elapsedMs": 4,
-        "applicationMutations": 9
+        "label": "E:recovery:lost-empty",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 1,
+        "applicationMutations": 0
       },
       {
-        "label": "E:permanent-empty:process-1",
+        "label": "E:recovery:deleted-loaded",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 1,
+        "applicationMutations": 0
+      },
+      {
+        "label": "E:recovery:corrupt",
+        "code": "INVALID_LEGACY_INPUT",
+        "phase": "classify",
+        "elapsedMs": 1,
+        "applicationMutations": 0
+      },
+      {
+        "label": "E:recovery:suspension-record-fails",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 2,
+        "applicationMutations": 0
+      },
+      {
+        "label": "E:readable-recovery:older-bak",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 1,
+        "applicationMutations": 0
+      },
+      {
+        "label": "E:readable-retry:older-bak:0",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 5,
+        "applicationMutations": 0
+      },
+      {
+        "label": "E:readable-recovery:current-main",
+        "code": "REQUIRED_COPY_FAILURE",
+        "phase": "cleanup",
+        "elapsedMs": 1,
+        "applicationMutations": 2
+      },
+      {
+        "label": "E:readable-retry:current-main:0",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 20,
+        "applicationMutations": 4
+      },
+      {
+        "label": "E:readable-retry:current-main:1",
         "code": "RESOLVED",
         "phase": "none",
         "elapsedMs": 2,
         "applicationMutations": 0
       },
       {
-        "label": "E:loaded-absence",
+        "label": "M:optional-write",
         "code": "RESOLVED",
         "phase": "none",
         "elapsedMs": 1,
-        "applicationMutations": 8
+        "applicationMutations": 1
+      },
+      {
+        "label": "M:optional-write-retry",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 2,
+        "applicationMutations": 16
       },
       {
         "label": "E:key-unavailable",
         "code": "MODERN_KEY_FAILURE",
         "phase": "key",
         "elapsedMs": 0,
+        "applicationMutations": 0
+      },
+      {
+        "label": "E:key-unavailable",
+        "code": "MODERN_KEY_FAILURE",
+        "phase": "key",
+        "elapsedMs": 0,
+        "applicationMutations": 0
+      },
+      {
+        "label": "E:key-unavailable",
+        "code": "MODERN_KEY_FAILURE",
+        "phase": "key",
+        "elapsedMs": 0,
+        "applicationMutations": 0
+      },
+      {
+        "label": "L:unknown-temp:main",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 1,
+        "applicationMutations": 0
+      },
+      {
+        "label": "L:unknown-temp:bak",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 3,
+        "applicationMutations": 18
+      },
+      {
+        "label": "L:intent-write-denied",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 1,
+        "applicationMutations": 0
+      },
+      {
+        "label": "M:backup-first:root",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 20,
+        "applicationMutations": 15
+      },
+      {
+        "label": "M:backup-first:root-with-older-backup",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 6,
+        "applicationMutations": 22
+      },
+      {
+        "label": "M:backup-first:async",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 4,
+        "applicationMutations": 16
+      },
+      {
+        "label": "M:backup-failure:write",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 2,
+        "applicationMutations": 5
+      },
+      {
+        "label": "M:backup-failure:promotion",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 2,
+        "applicationMutations": 6
+      },
+      {
+        "label": "M:backup-failure:temp-read-error",
+        "code": "REQUIRED_COPY_FAILURE",
+        "phase": "cleanup",
+        "elapsedMs": 2,
+        "applicationMutations": 6
+      },
+      {
+        "label": "M:backup-failure:temp-wrong-retained",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 2,
+        "applicationMutations": 6
+      },
+      {
+        "label": "M:backup-failure:final-read-error",
+        "code": "REQUIRED_COPY_FAILURE",
+        "phase": "cleanup",
+        "elapsedMs": 2,
+        "applicationMutations": 7
+      },
+      {
+        "label": "M:backup-failure:final-wrong-retained",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 2,
+        "applicationMutations": 7
+      },
+      {
+        "label": "N:cut:before-root-write",
+        "code": "PRESERVATION_FAILURE",
+        "phase": "root-write",
+        "elapsedMs": 2,
+        "applicationMutations": 2
+      },
+      {
+        "label": "N:resume:before-root-write",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 15,
+        "applicationMutations": 0
+      },
+      {
+        "label": "N:cut:native-write-loss",
+        "code": "PRESERVATION_FAILURE",
+        "phase": "root-write",
+        "elapsedMs": 23,
+        "applicationMutations": 2
+      },
+      {
+        "label": "N:resume:native-write-loss",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 7,
+        "applicationMutations": 15
+      },
+      {
+        "label": "N:cut:before-marker",
+        "code": "PRESERVATION_FAILURE",
+        "phase": "refresh",
+        "elapsedMs": 3,
+        "applicationMutations": 3
+      },
+      {
+        "label": "N:resume:before-marker",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 5,
+        "applicationMutations": 0
+      },
+      {
+        "label": "N:conversion-record-failed",
+        "code": "RESOLVED",
+        "phase": "none",
+        "elapsedMs": 2,
+        "applicationMutations": 4
+      },
+      {
+        "label": "P:preconversion-conflict:legacy",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 2,
+        "applicationMutations": 0
+      },
+      {
+        "label": "P:preconversion-conflict:modern-unrecorded",
+        "code": "SOURCE_CONFLICT",
+        "phase": "classify",
+        "elapsedMs": 1,
         "applicationMutations": 0
       }
     ],
@@ -436,22 +925,22 @@
         "platformModel": "android",
         "hostTiming": "Node",
         "asyncReads": 3,
-        "fieldDecryptCalls": 50,
-        "reducerDecryptCalls": 10,
-        "mmkvStringReads": 53,
+        "fieldDecryptCalls": 90,
+        "reducerDecryptCalls": 18,
+        "mmkvStringReads": 77,
         "mmkvKeyLists": 1,
         "mmkvSizeReads": 0,
         "reportsThisAttempt": 2,
-        "recordWrites": 2
+        "recordWrites": 3
       },
       {
         "launch": 1,
         "platformModel": "android",
         "hostTiming": "Node",
         "asyncReads": 3,
-        "fieldDecryptCalls": 30,
-        "reducerDecryptCalls": 6,
-        "mmkvStringReads": 35,
+        "fieldDecryptCalls": 50,
+        "reducerDecryptCalls": 10,
+        "mmkvStringReads": 37,
         "mmkvKeyLists": 1,
         "mmkvSizeReads": 0,
         "reportsThisAttempt": 2,
@@ -462,24 +951,145 @@
         "platformModel": "android",
         "hostTiming": "Node",
         "asyncReads": 3,
-        "fieldDecryptCalls": 30,
-        "reducerDecryptCalls": 6,
-        "mmkvStringReads": 35,
+        "fieldDecryptCalls": 50,
+        "reducerDecryptCalls": 10,
+        "mmkvStringReads": 37,
         "mmkvKeyLists": 1,
         "mmkvSizeReads": 0,
         "reportsThisAttempt": 2,
         "recordWrites": 0
       }
-    ]
+    ],
+    "modeledInterruptionFacts": [
+      {
+        "boundary": "before-root-write",
+        "backupBeforeFault": false,
+        "preparedRetained": false,
+        "resumed": false,
+        "selectedWalletRestored": false,
+        "independentSourceRetained": true
+      },
+      {
+        "boundary": "native-write-loss",
+        "backupBeforeFault": false,
+        "preparedRetained": false,
+        "resumed": true,
+        "selectedWalletRestored": false,
+        "independentSourceRetained": false
+      },
+      {
+        "boundary": "before-marker",
+        "backupBeforeFault": false,
+        "preparedRetained": false,
+        "resumed": false,
+        "selectedWalletRestored": true,
+        "independentSourceRetained": true
+      }
+    ],
+    "characterization": {
+      "cases": [
+        {
+          "name": "Stage A CHARACTERIZATION E: cached data-open has the same public observations as healthy loss",
+          "status": "passed"
+        },
+        {
+          "name": "Stage A CHARACTERIZATION E: cached checksum-open has the same public observations as healthy loss",
+          "status": "passed"
+        }
+      ],
+      "count": 2,
+      "acceptanceRequirement": false,
+      "note": "Assertions establish modeled observation aliasing; no production opposite-outcome requirement and no native probe."
+    },
+    "recoveryFacts": [
+      {
+        "label": "older-bak:recovery-call",
+        "code": "SOURCE_CONFLICT",
+        "rejectedRecordWrites": 0,
+        "originalRecordRetained": true,
+        "sourceRetained": true
+      },
+      {
+        "label": "older-bak:completed-restore-cut",
+        "code": "RESOLVED",
+        "rejectedRecordWrites": 1,
+        "originalRecordRetained": true,
+        "sourceRetained": true
+      },
+      {
+        "label": "current-main:recovery-call",
+        "code": "REQUIRED_COPY_FAILURE",
+        "rejectedRecordWrites": 1,
+        "originalRecordRetained": true,
+        "sourceRetained": false
+      },
+      {
+        "label": "current-main:completed-restore-cut",
+        "code": "RESOLVED",
+        "rejectedRecordWrites": 1,
+        "originalRecordRetained": true,
+        "sourceRetained": true
+      }
+    ],
+    "readableRetryFacts": [
+      {
+        "label": "older-bak:completed-restore-cut",
+        "launch": 0,
+        "code": "SOURCE_CONFLICT",
+        "successfulSourceReads": 1,
+        "sourceRetained": true
+      },
+      {
+        "label": "current-main:completed-restore-cut",
+        "launch": 0,
+        "code": "RESOLVED",
+        "successfulSourceReads": 2,
+        "sourceRetained": false
+      },
+      {
+        "label": "current-main:completed-restore-cut",
+        "launch": 1,
+        "code": "RESOLVED",
+        "successfulSourceReads": 2,
+        "sourceRetained": false
+      }
+    ],
+    "mutationControl": {
+      "scope": "real promoteVaultFile with final verifier retained versus omitted by test callback",
+      "retainedVerifierRejectsWrongFinal": true,
+      "omittedVerifierAdmitsWrongFinal": true,
+      "fullOrchestratorMutationCampaign": false
+    },
+    "referenceReconciliation": {
+      "additionalExistingCasesAmended": 35,
+      "totalExistingCasesAmended": 41,
+      "newCasesThisCorrection": 9,
+      "characterizationReclassified": 2,
+      "families": [
+        "required first backup",
+        "post-conversion optional refresh and preservation boundaries",
+        "unconverted old-record promotion",
+        "earlier-write current-copy prerequisite"
+      ]
+    }
   },
+  "policyDelta": [
+    "Recorded conversion is one-way; cleanup completion is independent.",
+    "Cleanup-only failure and changed/unknown leftovers do not deny a usable converted wallet.",
+    "Known obsolete copies remain cleanable after normal edits, including last-key deletion.",
+    "Verified backup recovery is retained; a suspension-record write is not an admission prerequisite.",
+    "The selected current main backup is strictly prepared and verified before the first MMKV conversion write.",
+    "Unresolved migration temps are protected from overwrite as well as deletion.",
+    "Remove authority generations, historical/absence access ledgers and revocation-before-recovery gates."
+  ],
   "typescript": {
     "command": "node node_modules/.bin/tsc --noEmit",
-    "baselineExit": 2,
-    "stageAExit": 2,
+    "exit": 2,
     "baseline": 2024,
-    "stageA": 2024,
+    "amendment": 2024,
     "introduced": [],
-    "removed": []
+    "removed": [],
+    "normalization": "checkout prefixes and source line/column only"
   },
   "checks": {
     "eslint": {
@@ -487,7 +1097,7 @@
       "exit": 0
     },
     "prettier": {
-      "command": "node node_modules/.bin/prettier --check src/store/vault-migration.spec.ts",
+      "command": "node node_modules/.bin/prettier --check src/store/vault-migration.spec.ts test/vault/stage-a/*.json",
       "exit": 0
     },
     "diffCheck": {
@@ -495,18 +1105,19 @@
       "exit": 0
     }
   },
-  "specSha256": "826a6d172fb66023b1015337bb4e9f69b80bbba59818470a4d685fd8038c36b0",
+  "specSha256": "2d06fa6572f849ae3f925a726b17da13298aa9433dc0aa4423d3f91f21ae5ae6",
   "productionUnchanged": true,
+  "headUnchanged": true,
+  "localCommits": false,
   "githubWrites": false,
+  "newInstall": false,
   "nativeProbeRerun": false,
   "actualUiSmoke": false,
-  "developmentQualification": "Initial scratch iterations exposed module-local diagnostic identity and mock cleanup issues; they were corrected before the final clean-install run. Only the final functional outcomes above are counted as red controls.",
-  "evidenceLimits": [
-    "Platform boundaries are modeled; JS module isolation is not a native process restart.",
-    "The new-native-process recovery assertion is conditional on zero forbidden mutations and is not reached by the red reference. No recovery after an accepted checksum-failure write is claimed.",
-    "Native supplied probe files/output were not found in accessible locations; Downloads search was permission-restricted.",
-    "No forced-flush, power-loss, mobile-device, full UI, or silent-rollback guarantee is established.",
-    "Hidden metadata and failed revocation persistence can make earlier history unobservable; see report limits."
+  "constraints": [
+    "Identical wrapper observations are characterized separately; preserve ordinary verified-backup recovery without claiming detection of hidden failed loading. The native failed-load hazard remains unresolved.",
+    "The separate record alone cannot distinguish recovery after a failed suspension from ordinary edits. A cleanup-only primary receipt is explicitly proposed for Stage A review; production and its proof gates remain unchanged.",
+    "Missing/ambiguous mandatory conversion metadata cannot be replaced by guessing old sources or regenerating the key.",
+    "Modeled interruptions establish no power-loss, newest-state, actual native restart or inside-native guarantee."
   ],
   "unrelatedUntrackedPreserved": [
     "deliverables/",
@@ -517,6 +1128,27 @@
     "src-uncompressed-s.zip",
     "src/portfolio/runtime/testing/"
   ],
-  "localCommitsDuringValidation": false,
-  "subsequentCommitAuthorization": "User explicitly requested a local commit of Stage A artifacts after validation; this does not approve Stage B."
+  "supersededAmendmentRun": {
+    "policyCases": 62,
+    "expectedFailures": 46,
+    "passingControls": 16,
+    "unchangedFocusedPassed": 362,
+    "total": 424,
+    "scratch": "/private/tmp/bip02-stage-a-amend-vNhayS"
+  },
+  "focusedCorrection": {
+    "startingHead": "0b0f12c1f12f595930394e953d1c4c3b742eb0f9",
+    "startingTrackedFiles": [
+      "src/store/vault-migration.spec.ts",
+      "test/vault/stage-a/STAGE-A.md",
+      "test/vault/stage-a/results.json",
+      "test/vault/stage-a/source-manifest.json",
+      "test/vault/stage-a/suite-manifest.json"
+    ],
+    "startingSpecSha256": "21df95c54c6161d5a594a0b122a085c571a61eaedce9c2707ebf66e1e427bd97",
+    "newInstall": false,
+    "finalRunWorkspace": "/Users/marty/.codex/worktrees/bip02-stage-a-baseline/bitpay-app",
+    "minimumAdditionalDesignScope": "APP cleanup witness plus stripping in the same pending-recovery root write; proposal only, subject to Stage A review",
+    "productionFilesReverified": 35
+  }
 }

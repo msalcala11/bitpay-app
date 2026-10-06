@@ -151,5 +151,14 @@
   "newSpecFiles": [],
   "modifiedSpecFiles": ["src/store/vault-migration.spec.ts"],
   "newTestGroup": "Stage A",
-  "newCases": 34
+  "previousStageACases": 34,
+  "totalFocusedTests": 433,
+  "unchangedFocusedCases": 327,
+  "amendmentStartingHead": "0b0f12c1f12f595930394e953d1c4c3b742eb0f9",
+  "policyCases": 104,
+  "newCasesAddedInAmendment": 31,
+  "existingReferenceCasesAmended": 41,
+  "policyGroupDefinition": "Stage A acceptance cases excluding CHARACTERIZATION; 41 pre-existing reference cases have explicitly reconciled setup/expectations. Two observation-aliasing cases are separate characterization, not red acceptance requirements.",
+  "characterizationCases": 2,
+  "newCasesInFocusedCorrection": 9
 }

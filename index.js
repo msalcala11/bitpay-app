@@ -20,6 +20,7 @@ import {
 import {name as appName} from './app.json';
 import getStore from './src/store';
 import {reportVaultStartupFailure} from './src/store/vault-diagnostics';
+import {vaultStartupAlert} from './src/store/vault-startup-alert';
 import {Provider} from 'react-redux';
 import {PersistGate} from 'redux-persist/integration/react';
 import 'react-native-url-polyfill/auto'; // https://github.com/facebook/react-native/issues/23922#issuecomment-648096619
@@ -159,6 +160,7 @@ const ReduxProvider = () => {
     }
 
     let cancelled = false;
+    let dismissStartupAlert;
 
     getStore()
       .then(({store, persistor}) => {
@@ -182,21 +184,14 @@ const ReduxProvider = () => {
           return;
         }
         reportVaultStartupFailure(error);
-        Alert.alert(
-          'Wallet data could not be opened',
-          'Please try again.',
-          [
-            {
-              text: 'Retry',
-              onPress: () => setStartupAttempt(attempt => attempt + 1),
-            },
-          ],
-          {cancelable: false},
-        );
+        dismissStartupAlert = vaultStartupAlert(error, () => {
+          if (!cancelled) setStartupAttempt(attempt => attempt + 1);
+        });
       });
 
     return () => {
       cancelled = true;
+      dismissStartupAlert?.();
     };
   }, [isPrimary, startupAttempt]);
 

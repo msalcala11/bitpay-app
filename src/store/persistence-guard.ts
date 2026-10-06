@@ -1,8 +1,6 @@
 import {AnyAction, Middleware} from 'redux';
 import {PAUSE, REHYDRATE} from 'redux-persist';
-
-const toError = (error: unknown): Error =>
-  error instanceof Error ? error : new Error(String(error));
+import {safeVaultError} from './vault-diagnostics';
 
 export const createRehydrationFailureMiddleware =
   (onFailure: (error: Error) => void): Middleware =>
@@ -14,7 +12,13 @@ export const createRehydrationFailureMiddleware =
       action.key === 'root' &&
       action.err != null
     ) {
-      const error = toError(action.err);
+      const error = safeVaultError(
+        action.err,
+        'PRESERVATION_FAILURE',
+        'persist',
+        'REHYDRATION',
+        'mmkv',
+      );
       store.dispatch({type: PAUSE});
       onFailure(error);
     }

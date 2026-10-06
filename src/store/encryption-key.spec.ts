@@ -61,7 +61,7 @@ it.each([false, {storage: 'wrong-backend'}])(
   async result => {
     write.mockResolvedValue(result);
     await expect(createVaultKey().then(() => undefined)).rejects.toThrow(
-      'required backend',
+      'NEW_KEY_VERIFICATION',
     );
   },
 );

@@ -37,6 +37,7 @@ const sourceHashes = Object.fromEntries(
     'index.js',
     'src/store/index.ts',
     'src/store/vault-migration.ts',
+    'src/store/vault-repair-state.ts',
     'src/store/vault-scrub.ts',
     'src/store/vault-diagnostics.ts',
     'src/store/encryption-key.ts',
@@ -443,6 +444,13 @@ const normalCases = baseline
   ? [{name: 'rejected-growth', bytes: 64, variant: 'whole', reject: true}]
   : [
       {name: 'minimum-capacity', bytes: 64, variant: 'plain'},
+      {
+        name: 'root-absent-no-live-source',
+        bytes: 100000,
+        variant: 'plain',
+        drop: 'all',
+        noLive: true,
+      },
       {name: 'minimum-root-removed', bytes: 64, variant: 'plain', drop: 'root'},
       {name: 'two-megabyte', bytes: 2 * 1024 * 1024, variant: 'plain'},
       {
@@ -584,7 +592,10 @@ const cases = kills
     if (test.drop) store.delete('persist:root');
     if (test.drop === 'all') store.delete('persist:logs');
     fs.mkdirSync(path.join(dir, 'cache/bitpay/redux'), {recursive: true});
-    if (!test.phase || test.recovery === 'current' || test.recovery === 'older')
+    if (
+      !test.noLive &&
+      (!test.phase || test.recovery === 'current' || test.recovery === 'older')
+    )
       fs.writeFileSync(
         path.join(dir, 'cache/bitpay/redux/persist-root.json'),
         test.recovery === 'older' ? olderRaw : raw,
@@ -658,47 +669,61 @@ const cases = kills
       if (test.purge)
         for (const file of fs.readdirSync(path.join(dir, 'cache/bitpay/redux')))
           fs.unlinkSync(path.join(dir, 'cache/bitpay/redux', file));
-      const recoverySource =
-        survivingPrimary !== undefined
-          ? 'primary'
-          : fs.existsSync(
-              path.join(dir, 'cache/bitpay/redux/persist-root.json'),
-            )
-          ? 'main-backup'
-          : context.async.has('persist:root')
-          ? 'async'
-          : 'none';
-      key = await migrateVault(store);
+      const storedKey = context.keys.get('bitpay-app-vault-key-v1').password;
+      const usable = async raw => {
+        if (!raw) return false;
+        try {
+          await load(raw, storedKey);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      const backupPath = path.join(dir, 'cache/bitpay/redux/persist-root.json');
+      const recoverySource = (await usable(survivingPrimary))
+        ? 'primary'
+        : (await usable(
+            fs.existsSync(backupPath)
+              ? fs.readFileSync(backupPath, 'utf8')
+              : undefined,
+          ))
+        ? 'main-backup'
+        : 'none';
+      let recoveryRejected = false;
+      try {
+        key = await migrateVault(store);
+      } catch {
+        recoveryRejected = true;
+        check(
+          test.phase === 'scrub' && test.purge && recoverySource === 'none',
+          'unexpected recovery stop',
+        );
+        key = storedKey;
+      }
       const primary = store.getString('persist:root');
       const backup = path.join(dir, 'cache/bitpay/redux/persist-root.json');
       const rawRecovered =
         primary ??
         (fs.existsSync(backup) ? fs.readFileSync(backup, 'utf8') : undefined);
-      const restored = rawRecovered ? await load(rawRecovered, key) : undefined;
+      const restored = (await usable(rawRecovered))
+        ? await load(rawRecovered, key)
+        : undefined;
       const count = Object.keys(restored?.WALLET?.keys ?? {}).length;
-      const expected =
-        recoverySource === 'none'
-          ? 0
-          : recoverySource === 'main-backup' && test.recovery === 'older'
-          ? 1
-          : 2;
+      const expected = recoverySource === 'none' ? 0 : 2;
       check(count === expected, 'unexpected recovered protected contents');
-      if (expected > 0) {
-        const expectedWallet =
-          recoverySource === 'main-backup' && test.recovery === 'older'
-            ? source.state.WALLET
-            : state.WALLET;
+      if (expected > 0)
         check(
-          JSON.stringify(restored.WALLET) === JSON.stringify(expectedWallet),
+          JSON.stringify(restored.WALLET) === JSON.stringify(state.WALLET),
           'recovered signing material differs',
         );
-      } else check(rawRecovered === undefined, 'unexpected empty replacement');
+      else check(recoveryRejected, 'lost converted wallet was admitted');
       if (!context.killResult.killed)
         check(count === 2, 'completed native operation lost data');
       const result = {
         ...test,
         ...context.killResult,
         recoverySource,
+        recoveryRejected,
         recoveredKeys: count,
         newerProtectedMaterialPresent: !!restored?.WALLET?.keys?.extra,
         fullRecovery: count === 2,
@@ -743,17 +768,20 @@ const cases = kills
       context.rejectGrowth = false;
       key = await migrateVault(store);
     }
-    const active =
-      store.getString('persist:root') ??
-      fs.readFileSync(
-        path.join(dir, 'cache/bitpay/redux/persist-root.json'),
-        'utf8',
+    if (test.noLive) check(!store.contains('persist:root'), 'fabricated root');
+    else {
+      const active =
+        store.getString('persist:root') ??
+        fs.readFileSync(
+          path.join(dir, 'cache/bitpay/redux/persist-root.json'),
+          'utf8',
+        );
+      const restored = await load(active, key);
+      check(
+        JSON.stringify(restored.WALLET) === JSON.stringify(state.WALLET),
+        'recovered protected contents differ',
       );
-    const restored = await load(active, key);
-    check(
-      JSON.stringify(restored.WALLET) === JSON.stringify(state.WALLET),
-      'recovered protected contents differ',
-    );
+    }
     const after = scan();
     check(
       after.decryptable === 0 &&
@@ -829,6 +857,9 @@ const cases = kills
     'native kill driver failed',
     'native operation marker missing',
     'unexpected recovered protected contents',
+    'unexpected recovery stop',
+    'lost converted wallet was admitted',
+    'fabricated root',
     'recovered signing material differs',
     'unexpected empty replacement',
     'completed native operation lost data',
