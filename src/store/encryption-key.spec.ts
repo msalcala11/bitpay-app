@@ -1,130 +1,95 @@
-import {selectNewEncryptionKey, storeEncryptionKey} from './encryption-key';
+import {Platform} from 'react-native';
+import * as Keychain from 'react-native-keychain';
+import {
+  createVaultKey,
+  hasRequiredBackend,
+  validatedVaultKey,
+  VAULT_KEY_SERVICE,
+} from './encryption-key';
 
-describe('selectNewEncryptionKey', () => {
-  const getLegacyKey = jest.fn(() => 'legacy-key');
-  const getRandomKey = jest.fn(() => 'random-key');
+jest.mock('react-native-keychain', () => ({
+  getGenericPassword: jest.fn(),
+  setGenericPassword: jest.fn(),
+  ACCESSIBLE: {
+    AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'device-local-after-unlock',
+  },
+  STORAGE_TYPE: {AES_GCM_NO_AUTH: 'KeystoreAESGCM_NoAuth'},
+  SECURITY_LEVEL: {SECURE_SOFTWARE: 'software'},
+}));
 
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  it('uses the legacy-compatible key when the persisted root exists', async () => {
-    const hasBackup = jest.fn<Promise<boolean>, []>();
-
-    await expect(
-      selectNewEncryptionKey({
-        hasPersistedRoot: () => true,
-        hasBackup,
-        getLegacyKey,
-        getRandomKey,
-      }),
-    ).resolves.toEqual({key: 'legacy-key', legacyCompatible: true});
-
-    expect(hasBackup).not.toHaveBeenCalled();
-    expect(getLegacyKey).toHaveBeenCalledTimes(1);
-    expect(getRandomKey).not.toHaveBeenCalled();
-  });
-
-  it('uses the legacy-compatible key when only the backup exists', async () => {
-    await expect(
-      selectNewEncryptionKey({
-        hasPersistedRoot: () => false,
-        hasBackup: async () => true,
-        getLegacyKey,
-        getRandomKey,
-      }),
-    ).resolves.toEqual({key: 'legacy-key', legacyCompatible: true});
-
-    expect(getLegacyKey).toHaveBeenCalledTimes(1);
-    expect(getRandomKey).not.toHaveBeenCalled();
-  });
-
-  it('uses a random key only when the root and backup are both absent', async () => {
-    await expect(
-      selectNewEncryptionKey({
-        hasPersistedRoot: () => false,
-        hasBackup: async () => false,
-        getLegacyKey,
-        getRandomKey,
-      }),
-    ).resolves.toEqual({key: 'random-key', legacyCompatible: false});
-
-    expect(getLegacyKey).not.toHaveBeenCalled();
-    expect(getRandomKey).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not generate a key when checking the persisted root throws', async () => {
-    const error = new Error('MMKV contains failed');
-    const hasBackup = jest.fn<Promise<boolean>, []>();
-
-    await expect(
-      selectNewEncryptionKey({
-        hasPersistedRoot: () => {
-          throw error;
-        },
-        hasBackup,
-        getLegacyKey,
-        getRandomKey,
-      }),
-    ).rejects.toBe(error);
-
-    expect(hasBackup).not.toHaveBeenCalled();
-    expect(getLegacyKey).not.toHaveBeenCalled();
-    expect(getRandomKey).not.toHaveBeenCalled();
-  });
-
-  it('does not generate a key when checking the backup throws', async () => {
-    const error = new Error('backup check failed');
-
-    await expect(
-      selectNewEncryptionKey({
-        hasPersistedRoot: () => false,
-        hasBackup: async () => {
-          throw error;
-        },
-        getLegacyKey,
-        getRandomKey,
-      }),
-    ).rejects.toBe(error);
-
-    expect(getLegacyKey).not.toHaveBeenCalled();
-    expect(getRandomKey).not.toHaveBeenCalled();
+const read = Keychain.getGenericPassword as jest.Mock;
+const write = Keychain.setGenericPassword as jest.Mock;
+beforeEach(() => {
+  jest.clearAllMocks();
+  Platform.OS = 'android';
+  write.mockImplementation(async (_user, password, options) => {
+    read.mockResolvedValue({
+      password,
+      service: options.service,
+      storage: 'KeystoreAESGCM_NoAuth',
+    });
+    return {service: options.service, storage: 'KeystoreAESGCM_NoAuth'};
   });
 });
 
-describe('storeEncryptionKey', () => {
-  const encryptionKeyId = 'bitpay-app-encryption-key';
-  const key = 'generated-key';
+it.each(['ios', 'android'] as const)(
+  'generates and verifies a 32-byte random %s key with the required options',
+  async platform => {
+    Platform.OS = platform;
+    const key = await createVaultKey();
+    expect(Buffer.from(key, 'base64').length).toBe(32);
+    const [, saved, options] = write.mock.calls[0];
+    expect(saved === key).toBe(true);
+    expect(options).toEqual(
+      platform === 'ios'
+        ? {
+            service: VAULT_KEY_SERVICE,
+            accessible: Keychain.ACCESSIBLE.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
+          }
+        : {
+            service: VAULT_KEY_SERVICE,
+            storage: Keychain.STORAGE_TYPE.AES_GCM_NO_AUTH,
+            securityLevel: Keychain.SECURITY_LEVEL.SECURE_SOFTWARE,
+          },
+    );
+    expect(read.mock.calls).toEqual([[{service: VAULT_KEY_SERVICE}]]);
+  },
+);
 
-  it('resolves after Keychain confirms the write', async () => {
-    const setGenericPassword = jest.fn().mockResolvedValue({
-      service: encryptionKeyId,
-      storage: 'keychain',
-    });
-
-    await expect(
-      storeEncryptionKey(encryptionKeyId, key, setGenericPassword),
-    ).resolves.toBeUndefined();
-
-    expect(setGenericPassword).toHaveBeenCalledWith(encryptionKeyId, key, {
-      service: encryptionKeyId,
-    });
-  });
-
-  it('rejects when Keychain reports that the key was not stored', async () => {
-    const setGenericPassword = jest.fn().mockResolvedValue(false);
-
-    await expect(
-      storeEncryptionKey(encryptionKeyId, key, setGenericPassword),
-    ).rejects.toThrow('Keychain did not store the encryption key');
-  });
-
-  it('preserves a Keychain rejection', async () => {
-    const error = new Error('Keychain unavailable');
-    const setGenericPassword = jest.fn().mockRejectedValue(error);
-
-    await expect(
-      storeEncryptionKey(encryptionKeyId, key, setGenericPassword),
-    ).rejects.toBe(error);
-  });
+it.each([false, {storage: 'wrong-backend'}])(
+  'rejects unsuccessful Android writes',
+  async result => {
+    write.mockResolvedValue(result);
+    await expect(createVaultKey().then(() => undefined)).rejects.toThrow(
+      'NEW_KEY_VERIFICATION',
+    );
+  },
+);
+it('rejects failed writes and read-back mismatch', async () => {
+  write.mockRejectedValueOnce(new Error('unavailable'));
+  await expect(createVaultKey().then(() => undefined)).rejects.toThrow(
+    'unavailable',
+  );
+  write.mockResolvedValue({storage: 'KeystoreAESGCM_NoAuth'});
+  read.mockResolvedValue(false);
+  await expect(createVaultKey().then(() => undefined)).rejects.toThrow();
 });
+it('checks Android read backend but does not check it on iOS', () => {
+  const entry = {storage: 'other'} as unknown as Keychain.UserCredentials;
+  expect(hasRequiredBackend(entry)).toBe(false);
+  Platform.OS = 'ios';
+  expect(hasRequiredBackend(entry)).toBe(true);
+});
+it.each(['', 'invalid', 'A'.repeat(44)])(
+  'rejects invalid versioned material',
+  password => {
+    expect(() =>
+      validatedVaultKey({
+        password,
+        username: '',
+        service: VAULT_KEY_SERVICE,
+        storage: Keychain.STORAGE_TYPE.AES_GCM_NO_AUTH,
+      }),
+    ).toThrow();
+  },
+);

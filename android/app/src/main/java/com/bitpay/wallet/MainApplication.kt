@@ -29,6 +29,7 @@ class MainApplication : Application(), ReactApplication {
                     add(TimerPackage())
                     add(InAppMessagePackage())
                     add(CrashTestPackage())
+                    add(com.bitpay.wallet.rkstorage.RKStoragePackage())
                 },
             )
         }

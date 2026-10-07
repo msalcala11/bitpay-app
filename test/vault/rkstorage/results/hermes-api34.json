@@ -1,0 +1,158 @@
+{
+  "serial": "emulator-5586",
+  "cases": [
+    {
+      "seed": "react-seed",
+      "rows": [
+        {
+          "operation": "react-seed",
+          "newArchitectureBridge": true,
+          "decryptable": 6,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        },
+        {
+          "operation": "react-clean",
+          "newArchitectureBridge": true,
+          "nativeCalls": 0,
+          "walletRestoredExactly": true,
+          "completed": true,
+          "decryptable": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        },
+        {
+          "operation": "react-clean",
+          "newArchitectureBridge": true,
+          "nativeCalls": 0,
+          "walletRestoredExactly": true,
+          "completed": true,
+          "decryptable": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        }
+      ]
+    },
+    {
+      "seed": "react-base-only",
+      "rows": [
+        {
+          "operation": "react-base-only",
+          "newArchitectureBridge": true,
+          "oldBaseCompleted": true,
+          "decryptable": 6,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        },
+        {
+          "operation": "react-clean",
+          "newArchitectureBridge": true,
+          "nativeCalls": 2,
+          "walletRestoredExactly": true,
+          "completed": true,
+          "decryptable": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        },
+        {
+          "operation": "react-clean",
+          "newArchitectureBridge": true,
+          "nativeCalls": 0,
+          "walletRestoredExactly": true,
+          "completed": true,
+          "decryptable": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        }
+      ]
+    },
+    {
+      "seed": "react-async-only",
+      "rows": [
+        {
+          "operation": "react-async-only",
+          "newArchitectureBridge": true,
+          "decryptable": 6,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        },
+        {
+          "operation": "react-clean",
+          "newArchitectureBridge": true,
+          "nativeCalls": 0,
+          "walletRestoredExactly": true,
+          "completed": true,
+          "decryptable": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        },
+        {
+          "operation": "react-clean",
+          "newArchitectureBridge": true,
+          "nativeCalls": 0,
+          "walletRestoredExactly": true,
+          "completed": true,
+          "decryptable": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        }
+      ]
+    },
+    {
+      "seed": "react-empty-import",
+      "rows": [
+        {
+          "operation": "react-empty-import",
+          "newArchitectureBridge": true,
+          "decryptable": 6,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        },
+        {
+          "operation": "react-clean",
+          "newArchitectureBridge": true,
+          "nativeCalls": 0,
+          "walletRestoredExactly": true,
+          "completed": true,
+          "decryptable": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        },
+        {
+          "operation": "react-clean",
+          "newArchitectureBridge": true,
+          "nativeCalls": 0,
+          "walletRestoredExactly": true,
+          "completed": true,
+          "decryptable": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        }
+      ]
+    }
+  ]
+}

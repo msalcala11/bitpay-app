@@ -7,6 +7,7 @@ import {
   Wallet,
 } from '../../wallet.models';
 import {Effect, storage} from '../../../index';
+import {hasVaultMigrationStarted} from '../../../vault-migration';
 import {BwcProvider} from '../../../../lib/bwc';
 import merge from 'lodash.merge';
 import {
@@ -162,6 +163,10 @@ export const startMigrationMMKVStorage =
   async (dispatch): Promise<void> => {
     logManager.info('[startMigrationMMKVStorage] - starting...');
     try {
+      if (await hasVaultMigrationStarted()) {
+        dispatch(setMigrationMMKVStorageComplete());
+        return;
+      }
       const keys = await AsyncStorage.getAllKeys();
       if (!keys.includes('persist:root')) {
         dispatch(setMigrationMMKVStorageComplete());

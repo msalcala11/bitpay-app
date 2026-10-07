@@ -1,0 +1,183 @@
+{
+  "base": "0d1af4b54a22986c8b432e79297897bafa1e7080",
+  "baseTree": "9171b676531a9f39ef7f90b7ead153e8b8f2dd08",
+  "initialTrackedStatus": "clean",
+  "scope": [
+    "Primary preservation around optional filesystem work and subsequent cleanup",
+    "Directional coverage for only a newly added valid EDDSA fingerprint"
+  ],
+  "before": {
+    "command": "node node_modules/.bin/jest src/store/vault-migration.spec.ts --runInBand --forceExit -t 'preservation across optional|preservation after deferred'",
+    "production": "Unchanged base implementation with the new tests.",
+    "exit": 1,
+    "failed": 13,
+    "passed": 12,
+    "failures": "12 unsafe returns after primary loss/corruption, 1 false SOURCE_CONFLICT after actual EDDSA upgrade."
+  },
+  "regressionsAdded": {
+    "optionalFailureMatrix": 24,
+    "laterCleanupBoundaries": 20,
+    "directionalCoveragePositiveAndNegativeControls": 18,
+    "actualSdkUpgradeSequences": 2,
+    "total": 64
+  },
+  "final": {
+    "jest": {
+      "command": "node node_modules/.bin/jest --ci --testMatch='**/*.spec.{js,tsx,ts}' --config=jest.config.js --runInBand --forceExit",
+      "exit": 0,
+      "suites": 141,
+      "passed": 2706,
+      "skipped": 2
+    },
+    "focused": {
+      "command": "node node_modules/.bin/jest src/store/vault-migration.spec.ts src/store/vault-scrub.spec.ts src/store/vault-diagnostics.spec.ts src/store/encryption-key.spec.ts src/store/transforms/transforms.spec.ts src/store/persistence-guard.spec.ts --runInBand --forceExit",
+      "exit": 0,
+      "suites": 6,
+      "passed": 368
+    },
+    "typescript": {
+      "command": "node node_modules/.bin/tsc --noEmit",
+      "exit": 2,
+      "baselineCount": 2024,
+      "currentCount": 2024,
+      "introduced": [],
+      "removed": [],
+      "comparison": "Previous fresh-initialization tsc.log, normalized only line/column locations."
+    },
+    "lint": {
+      "command": "node node_modules/.bin/eslint src/store/vault-migration.ts src/store/backup/vault-files.ts src/store/vault-migration.spec.ts test/vault/rkstorage/react-entry.js test/vault/rkstorage/run-react.cjs --parser-options '{\"ecmaVersion\":2020}'",
+      "exit": 0
+    },
+    "prettier": {
+      "command": "node node_modules/.bin/prettier --check src/store/vault-migration.ts src/store/backup/vault-files.ts src/store/vault-migration.spec.ts test/vault/rkstorage/react-entry.js test/vault/rkstorage/run-react.cjs",
+      "exit": 0
+    },
+    "androidBundle": {
+      "command": "NODE_ENV=development SENTRY_DISABLE_AUTO_UPLOAD=true node node_modules/react-native/cli.js bundle --platform android --dev true --minify false --entry-file test/vault/rkstorage/react-entry.js --bundle-output <assets>/rkstorage-test.bundle --assets-dest <assets> --max-workers 2",
+      "exit": 0
+    },
+    "androidBuild": {
+      "cwd": "android",
+      "command": "JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home SENTRY_DISABLE_AUTO_UPLOAD=true NODE_ENV=development ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --max-workers=2 --console=plain --project-cache-dir <scratch>/gradle-cache -PreactNativeArchitectures=arm64-v8a -PrkStorageTestAssets=<assets>",
+      "exit": 0
+    },
+    "iosBundle": {
+      "command": "NODE_ENV=development SENTRY_DISABLE_AUTO_UPLOAD=true node node_modules/react-native/cli.js bundle --platform ios --dev false --minify false --entry-file index.js --bundle-output <scratch>/ios.bundle --assets-dest <scratch>/ios-assets --max-workers 2",
+      "exit": 0
+    },
+    "hermes": {
+      "command": "node test/vault/rkstorage/run-react.cjs emulator-5586 <scratch>/react-api34",
+      "exit": 0,
+      "api": 34,
+      "sqlite": "3.39.2",
+      "scenarios": 6,
+      "launches": 22,
+      "cases": [
+        {
+          "seed": "react-seed",
+          "launches": 3,
+          "completed": true,
+          "finalNativeCalls": 0
+        },
+        {
+          "seed": "react-base-only",
+          "launches": 3,
+          "completed": true,
+          "finalNativeCalls": 0
+        },
+        {
+          "seed": "react-async-only",
+          "launches": 3,
+          "completed": true,
+          "finalNativeCalls": 0
+        },
+        {
+          "seed": "react-empty-import",
+          "launches": 3,
+          "completed": true,
+          "finalNativeCalls": 0
+        },
+        {
+          "seed": "react-fresh-start",
+          "launches": 6,
+          "completed": true,
+          "finalNativeCalls": 0
+        },
+        {
+          "seed": "react-eddsa-seed",
+          "launches": 4,
+          "completed": true,
+          "finalNativeCalls": 0
+        }
+      ],
+      "eddsaRows": [
+        {
+          "operation": "react-eddsa-seed",
+          "newArchitectureBridge": true,
+          "nativeCalls": 0,
+          "decryptable": 5,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        },
+        {
+          "operation": "react-eddsa-upgrade",
+          "newArchitectureBridge": true,
+          "upgradedWithoutChangingOldProperties": true,
+          "cleanupDeferred": true,
+          "nativeCalls": 0,
+          "decryptable": 5,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        },
+        {
+          "operation": "react-eddsa-retry",
+          "newArchitectureBridge": true,
+          "enrichedPrimaryPreserved": true,
+          "completed": true,
+          "nativeCalls": 2,
+          "decryptable": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        },
+        {
+          "operation": "react-eddsa-verify",
+          "newArchitectureBridge": true,
+          "enrichedPrimaryPreserved": true,
+          "completed": true,
+          "nativeCalls": 0,
+          "decryptable": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0,
+          "sqlite": "3.39.2",
+          "api": 34
+        }
+      ]
+    }
+  },
+  "fixtureProvenance": "Pre-EDDSA shape synthesized with the installed pinned SDK by omitting its two EDDSA additions; actual upgrade effect and SDK are executed. Not an archived historical fixture.",
+  "failureModel": "Optional-write/promotion/verification and later-cleanup primary-loss cases use modeled platform boundaries; they do not establish RNFS as a cause of MMKV loss or a device failure rate. Hermes uses real storage and injects only the initial AsyncStorage deletion rejection in JavaScript.",
+  "notRerun": [
+    "API 32 emulator",
+    "Native SQL/syscall fault campaign",
+    "MMKV native-compaction kill campaign",
+    "iOS native build or full UI upgrade"
+  ],
+  "outstanding": [
+    "Physical phones and 16 KiB OS-page Android",
+    "Explicit owner acceptance of the documented MMKV native-compaction residuals"
+  ],
+  "fullLogs": "/private/tmp/bip02-preservation-repair-A4yizJ",
+  "sha256": {
+    "src/store/vault-migration.ts": "6e2afe66ee7422cff152fdbf78b82780f108fce6b0e520093c9564b2df8ac4ee",
+    "src/store/backup/vault-files.ts": "25123344f3f103a8b30c18536a43aaa6e2f2a2d999d4eeadafc1b8005ae56de4",
+    "src/store/vault-migration.spec.ts": "e20776397ceecaba697b6f3fcac425ba80cd21cb5d63d282bc86e2c226197152",
+    "test/vault/rkstorage/react-entry.js": "5015652fa47d2810e1a6f65e2e97043e7b7633227e5fbbe002e8033106320739",
+    "test/vault/rkstorage/run-react.cjs": "46e99f293c7a62e747c6194405cabce50b215975fb335ecc51b70ebc1ecff2da"
+  }
+}

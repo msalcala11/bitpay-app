@@ -1,0 +1,12 @@
+current  root=2097152 B  run takes ~33 ms  trials=12  killed mid-run=10
+   reopened right after the kill : {'MISSING': 8, 'intact': 4}   (filler left behind in 6)
+   root not intact when the kill landed during: {'restore-root': 6, 'clearAll': 1, 'set-filler': 1}
+   reopened after the next launch: {'MISSING': 8, 'intact': 4}   largest final file=16777216
+inplace0 root=2097152 B  run takes ~12 ms  trials=12  killed mid-run=8
+   reopened right after the kill : {'intact': 12}   (filler left behind in 0)
+   root not intact when the kill landed during: {}
+   reopened after the next launch: {'intact': 12}   largest final file=4194304
+persist  root=2097152 B  run takes ~44 ms  trials=12  killed mid-run=9
+   reopened right after the kill : {'intact': 12}   (filler left behind in 0)
+   root not intact when the kill landed during: {}
+   reopened after the next launch: {'intact': 12}   largest final file=16777216
