@@ -57,7 +57,20 @@ const assert = (condition, code) => {
     };
     assert(result.newArchitectureBridge, 'BRIDGE_MISSING');
     stage = 'seed';
-    if (operation.startsWith('react-receipt-')) {
+    if (operation.startsWith('react-followup2-')) {
+      await require('./followup2-cases').runFollowup2({
+        operation,
+        fixture,
+        storage,
+        records,
+        legacy,
+        recode,
+        prepareVault,
+        RKSTORAGE_RECORD_KEY,
+        assert,
+        result,
+      });
+    } else if (operation.startsWith('react-receipt-')) {
       const fromTemp = operation.includes('-temp-');
       const failedRead = operation.includes('-read-');
       const older = operation.includes('-older-') || fromTemp;

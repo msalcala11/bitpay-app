@@ -31,10 +31,20 @@ for (const seed of [
   'react-receipt-current-seed',
   'react-receipt-temp-seed',
   'react-receipt-read-seed',
+  'react-followup2-once-seed',
+  'react-followup2-sql-seed',
+  'react-followup2-temp-seed',
 ]) {
   run(['shell', 'pm', 'clear', 'com.bitpay.wallet']); // disposable app only
   const rows = [];
-  const operations = seed.startsWith('react-receipt-')
+  const operations = seed.startsWith('react-followup2-')
+    ? [
+        seed,
+        ...['check', 'retry', 'verify', 'verify'].map(phase =>
+          seed.replace('-seed', '-' + phase),
+        ),
+      ]
+    : seed.startsWith('react-receipt-')
     ? [
         seed,
         seed.replace('-seed', '-recover'),

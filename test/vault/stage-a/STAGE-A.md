@@ -329,12 +329,12 @@ This follow-up preserves the owner rulings, conversion milestone, receipt, write
 
 - **A / review defect 0, both routes:** initial registered-key inventory identifies an exception from the primary specifically; an exception from logs does not qualify. After validated recorded conversion, a primary read exception enters existing verified recovery and returns before cleanup. The completed adapter route uses the same recovery. A successful read still runs the released/unsupported-format guard. A failed read cannot supply fresh-empty evidence; successful candidate reads with no usable modern copy produce `RECOVERY_UNAVAILABLE`. Key/history, candidate-read, restore-write and verification failures retain their classifications. The store adapter classifies the primary-read exception before its existing log/Sentry capture, so no raw native message or stack escapes at that boundary. Pending recovery keeps the single receipt-free root write and preserves all old copies and credentials on that launch. Pre-conversion read failures remain strict.
 - **B / review defect 1:** `damagedAsync` requires a successful old-Keychain read. Missing a permitted decryption candidate is not evidence of damage. A fully validated row can still use existing coverage/identity rules; otherwise it stays pending until classification becomes possible. The owner-approved damaged-row deletion rule itself is unchanged.
-- **C / review defect 2:** both required and optional `.bak` rotation first read and validate a byte-identical target and skip its redundant rewrite. The original target-digest ownership clauses remain intact. This prevents the two-launch full-disk sequence from creating a disowned second partial `.bak` output. It does **not** repair an already-stranded partial temp whose target matches its write intent; that conservative case is explicitly tested.
+- **C / review defect 2:** both required and optional `.bak` rotation first read and validate a byte-identical target and skip its redundant rewrite. The `.bak` skip prevents the two-launch full-disk sequence from creating a second partial output. The original post-conversion target-digest pin is superseded by the owner-authorized G rule in section 10: target equality alone no longer blocks retirement of a proven unfinished partial output. The pre-conversion target-digest clause remains intact; unknown, phase-less, coverage-only, completed-write and different-valid temp controls remain.
 - **D / review point 3:** each new main-refresh binding carries one optional `bakDigest`, observing the backup bytes (or explicit absence) during that same main refresh, after any rotation. It is not inferred from an unrelated `.bak` intent. Recovery still requires a missing target, exact writer binding, qualifying origin/phase and a valid modern temp. The temp retains priority when its paired backup context still matches. If a valid backup exists and the context differs or is missing, use ordinary backup precedence; a mismatch is **not** treated as proof of chronological age. A qualifying temp remains usable when successful reads find no other usable modern copy. Unreadable supporting evidence is never absence. Old bindings without context cannot establish priority over a valid backup, but retain the sole-copy recovery route. Verified writer/context provenance survives fresh-coverage rebinding. No general newest-copy algorithm, new storage location, generation or ordinary-save metadata write is introduced.
 
 The accepted fresh-empty consequence is explicit: when its old Keychain entry is readable it is retired on that same launch, **before** any save. When the old read fails, fresh initialization can open with cleanup pending; the subsequent successful read permits retirement, still without requiring a wallet save. This does not relax the existing total-loss stop once conversion is recorded.
 
-The supplied K/K2/H/T observations were converted to assertions using the existing production-path harness. Tests prove each injected failure occurred, preservation during it and behavior after it clears; compare fixed outcomes/booleans/synthetic key IDs, never wallet contents. Scratch mutation controls remove the target-digest ownership guard and the recovery origin/phase restriction independently; their corresponding tests must fail. The new backup-context parser preserves optional-metadata deferral and rejects context on other slots. Final results and current source identities are in `stage-b-results.json.followupRepair`; earlier sections remain historical evidence.
+The supplied K/K2/H/T observations were converted to assertions using the existing production-path harness. Tests prove each injected failure occurred, preservation during it and behavior after it clears; compare fixed outcomes/booleans/synthetic key IDs, never wallet contents. The historical A–D scratch mutation controls rejected removal of the target-digest ownership guard and recovery origin/phase restriction. Section 10 now deliberately supersedes the post-conversion target-digest pin under G; the pre-conversion clause and recovery origin/phase guard remain. The new backup-context parser preserves optional-metadata deferral and rejects context on other slots. Final results and current source identities are in `stage-b-results.json.followupRepair`; earlier sections remain historical evidence.
 
 Remaining native empty-view, hidden metadata, rollback/power-loss and simultaneous primary/backup-loss limits are unchanged. Physical-device and packaged released-build upgrade testing, independent review and release approval remain outstanding.
 
@@ -360,3 +360,89 @@ Remaining native empty-view, hidden metadata, rollback/power-loss and simultaneo
 The native-core harness executes the final migration/helpers and models other platform boundaries. Its runs began before the final adapter-only diagnostic capture change; that adapter is not imported by the core harness and is covered by final Jest/Hermes instead. The new Hermes fault is a JavaScript-injected read rejection over real libraries, not an inside-native load fault. Modeled retries and partial writes, native worker/process restarts, deliberately timed native kills, and physical-device behavior remain distinct evidence categories.
 
 The three measured pending-attempt models make **3 AsyncStorage reads**, **4 / 2 / 2 record writes**, and **127 / 112 / 112 MMKV string reads**; identical repeated deferrals report only once. The main refresh adds one bounded backup-context observation, and recovery retains fixed candidates. No polling or native ownership timeout is introduced. Operation counts do not bound native-call duration. Historical manifests/results are retained; current source/build identities and exact commands are recorded in `stage-b-results.json.followupRepair`.
+
+
+## 10. Follow-up 2 at 6d9f196 — E, F and owner-authorized G
+
+The base is `6d9f1965f24efe8d4baeb9cfa2997ec243a684b3`. E and F complete
+review defect 0; G implements only the owner's ruling of 7 October 2026.
+Conversion authority, receipts, backup ordering, encryption, scrub, provider patch
+and the ordinary backup writer are unchanged.
+
+- **E:** after mandatory history and the caller's key checks, recovery's existing
+  primary read now returns an authenticated modern root unchanged. That path
+  reads no backup, writes no root, strips no receipt and records no suspension.
+  A successfully read released/unsupported root stays protected. A missing,
+  still-unreadable or corrupt primary retains the existing verified recovery.
+- **F:** the Android cleanup-preservation capture identifies root-read exceptions
+  separately from log-read exceptions and routes only the former through its
+  existing invalid-primary recovery path. Missing, busy, invalid or unreadable
+  RKStorage marker/module states retain their existing cleanup deferral rules.
+  E also applies to the re-read on this route.
+- **G:** the optional-refresh partial-output predicate no longer rejects an
+  otherwise-owned unfinished output merely because the target matches its
+  intended digest. Origin, writing phase, undecodability, unequal temp digest,
+  other-slot availability, primary preservation and final temp-identity read
+  remain necessary. The pre-conversion predicate is unchanged.
+
+### Optional-write permission closure
+
+After a slot is freshly observed empty, or its temp removal is verified, a
+remaining `optional-refresh/writing` binding is persisted and read back as
+`verified`. This closes the partial-output deletion permission even when the
+current backup or the existing `.bak` skip makes replacement unnecessary. For an
+absent/abandoned output, this phase closes a permission; it does not assert that
+absent file bytes were verified. No new record field, backend or recovery file is
+introduced. Existing valid-temp adoption/deletion rules remain necessary.
+
+A failed phase write leaves the old `writing` state; a failed read-back may leave
+`verified` already stored. Existing mandatory-history and primary checks still
+run, and the usable wallet opens. This attempt returns immediately, so later
+metadata writes cannot copy the stale in-memory phase over a possibly successful
+retirement. The next launch that sees no temp retires any remaining writing phase
+before further refresh work. A modeled process cut after unlink and before that
+write leaves `writing` plus no temp; the next surviving launch follows the same
+rule. Once retired, a later unrelated undecodable temp stays preserved. Other
+fixed slots retain their provenance. New writes still arm their own intent only
+after observing the slot empty.
+
+The G pin test is deliberately renamed/reversed. Its stale-main fixture still
+requires the existing verified main refresh. Removing the partial temp itself
+changes neither primary nor backup targets. A same-session ordinary rotation
+makes main current, so that variant completes with both target files byte-identical.
+The assertion suite covers phase-write rejection, read-back rejection, completed-
+call interruption, fresh JavaScript modules, later unrelated temps, and all
+required refused temp classes. D gains the sole-usable-temp/undecodable-bak control.
+
+### Recorded, unresolved and outside this follow-up
+
+A present older/partial main can still hide a newer recorded temp. A leftover
+old-format `.bak` can still be deleted when the old Keychain read rejects; normal
+upgrade reachability remains unestablished. Old `2d70bd5` records lack `bakDigest`.
+These are not accepted limitations or repaired here; their selection/classification
+rules are unchanged. Native empty-view/rollback/power-loss limitations and release
+approval remain separate. Actual results are recorded in
+`stage-b-results.json.followup2Repair`; earlier results remain historical.
+
+
+### Follow-up 2 validation
+
+| Check | Actual result |
+| --- | --- |
+| Required exact-base baseline | **490 migration + 22 record-state tests pass** |
+| Assertions against unchanged production | **32 failures / 14 passing controls** in 46 selected cases, including the authorized G pin revision; final assertions reconfirmed against immutable base bytes |
+| Final required command | **535 migration + 22 record-state tests pass**; 45 added cases, all other existing assertions preserved |
+| Focused / normal full Jest | **687 focused passes**; **140 suites, 3,015 passes, 2 existing skips** |
+| TypeScript / ESLint | **2,024 diagnostics; 632 errors / 697 warnings**, with no introduced or removed diagnostic identities |
+| Formatting / diff whitespace / harness lint | Pass |
+| Native-core raw-file checks | **14 macOS** (16 KiB OS pages) and **14 Android** (4 KiB OS pages) cases pass |
+| Timed inside-native worker interruptions | **48 scenario assertions pass; 37 actual terminations**. Full recovery in this sample does not erase earlier residuals or establish production failure rates |
+| Real Android Hermes | **15 scenarios / 74 distinct processes** pass, including E's exact-primary preservation, F's base-complete/RKStorage-pending recovery, and G's real partial temp plus ordinary rotation |
+| Android build | Debug app and instrumentation APKs pass; packaged test bundle is byte-verified |
+| iOS prerequisite at the required base | Still fails deployment mode on the Podfile checksum mismatch; no lockfile edit or later commit imported |
+| Physical devices / packaged released-build upgrade | Unrun; remain release gates |
+
+The G lifecycle tests additionally assert exactly one retirement attempt per
+launch. Source/build identities, measured boundary counts and exact commands are
+in the incremental evidence. The three recorded open findings above remain
+unresolved and are not accepted by this validation. No release approval is implied.

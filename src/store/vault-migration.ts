@@ -271,9 +271,12 @@ export const captureVaultCleanupState = async (storage: MMKV, key: string) => {
       'mmkv',
     );
   };
+  let primaryReadFailed = false;
   const read = async () => {
     const primary = () => {
-      const raw = readRegistered(storage).get(ROOT);
+      const raw = readRegistered(storage, () => {
+        primaryReadFailed = true;
+      }).get(ROOT);
       if (raw === undefined) return;
       validate(raw);
       return {source: ROOT, raw};
@@ -320,7 +323,10 @@ export const captureVaultCleanupState = async (storage: MMKV, key: string) => {
   try {
     initial = await read();
   } catch (error) {
-    if (vaultDiagnostic(error as Error)?.reason !== 'PRIMARY_INVALID')
+    if (
+      !primaryReadFailed &&
+      vaultDiagnostic(error as Error)?.reason !== 'PRIMARY_INVALID'
+    )
       throw error;
     await recoverConvertedVault(storage, key);
     initial = await read();
@@ -895,6 +901,10 @@ export const recoverConvertedVault = async (
       'PRIMARY_INVALID',
       'mmkv',
     );
+  // A transient read failure is not a restoration. Keep an authenticated
+  // primary exactly as read, including its receipt and cleanup permissions.
+  if (primary !== null && inspect(primary, [key]).snapshot?.format === 'gcm')
+    return primary;
   let selected: Snapshot | undefined;
   let copyPresent = false;
   let readFailure: Error | undefined;
@@ -1750,6 +1760,25 @@ const migrate = async (
       checkPrimary();
     }
   };
+  const retireOptionalWrite = (slot: 'main' | 'bak'): boolean => {
+    const binding = record!.cleanup?.[slot];
+    if (
+      binding?.origin !== 'optional-refresh' ||
+      binding.writePhase !== 'writing'
+    )
+      return true;
+    return persistOptional(
+      {
+        ...record!,
+        cleanup: {
+          ...record!.cleanup,
+          v: 1,
+          [slot]: {...binding, writePhase: 'verified'},
+        },
+      },
+      `${slot}-temp`,
+    );
+  };
   const optionalRefresh = async (
     path: string,
     raw: string,
@@ -1872,8 +1901,7 @@ const migrate = async (
         binding?.origin === 'optional-refresh' &&
         binding.writePhase === 'writing' &&
         !temp.snapshot &&
-        digest(temp.raw) !== binding.digest &&
-        (target.raw === null || digest(target.raw) !== binding.digest);
+        digest(temp.raw) !== binding.digest;
       if (!incompleteOutput && !canRemove(slot, temp)) {
         defer(
           'CLEANUP_DEFERRED',
@@ -1988,6 +2016,11 @@ const migrate = async (
         continue;
       }
     }
+    // Confirmed absence closes an unfinished/abandoned partial-output grant,
+    // even if ordinary rotation or the .bak skip makes another write needless.
+    // Stop this cleanup attempt if its write/read-back fails: later metadata
+    // writes must not copy a stale in-memory `writing` phase back over it.
+    if (!retireOptionalWrite(slot)) return vaultKey;
     if (target.snapshot?.format === 'cbc') {
       try {
         await optionalRefresh(

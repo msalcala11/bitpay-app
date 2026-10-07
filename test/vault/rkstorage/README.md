@@ -183,3 +183,19 @@ write. A failed suspension write must not prevent one verified receipt-free
 restore; later fresh processes requalify covered source cleanup. This is a
 JavaScript-injected read fault over real native libraries, not a native load-fault
 simulation or hardware claim. The driver now runs 12 scenarios / 59 launches.
+
+
+## Follow-up 2: E/F/G
+
+The existing driver adds `react-followup2-once-*`, `react-followup2-sql-*`, and
+`react-followup2-temp-*`, each over five fresh processes. The first keeps an exact
+newer primary after a single injected getter failure. The second establishes base
+completion with RKStorage pending, injects getter failure until the real restore
+write, then lets native cleaning finish on a later launch. The third leaves a
+real half-written optional temp through a rejected JS write wrapper, performs an
+ordinary backup rotation in the same session, and checks later cleanup with the
+primary and both targets unchanged. Faults are JavaScript-boundary injections;
+storage, production policy, Android native cleaning and process boundaries are
+real. No actual disk-full or inside-native read failure is claimed. The complete
+driver now contains 15 scenarios / 74 launches. Validation results belong to
+`../stage-a/stage-b-results.json.followup2Repair`.

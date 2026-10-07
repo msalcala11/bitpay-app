@@ -7921,5 +7921,1892 @@
     "releaseApproval": false,
     "committed": false,
     "pushed": false
+  },
+  "followup2Repair": {
+    "base": "6d9f1965f24efe8d4baeb9cfa2997ec243a684b3",
+    "initialWorkingTree": {
+      "tracked": [],
+      "untracked": [],
+      "isolated": true
+    },
+    "initialSourceHashes": {
+      "src/store/vault-migration.ts": "0a92e61305111e9bba0779a22b57806faf8589784bbf158fdd546ec9788d3e5e",
+      "src/store/vault-migration.spec.ts": "38dcab4e67da54ffc4e03d8e35bc348fe55c9f0a5ff28baac1807409972eb027",
+      "src/store/vault-repair-state.ts": "0ce71adf80595067636893decd246128e41e03d146ef99a5d97f380c8205660d",
+      "src/store/vault-repair-state.spec.ts": "84cac25508789b008dad860ea5f1b7f0b4896134d6541945efc1df1d96787a46",
+      "src/store/vault-rkstorage.ts": "f7c1da7168abcd6714ad5b2cd181a7727e0325ae92c0d5974764668e635524cb",
+      "src/store/index.ts": "6ef1dfd283d74a8f957fd301ec8b20b44b853578c48e931b646213685a148176",
+      "src/store/backup/vault-files.ts": "755df85fad17ba57a44e9010e06fa6c24fb88e144395cd549a91a48296850ef7",
+      "src/store/vault-diagnostics.ts": "769b49a7693648fb1298bca7d7371b8606d22cc1e79fadc07548517ad54e0a8f",
+      "src/store/vault-scrub.ts": "eedc82813b8898a903d2cb43fa347cd0ed8578875acff53d064d8e45c532b833",
+      "src/store/encryption-key.ts": "881773429ac245ac0bffb16624be29fe817e0663194df21c15c769ab0e456591",
+      "test/vault/rkstorage/react-entry.js": "dc19ae64197ed793454ab8149d2b2b633d6cf24be086669af451fb1949c412ce",
+      "test/vault/rkstorage/run-react.cjs": "3152de18b6d307d62694c33fed7d51b0a74d6e90ba4899f08eb93e98515df4be",
+      "package.json": "5078ab0403e94499449c2ffc45992022614a2fe24940af4df25f5cdb3d0188d8",
+      "yarn.lock": "99a9ac1f28264e59b6cd5c0da8fa220ff02c3fc2e0f53e6c84d98b0d942c0441",
+      "Gemfile.lock": "971bf45dfc0f79c318d00ce30d22b65e8c2f280e006e4dc3a3cb662f51bfc81e",
+      "ios/Podfile": "94316e3c2d292390b59d1fe617224c3523c676fa49e7921471d2d406e685dc08",
+      "ios/Podfile.lock": "8046e10767a7cc3e543a80efc27cd5ab6620e05c12fb3c3b0c38f41da3f961ac",
+      "ios/BitPayApp.xcodeproj/project.pbxproj": "d55e1e5c373b9bdbc91cfcbdc616b3f2b7da1799ca7bfe0a9bc59b72c019fb03"
+    },
+    "handoffArchiveSha256": "a56d10f2adff7c6f10741531a695a1d0cb4af8a7ba69f5d9bd7bc1047a7a4dde",
+    "handoffVerifiedFiles": {
+      "FOLLOWUP-2-PROMPT.md": "8d9681b29e1b081c6d7814992e297a73ca99001993afb77240d00aaba2d63342",
+      "reference/FOLLOWUP-PROMPT-A-D.md": "ff7004a42effdfd6b52a71d09a30165a89fff31b4b7d9160b6cba713c55a3b31",
+      "reference/PREVIOUS-IMPLEMENTER-PROMPT.md": "48d110b359248042366b2aee0846603547fe52eca5dbd80b18903ba72048903e",
+      "reference/acceptance/bip-02-acceptance-results.txt": "a715c14c5fe8e6936c4cf8701df8706691a5cdb25498dae6d4a592727621868b",
+      "reference/acceptance/bip-02-acceptance-tests.diff": "1459c0176d81d670116acb131ac66e8986e845af6cf2dd4ce24df87711323bfc",
+      "reference/acceptance/bip-02-acceptance-tests.md": "c02dfbcda66f908235638e8089b251eea5a54ea08dfc2f68e0af88e5f6553485",
+      "reference/governing/bip-02-scope-contract.txt": "9809dcb75e3f0990248ac0a4432740aeab39ce907e625497a6096ffbd6147259",
+      "reference/governing/bitpay-stage-a-correction-0b0f12c1f.diff": "008f07613b59571f69c2249e5f5bee7f5300958fbf87c6b69cf6ed47df4e31fd",
+      "reference/governing/owner-decisions-15.txt": "0ce264c79baeed3ad88301f557cfd1a9c0a1922d1418cc8dbde58d27f34a401d",
+      "reference/governing/stage-b-authorization.md": "95d434f38601a83fb47176f4640ec4529b99fb91e8e5800091081ed1b47ac964",
+      "reference/owner-ruling-2026-10-07.md": "77246d40ab1b8de45b015131d88e8fbaa05e8d0677fb9e008885692556ec5ffb",
+      "reviews/bip-02-followup-commit-review.md": "3e8a9ae3c51ebdba1a068083d224338be87a292c0a16405d3e2acf96b2fc4df9",
+      "reviews/bip-02-followup-review-cases.ts": "44d7e4770b21fefaf13be2ed2519f36b253f9f1e2862f1e2e3869b3b753888c1",
+      "reviews/bip-02-followup-review-results.txt": "b5269e8790b57077e4ca070411c20dd0dfb399519c6926676d9934bade34dc89"
+    },
+    "install": {
+      "command": "COREPACK_ENABLE_AUTO_PIN=0 yarn install --frozen-lockfile --non-interactive",
+      "exit": 0,
+      "normalPostinstall": true,
+      "standIns": false,
+      "lockfilesUnchanged": true,
+      "node": "22.16.0",
+      "yarn": "1.22.22",
+      "compressjs": {
+        "version": "1.3.1",
+        "files": 69,
+        "mainBytes": 1301
+      }
+    },
+    "baseline": {
+      "command": "node node_modules/.bin/jest src/store/vault-migration.spec.ts src/store/vault-repair-state.spec.ts",
+      "exit": 0,
+      "migration": 490,
+      "recordState": 22,
+      "passed": 512,
+      "failed": 0
+    },
+    "redRegressions": {
+      "result": {
+        "numPassedTests": 14,
+        "numFailedTests": 32,
+        "numPendingTests": 489,
+        "numPassedTestSuites": 0,
+        "numFailedTestSuites": 1
+      },
+      "selectedCases": 46,
+      "newCases": 45,
+      "amendedGPin": 1,
+      "note": "Assertions were first run before production edits (32 fail, 14 controls pass). Final fixture/assertion refinements were reconfirmed using exact Git base production bytes through an isolated scratch transformer; no source reset and no replacement policy."
+    },
+    "finalRequired": {
+      "command": "node node_modules/.bin/jest src/store/vault-migration.spec.ts src/store/vault-repair-state.spec.ts",
+      "exit": 0,
+      "migration": 535,
+      "recordState": 22,
+      "passed": 557,
+      "failed": 0
+    },
+    "focused": {
+      "numPassedTests": 687,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "numPassedTestSuites": 8,
+      "numFailedTestSuites": 0
+    },
+    "full": {
+      "numPassedTests": 3015,
+      "numFailedTests": 0,
+      "numPendingTests": 2,
+      "numPassedTestSuites": 140,
+      "numFailedTestSuites": 0
+    },
+    "fullCommand": "COREPACK_ENABLE_AUTO_PIN=0 yarn test:ci --runInBand --json --outputFile=$SCRATCH/full.json",
+    "fullExit": 0,
+    "existingTests": "All prior test code is unchanged except the explicitly authorized G pin; verified after normalizing whitespace and excluding that one block. No skips or assertions removed elsewhere.",
+    "typescript": {
+      "baseline": 2024,
+      "final": 2024,
+      "introduced": [],
+      "removed": [],
+      "exit": 2,
+      "comparison": "Relative file, code and whitespace-normalized message; source positions ignored."
+    },
+    "lint": {
+      "baseline": {
+        "errors": 632,
+        "warnings": 697
+      },
+      "final": {
+        "errors": 632,
+        "warnings": 697
+      },
+      "introduced": [],
+      "removed": [],
+      "exit": 1
+    },
+    "format": {
+      "repositoryPrettier": 0,
+      "changedCodeAndEvidence": 0,
+      "diffCheck": 0,
+      "harnessEslint": 0,
+      "cjsNodeEs2022Lint": 0
+    },
+    "currentSourceHashes": {
+      "src/store/vault-migration.ts": "6a1e5941b7d966d48cc59c922bdbb29a662c37842f235296f512e17836f44b0e",
+      "src/store/vault-migration.spec.ts": "db1e91cbbeb05f17d8c68c176e650965682d283daac76f0301b1b47e1c12cc8e",
+      "test/vault/rkstorage/react-entry.js": "e625bd4e96dfc65dfc0f14579f1efb104f6e4e063cd8e922507396f2f51c3e65",
+      "test/vault/rkstorage/followup2-cases.js": "5a5ecbc39eb2a1ed2f74be9bf5b844d9b133c580e7dce8d91d297dcded1e1335",
+      "test/vault/rkstorage/run-react.cjs": "13b06048e0b4913553314919e159013d9765b0b6256e348fed4ab606985af7f5"
+    },
+    "buildIdentities": {
+      "android/app/build/outputs/apk/debug/app-debug.apk": "c089679aaf099d53bb25296f54aefafbab6026e51ee4997acac088c922954751",
+      "android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "daf6e5064ef09eb1f4c4f8a1337891d976c8a2fd45c706413c66dcdf0c4bbffd",
+      "testBundleSha256": "46fcf8a76969aa467ab26ff88a7dd9ef42c8e601fb41d39186af07d079e31588"
+    },
+    "nativeCore": {
+      "mac": {
+        "cases": 14,
+        "passed": 14,
+        "pageBytes": 16384,
+        "platform": "darwin",
+        "results": [
+          {
+            "case": "minimum-capacity",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 436
+          },
+          {
+            "case": "root-absent-no-live-source",
+            "passed": true,
+            "beforeDecryptable": 20,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 132
+          },
+          {
+            "case": "minimum-root-removed",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 436
+          },
+          {
+            "case": "two-megabyte",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 436
+          },
+          {
+            "case": "four-megabyte",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 436
+          },
+          {
+            "case": "large-root-removed",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 436
+          },
+          {
+            "case": "no-key-history",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 350
+          },
+          {
+            "case": "constructor-password-defensive",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 436
+          },
+          {
+            "case": "near-capacity-zero-filler",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 905
+          },
+          {
+            "case": "near-capacity-deferral-retry",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 1516
+          },
+          {
+            "case": "rejected-growth",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 817
+          },
+          {
+            "case": "failed-shrink-large",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 436
+          },
+          {
+            "case": "failed-shrink-no-keys",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 350
+          },
+          {
+            "case": "leftover-filler-only",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 428
+          }
+        ]
+      },
+      "android": {
+        "cases": 14,
+        "passed": 14,
+        "pageBytes": 4096,
+        "platform": "Android core (host-controlled platform mocks)",
+        "results": [
+          {
+            "case": "minimum-capacity",
+            "passed": true,
+            "beforeDecryptable": 20,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 436
+          },
+          {
+            "case": "root-absent-no-live-source",
+            "passed": true,
+            "beforeDecryptable": 20,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 132
+          },
+          {
+            "case": "minimum-root-removed",
+            "passed": true,
+            "beforeDecryptable": 20,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 436
+          },
+          {
+            "case": "two-megabyte",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 436
+          },
+          {
+            "case": "four-megabyte",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 436
+          },
+          {
+            "case": "large-root-removed",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 436
+          },
+          {
+            "case": "no-key-history",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 350
+          },
+          {
+            "case": "constructor-password-defensive",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 436
+          },
+          {
+            "case": "near-capacity-zero-filler",
+            "passed": true,
+            "beforeDecryptable": 20,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 905
+          },
+          {
+            "case": "near-capacity-deferral-retry",
+            "passed": true,
+            "beforeDecryptable": 20,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 1516
+          },
+          {
+            "case": "rejected-growth",
+            "passed": true,
+            "beforeDecryptable": 20,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 817
+          },
+          {
+            "case": "failed-shrink-large",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 436
+          },
+          {
+            "case": "failed-shrink-no-keys",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 350
+          },
+          {
+            "case": "leftover-filler-only",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterPlaintextEddsa": 0,
+            "nativeCalls": 428
+          }
+        ]
+      },
+      "category": "Production migration with actual pinned MMKV core in fresh native worker processes; Keychain, AsyncStorage and record boundaries modeled. Raw-file scans are not hardware-secure-storage certification."
+    },
+    "nativeKills": {
+      "cases": 48,
+      "actualTerminations": 37,
+      "assertionsPassed": 48,
+      "fullRecovery": 48,
+      "recoveryRejected": 0,
+      "outcomes": [
+        {
+          "case": "root-write-current-0",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-current-1",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-current-2",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-current-3",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-current-4",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-current-5",
+          "phase": "root-write",
+          "killed": true,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-current-6",
+          "phase": "root-write",
+          "killed": false,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-current-7",
+          "phase": "root-write",
+          "killed": false,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-older-0",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-older-1",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-older-2",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-older-3",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-older-4",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-older-5",
+          "phase": "root-write",
+          "killed": true,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-older-6",
+          "phase": "root-write",
+          "killed": false,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-older-7",
+          "phase": "root-write",
+          "killed": false,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-none-0",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-none-1",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-none-2",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-none-3",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-none-4",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-none-5",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-none-6",
+          "phase": "root-write",
+          "killed": true,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-none-7",
+          "phase": "root-write",
+          "killed": false,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-async-0",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-async-1",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-async-2",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-async-3",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-async-4",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-async-5",
+          "phase": "root-write",
+          "killed": true,
+          "source": "main-backup",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-async-6",
+          "phase": "root-write",
+          "killed": false,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "root-write-async-7",
+          "phase": "root-write",
+          "killed": false,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "scrub-kept-0",
+          "phase": "scrub",
+          "killed": true,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "scrub-kept-1",
+          "phase": "scrub",
+          "killed": true,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "scrub-kept-2",
+          "phase": "scrub",
+          "killed": true,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "scrub-kept-3",
+          "phase": "scrub",
+          "killed": true,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "scrub-kept-4",
+          "phase": "scrub",
+          "killed": true,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "scrub-kept-5",
+          "phase": "scrub",
+          "killed": true,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "scrub-kept-6",
+          "phase": "scrub",
+          "killed": false,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "scrub-kept-7",
+          "phase": "scrub",
+          "killed": false,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "scrub-purged-0",
+          "phase": "scrub",
+          "killed": true,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "scrub-purged-1",
+          "phase": "scrub",
+          "killed": true,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "scrub-purged-2",
+          "phase": "scrub",
+          "killed": true,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "scrub-purged-3",
+          "phase": "scrub",
+          "killed": true,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "scrub-purged-4",
+          "phase": "scrub",
+          "killed": true,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "scrub-purged-5",
+          "phase": "scrub",
+          "killed": true,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "scrub-purged-6",
+          "phase": "scrub",
+          "killed": false,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        },
+        {
+          "case": "scrub-purged-7",
+          "phase": "scrub",
+          "killed": false,
+          "source": "primary",
+          "fullRecovery": true,
+          "recoveryRejected": false
+        }
+      ],
+      "category": "Deliberately timed inside-native worker kills. Counts are not production rates or power-loss proof; prior observed residuals remain."
+    },
+    "hermes": {
+      "scenarios": 15,
+      "launches": 74,
+      "distinctProcesses": 74,
+      "results": [
+        {
+          "seed": "react-seed",
+          "rows": [
+            {
+              "operation": "react-seed",
+              "newArchitectureBridge": true,
+              "decryptable": 11,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": true,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 6,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 2,
+              "cleanupPending": false,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-base-only",
+          "rows": [
+            {
+              "operation": "react-base-only",
+              "newArchitectureBridge": true,
+              "oldBaseCompleted": true,
+              "decryptable": 6,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 2,
+              "cleanupPending": false,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-async-only",
+          "rows": [
+            {
+              "operation": "react-async-only",
+              "newArchitectureBridge": true,
+              "decryptable": 6,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": true,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 1,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 2,
+              "cleanupPending": false,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-empty-import",
+          "rows": [
+            {
+              "operation": "react-empty-import",
+              "newArchitectureBridge": true,
+              "decryptable": 11,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": true,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 1,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 2,
+              "cleanupPending": false,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-fresh-start",
+          "rows": [
+            {
+              "operation": "react-fresh-start",
+              "newArchitectureBridge": true,
+              "initializationRetries": 3,
+              "nativeCleanCalls": 0,
+              "survivingKeyReused": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-fresh-retry",
+              "newArchitectureBridge": true,
+              "initializationRetries": 3,
+              "nativeCleanCalls": 0,
+              "survivingKeyReused": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-fresh-retry",
+              "newArchitectureBridge": true,
+              "initializationRetries": 3,
+              "nativeCleanCalls": 0,
+              "survivingKeyReused": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-fresh-save",
+              "newArchitectureBridge": true,
+              "initializationRetries": 3,
+              "nativeCleanCalls": 0,
+              "survivingKeyReused": true,
+              "firstOrdinarySave": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 2,
+              "cleanupPending": false,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-fresh-old-start",
+          "rows": [
+            {
+              "operation": "react-fresh-old-start",
+              "newArchitectureBridge": true,
+              "initializationRetries": 3,
+              "nativeCleanCalls": 0,
+              "survivingKeyReused": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-fresh-retry",
+              "newArchitectureBridge": true,
+              "initializationRetries": 3,
+              "nativeCleanCalls": 0,
+              "survivingKeyReused": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-fresh-retry",
+              "newArchitectureBridge": true,
+              "initializationRetries": 3,
+              "nativeCleanCalls": 0,
+              "survivingKeyReused": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-fresh-save",
+              "newArchitectureBridge": true,
+              "initializationRetries": 3,
+              "nativeCleanCalls": 0,
+              "survivingKeyReused": true,
+              "firstOrdinarySave": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 2,
+              "cleanupPending": false,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-fresh-both-start",
+          "rows": [
+            {
+              "operation": "react-fresh-both-start",
+              "newArchitectureBridge": true,
+              "initializationRetries": 3,
+              "nativeCleanCalls": 0,
+              "survivingKeyReused": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-fresh-retry",
+              "newArchitectureBridge": true,
+              "initializationRetries": 3,
+              "nativeCleanCalls": 0,
+              "survivingKeyReused": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-fresh-retry",
+              "newArchitectureBridge": true,
+              "initializationRetries": 3,
+              "nativeCleanCalls": 0,
+              "survivingKeyReused": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-fresh-save",
+              "newArchitectureBridge": true,
+              "initializationRetries": 3,
+              "nativeCleanCalls": 0,
+              "survivingKeyReused": true,
+              "firstOrdinarySave": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 2,
+              "cleanupPending": false,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-clean",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "walletRestoredExactly": true,
+              "completed": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-eddsa-seed",
+          "rows": [
+            {
+              "operation": "react-eddsa-seed",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "decryptable": 10,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-eddsa-upgrade",
+              "newArchitectureBridge": true,
+              "upgradedWithoutChangingOldProperties": true,
+              "cleanupDeferred": true,
+              "nativeCalls": 0,
+              "decryptable": 5,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-eddsa-retry",
+              "newArchitectureBridge": true,
+              "cleanupPending": true,
+              "enrichedPrimaryPreserved": true,
+              "completed": true,
+              "nativeCalls": 0,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-eddsa-verify",
+              "newArchitectureBridge": true,
+              "cleanupPending": false,
+              "enrichedPrimaryPreserved": true,
+              "completed": true,
+              "nativeCalls": 2,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-eddsa-verify",
+              "newArchitectureBridge": true,
+              "cleanupPending": false,
+              "enrichedPrimaryPreserved": true,
+              "completed": true,
+              "nativeCalls": 0,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-receipt-older-seed",
+          "rows": [
+            {
+              "operation": "react-receipt-older-seed",
+              "newArchitectureBridge": true,
+              "retainedLegacySource": true,
+              "cleanupPending": true,
+              "receiptAgreement": true,
+              "nativeCalls": 0,
+              "decryptable": 5,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-receipt-older-recover",
+              "newArchitectureBridge": true,
+              "primaryReadFailures": 0,
+              "failedSuspensionPreserved": true,
+              "retainedLegacySource": true,
+              "cleanupPending": true,
+              "receiptAbsent": true,
+              "recoveredKeys": 1,
+              "nativeCalls": 0,
+              "decryptable": 5,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-receipt-older-retry",
+              "newArchitectureBridge": true,
+              "retainedLegacySource": true,
+              "cleanupPending": true,
+              "receiptAbsent": true,
+              "recoveredKeys": 1,
+              "nativeCalls": 0,
+              "decryptable": 5,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-receipt-older-verify",
+              "newArchitectureBridge": true,
+              "retainedLegacySource": true,
+              "cleanupPending": true,
+              "receiptAbsent": true,
+              "recoveredKeys": 1,
+              "nativeCalls": 0,
+              "decryptable": 5,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-receipt-older-verify",
+              "newArchitectureBridge": true,
+              "retainedLegacySource": true,
+              "cleanupPending": true,
+              "receiptAbsent": true,
+              "recoveredKeys": 1,
+              "nativeCalls": 0,
+              "decryptable": 5,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-receipt-current-seed",
+          "rows": [
+            {
+              "operation": "react-receipt-current-seed",
+              "newArchitectureBridge": true,
+              "retainedLegacySource": true,
+              "cleanupPending": true,
+              "receiptAgreement": true,
+              "nativeCalls": 0,
+              "decryptable": 5,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-receipt-current-recover",
+              "newArchitectureBridge": true,
+              "primaryReadFailures": 0,
+              "failedSuspensionPreserved": true,
+              "retainedLegacySource": true,
+              "cleanupPending": true,
+              "receiptAbsent": true,
+              "recoveredKeys": 2,
+              "nativeCalls": 0,
+              "decryptable": 5,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-receipt-current-retry",
+              "newArchitectureBridge": true,
+              "retainedLegacySource": false,
+              "cleanupPending": true,
+              "receiptAbsent": true,
+              "recoveredKeys": 2,
+              "nativeCalls": 0,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-receipt-current-verify",
+              "newArchitectureBridge": true,
+              "retainedLegacySource": false,
+              "cleanupPending": false,
+              "receiptAbsent": true,
+              "recoveredKeys": 2,
+              "nativeCalls": 2,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-receipt-current-verify",
+              "newArchitectureBridge": true,
+              "retainedLegacySource": false,
+              "cleanupPending": false,
+              "receiptAbsent": true,
+              "recoveredKeys": 2,
+              "nativeCalls": 0,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-receipt-temp-seed",
+          "rows": [
+            {
+              "operation": "react-receipt-temp-seed",
+              "newArchitectureBridge": true,
+              "recordedReplacement": true,
+              "retainedLegacySource": true,
+              "cleanupPending": true,
+              "receiptAgreement": true,
+              "nativeCalls": 0,
+              "decryptable": 5,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-receipt-temp-recover",
+              "newArchitectureBridge": true,
+              "primaryReadFailures": 0,
+              "failedSuspensionPreserved": true,
+              "retainedLegacySource": true,
+              "cleanupPending": true,
+              "receiptAbsent": true,
+              "recoveredKeys": 1,
+              "nativeCalls": 0,
+              "decryptable": 5,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-receipt-temp-retry",
+              "newArchitectureBridge": true,
+              "retainedLegacySource": true,
+              "cleanupPending": true,
+              "receiptAbsent": true,
+              "recoveredKeys": 1,
+              "nativeCalls": 0,
+              "decryptable": 5,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-receipt-temp-verify",
+              "newArchitectureBridge": true,
+              "retainedLegacySource": true,
+              "cleanupPending": true,
+              "receiptAbsent": true,
+              "recoveredKeys": 1,
+              "nativeCalls": 0,
+              "decryptable": 5,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-receipt-temp-verify",
+              "newArchitectureBridge": true,
+              "retainedLegacySource": true,
+              "cleanupPending": true,
+              "receiptAbsent": true,
+              "recoveredKeys": 1,
+              "nativeCalls": 0,
+              "decryptable": 5,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-receipt-read-seed",
+          "rows": [
+            {
+              "operation": "react-receipt-read-seed",
+              "newArchitectureBridge": true,
+              "retainedLegacySource": true,
+              "cleanupPending": true,
+              "receiptAgreement": true,
+              "nativeCalls": 0,
+              "decryptable": 5,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-receipt-read-recover",
+              "newArchitectureBridge": true,
+              "primaryReadFailures": 2,
+              "failedSuspensionPreserved": true,
+              "retainedLegacySource": true,
+              "cleanupPending": true,
+              "receiptAbsent": true,
+              "recoveredKeys": 2,
+              "nativeCalls": 0,
+              "decryptable": 5,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-receipt-read-retry",
+              "newArchitectureBridge": true,
+              "retainedLegacySource": false,
+              "cleanupPending": true,
+              "receiptAbsent": true,
+              "recoveredKeys": 2,
+              "nativeCalls": 0,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-receipt-read-verify",
+              "newArchitectureBridge": true,
+              "retainedLegacySource": false,
+              "cleanupPending": false,
+              "receiptAbsent": true,
+              "recoveredKeys": 2,
+              "nativeCalls": 2,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-receipt-read-verify",
+              "newArchitectureBridge": true,
+              "retainedLegacySource": false,
+              "cleanupPending": false,
+              "receiptAbsent": true,
+              "recoveredKeys": 2,
+              "nativeCalls": 0,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-followup2-once-seed",
+          "rows": [
+            {
+              "operation": "react-followup2-once-seed",
+              "newArchitectureBridge": true,
+              "cleanupPending": true,
+              "nativeCalls": 0,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup2-once-check",
+              "newArchitectureBridge": true,
+              "exactPrimaryPreserved": true,
+              "injectedReads": 1,
+              "rootWrites": 0,
+              "cleanupPending": true,
+              "verifiedKeyCount": 2,
+              "nativeCalls": 0,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup2-once-retry",
+              "newArchitectureBridge": true,
+              "cleanupPending": true,
+              "verifiedKeyCount": 2,
+              "nativeCalls": 1,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup2-once-verify",
+              "newArchitectureBridge": true,
+              "cleanupPending": false,
+              "verifiedKeyCount": 2,
+              "nativeCalls": 2,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup2-once-verify",
+              "newArchitectureBridge": true,
+              "cleanupPending": false,
+              "verifiedKeyCount": 2,
+              "nativeCalls": 0,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-followup2-sql-seed",
+          "rows": [
+            {
+              "operation": "react-followup2-sql-seed",
+              "newArchitectureBridge": true,
+              "cleanupPending": true,
+              "nativeCalls": 1,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup2-sql-check",
+              "newArchitectureBridge": true,
+              "recoveredBeforeSqlCleanup": true,
+              "injectedReads": 2,
+              "rootWrites": 1,
+              "cleanupPending": true,
+              "verifiedKeyCount": 1,
+              "nativeCalls": 1,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup2-sql-retry",
+              "newArchitectureBridge": true,
+              "cleanupPending": false,
+              "verifiedKeyCount": 1,
+              "nativeCalls": 2,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup2-sql-verify",
+              "newArchitectureBridge": true,
+              "cleanupPending": false,
+              "verifiedKeyCount": 1,
+              "nativeCalls": 0,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup2-sql-verify",
+              "newArchitectureBridge": true,
+              "cleanupPending": false,
+              "verifiedKeyCount": 1,
+              "nativeCalls": 0,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-followup2-temp-seed",
+          "rows": [
+            {
+              "operation": "react-followup2-temp-seed",
+              "newArchitectureBridge": true,
+              "partialNativeWrite": true,
+              "ordinaryRotation": true,
+              "cleanupPending": true,
+              "nativeCalls": 0,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup2-temp-check",
+              "newArchitectureBridge": true,
+              "partialRetired": true,
+              "injectedReads": 0,
+              "rootWrites": 0,
+              "cleanupPending": true,
+              "verifiedKeyCount": 3,
+              "nativeCalls": 1,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup2-temp-retry",
+              "newArchitectureBridge": true,
+              "cleanupPending": false,
+              "verifiedKeyCount": 3,
+              "nativeCalls": 2,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup2-temp-verify",
+              "newArchitectureBridge": true,
+              "cleanupPending": false,
+              "verifiedKeyCount": 3,
+              "nativeCalls": 0,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup2-temp-verify",
+              "newArchitectureBridge": true,
+              "cleanupPending": false,
+              "verifiedKeyCount": 3,
+              "nativeCalls": 0,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        }
+      ],
+      "category": "Actual Android app native host, libraries and separate processes. E/F getter faults, F busy result, and G half-write rejection are JS-boundary injections around real storage; not actual hardware read errors or disk exhaustion."
+    },
+    "operationMeasurements": [
+      {
+        "launch": 0,
+        "platformModel": "android",
+        "hostTiming": "Node",
+        "asyncReads": 3,
+        "fieldDecryptCalls": 110,
+        "reducerDecryptCalls": 22,
+        "mmkvStringReads": 127,
+        "mmkvKeyLists": 1,
+        "mmkvSizeReads": 0,
+        "reportsThisAttempt": 1,
+        "recordWrites": 4
+      },
+      {
+        "launch": 1,
+        "platformModel": "android",
+        "hostTiming": "Node",
+        "asyncReads": 3,
+        "fieldDecryptCalls": 110,
+        "reducerDecryptCalls": 22,
+        "mmkvStringReads": 112,
+        "mmkvKeyLists": 1,
+        "mmkvSizeReads": 0,
+        "reportsThisAttempt": 0,
+        "recordWrites": 2
+      },
+      {
+        "launch": 2,
+        "platformModel": "android",
+        "hostTiming": "Node",
+        "asyncReads": 3,
+        "fieldDecryptCalls": 110,
+        "reducerDecryptCalls": 22,
+        "mmkvStringReads": 112,
+        "mmkvKeyLists": 1,
+        "mmkvSizeReads": 0,
+        "reportsThisAttempt": 0,
+        "recordWrites": 2
+      }
+    ],
+    "bounds": "E uses the existing one primary read; no retry loop. F qualifies only root errors. G attempts phase retirement once per affected fixed slot, skips already-retired phases, and returns after retirement failure before subsequent cleanup metadata writes. Existing three-read AsyncStorage bound and one-removal-per-path rules remain; counts do not bound native-call duration.",
+    "ios": {
+      "prerequisiteCommand": "BUNDLE_IGNORE_CONFIG=1 BUNDLE_PATH=$PINNED_BUNDLE BUNDLE_FROZEN=1 bundle exec pod install --deployment",
+      "exit": 1,
+      "reason": "Required base has Podfile checksum 4c22e1a9ab9a161b45190306ef176800a1072619 in its lockfile, versus 2d77c0721b56ccd64df7fa2dc8069d67a1a6059d for the Podfile. No lockfile edit or later commit imported.",
+      "nativeBuild": "blocked",
+      "runtime": "not rerun for this follow-up",
+      "historicalWork": "Later checksum repair and iOS simulator evidence remain untouched in the separate developer worktree; not relabeled as this repair's results."
+    },
+    "fixes": {
+      "E": "Return the existing re-read primary if it validates as modern; no restore/receipt stripping/suspension.",
+      "F": "Route only primary read failures in Android cleanup capture through the same existing recovery as invalid-primary failures.",
+      "G": "Only the post-conversion target-equality veto is removed. Confirmed temp absence closes writing through the existing verified phase and write/read-back. A phase failure keeps wallet access but stops this cleanup attempt; a later absent-slot launch closes any remaining writing state. Other slots preserved; unknown temps after retirement remain protected."
+    },
+    "knownOpenOutsideScope": [
+      "Present older/partial main can hide a newer recorded temp.",
+      "Legacy-Keychain read rejection can cause a leftover old-format bak to be deleted; normal upgrade reachability unestablished.",
+      "Records from the internal 2d70bd5 build have no bakDigest."
+    ],
+    "remainingValidation": [
+      "Independent review and release approval",
+      "Physical-device behavior",
+      "Packaged released-app upgrade",
+      "iOS native/runtime verification on this exact base",
+      "Known empty-view, metadata rollback, native crash/power-loss and simultaneous primary/backup-loss residuals"
+    ],
+    "committed": false,
+    "pushed": false,
+    "releaseApproved": false
   }
 }

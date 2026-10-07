@@ -7418,7 +7418,7 @@ describe('Stage A', () => {
           expect(root.getString('persist:root') === primary).toBe(true);
       },
     );
-    it('C target-digest guard preserves a previously stranded partial output', async () => {
+    it('G retires its unfinished partial output even when the target already matches', async () => {
       const key = await optionalRefreshPrimary();
       const intended = mockFiles.get(VAULT_BACKUP)!;
       const disk = diskFull(1);
@@ -7432,10 +7432,26 @@ describe('Stage A', () => {
         partial = mockFiles.get(path);
       expect(partial !== undefined).toBe(true);
       seedFile(VAULT_OLDER_BACKUP, intended);
+      const primary = root.getString('persist:root');
       restart();
       expect((await prepareVault(root)) === key).toBe(true);
-      expect(mockFiles.get(path) === partial).toBe(true);
-      expect(complete()).toBe(false);
+      expect(mockFiles.has(path)).toBe(false);
+      expect(root.getString('persist:root') === primary).toBe(true);
+      expect(mockFiles.get(VAULT_BACKUP) !== intended).toBe(true);
+      expect(mockFiles.get(VAULT_OLDER_BACKUP) === intended).toBe(true);
+      const expected = await restore(primary!, key);
+      for (const name of [
+        'MARKET_STATS',
+        'PORTFOLIO',
+        'PORTFOLIO_CHARTS',
+        'RATE',
+        'SHOP_CATALOG',
+      ])
+        delete expected[name];
+      expect(
+        isEqual(await restore(mockFiles.get(VAULT_BACKUP)!, key), expected),
+      ).toBe(true);
+      expect(complete()).toBe(true);
     });
     const addKey = (state: any, id: string) => {
       state.WALLET.keys[id] = {
@@ -7555,6 +7571,699 @@ describe('Stage A', () => {
         ).toEqual(['k1', 'readonly']);
         expect(isEqual(mockFiles, files)).toBe(true);
       }
+    });
+  });
+  describe('Follow-up EFG', () => {
+    const attempt = async (operation: () => Promise<unknown>) => {
+      try {
+        await operation();
+        return {code: 'RESOLVED', reason: undefined};
+      } catch (error) {
+        const diagnostic =
+          freshDiagnostics.get(error as Error) ??
+          getVaultDiagnostic(error as Error);
+        return {
+          code: diagnostic?.code ?? 'UNCLASSIFIED',
+          reason: (diagnostic as any)?.reason,
+        };
+      }
+    };
+    const reloadIOS = (blockAsync = false) =>
+      freshModules(as => {
+        require('react-native').Platform.OS = 'ios';
+        if (blockAsync)
+          as.getItem.mockRejectedValue(
+            new Error('synthetic independent pending cleanup'),
+          );
+      });
+    const appendKey = (state: any, id: string) => {
+      state.WALLET.keys[id] = {
+        id,
+        properties: {xPrivKey: 'synthetic ' + id},
+        wallets: [],
+      };
+    };
+    const readFault = (
+      kind: 'once' | 'contains' | 'persistent' | 'logs',
+      failure?: 'write' | 'read-back',
+    ) => {
+      const getting = MMKV.prototype.getString,
+        setting = MMKV.prototype.set,
+        containing = MMKV.prototype.contains;
+      let broken = true,
+        hits = 0,
+        rootWrites = 0;
+      const get = jest
+        .spyOn(MMKV.prototype, 'getString')
+        .mockImplementation(function (this: any, name) {
+          if (
+            broken &&
+            this.id === 'default' &&
+            name === (kind === 'logs' ? 'persist:logs' : 'persist:root') &&
+            kind !== 'contains'
+          ) {
+            hits++;
+            if (kind === 'once') broken = false;
+            throw new Error('synthetic primary read failure');
+          }
+          return getting.call(this, name);
+        });
+      const has = jest
+        .spyOn(MMKV.prototype, 'contains')
+        .mockImplementation(function (this: any, name) {
+          if (
+            broken &&
+            kind === 'contains' &&
+            this.id === 'default' &&
+            name === 'persist:root'
+          ) {
+            hits++;
+            broken = false;
+            throw new Error('synthetic contains failure');
+          }
+          return containing.call(this, name);
+        });
+      const set = jest
+        .spyOn(MMKV.prototype, 'set')
+        .mockImplementation(function (this: any, name, value) {
+          if (this.id === 'default' && name === 'persist:root') {
+            rootWrites++;
+            if (failure === 'write')
+              throw new Error('synthetic restore write failure');
+            const result = setting.call(this, name, value);
+            if (failure !== 'read-back') broken = false;
+            return result;
+          }
+          return setting.call(this, name, value);
+        });
+      return {
+        hits: () => hits,
+        writes: () => rootWrites,
+        clear: () => {
+          get.mockRestore();
+          has.mockRestore();
+          set.mockRestore();
+        },
+      };
+    };
+    const chooseBackup = (copy: string) => {
+      if (copy === 'bak') {
+        seedFile(VAULT_OLDER_BACKUP, mockFiles.get(VAULT_BACKUP)!);
+        mockFiles.delete(VAULT_BACKUP);
+      }
+    };
+    const ahead = async (
+      os: 'ios' | 'android',
+      baseComplete: boolean,
+      copy: string,
+    ) => {
+      Platform.OS = os;
+      if (os === 'android') rkBridge();
+      const state = stateWithSdkKey();
+      const key = await convertedPending(state, !baseComplete);
+      if (baseComplete) {
+        await prepareVault(root);
+        await prepareVault(root);
+        expect(complete()).toBe(true);
+        if (os === 'android') expect(rkComplete()).toBe(true);
+      }
+      appendKey(state, 'newer');
+      await ordinarySave(state, key, false);
+      chooseBackup(copy);
+      return {state, key};
+    };
+    it.each(
+      (['ios', 'android'] as const).flatMap(os =>
+        ['main', 'bak'].flatMap(copy =>
+          [false, true].flatMap(baseComplete =>
+            (baseComplete ? ['once'] : ['once', 'contains']).map(fault => ({
+              os,
+              copy,
+              baseComplete,
+              fault,
+            })),
+          ),
+        ),
+      ),
+    )(
+      'E retains exact newer primary after one failed read ($os/$copy/complete=$baseComplete/$fault)',
+      async ({os, copy, baseComplete, fault}) => {
+        const {key} = await ahead(os, baseComplete, copy);
+        const primary = root.getString('persist:root')!,
+          files = new Map(mockFiles),
+          credentials = new Map(mockCredentials),
+          oldAsync = new Map(mockAsync),
+          history = record.getString(VAULT_RECORD_KEY);
+        const receipt = (await restore(primary, key)).APP.bip02CleanupReceipt;
+        const injected = readFault(fault as 'once' | 'contains');
+        restart();
+        try {
+          if (!baseComplete)
+            expect((await attempt(() => prepareVault(root))).code).toBe(
+              'RESOLVED',
+            );
+          const raw = await reduxStorage.getItem('persist:root');
+          expect(injected.hits()).toBe(1);
+          expect(injected.writes()).toBe(0);
+          expect(raw === primary).toBe(true);
+          expect(root.getString('persist:root') === primary).toBe(true);
+          expect(
+            (await restore(raw!, key)).APP.bip02CleanupReceipt === receipt,
+          ).toBe(true);
+          expect(record.getString(VAULT_RECORD_KEY) === history).toBe(true);
+          expect(isEqual(mockFiles, files)).toBe(true);
+          expect(isEqual(mockAsync, oldAsync)).toBe(true);
+          expect(isEqual(mockCredentials, credentials)).toBe(true);
+          noWrites();
+        } finally {
+          injected.clear();
+        }
+        restart();
+        expect((await prepareVault(root)) === key).toBe(true);
+        expect(root.getString('persist:root') === primary).toBe(true);
+        expect(
+          Object.keys((await restore(primary, key)).WALLET.keys).sort(),
+        ).toEqual(['newer', 'readonly']);
+        expect(complete()).toBe(true);
+      },
+    );
+    it.each(
+      (['ios', 'android'] as const).flatMap(os =>
+        [false, true].map(baseComplete => ({os, baseComplete})),
+      ),
+    )(
+      'E corruption on the successful re-read still restores ($os/complete=$baseComplete)',
+      async ({os, baseComplete}) => {
+        const {key} = await ahead(os, baseComplete, 'main');
+        root.set('persist:root', '{broken');
+        const files = new Map(mockFiles),
+          injected = readFault('once');
+        restart();
+        try {
+          if (!baseComplete) await prepareVault(root);
+          const raw = await reduxStorage.getItem('persist:root');
+          expect(injected.hits()).toBe(1);
+          expect(injected.writes()).toBe(1);
+          expect(Object.keys((await restore(raw!, key)).WALLET.keys)).toEqual([
+            'readonly',
+          ]);
+          expect(isEqual(mockFiles, files)).toBe(true);
+        } finally {
+          injected.clear();
+        }
+        restart();
+        expect((await prepareVault(root)) === key).toBe(true);
+      },
+    );
+    const sqlPending = async (marker: string, copy = 'main') => {
+      Platform.OS = 'android';
+      const state = stateWithSdkKey();
+      const key = await convertedPending(state);
+      delete NativeModules.BitPayRKStorage;
+      await prepareVault(root);
+      expect(complete()).toBe(true);
+      expect(rkComplete()).toBe(false);
+      if (marker === 'busy') {
+        const bridge = rkBridge();
+        bridge.inspect.mockResolvedValue('BUSY');
+        bridge.clean.mockResolvedValue('BUSY');
+      }
+      if (marker === 'invalid')
+        record.set(RKSTORAGE_RECORD_KEY, 'invalid marker');
+      chooseBackup(copy);
+      return {state, key};
+    };
+    it.each(
+      ['absent', 'busy', 'invalid', 'read-error'].flatMap(marker =>
+        ['main', 'bak'].map(copy => ({marker, copy})),
+      ),
+    )(
+      'F repairs persistent primary reads before Android cleanup ($marker/$copy)',
+      async ({marker, copy}) => {
+        const {key} = await sqlPending(marker, copy);
+        const files = new Map(mockFiles),
+          injected = readFault('persistent');
+        const get = (
+          MMKV.prototype.getString as jest.Mock
+        ).getMockImplementation()!;
+        let markerHits = 0;
+        const markerSpy =
+          marker === 'read-error'
+            ? jest
+                .spyOn(MMKV.prototype, 'getString')
+                .mockImplementation(function (this: any, name) {
+                  if (
+                    this.id === VAULT_RECORD_ID &&
+                    name === RKSTORAGE_RECORD_KEY
+                  ) {
+                    markerHits++;
+                    throw new Error('synthetic marker read failure');
+                  }
+                  return get.call(this, name);
+                })
+            : undefined;
+        restart();
+        try {
+          expect((await attempt(() => prepareVault(root))).code).toBe(
+            'RESOLVED',
+          );
+          const raw = await reduxStorage.getItem('persist:root');
+          expect(injected.hits() > 0).toBe(true);
+          if (markerSpy) expect(markerHits > 0).toBe(true);
+          expect(injected.writes()).toBe(1);
+          expect(Object.keys((await restore(raw!, key)).WALLET.keys)).toEqual([
+            'readonly',
+          ]);
+          expect(isEqual(mockFiles, files)).toBe(true);
+          expect(
+            mockStores.get(VAULT_RECORD_ID)?.get(RKSTORAGE_RECORD_KEY) ===
+              'complete-v1',
+          ).toBe(false);
+        } finally {
+          markerSpy?.mockRestore();
+          injected.clear();
+        }
+        restart();
+        rkBridge();
+        expect((await prepareVault(root)) === key).toBe(true);
+        expect((await reduxStorage.getItem('persist:root')) !== null).toBe(
+          true,
+        );
+        expect(rkComplete()).toBe(marker !== 'invalid');
+      },
+    );
+    it.each(['none', 'write', 'read-back', 'missing-key', 'logs'])(
+      'F preserves required failure semantics: %s',
+      async failure => {
+        const {key} = await sqlPending('absent');
+        const credential = mockCredentials.get(VAULT_KEY_SERVICE);
+        if (failure === 'none') mockFiles.clear();
+        if (failure === 'missing-key')
+          mockCredentials.delete(VAULT_KEY_SERVICE);
+        if (failure === 'logs') root.set('persist:logs', '[]');
+        const primary = root.getString('persist:root'),
+          files = new Map(mockFiles),
+          history = record.getString(VAULT_RECORD_KEY);
+        const injected = readFault(
+          failure === 'logs' ? 'logs' : 'persistent',
+          failure === 'write' || failure === 'read-back' ? failure : undefined,
+        );
+        restart();
+        try {
+          const result = await attempt(async () => {
+            await prepareVault(root);
+            await reduxStorage.getItem('persist:root');
+          });
+          expect(result.code === 'RESOLVED').toBe(false);
+          if (failure === 'none')
+            expect(result.reason).toBe('RECOVERY_UNAVAILABLE');
+          if (failure === 'missing-key')
+            expect(result.code).toBe('MODERN_KEY_FAILURE');
+          else expect(injected.hits() > 0).toBe(true);
+          expect(injected.writes()).toBe(
+            failure === 'write' || failure === 'read-back' ? 1 : 0,
+          );
+          expect(isEqual(mockFiles, files)).toBe(true);
+          expect(record.getString(VAULT_RECORD_KEY) === history).toBe(true);
+          if (failure !== 'write' && failure !== 'read-back') noWrites();
+        } finally {
+          injected.clear();
+        }
+        if (failure !== 'read-back')
+          expect(root.getString('persist:root') === primary).toBe(true);
+        if (failure === 'missing-key')
+          mockCredentials.set(VAULT_KEY_SERVICE, credential);
+        restart();
+        rkBridge();
+        expect((await prepareVault(root)) === key).toBe(true);
+        expect(rkComplete()).toBe(true);
+      },
+    );
+    it.each(['main', 'bak'])(
+      'F brief primary-read failure keeps the newer primary (%s)',
+      async copy => {
+        const {state, key} = await sqlPending('absent', copy);
+        appendKey(state, 'newer');
+        await ordinarySave(state, key, false);
+        const primary = root.getString('persist:root'),
+          files = new Map(mockFiles),
+          history = record.getString(VAULT_RECORD_KEY);
+        const injected = readFault('once');
+        restart();
+        try {
+          expect((await attempt(() => prepareVault(root))).code).toBe(
+            'RESOLVED',
+          );
+          expect((await reduxStorage.getItem('persist:root')) === primary).toBe(
+            true,
+          );
+          expect(injected.hits()).toBe(1);
+          expect(injected.writes()).toBe(0);
+          expect(record.getString(VAULT_RECORD_KEY) === history).toBe(true);
+          expect(isEqual(mockFiles, files)).toBe(true);
+          noWrites();
+        } finally {
+          injected.clear();
+        }
+        restart();
+        rkBridge();
+        await prepareVault(root);
+        expect(root.getString('persist:root') === primary).toBe(true);
+        expect(rkComplete()).toBe(true);
+      },
+    );
+    const unfinished = async (ordinaryRotation = false) => {
+      Platform.OS = 'ios';
+      const state = stateWithSdkKey(),
+        key = await convertedPending(state);
+      appendKey(state, 'k1');
+      await ordinarySave(state, key, false);
+      const primary = root.getString('persist:root'),
+        initialMain = mockFiles.get(VAULT_BACKUP)!;
+      const write = RNFS.writeFile as jest.Mock,
+        original = write.getMockImplementation()!;
+      let hits = 0;
+      write.mockImplementation(async (path, data) => {
+        hits++;
+        expect(path === migrationTemp(VAULT_OLDER_BACKUP)).toBe(true);
+        mockFiles.set(path, data.slice(0, Math.floor(data.length / 2)));
+        throw new Error('synthetic partial ENOSPC');
+      });
+      restart();
+      try {
+        expect((await prepareVault(root)) === key).toBe(true);
+      } finally {
+        write.mockImplementation(original);
+      }
+      expect(hits).toBe(1);
+      expect(complete()).toBe(false);
+      expect(root.getString('persist:root') === primary).toBe(true);
+      const partial = mockFiles.get(migrationTemp(VAULT_OLDER_BACKUP))!;
+      expect(typeof partial === 'string' && partial.length > 0).toBe(true);
+      expect(
+        await restore(partial, key).then(
+          () => false,
+          () => true,
+        ),
+      ).toBe(true);
+      expect(
+        JSON.parse(record.getString(VAULT_RECORD_KEY)!).cleanup.bak.writePhase,
+      ).toBe('writing');
+      if (ordinaryRotation) {
+        appendKey(state, 'k2');
+        await ordinarySave(state, key, true);
+        expect(mockFiles.get(VAULT_OLDER_BACKUP) === initialMain).toBe(true);
+      }
+      return {state, key, partial, initialMain};
+    };
+    const expectedBackup = async (key: string) => {
+      const expected = await restore(root.getString('persist:root')!, key);
+      for (const name of [
+        'MARKET_STATS',
+        'PORTFOLIO',
+        'PORTFOLIO_CHARTS',
+        'RATE',
+        'SHOP_CATALOG',
+      ])
+        delete expected[name];
+      return expected;
+    };
+    it.each([true, false])(
+      'G completes a half-written refresh across ordinary use (rotation=%s)',
+      async rotation => {
+        const {key, initialMain} = await unfinished(rotation);
+        const primary = root.getString('persist:root'),
+          main = mockFiles.get(VAULT_BACKUP),
+          bak = mockFiles.get(VAULT_OLDER_BACKUP);
+        const read = RNFS.readFile as jest.Mock,
+          original = read.getMockImplementation()!;
+        let finalReads = 0;
+        read.mockImplementation(async (path, ...args) => {
+          if (path === VAULT_BACKUP && mockFiles.get(path) !== initialMain)
+            finalReads++;
+          return original(path, ...args);
+        });
+        try {
+          for (let launch = 0; launch < 2; launch++) {
+            restart();
+            expect((await prepareVault(root)) === key).toBe(true);
+            expect(root.getString('persist:root') === primary).toBe(true);
+            if (rotation) {
+              expect(mockFiles.get(VAULT_BACKUP) === main).toBe(true);
+              expect(mockFiles.get(VAULT_OLDER_BACKUP) === bak).toBe(true);
+            }
+          }
+        } finally {
+          read.mockImplementation(original);
+        }
+        expect(complete()).toBe(true);
+        expect(mockFiles.has(migrationTemp(VAULT_BACKUP))).toBe(false);
+        expect(mockFiles.has(migrationTemp(VAULT_OLDER_BACKUP))).toBe(false);
+        expect(mockCredentials.has(LEGACY_KEY_SERVICE)).toBe(false);
+        if (!rotation) {
+          expect(mockFiles.get(VAULT_BACKUP) !== main).toBe(true);
+          expect(mockFiles.get(VAULT_OLDER_BACKUP) === initialMain).toBe(true);
+          expect(finalReads > 0).toBe(true);
+        }
+        expect(
+          isEqual(
+            await restore(mockFiles.get(VAULT_BACKUP)!, key),
+            await expectedBackup(key),
+          ),
+        ).toBe(true);
+      },
+    );
+    it.each([
+      'no-binding',
+      'no-phase',
+      'coverage-only',
+      'verified',
+      'different-valid',
+      'intended-complete',
+    ])('G keeps the existing disposition for %s temps', async kind => {
+      const {key, partial, initialMain} = await unfinished(true);
+      const path = migrationTemp(VAULT_OLDER_BACKUP),
+        metadata = JSON.parse(record.getString(VAULT_RECORD_KEY)!);
+      if (kind === 'no-binding') delete metadata.cleanup.bak;
+      if (kind === 'no-phase') delete metadata.cleanup.bak.writePhase;
+      if (kind === 'coverage-only') {
+        metadata.cleanup.bak.origin = 'current-coverage';
+        delete metadata.cleanup.bak.writePhase;
+      }
+      if (kind === 'verified') metadata.cleanup.bak.writePhase = 'verified';
+      record.set(VAULT_RECORD_KEY, JSON.stringify(metadata));
+      let temp = partial;
+      if (kind === 'different-valid')
+        temp = await save(
+          {...stateWithSdkKey(), BITPAY_ID: {apiToken: 'distinct synthetic'}},
+          key,
+          'modern',
+        );
+      if (kind === 'intended-complete') temp = initialMain;
+      seedFile(path, temp);
+      const primary = root.getString('persist:root'),
+        main = mockFiles.get(VAULT_BACKUP),
+        bak = mockFiles.get(VAULT_OLDER_BACKUP);
+      restart();
+      expect((await prepareVault(root)) === key).toBe(true);
+      expect(root.getString('persist:root') === primary).toBe(true);
+      expect(mockFiles.get(VAULT_BACKUP) === main).toBe(true);
+      expect(mockFiles.get(VAULT_OLDER_BACKUP) === bak).toBe(true);
+      if (kind === 'intended-complete') {
+        expect(mockFiles.has(path)).toBe(false);
+        expect(complete()).toBe(true);
+      } else {
+        expect(mockFiles.get(path) === temp).toBe(true);
+        expect(complete()).toBe(false);
+      }
+    });
+    it('G still defers an owned partial temp while the other backup is unreadable', async () => {
+      const {key, partial} = await unfinished(true);
+      const primary = root.getString('persist:root'),
+        files = new Map(mockFiles);
+      const read = RNFS.readFile as jest.Mock,
+        original = read.getMockImplementation()!;
+      let hits = 0;
+      read.mockImplementation(async (path, ...args) => {
+        if (path === VAULT_BACKUP) {
+          hits++;
+          throw new Error('synthetic required-slot read failure');
+        }
+        return original(path, ...args);
+      });
+      restart();
+      try {
+        expect((await prepareVault(root)) === key).toBe(true);
+        expect(hits > 0).toBe(true);
+        expect(
+          mockFiles.get(migrationTemp(VAULT_OLDER_BACKUP)) === partial,
+        ).toBe(true);
+        expect(isEqual(mockFiles, files)).toBe(true);
+      } finally {
+        read.mockImplementation(original);
+      }
+      expect(root.getString('persist:root') === primary).toBe(true);
+      expect(complete()).toBe(false);
+      restart();
+      await prepareVault(root);
+      expect(complete()).toBe(true);
+    });
+    it.each([
+      'normal',
+      'write-fails',
+      'read-back-fails',
+      'cut-before-retirement',
+    ])(
+      'G retires the partial-output permission across launches: %s',
+      async failure => {
+        const {key} = await unfinished(true),
+          path = migrationTemp(VAULT_OLDER_BACKUP);
+        const primary = root.getString('persist:root'),
+          main = mockFiles.get(VAULT_BACKUP),
+          bak = mockFiles.get(VAULT_OLDER_BACKUP);
+        const reading = AsyncStorage.getItem as jest.Mock,
+          readingOriginal = reading.getMockImplementation()!;
+        reading.mockRejectedValue(
+          new Error('synthetic independent pending cleanup'),
+        );
+        const originalSet = MMKV.prototype.set,
+          originalGet = MMKV.prototype.getString;
+        let rejectedRead = false,
+          retirementHits = 0,
+          cutHits = 0;
+        const set = jest
+          .spyOn(MMKV.prototype, 'set')
+          .mockImplementation(function (this: any, name, value) {
+            const next =
+              name === VAULT_RECORD_KEY
+                ? JSON.parse(value as string)
+                : undefined;
+            const retires =
+              this.id === VAULT_RECORD_ID &&
+              name === VAULT_RECORD_KEY &&
+              next?.cleanup?.bak?.writePhase === 'verified' &&
+              JSON.parse(originalGet.call(this, name) ?? 'null')?.cleanup?.bak
+                ?.writePhase === 'writing';
+            if (retires) {
+              retirementHits++;
+              if (failure === 'write-fails')
+                throw new Error('synthetic retirement write failure');
+            }
+            const result = originalSet.call(this, name, value);
+            if (retires && failure === 'read-back-fails') rejectedRead = true;
+            return result;
+          });
+        const get = jest
+          .spyOn(MMKV.prototype, 'getString')
+          .mockImplementation(function (this: any, name) {
+            if (
+              rejectedRead &&
+              this.id === VAULT_RECORD_ID &&
+              name === VAULT_RECORD_KEY
+            ) {
+              rejectedRead = false;
+              throw new Error('synthetic retirement verification failure');
+            }
+            return originalGet.call(this, name);
+          });
+        const unlink = RNFS.unlink as jest.Mock,
+          unlinkOriginal = unlink.getMockImplementation()!;
+        if (failure === 'cut-before-retirement')
+          unlink.mockImplementation(async target => {
+            const result = await unlinkOriginal(target);
+            if (target === path) {
+              cutHits++;
+              mockDead = true;
+              throw new Error('modeled completed-call interruption');
+            }
+            return result;
+          });
+        restart();
+        try {
+          const result = await attempt(() => prepareVault(root));
+          if (failure !== 'cut-before-retirement')
+            expect(result.code).toBe('RESOLVED');
+          else {
+            expect(cutHits).toBe(1);
+            expect(result.code === 'RESOLVED').toBe(false);
+          }
+        } finally {
+          set.mockRestore();
+          get.mockRestore();
+          unlink.mockImplementation(unlinkOriginal);
+          reading.mockImplementation(readingOriginal);
+          mockDead = false;
+        }
+        expect(mockFiles.has(path)).toBe(false);
+        expect(root.getString('persist:root') === primary).toBe(true);
+        expect(mockFiles.get(VAULT_BACKUP) === main).toBe(true);
+        expect(mockFiles.get(VAULT_OLDER_BACKUP) === bak).toBe(true);
+        expect(complete()).toBe(false);
+        if (failure !== 'cut-before-retirement') expect(retirementHits).toBe(1);
+        const phase = JSON.parse(record.getString(VAULT_RECORD_KEY)!).cleanup
+          .bak.writePhase;
+        expect(phase).toBe(
+          failure === 'write-fails' || failure === 'cut-before-retirement'
+            ? 'writing'
+            : 'verified',
+        );
+        restart();
+        expect((await reloadIOS(true)) === key).toBe(true);
+        expect(
+          JSON.parse(record.getString(VAULT_RECORD_KEY)!).cleanup.bak
+            .writePhase,
+        ).toBe('verified');
+        expect(complete()).toBe(false);
+        expect(root.getString('persist:root') === primary).toBe(true);
+        seedFile(path, 'later unrelated undecodable bytes');
+        restart();
+        expect((await reloadIOS()) === key).toBe(true);
+        expect(
+          mockFiles.get(path) === 'later unrelated undecodable bytes',
+        ).toBe(true);
+        expect(root.getString('persist:root') === primary).toBe(true);
+        expect(complete()).toBe(false);
+      },
+    );
+    it('D sole qualifying modern temp wins over a readable but undecodable bak', async () => {
+      const state = stateWithSdkKey(),
+        key = await convertedPending(state);
+      appendKey(state, 'newer');
+      await ordinarySave(state, key, false);
+      const move = RNFS.moveFile as jest.Mock,
+        original = move.getMockImplementation()!;
+      let hits = 0;
+      move.mockImplementation(async (from, to) => {
+        if (to === VAULT_BACKUP) {
+          hits++;
+          throw new Error('synthetic promotion failure');
+        }
+        return original(from, to);
+      });
+      try {
+        expect((await prepareVault(root)) === key).toBe(true);
+        expect(hits > 0).toBe(true);
+      } finally {
+        move.mockImplementation(original);
+      }
+      expect(mockFiles.has(VAULT_BACKUP)).toBe(false);
+      const temp = mockFiles.get(migrationTemp(VAULT_BACKUP))!;
+      expect(typeof temp === 'string').toBe(true);
+      seedFile(VAULT_OLDER_BACKUP, 'synthetic undecodable bak');
+      root.delete('persist:root');
+      const files = new Map(mockFiles);
+      restart();
+      expect((await prepareVault(root)) === key).toBe(true);
+      expect(
+        Object.keys(
+          (await restore((await reduxStorage.getItem('persist:root'))!, key))
+            .WALLET.keys,
+        ).sort(),
+      ).toEqual(['newer', 'readonly']);
+      expect(isEqual(mockFiles, files)).toBe(true);
+      restart();
+      expect((await prepareVault(root)) === key).toBe(true);
+      expect(complete()).toBe(true);
     });
   });
 });
