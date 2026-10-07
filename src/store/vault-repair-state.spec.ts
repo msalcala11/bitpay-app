@@ -166,3 +166,28 @@ it('keeps verified write provenance through a fresh coverage intent, without gra
     }) === undefined,
   ).toBe(true);
 });
+
+it('binds a successful backup observation only to the main refresh slot', () => {
+  for (const bakDigest of [null, 'e'.repeat(64)]) {
+    const main = {
+      origin: 'optional-refresh',
+      digest: 'a'.repeat(64),
+      writePhase: 'verified',
+      bakDigest,
+    };
+    expect(parseCleanup({v: 1, main})?.main?.bakDigest === bakDigest).toBe(
+      true,
+    );
+    expect(parseCleanup({v: 1, bak: main}) === undefined).toBe(true);
+  }
+  expect(
+    parseCleanup({
+      v: 1,
+      main: {
+        origin: 'optional-refresh',
+        digest: 'a'.repeat(64),
+        bakDigest: 'invalid',
+      },
+    }) === undefined,
+  ).toBe(true);
+});

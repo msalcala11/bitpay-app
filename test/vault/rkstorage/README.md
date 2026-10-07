@@ -175,3 +175,11 @@ keep its uncovered key, retain conversion and never replenish the receipt. The
 file/key/record libraries and process boundaries are real; the promotion and
 suspension errors are deliberate test-boundary injections, not inside-native
 failures. Together the driver runs 11 scenarios and 54 launches.
+
+
+The follow-up adds `react-receipt-read-*`: while cleanup is pending, the real
+MMKV getter is wrapped to reject primary reads until a successful native restore
+write. A failed suspension write must not prevent one verified receipt-free
+restore; later fresh processes requalify covered source cleanup. This is a
+JavaScript-injected read fault over real native libraries, not a native load-fault
+simulation or hardware claim. The driver now runs 12 scenarios / 59 launches.

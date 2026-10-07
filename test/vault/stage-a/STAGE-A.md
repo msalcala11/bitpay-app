@@ -1,6 +1,6 @@
 # BIP-02 — approved Stage A and Stage B implementation
 
-Stage B was explicitly authorized on 2026-10-05, including the APP cleanup receipt and the single receipt-free recovery write. The Stage A results below are historical reference evidence. The reviewed Stage B base is `a09199eb39af4b3a730b30e81c7d3217a1921460`; section 8 records the bounded repair under the owner's rulings of 6 October. The repair is uncommitted and is not release approval.
+Stage B was explicitly authorized on 2026-10-05, including the APP cleanup receipt and the single receipt-free recovery write. The Stage A results below are historical reference evidence. Section 8 records the consolidated repair from `a09199eb39af4b3a730b30e81c7d3217a1921460` under the owner's rulings of 6 October. Section 9 records the current uncommitted follow-up from `2d70bd53832200698ac62349f30380e60aa22a9f`. Neither is release approval.
 
 ## 1. Scope and superseding owner policies
 
@@ -282,7 +282,7 @@ Repair validation: **513 focused tests pass**; the normal full suite reports **1
 
 The owner's three rulings are controlling: (1) delete a successfully read damaged independent AsyncStorage wallet row while base cleanup is pending after validated conversion, subject to current primary usability, identity checks and the recovery restriction; (2) reinstall opens as a fresh installation on both platforms when no persistence source exists and all necessary inventory reads succeed; (3) the same empty visible state on Android opens fresh even when the old Keychain entry exists. Two recommendations are adopted: a released-format primary written after a downgrade is preserved and goes through the existing error path, and the damaged-row rule applies whenever such a row becomes readable, including different damaged bytes on later attempts. No downgraded-data import is introduced.
 
-Accepted consequences remain explicit: damaged-row deletion can discard protected material absent from the current wallet; a first save after an empty Android view can overwrite data hidden by a failed native load; and the unchanged `a09199e` fallback to `.bak` after a main read failure can restore an older snapshot, with later rotation potentially retiring the newer copy. A lost migration record remains an information-loss limit. Original contract 5E's claim that record loss merely repeats idempotent checks no longer describes the approved conversion model. None of these rulings authorizes guessing a replacement modern key or importing old AsyncStorage after established conversion is lost.
+Accepted consequences remain explicit: damaged-row deletion can discard protected material absent from the current wallet; with an empty successful inventory and a readable old Keychain entry, that entry is retired on the same launch before any save; a later first save can overwrite data hidden by a failed native load; and the unchanged `a09199e` fallback to `.bak` after a main read failure can restore an older snapshot, with later rotation potentially retiring the newer copy. A lost migration record remains an information-loss limit. Original contract 5E's claim that record loss merely repeats idempotent checks no longer describes the approved conversion model. None of these rulings authorizes guessing a replacement modern key or importing old AsyncStorage after established conversion is lost.
 
 | Finding | Implemented rule |
 | --- | --- |
@@ -321,3 +321,42 @@ Current source identities, actual final command results and remaining gates are 
 | Physical-device / packaged released-app upgrade | Unrun; remain release gates |
 
 Measured pending-launch models make three AsyncStorage reads per attempt. The three measured attempts make 4, 2 and 2 record writes, with 121, 108 and 108 MMKV string reads; repeated identical deferral reports are suppressed after the first. These are measured model counts, not a bound on how long a native call can run. Source/build hashes and category-specific outcomes are retained in the Stage B evidence. No secret, receipt value, snapshot, device identifier or host-specific filesystem path is included in that evidence.
+
+
+## 9. Follow-up at 2d70bd5 — A through D
+
+This follow-up preserves the owner rulings, conversion milestone, receipt, write phases, plan resumption, downgrade guard, scrub and ordinary backup writer. The clean isolated baseline at `2d70bd53832200698ac62349f30380e60aa22a9f` passed all 450 existing migration cases using a real frozen dependency install and normal postinstall. Existing assertions are unchanged; the twelve old/modern/both total-loss/key-safety controls receive only the requested accurate title.
+
+- **A / review defect 0, both routes:** initial registered-key inventory identifies an exception from the primary specifically; an exception from logs does not qualify. After validated recorded conversion, a primary read exception enters existing verified recovery and returns before cleanup. The completed adapter route uses the same recovery. A successful read still runs the released/unsupported-format guard. A failed read cannot supply fresh-empty evidence; successful candidate reads with no usable modern copy produce `RECOVERY_UNAVAILABLE`. Key/history, candidate-read, restore-write and verification failures retain their classifications. The store adapter classifies the primary-read exception before its existing log/Sentry capture, so no raw native message or stack escapes at that boundary. Pending recovery keeps the single receipt-free root write and preserves all old copies and credentials on that launch. Pre-conversion read failures remain strict.
+- **B / review defect 1:** `damagedAsync` requires a successful old-Keychain read. Missing a permitted decryption candidate is not evidence of damage. A fully validated row can still use existing coverage/identity rules; otherwise it stays pending until classification becomes possible. The owner-approved damaged-row deletion rule itself is unchanged.
+- **C / review defect 2:** both required and optional `.bak` rotation first read and validate a byte-identical target and skip its redundant rewrite. The original target-digest ownership clauses remain intact. This prevents the two-launch full-disk sequence from creating a disowned second partial `.bak` output. It does **not** repair an already-stranded partial temp whose target matches its write intent; that conservative case is explicitly tested.
+- **D / review point 3:** each new main-refresh binding carries one optional `bakDigest`, observing the backup bytes (or explicit absence) during that same main refresh, after any rotation. It is not inferred from an unrelated `.bak` intent. Recovery still requires a missing target, exact writer binding, qualifying origin/phase and a valid modern temp. The temp retains priority when its paired backup context still matches. If a valid backup exists and the context differs or is missing, use ordinary backup precedence; a mismatch is **not** treated as proof of chronological age. A qualifying temp remains usable when successful reads find no other usable modern copy. Unreadable supporting evidence is never absence. Old bindings without context cannot establish priority over a valid backup, but retain the sole-copy recovery route. Verified writer/context provenance survives fresh-coverage rebinding. No general newest-copy algorithm, new storage location, generation or ordinary-save metadata write is introduced.
+
+The accepted fresh-empty consequence is explicit: when its old Keychain entry is readable it is retired on that same launch, **before** any save. When the old read fails, fresh initialization can open with cleanup pending; the subsequent successful read permits retirement, still without requiring a wallet save. This does not relax the existing total-loss stop once conversion is recorded.
+
+The supplied K/K2/H/T observations were converted to assertions using the existing production-path harness. Tests prove each injected failure occurred, preservation during it and behavior after it clears; compare fixed outcomes/booleans/synthetic key IDs, never wallet contents. Scratch mutation controls remove the target-digest ownership guard and the recovery origin/phase restriction independently; their corresponding tests must fail. The new backup-context parser preserves optional-metadata deferral and rejects context on other slots. Final results and current source identities are in `stage-b-results.json.followupRepair`; earlier sections remain historical evidence.
+
+Remaining native empty-view, hidden metadata, rollback/power-loss and simultaneous primary/backup-loss limits are unchanged. Physical-device and packaged released-build upgrade testing, independent review and release approval remain outstanding.
+
+
+### Follow-up validation — 7 October 2026
+
+| Check | Actual result |
+| --- | --- |
+| Exact-base migration baseline | **450 pass** with real pinned dependencies; reproduced from immutable base source after temporary-artifact loss |
+| New assertion regressions before repair | **32 fail / 7 pass** on the base migration; one additional adapter diagnostic regression fails before its correction |
+| Final migration and focused suites | **490 migration cases pass; 642 focused cases pass** in 8 suites; all 450 existing assertions retained, with only the authorized title correction |
+| Normal full suite | **140 suites, 2,970 pass, 2 existing skips** |
+| Guard mutation controls | Removing target-digest ownership or recovery origin/phase qualification causes the corresponding regression to fail; scratch transforms only |
+| TypeScript / repository ESLint | **2,024 diagnostics; 632 errors / 697 warnings**, unchanged by diagnostic identity. The default CJS parser also fails on the unchanged base runner; the runner passes Node syntax and explicit Node/ES2022 lint checks |
+| Formatting / diff whitespace | Pass |
+| Native core raw-file cases | **14 macOS (16 KiB OS pages)** and **14 Android (4 KiB OS pages)** pass |
+| Timed native interruptions | **48 scenario assertions pass, 36 actual terminations**; all selected contents recover in this sample. This does not erase prior native/cache-loss residuals or establish production failure rates |
+| Android Hermes and actual process restarts | **12 scenarios / 59 distinct processes** pass, including primary-read rejection until the single receipt-free recovery write, failed suspension persistence, and later successful source reads |
+| Android build | Debug and instrumentation APKs pass; packaged final harness bundle is byte-verified |
+| iOS native prerequisite | Deployment-mode Podfile checksum mismatch remains; no dependency or lockfile change |
+| Physical-device / released-build upgrade / release approval | Outstanding |
+
+The native-core harness executes the final migration/helpers and models other platform boundaries. Its runs began before the final adapter-only diagnostic capture change; that adapter is not imported by the core harness and is covered by final Jest/Hermes instead. The new Hermes fault is a JavaScript-injected read rejection over real libraries, not an inside-native load fault. Modeled retries and partial writes, native worker/process restarts, deliberately timed native kills, and physical-device behavior remain distinct evidence categories.
+
+The three measured pending-attempt models make **3 AsyncStorage reads**, **4 / 2 / 2 record writes**, and **127 / 112 / 112 MMKV string reads**; identical repeated deferrals report only once. The main refresh adds one bounded backup-context observation, and recovery retains fixed candidates. No polling or native ownership timeout is introduced. Operation counts do not bound native-call duration. Historical manifests/results are retained; current source/build identities and exact commands are recorded in `stage-b-results.json.followupRepair`.

@@ -13,6 +13,7 @@ export type CleanupBinding = {
   origin: 'converted-source' | 'optional-refresh' | 'current-coverage';
   digest: string;
   writePhase?: 'writing' | 'verified';
+  bakDigest?: string | null; // Backup observed for this main refresh only.
 };
 export type CleanupState = {
   v: 1;
@@ -72,8 +73,10 @@ export const parseCleanup = (v: unknown): CleanupState | undefined => {
     if (
       !object(b) ||
       Object.keys(b).some(
-        k => !['origin', 'digest', 'writePhase'].includes(k),
+        k => !['origin', 'digest', 'writePhase', 'bakDigest'].includes(k),
       ) ||
+      (b.bakDigest !== undefined &&
+        (slot !== 'main' || (b.bakDigest !== null && !hash(b.bakDigest)))) ||
       (b.writePhase !== undefined &&
         (slot === 'async' ||
           !['writing', 'verified'].includes(b.writePhase) ||

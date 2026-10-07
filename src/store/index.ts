@@ -24,7 +24,7 @@ import {
   recordVaultInitializationSave,
   recoverVaultForRead,
 } from './vault-migration';
-import {safeVaultError} from './vault-diagnostics';
+import {reportVaultStartupFailure, safeVaultError} from './vault-diagnostics';
 import {
   bindWalletKeys,
   transformContacts,
@@ -260,6 +260,22 @@ export const reduxStorage: Storage = {
 
       return Promise.resolve(value);
     } catch (err) {
+      if (key === 'persist:root') {
+        const failure = safeVaultError(
+          err,
+          'PRESERVATION_FAILURE',
+          'recovery',
+          'PRIMARY_READ',
+          'mmkv',
+        );
+        addLog(
+          LogActions.persistLog(
+            LogActions.error('MMKV primary read failed; attempting recovery.'),
+          ),
+        );
+        reportVaultStartupFailure(failure);
+        return restoreFromBackup('getItem error');
+      }
       addLog(
         LogActions.persistLog(
           LogActions.error(
@@ -270,10 +286,6 @@ export const reduxStorage: Storage = {
       Sentry.captureException(err, {
         level: 'error',
       });
-      if (key === 'persist:root') {
-        // Try backup on MMKV get failure as well
-        return restoreFromBackup('getItem error');
-      }
       return Promise.resolve(null);
     }
   },

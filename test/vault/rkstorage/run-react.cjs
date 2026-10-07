@@ -30,6 +30,7 @@ for (const seed of [
   'react-receipt-older-seed',
   'react-receipt-current-seed',
   'react-receipt-temp-seed',
+  'react-receipt-read-seed',
 ]) {
   run(['shell', 'pm', 'clear', 'com.bitpay.wallet']); // disposable app only
   const rows = [];

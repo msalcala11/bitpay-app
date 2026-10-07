@@ -59,6 +59,7 @@ const assert = (condition, code) => {
     stage = 'seed';
     if (operation.startsWith('react-receipt-')) {
       const fromTemp = operation.includes('-temp-');
+      const failedRead = operation.includes('-read-');
       const older = operation.includes('-older-') || fromTemp;
       const phase = operation.split('-').pop();
       const {
@@ -226,9 +227,19 @@ const assert = (condition, code) => {
         if (phase === 'recover') {
           const previousRecord = records.getString(VAULT_RECORD_KEY);
           const previousSource = await AsyncStorage.getItem('persist:root');
-          storage.delete('persist:root');
+          if (!failedRead) storage.delete('persist:root');
           if (older && !fromTemp) await RNFS.unlink(VAULT_BACKUP);
           const set = MMKV.prototype.set;
+          const get = MMKV.prototype.getString;
+          let broken = failedRead,
+            readFailures = 0;
+          MMKV.prototype.getString = function (name) {
+            if (name === 'persist:root' && broken) {
+              readFailures++;
+              throw Error('synthetic primary read rejection');
+            }
+            return get.call(this, name);
+          };
           let denied = 0,
             rootWrites = 0;
           MMKV.prototype.set = function (name, value) {
@@ -237,13 +248,18 @@ const assert = (condition, code) => {
               throw Error('synthetic suspension rejection');
             }
             if (name === 'persist:root') rootWrites++;
-            return set.call(this, name, value);
+            const written = set.call(this, name, value);
+            if (name === 'persist:root') broken = false;
+            return written;
           };
           try {
             await prepareVault(storage);
           } finally {
             MMKV.prototype.set = set;
+            MMKV.prototype.getString = get;
           }
+          if (failedRead) assert(readFailures > 0, 'PRIMARY_READ_NOT_INJECTED');
+          result.primaryReadFailures = readFailures;
           assert(denied === 1 && rootWrites === 1, 'RECOVERY_WRITE_COUNT');
           assert(
             records.getString(VAULT_RECORD_KEY) === previousRecord,

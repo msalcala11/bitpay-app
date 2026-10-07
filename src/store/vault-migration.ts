@@ -214,7 +214,11 @@ export const recordVaultInitializationSave = (
 
 // Narrow read-only reuse of the serialized-snapshot validator. No source import,
 // key fallback, normalization or ordinary restore write is performed here.
-const readRecoveryCopy = async (path: string, record: RecordState) => {
+const readRecoveryCopy = async (
+  path: string,
+  record: RecordState,
+  key: string,
+): Promise<string | null> => {
   const raw = await readVaultFile(path);
   if (raw !== null || record.status === 'complete') return raw;
   const slot = path === VAULT_BACKUP ? 'main' : 'bak';
@@ -225,7 +229,34 @@ const readRecoveryCopy = async (path: string, record: RecordState) => {
   )
     return null;
   const temp = await readVaultFile(migrationTemp(path));
-  return temp !== null && digest(temp) === binding.digest ? temp : null;
+  if (
+    temp === null ||
+    digest(temp) !== binding.digest ||
+    inspect(temp, [key]).snapshot?.format !== 'gcm'
+  )
+    return null;
+  if (path === VAULT_BACKUP) {
+    // This backup context belongs to this main write, not another slot's intent.
+    let bak: string | null;
+    try {
+      bak = await readRecoveryCopy(VAULT_OLDER_BACKUP, record, key);
+    } catch (error) {
+      throw safeVaultError(
+        error,
+        'REQUIRED_COPY_FAILURE',
+        'recovery',
+        'SOURCE_READ',
+        'bak',
+      );
+    }
+    if (
+      bak !== null &&
+      inspect(bak, [key]).snapshot?.format === 'gcm' &&
+      (binding.bakDigest === undefined || digest(bak) !== binding.bakDigest)
+    )
+      return bak; // Normal backup precedence; mismatch alone does not prove age.
+  }
+  return temp; // Matching context, or successful reads found no other usable copy.
 };
 
 export const captureVaultCleanupState = async (storage: MMKV, key: string) => {
@@ -261,7 +292,7 @@ export const captureVaultCleanupState = async (storage: MMKV, key: string) => {
             'RECORD_INVALID',
             'record',
           );
-        raw = await readRecoveryCopy(path, history);
+        raw = await readRecoveryCopy(path, history, key);
       } catch (error) {
         failure ??= safeVaultError(
           error,
@@ -780,11 +811,21 @@ const projectionCovers = (
 const preservesProtected = (target: Payload, source: Payload): boolean =>
   projectionCovers(protectedProjection(target), protectedProjection(source));
 
-const readRegistered = (storage: MMKV): Map<string, string> => {
+const readRegistered = (
+  storage: MMKV,
+  primaryReadFailed?: () => void,
+): Map<string, string> => {
   const values = new Map<string, string>();
   for (const key of REGISTERED_KEYS) {
-    if (storage.contains(key)) {
-      const value = storage.getString(key);
+    let present: boolean, value: string | undefined;
+    try {
+      present = storage.contains(key);
+      value = present ? storage.getString(key) : undefined;
+    } catch (error) {
+      if (key === ROOT) primaryReadFailed?.();
+      throw error;
+    }
+    if (present) {
       if (value === undefined) {
         throw vaultError(
           'PRESERVATION_FAILURE',
@@ -834,7 +875,19 @@ export const recoverConvertedVault = async (
       'RECORD_INVALID',
       'record',
     );
-  const primary = storage.getString(ROOT) ?? null;
+  let primary: string | null = null;
+  let primaryReadFailure: Error | undefined;
+  try {
+    primary = storage.getString(ROOT) ?? null;
+  } catch (error) {
+    primaryReadFailure = safeVaultError(
+      error,
+      'PRESERVATION_FAILURE',
+      'recovery',
+      'PRIMARY_READ',
+      'mmkv',
+    );
+  }
   if (hasLegacyProtection(primary) || unsupportedBranchFormat(primary))
     throw vaultError(
       'UNSUPPORTED_FORMAT',
@@ -848,7 +901,7 @@ export const recoverConvertedVault = async (
   for (const path of [VAULT_BACKUP, VAULT_OLDER_BACKUP]) {
     let raw: string | null;
     try {
-      raw = await readRecoveryCopy(path, record);
+      raw = await readRecoveryCopy(path, record, key);
     } catch (error) {
       readFailure ??= safeVaultError(
         error,
@@ -871,7 +924,12 @@ export const recoverConvertedVault = async (
   if (!selected) {
     // Unknown/unreadable is never evidence of a never-persisted empty install.
     if (readFailure) throw readFailure;
-    if (allowFreshEmpty && !copyPresent && record.initializing === true)
+    if (
+      allowFreshEmpty &&
+      !primaryReadFailure &&
+      !copyPresent &&
+      record.initializing === true
+    )
       return null;
     throw vaultError(
       'PRESERVATION_FAILURE',
@@ -959,7 +1017,18 @@ const migrate = async (
   let secret = entry && !wrongBackend ? validatedVaultKey(entry) : undefined;
   run.phase = 'inventory';
   const keys = storage.getAllKeys();
-  const live = readRegistered(storage);
+  let primaryReadFailed = false;
+  let live: Map<string, string>;
+  try {
+    live = readRegistered(storage, () => {
+      primaryReadFailed = true;
+    });
+  } catch (error) {
+    if (!wasConverted || !primaryReadFailed) throw error;
+    await recoverConvertedVault(storage, secret!);
+    report.defer('CLEANUP_DEFERRED', 'recovery', 'PRIMARY_READ', 'mmkv');
+    return secret!; // No cleanup or other inventory on the recovery launch.
+  }
   const rootRaw = live.get(ROOT) ?? null;
   // A known unsupported format is not evidence of ordinary corruption.
   // Never replace it from an older backup, even after recorded conversion.
@@ -1443,8 +1512,19 @@ const migrate = async (
         } else await removeVaultFile(migrationTemp(f.path), guard);
         f.temp = {raw: null, parseable: false};
       }
-      const requiredWrite = (path: string, raw: string, expected: Payload) =>
-        replaceVaultFile(
+      const requiredWrite = async (
+        path: string,
+        raw: string,
+        expected: Payload,
+      ) => {
+        if (
+          path === VAULT_OLDER_BACKUP &&
+          (await readVaultFile(path, guard)) === raw
+        ) {
+          verify(raw, secret!, expected);
+          return;
+        }
+        return replaceVaultFile(
           path,
           raw,
           value => verify(value, secret!, expected),
@@ -1461,6 +1541,7 @@ const migrate = async (
             writeRecord(record, 'required-copy');
           },
         );
+      };
       if (existing && existing.raw === main.target.raw) {
         verify(
           await readVaultFile(VAULT_BACKUP, guard),
@@ -1606,7 +1687,13 @@ const migrate = async (
             ...(slot !== 'async' &&
             record!.cleanup?.[slot]?.digest === digest(raw) &&
             record!.cleanup?.[slot]?.writePhase
-              ? {writePhase: 'verified' as const}
+              ? {
+                  writePhase: 'verified' as const,
+                  ...(slot === 'main' &&
+                  record!.cleanup?.main?.bakDigest !== undefined
+                    ? {bakDigest: record!.cleanup.main.bakDigest}
+                    : {}),
+                }
               : {}),
           },
         },
@@ -1638,6 +1725,7 @@ const migrate = async (
       : bound && binding!.origin === 'current-coverage';
   };
   const damagedAsync = (item: Inspected) =>
+    !legacyUnreadable &&
     conversionEstablished(record) &&
     item.raw !== null &&
     !item.snapshot &&
@@ -1679,6 +1767,21 @@ const migrate = async (
         `${slot}-temp`,
       );
     }
+    if (
+      path === VAULT_OLDER_BACKUP &&
+      (await readVaultFile(path, checkPrimary)) === raw
+    ) {
+      verify(raw, vaultKey, payload, 'refresh');
+      return;
+    }
+    // A successful observation is recorded in this main write's own intent.
+    // Absence is explicit; an unreadable context defers the refresh.
+    const bak =
+      path === VAULT_BACKUP
+        ? await readVaultFile(VAULT_OLDER_BACKUP, checkPrimary)
+        : undefined;
+    const context =
+      bak === undefined ? {} : {bakDigest: bak === null ? null : digest(bak)};
     await replaceVaultFile(
       path,
       raw,
@@ -1696,6 +1799,7 @@ const migrate = async (
                   origin: 'optional-refresh',
                   digest: digest(raw),
                   writePhase: phase,
+                  ...context,
                 },
               },
             },
