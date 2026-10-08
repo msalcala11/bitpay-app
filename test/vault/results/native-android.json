@@ -1,0 +1,1451 @@
+{
+  "platform": "Android core (host-controlled platform mocks)",
+  "arch": "arm64",
+  "pageBytes": 4096,
+  "sourceHashes": {
+    "index.js": "c3ceb4abecd99011290a76d23974e874c329e1da2891142b9ef8e5aec7de2563",
+    "src/store/index.ts": "f7889909111655569fecfe6115ca06fa9b3bbdb670c236b91eb4809f45e3b0e5",
+    "src/store/vault-migration.ts": "a38c8005e6f2cd4e74dedde775a9bc65bb17c514840745bb2c3bf5c1ba65fef8",
+    "src/store/vault-scrub.ts": "d75a9758831011973dff8bc7aba08d20c2b8bf4f84ead03c3b6ae17c22d9b663",
+    "src/store/vault-diagnostics.ts": "3bdf311f0946ff27f03399aadf9c78cd2c8748b36e5466aedcd0f6813d4c503b",
+    "src/store/encryption-key.ts": "5368e2abb715a74828c51bd785eda3a90fc6ff359a5da9cd6da4c5272e0dd16a",
+    "src/store/backup/vault-files.ts": "8e9a381ca8ad19b5ac4d78b108a44f52f272978ed010fb40616953f4473aea35",
+    "src/store/transforms/encrypt.ts": "f9448ebf1aa539a7777b70727799b2ea2a9e0c4cc75779bcc661f9684f3e9358",
+    "src/store/transforms/transforms.ts": "310e241f5f23400e8072f2550a42e7ec679ed4cab5c936b415948a4ee03b6c91",
+    "src/store/transforms/persist-encryption.ts": "64e18846000ea46087e81a3ef68979e371a530f2b7805f1c1724ead3c7fda88e",
+    "test/vault/native-api.cpp": "bc40112b5bb0e1da56a4a8f512d0159e8854d98065897d8f8b4f77a3a555342e",
+    "test/vault/run-native.cjs": "67273d480824bcfe0d1da7489038000d3d194777ecf5a44783eafaabe082bbd3",
+    "test/vault/kill-one.py": "b088a7989713efdd9d4be016f2d9d3d84d29653709c3f4c8b8089e1dd2dc454b",
+    "test/vault/fixtures/legacy-14.32.json": "af174c468a2aab667586b39c314d8400aceea59dbf57e542b13883a710de380b"
+  },
+  "baseline": false,
+  "results": [
+    {
+      "name": "minimum-capacity",
+      "bytes": 64,
+      "variant": "plain",
+      "passed": true,
+      "before": {
+        "decryptable": 20,
+        "markers": 20,
+        "plainEddsa": 5,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 16,
+            "identifierDecryptableCandidates": 16,
+            "plaintextEddsaOccurrences": 4
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 4,
+            "identifierDecryptableCandidates": 4,
+            "plaintextEddsaOccurrences": 1
+          }
+        ]
+      },
+      "after": {
+        "decryptable": 0,
+        "markers": 0,
+        "plainEddsa": 0,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          }
+        ]
+      },
+      "elapsedMs": 13678,
+      "peakFileBytes": 32768,
+      "finalFileBytes": 4096,
+      "nativeWorkerPeakBytes": 10821632,
+      "nativeShrinkFailures": 0,
+      "nodeProcessPeakRssKiB": 157120,
+      "nativeCalls": 110,
+      "mutations": [
+        {
+          "operation": "set-root",
+          "before": 16384,
+          "after": 16384,
+          "payloadBytes": 1409,
+          "elapsedMs": 96.225
+        },
+        {
+          "operation": "trim",
+          "before": 16384,
+          "after": 4096,
+          "elapsedMs": 78.197
+        },
+        {
+          "operation": "set-filler",
+          "before": 4096,
+          "after": 32768,
+          "payloadBytes": 4096,
+          "elapsedMs": 95.202
+        },
+        {
+          "operation": "delete",
+          "before": 32768,
+          "after": 32768,
+          "elapsedMs": 71.045
+        },
+        {
+          "operation": "trim",
+          "before": 32768,
+          "after": 4096,
+          "elapsedMs": 76.822
+        }
+      ]
+    },
+    {
+      "name": "minimum-root-removed",
+      "bytes": 64,
+      "variant": "plain",
+      "drop": "root",
+      "passed": true,
+      "before": {
+        "decryptable": 20,
+        "markers": 20,
+        "plainEddsa": 5,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 16,
+            "identifierDecryptableCandidates": 16,
+            "plaintextEddsaOccurrences": 4
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 4,
+            "identifierDecryptableCandidates": 4,
+            "plaintextEddsaOccurrences": 1
+          }
+        ]
+      },
+      "after": {
+        "decryptable": 0,
+        "markers": 0,
+        "plainEddsa": 0,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          }
+        ]
+      },
+      "elapsedMs": 11466,
+      "peakFileBytes": 32768,
+      "finalFileBytes": 4096,
+      "nativeWorkerPeakBytes": 8744960,
+      "nativeShrinkFailures": 0,
+      "nodeProcessPeakRssKiB": 164544,
+      "nativeCalls": 94,
+      "mutations": [
+        {
+          "operation": "trim",
+          "before": 16384,
+          "after": 4096,
+          "elapsedMs": 69.616
+        },
+        {
+          "operation": "set-filler",
+          "before": 4096,
+          "after": 32768,
+          "payloadBytes": 4096,
+          "elapsedMs": 88.921
+        },
+        {
+          "operation": "delete",
+          "before": 32768,
+          "after": 32768,
+          "elapsedMs": 67.348
+        },
+        {
+          "operation": "trim",
+          "before": 32768,
+          "after": 4096,
+          "elapsedMs": 68.596
+        }
+      ]
+    },
+    {
+      "name": "two-megabyte",
+      "bytes": 2097152,
+      "variant": "plain",
+      "passed": true,
+      "before": {
+        "decryptable": 28,
+        "markers": 28,
+        "plainEddsa": 7,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 24,
+            "identifierDecryptableCandidates": 24,
+            "plaintextEddsaOccurrences": 6
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 4,
+            "identifierDecryptableCandidates": 4,
+            "plaintextEddsaOccurrences": 1
+          }
+        ]
+      },
+      "after": {
+        "decryptable": 0,
+        "markers": 0,
+        "plainEddsa": 0,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          }
+        ]
+      },
+      "elapsedMs": 13345,
+      "peakFileBytes": 16777216,
+      "finalFileBytes": 4194304,
+      "nativeWorkerPeakBytes": 19980288,
+      "nativeShrinkFailures": 0,
+      "nodeProcessPeakRssKiB": 309072,
+      "nativeCalls": 110,
+      "mutations": [
+        {
+          "operation": "set-root",
+          "before": 16777216,
+          "after": 16777216,
+          "payloadBytes": 2098499,
+          "elapsedMs": 106.498
+        },
+        {
+          "operation": "trim",
+          "before": 16777216,
+          "after": 4194304,
+          "elapsedMs": 79.576
+        },
+        {
+          "operation": "set-filler",
+          "before": 4194304,
+          "after": 4194304,
+          "payloadBytes": 2095713,
+          "elapsedMs": 96.936
+        },
+        {
+          "operation": "delete",
+          "before": 4194304,
+          "after": 4194304,
+          "elapsedMs": 67.447
+        },
+        {
+          "operation": "trim",
+          "before": 4194304,
+          "after": 4194304,
+          "elapsedMs": 68.695
+        }
+      ]
+    },
+    {
+      "name": "four-megabyte",
+      "bytes": 4194304,
+      "variant": "passwordOperation",
+      "passed": true,
+      "before": {
+        "decryptable": 28,
+        "markers": 28,
+        "plainEddsa": 7,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 24,
+            "identifierDecryptableCandidates": 24,
+            "plaintextEddsaOccurrences": 6
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 4,
+            "identifierDecryptableCandidates": 4,
+            "plaintextEddsaOccurrences": 1
+          }
+        ]
+      },
+      "after": {
+        "decryptable": 0,
+        "markers": 0,
+        "plainEddsa": 0,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          }
+        ]
+      },
+      "elapsedMs": 12474,
+      "peakFileBytes": 33554432,
+      "finalFileBytes": 8388608,
+      "nativeWorkerPeakBytes": 37068800,
+      "nativeShrinkFailures": 0,
+      "nodeProcessPeakRssKiB": 518960,
+      "nativeCalls": 110,
+      "mutations": [
+        {
+          "operation": "set-root",
+          "before": 33554432,
+          "after": 33554432,
+          "payloadBytes": 4196191,
+          "elapsedMs": 135.551
+        },
+        {
+          "operation": "trim",
+          "before": 33554432,
+          "after": 8388608,
+          "elapsedMs": 91.249
+        },
+        {
+          "operation": "set-filler",
+          "before": 8388608,
+          "after": 8388608,
+          "payloadBytes": 4192323,
+          "elapsedMs": 106.127
+        },
+        {
+          "operation": "delete",
+          "before": 8388608,
+          "after": 8388608,
+          "elapsedMs": 69.792
+        },
+        {
+          "operation": "trim",
+          "before": 8388608,
+          "after": 8388608,
+          "elapsedMs": 68.036
+        }
+      ]
+    },
+    {
+      "name": "large-root-removed",
+      "bytes": 100000,
+      "variant": "plain",
+      "drop": "root",
+      "passed": true,
+      "before": {
+        "decryptable": 24,
+        "markers": 24,
+        "plainEddsa": 6,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 20,
+            "identifierDecryptableCandidates": 20,
+            "plaintextEddsaOccurrences": 5
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 4,
+            "identifierDecryptableCandidates": 4,
+            "plaintextEddsaOccurrences": 1
+          }
+        ]
+      },
+      "after": {
+        "decryptable": 0,
+        "markers": 0,
+        "plainEddsa": 0,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          }
+        ]
+      },
+      "elapsedMs": 10145,
+      "peakFileBytes": 1048576,
+      "finalFileBytes": 4096,
+      "nativeWorkerPeakBytes": 7712768,
+      "nativeShrinkFailures": 0,
+      "nodeProcessPeakRssKiB": 518960,
+      "nativeCalls": 94,
+      "mutations": [
+        {
+          "operation": "trim",
+          "before": 1048576,
+          "after": 4096,
+          "elapsedMs": 66.379
+        },
+        {
+          "operation": "set-filler",
+          "before": 4096,
+          "after": 32768,
+          "payloadBytes": 4096,
+          "elapsedMs": 85.926
+        },
+        {
+          "operation": "delete",
+          "before": 32768,
+          "after": 32768,
+          "elapsedMs": 72.359
+        },
+        {
+          "operation": "trim",
+          "before": 32768,
+          "after": 4096,
+          "elapsedMs": 72.156
+        }
+      ]
+    },
+    {
+      "name": "no-key-history",
+      "bytes": 100000,
+      "variant": "plain",
+      "drop": "all",
+      "passed": true,
+      "before": {
+        "decryptable": 24,
+        "markers": 24,
+        "plainEddsa": 6,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 20,
+            "identifierDecryptableCandidates": 20,
+            "plaintextEddsaOccurrences": 5
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 4,
+            "identifierDecryptableCandidates": 4,
+            "plaintextEddsaOccurrences": 1
+          }
+        ]
+      },
+      "after": {
+        "decryptable": 0,
+        "markers": 0,
+        "plainEddsa": 0,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          }
+        ]
+      },
+      "elapsedMs": 9187,
+      "peakFileBytes": 1048576,
+      "finalFileBytes": 4096,
+      "nativeWorkerPeakBytes": 7712768,
+      "nativeShrinkFailures": 0,
+      "nodeProcessPeakRssKiB": 518960,
+      "nativeCalls": 80,
+      "mutations": [
+        {
+          "operation": "trim",
+          "before": 1048576,
+          "after": 4096,
+          "elapsedMs": 68.636
+        },
+        {
+          "operation": "set-filler",
+          "before": 4096,
+          "after": 65536,
+          "payloadBytes": 4096,
+          "elapsedMs": 83.785
+        },
+        {
+          "operation": "delete",
+          "before": 65536,
+          "after": 65536,
+          "elapsedMs": 67.098
+        },
+        {
+          "operation": "trim",
+          "before": 65536,
+          "after": 4096,
+          "elapsedMs": 70.793
+        }
+      ]
+    },
+    {
+      "name": "constructor-password-defensive",
+      "bytes": 100000,
+      "variant": "constructorPassword",
+      "passed": true,
+      "before": {
+        "decryptable": 24,
+        "markers": 24,
+        "plainEddsa": 0,
+        "unwrappedPasswordEddsa": 6,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 5,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 20,
+            "identifierDecryptableCandidates": 20,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 1,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 4,
+            "identifierDecryptableCandidates": 4,
+            "plaintextEddsaOccurrences": 0
+          }
+        ]
+      },
+      "after": {
+        "decryptable": 0,
+        "markers": 0,
+        "plainEddsa": 0,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          }
+        ]
+      },
+      "elapsedMs": 12128,
+      "peakFileBytes": 1048576,
+      "finalFileBytes": 131072,
+      "nativeWorkerPeakBytes": 7712768,
+      "nativeShrinkFailures": 0,
+      "nodeProcessPeakRssKiB": 518960,
+      "nativeCalls": 110,
+      "mutations": [
+        {
+          "operation": "set-root",
+          "before": 1048576,
+          "after": 1048576,
+          "payloadBytes": 102044,
+          "elapsedMs": 85.487
+        },
+        {
+          "operation": "trim",
+          "before": 1048576,
+          "after": 131072,
+          "elapsedMs": 71.161
+        },
+        {
+          "operation": "set-filler",
+          "before": 131072,
+          "after": 131072,
+          "payloadBytes": 28938,
+          "elapsedMs": 85.351
+        },
+        {
+          "operation": "delete",
+          "before": 131072,
+          "after": 131072,
+          "elapsedMs": 68.72
+        },
+        {
+          "operation": "trim",
+          "before": 131072,
+          "after": 131072,
+          "elapsedMs": 84.981
+        }
+      ]
+    },
+    {
+      "name": "near-capacity-zero-filler",
+      "bytes": 64,
+      "variant": "plain",
+      "tight": "zero",
+      "passed": true,
+      "before": {
+        "decryptable": 20,
+        "markers": 20,
+        "plainEddsa": 5,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 16,
+            "identifierDecryptableCandidates": 16,
+            "plaintextEddsaOccurrences": 4
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 4,
+            "identifierDecryptableCandidates": 4,
+            "plaintextEddsaOccurrences": 1
+          }
+        ]
+      },
+      "after": {
+        "decryptable": 0,
+        "markers": 0,
+        "plainEddsa": 0,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json.bak",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          }
+        ]
+      },
+      "elapsedMs": 13282,
+      "peakFileBytes": 524288,
+      "finalFileBytes": 131072,
+      "nativeWorkerPeakBytes": 6832128,
+      "nativeShrinkFailures": 0,
+      "nodeProcessPeakRssKiB": 518960,
+      "nativeCalls": 119,
+      "mutations": [
+        {
+          "operation": "set-root",
+          "before": 16384,
+          "after": 16384,
+          "payloadBytes": 5,
+          "elapsedMs": 82.036
+        },
+        {
+          "operation": "set-root",
+          "before": 16384,
+          "after": 16384,
+          "payloadBytes": 1409,
+          "elapsedMs": 87.825
+        },
+        {
+          "operation": "delete",
+          "before": 16384,
+          "after": 16384,
+          "elapsedMs": 67.026
+        },
+        {
+          "operation": "set-root",
+          "before": 16384,
+          "after": 524288,
+          "payloadBytes": 130986,
+          "elapsedMs": 90.522
+        },
+        {
+          "operation": "trim",
+          "before": 524288,
+          "after": 131072,
+          "elapsedMs": 69.043
+        },
+        {
+          "operation": "set-filler",
+          "before": 131072,
+          "after": 131072,
+          "payloadBytes": 0,
+          "elapsedMs": 84.323
+        },
+        {
+          "operation": "delete",
+          "before": 131072,
+          "after": 131072,
+          "elapsedMs": 63.166
+        },
+        {
+          "operation": "trim",
+          "before": 131072,
+          "after": 131072,
+          "elapsedMs": 70.545
+        }
+      ]
+    },
+    {
+      "name": "near-capacity-deferral-retry",
+      "bytes": 64,
+      "variant": "plain",
+      "tight": "defer",
+      "passed": true,
+      "before": {
+        "decryptable": 20,
+        "markers": 20,
+        "plainEddsa": 5,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 16,
+            "identifierDecryptableCandidates": 16,
+            "plaintextEddsaOccurrences": 4
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 4,
+            "identifierDecryptableCandidates": 4,
+            "plaintextEddsaOccurrences": 1
+          }
+        ]
+      },
+      "after": {
+        "decryptable": 0,
+        "markers": 0,
+        "plainEddsa": 0,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json.bak",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          }
+        ]
+      },
+      "elapsedMs": 14635,
+      "peakFileBytes": 1048576,
+      "finalFileBytes": 131072,
+      "nativeWorkerPeakBytes": 6832128,
+      "nativeShrinkFailures": 0,
+      "nodeProcessPeakRssKiB": 518960,
+      "nativeCalls": 158,
+      "mutations": [
+        {
+          "operation": "set-root",
+          "before": 16384,
+          "after": 16384,
+          "payloadBytes": 5,
+          "elapsedMs": 80.086
+        },
+        {
+          "operation": "set-root",
+          "before": 16384,
+          "after": 16384,
+          "payloadBytes": 1409,
+          "elapsedMs": 84.216
+        },
+        {
+          "operation": "delete",
+          "before": 16384,
+          "after": 16384,
+          "elapsedMs": 66.319
+        },
+        {
+          "operation": "set-root",
+          "before": 16384,
+          "after": 524288,
+          "payloadBytes": 130987,
+          "elapsedMs": 87.497
+        },
+        {
+          "operation": "trim",
+          "before": 524288,
+          "after": 131072,
+          "elapsedMs": 69.486
+        },
+        {
+          "operation": "set-root",
+          "before": 131072,
+          "after": 1048576,
+          "payloadBytes": 130923,
+          "elapsedMs": 98.218
+        },
+        {
+          "operation": "trim",
+          "before": 1048576,
+          "after": 131072,
+          "elapsedMs": 70.569
+        },
+        {
+          "operation": "set-filler",
+          "before": 131072,
+          "after": 131072,
+          "payloadBytes": 63,
+          "elapsedMs": 83.452
+        },
+        {
+          "operation": "delete",
+          "before": 131072,
+          "after": 131072,
+          "elapsedMs": 66.966
+        },
+        {
+          "operation": "trim",
+          "before": 131072,
+          "after": 131072,
+          "elapsedMs": 66.455
+        }
+      ]
+    },
+    {
+      "name": "rejected-growth",
+      "bytes": 64,
+      "variant": "plain",
+      "reject": true,
+      "passed": true,
+      "before": {
+        "decryptable": 20,
+        "markers": 20,
+        "plainEddsa": 5,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 16,
+            "identifierDecryptableCandidates": 16,
+            "plaintextEddsaOccurrences": 4
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 4,
+            "identifierDecryptableCandidates": 4,
+            "plaintextEddsaOccurrences": 1
+          }
+        ]
+      },
+      "after": {
+        "decryptable": 0,
+        "markers": 0,
+        "plainEddsa": 0,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          }
+        ]
+      },
+      "elapsedMs": 20434,
+      "peakFileBytes": 32768,
+      "finalFileBytes": 4096,
+      "nativeWorkerPeakBytes": 6668288,
+      "nativeShrinkFailures": 0,
+      "nodeProcessPeakRssKiB": 518960,
+      "nativeCalls": 155,
+      "mutations": [
+        {
+          "operation": "set-root",
+          "before": 16384,
+          "after": 16384,
+          "payloadBytes": 1409,
+          "elapsedMs": 85.497
+        },
+        {
+          "operation": "trim",
+          "before": 16384,
+          "after": 4096,
+          "elapsedMs": 70.625
+        },
+        {
+          "operation": "set-filler",
+          "before": 4096,
+          "after": 4096,
+          "payloadBytes": 4096,
+          "elapsedMs": 105.222
+        },
+        {
+          "operation": "trim",
+          "before": 4096,
+          "after": 4096,
+          "elapsedMs": 65.212
+        },
+        {
+          "operation": "set-filler",
+          "before": 4096,
+          "after": 32768,
+          "payloadBytes": 4096,
+          "elapsedMs": 97.387
+        },
+        {
+          "operation": "delete",
+          "before": 32768,
+          "after": 32768,
+          "elapsedMs": 65.913
+        },
+        {
+          "operation": "trim",
+          "before": 32768,
+          "after": 4096,
+          "elapsedMs": 63.64
+        }
+      ]
+    },
+    {
+      "name": "failed-shrink-large",
+      "bytes": 100000,
+      "variant": "plain",
+      "failShrink": true,
+      "passed": true,
+      "before": {
+        "decryptable": 24,
+        "markers": 24,
+        "plainEddsa": 6,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 20,
+            "identifierDecryptableCandidates": 20,
+            "plaintextEddsaOccurrences": 5
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 4,
+            "identifierDecryptableCandidates": 4,
+            "plaintextEddsaOccurrences": 1
+          }
+        ]
+      },
+      "after": {
+        "decryptable": 0,
+        "markers": 0,
+        "plainEddsa": 0,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          }
+        ]
+      },
+      "elapsedMs": 13521,
+      "peakFileBytes": 1048576,
+      "finalFileBytes": 1048576,
+      "nativeWorkerPeakBytes": 7688192,
+      "nativeShrinkFailures": 2,
+      "nodeProcessPeakRssKiB": 518960,
+      "nativeCalls": 110,
+      "mutations": [
+        {
+          "operation": "set-root",
+          "before": 1048576,
+          "after": 1048576,
+          "payloadBytes": 101345,
+          "elapsedMs": 82.162
+        },
+        {
+          "operation": "trim",
+          "before": 1048576,
+          "after": 1048576,
+          "elapsedMs": 67.342
+        },
+        {
+          "operation": "set-filler",
+          "before": 1048576,
+          "after": 1048576,
+          "payloadBytes": 947141,
+          "elapsedMs": 89.954
+        },
+        {
+          "operation": "delete",
+          "before": 1048576,
+          "after": 1048576,
+          "elapsedMs": 72.244
+        },
+        {
+          "operation": "trim",
+          "before": 1048576,
+          "after": 1048576,
+          "elapsedMs": 69.273
+        }
+      ]
+    },
+    {
+      "name": "failed-shrink-no-keys",
+      "bytes": 100000,
+      "variant": "plain",
+      "drop": "all",
+      "failShrink": true,
+      "passed": true,
+      "before": {
+        "decryptable": 24,
+        "markers": 24,
+        "plainEddsa": 6,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 20,
+            "identifierDecryptableCandidates": 20,
+            "plaintextEddsaOccurrences": 5
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 4,
+            "identifierDecryptableCandidates": 4,
+            "plaintextEddsaOccurrences": 1
+          }
+        ]
+      },
+      "after": {
+        "decryptable": 0,
+        "markers": 0,
+        "plainEddsa": 0,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          }
+        ]
+      },
+      "elapsedMs": 11118,
+      "peakFileBytes": 1048576,
+      "finalFileBytes": 1048576,
+      "nativeWorkerPeakBytes": 7688192,
+      "nativeShrinkFailures": 4,
+      "nodeProcessPeakRssKiB": 518960,
+      "nativeCalls": 80,
+      "mutations": [
+        {
+          "operation": "trim",
+          "before": 1048576,
+          "after": 1048576,
+          "elapsedMs": 69
+        },
+        {
+          "operation": "set-filler",
+          "before": 1048576,
+          "after": 1048576,
+          "payloadBytes": 1048522,
+          "elapsedMs": 86.154
+        },
+        {
+          "operation": "delete",
+          "before": 1048576,
+          "after": 1048576,
+          "elapsedMs": 65.563
+        },
+        {
+          "operation": "trim",
+          "before": 1048576,
+          "after": 1048576,
+          "elapsedMs": 67.838
+        }
+      ]
+    },
+    {
+      "name": "leftover-filler-only",
+      "bytes": 100000,
+      "variant": "plain",
+      "drop": "all",
+      "leftover": true,
+      "passed": true,
+      "before": {
+        "decryptable": 24,
+        "markers": 24,
+        "plainEddsa": 6,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 20,
+            "identifierDecryptableCandidates": 20,
+            "plaintextEddsaOccurrences": 5
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 4,
+            "identifierDecryptableCandidates": 4,
+            "plaintextEddsaOccurrences": 1
+          }
+        ]
+      },
+      "after": {
+        "decryptable": 0,
+        "markers": 0,
+        "plainEddsa": 0,
+        "unwrappedPasswordEddsa": 0,
+        "files": [
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "mmkv/mmkv.default.crc",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          },
+          {
+            "unwrappedEddsaPasswordCiphertextOccurrences": 0,
+            "file": "cache/bitpay/redux/persist-root.json",
+            "markerCount": 0,
+            "identifierDecryptableCandidates": 0,
+            "plaintextEddsaOccurrences": 0
+          }
+        ]
+      },
+      "elapsedMs": 12903,
+      "peakFileBytes": 1048576,
+      "finalFileBytes": 4096,
+      "nativeWorkerPeakBytes": 7688192,
+      "nativeShrinkFailures": 0,
+      "nodeProcessPeakRssKiB": 518960,
+      "nativeCalls": 105,
+      "mutations": [
+        {
+          "operation": "delete",
+          "before": 1048576,
+          "after": 1048576,
+          "elapsedMs": 65.041
+        },
+        {
+          "operation": "trim",
+          "before": 1048576,
+          "after": 4096,
+          "elapsedMs": 71.004
+        },
+        {
+          "operation": "set-filler",
+          "before": 4096,
+          "after": 65536,
+          "payloadBytes": 4096,
+          "elapsedMs": 88.871
+        },
+        {
+          "operation": "delete",
+          "before": 65536,
+          "after": 65536,
+          "elapsedMs": 68.245
+        },
+        {
+          "operation": "trim",
+          "before": 65536,
+          "after": 4096,
+          "elapsedMs": 69.946
+        }
+      ]
+    }
+  ]
+}

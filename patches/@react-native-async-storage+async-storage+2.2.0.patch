@@ -1,0 +1,411 @@
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/src/main/java/com/reactnativecommunity/asyncstorage/AsyncStorageModule.java b/node_modules/@react-native-async-storage/async-storage/android/src/main/java/com/reactnativecommunity/asyncstorage/AsyncStorageModule.java
+--- a/node_modules/@react-native-async-storage/async-storage/android/src/main/java/com/reactnativecommunity/asyncstorage/AsyncStorageModule.java
++++ b/node_modules/@react-native-async-storage/async-storage/android/src/main/java/com/reactnativecommunity/asyncstorage/AsyncStorageModule.java
+@@ -11,7 +11,6 @@
+ import android.database.sqlite.SQLiteStatement;
+ import android.os.AsyncTask;
+ 
+-import com.facebook.common.logging.FLog;
+ import com.facebook.react.bridge.Arguments;
+ import com.facebook.react.bridge.Callback;
+ import com.facebook.react.bridge.GuardedAsyncTask;
+@@ -21,7 +20,6 @@
+ import com.facebook.react.bridge.ReadableArray;
+ import com.facebook.react.bridge.WritableArray;
+ import com.facebook.react.bridge.WritableMap;
+-import com.facebook.react.common.ReactConstants;
+ import com.facebook.react.common.annotations.VisibleForTesting;
+ import com.facebook.react.module.annotations.ReactModule;
+ 
+@@ -58,12 +56,12 @@
+   AsyncStorageModule(ReactApplicationContext reactContext, Executor executor) {
+     super(reactContext);
+ 
+-    // The migration MUST run before the AsyncStorage database is created for the first time.
+-    AsyncStorageExpoMigration.migrate(reactContext);
+-
+-    this.executor = new SerialExecutor(executor);
+-
+-    // Creating the database MUST happen after the migration.
++    // Unsupported scoped databases are refused by the supplier. Never copy a
++    // secret-bearing old file outside the verified vault migration.
++
++    this.executor = ReactDatabaseSupplier.DATABASE_EXECUTOR;
++
++    // Acquiring the shared supplier does not open, create or copy a database.
+     mReactDatabaseSupplier = ReactDatabaseSupplier.getInstance(reactContext);
+   }
+ 
+@@ -75,14 +73,16 @@
+   @Override
+   public void initialize() {
+     super.initialize();
+-    mShuttingDown = false;
++    executor.execute(() -> mShuttingDown = false);
+   }
+ 
+   @Override
+   public void invalidate() {
+-    mShuttingDown = true;
+-    // ensure we close database when activity is destroyed
+-    mReactDatabaseSupplier.closeDatabase();
++    // Lifecycle events share ownership with cursors, transactions and cleanup.
++    executor.execute(() -> {
++      mShuttingDown = true;
++      mReactDatabaseSupplier.closeDatabase();
++    });
+   }
+ 
+   /**
+@@ -110,14 +110,18 @@
+         WritableArray data = Arguments.createArray();
+         for (int keyStart = 0; keyStart < keys.size(); keyStart += MAX_SQL_KEYS) {
+           int keyCount = Math.min(keys.size() - keyStart, MAX_SQL_KEYS);
+-          Cursor cursor = mReactDatabaseSupplier.get().query(
+-              ReactDatabaseSupplier.TABLE_CATALYST,
+-              columns,
+-              AsyncLocalStorageUtil.buildKeySelection(keyCount),
+-              AsyncLocalStorageUtil.buildKeySelectionArgs(keys, keyStart, keyCount),
+-              null,
+-              null,
+-              null);
++          Cursor cursor;
++          try {
++            cursor = mReactDatabaseSupplier.get().query(
++                ReactDatabaseSupplier.TABLE_CATALYST,
++                columns,
++                AsyncLocalStorageUtil.buildKeySelection(keyCount),
++                AsyncLocalStorageUtil.buildKeySelectionArgs(keys, keyStart, keyCount),
++                null, null, null);
++          } catch (Exception failure) {
++            callback.invoke(AsyncStorageErrorUtil.getDBError(null), null);
++            return;
++          }
+           keysRemaining.clear();
+           try {
+             if (cursor.getCount() != keys.size()) {
+@@ -137,8 +141,7 @@
+               } while (cursor.moveToNext());
+             }
+           } catch (Exception e) {
+-            FLog.w(ReactConstants.TAG, e.getMessage(), e);
+-            callback.invoke(AsyncStorageErrorUtil.getError(null, e.getMessage()), null);
++            callback.invoke(AsyncStorageErrorUtil.getError(null, "ASYNC_STORAGE_OPERATION_FAILED"), null);
+             return;
+           } finally {
+             cursor.close();
+@@ -180,7 +183,13 @@
+         }
+ 
+         String sql = "INSERT OR REPLACE INTO " + ReactDatabaseSupplier.TABLE_CATALYST + " VALUES (?, ?);";
+-        SQLiteStatement statement = mReactDatabaseSupplier.get().compileStatement(sql);
++        SQLiteStatement statement;
++        try {
++          statement = mReactDatabaseSupplier.get().compileStatement(sql);
++        } catch (Exception failure) {
++          callback.invoke(AsyncStorageErrorUtil.getDBError(null));
++          return;
++        }
+         WritableMap error = null;
+         try {
+           mReactDatabaseSupplier.get().beginTransaction();
+@@ -205,15 +214,14 @@
+           }
+           mReactDatabaseSupplier.get().setTransactionSuccessful();
+         } catch (Exception e) {
+-          FLog.w(ReactConstants.TAG, e.getMessage(), e);
+-          error = AsyncStorageErrorUtil.getError(null, e.getMessage());
++          error = AsyncStorageErrorUtil.getError(null, "ASYNC_STORAGE_OPERATION_FAILED");
+         } finally {
++          statement.close();
+           try {
+             mReactDatabaseSupplier.get().endTransaction();
+           } catch (Exception e) {
+-            FLog.w(ReactConstants.TAG, e.getMessage(), e);
+             if (error == null) {
+-              error = AsyncStorageErrorUtil.getError(null, e.getMessage());
++              error = AsyncStorageErrorUtil.getError(null, "ASYNC_STORAGE_OPERATION_FAILED");
+             }
+           }
+         }
+@@ -257,15 +265,13 @@
+           }
+           mReactDatabaseSupplier.get().setTransactionSuccessful();
+         } catch (Exception e) {
+-          FLog.w(ReactConstants.TAG, e.getMessage(), e);
+-          error = AsyncStorageErrorUtil.getError(null, e.getMessage());
++          error = AsyncStorageErrorUtil.getError(null, "ASYNC_STORAGE_OPERATION_FAILED");
+         } finally {
+           try {
+           mReactDatabaseSupplier.get().endTransaction();
+           } catch (Exception e) {
+-            FLog.w(ReactConstants.TAG, e.getMessage(), e);
+             if (error == null) {
+-              error = AsyncStorageErrorUtil.getError(null, e.getMessage());
++              error = AsyncStorageErrorUtil.getError(null, "ASYNC_STORAGE_OPERATION_FAILED");
+             }
+           }
+         }
+@@ -321,15 +327,13 @@
+           }
+           mReactDatabaseSupplier.get().setTransactionSuccessful();
+         } catch (Exception e) {
+-          FLog.w(ReactConstants.TAG, e.getMessage(), e);
+-          error = AsyncStorageErrorUtil.getError(null, e.getMessage());
++          error = AsyncStorageErrorUtil.getError(null, "ASYNC_STORAGE_OPERATION_FAILED");
+         } finally {
+           try {
+             mReactDatabaseSupplier.get().endTransaction();
+           } catch (Exception e) {
+-            FLog.w(ReactConstants.TAG, e.getMessage(), e);
+             if (error == null) {
+-              error = AsyncStorageErrorUtil.getError(null, e.getMessage());
++              error = AsyncStorageErrorUtil.getError(null, "ASYNC_STORAGE_OPERATION_FAILED");
+             }
+           }
+         }
+@@ -351,7 +355,7 @@
+     new GuardedAsyncTask<Void, Void>(getReactApplicationContext()) {
+       @Override
+       protected void doInBackgroundGuarded(Void... params) {
+-        if (!mReactDatabaseSupplier.ensureDatabase()) {
++        if (!ensureDatabase()) {
+           callback.invoke(AsyncStorageErrorUtil.getDBError(null));
+           return;
+         }
+@@ -359,8 +363,7 @@
+           mReactDatabaseSupplier.clear();
+           callback.invoke();
+         } catch (Exception e) {
+-          FLog.w(ReactConstants.TAG, e.getMessage(), e);
+-          callback.invoke(AsyncStorageErrorUtil.getError(null, e.getMessage()));
++          callback.invoke(AsyncStorageErrorUtil.getError(null, "ASYNC_STORAGE_OPERATION_FAILED"));
+         }
+       }
+     }.executeOnExecutor(executor);
+@@ -381,8 +384,14 @@
+         }
+         WritableArray data = Arguments.createArray();
+         String[] columns = {ReactDatabaseSupplier.KEY_COLUMN};
+-        Cursor cursor = mReactDatabaseSupplier.get()
+-            .query(ReactDatabaseSupplier.TABLE_CATALYST, columns, null, null, null, null, null);
++        Cursor cursor;
++        try {
++          cursor = mReactDatabaseSupplier.get()
++              .query(ReactDatabaseSupplier.TABLE_CATALYST, columns, null, null, null, null, null);
++        } catch (Exception failure) {
++          callback.invoke(AsyncStorageErrorUtil.getDBError(null), null);
++          return;
++        }
+         try {
+           if (cursor.moveToFirst()) {
+             do {
+@@ -390,8 +399,7 @@
+             } while (cursor.moveToNext());
+           }
+         } catch (Exception e) {
+-          FLog.w(ReactConstants.TAG, e.getMessage(), e);
+-          callback.invoke(AsyncStorageErrorUtil.getError(null, e.getMessage()), null);
++          callback.invoke(AsyncStorageErrorUtil.getError(null, "ASYNC_STORAGE_OPERATION_FAILED"), null);
+           return;
+         } finally {
+           cursor.close();
+@@ -405,6 +413,10 @@
+    * Verify the database is open for reads and writes.
+    */
+   private boolean ensureDatabase() {
+-    return !mShuttingDown && mReactDatabaseSupplier.ensureDatabase();
++    try {
++      return !mShuttingDown && mReactDatabaseSupplier.ensureDatabase();
++    } catch (Exception failure) {
++      return false;
++    }
+   }
+ }
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/src/main/java/com/reactnativecommunity/asyncstorage/ReactDatabaseSupplier.java b/node_modules/@react-native-async-storage/async-storage/android/src/main/java/com/reactnativecommunity/asyncstorage/ReactDatabaseSupplier.java
+--- a/node_modules/@react-native-async-storage/async-storage/android/src/main/java/com/reactnativecommunity/asyncstorage/ReactDatabaseSupplier.java
++++ b/node_modules/@react-native-async-storage/async-storage/android/src/main/java/com/reactnativecommunity/asyncstorage/ReactDatabaseSupplier.java
+@@ -8,11 +8,17 @@
+ package com.reactnativecommunity.asyncstorage;
+ 
+ import android.content.Context;
++import android.app.Application;
+ import android.database.sqlite.SQLiteDatabase;
++import android.database.sqlite.SQLiteDatabaseCorruptException;
++import java.io.File;
++import java.nio.file.Files;
++import java.nio.file.LinkOption;
++import java.nio.file.NoSuchFileException;
++import java.nio.file.attribute.BasicFileAttributes;
++import java.util.concurrent.Executors;
+ import android.database.sqlite.SQLiteException;
+ import android.database.sqlite.SQLiteOpenHelper;
+-import com.facebook.common.logging.FLog;
+-import com.facebook.react.common.ReactConstants;
+ import javax.annotation.Nullable;
+ 
+ /**
+@@ -25,7 +31,10 @@
+   public static final String DATABASE_NAME = "RKStorage";
+ 
+   private static final int DATABASE_VERSION = 1;
+-  private static final int SLEEP_TIME_MS = 30;
++  // One owner queue for every React context, all provider calls and maintenance.
++  public static final SerialExecutor DATABASE_EXECUTOR =
++      new SerialExecutor(Executors.newSingleThreadExecutor());
++  private boolean creatingNew;
+ 
+   static final String TABLE_CATALYST = "catalystLocalStorage";
+   static final String KEY_COLUMN = "key";
+@@ -44,11 +53,14 @@
+   private long mMaximumDatabaseSize =  BuildConfig.AsyncStorage_db_size * 1024L * 1024L;
+ 
+   private ReactDatabaseSupplier(Context context) {
+-    super(context, DATABASE_NAME, null, DATABASE_VERSION);
++    super(context, DATABASE_NAME, null, DATABASE_VERSION, db -> {
++      // Android's default handler deletes the main database and attached files.
++      throw new SQLiteDatabaseCorruptException("ASYNC_STORAGE_CORRUPT");
++    });
+     mContext = context;
+   }
+ 
+-  public static ReactDatabaseSupplier getInstance(Context context) {
++  public static synchronized ReactDatabaseSupplier getInstance(Context context) {
+     if (sReactDatabaseSupplierInstance == null) {
+       sReactDatabaseSupplierInstance = new ReactDatabaseSupplier(context.getApplicationContext());
+     }
+@@ -57,14 +69,14 @@
+ 
+   @Override
+   public void onCreate(SQLiteDatabase db) {
++    if (!creatingNew) throw new SQLiteException("ASYNC_STORAGE_UNSUPPORTED");
+     db.execSQL(VERSION_TABLE_CREATE);
+   }
+ 
+   @Override
+   public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+     if (oldVersion != newVersion) {
+-      deleteDatabase();
+-      onCreate(db);
++      throw new SQLiteException("ASYNC_STORAGE_UNSUPPORTED");
+     }
+   }
+ 
+@@ -72,37 +84,61 @@
+    * Verify the database exists and is open.
+    */
+   /* package */ synchronized boolean ensureDatabase() {
++    // This app's React contexts run in the main process. The restart-only
++    // :phoenix process must never acquire an independent RKStorage owner.
++    if (!mContext.getPackageName().equals(Application.getProcessName()))
++      throw new SQLiteException("ASYNC_STORAGE_UNSUPPORTED_PROCESS");
+     if (mDb != null && mDb.isOpen()) {
+       return true;
+     }
+-    // Sometimes retrieving the database fails. We do 2 retries: first without database deletion
+-    // and then with deletion.
+-    SQLiteException lastSQLiteException = null;
+-    for (int tries = 0; tries < 2; tries++) {
+-      try {
+-        if (tries > 0) {
+-          deleteDatabase();
+-        }
+-        mDb = getWritableDatabase();
+-        break;
+-      } catch (SQLiteException e) {
+-        lastSQLiteException = e;
+-      }
+-      // Wait before retrying.
+-      try {
+-        Thread.sleep(SLEEP_TIME_MS);
+-      } catch (InterruptedException ie) {
+-        Thread.currentThread().interrupt();
+-      }
+-    }
+-    if (mDb == null) {
+-      throw lastSQLiteException;
++    try {
++      creatingNew = !validateStorageFiles(mContext);
++      mDb = getWritableDatabase();
++    } catch (SQLiteDatabaseCorruptException corruption) {
++      throw new SQLiteDatabaseCorruptException("ASYNC_STORAGE_CORRUPT");
++    } catch (Exception failure) {
++      // No delete/recreate retry, and no arbitrary native message crosses JS.
++      throw new SQLiteException("ASYNC_STORAGE_OPEN_FAILED");
+     }
+     // This is a sane limit to protect the user from the app storing too much data in the database.
+     // This also protects the database from filling up the disk cache and becoming malformed
+     // (endTransaction() calls will throw an exception, not rollback, and leave the db malformed).
+     mDb.setMaximumSize(mMaximumDatabaseSize);
+     return true;
++  }
++
++  /** Strict metadata inventory, shared by ordinary opening and maintenance. */
++  public static boolean validateStorageFiles(Context context) throws Exception {
++    File main = context.getDatabasePath(DATABASE_NAME);
++    // Android may alias /data/user/0 and /data/data. Resolve the context-owned
++    // directory, but reject a redirected database leaf.
++    if (!main.getCanonicalFile().equals(new File(main.getParentFile().getCanonicalFile(), DATABASE_NAME)))
++      throw new SQLiteException("ASYNC_STORAGE_UNSUPPORTED");
++    File directory = main.getParentFile();
++    try {
++      if (!Files.readAttributes(directory.toPath(), BasicFileAttributes.class,
++          LinkOption.NOFOLLOW_LINKS).isDirectory()) throw new SQLiteException("ASYNC_STORAGE_UNREADABLE");
++    } catch (NoSuchFileException absent) { return false; }
++    File[] entries = directory.listFiles();
++    if (entries == null) throw new SQLiteException("ASYNC_STORAGE_UNREADABLE");
++    boolean present = false, related = false;
++    for (File entry : entries) {
++      String name = entry.getName();
++      if (!name.equals(DATABASE_NAME) && !name.startsWith(DATABASE_NAME + "-")) continue;
++      if (!name.equals(DATABASE_NAME) && !name.equals(DATABASE_NAME + "-wal") &&
++          !name.equals(DATABASE_NAME + "-journal") && !name.equals(DATABASE_NAME + "-shm"))
++        throw new SQLiteException("ASYNC_STORAGE_UNSUPPORTED");
++      BasicFileAttributes attr = Files.readAttributes(entry.toPath(), BasicFileAttributes.class,
++          LinkOption.NOFOLLOW_LINKS);
++      if (!attr.isRegularFile() || !Files.isReadable(entry.toPath()))
++        throw new SQLiteException("ASYNC_STORAGE_UNREADABLE");
++      if (name.equals(DATABASE_NAME)) {
++        if (attr.size() < 100) throw new SQLiteException("ASYNC_STORAGE_UNSUPPORTED");
++        present = true;
++      } else related = true;
++    }
++    if (!present && related) throw new SQLiteException("ASYNC_STORAGE_ORPHAN");
++    return present;
+   }
+ 
+   /**
+@@ -114,19 +150,8 @@
+   }
+ 
+   public synchronized void clearAndCloseDatabase() throws RuntimeException {
+-    try {
+-      clear();
+-      closeDatabase();
+-      FLog.d(ReactConstants.TAG, "Cleaned " + DATABASE_NAME);
+-    } catch (Exception e) {
+-      // Clearing the database has failed, delete it instead.
+-      if (deleteDatabase()) {
+-        FLog.d(ReactConstants.TAG, "Deleted Local Database " + DATABASE_NAME);
+-        return;
+-      }
+-      // Everything failed, throw
+-      throw new RuntimeException("Clearing and deleting database " + DATABASE_NAME + " failed");
+-    }
++    clear();
++    closeDatabase();
+   }
+ 
+   /* package */ synchronized void clear() {
+@@ -144,11 +169,6 @@
+     }
+   }
+ 
+-  private synchronized boolean deleteDatabase() {
+-    closeDatabase();
+-    return mContext.deleteDatabase(DATABASE_NAME);
+-  }
+-
+   public synchronized void closeDatabase() {
+     if (mDb != null && mDb.isOpen()) {
+       mDb.close();

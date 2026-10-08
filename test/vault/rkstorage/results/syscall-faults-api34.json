@@ -1,0 +1,281 @@
+{
+  "serial": "emulator-5586",
+  "cases": [
+    {
+      "operation": "sync",
+      "failed": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2022-07-21 15:24:47 698edb77537b67c41adc68f9b892db56bcf9a55e00371a61420f3ddd668e6603",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "injectedFileClass": "journal",
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 720896,
+          "sampledVolumeFreeSpaceDropBytes": 0,
+          "peakNativeAllocatedBytes": 10298016,
+          "peakJavaUsedBytes": 32502784
+        },
+        "status": "IO_DEFERRED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 16,
+        "nativeAllocatedBytes": 6344624,
+        "javaUsedBytes": 17614976,
+        "preserved": true,
+        "sqlite": "3.39.2",
+        "api": 34
+      },
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.39.2",
+        "api": 34
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 7137872,
+          "peakJavaUsedBytes": 18918536
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 34,
+        "nativeAllocatedBytes": 6276016,
+        "javaUsedBytes": 14841648,
+        "preserved": true,
+        "sqlite": "3.39.2",
+        "api": 34
+      }
+    },
+    {
+      "operation": "write",
+      "failed": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2022-07-21 15:24:47 698edb77537b67c41adc68f9b892db56bcf9a55e00371a61420f3ddd668e6603",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "injectedFileClass": "journal",
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 720896,
+          "sampledVolumeFreeSpaceDropBytes": 0,
+          "peakNativeAllocatedBytes": 12106192,
+          "peakJavaUsedBytes": 32932320
+        },
+        "status": "IO_DEFERRED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 13,
+        "nativeAllocatedBytes": 6335536,
+        "javaUsedBytes": 18101264,
+        "preserved": true,
+        "sqlite": "3.39.2",
+        "api": 34
+      },
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.39.2",
+        "api": 34
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 7222336,
+          "peakJavaUsedBytes": 18979096
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 29,
+        "nativeAllocatedBytes": 6302720,
+        "javaUsedBytes": 18995480,
+        "preserved": true,
+        "sqlite": "3.39.2",
+        "api": 34
+      }
+    },
+    {
+      "operation": "truncate",
+      "failed": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2022-07-21 15:24:47 698edb77537b67c41adc68f9b892db56bcf9a55e00371a61420f3ddd668e6603",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "injectedFileClass": "journal",
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 7171392,
+          "peakJavaUsedBytes": 24151744
+        },
+        "status": "IO_DEFERRED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 17,
+        "nativeAllocatedBytes": 6328128,
+        "javaUsedBytes": 24168128,
+        "preserved": true,
+        "sqlite": "3.39.2",
+        "api": 34
+      },
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.39.2",
+        "api": 34
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 7121392,
+          "peakJavaUsedBytes": 19262784
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 25,
+        "nativeAllocatedBytes": 6280944,
+        "javaUsedBytes": 15039096,
+        "preserved": true,
+        "sqlite": "3.39.2",
+        "api": 34
+      }
+    },
+    {
+      "operation": "checkpoint",
+      "failed": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2022-07-21 15:24:47 698edb77537b67c41adc68f9b892db56bcf9a55e00371a61420f3ddd668e6603",
+        "seedJournalMode": "wal",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "injectedFileClass": "main",
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 5458736,
+          "sampledVolumeFreeSpaceDropBytes": 700416,
+          "peakNativeAllocatedBytes": 14317776,
+          "peakJavaUsedBytes": 43395304
+        },
+        "status": "IO_DEFERRED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 21,
+        "nativeAllocatedBytes": 7740096,
+        "javaUsedBytes": 18245648,
+        "preserved": true,
+        "sqlite": "3.39.2",
+        "api": 34
+      },
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.39.2",
+        "api": 34
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 7092416,
+          "peakJavaUsedBytes": 18891088
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 28,
+        "nativeAllocatedBytes": 6261616,
+        "javaUsedBytes": 14866680,
+        "preserved": true,
+        "sqlite": "3.39.2",
+        "api": 34
+      }
+    }
+  ]
+}

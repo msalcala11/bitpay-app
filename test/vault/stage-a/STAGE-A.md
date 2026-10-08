@@ -1,0 +1,528 @@
+# BIP-02 — approved Stage A and Stage B implementation
+
+Stage B was explicitly authorized on 2026-10-05, including the APP cleanup receipt and the single receipt-free recovery write. The Stage A results below are historical reference evidence. Section 8 records the consolidated repair from `a09199eb39af4b3a730b30e81c7d3217a1921460` under the owner's rulings of 6 October. Sections 9 and 10 retain the earlier follow-up evidence. Section 11 records the current uncommitted H–K repair from `b84eb7165ec5945dfc53957b79c1c10e584223c9`. None is release approval.
+
+## 1. Scope and superseding owner policies
+
+Historically, the Stage A amendment and correction started at `0b0f12c1f12f595930394e953d1c4c3b742eb0f9`, with production reference `4e9c7e96c54d87520da7c3f16bf37084ec7c8789`. Its 433-case reference run had 54 intended acceptance failures and 379 passing cases. Production was unchanged **for that reference run**. Stage B production changes were subsequently authorized and implemented; the primary-carried receipt is implemented, not merely proposed. The current consolidated repair starts in a clean isolated tree at `a09199e`. No commit, push or release is authorized for this repair.
+
+The following decisions are settled, not questions for the owner:
+
+1. **Conversion and cleanup are separate.** Conversion requires safe selection, verified independent modern key, verified modern wallet and successfully recorded completion. Once recorded, it is one-way. Losing/corrupting the store, ordinary edits and cleanup failures cannot reset it.
+2. **A usable converted wallet opens despite independent cleanup failure.** Known obsolete copies remain cleanable after key deletion (including the last key), password changes and gift-card removal. Changed or unknown independent leftovers stay preserved and unresolved; they do not become authoritative or cause a cleanup-only startup error. The 6 October damaged-AsyncStorage rule in section 8 is the narrow exception; post-recovery undecodable rows remain preserved.
+3. **The existing main/older modern backups remain recovery sources.** Pending cleanup cannot prohibit recovery, and a cleanup-suspension metadata write is not a prerequisite for otherwise-safe recovery. Key, conversion-state and actual storage/recovery failures remain legitimate non-destructive errors.
+4. **The selected current wallet's modern main backup is prepared and strictly verified before the first MMKV conversion write.** An older backup, an unpromoted temp, or awaiting the best-effort backup writer does not satisfy this prerequisite.
+5. **Deletion authorization is narrower than access.** A failed optional permission write withholds that work. Unresolved migration temps must not be overwritten by later migration refreshes. Ordinary rolling-backup behavior is unchanged.
+
+Removed from the proposal: permission-based wallet admission after conversion; historical/absence startup-permission records; generation-based authority revocation; revocation-before-recovery; and a permanent zero-view recovery prohibition tied to pending cleanup. Preservation checks around awaits remain. The existing scrub, native Android cleaner/provider patch, encryption/AAD/key options, TSS coverage boundary, and bounded diagnostics/native-Alert work remain in scope unchanged.
+
+## 2. Approved record model
+
+Retain the existing record store/key and reference `status`, `wipeDone`, `initializing`, and compatible legacy `refresh` parsing. Do not add another storage location or journal.
+
+```ts
+// Design notation only; no actual source digests or wallet material are shown.
+type Digest = string; // SHA-256 of exact serialized bytes, never decrypted values
+
+type RecordAmendment = {
+  conversionComplete?: true;
+  conversionPlan?: {
+    v: 1;
+    source: 'mmkv' | 'async' | 'main' | 'bak' | 'main-temp' | 'bak-temp';
+    sourceDigest: Digest;
+    mainDigest: Digest;
+    primaryReceipt: string; // 128 random non-secret bits, lower-case hex
+  };
+  cleanup?: {
+    v: 1;
+    suspended?: true;
+    primaryReceipt?: string; // same one-time cleanup receipt as the prepared/root APP
+    async?: {origin: 'converted-source' | 'current-coverage'; digest: Digest};
+    main?: {origin: 'optional-refresh' | 'current-coverage'; digest: Digest};
+    bak?: {origin: 'optional-refresh' | 'current-coverage'; digest: Digest};
+  };
+};
+```
+
+**Reuse existing completion information:** a valid reference `status: 'complete'` establishes conversion and completion of the *base* cleanup. Otherwise, the new validated `conversionComplete: true` is the successfully recorded milestone. Never write false or clear it. A new flag is necessary because `status: 'started'` currently conflates required conversion with optional cleanup. `cleanupComplete` is derived, not another stored boolean: conversion established, base `status === 'complete'`, and on Android the separate RKStorage marker is verified complete. `wipeDone` continues to mean only the unchanged MMKV scrub's completion.
+
+| Additional information | Concrete role and retained/new scenario |
+| --- | --- |
+| `conversionComplete` | Separates access from cleanup and prevents legacy reselection after B/C/F/G lifecycle edits and E recovery. Its write/read-back is required before first admission. |
+| `conversionPlan.source` + `sourceDigest` | Records the previously validated selection, before replacement can remove a selected source; distinguishes an interrupted operation from a new unconsumed wallet (M/N). Fixed kinds map to existing paths. |
+| `conversionPlan.mainDigest` | Identifies the exact planned prepared modern main or its existing migration temp across interruption. It is not a digest of evolving primary authority (N). |
+| Independent `cleanup.async/main/bak` bindings | Identify specifically consumed originals and migration-owned optional temps. Avoid both false conflicts and overwriting another obligation (A/B/C/L). Ordinary wallet saves do not rewrite these bindings. |
+| `conversionPlan.primaryReceipt` / `cleanup.primaryReceipt` and `APP.bip02CleanupReceipt` | Proposed minimum additional observation for E: a one-time, non-secret cleanup receipt carried by the primary and ordinary persisted APP state. It binds old grants to uninterrupted application-managed primary use, not wallet authority. Every post-conversion restoration omits it in the **same root write**. A failed separate suspension write therefore cannot leave a restored primary qualifying old grants. See the required scope addition and interruption analysis below. |
+| `cleanup.suspended` | Optional conservative bookkeeping after observed recovery. It never disables access/recovery or reverses conversion; it is **not** the cross-restart safety mechanism. |
+
+Use one serialized whole-record `set` plus exact read-back per change, preserving the other slots and mandatory conversion state. Coalesce known original-source provenance with the conversion-completion write: this records what was safely incorporated and avoids admitting normal use with an unrecorded handover. A subsequent optional-temp intent write can fail independently of that already-recorded conversion. Do not write unchanged metadata every launch. These are fixed optional fields, not an append-only history. The receipt is issued once when establishing conversion; it is not an authority generation, an evolving wallet digest or a new secret. Missing/malformed/mismatched receipt means no historical disposal grant, never no wallet access. The full conversion record remains separate from Redux; only this proposed non-secret cleanup witness is carried in APP.
+
+Validate mandatory base/conversion information separately from optional cleanup grants. Malformed/unknown optional cleanup metadata grants no deletion and does not block a usable wallet with validated conversion. A corrupt/unreadable mandatory conversion record is different and cannot be treated as an absent/fresh installation. Plans are inspected only while conversion is unestablished; once conversion is established, stale/malformed plans cannot reopen source selection. For old completed records, keep existing base/key validation and ignore retired repair-only leftovers.
+
+### Compatibility and source selection
+
+- **Old completed records:** conversion is established by their existing completion record. Preserve `initializing` and the separate RKStorage lifecycle. A reference fresh-initialization marker is not evidence that a wallet save previously existed; keep its first-save handling rather than manufacturing prior conversion history. No conversion rewrite or new proof inventory is needed.
+- **Old started records without the new milestone:** do not infer completion from `wipeDone`, a modern APP flag, key presence or an attempted write. Keep usable modern data as a candidate and never overwrite it with a conflicting old source. Record conversion only after sufficient safe selection/current-backup/modern-store evidence. If old metadata cannot distinguish a previously consumed source from a genuinely unconsumed competing wallet, that is a conversion-state information constraint, not permission to guess or regenerate a key.
+- **Old main/bak refresh markers:** preserve provenance for their actual path/digest. They do not prove conversion or consumption of other sources. Once conversion is established, missing provenance withholds deletion instead of locking out the wallet.
+- **Pre-conversion checks stay necessary.** Retain the prior narrow fully validated legacy-CBC/literal-true importer-flag qualification where it establishes that MMKV is the source and AS can remain unresolved. It is only selection evidence: backup-first conversion and the recorded milestone still must succeed before access. False/missing/malformed flags and modern flags alone do not supply that evidence. No persisted historical-eligibility or successful-absence permission machinery is needed after conversion.
+- Required modern-key validation is unchanged. Missing/unreadable metadata never authorizes key regeneration, old-source overwrite of modern data, or empty-wallet initialization over existing data. Hidden metadata/load ambiguity cannot be represented as proof of a fresh installation.
+
+## 3. Revised state and operation table
+
+`R` means one whole-record MMKV `set` and exact read-back. It is not forced flush or cross-store atomicity. `B` means the main backup read back from its final path, decrypted under the verified modern key and compared with the selected current wallet after the **existing** backup exclusions. Preserve registered MMKV values and all unresolved copies throughout.
+
+| State/event | Preconditions and ordered operations | Access, cleanup and failure result | Interruption / next state |
+| --- | --- | --- | --- |
+| Required key/base/conversion validation fails | Perform existing platform/backend and required record checks before data mutation | Non-destructive error; no fallback/regeneration, restore guess or legacy import | Preserve sources and existing milestone; Retry/support |
+| Conversion unestablished; fresh selection | Strict inventory and selection, including genuinely necessary old sources; save/read-back verify modern key; encode current selected main; R plan before changing its recovery path | No admission yet; no cleanup masquerading as conversion | A plan alone grants no access/deletion; it does not mean the main exists |
+| Plan exists, main not yet prepared | Revalidate bound selected source and required inputs; refuse unresolved occupied migration paths; strict temp write and read-back, target replacement, final read/decrypt/wallet comparison | Backup failure stops conversion. **No MMKV conversion write.** Original/verified replacement source remains recoverable | A verified matching main temp can finish the existing strict promotion. Missing/mismatched plan/source is not guessed |
+| Prepared modern main verified | Only now write the selected full modern MMKV root and verify exact read-back/content | Failure stops admission; prepared B is retained | Native write loss can leave root absent/invalid while B and plan remain usable |
+| Root verified; conversion marker not recorded | Recheck required evidence; R `conversionComplete: true`, together with established source provenance; remove plan where practical | Failure to record this milestone stops first admission. This is a required conversion-state write, not optional cleanup | If R actually became visible, next attempt validates it. Otherwise resume from plan/B; no normal use was authorized before R |
+| Plan + prepared B after interruption | Validate key and exact main/temp binding; decrypt/verify B. If modern root agrees with prepared wallet, verify it without rewriting. If root is lost/corrupt and recovery is safe, restore B using existing recovery files, verify output, then R conversion | Resume the selected wallet, not an unrelated legacy re-import. Preserve later changed independent sources for cleanup | B is a recognized output of this operation, not a competing wallet. A different usable modern root or a mismatched/missing B requires careful conversion-state validation, not rollback |
+| Conversion established; usable modern root | Validate key/conversion and modern data; use that wallet | Open it. No projection comparison with obsolete sources can reconsider authority | Normal key/password/gift changes and cleanup failures never clear conversion |
+| Independent AS read/deletion/verification rejects | Bound the attempt; retain source/provenance and needed credentials; no unreadable-byte deletion | Report aggregate pending cleanup and open usable converted wallet. No H/C/N startup permission is required | Cleanup remains incomplete; retry on later preparation without polling |
+| Known obsolete source/temp still matches | Require the specific trusted binding, matching primary cleanup receipt, usable current wallet/recovery safety and identity rechecks; remove and verify; R slot resolution if needed | Eventual cleanup survives ordinary edits; do not promote stale owned temps into backup rotation | Removal/verification failure stays pending; milestone stays complete |
+| Unknown, changed or undecodable independent source | Do not use a mismatched binding; no adoption, deletion or migration overwrite; skip any refresh whose path is occupied | Open usable converted wallet; report unresolved cleanup. No false completion, including after the last key is intentionally removed | Current successful absence may resolve an obligation. A present unresolved source is not declared erased |
+| Optional refresh after conversion | Resolve its pending path first; verify ordinary prerequisites; R exact optional intent **before** creating/reusing its temp; use existing strict file operations | If only the intent cannot be stored, withhold that write/deletion and open the wallet if mandatory conversion state remains readable/valid. Do not destroy another temp to make room | Other slots remain intact. This does not weaken the mandatory first-backup rule |
+| Modern primary lost/corrupt; appropriate B available | Validate modern key, conversion state and the existing main/bak recovery candidate; pause destructive cleanup; remove the cleanup receipt from the serialized recovery output before its single root write; verify that output including receipt absence | Recovery repairs the converted wallet; no legacy source selection or conversion reset. Pending cleanup is not a reason to deny it | Prefer a valid main, otherwise an appropriate valid older backup, with existing strict handling of required matching replacement temps; never promote an obsolete temp over a newer valid target |
+| Cleanup suspension R fails during otherwise-safe recovery | Keep deletion disabled for this attempt; verify mandatory conversion metadata; restore the receipt-free output if storage safety permits | **Do not require successful suspension to open the recovered wallet.** Mandatory metadata failure remains distinct | The restored primary itself lacks the matching witness after a completed call and reopen. The old separate grant cannot qualify even if R stayed unchanged. Inside-native rollback is not solved |
+| Recovered primary; readable old source on later launch | Validate conversion and current primary; absent/mismatched receipt prevents historical-grant reuse. For each source, fresh validated protected-content coverage may establish a `current-coverage` intent with exact bytes and successful R/read-back; recheck both around awaits and before deletion | Open the recovered wallet regardless of coverage/intent failure. No authority reselection, import, merge or stale-root overwrite. A+B source against recovered A stays retained | `current-coverage` must be re-proved on every attempt, never a cross-launch disposal bypass. Matching A+B permits removal when the failure clears. Successful absence resolves the obligation; new or ambiguous material stays pending |
+| Store read/write safety cannot be established | Do not treat a failed read as absence or issue blind/probe writes; preserve B and source copies | A storage/recovery error is allowed. It is independent of cleanup status; no new pending-permission recovery ban is proposed | Same-process cached failure need not reload; opening a new native process is not proof that genuine loss is cured |
+| Base cleanup actually resolves | Verify scrub and all applicable copies/deletions; retire required legacy entry only when safe; R base complete without reversing conversion | Base cleanup can complete; no unresolved copy is hidden to obtain the fast path | On Android, global cleanup remains incomplete until the existing RKStorage operation/marker succeeds |
+| Native RKStorage operation defers/fails after conversion | Leave cleaner/provider patch unchanged; retain preservation checks and fixed outcomes; verify wallet usability independently | A cleanup-only failure, including an unexpected live row, cannot become a wallet-authority conflict. Report pending; do not claim provider/whole-app health | JS follow-up may defer the native result while keeping marker incomplete; actual key/wallet/recovery failures remain errors |
+
+### Backup-first details
+
+The required copy comes from the **selected current wallet**, not from whichever old backup is easiest to decrypt. Use the migration-only strict helpers, not the best-effort `backupPersistRoot` Promise as a verification guarantee. Complete final promotion and read/decrypt/compare before MMKV. The ordinary backup writer, exclusions and rolling policy stay unchanged.
+
+If the selected source occupies a migration temp needed for preparation, do not overwrite it. Reuse/promote a verified matching prepared output where justified. If fixed existing paths are occupied by unresolved required data and safe preparation cannot proceed, preserve them and stop *pre-conversion*. Do not invent another recovery location. Once conversion is established, a blocked optional refresh only withholds cleanup/refresh work.
+
+The plan's main fingerprint identifies an exact prepared ciphertext copy. It can recognize a completed main or its verified replacement temp after interruption. Root verification compares the modern root's wallet contents to that prepared wallet, retaining backup exclusions; there is no continuing root-content fingerprint or generation tied to ordinary saves. When restoring prepared output into MMKV, backup-excluded redownloadable state need not be fabricated. The prepared recovery copy is retained until conversion is recorded and normal backup policy can own it.
+
+
+### Recovery and deletion: concrete correction, proposed for Stage B review
+
+The separate suspension bit was insufficient. Two histories can leave the same separate record and wallet contents: ordinary intentional deletion of B, versus recovery of A after losing A+B with a rejected suspension write. A content comparison cannot distinguish those histories; requiring that comparison for every old grant would defeat the settled intentional-deletion policy. An extra `suspended` bit, more retries, or a process-local flag does not repair that information loss.
+
+**Selected design proposal:** one cleanup-only receipt in `APP.bip02CleanupReceipt`, mirrored by the fixed cleanup record (and the preparation plan during conversion). This is an explicit, small scope addition for review, not implemented production and not implicit approval to start Stage B. A design confined to the separate record alone cannot satisfy the readable-retry requirement when its write fails. If the primary witness is not accepted, that particular guarantee remains blocked; do not substitute a recovery ban or silently weaken preservation.
+
+Issue a 128-bit non-secret receipt once during safe conversion. Include that annotation in the selected payload before preparing/verifying the main backup, then write the same annotated primary and record conversion plus source bindings. Verify all selected application content plus the exact annotation; it is **not another backup exclusion**. Never copy a receipt from an unrelated source. APP persistence and real reducer spreads retain it across ordinary edits without writing the migration record on every save. It has no effect on encryption formats, signing, wallet authority, key selection or completed startup. An optional AppState member with no default value is needed; absence must not be automatically repopulated. After base completion it is ignored, with no maintenance write merely to remove it.
+
+For **every post-conversion main or older-backup restore while base cleanup is pending**, strip only this owned field from the serialized APP value before writing `persist:root`. Restore all retained application values exactly, preserve opaque encrypted fields, and verify the result and receipt absence before returning it for rehydration. Do not mutate the backup file. Do not first copy a receipt-bearing backup into MMKV and remove the receipt in a second call. Conversion resume from the selected prepared copy *before* the milestone is a separate operation: its planned receipt may be retained because ordinary use was never admitted.
+
+| Interruption | Available state and required result |
+| --- | --- |
+| Optional suspension R rejects, before restore | C and the old grant remain readable. No cleanup this attempt; recovery can still proceed. |
+| Restore rejected before changing root | Keep backups/sources; use the existing recovery error unless a current usable primary is independently verified. No access based on an unverified write. |
+| Receipt-free restore completes, then process stops before any later R | Reopened root has no receipt. The stale persisted grant cannot authorize deletion. No awaited interval with a deliberately invalid/partial root is introduced. |
+| Suspension R succeeds but restore is interrupted | Suspension is conservative; C remains true and existing recovery retries. |
+| Ordinary save after successful recovery | Rehydrated APP lacks the receipt, so ordinary persistence cannot revive it. No defaulting/automatic reissuance. |
+| Old backup carries a matching receipt | The restore operation strips it irrespective of which backup supplied it. Merely matching a backup fingerprint is not continuity. |
+| Native fallback or interruption hides/reverts either store | Not certified by completed-call/read-back tests. Retain the already-disclosed silent-rollback, native-compaction and power-loss limits; no forced flush or native atomicity claim. |
+
+**Requalification is deletion-specific.** With the receipt absent, a known source can be removed only with fresh validated coverage of its protected material and associations by the current recovered primary, exact source identity checks and a successfully recorded per-copy `current-coverage` intent. The existing conservative protected-content comparison is sufficient evidence where it succeeds; it does not select which wallet opens. Re-evaluate that evidence after every awaited operation that can invalidate it, and on every later launch. Failure of the intent write withholds deletion, not access. Missing B in the older A backup leaves A+B pending for an explicit reason, not an accidental permanent latch. Recovery of the current A+B backup can requalify and complete; changed/undecodable sources remain preserved. If sufficient coverage later exists, or the source is verifiably absent, retry can resolve the obligation. Do not automatically merge or import B.
+
+Stage B must add schema-specific tests for receipt issuance, malformed/missing receipts, ordinary reducer/persistence retention, every completed restore-call cut, receipt stripping for both files, failed suspension before/after restore, and current-coverage intent write/read-back/deletion failures. Those are **future schema tests**, not claimed reproductions of a field absent from reference production. Existing exact-payload fixture expectations must explicitly include the issued annotation where relevant, rather than globally ignoring APP or weakening backup verification. The functional tests here exercise real entry points and a separately labeled completed-restore boundary fixture; reference code still has no receipt or conversion milestone.
+
+## 4. Test expectation delta and actual reference execution
+
+The amended spec is still `src/store/vault-migration.spec.ts`, using the existing platform-boundary harness and production entry points. No copied production selection policy or future-method stub is used. Existing lifecycle data-preservation assertions remain.
+
+**Actual final focused run against unchanged production:** **433 cases: 379 passed, 54 expected failures, no skips or unrelated failures.** This comprises 104 acceptance cases (54 expected failures, 50 passing controls), 2 passing characterization cases, and all 327 unchanged focused cases passing. This correction adds 9 cases, reconciles 35 additional reference cases (41 total across the amendment), and moves the 2 empty-view cases out of red acceptance. Earlier 62/46/16 and 362 counts are retained only as superseded history in `results.json`.
+
+The run used the existing frozen-install validation worktree at `4e9c7e96c`, with only the corrected spec overlaid; no dependency installation, substitution or production edit. Command and sanitized results are in `results.json`. Targeted ESLint, Prettier and `git diff --check` pass. TypeScript exits 2 with the same **2,024** baseline diagnostics; none introduced or removed after normalizing checkout prefixes and source locations. All 35 source/reference files were byte-compared again. No full-suite/native/UI run is claimed.
+
+The readable-retry evidence distinguishes reachability: unchanged production rejects the older-backup full-recovery attempt with `SOURCE_CONFLICT` before any suspension write; the current-main full-recovery attempt rejects with `REQUIRED_COPY_FAILURE` after deleting AS and rejecting one record write. The completed-restore fixtures explicitly supply the state after a successful primary write and failed R, rather than claiming production reached it. Older A recovery then makes one successful AS read and wrongly denies access (`SOURCE_CONFLICT`), preserving A+B. Current A+B recovery completes disposal, opens successfully twice and passes. These are functional availability/preservation regressions and controls, **not evidence that reference code implements or safely persists the proposed receipt**. Future milestone/receipt schema guarantees require the listed Stage B tests; no missing-field assertion is counted as a functional red.
+
+The focused baseline reconciliation covers T7's required initial failure; optional write/promotion/verification/partial-target/EDDSA refresh fixtures; the optional-boundary preservation matrix; the unconverted old-record/equivalent-temp case; and four earlier-write recovery cases. Optional cases now first establish conversion and a verified backup, then create a later refresh need. Old unconverted records still require successful backup preparation. The earlier-write cases now require the selected current copy to survive, including when the original backup was older/absent or AS survived. Passing old expectations were not assumed to remain policy-valid.
+
+
+| Scenarios | Amendment |
+| --- | --- |
+| A/B/C normal use after deferral | Keep expected successful access, exact current-wallet retention and eventual known-copy removal. Move main/bak failure injection to **after conversion has returned with a verified current backup**. Failing the required first backup is no longer a valid setup for ordinary use. |
+| F later independent read failures | Keep availability/read-count expectations; conversion is the basis, not new historical/absence permissions. Pre-conversion necessary-source controls stay strict. |
+| C changed source; G undecodable source after last key removal | Change startup rejection to successful access with the source retained, no adoption/deletion and incomplete cleanup. Include readable changed-source cases both with and without last-key removal. |
+| E loss/recovery | Retain main-backup availability cases. Add older A-only `.bak` versus current A+B main, failed suspension persistence and two readable-source JS-reload attempts. Separate full recovery-call tests from completed-restore boundary fixtures so an earlier reference rejection does not conceal the missing retry test. Preserve A+B after older recovery; allow fresh-coverage cleanup after current recovery. Assert C stays recorded at the end, not as a missing-field failure before exercising the path. |
+| E known malfunction models | **Characterization only**, excluded from acceptance-red counts. Assert equal public observations for healthy emptiness and modeled cached data/checksum-open failure, including same-process cause removal. A fixture-only write demonstrates the modeled rejection/acceptance difference; it is not a permitted production probe. No opposite startup requirements are derived from the hidden fixture label. |
+| RK converted state | Amend six existing RK cases for safe backup recovery, late live sources and an independent lifecycle failure; add a native preservation-failure outcome with a usable wallet. Preserve exact current data and incomplete cleanup. Cases with no usable recovery/key remain strict. |
+| H completed state | Retain existing completed-base/backup controls. The new proposal does not make optional cleanup metadata a completed-wallet dependency. |
+| K bounded reporting | Retain one aggregate per preparation and same-process deduplication; establish conversion before injecting independent optional failures. |
+| L unknown temps / permission write | Add main/bak unknown-copy protection from both deletion and later migration overwrites; optional intent write failure preserves access and withholds work. |
+| M backup-first | Compare **all** retained reducers, using only the five existing backup exclusions and JSON serialization normalization. Add matching-wallet/stale-BITPAY_ID negative control. Keep temp failures and add final read rejection/valid encrypted wrong-retained-payload faults armed only after successful promotion. Require no conversion write or milestone. Separate optional post-conversion write failure/retry coverage. |
+| N interruption / milestone recording | Model cuts before the first root write, partial native write loss and the next record-write boundary after root read-back; require prepared-copy availability and correct wallet resumption, never adoption of a later changed AS source. Separately require marker-recording failure to withhold first admission. |
+| P / key controls | Retain genuinely unresolved pre-conversion conflicts and unreadable keys; add missing/invalid modern-key variants. No mutations remain required on these paths. |
+
+`results.json` contains the final actual reference results and per-case classifications. These are intentionally red against production `4e9c7e96c`/the identical production files in `0b0f12c1f`. No failure caused solely by a missing new schema field is counted as a reproduction.
+
+The ordering oracle observes actual final-main reads and compares the full retained selected payload, explicitly including any planned receipt rather than excluding it. A read alone is not proof of production verification. The final-path negative faults test rejection/preservation at that boundary. A separate control executes the real `promoteVaultFile` with a corrupt final payload and then a deliberately omitted verifier: rejection occurs only with verification. This is a **helper/callback mutation control**, not a claim that a future Stage B orchestrator passed an end-to-end mutation campaign; that exact final-source campaign remains required. N records booleans for prepared-backup availability, retry admission and *which wallet* was restored; a retry that resolves with the changed AS wallet is a failure, not successful recovery.
+
+A JavaScript module reload preserves the native-boundary maps. A modeled process interruption/fault is not an actual native-process restart or inside-native kill. The reference reaches the first MMKV write without the required prepared backup; the new interrupted-backup assertions intentionally expose that ordering failure before claiming a successful cold-resume proof. The native-write-loss branch additionally exposes unsafe adoption from a changed AS source when no prepared copy exists. No rendered UI, new native fault campaign or phone result is claimed.
+
+“No mutations” is not weakened globally. Recovery cases permit only a verified primary restoration and justified record sets while requiring unchanged recovery/source files, no AS deletion/key regeneration and no scrub. Unknown-leftover cases allow only bounded metadata sets. Pre-conversion ambiguity/key failures still require no application-requested mutation. Native loading may itself have side effects, which the mock mutation counter does not certify away.
+
+## 5. Simplified implementation scope and retained diagnostics
+
+| Proposed production file | Bounded purpose |
+| --- | --- |
+| `src/store/vault-migration.ts` | Separate conversion from cleanup; strict current-backup-first sequence; resume prepared output; never reconsider an established wallet from obsolete sources; protect unresolved paths. |
+| **new** `src/store/vault-repair-state.ts` | Small parser/record helpers for the conversion milestone, one preparation descriptor, one cleanup receipt and three fixed cleanup bindings (including per-attempt current-coverage intent). No authority generations, startup-eligibility ledger or revocation gate. |
+| `src/store/backup/vault-files.ts` | Reuse strict operations for final backup verification and recovery/preparation; retain guards around awaited success/rejection and source identity. No new file location. |
+| `src/store/index.ts` | Route required converted-wallet validation/recovery before bootstrap; strip the owned cleanup witness in the single pending-conversion-recovery root write and verify it before rehydration; preserve the ordinary adapter/rolling policy and do not convert cleanup exceptions into lost-wallet startup errors. No pending-permission recovery prohibition. |
+| `src/store/app/app.reducer.ts` | Proposed scope addition: optional APP cleanup-receipt type, no default or new action. Confirm existing persistence and reducer spreads preserve it through ordinary use. No new wallet policy. |
+| `src/store/vault-rkstorage.ts` | JS orchestration only: separate aggregate cleanup completion from conversion/access; independent native cleanup outcomes remain pending when the wallet is usable. |
+| `src/store/wallet/effects/import/import.ts` | Retain/enforce the importer bypass for established conversion; never re-import old sources over recovered/edited modern data. |
+| `src/store/encryption-key.ts`, `src/store/vault-diagnostics.ts`, `src/store/persistence-guard.ts` | Explicit safe code/reason/actual-phase/source/origin classification and preservation of required failures; no key or encryption policy changes. |
+| **new** `src/store/vault-startup-alert.ts`, `index.js`, `locales/en/translation.json` | Retain the already-proposed small native Alert lifecycle and localized guidance/support route. |
+
+Retain existing preservation checks rather than removing them to reduce line count. Split their result into wallet/recovery failure versus independent cleanup failure. No native MMKV observers/sync bindings, runtime file/header tie-breaker, Java SQLite changes, provider/dependency patch changes, lockfile changes, scrub algorithm/growth changes, TSS coverage changes, capacity heuristics, reset/reinstall/seed-entry flow or broader storage framework is proposed.
+
+Diagnostics still distinguish required conversion/key/record/recovery errors from incomplete cleanup. Replace substring inference with fixed capture-site classifications, preserve known errors by identity, and never forward arbitrary error messages/stacks/causes/getters, identifiers, ciphertext or source digests. An unknown cleanup source is a safe *pending-cleanup* report after conversion, not `SOURCE_CONFLICT` deciding wallet authority. At most one aggregate deferral per attempt, with identical same-process signatures deduplicated and no persistent telemetry history.
+
+Keep Retry and Help & Support in the existing native Alert for required startup failures. Keep “Do not uninstall or clear app data,” conditional close/reopen guidance, the fixed support URL and a short safe diagnostic identifier via existing i18n. Keep failure state independent of visibility, guarded support return/failure re-presentation, single bootstrap, stale-callback cancellation and listener cleanup. No new React/splash screen, automatic restart or destructive action. Independent cleanup warnings do not summon a blocking startup Alert over a usable wallet. Actual seeded UI checks remain Stage B work, not evidence supplied by this amendment.
+
+Work stays bounded: at most one initial AS read, one pre-delete identity check and one removal-verification read, with no further AS cleanup after a rejecting read; one removal attempt per fixed source/path, no in-attempt polling. Required backup replacement and root/marker writes each have one attempt. All records have fixed fields/slots; coalesce state changes and avoid unchanged writes. The prior speculative 400-sample continuity budget and generation/observation machinery are removed. Retain the scrub's existing bounds; measure final-source operation counts in Stage B rather than reuse counts from a different design. Native calls can still hang; do not release ownership with a timeout while native work continues.
+
+## 6. Concrete constraints and evidence limits
+
+These do not reopen the settled access/recovery policies:
+
+- **Zero-view disposition:** there is no approved observable discriminator between all healthy zero views and cached failed-load zero views. Both use the same available evidence. The two aliasing cases are executable characterization assertions, **not acceptance requirements for opposite production decisions**. Preserve the existing verified-backup recovery route, without a new pending-cleanup ban, load probe, native observer, file parser or file-health heuristic. Explicit read exceptions/invalid mandatory inputs still stop. The write-accepting failed-load hazard is a separately disclosed native/ordinary-restore limitation; this amendment neither fixes nor accepts it as release-safe.
+- **Deletion observation disposition:** the separate-record-only proposal cannot satisfy failed-suspension/readable-retry safety alongside normal intentional-deletion cleanup. The primary-carried cleanup receipt above is the explicit proposed addition, with its file scope and completed-call analysis. It is subject to Stage A review and Stage B implementation/tests, not a passing production guarantee. Without that addition (or another reviewed observable mechanism), do not promise unconditional deletion safety or approve Stage B with an impossible all-green contract.
+- **Mandatory metadata:** when key or conversion-state information is genuinely unreadable/ambiguous, source safety may remain unprovable. Modern data must be preserved, not re-imported over or silently initialized away. An old started record that never distinguished consumed versus unconsumed data cannot retroactively provide missing history; safely upgrading it needs actual evidence. Optional cleanup corruption is not this failure.
+- **Prepared-copy availability:** fixed main/bak/temp paths can be occupied by unresolved required data. If a current backup cannot be prepared/verified without losing it, conversion must wait. After conversion this only pauses independent refresh/cleanup. Simultaneous loss of the modern store and prepared/current backup is not solved.
+- **Persistence/native limits:** R is API persistence plus mapped-view read-back, not guaranteed flush, power-loss immunity, cross-store atomicity or newest-state detection. Backup-first closes the deliberately missing-current-backup ordering gap; it does not make native MMKV writes crash-atomic. Silent fallback, hidden metadata and inside-native behavior are not certified by JS tests. The reported checksum-file/ordinary-restore hazard remains a separate constraint, not an expanded native-repair workstream.
+
+Existing source/dependency and suite manifests are retained with amendment provenance. Their earlier frozen install and 138-spec baseline are historical facts, not newly rerun whole-project assessments. The amendment reruns the relevant focused suites against unchanged production and reports the actual policy-delta failures separately. Original supplied native probes remain unavailable in accessible locations; no native rerun is claimed. Distribution beyond disposable installations remains unknown. Physical-phone/16 KiB OS-page, actual UI, native erasure/inside-native and power-loss gates are not cleared.
+
+**Historical Stage A stopping point:** production and HEAD were unchanged at the end of Stage A. The subsequent Stage B authorization supersedes its production-edit restriction; commits and release remain unauthorized.
+
+
+## 7. Stage B implementation and final validation
+
+Stage B implements the approved receipt design in the existing stores. `vault-repair-state.ts` separates mandatory base/conversion validation from optional cleanup bindings; `vault-migration.ts` retains the serialized snapshot decoder, legacy field coverage, modern encryption formats and independent platform-protected secret. The APP change is one optional string member, without a default or action. No scrub, native cleaner, provider patch, dependency or lockfile change is part of this implementation.
+
+### Implemented ordering and recovery
+
+1. Strictly select the source before conversion; reject unresolved conflicting sources and occupied unknown temps. Missing/read-failed data are distinct. Preserve the narrow fully validated legacy-CBC/literal-true qualification for an unreadable AsyncStorage row; modern APP flags grant no such pre-conversion exception.
+2. Validate/store/read-back the modern secret. Issue one 16-random-byte hex receipt, write/read-back the bounded descriptor, and prepare the selected current main backup. Its comparison covers the entire retained payload plus that receipt, with exactly the five existing exclusions. Temp validation, verified promotion and final-path validation precede the primary write.
+3. Write and exactly read back the primary, validate its contents, then coalesce conversion completion, justified original-source bindings and retirement of any fresh-initialization marker. No first admission follows a failed required write. Resumption uses the descriptor-bound prepared main/temp or the still-bound original source; changed AsyncStorage cannot replace the selected wallet.
+4. After conversion, validate the current modern primary independently of cleanup. Known obsolete copies require matching receipt and exact binding; changed/unknown/undecodable leftovers stay pending. Optional refresh and intent failures defer only while required primary/history checks still succeed. Preservation errors escaping an optional-write handler are always strict, including an unreadable or invalid record after the optional write fails.
+5. Pending-base recovery validates the main/older modern backup, removes only the owned APP receipt from its serialized output, writes that output once and verifies exact read-back and receipt absence. A failed suspension write does not prevent restoration if mandatory history remains valid. No source cleanup occurs in that recovery attempt. Completed-base restoration preserves its existing backup bytes and ignores retired receipt data.
+6. Without the matching receipt, known copies require fresh protected-material/association coverage, exact identity and verified per-copy `current-coverage` intent. That intent never bypasses the next launch's coverage check. It is persisted before the final source-identity read; requalification after that read performs no new intent write. A modeled source replacement during intent persistence is an assertion-based regression, with its failing pre-correction result retained separately. Recovery of A preserves the readable A+B source; recovery of A+B can finish cleanup on a later attempt. No automatic merge, legacy re-import or receipt replenishment occurs.
+7. Cleanup completion still requires the unchanged scrub and applicable copy/credential cleanup. Android's separate native cleanup marker remains independent. An aggregate deferral reports fixed code/phase/reason/source values; identical same-process signatures are suppressed, while different fixed reasons/sources remain reportable. Reporting failures cannot invalidate usable wallet state.
+
+Two implementation clarifications are required by the approved guarantees. The missing-root adapter now fails with a data-preserving recovery error when established conversion has no usable modern recovery copy, instead of falling through to an empty replacement. Genuine fresh initialization uses the existing `initializing` field on **both** platforms and retires it after a verified first save (or as part of required conversion completion). Old completed records lacking explicit fresh provenance and all modern copies cannot be proved fresh; they stop on the recovery path. Present-root completed startup still performs no new permission inventory, and completed records still ignore retired optional extension contents. This neither detects hidden native metadata nor certifies first-save/native crash atomicity.
+
+The other clarification is a shared per-preparation AsyncStorage read budget. Base cleanup can use one inventory, one identity recheck and one verification read. If those three were used, Android maintenance waits for a later preparation rather than dropping its required post-clean live-row check or issuing a fourth read. Its next completed-base attempt can perform the existing native operation and check. Native failures and late live rows keep cleanup pending without locking out a verified usable wallet; loss of required key/history/wallet/recovery still stops. No timeout releases native ownership while work continues. The Alert defers native dialog presentation to the next UI turn after an observed foreground return or a rejected browser launch. It never queues a speculative dialog merely because `openURL` resolved, retries bootstrap automatically, or releases storage ownership.
+
+Strict migration file operations also recheck exact temp identity before promotion, and refuse an occupied replacement temp. Verified sole temps remain resumable under the retained pre-conversion coverage rules; unknown or distinct protected material is preserved. This adds no recovery location or general storage framework.
+
+### Test interpretation and evidence
+
+`results.json` remains the corrected Stage A reference evidence (379 passes / 54 intended failures). Stage B reproduced that exact focused baseline before editing. **Those failures are not accepted final outcomes.** `stage-b-results.json` records final commands, source identities, test results, mutation control, builds and platform limitations. The incremental Stage B diff is measured against the captured corrected working tree, not against HEAD alone.
+
+Tests explicitly include the issued annotation in expected application/backup payloads. Wrong-retained-payload fixtures carry the correct planned receipt; separate cases reject missing/malformed/wrong receipts. Actual APP reducers, Redux Persist rehydration and ordinary persistence retain either receipt presence or its post-recovery absence without ordinary metadata writes. Both main/bak recovery, failed suspension, a completed-root-write cut, readable retries, fresh-coverage intent failures, changing sources, required-history failures, fresh initialization and completed compatibility are covered. The two indistinguishable empty-view cases remain characterization only.
+
+A final-source mutation in the disposable validation worktree omits final-backup verification while retaining temp verification and reads. The production-path wrong-retained-data regression must fail against it; normal source is restored before final validation. This is distinct from Stage A's callback-only control.
+
+The existing Hermes runner now includes two receipt scenarios in real Android processes: older-backup A recovery retains readable A+B and remains incomplete; current A+B recovery requalifies cleanup and completes. It asserts record/backup/primary receipt agreement, a failed separate suspension write, one receipt-free root write, retained conversion and absence of receipt resurrection across subsequent processes. Raw scans include default MMKV/CRC as well as RKStorage and companions. These are emulator/real-library observations, not physical-phone or hardware-secure-storage certification.
+
+The unchanged native MMKV harness adds a root-absent history with no live recovery source. Its kill scenarios now require the prepared current backup to recover the complete selected wallet during the initial conversion write. If scrub interruption plus cache purge leaves no usable modern source, the migration must reject rather than initialize empty or import an old source. Requested kill schedules are not production failure rates; actual termination and surviving protected contents are reported separately.
+
+Final validation results and remaining gates are populated from completed runs in `stage-b-results.json`. iOS deployment-mode CocoaPods reaches the pre-existing Podfile checksum mismatch; no lockfile is changed to bypass it. The pinned official `v14.46.3` GitHub release has no packaged app assets, so historical serialized-fixture upgrades are not mislabeled as a packaged released-app UI upgrade. Physical-phone checks remain unrun. Native failed-load/empty-view ambiguity, silent fallback, hidden metadata, unsynced process/power loss and simultaneous primary/backup loss remain explicit limitations requiring separate release-owner acceptance.
+
+**Stage B is not release approval.** No commits, pushes, hosted changes, releases, rollout changes or full-repository archives are produced.
+
+
+### Stage B checks recorded at e386a91bd
+
+| Check | Actual result |
+| --- | --- |
+| Corrected Stage A baseline, before production edits | 433 cases: 379 pass / 54 intended reference failures |
+| Final focused suites, including schema/recovery/Alert tests | **490 pass, 0 fail** across 8 suites; retained acceptance cases pass |
+| Normal `yarn test:ci --runInBand` | **143 suites, 2,828 pass, 2 existing skips, 0 fail**; includes the three pre-existing untracked suites |
+| Final-backup-verification mutation | 4 controls pass; the required wrong-retained-data case fails as intended; exact normal source restored |
+| Permission/source ordering regression | Fails before correction; passes after moving intent persistence before source identity read |
+| TypeScript | Exit 2: **2,024 baseline diagnostics**, no introduced/removed identities after normalizing checkout paths and locations |
+| Repository ESLint | Exit 1: **632 errors / 697 warnings**, unchanged; changed/new JS/TS diagnostic identities match baseline |
+| Test-harness ESLint | Exit 0; one new test-only `no-shadow` warning in the native runner |
+| Targeted Prettier / `git diff --check` | Pass |
+| Android debug + instrumentation APKs; Android/iOS JS bundles | Pass; source/build hashes recorded |
+| Final pinned-core raw erasure | **14 macOS cases (16 KiB host pages)** and **14 Android cases (4 KiB OS pages)** pass, including no-live-root history; no retained seeded CBC/EDDSA markers after completed cleanup |
+| Timed native compaction interruptions | **48 scenarios**, 36 actual SIGKILL terminations. All initial-conversion write cases recover both selected keys from the prepared current copy. One scrub-plus-cache-purge case loses the usable modern source and correctly rejects recovery. No power-loss or production failure-rate claim |
+| Real Android Hermes | **8 scenarios / 37 launches** pass; real Keychain/MMKV/RNFS/AsyncStorage and fresh processes. Older A recovery retains readable A+B/incomplete cleanup; current A+B recovery completes with zero legacy markers |
+| Rendered Android native Alert | Guidance, Support launch/return, missing-browser rejection and reachable Retry verified. Same-process Retry creates the modern store and identity; process-count/window metadata confirms no restart or leftover Alert |
+| Browser support content / fresh Home rendering | Chrome first-run terms were not accepted. Home/onboarding rendering remains unverified: UIAutomator returned stale/non-idle hierarchy after verified store bootstrap. Secure-window screenshot protection was not disabled |
+| iOS native build / simulator runtime | Blocked by deployment-mode Podfile checksum mismatch (`4c22e1a9…` locked versus `2d77c072…` source); no lockfile change or native gate bypass |
+| Packaged released-app upgrade / physical phones | Unrun; official pinned release has no packaged assets and no physical device was used |
+
+The rendered check caught a Support-return race during development. The final controller keeps failure state independent of visibility, never treats a fulfilled `openURL` Promise as foreground return, and schedules one presentation only after observed return or rejected launch. Stale callbacks and listeners are retired on Retry/disposal. The final app uses the real production entry and generated assets packaged through scratch Gradle source directories, because the existing native host expects a packaged bundle; no native production file was edited.
+
+The test worktree and frozen-source native runners have byte-matching storage inputs. UI-only follow-up changed the Alert controller, not the verified storage/native dependency set. All dependency manifests, lockfiles, native production files, provider patches, encryption transforms, ordinary backup writer and scrub module match their starting hashes. Bundler's generated local configuration change was restored to its byte-verified starting contents.
+
+Remaining release gaps are real: iOS native/raw-file and physical-device checks, packaged released-app upgrade, Home/onboarding rendering and explicit acceptance of native residuals. Stage B implementation completion and the passing checks above do not clear those gates.
+
+
+### Review repair after e386a91bd
+
+The three review findings are addressed without changing conversion authority, receipts, encryption or scrub policy. Recovery now retains a safe classification of a failed main read and tries the fixed older modern backup. The Android cleanup-preservation reader follows the same fallback, so it cannot block the adapter before recovery. If no candidate validates, an unreadable file remains a required failure, including with `initializing`; it never proves absence. Pending-base recovery still strips the receipt in its single verified primary write.
+
+Pending-temp cleanup respects an inventory-unreadable other backup, preserves unresolved copies and skips that operation. A valid target does not require another other-backup read. Necessary later reads and post-operation temp verification defer only independent cleanup failures, with the existing primary/history failure propagation intact. Regressions create the owned temp through actual conversion and failed optional refresh, exercise three preparations, and verify unchanged live data, retained copies, incomplete cleanup and later completion.
+
+The Alert observes Android blur/focus as well as foreground changes. A focus event from dismissing the old Alert alone does not establish browser return. After a successful URL request with no observed departure it permits **one** guarded presentation after 1 second, keeping the support-request lifecycle active. The delay is an access fallback, not proof that a browser will never depart: a later background event invalidates that dialog's callbacks, cancels pending presentation, and requires a fresh presentation after return. Retry remains user-driven and single-shot. All timers/listeners are disposed; no storage timeout, automatic bootstrap or new production screen is added. A return immediately followed by background before the queued presentation also remains resumable.
+
+`stage-b-results.json.reviewRepair` records this incremental validation separately from the historical Stage B runs. The new `alert-entry.js` is a test-only rendered harness, never imported by production `index.js`: native Alert/AppState and the production controller remain real, while `no-events`, `reject` and `delayed` model only the URL boundary. The `native` mode uses the real URL handler. `run-alert.py` verifies rendered Retry, one retry, one launch and same-process behavior on an explicitly named disposable AVD. These are distinct from full-app bootstrap and physical-device evidence.
+
+Reproduce the rendered harness using the installed pinned toolchain: bundle `test/vault/stage-a/alert-entry.js` for Android into a scratch `index.android.bundle`; package it with the existing debug APK using scratch Gradle `sourceSets.main.assets` and resource directories (no native source edit); install only on a disposable `BIP02_` AVD; run `python3 test/vault/stage-a/run-alert.py SERIAL AVD_NAME /tmp/alert-results`. The native/browser cases leave Chrome first-run terms unaccepted. Exact executed commands, source/build hashes and outcomes are recorded in the incremental evidence. Release approval and the previously documented native/iOS/physical-device gaps remain separate.
+
+Repair validation: **513 focused tests pass**; the normal full suite reports **143 suites, 2,851 passes and 2 existing skips**. The added storage regressions produced 13 failures and 4 passing controls against unchanged production; the initial Alert regression run produced 3 failures and 9 passing controls. Final changed-file/harness ESLint and targeted Prettier/diff checks pass. TypeScript retains the same 2,024 baseline diagnostic identities. The final production-entry native Alert/real Support return passes; all four rendered-controller modes pass with one launch and one Retry in the same process. The no-departure mode has no AppState change (native dialog focus events may still occur). Android APK/bundle identities are in the incremental evidence. The full Hermes migration and native erasure/kill suites were not rerun for this bounded follow-up; their earlier results remain historical. No physical-device, iOS-native, packaged released-app upgrade or Home-rendering clearance is claimed.
+
+
+## 8. Consolidated acceptance repair — 6 October 2026
+
+The owner's three rulings are controlling: (1) delete a successfully read damaged independent AsyncStorage wallet row while base cleanup is pending after validated conversion, subject to current primary usability, identity checks and the recovery restriction; (2) reinstall opens as a fresh installation on both platforms when no persistence source exists and all necessary inventory reads succeed; (3) the same empty visible state on Android opens fresh even when the old Keychain entry exists. Two recommendations are adopted: a released-format primary written after a downgrade is preserved and goes through the existing error path, and the damaged-row rule applies whenever such a row becomes readable, including different damaged bytes on later attempts. No downgraded-data import is introduced.
+
+Accepted consequences remain explicit: damaged-row deletion can discard protected material absent from the current wallet; with an empty successful inventory and a readable old Keychain entry, that entry is retired on the same launch before any save; a later first save can overwrite data hidden by a failed native load; and the unchanged `a09199e` fallback to `.bak` after a main read failure can restore an older snapshot, with later rotation potentially retiring the newer copy. A lost migration record remains an information-loss limit. Original contract 5E's claim that record loss merely repeats idempotent checks no longer describes the approved conversion model. None of these rulings authorizes guessing a replacement modern key or importing old AsyncStorage after established conversion is lost.
+
+| Finding | Implemented rule |
+| --- | --- |
+| 1 | A first record marks initialization from successful empty persistence inventory, independently of surviving Keychain entries. A valid versioned key is reused. Necessary unreadable sources still stop before mutation; an established converted installation never gains fresh provenance from later loss. Native cleaning still waits for a first wallet save. |
+| 2 | One bounded `conversionPlan.output` records the fixed main/bak path, intended ciphertext digest and write phase. It is armed only after the helper successfully observes the temp absent, and cannot claim an unowned temp predating that observation. A retry may retire mismatching **undecodable** output only for this still-writing operation with an independently validated selected source. Valid temps retain their existing duplicate/resume treatment. |
+| 4 | Fresh protected-material and association coverage can create an AsyncStorage `current-coverage` intent even when no earlier binding exists. Intent write/read-back precedes the final identity read; coverage is re-proved later and after awaits, with no same-attempt permission retry after failed read-back. |
+| 5 | Damaged-row eligibility is recomputed from the current successful read, never persisted as a row-specific historical permission. It requires the current valid primary's matching cleanup receipt and no suspension. Backup recovery removes that receipt, so later damaged rows are retained. Changed bytes at the final identity read withhold deletion for that attempt. Last-key deletion does not reverse conversion or revoke uninterrupted-primary eligibility. |
+| 6 | Each optional main/bak binding has a bounded `writePhase`. Only `optional-refresh` / `writing`, mismatching undecodable temp bytes, an unfinished target and a verified usable primary qualify for partial-output retirement. Both normal writes and resumed valid temps persist `verified` **before** target removal/promotion or disposal. Later rotations therefore cannot revive a partial-output grant after the refresh finished. Unrecognized legacy phase-less metadata grants no new partial-output permission. |
+| 7 | Known legacy encodings in a present primary deny corruption replacement, including Android's post-base cleanup path. Non-parsing corruption still follows the existing modern backup recovery path. |
+| 8 | A missing target may use its exact recorded refresh temp, validated under the versioned key, at that target's place in recovery order. Unknown/different temps are neither adopted nor deleted. Pending-base restoration strips only the receipt in its single verified root write. Verified writer provenance is retained when a later current-coverage intent replaces deletion permission; a coverage-only temp grant does not itself certify a writer. |
+| 9 | A pending plan may resume from a valid modern primary carrying its exact planned receipt when the cache copy is gone. It rebuilds and verifies the current main backup before the conversion milestone, leaving the primary unchanged if preparation fails. Missing/wrong receipts and undecodable roots remain stops. |
+
+The write phases share the existing record. No new file, MMKV instance, journal, authority generation or current-primary digest is added. Required output observation/verification failures stop before the primary conversion write; optional phase failures preserve wallet access and withhold that promotion. `verified` retires the partial-output deletion permission before the target can change. A crash after that metadata write but before promotion leaves a valid resumable temp; a crash after a partial write leaves `writing`. Old plans without an output observation cannot claim arbitrary undecodable temps. Completed-call persistence and read-back still do not certify native power-loss atomicity or defeat rollback.
+
+The immutable acceptance diff adds 56 cases. Baseline on the real frozen install was exactly **426 cases: 400 pass / the listed 26 fail**. Only the two explicitly reversed existing expectations were amended; all other existing cases remain intact. Additional implementation tests cover stale grants after replacement-temp recovery (including failed suspension and a cut after the one receipt-free write), source changes before deletion, established total loss under each surviving-key configuration, phase-less plan provenance, completed refresh plus later backup rotation, phase write/read-back failures before promotion, and bounded schema parsing. JavaScript module reload, modeled completed-call cuts and partial writes are labeled separately from native process and inside-native evidence.
+
+Current source identities, actual final command results and remaining gates are in `stage-b-results.json.consolidatedRepair`. `source-manifest.json` is labeled historical and its recorded hashes are unchanged. No physical-device or packaged released-app upgrade certification is inferred from these checks. Passing acceptance and local validation is not release approval.
+
+
+### Consolidated repair validation
+
+| Check | Actual result |
+| --- | --- |
+| Clean real-dependency baseline | 426 migration cases: 400 pass / exactly the supplied 26 fail |
+| Final direct migration-spec command | **450 pass**, including all 56 unchanged acceptance cases and 24 added implementation cases |
+| Focused vault suites | **601 pass** in 8 suites, including 8 added parser cases |
+| Normal full suite | **140 suites, 2,929 pass, 2 existing skips**; isolated tree contains no developer untracked stress suites |
+| Final-verification omission control | 4 controls pass; the final wrong-retained-payload case fails as required; mutation exists only in a scratch transformer, production files unchanged |
+| TypeScript / full ESLint | Same 2,024 TypeScript diagnostic identities and 632 errors / 697 warnings; no new or removed lint identities |
+| Repository/changed-file formatting and diff whitespace | Pass |
+| Native MMKV/raw-file cases | **14 macOS** cases with 16 KiB OS pages and **14 Android** cases with 4 KiB OS pages pass |
+| Deliberately timed native interruptions | **48 scenarios**, **38 actual terminations**, all scenario assertions pass. All copies recovered in this sample; this does not erase earlier observed native/cache-loss residuals or establish production failure rates |
+| Real Android Hermes | **11 scenarios / 54 distinct processes**, including surviving legacy/versioned Keychain entries and receipt-free replacement-temp recovery with failed suspension and later successful source reads |
+| Android build | Debug application and instrumentation APKs pass; final harness bundle matches packaged bytes |
+| iOS native prerequisite | Blocked by unchanged deployment-mode Podfile checksum discrepancy; no lockfile change |
+| Physical-device / packaged released-app upgrade | Unrun; remain release gates |
+
+Measured pending-launch models make three AsyncStorage reads per attempt. The three measured attempts make 4, 2 and 2 record writes, with 121, 108 and 108 MMKV string reads; repeated identical deferral reports are suppressed after the first. These are measured model counts, not a bound on how long a native call can run. Source/build hashes and category-specific outcomes are retained in the Stage B evidence. No secret, receipt value, snapshot, device identifier or host-specific filesystem path is included in that evidence.
+
+
+## 9. Follow-up at 2d70bd5 — A through D
+
+This follow-up preserves the owner rulings, conversion milestone, receipt, write phases, plan resumption, downgrade guard, scrub and ordinary backup writer. The clean isolated baseline at `2d70bd53832200698ac62349f30380e60aa22a9f` passed all 450 existing migration cases using a real frozen dependency install and normal postinstall. Existing assertions are unchanged; the twelve old/modern/both total-loss/key-safety controls receive only the requested accurate title.
+
+- **A / review defect 0, both routes:** initial registered-key inventory identifies an exception from the primary specifically; an exception from logs does not qualify. After validated recorded conversion, a primary read exception enters existing verified recovery and returns before cleanup. The completed adapter route uses the same recovery. A successful read still runs the released/unsupported-format guard. A failed read cannot supply fresh-empty evidence; successful candidate reads with no usable modern copy produce `RECOVERY_UNAVAILABLE`. Key/history, candidate-read, restore-write and verification failures retain their classifications. The store adapter classifies the primary-read exception before its existing log/Sentry capture, so no raw native message or stack escapes at that boundary. Pending recovery keeps the single receipt-free root write and preserves all old copies and credentials on that launch. Pre-conversion read failures remain strict.
+- **B / review defect 1:** `damagedAsync` requires a successful old-Keychain read. Missing a permitted decryption candidate is not evidence of damage. A fully validated row can still use existing coverage/identity rules; otherwise it stays pending until classification becomes possible. The owner-approved damaged-row deletion rule itself is unchanged.
+- **C / review defect 2:** both required and optional `.bak` rotation first read and validate a byte-identical target and skip its redundant rewrite. The `.bak` skip prevents the two-launch full-disk sequence from creating a second partial output. The original post-conversion target-digest pin is superseded by the owner-authorized G rule in section 10: target equality alone no longer blocks retirement of a proven unfinished partial output. The pre-conversion target-digest clause remains intact; unknown, phase-less, coverage-only, completed-write and different-valid temp controls remain.
+- **D / review point 3:** each new main-refresh binding carries one optional `bakDigest`, observing the backup bytes (or explicit absence) during that same main refresh, after any rotation. It is not inferred from an unrelated `.bak` intent. Recovery still requires a missing target, exact writer binding, qualifying origin/phase and a valid modern temp. The temp retains priority when its paired backup context still matches. If a valid backup exists and the context differs or is missing, use ordinary backup precedence; a mismatch is **not** treated as proof of chronological age. A qualifying temp remains usable when successful reads find no other usable modern copy. Unreadable supporting evidence is never absence. Old bindings without context cannot establish priority over a valid backup, but retain the sole-copy recovery route. Verified writer/context provenance survives fresh-coverage rebinding. No general newest-copy algorithm, new storage location, generation or ordinary-save metadata write is introduced.
+
+The accepted fresh-empty consequence is explicit: when its old Keychain entry is readable it is retired on that same launch, **before** any save. Follow-up 4 qualifies the unreadable-entry case: unresolved or unreadable copies withhold retirement; when every observed copy is absent or fully validates with an available key and is handled by the existing rules, deletion may be attempted. Cleanup completes only after deletion and verified absence. A failed delete or failed absence read keeps cleanup incomplete, even after the scrub succeeds. No wallet save is required for an empty fresh install. This does not relax the existing total-loss stop once conversion is recorded.
+
+The supplied K/K2/H/T observations were converted to assertions using the existing production-path harness. Tests prove each injected failure occurred, preservation during it and behavior after it clears; compare fixed outcomes/booleans/synthetic key IDs, never wallet contents. The historical A–D scratch mutation controls rejected removal of the target-digest ownership guard and recovery origin/phase restriction. Section 10 now deliberately supersedes the post-conversion target-digest pin under G; the pre-conversion clause and recovery origin/phase guard remain. The new backup-context parser preserves optional-metadata deferral and rejects context on other slots. Final results and current source identities are in `stage-b-results.json.followupRepair`; earlier sections remain historical evidence.
+
+Remaining native empty-view, hidden metadata, rollback/power-loss and simultaneous primary/backup-loss limits are unchanged. Physical-device and packaged released-build upgrade testing, independent review and release approval remain outstanding.
+
+
+### Follow-up validation — 7 October 2026
+
+| Check | Actual result |
+| --- | --- |
+| Exact-base migration baseline | **450 pass** with real pinned dependencies; reproduced from immutable base source after temporary-artifact loss |
+| New assertion regressions before repair | **32 fail / 7 pass** on the base migration; one additional adapter diagnostic regression fails before its correction |
+| Final migration and focused suites | **490 migration cases pass; 642 focused cases pass** in 8 suites; all 450 existing assertions retained, with only the authorized title correction |
+| Normal full suite | **140 suites, 2,970 pass, 2 existing skips** |
+| Guard mutation controls | Removing target-digest ownership or recovery origin/phase qualification causes the corresponding regression to fail; scratch transforms only |
+| TypeScript / repository ESLint | **2,024 diagnostics; 632 errors / 697 warnings**, unchanged by diagnostic identity. The default CJS parser also fails on the unchanged base runner; the runner passes Node syntax and explicit Node/ES2022 lint checks |
+| Formatting / diff whitespace | Pass |
+| Native core raw-file cases | **14 macOS (16 KiB OS pages)** and **14 Android (4 KiB OS pages)** pass |
+| Timed native interruptions | **48 scenario assertions pass, 36 actual terminations**; all selected contents recover in this sample. This does not erase prior native/cache-loss residuals or establish production failure rates |
+| Android Hermes and actual process restarts | **12 scenarios / 59 distinct processes** pass, including primary-read rejection until the single receipt-free recovery write, failed suspension persistence, and later successful source reads |
+| Android build | Debug and instrumentation APKs pass; packaged final harness bundle is byte-verified |
+| iOS native prerequisite | Deployment-mode Podfile checksum mismatch remains; no dependency or lockfile change |
+| Physical-device / released-build upgrade / release approval | Outstanding |
+
+The native-core harness executes the final migration/helpers and models other platform boundaries. Its runs began before the final adapter-only diagnostic capture change; that adapter is not imported by the core harness and is covered by final Jest/Hermes instead. The new Hermes fault is a JavaScript-injected read rejection over real libraries, not an inside-native load fault. Modeled retries and partial writes, native worker/process restarts, deliberately timed native kills, and physical-device behavior remain distinct evidence categories.
+
+The three measured pending-attempt models make **3 AsyncStorage reads**, **4 / 2 / 2 record writes**, and **127 / 112 / 112 MMKV string reads**; identical repeated deferrals report only once. The main refresh adds one bounded backup-context observation, and recovery retains fixed candidates. No polling or native ownership timeout is introduced. Operation counts do not bound native-call duration. Historical manifests/results are retained; current source/build identities and exact commands are recorded in `stage-b-results.json.followupRepair`.
+
+
+## 10. Follow-up 2 at 6d9f196 — E, F and owner-authorized G
+
+The base is `6d9f1965f24efe8d4baeb9cfa2997ec243a684b3`. E and F complete
+review defect 0; G implements only the owner's ruling of 7 October 2026.
+Conversion authority, receipts, backup ordering, encryption, scrub, provider patch
+and the ordinary backup writer are unchanged.
+
+- **E:** after mandatory history and the caller's key checks, recovery's existing
+  primary read now returns an authenticated modern root unchanged. That path
+  reads no backup, writes no root, strips no receipt and records no suspension.
+  A successfully read released/unsupported root stays protected. A missing,
+  still-unreadable or corrupt primary retains the existing verified recovery.
+- **F:** the Android cleanup-preservation capture identifies root-read exceptions
+  separately from log-read exceptions and routes only the former through its
+  existing invalid-primary recovery path. Missing, busy, invalid or unreadable
+  RKStorage marker/module states retain their existing cleanup deferral rules.
+  E also applies to the re-read on this route.
+- **G:** the optional-refresh partial-output predicate no longer rejects an
+  otherwise-owned unfinished output merely because the target matches its
+  intended digest. Origin, writing phase, undecodability, unequal temp digest,
+  other-slot availability, primary preservation and final temp-identity read
+  remain necessary. The pre-conversion predicate is unchanged.
+
+### Optional-write permission closure
+
+After a slot is freshly observed empty, or its temp removal is verified, a
+remaining `optional-refresh/writing` binding is persisted and read back as
+`verified`. This closes the partial-output deletion permission even when the
+current backup or the existing `.bak` skip makes replacement unnecessary. For an
+absent/abandoned output, this phase closes a permission; it does not assert that
+absent file bytes were verified. No new record field, backend or recovery file is
+introduced. Existing valid-temp adoption/deletion rules remain necessary.
+
+A failed phase write leaves the old `writing` state; a failed read-back may leave
+`verified` already stored. Existing mandatory-history and primary checks still
+run, and the usable wallet opens. This attempt returns immediately, so later
+metadata writes cannot copy the stale in-memory phase over a possibly successful
+retirement. The next launch that sees no temp retires any remaining writing phase
+before further refresh work. A modeled process cut after unlink and before that
+write leaves `writing` plus no temp; the next surviving launch follows the same
+rule. Once retired, a later unrelated undecodable temp stays preserved. Other
+fixed slots retain their provenance. New writes still arm their own intent only
+after observing the slot empty.
+
+The G pin test is deliberately renamed/reversed. Its stale-main fixture still
+requires the existing verified main refresh. Removing the partial temp itself
+changes neither primary nor backup targets. A same-session ordinary rotation
+makes main current, so that variant completes with both target files byte-identical.
+The assertion suite covers phase-write rejection, read-back rejection, completed-
+call interruption, fresh JavaScript modules, later unrelated temps, and all
+required refused temp classes. D gains the sole-usable-temp/undecodable-bak control.
+
+### Recorded, unresolved and outside this follow-up
+
+A present older/partial main can still hide a newer recorded temp. A leftover
+old-format `.bak` can still be deleted when the old Keychain read rejects; normal
+upgrade reachability remains unestablished. Old `2d70bd5` records lack `bakDigest`.
+These are not accepted limitations or repaired here; their selection/classification
+rules are unchanged. Native empty-view/rollback/power-loss limitations and release
+approval remain separate. Actual results are recorded in
+`stage-b-results.json.followup2Repair`; earlier results remain historical.
+
+
+### Follow-up 2 validation
+
+| Check | Actual result |
+| --- | --- |
+| Required exact-base baseline | **490 migration + 22 record-state tests pass** |
+| Assertions against unchanged production | **32 failures / 14 passing controls** in 46 selected cases, including the authorized G pin revision; final assertions reconfirmed against immutable base bytes |
+| Final required command | **535 migration + 22 record-state tests pass**; 45 added cases, all other existing assertions preserved |
+| Focused / normal full Jest | **687 focused passes**; **140 suites, 3,015 passes, 2 existing skips** |
+| TypeScript / ESLint | **2,024 diagnostics; 632 errors / 697 warnings**, with no introduced or removed diagnostic identities |
+| Formatting / diff whitespace / harness lint | Pass |
+| Native-core raw-file checks | **14 macOS** (16 KiB OS pages) and **14 Android** (4 KiB OS pages) cases pass |
+| Timed inside-native worker interruptions | **48 scenario assertions pass; 37 actual terminations**. Full recovery in this sample does not erase earlier residuals or establish production failure rates |
+| Real Android Hermes | **15 scenarios / 74 distinct processes** pass, including E's exact-primary preservation, F's base-complete/RKStorage-pending recovery, and G's real partial temp plus ordinary rotation |
+| Android build | Debug app and instrumentation APKs pass; packaged test bundle is byte-verified |
+| iOS prerequisite at the required base | Still fails deployment mode on the Podfile checksum mismatch; no lockfile edit or later commit imported |
+| Physical devices / packaged released-build upgrade | Unrun; remain release gates |
+
+The G lifecycle tests additionally assert exactly one retirement attempt per
+launch. Source/build identities, measured boundary counts and exact commands are
+in the incremental evidence. The three recorded open findings above remain
+unresolved and are not accepted by this validation. No release approval is implied.
+
+
+## 11. Follow-up 4 at b84eb716 — H through K
+
+This focused repair starts from the clean squashed tree `b84eb7165ec5945dfc53957b79c1c10e584223c9`, identical to `09a50f9003fb2df902b9599519ac42abdc48f8af`. The real frozen install and normal postinstall reproduce the 535 migration / 22 record-state passing baseline. Only `vault-migration.ts` and `vault-rkstorage.ts` change production behavior. The parser, record schema, scrub, native cleaner, provider patch, ordinary writer and dependencies are unchanged. This is not release approval.
+
+- **H / review A1:** while base cleanup is pending, a successfully read target is preferred only when it validates under the established modern key. An unusable target no longer hides its qualified replacement temp. Exact digest and modern validation, the existing optional-refresh-or-verified-writer provenance, and the main write's recorded bak context remain required. Phase-less optional-refresh and current-coverage with retained verified writer phase remain eligible; bare coverage does not. Read errors retain existing fallback/error behavior. Completed-record recovery is unchanged. Recovery changes no backup file and keeps the single receipt-free primary write. A valid but older target still wins, as the explicitly open case requires.
+- **I / review A2:** retiring this implementation's `initializing` provenance after a verified first save also sets `conversionComplete: true` when the record is still started. These are coalesced into one verified record write. This is first-save history, not cleanup completion, and issues no receipt. A failed record write preserves the saved primary and retries on the next save or startup. Startup requires the existing provenance and a primary that authenticates with the established modern key, then records this history before independent AsyncStorage inventory or optional backup refresh. An arbitrary started record without provenance retains strict conversion rules. A failed startup history write remains a classified required failure. After retirement, total modern-copy loss cannot return a fresh empty store.
+- **J / review A3:** Android's unreadable/invalid cleanup-marker branch now invokes the same initialization retirement after validated active-state capture as the normal branch. The marker still defers native work. Required retirement write/read-back failures preserve the primary and backups and retain their existing classification and retry. No marker failure is allowed to hide a mandatory history failure.
+- **K / review B1:** existing complete-snapshot classification now marks the attempt deferred if an old key was unreadable and any observed non-null copy fails validation with the available candidates. This includes both backup targets, their migration temps, the ordinary temp and AsyncStorage; primary validity remains independently required. Successful absence qualifies; failed inventory reads already defer or stop through their existing paths. The deferral is sticky for the attempt, even if an unchanged cleanup branch later removes such a copy. No additional read loop, persisted grant or source-deletion authority is introduced. Validated copies must still satisfy the existing preservation, identity, refresh/deletion and coverage rules before retirement.
+
+### K outcomes and write order
+
+1. **Any unresolved or unreadable source:** leave the attempt incomplete and do not attempt legacy-entry deletion. Copy handling is unchanged, including the separately unresolved old-format bak deletion on an unavailable-key launch. That deletion does not make that launch eligible for retirement. Fix B's damaged-AsyncStorage gate remains intact.
+2. **All copies resolved; delete and absence verification succeed:** existing backup prerequisite, scrub and logical verification precede retirement; record base completion only after the existing `removeKeyAndVerify` confirms absence. Android follow-up retains its ordinary later-launch read budget.
+3. **All copies resolved; delete or absence verification fails:** the scrub may finish and persist `wipeDone`, but base status stays started. The modern wallet opens. No separate removal flag is written and no absence is inferred from a rejected read. A later launch re-inventories and retries deletion/absence verification.
+
+### Interruption and evidence boundaries
+
+First-save root write and history write remain separate calls. Interruption after the root write leaves initialization provenance, and a later authenticated-primary read retries the single history update before unrelated cleanup. A completed history update survives later wallet loss as established conversion. A write that took effect but whose verification failed is not rolled back; the next attempt reads and validates actual history. Pending recovery still writes the receipt-free serialized primary once; interruption immediately afterwards does not resurrect a historical deletion grant.
+
+The new assertion cases cover iOS/Android first save, read-back mismatch, retirement failures, module reload, completed-call interruption, source identity and exact serialized preservation, both backup slots and writer-provenance/context controls. H's replacement records are produced by the real refresh code. K tests distinguish failed reads while an entry exists, failed deletion, and continued read failure after deletion. The one changed existing assertion is in `gap: fresh %s with failed legacy-key read opens and retires it after retry before any save`: entry presence after the failed-read launch changes to false because deletion can succeed while absence verification still rejects. Its incomplete-then-complete and fresh-state assertions are retained. Every other pre-existing assertion is unchanged.
+
+The added Hermes scenarios use the existing instrumentation host, production migration/store adapter and actual native storage. Faults are explicit JavaScript-boundary injections over those libraries, not inside-native Keychain errors, real full-disk conditions, physical phones or power-loss certification. Each operation runs in a fresh application process. Native core campaigns remain separate from these application-process tests. Actual commands, source/build identities, counts, baseline diagnostic comparisons and unrun checks are recorded under `stage-b-results.json.followup4Repair`. Historical records and hashes retain their original meaning.
+
+### Still open; not accepted or changed here
+
+Fix G's interrupted-disposal permission limit remains pending owner acceptance: neither its partial-output predicate, retirement helper nor deletion/retirement ordering changes. A valid older main still hides a newer qualified temp. The old-key-read/old-format bak deletion rule is unchanged and is explicitly pinned as a K control. No decoder or mixed-key policy changes, lost-key Alert wording, corrupt-provider self-repair, remote diagnostic visibility, cache-exclusion resumption, startup-cost optimization or historical evidence housekeeping is included. Records produced by the internal `2d70bd5` build still lack bak context.
+
+Native empty/failed-load ambiguity, silent fallback, hidden metadata, unsynced crash/power loss and simultaneous modern-primary/backup loss remain uncertified. Physical-device checks, a packaged released-build upgrade, owner disposition of retained limitations and review of this repair remain release gates.
+
+
+| Follow-up 4 check | Actual result |
+| --- | --- |
+| Required clean baseline | 535 migration + 22 record-state cases pass |
+| Final new regressions on byte-exact base production | 40 failures / 25 passing controls; all H–K defects reproduced |
+| Final required command | 600 migration + 22 record-state cases pass |
+| Historical eight focused suites | 752 pass; the filesystem-backup suite also passes |
+| Normal full repository command | 140 suites, 3,080 pass, 2 existing skips |
+| TypeScript / lint | 2,024 TypeScript diagnostic identities; 632 lint errors / 697 warnings, unchanged identities; changed-source/harness lint passes |
+| Format / diff whitespace | Pass |
+| Pinned native core / raw files | 14 macOS cases (16 KiB host pages) + 14 Android cases (4 KiB OS pages) pass |
+| Timed native interruptions | 48 assertion sets pass; 36 actual terminations; complete recovery in this sample, not a failure-rate or durability claim |
+| Android Hermes / build | 21 scenarios / 104 verified distinct app processes pass; debug and instrumentation builds pass; packaged bundle matches current source build |
+| iOS native prerequisite | Deployment-mode Podfile checksum mismatch persists at this base; no lockfile edit |
+| Physical phones / packaged released-app upgrade | Unrun; remain release gates |
+
+
+## 12. Follow-up 5 at 742a366 — closed L/M correction
+
+The clean isolated base is `742a366f3ecabbca81434062fd3e1d98c26ca97b`, with the same source tree as `68f34ffc2`. The owner authorized only L and M on 8 October 2026. Sections 1–11 and their evidence remain historical and unchanged.
+
+- **L:** only `readRecoveryCopy` changes. Its nested main-temp context lookup preserves a successfully read, present bak target exactly as read, including unusable bytes. Successful absence still follows the existing qualified bak-temp fallback. A rejected read retains the existing classified handling. Direct bak recovery keeps H's ability to use its own qualified temp beside an unusable target; completed-record recovery, qualification, source precedence, writes and later cleanup are unchanged. The local argument affects observation for context only; it is not a persisted field or grant.
+- **Reachability:** the starting backup files in the reproduction are placed by hand. The two bindings and verified temps are then produced by the production refresh with observed removal/promotion failures. A route from an ordinary install has not been shown and has not been ruled out. This corrects H's unintended boundary change, not a claim that this state is known to occur. Damaged-target variants explicitly replace a target after that setup and are labeled seeded; they are not claimed to arise from the one failed refresh.
+- **Tests:** 20 new cases cover both platforms, all requested present/absent/unreadable bak contexts, direct bak-temp recovery, single exact root write, full filesystem path/value equality, preservation while reads reject, and retry/cleanup. On unchanged production, eight regression variants fail and twelve controls/tests pass. The two read-rejection regression variants first pass the unchanged classified-stop checks, then fail the required recovery after the read works. All existing assertions are retained.
+- **M:** two Android empty-install cases observe each rejected/invalid marker read over two preparations, require preserved initialization provenance, unchanged history/files, no root write, an empty store result and safe retry when the marker failure clears. Both pass on the base. The one authorized local mutation removing `active.present` makes both fail; the original file is restored byte-for-byte. No production J change remains.
+
+### Owner dispositions (8 October)
+
+Authority: `reference/bip-02-release-dispositions.md` in the supplied handoff, SHA-256 `008a63eac36a9ca260d36aceee2c142ddc279c839ec0d70108b9806a6dd9fe66`. These supersede the earlier pending-status descriptions only as stated in that record:
+
+- **Fix G:** “For the current release, accept this specific limitation and retain `09a50f9` without implementing Follow-up 3.” The limitation concerns unrelated undecodable bytes at the same internal temp path while unfinished-write permission is active, before first observation or after deletion and before verified retirement. “Neither review has identified a normal application operation that introduces such an unrelated replacement.” Follow-up 3 is deferred; writer-provenance, source-identity, primary-preservation and recovery checks are not weakened.
+- **Completed-fresh-install iOS startup retry:** “Defer the completed-fresh-install iOS startup retry from this release's correction scope. Record that a failed first-save history update can leave stale initialization permission until a later successful save, permitting empty admission after subsequent total local-copy loss. Do not describe this as fixed, impossible, or silently accepted.”
+- **Android zero-length database:** “Deferred pending evidence; investigation authorized.” “This authorizes the investigation only. A provider change needs a further decision.” The separate investigation covers sidecar-free and journal-bearing outcomes; it is not run or fixed by this correction.
+
+No new broad seeded-state sweep, random fault campaign, mutation campaign or architecture audit is run. The only mutation is M; the only native scenario rerun is the existing `react-followup4-h` replacement-temp recovery, where available. New platform-mocked tests and repeated preparations are separate from real Hermes process restarts. No new iOS startup retry, `copyPresent` or first-save validation change, decoder change, provider change, cleanup lifecycle change or performance work is included. Actual results and source/build identities are recorded in `stage-b-results.json.followup5Repair`. This is not release approval; review, physical-device validation and an upgrade from a released build remain outstanding.
+
+
+| Follow-up 5 check | Actual result |
+| --- | --- |
+| Required untouched baseline | 600 migration + 22 record cases pass |
+| New tests before correction | 8 L regression failures; 12 passing controls/tests including both M cases |
+| Authorized M guard mutation | Both M tests fail; original file restored exactly |
+| Final required / focused | 642 cases / 772 cases pass |
+| Full repository | 140 suites, 3,100 pass, 2 existing skips |
+| TypeScript / ESLint | 2,024 diagnostics; 632 errors / 697 warnings; baseline identities unchanged |
+| Formatting / diff whitespace | Pass |
+| Existing H Hermes scenario | Pass across five distinct Android processes; current bundle verified in instrumentation APK |
+| Android build | Debug and instrumentation APKs pass |
+| Other native/device work | Not run or added; bounded validation only, with physical-device and released-build upgrade gates outstanding |

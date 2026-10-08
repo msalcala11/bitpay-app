@@ -1,0 +1,12 @@
+[
+  {
+    "file": "test/vault/supplied/scrubfuzz.cpp",
+    "matchesArchive": true,
+    "sha256": "e72e8756b56af23cfa1ec978addffc46e071d58ebc61d5820e4c2817a5b403d0"
+  },
+  {
+    "file": "test/vault/supplied/killfuzz.py",
+    "matchesArchive": true,
+    "sha256": "8e031116df53c3fbd732d09451903b017eb1ebb61ebc049c6dd4798ce1e22ed7"
+  }
+]

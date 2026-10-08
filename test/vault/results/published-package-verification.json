@@ -1,0 +1,14 @@
+{
+  "package": "react-native-mmkv@3.3.1",
+  "tarball": "https://registry.npmjs.org/react-native-mmkv/-/react-native-mmkv-3.3.1.tgz",
+  "integrity": "sha512-LYamDWQirPTUJZ9Re+BkCD+zLRGNr+EVJDeIeblvoJXGatWy9PXnChtajDSLqwjX3EXVeUyjgrembs7wlBw9ug==",
+  "gitHead": "1d86ae5b7f553d2de2ddf9f32a4d0d59c6035e70",
+  "checkedFiles": 75,
+  "mismatches": [],
+  "submodules": [
+    {
+      "path": "package/MMKV",
+      "sha": "f77545297d3e034066607954288a3710c80e5b4f"
+    }
+  ]
+}

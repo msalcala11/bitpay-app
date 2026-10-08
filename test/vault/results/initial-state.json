@@ -1,0 +1,7 @@
+{
+  "repository": "/Users/marty/open-source/bitpay-app",
+  "startingCommit": "04486e844a90c4268e31cc2873c3392112a79c55",
+  "branch": "bip-02",
+  "statusShort": "?? deliverables/\n?? docs/\n?? index.worklets-stress.js\n?? scripts/run-retaining-serializable-stress-android.js\n?? src-master.zip\n?? src-uncompressed-s.zip\n?? src/portfolio/runtime/testing/\n",
+  "evidenceSha256": "6740d6538b6ce984bb66df16b4829ad167dffa04ea3e2d73c1fb190c3f8fa53c"
+}

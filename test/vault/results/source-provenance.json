@@ -1,0 +1,27 @@
+{
+  "v.14.32.0": "cd3af945fe00c704ad500918ff85f5e8ada040cc",
+  "v.14.14.0": "7f5e457cbab65b142db56fbbf7ccddaabb01f355",
+  "v14.46.3": {
+    "remoteTagCommit": "5dcdef9281db5d86d25a04e7af034781280d065a",
+    "verification": "git ls-remote --tags https://github.com/bitpay/bitpay-app.git refs/tags/*14.46.3*"
+  },
+  "eddsaFix": "2130ecfe8cd54d6955509968f8b012b56ee57ac9",
+  "historicalImporter": "4dc6a8921dc4917e6552763da0864ed3e795c0a8",
+  "v.14.32.0_bundledTransformMatches": false,
+  "5dcdef9281db5d86d25a04e7af034781280d065a_bundledTransformMatches": false,
+  "v.14.32.0_bundledTransformDifference": "Only Network import path adjusted from ../../constants to ../constants; transform body matches exact git source.",
+  "5dcdef9281db5d86d25a04e7af034781280d065a_bundledTransformDifference": "Only Network import path adjusted from ../../constants to ../constants; transform body matches exact git source.",
+  "historicalFixtureDependency": "bitcore-wallet-client@10.10.0, confirmed in v.14.32.0 package.json; supplied keys.json described as synthetic by its README",
+  "v.14.32.0_transformVerification": {
+    "rawBytesEqual": false,
+    "bodyEqualAfterDocumentedImportRelocation": true,
+    "originalSha256": "8e6d7bb95a83c99a38b9b7b0aedbab3e05732278c1bbcea39311ba83728596ed",
+    "archivedSha256": "3ec54134c1b40c11d07947623f19f1167a42b5be51b8fd1001b7eeb89451bbfc"
+  },
+  "5dcdef9281db5d86d25a04e7af034781280d065a_transformVerification": {
+    "rawBytesEqual": false,
+    "bodyEqualAfterDocumentedImportRelocation": true,
+    "originalSha256": "33167be6176a66ca353869640f4269c4ff824ad11e15a8e4144d9ccf9b615420",
+    "archivedSha256": "20d02a55a12ee4d2bf5e1342aa261cf09a9da467abf0b5692d70c0966d198ccd"
+  }
+}

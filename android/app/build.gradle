@@ -102,6 +102,7 @@ android {
     namespace "com.bitpay.wallet"
     defaultConfig {
         applicationId "com.bitpay.wallet"
+        testInstrumentationRunner "com.bitpay.wallet.rkstorage.RKStorageTestRunner"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 91212433
@@ -110,6 +111,16 @@ android {
         ndk {
             abiFilters "armeabi-v7a", "x86_64", "arm64-v8a"
         }
+    }
+    sourceSets.androidTest.assets.srcDirs += ["../../test/vault/fixtures"]
+    if (project.hasProperty("rkStorageTestAssets")) {
+        sourceSets.androidTest.assets.srcDirs += [project.property("rkStorageTestAssets")]
+    }
+    // Disposable debug fault-injection builds only; no binary is checked in.
+    if (project.hasProperty("rkStorageFaultJni")) {
+        sourceSets.debug.jniLibs.srcDirs += [project.property("rkStorageFaultJni")]
+        sourceSets.debug.resources.srcDirs += [project.property("rkStorageFaultJni") + "/resources"]
+        packagingOptions.jniLibs.useLegacyPackaging = true
     }
     splits {
         abi {
