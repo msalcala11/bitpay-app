@@ -64,6 +64,8 @@ const prepare = async (
     const active = await captureVaultCleanupState(storage, key);
     if (!active.present && !hasPendingVaultInitialization())
       throw vaultError('PRESERVATION_FAILURE', 'rkstorage');
+    if (active.present && hasPendingVaultInitialization())
+      finishVaultInitialization();
     reporter.defer('RKSTORAGE_DEFERRED', 'rkstorage');
     return key;
   }

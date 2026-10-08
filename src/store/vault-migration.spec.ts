@@ -7339,7 +7339,7 @@ describe('Stage A', () => {
           expect(await reduxStorage.getItem('persist:root')).toBeNull();
           expect(hits > 0).toBe(true);
           expect(complete()).toBe(false);
-          expect(mockCredentials.has(LEGACY_KEY_SERVICE)).toBe(true);
+          expect(mockCredentials.has(LEGACY_KEY_SERVICE)).toBe(false);
         } finally {
           get.mockImplementation(original);
         }
@@ -8264,6 +8264,958 @@ describe('Stage A', () => {
       restart();
       expect((await prepareVault(root)) === key).toBe(true);
       expect(complete()).toBe(true);
+    });
+  });
+  describe('Follow-up HIJK', () => {
+    const attempt = async (operation: () => Promise<unknown>) => {
+      try {
+        await operation();
+        return 'RESOLVED';
+      } catch (error) {
+        const d = getVaultDiagnostic(error as Error);
+        return `${d?.code ?? 'UNCLASSIFIED'}/${d?.reason ?? '-'}`;
+      }
+    };
+    const currentRecord = () => JSON.parse(record.getString(VAULT_RECORD_KEY)!);
+    const rootWrites = () =>
+      mockWrites.filter(w => w === 'mmkv:default:set:persist:root').length;
+    const addKey = (state: any, id: string) => {
+      state.WALLET.keys[id] = {
+        id,
+        properties: {xPrivKey: 'synthetic ' + id},
+        wallets: [],
+      };
+    };
+    const firstSave = async (key: string) => {
+      const spy = jest.spyOn(
+        require('./backup/fs-backup'),
+        'backupPersistRoot',
+      );
+      const raw = await save(payload(), key, 'modern');
+      try {
+        await reduxStorage.setItem('persist:root', raw);
+        for (const call of spy.mock.results)
+          if (call.type === 'return') await call.value;
+      } finally {
+        spy.mockRestore();
+      }
+      expect(root.getString('persist:root') === raw).toBe(true);
+      return raw;
+    };
+    const unreadableLegacy = (
+      afterDelete: 'absent' | 'rejects' = 'rejects',
+    ) => {
+      const get = Keychain.getGenericPassword as jest.Mock;
+      const original = get.getMockImplementation()!;
+      let hits = 0;
+      get.mockImplementation(async options => {
+        if (
+          options.service === LEGACY_KEY_SERVICE &&
+          (afterDelete === 'rejects' || mockCredentials.has(LEGACY_KEY_SERVICE))
+        ) {
+          hits++;
+          throw new Error('synthetic old credential read failure');
+        }
+        return original(options);
+      });
+      return {hits: () => hits, clear: () => get.mockImplementation(original)};
+    };
+    const retirementFault = (kind: 'write' | 'read-back' = 'write') => {
+      const original = MMKV.prototype.set,
+        reading = jest.isMockFunction(MMKV.prototype.getString)
+          ? (MMKV.prototype.getString as jest.Mock).getMockImplementation()!
+          : MMKV.prototype.getString;
+      let hits = 0,
+        verificationPending = false;
+      const set = jest
+        .spyOn(MMKV.prototype, 'set')
+        .mockImplementation(function (this: any, name, value) {
+          if (
+            this.id === VAULT_RECORD_ID &&
+            name === VAULT_RECORD_KEY &&
+            !JSON.parse(value as string).initializing
+          ) {
+            hits++;
+            if (kind === 'write')
+              throw new Error('synthetic retirement write failure');
+            verificationPending = true;
+          }
+          return original.call(this, name, value);
+        });
+      const get = jest
+        .spyOn(MMKV.prototype, 'getString')
+        .mockImplementation(function (this: any, name) {
+          if (
+            verificationPending &&
+            this.id === VAULT_RECORD_ID &&
+            name === VAULT_RECORD_KEY
+          ) {
+            verificationPending = false;
+            throw new Error('synthetic retirement verification failure');
+          }
+          return reading.call(this, name);
+        });
+      return {
+        hits: () => hits,
+        clear: () => {
+          set.mockRestore();
+          get.mockRestore();
+        },
+      };
+    };
+    const pendingFresh = async (os: 'ios' | 'android', deferScrub = false) => {
+      Platform.OS = os;
+      if (os === 'android') rkBridge();
+      seedKey(LEGACY_KEY_SERVICE, legacyKey);
+      const fault = unreadableLegacy();
+      const stat = RNFS.stat as jest.Mock,
+        stating = stat.getMockImplementation()!;
+      if (deferScrub)
+        stat.mockRejectedValue(new Error('synthetic fresh scrub deferral'));
+      try {
+        const key = await prepareVault(root);
+        expect(fault.hits() > 0).toBe(true);
+        expect(rkInitializing()).toBe(true);
+        expect(complete()).toBe(false);
+        if (deferScrub) expect(currentRecord().wipeDone).toBe(false);
+        return key;
+      } finally {
+        stat.mockImplementation(stating);
+        fault.clear();
+      }
+    };
+    const failedReplacement = async (os: 'ios' | 'android', bak: boolean) => {
+      Platform.OS = os;
+      if (os === 'android') rkBridge();
+      const state = payload();
+      const key = await convertedPending(state);
+      const older = mockFiles.get(VAULT_BACKUP)!;
+      addKey(state, 'newer');
+      const primary = await ordinarySave(state, key, false);
+      seedFile(VAULT_BACKUP, 'synthetic damaged main');
+      if (bak) seedFile(VAULT_OLDER_BACKUP, older);
+      const unlink = RNFS.unlink as jest.Mock,
+        original = unlink.getMockImplementation()!;
+      let hits = 0;
+      unlink.mockImplementation(async path => {
+        if (path === VAULT_BACKUP) {
+          hits++;
+          throw new Error('synthetic main removal failure');
+        }
+        return original(path);
+      });
+      restart();
+      try {
+        expect((await prepareVault(root)) === key).toBe(true);
+      } finally {
+        unlink.mockImplementation(original);
+      }
+      expect(hits > 0).toBe(true);
+      expect(root.getString('persist:root') === primary).toBe(true);
+      expect(currentRecord().cleanup.main.writePhase).toBe('verified');
+      expect(
+        Object.keys(
+          (await restore(mockFiles.get(migrationTemp(VAULT_BACKUP))!, key))
+            .WALLET.keys,
+        ),
+      ).toEqual(['readonly', 'newer']);
+      expect(complete()).toBe(false);
+      return {key, older, primary};
+    };
+
+    it.each(['ios', 'android'] as const)(
+      'H %s damaged main recovers its production replacement and later finishes cleanup',
+      async os => {
+        const {key} = await failedReplacement(os, false);
+        root.delete('persist:root');
+        const files = new Map(mockFiles);
+        restart();
+        expect((await prepareVault(root)) === key).toBe(true);
+        expect(rootWrites()).toBe(1);
+        const raw = await reduxStorage.getItem('persist:root');
+        expect(raw === root.getString('persist:root')).toBe(true);
+        expect(Object.keys((await restore(raw!, key)).WALLET.keys)).toEqual([
+          'readonly',
+          'newer',
+        ]);
+        expect(
+          (await restore(raw!, key)).APP.bip02CleanupReceipt === undefined,
+        ).toBe(true);
+        expect(isEqual(mockFiles, files)).toBe(true);
+        expect(complete()).toBe(false);
+        restart();
+        await prepareVault(root);
+        expect(complete()).toBe(true);
+        expect(mockFiles.has(migrationTemp(VAULT_BACKUP))).toBe(false);
+        expect(
+          Object.keys(
+            (await restore(mockFiles.get(VAULT_BACKUP)!, key)).WALLET.keys,
+          ),
+        ).toEqual(['readonly', 'newer']);
+      },
+    );
+    it.each(['matching', 'changed'] as const)(
+      'H damaged main obeys %s bak context',
+      async context => {
+        const {key} = await failedReplacement('ios', true);
+        if (context === 'changed') {
+          const different = payload();
+          addKey(different, 'context-change');
+          seedFile(VAULT_OLDER_BACKUP, await save(different, key, 'modern'));
+        }
+        root.delete('persist:root');
+        const files = new Map(mockFiles);
+        restart();
+        expect((await prepareVault(root)) === key).toBe(true);
+        expect(rootWrites()).toBe(1);
+        const restored = await restore(
+          (await reduxStorage.getItem('persist:root'))!,
+          key,
+        );
+        expect(Object.keys(restored.WALLET.keys)).toEqual([
+          'readonly',
+          context === 'matching' ? 'newer' : 'context-change',
+        ]);
+        expect(isEqual(files, mockFiles)).toBe(true);
+      },
+    );
+    it.each([
+      'no-binding',
+      'coverage-only',
+      'wrong-digest',
+      'invalid-temp',
+      'phase-less',
+      'verified-coverage',
+    ])('H damaged target keeps existing provenance rule: %s', async kind => {
+      const {key} = await failedReplacement('ios', false);
+      const r = currentRecord();
+      if (kind === 'no-binding') delete r.cleanup.main;
+      if (kind === 'coverage-only') {
+        r.cleanup.main.origin = 'current-coverage';
+        delete r.cleanup.main.writePhase;
+      }
+      if (kind === 'wrong-digest') r.cleanup.main.digest = 'a'.repeat(64);
+      if (kind === 'invalid-temp') {
+        const raw = 'synthetic incomplete replacement';
+        seedFile(migrationTemp(VAULT_BACKUP), raw);
+        r.cleanup.main.digest = crypto
+          .createHash('sha256')
+          .update(raw)
+          .digest('hex');
+      }
+      if (kind === 'phase-less') delete r.cleanup.main.writePhase;
+      if (kind === 'verified-coverage')
+        r.cleanup.main.origin = 'current-coverage';
+      record.set(VAULT_RECORD_KEY, JSON.stringify(r));
+      root.delete('persist:root');
+      const files = new Map(mockFiles);
+      restart();
+      const qualifies = ['phase-less', 'verified-coverage'].includes(kind);
+      expect(await attempt(() => prepareVault(root))).toBe(
+        qualifies ? 'RESOLVED' : 'PRESERVATION_FAILURE/RECOVERY_UNAVAILABLE',
+      );
+      expect(rootWrites()).toBe(qualifies ? 1 : 0);
+      expect(isEqual(files, mockFiles)).toBe(true);
+      if (!qualifies) noWrites();
+      else
+        expect(
+          Object.keys(
+            (await restore((await reduxStorage.getItem('persist:root'))!, key))
+              .WALLET.keys,
+          ),
+        ).toEqual(['readonly', 'newer']);
+    });
+    it.each(['read-error', 'valid-older'] as const)(
+      'H keeps target %s behaviour',
+      async kind => {
+        const {key, older} = await failedReplacement('ios', false);
+        if (kind === 'valid-older') seedFile(VAULT_BACKUP, older);
+        root.delete('persist:root');
+        const files = new Map(mockFiles);
+        const read = RNFS.readFile as jest.Mock,
+          original = read.getMockImplementation()!;
+        let hits = 0;
+        if (kind === 'read-error')
+          read.mockImplementation(async path => {
+            if (path === VAULT_BACKUP) {
+              hits++;
+              throw new Error('synthetic target read failure');
+            }
+            return original(path);
+          });
+        restart();
+        try {
+          expect(await attempt(() => prepareVault(root))).toBe(
+            kind === 'read-error'
+              ? 'REQUIRED_COPY_FAILURE/SOURCE_READ'
+              : 'RESOLVED',
+          );
+          expect(rootWrites()).toBe(kind === 'read-error' ? 0 : 1);
+          if (kind === 'read-error') expect(hits > 0).toBe(true);
+          else
+            expect(
+              Object.keys(
+                (
+                  await restore(
+                    (await reduxStorage.getItem('persist:root'))!,
+                    key,
+                  )
+                ).WALLET.keys,
+              ),
+            ).toEqual(['readonly']);
+          expect(isEqual(files, mockFiles)).toBe(true);
+        } finally {
+          read.mockImplementation(original);
+        }
+        if (kind === 'read-error') {
+          restart();
+          await prepareVault(root);
+          expect(
+            Object.keys(
+              (
+                await restore(
+                  (await reduxStorage.getItem('persist:root'))!,
+                  key,
+                )
+              ).WALLET.keys,
+            ),
+          ).toEqual(['readonly', 'newer']);
+        }
+      },
+    );
+    it('H damaged bak uses a production bak replacement without modifying backup files during recovery', async () => {
+      Platform.OS = 'ios';
+      const state = payload();
+      const key = await convertedPending(state);
+      addKey(state, 'newer');
+      await ordinarySave(state, key, true);
+      const older = mockFiles.get(VAULT_BACKUP)!;
+      addKey(state, 'latest');
+      await ordinarySave(state, key, false);
+      seedFile(VAULT_OLDER_BACKUP, 'synthetic damaged bak');
+      const unlink = RNFS.unlink as jest.Mock,
+        original = unlink.getMockImplementation()!;
+      let hits = 0;
+      unlink.mockImplementation(async path => {
+        if (path === VAULT_OLDER_BACKUP) {
+          hits++;
+          throw new Error('synthetic bak removal failure');
+        }
+        return original(path);
+      });
+      try {
+        await prepareVault(root);
+      } finally {
+        unlink.mockImplementation(original);
+      }
+      expect(hits > 0).toBe(true);
+      expect(mockFiles.get(migrationTemp(VAULT_OLDER_BACKUP)) === older).toBe(
+        true,
+      );
+      expect(currentRecord().cleanup.bak.writePhase).toBe('verified');
+      mockFiles.delete(VAULT_BACKUP);
+      root.delete('persist:root');
+      const files = new Map(mockFiles);
+      restart();
+      await prepareVault(root);
+      expect(rootWrites()).toBe(1);
+      expect(
+        Object.keys(
+          (await restore((await reduxStorage.getItem('persist:root'))!, key))
+            .WALLET.keys,
+        ),
+      ).toEqual(['readonly', 'newer']);
+      expect(isEqual(files, mockFiles)).toBe(true);
+    });
+
+    it.each(['ios', 'android'] as const)(
+      'I %s first verified save records conversion and total loss stays a stop',
+      async os => {
+        const key = await pendingFresh(os);
+        const raw = await firstSave(key);
+        expect(currentRecord().conversionComplete).toBe(true);
+        expect(rkInitializing()).toBe(false);
+        expect(complete()).toBe(false);
+        expect((await reduxStorage.getItem('persist:root')) === raw).toBe(true);
+        root.delete('persist:root');
+        mockFiles.clear();
+        restart();
+        expect(await attempt(() => prepareVault(root))).toBe(
+          'PRESERVATION_FAILURE/RECOVERY_UNAVAILABLE',
+        );
+        expect(await attempt(() => reduxStorage.getItem('persist:root'))).toBe(
+          'PRESERVATION_FAILURE/RECOVERY_UNAVAILABLE',
+        );
+        noWrites();
+      },
+    );
+    it.each(
+      (['ios', 'android'] as const).flatMap(os =>
+        ['async', 'backup'].flatMap(failure =>
+          [false, true].map(retry => ({os, failure, retry})),
+        ),
+      ),
+    )(
+      'I $os first-save history precedes independent $failure failure (retirement retry=$retry)',
+      async ({os, failure, retry}) => {
+        const key = await pendingFresh(os, failure === 'backup');
+        const fault = retry ? retirementFault() : undefined;
+        let raw: string;
+        try {
+          raw = await firstSave(key);
+          if (fault) expect(fault.hits()).toBe(1);
+        } finally {
+          fault?.clear();
+        }
+        expect(rkInitializing()).toBe(retry);
+        const as = AsyncStorage.getItem as jest.Mock,
+          reading = as.getMockImplementation()!;
+        const write = RNFS.writeFile as jest.Mock,
+          writing = write.getMockImplementation()!;
+        let hits = 0;
+        // A stale optional backup makes a post-conversion refresh actually run.
+        if (failure === 'backup')
+          seedFile(
+            VAULT_BACKUP,
+            await save(
+              {...payload(), BITPAY_ID: {apiToken: 'synthetic stale'}},
+              key,
+              'modern',
+            ),
+          );
+        if (failure === 'async')
+          as.mockImplementation(async () => {
+            hits++;
+            throw new Error('synthetic independent read failure');
+          });
+        else
+          write.mockImplementation(async () => {
+            hits++;
+            throw new Error('synthetic optional write failure');
+          });
+        restart();
+        try {
+          expect((await prepareVault(root)) === key).toBe(true);
+          expect(hits > 0).toBe(true);
+          expect(conversionRecorded()).toBe(true);
+          expect(rkInitializing()).toBe(false);
+          expect(root.getString('persist:root') === raw!).toBe(true);
+          expect(rootWrites()).toBe(0);
+          expect((await reduxStorage.getItem('persist:root')) === raw!).toBe(
+            true,
+          );
+          expect(complete()).toBe(false);
+        } finally {
+          as.mockImplementation(reading);
+          write.mockImplementation(writing);
+        }
+        restart();
+        await prepareVault(root);
+        expect(complete()).toBe(true);
+        expect(root.getString('persist:root') === raw!).toBe(true);
+      },
+    );
+    it.each(['ios', 'android'] as const)(
+      'I %s rejected first-save retirement retries on the next save',
+      async os => {
+        const key = await pendingFresh(os);
+        const fault = retirementFault();
+        try {
+          await firstSave(key);
+          expect(fault.hits()).toBe(1);
+        } finally {
+          fault.clear();
+        }
+        expect(rkInitializing()).toBe(true);
+        expect(conversionRecorded()).toBe(false);
+        await firstSave(key);
+        expect(currentRecord().conversionComplete).toBe(true);
+        expect(rkInitializing()).toBe(false);
+        expect(complete()).toBe(false);
+      },
+    );
+    it.each(['ios', 'android'] as const)(
+      'I %s a failed startup retirement stays classified and retries',
+      async os => {
+        const key = await pendingFresh(os);
+        const first = retirementFault();
+        let raw: string;
+        try {
+          raw = await firstSave(key);
+          expect(first.hits()).toBe(1);
+        } finally {
+          first.clear();
+        }
+        const files = new Map(mockFiles);
+        const second = retirementFault();
+        restart();
+        try {
+          expect(await attempt(() => prepareVault(root))).toBe(
+            'PRESERVATION_FAILURE/RECORD_WRITE',
+          );
+          expect(second.hits()).toBe(1);
+          expect(rkInitializing()).toBe(true);
+          expect(root.getString('persist:root') === raw!).toBe(true);
+          expect(isEqual(files, mockFiles)).toBe(true);
+        } finally {
+          second.clear();
+        }
+        restart();
+        await prepareVault(root);
+        expect(conversionRecorded()).toBe(true);
+        expect(root.getString('persist:root') === raw!).toBe(true);
+      },
+    );
+    it.each(['ios', 'android'] as const)(
+      'I %s historical started record has no fresh first-save evidence',
+      async os => {
+        Platform.OS = os;
+        const raw = await save(payload());
+        root.set('persist:root', raw);
+        seedKey(LEGACY_KEY_SERVICE, legacyKey);
+        seedKey(VAULT_KEY_SERVICE, crypto.randomBytes(32).toString('base64'));
+        record.set(
+          VAULT_RECORD_KEY,
+          JSON.stringify({status: 'started', wipeDone: false}),
+        );
+        const get = AsyncStorage.getItem as jest.Mock,
+          original = get.getMockImplementation()!;
+        let hits = 0;
+        get.mockImplementation(async () => {
+          hits++;
+          throw new Error('synthetic required read failure');
+        });
+        restart();
+        try {
+          expect(await attempt(() => prepareVault(root))).toBe(
+            'REQUIRED_COPY_FAILURE/SOURCE_READ',
+          );
+          expect(hits).toBe(1);
+          noWrites();
+          expect(root.getString('persist:root') === raw).toBe(true);
+        } finally {
+          get.mockImplementation(original);
+        }
+        await prepareVault(root);
+        expect(complete()).toBe(true);
+      },
+    );
+
+    it.each(
+      ['read-error', 'invalid', 'readable'].flatMap(marker =>
+        ['none', 'write', 'read-back'].map(failure => ({marker, failure})),
+      ),
+    )(
+      'J Android $marker marker retires first-save evidence with $failure retirement fault',
+      async ({marker, failure}) => {
+        Platform.OS = 'android';
+        rkBridge();
+        const key = await prepareVault(root);
+        expect(complete()).toBe(true);
+        const first = retirementFault();
+        let raw: string;
+        try {
+          raw = await firstSave(key);
+          expect(first.hits()).toBe(1);
+        } finally {
+          first.clear();
+        }
+        if (marker === 'invalid')
+          record.set(RKSTORAGE_RECORD_KEY, 'synthetic invalid marker');
+        const reading = MMKV.prototype.getString;
+        let hits = 0;
+        const get = jest
+          .spyOn(MMKV.prototype, 'getString')
+          .mockImplementation(function (this: any, name) {
+            if (
+              marker === 'read-error' &&
+              this.id === VAULT_RECORD_ID &&
+              name === RKSTORAGE_RECORD_KEY
+            ) {
+              hits++;
+              throw new Error('synthetic marker read failure');
+            }
+            return reading.call(this, name);
+          });
+        const fault =
+          failure === 'none'
+            ? undefined
+            : retirementFault(failure as 'write' | 'read-back');
+        const files = new Map(mockFiles);
+        restart();
+        try {
+          expect(await attempt(() => prepareVault(root))).toBe(
+            fault ? 'PRESERVATION_FAILURE/RECORD_WRITE' : 'RESOLVED',
+          );
+          if (marker === 'read-error') expect(hits > 0).toBe(true);
+          if (fault) expect(fault.hits()).toBe(1);
+          expect(root.getString('persist:root') === raw!).toBe(true);
+          expect(isEqual(files, mockFiles)).toBe(true);
+          expect(rkInitializing()).toBe(failure === 'write');
+          expect(rootWrites()).toBe(0);
+        } finally {
+          fault?.clear();
+          get.mockRestore();
+        }
+        restart();
+        await prepareVault(root);
+        expect(rkInitializing()).toBe(false);
+        expect((await reduxStorage.getItem('persist:root')) === raw!).toBe(
+          true,
+        );
+        root.delete('persist:root');
+        mockFiles.clear();
+        restart();
+        const code = await attempt(async () => {
+          await prepareVault(root);
+          await reduxStorage.getItem('persist:root');
+        });
+        expect(code.startsWith('PRESERVATION_FAILURE/')).toBe(true);
+        noWrites();
+      },
+    );
+
+    it.each(
+      (['ios', 'android'] as const).flatMap(os =>
+        ['absent', 'rejects', 'delete-fails'].map(behaviour => ({
+          os,
+          behaviour,
+        })),
+      ),
+    )(
+      'K $os resolved device-id copies with old credential $behaviour',
+      async ({os, behaviour}) => {
+        Platform.OS = os;
+        const bridge = os === 'android' ? rkBridge() : undefined;
+        const raw = await save(payload());
+        root.set('persist:root', raw);
+        seedFile(VAULT_BACKUP, raw);
+        seedFile(VAULT_OLDER_BACKUP, raw);
+        seedFile(VAULT_BACKUP_TEMP, raw);
+        seedFile(migrationTemp(VAULT_BACKUP), raw);
+        seedFile(migrationTemp(VAULT_OLDER_BACKUP), raw);
+        mockAsync.set('persist:root', raw);
+        seedKey(LEGACY_KEY_SERVICE, legacyKey);
+        const fault = unreadableLegacy(
+          behaviour === 'rejects' ? 'rejects' : 'absent',
+        );
+        const remove = Keychain.resetGenericPassword as jest.Mock,
+          removing = remove.getMockImplementation()!;
+        let removals = 0;
+        remove.mockImplementation(async options => {
+          if (options.service === LEGACY_KEY_SERVICE) {
+            removals++;
+            if (behaviour === 'delete-fails')
+              throw new Error('synthetic key removal failure');
+          }
+          return removing(options);
+        });
+        restart();
+        let key: string, primary: string | undefined;
+        try {
+          key = await prepareVault(root);
+          primary = root.getString('persist:root');
+          expect(fault.hits() > 0).toBe(true);
+          expect(removals).toBe(1);
+          expect(
+            mockWrites.some(w => w === `mmkv:default:set:${VAULT_SCRUB_KEY}`),
+          ).toBe(true);
+          expect(currentRecord().wipeDone).toBe(true);
+          expect(complete()).toBe(behaviour === 'absent');
+          expect(mockCredentials.has(LEGACY_KEY_SERVICE)).toBe(
+            behaviour === 'delete-fails',
+          );
+          expect((await reduxStorage.getItem('persist:root')) === primary).toBe(
+            true,
+          );
+          if (behaviour !== 'absent') {
+            restart();
+            await prepareVault(root);
+            expect(complete()).toBe(false);
+            expect(root.getString('persist:root') === primary).toBe(true);
+          }
+        } finally {
+          fault.clear();
+          remove.mockImplementation(removing);
+        }
+        restart();
+        expect((await prepareVault(root)) === key!).toBe(true);
+        expect(complete()).toBe(true);
+        expect(mockCredentials.has(LEGACY_KEY_SERVICE)).toBe(false);
+        expect(root.getString('persist:root') === primary!).toBe(true);
+        if (bridge) {
+          await prepareVault(root);
+          expect(rkComplete()).toBe(true);
+        }
+      },
+    );
+    it.each(
+      (['ios', 'android'] as const).flatMap(os =>
+        [
+          'async-other-key',
+          'bak-other-key',
+          'async-unreadable',
+          'main-unreadable',
+          'temp-invalid',
+        ].map(copy => ({os, copy})),
+      ),
+    )(
+      'K $os unresolved $copy never authorizes legacy retirement',
+      async ({os, copy}) => {
+        Platform.OS = os;
+        const state = payload();
+        const key = await convertedPending(state);
+        const primary = root.getString('persist:root');
+        const other = 'synthetic unavailable distinct key';
+        seedKey(LEGACY_KEY_SERVICE, other);
+        const old = await save(state, other);
+        if (copy === 'async-other-key') mockAsync.set('persist:root', old);
+        if (copy === 'bak-other-key') seedFile(VAULT_OLDER_BACKUP, old);
+        if (copy === 'temp-invalid')
+          seedFile(VAULT_BACKUP_TEMP, 'synthetic unfinished ordinary temp');
+        const get = AsyncStorage.getItem as jest.Mock,
+          reading = get.getMockImplementation()!;
+        const file = RNFS.readFile as jest.Mock,
+          readingFile = file.getMockImplementation()!;
+        let hits = 0;
+        if (copy === 'async-unreadable')
+          get.mockImplementation(async () => {
+            hits++;
+            throw new Error('synthetic unresolved source');
+          });
+        if (copy === 'main-unreadable')
+          file.mockImplementation(async path => {
+            if (path === VAULT_BACKUP) {
+              hits++;
+              throw new Error('synthetic unresolved backup');
+            }
+            return readingFile(path);
+          });
+        const fault = unreadableLegacy();
+        const remove = Keychain.resetGenericPassword as jest.Mock;
+        remove.mockClear();
+        restart();
+        try {
+          expect((await prepareVault(root)) === key).toBe(true);
+          expect(fault.hits() > 0).toBe(true);
+          if (copy.endsWith('unreadable')) expect(hits > 0).toBe(true);
+          expect(
+            remove.mock.calls.filter(([o]) => o.service === LEGACY_KEY_SERVICE)
+              .length,
+          ).toBe(0);
+          expect(complete()).toBe(false);
+          expect(root.getString('persist:root') === primary).toBe(true);
+          // Pin the existing source rules, including the acknowledged bak deletion.
+          if (copy === 'bak-other-key')
+            expect(mockFiles.has(VAULT_OLDER_BACKUP)).toBe(false);
+          if (copy === 'temp-invalid')
+            expect(mockFiles.has(VAULT_BACKUP_TEMP)).toBe(false);
+          if (copy === 'async-other-key')
+            expect(mockAsync.get('persist:root') === old).toBe(true);
+        } finally {
+          fault.clear();
+          get.mockImplementation(reading);
+          file.mockImplementation(readingFile);
+        }
+        restart();
+        await prepareVault(root);
+        expect(complete()).toBe(true);
+        expect(root.getString('persist:root') === primary).toBe(true);
+      },
+    );
+    it.each(['ios', 'android'] as const)(
+      'K %s fresh unreadable credential can retire after verified absence',
+      async os => {
+        Platform.OS = os;
+        const bridge = os === 'android' ? rkBridge() : undefined;
+        seedKey(LEGACY_KEY_SERVICE, legacyKey);
+        const fault = unreadableLegacy('absent');
+        try {
+          await prepareVault(root);
+          expect(fault.hits()).toBe(1);
+          expect(complete()).toBe(true);
+          expect(mockCredentials.has(LEGACY_KEY_SERVICE)).toBe(false);
+          expect(rkInitializing()).toBe(true);
+          expect(root.contains('persist:root')).toBe(false);
+          if (bridge) expect(bridge.clean).not.toHaveBeenCalled();
+        } finally {
+          fault.clear();
+        }
+      },
+    );
+    it.each(['ios', 'android'] as const)(
+      'I %s first-save read-back mismatch establishes nothing until a verified retry',
+      async os => {
+        const key = await pendingFresh(os);
+        const raw = await save(payload(), key, 'modern');
+        const getting = MMKV.prototype.getString;
+        let hits = 0;
+        const get = jest
+          .spyOn(MMKV.prototype, 'getString')
+          .mockImplementation(function (this: any, name) {
+            if (this.id === 'default' && name === 'persist:root') {
+              hits++;
+              return 'synthetic mismatched read-back';
+            }
+            return getting.call(this, name);
+          });
+        try {
+          await reduxStorage.setItem('persist:root', raw);
+          expect(hits > 0).toBe(true);
+          expect(rkInitializing()).toBe(true);
+          expect(conversionRecorded()).toBe(false);
+          expect(mockStores.get('default')!.get('persist:root') === raw).toBe(
+            true,
+          );
+        } finally {
+          get.mockRestore();
+        }
+        await reduxStorage.setItem('persist:root', raw);
+        expect(conversionRecorded()).toBe(true);
+        expect(rkInitializing()).toBe(false);
+        expect((await reduxStorage.getItem('persist:root')) === raw).toBe(true);
+      },
+    );
+    it.each(['ios', 'android'] as const)(
+      'I %s fresh modules recognize a first root write interrupted before retirement',
+      async os => {
+        const key = await pendingFresh(os);
+        const raw = await save(payload(), key, 'modern');
+        restart();
+        mockStopAt = 1;
+        try {
+          await reduxStorage.setItem('persist:root', raw);
+        } catch {}
+        expect(mockDead).toBe(true);
+        restart();
+        expect(rkInitializing()).toBe(true);
+        let hits = 0;
+        expect(
+          (await freshModules(as => {
+            require('react-native').Platform.OS = os;
+            as.getItem.mockImplementation(async () => {
+              hits++;
+              throw new Error('synthetic optional read failure');
+            });
+          })) === key,
+        ).toBe(true);
+        expect(hits).toBe(1);
+        expect(root.getString('persist:root') === raw).toBe(true);
+        expect(rootWrites()).toBe(0);
+        expect(conversionRecorded()).toBe(true);
+        expect(rkInitializing()).toBe(false);
+        restart();
+        await prepareVault(root);
+        expect(complete()).toBe(true);
+        expect((await reduxStorage.getItem('persist:root')) === raw).toBe(true);
+      },
+    );
+    it.each(['ios', 'android'] as const)(
+      'I %s unannotated started modern primary cannot use fresh-install shortcut',
+      async os => {
+        Platform.OS = os;
+        const key = crypto.randomBytes(32).toString('base64');
+        seedKey(VAULT_KEY_SERVICE, key);
+        const raw = await save(payload(), key, 'modern');
+        root.set('persist:root', raw);
+        record.set(
+          VAULT_RECORD_KEY,
+          JSON.stringify({status: 'started', wipeDone: false}),
+        );
+        const read = AsyncStorage.getItem as jest.Mock,
+          original = read.getMockImplementation()!;
+        let hits = 0;
+        read.mockImplementation(async () => {
+          hits++;
+          throw new Error('synthetic necessary read failure');
+        });
+        restart();
+        try {
+          expect(await attempt(() => prepareVault(root))).toBe(
+            'REQUIRED_COPY_FAILURE/SOURCE_READ',
+          );
+          expect(hits).toBe(1);
+          noWrites();
+          expect(root.getString('persist:root') === raw).toBe(true);
+          expect(conversionRecorded()).toBe(false);
+        } finally {
+          read.mockImplementation(original);
+        }
+        await prepareVault(root);
+        expect(complete()).toBe(true);
+      },
+    );
+    it.each(['ios', 'android'] as const)(
+      'H %s completed recovery ignores optional temp provenance as before',
+      async os => {
+        const {key} = await failedReplacement(os, false);
+        const r = currentRecord();
+        r.status = 'complete';
+        r.wipeDone = true;
+        record.set(VAULT_RECORD_KEY, JSON.stringify(r));
+        root.delete('persist:root');
+        const files = new Map(mockFiles);
+        restart();
+        const code = await attempt(async () => {
+          await prepareVault(root);
+          await reduxStorage.getItem('persist:root');
+        });
+        expect(code.startsWith('PRESERVATION_FAILURE/')).toBe(true);
+        expect(rootWrites()).toBe(0);
+        expect(isEqual(mockFiles, files)).toBe(true);
+        // The completed route still uses an ordinary eligible backup once available.
+        seedFile(VAULT_BACKUP, mockFiles.get(migrationTemp(VAULT_BACKUP))!);
+        restart();
+        await prepareVault(root);
+        expect(
+          Object.keys(
+            (await restore((await reduxStorage.getItem('persist:root'))!, key))
+              .WALLET.keys,
+          ),
+        ).toEqual(['readonly', 'newer']);
+      },
+    );
+    it('H interrupted temp restoration writes no receipt and fresh modules retain uncovered source', async () => {
+      const {key} = await failedReplacement('ios', false);
+      const extra = payload();
+      addKey(extra, 'source-only');
+      const row = await save(extra);
+      mockAsync.set('persist:root', row);
+      root.delete('persist:root');
+      const files = new Map(mockFiles);
+      const setting = MMKV.prototype.set;
+      let hits = 0;
+      const set = jest
+        .spyOn(MMKV.prototype, 'set')
+        .mockImplementation(function (this: any, name, value) {
+          const result = setting.call(this, name, value);
+          if (this.id === 'default' && name === 'persist:root') {
+            hits++;
+            mockDead = true;
+            throw new Error('synthetic completed-call interruption');
+          }
+          return result;
+        });
+      restart();
+      try {
+        await attempt(() => prepareVault(root));
+        expect(hits).toBe(1);
+        expect(mockDead).toBe(true);
+      } finally {
+        set.mockRestore();
+      }
+      restart();
+      const raw = root.getString('persist:root')!;
+      expect(
+        (await restore(raw, key)).APP.bip02CleanupReceipt === undefined,
+      ).toBe(true);
+      expect(isEqual(mockFiles, files)).toBe(true);
+      await freshModules(() => {
+        require('react-native').Platform.OS = 'ios';
+      });
+      expect(root.getString('persist:root') === raw).toBe(true);
+      expect(mockAsync.get('persist:root') === row).toBe(true);
+      expect(complete()).toBe(false);
     });
   });
 });

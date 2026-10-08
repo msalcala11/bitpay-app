@@ -57,7 +57,20 @@ const assert = (condition, code) => {
     };
     assert(result.newArchitectureBridge, 'BRIDGE_MISSING');
     stage = 'seed';
-    if (operation.startsWith('react-followup2-')) {
+    if (operation.startsWith('react-followup4-')) {
+      await require('./followup4-cases').runFollowup4({
+        operation,
+        fixture,
+        storage,
+        records,
+        legacy,
+        recode,
+        prepareVault,
+        RKSTORAGE_RECORD_KEY,
+        assert,
+        result,
+      });
+    } else if (operation.startsWith('react-followup2-')) {
       await require('./followup2-cases').runFollowup2({
         operation,
         fixture,

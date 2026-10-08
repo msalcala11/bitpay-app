@@ -34,10 +34,23 @@ for (const seed of [
   'react-followup2-once-seed',
   'react-followup2-sql-seed',
   'react-followup2-temp-seed',
+  ...['h', 'i', 'j', 'kabsent', 'kreject', 'kdelete'].map(
+    kind => `react-followup4-${kind}-seed`,
+  ),
 ]) {
   run(['shell', 'pm', 'clear', 'com.bitpay.wallet']); // disposable app only
   const rows = [];
-  const operations = seed.startsWith('react-followup2-')
+  const operations = seed.startsWith('react-followup4-')
+    ? [
+        seed,
+        ...[
+          'check',
+          'retry',
+          'verify',
+          /-(i|j)-/.test(seed) ? 'loss' : 'verify',
+        ].map(phase => seed.replace('-seed', '-' + phase)),
+      ]
+    : seed.startsWith('react-followup2-')
     ? [
         seed,
         ...['check', 'retry', 'verify', 'verify'].map(phase =>

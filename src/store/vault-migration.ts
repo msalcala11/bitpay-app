@@ -194,6 +194,9 @@ export const finishVaultInitialization = () => {
   const record = readRecord();
   if (record?.initializing) {
     const established = {...record};
+    // Only our admitted fresh-install provenance plus a verified first save
+    // establishes this history. Cleanup remains an independent obligation.
+    if (established.status === 'started') established.conversionComplete = true;
     delete established.initializing;
     writeRecord(established);
   }
@@ -220,7 +223,11 @@ const readRecoveryCopy = async (
   key: string,
 ): Promise<string | null> => {
   const raw = await readVaultFile(path);
-  if (raw !== null || record.status === 'complete') return raw;
+  if (
+    record.status === 'complete' ||
+    (raw !== null && inspect(raw, [key]).snapshot?.format === 'gcm')
+  )
+    return raw;
   const slot = path === VAULT_BACKUP ? 'main' : 'bak';
   const binding = record.cleanup?.[slot];
   if (
@@ -1020,7 +1027,7 @@ const migrate = async (
   if (record && !entry)
     throw vaultError('MODERN_KEY_FAILURE', 'key', 'KEY_UNAVAILABLE', 'key');
   if (record?.status === 'complete') return validatedVaultKey(entry);
-  const wasConverted = conversionEstablished(record);
+  let wasConverted = conversionEstablished(record);
   const wrongBackend = !!entry && !hasRequiredBackend(entry);
   if (wrongBackend && record)
     throw vaultError('MODERN_KEY_FAILURE', 'key', 'KEY_INVALID', 'key');
@@ -1040,6 +1047,19 @@ const migrate = async (
     return secret!; // No cleanup or other inventory on the recovery launch.
   }
   const rootRaw = live.get(ROOT) ?? null;
+  // A verified first save may outlive its failed retirement write. Recognize
+  // that history before optional source inventory or backup refresh can fail.
+  // An arbitrary started record carries no such fresh-install evidence.
+  if (
+    !wasConverted &&
+    record?.initializing &&
+    secret &&
+    inspect(rootRaw, [secret]).snapshot?.format === 'gcm'
+  ) {
+    finishVaultInitialization();
+    record = readRecord();
+    wasConverted = conversionEstablished(record);
+  }
   // A known unsupported format is not evidence of ordinary corruption.
   // Never replace it from an older backup, even after recorded conversion.
   if (secret && unsupportedBranchFormat(rootRaw))
@@ -1187,14 +1207,21 @@ const migrate = async (
     if (!legacyCandidates.includes(deviceKey)) legacyCandidates.push(deviceKey);
   }
   let observedModern = false;
-  const classify = (raw: string | null) =>
-    inspect(
+  const classify = (raw: string | null) => {
+    const inspected = inspect(
       raw,
       hasModernProtection(raw) ? (secret ? [secret] : []) : legacyCandidates,
       () => {
         observedModern = true;
       },
     );
+    // A missing candidate is not evidence of damage. Remember every unresolved
+    // observed copy for this attempt, even if existing cleanup later removes it.
+    // Read failures already defer separately; successful absence is resolved.
+    if (legacyUnreadable && raw !== null && !inspected.snapshot)
+      defer('LEGACY_KEY_UNREADABLE', 'key');
+    return inspected;
+  };
   if (!wasConverted) root = classify(rootRaw);
   verifiedLive = root.snapshot;
   const files: FileCopy[] = rawFiles.map(f => {
@@ -1643,7 +1670,6 @@ const migrate = async (
     );
   if (asyncUnreadable)
     defer('CLEANUP_DEFERRED', 'inventory', 'SOURCE_READ', 'async');
-  if (legacyUnreadable) defer('LEGACY_KEY_UNREADABLE', 'key');
   checkPrimary();
   const ensureMandatory = () => {
     const current = readRecord(run.phase);

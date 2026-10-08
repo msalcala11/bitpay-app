@@ -199,3 +199,17 @@ storage, production policy, Android native cleaning and process boundaries are
 real. No actual disk-full or inside-native read failure is claimed. The complete
 driver now contains 15 scenarios / 74 launches. Validation results belong to
 `../stage-a/stage-b-results.json.followup2Repair`.
+
+
+## Follow-up 4: H/I/J/K
+
+`react-followup4-*` adds six five-process scenarios: production verified-temp
+recovery beside a damaged target; first-save history with interrupted retirement;
+Android unavailable-marker retirement; and legacy-entry read/delete/verification
+outcomes (deletable then absent, continued unreadability, rejected deletion).
+First-save scenarios finish by losing all modern copies and requiring the existing
+classified stop. Other scenarios finish on the completed fast path. All faults are
+JS-boundary injections; native storage and process restarts are real. The driver
+now has 21 scenarios / 104 launches. Results belong to
+`../stage-a/stage-b-results.json.followup4Repair`; no physical-device or real native
+Keychain-failure claim follows from these tests.

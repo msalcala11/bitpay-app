@@ -9808,5 +9808,841 @@
     "committed": false,
     "pushed": false,
     "releaseApproved": false
+  },
+  "followup4Repair": {
+    "base": "b84eb7165ec5945dfc53957b79c1c10e584223c9",
+    "initialWorkingTree": {
+      "tracked": [],
+      "untracked": [],
+      "clean": true
+    },
+    "initialSourceHashes": {
+      "src/store/vault-migration.ts": "6a1e5941b7d966d48cc59c922bdbb29a662c37842f235296f512e17836f44b0e",
+      "src/store/vault-rkstorage.ts": "f7c1da7168abcd6714ad5b2cd181a7727e0325ae92c0d5974764668e635524cb",
+      "src/store/vault-repair-state.ts": "0ce71adf80595067636893decd246128e41e03d146ef99a5d97f380c8205660d",
+      "src/store/vault-migration.spec.ts": "db1e91cbbeb05f17d8c68c176e650965682d283daac76f0301b1b47e1c12cc8e",
+      "src/store/vault-repair-state.spec.ts": "84cac25508789b008dad860ea5f1b7f0b4896134d6541945efc1df1d96787a46",
+      "package.json": "5078ab0403e94499449c2ffc45992022614a2fe24940af4df25f5cdb3d0188d8",
+      "yarn.lock": "99a9ac1f28264e59b6cd5c0da8fa220ff02c3fc2e0f53e6c84d98b0d942c0441"
+    },
+    "handoffArchiveSha256": "362c84908820a7139b6732b7810cd8d1ec43c452f5525bea03abcd80a287b77a",
+    "handoffVerifiedFiles": 18,
+    "install": {
+      "command": "COREPACK_ENABLE_AUTO_PIN=0 yarn install --frozen-lockfile --non-interactive",
+      "exit": 0,
+      "node": "22.16.0",
+      "yarn": "1.22.22",
+      "normalPostinstall": true,
+      "realCompressjs": {
+        "version": "1.3.1",
+        "mainBytes": 1301
+      },
+      "standIns": false,
+      "dependencyAndLockfileEdits": false
+    },
+    "baseline": {
+      "command": "node node_modules/.bin/jest src/store/vault-migration.spec.ts src/store/vault-repair-state.spec.ts",
+      "exit": 0,
+      "migration": 535,
+      "repairState": 22,
+      "passed": 557,
+      "failed": 0,
+      "output": "Test Suites: 2 passed, 2 total; Tests: 557 passed, 557 total"
+    },
+    "regressionsBeforeProductionEdit": {
+      "passed": 21,
+      "failed": 35,
+      "newCases": 56,
+      "originalTestsUnselected": 535,
+      "allFourFindingsReproduced": true
+    },
+    "finalTestsOnBaseProduction": {
+      "numPassedTests": 25,
+      "numFailedTests": 40,
+      "numPendingTests": 535,
+      "numPassedTestSuites": 0,
+      "numFailedTestSuites": 1,
+      "selectedCases": 65,
+      "command": "node node_modules/.bin/jest src/store/vault-migration.spec.ts -t \"Follow-up HIJK\" --runInBand --config \"$SCRATCH/red-reference/config.cjs\"",
+      "exit": 1,
+      "method": "A scratch Babel transformer substitutes byte-exact git-show b84eb716 production for only vault-migration.ts and vault-rkstorage.ts. The final test file and real installed dependencies are unchanged. No production-policy mock is used. Reproduce equivalently by applying only the final spec diff to a clean base and selecting Follow-up HIJK.",
+      "byFinding": {
+        "H": {
+          "failed": 8,
+          "passed": 8
+        },
+        "I": {
+          "failed": 18,
+          "passed": 4
+        },
+        "J": {
+          "failed": 6,
+          "passed": 3
+        },
+        "K": {
+          "failed": 8,
+          "passed": 10
+        }
+      }
+    },
+    "finalRequired": {
+      "command": "node node_modules/.bin/jest src/store/vault-migration.spec.ts src/store/vault-repair-state.spec.ts",
+      "exit": 0,
+      "migration": 600,
+      "repairState": 22,
+      "passed": 622,
+      "failed": 0,
+      "output": "Test Suites: 2 passed, 2 total; Tests: 622 passed, 622 total"
+    },
+    "focused": {
+      "numPassedTests": 752,
+      "numFailedTests": 0,
+      "numPendingTests": 0,
+      "numPassedTestSuites": 8,
+      "numFailedTestSuites": 0,
+      "exit": 0,
+      "command": "node node_modules/.bin/jest src/store/vault-migration.spec.ts src/store/vault-repair-state.spec.ts src/store/vault-scrub.spec.ts src/store/vault-diagnostics.spec.ts src/store/vault-startup-alert.spec.ts src/store/encryption-key.spec.ts src/store/transforms/transforms.spec.ts src/store/persistence-guard.spec.ts --runInBand",
+      "additionalBackupSuitePassed": true
+    },
+    "full": {
+      "numPassedTests": 3080,
+      "numFailedTests": 0,
+      "numPendingTests": 2,
+      "numPassedTestSuites": 140,
+      "numFailedTestSuites": 0,
+      "exit": 0,
+      "command": "COREPACK_ENABLE_AUTO_PIN=0 yarn test:ci --runInBand",
+      "output": "Test Suites: 140 passed, 140 total; Tests: 2 skipped, 3080 passed, 3082 total"
+    },
+    "diagnostics": {
+      "typescript": {
+        "baseline": 2024,
+        "final": 2024,
+        "introduced": 0,
+        "removed": 0
+      },
+      "lint": {
+        "baselineErrors": 632,
+        "finalErrors": 632,
+        "baselineWarnings": 697,
+        "finalWarnings": 697,
+        "introduced": 0,
+        "removed": 0
+      },
+      "identityNormalization": "Same isolated checkout; strip TypeScript source coordinates and lint message source coordinates, compare full remaining diagnostic identity as multisets."
+    },
+    "typescriptCommand": {
+      "command": "node node_modules/.bin/tsc --noEmit --pretty false",
+      "exit": 2
+    },
+    "lintCommand": {
+      "command": "node node_modules/.bin/eslint . --ext .js,.jsx,.ts,.tsx -f json",
+      "exit": 1
+    },
+    "format": {
+      "repository": "node node_modules/.bin/prettier --check \"src/**/*.{js,jsx,ts,tsx}\"",
+      "repositoryExit": 0,
+      "changedHarnessExit": 0,
+      "changedSourceLintExit": 0,
+      "nodeCjsLintExit": 0,
+      "nodeCjsParser": "ES2022",
+      "diffCheckExit": 0
+    },
+    "existingTests": {
+      "assertionsRetainedExceptOne": true,
+      "permittedChange": "In gap: fresh %s with failed legacy-key read opens and retires it after retry before any save, old-entry presence after the read-rejecting launch changes from true to false. Delete can succeed even though absence verification still rejects. All incomplete, retry, fresh and no-wallet-save assertions remain.",
+      "verification": "The base test file equals the final file after removing only the new describe block and reversing only that assertion, ignoring formatting whitespace."
+    },
+    "currentSourceHashes": {
+      "src/store/vault-migration.ts": "2d1dc23db7952213b847d8317d3b3838b7c0ba4df4873aa7f8bfec0cae5d54d5",
+      "src/store/vault-rkstorage.ts": "1207ceaac8912920f26091d1ff617362987ce4908742673d6117dde2e744d30a",
+      "src/store/vault-migration.spec.ts": "11b778df1c4713193d277a0a61255ac1c1eb345fd3eb6334e3837716e8c37099",
+      "test/vault/rkstorage/followup4-cases.js": "8d4fc25708619c931de11adf984ad9c7723ea92bc0b4fb032b00957b797dd8d6",
+      "test/vault/rkstorage/react-entry.js": "417bb0b386b9ddfbe682f4431d873a7b7f022e7c8d921980b697cd4ef2adb169",
+      "test/vault/rkstorage/run-react.cjs": "6e17c9d39f164b405aeb56d2e424339935fee482dcdc0a36dacb76f0b6b2b2f0"
+    },
+    "productionScope": {
+      "files": ["src/store/vault-migration.ts", "src/store/vault-rkstorage.ts"],
+      "recordSchemaChanged": false,
+      "GPermissionLifecycleByteIdentical": true,
+      "scrubNativeCleanerProviderPatchEncryptionAndKeyOptionsUnchanged": true
+    },
+    "fixes": {
+      "H": "Pending recovery examines the existing qualified writer temp when the successfully read target does not validate as modern; valid targets, completed recovery, read failures and bak-context precedence retain their rules.",
+      "I": "Verified first save coalesces conversionComplete with retirement of own fresh provenance; startup retries that history write before independent source inventory/refresh when the primary validates. No cleanup completion or new receipt is inferred.",
+      "J": "Android marker-unavailable active-state validation invokes the existing mandatory initialization retirement before returning.",
+      "K": "A non-null copy not fully validated with an available candidate marks the attempt deferred whenever the old entry was unreadable; read failures defer separately. This status survives later existing cleanup deletion. Resolved copies permit the existing scrub and removal attempt, but completion still requires successful deletion and an absence read. No removal flag or new permission is recorded."
+    },
+    "nativeCore": {
+      "mac": {
+        "cases": 14,
+        "passed": 14,
+        "pageBytes": 16384,
+        "sourceIdentityVerified": true,
+        "command": "node test/vault/run-native.cjs <pinned-core-native-api> \"$SCRATCH/native-mac\"",
+        "rows": [
+          {
+            "case": "minimum-capacity",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "root-absent-no-live-source",
+            "passed": true,
+            "beforeDecryptable": 20,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "minimum-root-removed",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "two-megabyte",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "four-megabyte",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "large-root-removed",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "no-key-history",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "constructor-password-defensive",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "near-capacity-zero-filler",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "near-capacity-deferral-retry",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "rejected-growth",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "failed-shrink-large",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "failed-shrink-no-keys",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "leftover-filler-only",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          }
+        ]
+      },
+      "android": {
+        "cases": 14,
+        "passed": 14,
+        "pageBytes": 4096,
+        "sourceIdentityVerified": true,
+        "command": "node test/vault/run-native.cjs <pinned-core-native-api> \"$SCRATCH/native-android\"",
+        "rows": [
+          {
+            "case": "minimum-capacity",
+            "passed": true,
+            "beforeDecryptable": 20,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "root-absent-no-live-source",
+            "passed": true,
+            "beforeDecryptable": 20,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "minimum-root-removed",
+            "passed": true,
+            "beforeDecryptable": 20,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "two-megabyte",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "four-megabyte",
+            "passed": true,
+            "beforeDecryptable": 28,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "large-root-removed",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "no-key-history",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "constructor-password-defensive",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "near-capacity-zero-filler",
+            "passed": true,
+            "beforeDecryptable": 20,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "near-capacity-deferral-retry",
+            "passed": true,
+            "beforeDecryptable": 20,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "rejected-growth",
+            "passed": true,
+            "beforeDecryptable": 20,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "failed-shrink-large",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "failed-shrink-no-keys",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          },
+          {
+            "case": "leftover-filler-only",
+            "passed": true,
+            "beforeDecryptable": 24,
+            "afterDecryptable": 0,
+            "afterBareEddsa": 0
+          }
+        ]
+      }
+    },
+    "nativeInterruptions": {
+      "command": "node test/vault/run-native.cjs <pinned-core-native-api> \"$SCRATCH/native-kills\" --kills",
+      "exit": 0,
+      "cases": 48,
+      "assertionsPassed": 48,
+      "actualTerminations": 36,
+      "recoveryRejected": 0,
+      "fullRecovery": 48,
+      "sourceIdentityVerified": true,
+      "limitation": "Deliberately timed native process terminations, not production failure rates or power-loss certification. All copies recovered in this sample; earlier native/cache-loss outcomes remain disclosed and are not certified away."
+    },
+    "hermes": {
+      "command": "node test/vault/rkstorage/run-react.cjs <owned-disposable-emulator> \"$SCRATCH/hermes\"",
+      "exit": 0,
+      "scenarios": 21,
+      "launches": 104,
+      "distinctProcesses": 104,
+      "completedScans": 44,
+      "newScenarios": [
+        {
+          "seed": "react-followup4-h-seed",
+          "rows": [
+            {
+              "operation": "react-followup4-h-seed",
+              "newArchitectureBridge": true,
+              "targetRemovalFailures": 2,
+              "nativeCalls": 0,
+              "cleanupPending": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-h-check",
+              "newArchitectureBridge": true,
+              "rootWrites": 1,
+              "tempRecovery": true,
+              "nativeCalls": 0,
+              "cleanupPending": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-h-retry",
+              "newArchitectureBridge": true,
+              "nativeCalls": 1,
+              "cleanupPending": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-h-verify",
+              "newArchitectureBridge": true,
+              "nativeCalls": 2,
+              "cleanupPending": false,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-h-verify",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-followup4-i-seed",
+          "rows": [
+            {
+              "operation": "react-followup4-i-seed",
+              "newArchitectureBridge": true,
+              "keyReadFailures": 2,
+              "keyRemovalAttempts": 1,
+              "retirementRejections": 1,
+              "nativeCalls": 0,
+              "cleanupPending": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-i-check",
+              "newArchitectureBridge": true,
+              "injectedFailures": 1,
+              "firstSaveEstablished": true,
+              "nativeCalls": 0,
+              "cleanupPending": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-i-retry",
+              "newArchitectureBridge": true,
+              "nativeCalls": 1,
+              "cleanupPending": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-i-verify",
+              "newArchitectureBridge": true,
+              "nativeCalls": 2,
+              "cleanupPending": false,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-i-loss",
+              "newArchitectureBridge": true,
+              "totalLossStopped": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-followup4-j-seed",
+          "rows": [
+            {
+              "operation": "react-followup4-j-seed",
+              "newArchitectureBridge": true,
+              "retirementRejections": 1,
+              "nativeCalls": 1,
+              "cleanupPending": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-j-check",
+              "newArchitectureBridge": true,
+              "injectedFailures": 1,
+              "firstSaveEstablished": true,
+              "nativeCalls": 0,
+              "cleanupPending": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-j-retry",
+              "newArchitectureBridge": true,
+              "nativeCalls": 2,
+              "cleanupPending": false,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-j-verify",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-j-loss",
+              "newArchitectureBridge": true,
+              "totalLossStopped": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-followup4-kabsent-seed",
+          "rows": [
+            {
+              "operation": "react-followup4-kabsent-seed",
+              "newArchitectureBridge": true,
+              "keyReadFailures": 2,
+              "keyRemovalAttempts": 1,
+              "nativeCalls": 1,
+              "cleanupPending": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-kabsent-check",
+              "newArchitectureBridge": true,
+              "keyReadFailures": 0,
+              "keyRemovalAttempts": 0,
+              "nativeCalls": 2,
+              "cleanupPending": false,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-kabsent-retry",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-kabsent-verify",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-kabsent-verify",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-followup4-kreject-seed",
+          "rows": [
+            {
+              "operation": "react-followup4-kreject-seed",
+              "newArchitectureBridge": true,
+              "keyReadFailures": 2,
+              "keyRemovalAttempts": 1,
+              "nativeCalls": 0,
+              "cleanupPending": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-kreject-check",
+              "newArchitectureBridge": true,
+              "keyReadFailures": 2,
+              "keyRemovalAttempts": 1,
+              "nativeCalls": 0,
+              "cleanupPending": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-kreject-retry",
+              "newArchitectureBridge": true,
+              "nativeCalls": 1,
+              "cleanupPending": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-kreject-verify",
+              "newArchitectureBridge": true,
+              "nativeCalls": 2,
+              "cleanupPending": false,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-kreject-verify",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        },
+        {
+          "seed": "react-followup4-kdelete-seed",
+          "rows": [
+            {
+              "operation": "react-followup4-kdelete-seed",
+              "newArchitectureBridge": true,
+              "keyReadFailures": 1,
+              "keyRemovalAttempts": 1,
+              "nativeCalls": 0,
+              "cleanupPending": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-kdelete-check",
+              "newArchitectureBridge": true,
+              "keyReadFailures": 1,
+              "keyRemovalAttempts": 1,
+              "nativeCalls": 0,
+              "cleanupPending": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-kdelete-retry",
+              "newArchitectureBridge": true,
+              "nativeCalls": 1,
+              "cleanupPending": true,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-kdelete-verify",
+              "newArchitectureBridge": true,
+              "nativeCalls": 2,
+              "cleanupPending": false,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            },
+            {
+              "operation": "react-followup4-kdelete-verify",
+              "newArchitectureBridge": true,
+              "nativeCalls": 0,
+              "cleanupPending": false,
+              "decryptable": 0,
+              "bareEddsa": 0,
+              "opaqueEddsa": 0,
+              "sqlite": "3.39.2",
+              "api": 34
+            }
+          ]
+        }
+      ],
+      "category": "Real Android API 34 Hermes application processes with actual MMKV, RNFS, Keychain and AsyncStorage; injected errors are at JavaScript library boundaries. No actual native Keychain failure or physical-phone claim.",
+      "completedScansWithZeroRecoverableProtectedValues": true
+    },
+    "build": {
+      "androidCommand": "JAVA_HOME=<installed-JDK17> SENTRY_DISABLE_AUTO_UPLOAD=true NODE_ENV=development ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --max-workers=2 --console=plain --project-cache-dir \"$SCRATCH/gradle-cache\" -PreactNativeArchitectures=arm64-v8a -PrkStorageTestAssets=\"$SCRATCH/react-assets\"",
+      "exit": 0,
+      "output": "BUILD SUCCESSFUL; 1401 actionable tasks: 1401 executed",
+      "bundleCommand": "NODE_ENV=development SENTRY_DISABLE_AUTO_UPLOAD=true node node_modules/react-native/cli.js bundle --platform android --dev true --minify false --entry-file test/vault/rkstorage/react-entry.js --bundle-output \"$SCRATCH/react-assets/rkstorage-test.bundle\" --assets-dest \"$SCRATCH/react-assets\" --max-workers 2",
+      "bundleExit": 0,
+      "packagedTestBundleMatches": true,
+      "identities": {
+        "android/app/build/outputs/apk/debug/app-debug.apk": "ca6786b78d43b7f58c8016a78ab70d4d1194e8242ff35231aae6a0901fa127e9",
+        "android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "ba7595d74183cfc407c6b2890b9f6a668aa66df9faadd83f37aec8db7a2ddb2a",
+        "testBundleSha256": "bfd2ff5b7d9889f472ed98ee3b052dda748637320d565e936fa4daabd81084f4"
+      }
+    },
+    "ios": {
+      "command": "BUNDLE_IGNORE_CONFIG=1 BUNDLE_PATH=<existing-pinned-bundle> BUNDLE_FROZEN=1 bundle exec pod install --deployment",
+      "exit": 1,
+      "lockedPodfileChecksum": "4c22e1a9ab9a161b45190306ef176800a1072619",
+      "actualPodfileChecksum": "2d77c0721b56ccd64df7fa2dc8069d67a1a6059d",
+      "result": "Unchanged deployment-mode checksum prerequisite blocks iOS native build/runtime at this required base; no lockfile modification or later checksum commit imported."
+    },
+    "evidenceCategories": {
+      "javascriptModuleReload": "New first-save interrupted-retirement and recovery-grant cases preserve boundary maps across actual JS module isolation.",
+      "modeledCompletedCallInterruption": "First primary save before history update and receipt-free recovery write before subsequent calls.",
+      "modeledRejectedCalls": "Keychain reads/deletes, backup removal/write, AsyncStorage reads, record writes/read-backs; explicit hit counts and retry assertions.",
+      "actualProcessRestart": "14 native-core cases per platform and 104 Android Hermes processes.",
+      "insideNative": "48 existing timed native worker scenarios; 36 actual terminations.",
+      "physicalDevice": "Not run."
+    },
+    "openNotAccepted": [
+      "Fix G interrupted-disposal permission limit; no change to its lifecycle.",
+      "Valid older main still hides newer recorded temp; retained H control.",
+      "Old-format bak deletion with unreadable old key; unchanged, pinned K control, never supplies retirement eligibility on that launch.",
+      "Internal 2d70bd5 records have no bakDigest.",
+      "Mixed-key decoder policy and released-app reachability; no relaxation.",
+      "Backup-excluded cache reducers during interrupted conversion resume.",
+      "Lost-key Alert wording, corrupt AsyncStorage provider behavior, remote visibility, device startup cost, historical report housekeeping."
+    ],
+    "remainingValidation": [
+      "Review of this follow-up.",
+      "Physical phones and packaged released-build upgrade.",
+      "iOS native runtime after resolving the existing prerequisite separately.",
+      "No new rendered Alert or ordinary product UI check; those flows are unchanged.",
+      "Release-owner disposition of the documented native and disposal residuals."
+    ],
+    "committed": false,
+    "pushed": false,
+    "releaseApproved": false
   }
 }
