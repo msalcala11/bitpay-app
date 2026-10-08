@@ -492,3 +492,37 @@ Native empty/failed-load ambiguity, silent fallback, hidden metadata, unsynced c
 | Android Hermes / build | 21 scenarios / 104 verified distinct app processes pass; debug and instrumentation builds pass; packaged bundle matches current source build |
 | iOS native prerequisite | Deployment-mode Podfile checksum mismatch persists at this base; no lockfile edit |
 | Physical phones / packaged released-app upgrade | Unrun; remain release gates |
+
+
+## 12. Follow-up 5 at 742a366 — closed L/M correction
+
+The clean isolated base is `742a366f3ecabbca81434062fd3e1d98c26ca97b`, with the same source tree as `68f34ffc2`. The owner authorized only L and M on 8 October 2026. Sections 1–11 and their evidence remain historical and unchanged.
+
+- **L:** only `readRecoveryCopy` changes. Its nested main-temp context lookup preserves a successfully read, present bak target exactly as read, including unusable bytes. Successful absence still follows the existing qualified bak-temp fallback. A rejected read retains the existing classified handling. Direct bak recovery keeps H's ability to use its own qualified temp beside an unusable target; completed-record recovery, qualification, source precedence, writes and later cleanup are unchanged. The local argument affects observation for context only; it is not a persisted field or grant.
+- **Reachability:** the starting backup files in the reproduction are placed by hand. The two bindings and verified temps are then produced by the production refresh with observed removal/promotion failures. A route from an ordinary install has not been shown and has not been ruled out. This corrects H's unintended boundary change, not a claim that this state is known to occur. Damaged-target variants explicitly replace a target after that setup and are labeled seeded; they are not claimed to arise from the one failed refresh.
+- **Tests:** 20 new cases cover both platforms, all requested present/absent/unreadable bak contexts, direct bak-temp recovery, single exact root write, full filesystem path/value equality, preservation while reads reject, and retry/cleanup. On unchanged production, eight regression variants fail and twelve controls/tests pass. The two read-rejection regression variants first pass the unchanged classified-stop checks, then fail the required recovery after the read works. All existing assertions are retained.
+- **M:** two Android empty-install cases observe each rejected/invalid marker read over two preparations, require preserved initialization provenance, unchanged history/files, no root write, an empty store result and safe retry when the marker failure clears. Both pass on the base. The one authorized local mutation removing `active.present` makes both fail; the original file is restored byte-for-byte. No production J change remains.
+
+### Owner dispositions (8 October)
+
+Authority: `reference/bip-02-release-dispositions.md` in the supplied handoff, SHA-256 `008a63eac36a9ca260d36aceee2c142ddc279c839ec0d70108b9806a6dd9fe66`. These supersede the earlier pending-status descriptions only as stated in that record:
+
+- **Fix G:** “For the current release, accept this specific limitation and retain `09a50f9` without implementing Follow-up 3.” The limitation concerns unrelated undecodable bytes at the same internal temp path while unfinished-write permission is active, before first observation or after deletion and before verified retirement. “Neither review has identified a normal application operation that introduces such an unrelated replacement.” Follow-up 3 is deferred; writer-provenance, source-identity, primary-preservation and recovery checks are not weakened.
+- **Completed-fresh-install iOS startup retry:** “Defer the completed-fresh-install iOS startup retry from this release's correction scope. Record that a failed first-save history update can leave stale initialization permission until a later successful save, permitting empty admission after subsequent total local-copy loss. Do not describe this as fixed, impossible, or silently accepted.”
+- **Android zero-length database:** “Deferred pending evidence; investigation authorized.” “This authorizes the investigation only. A provider change needs a further decision.” The separate investigation covers sidecar-free and journal-bearing outcomes; it is not run or fixed by this correction.
+
+No new broad seeded-state sweep, random fault campaign, mutation campaign or architecture audit is run. The only mutation is M; the only native scenario rerun is the existing `react-followup4-h` replacement-temp recovery, where available. New platform-mocked tests and repeated preparations are separate from real Hermes process restarts. No new iOS startup retry, `copyPresent` or first-save validation change, decoder change, provider change, cleanup lifecycle change or performance work is included. Actual results and source/build identities are recorded in `stage-b-results.json.followup5Repair`. This is not release approval; review, physical-device validation and an upgrade from a released build remain outstanding.
+
+
+| Follow-up 5 check | Actual result |
+| --- | --- |
+| Required untouched baseline | 600 migration + 22 record cases pass |
+| New tests before correction | 8 L regression failures; 12 passing controls/tests including both M cases |
+| Authorized M guard mutation | Both M tests fail; original file restored exactly |
+| Final required / focused | 642 cases / 772 cases pass |
+| Full repository | 140 suites, 3,100 pass, 2 existing skips |
+| TypeScript / ESLint | 2,024 diagnostics; 632 errors / 697 warnings; baseline identities unchanged |
+| Formatting / diff whitespace | Pass |
+| Existing H Hermes scenario | Pass across five distinct Android processes; current bundle verified in instrumentation APK |
+| Android build | Debug and instrumentation APKs pass |
+| Other native/device work | Not run or added; bounded validation only, with physical-device and released-build upgrade gates outstanding |

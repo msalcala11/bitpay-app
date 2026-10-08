@@ -463,5 +463,39 @@
       "passed": 25,
       "failed": 40
     }
+  },
+  "followup5Repair": {
+    "base": "742a366f3ecabbca81434062fd3e1d98c26ca97b",
+    "addedMigrationCases": [
+      "Stage A Follow-up LM L regression ios: production refresh with present old-format bak restores main temp",
+      "Stage A Follow-up LM L regression android: production refresh with present old-format bak restores main temp",
+      "Stage A Follow-up LM L regression ios: seeded damaged-bak target beside production-created temps",
+      "Stage A Follow-up LM L regression ios: seeded damaged-main target beside production-created temps",
+      "Stage A Follow-up LM L regression android: seeded damaged-bak target beside production-created temps",
+      "Stage A Follow-up LM L regression android: seeded damaged-main target beside production-created temps",
+      "Stage A Follow-up LM L control ios: valid bak with matching production-recorded context",
+      "Stage A Follow-up LM L control ios: valid bak with changed production-recorded context",
+      "Stage A Follow-up LM L control android: valid bak with matching production-recorded context",
+      "Stage A Follow-up LM L control android: valid bak with changed production-recorded context",
+      "Stage A Follow-up LM L control ios: absent bak retains qualifying bak-temp fallback",
+      "Stage A Follow-up LM L control android: absent bak retains qualifying bak-temp fallback",
+      "Stage A Follow-up LM L control ios: unusable bak is still a recovery source through its temp",
+      "Stage A Follow-up LM L control android: unusable bak is still a recovery source through its temp",
+      "Stage A Follow-up LM L read rejection ios (regression state=false): unchanged stop then required recovery",
+      "Stage A Follow-up LM L read rejection ios (regression state=true): unchanged stop then required recovery",
+      "Stage A Follow-up LM L read rejection android (regression state=false): unchanged stop then required recovery",
+      "Stage A Follow-up LM L read rejection android (regression state=true): unchanged stop then required recovery",
+      "Stage A Follow-up LM M empty Android install keeps fresh provenance across two read-error marker launches",
+      "Stage A Follow-up LM M empty Android install keeps fresh provenance across two invalid marker launches"
+    ],
+    "addedCount": 20,
+    "existingMigrationCases": 600,
+    "recordCases": 22,
+    "baselineNewCases": {
+      "failed": 8,
+      "passed": 12
+    },
+    "MGuardMutationFailed": 2,
+    "existingAssertionsChanged": false
   }
 }

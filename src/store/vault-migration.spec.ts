@@ -9218,4 +9218,362 @@ describe('Stage A', () => {
       expect(complete()).toBe(false);
     });
   });
+  describe('Follow-up LM', () => {
+    const digestOf = (raw: string) =>
+      crypto.createHash('sha256').update(raw).digest('hex');
+    const keyIds = async (raw: string, key: string) =>
+      Object.keys((await restore(raw, key)).WALLET.keys).sort();
+    const addKey = (state: any, id: string) => {
+      state.WALLET.keys[id] = {
+        id,
+        properties: {xPrivKey: 'synthetic ' + id},
+        wallets: [],
+      };
+    };
+    const readState = () => JSON.parse(record.getString(VAULT_RECORD_KEY)!);
+    const classified = async (operation: () => Promise<unknown>) => {
+      try {
+        await operation();
+        return {code: 'RESOLVED'};
+      } catch (error) {
+        const d = getVaultDiagnostic(error as Error);
+        return {
+          code: d?.code ?? 'UNCLASSIFIED',
+          phase: d?.phase,
+          reason: d?.reason,
+          source: d?.source,
+        };
+      }
+    };
+    // The starting backup files are deliberately placed by the test. Both
+    // writer bindings and temps are produced by the real optional refresh.
+    // No ordinary-install route to this two-temp state is claimed.
+    const interruptedRefresh = async (
+      os: 'ios' | 'android',
+      twoTemps = true,
+    ) => {
+      Platform.OS = os;
+      if (os === 'android') rkBridge();
+      const state = stateWithSdkKey();
+      const key = await convertedPending(state);
+      const older = JSON.parse(JSON.stringify(state));
+      delete older.APP.bip02CleanupReceipt;
+      addKey(state, 'newer');
+      const primary = await ordinarySave(state, key, false);
+      const newer = JSON.parse(JSON.stringify(state));
+      delete newer.APP.bip02CleanupReceipt;
+      const oldMain = await save(newer);
+      const oldBak = await save(
+        older,
+        twoTemps ? legacyKey : key,
+        twoTemps ? 'fields' : 'modern',
+      );
+      seedFile(VAULT_BACKUP, oldMain);
+      seedFile(VAULT_OLDER_BACKUP, oldBak);
+      const unlink = RNFS.unlink as jest.Mock,
+        unlinking = unlink.getMockImplementation()!;
+      const move = RNFS.moveFile as jest.Mock,
+        moving = move.getMockImplementation()!;
+      let failedRemoval = 0,
+        failedPromotion = 0;
+      unlink.mockImplementation(async path => {
+        if (path === VAULT_OLDER_BACKUP) {
+          failedRemoval++;
+          throw new Error('synthetic bak removal failure');
+        }
+        return unlinking(path);
+      });
+      move.mockImplementation(async (from, to) => {
+        if (to === VAULT_BACKUP) {
+          failedPromotion++;
+          throw new Error('synthetic main promotion failure');
+        }
+        return moving(from, to);
+      });
+      restart();
+      try {
+        expect((await prepareVault(root)) === key).toBe(true);
+      } finally {
+        unlink.mockImplementation(unlinking);
+        move.mockImplementation(moving);
+      }
+      expect(failedPromotion).toBe(1);
+      expect(failedRemoval).toBe(twoTemps ? 1 : 0);
+      expect(root.getString('persist:root') === primary).toBe(true);
+      expect(mockFiles.has(VAULT_BACKUP)).toBe(false);
+      expect(mockFiles.get(VAULT_OLDER_BACKUP) === oldBak).toBe(true);
+      expect(complete()).toBe(false);
+      const mainTemp = mockFiles.get(migrationTemp(VAULT_BACKUP))!;
+      const bakTemp = mockFiles.get(migrationTemp(VAULT_OLDER_BACKUP));
+      expect(await keyIds(primary, key)).toEqual(['newer', 'readonly']);
+      expect(await keyIds(mainTemp, key)).toEqual(['newer', 'readonly']);
+      const main = readState().cleanup.main;
+      expect(main.origin).toBe('optional-refresh');
+      expect(main.writePhase).toBe('verified');
+      expect(main.digest === digestOf(mainTemp)).toBe(true);
+      expect(main.bakDigest === digestOf(oldBak)).toBe(true);
+      if (twoTemps) {
+        expect(await keyIds(bakTemp!, key)).toEqual(['readonly']);
+        const bak = readState().cleanup.bak;
+        expect(bak.origin).toBe('optional-refresh');
+        expect(bak.writePhase).toBe('verified');
+        expect(bak.digest === digestOf(bakTemp!)).toBe(true);
+      } else expect(bakTemp === undefined).toBe(true);
+      return {key, mainTemp, bakTemp, older, newer};
+    };
+    const recoverExactly = async (
+      key: string,
+      expected: string,
+      ids: string[],
+    ) => {
+      root.delete('persist:root');
+      const files = new Map(mockFiles),
+        dirs = new Set(mockDirs);
+      const oldEntry = mockCredentials.get(LEGACY_KEY_SERVICE);
+      const asyncBefore = new Map(mockAsync);
+      const asReads = (AsyncStorage.getItem as jest.Mock).mock.calls.length;
+      const rootValues: unknown[] = [];
+      const setting = MMKV.prototype.set;
+      const set = jest
+        .spyOn(MMKV.prototype, 'set')
+        .mockImplementation(function (this: any, name, value) {
+          if (this.id === 'default' && name === 'persist:root')
+            rootValues.push(value);
+          return setting.call(this, name, value);
+        });
+      restart();
+      let raw: string | null;
+      try {
+        expect((await prepareVault(root)) === key).toBe(true);
+        raw = await reduxStorage.getItem('persist:root');
+      } finally {
+        set.mockRestore();
+      }
+      expect(rootValues.length).toBe(1);
+      expect(rootValues[0] === expected).toBe(true);
+      expect(
+        raw! === expected && root.getString('persist:root') === expected,
+      ).toBe(true);
+      expect(await keyIds(raw!, key)).toEqual(ids);
+      expect(
+        (await restore(raw!, key)).APP.bip02CleanupReceipt === undefined,
+      ).toBe(true);
+      // Map equality includes the entire path set, so an added file fails too.
+      expect(isEqual(mockFiles, files)).toBe(true);
+      expect(isEqual(mockDirs, dirs)).toBe(true);
+      expect(isEqual(mockAsync, asyncBefore)).toBe(true);
+      expect(mockCredentials.get(LEGACY_KEY_SERVICE) === oldEntry).toBe(true);
+      expect((AsyncStorage.getItem as jest.Mock).mock.calls.length).toBe(
+        asReads,
+      );
+      expect(complete()).toBe(false);
+      expect(mockWrites.filter(w => !w.startsWith('mmkv:')).length).toBe(0);
+      return raw!;
+    };
+    const finishCleanup = async (key: string, raw: string) => {
+      for (let launch = 0; launch < 2; launch++) {
+        restart();
+        expect((await prepareVault(root)) === key).toBe(true);
+        expect((await reduxStorage.getItem('persist:root')) === raw).toBe(true);
+      }
+      expect(complete()).toBe(true);
+      expect(mockFiles.has(migrationTemp(VAULT_BACKUP))).toBe(false);
+      expect(mockFiles.has(migrationTemp(VAULT_OLDER_BACKUP))).toBe(false);
+      expect(mockCredentials.has(LEGACY_KEY_SERVICE)).toBe(false);
+    };
+    it.each(['ios', 'android'] as const)(
+      'L regression %s: production refresh with present old-format bak restores main temp',
+      async os => {
+        const {key, mainTemp} = await interruptedRefresh(os);
+        const raw = await recoverExactly(key, mainTemp, ['newer', 'readonly']);
+        await finishCleanup(key, raw);
+      },
+    );
+    it.each(
+      (['ios', 'android'] as const).flatMap(os =>
+        ['damaged-bak', 'damaged-main'].map(target => ({os, target})),
+      ),
+    )(
+      'L regression $os: seeded $target target beside production-created temps',
+      async ({os, target}) => {
+        const {key, mainTemp} = await interruptedRefresh(os);
+        // Target corruption is explicitly seeded after the real refresh. We do
+        // not claim either variant is produced by that one failed launch.
+        seedFile(
+          target === 'damaged-bak' ? VAULT_OLDER_BACKUP : VAULT_BACKUP,
+          'synthetic damaged target',
+        );
+        const raw = await recoverExactly(key, mainTemp, ['newer', 'readonly']);
+        await finishCleanup(key, raw);
+      },
+    );
+    it.each(
+      (['ios', 'android'] as const).flatMap(os =>
+        ['matching', 'changed'].map(context => ({os, context})),
+      ),
+    )(
+      'L control $os: valid bak with $context production-recorded context',
+      async ({os, context}) => {
+        const {key, mainTemp, older} = await interruptedRefresh(os, false);
+        let expected = mainTemp;
+        if (context === 'changed') {
+          addKey(older, 'bak-update');
+          expected = await save(older, key, 'modern');
+          seedFile(VAULT_OLDER_BACKUP, expected);
+          expect(
+            readState().cleanup.main.bakDigest === digestOf(expected),
+          ).toBe(false);
+        }
+        const raw = await recoverExactly(
+          key,
+          expected,
+          context === 'matching'
+            ? ['newer', 'readonly']
+            : ['bak-update', 'readonly'],
+        );
+        if (context === 'matching') await finishCleanup(key, raw);
+        else {
+          restart();
+          await prepareVault(root);
+          expect(root.getString('persist:root') === raw).toBe(true);
+          expect(mockFiles.get(migrationTemp(VAULT_BACKUP)) === mainTemp).toBe(
+            true,
+          );
+          expect(complete()).toBe(false);
+        }
+      },
+    );
+    it.each(['ios', 'android'] as const)(
+      'L control %s: absent bak retains qualifying bak-temp fallback',
+      async os => {
+        const {key, mainTemp, bakTemp} = await interruptedRefresh(os);
+        mockFiles.delete(VAULT_OLDER_BACKUP);
+        const raw = await recoverExactly(key, bakTemp!, ['readonly']);
+        restart();
+        await prepareVault(root);
+        expect(root.getString('persist:root') === raw).toBe(true);
+        expect(mockFiles.get(migrationTemp(VAULT_BACKUP)) === mainTemp).toBe(
+          true,
+        );
+        expect(complete()).toBe(false);
+      },
+    );
+    it.each(['ios', 'android'] as const)(
+      'L control %s: unusable bak is still a recovery source through its temp',
+      async os => {
+        const {key, bakTemp} = await interruptedRefresh(os);
+        mockFiles.delete(migrationTemp(VAULT_BACKUP));
+        const raw = await recoverExactly(key, bakTemp!, ['readonly']);
+        await finishCleanup(key, raw);
+      },
+    );
+    it.each(
+      (['ios', 'android'] as const).flatMap(os =>
+        [false, true].map(regressionState => ({os, regressionState})),
+      ),
+    )(
+      'L read rejection $os (regression state=$regressionState): unchanged stop then required recovery',
+      async ({os, regressionState}) => {
+        const {key, mainTemp} = await interruptedRefresh(os, regressionState);
+        root.delete('persist:root');
+        const files = new Map(mockFiles),
+          dirs = new Set(mockDirs),
+          credentials = new Map(mockCredentials);
+        const history = record.getString(VAULT_RECORD_KEY);
+        const read = RNFS.readFile as jest.Mock,
+          reading = read.getMockImplementation()!;
+        let hits = 0;
+        read.mockImplementation(async path => {
+          if (path === VAULT_OLDER_BACKUP) {
+            hits++;
+            throw new Error('synthetic bak read failure');
+          }
+          return reading(path);
+        });
+        restart();
+        try {
+          expect(
+            await classified(async () => {
+              await prepareVault(root);
+              await reduxStorage.getItem('persist:root');
+            }),
+          ).toEqual({
+            code: 'REQUIRED_COPY_FAILURE',
+            phase: 'recovery',
+            reason: 'SOURCE_READ',
+            source: 'bak',
+          });
+          expect(hits > 0).toBe(true);
+          noWrites();
+          expect(root.contains('persist:root')).toBe(false);
+          expect(record.getString(VAULT_RECORD_KEY) === history).toBe(true);
+          expect(
+            isEqual(mockFiles, files) &&
+              isEqual(mockDirs, dirs) &&
+              isEqual(mockCredentials, credentials),
+          ).toBe(true);
+        } finally {
+          read.mockImplementation(reading);
+        }
+        const raw = await recoverExactly(key, mainTemp, ['newer', 'readonly']);
+        await finishCleanup(key, raw);
+      },
+    );
+    it.each(['read-error', 'invalid'] as const)(
+      'M empty Android install keeps fresh provenance across two %s marker launches',
+      async marker => {
+        Platform.OS = 'android';
+        const bridge = rkBridge();
+        const key = await prepareVault(root);
+        expect(complete()).toBe(true);
+        expect(rkInitializing()).toBe(true);
+        expect(await reduxStorage.getItem('persist:root')).toBeNull();
+        if (marker === 'invalid')
+          record.set(RKSTORAGE_RECORD_KEY, 'synthetic invalid marker');
+        const reading = MMKV.prototype.getString;
+        let markerReads = 0;
+        const invalidObservations: boolean[] = [];
+        const get = jest
+          .spyOn(MMKV.prototype, 'getString')
+          .mockImplementation(function (this: any, name) {
+            if (this.id === VAULT_RECORD_ID && name === RKSTORAGE_RECORD_KEY) {
+              markerReads++;
+              if (marker === 'read-error')
+                throw new Error('synthetic marker read failure');
+              const value = reading.call(this, name);
+              invalidObservations.push(value === 'synthetic invalid marker');
+              return value;
+            }
+            return reading.call(this, name);
+          });
+        const history = record.getString(VAULT_RECORD_KEY);
+        const files = new Map(mockFiles);
+        try {
+          for (let launch = 1; launch <= 2; launch++) {
+            restart();
+            expect((await prepareVault(root)) === key).toBe(true);
+            expect(markerReads).toBe(launch);
+            if (marker === 'invalid')
+              expect(invalidObservations).toEqual(Array(launch).fill(true));
+            expect(rkInitializing()).toBe(true);
+            expect(record.getString(VAULT_RECORD_KEY) === history).toBe(true);
+            expect(await reduxStorage.getItem('persist:root')).toBeNull();
+            expect(root.contains('persist:root')).toBe(false);
+            expect(isEqual(mockFiles, files)).toBe(true);
+            expect(bridge.clean).not.toHaveBeenCalled();
+            noWrites();
+          }
+        } finally {
+          get.mockRestore();
+        }
+        if (marker === 'invalid') record.delete(RKSTORAGE_RECORD_KEY);
+        restart();
+        expect((await prepareVault(root)) === key).toBe(true);
+        expect(rkInitializing()).toBe(true);
+        expect(await reduxStorage.getItem('persist:root')).toBeNull();
+        expect(bridge.clean).not.toHaveBeenCalled();
+        noWrites();
+      },
+    );
+  });
 });

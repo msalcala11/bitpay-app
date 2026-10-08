@@ -221,11 +221,15 @@ const readRecoveryCopy = async (
   path: string,
   record: RecordState,
   key: string,
+  preservePresentTarget = false,
 ): Promise<string | null> => {
   const raw = await readVaultFile(path);
+  // Context describes the observed target, even when unusable. Only absence
+  // retains the existing fallback to this slot's qualified recovery temp.
   if (
     record.status === 'complete' ||
-    (raw !== null && inspect(raw, [key]).snapshot?.format === 'gcm')
+    (raw !== null &&
+      (preservePresentTarget || inspect(raw, [key]).snapshot?.format === 'gcm'))
   )
     return raw;
   const slot = path === VAULT_BACKUP ? 'main' : 'bak';
@@ -246,7 +250,7 @@ const readRecoveryCopy = async (
     // This backup context belongs to this main write, not another slot's intent.
     let bak: string | null;
     try {
-      bak = await readRecoveryCopy(VAULT_OLDER_BACKUP, record, key);
+      bak = await readRecoveryCopy(VAULT_OLDER_BACKUP, record, key, true);
     } catch (error) {
       throw safeVaultError(
         error,
