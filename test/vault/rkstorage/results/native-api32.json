@@ -1,0 +1,2299 @@
+{
+  "serial": "emulator-5582",
+  "environment": "Android instrumentation / actual app native helper and patched AsyncStorage Java provider",
+  "osPageSize": 4096,
+  "cases": [
+    {
+      "mode": "default",
+      "seed": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "seeded": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "before": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 7,
+          "knownCiphertextFragments": 42,
+          "bareEddsa": 1,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ],
+      "maintenance": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6591088,
+          "peakJavaUsedBytes": 17722360
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 26,
+        "nativeAllocatedBytes": 5752672,
+        "javaUsedBytes": 17738744,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ],
+      "reopen": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "reopened": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "mode": "delete",
+      "seed": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "delete",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "seeded": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "before": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 7,
+          "knownCiphertextFragments": 42,
+          "bareEddsa": 1,
+          "opaqueEddsa": 0
+        }
+      ],
+      "maintenance": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6694688,
+          "peakJavaUsedBytes": 17751720
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 29,
+        "nativeAllocatedBytes": 5752512,
+        "javaUsedBytes": 17768104,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ],
+      "reopen": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "reopened": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "mode": "truncate",
+      "seed": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "seeded": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "before": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 7,
+          "knownCiphertextFragments": 42,
+          "bareEddsa": 1,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ],
+      "maintenance": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6591216,
+          "peakJavaUsedBytes": 17771560
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 30,
+        "nativeAllocatedBytes": 5760080,
+        "javaUsedBytes": 17787944,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ],
+      "reopen": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "reopened": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "mode": "persist",
+      "seed": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "persist",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "seeded": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "before": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 7,
+          "knownCiphertextFragments": 42,
+          "bareEddsa": 1,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 332936,
+          "decryptableCandidates": 10,
+          "knownCiphertextFragments": 57,
+          "bareEddsa": 1,
+          "opaqueEddsa": 0
+        }
+      ],
+      "maintenance": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 389120,
+          "peakNativeAllocatedBytes": 6616288,
+          "peakJavaUsedBytes": 17721360
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 31,
+        "nativeAllocatedBytes": 5759728,
+        "javaUsedBytes": 17737744,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ],
+      "reopen": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "reopened": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "mode": "wal",
+      "seed": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "wal",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "seeded": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "before": [
+        {
+          "fileClass": "main",
+          "bytes": 20480,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-wal",
+          "bytes": 4705072,
+          "decryptableCandidates": 88,
+          "knownCiphertextFragments": 79,
+          "bareEddsa": 11,
+          "opaqueEddsa": 5
+        },
+        {
+          "fileClass": "-shm",
+          "bytes": 32768,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ],
+      "maintenance": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6601296,
+          "peakJavaUsedBytes": 17736888
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 26,
+        "nativeAllocatedBytes": 5752880,
+        "javaUsedBytes": 17753272,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ],
+      "reopen": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "reopened": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "operation": "absent",
+      "result": {
+        "status": "ABSENT",
+        "api": 32
+      }
+    },
+    {
+      "operation": "orphan",
+      "result": {
+        "status": "UNSUPPORTED",
+        "api": 32
+      }
+    },
+    {
+      "operation": "corrupt",
+      "result": {
+        "status": "CORRUPT",
+        "api": 32
+      }
+    },
+    {
+      "operation": "live",
+      "result": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 720896,
+          "sampledVolumeFreeSpaceDropBytes": 0,
+          "peakNativeAllocatedBytes": 14620176,
+          "peakJavaUsedBytes": 61013328
+        },
+        "status": "LIVE_SOURCE",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 6,
+        "nativeAllocatedBytes": 13788720,
+        "javaUsedBytes": 61013328,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "kill",
+      "phase": "opened",
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6625024,
+          "peakJavaUsedBytes": 17771608
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 29,
+        "nativeAllocatedBytes": 5769312,
+        "javaUsedBytes": 17787992,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "operation": "kill",
+      "phase": "locked",
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6606880,
+          "peakJavaUsedBytes": 17771560
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 31,
+        "nativeAllocatedBytes": 5759472,
+        "javaUsedBytes": 17787944,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "operation": "kill",
+      "phase": "before-vacuum",
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6608608,
+          "peakJavaUsedBytes": 17771680
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 31,
+        "nativeAllocatedBytes": 5760304,
+        "javaUsedBytes": 17788064,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "operation": "kill",
+      "phase": "vacuumed",
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6591312,
+          "peakJavaUsedBytes": 17755128
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 29,
+        "nativeAllocatedBytes": 5752384,
+        "javaUsedBytes": 17771512,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "operation": "kill",
+      "phase": "verified",
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6597216,
+          "peakJavaUsedBytes": 17688544
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 26,
+        "nativeAllocatedBytes": 5760192,
+        "javaUsedBytes": 17746104,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "operation": "kill",
+      "phase": "closed",
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 708608,
+          "peakNativeAllocatedBytes": 6590960,
+          "peakJavaUsedBytes": 17752344
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 36,
+        "nativeAllocatedBytes": 5751696,
+        "javaUsedBytes": 17768728,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "operation": "kill",
+      "phase": "reopened",
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6591776,
+          "peakJavaUsedBytes": 17786896
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 29,
+        "nativeAllocatedBytes": 5760976,
+        "javaUsedBytes": 17803280,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "operation": "injected-exception",
+      "phase": "opened",
+      "failure": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 720896,
+          "sampledVolumeFreeSpaceDropBytes": 0,
+          "peakNativeAllocatedBytes": 14596240,
+          "peakJavaUsedBytes": 60778960
+        },
+        "status": "IO_DEFERRED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 3,
+        "nativeAllocatedBytes": 14583536,
+        "javaUsedBytes": 60795344,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6591664,
+          "peakJavaUsedBytes": 17635368
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 28,
+        "nativeAllocatedBytes": 5760816,
+        "javaUsedBytes": 17705000,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "injected-exception",
+      "phase": "locked",
+      "failure": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 720896,
+          "sampledVolumeFreeSpaceDropBytes": 0,
+          "peakNativeAllocatedBytes": 15375424,
+          "peakJavaUsedBytes": 63183312
+        },
+        "status": "IO_DEFERRED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": -1,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 13,
+        "nativeAllocatedBytes": 14582208,
+        "javaUsedBytes": 63183312,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6830976,
+          "peakJavaUsedBytes": 17755248
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 28,
+        "nativeAllocatedBytes": 5752448,
+        "javaUsedBytes": 17771632,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "injected-exception",
+      "phase": "before-vacuum",
+      "failure": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 720896,
+          "sampledVolumeFreeSpaceDropBytes": 0,
+          "peakNativeAllocatedBytes": 15388288,
+          "peakJavaUsedBytes": 63941072
+        },
+        "status": "IO_DEFERRED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": -1,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 17,
+        "nativeAllocatedBytes": 14579760,
+        "javaUsedBytes": 63951400,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6591520,
+          "peakJavaUsedBytes": 17755248
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 30,
+        "nativeAllocatedBytes": 5752528,
+        "javaUsedBytes": 17771632,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "injected-exception",
+      "phase": "vacuumed",
+      "failure": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 15432448,
+          "peakJavaUsedBytes": 63928232
+        },
+        "status": "IO_DEFERRED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 21,
+        "nativeAllocatedBytes": 14578048,
+        "javaUsedBytes": 63928232,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6591584,
+          "peakJavaUsedBytes": 17783424
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 29,
+        "nativeAllocatedBytes": 5752592,
+        "javaUsedBytes": 17799808,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "injected-exception",
+      "phase": "verified",
+      "failure": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 15433584,
+          "peakJavaUsedBytes": 64747984
+        },
+        "status": "IO_DEFERRED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 23,
+        "nativeAllocatedBytes": 14575744,
+        "javaUsedBytes": 64747984,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6593344,
+          "peakJavaUsedBytes": 17789040
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 29,
+        "nativeAllocatedBytes": 5768352,
+        "javaUsedBytes": 17805424,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "injected-exception",
+      "phase": "closed",
+      "failure": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 15441344,
+          "peakJavaUsedBytes": 63924856
+        },
+        "status": "LIFECYCLE_FAILURE",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 20,
+        "nativeAllocatedBytes": 18360112,
+        "javaUsedBytes": 63941240,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6949328,
+          "peakJavaUsedBytes": 17771512
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 27,
+        "nativeAllocatedBytes": 5752320,
+        "javaUsedBytes": 17787896,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "injected-exception",
+      "phase": "reopened",
+      "failure": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 15432272,
+          "peakJavaUsedBytes": 64747984
+        },
+        "status": "LIFECYCLE_FAILURE",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 24,
+        "nativeAllocatedBytes": 14574432,
+        "javaUsedBytes": 64747984,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6616944,
+          "peakJavaUsedBytes": 17787960
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 30,
+        "nativeAllocatedBytes": 5760512,
+        "javaUsedBytes": 17804344,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "sqlite-page-16384",
+      "before": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 7,
+          "knownCiphertextFragments": 42,
+          "bareEddsa": 1,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 332936,
+          "decryptableCandidates": 10,
+          "knownCiphertextFragments": 57,
+          "bareEddsa": 1,
+          "opaqueEddsa": 0
+        }
+      ],
+      "maintenance": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 389120,
+          "peakNativeAllocatedBytes": 6591168,
+          "peakJavaUsedBytes": 17655848
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 26,
+        "nativeAllocatedBytes": 5760608,
+        "javaUsedBytes": 17672232,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "operation": "same-process",
+      "mode": "default",
+      "result": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 15441488,
+          "peakJavaUsedBytes": 64760776
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 23,
+        "nativeAllocatedBytes": 14583648,
+        "javaUsedBytes": 64777160,
+        "preserved": true,
+        "repeatJoined": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "operation": "same-process",
+      "mode": "wal",
+      "result": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "wal",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 5458736,
+          "sampledVolumeFreeSpaceDropBytes": 700416,
+          "peakNativeAllocatedBytes": 16257792,
+          "peakJavaUsedBytes": 64794592
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 42,
+        "nativeAllocatedBytes": 14583648,
+        "javaUsedBytes": 64810976,
+        "preserved": true,
+        "repeatJoined": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "operation": "same-process",
+      "mode": "persist",
+      "result": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "persist",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 389120,
+          "peakNativeAllocatedBytes": 15449072,
+          "peakJavaUsedBytes": 64798184
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 25,
+        "nativeAllocatedBytes": 14591616,
+        "javaUsedBytes": 64814568,
+        "preserved": true,
+        "repeatJoined": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "operation": "same-process",
+      "mode": "truncate",
+      "result": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 15592464,
+          "peakJavaUsedBytes": 64781648
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 23,
+        "nativeAllocatedBytes": 14582096,
+        "javaUsedBytes": 64798032,
+        "preserved": true,
+        "repeatJoined": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "operation": "same-process",
+      "mode": "delete",
+      "result": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "delete",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 15440800,
+          "peakJavaUsedBytes": 64760776
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": -1,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 24,
+        "nativeAllocatedBytes": 14583216,
+        "javaUsedBytes": 64777160,
+        "preserved": true,
+        "repeatJoined": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "operation": "large",
+      "result": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 4847336,
+          "sampledVolumeFreeSpaceDropBytes": 2428928,
+          "peakNativeAllocatedBytes": 26466480,
+          "peakJavaUsedBytes": 100350368
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 2420736,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "591",
+        "pageSize": "4096",
+        "durationMs": 203,
+        "nativeAllocatedBytes": 19420816,
+        "javaUsedBytes": 100366752,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "empty",
+      "result": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 41512,
+          "sampledVolumeFreeSpaceDropBytes": 24576,
+          "peakNativeAllocatedBytes": 12469632,
+          "peakJavaUsedBytes": 53137376
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 20480,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "5",
+        "pageSize": "4096",
+        "durationMs": 10,
+        "nativeAllocatedBytes": 12418448,
+        "javaUsedBytes": 53137376,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "concurrent",
+      "result": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "status": "CLEANED",
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "late-live",
+      "result": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "status": "LIVE_SOURCE",
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "queue-timeout",
+      "result": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "status": "BUSY",
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "denied",
+      "result": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "status": "UNSUPPORTED",
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 7055456,
+          "peakJavaUsedBytes": 17724856
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 30,
+        "nativeAllocatedBytes": 5752608,
+        "javaUsedBytes": 17741240,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "busy-checkpoint",
+      "result": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "status": "BUSY",
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6617824,
+          "peakJavaUsedBytes": 17773248
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 28,
+        "nativeAllocatedBytes": 5761136,
+        "javaUsedBytes": 17789632,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "unsupported-lock",
+      "result": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "status": "BUSY",
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "unsupported-mode",
+      "result": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "status": "UNSUPPORTED",
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "full",
+      "result": {
+        "defaultJournalMode": "truncate",
+        "defaultSecureDelete": "1",
+        "synchronous": "2",
+        "journalSizeLimit": "524288",
+        "tempStore": "0",
+        "sqliteSourceId": "2021-07-12 15:00:17 bcd014c473794b09f61fbc0f4d9488365b023f16123b278dbbd49948c27calt2",
+        "seedJournalMode": "truncate",
+        "sqlitePageSize": "4096",
+        "vulnerableControlSecureDelete": "0",
+        "nulFixtureUsesSql": true,
+        "reserveAllocationSucceeded": true,
+        "freeBytesAtVacuum": 61440,
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 720896,
+          "sampledVolumeFreeSpaceDropBytes": 4990451712,
+          "peakNativeAllocatedBytes": 15432352,
+          "peakJavaUsedBytes": 63973840
+        },
+        "status": "IO_DEFERRED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 30,
+        "nativeAllocatedBytes": 14577952,
+        "javaUsedBytes": 63973840,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 724992,
+          "peakNativeAllocatedBytes": 6591664,
+          "peakJavaUsedBytes": 17735320
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 29,
+        "nativeAllocatedBytes": 5752528,
+        "javaUsedBytes": 17751704,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "hot-journal-recovery",
+      "result": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 720896,
+          "sampledVolumeFreeSpaceDropBytes": 0,
+          "peakNativeAllocatedBytes": 5767296,
+          "peakJavaUsedBytes": 13279448
+        },
+        "status": "LIVE_SOURCE",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": -1,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 5,
+        "nativeAllocatedBytes": 4942416,
+        "javaUsedBytes": 13345016,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "opaque-eddsa",
+      "before": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 4,
+          "knownCiphertextFragments": 29,
+          "bareEddsa": 1,
+          "opaqueEddsa": 1
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 332936,
+          "decryptableCandidates": 6,
+          "knownCiphertextFragments": 38,
+          "bareEddsa": 1,
+          "opaqueEddsa": 1
+        }
+      ],
+      "result": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 1443712,
+          "sampledVolumeFreeSpaceDropBytes": 389120,
+          "peakNativeAllocatedBytes": 6607376,
+          "peakJavaUsedBytes": 17738864
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 720896,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "176",
+        "pageSize": "4096",
+        "durationMs": 28,
+        "nativeAllocatedBytes": 5751536,
+        "javaUsedBytes": 17755248,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "after": [
+        {
+          "fileClass": "main",
+          "bytes": 720896,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        },
+        {
+          "fileClass": "-journal",
+          "bytes": 0,
+          "decryptableCandidates": 0,
+          "knownCiphertextFragments": 0,
+          "bareEddsa": 0,
+          "opaqueEddsa": 0
+        }
+      ]
+    },
+    {
+      "operation": "timed-vacuum-kill",
+      "delay": "1",
+      "killed": {
+        "terminated": true,
+        "phases": ["opened", "locked", "before-vacuum"]
+      },
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 4847336,
+          "sampledVolumeFreeSpaceDropBytes": 2428928,
+          "peakNativeAllocatedBytes": 9968880,
+          "peakJavaUsedBytes": 41814656
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 2420736,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "591",
+        "pageSize": "4096",
+        "durationMs": 193,
+        "nativeAllocatedBytes": 7197680,
+        "javaUsedBytes": 41831040,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "timed-vacuum-kill",
+      "delay": "3",
+      "killed": {
+        "terminated": true,
+        "phases": ["opened", "locked", "before-vacuum"]
+      },
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 4847336,
+          "sampledVolumeFreeSpaceDropBytes": 2428928,
+          "peakNativeAllocatedBytes": 9955264,
+          "peakJavaUsedBytes": 41800768
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 2420736,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "591",
+        "pageSize": "4096",
+        "durationMs": 195,
+        "nativeAllocatedBytes": 7180128,
+        "javaUsedBytes": 41817152,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    },
+    {
+      "operation": "timed-vacuum-kill",
+      "delay": "10",
+      "killed": {
+        "terminated": true,
+        "phases": ["opened", "locked", "before-vacuum"]
+      },
+      "recovery": {
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      },
+      "retry": {
+        "sampledCosts": {
+          "samplePeriodMs": 2,
+          "peakNamedDatabaseBytes": 4847336,
+          "sampledVolumeFreeSpaceDropBytes": 2428928,
+          "peakNativeAllocatedBytes": 11085888,
+          "peakJavaUsedBytes": 41769048
+        },
+        "status": "CLEANED",
+        "successBoundaryFiles": {
+          "main": 2420736,
+          "wal": -1,
+          "journal": 0,
+          "shm": -1
+        },
+        "finalJournalMode": "truncate",
+        "pageCount": "591",
+        "pageSize": "4096",
+        "durationMs": 180,
+        "nativeAllocatedBytes": 7181200,
+        "javaUsedBytes": 41785432,
+        "preserved": true,
+        "sqlite": "3.32.2",
+        "api": 32
+      }
+    }
+  ]
+}

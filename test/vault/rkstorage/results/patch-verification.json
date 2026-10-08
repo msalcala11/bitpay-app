@@ -1,0 +1,7 @@
+{
+  "command": "node <repo>/node_modules/patch-package/index.js --error-on-fail",
+  "input": "pristine published AsyncStorage 2.2.0",
+  "exit": 0,
+  "nativeFilesMatchInstalled": true,
+  "patchSha256": "9aa33618fabdb01f23d1c13b6509932ea59a686abdfdd11958c2de4caaa735b5"
+}

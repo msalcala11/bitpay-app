@@ -24,6 +24,7 @@ import {
   decryptWalletStore,
 } from './encrypt';
 import {logManager} from '../../managers/LogManager';
+import {safeVaultError} from '../vault-diagnostics';
 
 const BWCProvider = BwcProvider.getInstance();
 
@@ -33,16 +34,22 @@ const logTransformFailure = (
   store: 'Wallet' | 'App' | 'Shop',
   error: unknown,
 ) => {
+  const safe = safeVaultError(
+    error,
+    'PRESERVATION_FAILURE',
+    phase === 'decrypt' ? 'startup' : 'persist',
+  );
   try {
     initLogs.add(
       LogActions.persistLog(
-        LogActions.error(
-          `${phase}${store}Store failed - ${getErrorString(error)}`,
-        ),
+        LogActions.error(`${phase}${store}Store failed - ${safe.message}`),
       ),
     );
-    Sentry.captureException(error, {level: 'error'});
+    // Rehydration reports once at the existing startup boundary. Saving errors
+    // still report here, but only the same sanitized error is rethrown.
+    if (phase === 'encrypt') Sentry.captureException(safe, {level: 'error'});
   } catch {}
+  return safe;
 };
 
 export const bootstrapWallets = (wallets: Wallet[]) => {
@@ -242,24 +249,21 @@ export const encryptSpecificFields = (secretKey: string) => {
         try {
           return encryptWalletStore(inboundState, secretKey);
         } catch (error) {
-          logTransformFailure('encrypt', 'Wallet', error);
-          throw error;
+          throw logTransformFailure('encrypt', 'Wallet', error);
         }
       }
       if (key === 'APP') {
         try {
           return encryptAppStore(inboundState, secretKey);
         } catch (error) {
-          logTransformFailure('encrypt', 'App', error);
-          throw error;
+          throw logTransformFailure('encrypt', 'App', error);
         }
       }
       if (key === 'SHOP') {
         try {
           return encryptShopStore(inboundState, secretKey);
         } catch (error) {
-          logTransformFailure('encrypt', 'Shop', error);
-          throw error;
+          throw logTransformFailure('encrypt', 'Shop', error);
         }
       }
       return inboundState;
@@ -270,24 +274,21 @@ export const encryptSpecificFields = (secretKey: string) => {
         try {
           return decryptWalletStore(outboundState, secretKey);
         } catch (error) {
-          logTransformFailure('decrypt', 'Wallet', error);
-          throw error;
+          throw logTransformFailure('decrypt', 'Wallet', error);
         }
       }
       if (key === 'APP') {
         try {
           return decryptAppStore(outboundState, secretKey);
         } catch (error) {
-          logTransformFailure('decrypt', 'App', error);
-          throw error;
+          throw logTransformFailure('decrypt', 'App', error);
         }
       }
       if (key === 'SHOP') {
         try {
           return decryptShopStore(outboundState, secretKey);
         } catch (error) {
-          logTransformFailure('decrypt', 'Shop', error);
-          throw error;
+          throw logTransformFailure('decrypt', 'Shop', error);
         }
       }
       return outboundState;

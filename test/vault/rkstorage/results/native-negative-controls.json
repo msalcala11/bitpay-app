@@ -1,0 +1,28 @@
+[
+  {
+    "mutation": "skip-vacuum",
+    "buildExit": 0,
+    "testExit": 1,
+    "caught": true,
+    "originalSha256": "7826cd5761a0b175e5b50b42bfde76b5ee6056e1e4a0e96f720512d44e52845d",
+    "mutantSha256": "dcc68ac9934b6763eca747f9e5be9def67064b8131688d2ffe38f6786ffad718"
+  },
+  {
+    "mutation": "skip-sidecar",
+    "buildExit": 0,
+    "testExit": 1,
+    "caught": true,
+    "originalSha256": "08a0de9f1225da653295e87ac1454585ade5007a20f111d4c8cb357d6e6daf89",
+    "mutantSha256": "b84d823e537b67b68396da2118881e811fa85e107f1b57066c425587cabe6f05"
+  },
+  {
+    "mutation": "delete-live",
+    "buildExit": 0,
+    "testExit": 0,
+    "caught": true,
+    "originalSha256": "08a0de9f1225da653295e87ac1454585ade5007a20f111d4c8cb357d6e6daf89",
+    "mutantSha256": "c750ba327d402cca385e9bb238be4d9d9f4a24834b78f63c3d236ba5610d44c3",
+    "instrumentationAssertionCode": 1,
+    "transportExit": 0
+  }
+]

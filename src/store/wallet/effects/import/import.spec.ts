@@ -161,6 +161,10 @@ jest.mock('../../utils/currency', () => ({
   isSingleAddressChain: jest.fn(() => true),
 }));
 
+jest.mock('react-native-keychain', () => ({
+  getGenericPassword: jest.fn().mockResolvedValue(false),
+}));
+
 // MMKV – mock the native module so that `storage = new MMKV()` in store/index.ts works
 jest.mock('react-native-mmkv', () => ({
   MMKV: jest.fn().mockImplementation(() => ({

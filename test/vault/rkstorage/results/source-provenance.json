@@ -1,0 +1,37 @@
+{
+  "tag": "@react-native-async-storage/async-storage@2.2.0",
+  "tagObject": "16b60d23a02f1f5f029bbca2e7a282c7a57c4344",
+  "commit": "3c9560c8874cabb1200b5121815f932b397cf89e",
+  "npmIntegrity": "sha512-gvRvjR5JAaUZF8tv2Kcq/Gbt3JHwbKFYfmb445rhOj6NUMx3qPLixmDx5pZAyb9at1bYvJ4/eTUipU5aki45xw==",
+  "files": {
+    "android/src/main/java/com/reactnativecommunity/asyncstorage/AsyncStorageModule.java": "dfc723f39ada68609b75168bc0c0452d7eeeb13bb1578e1d8b948bab5d47c4e1",
+    "android/src/main/java/com/reactnativecommunity/asyncstorage/ReactDatabaseSupplier.java": "532da53a2921284fdc575c582efb8d6a0bb0752364218459e81f4abf82c09d8e",
+    "android/src/main/java/com/reactnativecommunity/asyncstorage/SerialExecutor.java": "cde2889a0ec5dff9d194361777dab28d0051be9af6801e1fd067c36cc6bd3163",
+    "android/src/main/java/com/reactnativecommunity/asyncstorage/AsyncStorageExpoMigration.java": "e8c19725db04d7eb2490e01edec33b077f6b64c449a25e5eaa9487f115963b7a"
+  },
+  "versions": {
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "react-native": "0.82.0",
+    "react-native-mmkv": "3.3.1",
+    "react-native-fs": "2.20.0",
+    "react-native-keychain": "10.0.0"
+  },
+  "patchedNativeHashes": {
+    "android/src/main/java/com/reactnativecommunity/asyncstorage/AsyncStorageModule.java": "260e328313bad21490babad542a4001ab9e3070714e19f0b01cb982f1881c616",
+    "android/src/main/java/com/reactnativecommunity/asyncstorage/ReactDatabaseSupplier.java": "fec914a55bf6da4d5a2176ab7ae20aa0b7d6020490b7e9e58151b3c59666ee7f"
+  },
+  "androidFrameworkSourceHashes": {
+    "SQLiteConnection.java": "8677792d1be9d0177816ccc322251758758efeb7b085dd34ff66a9e171802f7f",
+    "SQLiteDatabase.java": "abc149f4bc47c9b283a6f33d7c5bd840f8dcbacd29581a68679ba537e0374351",
+    "SQLiteOpenHelper.java": "a88b7a938ec97b23637b4d328a9cff0979d08bcf58f06223466f36029cc56fea",
+    "DefaultDatabaseErrorHandler.java": "411ebe76745262fdcf550c4f325e5405306483a630b5c306e74882cc48e8cf35",
+    "android14-sqlite3.c": "9f0f471c5ce80ed9dea35c72883b307d33e840f36e0f10c3d9b3c6d1a96e3aba"
+  },
+  "effectiveBackend": {
+    "newArchEnabled": true,
+    "useNextStorage": false,
+    "databaseSizeMB": 6,
+    "backend": "Java supplier",
+    "mergedSecondaryProcess": ":phoenix (restart only; RKStorage access rejected)"
+  }
+}
