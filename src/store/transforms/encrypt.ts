@@ -157,6 +157,7 @@ export const decryptValue = (
   value: any,
   secretKey: string,
   context = defaultFieldContext,
+  modernOnly = false,
 ): any => {
   if (!hasProtectedValue(value)) {
     return value;
@@ -170,6 +171,7 @@ export const decryptValue = (
     return decryptWithAesGcm(value, secretKey, modernEncryptedPrefix, context);
   }
 
+  if (modernOnly) throw new Error('Expected authenticated protected value');
   const legacy = decryptLegacy(value, secretKey);
   if (!legacy) {
     throw new Error('Decrypted string is empty');
@@ -295,8 +297,17 @@ export const encryptWalletStore = (state: any, secretKey: string): any => {
   );
 };
 
-export const decryptWalletStore = (state: any, secretKey: string): any => {
-  return transformWalletStore(state, secretKey, decryptValue, () => true);
+export const decryptWalletStore = (
+  state: any,
+  secretKey: string,
+  modernOnly = false,
+): any => {
+  return transformWalletStore(
+    state,
+    secretKey,
+    (value, key, context) => decryptValue(value, key, context, modernOnly),
+    () => true,
+  );
 };
 
 // Generic function to transform app store (encrypt or decrypt)
@@ -344,8 +355,17 @@ export const encryptAppStore = (state: any, secretKey: string): any => {
   );
 };
 
-export const decryptAppStore = (state: any, secretKey: string): any => {
-  return transformAppStore(state, secretKey, decryptValue, () => true);
+export const decryptAppStore = (
+  state: any,
+  secretKey: string,
+  modernOnly = false,
+): any => {
+  return transformAppStore(
+    state,
+    secretKey,
+    (value, key, context) => decryptValue(value, key, context, modernOnly),
+    () => true,
+  );
 };
 
 // Generic function to transform shop store (encrypt or decrypt)
@@ -409,8 +429,17 @@ export const encryptShopStore = (state: any, secretKey: string): any => {
   );
 };
 
-export const decryptShopStore = (state: any, secretKey: string): any => {
-  return transformShopStore(state, secretKey, decryptValue, () => true);
+export const decryptShopStore = (
+  state: any,
+  secretKey: string,
+  modernOnly = false,
+): any => {
+  return transformShopStore(
+    state,
+    secretKey,
+    (value, key, context) => decryptValue(value, key, context, modernOnly),
+    () => true,
+  );
 };
 
 const legacyStoreFieldEncryptors: Record<
@@ -420,4 +449,23 @@ const legacyStoreFieldEncryptors: Record<
   APP: encryptAppStore,
   SHOP: encryptShopStore,
   WALLET: encryptWalletStore,
+};
+
+// The active reader accepts only modern authentication (plus designated public
+// reducer JSON). Legacy decoding belongs exclusively to the transfer codec.
+export const deserializeModernPersistValue = (
+  value: unknown,
+  secretKey: string,
+  key: string,
+  allowPlainJson: boolean,
+): any => {
+  if (typeof value !== 'string') throw new Error('Expected serialized reducer');
+  if (allowPlainJson) {
+    try {
+      return JSON.parse(value);
+    } catch {}
+  }
+  if (!value.startsWith(persistEncryptedPrefix))
+    throw new Error('Expected authenticated reducer');
+  return decryptPersistValue(value, secretKey, `persist:${key}`);
 };

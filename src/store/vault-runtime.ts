@@ -1,0 +1,202 @@
+import {Platform, TurboModule, TurboModuleRegistry} from 'react-native';
+import {MMKV} from 'react-native-mmkv';
+import RNFS from 'react-native-fs';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Keychain from 'react-native-keychain';
+import {getUniqueId} from 'react-native-device-info';
+import {modernStorage, activateVaultStorage} from './vault-storage';
+import {digest, transferVault, TransferIO, Inventory} from './vault-transfer';
+import {
+  createVaultKey,
+  readVaultKey,
+  validatedVaultKey,
+  removeKeyAndVerify,
+  LEGACY_KEY_SERVICE,
+} from './encryption-key';
+import {safeVaultError, vaultError} from './vault-diagnostics';
+import * as initLogs from './log/initLogs';
+import {LogActions} from './log';
+
+const legacyBase = RNFS.CachesDirectoryPath + '/bitpay/redux/persist-root.json';
+const modernBase =
+  RNFS.CachesDirectoryPath + '/bitpay/redux-v2/persist-root.json';
+const legacyFiles = {
+  main: legacyBase,
+  bak: legacyBase + '.bak',
+  temp: legacyBase + '.tmp',
+};
+const modernFiles = {main: modernBase, bak: modernBase + '.bak'};
+const ROOT = 'persist:root';
+let controls: MMKV | undefined;
+const control = () =>
+  (controls ??= new MMKV({id: 'bitpay.wallet.transfer.v2'}));
+let legacy: MMKV | undefined;
+interface MMKVPlatformContext extends TurboModule {
+  getBaseDirectory(): string;
+  getAppGroupDirectory(): string | undefined;
+}
+interface MMKVRetirement extends TurboModule {
+  claimLegacyRetirement(): boolean;
+}
+
+// Uses the very same platform context as MMKV 3.3.1. An app-group failure is
+// an error, never permission to delete a guessed documents path.
+const legacyDirectory = (): string => {
+  const context = TurboModuleRegistry.getEnforcing<MMKVPlatformContext>(
+    'MmkvPlatformContext',
+  );
+  return (
+    (Platform.OS === 'ios' && context.getAppGroupDirectory()) ||
+    context.getBaseDirectory()
+  );
+};
+const legacyPair = () => {
+  const data = legacyDirectory() + '/mmkv.default';
+  return {data, crc: data + '.crc'};
+};
+const readFile = async (path: string) =>
+  (await RNFS.exists(path)) ? RNFS.readFile(path, 'utf8') : null;
+const fileIdentity = async (path: string) =>
+  (await RNFS.exists(path)) ? RNFS.hash(path, 'sha256') : null;
+const inventory = async (): Promise<Inventory> => {
+  try {
+    const paths = legacyPair();
+    const data = await fileIdentity(paths.data);
+    const crc = await fileIdentity(paths.crc);
+    if ((data === null) !== (crc === null)) throw new Error();
+    let raw: string | null = null;
+    let keys: string[] = [];
+    if (data !== null) {
+      legacy ??= new MMKV({id: 'mmkv.default', readOnly: true});
+      keys = legacy.getAllKeys();
+      raw = legacy.getString(ROOT) ?? null;
+      if (raw === null && keys.includes(ROOT)) throw new Error();
+    }
+    const sources: Inventory['sources'] = {
+      mmkv: raw,
+      async: await AsyncStorage.getItem(ROOT),
+      main: null,
+      bak: null,
+      temp: null,
+    };
+    for (const slot of ['main', 'bak', 'temp'] as const) {
+      try {
+        sources[slot] = await readFile(legacyFiles[slot]);
+      } catch {
+        sources[slot] = undefined;
+      }
+    }
+    return {sources, keys, files: {data, crc}};
+  } catch {
+    throw vaultError('SOURCE_CONFLICT', 'inventory', 'SOURCE_READ');
+  }
+};
+
+const io: TransferIO = {
+  readControl: () => {
+    const records = control();
+    const raw = records.getString('transfer');
+    if (raw === undefined && records.contains('transfer')) throw new Error();
+    if (records.getAllKeys().some(k => k !== 'transfer')) throw new Error();
+    return raw ?? null;
+  },
+  writeControl: raw => control().set('transfer', raw),
+  modernKeys: () => modernStorage.getAllKeys(),
+  modernTempExists: () => RNFS.exists(modernBase + '.tmp'),
+  readDestination: async slot => {
+    if (slot !== 'root') return readFile(modernFiles[slot]);
+    const raw = modernStorage.getString(ROOT);
+    if (raw === undefined && modernStorage.contains(ROOT)) throw new Error();
+    return raw ?? null;
+  },
+  writeDestination: async (slot, raw) => {
+    if (slot === 'root') modernStorage.set(ROOT, raw);
+    else {
+      await RNFS.mkdir(RNFS.CachesDirectoryPath + '/bitpay/redux-v2');
+      await RNFS.writeFile(modernFiles[slot], raw, 'utf8');
+    }
+  },
+  inventory,
+  legacyKeys: async () => {
+    const candidates: string[] = [];
+    try {
+      const entry = await Keychain.getGenericPassword({
+        service: LEGACY_KEY_SERVICE,
+      });
+      if (entry && entry.password) candidates.push(entry.password);
+    } catch {
+      /* Failed old credential reads do not change that service. */
+    }
+    try {
+      const id = getUniqueId();
+      if (id) candidates.push(id);
+    } catch {}
+    return [...new Set(candidates)];
+  },
+  modernKey: async create => {
+    const entry = await readVaultKey();
+    if (entry) return validatedVaultKey(entry);
+    if (!create) return validatedVaultKey(false);
+    try {
+      return await createVaultKey();
+    } catch (error) {
+      throw safeVaultError(
+        error,
+        'NEW_KEY_VERIFICATION',
+        'key',
+        'KEY_STORAGE',
+        'key',
+      );
+    }
+  },
+  claimColdRetirement: () =>
+    TurboModuleRegistry.getEnforcing<MMKVRetirement>(
+      'MmkvCxx',
+    ).claimLegacyRetirement(),
+  retirementIdentity: async slot => {
+    if (slot === 'async') {
+      const raw = await AsyncStorage.getItem(ROOT);
+      return raw === null ? null : digest(raw);
+    }
+    return fileIdentity(
+      slot === 'data' || slot === 'crc'
+        ? legacyPair()[slot]
+        : legacyFiles[slot],
+    );
+  },
+  removeSource: async slot => {
+    if (slot === 'async') await AsyncStorage.removeItem(ROOT);
+    else
+      await RNFS.unlink(
+        slot === 'data' || slot === 'crc'
+          ? legacyPair()[slot]
+          : legacyFiles[slot],
+      );
+  },
+  removeLegacyKey: async () => {
+    if (await Keychain.getGenericPassword({service: LEGACY_KEY_SERVICE}))
+      await removeKeyAndVerify(LEGACY_KEY_SERVICE);
+    if (await Keychain.getGenericPassword({service: LEGACY_KEY_SERVICE}))
+      throw new Error();
+  },
+  pending: () =>
+    initLogs.add(
+      LogActions.persistLog(
+        LogActions.warn('Vault migration deferred: CLEANUP_DEFERRED (cleanup)'),
+      ),
+    ),
+};
+
+let initialization: Promise<string> | undefined;
+export const prepareModernVault = (): Promise<string> => {
+  initialization ??= transferVault(io)
+    .then(key => {
+      activateVaultStorage();
+      return key;
+    })
+    .catch(error => {
+      initialization = undefined;
+      throw safeVaultError(error);
+    });
+  return initialization;
+};

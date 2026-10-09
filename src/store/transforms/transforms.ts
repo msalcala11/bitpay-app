@@ -268,7 +268,7 @@ export const encryptSpecificFields = (secretKey: string) => {
     (outboundState, key) => {
       if (key === 'WALLET') {
         try {
-          return decryptWalletStore(outboundState, secretKey);
+          return decryptWalletStore(outboundState, secretKey, true);
         } catch (error) {
           logTransformFailure('decrypt', 'Wallet', error);
           throw error;
@@ -276,7 +276,7 @@ export const encryptSpecificFields = (secretKey: string) => {
       }
       if (key === 'APP') {
         try {
-          return decryptAppStore(outboundState, secretKey);
+          return decryptAppStore(outboundState, secretKey, true);
         } catch (error) {
           logTransformFailure('decrypt', 'App', error);
           throw error;
@@ -284,7 +284,7 @@ export const encryptSpecificFields = (secretKey: string) => {
       }
       if (key === 'SHOP') {
         try {
-          return decryptShopStore(outboundState, secretKey);
+          return decryptShopStore(outboundState, secretKey, true);
         } catch (error) {
           logTransformFailure('decrypt', 'Shop', error);
           throw error;
