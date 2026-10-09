@@ -24,6 +24,12 @@ let mockSetFailure = false;
 let mockReadBackFailure = false;
 let mockControlFailure = false;
 let mockKeyMissing = false;
+let mockPrimaryFailures = 0;
+let mockPrimaryReads = 0;
+let mockAsyncReadFailure = false;
+const mockFileReads: string[] = [];
+let mockHashCalls = 0;
+let mockLegacyKeysFailure = false;
 const legacyKey = 'synthetic-legacy-fixture-key';
 const fixture = require('../../test/vault/fixtures/legacy-14.32.json').cases
   .plain;
@@ -43,12 +49,21 @@ jest.mock('react-native-mmkv', () => ({
       this.values = mockStores.get(this.id)!;
     }
     getAllKeys() {
+      if (this.id === 'mmkv.default' && mockLegacyKeysFailure)
+        throw new Error('synthetic key inventory failure');
       return [...this.values.keys()];
     }
     contains(k: string) {
       return this.values.has(k);
     }
     getString(k: string) {
+      if (this.id === 'mmkv.default' && k === 'persist:root') {
+        mockPrimaryReads++;
+        if (mockPrimaryFailures > 0) {
+          mockPrimaryFailures--;
+          throw new Error('synthetic primary read failure');
+        }
+      }
       if (this.id === 'bitpay.wallet.transfer.v2' && mockControlFailure)
         throw new Error('secret native message');
       return this.values.get(k);
@@ -63,12 +78,17 @@ jest.mock('react-native-mmkv', () => ({
 jest.mock('react-native-fs', () => ({
   CachesDirectoryPath: '/cache',
   exists: async (p: string) => mockFiles.has(p),
-  readFile: async (p: string) => mockFiles.get(p),
-  hash: async (p: string) =>
-    require('crypto')
+  readFile: async (p: string) => {
+    mockFileReads.push(p);
+    return mockFiles.get(p);
+  },
+  hash: async (p: string) => {
+    mockHashCalls++;
+    return require('crypto')
       .createHash('sha256')
       .update(mockFiles.get(p))
-      .digest('hex'),
+      .digest('hex');
+  },
   writeFile: async (p: string, value: string) => {
     mockEvents.push('file:write');
     mockFiles.set(p, value);
@@ -79,7 +99,12 @@ jest.mock('react-native-fs', () => ({
   },
 }));
 jest.mock('@react-native-async-storage/async-storage', () => ({
-  getItem: async (key: string) => mockRows.get(key) ?? null,
+  getItem: async (key: string) => {
+    if (mockAsyncReadFailure)
+      throw new Error('synthetic required AsyncStorage failure');
+    return mockRows.get(key) ?? null;
+  },
+  getAllKeys: async () => [...mockRows.keys()],
   removeItem: async (key: string) => {
     mockRows.delete(key);
   },
@@ -135,6 +160,10 @@ beforeEach(() => {
   mockRows.clear();
   mockCredentials.clear();
   mockEvents.length = 0;
+  mockPrimaryFailures = mockPrimaryReads = mockHashCalls = 0;
+  mockAsyncReadFailure = false;
+  mockLegacyKeysFailure = false;
+  mockFileReads.length = 0;
   mockWarm =
     mockOldKeyFailure =
     mockSetFailure =
@@ -293,3 +322,99 @@ const fails = async (operation: () => Promise<unknown>, code?: string) => {
   }
   expect(failed).toBe(true);
 };
+
+it('C: rereads a rejected primary once and transfers it instead of an older backup', async () => {
+  seed();
+  const {encodeSnapshot, decodeSnapshot} = require('./vault-codec');
+  mockFiles.set(
+    '/cache/bitpay/redux/persist-root.json',
+    encodeSnapshot({...fixture.state, OLDER: {value: true}}, legacyKey),
+  );
+  mockPrimaryFailures = 1;
+  const key = await start();
+  expect(mockPrimaryReads).toBe(2);
+  expect(mockPrimaryFailures).toBe(0);
+  expect(
+    isEqual(decodeSnapshot(modernRoot(), key).payload, fixture.state),
+  ).toBe(true);
+});
+
+it.each(['main', 'bak', 'none'])(
+  'C: two failed primary reads use %s fallback or stop without opening empty',
+  async fallback => {
+    seed();
+    mockPrimaryFailures = 2;
+    if (fallback !== 'none')
+      mockFiles.set(
+        '/cache/bitpay/redux/persist-root.json' +
+          (fallback === 'bak' ? '.bak' : ''),
+        fixture.raw,
+      );
+    if (fallback === 'none') {
+      await fails(() => start());
+      expect(modernRoot() === undefined).toBe(true);
+    } else {
+      const key = await start();
+      const {decodeSnapshot} = require('./vault-codec');
+      expect(
+        isEqual(decodeSnapshot(modernRoot(), key).payload, fixture.state),
+      ).toBe(true);
+      jest.resetModules();
+      mockWarm = false;
+      await start();
+      expect(mockFiles.has('/synthetic/mmkv/mmkv.default')).toBe(true);
+      expect(mockFiles.has('/synthetic/mmkv/mmkv.default.crc')).toBe(true);
+    }
+    expect(mockPrimaryReads).toBe(2);
+    expect(mockPrimaryFailures).toBe(0);
+  },
+);
+
+it('C: fallback does not swallow a separate required AsyncStorage failure', async () => {
+  seed();
+  mockPrimaryFailures = 2;
+  mockAsyncReadFailure = true;
+  mockFiles.set('/cache/bitpay/redux/persist-root.json', fixture.raw);
+  await fails(() => start());
+  expect(mockPrimaryReads).toBe(2);
+  expect(modernRoot() === undefined).toBe(true);
+  expect(mockEvents.some(e => e.startsWith('key:write'))).toBe(false);
+});
+
+it('D policy: permitted old files changed after activation are removed without content reads', async () => {
+  seed();
+  await start();
+  const before = modernRoot();
+  mockFiles.set('/synthetic/mmkv/mmkv.default', 'changed after activation');
+  mockFiles.set('/synthetic/mmkv/mmkv.default.crc', 'changed metadata');
+  mockFileReads.length = 0;
+  jest.resetModules();
+  mockWarm = false;
+  await start();
+  expect(mockFiles.has('/synthetic/mmkv/mmkv.default')).toBe(false);
+  expect(mockFiles.has('/synthetic/mmkv/mmkv.default.crc')).toBe(false);
+  expect(modernRoot() === before).toBe(true);
+  expect(mockFileReads.length).toBe(0);
+  expect(mockHashCalls).toBe(0);
+});
+
+it.each(['unknown entry', 'failed inventory'])(
+  'C/D: a recovered primary preserves an old instance with %s',
+  async reason => {
+    seed();
+    mockCredentials.set('bitpay-app-encryption-key', {password: legacyKey});
+    if (reason === 'unknown entry')
+      mockStores.get('mmkv.default')!.set('unknown', 'retain');
+    else mockLegacyKeysFailure = true;
+    mockPrimaryFailures = 1;
+    await start();
+    expect(mockPrimaryReads).toBe(2);
+    expect(modernRoot() !== undefined).toBe(true);
+    jest.resetModules();
+    mockWarm = false;
+    await start();
+    expect(mockFiles.has('/synthetic/mmkv/mmkv.default')).toBe(true);
+    expect(mockFiles.has('/synthetic/mmkv/mmkv.default.crc')).toBe(true);
+    expect(mockCredentials.has('bitpay-app-encryption-key')).toBe(true);
+  },
+);

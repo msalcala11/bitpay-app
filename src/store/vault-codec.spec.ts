@@ -133,3 +133,92 @@ it('ordinary modern reads reject CBC even with the same key', () => {
     decryptValue('encrypted:' + cbc, newKey, 'field', true),
   ).toThrow();
 });
+
+it.each(['whole', 'fields'])(
+  'E: synthetic identity and gift-card values use the real reader in legacy %s layout',
+  async layout => {
+    const payload = JSON.parse(
+      JSON.stringify(fixtures[layout === 'whole' ? 'whole' : 'plain'].state),
+    );
+    payload.APP.identity = {
+      livenet: {priv: 'synthetic-unfunded-identity', retained: true},
+    };
+    payload.SHOP.giftCards = {
+      livenet: [
+        {
+          invoiceId: 'synthetic-invoice',
+          accessKey: 'not-redeemable-access',
+          barcodeData: 'not-a-barcode',
+          barcodeImage: 'not-an-image',
+          claimCode: 'not-redeemable-code',
+          claimLink: 'https://example.invalid/synthetic',
+          pin: 'synthetic-pin',
+          invoice: {unknownField: 'preserve during conversion'},
+        },
+        {
+          claimCode: 'synthetic-without-invoice-id',
+          pin: 'not-redeemable-pin',
+          unknown: [null, false, 7],
+        },
+      ],
+    };
+    let raw: string;
+    if (layout === 'whole') {
+      raw = JSON.stringify(
+        Object.fromEntries(
+          Object.entries(payload).map(([name, value]) => [
+            name,
+            JSON.stringify(
+              Aes.encrypt(JSON.stringify(value), oldKey).toString(),
+            ),
+          ]),
+        ),
+      );
+    } else {
+      const outer = JSON.parse(fixtures.plain.raw);
+      const protect = (value: string) =>
+        'encrypted:' + Aes.encrypt(value, oldKey).toString();
+      const app = JSON.parse(JSON.stringify(payload.APP));
+      app.identity.livenet.priv = protect(app.identity.livenet.priv);
+      const shop = JSON.parse(JSON.stringify(payload.SHOP));
+      for (const card of shop.giftCards.livenet) {
+        for (const name of [
+          'accessKey',
+          'barcodeData',
+          'barcodeImage',
+          'claimCode',
+          'claimLink',
+          'pin',
+        ]) {
+          if (card[name] !== undefined) card[name] = protect(card[name]);
+        }
+      }
+      outer.APP = JSON.stringify(JSON.stringify(app));
+      outer.SHOP = JSON.stringify(JSON.stringify(shop));
+      raw = JSON.stringify(outer);
+    }
+    const output = reencryptSnapshot(raw, oldKey, newKey);
+    safeEqual(decodeSnapshot(output, newKey).payload, payload);
+    const loaded = await getStoredState({
+      key: 'root',
+      storage: {getItem: async () => output},
+      transforms: [
+        encryptSpecificFields(newKey),
+        createTransform(undefined, (value, key) =>
+          deserializeModernPersistValue(
+            value,
+            newKey,
+            String(key),
+            unencryptedPersistStores.has(String(key)),
+          ),
+        ),
+      ],
+    } as any);
+    // Ordinary reading deliberately drops the cached invoice; the converter does not.
+    const expected = JSON.parse(JSON.stringify(payload));
+    expected.SHOP.giftCards.livenet.forEach((card: any) => {
+      card.invoice = undefined;
+    });
+    safeEqual(loaded, expected);
+  },
+);

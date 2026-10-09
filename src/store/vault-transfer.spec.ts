@@ -1,7 +1,6 @@
 import isEqual from 'lodash.isequal';
 import {decodeSnapshot, encodeSnapshot} from './vault-codec';
 import {
-  digest,
   transferVault,
   parseTransferRecord,
   TransferIO,
@@ -22,7 +21,9 @@ function harness(source: 'mmkv' | 'async' | 'fresh' = 'mmkv') {
     main: null,
     bak: null,
   };
-  const state: Inventory = {
+  const state: Inventory & {
+    sources: Inventory['sources'] & {temp: string | null};
+  } = {
     sources: {
       mmkv: source === 'mmkv' ? fixture.raw : null,
       async:
@@ -44,8 +45,8 @@ function harness(source: 'mmkv' | 'async' | 'fresh' = 'mmkv') {
     },
     keys: source === 'mmkv' ? ['persist:root', 'persist:logs'] : [],
     files: {
-      data: source === 'mmkv' ? digest('data') : null,
-      crc: source === 'mmkv' ? digest('crc') : null,
+      data: source === 'mmkv',
+      crc: source === 'mmkv',
     },
   };
   let key: string | null = null;
@@ -82,6 +83,11 @@ function harness(source: 'mmkv' | 'async' | 'fresh' = 'mmkv') {
       destinations[slot] = raw;
       hit('destination:after:' + slot);
     },
+    removeDestination: async slot => {
+      hit('destination:before-remove:' + slot);
+      destinations[slot] = null;
+      hit('destination:after-remove:' + slot);
+    },
     inventory: async () => {
       hit('inventory');
       return JSON.parse(JSON.stringify(state));
@@ -98,16 +104,16 @@ function harness(source: 'mmkv' | 'async' | 'fresh' = 'mmkv') {
       return key;
     },
     claimColdRetirement: () => !warm,
-    retirementIdentity: async slot => {
+    sourceExists: async slot => {
       hit('retirement:read:' + slot);
       if (slot === 'data' || slot === 'crc') return state.files[slot];
       const raw = state.sources[slot];
       if (raw === undefined) throw new Error('unreadable');
-      return raw === null ? null : digest(raw);
+      return raw !== null;
     },
     removeSource: async slot => {
       hit('retirement:before:' + slot);
-      if (slot === 'data' || slot === 'crc') state.files[slot] = null;
+      if (slot === 'data' || slot === 'crc') state.files[slot] = false;
       else state.sources[slot] = null;
       hit('retirement:after:' + slot);
     },
@@ -120,6 +126,11 @@ function harness(source: 'mmkv' | 'async' | 'fresh' = 'mmkv') {
   };
   return {
     io,
+    controlRaw: () => control,
+    keyValue: () => key,
+    seedKey: () => {
+      key = newKey;
+    },
     state,
     destinations,
     events,
@@ -170,7 +181,7 @@ it('established MMKV preserves an unresolved leftover row', async () => {
   h.state.sources.async = 'unreadable leftover';
   await transferVault(h.io);
   expect(h.state.sources.async === 'unreadable leftover').toBe(true);
-  expect(h.record()!.release.async === 'keep').toBe(true);
+  expect(h.record()!.release.async === false).toBe(true);
 });
 
 it('rejects competing history without authority, with no output or deletion', async () => {
@@ -203,7 +214,7 @@ it.each(['main', 'bak'] as const)(
     h.state.sources[slot] = 'damaged';
     await transferVault(h.io);
     expect(h.record()!.phase).toBe('active');
-    expect(h.record()!.release[slot] === 'keep').toBe(true);
+    expect(h.record()!.release[slot] === false).toBe(true);
     expect(h.state.sources[slot] === 'damaged').toBe(true);
   },
 );
@@ -225,7 +236,7 @@ it('uses main before bak for ordinary fallback and does not search by decryption
   h.state.sources.main = 'invalid JSON';
   await transferVault(h.io);
   equal(decodeSnapshot(h.destinations.root!, newKey).payload, fixture.state);
-  expect(h.record()!.release.main === 'keep').toBe(true);
+  expect(h.record()!.release.main === false).toBe(true);
 });
 
 it.each([
@@ -291,43 +302,51 @@ it('a failed supported backup write is required, not an unresolved-backup shortc
   expect(h.destinations.main !== null).toBe(true);
 });
 
-it('rechecks changed source identities before committing', async () => {
+it('B: final destination verification still rejects damage without a second source inventory', async () => {
   const h = harness();
-  let reads = 0;
-  const inventory = h.io.inventory;
-  h.io.inventory = async () => {
-    if (++reads === 2) h.state.files.crc = digest('changed');
-    return inventory();
+  const read = h.io.readDestination;
+  let outputReads = 0;
+  let reached = false;
+  let damage = true;
+  h.io.readDestination = async slot => {
+    const raw = await read(slot);
+    if (slot === 'root' && raw !== null && ++outputReads === 2 && damage) {
+      reached = true;
+      return raw + ' ';
+    }
+    return raw;
   };
-  await fails(() => transferVault(h.io), 'SOURCE_CONFLICT');
+  const before = JSON.stringify(h.state);
+  await fails(() => transferVault(h.io), 'REQUIRED_COPY_FAILURE');
+  expect(reached).toBe(true);
+  expect(h.events.filter(e => e === 'inventory').length).toBe(1);
+  expect(JSON.stringify(h.state) === before).toBe(true);
   expect(h.record()!.phase).toBe('preparing');
+  damage = false;
+  await transferVault(h.io);
+  expect(h.record()!.phase).toBe('active');
 });
 
 it('unknown old entries keep the entire instance and credential', async () => {
   const h = harness();
-  h.state.keys.push('unknown');
+  h.state.keys!.push('unknown');
   await transferVault(h.io);
   h.cold();
   await transferVault(h.io);
-  expect(h.record()!.release.data === 'keep').toBe(true);
+  expect(h.record()!.release.data === false).toBe(true);
   expect(h.events.includes('legacy-key:remove')).toBe(false);
 });
 
-it('defers warm removal, preserves changed cold sources, and retries a partial file pair', async () => {
+it('D: defers warm removal and retries a partially removed file pair', async () => {
   const h = harness();
   await transferVault(h.io);
-  expect(h.state.files.data !== null).toBe(true);
+  expect(h.state.files.data).toBe(true);
   h.cold();
-  const crc = h.state.files.crc;
-  h.state.files.crc = digest('changed after activation');
-  await transferVault(h.io);
-  expect(h.state.files.data !== null).toBe(true);
-  h.state.files.crc = crc;
   h.fault('retirement:after:data');
   await transferVault(h.io);
   expect(h.reached()).toBe(true);
-  expect(h.state.files.data === null).toBe(true);
-  expect(h.state.files.crc !== null).toBe(true);
+  expect(h.state.files.data).toBe(false);
+  expect(h.state.files.crc).toBe(true);
   h.fault(null);
   await transferVault(h.io);
   expect(h.record()!.phase).toBe('retired');
@@ -427,3 +446,363 @@ const fails = async (operation: () => Promise<unknown>, code?: string) => {
   }
   expect(failed).toBe(true);
 };
+
+it('A/C: unreadable primary fallback cannot replace a higher-priority unfinished root', async () => {
+  const h = harness();
+  h.state.sources.main = encodeSnapshot(
+    {...fixture.state, OLDER: {distinct: true}},
+    oldKey,
+  );
+  h.fault('destination:before:main');
+  await fails(() => transferVault(h.io));
+  expect(h.reached()).toBe(true);
+  const prior = {
+    record: h.controlRaw(),
+    key: h.keyValue(),
+    outputs: {...h.destinations},
+  };
+  h.state.sources.mmkv = undefined;
+  h.state.keys = undefined;
+  h.fault(null);
+  await fails(() => transferVault(h.io), 'SOURCE_CONFLICT');
+  equal(
+    {record: h.controlRaw(), key: h.keyValue(), outputs: {...h.destinations}},
+    prior,
+  );
+});
+
+it('A: a preparing record cannot replace a lost modern key', async () => {
+  const h = harness();
+  h.fault('control:before:active');
+  await fails(() => transferVault(h.io));
+  expect(h.reached()).toBe(true);
+  const prior = {record: h.controlRaw(), outputs: {...h.destinations}};
+  h.loseKey();
+  h.fault(null);
+  await fails(() => transferVault(h.io), 'missing modern key');
+  equal({record: h.controlRaw(), outputs: {...h.destinations}}, prior);
+  expect(h.keyValue() === null).toBe(true);
+  expect(h.events.filter(e => e === 'key:create').length).toBe(1);
+});
+
+it('A: restarts with cleared optional backups and removes only obsolete owned backup outputs', async () => {
+  const h = harness();
+  h.state.sources.main = fixture.raw;
+  h.state.sources.bak = encodeSnapshot(
+    {...fixture.state, OLDER: {value: true}},
+    oldKey,
+  );
+  const original = h.state.sources.mmkv;
+  h.fault('control:before:active');
+  await fails(() => transferVault(h.io));
+  expect(h.reached()).toBe(true);
+  expect(
+    h.destinations.root !== null &&
+      h.destinations.main !== null &&
+      h.destinations.bak !== null,
+  ).toBe(true);
+  expect(h.state.sources.mmkv === original).toBe(true);
+  const key = h.keyValue();
+  h.state.sources.main = h.state.sources.bak = null;
+  h.fault(null);
+  await transferVault(h.io);
+  expect(h.keyValue() === key).toBe(true);
+  expect(h.events.filter(e => e === 'key:create').length).toBe(1);
+  expect(h.destinations.main === null && h.destinations.bak === null).toBe(
+    true,
+  );
+  equal(decodeSnapshot(h.destinations.root!, newKey).payload, fixture.state);
+  expect(h.state.sources.mmkv === original).toBe(true); // warm guard still protects it
+});
+
+it.each(['all backups', 'main only'])(
+  'A: loss of %s preserves the interrupted main-sourced wallet on repeated retries',
+  async cleared => {
+    const h = harness('fresh');
+    h.state.sources.main = fixture.raw;
+    h.state.sources.bak = encodeSnapshot(
+      {...fixture.state, OLDER: {distinct: true}},
+      oldKey,
+    );
+    h.fault('destination:before:main'); // root write and its immediate verification have completed
+    await fails(() => transferVault(h.io));
+    expect(h.reached()).toBe(true);
+    equal(decodeSnapshot(h.destinations.root!, newKey).payload, fixture.state);
+    expect(h.destinations.main === null && h.destinations.bak === null).toBe(
+      true,
+    );
+    const prior = {
+      record: h.controlRaw(),
+      key: h.keyValue(),
+      outputs: {...h.destinations},
+    };
+    h.state.sources.main = null;
+    if (cleared === 'all backups') h.state.sources.bak = null;
+    // With both cache sources cleared, the already verified modern root is the only wallet copy.
+    if (cleared === 'all backups')
+      expect(Object.values(h.state.sources).every(v => v === null)).toBe(true);
+    const remaining = JSON.stringify(h.state);
+    h.fault(null);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await fails(() => transferVault(h.io), 'SOURCE_CONFLICT');
+      equal(
+        {
+          record: h.controlRaw(),
+          key: h.keyValue(),
+          outputs: {...h.destinations},
+        },
+        prior,
+      );
+      expect(JSON.stringify(h.state) === remaining).toBe(true);
+      expect(h.events.some(e => e.startsWith('retirement:before:'))).toBe(
+        false,
+      );
+      expect(h.events.filter(e => e === 'key:create').length).toBe(1);
+    }
+  },
+);
+
+it('A: a replacement plan that cannot decode its source leaves all unfinished outputs intact', async () => {
+  const h = harness();
+  h.state.sources.main = fixture.raw;
+  h.fault('control:before:active');
+  await fails(() => transferVault(h.io));
+  expect(h.reached()).toBe(true);
+  const before = {
+    record: h.controlRaw(),
+    key: h.keyValue(),
+    outputs: {...h.destinations},
+  };
+  h.state.sources.mmkv = 'invalid JSON';
+  h.state.sources.main = null;
+  h.fault(null);
+  await fails(() => transferVault(h.io));
+  equal(
+    {record: h.controlRaw(), key: h.keyValue(), outputs: {...h.destinations}},
+    before,
+  );
+});
+
+it('A: losing a previously selected AsyncStorage wallet preserves its unfinished root', async () => {
+  const h = harness('async');
+  h.fault('control:before:active');
+  await fails(() => transferVault(h.io));
+  expect(h.reached()).toBe(true);
+  const before = {
+    record: h.controlRaw(),
+    key: h.keyValue(),
+    outputs: {...h.destinations},
+  };
+  h.state.sources.async = null;
+  h.fault(null);
+  await fails(() => transferVault(h.io), 'SOURCE_CONFLICT');
+  equal(
+    {record: h.controlRaw(), key: h.keyValue(), outputs: {...h.destinations}},
+    before,
+  );
+});
+
+it('A/B: an optional backup read failure is not re-inventoried or imported after activation', async () => {
+  const h = harness();
+  h.state.sources.main = fixture.raw;
+  const inventory = h.io.inventory;
+  let reads = 0;
+  h.io.inventory = async () => {
+    const observed = await inventory();
+    if (++reads === 1) observed.sources.main = undefined;
+    return observed;
+  };
+  await transferVault(h.io);
+  expect(reads).toBe(1);
+  expect(h.destinations.main === null).toBe(true);
+  const root = h.destinations.root;
+  h.cold();
+  await transferVault(h.io);
+  expect(reads).toBe(1);
+  expect(h.destinations.root === root && h.destinations.main === null).toBe(
+    true,
+  );
+  expect(h.state.sources.main === fixture.raw).toBe(true);
+  expect(h.record()!.phase).toBe('active');
+  expect(h.events.includes('legacy-key:remove')).toBe(false);
+});
+
+it('A: a recovered optional backup read can join a restarted preparation', async () => {
+  const h = harness();
+  h.state.sources.main = fixture.raw;
+  const inventory = h.io.inventory;
+  let reads = 0;
+  h.io.inventory = async () => {
+    const observed = await inventory();
+    if (++reads === 1) observed.sources.main = undefined;
+    return observed;
+  };
+  h.fault('destination:before:root');
+  await fails(() => transferVault(h.io));
+  expect(h.reached()).toBe(true);
+  h.fault(null);
+  await transferVault(h.io);
+  equal(decodeSnapshot(h.destinations.main!, newKey).payload, fixture.state);
+  expect(h.events.filter(e => e === 'key:create').length).toBe(1);
+});
+
+it.each(['mmkv', 'fresh'] as const)(
+  'D policy: the exact old writer temp is disposable with %s',
+  async source => {
+    const h = harness(source);
+    h.state.sources.temp = 'unfinished old writer output';
+    await transferVault(h.io);
+    expect(h.state.sources.temp === null).toBe(true);
+    if (source === 'fresh') expect(h.destinations.root === null).toBe(true);
+    else
+      equal(
+        decodeSnapshot(h.destinations.root!, newKey).payload,
+        fixture.state,
+      );
+    h.cold();
+    await transferVault(h.io);
+    expect(h.record()!.phase).toBe('retired');
+    expect(h.events.includes('legacy-key:remove')).toBe(true);
+  },
+);
+
+it.each(['main', 'async', 'temp'] as const)(
+  'D policy: late appearance at previously absent %s follows its fixed permission',
+  async slot => {
+    const h = harness();
+    await transferVault(h.io);
+    h.state.sources[slot] = 'newly appeared synthetic material';
+    const modern = {...h.destinations};
+    h.cold();
+    await transferVault(h.io);
+    equal(h.destinations, modern);
+    expect(
+      h.state.sources[slot] ===
+        (slot === 'temp' ? null : 'newly appeared synthetic material'),
+    ).toBe(true);
+    expect(h.record()!.phase).toBe(slot === 'temp' ? 'retired' : 'active');
+    expect(h.events.includes('legacy-key:remove')).toBe(slot === 'temp');
+  },
+);
+
+it('D policy: an unresolved non-permitted backup that is now absent no longer prevents retirement', async () => {
+  const h = harness();
+  h.state.sources.main = 'unreadable old backup';
+  await transferVault(h.io);
+  h.state.sources.main = null;
+  h.cold();
+  await transferVault(h.io);
+  expect(h.record()!.phase).toBe('retired');
+});
+
+it('D: an inspected session-log-only old instance is disposable without importing its logs', async () => {
+  const h = harness();
+  h.state.sources.mmkv = null;
+  h.state.keys = ['persist:logs'];
+  await transferVault(h.io);
+  expect(h.destinations.root === null).toBe(true);
+  h.cold();
+  await transferVault(h.io);
+  expect(h.record()!.phase).toBe('retired');
+});
+
+it.each(['preparing', 'active', 'retired'])(
+  'D policy: rejects the old version-2 record in %s before any source or key access',
+  async phase => {
+    const h = harness();
+    // The old internal schema, deliberately retained only as a rejection fixture.
+    const hash = 'a'.repeat(64);
+    const oldRecord = {
+      version: 2,
+      layout: 'bitpay.wallet.v2',
+      phase,
+      owned: true,
+      inputs: {
+        mmkv: hash,
+        async: null,
+        main: null,
+        bak: null,
+        temp: null,
+        data: hash,
+        crc: hash,
+        keys: hash,
+      },
+      copies: {root: 'mmkv', main: null, bak: null},
+      release: {
+        data: hash,
+        crc: hash,
+        async: null,
+        main: null,
+        bak: null,
+        temp: null,
+      },
+    };
+    h.setControl(JSON.stringify(oldRecord));
+    h.seedKey();
+    h.destinations.root = encodeSnapshot(fixture.state, newKey);
+    const before = {
+      record: h.controlRaw(),
+      key: h.keyValue(),
+      sources: h.state,
+      destinations: {...h.destinations},
+    };
+    await fails(() => transferVault(h.io), 'STARTUP_FAILURE');
+    equal(
+      {
+        record: h.controlRaw(),
+        key: h.keyValue(),
+        sources: h.state,
+        destinations: {...h.destinations},
+      },
+      before,
+    );
+    expect(h.events).toEqual(['control:read']);
+  },
+);
+
+it('A: a persisted replacement plan with failed acknowledgement still permits retrying obsolete backup removal', async () => {
+  const h = harness();
+  h.state.sources.main = fixture.raw;
+  h.fault('control:before:active');
+  await fails(() => transferVault(h.io));
+  expect(h.reached()).toBe(true);
+  const old = JSON.stringify(h.state);
+  const outputs = {...h.destinations};
+  h.state.sources.main = null;
+  h.fault('control:after:preparing');
+  await fails(() => transferVault(h.io));
+  expect(h.reached()).toBe(true);
+  equal(h.destinations, outputs);
+  expect(h.record()!.copies.main).toBeNull();
+  h.fault('destination:after-remove:main');
+  await fails(() => transferVault(h.io));
+  expect(h.reached()).toBe(true);
+  expect(h.destinations.main === null).toBe(true);
+  expect(h.state.sources.mmkv === JSON.parse(old).sources.mmkv).toBe(true);
+  h.fault(null);
+  await transferVault(h.io);
+  expect(h.record()!.phase).toBe('active');
+  expect(h.destinations.main === null).toBe(true);
+});
+
+it('D: failed absence verification preserves modern access and pending retirement until it clears', async () => {
+  const h = harness('async');
+  const exists = h.io.sourceExists;
+  let verifyFailure = true;
+  let reached = false;
+  h.io.sourceExists = async slot => {
+    const present = await exists(slot);
+    if (slot === 'async' && !present && verifyFailure) {
+      reached = true;
+      throw new Error('synthetic verification failure');
+    }
+    return present;
+  };
+  await transferVault(h.io);
+  expect(reached).toBe(true);
+  expect(h.record()!.phase).toBe('active');
+  expect(h.events.includes('legacy-key:remove')).toBe(false);
+  verifyFailure = false;
+  await transferVault(h.io);
+  expect(h.record()!.phase).toBe('retired');
+});

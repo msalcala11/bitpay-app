@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Keychain from 'react-native-keychain';
 import {getUniqueId} from 'react-native-device-info';
 import {modernStorage, activateVaultStorage} from './vault-storage';
-import {digest, transferVault, TransferIO, Inventory} from './vault-transfer';
+import {transferVault, TransferIO, Inventory} from './vault-transfer';
 import {
   createVaultKey,
   readVaultKey,
@@ -56,37 +56,53 @@ const legacyPair = () => {
 };
 const readFile = async (path: string) =>
   (await RNFS.exists(path)) ? RNFS.readFile(path, 'utf8') : null;
-const fileIdentity = async (path: string) =>
-  (await RNFS.exists(path)) ? RNFS.hash(path, 'sha256') : null;
 const inventory = async (): Promise<Inventory> => {
   try {
-    const paths = legacyPair();
-    const data = await fileIdentity(paths.data);
-    const crc = await fileIdentity(paths.crc);
-    if ((data === null) !== (crc === null)) throw new Error();
-    let raw: string | null = null;
-    let keys: string[] = [];
-    if (data !== null) {
+    const files = {data: false, crc: false};
+    const readPrimary = async (): Promise<string | null> => {
+      const paths = legacyPair();
+      files.data = await RNFS.exists(paths.data);
+      files.crc = await RNFS.exists(paths.crc);
+      if (!files.data && !files.crc) return null;
+      if (!files.data || !files.crc) throw new Error();
       legacy ??= new MMKV({id: 'mmkv.default', readOnly: true});
-      keys = legacy.getAllKeys();
-      raw = legacy.getString(ROOT) ?? null;
-      if (raw === null && keys.includes(ROOT)) throw new Error();
+      const raw = legacy.getString(ROOT) ?? null;
+      if (raw === null && legacy.contains(ROOT)) throw new Error();
+      return raw;
+    };
+    let raw: string | null | undefined;
+    try {
+      raw = await readPrimary();
+    } catch {
+      // Exactly one immediate primary re-read, before considering old backups.
+      try {
+        raw = await readPrimary();
+      } catch {
+        raw = undefined;
+      }
+    }
+    let keys: string[] | undefined = raw === undefined ? undefined : [];
+    if (raw !== undefined && files.data && files.crc) {
+      try {
+        keys = legacy!.getAllKeys();
+      } catch {
+        keys = undefined;
+      }
     }
     const sources: Inventory['sources'] = {
       mmkv: raw,
       async: await AsyncStorage.getItem(ROOT),
       main: null,
       bak: null,
-      temp: null,
     };
-    for (const slot of ['main', 'bak', 'temp'] as const) {
+    for (const slot of ['main', 'bak'] as const) {
       try {
         sources[slot] = await readFile(legacyFiles[slot]);
       } catch {
         sources[slot] = undefined;
       }
     }
-    return {sources, keys, files: {data, crc}};
+    return {sources, keys, files};
   } catch {
     throw vaultError('SOURCE_CONFLICT', 'inventory', 'SOURCE_READ');
   }
@@ -115,6 +131,9 @@ const io: TransferIO = {
       await RNFS.mkdir(RNFS.CachesDirectoryPath + '/bitpay/redux-v2');
       await RNFS.writeFile(modernFiles[slot], raw, 'utf8');
     }
+  },
+  removeDestination: async slot => {
+    await RNFS.unlink(modernFiles[slot]);
   },
   inventory,
   legacyKeys: async () => {
@@ -153,12 +172,10 @@ const io: TransferIO = {
     TurboModuleRegistry.getEnforcing<MMKVRetirement>(
       'MmkvCxx',
     ).claimLegacyRetirement(),
-  retirementIdentity: async slot => {
-    if (slot === 'async') {
-      const raw = await AsyncStorage.getItem(ROOT);
-      return raw === null ? null : digest(raw);
-    }
-    return fileIdentity(
+  sourceExists: async slot => {
+    if (slot === 'async')
+      return (await AsyncStorage.getAllKeys()).includes(ROOT);
+    return RNFS.exists(
       slot === 'data' || slot === 'crc'
         ? legacyPair()[slot]
         : legacyFiles[slot],

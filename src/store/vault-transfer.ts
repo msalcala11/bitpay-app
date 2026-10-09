@@ -1,9 +1,8 @@
-import crypto from 'crypto';
 import isEqual from 'lodash.isequal';
 import {decodeSnapshot, reencryptSnapshot, verifySnapshot} from './vault-codec';
 import {safeVaultError, vaultError} from './vault-diagnostics';
 
-export const sourceSlots = ['mmkv', 'async', 'main', 'bak', 'temp'] as const;
+export const sourceSlots = ['mmkv', 'async', 'main', 'bak'] as const;
 export const destinationSlots = ['root', 'main', 'bak'] as const;
 export const retirementSlots = [
   'data',
@@ -16,28 +15,21 @@ export const retirementSlots = [
 type Source = (typeof sourceSlots)[number];
 type Destination = (typeof destinationSlots)[number];
 type Retirement = (typeof retirementSlots)[number];
-type Identity = string | null;
-type Disposition = Identity | 'keep';
 export type Inventory = {
-  // undefined is an unsuccessful optional backup read, never absence.
+  // undefined is an unsuccessful read, never absence. Unknown key inventories
+  // cannot authorize retiring an old instance even when its wallet is readable.
   sources: Record<Source, string | null | undefined>;
-  files: {data: Identity; crc: Identity};
-  keys: string[];
-};
-type Identities = Record<Source, Identity | 'unreadable'> & {
-  data: Identity;
-  crc: Identity;
-  keys: string;
+  files: {data: boolean; crc: boolean};
+  keys: string[] | undefined;
 };
 export type TransferRecord = {
-  version: 2;
+  version: 3;
   layout: 'bitpay.wallet.v2';
   phase: 'preparing' | 'active' | 'retired';
-  inputs: Identities;
   // All three destinations were observed absent before claiming ownership.
   owned: true;
   copies: Record<Destination, Source | null>;
-  release: Record<Retirement, Disposition>;
+  release: Record<Retirement, boolean>;
 };
 export type TransferIO = {
   readControl(): string | null;
@@ -46,30 +38,17 @@ export type TransferIO = {
   modernTempExists(): Promise<boolean>;
   readDestination(slot: Destination): Promise<string | null>;
   writeDestination(slot: Destination, raw: string): Promise<void>;
+  removeDestination(slot: 'main' | 'bak'): Promise<void>;
   inventory(): Promise<Inventory>;
   legacyKeys(): Promise<string[]>;
   modernKey(create: boolean): Promise<string>;
   claimColdRetirement(): boolean;
-  retirementIdentity(slot: Retirement): Promise<Identity>;
+  sourceExists(slot: Retirement): Promise<boolean>;
   removeSource(slot: Retirement): Promise<void>;
   removeLegacyKey(): Promise<void>;
   pending(): void;
 };
 
-export const digest = (value: string) =>
-  crypto.createHash('sha256').update(value).digest('hex');
-const identity = (value: string | null | undefined) =>
-  value === undefined ? 'unreadable' : value === null ? null : digest(value);
-const identities = (inventory: Inventory): Identities =>
-  ({
-    ...Object.fromEntries(
-      sourceSlots.map(slot => [slot, identity(inventory.sources[slot])]),
-    ),
-    ...inventory.files,
-    keys: digest(JSON.stringify([...inventory.keys].sort())),
-  } as Identities);
-const hash = (value: unknown) =>
-  typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const object = (value: any) =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 const exactKeys = (value: any, keys: readonly string[]) =>
@@ -86,75 +65,37 @@ export const parseTransferRecord = (raw: string): TransferRecord => {
         'version',
         'layout',
         'phase',
-        'inputs',
         'owned',
         'copies',
         'release',
       ]) ||
-      r.version !== 2 ||
+      r.version !== 3 ||
       r.layout !== 'bitpay.wallet.v2' ||
       r.owned !== true ||
       !['preparing', 'active', 'retired'].includes(r.phase) ||
-      !exactKeys(r.inputs, [...sourceSlots, 'data', 'crc', 'keys']) ||
       !exactKeys(r.copies, destinationSlots) ||
       !exactKeys(r.release, retirementSlots)
-    )
-      throw invalid();
-    for (const slot of sourceSlots) {
-      if (
-        r.inputs[slot] !== null &&
-        r.inputs[slot] !== 'unreadable' &&
-        !hash(r.inputs[slot])
-      )
-        throw invalid();
-    }
-    if (
-      !hash(r.inputs.keys) ||
-      ![r.inputs.data, r.inputs.crc].every(v => v === null || hash(v))
     )
       throw invalid();
     for (const slot of destinationSlots) {
       const source = r.copies[slot];
       if (
         source !== null &&
-        (!(sourceSlots as readonly string[]).includes(source) ||
-          !hash(r.inputs[source]))
+        !(sourceSlots as readonly string[]).includes(source)
       )
         throw invalid();
       if (slot !== 'root' && source !== null && source !== slot)
         throw invalid();
     }
-    if (r.copies.root === 'temp') throw invalid();
-    for (const slot of ['mmkv', 'async']) {
-      const released =
-        slot === 'mmkv'
-          ? r.release.data !== 'keep'
-          : r.release.async !== 'keep';
-      if (
-        released &&
-        r.inputs[slot] !== null &&
-        (r.copies.root === null || r.inputs[slot] !== r.inputs[r.copies.root])
-      )
-        throw invalid();
-    }
     for (const slot of retirementSlots) {
-      const permission = r.release[slot];
-      if (permission !== 'keep' && permission !== r.inputs[slot])
-        throw invalid();
-      if (permission !== 'keep' && permission !== null && !hash(permission))
-        throw invalid();
+      if (typeof r.release[slot] !== 'boolean') throw invalid();
     }
-    if ((r.release.data === 'keep') !== (r.release.crc === 'keep'))
+    if (r.release.data !== r.release.crc || r.release.temp !== true)
       throw invalid();
-    if (r.release.temp !== 'keep' && r.release.temp !== null) throw invalid();
+    if (r.release.async && r.copies.root === null) throw invalid();
     for (const slot of ['main', 'bak'] as const) {
-      if (hash(r.release[slot]) && r.copies[slot] !== slot) throw invalid();
+      if (r.release[slot] && r.copies[slot] !== slot) throw invalid();
     }
-    if (
-      r.phase === 'retired' &&
-      retirementSlots.some(slot => r.release[slot] === 'keep')
-    )
-      throw invalid();
     return r;
   } catch {
     throw invalid();
@@ -211,12 +152,12 @@ const decodeWithCandidate = (raw: string, candidates: string[]) => {
 
 function plan(inventory: Inventory, candidates: string[]): TransferRecord {
   const {sources, keys, files} = inventory;
-  if (sources.mmkv === undefined || sources.async === undefined) {
+  if (sources.async === undefined) {
     throw vaultError('SOURCE_CONFLICT', 'inventory', 'SOURCE_READ');
   }
   // Released main-before-bak JSON selection, with no decryption-based search.
   const selectedMMKV: Source | null =
-    sources.mmkv !== null
+    typeof sources.mmkv === 'string'
       ? 'mmkv'
       : jsonReadable(sources.main)
       ? 'main'
@@ -234,6 +175,8 @@ function plan(inventory: Inventory, candidates: string[]): TransferRecord {
     ) {
       throw vaultError('SOURCE_CONFLICT', 'classify', 'SOURCE_INVALID');
     }
+  } else if (sources.mmkv === undefined) {
+    throw vaultError('SOURCE_CONFLICT', 'inventory', 'SOURCE_READ');
   } else if (sources.async !== null) {
     // Failed or damaged MMKV/recovery observations cannot establish an empty history.
     if (
@@ -251,7 +194,6 @@ function plan(inventory: Inventory, candidates: string[]): TransferRecord {
   } else if (sourceSlots.some(slot => sources[slot] !== null)) {
     throw vaultError('INVALID_LEGACY_INPUT', 'classify', 'SOURCE_INVALID');
   }
-  const inputs = identities(inventory);
   const copies: TransferRecord['copies'] = {
     root: selected,
     main: null,
@@ -268,26 +210,23 @@ function plan(inventory: Inventory, candidates: string[]): TransferRecord {
     sources[slot] === null ||
     (selected !== null && sources[slot] === sources[selected]);
   const canRetireMMKV =
+    keys !== undefined &&
     keys.every(key => ['persist:root', 'persist:logs'].includes(key)) &&
     used('mmkv');
   return {
-    version: 2,
+    version: 3,
     layout: 'bitpay.wallet.v2',
     phase: 'preparing',
     owned: true,
-    inputs,
     copies,
     release: {
-      data: canRetireMMKV ? files.data : 'keep',
-      crc: canRetireMMKV ? files.crc : 'keep',
-      async: used('async') ? (inputs.async as Identity) : 'keep',
-      main:
-        copies.main || sources.main === null
-          ? (inputs.main as Identity)
-          : 'keep',
-      bak:
-        copies.bak || sources.bak === null ? (inputs.bak as Identity) : 'keep',
-      temp: sources.temp === null ? null : 'keep',
+      data: canRetireMMKV && files.data,
+      crc: canRetireMMKV && files.crc,
+      async: sources.async !== null && used('async'),
+      main: copies.main === 'main',
+      bak: copies.bak === 'bak',
+      // Only the exact old writer temp is disposable even if it was absent.
+      temp: true,
     },
   };
 }
@@ -295,34 +234,26 @@ function plan(inventory: Inventory, candidates: string[]): TransferRecord {
 async function retire(io: TransferIO, record: TransferRecord) {
   if (record.phase === 'retired') return;
   let pending = false;
-  const matches = async (slot: Retirement) => {
-    const current = await io.retirementIdentity(slot);
-    if (current !== null && current !== record.release[slot]) throw new Error();
-    return current;
-  };
   const remove = async (slot: Retirement) => {
-    if ((await matches(slot)) !== null) await io.removeSource(slot);
-    if ((await io.retirementIdentity(slot)) !== null) throw new Error();
+    if (!(await io.sourceExists(slot))) return;
+    if (
+      !record.release[slot] ||
+      ((slot === 'data' || slot === 'crc') && !io.claimColdRetirement())
+    )
+      throw new Error();
+    // The native claim precedes either MMKV unlink and seals subsequent opens.
+    // Permission follows the transferred/disposable location, not its contents.
+    await io.removeSource(slot);
+    if (await io.sourceExists(slot)) throw new Error();
   };
-  // Claim before inspecting/removing either file. Native guard survives JS reload
-  // and refuses every subsequent old-instance open for this process.
+  // A failure on the data file leaves its metadata partner for a safe retry.
   try {
-    if (record.release.data === 'keep' || !io.claimColdRetirement())
-      pending = true;
-    else {
-      await matches('data');
-      await matches('crc');
-      await remove('data');
-      await remove('crc');
-    }
+    await remove('data');
+    await remove('crc');
   } catch {
     pending = true;
   }
   for (const slot of ['async', 'main', 'bak', 'temp'] as const) {
-    if (record.release[slot] === 'keep') {
-      pending = true;
-      continue;
-    }
     try {
       await remove(slot);
     } catch {
@@ -333,7 +264,7 @@ async function retire(io: TransferIO, record: TransferRecord) {
     try {
       // Recheck all absence obligations immediately before retiring the key.
       for (const slot of retirementSlots) {
-        if ((await io.retirementIdentity(slot)) !== null) throw new Error();
+        if (await io.sourceExists(slot)) throw new Error();
       }
       await io.removeLegacyKey();
       saveRecord(io, {...record, phase: 'retired'});
@@ -367,19 +298,25 @@ export async function transferVault(io: TransferIO): Promise<string> {
   const inventory = await io.inventory();
   const candidates = await io.legacyKeys();
   const proposed = plan(inventory, candidates);
-  if (
-    record &&
-    (!isEqual(record.inputs, proposed.inputs) ||
-      !isEqual(record.copies, proposed.copies) ||
-      !isEqual(record.release, proposed.release))
-  ) {
-    throw vaultError('SOURCE_CONFLICT', 'inventory', 'SOURCE_CHANGED');
+  const restarting = record !== null;
+  if (record && record.copies.root !== null) {
+    const previous = record.copies.root;
+    const next = proposed.copies.root;
+    const fallbackOrder: Source[] = ['mmkv', 'main', 'bak'];
+    // Compare roles only. AsyncStorage's pending import is not a backup rank.
+    // Reject before changing the record, key, or any unfinished destination.
+    if (
+      next === null ||
+      (previous === 'async' || next === 'async'
+        ? previous !== next
+        : fallbackOrder.indexOf(next) > fallbackOrder.indexOf(previous))
+    ) {
+      throw vaultError('SOURCE_CONFLICT', 'inventory', 'SOURCE_CHANGED');
+    }
   }
   const key = await io.modernKey(record === null);
-  if (!record) {
-    record = proposed;
-    saveRecord(io, record);
-  }
+  record = proposed;
+  saveRecord(io, record);
   const prepared: {
     slot: Destination;
     output: string;
@@ -387,7 +324,22 @@ export async function transferVault(io: TransferIO): Promise<string> {
   }[] = [];
   for (const slot of destinationSlots) {
     const source = record.copies[slot];
-    if (source === null) continue;
+    if (source === null) {
+      if (restarting && slot !== 'root') {
+        try {
+          if ((await io.readDestination(slot)) !== null)
+            await io.removeDestination(slot);
+          if ((await io.readDestination(slot)) !== null) throw new Error();
+        } catch {
+          throw vaultError(
+            'REQUIRED_COPY_FAILURE',
+            'required-copy',
+            'COPY_VERIFICATION',
+          );
+        }
+      }
+      continue;
+    }
     const raw = inventory.sources[source]!;
     const decoded = decodeWithCandidate(raw, candidates);
     const output = reencryptSnapshot(raw, decoded.key, key);
@@ -403,9 +355,6 @@ export async function transferVault(io: TransferIO): Promise<string> {
       key,
     );
     prepared.push({slot, output, payload: decoded.snapshot.payload});
-  }
-  if (!isEqual(identities(await io.inventory()), record.inputs)) {
-    throw vaultError('SOURCE_CONFLICT', 'inventory', 'SOURCE_CHANGED');
   }
   for (const item of prepared) {
     verifySnapshot(
