@@ -558,21 +558,21 @@ describe('encryptSpecificFields', () => {
     const {outFn} = getTransform();
     const state: any = {keys: {}};
     outFn(state, 'WALLET');
-    expect(decryptWalletStore).toHaveBeenCalledWith(state, secretKey);
+    expect(decryptWalletStore).toHaveBeenCalledWith(state, secretKey, true);
   });
 
   it('decrypts APP store on outbound', () => {
     const {outFn} = getTransform();
     const state: any = {};
     outFn(state, 'APP');
-    expect(decryptAppStore).toHaveBeenCalledWith(state, secretKey);
+    expect(decryptAppStore).toHaveBeenCalledWith(state, secretKey, true);
   });
 
   it('decrypts SHOP store on outbound', () => {
     const {outFn} = getTransform();
     const state: any = {};
     outFn(state, 'SHOP');
-    expect(decryptShopStore).toHaveBeenCalledWith(state, secretKey);
+    expect(decryptShopStore).toHaveBeenCalledWith(state, secretKey, true);
   });
 
   it('returns state unchanged for unrecognised key on outbound', () => {

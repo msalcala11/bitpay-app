@@ -40,6 +40,7 @@ const mockedRNFS = RNFS as jest.Mocked<typeof RNFS>;
 function getFreshModule(): typeof import('./fs-backup') {
   let mod: typeof import('./fs-backup');
   jest.isolateModules(() => {
+    require('../vault-storage').activateVaultStorage();
     mod = require('./fs-backup');
   });
   return mod!;

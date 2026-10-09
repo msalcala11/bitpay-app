@@ -2,7 +2,7 @@ import moment from 'moment';
 import {LogEntry, sanitizeLogMessage} from './log.models';
 import {LogActionType, LogActionTypes} from './log.types';
 import {appendPersistedLog} from './initLogs';
-import {storage} from '../index';
+import {modernStorage as storage, isVaultActive} from '../vault-storage';
 
 export const logReduxPersistBlackList = ['logs'];
 
@@ -47,7 +47,9 @@ export const logReducer = (
       // Store persisted logs in a different entry in storage
       // to avoid losing them if anything happens to persist:root
       try {
-        const persistLogs = storage.getString('persist:logs');
+        const persistLogs = isVaultActive()
+          ? storage.getString('persist:logs')
+          : undefined;
         if (persistLogs) {
           storage.set(
             'persist:logs',

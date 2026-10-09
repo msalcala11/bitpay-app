@@ -1,7 +1,7 @@
 import {LogEntry, sanitizeLogMessage} from './log.models';
-import type {AddLog} from './log.types';
+import {LogActionTypes, AddLog} from './log.types';
 import {logManager} from '../../managers/LogManager';
-import {storage} from '../index';
+import {modernStorage as storage, isVaultActive} from '../vault-storage';
 
 // For storing logs before the store is initialized
 const initLogs: AddLog[] = [];
@@ -23,6 +23,10 @@ export const appendPersistedLog = (entry: LogEntry): LogEntry => {
   // redux-persist write persist:root, itself a path that logs here
   logManager.addLog(sanitized);
 
+  if (!isVaultActive()) {
+    initLogs.push({type: LogActionTypes.ADD_PERSISTED_LOG, payload: sanitized});
+    return sanitized;
+  }
   try {
     const persistedLogs = storage.getString('persist:logs') || '[]';
     storage.set(
@@ -44,6 +48,7 @@ export const add = (log: AddLog) => {
 };
 
 export const drainAndDispatch = (dispatch: (action: AddLog) => void) => {
+  if (!isVaultActive()) return;
   drained = true;
   if (initLogs.length === 0) {
     return;

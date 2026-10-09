@@ -1,4 +1,5 @@
 import RNFS from 'react-native-fs';
+import {requireVaultActive} from '../vault-storage';
 import {LogActions} from '../../store/log';
 import * as initLogs from '../../store/log/initLogs';
 import {getErrorString} from '../../utils/helper-methods';
@@ -6,7 +7,7 @@ import * as Sentry from '@sentry/react-native';
 
 // Use cache directories (CachesDirectoryPath) so backups are NOT included in iCloud/Android Auto Backup
 const BASE_CACHE_DIR = RNFS.CachesDirectoryPath;
-const BASE_DIR = BASE_CACHE_DIR + '/bitpay/redux';
+const BASE_DIR = BASE_CACHE_DIR + '/bitpay/redux-v2';
 const FINAL_FILE = BASE_DIR + '/persist-root.json';
 const BACKUP_FILE = BASE_DIR + '/persist-root.json.bak';
 const TEMP_FILE = BASE_DIR + '/persist-root.json.tmp';
@@ -55,6 +56,7 @@ export async function backupFileExistsStrict(): Promise<boolean> {
 }
 
 export function backupPersistRoot(rawJson: string): Promise<void> {
+  requireVaultActive();
   backupQueue = backupQueue
     .then(() => _backupPersistRoot(rawJson))
     .catch(() => {});
