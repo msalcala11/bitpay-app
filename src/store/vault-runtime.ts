@@ -119,6 +119,7 @@ const io: TransferIO = {
   writeControl: raw => control().set('transfer', raw),
   modernKeys: () => modernStorage.getAllKeys(),
   modernTempExists: () => RNFS.exists(modernBase + '.tmp'),
+  destinationExists: slot => RNFS.exists(modernFiles[slot]),
   readDestination: async slot => {
     if (slot !== 'root') return readFile(modernFiles[slot]);
     const raw = modernStorage.getString(ROOT);
