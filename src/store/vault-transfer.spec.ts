@@ -74,6 +74,10 @@ function harness(source: 'mmkv' | 'async' | 'fresh' = 'mmkv') {
     },
     modernKeys: () => (destinations.root === null ? [] : ['persist:root']),
     modernTempExists: async () => false,
+    destinationExists: async slot => {
+      hit('destination:exists:' + slot);
+      return destinations[slot] !== null;
+    },
     readDestination: async slot => {
       hit('destination:read:' + slot);
       return destinations[slot];
@@ -760,30 +764,48 @@ it.each(['preparing', 'active', 'retired'])(
   },
 );
 
-it('A: a persisted replacement plan with failed acknowledgement still permits retrying obsolete backup removal', async () => {
-  const h = harness();
-  h.state.sources.main = fixture.raw;
-  h.fault('control:before:active');
-  await fails(() => transferVault(h.io));
-  expect(h.reached()).toBe(true);
-  const old = JSON.stringify(h.state);
-  const outputs = {...h.destinations};
-  h.state.sources.main = null;
-  h.fault('control:after:preparing');
-  await fails(() => transferVault(h.io));
-  expect(h.reached()).toBe(true);
-  equal(h.destinations, outputs);
-  expect(h.record()!.copies.main).toBeNull();
-  h.fault('destination:after-remove:main');
-  await fails(() => transferVault(h.io));
-  expect(h.reached()).toBe(true);
-  expect(h.destinations.main === null).toBe(true);
-  expect(h.state.sources.mmkv === JSON.parse(old).sources.mmkv).toBe(true);
-  h.fault(null);
-  await transferVault(h.io);
-  expect(h.record()!.phase).toBe('active');
-  expect(h.destinations.main === null).toBe(true);
-});
+it.each(['acknowledgement', 'read-back'])(
+  'A: a persisted replacement plan with failed %s still permits retrying obsolete backup removal',
+  async failure => {
+    const h = harness();
+    h.state.sources.main = fixture.raw;
+    h.fault('control:before:active');
+    await fails(() => transferVault(h.io));
+    expect(h.reached()).toBe(true);
+    const old = JSON.stringify(h.state);
+    const outputs = {...h.destinations};
+    h.state.sources.main = null;
+    const readControl = h.io.readControl;
+    const key = h.keyValue();
+    let readBackReached = false;
+    h.fault(failure === 'acknowledgement' ? 'control:after:preparing' : null);
+    if (failure === 'read-back')
+      h.io.readControl = () => {
+        const raw = readControl();
+        if (raw !== null && JSON.parse(raw).copies.main === null) {
+          readBackReached = true;
+          throw new Error('synthetic record read-back failure');
+        }
+        return raw;
+      };
+    await fails(() => transferVault(h.io));
+    expect(failure === 'read-back' ? readBackReached : h.reached()).toBe(true);
+    expect(h.events.includes('destination:before-remove:main')).toBe(false);
+    expect(h.keyValue() === key).toBe(true);
+    h.io.readControl = readControl;
+    equal(h.destinations, outputs);
+    expect(h.record()!.copies.main).toBeNull();
+    h.fault('destination:after-remove:main');
+    await fails(() => transferVault(h.io));
+    expect(h.reached()).toBe(true);
+    expect(h.destinations.main === null).toBe(true);
+    expect(h.state.sources.mmkv === JSON.parse(old).sources.mmkv).toBe(true);
+    h.fault(null);
+    await transferVault(h.io);
+    expect(h.record()!.phase).toBe('active');
+    expect(h.destinations.main === null).toBe(true);
+  },
+);
 
 it('D: failed absence verification preserves modern access and pending retirement until it clears', async () => {
   const h = harness('async');
@@ -806,3 +828,148 @@ it('D: failed absence verification preserves modern access and pending retiremen
   await transferVault(h.io);
   expect(h.record()!.phase).toBe('retired');
 });
+
+it.each([
+  ['unreadable', 'main'],
+  ['unreadable', 'bak'],
+  ['readable partial', 'main'],
+  ['already absent', 'bak'],
+] as const)(
+  'A follow-up: %s obsolete %s output uses presence-only cleanup',
+  async (condition, slot) => {
+    const h = harness();
+    h.state.sources[slot] = fixture.raw;
+    const original = JSON.stringify(h.state);
+    const write = h.io.writeDestination;
+    let writeFailure = true;
+    let writeReached = false;
+    h.io.writeDestination = async (target, raw) => {
+      if (target === slot && writeFailure) {
+        h.destinations[target] = 'partial output';
+        writeReached = true;
+        throw new Error('synthetic partial write');
+      }
+      await write(target, raw);
+    };
+    const read = h.io.readDestination;
+    let rejectedContentReads = 0;
+    h.io.readDestination = async target => {
+      if (
+        target === slot &&
+        condition === 'unreadable' &&
+        h.destinations[target] !== null
+      ) {
+        rejectedContentReads++;
+        throw new Error('synthetic UTF-8 read failure');
+      }
+      return read(target);
+    };
+    await fails(() => transferVault(h.io), 'REQUIRED_COPY_FAILURE');
+    expect(writeReached).toBe(true);
+    expect(h.record()!.phase).toBe('preparing');
+    expect(JSON.stringify(h.state) === original).toBe(true);
+    equal(decodeSnapshot(h.destinations.root!, newKey).payload, fixture.state);
+    if (condition === 'unreadable')
+      await fails(() => h.io.readDestination(slot));
+    expect(rejectedContentReads).toBe(condition === 'unreadable' ? 1 : 0);
+    const key = h.keyValue();
+    h.state.sources.main = h.state.sources.bak = null; // old cache eviction, external to preparation
+    if (condition === 'already absent') h.destinations[slot] = null;
+    const beforeRetry = JSON.stringify(h.state);
+    const exists = h.io.destinationExists;
+    const observations: boolean[] = [];
+    h.io.destinationExists = async target => {
+      const present = await exists(target);
+      if (target === slot) observations.push(present);
+      return present;
+    };
+    const save = h.io.writeControl;
+    let activated = false;
+    h.io.writeControl = raw => {
+      if (JSON.parse(raw).phase === 'active') {
+        expect(JSON.stringify(h.state) === beforeRetry).toBe(true);
+        expect(h.destinations[slot] === null).toBe(true);
+        expect(observations).toEqual([condition !== 'already absent', false]);
+        activated = true;
+      }
+      save(raw);
+    };
+    writeFailure = false;
+    await transferVault(h.io);
+    expect(activated).toBe(true);
+    expect(rejectedContentReads).toBe(condition === 'unreadable' ? 1 : 0);
+    expect(
+      h.events.filter(e => e === 'destination:before-remove:' + slot).length,
+    ).toBe(condition === 'already absent' ? 0 : 1);
+    expect(h.keyValue() === key).toBe(true);
+    expect(h.events.filter(e => e === 'key:create').length).toBe(1);
+    expect(h.record()!.copies.root).toBe('mmkv');
+    equal(decodeSnapshot(h.destinations.root!, newKey).payload, fixture.state);
+  },
+);
+
+it.each([
+  'presence before unlink',
+  'presence after unlink',
+  'unlink rejected',
+  'still present',
+])(
+  'A follow-up: %s prevents activation and permits a later healthy retry',
+  async failure => {
+    const h = harness();
+    h.state.sources.main = fixture.raw;
+    h.fault('destination:after:main');
+    await fails(() => transferVault(h.io));
+    expect(h.reached()).toBe(true);
+    const key = h.keyValue();
+    h.state.sources.main = null;
+    const original = JSON.stringify(h.state);
+    h.fault(null);
+    const exists = h.io.destinationExists;
+    const remove = h.io.removeDestination;
+    let failing = true;
+    let checks = 0;
+    let reached = false;
+    h.io.destinationExists = async slot => {
+      if (slot === 'main' && failing) {
+        checks++;
+        if (
+          (failure === 'presence before unlink' && checks === 1) ||
+          (failure === 'presence after unlink' && checks === 2)
+        ) {
+          reached = true;
+          throw new Error('synthetic presence failure');
+        }
+      }
+      return exists(slot);
+    };
+    h.io.removeDestination = async slot => {
+      if (slot === 'main' && failing) {
+        if (failure === 'unlink rejected') {
+          reached = true;
+          throw new Error('synthetic unlink failure');
+        }
+        if (failure === 'still present') {
+          reached = true;
+          return;
+        }
+      }
+      await remove(slot);
+    };
+    await fails(() => transferVault(h.io), 'REQUIRED_COPY_FAILURE');
+    expect(reached).toBe(true);
+    expect(h.record()!.phase).toBe('preparing');
+    expect(h.events.includes('control:before:active')).toBe(false);
+    expect(h.events.some(e => e.startsWith('retirement:before:'))).toBe(false);
+    expect(JSON.stringify(h.state) === original).toBe(true);
+    expect(h.keyValue() === key).toBe(true);
+    expect(h.events.filter(e => e === 'key:create').length).toBe(1);
+    failing = false;
+    await transferVault(h.io);
+    expect(h.record()!.phase).toBe('active');
+    expect(h.destinations.main === null).toBe(true);
+    expect(h.keyValue() === key).toBe(true);
+    expect(h.events.filter(e => e === 'key:create').length).toBe(1);
+    equal(decodeSnapshot(h.destinations.root!, newKey).payload, fixture.state);
+  },
+);

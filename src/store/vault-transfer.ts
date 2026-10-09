@@ -37,6 +37,7 @@ export type TransferIO = {
   modernKeys(): string[];
   modernTempExists(): Promise<boolean>;
   readDestination(slot: Destination): Promise<string | null>;
+  destinationExists(slot: 'main' | 'bak'): Promise<boolean>;
   writeDestination(slot: Destination, raw: string): Promise<void>;
   removeDestination(slot: 'main' | 'bak'): Promise<void>;
   inventory(): Promise<Inventory>;
@@ -327,9 +328,9 @@ export async function transferVault(io: TransferIO): Promise<string> {
     if (source === null) {
       if (restarting && slot !== 'root') {
         try {
-          if ((await io.readDestination(slot)) !== null)
+          if (await io.destinationExists(slot))
             await io.removeDestination(slot);
-          if ((await io.readDestination(slot)) !== null) throw new Error();
+          if (await io.destinationExists(slot)) throw new Error();
         } catch {
           throw vaultError(
             'REQUIRED_COPY_FAILURE',

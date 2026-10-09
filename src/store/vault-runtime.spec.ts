@@ -14,7 +14,7 @@ jest.mock('react-native', () => ({
 }));
 
 const mockStores = new Map<string, Map<string, string>>();
-const mockFiles = new Map<string, string>();
+const mockFiles = new Map<string, string | Buffer>();
 const mockRows = new Map<string, string>();
 const mockCredentials = new Map<string, any>();
 const mockEvents: string[] = [];
@@ -30,6 +30,8 @@ let mockAsyncReadFailure = false;
 const mockFileReads: string[] = [];
 let mockHashCalls = 0;
 let mockLegacyKeysFailure = false;
+let mockPartialWritePath: string | undefined;
+let mockRejectPartialWrite = true;
 const legacyKey = 'synthetic-legacy-fixture-key';
 const fixture = require('../../test/vault/fixtures/legacy-14.32.json').cases
   .plain;
@@ -71,16 +73,25 @@ jest.mock('react-native-mmkv', () => ({
     set(k: string, value: string) {
       mockEvents.push('write:' + this.id + ':' + k);
       if (this.id === 'mmkv.default') throw new Error('old writer forbidden');
+      if (this.id === 'bitpay.wallet.transfer.v2')
+        mockEvents.push('control:' + JSON.parse(value).phase);
       this.values.set(k, value);
     }
   },
 }));
 jest.mock('react-native-fs', () => ({
   CachesDirectoryPath: '/cache',
-  exists: async (p: string) => mockFiles.has(p),
+  exists: async (p: string) => {
+    const present = mockFiles.has(p);
+    mockEvents.push('file:exists:' + p + ':' + present);
+    return present;
+  },
   readFile: async (p: string) => {
     mockFileReads.push(p);
-    return mockFiles.get(p);
+    const value = mockFiles.get(p);
+    return Buffer.isBuffer(value)
+      ? new (require('util').TextDecoder)('utf-8', {fatal: true}).decode(value)
+      : value;
   },
   hash: async (p: string) => {
     mockHashCalls++;
@@ -92,9 +103,15 @@ jest.mock('react-native-fs', () => ({
   writeFile: async (p: string, value: string) => {
     mockEvents.push('file:write');
     mockFiles.set(p, value);
+    if (p === mockPartialWritePath) {
+      mockFiles.set(p, Buffer.from([0xc3, 0x28])); // invalid UTF-8, not just truncated JSON
+      mockEvents.push('file:partial-write:' + p);
+      if (mockRejectPartialWrite) throw new Error('synthetic partial write');
+    }
   },
   mkdir: async () => {},
   unlink: async (p: string) => {
+    mockEvents.push('file:unlink:' + p);
     mockFiles.delete(p);
   },
 }));
@@ -163,6 +180,8 @@ beforeEach(() => {
   mockPrimaryFailures = mockPrimaryReads = mockHashCalls = 0;
   mockAsyncReadFailure = false;
   mockLegacyKeysFailure = false;
+  mockPartialWritePath = undefined;
+  mockRejectPartialWrite = true;
   mockFileReads.length = 0;
   mockWarm =
     mockOldKeyFailure =
@@ -418,3 +437,82 @@ it.each(['unknown entry', 'failed inventory'])(
     expect(mockCredentials.has('bitpay-app-encryption-key')).toBe(true);
   },
 );
+
+it.each(['main', 'bak'] as const)(
+  'A follow-up: malformed obsolete %s is removed through the real runtime adapter',
+  async slot => {
+    seed();
+    const suffix = slot === 'bak' ? '.bak' : '';
+    const oldPath = '/cache/bitpay/redux/persist-root.json' + suffix;
+    const modernPath = '/cache/bitpay/redux-v2/persist-root.json' + suffix;
+    mockFiles.set(oldPath, fixture.raw);
+    mockPartialWritePath = modernPath;
+    await fails(() => start(), 'REQUIRED_COPY_FAILURE');
+    expect(mockEvents.includes('file:partial-write:' + modernPath)).toBe(true);
+    expect(mockFiles.get(oldPath) === fixture.raw).toBe(true);
+    expect(
+      mockStores.get('mmkv.default')!.get('persist:root') === fixture.raw,
+    ).toBe(true);
+    expect(mockEvents.some(e => e.startsWith('file:unlink:'))).toBe(false);
+    expect(Buffer.isBuffer(mockFiles.get(modernPath))).toBe(true);
+    // This proves the boundary really rejects content reads while the bytes exist.
+    await fails(() => require('react-native-fs').readFile(modernPath, 'utf8'));
+    const key = mockCredentials.get('bitpay-app-vault-key-v1').password;
+    mockFiles.delete('/cache/bitpay/redux/persist-root.json');
+    mockFiles.delete('/cache/bitpay/redux/persist-root.json.bak');
+    mockPartialWritePath = undefined;
+    mockFileReads.length = 0;
+    const retryStart = mockEvents.length;
+    await start();
+    const events = mockEvents.slice(retryStart);
+    const removed = events.indexOf('file:unlink:' + modernPath);
+    const verifiedAbsent = events.indexOf(
+      'file:exists:' + modernPath + ':false',
+      removed + 1,
+    );
+    const activated = events.indexOf('control:active');
+    expect(
+      removed >= 0 && verifiedAbsent > removed && activated > verifiedAbsent,
+    ).toBe(true);
+    expect(
+      events.slice(0, activated).filter(e => e.startsWith('file:unlink:')),
+    ).toEqual(['file:unlink:' + modernPath]);
+    expect(mockFileReads.includes(modernPath)).toBe(false);
+    expect(mockFiles.has(modernPath)).toBe(false);
+    expect(
+      mockCredentials.get('bitpay-app-vault-key-v1').password === key,
+    ).toBe(true);
+    expect(
+      mockEvents.filter(e => e === 'key:write:bitpay-app-vault-key-v1').length,
+    ).toBe(1);
+    expect(
+      mockStores.get('mmkv.default')!.get('persist:root') === fixture.raw,
+    ).toBe(true);
+    const {decodeSnapshot} = require('./vault-codec');
+    expect(
+      isEqual(decodeSnapshot(modernRoot(), key).payload, fixture.state),
+    ).toBe(true);
+  },
+);
+
+it('A follow-up: unreadable required output still fails content verification', async () => {
+  seed();
+  const modernPath = '/cache/bitpay/redux-v2/persist-root.json';
+  mockFiles.set('/cache/bitpay/redux/persist-root.json', fixture.raw);
+  mockPartialWritePath = modernPath;
+  mockRejectPartialWrite = false; // write resolves, but the required copy is unreadable
+  await fails(() => start());
+  expect(mockEvents.includes('file:partial-write:' + modernPath)).toBe(true);
+  expect(mockFileReads.includes(modernPath)).toBe(true);
+  expect(mockEvents.includes('control:active')).toBe(false);
+  expect(mockEvents.some(e => e.startsWith('file:unlink:'))).toBe(false);
+  expect(
+    mockFiles.get('/cache/bitpay/redux/persist-root.json') === fixture.raw,
+  ).toBe(true);
+  mockPartialWritePath = undefined;
+  await start();
+  expect(mockEvents.includes('control:active')).toBe(true);
+  expect(
+    mockEvents.filter(e => e === 'key:write:bitpay-app-vault-key-v1').length,
+  ).toBe(1);
+});
