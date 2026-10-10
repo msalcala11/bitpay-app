@@ -4,6 +4,7 @@ import RNFS from 'react-native-fs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Keychain from 'react-native-keychain';
 import {getUniqueId} from 'react-native-device-info';
+import {Buffer} from 'buffer';
 import {modernStorage, activateVaultStorage} from './vault-storage';
 import {transferVault, TransferIO, Inventory} from './vault-transfer';
 import {
@@ -56,18 +57,52 @@ const legacyPair = () => {
 };
 const readFile = async (path: string) =>
   (await RNFS.exists(path)) ? RNFS.readFile(path, 'utf8') : null;
+export const requireLogicallyEmpty = async (paths: {
+  data: string;
+  crc: string;
+}) => {
+  const data = Buffer.from(
+    await RNFS.read(paths.data, 4, 0, 'base64'),
+    'base64',
+  );
+  const meta = Buffer.from(
+    await RNFS.read(paths.crc, 36, 0, 'base64'),
+    'base64',
+  );
+  if (data.length !== 4 || meta.length !== 36) throw new Error();
+  // Pinned core v2.0.0: current/alternate/last-confirmed load bounds. A live
+  // entry needs >=5 bytes (map prefix, key length/key, value length/value).
+  // Older metadata uses only the data header; future versions normalize to 3.
+  const sizes = [data.readUInt32LE(0)];
+  if (meta.readUInt32LE(4) >= 3)
+    sizes.push(meta.readUInt32LE(28), meta.readUInt32LE(32));
+  if (sizes.some(size => size >= 5)) throw new Error();
+};
 const inventory = async (): Promise<Inventory> => {
   try {
     const files = {data: false, crc: false};
+    let keys: string[] | undefined;
     const readPrimary = async (): Promise<string | null> => {
+      keys = [];
       const paths = legacyPair();
       files.data = await RNFS.exists(paths.data);
       files.crc = await RNFS.exists(paths.crc);
       if (!files.data && !files.crc) return null;
       if (!files.data || !files.crc) throw new Error();
-      legacy ??= new MMKV({id: 'mmkv.default', readOnly: true});
+      // Decision 9 permits only the library's ordinary writable-open recovery.
+      legacy ??= new MMKV({id: 'mmkv.default'});
       const raw = legacy.getString(ROOT) ?? null;
       if (raw === null && legacy.contains(ROOT)) throw new Error();
+      try {
+        keys = legacy.getAllKeys();
+      } catch {
+        keys = undefined;
+      }
+      if (raw === null) {
+        if (!keys) throw new Error();
+        // File evidence proves no recoverable live entries, not load success.
+        if (keys.length === 0) await requireLogicallyEmpty(paths);
+      }
       return raw;
     };
     let raw: string | null | undefined;
@@ -79,13 +114,6 @@ const inventory = async (): Promise<Inventory> => {
         raw = await readPrimary();
       } catch {
         raw = undefined;
-      }
-    }
-    let keys: string[] | undefined = raw === undefined ? undefined : [];
-    if (raw !== undefined && files.data && files.crc) {
-      try {
-        keys = legacy!.getAllKeys();
-      } catch {
         keys = undefined;
       }
     }
