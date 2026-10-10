@@ -8,11 +8,26 @@ import {
   retirementSlots,
 } from './vault-transfer';
 
+// Existing retirement assertions exercise the later enabled build unchanged.
+jest.mock('./vault-retirement-policy', () => ({
+  LEGACY_RETIREMENT_ENABLED: true,
+}));
+
 const fixture = require('../../test/vault/fixtures/legacy-14.32.json').cases
   .plain;
 const oldKey = 'synthetic-legacy-fixture-key';
 const newKey = Buffer.alloc(32, 72).toString('base64');
 const equal = (a: unknown, b: unknown) => expect(isEqual(a, b)).toBe(true);
+
+const loadTransfer = (enabled?: boolean): typeof transferVault => {
+  jest.resetModules();
+  if (enabled === undefined) jest.dontMock('./vault-retirement-policy');
+  else
+    jest.doMock('./vault-retirement-policy', () => ({
+      LEGACY_RETIREMENT_ENABLED: enabled,
+    }));
+  return require('./vault-transfer').transferVault;
+};
 
 function harness(source: 'mmkv' | 'async' | 'fresh' = 'mmkv') {
   let control: string | null = null;
@@ -907,6 +922,155 @@ it.each([
     equal(decodeSnapshot(h.destinations.root!, newKey).payload, fixture.state);
   },
 );
+
+it('D12: real disabled policy preserves every legacy location after verified activation and a cold reload', async () => {
+  const migrate = loadTransfer();
+  expect(require('./vault-retirement-policy').LEGACY_RETIREMENT_ENABLED).toBe(
+    false,
+  );
+  const h = harness();
+  const main = {...fixture.state, SNAPSHOT: {source: 'main'}};
+  const bak = {...fixture.state, SNAPSHOT: {source: 'bak'}};
+  h.state.sources.async = h.state.sources.mmkv;
+  h.state.sources.main = encodeSnapshot(main, oldKey);
+  h.state.sources.bak = encodeSnapshot(bak, oldKey);
+  h.state.sources.temp = 'synthetic old writer temp';
+  const original = JSON.parse(JSON.stringify(h.state));
+  const forbidden = jest.fn(() => {
+    throw new Error('retirement must not run');
+  });
+  h.io.sourceExists = forbidden;
+  h.io.claimColdRetirement = forbidden;
+  h.io.removeSource = forbidden;
+  h.io.removeLegacyKey = forbidden;
+  h.io.pending = forbidden;
+  await migrate(h.io);
+  expect(h.record()!.phase).toBe('active');
+  expect(h.record()!.owned).toBe(true);
+  expect(Object.values(h.record()!.release).every(Boolean)).toBe(true);
+  equal(decodeSnapshot(h.destinations.root!, newKey).payload, fixture.state);
+  equal(decodeSnapshot(h.destinations.main!, newKey).payload, main);
+  equal(decodeSnapshot(h.destinations.bak!, newKey).payload, bak);
+  equal(h.state, original);
+  expect(h.events.slice(h.events.indexOf('control:after:active') + 1)).toEqual([
+    'control:read',
+  ]);
+  expect(forbidden).not.toHaveBeenCalled();
+  const record = h.controlRaw();
+  h.io.inventory = forbidden;
+  h.io.legacyKeys = forbidden;
+  h.io.readDestination = forbidden;
+  h.io.writeDestination = forbidden;
+  h.cold();
+  h.events.length = 0;
+  expect((await loadTransfer()(h.io)) === newKey).toBe(true);
+  expect(h.events).toEqual(['control:read', 'key:read']);
+  expect(h.controlRaw() === record).toBe(true);
+  equal(h.state, original);
+  expect(forbidden).not.toHaveBeenCalled();
+});
+
+it.each([false, true])(
+  'D12: fresh installation with old temp present=%s stays active without cleanup',
+  async temp => {
+    const h = harness('fresh');
+    if (temp) h.state.sources.temp = 'synthetic leftover';
+    await loadTransfer()(h.io);
+    expect(h.record()!.phase).toBe('active');
+    expect(h.state.sources.temp).toBe(temp ? 'synthetic leftover' : null);
+    expect(
+      h.events.some(
+        e =>
+          e.startsWith('retirement:') ||
+          e === 'pending' ||
+          e === 'legacy-key:remove',
+      ),
+    ).toBe(false);
+  },
+);
+
+it.each(['write failure', 'verification failure'])(
+  'D12: disabled cleanup cannot activate after %s',
+  async failure => {
+    const h = harness();
+    const write = h.io.writeDestination;
+    if (failure === 'write failure') h.fault('destination:after:root');
+    else h.io.writeDestination = (slot, raw) => write(slot, raw + 'corrupt');
+    await fails(() => loadTransfer()(h.io));
+    expect(h.record()!.phase).toBe('preparing');
+    expect(h.state.sources.mmkv === fixture.raw).toBe(true);
+    expect(h.events.includes('control:after:active')).toBe(false);
+    expect(h.events.some(e => e.startsWith('retirement:'))).toBe(false);
+    h.fault(null);
+    h.io.writeDestination = write;
+    await loadTransfer()(h.io);
+    expect(h.record()!.phase).toBe('active');
+    expect(h.events.filter(e => e === 'key:create').length).toBe(1);
+  },
+);
+
+it.each(['main', 'async'] as const)(
+  'D12: later enabled build uses saved permissions and retains late %s material',
+  async late => {
+    const h = harness();
+    h.state.sources.bak = fixture.raw;
+    await loadTransfer()(h.io);
+    const record = h.controlRaw();
+    const root = h.destinations.root;
+    const key = h.keyValue();
+    h.state.sources.mmkv = 'changed permitted old contents';
+    h.state.sources.bak = 'changed permitted backup';
+    h.state.sources[late] = 'late non-permitted material';
+    h.state.sources.temp = 'late disposable writer temp';
+    const forbidden = jest.fn(() => {
+      throw new Error('no second migration');
+    });
+    h.io.inventory = forbidden;
+    h.io.legacyKeys = forbidden;
+    h.io.writeDestination = forbidden;
+    h.cold();
+    await loadTransfer(true)(h.io);
+    expect(h.state.files).toEqual({data: false, crc: false});
+    expect(h.state.sources.bak).toBe(null);
+    expect(h.state.sources.temp).toBe(null);
+    expect(h.state.sources[late]).toBe('late non-permitted material');
+    expect(h.controlRaw() === record).toBe(true);
+    expect(h.events.includes('legacy-key:remove')).toBe(false);
+    expect(h.events.includes('pending')).toBe(true);
+    expect(h.destinations.root === root && h.keyValue() === key).toBe(true);
+    expect(forbidden).not.toHaveBeenCalled();
+    h.state.sources[late] = null;
+    await loadTransfer(true)(h.io);
+    expect(h.record()!.phase).toBe('retired');
+    expect(h.events.includes('legacy-key:remove')).toBe(true);
+    expect(forbidden).not.toHaveBeenCalled();
+  },
+);
+
+it('D12: disabled build preserves an already-retired record and validates its modern key', async () => {
+  const h = harness('fresh');
+  await loadTransfer(true)(h.io);
+  const record = h.controlRaw();
+  expect(h.record()!.phase).toBe('retired');
+  h.events.length = 0;
+  await loadTransfer()(h.io);
+  expect(h.controlRaw() === record).toBe(true);
+  expect(h.events).toEqual(['control:read', 'key:read']);
+  h.loseKey();
+  await fails(() => loadTransfer()(h.io));
+  expect(h.controlRaw() === record).toBe(true);
+});
+
+it('D12: disabled build still rejects a version-2 control without source access', async () => {
+  const h = harness('fresh');
+  await loadTransfer()(h.io);
+  const record = JSON.stringify({...h.record(), version: 2});
+  h.setControl(record);
+  h.events.length = 0;
+  await fails(() => loadTransfer()(h.io), 'STARTUP_FAILURE');
+  expect(h.controlRaw() === record).toBe(true);
+  expect(h.events).toEqual(['control:read']);
+});
 
 it.each([
   'presence before unlink',

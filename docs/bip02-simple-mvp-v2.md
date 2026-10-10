@@ -6,18 +6,29 @@ Codec, key and sanitized reporting reuse is from
 provenance are retained in `test/vault/fixtures`. No reference coordinator,
 scrubber, SQLite cleaner, provider patch or receipt machinery is included.
 
-The native-reader repair implements decisions 8–11. The approved RNFS 2.20.0
+Decision 12's first-release hold is based on the pinned `13b6110` tree, not
+current upstream `develop`. Integration into the eventual shipping branch,
+including the seven pre-MVP Encryption commits, is a separate task. This change
+does not validate those commits in a distributed application or authorize any
+rebase, merge, compatibility rewrite, or remigration mechanism.
+
+The preceding native-reader repair implements decisions 8–11. The approved RNFS
+2.20.0
 patch changes only the bounded reader's length and position arguments from
 integer pointers to scalar integers. The rebuilt iOS application and Android
 test carrier passed 17 real-file assertions and the warm/reload/cold lifecycle
-sequence. The exact metadata-version-3 rejection cases are covered in both the
+sequence; its external execution evidence was inspected for this continuation.
+Those earlier guard demonstrations directly remove synthetic files and do not
+prove that the production retirement hold is respected. The exact metadata-version-3
+rejection cases are covered in both the
 runtime suite and native integration table. The external report preserves the
 original failures, successful retries, binary identities and remaining gates.
 
-Local iOS validation used decision 11's checksum-only Podfile.lock accommodation
+Local iOS validation uses decision 11's checksum-only Podfile.lock accommodation
 with the normal manifest check enabled. That adjustment is excluded from this
 repair commit. The permanent CocoaPods baseline correction still needs a team
 owner and must be resolved in the shipping checkout; this is not rollout approval.
+A correction on another upstream branch does not change this pinned checkout.
 
 ## Storage and handover
 
@@ -67,7 +78,41 @@ An active record never reimports legacy
 sources, even when all modern data disappears. Modern loading uses only the
 verified random Keychain key and authenticated modern envelopes.
 
-## Retirement boundary
+## First-release retirement hold
+
+`vault-retirement-policy.ts` exports the build-fixed
+`LEGACY_RETIREMENT_ENABLED = false`. Conversion and verified activation run as
+before, but `retire()` returns before any legacy existence scan, native claim,
+removal or pending callback. It emits no informational, failure, pending or
+completed-retirement message for the hold. A successful migration leaves the
+version-3 record active with its original ownership, copy map and deletion
+permissions. Later active launches validate the modern key and use modern data
+without opening or inventorying legacy sources or rewriting that record.
+Already-retired records remain retired; disabling cleanup cannot undo deletion
+performed by an earlier internal build.
+
+The old MMKV wallet and standalone logs, old main/bak/temp files, AsyncStorage
+row and old credential remain. Their weak-key copies stay exposed under the
+original threat model: this first release is not BIP-02 completion. Existing
+Android residual and unresolved-source limitations remain open. Holding
+application-driven deletion reduces that source of irreversible loss; it does
+not prevent decision 9's ordinary native repair/discard before activation.
+
+Retained data is a stale snapshot, not an automatic fallback or synchronized
+rollback. It lacks modern-only wallets or changes made after handover. Legacy
+edits are never imported into an active modern layout, including after total
+modern-data loss. Missing modern keys still stop; valid-key ordinary empty-app
+behavior is unchanged. No nonce, counter, replay route or older-build detector
+is implemented or prepared.
+
+## Enabled retirement boundary — later release only
+
+A later owner decision and physical-device validation are required before enabling
+retirement. Tests select the enabled policy through module isolation; the shipped
+constant remains false. Already-active installations use their saved permissions
+without another inventory or conversion. Users who skip the first release still
+perform migration and cleanup in the same enabled build, subject to the existing
+native guard; no per-install waiting period is introduced.
 
 MMKV 3.3.1's `MmkvHostObject` destructor syncs and clears its cache; it does not
 close the underlying instance. The small `react-native-mmkv+3.3.1.patch` adds a
@@ -76,8 +121,8 @@ Any default-instance construction marks it opened, including a failed attempt.
 The retirement claim succeeds only before any such access and permanently seals
 subsequent default-instance construction for that process. It is not a close API.
 
-Preparation opens the old instance writable, so its file retirement normally
-waits for a cold launch. Before either unlink, the unchanged native guard must
+Preparation still opens the old instance writable. When retirement is enabled,
+file removal normally waits for a cold launch. Before either unlink, the unchanged native guard must
 permit removal. Pending retirement checks existence only, without rereading or
 hashing contents; a changed permitted original is still disposable. A partial
 pair removal can retry from
@@ -98,7 +143,8 @@ No further parsing or exceptions are added. A location
 observed physically absent has no deletion permission if material later appears
 there; unresolved or late-arriving present material keeps retirement pending. A
 non-permitted location that is absent needs no removal. The exact old writer
-`persist-root.json.tmp` is the sole unconditional discard exception after activation,
+`persist-root.json.tmp` is the sole unconditional discard exception after activation
+when enabled,
 even if it appears later; it is never a source or a fresh-install blocker. Modern
 temps and unrelated files/instances are untouched. Each deletion is followed by
 an absence check, and all required locations must be confirmed absent before
@@ -121,6 +167,19 @@ and checked only after every covered source obligation is absent.
 | Modern-only transform wiring | Existing transform call-signature assertions now include the strict argument; base crypto compatibility tests retained |
 | Native process guard | `test/vault/legacy-instance-guard.cpp`; actual patched header, distinct process invocations |
 | Real MMKV native lifecycle | `test/vault/native-entry.js`; device probe described below, not covered by mocks |
+| Disabled first migration/cold launch, no cleanup warnings, saved-permission transition to an enabled build | `vault-transfer.spec.ts`, `vault-runtime.spec.ts`; real unmocked disabled policy plus isolated enabled tests |
+
+Decision-12 native validation uses a temporary external test entry that calls the
+actual production runtime with synthetic native storage and observes primitive
+operations. First migration and cold launch are separate checks; the existing
+direct-unlink guard probe is not repurposed as a production control. The external
+report separates these runs from Jest models and earlier decision-11 evidence.
+On fresh dedicated iOS/Android virtual installations, first migration retained
+every seeded legacy source and credential after independent destination
+verification; a cold process preserved the control/key and performed no legacy
+operations or cleanup reporting. The driver independently checked retained files;
+its fixture reads are not production-runtime reads. These are not older-build
+installation or physical-device continuity results.
 
 The old reference's receipt, in-place scrub, SQLite and broad state-campaign tests
 do not describe this architecture and were not imported. Its relevant historical
@@ -149,17 +208,38 @@ It does not establish packaged-upgrade, signing, low-space or performance gates.
 
 ## Limitations and release gates
 
-Retained undecodable backups, unresolved AsyncStorage rows, late arrivals at
+Internal old → new → same old → new continuity is limited to an identified,
+compatible upstream build from before both the seven unmerged Encryption commits
+and this migration, using its actual approved in-place distribution route and
+synthetic unfunded data. A numerically older version, source tag, `ad06764`, or
+intermediate BIP-02 build is not that evidence. Installation identity, signing
+and access groups must remain compatible; uninstalling or clearing data is not a
+continuity test. Start with an intact old layout, since the hold cannot recreate
+what an earlier internal build removed.
+
+The physical continuity sequence was not run: the owner reported the required
+approved artifacts/device setup unavailable. TestFlight previous-build availability
+and Android downgrade eligibility have not been established. No distributed
+baseline is inferred from a tag. A lab reconstruction, if separately authorized,
+would not be an unmodified released-artifact downgrade. Modern-only changes must
+survive a real sequence, while legacy-only changes must never be reimported;
+ordinary modern startup/log/backup writes must be distinguished from interference
+by the old build. Later enabled deletion still applies only at already-permitted
+locations plus the exact old temp exception; non-permitted late material remains.
+
+When enabled, retained undecodable backups, unresolved AsyncStorage rows, late arrivals at
 non-permitted locations and unknown old keys may keep retirement pending while
-they exist. The exact old writer temp is disposable after activation. No Android SQLite
+they exist. The exact old writer temp is disposable after activation only when
+retirement is enabled. No Android SQLite
 residual-byte cleanup or stock-provider patch is included, and deleting a
 credential does not secure device-ID-decryptable residue. No flash-erasure claim
 is made. Old standalone logs are dropped only with eligible instance retirement.
 
 Ordinary JSON-readable backups can fail later in decryption without selecting a
 different snapshot. With valid control/key state and no usable modern data, the
-ordinary empty-app behavior remains. Missing modern keys are errors. No downgrade
-to a binary unable to read the activated layout is supported.
+ordinary empty-app behavior remains. Missing modern keys are errors. Public
+downgrade remains unsupported; the bounded internal continuity test above is
+not a general rollback or synchronization guarantee.
 
 Implementation submission, native lifecycle validation and release approval are
 separate states. Native builds, actual lifecycle checks on both platforms, signed

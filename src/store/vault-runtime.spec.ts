@@ -5,9 +5,22 @@ jest.mock('react-native', () => ({
   Platform: {OS: 'android'},
   TurboModuleRegistry: {
     getEnforcing: (name: string) => {
-      if (name === 'MmkvCxx') return {claimLegacyRetirement: () => !mockWarm};
+      if (name === 'MmkvCxx')
+        return {
+          claimLegacyRetirement: () => {
+            mockEvents.push('retirement:claim');
+            if (mockForbidLegacy) throw new Error('legacy access forbidden');
+            return !mockWarm;
+          },
+        };
       if (name === 'MmkvPlatformContext')
-        return {getBaseDirectory: () => '/synthetic/mmkv'};
+        return {
+          getBaseDirectory: () => {
+            mockEvents.push('legacy:directory');
+            if (mockForbidLegacy) throw new Error('legacy directory forbidden');
+            return '/synthetic/mmkv';
+          },
+        };
       throw new Error('Unexpected module');
     },
   },
@@ -18,6 +31,8 @@ const mockFiles = new Map<string, string | Buffer>();
 const mockRows = new Map<string, string>();
 const mockCredentials = new Map<string, any>();
 const mockEvents: string[] = [];
+const mockWarnings: string[] = [];
+let mockForbidLegacy = false;
 let mockWarm = false;
 let mockOldKeyFailure = false;
 let mockSetFailure = false;
@@ -48,6 +63,7 @@ jest.mock('react-native-mmkv', () => ({
       this.id = config.id;
       mockEvents.push('open:' + this.id);
       if (this.id === 'mmkv.default') {
+        if (mockForbidLegacy) throw new Error('legacy open forbidden');
         mockWarm = true;
         mockEvents.push('legacy:readOnly:' + Boolean(config.readOnly));
       }
@@ -65,6 +81,7 @@ jest.mock('react-native-mmkv', () => ({
       return this.values.has(k);
     }
     getString(k: string) {
+      mockEvents.push('read:' + this.id + ':' + k);
       if (this.id === 'mmkv.default' && k === 'persist:root') {
         mockPrimaryReads++;
         mockSilentPrimary = mockSilentPrimaryFailures-- > 0;
@@ -92,6 +109,8 @@ jest.mock('react-native-fs', () => ({
   exists: async (p: string) => {
     const present = mockFiles.has(p);
     mockEvents.push('file:exists:' + p + ':' + present);
+    if (mockForbidLegacy && !p.includes('/redux-v2/'))
+      throw new Error('legacy existence scan forbidden');
     return present;
   },
   read: async (
@@ -101,6 +120,7 @@ jest.mock('react-native-fs', () => ({
     encoding: string,
   ) => {
     mockBookkeepingReads.push([p, length, position, encoding]);
+    if (mockForbidLegacy) throw new Error('legacy bounded read forbidden');
     if (p === mockBookkeepingFailure || !mockFiles.has(p))
       throw new Error('synthetic bookkeeping read failure');
     const value = mockFiles.get(p)!;
@@ -110,6 +130,8 @@ jest.mock('react-native-fs', () => ({
   },
   readFile: async (p: string) => {
     mockFileReads.push(p);
+    if (mockForbidLegacy && !p.includes('/redux-v2/'))
+      throw new Error('legacy content read forbidden');
     const value = mockFiles.get(p);
     return Buffer.isBuffer(value)
       ? new (require('util').TextDecoder)('utf-8', {fatal: true}).decode(value)
@@ -134,17 +156,26 @@ jest.mock('react-native-fs', () => ({
   mkdir: async () => {},
   unlink: async (p: string) => {
     mockEvents.push('file:unlink:' + p);
+    if (mockForbidLegacy) throw new Error('legacy unlink forbidden');
     mockFiles.delete(p);
   },
 }));
 jest.mock('@react-native-async-storage/async-storage', () => ({
   getItem: async (key: string) => {
+    mockEvents.push('async:read');
+    if (mockForbidLegacy) throw new Error('legacy row read forbidden');
     if (mockAsyncReadFailure)
       throw new Error('synthetic required AsyncStorage failure');
     return mockRows.get(key) ?? null;
   },
-  getAllKeys: async () => [...mockRows.keys()],
+  getAllKeys: async () => {
+    mockEvents.push('async:keys');
+    if (mockForbidLegacy) throw new Error('legacy row inventory forbidden');
+    return [...mockRows.keys()];
+  },
   removeItem: async (key: string) => {
+    mockEvents.push('async:remove');
+    if (mockForbidLegacy) throw new Error('legacy row removal forbidden');
     mockRows.delete(key);
   },
   multiRemove: () => {
@@ -153,10 +184,17 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 jest.mock('react-native-device-info', () => ({
   ...require('react-native-device-info/jest/react-native-device-info-mock'),
-  getUniqueId: () => 'synthetic-legacy-fixture-key',
+  getUniqueId: () => {
+    mockEvents.push('legacy:device-id');
+    if (mockForbidLegacy) throw new Error('legacy candidate lookup forbidden');
+    return 'synthetic-legacy-fixture-key';
+  },
 }));
 jest.mock('react-native-keychain', () => ({
   getGenericPassword: async ({service}: any) => {
+    mockEvents.push('key:read:' + service);
+    if (service === 'bitpay-app-encryption-key' && mockForbidLegacy)
+      throw new Error('legacy credential lookup forbidden');
     if (service === 'bitpay-app-encryption-key' && mockOldKeyFailure)
       throw new Error('native sensitive error');
     if (service === 'bitpay-app-vault-key-v1' && mockKeyMissing) return false;
@@ -180,6 +218,9 @@ jest.mock('react-native-keychain', () => ({
     return {storage: options.storage};
   },
   resetGenericPassword: async ({service}: any) => {
+    mockEvents.push('key:remove:' + service);
+    if (mockForbidLegacy)
+      throw new Error('legacy credential removal forbidden');
     mockCredentials.delete(service);
     return true;
   },
@@ -189,11 +230,23 @@ jest.mock('react-native-keychain', () => ({
 }));
 jest.mock('./log/initLogs', () => ({add: jest.fn()}));
 jest.mock('./log', () => ({
-  LogActions: {persistLog: (x: any) => x, warn: () => ({})},
+  LogActions: {
+    persistLog: (x: any) => x,
+    warn: (message: string) => {
+      mockWarnings.push(message);
+      return {};
+    },
+  },
 }));
 
 beforeEach(() => {
   jest.resetModules();
+  // Preserve the existing enabled-retirement behavioral assertions.
+  jest.doMock('./vault-retirement-policy', () => ({
+    LEGACY_RETIREMENT_ENABLED: true,
+  }));
+  mockForbidLegacy = false;
+  mockWarnings.length = 0;
   mockStores.clear();
   mockFiles.clear();
   mockRows.clear();
@@ -218,6 +271,10 @@ beforeEach(() => {
       false;
 });
 const start = () => require('./vault-runtime').prepareModernVault();
+const shippingPolicy = () => {
+  jest.dontMock('./vault-retirement-policy');
+  jest.resetModules();
+};
 const modernRoot = () =>
   mockStores.get('bitpay.wallet.v2')?.get('persist:root');
 const seed = () => {
@@ -561,6 +618,168 @@ const bookkeep = (
 };
 const transferRecord = () =>
   JSON.parse(mockStores.get('bitpay.wallet.transfer.v2')!.get('transfer')!);
+
+it('D12: real default holds every old source after activation and never touches it on a cold launch', async () => {
+  shippingPolicy();
+  expect(require('./vault-retirement-policy').LEGACY_RETIREMENT_ENABLED).toBe(
+    false,
+  );
+  seed();
+  mockRows.set('persist:root', fixture.raw);
+  mockCredentials.set('bitpay-app-encryption-key', {password: legacyKey});
+  const {encodeSnapshot, decodeSnapshot} = require('./vault-codec');
+  const main = {...fixture.state, SNAPSHOT: {source: 'main'}};
+  const bak = {...fixture.state, SNAPSHOT: {source: 'bak'}};
+  const oldBase = '/cache/bitpay/redux/persist-root.json';
+  mockFiles.set(oldBase, encodeSnapshot(main, legacyKey));
+  mockFiles.set(oldBase + '.bak', encodeSnapshot(bak, legacyKey));
+  mockFiles.set(oldBase + '.tmp', 'synthetic old writer temp');
+  const oldFiles = new Map(mockFiles);
+  const key = await start();
+  expect(transferRecord().phase).toBe('active');
+  expect(Object.values(transferRecord().release).every(Boolean)).toBe(true);
+  expect(
+    isEqual(decodeSnapshot(modernRoot(), key).payload, fixture.state),
+  ).toBe(true);
+  for (const [slot, payload] of [
+    ['', main],
+    ['.bak', bak],
+  ] as const) {
+    const raw = mockFiles.get(
+      '/cache/bitpay/redux-v2/persist-root.json' + slot,
+    );
+    expect(isEqual(decodeSnapshot(raw, key).payload, payload)).toBe(true);
+  }
+  for (const [path, bytes] of oldFiles)
+    expect(mockFiles.get(path) === bytes).toBe(true);
+  expect(mockRows.get('persist:root') === fixture.raw).toBe(true);
+  expect(mockStores.get('mmkv.default')!.get('persist:logs')).toBe(
+    'old standalone logs',
+  );
+  expect(mockCredentials.has('bitpay-app-encryption-key')).toBe(true);
+  expect(mockEvents.slice(mockEvents.indexOf('control:active') + 1)).toEqual([
+    'read:bitpay.wallet.transfer.v2:transfer',
+  ]);
+  expect(mockWarnings).toEqual([]);
+  expect(require('./log/initLogs').add).not.toHaveBeenCalled();
+  const record = mockStores.get('bitpay.wallet.transfer.v2')!.get('transfer');
+  const root = modernRoot();
+  const reads = mockPrimaryReads;
+  mockForbidLegacy = true;
+  mockWarm = false;
+  mockEvents.length = 0;
+  mockFileReads.length = 0;
+  mockBookkeepingReads.length = 0;
+  jest.resetModules();
+  expect((await start()) === key).toBe(true);
+  expect(mockEvents).toEqual([
+    'open:bitpay.wallet.v2',
+    'open:bitpay.wallet.transfer.v2',
+    'read:bitpay.wallet.transfer.v2:transfer',
+    'key:read:bitpay-app-vault-key-v1',
+  ]);
+  expect(mockPrimaryReads).toBe(reads);
+  expect(mockFileReads).toEqual([]);
+  expect(mockBookkeepingReads).toEqual([]);
+  expect(mockWarnings).toEqual([]);
+  expect(require('./log/initLogs').add).not.toHaveBeenCalled();
+  expect(
+    mockStores.get('bitpay.wallet.transfer.v2')!.get('transfer') === record,
+  ).toBe(true);
+  const storage = require('./vault-storage');
+  expect(storage.isVaultActive()).toBe(true);
+  expect(storage.modernStorage.getString('persist:root') === root).toBe(true);
+});
+
+it('D12: retained older-build edits and total modern-data loss never replay legacy data', async () => {
+  shippingPolicy();
+  seed();
+  mockCredentials.set('bitpay-app-encryption-key', {password: legacyKey});
+  const key = await start();
+  const {encodeSnapshot, decodeSnapshot} = require('./vault-codec');
+  const modern = {...fixture.state, SNAPSHOT: {source: 'modern-only'}};
+  mockStores
+    .get('bitpay.wallet.v2')!
+    .set('persist:root', encodeSnapshot(modern, key));
+  mockStores
+    .get('mmkv.default')!
+    .set(
+      'persist:root',
+      encodeSnapshot(
+        {...fixture.state, SNAPSHOT: {source: 'legacy-only'}},
+        legacyKey,
+      ),
+    );
+  mockForbidLegacy = true;
+  mockWarm = false;
+  jest.resetModules();
+  await start();
+  expect(isEqual(decodeSnapshot(modernRoot(), key).payload, modern)).toBe(true);
+  mockStores.get('bitpay.wallet.v2')!.delete('persist:root');
+  mockFiles.delete('/cache/bitpay/redux-v2/persist-root.json');
+  mockFiles.delete('/cache/bitpay/redux-v2/persist-root.json.bak');
+  jest.resetModules();
+  expect((await start()) === key).toBe(true);
+  expect(modernRoot()).toBeUndefined();
+  expect(transferRecord().phase).toBe('active');
+  expect(mockPrimaryReads).toBe(1);
+  mockKeyMissing = true;
+  mockEvents.length = 0;
+  jest.resetModules();
+  await fails(start, 'MODERN_KEY_FAILURE');
+  expect(mockEvents.some(e => e.startsWith('key:write'))).toBe(false);
+  expect(mockPrimaryReads).toBe(1);
+  expect(mockCredentials.has('bitpay-app-encryption-key')).toBe(true);
+  expect(mockWarnings).toEqual([]);
+});
+
+it('D12: enabled cold build retires saved permitted locations without another source inspection', async () => {
+  shippingPolicy();
+  seed();
+  mockRows.set('persist:root', fixture.raw);
+  mockFiles.set('/cache/bitpay/redux/persist-root.json', fixture.raw);
+  mockCredentials.set('bitpay-app-encryption-key', {password: legacyKey});
+  const key = await start();
+  const root = modernRoot();
+  const release = transferRecord().release;
+  mockFiles.set(
+    '/cache/bitpay/redux/persist-root.json',
+    'changed permitted backup',
+  );
+  mockFiles.set(
+    '/cache/bitpay/redux/persist-root.json.tmp',
+    'late disposable temp',
+  );
+  mockFileReads.length = 0;
+  mockBookkeepingReads.length = 0;
+  mockEvents.length = 0;
+  mockWarm = false;
+  jest.doMock('./vault-retirement-policy', () => ({
+    LEGACY_RETIREMENT_ENABLED: true,
+  }));
+  jest.resetModules();
+  expect((await start()) === key).toBe(true);
+  expect(transferRecord().phase).toBe('retired');
+  expect(transferRecord().release).toEqual(release);
+  expect(modernRoot() === root).toBe(true);
+  expect(mockPrimaryReads).toBe(1);
+  expect(mockEvents.includes('open:mmkv.default')).toBe(false);
+  expect(mockFileReads).toEqual([]);
+  expect(mockBookkeepingReads).toEqual([]);
+  expect(mockRows.has('persist:root')).toBe(false);
+  expect(mockFiles.has(oldPair) || mockFiles.has(oldPair + '.crc')).toBe(false);
+  expect(mockCredentials.has('bitpay-app-encryption-key')).toBe(false);
+  expect(mockWarnings).toEqual([]);
+});
+
+it('D12: enabled warm cleanup keeps the existing pending warning', async () => {
+  seed();
+  await start();
+  expect(mockWarnings).toEqual([
+    'Vault migration deferred: CLEANUP_DEFERRED (cleanup)',
+  ]);
+  expect(transferRecord().phase).toBe('active');
+});
 
 it('Native reader: uses ordinary writable open and transfers the healthy primary', async () => {
   seed();

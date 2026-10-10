@@ -1,6 +1,7 @@
 import isEqual from 'lodash.isequal';
 import {decodeSnapshot, reencryptSnapshot, verifySnapshot} from './vault-codec';
 import {safeVaultError, vaultError} from './vault-diagnostics';
+import {LEGACY_RETIREMENT_ENABLED} from './vault-retirement-policy';
 
 export const sourceSlots = ['mmkv', 'async', 'main', 'bak'] as const;
 export const destinationSlots = ['root', 'main', 'bak'] as const;
@@ -233,7 +234,7 @@ function plan(inventory: Inventory, candidates: string[]): TransferRecord {
 }
 
 async function retire(io: TransferIO, record: TransferRecord) {
-  if (record.phase === 'retired') return;
+  if (!LEGACY_RETIREMENT_ENABLED || record.phase === 'retired') return;
   let pending = false;
   const remove = async (slot: Retirement) => {
     if (!(await io.sourceExists(slot))) return;
