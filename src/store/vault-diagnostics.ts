@@ -73,17 +73,21 @@ export const vaultDeferredMessage = (code: VaultCode, phase: VaultPhase) =>
   `Vault migration deferred: ${code} (${phase})`;
 
 export const reportVaultStartupFailure = (error: unknown): void => {
-  const known = diagnostics.get(error as Error);
-  // Construct a fresh reporting object even for classified errors. A caller
-  // may have attached a cause/stack or replaced a property after creation.
-  const safe = vaultError(
-    known?.code ?? 'STARTUP_FAILURE',
-    known?.phase ?? 'startup',
-    known?.reason,
-    known?.source,
-  );
-  const diagnostic = diagnostics.get(safe)!;
   try {
+    const known = diagnostics.get(error as Error);
+    if (!known) {
+      Sentry.captureException(error, {level: 'error'});
+      return;
+    }
+    // Construct a fresh reporting object even for classified errors. A caller
+    // may have attached a cause/stack or replaced a property after creation.
+    const safe = vaultError(
+      known.code,
+      known.phase,
+      known.reason,
+      known.source,
+    );
+    const diagnostic = diagnostics.get(safe)!;
     Sentry.captureException(safe, {
       level: 'error',
       tags: {

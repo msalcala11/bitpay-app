@@ -55,6 +55,16 @@ export async function backupFileExistsStrict(): Promise<boolean> {
   return checkBackupFileExists();
 }
 
+export async function backupFileSize(): Promise<number> {
+  for (const path of [FINAL_FILE, BACKUP_FILE]) {
+    if (await RNFS.exists(path)) {
+      const stat = await RNFS.stat(path);
+      return Number(stat.size) || 0;
+    }
+  }
+  return 0;
+}
+
 export function backupPersistRoot(rawJson: string): Promise<void> {
   requireVaultActive();
   backupQueue = backupQueue

@@ -104,6 +104,8 @@ edits are never imported into an active modern layout, including after total
 modern-data loss. Missing modern keys still stop; valid-key ordinary empty-app
 behavior is unchanged. No nonce, counter, replay route or older-build detector
 is implemented or prepared.
+Deleting a key or adding or changing its password after handover does not remove
+or strengthen its retained legacy copies.
 
 ## Enabled retirement boundary — later release only
 
