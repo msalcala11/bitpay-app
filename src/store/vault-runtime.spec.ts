@@ -26,6 +26,10 @@ let mockControlFailure = false;
 let mockKeyMissing = false;
 let mockPrimaryFailures = 0;
 let mockPrimaryReads = 0;
+let mockSilentPrimaryFailures = 0;
+let mockSilentPrimary = false;
+let mockBookkeepingFailure: string | undefined;
+const mockBookkeepingReads: Array<[string, number, number, string]> = [];
 let mockAsyncReadFailure = false;
 const mockFileReads: string[] = [];
 let mockHashCalls = 0;
@@ -45,7 +49,7 @@ jest.mock('react-native-mmkv', () => ({
       mockEvents.push('open:' + this.id);
       if (this.id === 'mmkv.default') {
         mockWarm = true;
-        if (!config.readOnly) throw new Error('legacy not read only');
+        mockEvents.push('legacy:readOnly:' + Boolean(config.readOnly));
       }
       if (!mockStores.has(this.id)) mockStores.set(this.id, new Map());
       this.values = mockStores.get(this.id)!;
@@ -53,14 +57,18 @@ jest.mock('react-native-mmkv', () => ({
     getAllKeys() {
       if (this.id === 'mmkv.default' && mockLegacyKeysFailure)
         throw new Error('synthetic key inventory failure');
+      if (this.id === 'mmkv.default' && mockSilentPrimary) return [];
       return [...this.values.keys()];
     }
     contains(k: string) {
+      if (this.id === 'mmkv.default' && mockSilentPrimary) return false;
       return this.values.has(k);
     }
     getString(k: string) {
       if (this.id === 'mmkv.default' && k === 'persist:root') {
         mockPrimaryReads++;
+        mockSilentPrimary = mockSilentPrimaryFailures-- > 0;
+        if (mockSilentPrimary) return undefined;
         if (mockPrimaryFailures > 0) {
           mockPrimaryFailures--;
           throw new Error('synthetic primary read failure');
@@ -85,6 +93,20 @@ jest.mock('react-native-fs', () => ({
     const present = mockFiles.has(p);
     mockEvents.push('file:exists:' + p + ':' + present);
     return present;
+  },
+  read: async (
+    p: string,
+    length: number,
+    position: number,
+    encoding: string,
+  ) => {
+    mockBookkeepingReads.push([p, length, position, encoding]);
+    if (p === mockBookkeepingFailure || !mockFiles.has(p))
+      throw new Error('synthetic bookkeeping read failure');
+    const value = mockFiles.get(p)!;
+    return (typeof value === 'string' ? Buffer.from(value) : value)
+      .slice(position, position + length)
+      .toString('base64');
   },
   readFile: async (p: string) => {
     mockFileReads.push(p);
@@ -178,6 +200,10 @@ beforeEach(() => {
   mockCredentials.clear();
   mockEvents.length = 0;
   mockPrimaryFailures = mockPrimaryReads = mockHashCalls = 0;
+  mockSilentPrimaryFailures = 0;
+  mockSilentPrimary = false;
+  mockBookkeepingFailure = undefined;
+  mockBookkeepingReads.length = 0;
   mockAsyncReadFailure = false;
   mockLegacyKeysFailure = false;
   mockPartialWritePath = undefined;
@@ -516,3 +542,174 @@ it('A follow-up: unreadable required output still fails content verification', a
     mockEvents.filter(e => e === 'key:write:bitpay-app-vault-key-v1').length,
   ).toBe(1);
 });
+
+const oldPair = '/synthetic/mmkv/mmkv.default';
+const bookkeep = (
+  header: number,
+  current: number,
+  last: number,
+  version = 4,
+) => {
+  const data = Buffer.alloc(64);
+  const metadata = Buffer.alloc(112);
+  data.writeUInt32LE(header, 0);
+  metadata.writeUInt32LE(version, 4);
+  metadata.writeUInt32LE(current, 28);
+  metadata.writeUInt32LE(last, 32);
+  mockFiles.set(oldPair, data);
+  mockFiles.set(oldPair + '.crc', metadata);
+};
+const transferRecord = () =>
+  JSON.parse(mockStores.get('bitpay.wallet.transfer.v2')!.get('transfer')!);
+
+it('Native reader: uses ordinary writable open and transfers the healthy primary', async () => {
+  seed();
+  mockFiles.set('/cache/bitpay/redux/persist-root.json', fixture.raw);
+  await start();
+  expect(mockEvents.includes('legacy:readOnly:false')).toBe(true);
+  expect(transferRecord().copies.root).toBe('mmkv');
+  expect(mockBookkeepingReads).toEqual([]);
+});
+
+it.each([
+  [0, 0, 0, 4, 0],
+  [0, 0, 0, 4, 2], // byte-identical files despite failed native loading
+  [4, 4, 4, 4, 0], // ordinary recovery to the empty map placeholder
+  [1, 2, 3, 4, 2], // bounds, not a whitelist of example sizes
+  [4, 900, 900, 2, 2], // pre-actual-size metadata ignores these fields
+  [4, 4, 4, 6, 2], // pinned loader normalizes future metadata to version 3
+])(
+  'Native reader: proves no live entries from sizes %i/%i/%i, version %i, silent failures %i',
+  async (header, current, last, version, failures) => {
+    bookkeep(header, current, last, version);
+    mockSilentPrimaryFailures = failures;
+    mockCredentials.set('bitpay-app-encryption-key', {password: legacyKey});
+    await start();
+    expect(mockPrimaryReads).toBe(1);
+    expect(mockBookkeepingReads).toEqual([
+      [oldPair, 4, 0, 'base64'],
+      [oldPair + '.crc', 36, 0, 'base64'],
+    ]);
+    expect(transferRecord().copies.root).toBe(null);
+    expect(transferRecord().release.data).toBe(true);
+    expect(transferRecord().release.crc).toBe(true);
+    expect(mockFiles.has(oldPair)).toBe(true);
+    jest.resetModules();
+    mockWarm = false;
+    await start();
+    expect(mockFiles.has(oldPair)).toBe(false);
+    expect(mockCredentials.has('bitpay-app-encryption-key')).toBe(false);
+    expect(mockPrimaryReads).toBe(1);
+  },
+);
+
+it.each(['main', 'bak', 'none'])(
+  'Native reader: unresolved partial-open result uses %s or stops, preserving both files and the credential',
+  async fallback => {
+    seed();
+    bookkeep(0, 5338, 4); // section 7: native reset the header, metadata still recovers the wallet
+    mockSilentPrimaryFailures = 2;
+    mockCredentials.set('bitpay-app-encryption-key', {password: legacyKey});
+    if (fallback !== 'none')
+      mockFiles.set(
+        '/cache/bitpay/redux/persist-root.json' +
+          (fallback === 'bak' ? '.bak' : ''),
+        fixture.raw,
+      );
+    if (fallback === 'none') {
+      await fails(start);
+      expect(mockEvents.includes('control:active')).toBe(false);
+      expect(mockEvents.some(e => e.startsWith('key:write'))).toBe(false);
+    } else {
+      const key = await start();
+      const {decodeSnapshot} = require('./vault-codec');
+      expect(
+        isEqual(decodeSnapshot(modernRoot(), key).payload, fixture.state),
+      ).toBe(true);
+      expect(transferRecord().copies.root).toBe(fallback);
+      expect(transferRecord().release.data).toBe(false);
+      expect(transferRecord().release.crc).toBe(false);
+      const reads = mockBookkeepingReads.length;
+      jest.resetModules();
+      mockWarm = false;
+      mockSilentPrimaryFailures = 0; // real access would now recover; activation must not reimport
+      await start();
+      expect(mockBookkeepingReads.length).toBe(reads);
+      expect(transferRecord().phase).toBe('active');
+    }
+    expect(mockPrimaryReads).toBe(2);
+    expect(mockFiles.has(oldPair) && mockFiles.has(oldPair + '.crc')).toBe(
+      true,
+    );
+    expect(mockCredentials.has('bitpay-app-encryption-key')).toBe(true);
+    expect(
+      mockStores.get('mmkv.default')!.get('persist:root') === fixture.raw,
+    ).toBe(true);
+    expect(mockEvents.some(e => e.startsWith('file:unlink:' + oldPair))).toBe(
+      false,
+    );
+  },
+);
+
+it('Native reader: a silent first failure gets one immediate retry and selects the recovered primary', async () => {
+  seed();
+  bookkeep(5338, 5338, 4);
+  mockSilentPrimaryFailures = 1;
+  mockFiles.set('/cache/bitpay/redux/persist-root.json', fixture.raw);
+  await start();
+  expect(mockPrimaryReads).toBe(2);
+  expect(transferRecord().copies.root).toBe('mmkv');
+  expect(transferRecord().release.data).toBe(true);
+});
+
+it.each([
+  [5, 0, 0, 4],
+  [0, 5, 0, 4],
+  [0, 0, 5, 4],
+  [5035, 5035, 4, 4], // legitimate empty journal after deleting its final key: not independently proved
+  [0, 5, 0, 3],
+  [0, 0, 5, 3],
+])(
+  'Native reader: cannot certify empty with a recoverable size %i/%i/%i (version %i)',
+  async (header, current, last, version) => {
+    bookkeep(header, current, last, version);
+    await fails(start);
+    expect(mockPrimaryReads).toBe(2);
+    expect(mockEvents.includes('control:active')).toBe(false);
+    expect(mockFiles.has(oldPair) && mockFiles.has(oldPair + '.crc')).toBe(
+      true,
+    );
+  },
+);
+
+it.each([
+  'data read',
+  'crc read',
+  'short data',
+  'short crc',
+  'missing crc',
+  'key list',
+])('Native reader: %s cannot establish logical emptiness', async kind => {
+  bookkeep(0, 0, 0);
+  if (kind === 'data read') mockBookkeepingFailure = oldPair;
+  if (kind === 'crc read') mockBookkeepingFailure = oldPair + '.crc';
+  if (kind === 'short data') mockFiles.set(oldPair, Buffer.alloc(3));
+  if (kind === 'short crc') mockFiles.set(oldPair + '.crc', Buffer.alloc(35));
+  if (kind === 'missing crc') mockFiles.delete(oldPair + '.crc');
+  if (kind === 'key list') mockLegacyKeysFailure = true;
+  await fails(start);
+  expect(mockEvents.includes('control:active')).toBe(false);
+  expect(mockFiles.has(oldPair)).toBe(true);
+  expect(mockPrimaryReads).toBe(kind === 'missing crc' ? 0 : 2);
+});
+
+it.each(['persist:logs', 'unknown'])(
+  'Native reader: an inspected %s entry is not an empty native result',
+  async entry => {
+    bookkeep(321, 321, 4);
+    mockStores.set('mmkv.default', new Map([[entry, 'synthetic value']]));
+    await start();
+    expect(mockBookkeepingReads).toEqual([]);
+    expect(transferRecord().release.data).toBe(entry === 'persist:logs');
+  },
+);

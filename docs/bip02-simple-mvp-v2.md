@@ -6,6 +6,19 @@ Codec, key and sanitized reporting reuse is from
 provenance are retained in `test/vault/fixtures`. No reference coordinator,
 scrubber, SQLite cleaner, provider patch or receipt machinery is included.
 
+The native-reader repair implements decisions 8–11. The approved RNFS 2.20.0
+patch changes only the bounded reader's length and position arguments from
+integer pointers to scalar integers. The rebuilt iOS application and Android
+test carrier passed 17 real-file assertions and the warm/reload/cold lifecycle
+sequence. The exact metadata-version-3 rejection cases are covered in both the
+runtime suite and native integration table. The external report preserves the
+original failures, successful retries, binary identities and remaining gates.
+
+Local iOS validation used decision 11's checksum-only Podfile.lock accommodation
+with the normal manifest check enabled. That adjustment is excluded from this
+repair commit. The permanent CocoaPods baseline correction still needs a team
+owner and must be resolved in the shipping checkout; this is not rollout approval.
+
 ## Storage and handover
 
 Normal consumers use `bitpay.wallet.v2`; ordinary backups use the cache
@@ -38,8 +51,9 @@ the old instance even when its wallet was readable. The old import thunk only sa
 completion gate after activation; it neither copies rows nor restarts the app.
 
 Each primary/main/bak replacement is checked for exact destination bytes and
-complete decoded equality against its own source. Originals stay untouched
-until verified activation. No checkpoint or fresh backup is created. Preparation
+complete decoded equality against its own source. Application code leaves originals
+untouched until verified activation; decision 9 permits the pinned library's own
+writable-open repair or discard. No checkpoint or fresh backup is created. Preparation
 replans from current sources on every retry with the existing verified key.
 Before saving a replacement plan, a source-role guard rejects losing the selected
 wallet or moving down MMKV → main → bak; AsyncStorage is not a backup rank. The
@@ -62,13 +76,25 @@ Any default-instance construction marks it opened, including a failed attempt.
 The retirement claim succeeds only before any such access and permanently seals
 subsequent default-instance construction for that process. It is not a close API.
 
-Preparation opens the old instance read-only, so its file retirement normally
+Preparation opens the old instance writable, so its file retirement normally
 waits for a cold launch. Before either unlink, the unchanged native guard must
 permit removal. Pending retirement checks existence only, without rereading or
 hashing contents; a changed permitted original is still disposable. A partial
 pair removal can retry from
 the active control record. Unknown old keys prevent whole-instance removal.
-An inspected empty or standalone-log-only instance remains disposable. A location
+An inspected standalone-log-only instance remains disposable. An empty native
+answer requires direct file evidence: every applicable current, alternate-header,
+and last-confirmed loading bound must be below the five bytes required for any
+live entry in the pinned decoder. This establishes logical emptiness, not native
+load success. Missing/short/unreadable evidence or larger bounds use the existing
+retry and fallback/stop path and grant neither old-pair deletion permission.
+An existing pair proved logically empty remains disposable. Decision 11 accepts
+conservative rejection of deletion-emptied journals with larger bounds, valid
+empty current views with unused larger alternate/last-confirmed bounds, and
+larger valid slices that decode to no live entries. These cases use the same
+single retry and backup fallback, or stop without a usable backup. Their old
+pair receives no deletion permission and its presence retains the old credential.
+No further parsing or exceptions are added. A location
 observed physically absent has no deletion permission if material later appears
 there; unresolved or late-arriving present material keeps retirement pending. A
 non-permitted location that is absent needs no removal. The exact old writer
@@ -98,8 +124,9 @@ and checked only after every covered source obligation is absent.
 
 The old reference's receipt, in-place scrub, SQLite and broad state-campaign tests
 do not describe this architecture and were not imported. Its relevant historical
-compatibility fixtures are exercised directly. No dependency or lockfile changes
-are required. Normal postinstall applies the narrowly scoped MMKV patch.
+compatibility fixtures are exercised directly. No dependency versions or committed
+lockfiles change. Normal postinstall applies the MMKV guard and approved RNFS
+bounded-read patches.
 
 Compile the portable native guard check from the repository root:
 
@@ -111,8 +138,9 @@ clang++ -std=c++17 -Wall -Wextra -Werror test/vault/legacy-instance-guard.cpp -o
 
 For native integration, use a dedicated synthetic test build whose Metro/bundle
 entry is `test/vault/native-entry.js`, retaining the app's registered component
-name. The probe uses its own `CachesDirectoryPath/bip02-native-lifecycle-proof`
-directory. Follow its displayed sequence: initial open, JavaScript reload with
+name. The probe uses its own `CachesDirectoryPath/bip02-native-read-proof-decision11`
+directory and tests the production predicate through RNFS before the lifecycle
+sequence. Follow its displayed sequence: initial open, JavaScript reload with
 the process alive, native process termination/relaunch, then another termination
 after the first unlink. The final stage checks cold reopen, partial deletion,
 rejected old-instance recreation, and preserved modern/unrelated files. Repeat
