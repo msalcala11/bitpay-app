@@ -30,6 +30,42 @@ repair commit. The permanent CocoaPods baseline correction still needs a team
 owner and must be resolved in the shipping checkout; this is not rollout approval.
 A correction on another upstream branch does not change this pinned checkout.
 
+## Integration onto develop `6c84ecc4`
+
+The separately authorised integration uses exactly
+`6c84ecc4c0bee99d599449a29f2c6447f451478a`, with React Native 0.87.1.
+The reviewed `0bf27a9` branch remains intact. The integration merges that develop
+commit after a trial replay encountered repeated persistence-transform and
+bootstrap conflicts. The source-selection, conversion, activation, version-3
+record, retirement hold and recovery boundaries below are unchanged. Earlier
+0.82.0 native evidence does not establish native behavior for this integration.
+
+Session logs now use the dedicated `bitpay.session-logs.v1` instance for
+`persist:logs`, the production opt-in preference and the cleanup marker. Early
+LogManager preference reads open only this instance. Preparation log entries
+remain in memory until activation; later appends, pruning, screen reads and
+cleanup all use this same instance. No preference or old standalone log is
+imported from the default instance, which only the coordinator opens. Existing
+unknown legacy keys remain subject to the unchanged retention rule.
+
+Upstream's `WALLET_SECRETS` reducer remains whole-encrypted, without nested
+field encryption or an addition to the plaintext allowlist. The unchanged
+codec accepts real develop writer output both after the first secrets-migration
+flush (flag false, inline secrets still present) and after its second flush
+(flag true, inline secrets removed). The integrated reader retains upstream's
+missing-secrets check and persistence pause/write-error safeguards, then calls
+its secrets rehydration lifecycle after successful bootstrap. Intermediate and
+historical states complete the existing two-flush move during normal startup.
+
+`vault-upstream.spec.ts` checks decoded equality, actual Redux REHYDRATE and
+secret restoration separately for both captured upstream states and every
+unchanged 14.32 fixture. `index.spec.ts`, `persistor.spec.ts` and the dedicated
+session-log tests cover failure preservation, activation gates and instance
+routing. Fixture provenance and reproduction instructions live beside the
+fixtures. Native build attempts, remaining device checks, baseline comparisons
+and the separate upstream backup-predicate correction are recorded in the
+external integration report; this is not release approval.
+
 ## Storage and handover
 
 Normal consumers use `bitpay.wallet.v2`; ordinary backups use the cache

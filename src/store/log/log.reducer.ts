@@ -2,7 +2,12 @@ import moment from 'moment';
 import {LogEntry, sanitizeLogMessage} from './log.models';
 import {LogActionType, LogActionTypes} from './log.types';
 import {appendPersistedLog} from './initLogs';
-import {modernStorage as storage, isVaultActive} from '../vault-storage';
+import {isVaultActive} from '../vault-storage';
+import {
+  isSessionLogsEnabled,
+  sessionLogsStorage as storage,
+  PERSISTED_SESSION_LOGS_STORAGE_KEY,
+} from '../../utils/sessionLogs';
 
 export const logReduxPersistBlackList = ['logs'];
 
@@ -20,6 +25,10 @@ export const logReducer = (
 ): LogState => {
   switch (action.type) {
     case LogActionTypes.ADD_LOG:
+      if (!isSessionLogsEnabled()) {
+        return state;
+      }
+
       const newLog = {
         timestamp: action.payload.timestamp,
         level: action.payload.level,
@@ -32,6 +41,10 @@ export const logReducer = (
       };
 
     case LogActionTypes.ADD_PERSISTED_LOG:
+      if (!isSessionLogsEnabled()) {
+        return state;
+      }
+
       // Persisted logs live under their own storage key so they survive
       // anything happening to persist:root
       const newPersistedLog = appendPersistedLog(action.payload);
@@ -52,7 +65,7 @@ export const logReducer = (
           : undefined;
         if (persistLogs) {
           storage.set(
-            'persist:logs',
+            PERSISTED_SESSION_LOGS_STORAGE_KEY,
             JSON.stringify(
               (JSON.parse(persistLogs) || []).filter(
                 (logEvent: LogEntry) => new Date(logEvent.timestamp) > weekAgo,

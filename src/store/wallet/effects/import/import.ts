@@ -22,6 +22,7 @@ import {
   isMatchedWallet,
   mapAbbreviationAndName,
 } from '../../utils/wallet';
+import {getBaseWalletIdFromTokenWalletId} from '../../utils/token-wallet-id';
 import {LogActions} from '../../../../store/log';
 import {
   deleteKey,
@@ -58,16 +59,6 @@ import {successPairingBitPayId} from '../../../bitpay-id/bitpay-id.actions';
 import {AppIdentity} from '../../../app/app.models';
 import {startUpdateAllKeyAndWalletStatus} from '../status/status';
 import {startGetRates} from '../rates/rates';
-import {
-  accessTokenSuccess,
-  coinbaseGetAccountsAndBalance,
-  coinbaseGetUser,
-} from '../../../coinbase';
-import {
-  CoinbaseEnvironment,
-  CoinbaseTokenProps,
-} from '../../../../api/coinbase/coinbase.types';
-import {coinbaseUpdateExchangeRate} from '../../../coinbase/coinbase.effects';
 import {hashPinLegacy} from '../../../../utils/pin';
 import {navigationRef} from '../../../../Root';
 import {
@@ -641,35 +632,6 @@ export const startMigration =
           errorStr = JSON.stringify(err);
         }
         logManager.info('Failed to migrate bitpay id: ' + errorStr);
-      }
-
-      // coinbase
-      try {
-        logManager.info('[startMigration] - Migrating Coinbase tokens');
-        const account = JSON.parse(
-          await RNFS.readFile(
-            cordovaStoragePath + 'coinbase-production',
-            'utf8',
-          ),
-        ) as {token: CoinbaseTokenProps};
-        dispatch(
-          accessTokenSuccess(CoinbaseEnvironment.production, account.token),
-        );
-        await dispatch(coinbaseGetUser());
-        await dispatch(coinbaseUpdateExchangeRate());
-        await dispatch(coinbaseGetAccountsAndBalance());
-        dispatch(
-          setHomeCarouselConfig({id: 'coinbaseBalanceCard', show: true}),
-        );
-        logManager.info('Successfully migrated Coinbase account');
-      } catch (err: unknown) {
-        let errorStr;
-        if (err instanceof Error) {
-          errorStr = err.message;
-        } else {
-          errorStr = JSON.stringify(err);
-        }
-        logManager.info('Failed to migrate Coinbase account: ' + errorStr);
       }
 
       dispatch(setOnboardingCompleted());
@@ -1699,10 +1661,20 @@ export const serverAssistedImport = async (
   });
 };
 
-const linkTokenToWallet = (tokens: Wallet[], wallets: Wallet[]) => {
+export const linkTokenToWallet = (tokens: Wallet[], wallets: Wallet[]) => {
   tokens.forEach(token => {
-    // find the associated wallet to add tokens too
-    const associatedWalletId = token.credentials.walletId.split('-0x')[0];
+    const tokenAddress = token.credentials.token?.address;
+    const associatedWalletId = tokenAddress
+      ? getBaseWalletIdFromTokenWalletId(
+          token.credentials.walletId,
+          tokenAddress,
+        )
+      : undefined;
+
+    if (!associatedWalletId) {
+      return;
+    }
+
     wallets = wallets.map((wallet: Wallet) => {
       if (wallet.credentials.walletId === associatedWalletId) {
         // push token walletId as reference - this is used later to build out nested overview lists
