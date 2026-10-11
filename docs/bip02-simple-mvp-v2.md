@@ -148,9 +148,13 @@ or strengthen its retained legacy copies.
 A later owner decision and physical-device validation are required before enabling
 retirement. Tests select the enabled policy through module isolation; the shipped
 constant remains false. Already-active installations use their saved permissions
-without another inventory or conversion. Users who skip the first release still
-perform migration and cleanup in the same enabled build, subject to the existing
-native guard; no per-install waiting period is introduced.
+without another inventory or conversion. With retirement enabled, an invocation
+that prepares the migration performs no legacy retirement. A later transfer
+invocation that starts from the saved active record may retire eligible sources.
+That invocation can occur through ordinary re-entry, including a Retry after an
+activation acknowledgment failure or an in-process JavaScript reload. This is not
+a cold-launch boundary or a power-loss durability guarantee. The existing native
+guard still applies; no per-install waiting period is introduced.
 
 MMKV 3.3.1's `MmkvHostObject` destructor syncs and clears its cache; it does not
 close the underlying instance. The small `react-native-mmkv+3.3.1.patch` adds a

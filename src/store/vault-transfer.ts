@@ -381,6 +381,5 @@ export async function transferVault(io: TransferIO): Promise<string> {
   }
   const active: TransferRecord = {...record, phase: 'active'};
   saveRecord(io, active);
-  await retire(io, active);
   return key;
 }

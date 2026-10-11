@@ -271,6 +271,12 @@ beforeEach(() => {
       false;
 });
 const start = () => require('./vault-runtime').prepareModernVault();
+const expectNoRetirementAfterActivation = () => {
+  expect(mockWarnings).toEqual([]);
+  expect(mockEvents.slice(mockEvents.indexOf('control:active') + 1)).toEqual([
+    'read:bitpay.wallet.transfer.v2:transfer',
+  ]);
+};
 const shippingPolicy = () => {
   jest.dontMock('./vault-retirement-policy');
   jest.resetModules();
@@ -316,6 +322,14 @@ it('direct AsyncStorage transfer preserves unrelated provider data and never ope
   );
   mockRows.set('persist:root', JSON.stringify(outer));
   mockRows.set('walletconnect', 'retained');
+  await start();
+  expectNoRetirementAfterActivation();
+  expect(mockRows.has('persist:root')).toBe(true);
+  expect(transferRecord().phase).toBe('active');
+  const initialEvents = [...mockEvents];
+  await start(); // Successful preparation is cached, not a second invocation.
+  expect(mockEvents).toEqual(initialEvents);
+  jest.resetModules();
   await start();
   expect(mockEvents.includes('open:mmkv.default')).toBe(false);
   expect(mockRows.get('walletconnect')).toBe('retained');
@@ -775,6 +789,10 @@ it('D12: enabled cold build retires saved permitted locations without another so
 it('D12: enabled warm cleanup keeps the existing pending warning', async () => {
   seed();
   await start();
+  expectNoRetirementAfterActivation();
+  expect(transferRecord().phase).toBe('active');
+  jest.resetModules();
+  await start();
   expect(mockWarnings).toEqual([
     'Vault migration deferred: CLEANUP_DEFERRED (cleanup)',
   ]);
@@ -932,3 +950,53 @@ it.each(['persist:logs', 'unknown'])(
     expect(transferRecord().release.data).toBe(entry === 'persist:logs');
   },
 );
+
+it('D14: same-process Retry may retire after active-record read-back failed', async () => {
+  const outer = JSON.parse(fixture.raw);
+  outer.APP = JSON.stringify(
+    JSON.stringify({
+      ...fixture.state.APP,
+      migrationMMKVStorageComplete: false,
+    }),
+  );
+  const source = JSON.stringify(outer);
+  mockRows.set('persist:root', source);
+  const {MMKV} = require('react-native-mmkv');
+  const read = MMKV.prototype.getString;
+  let failAcknowledgment = true;
+  const spy = jest
+    .spyOn(MMKV.prototype, 'getString')
+    .mockImplementation(function (this: {id: string}, ...args: unknown[]) {
+      const raw = read.apply(this, args);
+      if (
+        this.id === 'bitpay.wallet.transfer.v2' &&
+        failAcknowledgment &&
+        typeof raw === 'string' &&
+        JSON.parse(raw).phase === 'active'
+      ) {
+        failAcknowledgment = false;
+        throw new Error('synthetic activation acknowledgment failure');
+      }
+      return raw;
+    });
+  try {
+    await expect(start()).rejects.toThrow('STARTUP_FAILURE');
+    expectNoRetirementAfterActivation();
+    expect(transferRecord().phase).toBe('active');
+    expect(mockRows.get('persist:root') === source).toBe(true);
+    const modern = modernRoot();
+    const key = mockCredentials.get('bitpay-app-vault-key-v1');
+    await start(); // Failure clears the cached promise; no reload or cold reset.
+    expect(mockRows.has('persist:root')).toBe(false);
+    expect(transferRecord().phase).toBe('retired');
+    expect(modernRoot() === modern).toBe(true);
+    expect(mockCredentials.get('bitpay-app-vault-key-v1')).toBe(key);
+    expect(
+      mockEvents.filter(event => event === 'key:write:bitpay-app-vault-key-v1'),
+    ).toHaveLength(1);
+    expect(mockEvents.includes('open:mmkv.default')).toBe(false);
+    expect(mockWarnings).toEqual([]);
+  } finally {
+    spy.mockRestore();
+  }
+});

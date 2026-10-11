@@ -171,14 +171,30 @@ function harness(source: 'mmkv' | 'async' | 'fresh' = 'mmkv') {
   };
 }
 
+const expectNoRetirement = (h: ReturnType<typeof harness>) => {
+  expect(
+    h.events.filter(
+      event =>
+        event.startsWith('retirement:') ||
+        event === 'legacy-key:remove' ||
+        event === 'pending',
+    ),
+  ).toEqual([]);
+};
+
 it('transfers genuine AsyncStorage directly and removes only its committed row', async () => {
   const h = harness('async');
+  const source = h.state.sources.async;
   await transferVault(h.io);
+  expectNoRetirement(h);
+  expect(h.state.sources.async === source).toBe(true);
+  expect(h.record()!.phase).toBe('active');
   equal(decodeSnapshot(h.destinations.root!, newKey).payload, {
     ...fixture.state,
     APP: {...fixture.state.APP, migrationMMKVStorageComplete: false},
   });
   expect(h.state.sources.mmkv === null).toBe(true);
+  await transferVault(h.io);
   expect(h.state.sources.async === null).toBe(true);
   expect(h.record()!.phase).toBe('retired');
 });
@@ -222,6 +238,10 @@ it('accepts an exact interrupted duplicate without merging snapshots', async () 
     oldKey,
   );
   h.state.sources.async = h.state.sources.mmkv;
+  await transferVault(h.io);
+  expectNoRetirement(h);
+  expect(h.state.sources.async === h.state.sources.mmkv).toBe(true);
+  expect(h.record()!.phase).toBe('active');
   await transferVault(h.io);
   expect(h.state.sources.async === null).toBe(true);
 });
@@ -375,6 +395,11 @@ it('deletion and credential verification failures leave access usable and pendin
   const h = harness('async');
   h.fault('retirement:before:async');
   await transferVault(h.io);
+  expectNoRetirement(h);
+  expect(h.reached()).toBe(false);
+  expect(h.state.sources.async).not.toBeNull();
+  expect(h.record()!.phase).toBe('active');
+  await transferVault(h.io);
   expect(h.reached()).toBe(true);
   h.fault('legacy-key:remove');
   await transferVault(h.io);
@@ -402,6 +427,9 @@ it('fresh installation activates without fabricating a root or backup', async ()
   const h = harness('fresh');
   await transferVault(h.io);
   expect(Object.values(h.destinations).every(v => v === null)).toBe(true);
+  expectNoRetirement(h);
+  expect(h.record()!.phase).toBe('active');
+  await transferVault(h.io);
   expect(h.record()!.phase).toBe('retired');
 });
 
@@ -671,7 +699,9 @@ it.each(['mmkv', 'fresh'] as const)(
     const h = harness(source);
     h.state.sources.temp = 'unfinished old writer output';
     await transferVault(h.io);
-    expect(h.state.sources.temp === null).toBe(true);
+    expectNoRetirement(h);
+    expect(h.state.sources.temp).toBe('unfinished old writer output');
+    expect(h.record()!.phase).toBe('active');
     if (source === 'fresh') expect(h.destinations.root === null).toBe(true);
     else
       equal(
@@ -680,6 +710,7 @@ it.each(['mmkv', 'fresh'] as const)(
       );
     h.cold();
     await transferVault(h.io);
+    expect(h.state.sources.temp === null).toBe(true);
     expect(h.record()!.phase).toBe('retired');
     expect(h.events.includes('legacy-key:remove')).toBe(true);
   },
@@ -835,6 +866,11 @@ it('D: failed absence verification preserves modern access and pending retiremen
     }
     return present;
   };
+  await transferVault(h.io);
+  expectNoRetirement(h);
+  expect(reached).toBe(false);
+  expect(h.state.sources.async).not.toBeNull();
+  expect(h.record()!.phase).toBe('active');
   await transferVault(h.io);
   expect(reached).toBe(true);
   expect(h.record()!.phase).toBe('active');
@@ -1050,6 +1086,9 @@ it.each(['main', 'async'] as const)(
 it('D12: disabled build preserves an already-retired record and validates its modern key', async () => {
   const h = harness('fresh');
   await loadTransfer(true)(h.io);
+  expectNoRetirement(h);
+  expect(h.record()!.phase).toBe('active');
+  await loadTransfer(true)(h.io);
   const record = h.controlRaw();
   expect(h.record()!.phase).toBe('retired');
   h.events.length = 0;
@@ -1135,5 +1174,34 @@ it.each([
     expect(h.keyValue() === key).toBe(true);
     expect(h.events.filter(e => e === 'key:create').length).toBe(1);
     equal(decodeSnapshot(h.destinations.root!, newKey).payload, fixture.state);
+  },
+);
+
+it.each(['async', 'backup'] as const)(
+  'D14: %s-only migration retains its source until a later enabled invocation',
+  async source => {
+    const h = harness(source === 'async' ? 'async' : 'fresh');
+    const slot = source === 'async' ? 'async' : 'main';
+    if (slot === 'main') h.state.sources.main = fixture.raw;
+    const original = h.state.sources[slot];
+    await transferVault(h.io);
+    expectNoRetirement(h);
+    expect(h.state.sources[slot] === original).toBe(true);
+    expect(h.record()!.phase).toBe('active');
+    const modern = {...h.destinations};
+    const forbidden = jest.fn(async () => {
+      throw new Error('no replanning');
+    });
+    h.io.inventory = forbidden;
+    h.io.legacyKeys = forbidden;
+    await transferVault(h.io);
+    expect(h.state.sources[slot]).toBeNull();
+    expect(h.record()!.phase).toBe('retired');
+    expect(h.events.filter(event => event === 'key:create')).toHaveLength(1);
+    expect(
+      h.events.filter(event => event === 'legacy-key:remove'),
+    ).toHaveLength(1);
+    equal(h.destinations, modern);
+    expect(forbidden).not.toHaveBeenCalled();
   },
 );
