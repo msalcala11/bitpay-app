@@ -24,8 +24,9 @@ let requireEncryptedWalletSecrets = false;
 function hasEncryptedWalletSecrets(rawJson: string): boolean {
   try {
     const root = JSON.parse(rawJson);
-    const wallet =
+    let wallet =
       typeof root.WALLET === 'string' ? JSON.parse(root.WALLET) : root.WALLET;
+    if (typeof wallet === 'string') wallet = JSON.parse(wallet);
     return wallet?.secretsMigrated === true;
   } catch {
     return false;
