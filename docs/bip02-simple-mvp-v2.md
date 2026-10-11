@@ -45,8 +45,9 @@ Session logs now use the dedicated `bitpay.session-logs.v1` instance for
 LogManager preference reads open only this instance. Preparation log entries
 remain in memory until activation; later appends, pruning, screen reads and
 cleanup all use this same instance. No preference or old standalone log is
-imported from the default instance, which only the coordinator opens. Existing
-unknown legacy keys remain subject to the unchanged retention rule.
+imported from the default instance, which only the coordinator opens. The exact
+legacy names `sessionLogsProdEnabled` and `sessionLogsCleanupDone` are recognised;
+every other unknown legacy name is still retained.
 
 Upstream's `WALLET_SECRETS` reducer remains whole-encrypted, without nested
 field encryption or an addition to the plaintext allowlist. The unchanged

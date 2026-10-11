@@ -213,7 +213,14 @@ function plan(inventory: Inventory, candidates: string[]): TransferRecord {
     (selected !== null && sources[slot] === sources[selected]);
   const canRetireMMKV =
     keys !== undefined &&
-    keys.every(key => ['persist:root', 'persist:logs'].includes(key)) &&
+    keys.every(key =>
+      [
+        'persist:root',
+        'persist:logs',
+        'sessionLogsProdEnabled',
+        'sessionLogsCleanupDone',
+      ].includes(key),
+    ) &&
     used('mmkv');
   return {
     version: 3,

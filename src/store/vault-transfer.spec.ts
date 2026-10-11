@@ -1205,3 +1205,101 @@ it.each(['async', 'backup'] as const)(
     expect(forbidden).not.toHaveBeenCalled();
   },
 );
+
+const sessionLogNames = [
+  ['sessionLogsProdEnabled'],
+  ['sessionLogsCleanupDone'],
+  ['sessionLogsProdEnabled', 'sessionLogsCleanupDone'],
+];
+it.each(sessionLogNames.map(names => [names.join('+'), names] as const))(
+  'D14 markers: disabled wallet saves normal permissions for %s',
+  async (_label, names) => {
+    const migrate = loadTransfer();
+    expect(require('./vault-retirement-policy').LEGACY_RETIREMENT_ENABLED).toBe(
+      false,
+    );
+    const reference = harness();
+    await migrate(reference.io);
+    const h = harness();
+    h.state.keys!.push(...names);
+    const original = JSON.parse(JSON.stringify(h.state));
+    await migrate(h.io);
+    // This assertion isolates the classification edit while retirement is off.
+    expect(h.record()!.release).toEqual(reference.record()!.release);
+    expect(h.record()!.phase).toBe('active');
+    equal(h.state, original);
+    equal(decodeSnapshot(h.destinations.root!, newKey).payload, fixture.state);
+    expectNoRetirement(h);
+    const saved = h.controlRaw();
+    const forbidden = jest.fn(async () => {
+      throw new Error('no source reinspection');
+    });
+    h.io.inventory = forbidden;
+    h.io.legacyKeys = forbidden;
+    await migrate(h.io);
+    expect(h.controlRaw()).toBe(saved);
+    equal(h.state, original);
+    expectNoRetirement(h);
+    h.cold();
+    await loadTransfer(true)(h.io);
+    expect(h.state.files).toEqual({data: false, crc: false});
+    expect(
+      h.events.filter(event => event === 'legacy-key:remove'),
+    ).toHaveLength(1);
+    expect(h.events.filter(event => event === 'key:create')).toHaveLength(1);
+    expect(h.record()!.phase).toBe('retired');
+    expect(forbidden).not.toHaveBeenCalled();
+  },
+);
+
+it('D14 markers: an inspected log-and-marker-only store is disposable without a wallet', async () => {
+  const h = harness();
+  h.state.sources.mmkv = null;
+  h.state.keys = ['persist:logs', ...sessionLogNames[2]];
+  await loadTransfer()(h.io);
+  expectNoRetirement(h);
+  expect(h.record()!.release.data).toBe(true);
+  expect(h.record()!.release.crc).toBe(true);
+  expect(h.state.files).toEqual({data: true, crc: true});
+  expect(Object.values(h.destinations).every(value => value === null)).toBe(
+    true,
+  );
+  h.cold();
+  await loadTransfer(true)(h.io);
+  expect(h.record()!.phase).toBe('retired');
+  expect(h.state.files).toEqual({data: false, crc: false});
+  expect(h.events.filter(event => event === 'legacy-key:remove')).toHaveLength(
+    1,
+  );
+  expect(Object.values(h.destinations).every(value => value === null)).toBe(
+    true,
+  );
+});
+
+it.each(['wallet', 'log-only'] as const)(
+  'D14 markers: extra unknown name protects the %s store under both policies',
+  async source => {
+    const h = harness();
+    if (source === 'log-only') {
+      h.state.sources.mmkv = null;
+      h.state.keys = ['persist:logs'];
+    }
+    h.state.keys!.push(...sessionLogNames[2], 'sessionLogsCleanupDone.extra');
+    await loadTransfer()(h.io);
+    expect(require('./vault-retirement-policy').LEGACY_RETIREMENT_ENABLED).toBe(
+      false,
+    );
+    expectNoRetirement(h);
+    expect(h.record()!.release.data).toBe(false);
+    expect(h.record()!.release.crc).toBe(false);
+    const saved = h.controlRaw();
+    const original = JSON.parse(JSON.stringify(h.state));
+    h.cold();
+    await loadTransfer(true)(h.io);
+    expect(h.record()!.phase).toBe('active');
+    expect(h.controlRaw()).toBe(saved);
+    equal(h.state, original);
+    expect(h.state.files).toEqual({data: true, crc: true});
+    expect(h.events.includes('legacy-key:remove')).toBe(false);
+  },
+);
