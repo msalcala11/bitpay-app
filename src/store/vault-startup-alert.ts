@@ -48,11 +48,10 @@ export const vaultStartupAlert = (error: unknown, retry: () => void) => {
       AppState.currentState === 'active';
     Alert.alert(
       i18n.t('Wallet data could not be opened'),
-      i18n.t('VaultStartupGuidance', {
-        id,
-        defaultValue:
-          'Your local data was preserved. Retry or contact support. Do not uninstall the app or clear its data. Reference: {{id}}.',
-      }),
+      i18n.t(
+        'Your local data was preserved. Retry or contact support. Do not uninstall the app or clear its data. Reference: {{id}}.',
+        {id},
+      ),
       [
         {
           text: i18n.t('Retry'),

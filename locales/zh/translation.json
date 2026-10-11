@@ -2429,5 +2429,8 @@
   "Verify you saved your recovery phrase correctly by entering words {{first}}, {{second}} and {{third}} of your recovery phrase.": "请输入恢复短语中的第 {{first}}、第 {{second}} 和第 {{third}} 个单词，以确认您已正确保存恢复短语。",
   "Show balances": "显示余额",
   "Hide balances": "隐藏余额",
-  "Could not check this account for pending transactions. Check your connection and try again.": "无法检查此账户是否有待处理交易。请检查您的网络连接，然后重试。"
+  "Could not check this account for pending transactions. Check your connection and try again.": "无法检查此账户是否有待处理交易。请检查您的网络连接，然后重试。",
+  "Wallet data could not be opened": "无法打开钱包数据",
+  "Your local data was preserved. Retry or contact support. Do not uninstall the app or clear its data. Reference: {{id}}.": "您的本地数据已保留。请重试或联系支持团队。请勿卸载应用或清除其数据。参考代码：{{id}}。",
+  "Retry": "重试"
 }
