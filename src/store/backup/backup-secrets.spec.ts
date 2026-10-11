@@ -55,7 +55,9 @@ it('resumes backups after the real flagged flush and accepts a subsequent writer
   );
   const resumed = h.files.has(path);
   expect(stages).toEqual(['first flush', 'removed', 'flagged flush', 'resume']);
-  expect((store.getState() as RootState).WALLET.secretsMigrated).toBe(true);
+  expect(
+    (store.getState() as unknown as RootState).WALLET.secretsMigrated,
+  ).toBe(true);
   store.dispatch({
     type: 'WALLET/UPDATE_KEY_NAME',
     payload: {keyId: 'fixture', name: 'subsequent writer'},

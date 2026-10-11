@@ -82,7 +82,9 @@ it.each(cases)(
       expected.WALLET.secretsMigrated,
     );
     same(action.payload.WALLET_SECRETS, expected.WALLET_SECRETS);
-    expect((store.getState() as RootState).WALLET.keys.fixture).toBeDefined();
+    expect(
+      (store.getState() as unknown as RootState).WALLET.keys.fixture,
+    ).toBeDefined();
     await expect(
       require('./persistor').flushPersistor(),
     ).resolves.toBeUndefined();
@@ -112,9 +114,9 @@ it.each(cases)(
       const dispatch = jest.fn();
       effects.rehydrateWalletSecrets()(dispatch, store.getState, undefined);
       expect(dispatch).not.toHaveBeenCalled();
-      expect((store.getState() as RootState).WALLET.secretsMigrated).toBe(
-        false,
-      );
+      expect(
+        (store.getState() as unknown as RootState).WALLET.secretsMigrated,
+      ).toBe(false);
     }
     const backup = require('./backup/fs-backup');
     await store.dispatch(
@@ -124,7 +126,7 @@ it.each(cases)(
         backup.resumePersistRootBackups,
       ),
     );
-    const state = store.getState() as RootState;
+    const state = store.getState() as unknown as RootState;
     expect(state.WALLET.secretsMigrated).toBe(true);
     const restored = state.WALLET.keys.fixture;
     same(restored.properties, expectedKey.properties);
