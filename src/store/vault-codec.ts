@@ -9,17 +9,24 @@ import {
   decryptValue,
   encryptPersistValue,
   encryptValue,
+  hasProtectedValue,
 } from './transforms/encrypt';
-import {unencryptedPersistStores} from './transforms/persist-encryption';
+import {
+  unencryptedPersistStores,
+  walletProtectedFields,
+  identityProtectedFields,
+  giftCardProtectedFields,
+  walletFieldContext,
+  identityFieldContext,
+  giftCardFieldContext,
+  object,
+} from './transforms/persist-encryption';
 type Payload = Record<string, any>;
 type Snapshot = {raw: string; payload: Payload; format: 'cbc' | 'gcm'};
 function fail(_message: string): never {
   // Parser checks are fixed classification sites, never native-message inference.
   throw vaultError('INVALID_LEGACY_INPUT', 'classify', 'SOURCE_INVALID');
 }
-
-const object = (value: any): value is Payload =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 // Read-only syntax checks for the two historically unwrapped fields. These do
 // not instantiate/normalize wallet clients or unlock inner password ciphertext.
@@ -62,19 +69,23 @@ const mapFields = (
   copy = true,
 ): Payload => {
   const result = copy ? JSON.parse(JSON.stringify(state)) : state;
-  const fields = (container: any, names: string[], context: string) => {
+  const fields = (
+    container: any,
+    names: readonly string[],
+    context: (name: string) => string,
+  ) => {
     if (!object(container)) {
       fail('invalid protected-field container');
     }
     for (const name of names) {
       const value = container[name];
-      if (value === undefined || value === null || value === '') {
+      if (!hasProtectedValue(value)) {
         continue;
       }
       if (typeof value !== 'string') {
         fail('invalid protected-field value');
       }
-      container[name] = transform(value, `${context}.${name}`, name);
+      container[name] = transform(value, context(name), name);
     }
   };
   if (reducer === 'WALLET' && result.keys != null) {
@@ -88,15 +99,8 @@ const mapFields = (
       if (key.properties != null) {
         fields(
           key.properties,
-          [
-            'mnemonic',
-            'mnemonicEncrypted',
-            'xPrivKey',
-            'xPrivKeyEncrypted',
-            'xPrivKeyEDDSA',
-            'xPrivKeyEDDSAEncrypted',
-          ],
-          `WALLET.keys.${id}.properties`,
+          walletProtectedFields,
+          field => walletFieldContext(id, field),
         );
       }
     }
@@ -108,8 +112,8 @@ const mapFields = (
     if (result.identity[Network.mainnet] != null) {
       fields(
         result.identity[Network.mainnet],
-        ['priv'],
-        `APP.identity.${Network.mainnet}`,
+        identityProtectedFields,
+        identityFieldContext,
       );
     }
   }
@@ -128,15 +132,8 @@ const mapFields = (
         }
         fields(
           card,
-          [
-            'accessKey',
-            'barcodeData',
-            'barcodeImage',
-            'claimCode',
-            'claimLink',
-            'pin',
-          ],
-          `SHOP.giftCards.${Network.mainnet}.${card.invoiceId}`,
+          giftCardProtectedFields,
+          field => giftCardFieldContext(card.invoiceId, field),
         );
       }
     }

@@ -17,16 +17,14 @@ import {
 import {safeVaultError, vaultError} from './vault-diagnostics';
 import * as initLogs from './log/initLogs';
 import {LogActions} from './log';
+import {modernBackupDirectory, modernFiles} from './vault-backup-paths';
 
 const legacyBase = RNFS.CachesDirectoryPath + '/bitpay/redux/persist-root.json';
-const modernBase =
-  RNFS.CachesDirectoryPath + '/bitpay/redux-v2/persist-root.json';
 const legacyFiles = {
   main: legacyBase,
   bak: legacyBase + '.bak',
   temp: legacyBase + '.tmp',
 };
-const modernFiles = {main: modernBase, bak: modernBase + '.bak'};
 const ROOT = 'persist:root';
 let controls: MMKV | undefined;
 const control = () =>
@@ -57,6 +55,11 @@ const legacyPair = () => {
 };
 const readFile = async (path: string) =>
   (await RNFS.exists(path)) ? RNFS.readFile(path, 'utf8') : null;
+const readString = (storage: MMKV, key: string): string | null => {
+  const raw = storage.getString(key);
+  if (raw === undefined && storage.contains(key)) throw new Error();
+  return raw ?? null;
+};
 export const requireLogicallyEmpty = async (paths: {
   data: string;
   crc: string;
@@ -91,8 +94,7 @@ const inventory = async (): Promise<Inventory> => {
       if (!files.data || !files.crc) throw new Error();
       // Decision 9 permits only the library's ordinary writable-open recovery.
       legacy ??= new MMKV({id: 'mmkv.default'});
-      const raw = legacy.getString(ROOT) ?? null;
-      if (raw === null && legacy.contains(ROOT)) throw new Error();
+      const raw = readString(legacy, ROOT);
       try {
         keys = legacy.getAllKeys();
       } catch {
@@ -139,25 +141,22 @@ const inventory = async (): Promise<Inventory> => {
 const io: TransferIO = {
   readControl: () => {
     const records = control();
-    const raw = records.getString('transfer');
-    if (raw === undefined && records.contains('transfer')) throw new Error();
+    const raw = readString(records, 'transfer');
     if (records.getAllKeys().some(k => k !== 'transfer')) throw new Error();
-    return raw ?? null;
+    return raw;
   },
   writeControl: raw => control().set('transfer', raw),
   modernKeys: () => modernStorage.getAllKeys(),
-  modernTempExists: () => RNFS.exists(modernBase + '.tmp'),
+  modernTempExists: () => RNFS.exists(modernFiles.temp),
   destinationExists: slot => RNFS.exists(modernFiles[slot]),
   readDestination: async slot => {
     if (slot !== 'root') return readFile(modernFiles[slot]);
-    const raw = modernStorage.getString(ROOT);
-    if (raw === undefined && modernStorage.contains(ROOT)) throw new Error();
-    return raw ?? null;
+    return readString(modernStorage, ROOT);
   },
   writeDestination: async (slot, raw) => {
     if (slot === 'root') modernStorage.set(ROOT, raw);
     else {
-      await RNFS.mkdir(RNFS.CachesDirectoryPath + '/bitpay/redux-v2');
+      await RNFS.mkdir(modernBackupDirectory);
       await RNFS.writeFile(modernFiles[slot], raw, 'utf8');
     }
   },

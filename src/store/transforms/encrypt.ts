@@ -2,6 +2,14 @@ import crypto from 'crypto';
 import Aes from 'crypto-js/aes.js';
 import CryptoJsCore from 'crypto-js/core.js';
 import {Network} from '../../constants';
+import {
+  walletProtectedFields,
+  identityProtectedFields,
+  giftCardProtectedFields,
+  walletFieldContext,
+  identityFieldContext,
+  giftCardFieldContext,
+} from './persist-encryption';
 
 const encryptedPrefix = 'encrypted:';
 const modernEncryptedPrefix = 'field-aesgcm-v1:';
@@ -21,7 +29,7 @@ const isLegacyEncryptedValue = (value: string) =>
 const isEncryptedValue = (value: string) =>
   isModernEncryptedValue(value) || isLegacyEncryptedValue(value);
 
-const hasProtectedValue = (value: unknown): boolean =>
+export const hasProtectedValue = (value: unknown): boolean =>
   value !== undefined && value !== null && value !== '';
 
 const buildAesKey = (secretKey: string): Buffer => {
@@ -254,22 +262,14 @@ const transformWalletStore = (
       return;
     }
 
-    const fieldsToTransform = [
-      'mnemonic',
-      'mnemonicEncrypted',
-      'xPrivKey',
-      'xPrivKeyEncrypted',
-      'xPrivKeyEDDSA',
-      'xPrivKeyEDDSAEncrypted',
-    ];
-    const updatedProperties = fieldsToTransform.reduce(
+    const updatedProperties = walletProtectedFields.reduce(
       (latestProperties, field) => {
         const value = properties[field];
         if (hasProtectedValue(value) && checkCondition(value)) {
           latestProperties[field] = transformer(
             value,
             secretKey,
-            `WALLET.keys.${keyId}.properties.${field}`,
+            walletFieldContext(keyId, field),
           );
         }
         return latestProperties;
@@ -288,28 +288,6 @@ const transformWalletStore = (
   return newState;
 };
 
-export const encryptWalletStore = (state: any, secretKey: string): any => {
-  return transformWalletStore(
-    state,
-    secretKey,
-    encryptValue,
-    value => typeof value === 'string' && !isEncryptedValue(value),
-  );
-};
-
-export const decryptWalletStore = (
-  state: any,
-  secretKey: string,
-  modernOnly = false,
-): any => {
-  return transformWalletStore(
-    state,
-    secretKey,
-    (value, key, context) => decryptValue(value, key, context, modernOnly),
-    () => true,
-  );
-};
-
 // Generic function to transform app store (encrypt or decrypt)
 const transformAppStore = (
   state: any,
@@ -326,7 +304,8 @@ const transformAppStore = (
     return state;
   }
 
-  const privValue = identity.priv;
+  const [field] = identityProtectedFields;
+  const privValue = identity[field];
   if (hasProtectedValue(privValue) && checkCondition(privValue)) {
     return {
       ...state,
@@ -334,38 +313,16 @@ const transformAppStore = (
         ...state.identity,
         [Network.mainnet]: {
           ...identity,
-          priv: transformer(
+          [field]: transformer(
             privValue,
             secretKey,
-            `APP.identity.${Network.mainnet}.priv`,
+            identityFieldContext(field),
           ),
         },
       },
     };
   }
   return state;
-};
-
-export const encryptAppStore = (state: any, secretKey: string): any => {
-  return transformAppStore(
-    state,
-    secretKey,
-    encryptValue,
-    value => typeof value === 'string' && !isEncryptedValue(value),
-  );
-};
-
-export const decryptAppStore = (
-  state: any,
-  secretKey: string,
-  modernOnly = false,
-): any => {
-  return transformAppStore(
-    state,
-    secretKey,
-    (value, key, context) => decryptValue(value, key, context, modernOnly),
-    () => true,
-  );
 };
 
 // Generic function to transform shop store (encrypt or decrypt)
@@ -384,25 +341,16 @@ const transformShopStore = (
     return state;
   }
 
-  const fieldsToTransform = [
-    'accessKey',
-    'barcodeData',
-    'barcodeImage',
-    'claimCode',
-    'claimLink',
-    'pin',
-  ];
-
   // Transform each gift card in mainnet
   const newGiftCards = giftCards.map((card: any) => {
     const updatedCard = {...card};
-    fieldsToTransform.forEach(field => {
+    giftCardProtectedFields.forEach(field => {
       const value = card[field];
       if (hasProtectedValue(value) && checkCondition(value)) {
         updatedCard[field] = transformer(
           value,
           secretKey,
-          `SHOP.giftCards.${Network.mainnet}.${card.invoiceId}.${field}`,
+          giftCardFieldContext(card.invoiceId, field),
         );
       }
     });
@@ -420,27 +368,35 @@ const transformShopStore = (
   };
 };
 
-export const encryptShopStore = (state: any, secretKey: string): any => {
-  return transformShopStore(
+const storeEncryptor = (walk: typeof transformWalletStore) => (
+  state: any,
+  secretKey: string,
+): any =>
+  walk(
     state,
     secretKey,
     encryptValue,
     value => typeof value === 'string' && !isEncryptedValue(value),
   );
-};
 
-export const decryptShopStore = (
+const storeDecryptor = (walk: typeof transformWalletStore) => (
   state: any,
   secretKey: string,
   modernOnly = false,
-): any => {
-  return transformShopStore(
+): any =>
+  walk(
     state,
     secretKey,
     (value, key, context) => decryptValue(value, key, context, modernOnly),
     () => true,
   );
-};
+
+export const encryptWalletStore = storeEncryptor(transformWalletStore);
+export const decryptWalletStore = storeDecryptor(transformWalletStore);
+export const encryptAppStore = storeEncryptor(transformAppStore);
+export const decryptAppStore = storeDecryptor(transformAppStore);
+export const encryptShopStore = storeEncryptor(transformShopStore);
+export const decryptShopStore = storeDecryptor(transformShopStore);
 
 const legacyStoreFieldEncryptors: Record<
   string,

@@ -2,6 +2,7 @@ import isEqual from 'lodash.isequal';
 import {decodeSnapshot, reencryptSnapshot, verifySnapshot} from './vault-codec';
 import {safeVaultError, vaultError} from './vault-diagnostics';
 import {LEGACY_RETIREMENT_ENABLED} from './vault-retirement-policy';
+import {object} from './transforms/persist-encryption';
 
 export const sourceSlots = ['mmkv', 'async', 'main', 'bak'] as const;
 export const destinationSlots = ['root', 'main', 'bak'] as const;
@@ -51,8 +52,6 @@ export type TransferIO = {
   pending(): void;
 };
 
-const object = (value: any) =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 const exactKeys = (value: any, keys: readonly string[]) =>
   object(value) && isEqual(Object.keys(value).sort(), [...keys].sort());
 const invalid = () =>
