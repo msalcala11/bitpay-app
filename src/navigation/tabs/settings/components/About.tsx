@@ -32,6 +32,7 @@ import {
 import {useTheme} from '../../../../contexts';
 import {BaseText} from '../../../../components/styled/Text';
 import {Action, Air, Midnight, White} from '../../../../styles/colors';
+import InternalVaultReplay from './InternalVaultReplay';
 
 interface LinkSetting {
   key: string;
@@ -176,6 +177,7 @@ const About = () => {
           </Setting>
 
           <Hr />
+          <InternalVaultReplay />
         </>
       ) : null}
 

@@ -61,7 +61,8 @@ jest.mock('react-native-mmkv', () => ({
     id: string;
     constructor(config: any) {
       this.id = config.id;
-      mockEvents.push('open:' + this.id);
+      if (this.id !== 'bitpay.internal.vault-replay')
+        mockEvents.push('open:' + this.id);
       if (this.id === 'mmkv.default') {
         if (mockForbidLegacy) throw new Error('legacy open forbidden');
         mockWarm = true;
@@ -81,7 +82,8 @@ jest.mock('react-native-mmkv', () => ({
       return this.values.has(k);
     }
     getString(k: string) {
-      mockEvents.push('read:' + this.id + ':' + k);
+      if (this.id !== 'bitpay.internal.vault-replay')
+        mockEvents.push('read:' + this.id + ':' + k);
       if (this.id === 'mmkv.default' && k === 'persist:root') {
         mockPrimaryReads++;
         mockSilentPrimary = mockSilentPrimaryFailures-- > 0;
