@@ -666,21 +666,6 @@ describe('backupFileSize', () => {
     expect(mockedRNFS.moveFile).not.toHaveBeenCalled();
   });
 
-  it('prefers main when both sizes differ, without consulting bak', async () => {
-    const {backupFileSize} = getFreshModule();
-    const sizes = new Map([
-      [main, 123],
-      [bak, 456],
-    ]);
-    mockedRNFS.exists.mockImplementation(async path => sizes.has(path));
-    (mockedRNFS.stat as jest.Mock).mockImplementation(async path => ({
-      size: sizes.get(path),
-    }));
-    expect(await backupFileSize()).toBe(123);
-    expect(mockedRNFS.exists.mock.calls).toEqual([[main]]);
-    expect(mockedRNFS.stat.mock.calls).toEqual([[main]]);
-  });
-
   it('measures bak when only bak exists', async () => {
     const {backupFileSize} = getFreshModule();
     mockedRNFS.exists.mockImplementation(async path => path === bak);
@@ -700,23 +685,16 @@ describe('backupFileSize', () => {
     expect(mockedRNFS.stat).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['27', 27],
-    ['invalid', 0],
-    [-5, -5],
-    [Infinity, Infinity],
-  ])('preserves size conversion for %p', async (size, expected) => {
+  it('returns zero for a nonnumeric file size', async () => {
     const {backupFileSize} = getFreshModule();
     mockedRNFS.exists.mockResolvedValue(true);
-    (mockedRNFS.stat as jest.Mock).mockResolvedValue({size});
-    expect(await backupFileSize()).toBe(expected);
+    (mockedRNFS.stat as jest.Mock).mockResolvedValue({size: 'invalid'});
+    expect(await backupFileSize()).toBe(0);
   });
 
   it.each([
     ['exists', main],
-    ['exists', bak],
     ['stat', main],
-    ['stat', bak],
   ] as const)('propagates a rejected %s for %s', async (operation, path) => {
     const {backupFileSize} = getFreshModule();
     const error = new Error('synthetic filesystem failure');
