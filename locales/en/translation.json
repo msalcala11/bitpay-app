@@ -2451,5 +2451,8 @@
   "Verify you saved your recovery phrase correctly by entering words {{first}}, {{second}} and {{third}} of your recovery phrase.": "Verify you saved your recovery phrase correctly by entering words {{first}}, {{second}} and {{third}} of your recovery phrase.",
   "Show balances": "Show balances",
   "Hide balances": "Hide balances",
-  "Could not check this account for pending transactions. Check your connection and try again.": "Could not check this account for pending transactions. Check your connection and try again."
+  "Could not check this account for pending transactions. Check your connection and try again.": "Could not check this account for pending transactions. Check your connection and try again.",
+  "Wallet data could not be opened": "Wallet data could not be opened",
+  "Your local data was preserved. Retry or contact support. Do not uninstall the app or clear its data. Reference: {{id}}.": "Your local data was preserved. Retry or contact support. Do not uninstall the app or clear its data. Reference: {{id}}.",
+  "Retry": "Retry"
 }

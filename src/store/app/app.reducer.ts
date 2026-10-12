@@ -99,6 +99,7 @@ export interface AppState {
    */
   appIsReadyForDeeplinking: boolean;
   appFirstOpenData: AppFirstOpenData;
+  vaultMigrationStatusSignature?: string;
   appInstalled: boolean;
   userFeedback: FeedbackType;
   onboardingCompleted: boolean;
@@ -333,6 +334,9 @@ export const appReducer = (
           firstOpenEventComplete: true,
         },
       };
+
+    case AppActionTypes.SET_VAULT_MIGRATION_STATUS_REPORTED:
+      return {...state, vaultMigrationStatusSignature: action.payload};
 
     case AppActionTypes.SET_APP_FIRST_OPEN_DATE:
       return {
