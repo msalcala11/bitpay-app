@@ -6,6 +6,7 @@ import {decodeSnapshot, reencryptSnapshot, verifySnapshot} from './vault-codec';
 import {
   deserializeModernPersistValue,
   decryptValue,
+  encryptPersistValue,
 } from './transforms/encrypt';
 import {encryptSpecificFields} from './transforms/transforms';
 import {unencryptedPersistStores} from './transforms/persist-encryption';
@@ -87,6 +88,28 @@ it('decodes nested legacy field encryption inside a whole CBC reducer', () => {
       newKey,
     ).payload,
     fixtures.plain.state,
+  );
+});
+
+it('rejects a persist envelope in a protected field inside an otherwise valid whole-CBC snapshot', () => {
+  const payload = JSON.parse(JSON.stringify(fixtures.whole.state));
+  const snapshot = () =>
+    JSON.stringify(
+      Object.fromEntries(
+        Object.entries(payload).map(([name, state]) => [
+          name,
+          JSON.stringify(Aes.encrypt(JSON.stringify(state), oldKey).toString()),
+        ]),
+      ),
+    );
+  safeEqual(decodeSnapshot(snapshot(), oldKey).payload, payload);
+  payload.WALLET.keys.fixture.properties.mnemonic = encryptPersistValue(
+    'synthetic protected value',
+    oldKey,
+    'persist:WALLET',
+  );
+  expect(() => decodeSnapshot(snapshot(), oldKey)).toThrow(
+    'INVALID_LEGACY_INPUT',
   );
 });
 

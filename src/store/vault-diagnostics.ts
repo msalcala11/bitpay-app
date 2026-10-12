@@ -69,8 +69,6 @@ export const safeVaultError = (
     ? (error as Error)
     : vaultError(code, phase, reason, source);
 export const vaultDiagnostic = (error: Error) => diagnostics.get(error);
-export const vaultDeferredMessage = (code: VaultCode, phase: VaultPhase) =>
-  `Vault migration deferred: ${code} (${phase})`;
 
 export const reportVaultStartupFailure = (error: unknown): void => {
   try {

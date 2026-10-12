@@ -141,11 +141,7 @@ const mapFields = (
   return result;
 };
 
-export const decodeSnapshot = (
-  raw: string,
-  secret: string,
-  observedModern: () => void = () => {},
-): Snapshot => {
+export const decodeSnapshot = (raw: string, secret: string): Snapshot => {
   const outer = JSON.parse(raw);
   if (!object(outer)) {
     fail('expected Redux Persist JSON');
@@ -168,7 +164,6 @@ export const decodeSnapshot = (
     let wholeCbc = false;
     if (value.startsWith('persist-aesgcm-v1:')) {
       kinds.add('gcm');
-      observedModern();
       if (kinds.size !== 1) fail('invalid or mixed-format snapshot');
       state = decryptPersistValue(value, secret, `persist:${reducer}`);
     } else if (value.startsWith('U2FsdGVkX1')) {
@@ -189,9 +184,7 @@ export const decodeSnapshot = (
         kinds.add('cbc');
       } else if (field.startsWith('field-aesgcm-v1:')) {
         kinds.add('gcm');
-        observedModern();
       } else if (field.startsWith('persist-aesgcm-v1:')) {
-        observedModern();
         return fail('invalid protected-field envelope');
       } else if (wholeCbc) {
         return field; // Historical whole-reducer CBC protected these strings.
