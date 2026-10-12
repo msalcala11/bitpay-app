@@ -217,31 +217,6 @@ export const decryptPersistValue = (
   return JSON.parse(legacy);
 };
 
-export const deserializePersistValue = (
-  value: unknown,
-  secretKey: string,
-  key: string,
-  allowPlainJson: boolean,
-): any => {
-  if (typeof value !== 'string') {
-    throw new Error('Expected persisted reducer to be a string');
-  }
-
-  if (allowPlainJson) {
-    try {
-      return JSON.parse(value);
-    } catch {}
-  }
-
-  const state = decryptPersistValue(value, secretKey, `persist:${key}`);
-
-  if (value.startsWith(persistEncryptedPrefix)) {
-    return state;
-  }
-
-  return legacyStoreFieldEncryptors[key]?.(state, secretKey) ?? state;
-};
-
 // Generic function to transform wallet store (encrypt or decrypt)
 const transformWalletStore = (
   state: any,
@@ -397,15 +372,6 @@ export const encryptAppStore = storeEncryptor(transformAppStore);
 export const decryptAppStore = storeDecryptor(transformAppStore);
 export const encryptShopStore = storeEncryptor(transformShopStore);
 export const decryptShopStore = storeDecryptor(transformShopStore);
-
-const legacyStoreFieldEncryptors: Record<
-  string,
-  (state: any, secretKey: string) => any
-> = {
-  APP: encryptAppStore,
-  SHOP: encryptShopStore,
-  WALLET: encryptWalletStore,
-};
 
 // The active reader accepts only modern authentication (plus designated public
 // reducer JSON). Legacy decoding belongs exclusively to the transfer codec.

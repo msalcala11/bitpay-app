@@ -90,29 +90,6 @@ describe('backupFileExists', () => {
   });
 });
 
-describe('backupFileExistsStrict', () => {
-  beforeEach(() => jest.clearAllMocks());
-
-  it('returns true when the file exists', async () => {
-    const {backupFileExistsStrict} = getFreshModule();
-    (mockedRNFS.exists as jest.Mock).mockResolvedValueOnce(true);
-    expect(await backupFileExistsStrict()).toBe(true);
-  });
-
-  it('returns false when the file does not exist', async () => {
-    const {backupFileExistsStrict} = getFreshModule();
-    (mockedRNFS.exists as jest.Mock).mockResolvedValueOnce(false);
-    expect(await backupFileExistsStrict()).toBe(false);
-  });
-
-  it('rejects when RNFS.exists throws', async () => {
-    const {backupFileExistsStrict} = getFreshModule();
-    const error = new Error('fs error');
-    (mockedRNFS.exists as jest.Mock).mockRejectedValueOnce(error);
-    await expect(backupFileExistsStrict()).rejects.toBe(error);
-  });
-});
-
 // ─────────────────────────────────────────────────────────────────────────────
 // backupPersistRoot
 // ─────────────────────────────────────────────────────────────────────────────
@@ -408,6 +385,33 @@ describe('removePersistRootBackups', () => {
 
     await resumePersistRootBackups();
   });
+
+  it.each([false, true])(
+    'does not cache an existence read overtaken by cleanup (resumed: %s)',
+    async resumed => {
+      const {
+        backupFileExists,
+        removePersistRootBackups,
+        resumePersistRootBackups,
+      } = getFreshModule();
+      let resolveExists!: (exists: boolean) => void;
+      mockedRNFS.exists.mockResolvedValue(false).mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            resolveExists = resolve;
+          }),
+      );
+      const pending = backupFileExists();
+      await removePersistRootBackups();
+      if (resumed) await resumePersistRootBackups();
+      resolveExists(true);
+      expect(await pending).toBe(false);
+      if (!resumed) await resumePersistRootBackups();
+      jest.clearAllMocks();
+      expect(await backupFileExists()).toBe(false);
+      expect(mockedRNFS.exists).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('defers new backups until cleanup is resumed', async () => {
     const {
@@ -729,12 +733,12 @@ describe('backupFileSize', () => {
   });
 
   it('works before activation without setting the cached existence flag', async () => {
-    const {backupFileSize, backupFileExistsStrict} = getFreshModule(false);
+    const {backupFileSize, backupFileExists} = getFreshModule(false);
     mockedRNFS.exists.mockResolvedValueOnce(true);
     (mockedRNFS.stat as jest.Mock).mockResolvedValueOnce({size: 123});
     expect(await backupFileSize()).toBe(123);
     jest.clearAllMocks();
-    expect(await backupFileExistsStrict()).toBe(false);
+    expect(await backupFileExists()).toBe(false);
     expect(mockedRNFS.exists.mock.calls).toEqual([[main]]);
     expect(mockedRNFS.writeFile).not.toHaveBeenCalled();
     expect(mockedRNFS.moveFile).not.toHaveBeenCalled();

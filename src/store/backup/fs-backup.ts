@@ -45,32 +45,24 @@ async function ensureDir(): Promise<void> {
   }
 }
 
-async function checkBackupFileExists(): Promise<boolean> {
-  if (backupsSuspended) {
-    return false;
-  }
-  if (cachedBackupExists) {
-    return true;
-  }
-  const generation = backupCacheGeneration;
-  const exists = await RNFS.exists(FINAL_FILE);
-  if (backupsSuspended || generation !== backupCacheGeneration) {
-    return false;
-  }
-  cachedBackupExists = exists;
-  return exists;
-}
-
 export async function backupFileExists(): Promise<boolean> {
   try {
-    return await checkBackupFileExists();
+    if (backupsSuspended) {
+      return false;
+    }
+    if (cachedBackupExists) {
+      return true;
+    }
+    const generation = backupCacheGeneration;
+    const exists = await RNFS.exists(FINAL_FILE);
+    if (backupsSuspended || generation !== backupCacheGeneration) {
+      return false;
+    }
+    cachedBackupExists = exists;
+    return exists;
   } catch {
     return false;
   }
-}
-
-export async function backupFileExistsStrict(): Promise<boolean> {
-  return checkBackupFileExists();
 }
 
 export async function backupFileSize(): Promise<number> {
