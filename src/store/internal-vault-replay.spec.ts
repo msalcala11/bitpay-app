@@ -311,9 +311,15 @@ describe('startup wipe and recovery', () => {
     expect(m.events.lastIndexOf('wallet:keys')).toBeLessThan(
       at('control:delete:extra'),
     );
-    expect(at('control:delete:extra')).toBeLessThan(
-      at('control:delete:transfer'),
-    );
+    expect(
+      m.events.slice(at('control:keys'), at('marker:delete:state')),
+    ).toEqual([
+      'control:keys',
+      'control:delete:extra',
+      'control:keys',
+      'control:delete:transfer',
+      'control:keys',
+    ]);
     expect(m.events.lastIndexOf('control:keys')).toBeLessThan(
       at('marker:delete:state'),
     );
@@ -342,6 +348,33 @@ describe('startup wipe and recovery', () => {
       expect(m.state.read()).toBeNull();
     },
   );
+
+  it('preserves the authorization record when deleting an extra control key silently fails', async () => {
+    const m = model();
+    m.marker.values.set('state', 'armed');
+    const originalRecord = m.control.values.get('transfer');
+    m.silent.add('control:delete:extra');
+    const migrate = jest.fn();
+
+    await expect(m.replay.startup().then(migrate)).rejects.toThrow(
+      'not verified',
+    );
+    expect(m.state.read()).toBe('wiping');
+    expect(m.control.values.get('extra')).toBe('discard');
+    expect(m.control.values.get('transfer')).toBe(originalRecord);
+    expect(m.control.delete).not.toHaveBeenCalledWith('transfer');
+    expect(migrate).not.toHaveBeenCalled();
+    expect(m.wallet.values.size).toBe(0);
+    expect(Object.values(modern).some(path => m.data.has(path))).toBe(false);
+
+    m.silent.delete('control:delete:extra');
+    await m.replay.startup().then(migrate);
+    expect(m.wallet.values.size).toBe(0);
+    expect(m.control.values.size).toBe(0);
+    expect(Object.values(modern).some(path => m.data.has(path))).toBe(false);
+    expect(m.state.read()).toBeNull();
+    expect(migrate).toHaveBeenCalledTimes(1);
+  });
 
   it('detects an unlink that leaves a file and never starts wallet deletion early', async () => {
     const m = model();
@@ -477,8 +510,9 @@ describe('startup wipe and recovery', () => {
     ['wallet:keys', 2],
     ['control:keys', 1],
     ['control:delete:extra', 1],
+    ['control:keys', 2], // Verify other keys are gone before deleting transfer.
     ['control:delete:transfer', 1],
-    ['control:keys', 2],
+    ['control:keys', 3], // Verify empty after deleting transfer.
     ['marker:delete:state', 1],
     ['marker:read', 3],
   ] as const)(
@@ -487,13 +521,31 @@ describe('startup wipe and recovery', () => {
       const m = model();
       m.marker.values.set('state', 'armed');
       m.fail(failure, occurrence);
+      const originalRecord = m.control.values.get('transfer');
       const migrate = jest.fn();
       await expect(m.replay.startup().then(migrate)).rejects.toThrow();
       expect(['armed', 'wiping']).toContain(m.state.read());
       expect(migrate).not.toHaveBeenCalled();
+      if (failure === 'control:keys' && occurrence > 1) {
+        expect(m.control.getAllKeys).toHaveBeenCalledTimes(occurrence);
+        expect(m.control.values.get('transfer')).toBe(
+          occurrence === 2 ? originalRecord : undefined,
+        );
+        expect(m.control.delete.mock.calls).toEqual(
+          occurrence === 2 ? [['extra']] : [['extra'], ['transfer']],
+        );
+      }
+      const retryStart = m.events.length;
       await m.replay.startup().then(migrate);
       expect(migrate).toHaveBeenCalledTimes(1);
       expect(m.state.read()).toBeNull();
+      if (failure === 'control:keys' && occurrence > 1) {
+        // Only the retained-record retry rechecks eligibility; the final-read
+        // failure recovers via the absent-record-and-empty-modern branch.
+        expect(m.events.slice(retryStart).includes('policy')).toBe(
+          occurrence === 2,
+        );
+      }
     },
   );
 });

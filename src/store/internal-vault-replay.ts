@@ -131,12 +131,13 @@ export const createInternalVaultReplay = (
   };
   const clearKeys = (store: KeyStore, last?: string) => {
     const names = keys(store);
-    // Keep the authorization record until all other control keys are gone.
-    for (const key of [
-      ...names.filter(k => k !== last),
-      ...names.filter(k => k === last),
-    ])
-      store.delete(key);
+    for (const key of names.filter(k => k !== last)) store.delete(key);
+    if (last !== undefined) {
+      // Keep the authorization record until other control keys are verified gone.
+      if (keys(store).some(key => key !== last))
+        throw new Error('Modern MMKV wipe was not verified');
+      if (names.includes(last)) store.delete(last);
+    }
     if (keys(store).length)
       throw new Error('Modern MMKV wipe was not verified');
   };
