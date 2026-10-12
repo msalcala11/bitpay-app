@@ -2298,5 +2298,8 @@
   "Verify you saved your recovery phrase correctly by entering words {{first}}, {{second}} and {{third}} of your recovery phrase.": "Confirme que anotou corretamente sua frase de recuperação escrevendo as palavras {{first}}, {{second}} e {{third}} da sua frase de recuperação.",
   "Show balances": "Mostrar saldos",
   "Hide balances": "Ocultar saldos",
-  "Could not check this account for pending transactions. Check your connection and try again.": "Não foi possível verificar se esta conta tem transações pendentes. Verifique sua conexão e tente novamente."
+  "Could not check this account for pending transactions. Check your connection and try again.": "Não foi possível verificar se esta conta tem transações pendentes. Verifique sua conexão e tente novamente.",
+  "Wallet data could not be opened": "Não foi possível abrir os dados da carteira",
+  "Your local data was preserved. Retry or contact support. Do not uninstall the app or clear its data. Reference: {{id}}.": "Seus dados locais foram preservados. Tente novamente ou entre em contato com o suporte. Não desinstale o aplicativo nem apague os dados dele. Referência: {{id}}.",
+  "Retry": "Tentar novamente"
 }

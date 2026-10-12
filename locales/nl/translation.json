@@ -2289,5 +2289,8 @@
   "Verify you saved your recovery phrase correctly by entering words {{first}}, {{second}} and {{third}} of your recovery phrase.": "Controleer of u uw herstelzin correct hebt genoteerd door de woorden {{first}}, {{second}} en {{third}} van uw herstelzin in te voeren.",
   "Show balances": "Saldi weergeven",
   "Hide balances": "Saldi verbergen",
-  "Could not check this account for pending transactions. Check your connection and try again.": "Kan dit account niet controleren op openstaande transacties. Controleer uw verbinding en probeer het opnieuw."
+  "Could not check this account for pending transactions. Check your connection and try again.": "Kan dit account niet controleren op openstaande transacties. Controleer uw verbinding en probeer het opnieuw.",
+  "Wallet data could not be opened": "De walletgegevens konden niet worden geopend",
+  "Your local data was preserved. Retry or contact support. Do not uninstall the app or clear its data. Reference: {{id}}.": "Uw lokale gegevens zijn behouden. Probeer het opnieuw of neem contact op met de ondersteuning. De-installeer de app niet en wis de gegevens ervan niet. Referentie: {{id}}.",
+  "Retry": "Opnieuw proberen"
 }
