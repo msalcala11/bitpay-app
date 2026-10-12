@@ -107,6 +107,48 @@ unconditional discard exception after activation when enabled. Modern temps and
 unrelated data are untouched. Cleanup failure cannot revoke modern access.
 Enabling retirement requires an owner decision and physical-device validation.
 
+## Migration status telemetry
+
+After analytics identity is set, startup dispatches `Vault Migration Status`
+(providers receive `BitPay App - Vault Migration Status`) without awaiting it.
+An activation-gated, read-only accessor reads the parsed transfer record. Active
+and retired records report phase, root source (`none` includes fresh installs and
+accepted states without a legacy root), converted-backup count, current retirement
+flag and four legacy-location statuses, plus platform and the observations below.
+After activation, telemetry may check old locations' existence when the record
+status changes; it never reads legacy contents or re-imports them. Only locations
+without deletion permission are checked. Neither MMKV file is opened, and either
+known-present file establishes pair existence even if the other check fails.
+`eligible` means permission was granted, not that a location exists or deletion
+will succeed. `blocked` means exists without deletion permission, not contains
+wallet secrets. Treat `blockedCount=0` with any `unknown` location as unknown.
+
+The APP reducer persists a signature of phase, copies and release only inside the
+analytics completion callback. This is best effort, not provider delivery
+confirmation: disabled analytics or a user merge skips the callback and allows a
+later launch to try again; provider failures after it do not trigger retry. Known
+suppression or an unchanged signature skips all legacy/database probes. No polling
+or startup dependency is added; telemetry failures only produce best-effort logs.
+Once reported, unknown observations, later location/database changes and changing
+`LEGACY_RETIREMENT_ENABLED` alone do not produce another event. Enabled cleanup
+that stays blocked also leaves the record unchanged.
+
+`firstOpenedBeforeMmkv` captures the saved first-open timestamp synchronously,
+before startup fills a missing date. Both platforms compare Unix seconds against
+1693434851 (v14.14.0's public release, 2023-08-30T22:34:11Z); missing is `unknown`.
+This is an age proxy, not backend history or device rollout time. Delayed launches,
+upgrades and filling a missing date can classify former AsyncStorage installs as
+on/after release.
+
+Android additionally checks existence and, when present, the size of only
+`${RNFS.DocumentDirectoryPath}/../databases/RKStorage`: below 65,536 bytes is
+`small`, below 1,048,576 is `medium`, otherwise `large`; absence and failed/invalid
+observations have separate labels. iOS reports `n/a` without this probe. Migration's
+AsyncStorage inventory may itself create the database, so absence is rare and
+presence does not establish survival from before MMKV. Other features still use
+it. Journal/WAL/SHM sidecars are excluded, and size/presence cannot establish that
+wallet bytes remain. No path, timestamp, contents or identifiers are sent.
+
 ## Executable checks (store paths relative to `src/store/`)
 
 | Contract | Tests |
@@ -119,9 +161,11 @@ Enabling retirement requires an owner decision and physical-device validation.
 | Activation gates, paused persistence, sanitized diagnostics and alerts | `vault-storage.spec.ts`, `index.spec.ts`, `persistor.spec.ts`, `vault-diagnostics.spec.ts`, `vault-startup-alert.spec.ts` |
 | Backup rotation, measurement, suppression and cleanup/resume cache behavior | `backup/fs-backup.spec.ts` |
 | Buffered/dedicated logs and disabled old importer | `log/initLogs.spec.ts`, `log/log.reducer.spec.ts`, `wallet/effects/import/import.spec.ts`, `src/utils/sessionLogs.spec.ts` |
+| Migration telemetry, observation boundaries, age/size cohorts and callback dedupe | `vault-telemetry.spec.ts` |
 | Native guard and real MMKV lifecycle | `test/vault/legacy-instance-guard.cpp`, `test/vault/native-entry.js` |
 
-Run `yarn test:ci`, `yarn validate`, `yarn eslint --ext .js,.jsx,.ts,.tsx src/`, and
+Run `yarn test:ci`, `yarn validate`, `yarn prettier:check`,
+`yarn eslint --ext .js,.jsx,.ts,.tsx src/`, and
 `yarn tsc --noEmit --skipLibCheck`. `validate` filters TypeScript codes; inspect the
 unfiltered result too. Normal postinstall applies the MMKV and RNFS patches.
 

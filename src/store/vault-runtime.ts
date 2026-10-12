@@ -5,8 +5,17 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Keychain from 'react-native-keychain';
 import {getUniqueId} from 'react-native-device-info';
 import {Buffer} from 'buffer';
-import {modernStorage, activateVaultStorage} from './vault-storage';
-import {transferVault, TransferIO, Inventory} from './vault-transfer';
+import {
+  modernStorage,
+  activateVaultStorage,
+  requireVaultActive,
+} from './vault-storage';
+import {
+  transferVault,
+  TransferIO,
+  Inventory,
+  parseTransferRecord,
+} from './vault-transfer';
 import {
   createVaultKey,
   readVaultKey,
@@ -230,6 +239,19 @@ const io: TransferIO = {
         LogActions.warn('Vault migration deferred: CLEANUP_DEFERRED (cleanup)'),
       ),
     ),
+};
+
+export const readVaultTransferRecord = () => {
+  requireVaultActive();
+  const raw = io.readControl();
+  return raw === null ? null : parseTransferRecord(raw);
+};
+
+export const vaultLegacySourceExists = (
+  slot: 'data' | 'crc' | 'async' | 'main' | 'bak',
+) => {
+  requireVaultActive();
+  return io.sourceExists(slot);
 };
 
 let initialization: Promise<string> | undefined;
