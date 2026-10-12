@@ -97,10 +97,8 @@ const mapFields = (
         fail('invalid wallet key');
       }
       if (key.properties != null) {
-        fields(
-          key.properties,
-          walletProtectedFields,
-          field => walletFieldContext(id, field),
+        fields(key.properties, walletProtectedFields, field =>
+          walletFieldContext(id, field),
         );
       }
     }
@@ -130,10 +128,8 @@ const mapFields = (
         if (!object(card)) {
           fail('invalid gift card');
         }
-        fields(
-          card,
-          giftCardProtectedFields,
-          field => giftCardFieldContext(card.invoiceId, field),
+        fields(card, giftCardProtectedFields, field =>
+          giftCardFieldContext(card.invoiceId, field),
         );
       }
     }

@@ -343,28 +343,25 @@ const transformShopStore = (
   };
 };
 
-const storeEncryptor = (walk: typeof transformWalletStore) => (
-  state: any,
-  secretKey: string,
-): any =>
-  walk(
-    state,
-    secretKey,
-    encryptValue,
-    value => typeof value === 'string' && !isEncryptedValue(value),
-  );
+const storeEncryptor =
+  (walk: typeof transformWalletStore) =>
+  (state: any, secretKey: string): any =>
+    walk(
+      state,
+      secretKey,
+      encryptValue,
+      value => typeof value === 'string' && !isEncryptedValue(value),
+    );
 
-const storeDecryptor = (walk: typeof transformWalletStore) => (
-  state: any,
-  secretKey: string,
-  modernOnly = false,
-): any =>
-  walk(
-    state,
-    secretKey,
-    (value, key, context) => decryptValue(value, key, context, modernOnly),
-    () => true,
-  );
+const storeDecryptor =
+  (walk: typeof transformWalletStore) =>
+  (state: any, secretKey: string, modernOnly = false): any =>
+    walk(
+      state,
+      secretKey,
+      (value, key, context) => decryptValue(value, key, context, modernOnly),
+      () => true,
+    );
 
 export const encryptWalletStore = storeEncryptor(transformWalletStore);
 export const decryptWalletStore = storeDecryptor(transformWalletStore);

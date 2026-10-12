@@ -4,7 +4,10 @@ import {LogActions} from '../../store/log';
 import * as initLogs from '../../store/log/initLogs';
 import {getErrorString} from '../../utils/helper-methods';
 import * as Sentry from '@sentry/react-native';
-import {modernBackupDirectory as BASE_DIR, modernFiles} from '../vault-backup-paths';
+import {
+  modernBackupDirectory as BASE_DIR,
+  modernFiles,
+} from '../vault-backup-paths';
 
 const {main: FINAL_FILE, bak: BACKUP_FILE, temp: TEMP_FILE} = modernFiles;
 
