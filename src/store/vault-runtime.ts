@@ -27,6 +27,7 @@ import {safeVaultError, vaultError} from './vault-diagnostics';
 import * as initLogs from './log/initLogs';
 import {LogActions} from './log';
 import {modernBackupDirectory, modernFiles} from './vault-backup-paths';
+import {createInternalVaultReplay} from './internal-vault-replay';
 
 const legacyBase = RNFS.CachesDirectoryPath + '/bitpay/redux/persist-root.json';
 const legacyFiles = {
@@ -254,9 +255,42 @@ export const vaultLegacySourceExists = (
   return io.sourceExists(slot);
 };
 
+// INTERNAL ONLY: accessors do not inspect legacy data or open its MMKV instance.
+export const getInternalVaultReplayAccess = () => ({
+  control: control(),
+  wallet: modernStorage,
+  legacyPair,
+  legacyFiles: () => legacyFiles,
+  modernFiles: () => modernFiles,
+});
+const internalReplay = createInternalVaultReplay(getInternalVaultReplayAccess);
 let initialization: Promise<string> | undefined;
 export const prepareModernVault = (): Promise<string> => {
-  initialization ??= transferVault(io)
+  initialization ??= internalReplay
+    .startup()
+    .then(async () => {
+      const startedAt = performance.now();
+      let result = 'failure';
+      try {
+        const key = await transferVault(io);
+        result = 'success';
+        return key;
+      } finally {
+        try {
+          initLogs.add(
+            LogActions.persistLog(
+              LogActions.info(
+                `Vault preparation result:${result} durationMs:${Math.round(
+                  performance.now() - startedAt,
+                )}`,
+              ),
+            ),
+          );
+        } catch {
+          // Timing diagnostics must not change the preparation outcome.
+        }
+      }
+    })
     .then(key => {
       activateVaultStorage();
       return key;

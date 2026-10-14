@@ -19,7 +19,12 @@ import {
   backupFileExists,
   backupPersistRoot,
   readBackupPersistRoot,
+  suspendAndDrainInternalReplayBackups,
 } from './backup/fs-backup';
+import {
+  gateInternalReplayStorageWrites,
+  combineReplayPauses,
+} from './internal-vault-replay-writes';
 import {
   bindWalletKeys,
   transformContacts,
@@ -332,6 +337,15 @@ export const reduxStorage: Storage = {
     return Promise.resolve();
   },
 };
+
+// INTERNAL ONLY: block at the storage boundary without resuming/clearing any
+// pre-existing redux-persist pause or error on cancellation.
+const internalReplayWrites = gateInternalReplayStorageWrites(reduxStorage);
+export const suspendPersistenceForInternalVaultReplay = () =>
+  combineReplayPauses(
+    internalReplayWrites.suspend(),
+    suspendAndDrainInternalReplayBackups(),
+  );
 
 let activePersistor: {flush: () => Promise<void>} | null = null;
 let pendingFlushTimer: ReturnType<typeof setTimeout> | null = null;

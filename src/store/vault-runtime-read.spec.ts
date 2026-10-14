@@ -15,10 +15,18 @@ jest.mock('./vault-storage', () => ({
   activateVaultStorage: jest.fn(),
 }));
 jest.mock('react-native-mmkv', () => ({
-  MMKV: jest.fn(({id}) => ({
-    ...mockStorage,
-    getAllKeys: () => (id === 'mmkv.default' ? ['persist:logs'] : ['transfer']),
-  })),
+  MMKV: jest.fn(({id}) =>
+    id === 'bitpay.internal.vault-replay'
+      ? {
+          getString: () => undefined,
+          contains: () => false,
+        }
+      : {
+          ...mockStorage,
+          getAllKeys: () =>
+            id === 'mmkv.default' ? ['persist:logs'] : ['transfer'],
+        },
+  ),
 }));
 jest.mock('react-native', () => ({
   Platform: {OS: 'android'},

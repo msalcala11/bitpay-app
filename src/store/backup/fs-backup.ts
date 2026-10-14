@@ -8,6 +8,10 @@ import {
   modernBackupDirectory as BASE_DIR,
   modernFiles,
 } from '../vault-backup-paths';
+import {
+  createInternalReplayWriteGate,
+  combineReplayPauses,
+} from '../internal-vault-replay-writes';
 
 const {main: FINAL_FILE, bak: BACKUP_FILE, temp: TEMP_FILE} = modernFiles;
 
@@ -19,6 +23,14 @@ let backupQueue: Promise<void> = Promise.resolve();
 let backupsSuspended = false;
 let deferredBackup: string | null = null;
 let requireEncryptedWalletSecrets = false;
+const internalReplayBackups = createInternalReplayWriteGate();
+
+// INTERNAL ONLY: independent of cleanup suspension, policy and deferred data.
+export const suspendAndDrainInternalReplayBackups = () =>
+  combineReplayPauses(internalReplayBackups.suspend(), {
+    drained: backupQueue,
+    release: () => {},
+  });
 
 function hasEncryptedWalletSecrets(rawJson: string): boolean {
   try {
@@ -79,6 +91,10 @@ export async function backupFileSize(): Promise<number> {
 }
 
 export function backupPersistRoot(rawJson: string): Promise<void> {
+  return internalReplayBackups.run(() => enqueuePersistRootBackup(rawJson));
+}
+
+function enqueuePersistRootBackup(rawJson: string): Promise<void> {
   requireVaultActive();
   if (requireEncryptedWalletSecrets && !hasEncryptedWalletSecrets(rawJson)) {
     return Promise.resolve();
@@ -101,33 +117,35 @@ export function removePersistRootBackups(): Promise<void> {
   requireEncryptedWalletSecrets = true;
   backupCacheGeneration += 1;
   cachedBackupExists = false;
-  const removal = backupQueue.then(async () => {
-    let firstError: unknown;
-    for (const path of [FINAL_FILE, BACKUP_FILE, TEMP_FILE]) {
-      try {
-        if (await RNFS.exists(path)) {
-          await RNFS.unlink(path);
+  return internalReplayBackups.run(() => {
+    const removal = backupQueue.then(async () => {
+      let firstError: unknown;
+      for (const path of [FINAL_FILE, BACKUP_FILE, TEMP_FILE]) {
+        try {
+          if (await RNFS.exists(path)) {
+            await RNFS.unlink(path);
+          }
+        } catch (err) {
+          firstError ??= err;
         }
-      } catch (err) {
-        firstError ??= err;
       }
-    }
-    cachedBackupExists = false;
-    if (firstError) {
-      throw firstError;
-    }
-  });
+      cachedBackupExists = false;
+      if (firstError) {
+        throw firstError;
+      }
+    });
 
-  backupQueue = removal.catch(err => {
-    initLogs.add(
-      LogActions.persistLog(
-        LogActions.error(`Backup cleanup failed - ${getErrorString(err)}`),
-      ),
-    );
-    Sentry.captureException(err, {level: 'error'});
-  });
+    backupQueue = removal.catch(err => {
+      initLogs.add(
+        LogActions.persistLog(
+          LogActions.error(`Backup cleanup failed - ${getErrorString(err)}`),
+        ),
+      );
+      Sentry.captureException(err, {level: 'error'});
+    });
 
-  return removal;
+    return removal;
+  });
 }
 
 export function resumePersistRootBackups(
