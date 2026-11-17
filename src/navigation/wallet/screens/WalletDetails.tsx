@@ -105,6 +105,7 @@ import {
   UnconfirmedInputs,
 } from '../components/ErrorMessages';
 import OptionsSheet, {Option} from '../components/OptionsSheet';
+import {useWatchlistWalletOptions} from '../../watchlist/WatchlistAssetActions';
 import ReceiveAddress from '../components/ReceiveAddress';
 import BalanceDetailsModal from '../components/BalanceDetailsModal';
 import Icons from '../components/WalletIcons';
@@ -954,6 +955,12 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
     network,
     pendingTxps,
   } = uiFormattedWallet;
+  const watchlistOptions = useWatchlistWalletOptions({
+    currencyAbbreviation,
+    chain,
+    tokenAddress,
+    network,
+  });
   const chartQuoteCurrency = getQuoteCurrency({
     portfolioQuoteCurrency: committedPortfolioQuoteCurrency,
     defaultAltCurrencyIsoCode: defaultAltCurrency.isoCode,
@@ -2152,7 +2159,7 @@ const WalletDetails: React.FC<WalletDetailsScreenProps> = ({route}) => {
         isVisible={showWalletOptions}
         closeModal={() => setShowWalletOptions(false)}
         title={t('WalletOptions')}
-        options={getAssetOptions()}
+        options={[...watchlistOptions, ...getAssetOptions()]}
       />
 
       {fullWalletObj ? (

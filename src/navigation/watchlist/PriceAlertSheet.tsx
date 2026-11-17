@@ -27,6 +27,7 @@ import {
   closePriceAlert,
   finishPriceAlert,
   showPriceAlertError,
+  showWatchlistFull,
 } from './watchlistUi.effects';
 import type {PriceAlertThreshold} from '../../api/price-alerts/price-alerts.types';
 import type {WatchlistState} from '../../store/watchlist/watchlist.models';
@@ -129,13 +130,18 @@ const AlertForm = ({
       }
       setButtonState('success');
       timer.current = setTimeout(() => dispatch(closePriceAlert(true)), 900);
-    } catch {
+    } catch (error) {
       if (!mounted.current) {
         return;
       }
       busy.current = false;
       setButtonState(null);
-      dispatch(showPriceAlertError());
+      if ((error as {code?: string}).code === 'WATCHLIST_FULL') {
+        dispatch(closePriceAlert());
+        dispatch(showWatchlistFull());
+      } else {
+        dispatch(showPriceAlertError());
+      }
     }
   };
   const turnOff = () =>
@@ -210,6 +216,11 @@ export default function PriceAlertSheet() {
   const dispatch = useAppDispatch();
   const sheet = useAppSelector(state => state.WATCHLIST.alertSheet);
   const available = useAppSelector(selectAlertsAvailable);
+  useEffect(() => {
+    if (!available && sheet?.open) {
+      dispatch(closePriceAlert());
+    }
+  }, [available, dispatch, sheet?.open]);
   return (
     <SheetModal
       isVisible={!!sheet?.open && available}

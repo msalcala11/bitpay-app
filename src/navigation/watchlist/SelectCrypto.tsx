@@ -19,8 +19,7 @@ import {
   getCoinCatalog,
   subscribeCoinCatalog,
 } from '../../store/watchlist/coin-registry';
-import {addWatchlistCoin} from '../../store/watchlist/watchlist.effects';
-import {openPriceAlert} from './watchlistUi.effects';
+import {openPriceAlert, addCoinFromUi} from './watchlistUi.effects';
 import {searchWatchlistCoins} from './coinSearch';
 import {watchlistImage} from './watchlistRows';
 import {Slate30, SlateDark} from '../../styles/colors';
@@ -28,7 +27,6 @@ import AngleRight from '../../../assets/img/angle-right.svg';
 import Close from '../../../assets/img/close-modal-icon.svg';
 import {startGetRates} from '../../store/wallet/effects/rates/rates';
 import type {WatchlistCoin} from '../../store/watchlist/watchlist.models';
-import {showBottomNotificationModal} from '../../store/app/app.actions';
 
 const EMPTY: [] = [];
 const ignoreResults = () => {};
@@ -71,22 +69,7 @@ export default function SelectCrypto() {
     if (picked.current || items.some(item => item.id === coin.id)) {
       return;
     }
-    try {
-      if (!dispatch(addWatchlistCoin(coin))) {
-        return;
-      }
-    } catch {
-      dispatch(
-        showBottomNotificationModal({
-          type: 'info',
-          title: t('Watchlist is full'),
-          message: t(
-            'You can watch up to 20 coins. Remove one to add another.',
-          ),
-          enableBackdropDismiss: true,
-          actions: [{text: t('OK'), primary: true, action: () => {}}],
-        }),
-      );
+    if (!dispatch(addCoinFromUi(coin, 'GlobalSelect'))) {
       return;
     }
     picked.current = true;

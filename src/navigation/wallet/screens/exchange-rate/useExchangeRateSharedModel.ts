@@ -1,5 +1,10 @@
 import React from 'react';
 import {
+  useWatchlistCoin,
+  WatchlistHeaderActions,
+} from '../../../watchlist/WatchlistAssetActions';
+import {watchlistImage} from '../../../watchlist/watchlistRows';
+import {
   type NavigationProp,
   RouteProp,
   useNavigation,
@@ -148,7 +153,6 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
     'btc'
   ).toLowerCase();
   const coin = BitpaySupportedCoins[coinKey] ?? BitpaySupportedCoins.btc;
-  const currencyName = params?.currencyName || coin.name || 'Bitcoin';
 
   const assetContext = useMemo<ExchangeRateAssetContext>(() => {
     const chain = (
@@ -176,6 +180,10 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
     params?.network,
     params?.tokenAddress,
   ]);
+
+  const watchlistCoin = useWatchlistCoin(assetContext);
+  const currencyName =
+    watchlistCoin?.name || params?.currencyName || coin.name || 'Bitcoin';
 
   const assetCurrencyOption = useMemo(
     () =>
@@ -445,8 +453,13 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
       headerTitle: () =>
         React.createElement(HeaderTitle, {style: {fontSize: 20}}, currencyName),
       headerLeft: () => React.createElement(HeaderBackButton),
+      headerRight:
+        !isAssetBalanceHistoryMode && watchlistCoin
+          ? () =>
+              React.createElement(WatchlistHeaderActions, {coin: watchlistCoin})
+          : undefined,
     });
-  }, [currencyName, navigation]);
+  }, [currencyName, navigation, watchlistCoin, isAssetBalanceHistoryMode]);
 
   return {
     aboutToDisplay,
@@ -456,8 +469,10 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
     asOfMs,
     chartLineColor,
     circulatingSupplyToDisplay,
-    currencyAbbreviation,
-    currencyImageSource: assetCurrencyOption?.img || coin.img,
+    currencyAbbreviation: watchlistCoin?.symbol || currencyAbbreviation,
+    currencyImageSource: watchlistCoin
+      ? watchlistImage(watchlistCoin)
+      : assetCurrencyOption?.img || coin.img,
     currencyName,
     currentFiatRate,
     formatDisplayPrice,

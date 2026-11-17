@@ -1,6 +1,7 @@
 import React from 'react';
 import TestRenderer, {act} from 'react-test-renderer';
 import useExchangeRateSharedModel from './useExchangeRateSharedModel';
+import {tokenManager} from '../../../../managers/TokenManager';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -414,5 +415,38 @@ describe('useExchangeRateSharedModel', () => {
     expect(
       latestSharedModel?.walletsForAsset.map(({ui}) => ui.cryptoBalance),
     ).toEqual(['2.345678', '0.000000']);
+  });
+  it('uses the grouped listed token’s own name, symbol and image without a wallet', async () => {
+    tokenManager.setTokenOptions({
+      tokenDataByAddress: {},
+      tokenOptionsByAddress: {
+        '0xabc_e': {
+          name: 'Listed Token',
+          symbol: 'LIST',
+          address: '0xabc',
+          decimals: 18,
+          logoURI: 'https://example.test/list.png',
+        },
+      },
+    });
+    mockRouteParams = {
+      currencyAbbreviation: 'list',
+      chain: 'eth',
+      tokenAddress: '0xabc',
+    };
+    let renderer: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<HookHarness />);
+    });
+    expect(latestSharedModel?.currencyName).toBe('Listed Token');
+    expect(latestSharedModel?.currencyAbbreviation).toBe('LIST');
+    expect(latestSharedModel?.currencyImageSource).toBe(
+      'https://example.test/list.png',
+    );
+    expect(latestSharedModel?.currentFiatRate).toBeUndefined();
+    await act(async () => {
+      renderer!.unmount();
+      tokenManager.clear();
+    });
   });
 });

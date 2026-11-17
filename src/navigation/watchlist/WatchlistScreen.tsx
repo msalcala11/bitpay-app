@@ -23,6 +23,7 @@ import {
   syncPriceAlerts,
 } from '../../store/watchlist/watchlist.effects';
 import {useWatchlistRows} from './useWatchlistRows';
+import {canAddWatchlistCoin} from './watchlistUi.effects';
 import {EditableWatchlistRow, WatchlistRow} from './WatchlistRow';
 
 export const WatchlistEmpty = () => {
@@ -81,7 +82,11 @@ export default function WatchlistScreen() {
               style={{width: 44, height: 44}}
               accessibilityRole="button"
               accessibilityLabel={t('Add crypto')}
-              onPress={() => navigation.navigate('WatchlistSelectCrypto')}>
+              onPress={() => {
+                if (dispatch(canAddWatchlistCoin())) {
+                  navigation.navigate('WatchlistSelectCrypto');
+                }
+              }}>
               <AddSvg width={40} height={40} />
             </TouchableOpacity>
             {items.length ? (
@@ -96,7 +101,7 @@ export default function WatchlistScreen() {
           </View>
         ),
     });
-  }, [edit, items.length, navigation, options, t]);
+  }, [dispatch, edit, items.length, navigation, options, t]);
   const renderItem = ({
     item,
     index,
