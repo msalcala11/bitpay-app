@@ -58,6 +58,7 @@ import GiftCardDiscountText from '../../components/GiftCardDiscountText';
 import {formatFiatAmount, sleep} from '../../../../../utils/helper-methods';
 import {CustomErrorMessage} from '../../../../wallet/components/ErrorMessages';
 import {ShopActions} from '../../../../../store/shop';
+import {seedDevGiftCardPreview} from '../../../../../store/shop/devGiftCardPreview.effects';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {useTranslation} from 'react-i18next';
 import {Analytics} from '../../../../../store/analytics/analytics.effects';
@@ -308,6 +309,10 @@ const BuyGiftCard = ({
     });
   });
   useEffect(() => {
+    // Temporary local catalog QA: preview this brand in My Gift Cards.
+    if (__DEV__) {
+      dispatch(seedDevGiftCardPreview(cardConfig));
+    }
     dispatch(
       Analytics.track('Viewed Gift Card', {
         giftCardBrand: cardConfig.name,
