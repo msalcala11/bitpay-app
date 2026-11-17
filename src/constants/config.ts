@@ -1,4 +1,5 @@
 import {
+  BASE_PRICE_ALERTS_URL_DEVELOPMENT,
   REGTEST_BASE_BITPAY_URL,
   STATIC_CONTENT_CARDS_ENABLED as STATIC_CONTENT_CARDS_ENABLED_ENV,
 } from '@env';
@@ -82,6 +83,11 @@ export const APP_CRYPTO_PREFIX = [
 
 // BWC
 export const BASE_BWS_URL = 'https://bws.bitpay.com/bws/api';
+// This override applies only to price alerts, never to wallet requests.
+export const BASE_PRICE_ALERTS_URL =
+  __DEV__ && BASE_PRICE_ALERTS_URL_DEVELOPMENT
+    ? BASE_PRICE_ALERTS_URL_DEVELOPMENT.replace(/\/+$/, '')
+    : BASE_BWS_URL;
 export const BWC_TIMEOUT = 100000;
 
 // Storybook
