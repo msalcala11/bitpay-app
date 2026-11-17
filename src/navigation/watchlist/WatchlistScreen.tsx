@@ -18,13 +18,10 @@ import AddSvg from '../tabs/home/components/AddSvg';
 import CustomizeSvg from '../tabs/home/components/CustomizeSvg';
 import {TouchableOpacity} from '../../components/base/TouchableOpacity';
 import Ghost from '../../../assets/img/wallet/ghost-straight-face.svg';
-import {
-  reorderWatchlist,
-  syncPriceAlerts,
-} from '../../store/watchlist/watchlist.effects';
+import {syncPriceAlerts} from '../../store/watchlist/watchlist.effects';
 import {useWatchlistRows} from './useWatchlistRows';
 import {WatchlistNotificationsBanner} from './WatchlistNotifications';
-import {canAddWatchlistCoin} from './watchlistUi.effects';
+import {canAddWatchlistCoin, reorderFromUi} from './watchlistUi.effects';
 import {EditableWatchlistRow, WatchlistRow} from './WatchlistRow';
 
 export const WatchlistEmpty = () => {
@@ -127,7 +124,7 @@ export default function WatchlistScreen() {
           keyExtractor={item => item.id}
           renderItem={renderItem}
           onReorder={({from, to}) =>
-            dispatch(reorderWatchlist(items[from].id, to))
+            dispatch(reorderFromUi(items[from].id, to))
           }
           contentContainerStyle={{paddingTop: 6, paddingBottom: 40}}
         />

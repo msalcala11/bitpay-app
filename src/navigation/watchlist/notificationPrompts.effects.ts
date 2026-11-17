@@ -1,3 +1,4 @@
+import {Analytics} from '../../store/analytics/analytics.effects';
 import {t} from 'i18next';
 import {checkNotifications, RESULTS} from 'react-native-permissions';
 import type {Effect} from '../../store';
@@ -45,12 +46,23 @@ export const turnOnAlertNotifications =
 
 export const fixAlertNotifications =
   (
-    _context: AlertScreenContext,
+    context: AlertScreenContext,
     afterSave: boolean,
     openSettings: () => void,
     onResult?: (result: PermissionPromptResult) => void,
   ): Effect<Promise<void>> =>
   async (dispatch, getState) => {
+    let answered = false;
+    const answer = (result: PermissionPromptResult) => {
+      if (answered) {
+        return;
+      }
+      answered = true;
+      dispatch(
+        Analytics.track('Push Permission Prompt Result', {result, context}),
+      );
+      onResult?.(result);
+    };
     if (!selectAlertsAvailable(getState())) {
       return;
     }
@@ -77,7 +89,7 @@ export const fixAlertNotifications =
       dispatch(markAlertPermissionPromptShown());
     }
     if (fix === 'blocked') {
-      showNotificationsDisabled(onResult);
+      showNotificationsDisabled(answer);
     } else if (fix === 'os') {
       await AppEffects.requestNotificationsPermissions();
       const allowed = await AppEffects.checkNotificationsPermissions();
@@ -89,7 +101,7 @@ export const fixAlertNotifications =
           dispatch(showPriceAlertError());
         }
       }
-      onResult?.(allowed ? 'allowed' : 'denied');
+      answer(allowed ? 'allowed' : 'denied');
     } else if (fix === 'inapp') {
       if (!afterSave) {
         openSettings();
@@ -102,7 +114,7 @@ export const fixAlertNotifications =
           message: t('Turn them on to get notified when the price moves.'),
           modalLibrary: 'bottom-sheet',
           enableBackdropDismiss: true,
-          onBackdropDismiss: () => onResult?.('dismissed'),
+          onBackdropDismiss: () => answer('dismissed'),
           actions: [
             {
               text: t('Turn On'),
@@ -110,14 +122,14 @@ export const fixAlertNotifications =
               action: async () => {
                 try {
                   await dispatch(turnOnAlertNotifications());
-                  onResult?.('allowed');
+                  answer('allowed');
                 } catch {
                   dispatch(showPriceAlertError());
-                  onResult?.('dismissed');
+                  answer('dismissed');
                 }
               },
             },
-            {text: t('Not Now'), action: () => onResult?.('denied')},
+            {text: t('Not Now'), action: () => answer('denied')},
           ],
         }),
       );

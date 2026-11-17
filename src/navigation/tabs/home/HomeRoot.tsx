@@ -4,7 +4,6 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import {
   AppState,
-  AppStateStatus,
   LayoutChangeEvent,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -34,6 +33,7 @@ import useRuntimeFiatRateSeriesCache from '../../../portfolio/ui/hooks/useRuntim
 import type {FiatRateCacheRequest} from '../../../portfolio/core/fiatRatesShared';
 import {BalanceUpdateError} from '../../wallet/components/ErrorMessages';
 import Crypto from './components/Crypto';
+import {useExchangeRateLink} from '../../watchlist/useExchangeRateLink';
 import {WatchlistHomeSection} from '../../watchlist/WatchlistHomeSection';
 import {
   buildWatchlistRows,
@@ -77,7 +77,6 @@ import DefaultMarketingCards from './components/DefaultMarketingCards';
 import AllocationSection from './components/AllocationSection';
 import AssetsSection from './components/AssetsSection';
 import {selectShowPortfolioValue} from '../../../store/app/app.selectors';
-import {getCoinAndChainFromCurrencyCode} from '../../bitpay-id/utils/bitpay-id-utils';
 import {getPortfolioAllocationTotalFiat} from '../../../utils/portfolio/allocation';
 import type {Key} from '../../../store/wallet/wallet.models';
 import type {Rates} from '../../../store/rate/rate.models';
@@ -281,7 +280,6 @@ const HomeArchaxFooter = React.memo(() => {
 });
 
 type HomeExchangeRatesSectionProps = {
-  currencyAbbreviation?: string;
   navigation: HomeScreenProps['navigation'];
   forceReloadOnMountRef: React.MutableRefObject<boolean>;
   reloadRef: React.MutableRefObject<ExchangeRatesReload | undefined>;
@@ -291,7 +289,6 @@ type HomeExchangeRatesSectionProps = {
 
 const HomeWatchlistSection = React.memo(
   ({
-    currencyAbbreviation,
     navigation,
     forceReloadOnMountRef,
     reloadRef,
@@ -358,12 +355,6 @@ const HomeWatchlistSection = React.memo(
         ),
       [watchlist, fiatRateSeriesCache, lastDayRates, quoteCurrency, rates],
     );
-    const exchangeRatesRef = useRef(exchangeRates);
-
-    useEffect(() => {
-      exchangeRatesRef.current = exchangeRates;
-    }, [exchangeRates]);
-
     useEffect(() => {
       reloadRef.current = reloadFiatRateSeriesCache;
       if (forceInitialRateSeriesReload) {
@@ -391,48 +382,6 @@ const HomeWatchlistSection = React.memo(
       });
     }, [active, navigation, reloadFiatRateSeriesCache]);
 
-    const handleAppStateChange = useCallback(
-      (status: AppStateStatus) => {
-        if (status !== 'active' || !currencyAbbreviation) {
-          return;
-        }
-
-        navigation.setParams({
-          currencyAbbreviation: undefined,
-        });
-
-        const {coin: targetAbbreviation} =
-          getCoinAndChainFromCurrencyCode(currencyAbbreviation);
-        const exchangeRatesSection = exchangeRatesRef.current.find(
-          ({currencyAbbreviation: abbr}) =>
-            abbr.toLowerCase() === targetAbbreviation,
-        );
-
-        if (!exchangeRatesSection) {
-          return;
-        }
-
-        navigation
-          .getParent<NativeStackNavigationProp<RootStackParamList>>()
-          ?.navigate('ExchangeRate', {
-            currencyName: exchangeRatesSection.currencyName,
-            currencyAbbreviation: exchangeRatesSection.currencyAbbreviation,
-            chain: exchangeRatesSection.chain,
-            tokenAddress: exchangeRatesSection.tokenAddress,
-          });
-      },
-      [currencyAbbreviation, navigation],
-    );
-
-    useEffect(() => {
-      const subscriptionAppStateChange = AppState.addEventListener(
-        'change',
-        handleAppStateChange,
-      );
-
-      return () => subscriptionAppStateChange.remove();
-    }, [handleAppStateChange]);
-
     if (!visible) {
       return null;
     }
@@ -445,9 +394,18 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
   perfMarkOnce('bp_home_render');
   useEffect(() => perfMarkOnce('bp_home_commit'), []);
   const dispatch = useAppDispatch();
-  const {currencyAbbreviation} = route.params || {};
+  const {currencyAbbreviation, exchangeRateLink} = route.params || {};
+  const legacyExchangeRateLink = useMemo(
+    () => (currencyAbbreviation ? {currencyAbbreviation} : undefined),
+    [currencyAbbreviation],
+  );
   const theme = useTheme();
   const isHomeFocused = useIsFocused();
+  useExchangeRateLink(
+    exchangeRateLink || legacyExchangeRateLink,
+    navigation,
+    isHomeFocused,
+  );
   const [refreshing, setRefreshing] = useState(false);
   const hasKeys = useAppSelector(selectHasHomeKeys);
   const {canPreloadReceive} = useAppSelector(selectHomeFlowPreloadEligibility);
@@ -885,16 +843,15 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
                     <HomeOffersSection />
                   </PerformanceProfiler>
                 ) : null}
-                {shouldActivateHomeDiscoverSection || !!currencyAbbreviation ? (
+                {shouldActivateHomeDiscoverSection ? (
                   <PerformanceProfiler
                     id="Home:exchange-rates"
                     onRender={logReactProfiler}>
                     <HomeWatchlistSection
-                      currencyAbbreviation={currencyAbbreviation}
                       navigation={navigation}
                       forceReloadOnMountRef={forceExchangeRatesReloadOnMountRef}
                       reloadRef={exchangeRatesReloadRef}
-                      active={isHomeFocused || !!currencyAbbreviation}
+                      active={isHomeFocused}
                       visible={shouldActivateHomeDiscoverSection}
                     />
                   </PerformanceProfiler>

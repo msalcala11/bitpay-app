@@ -1283,6 +1283,8 @@ export const incomingShopLink =
     return {merchantName};
   };
 
+let exchangeRateLinkNonce = 0;
+
 export const TOKEN_WALLET_LOOKUP_TIMEOUT = 3000;
 export const TOKEN_WALLET_LOOKUP_INTERVAL = 500;
 
@@ -1415,7 +1417,9 @@ export const incomingLink =
       handler = () => {
         navigationRef.navigate(RootStacks.TABS, {
           screen: TabsScreens.HOME,
-          params,
+          params: {
+            exchangeRateLink: {...params, nonce: ++exchangeRateLinkNonce},
+          },
         });
       };
     } else if (pathSegments[0] === 'email-opt-in') {

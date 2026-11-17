@@ -1,3 +1,8 @@
+import {Analytics} from '../../store/analytics/analytics.effects';
+import type {
+  PriceAlert,
+  PriceAlertThreshold,
+} from '../../api/price-alerts/price-alerts.types';
 import {t} from 'i18next';
 import type {Effect} from '../../store';
 import type {
@@ -11,23 +16,31 @@ import {selectAlertContext} from '../../store/watchlist/watchlist.selectors';
 import {
   addWatchlistCoin,
   removeWatchlistCoin,
+  reorderWatchlist,
+  savePriceAlert,
+  turnOffPriceAlert,
+  setPriceAlertsEnabled,
 } from '../../store/watchlist/watchlist.effects';
 
 export type AlertScreenContext = NonNullable<
   WatchlistState['alertSheet']
 >['context'];
 
-export const showWatchlistFull = (): Effect => dispatch =>
-  dispatch(
-    showBottomNotificationModal({
-      type: 'info',
-      title: t('Watchlist is full'),
-      message: t('You can watch up to 20 coins. Remove one to add another.'),
-      modalLibrary: 'bottom-sheet',
-      enableBackdropDismiss: true,
-      actions: [{text: t('OK'), primary: true, action: () => {}}],
-    }),
-  );
+export const showWatchlistFull =
+  (context: AlertScreenContext = 'Watchlist'): Effect =>
+  dispatch => {
+    dispatch(Analytics.track('Watchlist Limit Reached', {context}));
+    dispatch(
+      showBottomNotificationModal({
+        type: 'info',
+        title: t('Watchlist is full'),
+        message: t('You can watch up to 20 coins. Remove one to add another.'),
+        modalLibrary: 'bottom-sheet',
+        enableBackdropDismiss: true,
+        actions: [{text: t('OK'), primary: true, action: () => {}}],
+      }),
+    );
+  };
 export const canAddWatchlistCoin =
   (): Effect<boolean> => (dispatch, getState) => {
     if (getState().WATCHLIST.items.length >= 20) {
@@ -39,18 +52,30 @@ export const canAddWatchlistCoin =
 export const addCoinFromUi =
   (
     coin: WatchlistCoin,
-    _context: 'GlobalSelect' | 'PriceChart' | 'WalletDetails',
+    context: 'GlobalSelect' | 'PriceChart' | 'WalletDetails',
   ): Effect<boolean> =>
-  dispatch => {
+  (dispatch, getState) => {
     try {
-      return dispatch(addWatchlistCoin(coin));
+      const added = dispatch(addWatchlistCoin(coin));
+      if (added) {
+        dispatch(
+          Analytics.track('Watchlist Asset Added', {
+            coin: coin.symbol.toLowerCase(),
+            context,
+            watchlist_count: getState().WATCHLIST.items.length,
+          }),
+        );
+      }
+      return added;
     } catch {
-      dispatch(showWatchlistFull());
+      dispatch(
+        showWatchlistFull(context === 'GlobalSelect' ? 'Watchlist' : context),
+      );
       return false;
     }
   };
 export const confirmRemoveWatchlistCoin =
-  (coin: WatchlistCoin, _context: 'PriceChart' | 'WalletDetails'): Effect =>
+  (coin: WatchlistCoin, context: 'PriceChart' | 'WalletDetails'): Effect =>
   (dispatch, getState) => {
     const hasAlert = !!selectAlertContext(getState())?.alerts[coin.id];
     dispatch(
@@ -70,7 +95,7 @@ export const confirmRemoveWatchlistCoin =
           {
             text: t('Remove'),
             primary: true,
-            action: () => dispatch(removeWatchlistCoin(coin)),
+            action: () => dispatch(removeCoinFromUi(coin, context)),
           },
           {text: t('Cancel'), action: () => {}},
         ],
@@ -142,3 +167,114 @@ export const finishPriceAlert = (): Effect => (dispatch, getState) => {
     }),
   );
 };
+
+export const removeCoinFromUi =
+  (coin: WatchlistCoin, context: 'HomeRoot' | AlertScreenContext): Effect =>
+  (dispatch, getState) => {
+    if (!getState().WATCHLIST.items.some(item => item.id === coin.id)) {
+      return;
+    }
+    const alert = dispatch(removeWatchlistCoin(coin));
+    dispatch(
+      Analytics.track('Watchlist Asset Removed', {
+        coin: coin.symbol.toLowerCase(),
+        context,
+        had_alert: !!alert,
+      }),
+    );
+    if (alert) {
+      dispatch(
+        Analytics.track('Price Alert Turned Off', {
+          coin: coin.symbol.toLowerCase(),
+          threshold_pct: alert.thresholdPct,
+          method: 'removed_from_watchlist',
+          context,
+        }),
+      );
+    }
+  };
+export const reorderFromUi =
+  (id: string, to: number): Effect =>
+  dispatch => {
+    const properties = dispatch(reorderWatchlist(id, to));
+    if (properties) {
+      dispatch(Analytics.track('Watchlist Reordered', properties));
+    }
+  };
+export const saveAlertFromUi =
+  (
+    coin: WatchlistCoin,
+    threshold: PriceAlertThreshold,
+    context: AlertScreenContext,
+  ): Effect<Promise<PriceAlert | undefined>> =>
+  async (dispatch, getState) => {
+    const previous = selectAlertContext(getState())?.alerts[coin.id]?.alert;
+    const watched = getState().WATCHLIST.items.some(
+      item => item.id === coin.id,
+    );
+    const saved = await dispatch(savePriceAlert(coin, threshold));
+    if (saved) {
+      if (!watched) {
+        dispatch(
+          Analytics.track('Watchlist Asset Added', {
+            coin: coin.symbol.toLowerCase(),
+            context,
+            watchlist_count: getState().WATCHLIST.items.length,
+          }),
+        );
+      }
+      dispatch(
+        Analytics.track('Price Alert Saved', {
+          coin: coin.symbol.toLowerCase(),
+          threshold_pct: saved.thresholdPct,
+          is_edit: !!previous,
+          ...(previous ? {previous_threshold_pct: previous.thresholdPct} : {}),
+          context,
+        }),
+      );
+      if (!getState().WATCHLIST.alertSheet) {
+        dispatch(
+          updateWatchlist({
+            ...getState().WATCHLIST,
+            pendingNotificationPrompt: context,
+          }),
+        );
+      }
+    }
+    return saved;
+  };
+export const turnOffAlertFromUi =
+  (coin: WatchlistCoin, context: AlertScreenContext): Effect<Promise<void>> =>
+  async dispatch => {
+    const alert = await dispatch(turnOffPriceAlert(coin));
+    if (alert) {
+      dispatch(
+        Analytics.track('Price Alert Turned Off', {
+          coin: coin.symbol.toLowerCase(),
+          threshold_pct: alert.thresholdPct,
+          method: 'turn_off',
+          context,
+        }),
+      );
+    }
+  };
+export const skipPriceAlert =
+  (coin: WatchlistCoin): Effect =>
+  dispatch => {
+    dispatch(
+      Analytics.track('Price Alert Skipped', {coin: coin.symbol.toLowerCase()}),
+    );
+    dispatch(closePriceAlert());
+  };
+export const changePriceAlertsFromUi =
+  (enabled: boolean): Effect<Promise<void>> =>
+  async (dispatch, getState) => {
+    const previous = getState().WATCHLIST.priceAlertsEnabled;
+    await dispatch(setPriceAlertsEnabled(enabled));
+    if (
+      previous !== enabled &&
+      getState().WATCHLIST.priceAlertsEnabled === enabled
+    ) {
+      dispatch(Analytics.track('Price Alerts Setting Changed', {enabled}));
+    }
+  };

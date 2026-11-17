@@ -13,9 +13,11 @@ import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import {AppEffects} from '../../../../../store/app';
 import {showNotificationsDisabled} from '../notificationPermission';
-import {setPriceAlertsEnabled} from '../../../../../store/watchlist/watchlist.effects';
 import {selectAlertsAvailable} from '../../../../../store/watchlist/watchlist.selectors';
-import {showPriceAlertError} from '../../../../watchlist/watchlistUi.effects';
+import {
+  showPriceAlertError,
+  changePriceAlertsFromUi,
+} from '../../../../watchlist/watchlistUi.effects';
 
 const styles = StyleSheet.create({
   settingsComponent: {
@@ -84,7 +86,7 @@ const PushNotifications = () => {
     alertBusy.current = true;
     setUpdatingAlerts(true);
     try {
-      await dispatch(setPriceAlertsEnabled(!priceAlertsEnabled));
+      await dispatch(changePriceAlertsFromUi(!priceAlertsEnabled));
     } catch {
       dispatch(showPriceAlertError());
     } finally {

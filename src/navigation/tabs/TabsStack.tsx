@@ -1,3 +1,4 @@
+import type {ExchangeRateLink} from '../watchlist/exchangeRateLink';
 import React from 'react';
 import {markOnce as perfMarkOnce} from '../../perf/PerfMonitor';
 import {StyleSheet, View, TouchableOpacity} from 'react-native';
@@ -80,6 +81,7 @@ export type TabsStackParamList = {
   Home:
     | {
         currencyAbbreviation?: string;
+        exchangeRateLink?: ExchangeRateLink;
       }
     | undefined;
   Shop: NavigatorScreenParams<ShopStackParamList> | undefined;

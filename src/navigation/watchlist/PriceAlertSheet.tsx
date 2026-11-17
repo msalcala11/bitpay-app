@@ -19,15 +19,15 @@ import {
   selectAlertContext,
   selectAlertsAvailable,
 } from '../../store/watchlist/watchlist.selectors';
-import {
-  savePriceAlert,
-  turnOffPriceAlert,
-} from '../../store/watchlist/watchlist.effects';
+
 import {
   closePriceAlert,
   finishPriceAlert,
   showPriceAlertError,
   showWatchlistFull,
+  saveAlertFromUi,
+  turnOffAlertFromUi,
+  skipPriceAlert,
 } from './watchlistUi.effects';
 import type {PriceAlertThreshold} from '../../api/price-alerts/price-alerts.types';
 import type {WatchlistState} from '../../store/watchlist/watchlist.models';
@@ -120,7 +120,9 @@ const AlertForm = ({
     busy.current = true;
     setButtonState('loading');
     try {
-      const saved = await dispatch(savePriceAlert(sheet.coin, threshold));
+      const saved = await dispatch(
+        saveAlertFromUi(sheet.coin, threshold, sheet.context),
+      );
       if (!mounted.current) {
         return;
       }
@@ -138,7 +140,7 @@ const AlertForm = ({
       setButtonState(null);
       if ((error as {code?: string}).code === 'WATCHLIST_FULL') {
         dispatch(closePriceAlert());
-        dispatch(showWatchlistFull());
+        dispatch(showWatchlistFull(sheet.context));
       } else {
         dispatch(showPriceAlertError());
       }
@@ -160,7 +162,7 @@ const AlertForm = ({
             primary: true,
             action: async () => {
               try {
-                await dispatch(turnOffPriceAlert(sheet.coin));
+                await dispatch(turnOffAlertFromUi(sheet.coin, sheet.context));
                 dispatch(closePriceAlert());
               } catch {
                 dispatch(showPriceAlertError());
@@ -204,7 +206,7 @@ const AlertForm = ({
           <Button
             buttonType="link"
             disabled={!!buttonState}
-            onPress={() => dispatch(closePriceAlert())}>
+            onPress={() => dispatch(skipPriceAlert(sheet.coin))}>
             {t('Not Now')}
           </Button>
         ) : null}

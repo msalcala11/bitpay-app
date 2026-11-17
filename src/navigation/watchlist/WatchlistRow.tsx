@@ -22,10 +22,7 @@ import {
   LightBlue,
   Midnight,
 } from '../../styles/colors';
-import {
-  removeWatchlistCoin,
-  reorderWatchlist,
-} from '../../store/watchlist/watchlist.effects';
+import {removeCoinFromUi, reorderFromUi} from './watchlistUi.effects';
 import {
   selectAlertContext,
   selectAlertsAvailable,
@@ -83,7 +80,7 @@ export const WatchlistRow = ({
   row,
   edit = false,
   highlighted = false,
-  context: _context = 'Watchlist',
+  context = 'Watchlist',
   onDrag,
 }: {
   coin: WatchlistCoin;
@@ -104,7 +101,7 @@ export const WatchlistRow = ({
   const index = useAppSelector(state =>
     state.WATCHLIST.items.findIndex(item => item.id === coin.id),
   );
-  const remove = () => dispatch(removeWatchlistCoin(coin));
+  const remove = () => dispatch(removeCoinFromUi(coin, context));
   const open = () => {
     if (!edit) {
       navigation.navigate('ExchangeRate', {
@@ -170,7 +167,7 @@ export const WatchlistRow = ({
               remove();
             } else {
               dispatch(
-                reorderWatchlist(
+                reorderFromUi(
                   coin.id,
                   nativeEvent.actionName === 'up'
                     ? index - 1
