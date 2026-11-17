@@ -30,6 +30,7 @@ interface HomeRowProps {
   onActionPress?: TouchableWithoutFeedbackProps['onPress'];
   style?: StyleProp<ViewStyle>;
   label?: string;
+  headerRight?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -175,7 +176,8 @@ const HeaderLinkContent: React.FC<{children?: React.ReactNode}> = ({
 }) => <View style={styles.headerLinkContent}>{children}</View>;
 
 const HomeSection: React.FC<HomeRowProps> = props => {
-  const {title, action, onActionPress, children, style, label} = props;
+  const {title, action, onActionPress, children, style, label, headerRight} =
+    props;
 
   return (
     <HomeRowContainer style={style}>
@@ -191,6 +193,7 @@ const HomeSection: React.FC<HomeRowProps> = props => {
               </HeaderLabelContainer>
             ) : null}
           </HeaderLeft>
+          {headerRight}
           {action ? (
             <HeaderLinkContainer>
               <TouchableOpacity
