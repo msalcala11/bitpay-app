@@ -438,8 +438,8 @@ jest.mock('../../tabs/home/components/offers/MockOffers', () =>
 );
 jest.mock('../../tabs/home/components/offers/OffersCarousel', () => () => null);
 jest.mock(
-  '../../tabs/home/components/exchange-rates/ExchangeRatesList',
-  () => () => null,
+  '../../watchlist/WatchlistHomeSection',
+  () => ({WatchlistHomeSection: () => null}),
 );
 jest.mock(
   '../../tabs/home/components/SecurePasskeyBannerGate',

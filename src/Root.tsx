@@ -162,6 +162,7 @@ import PaymentSent from './navigation/wallet/components/PaymentSent';
 import {TopToast} from './components/backup/TopToast';
 import AllAssets from './navigation/tabs/home/screens/AllAssets';
 import Allocation from './navigation/tabs/home/screens/Allocation';
+import WatchlistScreen from './navigation/watchlist/WatchlistScreen';
 import {
   getBaseEVMAccountCreationCoinsAndTokens,
   getBaseSVMAccountCreationCoinsAndTokens,
@@ -189,6 +190,8 @@ const {Timer, SilentPushEvent, InAppMessageModule} = NativeModules;
 // ROOT NAVIGATION CONFIG
 export type RootStackParamList = {
   StartupGate: undefined;
+  Watchlist: undefined;
+  WatchlistSelectCrypto: undefined;
   Tabs: NavigatorScreenParams<TabsStackParamList>;
   AllAssets: {keyId?: string} | undefined;
   Allocation:
@@ -1183,6 +1186,7 @@ export default () => {
                 animation: 'none',
               }}
             />
+            <Root.Screen name="Watchlist" component={WatchlistScreen} options={{...baseNavigatorOptions, headerShown: true}} />
             <Root.Screen
               name={'AllAssets'}
               component={AllAssets}

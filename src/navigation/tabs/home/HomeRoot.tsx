@@ -14,11 +14,7 @@ import {
   View,
 } from 'react-native';
 import {createSelector} from 'reselect';
-import {
-  EXCHANGE_RATES_CURRENCIES,
-  STATIC_CONTENT_CARDS_ENABLED,
-} from '../../../constants/config';
-import {SupportedCurrencyOptions} from '../../../constants/SupportedCurrencyOptions';
+import {STATIC_CONTENT_CARDS_ENABLED} from '../../../constants/config';
 import {
   setShowKeyMigrationFailureModal,
   setShowKycGetVerifiedModal,
@@ -38,7 +34,11 @@ import useRuntimeFiatRateSeriesCache from '../../../portfolio/ui/hooks/useRuntim
 import type {FiatRateCacheRequest} from '../../../portfolio/core/fiatRatesShared';
 import {BalanceUpdateError} from '../../wallet/components/ErrorMessages';
 import Crypto from './components/Crypto';
-import ExchangeRatesList from './components/exchange-rates/ExchangeRatesList';
+import {WatchlistHomeSection} from '../../watchlist/WatchlistHomeSection';
+import {
+  buildWatchlistRows,
+  watchlistAsset,
+} from '../../watchlist/watchlistRows';
 import ProfileButton from './components/HeaderProfileButton';
 import ScanButton from './components/HeaderScanButton';
 import HomeSection from './components/HomeSection';
@@ -65,10 +65,6 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RootStackParamList} from '../../../Root';
 import {TabsScreens, TabsStackParamList} from '../TabsStack';
-import {
-  BitpaySupportedCoins,
-  BitpaySupportedTokens,
-} from '../../../constants/currencies';
 import {HISTORIC_RATES_CACHE_DURATION} from '../../../constants/wallet';
 import SecurePasskeyBannerGate from './components/SecurePasskeyBannerGate';
 import KycBannerGate from './components/KycBannerGate';
@@ -91,7 +87,6 @@ import {
   walletsHaveNonZeroLiveBalance,
 } from '../../../utils/portfolio/assets';
 import {sortNewestFirst} from '../../../utils/braze';
-import buildHomeExchangeRateItems from './homeExchangeRates';
 import {logManager} from '../../../managers/LogManager';
 import {formatUnknownError} from '../../../utils/errors/formatUnknownError';
 import type {RootState} from '../../../store';
@@ -294,7 +289,7 @@ type HomeExchangeRatesSectionProps = {
   visible: boolean;
 };
 
-const HomeExchangeRatesSection = React.memo(
+const HomeWatchlistSection = React.memo(
   ({
     currencyAbbreviation,
     navigation,
@@ -303,7 +298,7 @@ const HomeExchangeRatesSection = React.memo(
     active,
     visible,
   }: HomeExchangeRatesSectionProps) => {
-    const {t} = useTranslation();
+    const watchlist = useAppSelector(state => state.WATCHLIST.items);
     const defaultAltCurrency = useAppSelector(
       ({APP}) => APP.defaultAltCurrency,
     );
@@ -330,11 +325,17 @@ const HomeExchangeRatesSection = React.memo(
     }).toUpperCase();
     const exchangeRateHistoricalRequests = useMemo<FiatRateCacheRequest[]>(
       () =>
-        EXCHANGE_RATES_CURRENCIES.map(coin => ({
-          coin,
-          intervals: ['1D'],
-        })),
-      [],
+        watchlist.map(item => {
+          const asset = watchlistAsset(item);
+          return {
+            coin: asset.currencyAbbreviation,
+            intervals: ['1D'],
+            ...(asset.tokenAddress
+              ? {chain: asset.chain, tokenAddress: asset.tokenAddress}
+              : {}),
+          };
+        }),
+      [watchlist],
     );
     const forceInitialRateSeriesReload = forceReloadOnMountRef.current;
     const {cache: fiatRateSeriesCache, reload: reloadFiatRateSeriesCache} =
@@ -348,20 +349,14 @@ const HomeExchangeRatesSection = React.memo(
       });
     const exchangeRates = useMemo(
       () =>
-        buildHomeExchangeRateItems({
-          fiatRateSeriesCache,
-          lastDayRates,
+        buildWatchlistRows(
+          watchlist,
           rates,
+          lastDayRates,
           quoteCurrency,
-          exchangeRateCurrencies: EXCHANGE_RATES_CURRENCIES,
-          supportedCurrencyOptions: SupportedCurrencyOptions,
-          isStableCoinCurrencyName: currencyName =>
-            !!(
-              BitpaySupportedCoins[currencyName]?.properties?.isStableCoin ||
-              BitpaySupportedTokens[currencyName]?.properties?.isStableCoin
-            ),
-        }),
-      [fiatRateSeriesCache, lastDayRates, quoteCurrency, rates],
+          fiatRateSeriesCache,
+        ),
+      [watchlist, fiatRateSeriesCache, lastDayRates, quoteCurrency, rates],
     );
     const exchangeRatesRef = useRef(exchangeRates);
 
@@ -438,18 +433,11 @@ const HomeExchangeRatesSection = React.memo(
       return () => subscriptionAppStateChange.remove();
     }, [handleAppStateChange]);
 
-    if (!visible || !exchangeRates.length) {
+    if (!visible) {
       return null;
     }
 
-    return (
-      <HomeSection title={t('Exchange Rates')} label="24H">
-        <ExchangeRatesList
-          items={exchangeRates}
-          defaultAltCurrencyIsoCode={defaultAltCurrency.isoCode}
-        />
-      </HomeSection>
-    );
+    return <WatchlistHomeSection rows={exchangeRates} />;
   },
 );
 
@@ -901,7 +889,7 @@ const HomeRoot: React.FC<HomeScreenProps> = ({route, navigation}) => {
                   <PerformanceProfiler
                     id="Home:exchange-rates"
                     onRender={logReactProfiler}>
-                    <HomeExchangeRatesSection
+                    <HomeWatchlistSection
                       currencyAbbreviation={currencyAbbreviation}
                       navigation={navigation}
                       forceReloadOnMountRef={forceExchangeRatesReloadOnMountRef}

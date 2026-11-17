@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {ReactElement, ReactNode} from 'react';
 import {useTranslation} from 'react-i18next';
 import {useTheme} from '../../../../../contexts';
 import {CurrencyImage} from '../../../../../components/currency-image/CurrencyImage';
@@ -8,14 +8,13 @@ import {
   CurrencyColumn,
   CurrencyImageContainer,
 } from '../../../../../components/styled/Containers';
-import {H7, Smallest, BaseText} from '../../../../../components/styled/Text';
+import {H7, Smallest} from '../../../../../components/styled/Text';
 import {
   formatCurrencyAbbreviation,
   formatFiatAmountObj,
 } from '../../../../../utils/helper-methods';
-import {ExchangeRateItemProps} from './ExchangeRatesList';
-import {NeutralSlate, Slate30, SlateDark} from '../../../../../styles/colors';
-import {StyleSheet, View} from 'react-native';
+import {Slate30, SlateDark} from '../../../../../styles/colors';
+import {AccessibilityProps, StyleSheet, View} from 'react-native';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import Percentage from '../../../../../components/percentage/Percentage';
 import {useIsLargeFont} from '../../../../../utils/hooks/useFontScale';
@@ -36,6 +35,7 @@ const styles = StyleSheet.create({
   },
   exchangeRateText: {
     fontSize: 16,
+    lineHeight: 18,
     fontWeight: '400',
   },
   exchangeRateCode: {
@@ -84,21 +84,6 @@ const ExchangeRateText: React.FC<React.ComponentProps<typeof H7>> = ({
   ...rest
 }) => <H7 style={[styles.exchangeRateText, style]} {...rest} />;
 
-const ExchangeRateCode: React.FC<{children?: React.ReactNode}> = ({
-  children,
-}) => {
-  const theme = useTheme();
-  return (
-    <BaseText
-      style={[
-        styles.exchangeRateCode,
-        {color: theme.dark ? NeutralSlate : SlateDark},
-      ]}>
-      {children}
-    </BaseText>
-  );
-};
-
 const ExchangeRateSubText: React.FC<{children?: React.ReactNode}> = ({
   children,
 }) => {
@@ -114,20 +99,34 @@ const ExchangeRateSubText: React.FC<{children?: React.ReactNode}> = ({
   );
 };
 
+export interface ExchangeRateItemProps {
+  id: string;
+  img: string | ((props?: any) => ReactElement);
+  currencyName: string;
+  chain: string;
+  currencyAbbreviation: string;
+  tokenAddress?: string;
+  average?: number;
+  currentPrice?: number;
+}
+
 const ExchangeRateItem = ({
   item,
   onPress,
   defaultAltCurrencyIsoCode,
+  badge,
+  ...accessibility
 }: {
   item: ExchangeRateItemProps;
   onPress: () => void;
   defaultAltCurrencyIsoCode: string;
-}) => {
+  badge?: ReactNode;
+} & AccessibilityProps) => {
   const {t} = useTranslation();
   const stacked = useIsLargeFont();
   const {img, currencyName, currentPrice, average, currencyAbbreviation} = item;
 
-  const {amount, code} = formatFiatAmountObj(
+  const {amount} = formatFiatAmountObj(
     currentPrice!,
     defaultAltCurrencyIsoCode,
     {
@@ -144,6 +143,8 @@ const ExchangeRateItem = ({
       accessibilityLabel={t('{{currency}} exchange rate', {
         currency: currencyName,
       })}
+      accessibilityRole="button"
+      {...accessibility}
       onPress={onPress}>
       <CurrencyImageContainer style={{width: 40, height: 40}}>
         <CurrencyImage img={img} size={40} />
@@ -153,27 +154,35 @@ const ExchangeRateItem = ({
           {currencyName}
         </ExchangeRateText>
         {currencyAbbreviation ? (
-          <ExchangeRateSubText>
-            {formatCurrencyAbbreviation(currencyAbbreviation)}
-          </ExchangeRateSubText>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 4,
+            }}>
+            <ExchangeRateSubText>
+              {formatCurrencyAbbreviation(currencyAbbreviation)}
+            </ExchangeRateSubText>
+            {badge}
+          </View>
         ) : null}
       </CurrencyColumn>
       <NoteContainer stacked={stacked}>
         {currentPrice ? (
           <>
-            <ExchangeRateText>
-              {amount}
-              {code ? (
-                <View>
-                  <ExchangeRateCode>{code}</ExchangeRateCode>
-                </View>
-              ) : null}
-            </ExchangeRateText>
+            <ExchangeRateText>{amount}</ExchangeRateText>
             <SubTextContainer>
-              <Percentage percentageDifference={average || 0} hideArrow />
+              {average === undefined ? (
+                <ExchangeRateSubText>{'--'}</ExchangeRateSubText>
+              ) : (
+                <Percentage percentageDifference={average} hideArrow />
+              )}
             </SubTextContainer>
           </>
-        ) : null}
+        ) : (
+          <ExchangeRateText>{'--'}</ExchangeRateText>
+        )}
       </NoteContainer>
     </RowContainer>
   );

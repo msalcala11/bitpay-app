@@ -13,7 +13,7 @@ import {findSupportedCurrencyOptionForAsset} from '../../../utils/portfolio/asse
 import {getAssetCurrentDisplayQuoteRate} from '../../../utils/portfolio/displayCurrency';
 import {getFiatRateFromSeriesCacheAtTimestamp} from '../../../utils/portfolio/rate';
 import {getCoinAndChainFromCurrencyCode} from '../../bitpay-id/utils/bitpay-id-utils';
-import type {ExchangeRateItemProps} from './components/exchange-rates/ExchangeRatesList';
+import type {ExchangeRateItemProps} from './components/exchange-rates/ExchangeRateItem';
 
 export function buildHomeExchangeRateItems(args: {
   fiatRateSeriesCache: FiatRateSeriesCache;
