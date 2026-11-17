@@ -38,6 +38,7 @@ import {
   type TokenPriceRef,
 } from './tokenPriceGuard';
 import type {Key, Wallet} from '../../wallet.models';
+import {watchedTokenAddresses} from '../../../watchlist/watched-token-rates';
 
 const ratesRequestsInFlight = new WeakMap<object, Promise<Rates>>();
 
@@ -240,8 +241,17 @@ export const getTokenRates =
         };
 
         const priceTasks: {chain: string; chunk: string[]}[] = [];
+        const watchedPriceTasks: {chain: string; chunk: string[]}[] = [];
         for (const chain of SUPPORTED_VM_TOKENS) {
           const contractAddresses = dispatch(getContractAddresses(chain));
+          const watched = watchedTokenAddresses(
+            chain,
+            contractAddresses || [],
+            getState().WATCHLIST?.items || [],
+          );
+          for (const chunk of chunkArray(watched, 25)) {
+            watchedPriceTasks.push({chain, chunk});
+          }
           if (contractAddresses?.length > 0) {
             for (const chunk of chunkArray(contractAddresses, 25)) {
               priceTasks.push({chain, chunk});
@@ -252,6 +262,7 @@ export const getTokenRates =
             );
           }
         }
+        priceTasks.push(...watchedPriceTasks);
 
         const priceResults = await mapWithConcurrency(
           priceTasks,

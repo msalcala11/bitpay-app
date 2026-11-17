@@ -53,6 +53,7 @@ import {logReducer, logReduxPersistBlackList} from './log/log.reducer';
 import {AddLog} from './log/log.types';
 import {shopReducer, shopReduxPersistBlackList} from './shop/shop.reducer';
 import {shopCatalogReducer} from './shop-catalog/shop-catalog.reducer';
+import {watchlistReducer} from './watchlist/watchlist.reducer';
 import {
   swapCryptoReducer,
   swapCryptoReduxPersistBlackList,
@@ -478,6 +479,7 @@ const reducerPersistBlackLists: Record<keyof typeof reducers, string[]> = {
   SELL_CRYPTO: sellCryptoReduxPersistBlackList,
   SHOP: shopReduxPersistBlackList,
   SHOP_CATALOG: [],
+  WATCHLIST: ['activeContext', 'permissionAllowed'],
   SWAP_CRYPTO: swapCryptoReduxPersistBlackList,
   WALLET: walletReduxPersistBlackList,
   WALLET_SECRETS: [],
@@ -505,6 +507,7 @@ const reducers = {
   SELL_CRYPTO: sellCryptoReducer,
   SHOP: shopReducer,
   SHOP_CATALOG: shopCatalogReducer,
+  WATCHLIST: watchlistReducer,
   SWAP_CRYPTO: swapCryptoReducer,
   WALLET: walletReducer,
   WALLET_SECRETS: walletSecretsReducer,

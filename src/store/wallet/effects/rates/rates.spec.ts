@@ -19,6 +19,7 @@ import {
   getHistoricFiatRate,
   startGetRates,
   getContractAddresses,
+  getTokenRates,
 } from './rates';
 import {
   getFiatRateSeriesCacheKey,
@@ -894,5 +895,89 @@ describe('getContractAddresses', () => {
     // Same address from two wallets → deduped to one
     const uniqueCount = new Set(result).size;
     expect(uniqueCount).toBe(result.length);
+  });
+});
+
+describe('watched token price extension', () => {
+  it('preserves held-token batches and exact current/previous rates while adding an unheld token', async () => {
+    const {getMultipleTokenPrices} = jest.requireMock(
+      '../../../../store/moralis/moralis.effects',
+    );
+    const {calculateUsdToAltFiat} = jest.requireMock(
+      '../../../../store/buy-crypto/buy-crypto.effects',
+    );
+    const {tokenManager} = jest.requireMock(
+      '../../../../managers/TokenManager',
+    );
+    const now = jest.spyOn(Date, 'now').mockReturnValue(NOW);
+    getMultipleTokenPrices.mockClear();
+    getMultipleTokenPrices.mockImplementation(
+      ({addresses}: {addresses: string[]}) =>
+        () =>
+          Promise.resolve(
+            addresses.map(tokenAddress => ({
+              tokenAddress,
+              usdPrice: tokenAddress === '0xheld' ? 2 : 3,
+              '24hrPercentChange': 10,
+            })),
+          ),
+    );
+    calculateUsdToAltFiat.mockImplementation((usd: number) => () => usd * 2);
+    tokenManager.getTokenOptions.mockReturnValue({
+      tokenOptionsByAddress: {'0xwatched_e.eth': {symbol: 'WATCHED'}},
+    });
+    const state = {
+      APP: {altCurrencyList: [{isoCode: 'USD', name: 'US Dollar'}]},
+      WALLET: {
+        keys: {
+          key1: {
+            wallets: [
+              {
+                id: 'wallet-eth',
+                chain: 'eth',
+                currencyAbbreviation: 'eth',
+                tokens: ['wallet-eth-0xheld'],
+              },
+            ],
+          },
+        },
+        customTokenOptionsByAddress: {'0xheld_e.eth': {symbol: 'HELD'}},
+      },
+      WATCHLIST: {items: [] as any[]},
+    };
+    const dispatch = (action: any): any =>
+      typeof action === 'function'
+        ? action(dispatch, () => state, undefined)
+        : action;
+    try {
+      const before = await dispatch(getTokenRates());
+      const heldCalls = [...getMultipleTokenPrices.mock.calls];
+      state.WATCHLIST.items = [
+        {
+          assets: [
+            {
+              chain: 'eth',
+              tokenAddress: '0xwatched',
+              currencyAbbreviation: 'watched',
+            },
+          ],
+        },
+      ];
+      getMultipleTokenPrices.mockClear();
+      const after = await dispatch(getTokenRates());
+      expect(before.tokenRates['0xheld_e.eth'][0].rate).toBe(4);
+      expect(after.tokenRates['0xheld_e.eth']).toEqual(
+        before.tokenRates['0xheld_e.eth'],
+      );
+      expect(after.tokenLastDayRates['0xheld_e.eth']).toEqual(
+        before.tokenLastDayRates['0xheld_e.eth'],
+      );
+      expect(
+        getMultipleTokenPrices.mock.calls.slice(0, heldCalls.length),
+      ).toEqual(heldCalls);
+      expect(after.tokenRates['0xwatched_e.eth'][0].rate).toBe(6);
+    } finally {
+      now.mockRestore();
+    }
   });
 });

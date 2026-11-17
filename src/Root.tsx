@@ -8,6 +8,7 @@ import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {debounce} from './utils/debounce';
 import Braze from '@braze/react-native-sdk';
 import React, {useEffect, useMemo, useRef} from 'react';
+import {useWatchlistLifecycle} from './store/watchlist/useWatchlistLifecycle';
 import {useStore} from 'react-redux';
 import {
   Appearance,
@@ -354,6 +355,7 @@ const StartupGate = () => {
 
 export default () => {
   useTranslation();
+  useWatchlistLifecycle();
   const dispatch = useAppDispatch();
   const reduxStore = useStore();
   const linking = useDeeplinks();
