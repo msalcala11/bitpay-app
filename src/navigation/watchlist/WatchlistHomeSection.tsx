@@ -2,6 +2,8 @@ import React from 'react';
 import {View} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import {useTranslation} from 'react-i18next';
+import {useTheme} from '../../contexts';
+import {Air, SlateDark} from '../../styles/colors';
 import HomeSection from '../tabs/home/components/HomeSection';
 import ChevronRightSvg from '../tabs/home/components/ChevronRightSvg';
 import {BaseText} from '../../components/styled/Text';
@@ -17,6 +19,7 @@ export const WatchlistHomeSection = ({
   rows: ExchangeRateItemProps[];
 }) => {
   const {t} = useTranslation();
+  const theme = useTheme();
   const navigation = useNavigation<any>();
   const items = useAppSelector(state => state.WATCHLIST.items);
   return (
@@ -37,8 +40,22 @@ export const WatchlistHomeSection = ({
             })}
           </View>
         ) : (
-          <View style={{margin: 16, gap: 12}}>
-            <BaseText>{t('Add crypto to keep an eye on prices.')}</BaseText>
+          <View
+            style={{
+              marginTop: 12,
+              marginRight: 12,
+              marginBottom: 20,
+              marginLeft: 16,
+              gap: 12,
+            }}>
+            <BaseText
+              style={{
+                fontSize: 16,
+                lineHeight: 25,
+                color: theme.dark ? Air : SlateDark,
+              }}>
+              {t('Add crypto to keep an eye on prices.')}
+            </BaseText>
             <Button
               height={50}
               buttonStyle="secondary"
@@ -51,6 +68,7 @@ export const WatchlistHomeSection = ({
       </HomeSection>
       {items.length ? (
         <TouchableOpacity
+          touchableLibrary="react-native"
           style={{
             position: 'absolute',
             top: -6,

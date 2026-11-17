@@ -160,7 +160,7 @@ export const useWatchlistWalletOptions = (asset: WatchlistAsset): Option[] => {
   }
   return [
     {
-      img: <WatchlistIcon kind="star" selected={watching} />,
+      img: <WatchlistIcon kind="star" selected />,
       title: watching ? t('Remove from Watchlist') : t('Add to Watchlist'),
       description: watching
         ? t('Stop tracking this price on Home.')
@@ -176,7 +176,7 @@ export const useWatchlistWalletOptions = (asset: WatchlistAsset): Option[] => {
     ...(available
       ? [
           {
-            img: <WatchlistIcon kind="bell" selected={!!alert} />,
+            img: <WatchlistIcon kind="bell" selected />,
             title: alert ? t('Edit Price Alert') : t('Set Price Alert'),
             description: t('Get notified when the price moves.'),
             onPress: () => dispatch(openPriceAlert(coin, 'WalletDetails')),

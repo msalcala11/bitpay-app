@@ -11,6 +11,7 @@ import ExchangeRateItem, {
 } from '../tabs/home/components/exchange-rates/ExchangeRateItem';
 import {BaseText} from '../../components/styled/Text';
 import {TouchableOpacity} from '../../components/base/TouchableOpacity';
+import {ScreenGutter} from '../../components/styled/Containers';
 import Remove from '../../../assets/img/remove.svg';
 import Bell from '../../../assets/img/notification-filled.svg';
 import Hamburger from '../../../assets/img/hamburger.svg';
@@ -30,7 +31,12 @@ import {
 import type {WatchlistCoin} from '../../store/watchlist/watchlist.models';
 
 const styles = StyleSheet.create({
-  row: {flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16},
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 16,
+    paddingRight: parseInt(ScreenGutter, 10),
+  },
   content: {flex: 1},
   touch: {
     width: 44,
@@ -40,6 +46,8 @@ const styles = StyleSheet.create({
   },
   swipe: {
     width: 96,
+    minHeight: 60,
+    alignSelf: 'stretch',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Caution25,
@@ -127,7 +135,7 @@ export const WatchlistRow = ({
       ]}>
       {edit ? (
         <TouchableOpacity
-          style={styles.touch}
+          style={[styles.touch, {marginLeft: -10}]}
           accessibilityRole="button"
           accessibilityLabel={t('Remove {{coin}}', {coin: coin.name})}
           onPress={remove}>
@@ -182,7 +190,7 @@ export const WatchlistRow = ({
       </View>
       {edit ? (
         <TouchableOpacity
-          style={styles.touch}
+          style={[styles.touch, {marginRight: -10}]}
           accessibilityRole="button"
           accessibilityLabel={t('Reorder {{coin}}', {coin: coin.name})}
           onLongPress={onDrag}
@@ -198,6 +206,7 @@ export const WatchlistRow = ({
     <Swipeable
       renderRightActions={() => (
         <TouchableOpacity
+          touchableLibrary="react-native"
           style={styles.swipe}
           accessible={false}
           onPress={remove}>

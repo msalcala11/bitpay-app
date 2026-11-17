@@ -53,6 +53,7 @@ export interface WatchlistState {
     coin: WatchlistCoin;
     context: 'Watchlist' | 'PriceChart' | 'WalletDetails';
     afterAdd: boolean;
+    isEdit: boolean;
     open: boolean;
     saved?: boolean;
     nonce: number;

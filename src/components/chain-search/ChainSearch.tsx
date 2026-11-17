@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useState} from 'react';
-import {StyleSheet} from 'react-native';
+import {StyleSheet, TextInputProps} from 'react-native';
 import {useAppDispatch, useAppSelector} from '../../utils/hooks';
 import {
   SearchRoundContainer,
@@ -188,6 +188,8 @@ interface SearchComponentProps<T extends SearchableItem> {
   searchFullList: T[];
   context: string;
   hideFilter?: boolean;
+  autoCorrect?: boolean;
+  autoCapitalize?: TextInputProps['autoCapitalize'];
 }
 
 const SearchComponent = <T extends SearchableItem>({
@@ -197,6 +199,8 @@ const SearchComponent = <T extends SearchableItem>({
   searchFullList,
   context,
   hideFilter,
+  autoCorrect,
+  autoCapitalize,
 }: SearchComponentProps<T>) => {
   const dispatch = useAppDispatch();
   const {t} = useTranslation();
@@ -559,6 +563,8 @@ const SearchComponent = <T extends SearchableItem>({
             </SearchIconContainer>
             <View>
               <SearchRoundInput
+                autoCorrect={autoCorrect}
+                autoCapitalize={autoCapitalize}
                 placeholderTextColor={theme.dark ? Slate : Placeholder}
                 placeholder={t('Search')}
                 accessibilityLabel={t('Search')}

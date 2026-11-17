@@ -2,11 +2,7 @@ import React, {useCallback, useRef, useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import {selectNotificationsAccepted} from '../../../../../store/app/app.selectors';
 import {View, ScrollView, StyleSheet} from 'react-native';
-import {
-  Hr,
-  ScreenGutter,
-  SettingTitle,
-} from '../../../../../components/styled/Containers';
+import {Hr, SettingTitle} from '../../../../../components/styled/Containers';
 import ToggleSwitch from '../../../../../components/toggle-switch/ToggleSwitch';
 import {SettingsContainer} from '../../SettingsRoot';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
@@ -22,8 +18,7 @@ import {
 const styles = StyleSheet.create({
   settingsComponent: {
     flex: 1,
-    marginTop: 15,
-    paddingHorizontal: parseInt(ScreenGutter, 10),
+    marginTop: 10,
   },
   settingRow: {
     flexGrow: 1,
@@ -35,6 +30,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     minHeight: 58,
+    paddingHorizontal: 15,
   },
   settingRowContent: {
     flex: 1,
@@ -145,13 +141,12 @@ const PushNotifications = () => {
               <SettingRowContainer
                 accessibilityRole="switch"
                 accessibilityState={{
-                  checked: priceAlertsEnabled,
+                  checked: pushNotifications && priceAlertsEnabled,
                   disabled: !pushNotifications || updatingAlerts,
                 }}
                 accessibilityLabel={t('Price Alerts')}
                 disabled={!pushNotifications || updatingAlerts}
-                onPress={changeAlerts}
-                style={{opacity: pushNotifications ? 1 : 0.5}}>
+                onPress={changeAlerts}>
                 <SettingRow style={styles.settingRowContent}>
                   <SettingTitle style={styles.settingTitle}>
                     {t('Price Alerts')}
@@ -159,7 +154,7 @@ const PushNotifications = () => {
                 </SettingRow>
                 <ToggleSwitch
                   onChange={changeAlerts}
-                  isEnabled={priceAlertsEnabled}
+                  isEnabled={pushNotifications && priceAlertsEnabled}
                   isDisabled={!pushNotifications || updatingAlerts}
                 />
               </SettingRowContainer>

@@ -67,6 +67,37 @@ describe('watchlist coin catalog', () => {
       }),
     ).not.toBe(coin);
   });
+  it('keeps native assets identifiable when listed tokens reuse their symbol', () => {
+    const catalog = buildCoinCatalog(SupportedCurrencyOptions, {
+      ...empty,
+      tokenOptionsByAddress: {
+        '0xabc_e': {
+          name: 'Different ETH token',
+          symbol: 'ETH',
+          address: '0xabc',
+          decimals: 18,
+          logoURI: 'other.png',
+        },
+      },
+    });
+    expect(catalog.match({currencyAbbreviation: 'ETH', chain: 'eth'})?.id).toBe(
+      'coin:eth',
+    );
+    expect(
+      catalog.match({
+        currencyAbbreviation: 'ETH',
+        chain: 'eth',
+        tokenAddress: '0xabc',
+      })?.id,
+    ).not.toBe('coin:eth');
+    expect(
+      catalog.match({
+        currencyAbbreviation: 'ETH',
+        chain: 'eth',
+        tokenAddress: '0xunlisted',
+      }),
+    ).toBeUndefined();
+  });
   it('matches built-in token names and rejects testnet or unlisted custom tokens', () => {
     const catalog = buildCoinCatalog(SupportedCurrencyOptions, {
       ...empty,

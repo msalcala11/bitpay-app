@@ -5,6 +5,7 @@ import {
   removeCoinFromUi,
   reorderFromUi,
   skipPriceAlert,
+  canAddWatchlistCoin,
 } from './watchlistUi.effects';
 import type {WatchlistCoin} from '../../store/watchlist/watchlist.models';
 const coin = {
@@ -53,6 +54,15 @@ const create = () => {
   return {state, dispatch};
 };
 beforeEach(() => jest.clearAllMocks());
+it('waits for the alert sheet to finish dismissing before opening another native picker', () => {
+  const state: any = {WATCHLIST: {items: [], alertSheet: {open: false}}};
+  const dispatch = jest.fn();
+  const canOpen = () => (canAddWatchlistCoin() as any)(dispatch, () => state);
+  expect(canOpen()).toBe(false);
+  expect(dispatch).not.toHaveBeenCalled();
+  state.WATCHLIST.alertSheet = undefined;
+  expect(canOpen()).toBe(true);
+});
 it('emits exact edit properties only after a confirmed save, and nothing on failure', async () => {
   const h = create();
   let resolve!: (value: any) => void;

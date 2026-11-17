@@ -225,11 +225,13 @@ export const buildCoinCatalog = (
     }
     return asset.tokenAddress
       ? byAsset.get(assetKey(asset))
-      : symbolChains.get(
-          `${asset.chain.toLowerCase()}:${coinSymbol(
-            asset.currencyAbbreviation,
-          )}`,
-        ) || undefined;
+      : byAsset.get(assetKey(asset)) ||
+          symbolChains.get(
+            `${asset.chain.toLowerCase()}:${coinSymbol(
+              asset.currencyAbbreviation,
+            )}`,
+          ) ||
+          undefined;
   };
   return {
     coins,

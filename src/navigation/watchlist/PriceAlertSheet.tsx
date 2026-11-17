@@ -10,10 +10,13 @@ import Button, {ButtonState} from '../../components/button/Button';
 import {TouchableOpacity} from '../../components/base/TouchableOpacity';
 import {
   Action,
+  Air,
+  Black,
+  LinkBlue,
+  Midnight,
   White,
   Slate30,
   SlateDark,
-  LightBlack,
 } from '../../styles/colors';
 import {
   selectAlertContext,
@@ -51,32 +54,46 @@ export const ThresholdChips = ({
         flexDirection: 'row',
         flexWrap: 'wrap',
         justifyContent: 'center',
-        gap: 8,
+        gap: 10,
       }}>
       {([5, 10, 15, 20] as const).map(threshold => (
         <TouchableOpacity
           key={threshold}
           disabled={disabled}
-          accessibilityRole="button"
-          accessibilityState={{selected: value === threshold, disabled}}
+          accessibilityRole="radio"
+          accessibilityState={{checked: value === threshold, disabled}}
           accessibilityLabel={t('{{threshold}}%', {threshold})}
           onPress={() => onChange(threshold)}
           style={{
-            minWidth: 58,
+            minWidth: 44,
             minHeight: 44,
             borderRadius: 50,
-            borderWidth: 1,
-            borderColor: value === threshold ? Action : Slate30,
             backgroundColor:
-              value === threshold ? Action : theme.dark ? LightBlack : White,
+              value === threshold
+                ? theme.dark
+                  ? LinkBlue
+                  : Action
+                : theme.dark
+                ? Midnight
+                : Air,
             alignItems: 'center',
             justifyContent: 'center',
-            paddingHorizontal: 12,
+            paddingHorizontal: 18,
           }}>
           <BaseText
             style={{
               fontSize: 16,
-              color: value === threshold ? White : theme.colors.text,
+              lineHeight: 21,
+              fontWeight: value === threshold ? '700' : '500',
+              fontVariant: ['tabular-nums'],
+              color:
+                value === threshold
+                  ? theme.dark
+                    ? Black
+                    : White
+                  : theme.dark
+                  ? White
+                  : Action,
             }}>
             {t('{{threshold}}%', {threshold})}
           </BaseText>
@@ -104,15 +121,15 @@ const AlertForm = ({
   const busy = useRef(false);
   const mounted = useRef(true);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
       mounted.current = false;
       if (timer.current) {
         clearTimeout(timer.current);
       }
-    },
-    [],
-  );
+    };
+  }, []);
   const save = async () => {
     if (busy.current) {
       return;
@@ -180,7 +197,7 @@ const AlertForm = ({
     <SheetContainer>
       <View style={{alignItems: 'center', gap: 16, paddingBottom: 20}}>
         <H5 style={{fontSize: 18, lineHeight: 24, fontWeight: '700'}}>
-          {alert ? t('Edit Price Alert') : t('Set Price Alert')}
+          {sheet.isEdit ? t('Edit Price Alert') : t('Set Price Alert')}
         </H5>
         <BaseText
           style={{
@@ -197,11 +214,11 @@ const AlertForm = ({
           disabled={!!buttonState}
         />
         <View style={{alignSelf: 'stretch', marginTop: 8}}>
-          <Button state={buttonState} disabled={!!buttonState} onPress={save}>
+          <Button state={buttonState} onPress={save}>
             {t('Save Price Alert')}
           </Button>
         </View>
-        {alert ? (
+        {sheet.isEdit ? (
           <Button buttonType="link" disabled={!!buttonState} onPress={turnOff}>
             {t('Turn Off Price Alert')}
           </Button>

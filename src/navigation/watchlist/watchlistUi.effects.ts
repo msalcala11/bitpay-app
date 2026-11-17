@@ -43,6 +43,11 @@ export const showWatchlistFull =
   };
 export const canAddWatchlistCoin =
   (): Effect<boolean> => (dispatch, getState) => {
+    // Do not present a native picker until the previous alert sheet's native
+    // dismissal has completed (finishPriceAlert clears it in onModalHide).
+    if (getState().WATCHLIST.alertSheet) {
+      return false;
+    }
     if (getState().WATCHLIST.items.length >= 20) {
       dispatch(showWatchlistFull());
       return false;
@@ -135,7 +140,14 @@ export const openPriceAlert =
     dispatch(
       updateWatchlist({
         ...getState().WATCHLIST,
-        alertSheet: {coin, context, afterAdd, open: true, nonce: Date.now()},
+        alertSheet: {
+          coin,
+          context,
+          afterAdd,
+          isEdit: !!selectAlertContext(getState())?.alerts[coin.id],
+          open: true,
+          nonce: Date.now(),
+        },
       }),
     );
   };
