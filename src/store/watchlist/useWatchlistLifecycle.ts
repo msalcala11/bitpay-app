@@ -4,7 +4,7 @@ import {checkNotifications, RESULTS} from 'react-native-permissions';
 import {useStore} from 'react-redux';
 import type {RootState} from '..';
 import type {AppDispatch} from '../../utils/hooks';
-import {subscribeCoinCatalog} from './coin-registry';
+import {subscribeCoinCatalog, seedCoinCatalog} from './coin-registry';
 import {
   syncPriceAlerts,
   refreshAlertPreferences,
@@ -19,6 +19,7 @@ export const useWatchlistLifecycle = () => {
   const store = useStore<RootState>();
   useEffect(() => {
     const dispatch = store.dispatch as AppDispatch;
+    seedCoinCatalog(store.getState().WATCHLIST.items);
     let disposed = false;
     let fingerprint = '';
     const refresh = async () => {

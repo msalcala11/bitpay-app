@@ -634,3 +634,26 @@ it('rechecks the capacity when a queued save actually reaches the backend', asyn
   await expect(saving).rejects.toMatchObject({code: 'WATCHLIST_FULL'});
   expect(h.api.save).not.toHaveBeenCalled();
 });
+
+it('removes the stored backend selector after Turn Off followed by an in-flight re-enable', async () => {
+  const h = harness();
+  h.register();
+  const polygon = {
+    chain: 'matic',
+    tokenAddress: '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359',
+  };
+  h.held.set(selectorKey(polygon), alert(polygon));
+  await h.queue.sync();
+  await h.queue.turnOff(usdc);
+  const gate = deferred<PriceAlert>();
+  h.api.save.mockReturnValueOnce(gate.promise);
+  const saving = h.queue.save(usdc, 20);
+  await tick();
+  h.queue.remove(usdc);
+  gate.resolve(alert(polygon, 20));
+  await saving;
+  await tick();
+  expect(selectorKey(h.api.remove.mock.calls.at(-1)![0])).toBe(
+    selectorKey(polygon),
+  );
+});

@@ -140,10 +140,13 @@ export const openPriceAlert =
     );
   };
 export const closePriceAlert =
-  (saved = false): Effect =>
+  (saved = false, nonce?: number): Effect =>
   (dispatch, getState) => {
     const state = getState().WATCHLIST;
-    if (state.alertSheet) {
+    if (
+      state.alertSheet &&
+      (nonce === undefined || state.alertSheet.nonce === nonce)
+    ) {
       dispatch(
         updateWatchlist({
           ...state,

@@ -127,11 +127,14 @@ const AlertForm = ({
         return;
       }
       if (!saved) {
-        dispatch(closePriceAlert());
+        dispatch(closePriceAlert(false, sheet.nonce));
         return;
       }
       setButtonState('success');
-      timer.current = setTimeout(() => dispatch(closePriceAlert(true)), 900);
+      timer.current = setTimeout(
+        () => dispatch(closePriceAlert(true, sheet.nonce)),
+        900,
+      );
     } catch (error) {
       if (!mounted.current) {
         return;
@@ -139,7 +142,7 @@ const AlertForm = ({
       busy.current = false;
       setButtonState(null);
       if ((error as {code?: string}).code === 'WATCHLIST_FULL') {
-        dispatch(closePriceAlert());
+        dispatch(closePriceAlert(false, sheet.nonce));
         dispatch(showWatchlistFull(sheet.context));
       } else {
         dispatch(showPriceAlertError());
@@ -163,7 +166,7 @@ const AlertForm = ({
             action: async () => {
               try {
                 await dispatch(turnOffAlertFromUi(sheet.coin, sheet.context));
-                dispatch(closePriceAlert());
+                dispatch(closePriceAlert(false, sheet.nonce));
               } catch {
                 dispatch(showPriceAlertError());
               }

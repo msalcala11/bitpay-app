@@ -502,7 +502,10 @@ export class PriceAlertQueue {
     if (ticket && context) {
       const alerts = {...context.alerts};
       delete alerts[coin.id];
-      const selector = alert || coin.selector;
+      const selector =
+        alert ||
+        state.items.find(item => item.id === coin.id)?.selector ||
+        coin.selector;
       contexts[ticket.key] = {
         ...context,
         alerts,
@@ -726,6 +729,15 @@ export class PriceAlertQueue {
   }
 
   catalogChanged() {
+    const before = this.deps.read();
+    const catalog = this.deps.catalog();
+    this.deps.write({
+      ...before,
+      items: before.items.map(item => {
+        const latest = catalog.byId.get(item.id);
+        return latest ? {...latest, selector: item.selector} : item;
+      }),
+    });
     const ticket = this.activate();
     if (!ticket) {
       return;

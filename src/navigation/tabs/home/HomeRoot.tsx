@@ -3,7 +3,6 @@ import {markOnce as perfMarkOnce} from '../../../perf/PerfMonitor';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import {
-  AppState,
   LayoutChangeEvent,
   NativeScrollEvent,
   NativeSyntheticEvent,

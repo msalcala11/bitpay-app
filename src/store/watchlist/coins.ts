@@ -83,6 +83,7 @@ export interface CoinCatalog {
 export const buildCoinCatalog = (
   options: SupportedCurrencyOption[],
   data: TokenData,
+  previousCoins: WatchlistCoin[] = [],
 ): CoinCatalog => {
   const byId = new Map<string, WatchlistCoin>();
   const byAsset = new Map<string, WatchlistCoin>();
@@ -138,25 +139,48 @@ export const buildCoinCatalog = (
     },
   );
   const builtinGroups = new Map<string, WatchlistCoin>();
+  const previousIds = new Map<string, string>();
+  for (const coin of previousCoins) {
+    if (coin.id.startsWith('listed:')) {
+      for (const asset of coin.assets) {
+        previousIds.set(assetKey(asset), coin.id);
+      }
+    }
+  }
+  const groupIds = new Map<string, string>();
+  const assignedIds = new Set<string>();
   for (const entry of tokens) {
+    const previousId = previousIds.get(assetKey(entry.asset));
+    if (
+      previousId &&
+      !groupIds.has(entry.group) &&
+      !assignedIds.has(previousId)
+    ) {
+      groupIds.set(entry.group, previousId);
+      assignedIds.add(previousId);
+    }
     const builtin = byAsset.get(assetKey(entry.asset));
     if (builtin) {
       builtinGroups.set(entry.group, builtin);
     }
   }
+  const listedGroups = new Map<string, WatchlistCoin>();
   for (const {token, asset, group} of tokens) {
     const known = byAsset.get(assetKey(asset));
     if (known) {
       continue;
     }
-    const id = `listed:${group}`;
+    let id = groupIds.get(group) || `listed:${group}`;
     let coin =
       builtinGroups.get(group) ||
       builtInNames.get(
         `${token.name.toLowerCase()}|${coinSymbol(token.symbol)}`,
       ) ||
-      byId.get(id);
+      listedGroups.get(group);
     if (!coin) {
+      if (byId.has(id)) {
+        id = `${id}:${assetKey(asset)}`;
+      }
       coin = {
         id,
         name: token.name,
@@ -167,6 +191,7 @@ export const buildCoinCatalog = (
       };
       byId.set(id, coin);
     }
+    listedGroups.set(group, coin);
     coin.assets.push(asset);
     byAsset.set(assetKey(asset), coin);
   }

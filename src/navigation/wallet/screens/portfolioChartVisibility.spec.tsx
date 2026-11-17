@@ -437,10 +437,9 @@ jest.mock('../../tabs/home/components/offers/MockOffers', () =>
   jest.fn(() => []),
 );
 jest.mock('../../tabs/home/components/offers/OffersCarousel', () => () => null);
-jest.mock(
-  '../../watchlist/WatchlistHomeSection',
-  () => ({WatchlistHomeSection: () => null}),
-);
+jest.mock('../../watchlist/WatchlistHomeSection', () => ({
+  WatchlistHomeSection: () => null,
+}));
 jest.mock(
   '../../tabs/home/components/SecurePasskeyBannerGate',
   () => () => null,
@@ -885,7 +884,16 @@ const resetState = (
     },
   ];
   mockState = {
+    WATCHLIST: {
+      items: [],
+      contexts: {},
+      order: 0,
+      priceAlertsEnabled: true,
+      permissionPromptShown: false,
+      permissionAllowed: false,
+    },
     APP: {
+      identity: {},
       brazeContentCards: [],
       defaultAltCurrency: {isoCode: 'USD', name: 'US Dollar'},
       dismissedMarketingCardIds: [],

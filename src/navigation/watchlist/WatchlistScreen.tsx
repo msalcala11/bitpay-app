@@ -17,7 +17,7 @@ import Button from '../../components/button/Button';
 import AddSvg from '../tabs/home/components/AddSvg';
 import CustomizeSvg from '../tabs/home/components/CustomizeSvg';
 import {TouchableOpacity} from '../../components/base/TouchableOpacity';
-import Ghost from '../../../assets/img/wallet/ghost-straight-face.svg';
+import Ghost from '../../../assets/img/ghost-straight-face.svg';
 import {syncPriceAlerts} from '../../store/watchlist/watchlist.effects';
 import {useWatchlistRows} from './useWatchlistRows';
 import {WatchlistNotificationsBanner} from './WatchlistNotifications';

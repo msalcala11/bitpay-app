@@ -54,9 +54,12 @@ export const buildWatchlistRows = (
   });
   return items.map(coin => {
     const asset = watchlistAsset(coin);
-    const builtin = builtInRows.find(
-      row => coinSymbol(row.currencyAbbreviation) === coinSymbol(coin.symbol),
-    );
+    const builtin = coin.id.startsWith('coin:')
+      ? builtInRows.find(
+          row =>
+            coinSymbol(row.currencyAbbreviation) === coinSymbol(coin.symbol),
+        )
+      : undefined;
     const currentPrice =
       builtin?.currentPrice ??
       getAssetCurrentDisplayQuoteRate({...asset, rates, quoteCurrency});
