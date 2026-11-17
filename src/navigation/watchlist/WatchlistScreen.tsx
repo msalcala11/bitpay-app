@@ -1,4 +1,10 @@
-import React, {useCallback, useLayoutEffect, useState} from 'react';
+import React, {
+  useCallback,
+  useLayoutEffect,
+  useState,
+  useEffect,
+  useRef,
+} from 'react';
 import {View, FlatList} from 'react-native';
 import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import ReorderableList from 'react-native-reorderable-list';
@@ -37,6 +43,24 @@ export default function WatchlistScreen() {
   const [edit, setEdit] = useState(false);
   const items = useAppSelector(state => state.WATCHLIST.items);
   const rows = useWatchlistRows();
+  const listRef = useRef<FlatList>(null);
+  const lastAdded = useAppSelector(state => state.WATCHLIST.lastAdded);
+  const [highlighted, setHighlighted] = useState<string>();
+  useEffect(() => {
+    if (!lastAdded) {
+      return;
+    }
+    setHighlighted(lastAdded.id);
+    const scroll = setTimeout(
+      () => listRef.current?.scrollToEnd({animated: true}),
+      100,
+    );
+    const clear = setTimeout(() => setHighlighted(undefined), 1500);
+    return () => {
+      clearTimeout(scroll);
+      clearTimeout(clear);
+    };
+  }, [lastAdded]);
   useFocusEffect(
     useCallback(() => {
       void dispatch(syncPriceAlerts());
@@ -83,7 +107,11 @@ export default function WatchlistScreen() {
     edit ? (
       <EditableWatchlistRow coin={item} row={rows[index]} />
     ) : (
-      <WatchlistRow coin={item} row={rows[index]} />
+      <WatchlistRow
+        coin={item}
+        row={rows[index]}
+        highlighted={highlighted === item.id}
+      />
     );
   return (
     <View style={{flex: 1, backgroundColor: theme.colors.background}}>
@@ -99,6 +127,7 @@ export default function WatchlistScreen() {
         />
       ) : (
         <FlatList
+          ref={listRef}
           data={items}
           keyExtractor={item => item.id}
           renderItem={renderItem}

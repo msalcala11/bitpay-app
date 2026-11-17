@@ -163,6 +163,8 @@ import {TopToast} from './components/backup/TopToast';
 import AllAssets from './navigation/tabs/home/screens/AllAssets';
 import Allocation from './navigation/tabs/home/screens/Allocation';
 import WatchlistScreen from './navigation/watchlist/WatchlistScreen';
+import SelectWatchlistCrypto from './navigation/watchlist/SelectCrypto';
+import PriceAlertSheet from './navigation/watchlist/PriceAlertSheet';
 import {
   getBaseEVMAccountCreationCoinsAndTokens,
   getBaseSVMAccountCreationCoinsAndTokens,
@@ -1186,7 +1188,21 @@ export default () => {
                 animation: 'none',
               }}
             />
-            <Root.Screen name="Watchlist" component={WatchlistScreen} options={{...baseNavigatorOptions, headerShown: true}} />
+            <Root.Screen
+              name="WatchlistSelectCrypto"
+              component={SelectWatchlistCrypto}
+              options={{
+                ...baseNavigatorOptions,
+                headerShown: true,
+                presentation: 'fullScreenModal',
+                animation: 'slide_from_bottom',
+              }}
+            />
+            <Root.Screen
+              name="Watchlist"
+              component={WatchlistScreen}
+              options={{...baseNavigatorOptions, headerShown: true}}
+            />
             <Root.Screen
               name={'AllAssets'}
               component={AllAssets}
@@ -1285,6 +1301,7 @@ export default () => {
             id="overlay:moonpay-credentials"
             onRender={logReactProfiler}>
             <MoonpayEmbeddedCredentialManager />
+            <PriceAlertSheet />
           </PerformanceProfiler>
           <TopToast />
         </NavigationContainer>

@@ -49,6 +49,16 @@ export interface WatchlistState {
   // Runtime fields are excluded from persistence.
   activeContext?: string;
   permissionAllowed: boolean;
+  alertSheet?: {
+    coin: WatchlistCoin;
+    context: 'Watchlist' | 'PriceChart' | 'WalletDetails';
+    afterAdd: boolean;
+    open: boolean;
+    saved?: boolean;
+    nonce: number;
+  };
+  lastAdded?: {id: string; nonce: number};
+  pendingNotificationPrompt?: 'Watchlist' | 'PriceChart' | 'WalletDetails';
 }
 
 export const emptyAlertContext = (): AlertContextState => ({
