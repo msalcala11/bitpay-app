@@ -23,6 +23,7 @@ import {
   syncPriceAlerts,
 } from '../../store/watchlist/watchlist.effects';
 import {useWatchlistRows} from './useWatchlistRows';
+import {WatchlistNotificationsBanner} from './WatchlistNotifications';
 import {canAddWatchlistCoin} from './watchlistUi.effects';
 import {EditableWatchlistRow, WatchlistRow} from './WatchlistRow';
 
@@ -137,6 +138,7 @@ export default function WatchlistScreen() {
           keyExtractor={item => item.id}
           renderItem={renderItem}
           contentContainerStyle={{paddingTop: 6, paddingBottom: 40}}
+          ListHeaderComponent={WatchlistNotificationsBanner}
           ListEmptyComponent={WatchlistEmpty}
         />
       )}

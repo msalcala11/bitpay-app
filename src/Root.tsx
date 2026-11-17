@@ -165,6 +165,7 @@ import Allocation from './navigation/tabs/home/screens/Allocation';
 import WatchlistScreen from './navigation/watchlist/WatchlistScreen';
 import SelectWatchlistCrypto from './navigation/watchlist/SelectCrypto';
 import PriceAlertSheet from './navigation/watchlist/PriceAlertSheet';
+import {AlertNotificationPrompt} from './navigation/watchlist/WatchlistNotifications';
 import {
   getBaseEVMAccountCreationCoinsAndTokens,
   getBaseSVMAccountCreationCoinsAndTokens,
@@ -1302,6 +1303,7 @@ export default () => {
             onRender={logReactProfiler}>
             <MoonpayEmbeddedCredentialManager />
             <PriceAlertSheet />
+            <AlertNotificationPrompt />
           </PerformanceProfiler>
           <TopToast />
         </NavigationContainer>

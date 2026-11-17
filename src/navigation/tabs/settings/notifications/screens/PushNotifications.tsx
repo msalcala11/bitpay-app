@@ -1,7 +1,7 @@
 import React, {useCallback, useRef, useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import {selectNotificationsAccepted} from '../../../../../store/app/app.selectors';
-import {Alert, Linking, View, ScrollView, StyleSheet} from 'react-native';
+import {View, ScrollView, StyleSheet} from 'react-native';
 import {
   Hr,
   ScreenGutter,
@@ -12,6 +12,10 @@ import {SettingsContainer} from '../../SettingsRoot';
 import {useAppDispatch, useAppSelector} from '../../../../../utils/hooks';
 import {TouchableOpacity} from '@components/base/TouchableOpacity';
 import {AppEffects} from '../../../../../store/app';
+import {showNotificationsDisabled} from '../notificationPermission';
+import {setPriceAlertsEnabled} from '../../../../../store/watchlist/watchlist.effects';
+import {selectAlertsAvailable} from '../../../../../store/watchlist/watchlist.selectors';
+import {showPriceAlertError} from '../../../../watchlist/watchlistUi.effects';
 
 const styles = StyleSheet.create({
   settingsComponent: {
@@ -66,21 +70,28 @@ const PushNotifications = () => {
   const isUpdatingRef = useRef(false);
   const pushNotifications = pendingPreference ?? notificationsAccepted;
 
-  const openSettings = useCallback(() => {
-    Alert.alert(
-      t('Notifications Disabled'),
-      t(
-        'If you want to get important updates on your account, new features, promos and more, go to Settings and tap Allow Notifications.',
-      ),
-      [
-        {text: t('Cancel'), style: 'cancel'},
-        {
-          text: t('Change Settings'),
-          onPress: () => Linking.openSettings(),
-        },
-      ],
-    );
-  }, [t]);
+  const priceAlertsEnabled = useAppSelector(
+    state => state.WATCHLIST.priceAlertsEnabled,
+  );
+  const alertsAvailable = useAppSelector(selectAlertsAvailable);
+  const [updatingAlerts, setUpdatingAlerts] = useState(false);
+  const alertBusy = useRef(false);
+  const openSettings = useCallback(() => showNotificationsDisabled(), []);
+  const changeAlerts = async () => {
+    if (alertBusy.current || !pushNotifications) {
+      return;
+    }
+    alertBusy.current = true;
+    setUpdatingAlerts(true);
+    try {
+      await dispatch(setPriceAlertsEnabled(!priceAlertsEnabled));
+    } catch {
+      dispatch(showPriceAlertError());
+    } finally {
+      alertBusy.current = false;
+      setUpdatingAlerts(false);
+    }
+  };
 
   const onPress = useCallback(async () => {
     if (isUpdatingRef.current) {
@@ -121,12 +132,38 @@ const PushNotifications = () => {
             onPress={onPress}>
             <SettingRow style={styles.settingRowContent}>
               <SettingTitle style={styles.settingTitle}>
-                {t('Enable Push Notifications')}
+                {t('Push Notifications')}
               </SettingTitle>
             </SettingRow>
             <ToggleSwitch onChange={onPress} isEnabled={pushNotifications} />
           </SettingRowContainer>
           <Hr />
+          {alertsAvailable ? (
+            <>
+              <SettingRowContainer
+                accessibilityRole="switch"
+                accessibilityState={{
+                  checked: priceAlertsEnabled,
+                  disabled: !pushNotifications || updatingAlerts,
+                }}
+                accessibilityLabel={t('Price Alerts')}
+                disabled={!pushNotifications || updatingAlerts}
+                onPress={changeAlerts}
+                style={{opacity: pushNotifications ? 1 : 0.5}}>
+                <SettingRow style={styles.settingRowContent}>
+                  <SettingTitle style={styles.settingTitle}>
+                    {t('Price Alerts')}
+                  </SettingTitle>
+                </SettingRow>
+                <ToggleSwitch
+                  onChange={changeAlerts}
+                  isEnabled={priceAlertsEnabled}
+                  isDisabled={!pushNotifications || updatingAlerts}
+                />
+              </SettingRowContainer>
+              <Hr />
+            </>
+          ) : null}
         </View>
       </SettingsComponent>
     </SettingsContainer>
