@@ -20,6 +20,7 @@ export const WatchlistNotificationsBanner = () => {
   const dispatch = useAppDispatch();
   const visible = useAppSelector(
     state =>
+      state.WATCHLIST.permissionAllowed !== undefined &&
       selectAlertsAvailable(state) &&
       !selectAlertsDeliverable(state) &&
       Object.keys(selectAlertContext(state)?.alerts || {}).length > 0,

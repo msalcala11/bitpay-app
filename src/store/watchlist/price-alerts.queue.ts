@@ -19,7 +19,7 @@ export interface AlertEnvironment {
   // Undefined until persistence and signing identity are ready.
   context?: string;
   externalUserId?: string;
-  pushEnabled: boolean;
+  pushEnabled: boolean | undefined;
   currency: string;
 }
 
@@ -47,8 +47,40 @@ export class PriceAlertQueue {
   private pendingUserOrders = new Set<number>();
   private targets = new Map<number, {key: string; coin: WatchlistCoin}>();
   private catalogSnapshot?: CoinCatalog;
+  private permissionWaiters = new Set<{ticket: Ticket; resolve: () => void}>();
 
   constructor(private readonly deps: AlertQueueDependencies) {}
+
+  permissionChanged() {
+    for (const waiter of this.permissionWaiters) {
+      if (
+        !this.current(waiter.ticket) ||
+        this.context(waiter.ticket).disabled ||
+        this.deps.environment().pushEnabled !== undefined
+      ) {
+        this.permissionWaiters.delete(waiter);
+        waiter.resolve();
+      }
+    }
+  }
+
+  private enqueueAfterPermission<T>(
+    ticket: Ticket,
+    task: () => Promise<T>,
+  ): Promise<T | undefined> {
+    if (
+      this.deps.environment().pushEnabled !== undefined ||
+      !this.current(ticket) ||
+      this.context(ticket).disabled
+    ) {
+      return this.enqueue(ticket, task);
+    }
+    // Never hold the serial tail while waiting: launch list/recovery work must
+    // still run. The caller has already recorded its original user order.
+    return new Promise<void>(resolve =>
+      this.permissionWaiters.add({ticket, resolve}),
+    ).then(() => this.enqueue(ticket, task));
+  }
 
   private matchStored(coin: WatchlistCoin) {
     const catalog = this.deps.catalog();
@@ -209,6 +241,7 @@ export class PriceAlertQueue {
       this.active = key;
       this.generation++;
     }
+    this.permissionChanged();
     if (!key) {
       return undefined;
     }
@@ -323,6 +356,7 @@ export class PriceAlertQueue {
             }
           : {}),
       }));
+      this.permissionChanged();
       throw error;
     }
   }
@@ -358,7 +392,10 @@ export class PriceAlertQueue {
   }
 
   private async registration(ticket: Ticket) {
-    if (!this.current(ticket)) {
+    if (
+      !this.current(ticket) ||
+      this.deps.environment().pushEnabled === undefined
+    ) {
       return;
     }
     let context = this.context(ticket);
@@ -373,6 +410,9 @@ export class PriceAlertQueue {
       context = this.context(ticket);
     }
     const env = this.deps.environment();
+    if (env.pushEnabled === undefined) {
+      return;
+    }
     if (!env.externalUserId) {
       throw new PriceAlertsError('MISSING_BRAZE_ID');
     }
@@ -625,6 +665,7 @@ export class PriceAlertQueue {
       if (
         context.pendingRemovals[key] ||
         context.unknownSelectors[key] ||
+        this.pendingUserOrders.has(intent?.order) ||
         (intent && intent.kind !== 'save') ||
         mirrored.alert.code === code
       ) {
@@ -766,7 +807,7 @@ export class PriceAlertQueue {
     this.targets.set(order, target);
     this.pendingUserOrders.add(order);
     this.patch(ticket, () => ({attemptedSave: true}));
-    return this.enqueue(ticket, async () => {
+    return this.enqueueAfterPermission(ticket, async () => {
       if (!this.wanted(ticket, target.coin.id, order)) {
         return;
       }
@@ -940,7 +981,7 @@ export class PriceAlertQueue {
 
   preferencesChanged() {
     const ticket = this.activate();
-    if (!ticket) {
+    if (!ticket || this.deps.environment().pushEnabled === undefined) {
       return Promise.resolve();
     }
     return this.enqueue(ticket, async () => {
@@ -959,7 +1000,9 @@ export class PriceAlertQueue {
     }
     this.desiredEnabled.set(ticket.key, enabled);
     try {
-      await this.enqueue(ticket, () => this.registration(ticket));
+      await this.enqueueAfterPermission(ticket, () =>
+        this.registration(ticket),
+      );
       if (
         this.current(ticket) &&
         this.context(ticket).registration?.registered

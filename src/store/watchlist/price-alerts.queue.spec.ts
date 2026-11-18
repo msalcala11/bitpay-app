@@ -1147,3 +1147,21 @@ it('applies an in-flight currency re-save under the current catalog id', async (
   expect(h.context.alerts[g.coin.id]?.alert.code).toBe('EUR');
   expect(h.context.alerts[g.polygon.id]).toBeUndefined();
 });
+
+it('a Save waiting outside the queue keeps its original order and yields to a newer removal', async () => {
+  const h = harness();
+  h.register();
+  h.env = {...h.env, pushEnabled: undefined};
+  const saving = h.queue.save(btc, 20);
+  await tick();
+  const saveOrder = h.context.intents[btc.id].order;
+  h.queue.remove(btc);
+  await h.queue.sync();
+  expect(h.state.order).toBeGreaterThan(saveOrder);
+  expect(h.api.list).toHaveBeenCalledTimes(1);
+  h.env = {...h.env, pushEnabled: true};
+  h.queue.permissionChanged();
+  await saving;
+  expect(h.api.save).not.toHaveBeenCalled();
+  expect(h.state.items.some(item => item.id === btc.id)).toBe(false);
+});

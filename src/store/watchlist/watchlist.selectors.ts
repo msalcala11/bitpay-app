@@ -10,7 +10,7 @@ export const selectAlertsAvailable = (state: RootState) =>
   !selectAlertContext(state)?.disabled;
 export const selectAlertsDeliverable = ({APP, WATCHLIST}: RootState) =>
   alertsDeliverable(
-    WATCHLIST.permissionAllowed,
+    WATCHLIST.permissionAllowed === true,
     APP.notificationsAccepted,
     WATCHLIST.priceAlertsEnabled,
   );

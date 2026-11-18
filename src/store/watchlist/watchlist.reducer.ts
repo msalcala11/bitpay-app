@@ -15,7 +15,7 @@ export const initialWatchlistState: WatchlistState = {
   order: 0,
   priceAlertsEnabled: true,
   permissionPromptShown: false,
-  permissionAllowed: false,
+  permissionAllowed: undefined,
 };
 
 export const watchlistReducer = (

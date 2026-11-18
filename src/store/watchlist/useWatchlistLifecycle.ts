@@ -34,7 +34,12 @@ export const useWatchlistLifecycle = () => {
           ),
         );
       } catch {
-        /* A permission lookup failure does not disable the feature. */
+        if (
+          !disposed &&
+          store.getState().WATCHLIST.permissionAllowed === undefined
+        ) {
+          dispatch(setAlertPermission(false));
+        }
       }
       if (!disposed) {
         void dispatch(syncPriceAlerts());

@@ -50,7 +50,7 @@ export interface WatchlistState {
   permissionPromptShown: boolean;
   // Runtime fields are excluded from persistence.
   activeContext?: string;
-  permissionAllowed: boolean;
+  permissionAllowed: boolean | undefined;
   alertSheet?: {
     coin: WatchlistCoin;
     context: 'Watchlist' | 'PriceChart' | 'WalletDetails';

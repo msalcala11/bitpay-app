@@ -39,7 +39,10 @@ export const queueFor = (dispatch: AppDispatch, getState: () => RootState) => {
               ? priceAlertsContextKey(identity.pub)
               : undefined,
           externalUserId: APP.brazeEid,
-          pushEnabled: APP.notificationsAccepted && WATCHLIST.permissionAllowed,
+          pushEnabled:
+            WATCHLIST.permissionAllowed === undefined
+              ? undefined
+              : APP.notificationsAccepted && WATCHLIST.permissionAllowed,
           currency: APP.defaultAltCurrency.isoCode,
         };
       },
@@ -92,6 +95,7 @@ export const setAlertPermission =
         updateWatchlist({...getState().WATCHLIST, permissionAllowed: allowed}),
       );
     }
+    queueFor(dispatch, getState).permissionChanged();
   };
 export const markAlertPermissionPromptShown =
   (): Effect => (dispatch, getState) =>
