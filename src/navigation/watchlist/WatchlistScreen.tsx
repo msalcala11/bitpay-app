@@ -21,7 +21,11 @@ import Ghost from '../../../assets/img/ghost-straight-face.svg';
 import {syncPriceAlerts} from '../../store/watchlist/watchlist.effects';
 import {useWatchlistRows} from './useWatchlistRows';
 import {WatchlistNotificationsBanner} from './WatchlistNotifications';
-import {canAddWatchlistCoin, reorderFromUi} from './watchlistUi.effects';
+import {
+  canAddWatchlistCoin,
+  consumeWatchlistAddition,
+  reorderFromUi,
+} from './watchlistUi.effects';
 import {EditableWatchlistRow, WatchlistRow} from './WatchlistRow';
 
 export const WatchlistEmpty = () => {
@@ -44,12 +48,16 @@ export default function WatchlistScreen() {
   const rows = useWatchlistRows();
   const listRef = useRef<FlatList>(null);
   const lastAdded = useAppSelector(state => state.WATCHLIST.lastAdded);
-  const [highlighted, setHighlighted] = useState<string>();
+  const [highlighted, setHighlighted] = useState<typeof lastAdded>();
   useEffect(() => {
     if (!lastAdded) {
       return;
     }
-    setHighlighted(lastAdded.id);
+    const addition = dispatch(consumeWatchlistAddition());
+    if (addition) setHighlighted(addition);
+  }, [dispatch, lastAdded]);
+  useEffect(() => {
+    if (!highlighted) return;
     const scroll = setTimeout(
       () => listRef.current?.scrollToEnd({animated: true}),
       100,
@@ -59,7 +67,7 @@ export default function WatchlistScreen() {
       clearTimeout(scroll);
       clearTimeout(clear);
     };
-  }, [lastAdded]);
+  }, [highlighted]);
   useFocusEffect(
     useCallback(() => {
       void dispatch(syncPriceAlerts());
@@ -113,7 +121,7 @@ export default function WatchlistScreen() {
       <WatchlistRow
         coin={item}
         row={rows[index]}
-        highlighted={highlighted === item.id}
+        highlighted={highlighted?.id === item.id}
       />
     );
   return (

@@ -183,6 +183,16 @@ export const finishPriceAlert = (): Effect => (dispatch, getState) => {
   );
 };
 
+export const consumeWatchlistAddition =
+  (): Effect<WatchlistState['lastAdded']> => (dispatch, getState) => {
+    const state = getState().WATCHLIST;
+    const addition = state.lastAdded;
+    if (addition) {
+      dispatch(updateWatchlist({...state, lastAdded: undefined}));
+    }
+    return addition;
+  };
+
 export const removeCoinFromUi =
   (coin: WatchlistCoin, context: 'HomeRoot' | AlertScreenContext): Effect =>
   (dispatch, getState) => {
