@@ -11,7 +11,8 @@ import {useNavigation} from '@react-navigation/native';
 import {useTranslation} from 'react-i18next';
 import {useTheme} from '../../contexts';
 import {useAppDispatch, useAppSelector} from '../../utils/hooks';
-import {HeaderTitle, BaseText} from '../../components/styled/Text';
+import {HeaderTitle, BaseText, H4} from '../../components/styled/Text';
+import {HEIGHT} from '../../components/styled/Containers';
 import SearchComponent from '../../components/chain-search/ChainSearch';
 import {CurrencyImage} from '../../components/currency-image/CurrencyImage';
 import {TouchableOpacity} from '../../components/base/TouchableOpacity';
@@ -124,6 +125,18 @@ export default function SelectCrypto() {
         </View>
         <FlatList
           data={results}
+          ListEmptyComponent={
+            query.trim() ? (
+              <View
+                style={{
+                  alignItems: 'center',
+                  minHeight: HEIGHT - 300,
+                  paddingTop: 20,
+                }}>
+                <H4 style={{fontSize: 17}}>{t('No Results')}</H4>
+              </View>
+            ) : null
+          }
           keyExtractor={coin => coin.id}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{paddingBottom: 150}}

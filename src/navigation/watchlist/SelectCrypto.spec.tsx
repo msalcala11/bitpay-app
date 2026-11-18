@@ -34,7 +34,8 @@ jest.mock('../../store/watchlist/coin-registry', () => ({
   subscribeCoinCatalog: () => () => {},
 }));
 jest.mock('./coinSearch', () => ({
-  searchWatchlistCoins: () => mockCatalog.coins,
+  searchWatchlistCoins: (_catalog: unknown, _items: unknown, query: string) =>
+    query ? [] : mockCatalog.coins,
 }));
 jest.mock('./watchlistRows', () => ({watchlistImage: () => ''}));
 jest.mock('./watchlistUi.effects', () => ({
@@ -50,7 +51,7 @@ jest.mock('../../components/currency-image/CurrencyImage', () => ({
 jest.mock('../../components/modal/close/Close', () => () => null);
 jest.mock('../../components/styled/Text', () => {
   const {Text} = require('react-native');
-  return {HeaderTitle: Text, BaseText: Text};
+  return {HeaderTitle: Text, BaseText: Text, H4: Text};
 });
 jest.mock('../../components/base/TouchableOpacity', () => ({
   TouchableOpacity: require('react-native').TouchableOpacity,
@@ -59,7 +60,11 @@ jest.mock('../../components/chain-search/ChainSearch', () => {
   const ReactLib = require('react');
   const {TextInput} = require('react-native');
   return (props: any) =>
-    ReactLib.createElement(TextInput, {...props, testID: 'search'});
+    ReactLib.createElement(TextInput, {
+      ...props,
+      onChangeText: props.setSearchVal,
+      testID: 'search',
+    });
 });
 
 beforeEach(() => {
@@ -93,4 +98,16 @@ it('opens the after-add sheet after the picker unmounts, without a transition ca
   expect(openPriceAlert).not.toHaveBeenCalled();
   act(() => jest.advanceTimersByTime(1));
   expect(openPriceAlert).toHaveBeenCalledWith(mockCoin, 'Watchlist', true);
+});
+
+it('shows No Results for an unmatched search and restores browse when cleared', () => {
+  const view = render(<SelectCrypto />);
+  expect(view.queryByText('No Results')).toBeNull();
+  expect(view.getByLabelText('Bitcoin BTC')).toBeTruthy();
+  fireEvent.changeText(view.getByTestId('search'), 'no-such-coin');
+  expect(view.getByText('No Results')).toBeTruthy();
+  expect(view.queryByLabelText('Bitcoin BTC')).toBeNull();
+  fireEvent.changeText(view.getByTestId('search'), '');
+  expect(view.queryByText('No Results')).toBeNull();
+  expect(view.getByLabelText('Bitcoin BTC')).toBeTruthy();
 });
