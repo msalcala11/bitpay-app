@@ -45,8 +45,163 @@ export class PriceAlertQueue {
   private active?: string;
   private desiredEnabled = new Map<string, boolean>();
   private pendingUserOrders = new Set<number>();
+  private targets = new Map<number, {key: string; coin: WatchlistCoin}>();
+  private catalogSnapshot?: CoinCatalog;
 
   constructor(private readonly deps: AlertQueueDependencies) {}
+
+  private matchStored(coin: WatchlistCoin) {
+    const catalog = this.deps.catalog();
+    return (
+      catalog.fromSelector(coin.selector) ||
+      catalog.byId.get(coin.id) ||
+      coin.assets.map(asset => catalog.match(asset)).find(Boolean)
+    );
+  }
+
+  // Re-key local state without treating registry metadata as a server response.
+  // Request targets are mutable references so their original order/ticket stays
+  // attached to the same row across awaits, even when its old ID still exists.
+  private refreshCatalog() {
+    const state = this.deps.read();
+    const catalog = this.deps.catalog();
+    const rows = new Map<string, WatchlistCoin>();
+    const items: WatchlistCoin[] = [];
+    for (const item of state.items) {
+      const matched = this.matchStored(item);
+      const latest = matched ? {...matched, selector: item.selector} : item;
+      rows.set(item.id, latest);
+      if (!items.some(existing => existing.id === latest.id))
+        items.push(latest);
+    }
+    const idFor = (id: string, selector?: PriceAlertSelector) => {
+      const previous = this.catalogSnapshot?.byId.get(id);
+      return (
+        rows.get(id)?.id ||
+        (selector && catalog.fromSelector(selector)?.id) ||
+        (previous && this.matchStored(previous)?.id) ||
+        id
+      );
+    };
+    const targetIds = new Map<string, Map<string, string>>();
+    for (const target of this.targets.values()) {
+      const oldId = target.coin.id;
+      const matched = rows.get(oldId) || this.matchStored(target.coin);
+      if (matched) target.coin = {...matched, selector: target.coin.selector};
+      const ids = targetIds.get(target.key) || new Map<string, string>();
+      ids.set(oldId, target.coin.id);
+      targetIds.set(target.key, ids);
+    }
+    let order = state.order;
+    const contexts = Object.fromEntries(
+      Object.entries(state.contexts).map(([key, context]) => {
+        const ids = new Map(targetIds.get(key));
+        const pendingRemovals = Object.fromEntries(
+          Object.entries(context.pendingRemovals).map(([selector, removal]) => {
+            const itemId = idFor(removal.itemId, removal.selector);
+            if (!ids.has(removal.itemId)) ids.set(removal.itemId, itemId);
+            return [
+              selector,
+              {
+                ...removal,
+                itemId,
+                scope:
+                  removal.scope ??
+                  (context.intents[removal.itemId]?.kind === 'remove'
+                    ? ('coin' as const)
+                    : ('selector' as const)),
+              },
+            ];
+          }),
+        );
+        const grouped = new Map<
+          string,
+          Array<AlertContextState['alerts'][string]>
+        >();
+        for (const [id, mirrored] of Object.entries(context.alerts)) {
+          const nextId = idFor(id, mirrored.alert);
+          if (!ids.has(id)) ids.set(id, nextId);
+          grouped.set(nextId, [...(grouped.get(nextId) || []), mirrored]);
+        }
+        const alerts: AlertContextState['alerts'] = {};
+        for (const [id, candidates] of grouped) {
+          const preferred = items.find(item => item.id === id)?.selector;
+          const kept =
+            candidates.find(
+              value =>
+                preferred &&
+                selectorKey(value.alert) === selectorKey(preferred),
+            ) || candidates[0];
+          alerts[id] = {
+            ...kept,
+            ...(candidates.some(value => value.unknown) ? {unknown: true} : {}),
+          };
+          for (const value of candidates) {
+            const selector = selectorKey(value.alert);
+            if (
+              selector !== selectorKey(kept.alert) &&
+              !pendingRemovals[selector]
+            ) {
+              pendingRemovals[selector] = {
+                itemId: id,
+                selector: value.alert,
+                order: ++order,
+                scope: 'selector',
+              };
+            }
+          }
+        }
+        const intents: AlertContextState['intents'] = {};
+        for (const [id, intent] of Object.entries(context.intents)) {
+          const nextId = rows.get(id)?.id || ids.get(id) || idFor(id);
+          if (!intents[nextId] || intents[nextId].order < intent.order)
+            intents[nextId] = intent;
+        }
+        return [key, {...context, alerts, intents, pendingRemovals}];
+      }),
+    );
+    const sheet = state.alertSheet;
+    const sheetCoin =
+      sheet && (rows.get(sheet.coin.id) || this.matchStored(sheet.coin));
+    this.deps.write({
+      ...state,
+      items,
+      contexts,
+      order,
+      ...(sheet && sheetCoin
+        ? {
+            alertSheet: {
+              ...sheet,
+              coin: items.find(item => item.id === sheetCoin.id) || {
+                ...sheetCoin,
+                selector: sheet.coin.selector,
+              },
+            },
+          }
+        : {}),
+      ...(state.lastAdded
+        ? {lastAdded: {...state.lastAdded, id: idFor(state.lastAdded.id)}}
+        : {}),
+    });
+    this.catalogSnapshot = catalog;
+    return rows;
+  }
+
+  private captureTarget(ticket: Ticket, coin: WatchlistCoin) {
+    const rows = this.refreshCatalog();
+    const matched = rows.get(coin.id) || this.matchStored(coin) || coin;
+    const stored = this.deps.read().items.find(item => item.id === matched.id);
+    return {
+      key: ticket.key,
+      coin: {
+        ...matched,
+        selector:
+          this.context(ticket).alerts[matched.id]?.alert ||
+          stored?.selector ||
+          coin.selector,
+      },
+    };
+  }
 
   private activate(): Ticket | undefined {
     const key = this.deps.environment().context;
@@ -295,6 +450,7 @@ export class PriceAlertQueue {
     if (!this.current(ticket)) {
       return;
     }
+    this.refreshCatalog();
     const state = this.deps.read();
     const context = this.context(ticket);
     const catalog = this.deps.catalog();
@@ -447,13 +603,20 @@ export class PriceAlertQueue {
   }
 
   private async currencies(ticket: Ticket) {
-    for (const id of Object.keys(this.context(ticket).alerts)) {
+    for (const [previousId, previous] of Object.entries(
+      this.context(ticket).alerts,
+    )) {
       if (!this.current(ticket) || this.context(ticket).disabled) {
         return;
       }
       const context = this.context(ticket);
+      const id =
+        this.deps.catalog().fromSelector(previous.alert)?.id || previousId;
       const mirrored = context.alerts[id];
-      if (!mirrored) {
+      if (
+        !mirrored ||
+        selectorKey(mirrored.alert) !== selectorKey(previous.alert)
+      ) {
         continue;
       }
       const key = selectorKey(mirrored.alert);
@@ -477,15 +640,20 @@ export class PriceAlertQueue {
               .save(mirrored.alert, mirrored.alert.thresholdPct, code),
           mirrored.alert,
         );
+        const currentId =
+          this.deps.catalog().fromSelector(mirrored.alert)?.id || id;
+        const latest = this.context(ticket);
         if (
           !this.current(ticket) ||
-          this.context(ticket).intents[id]?.order > order ||
-          !this.context(ticket).alerts[id]
+          latest.intents[currentId]?.order > order ||
+          !latest.alerts[currentId] ||
+          selectorKey(latest.alerts[currentId].alert) !== key ||
+          latest.pendingRemovals[key]
         ) {
           continue;
         }
-        this.patch(ticket, latest => ({
-          alerts: {...latest.alerts, [id]: {alert: saved}},
+        this.patch(ticket, current => ({
+          alerts: {...current.alerts, [currentId]: {alert: saved}},
         }));
       } catch {
         /* Background failures retry at sync. */
@@ -494,6 +662,11 @@ export class PriceAlertQueue {
   }
 
   add(coin: WatchlistCoin) {
+    const rows = this.refreshCatalog();
+    coin = {
+      ...(rows.get(coin.id) || this.matchStored(coin) || coin),
+      selector: coin.selector,
+    };
     const state = this.deps.read();
     if (state.items.some(item => item.id === coin.id)) {
       return false;
@@ -526,6 +699,8 @@ export class PriceAlertQueue {
 
   remove(coin: WatchlistCoin) {
     const ticket = this.activate();
+    const rows = this.refreshCatalog();
+    coin = rows.get(coin.id) || this.matchStored(coin) || coin;
     const state = this.deps.read();
     const context = ticket ? this.context(ticket) : undefined;
     const alert = context?.alerts[coin.id]?.alert;
@@ -578,6 +753,8 @@ export class PriceAlertQueue {
     if (!ticket) {
       return Promise.reject(new PriceAlertsError('NOT_READY'));
     }
+    const target = this.captureTarget(ticket, coin);
+    coin = target.coin;
     const state = this.deps.read();
     if (
       !state.items.some(item => item.id === coin.id) &&
@@ -586,39 +763,47 @@ export class PriceAlertQueue {
       return Promise.reject(new PriceAlertsError('WATCHLIST_FULL'));
     }
     const order = this.intent(ticket, coin.id, 'save');
+    this.targets.set(order, target);
     this.pendingUserOrders.add(order);
     this.patch(ticket, () => ({attemptedSave: true}));
     return this.enqueue(ticket, async () => {
-      if (!this.wanted(ticket, coin.id, order)) {
+      if (!this.wanted(ticket, target.coin.id, order)) {
         return;
       }
       await this.registration(ticket);
       // A recovery list can settle the save's original intent. Preserve a
       // genuinely newer user action, but continue this still-wanted save.
-      if (this.current(ticket) && !this.context(ticket).intents[coin.id]) {
+      if (
+        this.current(ticket) &&
+        !this.context(ticket).intents[target.coin.id]
+      ) {
         this.patch(ticket, current => ({
-          intents: {...current.intents, [coin.id]: {order, kind: 'save'}},
+          intents: {
+            ...current.intents,
+            [target.coin.id]: {order, kind: 'save'},
+          },
         }));
       }
-      if (!this.wanted(ticket, coin.id, order)) {
+      if (!this.wanted(ticket, target.coin.id, order)) {
         return;
       }
       await this.removals(ticket);
-      if (!this.wanted(ticket, coin.id, order)) {
+      if (!this.wanted(ticket, target.coin.id, order)) {
         return;
       }
       const beforeSave = this.deps.read();
       if (
-        !beforeSave.items.some(item => item.id === coin.id) &&
+        !beforeSave.items.some(item => item.id === target.coin.id) &&
         beforeSave.items.length >= 20
       ) {
         throw new PriceAlertsError('WATCHLIST_FULL');
       }
       const context = this.context(ticket);
       const selector =
-        context.alerts[coin.id]?.alert ||
-        this.deps.read().items.find(item => item.id === coin.id)?.selector ||
-        coin.selector;
+        context.alerts[target.coin.id]?.alert ||
+        this.deps.read().items.find(item => item.id === target.coin.id)
+          ?.selector ||
+        target.coin.selector;
       const saved = await this.call(
         ticket,
         () =>
@@ -631,20 +816,22 @@ export class PriceAlertQueue {
             ),
         selector,
       );
-      if (!this.wanted(ticket, coin.id, order)) {
+      if (!this.wanted(ticket, target.coin.id, order)) {
         return;
       }
       const latest = this.deps.read();
-      const items = latest.items.some(item => item.id === coin.id)
-        ? latest.items
-        : [...latest.items, {...coin, selector}];
+      const items = latest.items.some(item => item.id === target.coin.id)
+        ? latest.items.map(item =>
+            item.id === target.coin.id ? {...item, selector} : item,
+          )
+        : [...latest.items, {...target.coin, selector}];
       this.patch(
         ticket,
         current => {
           const pendingRemovals = {...current.pendingRemovals};
           for (const [pendingKey, removal] of Object.entries(pendingRemovals)) {
             if (
-              removal.itemId === coin.id &&
+              removal.itemId === target.coin.id &&
               removal.order < order &&
               removal.scope === 'coin'
             ) {
@@ -658,7 +845,7 @@ export class PriceAlertQueue {
           const unknownSelectors = {...current.unknownSelectors};
           delete unknownSelectors[key];
           return {
-            alerts: {...current.alerts, [coin.id]: {alert: saved}},
+            alerts: {...current.alerts, [target.coin.id]: {alert: saved}},
             pendingRemovals,
             unknownSelectors,
           };
@@ -666,7 +853,10 @@ export class PriceAlertQueue {
         items,
       );
       return saved;
-    }).finally(() => this.pendingUserOrders.delete(order));
+    }).finally(() => {
+      this.pendingUserOrders.delete(order);
+      this.targets.delete(order);
+    });
   }
 
   turnOff(coin: WatchlistCoin) {
@@ -674,29 +864,35 @@ export class PriceAlertQueue {
     if (!ticket) {
       return Promise.reject(new PriceAlertsError('NOT_READY'));
     }
+    const target = this.captureTarget(ticket, coin);
+    coin = target.coin;
     const order = this.intent(ticket, coin.id, 'off');
+    this.targets.set(order, target);
     this.pendingUserOrders.add(order);
     return this.enqueue(ticket, async () => {
-      if (!this.wanted(ticket, coin.id, order)) {
+      if (!this.wanted(ticket, target.coin.id, order)) {
         return;
       }
-      const alert = this.context(ticket).alerts[coin.id]?.alert;
+      const alert = this.context(ticket).alerts[target.coin.id]?.alert;
       if (!alert) {
         return;
       }
       await this.call(ticket, () => this.deps.api().remove(alert), alert);
-      if (!this.wanted(ticket, coin.id, order)) {
+      if (!this.wanted(ticket, target.coin.id, order)) {
         return;
       }
       this.patch(ticket, context => {
         const alerts = {...context.alerts};
         const unknownSelectors = {...context.unknownSelectors};
-        delete alerts[coin.id];
+        delete alerts[target.coin.id];
         delete unknownSelectors[selectorKey(alert)];
         return {alerts, unknownSelectors};
       });
       return alert;
-    }).finally(() => this.pendingUserOrders.delete(order));
+    }).finally(() => {
+      this.pendingUserOrders.delete(order);
+      this.targets.delete(order);
+    });
   }
 
   sync(): Promise<void> {
@@ -786,15 +982,7 @@ export class PriceAlertQueue {
   }
 
   catalogChanged() {
-    const before = this.deps.read();
-    const catalog = this.deps.catalog();
-    this.deps.write({
-      ...before,
-      items: before.items.map(item => {
-        const latest = catalog.byId.get(item.id);
-        return latest ? {...latest, selector: item.selector} : item;
-      }),
-    });
+    this.refreshCatalog();
     const ticket = this.activate();
     if (!ticket) {
       return;

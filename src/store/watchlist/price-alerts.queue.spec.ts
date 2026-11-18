@@ -145,7 +145,12 @@ describe('watchlist rules and price-alert queue', () => {
     });
     h.state = {
       ...h.state,
-      items: Array.from({length: 21}, (_, i) => ({...btc, id: `x${i}`})),
+      items: Array.from({length: 21}, (_, i) => ({
+        ...btc,
+        id: `x${i}`,
+        selector: {coin: `unknown-${i}`},
+        assets: [],
+      })),
     };
     expect(() => h.queue.add(usdc)).toThrow(PriceAlertsError);
   });
@@ -390,7 +395,12 @@ describe('watchlist rules and price-alert queue', () => {
     h.register();
     h.state = {
       ...h.state,
-      items: Array.from({length: 20}, (_, i) => ({...btc, id: `x${i}`})),
+      items: Array.from({length: 20}, (_, i) => ({
+        ...btc,
+        id: `x${i}`,
+        selector: {coin: `unknown-${i}`},
+        assets: [],
+      })),
     };
     h.held.set('native:btc', alert());
     await h.queue.sync();
@@ -623,7 +633,12 @@ it('rechecks the capacity when a queued save actually reaches the backend', asyn
   await tick();
   h.state = {
     ...h.state,
-    items: Array.from({length: 20}, (_, i) => ({...btc, id: `x${i}`})),
+    items: Array.from({length: 20}, (_, i) => ({
+      ...btc,
+      id: `x${i}`,
+      selector: {coin: `unknown-${i}`},
+      assets: [],
+    })),
   };
   gate.resolve({
     registered: true,
@@ -880,4 +895,255 @@ describe('repair 2.2: catalog updates are not backend snapshots', () => {
     await h.queue.preferencesChanged();
     expect(h.calls.slice(0, 2)).toEqual(['list', 'register']);
   });
+});
+
+const mergeEth = {chain: 'eth', tokenAddress: '0xmergeeth'};
+const mergePolygon = {chain: 'matic', tokenAddress: '0xmergepolygon'};
+const groupCatalog = (merged: boolean, previous: typeof catalog.coins = []) =>
+  buildCoinCatalog(
+    SupportedCurrencyOptions,
+    {
+      tokenDataByAddress: {},
+      tokenOptionsByAddress: {
+        '0xmergeeth_e': {
+          name: 'Merge Token',
+          symbol: 'MRG',
+          address: mergeEth.tokenAddress,
+          decimals: 18,
+          logoURI: 'eth.png',
+        },
+        '0xmergepolygon_m': {
+          name: 'Merge Token',
+          symbol: 'MRG',
+          address: mergePolygon.tokenAddress,
+          decimals: 18,
+          logoURI: merged ? 'eth.png' : 'polygon.png',
+        },
+      },
+    },
+    previous,
+  );
+const groups = () => {
+  const split = groupCatalog(false);
+  const eth = split.fromSelector(mergeEth)!;
+  const polygon = split.fromSelector(mergePolygon)!;
+  const merged = groupCatalog(true, split.coins);
+  const coin = merged.fromSelector(mergeEth)!;
+  expect(coin.id).toBe(eth.id);
+  expect(coin.id).not.toBe(polygon.id);
+  return {split, eth, polygon, merged, coin};
+};
+
+describe('repair 2.4: catalog group identity changes', () => {
+  it('re-keys a watched retired group and refuses a second add', () => {
+    const h = harness(),
+      g = groups();
+    h.setCatalog(g.split);
+    h.queue.add(g.polygon);
+    h.setCatalog(g.merged);
+    h.queue.catalogChanged();
+    expect(h.state.items.at(-1)).toEqual({...g.coin, selector: mergePolygon});
+    expect(h.queue.add(g.coin)).toBe(false);
+    expect(h.state.items.filter(item => item.id === g.coin.id)).toHaveLength(1);
+  });
+  it('moves the alert mirror and intents with the watched row', async () => {
+    const h = harness(),
+      g = groups();
+    h.setCatalog(g.split);
+    h.register();
+    h.held.set(selectorKey(mergePolygon), alert(mergePolygon));
+    await h.queue.sync();
+    h.context.intents[g.polygon.id] = {kind: 'save', order: 7};
+    h.setCatalog(g.merged);
+    h.queue.catalogChanged();
+    expect(h.context.alerts[g.polygon.id]).toBeUndefined();
+    expect(h.context.alerts[g.coin.id]?.alert).toEqual(alert(mergePolygon));
+    expect(h.context.intents[g.coin.id]).toEqual({kind: 'save', order: 7});
+  });
+  it('merges watched rows at their earlier position and keeps that row’s alert through failed duplicate cleanup', async () => {
+    const h = harness(),
+      g = groups();
+    h.setCatalog(g.split);
+    h.register();
+    h.queue.add(g.polygon);
+    h.queue.add(g.eth);
+    h.held.set(selectorKey(mergeEth), alert(mergeEth));
+    h.held.set(selectorKey(mergePolygon), alert(mergePolygon, 15));
+    await h.queue.sync();
+    h.context.alerts[g.polygon.id].unknown = true;
+    h.context.unknownSelectors[selectorKey(mergePolygon)] = true;
+    h.setCatalog(g.merged);
+    h.queue.catalogChanged();
+    expect(h.state.items).toHaveLength(9);
+    expect(h.state.items[8]).toEqual({...g.coin, selector: mergePolygon});
+    expect(h.context.alerts[g.coin.id]).toMatchObject({
+      alert: alert(mergePolygon, 15),
+      unknown: true,
+    });
+    expect(h.context.unknownSelectors[selectorKey(mergePolygon)]).toBe(true);
+    expect(Object.keys(h.context.pendingRemovals)).toEqual([
+      selectorKey(mergeEth),
+    ]);
+    h.api.remove.mockRejectedValue(new Error('offline'));
+    for (let n = 0; n < 2; n++) {
+      h.advance();
+      await h.queue.sync();
+    }
+    expect(h.state.items).toHaveLength(9);
+    expect(h.context.alerts[g.coin.id]?.alert).toEqual(alert(mergePolygon, 15));
+    expect(Object.keys(h.context.pendingRemovals)).toEqual([
+      selectorKey(mergeEth),
+    ]);
+  });
+  it('follows the stored selector on split even when the old id survives on the other half', () => {
+    const h = harness(),
+      g = groups();
+    h.setCatalog(g.merged);
+    h.queue.add({...g.coin, selector: mergePolygon});
+    const splitAgain = groupCatalog(false, g.merged.coins);
+    expect(splitAgain.fromSelector(mergeEth)?.id).toBe(g.coin.id);
+    h.setCatalog(splitAgain);
+    h.queue.catalogChanged();
+    expect(h.state.items.at(-1)).toEqual({
+      ...splitAgain.fromSelector(mergePolygon),
+      selector: mergePolygon,
+    });
+    expect(h.state.items.at(-1)?.id).not.toBe(g.coin.id);
+  });
+  it('applies an in-flight Save to the row’s current id', async () => {
+    const h = harness(),
+      g = groups();
+    h.setCatalog(g.split);
+    h.register();
+    h.queue.add(g.polygon);
+    const gate = deferred<PriceAlert>();
+    h.api.save.mockReturnValueOnce(gate.promise);
+    const saving = h.queue.save(g.polygon, 20);
+    await tick();
+    h.setCatalog(g.merged);
+    h.queue.catalogChanged();
+    gate.resolve(alert(mergePolygon, 20));
+    await saving;
+    expect(h.state.items.filter(item => item.symbol === 'MRG')).toHaveLength(1);
+    expect(h.context.alerts[g.coin.id]?.alert).toEqual(alert(mergePolygon, 20));
+    expect(h.context.alerts[g.polygon.id]).toBeUndefined();
+  });
+  it('keeps a removal newer than an in-flight Save through re-keying', async () => {
+    const h = harness(),
+      g = groups();
+    h.setCatalog(g.split);
+    h.register();
+    h.queue.add(g.polygon);
+    const gate = deferred<PriceAlert>();
+    h.api.save.mockReturnValueOnce(gate.promise);
+    const saving = h.queue.save(g.polygon, 20);
+    await tick();
+    h.api.remove.mockRejectedValue(new Error('offline'));
+    h.queue.remove(g.polygon);
+    h.setCatalog(g.merged);
+    h.queue.catalogChanged();
+    gate.resolve(alert(mergePolygon, 20));
+    await saving;
+    await tick();
+    expect(h.state.items.some(item => item.symbol === 'MRG')).toBe(false);
+    expect(h.context.alerts[g.coin.id]).toBeUndefined();
+    expect(h.context.alerts[g.polygon.id]).toBeUndefined();
+    expect(h.context.pendingRemovals[selectorKey(mergePolygon)]).toMatchObject({
+      itemId: g.coin.id,
+      scope: 'coin',
+    });
+  });
+  it('updates an open Edit sheet so Turn Off uses the moved row', async () => {
+    const h = harness(),
+      g = groups();
+    h.setCatalog(g.split);
+    h.register();
+    h.held.set(selectorKey(mergePolygon), alert(mergePolygon));
+    await h.queue.sync();
+    h.state = {
+      ...h.state,
+      alertSheet: {
+        coin: g.polygon,
+        context: 'Watchlist',
+        nonce: 1,
+        isEdit: true,
+        open: true,
+      },
+    };
+    h.setCatalog(g.merged);
+    h.queue.catalogChanged();
+    expect(h.state.alertSheet?.coin.id).toBe(g.coin.id);
+    await h.queue.turnOff(h.state.alertSheet!.coin);
+    expect(h.held.size).toBe(0);
+    expect(h.context.alerts).toEqual({});
+    expect(h.state.items.at(-1)?.id).toBe(g.coin.id);
+  });
+  it('keeps an in-flight Turn Off attached to the current id', async () => {
+    const h = harness(),
+      g = groups();
+    h.setCatalog(g.split);
+    h.register();
+    h.held.set(selectorKey(mergePolygon), alert(mergePolygon));
+    await h.queue.sync();
+    const gate = deferred<{disabled: true}>();
+    h.api.remove.mockReturnValueOnce(gate.promise);
+    const off = h.queue.turnOff(g.polygon);
+    await tick();
+    h.setCatalog(g.merged);
+    h.queue.catalogChanged();
+    gate.resolve({disabled: true});
+    await off;
+    expect(h.state.items.at(-1)?.id).toBe(g.coin.id);
+    expect(h.context.alerts).toEqual({});
+  });
+  it('re-keys before a real list can append a second row and preserves a queued Save', async () => {
+    const h = harness(),
+      g = groups();
+    h.setCatalog(g.split);
+    h.register();
+    h.queue.add(g.polygon);
+    const gate = deferred<{
+      registration: PriceAlertRegistration;
+      alerts: PriceAlert[];
+    }>();
+    h.api.list.mockReturnValueOnce(gate.promise);
+    const sync = h.queue.sync();
+    await tick();
+    const saving = h.queue.save(g.polygon, 20);
+    // Deliberately let a list observe the new catalog before its subscription callback.
+    h.setCatalog(g.merged);
+    gate.resolve({
+      registration: {
+        registered: true,
+        externalUserId: 'braze-A',
+        pushEnabled: false,
+        priceAlertsEnabled: true,
+      },
+      alerts: [alert(mergePolygon)],
+    });
+    await sync;
+    await saving;
+    expect(h.state.items.filter(item => item.symbol === 'MRG')).toHaveLength(1);
+    expect(h.context.alerts[g.coin.id]?.alert.thresholdPct).toBe(20);
+  });
+});
+
+it('applies an in-flight currency re-save under the current catalog id', async () => {
+  const h = harness(),
+    g = groups();
+  h.setCatalog(g.split);
+  h.register();
+  h.held.set(selectorKey(mergePolygon), alert(mergePolygon));
+  await h.queue.sync();
+  h.env = {...h.env, currency: 'EUR'};
+  const gate = deferred<PriceAlert>();
+  h.api.save.mockReturnValueOnce(gate.promise);
+  const resaving = h.queue.preferencesChanged();
+  await tick();
+  h.setCatalog(g.merged);
+  h.queue.catalogChanged();
+  gate.resolve(alert(mergePolygon, 10, 'EUR'));
+  await resaving;
+  expect(h.context.alerts[g.coin.id]?.alert.code).toBe('EUR');
+  expect(h.context.alerts[g.polygon.id]).toBeUndefined();
 });
