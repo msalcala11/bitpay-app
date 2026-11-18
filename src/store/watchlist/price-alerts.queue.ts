@@ -290,6 +290,7 @@ export class PriceAlertQueue {
     ticket: Ticket,
     response: PriceAlertsResponse,
     requestOrder: number,
+    backendSnapshot = true,
   ) {
     if (!this.current(ticket)) {
       return;
@@ -298,7 +299,9 @@ export class PriceAlertQueue {
     const context = this.context(ticket);
     const catalog = this.deps.catalog();
     const items = [...state.items];
-    const alerts: AlertContextState['alerts'] = {};
+    const alerts: AlertContextState['alerts'] = backendSnapshot
+      ? {}
+      : {...context.alerts};
     const pendingRemovals = {...context.pendingRemovals};
     const unresolved: PriceAlert[] = [];
     let order = state.order;
@@ -362,7 +365,10 @@ export class PriceAlertQueue {
         group.alerts.find(
           alert => previous && selectorKey(previous) === selectorKey(alert),
         ) || group.alerts[0];
-      alerts[id] = {alert: kept};
+      alerts[id] = {
+        ...(!backendSnapshot ? context.alerts[id] : {}),
+        alert: kept,
+      };
       const index = items.findIndex(item => item.id === id);
       const item = {
         ...group.coin,
@@ -392,17 +398,19 @@ export class PriceAlertQueue {
     // might still arrive at the server later; no server ordering is assumed.
     const unknownSelectors = {...context.unknownSelectors};
     for (const key of Object.keys(unknownSelectors)) {
-      if (!pendingRemovals[key]) {
+      if (backendSnapshot && !pendingRemovals[key]) {
         delete unknownSelectors[key];
       }
     }
-    const intents = Object.fromEntries(
-      Object.entries(context.intents).filter(
-        ([, intent]) =>
-          intent.order > requestOrder ||
-          this.pendingUserOrders.has(intent.order),
-      ),
-    );
+    const intents = backendSnapshot
+      ? Object.fromEntries(
+          Object.entries(context.intents).filter(
+            ([, intent]) =>
+              intent.order > requestOrder ||
+              this.pendingUserOrders.has(intent.order),
+          ),
+        )
+      : context.intents;
     this.deps.write({
       ...state,
       order,
@@ -414,13 +422,19 @@ export class PriceAlertQueue {
           alerts,
           pendingRemovals,
           unresolved,
-          unresolvedOrder: requestOrder,
+          unresolvedOrder: backendSnapshot
+            ? requestOrder
+            : context.unresolvedOrder,
           unknownSelectors,
           intents,
-          registration: response.registration,
-          registrationUnknown: false,
-          attemptedSave:
-            context.attemptedSave || response.registration.registered,
+          ...(backendSnapshot
+            ? {
+                registration: response.registration,
+                registrationUnknown: false,
+                attemptedSave:
+                  context.attemptedSave || response.registration.registered,
+              }
+            : {}),
         },
       },
     });
@@ -799,6 +813,7 @@ export class PriceAlertQueue {
         ],
       },
       context.unresolvedOrder ?? this.deps.read().order,
+      false,
     );
   }
 }

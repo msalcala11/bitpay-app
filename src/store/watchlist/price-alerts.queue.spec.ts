@@ -812,3 +812,72 @@ describe('repair 2.1: selector and whole-coin removals', () => {
     ]);
   });
 });
+
+describe('repair 2.2: catalog updates are not backend snapshots', () => {
+  it('keeps a lost Save unknown until a real list settles the new threshold', async () => {
+    const h = harness();
+    h.register();
+    h.held.set('native:btc', alert());
+    h.held.set(
+      'token:eth:0xlate',
+      alert({chain: 'eth', tokenAddress: '0xlate'}),
+    );
+    await h.queue.sync();
+    h.api.save.mockImplementationOnce(async (selector, threshold, code) => {
+      h.held.set(selectorKey(selector), alert(selector, threshold, code));
+      throw new Error('response lost');
+    });
+    await expect(h.queue.save(btc, 20)).rejects.toThrow();
+    h.context.alerts[btc.id].unknown = true;
+    h.setCatalog(lateTokenCatalog(false));
+    h.queue.catalogChanged();
+    expect(h.context.unknownSelectors['native:btc']).toBe(true);
+    expect(h.context.alerts[btc.id].unknown).toBe(true);
+    h.env = {...h.env, currency: 'EUR'};
+    await h.queue.preferencesChanged();
+    expect(
+      h.api.save.mock.calls.filter(
+        ([selector]) => selectorKey(selector) === 'native:btc',
+      ),
+    ).toHaveLength(1);
+    expect(h.held.get('native:btc')).toMatchObject({
+      thresholdPct: 20,
+      code: 'USD',
+    });
+    h.advance();
+    await h.queue.sync();
+    expect(h.held.get('native:btc')).toMatchObject({
+      thresholdPct: 20,
+      code: 'EUR',
+    });
+    expect(
+      h.api.save.mock.calls
+        .filter(([selector]) => selectorKey(selector) === 'native:btc')
+        .at(-1)
+        ?.slice(1),
+    ).toEqual([20, 'EUR']);
+  });
+
+  it('preserves unknown registration and request intents until backend recovery lists first', async () => {
+    const h = harness();
+    h.register();
+    h.held.set(
+      'token:eth:0xlate',
+      alert({chain: 'eth', tokenAddress: '0xlate'}),
+    );
+    await h.queue.sync();
+    h.env = {...h.env, pushEnabled: true};
+    h.api.register.mockRejectedValueOnce(new Error('response lost'));
+    await h.queue.preferencesChanged();
+    const acknowledged = h.context.registration;
+    h.context.intents[btc.id] = {order: 0, kind: 'off'};
+    h.setCatalog(lateTokenCatalog(false));
+    h.queue.catalogChanged();
+    expect(h.context.registrationUnknown).toBe(true);
+    expect(h.context.registration).toBe(acknowledged);
+    expect(h.context.intents[btc.id]).toEqual({order: 0, kind: 'off'});
+    h.calls.length = 0;
+    await h.queue.preferencesChanged();
+    expect(h.calls.slice(0, 2)).toEqual(['list', 'register']);
+  });
+});
