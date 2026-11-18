@@ -42,7 +42,9 @@ export const WatchlistHomeSection = ({
               accessibilityRole="button"
               accessibilityLabel={t('See all watchlist')}
               onPress={() => navigation.navigate('Watchlist')}>
-              <ChevronRightSvg width={13} height={19} gray />
+              <View style={{transform: [{translateY: -2}]}}>
+                <ChevronRightSvg width={13} height={19} gray />
+              </View>
             </TouchableOpacity>
           ) : null
         }>
