@@ -90,6 +90,7 @@ export const buildCoinCatalog = (
   const byId = new Map<string, WatchlistCoin>();
   const byAsset = new Map<string, WatchlistCoin>();
   const builtInNames = new Map<string, WatchlistCoin>();
+  const builtInAssets = new Map<string, WatchlistAsset[]>();
   for (const opt of options) {
     const symbol = coinSymbol(opt.currencyAbbreviation);
     const id = `coin:${symbol}`;
@@ -111,6 +112,7 @@ export const buildCoinCatalog = (
       tokenAddress: opt.tokenAddress,
     };
     coin.assets.push(asset);
+    builtInAssets.set(id, [...(builtInAssets.get(id) || []), asset]);
     byAsset.set(assetKey(asset), coin);
     builtInNames.set(`${opt.currencyName.toLowerCase()}|${symbol}`, coin);
   }
@@ -200,15 +202,16 @@ export const buildCoinCatalog = (
   const coins = [...byId.values()];
   const symbolChains = new Map<string, WatchlistCoin | null>();
   for (const coin of coins) {
-    coin.assets.sort(
-      (a, b) =>
-        CHAIN_ORDER.indexOf(a.chain) - CHAIN_ORDER.indexOf(b.chain) ||
-        (a.tokenAddress || '').localeCompare(b.tokenAddress || ''),
-    );
+    const compareAssets = (a: WatchlistAsset, b: WatchlistAsset) =>
+      CHAIN_ORDER.indexOf(a.chain) - CHAIN_ORDER.indexOf(b.chain) ||
+      (a.tokenAddress || '').localeCompare(b.tokenAddress || '');
+    coin.assets.sort(compareAssets);
     const native =
       coin.id.startsWith('coin:') &&
       DEFAULT_WATCHLIST.includes(coinSymbol(coin.symbol));
-    const preferred = coin.assets.find(asset => !!asset.tokenAddress);
+    const preferred = (builtInAssets.get(coin.id) || coin.assets)
+      .sort(compareAssets)
+      .find(asset => !!asset.tokenAddress);
     coin.selector = native
       ? {coin: coinSymbol(coin.symbol)}
       : {chain: preferred!.chain, tokenAddress: preferred!.tokenAddress!};

@@ -1165,3 +1165,51 @@ it('a Save waiting outside the queue keeps its original order and yields to a ne
   expect(h.api.save).not.toHaveBeenCalled();
   expect(h.state.items.some(item => item.id === btc.id)).toBe(false);
 });
+
+it('keeps a restored Polygon USDC selector for editing and whole-coin removal', async () => {
+  const h = harness();
+  h.register();
+  h.held.set(selectorKey(polygonUsdc), alert(polygonUsdc));
+  await h.queue.sync();
+  await h.queue.save(usdc, 20);
+  h.queue.remove(usdc);
+  await tick();
+  expect(selectorKey(h.api.save.mock.calls.at(-1)![0])).toBe(
+    selectorKey(polygonUsdc),
+  );
+  expect(selectorKey(h.api.remove.mock.calls.at(-1)![0])).toBe(
+    selectorKey(polygonUsdc),
+  );
+});
+it('keeps an existing Ethereum WETH alert instead of switching to its new default', async () => {
+  const h = harness();
+  h.register();
+  const ethereum = {
+    chain: 'eth',
+    tokenAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+  };
+  const loaded = buildCoinCatalog(SupportedCurrencyOptions, {
+    tokenDataByAddress: {},
+    tokenOptionsByAddress: {
+      [ethereum.tokenAddress + '_e']: {
+        name: 'Wrapped Ether',
+        symbol: 'WETH',
+        address: ethereum.tokenAddress,
+        decimals: 18,
+        logoURI: 'weth.png',
+      },
+    },
+  });
+  h.setCatalog(loaded);
+  h.held.set(selectorKey(ethereum), alert(ethereum));
+  await h.queue.sync();
+  const weth = loaded.byId.get('coin:weth')!;
+  await h.queue.save(weth, 15);
+  await h.queue.turnOff(weth);
+  expect(selectorKey(h.api.save.mock.calls.at(-1)![0])).toBe(
+    selectorKey(ethereum),
+  );
+  expect(selectorKey(h.api.remove.mock.calls.at(-1)![0])).toBe(
+    selectorKey(ethereum),
+  );
+});

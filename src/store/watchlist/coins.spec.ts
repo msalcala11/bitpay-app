@@ -259,3 +259,56 @@ it('keeps divergent metadata separate even when the first entry reuses the old g
   expect(split.coins).toHaveLength(2);
   expect(new Set(split.coins.map(coin => coin.id)).size).toBe(2);
 });
+
+describe('repair 2.8: built-in default selectors', () => {
+  it('keeps the built-in USDC contract when a listed lookalike sorts before it', () => {
+    const before = buildCoinCatalog(SupportedCurrencyOptions, empty).byId.get(
+      'coin:usdc',
+    )!;
+    const after = buildCoinCatalog(SupportedCurrencyOptions, {
+      ...empty,
+      tokenOptionsByAddress: {
+        '0x0000_e': {
+          name: 'USD Coin',
+          symbol: 'USDC',
+          address: '0x0000',
+          decimals: 6,
+          logoURI: 'lookalike.png',
+        },
+      },
+    });
+    expect(after.byId.get('coin:usdc')?.selector).toEqual(before.selector);
+    expect(
+      after.match({
+        chain: 'eth',
+        currencyAbbreviation: 'usdc',
+        tokenAddress: '0x0000',
+      })?.id,
+    ).toBe('coin:usdc');
+    expect(after.byId.get('coin:usdc')?.image).toEqual(before.image);
+  });
+  it('defaults WETH to its built-in Polygon contract before and after Ethereum details load', () => {
+    const expected = {
+      chain: 'matic',
+      tokenAddress: '0x7ceb23fd6bc0add59e62ac25578270cff1b9f619',
+    };
+    const before = buildCoinCatalog(SupportedCurrencyOptions, empty);
+    expect(before.byId.get('coin:weth')?.selector).toEqual(expected);
+    const after = buildCoinCatalog(SupportedCurrencyOptions, {
+      ...empty,
+      tokenOptionsByAddress: {
+        '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2_e': {
+          name: 'Wrapped Ether',
+          symbol: 'WETH',
+          address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+          decimals: 18,
+          logoURI: 'weth.png',
+        },
+      },
+    });
+    expect(after.byId.get('coin:weth')?.selector).toEqual(expected);
+    expect(
+      after.byId.get('coin:weth')?.assets.some(asset => asset.chain === 'eth'),
+    ).toBe(true);
+  });
+});
