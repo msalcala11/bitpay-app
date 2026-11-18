@@ -1,6 +1,11 @@
 import {Analytics} from '../../store/analytics/analytics.effects';
 import {t} from 'i18next';
-import {checkNotifications, RESULTS} from 'react-native-permissions';
+import {
+  checkNotifications,
+  requestNotifications,
+  RESULTS,
+} from 'react-native-permissions';
+import {Platform} from 'react-native';
 import type {Effect} from '../../store';
 import {AppEffects} from '../../store/app';
 import {showBottomNotificationModal} from '../../store/app/app.actions';
@@ -91,8 +96,12 @@ export const fixAlertNotifications =
     if (fix === 'blocked') {
       showNotificationsDisabled(answer);
     } else if (fix === 'os') {
-      await AppEffects.requestNotificationsPermissions();
-      const allowed = await AppEffects.checkNotificationsPermissions();
+      const {status: requestedStatus} = await requestNotifications([
+        'alert',
+        'badge',
+        'sound',
+      ]).catch(() => ({status: RESULTS.UNAVAILABLE}));
+      const allowed = notificationPermissionAllowed(requestedStatus);
       dispatch(setAlertPermission(allowed));
       if (allowed) {
         try {
@@ -101,7 +110,15 @@ export const fixAlertNotifications =
           dispatch(showPriceAlertError());
         }
       }
-      answer(allowed ? 'allowed' : 'denied');
+      if (
+        Platform.OS === 'android' &&
+        (requestedStatus === RESULTS.BLOCKED ||
+          requestedStatus === RESULTS.UNAVAILABLE)
+      ) {
+        showNotificationsDisabled(answer);
+      } else {
+        answer(allowed ? 'allowed' : 'denied');
+      }
     } else if (fix === 'inapp') {
       if (!afterSave) {
         openSettings();

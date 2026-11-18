@@ -1,11 +1,35 @@
-import {checkNotifications, RESULTS} from 'react-native-permissions';
+import {Platform} from 'react-native';
+import {
+  checkNotifications,
+  requestNotifications,
+  RESULTS,
+} from 'react-native-permissions';
 import {
   fixAlertNotifications,
   notificationFix,
 } from './notificationPrompts.effects';
-import {notificationPermissionAllowed} from '../tabs/settings/notifications/notificationPermission';
+import {
+  notificationPermissionAllowed,
+  showNotificationsDisabled,
+} from '../tabs/settings/notifications/notificationPermission';
 import {AppEffects} from '../../store/app';
 import {setPriceAlertsEnabled} from '../../store/watchlist/watchlist.effects';
+
+jest.mock('../../store/analytics/analytics.effects', () => ({
+  Analytics: {
+    track: (event: string, properties: unknown) => ({
+      type: 'ANALYTICS',
+      event,
+      properties,
+    }),
+  },
+}));
+jest.mock('../tabs/settings/notifications/notificationPermission', () => ({
+  ...jest.requireActual(
+    '../tabs/settings/notifications/notificationPermission',
+  ),
+  showNotificationsDisabled: jest.fn(),
+}));
 
 jest.mock('../../store/app', () => ({
   AppEffects: {
@@ -69,4 +93,72 @@ it('asks once in saved installation state and turns on push through the existing
   expect(setPriceAlertsEnabled).toHaveBeenCalledWith(true);
   await dispatch(fixAlertNotifications('Watchlist', true, jest.fn()));
   expect(actions.filter(action => action.type === 'SHEET')).toHaveLength(1);
+});
+
+describe('repair 2.3: permission request status', () => {
+  const platformDescriptor = Object.getOwnPropertyDescriptor(Platform, 'OS')!;
+  afterEach(() => Object.defineProperty(Platform, 'OS', platformDescriptor));
+  it.each([
+    ['android', RESULTS.BLOCKED, true],
+    ['android', RESULTS.UNAVAILABLE, true],
+    ['android', RESULTS.DENIED, false],
+    ['ios', RESULTS.BLOCKED, false],
+    ['ios', RESULTS.UNAVAILABLE, false],
+  ])(
+    '%s request returning %s uses Settings alert: %s',
+    async (platform, status, settingsAlert) => {
+      jest.clearAllMocks();
+      Object.defineProperty(Platform, 'OS', {
+        value: platform,
+        configurable: true,
+      });
+      (checkNotifications as jest.Mock).mockResolvedValue({
+        status: RESULTS.DENIED,
+      });
+      (requestNotifications as jest.Mock).mockResolvedValue({
+        status,
+        settings: {},
+      });
+      (showNotificationsDisabled as jest.Mock).mockImplementation(answer => {
+        answer('denied');
+        answer('allowed');
+      });
+      const state = {
+        APP: {notificationsAccepted: true},
+        WATCHLIST: {
+          permissionAllowed: false,
+          priceAlertsEnabled: true,
+          permissionPromptShown: false,
+        },
+      };
+      const actions: any[] = [];
+      const dispatch = (action: any): any => {
+        if (typeof action === 'function')
+          return action(dispatch, () => state, undefined);
+        actions.push(action);
+        if (action.type === 'PERMISSION')
+          state.WATCHLIST.permissionAllowed = action.value;
+        if (action.type === 'SHOWN')
+          state.WATCHLIST.permissionPromptShown = true;
+        return action;
+      };
+      await dispatch(fixAlertNotifications('Watchlist', true, jest.fn()));
+      expect(showNotificationsDisabled).toHaveBeenCalledTimes(
+        settingsAlert ? 1 : 0,
+      );
+      const events = actions.filter(action => action.type === 'ANALYTICS');
+      expect(events).toEqual([
+        {
+          type: 'ANALYTICS',
+          event: 'Push Permission Prompt Result',
+          properties: {result: 'denied', context: 'Watchlist'},
+        },
+      ]);
+      expect(state.WATCHLIST.permissionPromptShown).toBe(true);
+      await dispatch(fixAlertNotifications('Watchlist', true, jest.fn()));
+      expect(
+        actions.filter(action => action.type === 'ANALYTICS'),
+      ).toHaveLength(1);
+    },
+  );
 });
