@@ -24,6 +24,8 @@ export interface PendingRemoval {
   itemId: string;
   selector: PriceAlertSelector;
   order: number;
+  // Older persisted removals are migrated from their surviving remove intent.
+  scope?: 'coin' | 'selector';
 }
 
 export interface AlertContextState {

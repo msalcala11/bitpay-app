@@ -60,16 +60,30 @@ export class PriceAlertQueue {
     const state = this.deps.read();
     if (!this.initialized.has(key)) {
       this.initialized.add(key);
+      const context = {
+        ...emptyAlertContext(),
+        ...state.contexts[key],
+        disabled: false,
+      };
+      context.pendingRemovals = Object.fromEntries(
+        Object.entries(context.pendingRemovals).map(([selector, removal]) => [
+          selector,
+          {
+            ...removal,
+            scope:
+              removal.scope ??
+              (context.intents[removal.itemId]?.kind === 'remove'
+                ? 'coin'
+                : 'selector'),
+          },
+        ]),
+      );
       this.deps.write({
         ...state,
         activeContext: key,
         contexts: {
           ...state.contexts,
-          [key]: {
-            ...emptyAlertContext(),
-            ...state.contexts[key],
-            disabled: false,
-          },
+          [key]: context,
         },
       });
     } else if (state.activeContext !== key) {
@@ -313,16 +327,20 @@ export class PriceAlertQueue {
         continue;
       }
       const intent = context.intents[coin.id];
-      if (
-        intent?.kind === 'remove' ||
-        Object.values(pendingRemovals).some(
-          removal => removal.itemId === coin.id,
-        )
-      ) {
+      const removalOrder = Math.max(
+        intent?.kind === 'remove' ? intent.order : -1,
+        ...Object.values(pendingRemovals)
+          .filter(
+            removal => removal.itemId === coin.id && removal.scope === 'coin',
+          )
+          .map(removal => removal.order),
+      );
+      if (removalOrder >= 0) {
         pendingRemovals[selectorKey(alert)] = {
           itemId: coin.id,
           selector: alert,
-          order: intent?.order ?? ++order,
+          order: removalOrder,
+          scope: 'coin',
         };
         continue;
       }
@@ -366,6 +384,7 @@ export class PriceAlertQueue {
           itemId: id,
           selector: duplicate,
           order: ++order,
+          scope: 'selector',
         };
       }
     }
@@ -506,14 +525,29 @@ export class PriceAlertQueue {
         alert ||
         state.items.find(item => item.id === coin.id)?.selector ||
         coin.selector;
+      const pendingRemovals = Object.fromEntries(
+        Object.entries(context.pendingRemovals).map(([key, removal]) => [
+          key,
+          removal.itemId === coin.id
+            ? {...removal, order, scope: 'coin' as const}
+            : removal,
+        ]),
+      );
       contexts[ticket.key] = {
         ...context,
         alerts,
         intents: {...context.intents, [coin.id]: {order, kind: 'remove'}},
         pendingRemovals: {
-          ...context.pendingRemovals,
+          ...pendingRemovals,
           ...(context.attemptedSave || context.registration?.registered
-            ? {[selectorKey(selector)]: {itemId: coin.id, selector, order}}
+            ? {
+                [selectorKey(selector)]: {
+                  itemId: coin.id,
+                  selector,
+                  order,
+                  scope: 'coin' as const,
+                },
+              }
             : {}),
         },
       };
@@ -594,6 +628,15 @@ export class PriceAlertQueue {
         ticket,
         current => {
           const pendingRemovals = {...current.pendingRemovals};
+          for (const [pendingKey, removal] of Object.entries(pendingRemovals)) {
+            if (
+              removal.itemId === coin.id &&
+              removal.order < order &&
+              removal.scope === 'coin'
+            ) {
+              pendingRemovals[pendingKey] = {...removal, scope: 'selector'};
+            }
+          }
           const key = selectorKey(selector);
           if (pendingRemovals[key]?.order < order) {
             delete pendingRemovals[key];

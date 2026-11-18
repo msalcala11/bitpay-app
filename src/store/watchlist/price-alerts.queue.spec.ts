@@ -657,3 +657,158 @@ it('removes the stored backend selector after Turn Off followed by an in-flight 
     selectorKey(polygon),
   );
 });
+
+const polygonUsdc = {
+  chain: 'matic',
+  tokenAddress: '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359',
+};
+const lateTokenCatalog = (polygonLoaded: boolean) =>
+  buildCoinCatalog(SupportedCurrencyOptions, {
+    tokenDataByAddress: {},
+    tokenOptionsByAddress: {
+      '0xlate_e': {
+        name: 'Late Token',
+        symbol: 'LATE',
+        address: '0xlate',
+        decimals: 18,
+        logoURI: 'late.png',
+      },
+      ...(polygonLoaded
+        ? {
+            '0xlate_m': {
+              name: 'Late Token',
+              symbol: 'LATE',
+              address: '0xlate',
+              decimals: 18,
+              logoURI: 'late.png',
+            },
+          }
+        : {}),
+    },
+  });
+
+describe('repair 2.1: selector and whole-coin removals', () => {
+  it('retries a failed duplicate DELETE without removing the kept alert', async () => {
+    const h = harness();
+    h.register();
+    h.queue.add(usdc);
+    h.held.set(selectorKey(usdc.selector), alert(usdc.selector));
+    h.held.set(selectorKey(polygonUsdc), alert(polygonUsdc));
+    await h.queue.sync();
+    h.api.remove.mockRejectedValueOnce(new Error('offline'));
+    h.advance();
+    await h.queue.sync();
+    expect(h.context.alerts[usdc.id]?.alert).toEqual(alert(usdc.selector));
+    expect(Object.keys(h.context.pendingRemovals)).toEqual([
+      selectorKey(polygonUsdc),
+    ]);
+    h.advance();
+    await h.queue.sync();
+    expect([...h.held.keys()]).toEqual([selectorKey(usdc.selector)]);
+    expect(h.context.alerts[usdc.id]?.alert).toEqual(alert(usdc.selector));
+  });
+
+  it('retains whole-coin removal reach after a list retires its intent and token details arrive late', async () => {
+    const h = harness();
+    h.register();
+    const early = lateTokenCatalog(false);
+    h.setCatalog(early);
+    const token = early.fromSelector({chain: 'eth', tokenAddress: '0xlate'})!;
+    h.held.set(
+      'token:eth:0xlate',
+      alert({chain: 'eth', tokenAddress: '0xlate'}),
+    );
+    h.held.set(
+      'token:matic:0xlate',
+      alert({chain: 'matic', tokenAddress: '0xlate'}),
+    );
+    await h.queue.sync();
+    h.api.remove.mockRejectedValue(new Error('offline'));
+    h.queue.remove(token);
+    await tick();
+    h.advance();
+    await h.queue.sync();
+    expect(h.context.intents[token.id]).toBeUndefined();
+    // Rehydrate before details arrive: removal reach must be persisted.
+    const restored = harness();
+    restored.state = JSON.parse(JSON.stringify(h.state));
+    restored.setCatalog(lateTokenCatalog(true));
+    restored.queue.catalogChanged();
+    expect(restored.state.items.some(item => item.id === token.id)).toBe(false);
+    expect(restored.context.alerts[token.id]).toBeUndefined();
+    expect(
+      restored.context.pendingRemovals['token:matic:0xlate'],
+    ).toBeDefined();
+  });
+
+  it('a newer Save ends older whole-coin reach but retains another selector through sync and restart', async () => {
+    const h = harness();
+    h.register();
+    h.held.set(selectorKey(polygonUsdc), alert(polygonUsdc));
+    await h.queue.sync();
+    await h.queue.save(usdc, 15);
+    expect(selectorKey(h.api.save.mock.calls[0][0])).toBe(
+      selectorKey(polygonUsdc),
+    );
+    h.api.remove.mockRejectedValue(new Error('offline'));
+    h.queue.remove(usdc);
+    await tick();
+    h.queue.add(usdc);
+    await h.queue.save(usdc, 20);
+    for (let i = 0; i < 2; i++) {
+      h.advance();
+      await h.queue.sync();
+    }
+    const check = (target: ReturnType<typeof harness>) => {
+      expect(target.context.alerts[usdc.id]?.alert).toEqual(
+        alert(usdc.selector, 20),
+      );
+      expect(Object.keys(target.context.pendingRemovals)).toEqual([
+        selectorKey(polygonUsdc),
+      ]);
+      expect(target.held.get(selectorKey(usdc.selector))?.thresholdPct).toBe(
+        20,
+      );
+    };
+    check(h);
+    const restored = harness();
+    restored.state = JSON.parse(JSON.stringify(h.state));
+    restored.register();
+    h.held.forEach((value, key) => restored.held.set(key, value));
+    restored.api.remove.mockRejectedValueOnce(new Error('offline'));
+    await restored.queue.sync();
+    check(restored);
+    restored.advance();
+    await restored.queue.sync();
+    expect([...restored.held.keys()]).toEqual([selectorKey(usdc.selector)]);
+    expect(restored.context.pendingRemovals).toEqual({});
+    expect(restored.context.alerts[usdc.id]?.alert.thresholdPct).toBe(20);
+  });
+
+  it('migrates an unmarked saved removal without a remove intent as selector-only', async () => {
+    const h = harness();
+    h.register();
+    h.queue.add(usdc);
+    h.held.set(selectorKey(usdc.selector), alert(usdc.selector));
+    await h.queue.sync();
+    h.context.pendingRemovals[selectorKey(polygonUsdc)] = {
+      itemId: usdc.id,
+      selector: polygonUsdc,
+      order: 1,
+    };
+    const restored = harness();
+    restored.state = JSON.parse(JSON.stringify(h.state));
+    restored.register();
+    restored.held.set(selectorKey(usdc.selector), alert(usdc.selector));
+    restored.held.set(selectorKey(polygonUsdc), alert(polygonUsdc));
+    restored.api.remove.mockRejectedValueOnce(new Error('offline'));
+    await restored.queue.sync();
+    expect(restored.api.remove).toHaveBeenCalledWith(polygonUsdc);
+    expect(restored.context.alerts[usdc.id]?.alert).toEqual(
+      alert(usdc.selector),
+    );
+    expect(Object.keys(restored.context.pendingRemovals)).toEqual([
+      selectorKey(polygonUsdc),
+    ]);
+  });
+});
