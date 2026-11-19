@@ -1,7 +1,6 @@
 import {SupportedCurrencyOptions} from '../../constants/SupportedCurrencyOptions';
 import {tokenManager, type TokenData} from '../../managers/TokenManager';
 import {buildCoinCatalog} from './coins';
-import type {WatchlistAsset} from './watchlist.models';
 
 let source: TokenData = {tokenOptionsByAddress: {}, tokenDataByAddress: {}};
 let catalog = buildCoinCatalog(SupportedCurrencyOptions, source);
@@ -22,8 +21,6 @@ export const getCoinCatalog = () => {
   rebuild(tokenManager.getTokenOptions());
   return catalog;
 };
-export const matchWatchlistAsset = (asset: WatchlistAsset) =>
-  getCoinCatalog().match(asset);
 export const subscribeCoinCatalog = (listener: () => void) => {
   if (!unsubscribe) {
     unsubscribe = tokenManager.subscribe(rebuild);

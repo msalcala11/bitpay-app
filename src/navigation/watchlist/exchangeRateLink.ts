@@ -48,8 +48,8 @@ export const resolveExchangeRateLink = (
         chain,
         tokenAddress: link.tokenAddress,
       })
-    : catalog.resolveAsset({currencyAbbreviation: symbol, chain}) ||
-      catalog.resolveAsset({coin: symbol});
+    : catalog.resolveAsset({coin: symbol}) ||
+      catalog.resolveAsset({currencyAbbreviation: symbol, chain});
   if (!resolved)
     return {status: link.tokenAddress && !tokensReady ? 'waiting' : 'unknown'};
   const selector = resolved.asset.tokenAddress

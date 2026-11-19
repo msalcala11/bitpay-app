@@ -147,7 +147,7 @@ describe('watchlist rules and price-alert queue', () => {
       ...h.state,
       items: Array.from({length: 21}, (_, i) => ({
         ...btc,
-        id: `x${i}`,
+        id: `coin:unknown-${i}`,
         selector: {coin: `unknown-${i}`},
       })),
     };
@@ -396,7 +396,7 @@ describe('watchlist rules and price-alert queue', () => {
       ...h.state,
       items: Array.from({length: 20}, (_, i) => ({
         ...btc,
-        id: `x${i}`,
+        id: `coin:unknown-${i}`,
         selector: {coin: `unknown-${i}`},
       })),
     };
@@ -633,7 +633,7 @@ it('rechecks the capacity when a queued save actually reaches the backend', asyn
     ...h.state,
     items: Array.from({length: 20}, (_, i) => ({
       ...btc,
-      id: `x${i}`,
+      id: `coin:unknown-${i}`,
       selector: {coin: `unknown-${i}`},
     })),
   };
@@ -1293,4 +1293,44 @@ it('keeps a queued Save selector and updates the shared row display to that cont
     name: 'First Token',
     image: {uri: 'first.png'},
   });
+});
+
+it('does not remove a recorded selector when a waiting response contains that exact selector again', async () => {
+  const h = harness();
+  h.setCatalog(tickerCatalog());
+  h.register();
+  h.held.set(selectorKey(tickerPolygon), alert(tickerPolygon));
+  await h.queue.sync();
+  h.context.unresolved = [{...alert(tickerPolygon)}];
+  h.context.unresolvedOrder = h.state.order;
+  h.context.registrationUnknown = true;
+  h.context.unknownSelectors[selectorKey(tickerPolygon)] = true;
+  h.queue.catalogChanged();
+  expect(h.context.pendingRemovals).toEqual({});
+  expect(h.context.alerts['coin:tick']?.alert).toEqual(alert(tickerPolygon));
+  expect(h.context.registrationUnknown).toBe(true);
+  expect(h.context.unknownSelectors[selectorKey(tickerPolygon)]).toBe(true);
+});
+
+it('keeps a chosen contract’s renamed ticker under the original row and refuses adding that contract again', async () => {
+  const h = harness();
+  h.setCatalog(tickerCatalog());
+  h.register();
+  h.held.set(selectorKey(tickerEth), alert(tickerEth));
+  await h.queue.sync();
+  const before = JSON.parse(JSON.stringify(h.state));
+  const renamed = tickerCatalog('rename');
+  h.setCatalog(renamed);
+  h.queue.catalogChanged();
+  expect(h.state.items.at(-1)).toMatchObject({
+    id: 'coin:tick',
+    symbol: 'TICK',
+    selector: tickerEth,
+  });
+  expect(h.state.contexts).toEqual(before.contexts);
+  expect(h.state.order).toBe(before.order);
+  expect(
+    h.queue.add(renamed.match({currencyAbbreviation: 'new', ...tickerEth})!),
+  ).toBe(false);
+  expect(h.state.items).toHaveLength(before.items.length);
 });

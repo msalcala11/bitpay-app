@@ -9,11 +9,10 @@ import {
 } from './watchlistUi.effects';
 import type {WatchlistCoin} from '../../store/watchlist/watchlist.models';
 const coin = {
-  id: 'btc',
+  id: 'coin:btc',
   name: 'Bitcoin',
   symbol: 'BTC',
   selector: {coin: 'btc'},
-  assets: [],
 } as unknown as WatchlistCoin;
 const existing = {coin: 'btc', thresholdPct: 10, code: 'USD'};
 jest.mock('../../store/analytics/analytics.effects', () => ({
@@ -45,7 +44,7 @@ jest.mock('../../store/watchlist/watchlist.effects', () => ({
 const create = () => {
   const state = {
     WATCHLIST: {items: [coin], alertSheet: {open: true}},
-    context: {alerts: {btc: {alert: existing}}},
+    context: {alerts: {'coin:btc': {alert: existing}}},
   };
   const dispatch = (action: any): any =>
     typeof action === 'function'

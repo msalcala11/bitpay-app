@@ -458,7 +458,7 @@ export class PriceAlertQueue {
         items[index] = item;
       }
       for (const duplicate of group.alerts) {
-        if (duplicate === kept) {
+        if (selectorKey(duplicate) === selectorKey(kept)) {
           continue;
         }
         pendingRemovals[selectorKey(duplicate)] = {

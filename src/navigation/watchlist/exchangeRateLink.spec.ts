@@ -101,3 +101,31 @@ it('resolves a deep link’s exact token independently of another watched token 
     coin: {name: 'Token B', image: {uri: 'b.png'}},
   });
 });
+
+it('keeps a built-in default for a legacy token link without a contract despite a listed lookalike', () => {
+  const loaded = buildCoinCatalog(SupportedCurrencyOptions, {
+    tokenDataByAddress: {},
+    tokenOptionsByAddress: {
+      '0x0000_e': {
+        name: 'Different USD Coin',
+        symbol: 'USDC',
+        address: '0x0000',
+        decimals: 6,
+        logoURI: 'other.png',
+      },
+    },
+  });
+  expect(
+    resolveExchangeRateLink(
+      {currencyAbbreviation: 'usdc', chain: 'eth'},
+      loaded,
+      true,
+    ),
+  ).toMatchObject({
+    status: 'resolved',
+    asset: {
+      chain: 'eth',
+      tokenAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+    },
+  });
+});
