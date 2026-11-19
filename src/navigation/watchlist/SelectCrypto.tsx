@@ -27,7 +27,11 @@ import {Slate, Slate30, SlateDark} from '../../styles/colors';
 import AngleRight from '../../../assets/img/angle-right.svg';
 import Close from '../../components/modal/close/Close';
 import {startGetRates} from '../../store/wallet/effects/rates/rates';
-import type {WatchlistCoin} from '../../store/watchlist/watchlist.models';
+import {
+  findWatchlistRow,
+  watchlistCoin,
+  type WatchlistSearchEntry,
+} from '../../store/watchlist/coins';
 
 const EMPTY: [] = [];
 const ignoreResults = () => {};
@@ -51,8 +55,9 @@ export default function SelectCrypto() {
   useLayoutEffect(() => {
     navigation.setOptions({headerShown: false});
   }, [navigation]);
-  const pick = (coin: WatchlistCoin) => {
-    if (picked.current || items.some(item => item.id === coin.id)) {
+  const pick = (entry: WatchlistSearchEntry) => {
+    const coin = watchlistCoin(entry);
+    if (picked.current || findWatchlistRow(catalog, items, coin.selector)) {
       return;
     }
     if (!dispatch(addCoinFromUi(coin, 'GlobalSelect'))) {
@@ -137,7 +142,7 @@ export default function SelectCrypto() {
               </View>
             ) : null
           }
-          keyExtractor={coin => coin.id}
+          keyExtractor={coin => coin.displayKey}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{paddingBottom: 150}}
           onEndReached={() => {
@@ -147,7 +152,7 @@ export default function SelectCrypto() {
           }}
           onEndReachedThreshold={0.5}
           renderItem={({item}) => {
-            const watched = items.some(coin => coin.id === item.id);
+            const watched = !!findWatchlistRow(catalog, items, item.selector);
             return (
               <TouchableOpacity
                 accessible

@@ -4,7 +4,6 @@ import type {
   WatchlistAsset,
   WatchlistCoin,
 } from '../../store/watchlist/watchlist.models';
-import {watchlistAsset} from './watchlistRows';
 export type ExchangeRateLink = {
   currencyAbbreviation?: string;
   chain?: string;
@@ -43,26 +42,22 @@ export const resolveExchangeRateLink = (
   }
   const symbol = coinSymbol(link.currencyAbbreviation);
   const chain = link.chain || (symbol === 'pol' ? 'matic' : symbol);
-  const coin = link.tokenAddress
-    ? catalog.match({
+  const resolved = link.tokenAddress
+    ? catalog.resolveAsset({
         currencyAbbreviation: symbol,
         chain,
         tokenAddress: link.tokenAddress,
       })
-    : catalog.byId.get(`coin:${symbol}`) ||
-      catalog.match({currencyAbbreviation: symbol, chain});
-  if (!coin) {
+    : catalog.resolveAsset({currencyAbbreviation: symbol, chain}) ||
+      catalog.resolveAsset({coin: symbol});
+  if (!resolved)
     return {status: link.tokenAddress && !tokensReady ? 'waiting' : 'unknown'};
-  }
-  const asset = link.tokenAddress
-    ? coin.assets.find(
-        candidate =>
-          candidate.chain === chain &&
-          (chain === 'sol'
-            ? candidate.tokenAddress === link.tokenAddress
-            : candidate.tokenAddress?.toLowerCase() ===
-              link.tokenAddress?.toLowerCase()),
-      )!
-    : watchlistAsset(coin);
-  return {status: 'resolved', coin, asset};
+  const selector = resolved.asset.tokenAddress
+    ? {chain: resolved.asset.chain, tokenAddress: resolved.asset.tokenAddress}
+    : {coin: coinSymbol(resolved.asset.currencyAbbreviation)};
+  return {
+    status: 'resolved',
+    coin: catalog.fromSelector(selector)!,
+    asset: resolved.asset,
+  };
 };

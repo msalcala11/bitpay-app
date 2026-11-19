@@ -954,13 +954,7 @@ describe('watched token price extension', () => {
       const heldCalls = [...getMultipleTokenPrices.mock.calls];
       state.WATCHLIST.items = [
         {
-          assets: [
-            {
-              chain: 'eth',
-              tokenAddress: '0xwatched',
-              currencyAbbreviation: 'watched',
-            },
-          ],
+          selector: {chain: 'eth', tokenAddress: '0xwatched'},
         },
       ];
       getMultipleTokenPrices.mockClear();

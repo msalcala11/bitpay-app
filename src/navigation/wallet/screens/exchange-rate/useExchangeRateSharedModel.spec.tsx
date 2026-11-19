@@ -1,6 +1,9 @@
 import React from 'react';
 import TestRenderer, {act} from 'react-test-renderer';
 import useExchangeRateSharedModel from './useExchangeRateSharedModel';
+import {priceAlertsContextKey} from '../../../../store/watchlist/watchlist.effects';
+import {getCoinCatalog} from '../../../../store/watchlist/coin-registry';
+import {resolveExchangeRateLink} from '../../../watchlist/exchangeRateLink';
 import {tokenManager} from '../../../../managers/TokenManager';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -46,10 +49,6 @@ jest.mock('../../../../constants/currencies', () => ({
       theme: {},
     },
   },
-}));
-
-jest.mock('../../../../constants/SupportedCurrencyOptions', () => ({
-  SupportedCurrencyOptions: [],
 }));
 
 jest.mock('../../../../store/market-stats', () => ({
@@ -196,6 +195,8 @@ describe('useExchangeRateSharedModel', () => {
     mockState = {
       APP: {
         defaultAltCurrency: {isoCode: 'EUR'},
+        identity: {},
+        network: 'livenet',
         hideAllBalances: false,
         homeCarouselConfig: undefined,
         showPortfolioValue: true,
@@ -222,6 +223,7 @@ describe('useExchangeRateSharedModel', () => {
       WALLET: {
         keys: {},
       },
+      WATCHLIST: {items: [], contexts: {}},
     };
   });
 
@@ -448,5 +450,110 @@ describe('useExchangeRateSharedModel', () => {
       renderer!.unmount();
       tokenManager.clear();
     });
+  });
+  it('opens token B’s exact page and chart while its filled star and bell act on token A’s row', async () => {
+    tokenManager.setTokenOptions({
+      tokenDataByAddress: {},
+      tokenOptionsByAddress: {
+        '0xa_e': {
+          name: 'Token A',
+          symbol: 'SAME',
+          address: '0xa',
+          decimals: 18,
+          logoURI: 'a.png',
+        },
+        '0xb_m': {
+          name: 'Token B',
+          symbol: 'SAME',
+          address: '0xb',
+          decimals: 18,
+          logoURI: 'b.png',
+        },
+      },
+    });
+    const catalog = getCoinCatalog();
+    const row = catalog.fromSelector({chain: 'eth', tokenAddress: '0xa'})!;
+    mockState.WATCHLIST.items = [row];
+    mockState.APP.identity.livenet = {pub: 'test-identity'};
+    mockState.WATCHLIST.contexts[priceAlertsContextKey('test-identity')] = {
+      alerts: {
+        [row.id]: {
+          alert: {
+            chain: 'eth',
+            tokenAddress: '0xa',
+            thresholdPct: 10,
+            code: 'USD',
+          },
+        },
+      },
+    };
+    const resolved = resolveExchangeRateLink(
+      {currencyAbbreviation: 'same', chain: 'matic', tokenAddress: '0xb'},
+      catalog,
+      true,
+    );
+    if (resolved.status !== 'resolved') throw new Error('link did not resolve');
+    mockRouteParams = {...resolved.asset, currencyName: resolved.coin.name};
+    let renderer: TestRenderer.ReactTestRenderer,
+      header: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<HookHarness />);
+    });
+    expect(latestSharedModel).toMatchObject({
+      currencyName: 'Token B',
+      currencyAbbreviation: 'SAME',
+      currencyImageSource: 'b.png',
+      historicalRateIdentity: {chain: 'matic', tokenAddress: '0xb'},
+    });
+    await act(async () => {
+      header = TestRenderer.create(
+        mockSetOptions.mock.calls.at(-1)![0].headerRight(),
+      );
+    });
+    const buttons = [
+      ...new Map(
+        header!.root
+          .findAll(
+            node =>
+              node.props.accessibilityRole === 'button' &&
+              typeof node.props.onPress === 'function',
+          )
+          .map(node => [node.props.accessibilityLabel, node]),
+      ).values(),
+    ];
+    expect(buttons[0].props.accessibilityState.selected).toBe(true);
+    expect(buttons[1].props.accessibilityState.selected).toBe(true);
+    mockDispatch.mockImplementation(action =>
+      typeof action === 'function'
+        ? action(mockDispatch, () => mockState)
+        : action,
+    );
+    await act(async () => {
+      buttons[1].props.onPress();
+    });
+    const opened = mockDispatch.mock.calls.find(
+      ([action]) => action?.type === 'WATCHLIST/UPDATE',
+    )![0];
+    expect(opened.payload.alertSheet.coin).toEqual(row);
+    await act(async () => {
+      header!.unmount();
+      renderer!.unmount();
+      tokenManager.clear();
+    });
+  });
+  it('keeps the built-in USDC.e page name and abbreviation instead of its USDC row label', async () => {
+    mockRouteParams = {
+      currencyName: 'USDC.e',
+      currencyAbbreviation: 'usdc.e',
+      chain: 'matic',
+      tokenAddress: '0x2791bca1f2de4661ed88a30c99a7a9449aa84174',
+    };
+    let renderer: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<HookHarness />);
+    });
+    expect(latestSharedModel?.currencyName).toBe('USDC.e');
+    expect(latestSharedModel?.currencyAbbreviation).toBe('USDC.E');
+    await act(async () => renderer!.unmount());
   });
 });

@@ -12,15 +12,12 @@ export const watchedTokenAddresses = (
   const known = new Set(held.map(normalize));
   const addresses: string[] = [];
   for (const item of items) {
-    for (const asset of item.assets) {
-      if (asset.chain !== chain || !asset.tokenAddress) {
-        continue;
-      }
-      const address = normalize(asset.tokenAddress);
-      if (!known.has(address)) {
-        known.add(address);
-        addresses.push(address);
-      }
+    const selector = item.selector;
+    if ('coin' in selector || selector.chain !== chain) continue;
+    const address = normalize(selector.tokenAddress);
+    if (!known.has(address)) {
+      known.add(address);
+      addresses.push(address);
     }
   }
   return addresses;

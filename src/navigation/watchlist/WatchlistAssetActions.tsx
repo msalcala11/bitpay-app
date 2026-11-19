@@ -20,10 +20,7 @@ import {
   getCoinCatalog,
   subscribeCoinCatalog,
 } from '../../store/watchlist/coin-registry';
-import type {
-  WatchlistCoin,
-  WatchlistAsset,
-} from '../../store/watchlist/watchlist.models';
+import type {WatchlistAsset} from '../../store/watchlist/watchlist.models';
 import {
   selectAlertContext,
   selectAlertsAvailable,
@@ -33,11 +30,18 @@ import {
   confirmRemoveWatchlistCoin,
   openPriceAlert,
 } from './watchlistUi.effects';
+import {findWatchlistRow, watchlistCoin} from '../../store/watchlist/coins';
 import type {Option} from '../wallet/components/OptionsSheet';
 
 export const useWatchlistCoin = (asset: WatchlistAsset) => {
   const catalog = useSyncExternalStore(subscribeCoinCatalog, getCoinCatalog);
-  return catalog.match(asset);
+  const items = useAppSelector(state => state.WATCHLIST.items);
+  const row = findWatchlistRow(catalog, items, asset);
+  return {
+    coin: row || catalog.match(asset),
+    watching: !!row,
+    asset: catalog.resolveAsset(asset),
+  };
 };
 export const WatchlistIcon = ({
   kind,
@@ -73,17 +77,16 @@ export const WatchlistIcon = ({
     />
   );
 };
-export const WatchlistHeaderActions = ({coin}: {coin: WatchlistCoin}) => {
+export const WatchlistHeaderActions = ({asset}: {asset: WatchlistAsset}) => {
+  const {coin, watching} = useWatchlistCoin(asset);
   const {t} = useTranslation();
   const theme = useTheme();
   const dispatch = useAppDispatch();
-  const watching = useAppSelector(state =>
-    state.WATCHLIST.items.some(item => item.id === coin.id),
-  );
   const alert = useAppSelector(
-    state => selectAlertContext(state)?.alerts[coin.id],
+    state => coin && selectAlertContext(state)?.alerts[coin.id],
   );
   const available = useAppSelector(selectAlertsAvailable);
+  if (!coin) return null;
   const button = (
     kind: 'star' | 'bell',
     selected: boolean,
@@ -126,7 +129,7 @@ export const WatchlistHeaderActions = ({coin}: {coin: WatchlistCoin}) => {
           dispatch(
             watching
               ? confirmRemoveWatchlistCoin(coin, 'PriceChart')
-              : addCoinFromUi(coin, 'PriceChart'),
+              : addCoinFromUi(watchlistCoin(coin), 'PriceChart'),
           );
         },
       )}
@@ -137,7 +140,7 @@ export const WatchlistHeaderActions = ({coin}: {coin: WatchlistCoin}) => {
             alert
               ? t('Price alert on for {{coin}}', {coin: coin.name})
               : t('Set price alert for {{coin}}', {coin: coin.name}),
-            () => dispatch(openPriceAlert(coin, 'PriceChart')),
+            () => dispatch(openPriceAlert(watchlistCoin(coin), 'PriceChart')),
           )
         : null}
     </View>
@@ -145,12 +148,9 @@ export const WatchlistHeaderActions = ({coin}: {coin: WatchlistCoin}) => {
 };
 
 export const useWatchlistWalletOptions = (asset: WatchlistAsset): Option[] => {
-  const coin = useWatchlistCoin(asset);
+  const {coin, watching} = useWatchlistCoin(asset);
   const {t} = useTranslation();
   const dispatch = useAppDispatch();
-  const watching = useAppSelector(
-    state => !!coin && state.WATCHLIST.items.some(item => item.id === coin.id),
-  );
   const alert = useAppSelector(
     state => coin && selectAlertContext(state)?.alerts[coin.id],
   );
@@ -169,7 +169,7 @@ export const useWatchlistWalletOptions = (asset: WatchlistAsset): Option[] => {
         dispatch(
           watching
             ? confirmRemoveWatchlistCoin(coin, 'WalletDetails')
-            : addCoinFromUi(coin, 'WalletDetails'),
+            : addCoinFromUi(watchlistCoin(coin), 'WalletDetails'),
         );
       },
     },
@@ -179,7 +179,8 @@ export const useWatchlistWalletOptions = (asset: WatchlistAsset): Option[] => {
             img: <WatchlistIcon kind="bell" selected />,
             title: alert ? t('Edit Price Alert') : t('Set Price Alert'),
             description: t('Get notified when the price moves.'),
-            onPress: () => dispatch(openPriceAlert(coin, 'WalletDetails')),
+            onPress: () =>
+              dispatch(openPriceAlert(watchlistCoin(coin), 'WalletDetails')),
           },
         ]
       : []),

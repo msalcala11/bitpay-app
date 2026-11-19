@@ -1,11 +1,10 @@
 import {SupportedCurrencyOptions} from '../../constants/SupportedCurrencyOptions';
 import {tokenManager, type TokenData} from '../../managers/TokenManager';
 import {buildCoinCatalog} from './coins';
-import type {WatchlistAsset, WatchlistCoin} from './watchlist.models';
+import type {WatchlistAsset} from './watchlist.models';
 
 let source: TokenData = {tokenOptionsByAddress: {}, tokenDataByAddress: {}};
 let catalog = buildCoinCatalog(SupportedCurrencyOptions, source);
-let persistedCoins: WatchlistCoin[] = [];
 const listeners = new Set<() => void>();
 let unsubscribe: (() => void) | undefined;
 const rebuild = (data: TokenData) => {
@@ -16,18 +15,8 @@ const rebuild = (data: TokenData) => {
     return;
   }
   source = data;
-  catalog = buildCoinCatalog(SupportedCurrencyOptions, data, [
-    ...catalog.coins,
-    ...persistedCoins,
-  ]);
+  catalog = buildCoinCatalog(SupportedCurrencyOptions, data);
   listeners.forEach(listener => listener());
-};
-export const seedCoinCatalog = (coins: WatchlistCoin[]) => {
-  persistedCoins = coins;
-  catalog = buildCoinCatalog(SupportedCurrencyOptions, source, [
-    ...catalog.coins,
-    ...persistedCoins,
-  ]);
 };
 export const getCoinCatalog = () => {
   rebuild(tokenManager.getTokenOptions());

@@ -4,14 +4,6 @@ import {
 } from './exchangeRateLink';
 import {buildCoinCatalog} from '../../store/watchlist/coins';
 import {SupportedCurrencyOptions} from '../../constants/SupportedCurrencyOptions';
-jest.mock('./watchlistRows', () => ({
-  watchlistAsset: (coin: any) =>
-    coin.assets.find(
-      (asset: any) =>
-        asset.chain ===
-        ('coin' in coin.selector ? coin.selector.coin : coin.selector.chain),
-    ) || coin.assets[0],
-}));
 const empty = {tokenOptionsByAddress: {}, tokenDataByAddress: {}};
 const catalog = buildCoinCatalog(SupportedCurrencyOptions, empty);
 it('parses native and token links, including encoded values and Solana case', () => {
@@ -75,4 +67,37 @@ it('defers a token link until its registry entry arrives, then resolves it', () 
   expect(
     resolveExchangeRateLink({...link, tokenAddress: '0xmissing'}, loaded, true),
   ).toEqual({status: 'unknown'});
+});
+
+it('resolves a deep link’s exact token independently of another watched token with the same ticker', () => {
+  const loaded = buildCoinCatalog([], {
+    tokenDataByAddress: {},
+    tokenOptionsByAddress: {
+      '0xa_e': {
+        name: 'Token A',
+        symbol: 'SAME',
+        address: '0xa',
+        decimals: 18,
+        logoURI: 'a.png',
+      },
+      '0xb_m': {
+        name: 'Token B',
+        symbol: 'SAME',
+        address: '0xb',
+        decimals: 18,
+        logoURI: 'b.png',
+      },
+    },
+  });
+  expect(
+    resolveExchangeRateLink(
+      {currencyAbbreviation: 'same', chain: 'matic', tokenAddress: '0xb'},
+      loaded,
+      true,
+    ),
+  ).toMatchObject({
+    status: 'resolved',
+    asset: {currencyAbbreviation: 'same', chain: 'matic', tokenAddress: '0xb'},
+    coin: {name: 'Token B', image: {uri: 'b.png'}},
+  });
 });

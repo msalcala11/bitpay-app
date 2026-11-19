@@ -1,4 +1,8 @@
-import {buildWatchlistRows, watchlistImage} from './watchlistRows';
+import {
+  buildWatchlistRows,
+  watchlistImage,
+  watchlistAsset,
+} from './watchlistRows';
 import buildHomeExchangeRateItems from '../tabs/home/homeExchangeRates';
 import {buildCoinCatalog} from '../../store/watchlist/coins';
 import {SupportedCurrencyOptions} from '../../constants/SupportedCurrencyOptions';
@@ -68,4 +72,46 @@ it('keeps stablecoins, and listed unheld tokens with their own images and missin
   expect(rows[1].currentPrice).toBeUndefined();
   expect(rows[1].average).toBeUndefined();
   expect(watchlistImage(coin)).toBe('https://example.test/list.png');
+});
+
+it('prices the chosen exact token even when another contract shares its ticker', () => {
+  const row = {
+    id: 'coin:shared',
+    name: 'Token A',
+    symbol: 'SHARED',
+    image: {uri: 'a.png'},
+    selector: {chain: 'matic', tokenAddress: '0xb'},
+  };
+  const rows = buildWatchlistRows(
+    [row],
+    {
+      '0xb': [{code: 'USD', rate: 4, name: 'US Dollar', ts: 0, fetchedOn: 0}],
+      '0xa': [{code: 'USD', rate: 99, name: 'US Dollar', ts: 0, fetchedOn: 0}],
+    },
+    {'0xb': [{code: 'USD', rate: 2, name: 'US Dollar', ts: 0, fetchedOn: 0}]},
+    'USD',
+    {},
+  );
+  expect(rows[0]).toMatchObject({
+    tokenAddress: '0xb',
+    chain: 'matic',
+    currentPrice: 4,
+    average: 100,
+  });
+});
+
+it('opens the EURC row asset with the application abbreviation euroc', () => {
+  const catalog = buildCoinCatalog(SupportedCurrencyOptions, {
+    tokenDataByAddress: {},
+    tokenOptionsByAddress: {},
+  });
+  const row = catalog.byId.get('coin:eurc')!;
+  expect(watchlistAsset(row, catalog)).toMatchObject({
+    currencyAbbreviation: 'euroc',
+    chain: 'eth',
+    tokenAddress:
+      row.selector && 'tokenAddress' in row.selector
+        ? row.selector.tokenAddress
+        : undefined,
+  });
 });

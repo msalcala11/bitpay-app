@@ -74,179 +74,234 @@ export const selectorKey = (selector: PriceAlertSelector) =>
         selector.tokenAddress,
       )}`;
 
+export interface WatchlistSearchEntry extends WatchlistCoin {
+  // A transient React/search key. Never persisted or used by the request queue.
+  displayKey: string;
+}
+export interface CatalogAsset {
+  asset: WatchlistAsset;
+  name: string;
+  symbol: string;
+  image: WatchlistCoin['image'];
+  builtIn: boolean;
+}
 export interface CoinCatalog {
-  coins: WatchlistCoin[];
-  byId: Map<string, WatchlistCoin>;
-  match: (asset: WatchlistAsset) => WatchlistCoin | undefined;
+  coins: WatchlistSearchEntry[];
+  // Built-in defaults only. Listed tickers can have multiple search entries.
+  byId: Map<string, WatchlistSearchEntry>;
+  match: (asset: WatchlistAsset) => WatchlistSearchEntry | undefined;
+  resolveAsset: (
+    asset: WatchlistAsset | PriceAlertSelector,
+  ) => CatalogAsset | undefined;
   fromSelector: (selector: PriceAlertSelector) => WatchlistCoin | undefined;
 }
 
-// Pure builder; the registry wrapper calls it once per TokenManager update.
+export const watchlistCoin = ({
+  id,
+  name,
+  symbol,
+  image,
+  selector,
+}: WatchlistCoin): WatchlistCoin => ({id, name, symbol, image, selector});
+const assetSelector = (asset: WatchlistAsset): PriceAlertSelector =>
+  asset.tokenAddress
+    ? {chain: asset.chain, tokenAddress: asset.tokenAddress}
+    : {coin: coinSymbol(asset.currencyAbbreviation)};
+const compareAssets = (a: CatalogAsset, b: CatalogAsset) =>
+  CHAIN_ORDER.indexOf(a.asset.chain) - CHAIN_ORDER.indexOf(b.asset.chain) ||
+  (a.asset.tokenAddress || '').localeCompare(b.asset.tokenAddress || '');
+
+// Search groups are rebuilt from scratch. Only ticker IDs are ever stored.
 export const buildCoinCatalog = (
   options: SupportedCurrencyOption[],
   data: TokenData,
-  previousCoins: WatchlistCoin[] = [],
 ): CoinCatalog => {
-  const byId = new Map<string, WatchlistCoin>();
-  const byAsset = new Map<string, WatchlistCoin>();
-  const builtInNames = new Map<string, WatchlistCoin>();
-  const builtInAssets = new Map<string, WatchlistAsset[]>();
+  const byId = new Map<string, WatchlistSearchEntry>();
+  const exact = new Map<string, CatalogAsset>();
+  const entries = new Map<string, WatchlistSearchEntry>();
+  const builtInAssets = new Map<string, CatalogAsset[]>();
   for (const opt of options) {
     const symbol = coinSymbol(opt.currencyAbbreviation);
     const id = `coin:${symbol}`;
-    let coin = byId.get(id);
-    if (!coin) {
-      coin = {
-        id,
-        name: opt.currencyName,
-        symbol: symbol.toUpperCase(),
-        image: {builtin: opt.currencyAbbreviation},
-        assets: [],
-        selector: {coin: symbol},
-      };
-      byId.set(id, coin);
-    }
     const asset = {
       currencyAbbreviation: opt.currencyAbbreviation,
       chain: opt.chain,
       tokenAddress: opt.tokenAddress,
     };
-    coin.assets.push(asset);
-    builtInAssets.set(id, [...(builtInAssets.get(id) || []), asset]);
-    byAsset.set(assetKey(asset), coin);
-    builtInNames.set(`${opt.currencyName.toLowerCase()}|${symbol}`, coin);
-  }
-
-  const tokens = Object.entries(data.tokenOptionsByAddress).flatMap(
-    ([key, token]) => {
-      const chain =
-        data.tokenDataByAddress[key]?.chain ||
-        SUFFIX_CHAIN[key.split('_').pop() || ''];
-      if (!CHAIN_ORDER.includes(chain) || !token.address) {
-        return [];
-      }
-      return [
-        {
-          token,
-          asset: {
-            currencyAbbreviation: token.symbol.toLowerCase(),
-            chain,
-            tokenAddress: address(chain, token.address),
-          },
-          group: JSON.stringify([
-            token.name,
-            token.symbol,
-            token.logoURI || '',
-          ]),
-        },
-      ];
-    },
-  );
-  const builtinGroups = new Map<string, WatchlistCoin>();
-  const previousIds = new Map<string, string>();
-  for (const coin of previousCoins) {
-    if (coin.id.startsWith('listed:')) {
-      for (const asset of coin.assets) {
-        previousIds.set(assetKey(asset), coin.id);
-      }
-    }
-  }
-  const groupIds = new Map<string, string>();
-  const assignedIds = new Set<string>();
-  for (const entry of tokens) {
-    const previousId = previousIds.get(assetKey(entry.asset));
-    if (
-      previousId &&
-      !groupIds.has(entry.group) &&
-      !assignedIds.has(previousId)
-    ) {
-      groupIds.set(entry.group, previousId);
-      assignedIds.add(previousId);
-    }
-    const builtin = byAsset.get(assetKey(entry.asset));
-    if (builtin) {
-      builtinGroups.set(entry.group, builtin);
-    }
-  }
-  const listedGroups = new Map<string, WatchlistCoin>();
-  for (const {token, asset, group} of tokens) {
-    const known = byAsset.get(assetKey(asset));
-    if (known) {
-      continue;
-    }
-    let id = groupIds.get(group) || `listed:${group}`;
-    let coin =
-      builtinGroups.get(group) ||
-      builtInNames.get(
-        `${token.name.toLowerCase()}|${coinSymbol(token.symbol)}`,
-      ) ||
-      listedGroups.get(group);
-    if (!coin) {
-      if (byId.has(id)) {
-        id = `${id}:${assetKey(asset)}`;
-      }
-      coin = {
+    const resolved = {
+      asset,
+      name: opt.currencyName,
+      symbol: opt.currencyAbbreviation.toUpperCase(),
+      image: {builtin: opt.currencyAbbreviation},
+      builtIn: true,
+    };
+    exact.set(assetKey(asset), resolved);
+    builtInAssets.set(id, [...(builtInAssets.get(id) || []), resolved]);
+    if (!byId.has(id))
+      byId.set(id, {
         id,
-        name: token.name,
-        symbol: token.symbol,
-        image: {uri: token.logoURI || ''},
-        assets: [],
-        selector: {chain: asset.chain, tokenAddress: asset.tokenAddress},
-      };
-      byId.set(id, coin);
-    }
-    listedGroups.set(group, coin);
-    coin.assets.push(asset);
-    byAsset.set(assetKey(asset), coin);
+        displayKey: id,
+        name: opt.currencyName,
+        symbol: symbol.toUpperCase(),
+        image: resolved.image,
+        selector: {coin: symbol},
+      });
+    entries.set(assetKey(asset), byId.get(id)!);
   }
-  const coins = [...byId.values()];
-  const symbolChains = new Map<string, WatchlistCoin | null>();
-  for (const coin of coins) {
-    const compareAssets = (a: WatchlistAsset, b: WatchlistAsset) =>
-      CHAIN_ORDER.indexOf(a.chain) - CHAIN_ORDER.indexOf(b.chain) ||
-      (a.tokenAddress || '').localeCompare(b.tokenAddress || '');
-    coin.assets.sort(compareAssets);
-    const native =
-      coin.id.startsWith('coin:') &&
-      DEFAULT_WATCHLIST.includes(coinSymbol(coin.symbol));
-    const preferred = (builtInAssets.get(coin.id) || coin.assets)
+  for (const [id, assets] of builtInAssets) {
+    const coin = byId.get(id)!;
+    const native = DEFAULT_WATCHLIST.includes(coinSymbol(coin.symbol));
+    const preferred = assets
       .sort(compareAssets)
-      .find(asset => !!asset.tokenAddress);
+      .find(value => !!value.asset.tokenAddress);
     coin.selector = native
       ? {coin: coinSymbol(coin.symbol)}
-      : {chain: preferred!.chain, tokenAddress: preferred!.tokenAddress!};
-    for (const asset of coin.assets) {
-      const key = `${asset.chain}:${coinSymbol(asset.currencyAbbreviation)}`;
-      const previous = symbolChains.get(key);
-      symbolChains.set(
-        key,
-        previous === undefined || previous?.id === coin.id ? coin : null,
-      );
-    }
+      : assetSelector(preferred!.asset);
   }
-  const match = (asset: WatchlistAsset) => {
-    if (asset.network && !['livenet', 'mainnet'].includes(asset.network)) {
-      return undefined;
+  const groups = new Map<
+    string,
+    {entry: WatchlistSearchEntry; assets: CatalogAsset[]}
+  >();
+  for (const [key, token] of Object.entries(data.tokenOptionsByAddress)) {
+    const chain =
+      data.tokenDataByAddress[key]?.chain ||
+      SUFFIX_CHAIN[key.split('_').pop() || ''];
+    if (!CHAIN_ORDER.includes(chain) || !token.address) continue;
+    const asset = {
+      currencyAbbreviation: token.symbol.toLowerCase(),
+      chain,
+      tokenAddress: address(chain, token.address),
+    };
+    if (exact.has(assetKey(asset))) continue;
+    const resolved = {
+      asset,
+      name: token.name,
+      symbol: token.symbol,
+      image: {uri: token.logoURI || ''},
+      builtIn: false,
+    };
+    exact.set(assetKey(asset), resolved);
+    const id = `coin:${coinSymbol(token.symbol)}`;
+    const builtin = byId.get(id);
+    if (builtin) {
+      entries.set(assetKey(asset), builtin);
+      continue;
     }
-    return asset.tokenAddress
-      ? byAsset.get(assetKey(asset))
-      : byAsset.get(assetKey(asset)) ||
-          symbolChains.get(
+    const displayKey = JSON.stringify([
+      token.name,
+      token.symbol,
+      token.logoURI || '',
+    ]);
+    let group = groups.get(displayKey);
+    if (!group) {
+      group = {
+        entry: {
+          id,
+          displayKey,
+          name: token.name,
+          symbol: coinSymbol(token.symbol).toUpperCase(),
+          image: resolved.image,
+          selector: assetSelector(asset),
+        },
+        assets: [],
+      };
+      groups.set(displayKey, group);
+    }
+    group.assets.push(resolved);
+    entries.set(assetKey(asset), group.entry);
+  }
+  for (const {entry, assets} of groups.values())
+    entry.selector = assetSelector(assets.sort(compareAssets)[0].asset);
+  const symbolChains = new Map<string, CatalogAsset | null>();
+  for (const resolved of exact.values()) {
+    const key = `${resolved.asset.chain}:${coinSymbol(
+      resolved.asset.currencyAbbreviation,
+    )}`;
+    const previous = symbolChains.get(key);
+    symbolChains.set(
+      key,
+      previous === undefined ||
+        (previous &&
+          entries.get(assetKey(previous.asset)) ===
+            entries.get(assetKey(resolved.asset)))
+        ? resolved
+        : null,
+    );
+  }
+  const resolveAsset = (
+    input: WatchlistAsset | PriceAlertSelector,
+  ): CatalogAsset | undefined => {
+    if ('coin' in input) {
+      const entry = byId.get(`coin:${coinSymbol(input.coin)}`);
+      if (!entry) return undefined;
+      if (!('coin' in entry.selector)) return resolveAsset(entry.selector);
+      const chain =
+        input.coin === 'pol' || input.coin === 'matic'
+          ? 'matic'
+          : coinSymbol(input.coin);
+      return exact.get(assetKey({chain, currencyAbbreviation: input.coin}));
+    }
+    if (
+      'network' in input &&
+      input.network &&
+      !['livenet', 'mainnet'].includes(input.network)
+    )
+      return undefined;
+    const asset = {
+      ...input,
+      currencyAbbreviation:
+        'currencyAbbreviation' in input ? input.currencyAbbreviation : '',
+    };
+    return (
+      exact.get(assetKey(asset)) ||
+      (!asset.tokenAddress
+        ? symbolChains.get(
             `${asset.chain.toLowerCase()}:${coinSymbol(
               asset.currencyAbbreviation,
             )}`,
-          ) ||
-          undefined;
+          ) || undefined
+        : undefined)
+    );
   };
   return {
-    coins,
+    coins: [
+      ...byId.values(),
+      ...[...groups.values()].map(group => group.entry),
+    ],
     byId,
-    match,
-    fromSelector: selector =>
-      'coin' in selector
-        ? byId.get(`coin:${coinSymbol(selector.coin)}`)
-        : match({currencyAbbreviation: '', ...selector}),
+    resolveAsset,
+    match: asset => {
+      const resolved = resolveAsset(asset);
+      return resolved && entries.get(assetKey(resolved.asset));
+    },
+    fromSelector: selector => {
+      const resolved = resolveAsset(selector);
+      if (!resolved) return undefined;
+      const symbol = coinSymbol(resolved.symbol);
+      return {
+        id: `coin:${symbol}`,
+        name: resolved.name,
+        symbol: symbol.toUpperCase(),
+        image: resolved.image,
+        selector: assetSelector(resolved.asset),
+      };
+    },
   };
+};
+
+// Eligibility is checked before either membership path, including exact matches.
+export const findWatchlistRow = (
+  catalog: CoinCatalog,
+  items: WatchlistCoin[],
+  input: WatchlistAsset | PriceAlertSelector,
+) => {
+  const resolved = catalog.resolveAsset(input);
+  if (!resolved) return undefined;
+  const selector = selectorKey(assetSelector(resolved.asset));
+  return (
+    items.find(item => selectorKey(item.selector) === selector) ||
+    items.find(item => item.id === `coin:${coinSymbol(resolved.symbol)}`)
+  );
 };
 
 export const alertCurrency = (code: string) =>

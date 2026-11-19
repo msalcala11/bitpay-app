@@ -23,6 +23,7 @@ import {
   LightBlue,
   Midnight,
 } from '../../styles/colors';
+import {watchlistAsset} from './watchlistRows';
 import {removeCoinFromUi, reorderFromUi} from './watchlistUi.effects';
 import {
   selectAlertContext,
@@ -114,9 +115,7 @@ export const WatchlistRow = ({
     if (!edit) {
       navigation.navigate('ExchangeRate', {
         currencyName: coin.name,
-        currencyAbbreviation: row.currencyAbbreviation,
-        chain: row.chain,
-        tokenAddress: row.tokenAddress,
+        ...watchlistAsset(coin),
       });
     }
   };

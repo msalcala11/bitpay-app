@@ -16,7 +16,6 @@ export interface WatchlistCoin {
   name: string;
   symbol: string;
   image: {builtin: string} | {uri: string};
-  assets: WatchlistAsset[];
   selector: PriceAlertSelector;
 }
 

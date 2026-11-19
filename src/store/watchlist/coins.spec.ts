@@ -49,7 +49,9 @@ describe('watchlist coin catalog', () => {
       chain: 'matic',
       tokenAddress: '0xAbC',
     });
-    expect(coin?.assets).toHaveLength(2);
+    expect(catalog.coins.filter(entry => entry.id === coin?.id)).toHaveLength(
+      2,
+    );
     expect(coin?.selector).toEqual({chain: 'eth', tokenAddress: '0xdef'});
     expect(coin?.image).toEqual({uri: token.logoURI});
     expect(
@@ -89,7 +91,7 @@ describe('watchlist coin catalog', () => {
         chain: 'eth',
         tokenAddress: '0xabc',
       })?.id,
-    ).not.toBe('coin:eth');
+    ).toBe('coin:eth');
     expect(
       catalog.match({
         currencyAbbreviation: 'ETH',
@@ -168,98 +170,6 @@ describe('watchlist coin catalog', () => {
   });
 });
 
-it('keeps a listed coin’s persisted id when its logo/name changes or another chain arrives', () => {
-  const oldToken = {
-    name: 'Original',
-    symbol: 'EX',
-    logoURI: 'old.png',
-    address: '0xabc',
-    decimals: 18,
-  };
-  const initial = buildCoinCatalog([], {
-    ...empty,
-    tokenOptionsByAddress: {'0xabc_m': oldToken},
-  });
-  const newToken = {...oldToken, name: 'Renamed', logoURI: 'new.png'};
-  const updated = buildCoinCatalog(
-    [],
-    {
-      ...empty,
-      tokenOptionsByAddress: {
-        '0xdef_e': {...newToken, address: '0xdef'},
-        '0xabc_m': newToken,
-      },
-    },
-    JSON.parse(JSON.stringify(initial.coins)),
-  );
-  expect(updated.coins).toHaveLength(1);
-  expect(updated.coins[0].id).toBe(initial.coins[0].id);
-  expect(updated.coins[0].name).toBe('Renamed');
-  expect(updated.coins[0].selector).toEqual({
-    chain: 'eth',
-    tokenAddress: '0xdef',
-  });
-});
-
-it('does not merge previously grouped tokens when their registry metadata diverges', () => {
-  const token = {
-    name: 'Example',
-    symbol: 'EX',
-    address: '0xa',
-    decimals: 18,
-    logoURI: 'same.png',
-  };
-  const initial = buildCoinCatalog([], {
-    ...empty,
-    tokenOptionsByAddress: {
-      '0xa_e': token,
-      '0xb_m': {...token, address: '0xb'},
-    },
-  });
-  const split = buildCoinCatalog(
-    [],
-    {
-      ...empty,
-      tokenOptionsByAddress: {
-        '0xa_e': token,
-        '0xb_m': {...token, address: '0xb', logoURI: 'different.png'},
-      },
-    },
-    initial.coins,
-  );
-  expect(split.coins).toHaveLength(2);
-});
-
-it('keeps divergent metadata separate even when the first entry reuses the old group id', () => {
-  const token = {
-    name: 'Example',
-    symbol: 'EX',
-    address: '0xa',
-    decimals: 18,
-    logoURI: 'same.png',
-  };
-  const initial = buildCoinCatalog([], {
-    ...empty,
-    tokenOptionsByAddress: {
-      '0xa_e': token,
-      '0xb_m': {...token, address: '0xb'},
-    },
-  });
-  const split = buildCoinCatalog(
-    [],
-    {
-      ...empty,
-      tokenOptionsByAddress: {
-        '0xa_e': {...token, logoURI: 'different.png'},
-        '0xb_m': {...token, address: '0xb'},
-      },
-    },
-    initial.coins,
-  );
-  expect(split.coins).toHaveLength(2);
-  expect(new Set(split.coins.map(coin => coin.id)).size).toBe(2);
-});
-
 describe('repair 2.8: built-in default selectors', () => {
   it('keeps the built-in USDC contract when a listed lookalike sorts before it', () => {
     const before = buildCoinCatalog(SupportedCurrencyOptions, empty).byId.get(
@@ -308,7 +218,10 @@ describe('repair 2.8: built-in default selectors', () => {
     });
     expect(after.byId.get('coin:weth')?.selector).toEqual(expected);
     expect(
-      after.byId.get('coin:weth')?.assets.some(asset => asset.chain === 'eth'),
+      !!after.resolveAsset({
+        chain: 'eth',
+        tokenAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+      }),
     ).toBe(true);
   });
 });

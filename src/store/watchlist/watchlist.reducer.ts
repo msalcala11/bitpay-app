@@ -1,5 +1,5 @@
 import type {AnyAction} from 'redux';
-import {DEFAULT_WATCHLIST, buildCoinCatalog} from './coins';
+import {DEFAULT_WATCHLIST, buildCoinCatalog, watchlistCoin} from './coins';
 import {SupportedCurrencyOptions} from '../../constants/SupportedCurrencyOptions';
 import type {WatchlistState} from './watchlist.models';
 
@@ -8,8 +8,8 @@ const initialCatalog = buildCoinCatalog(SupportedCurrencyOptions, {
   tokenDataByAddress: {},
 });
 export const initialWatchlistState: WatchlistState = {
-  items: DEFAULT_WATCHLIST.map(
-    symbol => initialCatalog.byId.get(`coin:${symbol}`)!,
+  items: DEFAULT_WATCHLIST.map(symbol =>
+    watchlistCoin(initialCatalog.byId.get(`coin:${symbol}`)!),
   ),
   contexts: {},
   order: 0,

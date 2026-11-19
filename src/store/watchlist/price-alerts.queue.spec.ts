@@ -149,7 +149,6 @@ describe('watchlist rules and price-alert queue', () => {
         ...btc,
         id: `x${i}`,
         selector: {coin: `unknown-${i}`},
-        assets: [],
       })),
     };
     expect(() => h.queue.add(usdc)).toThrow(PriceAlertsError);
@@ -399,7 +398,6 @@ describe('watchlist rules and price-alert queue', () => {
         ...btc,
         id: `x${i}`,
         selector: {coin: `unknown-${i}`},
-        assets: [],
       })),
     };
     h.held.set('native:btc', alert());
@@ -637,7 +635,6 @@ it('rechecks the capacity when a queued save actually reaches the backend', asyn
       ...btc,
       id: `x${i}`,
       selector: {coin: `unknown-${i}`},
-      assets: [],
     })),
   };
   gate.resolve({
@@ -897,257 +894,6 @@ describe('repair 2.2: catalog updates are not backend snapshots', () => {
   });
 });
 
-const mergeEth = {chain: 'eth', tokenAddress: '0xmergeeth'};
-const mergePolygon = {chain: 'matic', tokenAddress: '0xmergepolygon'};
-const groupCatalog = (merged: boolean, previous: typeof catalog.coins = []) =>
-  buildCoinCatalog(
-    SupportedCurrencyOptions,
-    {
-      tokenDataByAddress: {},
-      tokenOptionsByAddress: {
-        '0xmergeeth_e': {
-          name: 'Merge Token',
-          symbol: 'MRG',
-          address: mergeEth.tokenAddress,
-          decimals: 18,
-          logoURI: 'eth.png',
-        },
-        '0xmergepolygon_m': {
-          name: 'Merge Token',
-          symbol: 'MRG',
-          address: mergePolygon.tokenAddress,
-          decimals: 18,
-          logoURI: merged ? 'eth.png' : 'polygon.png',
-        },
-      },
-    },
-    previous,
-  );
-const groups = () => {
-  const split = groupCatalog(false);
-  const eth = split.fromSelector(mergeEth)!;
-  const polygon = split.fromSelector(mergePolygon)!;
-  const merged = groupCatalog(true, split.coins);
-  const coin = merged.fromSelector(mergeEth)!;
-  expect(coin.id).toBe(eth.id);
-  expect(coin.id).not.toBe(polygon.id);
-  return {split, eth, polygon, merged, coin};
-};
-
-describe('repair 2.4: catalog group identity changes', () => {
-  it('re-keys a watched retired group and refuses a second add', () => {
-    const h = harness(),
-      g = groups();
-    h.setCatalog(g.split);
-    h.queue.add(g.polygon);
-    h.setCatalog(g.merged);
-    h.queue.catalogChanged();
-    expect(h.state.items.at(-1)).toEqual({...g.coin, selector: mergePolygon});
-    expect(h.queue.add(g.coin)).toBe(false);
-    expect(h.state.items.filter(item => item.id === g.coin.id)).toHaveLength(1);
-  });
-  it('moves the alert mirror and intents with the watched row', async () => {
-    const h = harness(),
-      g = groups();
-    h.setCatalog(g.split);
-    h.register();
-    h.held.set(selectorKey(mergePolygon), alert(mergePolygon));
-    await h.queue.sync();
-    h.context.intents[g.polygon.id] = {kind: 'save', order: 7};
-    h.setCatalog(g.merged);
-    h.queue.catalogChanged();
-    expect(h.context.alerts[g.polygon.id]).toBeUndefined();
-    expect(h.context.alerts[g.coin.id]?.alert).toEqual(alert(mergePolygon));
-    expect(h.context.intents[g.coin.id]).toEqual({kind: 'save', order: 7});
-  });
-  it('merges watched rows at their earlier position and keeps that row’s alert through failed duplicate cleanup', async () => {
-    const h = harness(),
-      g = groups();
-    h.setCatalog(g.split);
-    h.register();
-    h.queue.add(g.polygon);
-    h.queue.add(g.eth);
-    h.held.set(selectorKey(mergeEth), alert(mergeEth));
-    h.held.set(selectorKey(mergePolygon), alert(mergePolygon, 15));
-    await h.queue.sync();
-    h.context.alerts[g.polygon.id].unknown = true;
-    h.context.unknownSelectors[selectorKey(mergePolygon)] = true;
-    h.setCatalog(g.merged);
-    h.queue.catalogChanged();
-    expect(h.state.items).toHaveLength(9);
-    expect(h.state.items[8]).toEqual({...g.coin, selector: mergePolygon});
-    expect(h.context.alerts[g.coin.id]).toMatchObject({
-      alert: alert(mergePolygon, 15),
-      unknown: true,
-    });
-    expect(h.context.unknownSelectors[selectorKey(mergePolygon)]).toBe(true);
-    expect(Object.keys(h.context.pendingRemovals)).toEqual([
-      selectorKey(mergeEth),
-    ]);
-    h.api.remove.mockRejectedValue(new Error('offline'));
-    for (let n = 0; n < 2; n++) {
-      h.advance();
-      await h.queue.sync();
-    }
-    expect(h.state.items).toHaveLength(9);
-    expect(h.context.alerts[g.coin.id]?.alert).toEqual(alert(mergePolygon, 15));
-    expect(Object.keys(h.context.pendingRemovals)).toEqual([
-      selectorKey(mergeEth),
-    ]);
-  });
-  it('follows the stored selector on split even when the old id survives on the other half', () => {
-    const h = harness(),
-      g = groups();
-    h.setCatalog(g.merged);
-    h.queue.add({...g.coin, selector: mergePolygon});
-    const splitAgain = groupCatalog(false, g.merged.coins);
-    expect(splitAgain.fromSelector(mergeEth)?.id).toBe(g.coin.id);
-    h.setCatalog(splitAgain);
-    h.queue.catalogChanged();
-    expect(h.state.items.at(-1)).toEqual({
-      ...splitAgain.fromSelector(mergePolygon),
-      selector: mergePolygon,
-    });
-    expect(h.state.items.at(-1)?.id).not.toBe(g.coin.id);
-  });
-  it('applies an in-flight Save to the row’s current id', async () => {
-    const h = harness(),
-      g = groups();
-    h.setCatalog(g.split);
-    h.register();
-    h.queue.add(g.polygon);
-    const gate = deferred<PriceAlert>();
-    h.api.save.mockReturnValueOnce(gate.promise);
-    const saving = h.queue.save(g.polygon, 20);
-    await tick();
-    h.setCatalog(g.merged);
-    h.queue.catalogChanged();
-    gate.resolve(alert(mergePolygon, 20));
-    await saving;
-    expect(h.state.items.filter(item => item.symbol === 'MRG')).toHaveLength(1);
-    expect(h.context.alerts[g.coin.id]?.alert).toEqual(alert(mergePolygon, 20));
-    expect(h.context.alerts[g.polygon.id]).toBeUndefined();
-  });
-  it('keeps a removal newer than an in-flight Save through re-keying', async () => {
-    const h = harness(),
-      g = groups();
-    h.setCatalog(g.split);
-    h.register();
-    h.queue.add(g.polygon);
-    const gate = deferred<PriceAlert>();
-    h.api.save.mockReturnValueOnce(gate.promise);
-    const saving = h.queue.save(g.polygon, 20);
-    await tick();
-    h.api.remove.mockRejectedValue(new Error('offline'));
-    h.queue.remove(g.polygon);
-    h.setCatalog(g.merged);
-    h.queue.catalogChanged();
-    gate.resolve(alert(mergePolygon, 20));
-    await saving;
-    await tick();
-    expect(h.state.items.some(item => item.symbol === 'MRG')).toBe(false);
-    expect(h.context.alerts[g.coin.id]).toBeUndefined();
-    expect(h.context.alerts[g.polygon.id]).toBeUndefined();
-    expect(h.context.pendingRemovals[selectorKey(mergePolygon)]).toMatchObject({
-      itemId: g.coin.id,
-      scope: 'coin',
-    });
-  });
-  it('updates an open Edit sheet so Turn Off uses the moved row', async () => {
-    const h = harness(),
-      g = groups();
-    h.setCatalog(g.split);
-    h.register();
-    h.held.set(selectorKey(mergePolygon), alert(mergePolygon));
-    await h.queue.sync();
-    h.state = {
-      ...h.state,
-      alertSheet: {
-        coin: g.polygon,
-        context: 'Watchlist',
-        nonce: 1,
-        isEdit: true,
-        open: true,
-      },
-    };
-    h.setCatalog(g.merged);
-    h.queue.catalogChanged();
-    expect(h.state.alertSheet?.coin.id).toBe(g.coin.id);
-    await h.queue.turnOff(h.state.alertSheet!.coin);
-    expect(h.held.size).toBe(0);
-    expect(h.context.alerts).toEqual({});
-    expect(h.state.items.at(-1)?.id).toBe(g.coin.id);
-  });
-  it('keeps an in-flight Turn Off attached to the current id', async () => {
-    const h = harness(),
-      g = groups();
-    h.setCatalog(g.split);
-    h.register();
-    h.held.set(selectorKey(mergePolygon), alert(mergePolygon));
-    await h.queue.sync();
-    const gate = deferred<{disabled: true}>();
-    h.api.remove.mockReturnValueOnce(gate.promise);
-    const off = h.queue.turnOff(g.polygon);
-    await tick();
-    h.setCatalog(g.merged);
-    h.queue.catalogChanged();
-    gate.resolve({disabled: true});
-    await off;
-    expect(h.state.items.at(-1)?.id).toBe(g.coin.id);
-    expect(h.context.alerts).toEqual({});
-  });
-  it('re-keys before a real list can append a second row and preserves a queued Save', async () => {
-    const h = harness(),
-      g = groups();
-    h.setCatalog(g.split);
-    h.register();
-    h.queue.add(g.polygon);
-    const gate = deferred<{
-      registration: PriceAlertRegistration;
-      alerts: PriceAlert[];
-    }>();
-    h.api.list.mockReturnValueOnce(gate.promise);
-    const sync = h.queue.sync();
-    await tick();
-    const saving = h.queue.save(g.polygon, 20);
-    // Deliberately let a list observe the new catalog before its subscription callback.
-    h.setCatalog(g.merged);
-    gate.resolve({
-      registration: {
-        registered: true,
-        externalUserId: 'braze-A',
-        pushEnabled: false,
-        priceAlertsEnabled: true,
-      },
-      alerts: [alert(mergePolygon)],
-    });
-    await sync;
-    await saving;
-    expect(h.state.items.filter(item => item.symbol === 'MRG')).toHaveLength(1);
-    expect(h.context.alerts[g.coin.id]?.alert.thresholdPct).toBe(20);
-  });
-});
-
-it('applies an in-flight currency re-save under the current catalog id', async () => {
-  const h = harness(),
-    g = groups();
-  h.setCatalog(g.split);
-  h.register();
-  h.held.set(selectorKey(mergePolygon), alert(mergePolygon));
-  await h.queue.sync();
-  h.env = {...h.env, currency: 'EUR'};
-  const gate = deferred<PriceAlert>();
-  h.api.save.mockReturnValueOnce(gate.promise);
-  const resaving = h.queue.preferencesChanged();
-  await tick();
-  h.setCatalog(g.merged);
-  h.queue.catalogChanged();
-  gate.resolve(alert(mergePolygon, 10, 'EUR'));
-  await resaving;
-  expect(h.context.alerts[g.coin.id]?.alert.code).toBe('EUR');
-  expect(h.context.alerts[g.polygon.id]).toBeUndefined();
-});
-
 it('a Save waiting outside the queue keeps its original order and yields to a newer removal', async () => {
   const h = harness();
   h.register();
@@ -1212,4 +958,339 @@ it('keeps an existing Ethereum WETH alert instead of switching to its new defaul
   expect(selectorKey(h.api.remove.mock.calls.at(-1)![0])).toBe(
     selectorKey(ethereum),
   );
+});
+
+const tickerEth = {chain: 'eth', tokenAddress: '0xtickereth'};
+const tickerPolygon = {chain: 'matic', tokenAddress: '0xtickerpolygon'};
+const tickerCatalog = (
+  change: 'separate' | 'logo' | 'name' | 'merge' | 'rename' = 'separate',
+) =>
+  buildCoinCatalog(SupportedCurrencyOptions, {
+    tokenDataByAddress: {},
+    tokenOptionsByAddress: {
+      '0xtickereth_e': {
+        name: 'First Token',
+        symbol: change === 'rename' ? 'NEW' : 'TICK',
+        address: tickerEth.tokenAddress,
+        decimals: 18,
+        logoURI: 'first.png',
+      },
+      '0xtickerpolygon_m': {
+        name:
+          change === 'name'
+            ? 'Renamed Token'
+            : change === 'merge'
+            ? 'First Token'
+            : 'Second Token',
+        symbol: 'TICK',
+        address: tickerPolygon.tokenAddress,
+        decimals: 18,
+        logoURI:
+          change === 'merge'
+            ? 'first.png'
+            : change === 'logo'
+            ? 'new.png'
+            : 'second.png',
+      },
+    },
+  });
+
+describe('permanent ticker rows', () => {
+  it('refuses a different token with the same ticker and stores no search key or assets', () => {
+    const h = harness(),
+      c = tickerCatalog();
+    h.setCatalog(c);
+    expect(
+      h.queue.add(c.match({currencyAbbreviation: 'tick', ...tickerEth})!),
+    ).toBe(true);
+    expect(
+      h.queue.add(c.match({currencyAbbreviation: 'tick', ...tickerPolygon})!),
+    ).toBe(false);
+    const row = h.state.items.at(-1)!;
+    expect(row.id).toBe('coin:tick');
+    expect(row).not.toHaveProperty('assets');
+    expect(row).not.toHaveProperty('displayKey');
+  });
+  it.each(['logo', 'name', 'merge', 'split', 'rename'] as const)(
+    '%s refresh changes display metadata only, never rows or operation state',
+    async change => {
+      const h = harness(),
+        c = tickerCatalog(change === 'split' ? 'merge' : 'separate');
+      h.setCatalog(c);
+      h.register();
+      h.held.set(selectorKey(tickerPolygon), alert(tickerPolygon));
+      await h.queue.sync();
+      const row = h.state.items.at(-1)!;
+      h.context.alerts[row.id].unknown = true;
+      h.context.unknownSelectors[selectorKey(tickerPolygon)] = true;
+      h.context.intents[row.id] = {kind: 'save', order: 12};
+      h.context.registrationUnknown = true;
+      h.context.pendingRemovals[selectorKey(tickerEth)] = {
+        itemId: row.id,
+        selector: tickerEth,
+        order: 9,
+        scope: 'selector',
+      };
+      const contexts = JSON.parse(JSON.stringify(h.state.contexts));
+      const rows = h.state.items.map(
+        ({name: _name, image: _image, ...rest}) => rest,
+      );
+      const order = h.state.order;
+      h.setCatalog(tickerCatalog(change === 'split' ? 'separate' : change));
+      h.queue.catalogChanged();
+      expect(
+        h.state.items.map(({name: _name, image: _image, ...rest}) => rest),
+      ).toEqual(rows);
+      expect(h.state.contexts).toEqual(contexts);
+      expect(h.state.order).toBe(order);
+    },
+  );
+  it.each(['save', 'off'] as const)(
+    'keeps an in-flight %s on its original row and selector through search merge/split',
+    async operation => {
+      const h = harness(),
+        c = tickerCatalog();
+      h.setCatalog(c);
+      h.register();
+      h.held.set(selectorKey(tickerPolygon), alert(tickerPolygon));
+      await h.queue.sync();
+      const row = h.state.items.at(-1)!;
+      const saveGate = deferred<PriceAlert>(),
+        offGate = deferred<{disabled: true}>();
+      if (operation === 'save')
+        h.api.save.mockReturnValueOnce(saveGate.promise);
+      else h.api.remove.mockReturnValueOnce(offGate.promise);
+      const work =
+        operation === 'save' ? h.queue.save(row, 20) : h.queue.turnOff(row);
+      await tick();
+      const intent = {...h.context.intents[row.id]};
+      h.setCatalog(tickerCatalog('merge'));
+      h.queue.catalogChanged();
+      h.setCatalog(tickerCatalog('rename'));
+      h.queue.catalogChanged();
+      expect(h.context.intents).toEqual({[row.id]: intent});
+      saveGate.resolve(alert(tickerPolygon, 20));
+      offGate.resolve({disabled: true});
+      await work;
+      expect(h.state.items.at(-1)?.id).toBe('coin:tick');
+      expect(h.state.items.at(-1)?.selector).toEqual(tickerPolygon);
+      expect(h.context.pendingRemovals).toEqual({});
+      expect(h.context.alerts[row.id]?.alert).toEqual(
+        operation === 'save' ? alert(tickerPolygon, 20) : undefined,
+      );
+    },
+  );
+  it('step 1: skips a returned exact selector with a pending removal', async () => {
+    const h = harness();
+    h.setCatalog(tickerCatalog());
+    h.register();
+    await h.queue.sync();
+    h.context.pendingRemovals[selectorKey(tickerPolygon)] = {
+      itemId: 'coin:tick',
+      selector: tickerPolygon,
+      order: 1,
+      scope: 'selector',
+    };
+    h.api.remove.mockRejectedValue(new Error('offline'));
+    h.held.set(selectorKey(tickerPolygon), alert(tickerPolygon));
+    h.advance();
+    await h.queue.sync();
+    expect(h.context.alerts['coin:tick']).toBeUndefined();
+    expect(h.state.items.some(row => row.id === 'coin:tick')).toBe(false);
+  });
+  it('step 2: a context-recorded selector keeps its row despite a changed ticker and a different chosen selector', async () => {
+    const h = harness();
+    h.setCatalog(tickerCatalog());
+    h.register();
+    h.held.set(selectorKey(tickerEth), alert(tickerEth));
+    await h.queue.sync();
+    h.state = {
+      ...h.state,
+      items: h.state.items.map(row =>
+        row.id === 'coin:tick' ? {...row, selector: tickerPolygon} : row,
+      ),
+    };
+    h.setCatalog(tickerCatalog('rename'));
+    h.advance();
+    await h.queue.sync();
+    expect(Object.keys(h.context.alerts)).toEqual(['coin:tick']);
+    expect(h.state.items.at(-1)).toMatchObject({
+      id: 'coin:tick',
+      symbol: 'TICK',
+      selector: tickerEth,
+    });
+    expect(h.state.items.some(row => row.id === 'coin:new')).toBe(false);
+  });
+  it('step 3: an exact chosen selector wins over the ticker currently in the lists', async () => {
+    const h = harness(),
+      c = tickerCatalog();
+    h.setCatalog(c);
+    h.queue.add(c.fromSelector(tickerEth)!);
+    h.register();
+    h.setCatalog(tickerCatalog('rename'));
+    h.held.set(selectorKey(tickerEth), alert(tickerEth));
+    await h.queue.sync();
+    expect(Object.keys(h.context.alerts)).toEqual(['coin:tick']);
+    expect(h.state.items).toHaveLength(9);
+  });
+  it('step 4: an unknown selector joins the existing ticker row, and the kept alert supplies its display', async () => {
+    const h = harness(),
+      c = tickerCatalog();
+    h.setCatalog(c);
+    h.queue.add(c.fromSelector(tickerEth)!);
+    h.register();
+    h.held.set(selectorKey(tickerPolygon), alert(tickerPolygon));
+    await h.queue.sync();
+    expect(h.state.items).toHaveLength(9);
+    expect(h.state.items.at(-1)).toMatchObject({
+      id: 'coin:tick',
+      symbol: 'TICK',
+      name: 'Second Token',
+      image: {uri: 'second.png'},
+      selector: tickerPolygon,
+    });
+  });
+  it('step 5: an unknown ticker adds one row for the exact returned token', async () => {
+    const h = harness();
+    h.setCatalog(tickerCatalog());
+    h.register();
+    h.held.set(selectorKey(tickerPolygon), alert(tickerPolygon));
+    await h.queue.sync();
+    expect(h.state.items.at(-1)).toMatchObject({
+      id: 'coin:tick',
+      name: 'Second Token',
+      selector: tickerPolygon,
+    });
+    expect(h.context.alerts['coin:tick']?.alert).toEqual(alert(tickerPolygon));
+  });
+  it('step 6: an unknown selector waits for token details without treating them as a fresh backend answer', async () => {
+    const h = harness();
+    h.register();
+    h.held.set(selectorKey(tickerPolygon), alert(tickerPolygon));
+    await h.queue.sync();
+    expect(h.context.unresolved).toEqual([alert(tickerPolygon)]);
+    h.context.registrationUnknown = true;
+    h.context.unknownSelectors[selectorKey(tickerPolygon)] = true;
+    h.setCatalog(tickerCatalog());
+    h.queue.catalogChanged();
+    expect(h.context.alerts['coin:tick']?.alert).toEqual(alert(tickerPolygon));
+    expect(h.context.unresolved).toEqual([]);
+    expect(h.context.registrationUnknown).toBe(true);
+    expect(h.context.unknownSelectors[selectorKey(tickerPolygon)]).toBe(true);
+  });
+  it('keeps a recorded duplicate first, then the chosen selector, then the first backend alert', async () => {
+    for (const preference of ['recorded', 'chosen', 'first']) {
+      const h = harness(),
+        c = tickerCatalog();
+      h.setCatalog(c);
+      h.register();
+      if (preference !== 'first') h.queue.add(c.fromSelector(tickerPolygon)!);
+      if (preference === 'recorded') {
+        h.held.set(selectorKey(tickerEth), alert(tickerEth));
+        await h.queue.sync();
+        h.state = {
+          ...h.state,
+          items: h.state.items.map(row =>
+            row.id === 'coin:tick' ? {...row, selector: tickerPolygon} : row,
+          ),
+        };
+      }
+      h.held.set(selectorKey(tickerEth), alert(tickerEth));
+      h.held.set(selectorKey(tickerPolygon), alert(tickerPolygon));
+      h.advance();
+      await h.queue.sync();
+      const kept = preference === 'chosen' ? tickerPolygon : tickerEth;
+      expect(selectorKey(h.context.alerts['coin:tick'].alert)).toBe(
+        selectorKey(kept),
+      );
+      expect(Object.values(h.context.pendingRemovals)).toEqual([
+        expect.objectContaining({
+          scope: 'selector',
+          itemId: 'coin:tick',
+          selector: alert(preference === 'chosen' ? tickerEth : tickerPolygon),
+        }),
+      ]);
+    }
+  });
+  it('keeps identity A’s recorded Ethereum alert through B’s chosen Polygon selector, ticker rename, and an in-flight list followed by Turn Off', async () => {
+    const h = harness();
+    h.setCatalog(tickerCatalog());
+    h.register();
+    h.held.set(selectorKey(tickerEth), alert(tickerEth));
+    await h.queue.sync();
+    const identityA = h.env;
+    const registrationA = h.context.registration!;
+    h.env = {...h.env, context: 'identity-B', externalUserId: 'braze-B'};
+    h.register();
+    h.held.clear();
+    h.held.set(selectorKey(tickerPolygon), alert(tickerPolygon));
+    await h.queue.sync();
+    const row = h.state.items.at(-1)!;
+    expect(row.selector).toEqual(tickerPolygon);
+    h.setCatalog(tickerCatalog('rename'));
+    h.queue.catalogChanged();
+    h.env = identityA;
+    h.held.clear();
+    h.held.set(selectorKey(tickerEth), alert(tickerEth));
+    h.advance();
+    const gate = deferred<{
+      registration: PriceAlertRegistration;
+      alerts: PriceAlert[];
+    }>();
+    h.api.list.mockReturnValueOnce(gate.promise);
+    const syncing = h.queue.sync();
+    await tick();
+    const off = h.queue.turnOff(row);
+    gate.resolve({registration: registrationA, alerts: [alert(tickerEth)]});
+    await syncing;
+    await off;
+    expect(h.held.size).toBe(0);
+    expect(h.context.alerts).toEqual({});
+    expect(h.state.items.filter(item => item.id === 'coin:tick')).toHaveLength(
+      1,
+    );
+    expect(h.state.items.some(item => item.id === 'coin:new')).toBe(false);
+    expect(h.state.contexts['identity-B'].alerts['coin:tick']?.alert).toEqual(
+      alert(tickerPolygon),
+    );
+  });
+});
+
+it('keeps a queued Save selector and updates the shared row display to that context’s confirmed asset', async () => {
+  const h = harness(),
+    c = tickerCatalog();
+  h.setCatalog(c);
+  h.register();
+  h.held.set(selectorKey(tickerEth), alert(tickerEth));
+  await h.queue.sync();
+  h.state = {
+    ...h.state,
+    items: h.state.items.map(row =>
+      row.id === 'coin:tick'
+        ? {
+            ...row,
+            selector: tickerPolygon,
+            name: 'Second Token',
+            image: {uri: 'second.png'},
+          }
+        : row,
+    ),
+  };
+  const row = h.state.items.at(-1)!;
+  h.env = {...h.env, pushEnabled: undefined};
+  const saving = h.queue.save(row, 20);
+  await tick();
+  h.setCatalog(tickerCatalog('rename'));
+  h.queue.catalogChanged();
+  h.env = {...h.env, pushEnabled: true};
+  h.queue.permissionChanged();
+  await saving;
+  expect(h.api.save.mock.calls.at(-1)![0]).toEqual(tickerEth);
+  expect(h.state.items.at(-1)).toMatchObject({
+    id: 'coin:tick',
+    symbol: 'TICK',
+    selector: tickerEth,
+    name: 'First Token',
+    image: {uri: 'first.png'},
+  });
 });

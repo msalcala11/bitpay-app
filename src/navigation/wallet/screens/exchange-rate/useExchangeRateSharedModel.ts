@@ -181,9 +181,13 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
     params?.tokenAddress,
   ]);
 
-  const watchlistCoin = useWatchlistCoin(assetContext);
+  const {coin: watchlistCoin, asset: catalogAsset} =
+    useWatchlistCoin(assetContext);
   const currencyName =
-    watchlistCoin?.name || params?.currencyName || coin.name || 'Bitcoin';
+    (!catalogAsset?.builtIn && catalogAsset?.name) ||
+    params?.currencyName ||
+    coin.name ||
+    'Bitcoin';
 
   const assetCurrencyOption = useMemo(
     () =>
@@ -456,10 +460,16 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
       headerRight:
         !isAssetBalanceHistoryMode && watchlistCoin
           ? () =>
-              React.createElement(WatchlistHeaderActions, {coin: watchlistCoin})
+              React.createElement(WatchlistHeaderActions, {asset: assetContext})
           : undefined,
     });
-  }, [currencyName, navigation, watchlistCoin, isAssetBalanceHistoryMode]);
+  }, [
+    currencyName,
+    navigation,
+    watchlistCoin,
+    assetContext,
+    isAssetBalanceHistoryMode,
+  ]);
 
   return {
     aboutToDisplay,
@@ -469,10 +479,14 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
     asOfMs,
     chartLineColor,
     circulatingSupplyToDisplay,
-    currencyAbbreviation: watchlistCoin?.symbol || currencyAbbreviation,
-    currencyImageSource: watchlistCoin
-      ? watchlistImage(watchlistCoin)
-      : assetCurrencyOption?.img || coin.img,
+    currencyAbbreviation:
+      catalogAsset && !catalogAsset.builtIn
+        ? catalogAsset.symbol
+        : currencyAbbreviation,
+    currencyImageSource:
+      catalogAsset && !catalogAsset.builtIn
+        ? watchlistImage(catalogAsset)
+        : assetCurrencyOption?.img || coin.img,
     currencyName,
     currentFiatRate,
     formatDisplayPrice,

@@ -49,7 +49,20 @@ it('includes the listed ARB and OP coins in prototype order once the registry lo
   );
   const featuredArb = results.find(coin => coin.symbol === 'ARB')!;
   expect(featuredArb.image).toEqual({uri: 'arb.png'});
-  expect(featuredArb.assets).toHaveLength(2);
+  expect(
+    listedCatalog.match({
+      currencyAbbreviation: 'arb',
+      chain: 'eth',
+      tokenAddress: arbEthereumAddress,
+    }),
+  ).toBe(featuredArb);
+  expect(
+    listedCatalog.match({
+      currencyAbbreviation: 'arb',
+      chain: 'arb',
+      tokenAddress: arbAddress,
+    }),
+  ).toBe(featuredArb);
   expect(featuredArb.selector).toEqual({
     chain: 'eth',
     tokenAddress: arbEthereumAddress,

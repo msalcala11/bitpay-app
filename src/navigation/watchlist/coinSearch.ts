@@ -2,6 +2,8 @@ import {
   WATCHLIST_BROWSE_ORDER,
   type CoinCatalog,
   coinSymbol,
+  findWatchlistRow,
+  type WatchlistSearchEntry,
 } from '../../store/watchlist/coins';
 import type {
   WatchlistAsset,
@@ -9,7 +11,7 @@ import type {
 } from '../../store/watchlist/watchlist.models';
 
 // Resolve these browse entries from the loaded registry, retaining its display
-// metadata, grouped identity, and preferred alert selector. Symbols alone can
+// metadata and preferred alert selector. Symbols alone can
 // identify unrelated listed tokens.
 const BROWSE_LISTED_ASSETS: Record<string, WatchlistAsset> = {
   // https://docs.arbitrum.foundation/deployment-addresses
@@ -33,17 +35,18 @@ export const searchWatchlistCoins = (
   limit: number,
 ) => {
   const text = query.trim().toLowerCase().replace(/\s+/g, '');
-  const watched = new Set(items.map(item => item.id));
   if (!text) {
     return WATCHLIST_BROWSE_ORDER.flatMap(symbol => {
       const listedAsset = BROWSE_LISTED_ASSETS[symbol];
       const coin =
         catalog.byId.get(`coin:${symbol}`) ||
         (listedAsset && catalog.match(listedAsset));
-      return coin && !watched.has(coin.id) ? [coin] : [];
+      return coin && !findWatchlistRow(catalog, items, coin.selector)
+        ? [coin]
+        : [];
     });
   }
-  const matches: WatchlistCoin[] = [];
+  const matches: WatchlistSearchEntry[] = [];
   for (const coin of catalog.coins) {
     if (
       coin.name.toLowerCase().replace(/\s+/g, '').includes(text) ||

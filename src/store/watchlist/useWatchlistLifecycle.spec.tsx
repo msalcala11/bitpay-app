@@ -35,7 +35,6 @@ const mockApi = {
 jest.mock('react-redux', () => ({useStore: () => mockStore}));
 jest.mock('./coin-registry', () => ({
   getCoinCatalog: () => mockCatalog,
-  seedCoinCatalog: () => {},
   subscribeCoinCatalog: () => () => {},
 }));
 jest.mock('../../constants/config', () => ({
