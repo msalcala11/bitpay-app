@@ -1,5 +1,5 @@
 import React from 'react';
-import {View} from 'react-native';
+import {BackHandler, Platform, View} from 'react-native';
 import {act, render} from '@test/render';
 import {BottomSheetModalProvider} from '@gorhom/bottom-sheet';
 import SheetModal from './SheetModal';
@@ -15,6 +15,7 @@ type NativeSheet = {
   snapToIndex: jest.Mock;
 };
 const mockNativeSheets: NativeSheet[] = [];
+const originalPlatform = Platform.OS;
 
 // Keep the real SheetModal, Gorhom modal/provider, portal and BottomSheetView.
 // Replace only the native animation/layout boundary, including its view context.
@@ -79,11 +80,37 @@ const finishAnimation = (sheet: NativeSheet, target: number) =>
 const flushFrames = () => act(() => jest.runOnlyPendingTimers());
 
 describe('SheetModal with the real Gorhom stack', () => {
+  let backListeners: Array<() => boolean | null | undefined>;
+  const navigationBack = jest.fn(() => false);
+  const pressBack = () => {
+    act(() => {
+      for (const listener of [...backListeners].reverse()) {
+        if (listener()) break;
+      }
+    });
+  };
   beforeEach(() => {
     mockNativeSheets.length = 0;
     jest.useFakeTimers();
+    Platform.OS = 'android';
+    navigationBack.mockClear();
+    backListeners = [navigationBack];
+    jest
+      .spyOn(BackHandler, 'addEventListener')
+      .mockImplementation((_, listener) => {
+        backListeners.push(listener);
+        return {
+          remove: () => {
+            backListeners = backListeners.filter(entry => entry !== listener);
+          },
+        };
+      });
   });
-  afterEach(() => jest.useRealTimers());
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    Platform.OS = originalPlatform;
+  });
 
   function mountPair() {
     const hideA = jest.fn();
@@ -95,7 +122,7 @@ describe('SheetModal with the real Gorhom stack', () => {
         <SheetModal
           modalLibrary="bottom-sheet"
           isVisible={visibleA}
-          onBackdropPress={closeA}
+          onBackdropPress={() => closeA()}
           onModalHide={hideA}
           snapPoints={['50%']}>
           <View testID="sheet-A" />
@@ -125,8 +152,65 @@ describe('SheetModal with the real Gorhom stack', () => {
       expect(a.close).toHaveBeenCalledTimes(1);
       return b;
     };
-    return {view, a, update, interrupt, hideA, hideB, closeA};
+    return {view, a, update, interrupt, hideA, hideB, closeA, closeB};
   }
+
+  it('closes the top sheet on Android Back and blocks navigation until native dismissal', () => {
+    const pair = mountPair();
+    const b = pair.interrupt();
+    finishAnimation(pair.a, -1);
+    pair.update(true, true);
+    pressBack();
+    expect(pair.closeB).toHaveBeenCalledTimes(1);
+    expect(pair.closeA).not.toHaveBeenCalled();
+    expect(navigationBack).not.toHaveBeenCalled();
+    pair.update(true, false);
+    pressBack();
+    expect(pair.closeB).toHaveBeenCalledTimes(1);
+    expect(pair.closeA).not.toHaveBeenCalled();
+    expect(navigationBack).not.toHaveBeenCalled();
+    finishAnimation(b, -1);
+    startAnimation(pair.a, 0);
+    finishAnimation(pair.a, 0);
+    pressBack();
+    expect(pair.closeA).toHaveBeenCalledTimes(1);
+    pair.update(false, false);
+    finishAnimation(pair.a, -1);
+    pressBack();
+    expect(navigationBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('consumes Android Back without dismissing a protected sheet', () => {
+    const close = jest.fn();
+    const view = render(
+      <BottomSheetModalProvider>
+        <SheetModal
+          modalLibrary="bottom-sheet"
+          isVisible
+          fullscreen
+          enableBackdropDismiss={false}
+          onBackdropPress={close}>
+          <View />
+        </SheetModal>
+      </BottomSheetModalProvider>,
+    );
+    flushFrames();
+    pressBack();
+    expect(close).not.toHaveBeenCalled();
+    expect(navigationBack).not.toHaveBeenCalled();
+    view.unmount();
+    pressBack();
+    expect(navigationBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not register Android Back handling on iOS', () => {
+    Platform.OS = 'ios';
+    const pair = mountPair();
+    expect(BackHandler.addEventListener).not.toHaveBeenCalled();
+    pressBack();
+    expect(pair.closeA).not.toHaveBeenCalled();
+    expect(navigationBack).toHaveBeenCalledTimes(1);
+  });
 
   it.each([false, true])(
     'removes a parent-hidden interrupted sheet before the top sheet closes (hidden before minimization completion: %s)',

@@ -1,5 +1,11 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {AppState, AppStateStatus, Platform, View} from 'react-native';
+import {
+  AppState,
+  AppStateStatus,
+  BackHandler,
+  Platform,
+  View,
+} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import {runOnJS} from 'react-native-reanimated';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -123,6 +129,41 @@ const SheetModal: React.FC<SheetModalProps> = ({
   const [shouldRenderModalContent, setShouldRenderModalContent] = useState(
     modalLibrary !== 'modal' || !unmountContentWhenHidden || isVisible,
   );
+  const backDismissRef = useRef({
+    isVisible,
+    enableBackdropDismiss,
+    onBackdropPress,
+  });
+  useEffect(() => {
+    backDismissRef.current = {
+      isVisible,
+      enableBackdropDismiss,
+      onBackdropPress,
+    };
+  }, [isVisible, enableBackdropDismiss, onBackdropPress]);
+
+  useEffect(() => {
+    if (
+      Platform.OS !== 'android' ||
+      modalLibrary !== 'bottom-sheet' ||
+      !shouldRenderBottomSheetContent
+    ) {
+      return;
+    }
+    // Last presented sheet handles Back first. Keep its subscription until
+    // native dismissal, and don't reorder it when a parent's callback changes.
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        const current = backDismissRef.current;
+        if (current.isVisible && current.enableBackdropDismiss !== false) {
+          current.onBackdropPress();
+        }
+        return true;
+      },
+    );
+    return () => subscription.remove();
+  }, [modalLibrary, shouldRenderBottomSheetContent]);
 
   const reconcileBottomSheet = useCallback(() => {
     if (!mountedRef.current || !usesBottomSheetRef.current) {
