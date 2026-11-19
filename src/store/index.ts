@@ -53,7 +53,10 @@ import {logReducer, logReduxPersistBlackList} from './log/log.reducer';
 import {AddLog} from './log/log.types';
 import {shopReducer, shopReduxPersistBlackList} from './shop/shop.reducer';
 import {shopCatalogReducer} from './shop-catalog/shop-catalog.reducer';
-import {watchlistReducer} from './watchlist/watchlist.reducer';
+import {
+  watchlistReducer,
+  watchlistPersistTransform,
+} from './watchlist/watchlist.reducer';
 import {
   swapCryptoReducer,
   swapCryptoReduxPersistBlackList,
@@ -741,6 +744,10 @@ const initializeStore = async () => {
     key: 'root',
     blacklist: ['LOG'],
     transforms: [
+      instrumentPersistTransform(
+        'watchlistTickerReset',
+        watchlistPersistTransform,
+      ),
       instrumentPersistTransform('bindWalletKeys', bindWalletKeys),
       instrumentPersistTransform('transformContacts', transformContacts),
       instrumentPersistTransform(
