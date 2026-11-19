@@ -1,4 +1,5 @@
 import React from 'react';
+import {StyleSheet} from 'react-native';
 import TestRenderer, {act} from 'react-test-renderer';
 import useExchangeRateSharedModel from './useExchangeRateSharedModel';
 import {priceAlertsContextKey} from '../../../../store/watchlist/watchlist.effects';
@@ -15,6 +16,17 @@ let mockRouteParams: any;
 let mockState: any;
 const mockDispatch = jest.fn();
 const mockSetOptions = jest.fn();
+let mockWindowWidth = 393;
+
+jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
+  __esModule: true,
+  default: jest.fn(() => ({
+    width: mockWindowWidth,
+    height: 844,
+    scale: 3,
+    fontScale: 1,
+  })),
+}));
 
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({
@@ -158,6 +170,7 @@ const mockBuildUIFormattedWallet = jest.requireMock(
 
 describe('useExchangeRateSharedModel', () => {
   beforeEach(() => {
+    mockWindowWidth = 393;
     latestSharedModel = undefined;
     mockDispatch.mockReset();
     mockSetOptions.mockReset();
@@ -225,6 +238,28 @@ describe('useExchangeRateSharedModel', () => {
       },
       WATCHLIST: {items: [], contexts: {}},
     };
+  });
+
+  it('keeps a centered long title clear of both watchlist actions after resizing', async () => {
+    mockRouteParams.currencyName = 'An unusually long Ethereum asset title';
+    let renderer: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<HookHarness />);
+    });
+    for (const width of [393, 320, 768]) {
+      mockWindowWidth = width;
+      await act(async () => renderer!.update(<HookHarness />));
+      const options = mockSetOptions.mock.calls.at(-1)![0];
+      expect(options.headerRight).toBeDefined();
+      const title = options.headerTitle();
+      const style = StyleSheet.flatten(title.props.style);
+      expect(style.maxWidth).toBeGreaterThan(0);
+      // The centered title must end before the 92pt actions plus 16pt gutter.
+      expect((width + style.maxWidth) / 2).toBeLessThan(width - 108);
+      expect(title.props.numberOfLines).toBe(1);
+      expect(title.props.ellipsizeMode).toBe('tail');
+    }
+    await act(async () => renderer!.unmount());
   });
 
   it('derives the live display-quote spot rate from canonical USD plus the BTC bridge', async () => {

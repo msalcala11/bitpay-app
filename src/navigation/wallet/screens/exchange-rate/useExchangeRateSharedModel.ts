@@ -1,4 +1,5 @@
 import React from 'react';
+import {useWindowDimensions} from 'react-native';
 import {
   useWatchlistCoin,
   WatchlistHeaderActions,
@@ -121,6 +122,7 @@ const formatAssetWalletCryptoBalance = (value: unknown): string => {
 };
 
 const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
+  const {width: windowWidth} = useWindowDimensions();
   const theme = useTheme();
   const navigation = useNavigation<NavigationProp<any>>();
   const dispatch = useAppDispatch();
@@ -453,15 +455,30 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
     theme.dark && rawCoinColor === Black ? White : rawCoinColor;
 
   useLayoutEffect(() => {
+    const hasWatchlistActions = !isAssetBalanceHistoryMode && !!watchlistCoin;
     navigation.setOptions({
       headerTitle: () =>
-        React.createElement(HeaderTitle, {style: {fontSize: 20}}, currencyName),
+        React.createElement(
+          HeaderTitle,
+          {
+            numberOfLines: 1,
+            ellipsizeMode: 'tail',
+            style: {
+              fontSize: 20,
+              // Mirror the 92pt actions, 16pt header gutter and 8pt gap on
+              // both sides so the title stays centered without overlapping.
+              ...(hasWatchlistActions && {
+                maxWidth: Math.max(0, windowWidth - 2 * (92 + 16 + 8)),
+              }),
+            },
+          },
+          currencyName,
+        ),
       headerLeft: () => React.createElement(HeaderBackButton),
-      headerRight:
-        !isAssetBalanceHistoryMode && watchlistCoin
-          ? () =>
-              React.createElement(WatchlistHeaderActions, {asset: assetContext})
-          : undefined,
+      headerRight: hasWatchlistActions
+        ? () =>
+            React.createElement(WatchlistHeaderActions, {asset: assetContext})
+        : undefined,
     });
   }, [
     currencyName,
@@ -469,6 +486,7 @@ const useExchangeRateSharedModel = (): ExchangeRateSharedModel => {
     watchlistCoin,
     assetContext,
     isAssetBalanceHistoryMode,
+    windowWidth,
   ]);
 
   return {
