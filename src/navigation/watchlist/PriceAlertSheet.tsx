@@ -12,6 +12,7 @@ import {
   Action,
   Air,
   Black,
+  LightBlack,
   LinkBlue,
   Midnight,
   White,
@@ -235,6 +236,7 @@ const AlertForm = ({
   );
 };
 export default function PriceAlertSheet() {
+  const theme = useTheme();
   const dispatch = useAppDispatch();
   const sheet = useAppSelector(state => state.WATCHLIST.alertSheet);
   const available = useAppSelector(selectAlertsAvailable);
@@ -250,7 +252,8 @@ export default function PriceAlertSheet() {
       onModalHide={() => dispatch(finishPriceAlert())}
       enableBackdropDismiss
       modalLibrary="bottom-sheet"
-      backgroundColor="transparent">
+      borderRadius={17}
+      backgroundColor={theme.dark ? LightBlack : White}>
       {sheet ? <AlertForm key={sheet.nonce} sheet={sheet} /> : null}
     </SheetModal>
   );
