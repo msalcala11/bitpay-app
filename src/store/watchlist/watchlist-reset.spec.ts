@@ -22,6 +22,102 @@ const old = () => ({
   permissionPromptShown: true,
 });
 
+const without = (value: object, key: string) => {
+  const copy: Record<string, unknown> = {...value};
+  delete copy[key];
+  return copy;
+};
+const validSavedState = {
+  ...initialWatchlistState,
+  contexts: {identity: emptyAlertContext()},
+};
+const withContext = (context: unknown) => ({
+  ...validSavedState,
+  contexts: {identity: context},
+});
+const malformedStates: Array<[string, unknown]> = [
+  ['items missing', without(validSavedState, 'items')],
+  ['items is an object', {...validSavedState, items: {}}],
+  ['items is null', {...validSavedState, items: null}],
+  ['row has no id', {...validSavedState, items: [{}]}],
+  ['row is null', {...validSavedState, items: [null]}],
+  ['row id is a number', {...validSavedState, items: [{id: 3}]}],
+  ['sparse items', {...validSavedState, items: new Array(1)}],
+  ['contexts missing', without(validSavedState, 'contexts')],
+  ['contexts is an array', {...validSavedState, contexts: []}],
+  ['contexts is a primitive', {...validSavedState, contexts: 'bad'}],
+  ['context is null', withContext(null)],
+  ['context is an array', withContext([])],
+  ...['alerts', 'intents', 'pendingRemovals'].flatMap(
+    (field): Array<[string, unknown]> => [
+      [
+        `context missing ${field}`,
+        withContext(without(emptyAlertContext(), field)),
+      ],
+      [
+        `context ${field} is an array`,
+        withContext({...emptyAlertContext(), [field]: []}),
+      ],
+      [
+        `context ${field} is a primitive`,
+        withContext({...emptyAlertContext(), [field]: 4}),
+      ],
+    ],
+  ),
+  [
+    'pending removal is null',
+    withContext({...emptyAlertContext(), pendingRemovals: {btc: null}}),
+  ],
+  [
+    'pending removal itemId is a number',
+    withContext({...emptyAlertContext(), pendingRemovals: {btc: {itemId: 3}}}),
+  ],
+  ['whole input is null', null],
+  ['whole input is undefined', undefined],
+  ['whole input is a string', 'bad'],
+  ['whole input is a number', 2],
+  ['whole input is a boolean', false],
+  ['whole input is an array', []],
+];
+
+it.each(malformedStates)(
+  'returns fresh defaults without throwing when %s',
+  (_, input) => {
+    let restored: WatchlistState | undefined;
+    expect(() => {
+      restored = resetLegacyWatchlistState(input);
+    }).not.toThrow();
+    expect(restored).toEqual(initialWatchlistState);
+    expect(restored).not.toBe(initialWatchlistState);
+    expect(restored!.items).not.toBe(initialWatchlistState.items);
+    expect(restored!.contexts).not.toBe(initialWatchlistState.contexts);
+  },
+);
+
+it.each([
+  [false, true, false, true],
+  [true, false, true, false],
+  [false, 'yes', false, false],
+  ['false', true, true, true],
+  [null, undefined, true, false],
+])(
+  'preserves only boolean settings on reset: %j / %j',
+  (enabled, prompted, expectedEnabled, expectedPrompted) => {
+    const state = {
+      ...old(),
+      items: [{...btc, id: 'listed:old'}],
+      priceAlertsEnabled: enabled,
+      permissionPromptShown: prompted,
+    };
+    const restored = resetLegacyWatchlistState(state);
+    expect(restored).toEqual({
+      ...initialWatchlistState,
+      priceAlertsEnabled: expectedEnabled,
+      permissionPromptShown: expectedPrompted,
+    });
+  },
+);
+
 it.each(['row', 'alert', 'intent', 'removal'] as const)(
   'resets saved state when an old-form ID is present in a %s, preserving only the two settings',
   place => {
