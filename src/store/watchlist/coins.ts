@@ -218,6 +218,7 @@ export const buildCoinCatalog = (
       resolved.asset.currencyAbbreviation,
     )}`;
     const previous = symbolChains.get(key);
+    if (previous?.builtIn && !resolved.builtIn) continue;
     symbolChains.set(
       key,
       previous === undefined ||

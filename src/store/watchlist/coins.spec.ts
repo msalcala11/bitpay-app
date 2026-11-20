@@ -225,3 +225,114 @@ describe('repair 2.8: built-in default selectors', () => {
     ).toBe(true);
   });
 });
+
+describe('chain-and-ticker lookup priority', () => {
+  const token = (name: string, symbol: string, address: string) => ({
+    name,
+    symbol,
+    address,
+    decimals: 6,
+    logoURI: name + '.png',
+  });
+  const lookalike = token('Listed USDC lookalike', 'USDC', '0xlookalike');
+  const builtins = buildCoinCatalog(SupportedCurrencyOptions, empty);
+  const ethUsdc = {chain: 'eth', currencyAbbreviation: 'usdc'};
+  const polygonUsdc = {chain: 'matic', currencyAbbreviation: 'usdc'};
+
+  it.each([0, 1, 2])(
+    'keeps Ethereum USDC when the listed lookalike is at position %s',
+    position => {
+      const entries: Array<[string, ReturnType<typeof token>]> = [
+        ['0xfirst_e', token('First token', 'FIRST', '0xfirst')],
+        ['0xlast_e', token('Last token', 'LAST', '0xlast')],
+      ];
+      entries.splice(position, 0, ['0xlookalike_e', lookalike]);
+      const catalog = buildCoinCatalog(SupportedCurrencyOptions, {
+        ...empty,
+        tokenOptionsByAddress: Object.fromEntries(entries),
+      });
+      expect(catalog.resolveAsset(ethUsdc)).toEqual(
+        builtins.resolveAsset(ethUsdc),
+      );
+    },
+  );
+
+  it('keeps the existing Polygon USDC choice after adding a listed lookalike', () => {
+    const before = builtins.resolveAsset(polygonUsdc);
+    const after = buildCoinCatalog(SupportedCurrencyOptions, {
+      ...empty,
+      tokenOptionsByAddress: {'0xlookalike_m': lookalike},
+    });
+    expect(after.resolveAsset(polygonUsdc)).toEqual(before);
+  });
+
+  it('preserves the last built-in Polygon USDC choice rather than USDC.e', () => {
+    expect(builtins.resolveAsset(polygonUsdc)).toMatchObject({
+      builtIn: true,
+      asset: {
+        ...polygonUsdc,
+        tokenAddress: '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359',
+      },
+    });
+  });
+
+  it('resolves explicit addresses to their own built-in or listed assets', () => {
+    const catalog = buildCoinCatalog(SupportedCurrencyOptions, {
+      ...empty,
+      tokenOptionsByAddress: {
+        '0xlookalike_e': lookalike,
+        '0xlookalike_m': lookalike,
+      },
+    });
+    for (const input of [ethUsdc, polygonUsdc]) {
+      const builtin = builtins.resolveAsset(input)!;
+      expect(catalog.resolveAsset(builtin.asset)).toEqual(builtin);
+      expect(
+        catalog.resolveAsset({...input, tokenAddress: lookalike.address}),
+      ).toMatchObject({
+        builtIn: false,
+        name: lookalike.name,
+        image: {uri: lookalike.logoURI},
+        asset: {...input, tokenAddress: lookalike.address},
+      });
+    }
+  });
+
+  it('keeps different listed entries with one chain and ticker ambiguous', () => {
+    const catalog = buildCoinCatalog(SupportedCurrencyOptions, {
+      ...empty,
+      tokenOptionsByAddress: {
+        '0xa_e': token('First', 'SAME', '0xa'),
+        '0xb_e': token('Second', 'SAME', '0xb'),
+      },
+    });
+    expect(
+      catalog.resolveAsset({chain: 'eth', currencyAbbreviation: 'same'}),
+    ).toBeUndefined();
+    expect(
+      catalog.resolveAsset({chain: 'eth', tokenAddress: '0xa'})?.name,
+    ).toBe('First');
+    expect(
+      catalog.resolveAsset({chain: 'eth', tokenAddress: '0xb'})?.name,
+    ).toBe('Second');
+  });
+
+  it.each([false, true])(
+    'keeps the last listed asset within one entry (reversed: %s)',
+    reversed => {
+      const entries: Array<[string, ReturnType<typeof token>]> = [
+        ['0xa_e', token('Same token', 'SAME', '0xa')],
+        ['0xb_e', token('Same token', 'SAME', '0xb')],
+      ];
+      if (reversed) entries.reverse();
+      const catalog = buildCoinCatalog(SupportedCurrencyOptions, {
+        ...empty,
+        tokenOptionsByAddress: Object.fromEntries(entries),
+      });
+      expect(
+        catalog.resolveAsset({chain: 'eth', currencyAbbreviation: 'same'})
+          ?.asset.tokenAddress,
+      ).toBe(entries.at(-1)![1].address);
+    },
+  );
+});
