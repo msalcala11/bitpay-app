@@ -1,6 +1,6 @@
 import {SupportedCurrencyOptions} from '../../constants/SupportedCurrencyOptions';
 import type {WatchlistCoin} from '../../store/watchlist/watchlist.models';
-import {coinSymbol, type CoinCatalog} from '../../store/watchlist/coins';
+import type {CoinCatalog} from '../../store/watchlist/coins';
 import {getCoinCatalog} from '../../store/watchlist/coin-registry';
 import type {Rates, FiatRateSeriesCache} from '../../store/rate/rate.models';
 import buildHomeExchangeRateItems from '../tabs/home/homeExchangeRates';
@@ -53,16 +53,17 @@ export const buildWatchlistRows = (
   });
   return items.map(coin => {
     const asset = watchlistAsset(coin);
-    const builtin = getCoinCatalog().resolveAsset(coin.selector)?.builtIn
-      ? builtInRows.find(
-          row =>
-            coinSymbol(row.currencyAbbreviation) ===
-            coinSymbol(asset.currencyAbbreviation),
-        )
-      : undefined;
-    const currentPrice =
-      builtin?.currentPrice ??
-      getAssetCurrentDisplayQuoteRate({...asset, rates, quoteCurrency});
+    const builtin = builtInRows.find(row => {
+      if (row.chain !== asset.chain) return false;
+      if (!row.tokenAddress || !asset.tokenAddress)
+        return !row.tokenAddress && !asset.tokenAddress;
+      return asset.chain === 'sol'
+        ? row.tokenAddress === asset.tokenAddress
+        : row.tokenAddress.toLowerCase() === asset.tokenAddress.toLowerCase();
+    });
+    const currentPrice = builtin
+      ? builtin.currentPrice
+      : getAssetCurrentDisplayQuoteRate({...asset, rates, quoteCurrency});
     const key = getCurrencyAbbreviation(
       asset.tokenAddress || asset.currencyAbbreviation,
       asset.chain,
@@ -77,11 +78,11 @@ export const buildWatchlistRows = (
       currencyAbbreviation: coin.symbol,
       img: watchlistImage(coin),
       currentPrice,
-      average:
-        builtin?.average ??
-        (currentPrice && previous
-          ? calculatePercentageDifference(currentPrice, previous)
-          : undefined),
+      average: builtin
+        ? builtin.average
+        : currentPrice && previous
+        ? calculatePercentageDifference(currentPrice, previous)
+        : undefined,
     };
   });
 };
